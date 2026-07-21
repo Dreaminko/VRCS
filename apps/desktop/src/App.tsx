@@ -2,11 +2,16 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import type { CSSProperties } from "react";
 import {
   CalendarDays,
+  Clock3,
   History,
   Languages,
   MessageSquare,
+  MessageSquareText,
   Mic,
   Minus,
+  PanelLeftClose,
+  PanelLeftOpen,
+  Plus,
   PlusCircle,
   RefreshCw,
   Shrink,
@@ -16,6 +21,9 @@ import {
   X,
 } from "lucide-react";
 import { coreApi, WS_URL } from "./api";
+import { subtitleForCompactView } from "./compact-mode";
+import { conversationId, groupConversations } from "./conversations";
+import type { SubtitleConversation } from "./conversations";
 import { placeLookupPopover } from "./popover-placement";
 import type { LookupAnchor } from "./popover-placement";
 import type {
@@ -41,6 +49,9 @@ const demoParams = new URLSearchParams(window.location.search);
 const DEMO_MODE = demoParams.has("demo");
 const DEMO_LOOKUP = demoParams.has("lookup");
 const DEMO_STOPPED = demoParams.has("stopped");
+const DEMO_COMPACT = demoParams.has("compact");
+const CONVERSATION_STARTS_KEY = "vrcs.conversation-starts.v1";
+const SIDEBAR_OPEN_KEY = "vrcs.conversation-sidebar-open";
 
 const demoSettings: Settings = {
   host: "127.0.0.1",
@@ -87,6 +98,33 @@ const demoSubtitles: Subtitle[] = [
     ended_at: null,
     created_at: new Date(Date.now() - 180_000).toISOString(),
   },
+  {
+    id: 5,
+    text: "昨日はQuest対応のワールドをいくつか巡りました。",
+    language: "ja",
+    source: "speaker",
+    started_at: null,
+    ended_at: null,
+    created_at: new Date(Date.now() - 3 * 3_600_000).toISOString(),
+  },
+  {
+    id: 4,
+    text: "我把不熟悉的表达都记录下来了。",
+    language: "zh",
+    source: "microphone",
+    started_at: null,
+    ended_at: null,
+    created_at: new Date(Date.now() - 3 * 3_600_000 - 60_000).toISOString(),
+  },
+  {
+    id: 6,
+    text: "次回はフレンドと英会話イベントに参加する予定です。",
+    language: "ja",
+    source: "speaker",
+    started_at: null,
+    ended_at: null,
+    created_at: new Date(Date.now() - 26 * 3_600_000).toISOString(),
+  },
 ];
 
 const demoHealth: Health = {
@@ -105,7 +143,28 @@ function timestamp(value: string): string {
   }).format(new Date(value));
 }
 
+function storedConversationStarts() {
+  try {
+    const value = JSON.parse(localStorage.getItem(CONVERSATION_STARTS_KEY) ?? "[]") as unknown;
+    return Array.isArray(value) ? value.filter((item): item is number => typeof item === "number" && Number.isFinite(item)).slice(-50) : [];
+  } catch {
+    return [];
+  }
+}
+
+function conversationTime(value: string) {
+  const date = new Date(value);
+  const today = new Date();
+  const yesterday = new Date(today);
+  yesterday.setDate(today.getDate() - 1);
+  const sameDay = (left: Date, right: Date) => left.toDateString() === right.toDateString();
+  if (sameDay(date, today)) return `今天 ${timestamp(value)}`;
+  if (sameDay(date, yesterday)) return `昨天 ${timestamp(value)}`;
+  return new Intl.DateTimeFormat("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }).format(date);
+}
+
 function App() {
+  const openedAt = useRef(Date.now()).current;
   const [page, setPage] = useState<Page>("live");
   const [connection, setConnection] = useState<ConnectionState>(DEMO_MODE ? "connected" : "connecting");
   const [health, setHealth] = useState<Health | null>(DEMO_MODE ? { ...demoHealth, capture_running: !DEMO_STOPPED } : null);
@@ -119,7 +178,30 @@ function App() {
     entries: [{ term: "便利", reading: "べんり", language: "ja", definition: "方便的；有用的；省事的" }],
     anchor: { top: 386, bottom: 408, centerX: 432 },
   } : null);
-  const [compact, setCompact] = useState(false);
+  const [compact, setCompact] = useState(DEMO_COMPACT);
+  const [sidebarOpen, setSidebarOpen] = useState(() => localStorage.getItem(SIDEBAR_OPEN_KEY) !== "false");
+  const [conversationStarts, setConversationStarts] = useState(storedConversationStarts);
+  const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
+  const conversations = useMemo(
+    () => groupConversations(subtitles, conversationStarts, openedAt),
+    [conversationStarts, openedAt, subtitles],
+  );
+  const activeConversation = conversations[0];
+  const selectedConversation = conversations.find((conversation) => conversation.id === selectedConversationId) ?? activeConversation;
+
+  useEffect(() => {
+    localStorage.setItem(SIDEBAR_OPEN_KEY, String(sidebarOpen));
+  }, [sidebarOpen]);
+
+  useEffect(() => {
+    localStorage.setItem(CONVERSATION_STARTS_KEY, JSON.stringify(conversationStarts));
+  }, [conversationStarts]);
+
+  useEffect(() => {
+    if (activeConversation && !conversations.some((conversation) => conversation.id === selectedConversationId)) {
+      setSelectedConversationId(activeConversation.id);
+    }
+  }, [activeConversation, conversations, selectedConversationId]);
 
   const refresh = useCallback(async () => {
     if (DEMO_MODE) return;
@@ -279,22 +361,56 @@ function App() {
     }
   };
 
+  const createConversation = () => {
+    if (activeConversation && !activeConversation.subtitles.length) {
+      setSelectedConversationId(activeConversation.id);
+      return;
+    }
+    const latestSubtitleAt = subtitles.reduce(
+      (latest, subtitle) => Math.max(latest, Date.parse(subtitle.created_at) || 0),
+      0,
+    );
+    const latestBoundary = conversationStarts[conversationStarts.length - 1] ?? 0;
+    const startedAt = Math.max(Date.now(), latestSubtitleAt + 1, latestBoundary + 1);
+    setConversationStarts((current) => [...current, startedAt].sort((left, right) => left - right).slice(-50));
+    setSelectedConversationId(conversationId(startedAt));
+    setLookup(null);
+  };
+
   if (compact) {
+    const compactSubtitle = subtitleForCompactView(subtitles, lookup?.context);
     return (
-      <CompactView
-        subtitle={subtitles[0]}
-        running={health?.capture_running ?? false}
-        onRestore={() => void toggleCompact()}
-        onClose={() => void closeWindow()}
-      />
+      <>
+        <CompactView
+          subtitle={compactSubtitle}
+          running={health?.capture_running ?? false}
+          onSelect={selectWord}
+          onRestore={() => void toggleCompact()}
+          onClose={() => void closeWindow()}
+        />
+        {lookup && <DictionaryPopover lookup={lookup} demo={DEMO_MODE} compact onClose={() => setLookup(null)} />}
+      </>
     );
   }
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell ${page === "live" ? "live-shell" : ""} ${sidebarOpen ? "sidebar-open" : "sidebar-collapsed"}`}>
       <WindowChrome />
-      <div className="app-scroll-region">
-        <main className={`workspace workspace-${page}`}>
+      <div className="app-body">
+        {page === "live" && (
+          <ConversationSidebar
+            open={sidebarOpen}
+            conversations={conversations}
+            activeId={activeConversation?.id}
+            selectedId={selectedConversation?.id}
+            onToggle={() => setSidebarOpen((current) => !current)}
+            onNew={createConversation}
+            onSelect={(id) => { setSelectedConversationId(id); setLookup(null); }}
+          />
+        )}
+        {page === "live" && sidebarOpen && <button className="sidebar-scrim" type="button" aria-label="关闭对话侧栏" onClick={() => setSidebarOpen(false)} />}
+        <div className="app-scroll-region">
+          <main className={`workspace workspace-${page}`}>
           {page === "live" && <TopStatus connection={connection} health={health} settings={settings} />}
 
           {error && (
@@ -305,11 +421,20 @@ function App() {
           )}
 
           {page === "live" && (
-            <LiveView
-              subtitles={subtitles.slice(0, 12)}
-              running={health?.capture_running ?? false}
-              onSelect={selectWord}
-            />
+            <>
+              {selectedConversation && activeConversation && selectedConversation.id !== activeConversation.id && (
+                <div className="conversation-history-notice">
+                  <Clock3 size={15} />
+                  <span>正在查看 {conversationTime(selectedConversation.startedAt)} 的对话</span>
+                  <button type="button" onClick={() => setSelectedConversationId(activeConversation.id)}>返回当前</button>
+                </div>
+              )}
+              <LiveView
+                subtitles={(selectedConversation?.subtitles ?? []).slice(0, 12)}
+                running={(health?.capture_running ?? false) && selectedConversation?.id === activeConversation?.id}
+                onSelect={selectWord}
+              />
+            </>
           )}
 
           {page === "history" && (
@@ -326,7 +451,8 @@ function App() {
               onSave={saveSettings}
             />
           )}
-        </main>
+          </main>
+        </div>
       </div>
 
       <BottomDock
@@ -339,6 +465,72 @@ function App() {
 
       {lookup && <DictionaryPopover lookup={lookup} demo={DEMO_MODE} onClose={() => setLookup(null)} />}
     </div>
+  );
+}
+
+function ConversationSidebar({ open, conversations, activeId, selectedId, onToggle, onNew, onSelect }: {
+  open: boolean;
+  conversations: SubtitleConversation[];
+  activeId?: string;
+  selectedId?: string;
+  onToggle: () => void;
+  onNew: () => void;
+  onSelect: (id: string) => void;
+}) {
+  const active = conversations.find((conversation) => conversation.id === activeId);
+  const history = conversations.filter((conversation) => conversation.id !== activeId);
+
+  if (!open) {
+    return (
+      <aside className="conversation-sidebar conversation-sidebar-collapsed" aria-label="对话侧栏">
+        <button className="sidebar-icon-button" type="button" aria-label="展开对话侧栏" aria-expanded="false" onClick={onToggle}><PanelLeftOpen size={19} /></button>
+        <button className="sidebar-icon-button sidebar-new-icon" type="button" aria-label="新建对话" onClick={onNew}><Plus size={20} /></button>
+        {active && <button className={`sidebar-icon-button sidebar-current-icon ${selectedId === active.id ? "active" : ""}`} type="button" aria-label="查看当前对话" onClick={() => onSelect(active.id)}><MessageSquareText size={19} /></button>}
+      </aside>
+    );
+  }
+
+  return (
+    <aside className="conversation-sidebar" aria-label="对话侧栏">
+      <div className="conversation-sidebar-header">
+        <span>对话</span>
+        <button className="sidebar-icon-button" type="button" aria-label="收起对话侧栏" aria-expanded="true" onClick={onToggle}><PanelLeftClose size={19} /></button>
+      </div>
+      <button className="new-conversation-button" type="button" onClick={onNew}><Plus size={18} />新建对话</button>
+      <div className="conversation-sidebar-list">
+        {active && (
+          <section className="conversation-group" aria-labelledby="current-conversation-heading">
+            <h2 id="current-conversation-heading">当前对话</h2>
+            <ConversationButton conversation={active} active selected={selectedId === active.id} onSelect={onSelect} />
+          </section>
+        )}
+        <section className="conversation-group" aria-labelledby="recent-conversations-heading">
+          <h2 id="recent-conversations-heading">以往对话</h2>
+          {history.length ? history.map((conversation) => (
+            <ConversationButton key={conversation.id} conversation={conversation} selected={selectedId === conversation.id} onSelect={onSelect} />
+          )) : <p className="conversation-list-empty">历史对话会显示在这里</p>}
+        </section>
+      </div>
+    </aside>
+  );
+}
+
+function ConversationButton({ conversation, active = false, selected, onSelect }: {
+  conversation: SubtitleConversation;
+  active?: boolean;
+  selected: boolean;
+  onSelect: (id: string) => void;
+}) {
+  return (
+    <button
+      className={`conversation-button ${selected ? "selected" : ""}`}
+      type="button"
+      aria-current={selected ? "true" : undefined}
+      onClick={() => onSelect(conversation.id)}
+    >
+      <span className="conversation-button-title"><MessageSquareText size={16} /><strong>{conversation.title}</strong>{active && <i aria-label="当前" />}</span>
+      <span className="conversation-button-meta"><time>{conversationTime(conversation.startedAt)}</time><span>{conversation.subtitles.length} 条字幕</span></span>
+    </button>
   );
 }
 
@@ -405,7 +597,7 @@ function LiveView({ subtitles, running, onSelect }: {
       {chronological.length ? chronological.map((subtitle, index) => (
         <ChatBubble key={subtitle.id ?? `${subtitle.created_at}-${index}`} subtitle={subtitle} onSelect={onSelect} />
       )) : (
-        <div className="empty-state"><MessageSquare size={22} /><p>开始转写后，字幕会显示在这里。</p></div>
+        <div className="empty-state"><MessageSquare size={22} /><p>{running ? "正在聆听，新的字幕会出现在这里。" : "开始转写后，字幕会显示在这里。"}</p></div>
       )}
       {running && (
         <div className="message-group source-speaker streaming-message">
@@ -645,7 +837,7 @@ function DockButton({ label, active = false, tonal = false, primary = false, onC
   );
 }
 
-function DictionaryPopover({ lookup, demo, onClose }: { lookup: Lookup; demo: boolean; onClose: () => void }) {
+function DictionaryPopover({ lookup, demo, compact = false, onClose }: { lookup: Lookup; demo: boolean; compact?: boolean; onClose: () => void }) {
   const ref = useRef<HTMLDivElement>(null);
   const [message, setMessage] = useState("");
   const [anchor, setAnchor] = useState(lookup.anchor);
@@ -653,9 +845,17 @@ function DictionaryPopover({ lookup, demo, onClose }: { lookup: Lookup; demo: bo
   const entry = lookup.entries[0];
   const width = Math.min(340, window.innerWidth - 24);
   const placement = placeLookupPopover({ anchor, popoverHeight, viewportHeight: window.innerHeight });
-  const left = Math.min(Math.max(12, anchor.centerX - 34), window.innerWidth - width - 12);
+  const compactSpaceRight = window.innerWidth - anchor.centerX;
+  const compactLeft = compactSpaceRight >= width + 32
+    ? Math.min(window.innerWidth - width - 6, anchor.centerX + 28)
+    : Math.max(6, anchor.centerX - width - 28);
+  const left = compact
+    ? compactLeft
+    : Math.min(Math.max(12, anchor.centerX - 34), window.innerWidth - width - 12);
   const arrowLeft = Math.min(Math.max(22, anchor.centerX - left - 8), width - 38);
-  const style = { left, top: placement.top, width, maxHeight: placement.maxHeight, "--arrow-left": `${arrowLeft}px` } as CSSProperties;
+  const style = compact
+    ? { left, top: 6, width, maxHeight: Math.max(0, window.innerHeight - 12) }
+    : { left, top: placement.top, width, maxHeight: placement.maxHeight, "--arrow-left": `${arrowLeft}px` };
 
   useLayoutEffect(() => {
     const element = ref.current;
@@ -713,7 +913,7 @@ function DictionaryPopover({ lookup, demo, onClose }: { lookup: Lookup; demo: bo
   };
 
   return (
-    <div ref={ref} className={`dictionary-popover popover-${placement.side}`} style={style} role="dialog" aria-label={`${lookup.term} 的词典解释`}>
+    <div ref={ref} className={`dictionary-popover ${compact ? "compact-dictionary-popover" : `popover-${placement.side}`}`} style={style as CSSProperties} role="dialog" aria-label={`${lookup.term} 的词典解释`}>
       <div className="dictionary-header">
         <div><h2>{lookup.term}</h2>{entry?.reading && <span className="reading">{entry.reading}</span>}{entry && <span className="language-chip">{entry.language.toUpperCase()}</span>}</div>
         <button type="button" aria-label="关闭词典" onClick={onClose}><X size={19} /></button>
@@ -726,16 +926,18 @@ function DictionaryPopover({ lookup, demo, onClose }: { lookup: Lookup; demo: bo
   );
 }
 
-function CompactView({ subtitle, running, onRestore, onClose }: {
+function CompactView({ subtitle, running, onSelect, onRestore, onClose }: {
   subtitle?: Subtitle;
   running: boolean;
+  onSelect: (context: string) => Promise<void>;
   onRestore: () => void;
   onClose: () => void;
 }) {
   return (
-    <div className="compact-shell" data-tauri-drag-region>
+    <div className="compact-shell">
+      <div className="compact-drag-region" data-tauri-drag-region />
       <div className="compact-status"><i className={running ? "running" : ""} />{subtitle?.language?.toUpperCase() ?? "AUTO"}</div>
-      <p>{subtitle?.text ?? "等待字幕…"}</p>
+      <p onMouseUp={() => subtitle && void onSelect(subtitle.text)}>{subtitle?.text ?? "等待字幕…"}</p>
       <div className="compact-actions">
         <button type="button" aria-label="恢复完整窗口" title="恢复完整窗口" onClick={onRestore}><MessageSquare size={17} /></button>
         <button type="button" aria-label="关闭窗口" title="关闭窗口" onClick={onClose}><X size={17} /></button>
