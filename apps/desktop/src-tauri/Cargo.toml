@@ -1,0 +1,17 @@
+[package]
+name = "vrcs-desktop"
+version = "0.1.0"
+description = "VRCS desktop subtitle client"
+authors = ["VRCS contributors"]
+edition = "2021"
+
+[lib]
+name = "vrcs_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+

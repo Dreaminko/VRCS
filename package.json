@@ -1,0 +1,9 @@
+{
+  "name": "vrcs",
+  "private": true,
+  "workspaces": ["apps/desktop"],
+  "scripts": {
+    "dev": "npm --workspace apps/desktop run tauri -- dev",
+    "build": "npm --workspace apps/desktop run tauri -- build"
+  }
+}

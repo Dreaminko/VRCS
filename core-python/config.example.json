@@ -1,0 +1,15 @@
+{
+  "host": "127.0.0.1",
+  "port": 8765,
+  "database_path": "data/vrcs.db",
+  "audio_device_id": null,
+  "microphone_device_id": null,
+  "sample_rate": 16000,
+  "subtitle_history_limit": 500,
+  "asr": {
+    "model": "small",
+    "language": "auto",
+    "device": "auto",
+    "compute_type": "int8"
+  }
+}

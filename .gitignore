@@ -1,0 +1,68 @@
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+core-python/config.json
+
+# Python environments and caches
+.venv/
+venv/
+env/
+**/__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.tox/
+.nox/
+.coverage
+.coverage.*
+htmlcov/
+*.egg-info/
+.eggs/
+
+# Local application data and downloaded models
+core-python/data/
+core-python/models/
+core-python/.cache/
+*.db-shm
+*.db-wal
+
+# Node and frontend build output
+node_modules/
+dist/
+coverage/
+.vite/
+*.tsbuildinfo
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Rust and Tauri generated output
+target/
+apps/desktop/src-tauri/gen/
+
+# Design tool working output
+.superdesign/tmp/
+.superdesign/qa/
+
+# Local project documentation
+/docs/
+
+# Logs and temporary files
+*.log
+*.tmp
+*.temp
+*.bak
+*.swp
+*.swo
+*~
+
+# Editors and operating systems
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+Desktop.ini
