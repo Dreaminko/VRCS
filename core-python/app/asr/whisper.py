@@ -58,6 +58,7 @@ class WhisperTranscriber:
         model = self._load()
         segments, info = model.transcribe(
             samples,
+            task="transcribe",
             language=None if self.config.language == "auto" else self.config.language,
             vad_filter=False,
             beam_size=1,

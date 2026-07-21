@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import {
   CalendarDays,
@@ -16,6 +16,8 @@ import {
   X,
 } from "lucide-react";
 import { coreApi, WS_URL } from "./api";
+import { placeLookupPopover } from "./popover-placement";
+import type { LookupAnchor } from "./popover-placement";
 import type {
   AudioDevice,
   ConnectionState,
@@ -31,7 +33,8 @@ type Lookup = {
   term: string;
   context: string;
   entries: DictionaryEntry[];
-  anchor: { top: number; bottom: number; centerX: number };
+  anchor: LookupAnchor;
+  range?: Range;
 };
 
 const demoParams = new URLSearchParams(window.location.search);
@@ -225,7 +228,8 @@ function App() {
       "",
     );
     if (!selection || !term || selection.rangeCount === 0) return;
-    const rect = selection.getRangeAt(0).getBoundingClientRect();
+    const range = selection.getRangeAt(0).cloneRange();
+    const rect = range.getBoundingClientRect();
     if (!rect.width && !rect.height) return;
     try {
       const entries = DEMO_MODE
@@ -236,6 +240,7 @@ function App() {
         context,
         entries,
         anchor: { top: rect.top, bottom: rect.bottom, centerX: rect.left + rect.width / 2 },
+        range,
       });
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "查词失败");
@@ -249,11 +254,14 @@ function App() {
       const { getCurrentWindow, LogicalSize } = await import("@tauri-apps/api/window");
       const appWindow = getCurrentWindow();
       if (next) {
-        await appWindow.setMinSize(new LogicalSize(420, 100));
-        await appWindow.setSize(new LogicalSize(720, 120));
+        const compactSize = new LogicalSize(720, 120);
+        await appWindow.setMinSize(compactSize);
+        await appWindow.setSize(compactSize);
+        await appWindow.setResizable(false);
         await appWindow.setAlwaysOnTop(true);
       } else {
         await appWindow.setAlwaysOnTop(false);
+        await appWindow.setResizable(true);
         await appWindow.setMinSize(new LogicalSize(860, 620));
         await appWindow.setSize(new LogicalSize(1180, 760));
       }
@@ -285,39 +293,41 @@ function App() {
   return (
     <div className="app-shell">
       <WindowChrome />
-      <main className={`workspace workspace-${page}`}>
-        {page === "live" && <TopStatus connection={connection} health={health} settings={settings} />}
+      <div className="app-scroll-region">
+        <main className={`workspace workspace-${page}`}>
+          {page === "live" && <TopStatus connection={connection} health={health} settings={settings} />}
 
-        {error && (
-          <div className="error-banner" role="alert">
-            <span>{error}</span>
-            <button type="button" aria-label="关闭错误提示" onClick={() => setError(null)}><X size={18} /></button>
-          </div>
-        )}
+          {error && (
+            <div className="error-banner" role="alert">
+              <span>{error}</span>
+              <button type="button" aria-label="关闭错误提示" onClick={() => setError(null)}><X size={18} /></button>
+            </div>
+          )}
 
-        {page === "live" && (
-          <LiveView
-            subtitles={subtitles.slice(0, 12)}
-            running={health?.capture_running ?? false}
-            onSelect={selectWord}
-          />
-        )}
+          {page === "live" && (
+            <LiveView
+              subtitles={subtitles.slice(0, 12)}
+              running={health?.capture_running ?? false}
+              onSelect={selectWord}
+            />
+          )}
 
-        {page === "history" && (
-          <HistoryView subtitles={subtitles} onSelect={selectWord} />
-        )}
+          {page === "history" && (
+            <HistoryView subtitles={subtitles} onSelect={selectWord} />
+          )}
 
-        {page === "settings" && settings && (
-          <SettingsPanel
-            settings={settings}
-            devices={devices}
-            disabled={health?.capture_running ?? false}
-            modelStatus={health?.asr_status ?? "unknown"}
-            onRefresh={loadDevices}
-            onSave={saveSettings}
-          />
-        )}
-      </main>
+          {page === "settings" && settings && (
+            <SettingsPanel
+              settings={settings}
+              devices={devices}
+              disabled={health?.capture_running ?? false}
+              modelStatus={health?.asr_status ?? "unknown"}
+              onRefresh={loadDevices}
+              onSave={saveSettings}
+            />
+          )}
+        </main>
+      </div>
 
       <BottomDock
         page={page}
@@ -489,7 +499,7 @@ function SettingsPanel({ settings, devices, disabled, modelStatus, onRefresh, on
         </div>
         <div className="form-grid">
           <Select label="模型" helper="平衡速度与精度，适合大多数场景" value={draft.asr.model} values={["tiny", "base", "small", "medium", "large-v3"]} disabled={disabled} onChange={(value) => updateAsr("model", value)} />
-          <Select label="语言" helper="自动检测源语言以进行转写" value={draft.asr.language} values={["auto", "en", "ja", "zh", "ko", "es", "fr", "de"]} disabled={disabled} onChange={(value) => updateAsr("language", value)} />
+          <Select label="语言" helper="保留原语言进行转写，不进行翻译" value={draft.asr.language} values={["auto", "en", "ja", "zh", "ko", "es", "fr", "de"]} disabled={disabled} onChange={(value) => updateAsr("language", value)} />
           <Select label="运行设备" value={draft.asr.device} values={["auto", "cpu", "cuda"]} disabled={disabled} onChange={(value) => updateAsr("device", value)} />
           <Select label="计算类型" value={draft.asr.compute_type} values={["int8", "float16", "int8_float16"]} disabled={disabled} onChange={(value) => updateAsr("compute_type", value)} />
         </div>
@@ -638,16 +648,42 @@ function DockButton({ label, active = false, tonal = false, primary = false, onC
 function DictionaryPopover({ lookup, demo, onClose }: { lookup: Lookup; demo: boolean; onClose: () => void }) {
   const ref = useRef<HTMLDivElement>(null);
   const [message, setMessage] = useState("");
+  const [anchor, setAnchor] = useState(lookup.anchor);
+  const [popoverHeight, setPopoverHeight] = useState(246);
   const entry = lookup.entries[0];
   const width = Math.min(340, window.innerWidth - 24);
-  const expectedHeight = entry ? 246 : 210;
-  const above = lookup.anchor.top > expectedHeight + 20;
-  const top = above
-    ? Math.max(12, lookup.anchor.top - expectedHeight - 10)
-    : Math.min(window.innerHeight - expectedHeight - 12, lookup.anchor.bottom + 10);
-  const left = Math.min(Math.max(12, lookup.anchor.centerX - 34), window.innerWidth - width - 12);
-  const arrowLeft = Math.min(Math.max(22, lookup.anchor.centerX - left - 8), width - 38);
-  const style = { left, top, width, "--arrow-left": `${arrowLeft}px` } as CSSProperties;
+  const placement = placeLookupPopover({ anchor, popoverHeight, viewportHeight: window.innerHeight });
+  const left = Math.min(Math.max(12, anchor.centerX - 34), window.innerWidth - width - 12);
+  const arrowLeft = Math.min(Math.max(22, anchor.centerX - left - 8), width - 38);
+  const style = { left, top: placement.top, width, maxHeight: placement.maxHeight, "--arrow-left": `${arrowLeft}px` } as CSSProperties;
+
+  useLayoutEffect(() => {
+    const element = ref.current;
+    if (!element) return;
+    const measure = () => setPopoverHeight(element.scrollHeight + element.offsetHeight - element.clientHeight);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [entry, message, width]);
+
+  useEffect(() => {
+    if (!lookup.range) return;
+
+    const updateAnchor = () => {
+      const rect = lookup.range?.getBoundingClientRect();
+      if (!rect || (!rect.width && !rect.height)) return;
+      setAnchor({ top: rect.top, bottom: rect.bottom, centerX: rect.left + rect.width / 2 });
+    };
+
+    updateAnchor();
+    window.addEventListener("scroll", updateAnchor, true);
+    window.addEventListener("resize", updateAnchor);
+    return () => {
+      window.removeEventListener("scroll", updateAnchor, true);
+      window.removeEventListener("resize", updateAnchor);
+    };
+  }, [lookup.range]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
@@ -677,7 +713,7 @@ function DictionaryPopover({ lookup, demo, onClose }: { lookup: Lookup; demo: bo
   };
 
   return (
-    <div ref={ref} className={`dictionary-popover popover-${above ? "above" : "below"}`} style={style} role="dialog" aria-label={`${lookup.term} 的词典解释`}>
+    <div ref={ref} className={`dictionary-popover popover-${placement.side}`} style={style} role="dialog" aria-label={`${lookup.term} 的词典解释`}>
       <div className="dictionary-header">
         <div><h2>{lookup.term}</h2>{entry?.reading && <span className="reading">{entry.reading}</span>}{entry && <span className="language-chip">{entry.language.toUpperCase()}</span>}</div>
         <button type="button" aria-label="关闭词典" onClick={onClose}><X size={19} /></button>

@@ -16,6 +16,7 @@ mod tests {
             "core:window:allow-minimize",
             "core:window:allow-toggle-maximize",
             "core:window:allow-close",
+            "core:window:allow-set-resizable",
         ] {
             assert!(CAPABILITIES.contains(permission), "missing {permission}");
         }
