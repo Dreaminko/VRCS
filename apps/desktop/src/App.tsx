@@ -1,7 +1,10 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import {
   CalendarDays,
+  BookOpen,
+  Check,
+  ChevronDown,
   Clock3,
   History,
   Languages,
@@ -17,19 +20,41 @@ import {
   Shrink,
   SlidersHorizontal,
   Square,
+  Trash2,
+  Upload,
   Volume2,
   X,
 } from "lucide-react";
 import { coreApi, WS_URL } from "./api";
-import { subtitleForCompactView } from "./compact-mode";
+import { isTauri } from "@tauri-apps/api/core";
+import {
+  COMPACT_WINDOW_SIZE,
+  beginDictionaryWindowRequest,
+  createDictionaryWindowLifecycle,
+  detachedDictionaryPosition,
+  DICTIONARY_WINDOW_PAYLOAD_EVENT,
+  DICTIONARY_WINDOW_READY_EVENT,
+  DICTIONARY_WINDOW_RENDERED_EVENT,
+  dictionaryWindowOptions,
+  isCurrentDictionaryWindowRequest,
+  isDictionaryWindow,
+  observeDictionaryWindowDestroyed,
+  prepareDictionaryWindow,
+  revealDictionaryWindow,
+  subtitleForCompactView,
+  trackDictionaryWindowRequest,
+} from "./compact-mode";
+import type { DictionaryWindowPayload } from "./compact-mode";
 import { conversationId, groupConversations } from "./conversations";
 import type { SubtitleConversation } from "./conversations";
-import { placeLookupPopover } from "./popover-placement";
+import { definitionGlosses, groupDictionaryEntries } from "./dictionary";
+import { isLookupAnchorVisible, LOOKUP_POPOVER_HEIGHT, placeLookupPopover } from "./popover-placement";
 import type { LookupAnchor } from "./popover-placement";
 import type {
   AudioDevice,
   ConnectionState,
   DictionaryEntry,
+  DictionarySource,
   Health,
   Settings,
   Subtitle,
@@ -50,6 +75,8 @@ const DEMO_MODE = demoParams.has("demo");
 const DEMO_LOOKUP = demoParams.has("lookup");
 const DEMO_STOPPED = demoParams.has("stopped");
 const DEMO_COMPACT = demoParams.has("compact");
+const DETACHED_DICTIONARY = isDictionaryWindow(window.location.search);
+const NATIVE_APP = isTauri();
 const CONVERSATION_STARTS_KEY = "vrcs.conversation-starts.v1";
 const SIDEBAR_OPEN_KEY = "vrcs.conversation-sidebar-open";
 
@@ -164,13 +191,21 @@ function conversationTime(value: string) {
 }
 
 function App() {
+  return DETACHED_DICTIONARY
+    ? <DetachedDictionaryWindow />
+    : <MainApp />;
+}
+
+function MainApp() {
   const openedAt = useRef(Date.now()).current;
+  const dictionaryLifecycle = useRef(createDictionaryWindowLifecycle()).current;
   const [page, setPage] = useState<Page>("live");
   const [connection, setConnection] = useState<ConnectionState>(DEMO_MODE ? "connected" : "connecting");
   const [health, setHealth] = useState<Health | null>(DEMO_MODE ? { ...demoHealth, capture_running: !DEMO_STOPPED } : null);
   const [subtitles, setSubtitles] = useState<Subtitle[]>(DEMO_MODE ? demoSubtitles : []);
   const [settings, setSettings] = useState<Settings | null>(DEMO_MODE ? demoSettings : null);
   const [devices, setDevices] = useState<AudioDevice[]>(DEMO_MODE ? demoDevices : []);
+  const [dictionarySources, setDictionarySources] = useState<DictionarySource[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [lookup, setLookup] = useState<Lookup | null>(DEMO_MODE && DEMO_LOOKUP ? {
     term: "便利",
@@ -268,9 +303,19 @@ function App() {
     }
   }, []);
 
+  const loadDictionaries = useCallback(async () => {
+    if (DEMO_MODE) return;
+    try {
+      setDictionarySources(await coreApi.dictionaries());
+      setError(null);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "词典列表加载失败");
+    }
+  }, []);
+
   useEffect(() => {
-    if (page === "settings") void loadDevices();
-  }, [loadDevices, page]);
+    if (page === "settings") void Promise.all([loadDevices(), loadDictionaries()]);
+  }, [loadDevices, loadDictionaries, page]);
 
   const toggleCapture = async () => {
     if (DEMO_MODE) {
@@ -303,6 +348,34 @@ function App() {
     }
   };
 
+  const importDictionary = async (file: File) => {
+    if (DEMO_MODE) {
+      const imported: DictionarySource = {
+        id: Date.now(),
+        title: file.name.replace(/\.zip$/i, ""),
+        revision: "demo",
+        source_language: "ja",
+        target_language: "zh",
+        entry_count: 128_430,
+        imported_at: new Date().toISOString(),
+      };
+      setDictionarySources((current) => [imported, ...current.filter((item) => item.title !== imported.title)]);
+      return imported;
+    }
+    const imported = await coreApi.importDictionary(file);
+    await loadDictionaries();
+    return imported;
+  };
+
+  const deleteDictionary = async (id: number) => {
+    if (DEMO_MODE) {
+      setDictionarySources((current) => current.filter((item) => item.id !== id));
+      return;
+    }
+    await coreApi.deleteDictionary(id);
+    await loadDictionaries();
+  };
+
   const selectWord = async (context: string) => {
     const selection = window.getSelection();
     const term = selection?.toString().trim().replace(
@@ -317,38 +390,142 @@ function App() {
       const entries = DEMO_MODE
         ? [{ term, reading: term === "便利" ? "べんり" : "", language: "ja", definition: "方便的；有用的；省事的" }]
         : await coreApi.lookup(term);
-      setLookup({
+      const nextLookup: Lookup = {
         term,
         context,
         entries,
         anchor: { top: rect.top, bottom: rect.bottom, centerX: rect.left + rect.width / 2 },
         range,
-      });
+      };
+      setLookup(nextLookup);
+      if (compact && NATIVE_APP) await openDetachedDictionary(nextLookup);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "查词失败");
     }
   };
 
+  const closeDetachedDictionary = async (invalidate = true) => {
+    if (!NATIVE_APP) return;
+    if (invalidate) beginDictionaryWindowRequest(dictionaryLifecycle);
+    const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
+    await (await WebviewWindow.getByLabel("dictionary"))?.close();
+  };
+
+  const openDetachedDictionary = async (nextLookup: Lookup) => {
+    const [{ WebviewWindow }, { currentMonitor, getCurrentWindow, PhysicalPosition }, { emitTo, once }] = await Promise.all([
+      import("@tauri-apps/api/webviewWindow"),
+      import("@tauri-apps/api/window"),
+      import("@tauri-apps/api/event"),
+    ]);
+    const requestGeneration = beginDictionaryWindowRequest(dictionaryLifecycle);
+    const isCurrentRequest = () => isCurrentDictionaryWindowRequest(dictionaryLifecycle, requestGeneration);
+    await closeDetachedDictionary(false);
+
+    const mainWindow = getCurrentWindow();
+    const scaleFactor = await mainWindow.scaleFactor();
+    const windowPosition = await mainWindow.outerPosition();
+    const monitor = await currentMonitor();
+    const monitorPosition = monitor?.position ?? windowPosition;
+    const monitorSize = monitor?.size ?? { width: 1920, height: 1080 };
+    const position = detachedDictionaryPosition({
+      anchor: nextLookup.anchor,
+      windowPosition,
+      monitorPosition,
+      monitorSize,
+      scaleFactor,
+    });
+    const payload: DictionaryWindowPayload = {
+      term: nextLookup.term,
+      context: nextLookup.context,
+      entries: nextLookup.entries,
+    };
+    let dictionaryWindow: InstanceType<typeof WebviewWindow>;
+    let confirmPosition: () => void = () => {};
+    const positionReady = new Promise<void>((resolve) => {
+      confirmPosition = resolve;
+    });
+    const stopWaitingForRendered = await once(DICTIONARY_WINDOW_RENDERED_EVENT, async () => {
+      if (!isCurrentRequest()) return;
+      try {
+        await revealDictionaryWindow(dictionaryWindow, positionReady);
+      } catch (reason) {
+        setLookup(null);
+        setError(reason instanceof Error ? reason.message : "词典浮窗显示失败");
+      }
+    });
+    const stopWaitingForReady = await once(DICTIONARY_WINDOW_READY_EVENT, async () => {
+      if (!isCurrentRequest()) return;
+      try {
+        await emitTo("dictionary", DICTIONARY_WINDOW_PAYLOAD_EVENT, payload);
+      } catch (reason) {
+        setLookup(null);
+        setError(reason instanceof Error ? reason.message : "词典浮窗初始化失败");
+      }
+    });
+    const cleanupEvents = () => {
+      stopWaitingForReady();
+      stopWaitingForRendered();
+    };
+    if (!trackDictionaryWindowRequest(dictionaryLifecycle, requestGeneration, cleanupEvents)) return;
+    dictionaryWindow = new WebviewWindow("dictionary", dictionaryWindowOptions(`${nextLookup.term} · 词典`));
+    void dictionaryWindow.once("tauri://created", async () => {
+      if (!isCurrentRequest()) return;
+      try {
+        await prepareDictionaryWindow(dictionaryWindow, new PhysicalPosition(position.x, position.y));
+        if (!isCurrentRequest()) return;
+        confirmPosition();
+      } catch (reason) {
+        if (!isCurrentRequest()) return;
+        beginDictionaryWindowRequest(dictionaryLifecycle);
+        setLookup(null);
+        setError(reason instanceof Error ? reason.message : "词典浮窗定位失败");
+      }
+    });
+    void dictionaryWindow.once("tauri://error", ({ payload }) => {
+      if (!isCurrentRequest()) return;
+      beginDictionaryWindowRequest(dictionaryLifecycle);
+      setLookup(null);
+      setError(typeof payload === "string" ? payload : "词典浮窗打开失败");
+    });
+    void observeDictionaryWindowDestroyed(dictionaryWindow, () => {
+      if (!isCurrentRequest()) return;
+      beginDictionaryWindowRequest(dictionaryLifecycle);
+      setLookup(null);
+    });
+  };
+
   const toggleCompact = async () => {
     const next = !compact;
-    setCompact(next);
     try {
+      if (!NATIVE_APP) {
+        setCompact(next);
+        return;
+      }
+
       const { getCurrentWindow, LogicalSize } = await import("@tauri-apps/api/window");
       const appWindow = getCurrentWindow();
       if (next) {
-        const compactSize = new LogicalSize(720, 120);
+        const compactSize = new LogicalSize(COMPACT_WINDOW_SIZE.width, COMPACT_WINDOW_SIZE.height);
         await appWindow.setMinSize(compactSize);
         await appWindow.setSize(compactSize);
         await appWindow.setResizable(false);
         await appWindow.setAlwaysOnTop(true);
       } else {
+        await closeDetachedDictionary();
+        setLookup(null);
         await appWindow.setAlwaysOnTop(false);
         await appWindow.setResizable(true);
         await appWindow.setMinSize(new LogicalSize(860, 620));
         await appWindow.setSize(new LogicalSize(1180, 760));
       }
-    } catch {
-      // Browser preview keeps the compact layout without native window controls.
+
+      if (await appWindow.isAlwaysOnTop() !== next) {
+        throw new Error("窗口置顶状态未生效");
+      }
+      setCompact(next);
+      setError(null);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "小窗模式切换失败");
     }
   };
 
@@ -380,16 +557,17 @@ function App() {
   if (compact) {
     const compactSubtitle = subtitleForCompactView(subtitles, lookup?.context);
     return (
-      <>
+      <div className={`compact-root ${lookup ? "compact-root-lookup" : ""}`}>
         <CompactView
           subtitle={compactSubtitle}
           running={health?.capture_running ?? false}
           onSelect={selectWord}
+          onCapture={() => void toggleCapture()}
           onRestore={() => void toggleCompact()}
           onClose={() => void closeWindow()}
         />
-        {lookup && <DictionaryPopover lookup={lookup} demo={DEMO_MODE} compact onClose={() => setLookup(null)} />}
-      </>
+        {lookup && !NATIVE_APP && <DictionaryPopover lookup={lookup} demo={DEMO_MODE} compact onClose={() => setLookup(null)} />}
+      </div>
     );
   }
 
@@ -445,9 +623,12 @@ function App() {
             <SettingsPanel
               settings={settings}
               devices={devices}
+              dictionaries={dictionarySources}
               disabled={health?.capture_running ?? false}
               modelStatus={health?.asr_status ?? "unknown"}
               onRefresh={loadDevices}
+              onImportDictionary={importDictionary}
+              onDeleteDictionary={deleteDictionary}
               onSave={saveSettings}
             />
           )}
@@ -643,8 +824,32 @@ function HistoryView({ subtitles, onSelect }: { subtitles: Subtitle[]; onSelect:
       <div className="history-toolbar">
         <div><h2>字幕历史</h2><span>共 {filtered.length} 条记录</span></div>
         <div className="history-filters">
-          <label><Languages size={15} /><span className="sr-only">语言</span><select value={language} onChange={(event) => setLanguage(event.target.value)}><option value="all">全部语言</option><option value="ja">日语</option><option value="en">英语</option><option value="zh">中文</option><option value="ko">韩语</option></select></label>
-          <label><CalendarDays size={15} /><span className="sr-only">日期范围</span><select value={range} onChange={(event) => setRange(event.target.value)}><option value="all">全部时间</option><option value="today">今天</option><option value="week">最近 7 天</option></select></label>
+          <DropdownField
+            compact
+            icon={<Languages size={15} />}
+            label="语言"
+            value={language}
+            options={[
+              { value: "all", label: "全部语言" },
+              { value: "ja", label: "日语" },
+              { value: "en", label: "英语" },
+              { value: "zh", label: "中文" },
+              { value: "ko", label: "韩语" },
+            ]}
+            onChange={setLanguage}
+          />
+          <DropdownField
+            compact
+            icon={<CalendarDays size={15} />}
+            label="日期范围"
+            value={range}
+            options={[
+              { value: "all", label: "全部时间" },
+              { value: "today", label: "今天" },
+              { value: "week", label: "最近 7 天" },
+            ]}
+            onChange={setRange}
+          />
         </div>
       </div>
       {filtered.length ? (
@@ -660,16 +865,22 @@ function HistoryView({ subtitles, onSelect }: { subtitles: Subtitle[]; onSelect:
   );
 }
 
-function SettingsPanel({ settings, devices, disabled, modelStatus, onRefresh, onSave }: {
+function SettingsPanel({ settings, devices, dictionaries, disabled, modelStatus, onRefresh, onImportDictionary, onDeleteDictionary, onSave }: {
   settings: Settings;
   devices: AudioDevice[];
+  dictionaries: DictionarySource[];
   disabled: boolean;
   modelStatus: string;
   onRefresh: () => Promise<void>;
+  onImportDictionary: (file: File) => Promise<DictionarySource>;
+  onDeleteDictionary: (id: number) => Promise<void>;
   onSave: (value: Settings) => Promise<void>;
 }) {
   const [draft, setDraft] = useState(settings);
   const [saved, setSaved] = useState(false);
+  const [dictionaryBusy, setDictionaryBusy] = useState(false);
+  const [dictionaryMessage, setDictionaryMessage] = useState("");
+  const dictionaryFileRef = useRef<HTMLInputElement>(null);
   useEffect(() => setDraft(settings), [settings]);
   const updateAsr = (key: keyof Settings["asr"], value: string) => {
     setDraft({ ...draft, asr: { ...draft.asr, [key]: value } });
@@ -680,6 +891,32 @@ function SettingsPanel({ settings, devices, disabled, modelStatus, onRefresh, on
   const save = async () => {
     await onSave(draft);
     setSaved(true);
+  };
+  const chooseDictionary = async (file?: File) => {
+    if (!file) return;
+    setDictionaryBusy(true);
+    setDictionaryMessage(`正在导入 ${file.name}…`);
+    try {
+      const imported = await onImportDictionary(file);
+      setDictionaryMessage(`已导入 ${imported.title}，共 ${imported.entry_count.toLocaleString("zh-CN")} 条词条`);
+    } catch (reason) {
+      setDictionaryMessage(reason instanceof Error ? reason.message : "词典导入失败");
+    } finally {
+      setDictionaryBusy(false);
+      if (dictionaryFileRef.current) dictionaryFileRef.current.value = "";
+    }
+  };
+  const removeDictionary = async (dictionary: DictionarySource) => {
+    if (!window.confirm(`确定移除词典“${dictionary.title}”吗？`)) return;
+    setDictionaryBusy(true);
+    try {
+      await onDeleteDictionary(dictionary.id);
+      setDictionaryMessage(`已移除 ${dictionary.title}`);
+    } catch (reason) {
+      setDictionaryMessage(reason instanceof Error ? reason.message : "词典移除失败");
+    } finally {
+      setDictionaryBusy(false);
+    }
   };
 
   return (
@@ -726,6 +963,37 @@ function SettingsPanel({ settings, devices, disabled, modelStatus, onRefresh, on
         />
       </div>
 
+      <div className="settings-divider" />
+
+      <div className="settings-section dictionary-section">
+        <div className="section-heading">
+          <div><BookOpen size={18} /><h2>Yomitan 词典</h2><span>{dictionaries.length ? `已导入 ${dictionaries.length} 部` : "尚未导入"}</span></div>
+          <button className="secondary-button" type="button" disabled={dictionaryBusy} onClick={() => dictionaryFileRef.current?.click()}><Upload size={15} />导入词典</button>
+          <input
+            ref={dictionaryFileRef}
+            className="dictionary-file-input"
+            type="file"
+            accept=".zip,application/zip"
+            onChange={(event) => void chooseDictionary(event.target.files?.[0])}
+          />
+        </div>
+        {dictionaries.length ? (
+          <div className="dictionary-source-list">
+            {dictionaries.map((dictionary) => (
+              <div className="dictionary-source-row" key={dictionary.id}>
+                <div className="dictionary-source-icon"><BookOpen size={17} /></div>
+                <div>
+                  <strong>{dictionary.title}</strong>
+                  <span>{dictionary.source_language.toUpperCase()}{dictionary.target_language ? ` → ${dictionary.target_language.toUpperCase()}` : ""} · {dictionary.entry_count.toLocaleString("zh-CN")} 条 · {dictionary.revision}</span>
+                </div>
+                <button type="button" disabled={dictionaryBusy} aria-label={`移除 ${dictionary.title}`} title="移除词典" onClick={() => void removeDictionary(dictionary)}><Trash2 size={16} /></button>
+              </div>
+            ))}
+          </div>
+        ) : <p className="dictionary-empty">导入 Yomitan ZIP 词典后，划词查询会优先显示其中的释义。</p>}
+        {dictionaryMessage && <p className="dictionary-feedback" role="status">{dictionaryMessage}</p>}
+      </div>
+
       <div className="settings-actions">
         <span>{saved ? "设置已保存" : "所有更改将在下次转写时生效"}</span>
         <button className="primary-button" type="button" disabled={disabled} onClick={() => void save()}>保存设置</button>
@@ -742,7 +1010,102 @@ function Select({ label, helper, value, values, disabled, onChange }: {
   disabled: boolean;
   onChange: (value: string) => void;
 }) {
-  return <label className="field"><span>{label}</span><select value={value} disabled={disabled} onChange={(event) => onChange(event.target.value)}>{values.map((item) => <option key={item}>{item}</option>)}</select>{helper && <small>{helper}</small>}</label>;
+  return (
+    <div className="field">
+      <span>{label}</span>
+      <DropdownField
+        label={label}
+        value={value}
+        options={values.map((item) => ({ value: item, label: item }))}
+        disabled={disabled}
+        onChange={onChange}
+      />
+      {helper && <small>{helper}</small>}
+    </div>
+  );
+}
+
+function DropdownField({ label, value, options, disabled = false, compact = false, icon, onChange }: {
+  label: string;
+  value: string;
+  options: Array<{ value: string; label: string }>;
+  disabled?: boolean;
+  compact?: boolean;
+  icon?: React.ReactNode;
+  onChange: (value: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const selected = options.find((option) => option.value === value) ?? options[0];
+
+  useEffect(() => {
+    if (!open) return;
+    const closeOnOutside = (event: PointerEvent) => {
+      if (rootRef.current && !rootRef.current.contains(event.target as Node)) setOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("pointerdown", closeOnOutside);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeOnOutside);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [open]);
+
+  useEffect(() => {
+    if (disabled) setOpen(false);
+  }, [disabled]);
+
+  const choose = (next: string) => {
+    onChange(next);
+    setOpen(false);
+  };
+
+  return (
+    <div className={`dropdown-field ${compact ? "dropdown-field-compact" : ""} ${open ? "open" : ""}`} ref={rootRef}>
+      <button
+        className="dropdown-trigger"
+        type="button"
+        disabled={disabled}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-label={compact ? label : undefined}
+        onClick={() => setOpen((current) => !current)}
+        onKeyDown={(event) => {
+          if (event.key === "ArrowDown" || event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            setOpen(true);
+          }
+        }}
+      >
+        {icon && <span className="dropdown-icon">{icon}</span>}
+        <span className="dropdown-value">{selected?.label ?? value}</span>
+        <ChevronDown className="dropdown-chevron" size={16} />
+      </button>
+      {open && (
+        <div className="dropdown-menu" role="listbox" aria-label={label}>
+          {options.map((option) => {
+            const current = option.value === value;
+            return (
+              <button
+                className={`dropdown-option ${current ? "selected" : ""}`}
+                key={option.value}
+                type="button"
+                role="option"
+                aria-selected={current}
+                onClick={() => choose(option.value)}
+              >
+                <span>{option.label}</span>
+                {current && <Check size={15} />}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
 }
 
 function DeviceGroup({ icon, title, note, devices, selected, includeDefault = false, offLabel, disabled, onSelect }: {
@@ -837,42 +1200,87 @@ function DockButton({ label, active = false, tonal = false, primary = false, onC
   );
 }
 
-function DictionaryPopover({ lookup, demo, compact = false, onClose }: { lookup: Lookup; demo: boolean; compact?: boolean; onClose: () => void }) {
+function DetachedDictionaryWindow() {
+  const [payload, setPayload] = useState<DictionaryWindowPayload | null>(null);
+  useEffect(() => {
+    let disposed = false;
+    let stopListening: (() => void) | undefined;
+    const connect = async () => {
+      const { emitTo, listen } = await import("@tauri-apps/api/event");
+      const stop = await listen<DictionaryWindowPayload>(DICTIONARY_WINDOW_PAYLOAD_EVENT, ({ payload: value }) => {
+        if (!disposed) setPayload(value);
+      });
+      if (disposed) {
+        stop();
+        return;
+      }
+      stopListening = stop;
+      await emitTo("main", DICTIONARY_WINDOW_READY_EVENT);
+    };
+    void connect();
+    return () => {
+      disposed = true;
+      stopListening?.();
+    };
+  }, []);
+  useEffect(() => {
+    if (!payload) return;
+    const notifyRendered = async () => {
+      const { emitTo } = await import("@tauri-apps/api/event");
+      await emitTo("main", DICTIONARY_WINDOW_RENDERED_EVENT);
+    };
+    void notifyRendered();
+  }, [payload]);
+  const close = useCallback(async () => {
+    const { getCurrentWindow } = await import("@tauri-apps/api/window");
+    await getCurrentWindow().close();
+  }, []);
+  if (!payload) {
+    return <div role="status" style={{ display: "grid", height: "100vh", placeItems: "center", color: "var(--text-quiet)", fontSize: 13 }}>正在加载释义…</div>;
+  }
+  return (
+    <DictionaryPopover
+      lookup={{ ...payload, anchor: { top: 0, bottom: 0, centerX: 0 } }}
+      demo={false}
+      standalone
+      onClose={() => void close()}
+    />
+  );
+}
+
+function DictionaryPopover({ lookup, demo, compact = false, standalone = false, onClose }: { lookup: Lookup; demo: boolean; compact?: boolean; standalone?: boolean; onClose: () => void }) {
   const ref = useRef<HTMLDivElement>(null);
   const [message, setMessage] = useState("");
   const [anchor, setAnchor] = useState(lookup.anchor);
-  const [popoverHeight, setPopoverHeight] = useState(246);
-  const entry = lookup.entries[0];
+  const groupedEntries = groupDictionaryEntries(lookup.entries);
+  const entry = groupedEntries[0];
+  const visibleEntries = groupedEntries.slice(0, 6);
   const width = Math.min(340, window.innerWidth - 24);
-  const placement = placeLookupPopover({ anchor, popoverHeight, viewportHeight: window.innerHeight });
-  const compactSpaceRight = window.innerWidth - anchor.centerX;
-  const compactLeft = compactSpaceRight >= width + 32
-    ? Math.min(window.innerWidth - width - 6, anchor.centerX + 28)
-    : Math.max(6, anchor.centerX - width - 28);
-  const left = compact
-    ? compactLeft
-    : Math.min(Math.max(12, anchor.centerX - 34), window.innerWidth - width - 12);
+  const placement = placeLookupPopover({
+    anchor,
+    popoverHeight: LOOKUP_POPOVER_HEIGHT,
+    viewportHeight: window.innerHeight,
+  });
+  const left = Math.min(Math.max(12, anchor.centerX - 34), window.innerWidth - width - 12);
   const arrowLeft = Math.min(Math.max(22, anchor.centerX - left - 8), width - 38);
-  const style = compact
-    ? { left, top: 6, width, maxHeight: Math.max(0, window.innerHeight - 12) }
-    : { left, top: placement.top, width, maxHeight: placement.maxHeight, "--arrow-left": `${arrowLeft}px` };
-
-  useLayoutEffect(() => {
-    const element = ref.current;
-    if (!element) return;
-    const measure = () => setPopoverHeight(element.scrollHeight + element.offsetHeight - element.clientHeight);
-    measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(element);
-    return () => observer.disconnect();
-  }, [entry, message, width]);
+  const style = standalone
+    ? { left: 10, top: 10, width: window.innerWidth - 20, height: window.innerHeight - 20 }
+    : { left, top: placement.top, width, height: placement.height, "--arrow-left": `${arrowLeft}px` };
 
   useEffect(() => {
     if (!lookup.range) return;
 
     const updateAnchor = () => {
       const rect = lookup.range?.getBoundingClientRect();
-      if (!rect || (!rect.width && !rect.height)) return;
+      if (!rect || !isLookupAnchorVisible(
+        rect,
+        window.innerWidth,
+        window.innerHeight,
+        compact ? 0 : 40,
+      )) {
+        onClose();
+        return;
+      }
       setAnchor({ top: rect.top, bottom: rect.bottom, centerX: rect.left + rect.width / 2 });
     };
 
@@ -883,7 +1291,7 @@ function DictionaryPopover({ lookup, demo, compact = false, onClose }: { lookup:
       window.removeEventListener("scroll", updateAnchor, true);
       window.removeEventListener("resize", updateAnchor);
     };
-  }, [lookup.range]);
+  }, [compact, lookup.range, onClose]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
@@ -913,23 +1321,40 @@ function DictionaryPopover({ lookup, demo, compact = false, onClose }: { lookup:
   };
 
   return (
-    <div ref={ref} className={`dictionary-popover ${compact ? "compact-dictionary-popover" : `popover-${placement.side}`}`} style={style as CSSProperties} role="dialog" aria-label={`${lookup.term} 的词典解释`}>
+    <div ref={ref} className={`dictionary-popover ${compact ? "compact-floating-popover" : ""} ${standalone ? "standalone-dictionary-popover" : `popover-${placement.side}`}`} style={style as CSSProperties} role="dialog" aria-label={`${lookup.term} 的词典解释`}>
       <div className="dictionary-header">
         <div><h2>{lookup.term}</h2>{entry?.reading && <span className="reading">{entry.reading}</span>}{entry && <span className="language-chip">{entry.language.toUpperCase()}</span>}</div>
         <button type="button" aria-label="关闭词典" onClick={onClose}><X size={19} /></button>
       </div>
-      {entry ? <p className="definition">{entry.definition}</p> : <p className="definition muted">内置词典中暂无释义。</p>}
-      <blockquote>“{contextExcerpt(lookup.context, lookup.term)}”</blockquote>
+      <div className="dictionary-scroll">
+        {visibleEntries.length ? (
+          <div className="dictionary-definitions">
+            {visibleEntries.map((item, index) => (
+              <article className="dictionary-definition-item" key={`${item.dictionary ?? "local"}-${item.term}-${item.reading ?? ""}-${index}`}>
+                <div className="dictionary-entry-meta">
+                  <span className="dictionary-source-name">{item.dictionary || "内置词典"}</span>
+                  {visibleEntries.length > 1 && <span className="dictionary-entry-index">{String(index + 1).padStart(2, "0")}</span>}
+                </div>
+                <ol className="definition-glosses">
+                  {definitionGlosses(item.definition).map((gloss, glossIndex) => <li key={`${gloss}-${glossIndex}`}>{gloss}</li>)}
+                </ol>
+              </article>
+            ))}
+          </div>
+        ) : <p className="definition muted">已导入的词典中暂无释义。</p>}
+        <div className="lookup-context"><span>原文语境</span><q>{contextExcerpt(lookup.context, lookup.term)}</q></div>
+      </div>
       <button className="anki-button" type="button" disabled={!entry} onClick={() => void add()}><PlusCircle size={16} />{message || "添加到 Anki"}</button>
-      <i className="popover-arrow" aria-hidden="true" />
+      {!standalone && <i className="popover-arrow" aria-hidden="true" />}
     </div>
   );
 }
 
-function CompactView({ subtitle, running, onSelect, onRestore, onClose }: {
+function CompactView({ subtitle, running, onSelect, onCapture, onRestore, onClose }: {
   subtitle?: Subtitle;
   running: boolean;
   onSelect: (context: string) => Promise<void>;
+  onCapture: () => void;
   onRestore: () => void;
   onClose: () => void;
 }) {
@@ -939,8 +1364,11 @@ function CompactView({ subtitle, running, onSelect, onRestore, onClose }: {
       <div className="compact-status"><i className={running ? "running" : ""} />{subtitle?.language?.toUpperCase() ?? "AUTO"}</div>
       <p onMouseUp={() => subtitle && void onSelect(subtitle.text)}>{subtitle?.text ?? "等待字幕…"}</p>
       <div className="compact-actions">
-        <button type="button" aria-label="恢复完整窗口" title="恢复完整窗口" onClick={onRestore}><MessageSquare size={17} /></button>
-        <button type="button" aria-label="关闭窗口" title="关闭窗口" onClick={onClose}><X size={17} /></button>
+        <button className={`compact-capture-button ${running ? "running" : ""}`} type="button" aria-label={running ? "暂停转录" : "开始转录"} title={running ? "暂停转录" : "开始转录"} onClick={onCapture}>
+          {running ? <Square size={15} /> : <Mic size={16} />}
+        </button>
+        <button className="compact-secondary-action" type="button" aria-label="恢复完整窗口" title="恢复完整窗口" onClick={onRestore}><MessageSquare size={17} /></button>
+        <button className="compact-secondary-action" type="button" aria-label="关闭窗口" title="关闭窗口" onClick={onClose}><X size={17} /></button>
       </div>
     </div>
   );

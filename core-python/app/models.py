@@ -61,3 +61,15 @@ class DictionaryEntry(BaseModel):
     term: str
     language: str
     definition: str
+    reading: str | None = None
+    dictionary: str | None = None
+
+
+class DictionarySource(BaseModel):
+    id: int
+    title: str
+    revision: str
+    source_language: str
+    target_language: str | None = None
+    entry_count: int
+    imported_at: str

@@ -17,6 +17,11 @@ mod tests {
             "core:window:allow-toggle-maximize",
             "core:window:allow-close",
             "core:window:allow-set-resizable",
+            "core:window:allow-set-always-on-top",
+            "core:window:allow-is-always-on-top",
+            "core:window:allow-set-position",
+            "core:window:allow-show",
+            "core:webview:allow-create-webview-window",
         ] {
             assert!(CAPABILITIES.contains(permission), "missing {permission}");
         }

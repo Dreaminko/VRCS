@@ -1,6 +1,7 @@
 import type {
   AudioDevice,
   DictionaryEntry,
+  DictionarySource,
   Health,
   Settings,
   Subtitle,
@@ -46,6 +47,21 @@ export const coreApi = {
   stop: () => request<{ running: boolean }>("/api/capture/stop", { method: "POST" }),
   lookup: (term: string) =>
     request<DictionaryEntry[]>(`/api/dictionary?q=${encodeURIComponent(term)}`),
+  dictionaries: () => request<DictionarySource[]>("/api/dictionaries"),
+  importDictionary: async (file: File) => {
+    const response = await fetch(`${CORE_URL}/api/dictionaries/import`, {
+      method: "POST",
+      headers: { "Content-Type": "application/zip" },
+      body: file,
+    });
+    if (!response.ok) {
+      const body = (await response.json().catch(() => null)) as { detail?: string } | null;
+      throw new Error(body?.detail ?? `${response.status} ${response.statusText}`);
+    }
+    return (await response.json()) as DictionarySource;
+  },
+  deleteDictionary: (id: number) =>
+    request<{ deleted: boolean }>(`/api/dictionaries/${id}`, { method: "DELETE" }),
   createCard: (front: string, back: string, context: string) =>
     request<{ note_id: number }>("/api/anki/cards", {
       method: "POST",

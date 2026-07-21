@@ -1,9 +1,27 @@
+import json
+from io import BytesIO
+from zipfile import ZIP_DEFLATED, ZipFile
+
 from fastapi.testclient import TestClient
 
 from app.main import create_app
 from unittest.mock import Mock
 
 from app.models import AudioDevice, Subtitle
+
+
+def dictionary_archive() -> bytes:
+    output = BytesIO()
+    with ZipFile(output, "w", ZIP_DEFLATED) as package:
+        package.writestr(
+            "index.json",
+            json.dumps({"title": "API Dictionary", "revision": "1", "format": 3}),
+        )
+        package.writestr(
+            "term_bank_1.json",
+            json.dumps([["学ぶ", "まなぶ", "v5", "", 1, ["学习"], 1, ""]]),
+        )
+    return output.getvalue()
 
 
 def test_health_history_and_settings(tmp_path):
@@ -60,3 +78,27 @@ def test_capture_start_passes_microphone_device(tmp_path):
         assert response.json()["microphone_device"]["id"] == 20
         core.pipeline.start.assert_called_once_with(10)
         core.microphone_pipeline.start.assert_called_once_with(20)
+
+
+def test_imports_lists_looks_up_and_deletes_yomitan_dictionary(tmp_path):
+    app = create_app(tmp_path / "config.json")
+    with TestClient(app) as client:
+        imported = client.post(
+            "/api/dictionaries/import",
+            content=dictionary_archive(),
+            headers={"Content-Type": "application/zip"},
+        )
+        assert imported.status_code == 200
+        source = imported.json()
+        assert source["title"] == "API Dictionary"
+        assert source["entry_count"] == 1
+
+        assert client.get("/api/dictionaries").json()[0]["title"] == "API Dictionary"
+        lookup = client.get("/api/dictionary", params={"q": "学ぶ"}).json()[0]
+        assert lookup["reading"] == "まなぶ"
+        assert lookup["definition"] == "学习"
+        assert lookup["dictionary"] == "API Dictionary"
+
+        deleted = client.delete(f"/api/dictionaries/{source['id']}")
+        assert deleted.status_code == 200
+        assert client.get("/api/dictionaries").json() == []

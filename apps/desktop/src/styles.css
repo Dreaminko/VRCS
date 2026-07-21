@@ -402,7 +402,7 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 .dock-button:hover::after, .dock-button:focus-visible::after { transform: translate(-50%, 0); opacity: 1; }
 
 .history-surface, .settings-surface {
-  overflow: hidden;
+  overflow: visible;
   border: 1px solid var(--border);
   border-radius: 20px;
   background: var(--surface);
@@ -419,42 +419,109 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 .history-toolbar h2, .section-heading h2 { margin: 0; font-size: 15px; font-weight: 650; }
 .history-toolbar > div > span, .section-heading span, .section-heading p { color: var(--text-quiet); font-size: 11px; }
 .history-filters { display: flex; gap: 8px; }
-.history-filters label {
+.dropdown-field {
   position: relative;
+  min-width: 0;
+}
+.dropdown-trigger {
   display: flex;
-  height: 36px;
+  width: 100%;
+  height: 40px;
   align-items: center;
-  gap: 5px;
-  padding: 0 32px 0 10px;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 11px 0 12px;
   border: 1px solid var(--border);
   border-radius: 8px;
-  color: var(--text-secondary);
-  background: var(--surface-elevated);
-  transition: border-color 140ms ease-out, background-color 140ms ease-out, box-shadow 140ms ease-out, color 140ms ease-out;
-}
-.history-filters label::after {
-  position: absolute;
-  top: 50%;
-  right: 10px;
-  width: 14px;
-  height: 14px;
-  transform: translateY(-50%);
-  background: no-repeat center / 14px 14px url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%235F6F7D' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
-  content: "";
-  opacity: 0.78;
-  pointer-events: none;
-}
-.history-filters label:focus-within { border-color: var(--primary); background: var(--surface); box-shadow: 0 0 0 3px rgba(61, 115, 168, 0.12); color: var(--text); }
-.history-filters select {
-  height: 34px;
-  padding: 0;
-  border: 0;
   outline: 0;
-  appearance: none;
-  color: inherit;
+  color: var(--text);
+  background: var(--surface);
+  box-shadow: 0 1px 2px rgba(40, 76, 110, 0.06);
+  cursor: pointer;
+  font-size: 13px;
+  text-align: left;
+  transition: border-color 140ms ease-out, background-color 140ms ease-out, box-shadow 140ms ease-out, color 140ms ease-out, transform 140ms ease-out;
+}
+.dropdown-trigger:hover:not(:disabled) { border-color: var(--border-strong); background: var(--surface-elevated); }
+.dropdown-trigger:focus-visible { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(61, 115, 168, 0.14), 0 1px 2px rgba(40, 76, 110, 0.06); }
+.dropdown-trigger:active:not(:disabled) { transform: scale(0.985); }
+.dropdown-trigger:disabled { color: var(--text-quiet); background: var(--surface-subtle); cursor: not-allowed; }
+.dropdown-icon {
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  color: var(--text-secondary);
+}
+.dropdown-value {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dropdown-chevron {
+  flex: 0 0 auto;
+  color: var(--text-secondary);
+  transition: transform 140ms ease-out;
+}
+.dropdown-field.open .dropdown-chevron { transform: rotate(180deg); }
+.dropdown-menu {
+  position: absolute;
+  z-index: 140;
+  top: calc(100% + 6px);
+  right: 0;
+  left: 0;
+  display: grid;
+  gap: 2px;
+  min-width: 100%;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: 0 16px 48px rgba(40, 76, 110, 0.14), 0 1px 3px rgba(40, 76, 110, 0.1);
+  animation: dropdown-menu-in 140ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.dropdown-option {
+  display: flex;
+  width: 100%;
+  min-height: 36px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 8px;
+  color: var(--text-secondary);
   background: transparent;
   cursor: pointer;
+  font-size: 13px;
+  text-align: left;
+  transition: color 120ms ease-out, background-color 120ms ease-out, transform 120ms ease-out;
+}
+.dropdown-option:hover { color: var(--text); background: var(--surface-subtle); }
+.dropdown-option:focus-visible { outline: 3px solid rgba(61, 115, 168, 0.18); outline-offset: 1px; }
+.dropdown-option:active { transform: scale(0.985); }
+.dropdown-option.selected { color: var(--primary); background: var(--primary-softer); font-weight: 600; }
+.dropdown-option svg { flex: 0 0 auto; }
+.dropdown-field-compact { min-width: 118px; }
+.dropdown-field-compact .dropdown-trigger {
+  height: 36px;
+  gap: 5px;
+  padding: 0 9px 0 10px;
+  color: var(--text-secondary);
+  background: var(--surface-elevated);
+  box-shadow: none;
   font-size: 12px;
+}
+.dropdown-field-compact .dropdown-menu {
+  left: auto;
+  min-width: 148px;
+}
+.dropdown-field-compact .dropdown-option { font-size: 12px; }
+.dropdown-field-compact.open .dropdown-trigger { border-color: var(--primary); background: var(--surface); box-shadow: 0 0 0 3px rgba(61, 115, 168, 0.12); color: var(--text); }
+@keyframes dropdown-menu-in {
+  from { opacity: 0; transform: translateY(-4px) scale(0.985); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
 }
 .history-list article {
   display: grid;
@@ -480,29 +547,6 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 .field { display: grid; gap: 7px; }
 .field > span { color: var(--text-secondary); font-size: 13px; font-weight: 600; }
 .field > small { margin-top: -1px; color: var(--text-quiet); font-size: 11px; }
-.field select {
-  width: 100%;
-  height: 40px;
-  padding: 0 38px 0 12px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  outline: 0;
-  appearance: none;
-  color: var(--text);
-  background-color: var(--surface);
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%235F6F7D' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: right 12px center;
-  background-size: 16px;
-  box-shadow: 0 1px 2px rgba(40, 76, 110, 0.06);
-  cursor: pointer;
-  font-size: 13px;
-  transition: border-color 140ms ease-out, background-color 140ms ease-out, box-shadow 140ms ease-out, color 140ms ease-out;
-}
-.field select:hover:not(:disabled) { border-color: var(--border-strong); background-color: var(--surface-elevated); }
-.field select:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(61, 115, 168, 0.14), 0 1px 2px rgba(40, 76, 110, 0.06); }
-.field select:disabled { color: var(--text-quiet); background-color: var(--surface-subtle); cursor: not-allowed; }
-.field select option { color: var(--text); background: var(--surface); }
 .secondary-button, .primary-button, .anki-button {
   display: inline-flex;
   min-height: 40px;
@@ -517,6 +561,7 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 }
 .secondary-button { border: 1px solid var(--border); color: var(--text-secondary); background: var(--surface); }
 .secondary-button:hover { border-color: var(--border-strong); background: var(--canvas); }
+.secondary-button:disabled { opacity: 0.5; cursor: wait; }
 .primary-button, .anki-button { border: 1px solid var(--primary); color: white; background: var(--primary); }
 .primary-button:hover, .anki-button:hover { background: var(--primary-hover); }
 .primary-button:disabled, .anki-button:disabled { opacity: 0.45; cursor: not-allowed; }
@@ -549,10 +594,37 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 .settings-actions > span { color: var(--text-quiet); font-size: 11px; }
 .settings-actions .primary-button { min-width: 108px; border-radius: 999px; }
 
+.dictionary-file-input { display: none; }
+.dictionary-section .section-heading { margin-bottom: 16px; }
+.dictionary-section .section-heading > div > svg { color: var(--primary); }
+.dictionary-source-list { display: grid; gap: 8px; }
+.dictionary-source-row {
+  display: grid;
+  min-height: 58px;
+  grid-template-columns: 36px minmax(0, 1fr) 36px;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface-elevated);
+}
+.dictionary-source-icon { display: grid; width: 34px; height: 34px; place-items: center; border-radius: 10px; color: var(--primary); background: var(--primary-softer); }
+.dictionary-source-row > div:nth-child(2) { display: grid; min-width: 0; gap: 3px; }
+.dictionary-source-row strong { overflow: hidden; font-size: 13px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
+.dictionary-source-row span { color: var(--text-quiet); font-size: 11px; }
+.dictionary-source-row > button { display: grid; width: 34px; height: 34px; place-items: center; padding: 0; border: 0; border-radius: 10px; color: var(--text-quiet); background: transparent; cursor: pointer; }
+.dictionary-source-row > button:hover { color: var(--error); background: var(--error-soft); }
+.dictionary-source-row > button:disabled { opacity: 0.45; cursor: wait; }
+.dictionary-empty { margin: 0; padding: 16px; border: 1px dashed var(--border); border-radius: 12px; color: var(--text-quiet); font-size: 12px; line-height: 1.6; text-align: center; }
+.dictionary-feedback { margin: 12px 2px 0; color: var(--text-secondary); font-size: 11px; }
+
 .dictionary-popover {
   position: fixed;
   z-index: 1000;
-  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  overflow: visible;
   padding: 18px 19px;
   border: 1px solid var(--border-strong);
   border-radius: 18px;
@@ -561,53 +633,134 @@ button:focus-visible, select:focus-visible, input:focus-visible {
   animation: popover-in 160ms ease-out both;
 }
 .dictionary-header { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 13px; }
+.dictionary-header, .dictionary-popover > .anki-button { flex: 0 0 auto; }
 .dictionary-header > div { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
 .dictionary-header h2 { margin: 0; font-size: 20px; font-weight: 650; }
 .dictionary-header .reading { color: var(--text-quiet); font: 13px "Cascadia Mono", "Consolas", monospace; }
 .dictionary-header .language-chip { min-height: 19px; border: 1px solid var(--border); border-radius: 5px; background: var(--primary-softer); font-size: 10px; }
 .dictionary-header button { display: grid; width: 32px; height: 32px; flex: 0 0 auto; place-items: center; padding: 0; border: 0; border-radius: 50%; color: var(--text-quiet); background: transparent; cursor: pointer; }
 .dictionary-header button:hover { color: var(--text); background: var(--surface-subtle); }
-.dictionary-popover .definition { margin: 0 0 14px; padding: 12px; border-radius: 11px; color: var(--text); background: var(--canvas); font-size: 14px; line-height: 1.55; }
-.dictionary-popover .definition.muted { color: var(--text-secondary); }
-.dictionary-popover blockquote { margin: 0 0 17px; padding-left: 12px; border-left: 2px solid var(--border); color: var(--text-secondary); font-size: 12px; font-style: italic; line-height: 1.6; }
+.dictionary-popover .definition.muted { margin: 0 0 14px; padding: 12px; border-radius: 11px; color: var(--text-secondary); background: var(--canvas); font-size: 13px; line-height: 1.55; }
+.dictionary-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  margin: 0 0 14px;
+  padding-right: 6px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-color: rgba(61, 115, 168, 0.34) transparent;
+  scrollbar-width: thin;
+}
+.dictionary-scroll::-webkit-scrollbar { width: 6px; height: 6px; }
+.dictionary-scroll::-webkit-scrollbar-track { background: transparent; }
+.dictionary-scroll::-webkit-scrollbar-thumb {
+  min-height: 36px;
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: rgba(61, 115, 168, 0.34);
+  background-clip: padding-box;
+}
+.dictionary-scroll::-webkit-scrollbar-thumb:hover { background-color: rgba(61, 115, 168, 0.52); }
+.dictionary-definitions { display: grid; gap: 8px; margin-bottom: 11px; }
+.dictionary-definition-item {
+  padding: 10px 10px 11px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface-elevated);
+}
+.dictionary-entry-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.dictionary-source-name {
+  display: inline-flex;
+  min-width: 0;
+  min-height: 20px;
+  align-items: center;
+  padding: 0 7px;
+  overflow: hidden;
+  border-radius: 999px;
+  color: var(--primary);
+  background: var(--primary-softer);
+  font-size: 10px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dictionary-entry-index {
+  margin-left: auto;
+  color: var(--text-quiet);
+  font: 10px/1.4 "Cascadia Mono", "Consolas", monospace;
+}
+.definition-glosses {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: glossary;
+}
+.definition-glosses li {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  gap: 7px;
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.62;
+  text-wrap: pretty;
+  white-space: pre-line;
+}
+.definition-glosses li::before {
+  display: grid;
+  width: 20px;
+  height: 20px;
+  place-items: center;
+  border-radius: 6px;
+  color: var(--primary);
+  background: var(--primary-softer);
+  content: counter(glossary);
+  counter-increment: glossary;
+  font: 10px/1 "Cascadia Mono", "Consolas", monospace;
+}
+.lookup-context {
+  margin: 0;
+  padding: 10px 11px;
+  border-radius: 11px;
+  color: var(--text-secondary);
+  background: var(--primary-softer);
+  font-size: 12px;
+  line-height: 1.55;
+}
+.lookup-context span {
+  display: block;
+  margin-bottom: 3px;
+  color: var(--primary);
+  font-size: 10px;
+  font-weight: 650;
+}
+.lookup-context q { quotes: "“" "”"; }
 .dictionary-popover .anki-button { width: 100%; }
 .popover-arrow { position: absolute; left: var(--arrow-left); width: 16px; height: 16px; border: solid var(--border-strong); background: var(--surface); transform: rotate(45deg); }
 .popover-above .popover-arrow { bottom: -9px; border-width: 0 1px 1px 0; }
 .popover-below .popover-arrow { top: -9px; border-width: 1px 0 0 1px; }
 
-.compact-dictionary-popover {
-  padding: 8px 10px;
-  overflow: hidden;
-  border-radius: 14px;
+.compact-root {
+  position: relative;
+  width: 100vw;
+  height: 100vh;
+  overflow: visible;
+  background: var(--surface);
 }
-.compact-dictionary-popover .dictionary-header { min-height: 24px; margin-bottom: 3px; }
-.compact-dictionary-popover .dictionary-header h2 { font-size: 16px; }
-.compact-dictionary-popover .dictionary-header .reading { font-size: 11px; }
-.compact-dictionary-popover .dictionary-header button { width: 26px; height: 26px; }
-.compact-dictionary-popover .definition {
-  margin: 0 0 5px;
-  padding: 0;
-  overflow: hidden;
-  background: transparent;
-  font-size: 12px;
-  line-height: 1.35;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.compact-dictionary-popover blockquote, .compact-dictionary-popover .popover-arrow { display: none; }
-.compact-dictionary-popover .anki-button {
-  width: auto;
-  min-height: 28px;
-  margin-left: auto;
-  padding: 0 10px;
-  font-size: 11px;
-}
-
+.compact-root-lookup { background: var(--canvas); }
+.compact-floating-popover { z-index: 1002; }
 .compact-shell {
   position: relative;
   display: flex;
   width: 100vw;
-  height: 100vh;
+  height: min(120px, 100vh);
   min-height: 100px;
   align-items: center;
   gap: 14px;
@@ -622,11 +775,51 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 .compact-status i { width: 7px; height: 7px; border-radius: 50%; background: var(--text-quiet); }
 .compact-status i.running { background: var(--primary); }
 .compact-shell > p { position: relative; z-index: 1; flex: 1; margin: 0; overflow: hidden; cursor: text; font-size: 18px; line-height: 1.55; text-overflow: ellipsis; white-space: nowrap; user-select: text; }
-.compact-actions { position: relative; z-index: 1; display: flex; gap: 6px; opacity: 0; transition: opacity 150ms ease-out; }
-.compact-shell:hover .compact-actions, .compact-actions:focus-within { opacity: 1; }
-.compact-actions button { display: grid; width: 34px; height: 34px; place-items: center; padding: 0; border: 0; border-radius: 50%; color: var(--text-secondary); background: var(--surface-subtle); cursor: pointer; }
+.compact-actions {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  gap: 6px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 150ms ease-out;
+}
+.compact-shell:hover .compact-actions,
+.compact-actions:focus-within {
+  opacity: 1;
+  pointer-events: auto;
+}
+.compact-actions button {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  color: var(--text-secondary);
+  background: var(--surface-subtle);
+  cursor: pointer;
+  transition: color 140ms ease-out, background-color 140ms ease-out, opacity 140ms ease-out, transform 140ms ease-out;
+}
 .compact-actions button:hover { color: var(--primary); background: var(--primary-soft); }
-
+.compact-actions button:active { transform: scale(0.96); }
+.compact-actions .compact-capture-button {
+  color: white;
+  background: var(--primary);
+}
+.compact-actions .compact-capture-button:hover {
+  color: white;
+  background: var(--primary-hover);
+}
+.compact-actions .compact-capture-button.running {
+  color: var(--primary);
+  background: var(--primary-softer);
+}
+.compact-actions .compact-capture-button.running:hover {
+  color: var(--primary-hover);
+  background: var(--primary-soft);
+}
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 
 @keyframes popover-in {
@@ -661,8 +854,8 @@ button:focus-visible, select:focus-visible, input:focus-visible {
   .message-group { max-width: 92%; }
   .history-toolbar { align-items: flex-start; flex-direction: column; }
   .history-filters { width: 100%; }
-  .history-filters label { flex: 1; }
-  .history-filters select { width: 100%; }
+  .history-filters .dropdown-field { flex: 1; }
+  .history-filters .dropdown-field-compact { min-width: 0; }
   .form-grid { grid-template-columns: 1fr; }
 }
 

@@ -7,7 +7,7 @@ from dataclasses import asdict
 from pathlib import Path
 
 import uvicorn
-from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
 from .anki import AnkiError, create_card
@@ -15,6 +15,7 @@ from .asr import WhisperTranscriber
 from .audio.capture import AudioCapture, AudioUnavailableError
 from .config import AppConfig, AsrConfig, load_config, save_config
 from .database import Database
+from .dictionary import MAX_ARCHIVE_BYTES, YomitanDictionaryError
 from .models import AsrSettings, CaptureRequest, CardRequest, SettingsUpdate
 from .pipeline import TranscriptionPipeline
 from .subtitles import SubtitleStore
@@ -164,8 +165,36 @@ def create_app(config_path: Path = CONFIG_PATH) -> FastAPI:
         return asdict(core.config)
 
     @app.get("/api/dictionary")
-    async def dictionary_lookup(q: str = Query(min_length=1, max_length=100)) -> list[dict[str, str]]:
+    async def dictionary_lookup(q: str = Query(min_length=1, max_length=100)) -> list[dict[str, object]]:
         return [item.model_dump() for item in state().database.lookup(q)]
+
+    @app.get("/api/dictionaries")
+    async def dictionaries() -> list[dict[str, object]]:
+        return [item.model_dump() for item in state().database.dictionary_sources()]
+
+    @app.post("/api/dictionaries/import")
+    async def import_dictionary(request: Request) -> dict[str, object]:
+        content_length = request.headers.get("content-length")
+        if content_length:
+            try:
+                if int(content_length) > MAX_ARCHIVE_BYTES:
+                    raise HTTPException(status_code=413, detail="词典压缩包超过 512 MB 限制")
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Content-Length 请求头无效") from None
+        archive = await request.body()
+        if len(archive) > MAX_ARCHIVE_BYTES:
+            raise HTTPException(status_code=413, detail="词典压缩包超过 512 MB 限制")
+        try:
+            imported = state().database.import_yomitan(archive)
+        except (YomitanDictionaryError, ValueError) as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        return imported.model_dump()
+
+    @app.delete("/api/dictionaries/{source_id}")
+    async def delete_dictionary(source_id: int) -> dict[str, bool]:
+        if not state().database.delete_dictionary_source(source_id):
+            raise HTTPException(status_code=404, detail="词典不存在")
+        return {"deleted": True}
 
     @app.post("/api/anki/cards")
     async def add_anki_card(card: CardRequest) -> dict[str, int]:
