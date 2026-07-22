@@ -29,22 +29,9 @@ import { coreApi, WS_URL } from "./api";
 import { isTauri } from "@tauri-apps/api/core";
 import {
   COMPACT_WINDOW_SIZE,
-  beginDictionaryWindowRequest,
-  createDictionaryWindowLifecycle,
-  detachedDictionaryPosition,
-  DICTIONARY_WINDOW_PAYLOAD_EVENT,
-  DICTIONARY_WINDOW_READY_EVENT,
-  DICTIONARY_WINDOW_RENDERED_EVENT,
-  dictionaryWindowOptions,
-  isCurrentDictionaryWindowRequest,
-  isDictionaryWindow,
-  observeDictionaryWindowDestroyed,
-  prepareDictionaryWindow,
-  revealDictionaryWindow,
+  compactWindowSize,
   subtitleForCompactView,
-  trackDictionaryWindowRequest,
 } from "./compact-mode";
-import type { DictionaryWindowPayload } from "./compact-mode";
 import { conversationId, groupConversations } from "./conversations";
 import type { SubtitleConversation } from "./conversations";
 import { definitionGlosses, groupDictionaryEntries } from "./dictionary";
@@ -75,7 +62,6 @@ const DEMO_MODE = demoParams.has("demo");
 const DEMO_LOOKUP = demoParams.has("lookup");
 const DEMO_STOPPED = demoParams.has("stopped");
 const DEMO_COMPACT = demoParams.has("compact");
-const DETACHED_DICTIONARY = isDictionaryWindow(window.location.search);
 const NATIVE_APP = isTauri();
 const CONVERSATION_STARTS_KEY = "vrcs.conversation-starts.v1";
 const SIDEBAR_OPEN_KEY = "vrcs.conversation-sidebar-open";
@@ -191,14 +177,11 @@ function conversationTime(value: string) {
 }
 
 function App() {
-  return DETACHED_DICTIONARY
-    ? <DetachedDictionaryWindow />
-    : <MainApp />;
+  return <MainApp />;
 }
 
 function MainApp() {
   const openedAt = useRef(Date.now()).current;
-  const dictionaryLifecycle = useRef(createDictionaryWindowLifecycle()).current;
   const [page, setPage] = useState<Page>("live");
   const [connection, setConnection] = useState<ConnectionState>(DEMO_MODE ? "connected" : "connecting");
   const [health, setHealth] = useState<Health | null>(DEMO_MODE ? { ...demoHealth, capture_running: !DEMO_STOPPED } : null);
@@ -398,99 +381,23 @@ function MainApp() {
         range,
       };
       setLookup(nextLookup);
-      if (compact && NATIVE_APP) await openDetachedDictionary(nextLookup);
+      if (compact) await resizeCompactWindow(true);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "查词失败");
     }
   };
 
-  const closeDetachedDictionary = async (invalidate = true) => {
+  const resizeCompactWindow = async (lookupOpen: boolean) => {
     if (!NATIVE_APP) return;
-    if (invalidate) beginDictionaryWindowRequest(dictionaryLifecycle);
-    const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
-    await (await WebviewWindow.getByLabel("dictionary"))?.close();
+    const { getCurrentWindow, LogicalSize } = await import("@tauri-apps/api/window");
+    const size = compactWindowSize(lookupOpen);
+    await getCurrentWindow().setSize(new LogicalSize(size.width, size.height));
   };
 
-  const openDetachedDictionary = async (nextLookup: Lookup) => {
-    const [{ WebviewWindow }, { currentMonitor, getCurrentWindow, PhysicalPosition }, { emitTo, once }] = await Promise.all([
-      import("@tauri-apps/api/webviewWindow"),
-      import("@tauri-apps/api/window"),
-      import("@tauri-apps/api/event"),
-    ]);
-    const requestGeneration = beginDictionaryWindowRequest(dictionaryLifecycle);
-    const isCurrentRequest = () => isCurrentDictionaryWindowRequest(dictionaryLifecycle, requestGeneration);
-    await closeDetachedDictionary(false);
-
-    const mainWindow = getCurrentWindow();
-    const scaleFactor = await mainWindow.scaleFactor();
-    const windowPosition = await mainWindow.outerPosition();
-    const monitor = await currentMonitor();
-    const monitorPosition = monitor?.position ?? windowPosition;
-    const monitorSize = monitor?.size ?? { width: 1920, height: 1080 };
-    const position = detachedDictionaryPosition({
-      anchor: nextLookup.anchor,
-      windowPosition,
-      monitorPosition,
-      monitorSize,
-      scaleFactor,
-    });
-    const payload: DictionaryWindowPayload = {
-      term: nextLookup.term,
-      context: nextLookup.context,
-      entries: nextLookup.entries,
-    };
-    let dictionaryWindow: InstanceType<typeof WebviewWindow>;
-    let confirmPosition: () => void = () => {};
-    const positionReady = new Promise<void>((resolve) => {
-      confirmPosition = resolve;
-    });
-    const stopWaitingForRendered = await once(DICTIONARY_WINDOW_RENDERED_EVENT, async () => {
-      if (!isCurrentRequest()) return;
-      try {
-        await revealDictionaryWindow(dictionaryWindow, positionReady);
-      } catch (reason) {
-        setLookup(null);
-        setError(reason instanceof Error ? reason.message : "词典浮窗显示失败");
-      }
-    });
-    const stopWaitingForReady = await once(DICTIONARY_WINDOW_READY_EVENT, async () => {
-      if (!isCurrentRequest()) return;
-      try {
-        await emitTo("dictionary", DICTIONARY_WINDOW_PAYLOAD_EVENT, payload);
-      } catch (reason) {
-        setLookup(null);
-        setError(reason instanceof Error ? reason.message : "词典浮窗初始化失败");
-      }
-    });
-    const cleanupEvents = () => {
-      stopWaitingForReady();
-      stopWaitingForRendered();
-    };
-    if (!trackDictionaryWindowRequest(dictionaryLifecycle, requestGeneration, cleanupEvents)) return;
-    dictionaryWindow = new WebviewWindow("dictionary", dictionaryWindowOptions(`${nextLookup.term} · 词典`));
-    void dictionaryWindow.once("tauri://created", async () => {
-      if (!isCurrentRequest()) return;
-      try {
-        await prepareDictionaryWindow(dictionaryWindow, new PhysicalPosition(position.x, position.y));
-        if (!isCurrentRequest()) return;
-        confirmPosition();
-      } catch (reason) {
-        if (!isCurrentRequest()) return;
-        beginDictionaryWindowRequest(dictionaryLifecycle);
-        setLookup(null);
-        setError(reason instanceof Error ? reason.message : "词典浮窗定位失败");
-      }
-    });
-    void dictionaryWindow.once("tauri://error", ({ payload }) => {
-      if (!isCurrentRequest()) return;
-      beginDictionaryWindowRequest(dictionaryLifecycle);
-      setLookup(null);
-      setError(typeof payload === "string" ? payload : "词典浮窗打开失败");
-    });
-    void observeDictionaryWindowDestroyed(dictionaryWindow, () => {
-      if (!isCurrentRequest()) return;
-      beginDictionaryWindowRequest(dictionaryLifecycle);
-      setLookup(null);
+  const closeCompactLookup = () => {
+    setLookup(null);
+    void resizeCompactWindow(false).catch((reason) => {
+      setError(reason instanceof Error ? reason.message : "小窗收起失败");
     });
   };
 
@@ -498,6 +405,7 @@ function MainApp() {
     const next = !compact;
     try {
       if (!NATIVE_APP) {
+        if (!next) setLookup(null);
         setCompact(next);
         return;
       }
@@ -511,7 +419,6 @@ function MainApp() {
         await appWindow.setResizable(false);
         await appWindow.setAlwaysOnTop(true);
       } else {
-        await closeDetachedDictionary();
         setLookup(null);
         await appWindow.setAlwaysOnTop(false);
         await appWindow.setResizable(true);
@@ -566,7 +473,7 @@ function MainApp() {
           onRestore={() => void toggleCompact()}
           onClose={() => void closeWindow()}
         />
-        {lookup && !NATIVE_APP && <DictionaryPopover lookup={lookup} demo={DEMO_MODE} compact onClose={() => setLookup(null)} />}
+        {lookup && <DictionaryPopover lookup={lookup} demo={DEMO_MODE} compact onClose={closeCompactLookup} />}
       </div>
     );
   }
@@ -1200,55 +1107,7 @@ function DockButton({ label, active = false, tonal = false, primary = false, onC
   );
 }
 
-function DetachedDictionaryWindow() {
-  const [payload, setPayload] = useState<DictionaryWindowPayload | null>(null);
-  useEffect(() => {
-    let disposed = false;
-    let stopListening: (() => void) | undefined;
-    const connect = async () => {
-      const { emitTo, listen } = await import("@tauri-apps/api/event");
-      const stop = await listen<DictionaryWindowPayload>(DICTIONARY_WINDOW_PAYLOAD_EVENT, ({ payload: value }) => {
-        if (!disposed) setPayload(value);
-      });
-      if (disposed) {
-        stop();
-        return;
-      }
-      stopListening = stop;
-      await emitTo("main", DICTIONARY_WINDOW_READY_EVENT);
-    };
-    void connect();
-    return () => {
-      disposed = true;
-      stopListening?.();
-    };
-  }, []);
-  useEffect(() => {
-    if (!payload) return;
-    const notifyRendered = async () => {
-      const { emitTo } = await import("@tauri-apps/api/event");
-      await emitTo("main", DICTIONARY_WINDOW_RENDERED_EVENT);
-    };
-    void notifyRendered();
-  }, [payload]);
-  const close = useCallback(async () => {
-    const { getCurrentWindow } = await import("@tauri-apps/api/window");
-    await getCurrentWindow().close();
-  }, []);
-  if (!payload) {
-    return <div role="status" style={{ display: "grid", height: "100vh", placeItems: "center", color: "var(--text-quiet)", fontSize: 13 }}>正在加载释义…</div>;
-  }
-  return (
-    <DictionaryPopover
-      lookup={{ ...payload, anchor: { top: 0, bottom: 0, centerX: 0 } }}
-      demo={false}
-      standalone
-      onClose={() => void close()}
-    />
-  );
-}
-
-function DictionaryPopover({ lookup, demo, compact = false, standalone = false, onClose }: { lookup: Lookup; demo: boolean; compact?: boolean; standalone?: boolean; onClose: () => void }) {
+function DictionaryPopover({ lookup, demo, compact = false, onClose }: { lookup: Lookup; demo: boolean; compact?: boolean; onClose: () => void }) {
   const ref = useRef<HTMLDivElement>(null);
   const [message, setMessage] = useState("");
   const [anchor, setAnchor] = useState(lookup.anchor);
@@ -1260,15 +1119,16 @@ function DictionaryPopover({ lookup, demo, compact = false, standalone = false, 
     anchor,
     popoverHeight: LOOKUP_POPOVER_HEIGHT,
     viewportHeight: window.innerHeight,
+    viewportTop: 40,
   });
   const left = Math.min(Math.max(12, anchor.centerX - 34), window.innerWidth - width - 12);
   const arrowLeft = Math.min(Math.max(22, anchor.centerX - left - 8), width - 38);
-  const style = standalone
-    ? { left: 10, top: 10, width: window.innerWidth - 20, height: window.innerHeight - 20 }
+  const style = compact
+    ? undefined
     : { left, top: placement.top, width, height: placement.height, "--arrow-left": `${arrowLeft}px` };
 
   useEffect(() => {
-    if (!lookup.range) return;
+    if (compact || !lookup.range) return;
 
     const updateAnchor = () => {
       const rect = lookup.range?.getBoundingClientRect();
@@ -1276,7 +1136,7 @@ function DictionaryPopover({ lookup, demo, compact = false, standalone = false, 
         rect,
         window.innerWidth,
         window.innerHeight,
-        compact ? 0 : 40,
+        40,
       )) {
         onClose();
         return;
@@ -1296,7 +1156,7 @@ function DictionaryPopover({ lookup, demo, compact = false, standalone = false, 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
     const onPointerDown = (event: PointerEvent) => {
-      if (ref.current && !ref.current.contains(event.target as Node)) onClose();
+      if (!compact && ref.current && !ref.current.contains(event.target as Node)) onClose();
     };
     document.addEventListener("keydown", onKeyDown);
     document.addEventListener("pointerdown", onPointerDown);
@@ -1304,7 +1164,7 @@ function DictionaryPopover({ lookup, demo, compact = false, standalone = false, 
       document.removeEventListener("keydown", onKeyDown);
       document.removeEventListener("pointerdown", onPointerDown);
     };
-  }, [onClose]);
+  }, [compact, onClose]);
 
   const add = async () => {
     if (!entry) return;
@@ -1321,7 +1181,7 @@ function DictionaryPopover({ lookup, demo, compact = false, standalone = false, 
   };
 
   return (
-    <div ref={ref} className={`dictionary-popover ${compact ? "compact-floating-popover" : ""} ${standalone ? "standalone-dictionary-popover" : `popover-${placement.side}`}`} style={style as CSSProperties} role="dialog" aria-label={`${lookup.term} 的词典解释`}>
+    <div ref={ref} className={`dictionary-popover ${compact ? "compact-inline-dictionary" : `popover-${placement.side}`}`} style={style as CSSProperties} role="dialog" aria-label={`${lookup.term} 的词典解释`}>
       <div className="dictionary-header">
         <div><h2>{lookup.term}</h2>{entry?.reading && <span className="reading">{entry.reading}</span>}{entry && <span className="language-chip">{entry.language.toUpperCase()}</span>}</div>
         <button type="button" aria-label="关闭词典" onClick={onClose}><X size={19} /></button>
@@ -1345,7 +1205,7 @@ function DictionaryPopover({ lookup, demo, compact = false, standalone = false, 
         <div className="lookup-context"><span>原文语境</span><q>{contextExcerpt(lookup.context, lookup.term)}</q></div>
       </div>
       <button className="anki-button" type="button" disabled={!entry} onClick={() => void add()}><PlusCircle size={16} />{message || "添加到 Anki"}</button>
-      {!standalone && <i className="popover-arrow" aria-hidden="true" />}
+      {!compact && <i className="popover-arrow" aria-hidden="true" />}
     </div>
   );
 }
