@@ -1,8 +1,39 @@
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 
 import numpy as np
+
+from ..asr.runtime import prepare_faster_whisper_runtime
+
+
+logger = logging.getLogger(__name__)
+
+
+class _StreamingSileroOnnx:
+    """Minimal streaming wrapper around faster-whisper's bundled Silero model."""
+
+    def __init__(self) -> None:
+        prepare_faster_whisper_runtime()
+        from faster_whisper.vad import get_vad_model
+
+        self._session = get_vad_model().session
+        self._h = np.zeros((1, 1, 128), dtype=np.float32)
+        self._c = np.zeros((1, 1, 128), dtype=np.float32)
+        self._context = np.zeros((1, 64), dtype=np.float32)
+
+    def predict(self, samples: np.ndarray) -> float:
+        frame = np.zeros(512, dtype=np.float32)
+        sample_count = min(len(samples), len(frame))
+        frame[:sample_count] = samples[:sample_count]
+        model_input = np.concatenate((self._context, frame.reshape(1, -1)), axis=1)
+        probabilities, self._h, self._c = self._session.run(
+            None,
+            {"input": model_input, "h": self._h, "c": self._c},
+        )
+        self._context = frame[-64:].reshape(1, -1)
+        return float(probabilities.reshape(-1)[0])
 
 
 class VoiceDetector:
@@ -13,21 +44,11 @@ class VoiceDetector:
         self.backend = "energy"
         self._predict: Callable[[np.ndarray], float] = self._energy
         try:
-            import torch
-            from silero_vad import load_silero_vad
-
-            model = load_silero_vad(onnx=False)
-
-            def silero(samples: np.ndarray) -> float:
-                frame = np.zeros(512, dtype=np.float32)
-                frame[: min(len(samples), 512)] = samples[:512]
-                with torch.no_grad():
-                    return float(model(torch.from_numpy(frame), 16_000).item())
-
-            self._predict = silero
-            self.backend = "silero"
-        except (ImportError, RuntimeError):
-            pass
+            model = _StreamingSileroOnnx()
+            self._predict = model.predict
+            self.backend = "silero-onnx"
+        except (ImportError, OSError, RuntimeError) as exc:
+            logger.warning("Silero ONNX VAD is unavailable; using energy fallback: %s", exc)
 
     @staticmethod
     def _energy(samples: np.ndarray) -> float:
@@ -84,4 +105,3 @@ class SpeechSegmenter:
         self._chunks.clear()
         self._speech_samples = 0
         self._silence_samples = 0
-

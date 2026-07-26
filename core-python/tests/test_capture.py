@@ -20,7 +20,7 @@ class BlockingStream:
         return bytes(frames * 2)
 
     def stop_stream(self) -> None:
-        pass
+        self.release.set()
 
     def close(self) -> None:
         self.closed_after_read = self.read_finished
@@ -31,8 +31,20 @@ class FakeAudio:
         pass
 
 
+class ProcessStream:
+    def __init__(self) -> None:
+        self.stopped = False
+        self.closed = False
+
+    def stop_stream(self) -> None:
+        self.stopped = True
+
+    def close(self) -> None:
+        self.closed = True
+
+
 @pytest.mark.asyncio
-async def test_cancelled_read_finishes_before_stream_is_closed() -> None:
+async def test_cancelled_read_interrupts_stream_before_it_is_closed() -> None:
     capture = AudioCapture()
     stream = BlockingStream()
     capture._stream = stream
@@ -41,12 +53,27 @@ async def test_cancelled_read_finishes_before_stream_is_closed() -> None:
     task = asyncio.create_task(capture.read())
     await asyncio.to_thread(stream.reading.wait, 1)
     task.cancel()
-    await asyncio.sleep(0)
-
-    assert not task.done()
-    stream.release.set()
     with pytest.raises(asyncio.CancelledError):
-        await task
+        await asyncio.wait_for(task, timeout=1)
 
     capture.stop()
+    assert stream.read_finished
     assert stream.closed_after_read
+
+
+def test_process_capture_exposes_vrchat_as_audio_device(monkeypatch) -> None:
+    stream = ProcessStream()
+    monkeypatch.setattr(
+        "app.audio.capture.ProcessLoopbackStream.start",
+        lambda process_name: stream,
+    )
+    capture = AudioCapture()
+
+    device = capture.start(36, process_name="VRChat.exe")
+
+    assert device.id == -1
+    assert device.name == "VRChat（仅应用音频）"
+    assert device.sample_rate == 16_000
+    capture.stop()
+    assert stream.stopped
+    assert stream.closed

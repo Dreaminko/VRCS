@@ -1,0 +1,66 @@
+import type {
+  AsrCapabilities,
+  AsrSettings,
+  AudioDevice,
+  Settings,
+} from "./types";
+
+export function audioSelectionErrors(
+  settings: Settings,
+  devices: AudioDevice[],
+): string[] {
+  const errors: string[] = [];
+  const output = settings.audio.output;
+  if (
+    output.mode === "system"
+    && output.device_id !== null
+    && !devices.some((device) => device.is_loopback && device.id === output.device_id)
+  ) {
+    errors.push("所选系统输出设备已失效，请重新选择");
+  }
+  const microphone = settings.audio.microphone;
+  if (
+    microphone.mode === "device"
+    && (
+      microphone.device_id === null
+      || !devices.some(
+        (device) => !device.is_loopback && device.id === microphone.device_id,
+      )
+    )
+  ) {
+    errors.push("所选麦克风设备已失效，请重新选择");
+  }
+  return errors;
+}
+
+export function validComputeTypes(
+  capabilities: AsrCapabilities | null,
+  device: AsrSettings["device"],
+): AsrSettings["compute_type"][] {
+  return capabilities?.compute_types[device] ?? ["int8"];
+}
+
+export function asrSelectionError(
+  settings: Settings,
+  capabilities: AsrCapabilities | null,
+): string | null {
+  if (!capabilities) return null;
+  if (settings.asr.device === "cuda" && !capabilities.cuda.available) {
+    return "CUDA 预检失败，请改用自动选择或 CPU";
+  }
+  if (!validComputeTypes(capabilities, settings.asr.device).includes(settings.asr.compute_type)) {
+    return "当前运行设备与计算类型组合无效";
+  }
+  return null;
+}
+
+export function audioSettingsChanged(
+  previous: Settings,
+  next: Settings,
+): boolean {
+  return previous.audio.sample_rate !== next.audio.sample_rate
+    || previous.audio.output.mode !== next.audio.output.mode
+    || previous.audio.output.device_id !== next.audio.output.device_id
+    || previous.audio.microphone.mode !== next.audio.microphone.mode
+    || previous.audio.microphone.device_id !== next.audio.microphone.device_id;
+}

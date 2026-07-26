@@ -6,6 +6,7 @@ from typing import Any, Literal
 import numpy as np
 
 from ..models import AudioDevice
+from .process_loopback import ProcessLoopbackStream
 
 
 class AudioUnavailableError(RuntimeError):
@@ -27,6 +28,7 @@ class AudioCapture:
         self._input_rate = output_rate
         self._channels = 1
         self._frames_per_buffer = 512
+        self._stream_stopped = False
         self.device: AudioDevice | None = None
 
     @staticmethod
@@ -79,28 +81,71 @@ class AudioCapture:
             )
             return devices
 
-    def start(self, device_id: int | None = None) -> AudioDevice:
+    def validate_device_id(self, device_id: int) -> AudioDevice:
+        expected_loopback = self.source == "speaker"
+        device = next(
+            (
+                item
+                for item in self.list_devices()
+                if item.id == device_id and item.is_loopback == expected_loopback
+            ),
+            None,
+        )
+        if device is None:
+            label = "系统输出" if expected_loopback else "麦克风"
+            raise AudioUnavailableError(f"所选{label}设备已失效，请重新选择")
+        return device
+
+    def start(
+        self,
+        device_id: int | None = None,
+        process_name: str | None = None,
+    ) -> AudioDevice:
         if self._stream is not None:
             raise RuntimeError("Audio capture is already running")
+        if process_name is not None:
+            if self.source != "speaker":
+                raise RuntimeError("Process loopback is only valid for speaker capture")
+            self._stream = ProcessLoopbackStream.start(process_name)
+            self._stream_stopped = False
+            self._input_rate = self.output_rate
+            self._channels = 1
+            self._frames_per_buffer = 512
+            self.device = AudioDevice(
+                id=-1,
+                name="VRChat（仅应用音频）",
+                is_default=False,
+                is_loopback=True,
+                sample_rate=self._input_rate,
+                channels=self._channels,
+            )
+            return self.device
         pyaudio = self._module()
-        self._audio = pyaudio.PyAudio()
         if device_id is not None:
-            info = self._audio.get_device_info_by_index(device_id)
-        elif self.source == "speaker":
-            info = self._audio.get_default_wasapi_loopback()
-        else:
-            info = self._audio.get_default_input_device_info()
-        self._input_rate = int(info["defaultSampleRate"])
-        self._channels = max(1, int(info["maxInputChannels"]))
-        self._frames_per_buffer = round(self._input_rate * 512 / self.output_rate)
-        self._stream = self._audio.open(
-            format=pyaudio.paInt16,
-            channels=self._channels,
-            rate=self._input_rate,
-            input=True,
-            input_device_index=int(info["index"]),
-            frames_per_buffer=self._frames_per_buffer,
-        )
+            self.validate_device_id(device_id)
+        self._audio = pyaudio.PyAudio()
+        try:
+            if device_id is not None:
+                info = self._audio.get_device_info_by_index(device_id)
+            elif self.source == "speaker":
+                info = self._audio.get_default_wasapi_loopback()
+            else:
+                info = self._audio.get_default_input_device_info()
+            self._input_rate = int(info["defaultSampleRate"])
+            self._channels = max(1, int(info["maxInputChannels"]))
+            self._frames_per_buffer = round(self._input_rate * 512 / self.output_rate)
+            self._stream = self._audio.open(
+                format=pyaudio.paInt16,
+                channels=self._channels,
+                rate=self._input_rate,
+                input=True,
+                input_device_index=int(info["index"]),
+                frames_per_buffer=self._frames_per_buffer,
+            )
+            self._stream_stopped = False
+        except Exception:
+            self.stop()
+            raise
         self.device = AudioDevice(
             id=int(info["index"]),
             name=str(info["name"]),
@@ -124,6 +169,7 @@ class AudioCapture:
         try:
             raw = await asyncio.shield(read_future)
         except asyncio.CancelledError:
+            self.interrupt()
             try:
                 await read_future
             except Exception:
@@ -139,11 +185,18 @@ class AudioCapture:
             audio = np.interp(target, source, audio).astype(np.float32)
         return audio
 
+    def interrupt(self) -> None:
+        """Unblock an in-flight stream read without closing its resources."""
+        if self._stream is not None and not self._stream_stopped:
+            self._stream.stop_stream()
+            self._stream_stopped = True
+
     def stop(self) -> None:
         if self._stream is not None:
-            self._stream.stop_stream()
+            self.interrupt()
             self._stream.close()
             self._stream = None
+            self._stream_stopped = False
         if self._audio is not None:
             self._audio.terminate()
             self._audio = None

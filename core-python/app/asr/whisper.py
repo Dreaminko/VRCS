@@ -7,6 +7,7 @@ from typing import Any
 import numpy as np
 
 from ..config import AsrConfig
+from .runtime import prepare_faster_whisper_runtime
 
 
 class AsrUnavailableError(RuntimeError):
@@ -35,8 +36,26 @@ class WhisperTranscriber:
     def _load(self) -> Any:
         if self._model is not None:
             return self._model
+        runtime_device = self.config.device
+        runtime_compute_type = self.config.compute_type
         try:
+            cuda_runtime = prepare_faster_whisper_runtime(self.config.device)
+            if (
+                self.config.device == "cuda"
+                and cuda_runtime is not None
+                and not cuda_runtime.available
+            ):
+                raise AsrUnavailableError(cuda_runtime.error or "CUDA 12 运行库不可用")
             from faster_whisper import WhisperModel
+            if self.config.device == "auto":
+                import ctranslate2
+
+                if (
+                    cuda_runtime is not None
+                    and not cuda_runtime.available
+                ) or ctranslate2.get_cuda_device_count() == 0:
+                    runtime_device = "cpu"
+                    runtime_compute_type = "int8"
         except ImportError as exc:
             raise AsrUnavailableError(
                 "ASR support is not installed. Run: pip install -e '.[asr]'"
@@ -45,8 +64,8 @@ class WhisperTranscriber:
         try:
             self._model = WhisperModel(
                 self.config.model,
-                device=self.config.device,
-                compute_type=self.config.compute_type,
+                device=runtime_device,
+                compute_type=runtime_compute_type,
             )
         except Exception:
             self.status = "error"

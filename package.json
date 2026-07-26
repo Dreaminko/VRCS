@@ -3,7 +3,14 @@
   "private": true,
   "workspaces": ["apps/desktop"],
   "scripts": {
-    "dev": "npm --workspace apps/desktop run tauri -- dev",
-    "build": "npm --workspace apps/desktop run tauri -- build"
+    "dev": "concurrently --kill-others --success command-desktop --names core,desktop --prefix-colors cyan,magenta \"npm run dev:core\" \"npm run dev:desktop\"",
+    "dev:core": "cd core-python && .venv\\Scripts\\python.exe -m app.main",
+    "dev:desktop": "npm --workspace apps/desktop run tauri -- dev",
+    "build:frontend": "npm --workspace apps/desktop run build",
+    "build:sidecar": "powershell -ExecutionPolicy Bypass -File scripts/build-sidecar.ps1",
+    "build": "powershell -ExecutionPolicy Bypass -File scripts/build-release.ps1"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1"
   }
 }

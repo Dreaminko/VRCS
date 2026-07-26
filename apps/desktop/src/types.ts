@@ -26,25 +26,79 @@ export interface AsrSettings {
   compute_type: "int8" | "float16" | "int8_float16";
 }
 
+export interface AudioOutputSettings {
+  mode: "system" | "vrchat";
+  device_id: number | null;
+}
+
+export interface MicrophoneSettings {
+  mode: "default" | "device" | "disabled";
+  device_id: number | null;
+}
+
 export interface Settings {
-  host: string;
-  port: number;
-  database_path: string;
-  audio_device_id: number | null;
-  microphone_device_id: number | null;
-  sample_rate: number;
-  subtitle_history_limit: number;
+  schema_version: 2;
+  server: {
+    host: string;
+    port: number;
+  };
+  storage: {
+    database_path: string;
+    subtitle_history_limit: number;
+  };
+  audio: {
+    sample_rate: number;
+    output: AudioOutputSettings;
+    microphone: MicrophoneSettings;
+  };
   asr: AsrSettings;
 }
 
 export interface Health {
   status: string;
+  config_schema?: number;
   capture_running: boolean;
   audio_device: AudioDevice | null;
   microphone_device?: AudioDevice | null;
   asr_status: string;
   vad_backend: string;
   last_error: string | null;
+}
+
+export interface AsrModelCapability {
+  id: AsrSettings["model"];
+  repository: string;
+  status: "not_downloaded" | "downloaded" | "loading" | "ready" | "error";
+}
+
+export type AsrModelStatus =
+  | "not_downloaded"
+  | "downloading"
+  | "downloaded"
+  | "loading"
+  | "ready"
+  | "error";
+
+export interface AsrModelRecord {
+  id: AsrSettings["model"];
+  repository: string;
+  status: AsrModelStatus;
+  active: boolean;
+  downloaded_bytes: number;
+  total_bytes: number;
+  progress: number;
+  error: string | null;
+}
+
+export interface AsrCapabilities {
+  runtime_available: boolean;
+  cuda: {
+    available: boolean;
+    device_count: number;
+    error: string | null;
+  };
+  compute_types: Record<AsrSettings["device"], AsrSettings["compute_type"][]>;
+  models: AsrModelCapability[];
 }
 
 export interface DictionaryEntry {

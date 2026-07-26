@@ -1,4 +1,6 @@
 import type {
+  AsrCapabilities,
+  AsrModelRecord,
   AudioDevice,
   DictionaryEntry,
   DictionarySource,
@@ -6,14 +8,43 @@ import type {
   Settings,
   Subtitle,
 } from "./types";
+import { invoke, isTauri } from "@tauri-apps/api/core";
 
-export const CORE_URL = "http://127.0.0.1:8765";
-export const WS_URL = "ws://127.0.0.1:8765/ws";
+export interface CoreConnection {
+  httpUrl: string;
+  wsUrl: string;
+  token: string;
+}
+
+let connection: CoreConnection = {
+  httpUrl: "http://127.0.0.1:8765",
+  wsUrl: "ws://127.0.0.1:8765/ws",
+  token: "",
+};
+
+export async function initializeCoreApi(): Promise<void> {
+  if (isTauri()) {
+    connection = await invoke<CoreConnection>("core_connection");
+  }
+}
+
+function requestHeaders(initial?: HeadersInit): Headers {
+  const headers = new Headers(initial);
+  if (!headers.has("Content-Type")) headers.set("Content-Type", "application/json");
+  if (connection.token) headers.set("Authorization", `Bearer ${connection.token}`);
+  return headers;
+}
+
+export function coreWebSocketUrl(): string {
+  const url = new URL(connection.wsUrl);
+  if (connection.token) url.searchParams.set("token", connection.token);
+  return url.toString();
+}
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${CORE_URL}${path}`, {
+  const response = await fetch(`${connection.httpUrl}${path}`, {
     ...init,
-    headers: { "Content-Type": "application/json", ...init?.headers },
+    headers: requestHeaders(init?.headers),
   });
   if (!response.ok) {
     const body = (await response.json().catch(() => null)) as { detail?: string } | null;
@@ -30,28 +61,30 @@ export const coreApi = {
   saveSettings: (settings: Settings) =>
     request<Settings>("/api/settings", {
       method: "PUT",
-      body: JSON.stringify({
-        asr: settings.asr,
-        audio_device_id: settings.audio_device_id,
-        microphone_device_id: settings.microphone_device_id,
-      }),
+      body: JSON.stringify(settings),
     }),
-  start: (deviceId: number | null, microphoneDeviceId: number | null) =>
+  start: () =>
     request<{ running: boolean; device: AudioDevice; microphone_device: AudioDevice | null }>("/api/capture/start", {
       method: "POST",
-      body: JSON.stringify({
-        device_id: deviceId,
-        microphone_device_id: microphoneDeviceId,
-      }),
+      body: JSON.stringify({}),
     }),
   stop: () => request<{ running: boolean }>("/api/capture/stop", { method: "POST" }),
+  asrCapabilities: () => request<AsrCapabilities>("/api/asr/capabilities"),
+  asrModels: () => request<AsrModelRecord[]>("/api/asr/models"),
+  downloadAsrModel: (model: AsrModelRecord["id"]) =>
+    request<AsrModelRecord>(`/api/asr/models/${model}/download`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    }),
+  deleteAsrModel: (model: AsrModelRecord["id"]) =>
+    request<{ deleted: boolean }>(`/api/asr/models/${model}`, { method: "DELETE" }),
   lookup: (term: string) =>
     request<DictionaryEntry[]>(`/api/dictionary?q=${encodeURIComponent(term)}`),
   dictionaries: () => request<DictionarySource[]>("/api/dictionaries"),
   importDictionary: async (file: File) => {
-    const response = await fetch(`${CORE_URL}/api/dictionaries/import`, {
+    const response = await fetch(`${connection.httpUrl}/api/dictionaries/import`, {
       method: "POST",
-      headers: { "Content-Type": "application/zip" },
+      headers: requestHeaders({ "Content-Type": "application/zip" }),
       body: file,
     });
     if (!response.ok) {

@@ -33,10 +33,14 @@ class TranscriptionPipeline:
     def running(self) -> bool:
         return self.task is not None and not self.task.done()
 
-    def start(self, device_id: int | None) -> AudioDevice:
+    def start(
+        self,
+        device_id: int | None,
+        process_name: str | None = None,
+    ) -> AudioDevice:
         if self.running:
             raise RuntimeError("Transcription is already running")
-        device = self.capture.start(device_id)
+        device = self.capture.start(device_id, process_name=process_name)
         self.last_error = None
         self.task = asyncio.create_task(self._run(), name="transcription-pipeline")
         return device
@@ -45,6 +49,7 @@ class TranscriptionPipeline:
         task, self.task = self.task, None
         if task is not None:
             task.cancel()
+            self.capture.interrupt()
             try:
                 await task
             except asyncio.CancelledError:

@@ -4,10 +4,29 @@ from zipfile import ZIP_DEFLATED, ZipFile
 
 from fastapi.testclient import TestClient
 
+import app.main as main_module
 from app.main import create_app
 from unittest.mock import Mock
 
+from app.audio.capture import AudioUnavailableError
+from app.config import MicrophoneConfig, OutputConfig
 from app.models import AudioDevice, Subtitle
+
+
+def test_run_uses_packaged_h11_protocol(monkeypatch, tmp_path):
+    observed: dict[str, object] = {}
+
+    monkeypatch.setattr(main_module, "CONFIG_PATH", tmp_path / "config.json")
+    monkeypatch.setenv("VRCS_LOG_DIR", str(tmp_path / "logs"))
+    monkeypatch.setattr(
+        main_module.uvicorn,
+        "run",
+        lambda app, **kwargs: observed.update(kwargs),
+    )
+
+    main_module.run()
+
+    assert observed["http"] == "h11"
 
 
 def dictionary_archive() -> bytes:
@@ -30,8 +49,26 @@ def test_health_history_and_settings(tmp_path):
         health = client.get("/health")
         assert health.status_code == 200
         assert health.json()["status"] == "ok"
+        assert health.json()["config_schema"] == 2
         assert client.get("/api/subtitles").json() == []
-        assert client.get("/api/settings").json()["asr"]["model"] == "small"
+        settings = client.get("/api/settings").json()
+        assert settings["schema_version"] == 2
+        assert settings["asr"]["model"] == "small"
+        assert settings["audio"]["output"]["mode"] == "system"
+
+
+def test_session_token_protects_http_and_websocket(tmp_path):
+    app = create_app(tmp_path / "config.json", session_token="release-token")
+    with TestClient(app) as client:
+        assert client.get("/health").status_code == 401
+        health = client.get(
+            "/health", headers={"Authorization": "Bearer release-token"}
+        )
+        assert health.status_code == 200
+        assert health.json()["service"] == "vrcs-core"
+
+        with client.websocket_connect("/ws?token=release-token") as websocket:
+            assert websocket.receive_json() == {"type": "connected"}
 
 
 def test_websocket_accepts_subscribers(tmp_path):
@@ -68,16 +105,121 @@ def test_capture_start_passes_microphone_device(tmp_path):
         )
         core.pipeline.start = Mock(return_value=speaker)
         core.microphone_pipeline.start = Mock(return_value=microphone)
+        core.config.audio.output = OutputConfig(mode="system", device_id=10)
+        core.config.audio.microphone = MicrophoneConfig(mode="device", device_id=20)
 
-        response = client.post(
-            "/api/capture/start",
-            json={"device_id": 10, "microphone_device_id": 20},
-        )
+        response = client.post("/api/capture/start", json={})
 
         assert response.status_code == 200
         assert response.json()["microphone_device"]["id"] == 20
-        core.pipeline.start.assert_called_once_with(10)
+        core.pipeline.start.assert_called_once_with(10, process_name=None)
         core.microphone_pipeline.start.assert_called_once_with(20)
+
+
+def test_vrchat_only_setting_uses_process_capture(tmp_path):
+    app = create_app(tmp_path / "config.json")
+    with TestClient(app) as client:
+        core = client.app.state.core
+        speaker = AudioDevice(
+            id=-1,
+            name="VRChat（仅应用音频）",
+            is_loopback=True,
+            sample_rate=16_000,
+            channels=1,
+        )
+        core.pipeline.start = Mock(return_value=speaker)
+        core.config.audio.output = OutputConfig(mode="vrchat")
+
+        response = client.post("/api/capture/start", json={})
+        assert response.status_code == 200
+        core.pipeline.start.assert_called_once_with(
+            None,
+            process_name="VRChat.exe",
+        )
+
+
+def test_default_and_disabled_microphone_have_distinct_capture_semantics(tmp_path):
+    app = create_app(tmp_path / "config.json")
+    with TestClient(app) as client:
+        core = client.app.state.core
+        speaker = AudioDevice(
+            id=10,
+            name="speaker",
+            is_loopback=True,
+            sample_rate=48_000,
+            channels=2,
+        )
+        microphone = AudioDevice(
+            id=20,
+            name="default microphone",
+            sample_rate=48_000,
+            channels=1,
+        )
+        core.pipeline.start = Mock(return_value=speaker)
+        core.microphone_pipeline.start = Mock(return_value=microphone)
+        core.config.audio.microphone = MicrophoneConfig(mode="default")
+
+        assert client.post("/api/capture/start", json={}).status_code == 200
+        core.microphone_pipeline.start.assert_called_once_with(None)
+
+        client.post("/api/capture/stop")
+        core.pipeline.start.reset_mock()
+        core.microphone_pipeline.start.reset_mock()
+        core.config.audio.microphone = MicrophoneConfig(mode="disabled")
+
+        assert client.post("/api/capture/start", json={}).status_code == 200
+        core.microphone_pipeline.start.assert_not_called()
+
+
+def test_settings_apply_rejects_stale_device_without_changing_config(tmp_path):
+    app = create_app(tmp_path / "config.json")
+    with TestClient(app) as client:
+        core = client.app.state.core
+        original = client.get("/api/settings").json()
+        update = json.loads(json.dumps(original))
+        update["audio"]["output"] = {"mode": "system", "device_id": 999}
+        core.capture.validate_device_id = Mock(
+            side_effect=AudioUnavailableError("所选系统输出设备已失效，请重新选择")
+        )
+
+        response = client.put("/api/settings", json=update)
+
+        assert response.status_code == 422
+        assert client.get("/api/settings").json() == original
+
+
+def test_settings_apply_commits_complete_v2_document(tmp_path):
+    app = create_app(tmp_path / "config.json")
+    with TestClient(app) as client:
+        update = client.get("/api/settings").json()
+        update["asr"]["model"] = "base"
+        update["asr"]["device"] = "cpu"
+        update["asr"]["compute_type"] = "int8"
+
+        response = client.put("/api/settings", json=update)
+
+        assert response.status_code == 200
+        assert response.json()["asr"]["model"] == "base"
+        persisted = json.loads((tmp_path / "config.json").read_text(encoding="utf-8"))
+        assert persisted == response.json()
+
+
+def test_asr_capabilities_expose_models_cuda_and_combinations(tmp_path):
+    app = create_app(tmp_path / "config.json")
+    with TestClient(app) as client:
+        response = client.get("/api/asr/capabilities")
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert {model["id"] for model in payload["models"]} == {
+            "tiny",
+            "base",
+            "small",
+            "medium",
+            "large-v3",
+        }
+        assert "cpu" in payload["compute_types"]
+        assert "available" in payload["cuda"]
 
 
 def test_imports_lists_looks_up_and_deletes_yomitan_dictionary(tmp_path):

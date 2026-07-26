@@ -7,6 +7,8 @@ import {
   ChevronDown,
   Clock3,
   History,
+  HardDrive,
+  Download,
   Languages,
   MessageSquare,
   MessageSquareText,
@@ -21,11 +23,13 @@ import {
   SlidersHorizontal,
   Square,
   Trash2,
+  TriangleAlert,
   Upload,
   Volume2,
+  Wrench,
   X,
 } from "lucide-react";
-import { coreApi, WS_URL } from "./api";
+import { coreApi, coreWebSocketUrl, initializeCoreApi } from "./api";
 import { isTauri } from "@tauri-apps/api/core";
 import {
   COMPACT_WINDOW_SIZE,
@@ -34,10 +38,26 @@ import {
 } from "./compact-mode";
 import { conversationId, groupConversations } from "./conversations";
 import type { SubtitleConversation } from "./conversations";
+import { shouldShowVrchatNotRunningWarning } from "./capture-warning";
+import {
+  defaultDesktopPreferences,
+  loadDesktopPreferences,
+  updateDesktopPreference,
+} from "./desktop-preferences";
+import type { DesktopPreferences } from "./desktop-preferences";
 import { definitionGlosses, groupDictionaryEntries } from "./dictionary";
 import { isLookupAnchorVisible, LOOKUP_POPOVER_HEIGHT, placeLookupPopover } from "./popover-placement";
 import type { LookupAnchor } from "./popover-placement";
+import { createSettingsAutosave } from "./settings-autosave";
+import {
+  asrSelectionError,
+  audioSettingsChanged,
+  audioSelectionErrors,
+  validComputeTypes,
+} from "./settings-validation";
 import type {
+  AsrCapabilities,
+  AsrModelRecord,
   AudioDevice,
   ConnectionState,
   DictionaryEntry,
@@ -48,6 +68,7 @@ import type {
 } from "./types";
 
 type Page = "live" | "history" | "settings";
+type SettingsCategory = "system" | "recognition" | "audio" | "dictionary" | "debug";
 type SubtitleSource = "speaker" | "microphone";
 type Lookup = {
   term: string;
@@ -62,24 +83,27 @@ const DEMO_MODE = demoParams.has("demo");
 const DEMO_LOOKUP = demoParams.has("lookup");
 const DEMO_STOPPED = demoParams.has("stopped");
 const DEMO_COMPACT = demoParams.has("compact");
+const DEMO_VRCHAT_WARNING = demoParams.has("vrchat-warning");
+const DEMO_CUDA_MISSING = demoParams.has("cuda-missing");
 const NATIVE_APP = isTauri();
 const CONVERSATION_STARTS_KEY = "vrcs.conversation-starts.v1";
 const SIDEBAR_OPEN_KEY = "vrcs.conversation-sidebar-open";
 
 const demoSettings: Settings = {
-  host: "127.0.0.1",
-  port: 8765,
-  database_path: "data/vrcs.db",
-  audio_device_id: null,
-  microphone_device_id: 2,
-  sample_rate: 16000,
-  subtitle_history_limit: 500,
+  schema_version: 2,
+  server: { host: "127.0.0.1", port: 8765 },
+  storage: { database_path: "data/vrcs.db", subtitle_history_limit: 500 },
+  audio: {
+    sample_rate: 16000,
+    output: { mode: "system", device_id: null },
+    microphone: { mode: "device", device_id: 2 },
+  },
   asr: { model: "small", language: "auto", device: "auto", compute_type: "int8" },
 };
 
 const demoDevices: AudioDevice[] = [
   { id: 1, name: "Realtek High Definition Audio", is_default: true, is_loopback: true, sample_rate: 48000, channels: 2 },
-  { id: 2, name: "默认麦克风", is_default: true, is_loopback: false, sample_rate: 48000, channels: 1 },
+  { id: 2, name: "Realtek Microphone Array", is_default: true, is_loopback: false, sample_rate: 48000, channels: 1 },
   { id: 3, name: "Yeti Stereo Microphone", is_default: false, is_loopback: false, sample_rate: 48000, channels: 2 },
 ];
 
@@ -149,6 +173,99 @@ const demoHealth: Health = {
   last_error: null,
 };
 
+const demoAsrCapabilities: AsrCapabilities = {
+  runtime_available: true,
+  cuda: DEMO_CUDA_MISSING
+    ? {
+        available: false,
+        device_count: 1,
+        error: "未找到 CUDA 12 运行库：cudart64_12.dll、cublasLt64_12.dll、cublas64_12.dll",
+      }
+    : { available: true, device_count: 1, error: null },
+  compute_types: {
+    auto: DEMO_CUDA_MISSING ? ["int8"] : ["int8", "float16", "int8_float16"],
+    cpu: ["int8"],
+    cuda: DEMO_CUDA_MISSING ? [] : ["int8", "float16", "int8_float16"],
+  },
+  models: [
+    { id: "tiny", repository: "Systran/faster-whisper-tiny", status: "downloaded" },
+    { id: "base", repository: "Systran/faster-whisper-base", status: "downloaded" },
+    { id: "small", repository: "Systran/faster-whisper-small", status: "ready" },
+    { id: "medium", repository: "Systran/faster-whisper-medium", status: "not_downloaded" },
+    { id: "large-v3", repository: "Systran/faster-whisper-large-v3", status: "not_downloaded" },
+  ],
+};
+
+const demoModels: AsrModelRecord[] = [
+  {
+    id: "tiny",
+    repository: "Systran/faster-whisper-tiny",
+    status: "downloaded",
+    active: false,
+    downloaded_bytes: 75_120_000,
+    total_bytes: 75_120_000,
+    progress: 1,
+    error: null,
+  },
+  {
+    id: "base",
+    repository: "Systran/faster-whisper-base",
+    status: "downloaded",
+    active: false,
+    downloaded_bytes: 142_380_000,
+    total_bytes: 142_380_000,
+    progress: 1,
+    error: null,
+  },
+  {
+    id: "small",
+    repository: "Systran/faster-whisper-small",
+    status: "ready",
+    active: true,
+    downloaded_bytes: 466_050_000,
+    total_bytes: 466_050_000,
+    progress: 1,
+    error: null,
+  },
+  {
+    id: "medium",
+    repository: "Systran/faster-whisper-medium",
+    status: "not_downloaded",
+    active: false,
+    downloaded_bytes: 0,
+    total_bytes: 1_530_000_000,
+    progress: 0,
+    error: null,
+  },
+  {
+    id: "large-v3",
+    repository: "Systran/faster-whisper-large-v3",
+    status: "not_downloaded",
+    active: false,
+    downloaded_bytes: 0,
+    total_bytes: 3_100_000_000,
+    progress: 0,
+    error: null,
+  },
+];
+
+const MODEL_PRESENTATION: Record<AsrModelRecord["id"], {
+  name: string;
+  description: string;
+}> = {
+  tiny: { name: "Tiny", description: "启动最快，适合轻量设备和短对话" },
+  base: { name: "Base", description: "低资源占用，日常语音的均衡起点" },
+  small: { name: "Small", description: "速度与识别质量平衡，推荐多数设备使用" },
+  medium: { name: "Medium", description: "更高识别质量，需要更多内存和显存" },
+  "large-v3": { name: "Large v3", description: "最高识别质量，适合高性能显卡" },
+};
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1_000_000) return `${Math.max(0, Math.round(bytes / 1_000))} KB`;
+  if (bytes < 1_000_000_000) return `${(bytes / 1_000_000).toFixed(bytes < 100_000_000 ? 1 : 0)} MB`;
+  return `${(bytes / 1_000_000_000).toFixed(1)} GB`;
+}
+
 function timestamp(value: string): string {
   return new Intl.DateTimeFormat("zh-CN", {
     hour: "2-digit",
@@ -184,12 +301,21 @@ function MainApp() {
   const openedAt = useRef(Date.now()).current;
   const [page, setPage] = useState<Page>("live");
   const [connection, setConnection] = useState<ConnectionState>(DEMO_MODE ? "connected" : "connecting");
+  const [coreConfigured, setCoreConfigured] = useState(DEMO_MODE);
   const [health, setHealth] = useState<Health | null>(DEMO_MODE ? { ...demoHealth, capture_running: !DEMO_STOPPED } : null);
   const [subtitles, setSubtitles] = useState<Subtitle[]>(DEMO_MODE ? demoSubtitles : []);
   const [settings, setSettings] = useState<Settings | null>(DEMO_MODE ? demoSettings : null);
+  const persistedSettingsRef = useRef<Settings | null>(DEMO_MODE ? demoSettings : null);
   const [devices, setDevices] = useState<AudioDevice[]>(DEMO_MODE ? demoDevices : []);
+  const [devicesReady, setDevicesReady] = useState(DEMO_MODE);
+  const [asrCapabilities, setAsrCapabilities] = useState<AsrCapabilities | null>(
+    DEMO_MODE ? demoAsrCapabilities : null,
+  );
   const [dictionarySources, setDictionarySources] = useState<DictionarySource[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [vrchatWarningOpen, setVrchatWarningOpen] = useState(DEMO_MODE && DEMO_VRCHAT_WARNING);
+  const [cudaRuntimeWarningOpen, setCudaRuntimeWarningOpen] = useState(false);
+  const cudaRuntimeWarningShownRef = useRef(false);
   const [lookup, setLookup] = useState<Lookup | null>(DEMO_MODE && DEMO_LOOKUP ? {
     term: "便利",
     context: demoSubtitles[0].text,
@@ -208,6 +334,21 @@ function MainApp() {
   const selectedConversation = conversations.find((conversation) => conversation.id === selectedConversationId) ?? activeConversation;
 
   useEffect(() => {
+    const runtimeMissing = Boolean(
+      asrCapabilities
+      && asrCapabilities.cuda.device_count > 0
+      && !asrCapabilities.cuda.available,
+    );
+    if (runtimeMissing && !cudaRuntimeWarningShownRef.current) {
+      cudaRuntimeWarningShownRef.current = true;
+      setCudaRuntimeWarningOpen(true);
+    } else if (!runtimeMissing) {
+      cudaRuntimeWarningShownRef.current = false;
+      setCudaRuntimeWarningOpen(false);
+    }
+  }, [asrCapabilities]);
+
+  useEffect(() => {
     localStorage.setItem(SIDEBAR_OPEN_KEY, String(sidebarOpen));
   }, [sidebarOpen]);
 
@@ -221,41 +362,65 @@ function MainApp() {
     }
   }, [activeConversation, conversations, selectedConversationId]);
 
-  const refresh = useCallback(async () => {
+  useEffect(() => {
     if (DEMO_MODE) return;
+    let cancelled = false;
+    void initializeCoreApi()
+      .then(() => {
+        if (!cancelled) setCoreConfigured(true);
+      })
+      .catch((reason) => {
+        if (!cancelled) {
+          setConnection("disconnected");
+          setError(reason instanceof Error ? reason.message : "Core 服务初始化失败");
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const refresh = useCallback(async () => {
+    if (DEMO_MODE || !coreConfigured) return;
     try {
-      const [nextHealth, nextSettings, historyItems] = await Promise.all([
+      const [nextHealth, nextSettings, historyItems, nextAsrCapabilities] = await Promise.all([
         coreApi.health(),
         coreApi.settings(),
         coreApi.subtitles(),
+        coreApi.asrCapabilities(),
       ]);
       setHealth(nextHealth);
+      persistedSettingsRef.current = nextSettings;
       setSettings(nextSettings);
       setSubtitles(historyItems);
+      setAsrCapabilities(nextAsrCapabilities);
       setError(null);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "无法连接 Core 服务");
     }
-  }, []);
+  }, [coreConfigured]);
 
   useEffect(() => {
-    if (DEMO_MODE) return;
+    if (DEMO_MODE || !coreConfigured) return;
     void refresh();
     const timer = window.setInterval(
-      () => void coreApi.health().then(setHealth).catch(() => setHealth(null)),
+      () => {
+        if (settings === null) void refresh();
+        else void coreApi.health().then(setHealth).catch(() => setHealth(null));
+      },
       2500,
     );
     return () => window.clearInterval(timer);
-  }, [refresh]);
+  }, [coreConfigured, refresh, settings]);
 
   useEffect(() => {
-    if (DEMO_MODE) return;
+    if (DEMO_MODE || !coreConfigured) return;
     let socket: WebSocket | null = null;
     let retry: number | null = null;
     let closed = false;
     const connect = () => {
       setConnection("connecting");
-      socket = new WebSocket(WS_URL);
+      socket = new WebSocket(coreWebSocketUrl());
       socket.onopen = () => setConnection("connected");
       socket.onmessage = (event) => {
         const message = JSON.parse(String(event.data)) as { type: string; subtitle?: Subtitle };
@@ -274,31 +439,47 @@ function MainApp() {
       if (retry !== null) window.clearTimeout(retry);
       socket?.close();
     };
-  }, []);
+  }, [coreConfigured]);
 
   const loadDevices = useCallback(async () => {
-    if (DEMO_MODE) return;
+    if (DEMO_MODE || !coreConfigured) return;
     try {
       setDevices(await coreApi.devices());
+      setDevicesReady(true);
       setError(null);
     } catch (reason) {
+      setDevicesReady(false);
       setError(reason instanceof Error ? reason.message : "设备枚举失败");
     }
-  }, []);
+  }, [coreConfigured]);
 
   const loadDictionaries = useCallback(async () => {
-    if (DEMO_MODE) return;
+    if (DEMO_MODE || !coreConfigured) return;
     try {
       setDictionarySources(await coreApi.dictionaries());
       setError(null);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "词典列表加载失败");
     }
-  }, []);
+  }, [coreConfigured]);
+
+  const loadAsrCapabilities = useCallback(async () => {
+    if (DEMO_MODE || !coreConfigured) return;
+    try {
+      setAsrCapabilities(await coreApi.asrCapabilities());
+      setError(null);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "识别能力检测失败");
+    }
+  }, [coreConfigured]);
+  const loadAsrCapabilitiesRef = useRef(loadAsrCapabilities);
+  loadAsrCapabilitiesRef.current = loadAsrCapabilities;
 
   useEffect(() => {
-    if (page === "settings") void Promise.all([loadDevices(), loadDictionaries()]);
-  }, [loadDevices, loadDictionaries, page]);
+    if (page === "settings") {
+      void Promise.all([loadDevices(), loadDictionaries(), loadAsrCapabilities()]);
+    }
+  }, [loadAsrCapabilities, loadDevices, loadDictionaries, page]);
 
   const toggleCapture = async () => {
     if (DEMO_MODE) {
@@ -307,29 +488,104 @@ function MainApp() {
     }
     try {
       if (health?.capture_running) await coreApi.stop();
-      else await coreApi.start(
-        settings?.audio_device_id ?? null,
-        settings?.microphone_device_id ?? null,
-      );
+      else await coreApi.start();
       setHealth(await coreApi.health());
       setError(null);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "操作失败");
+      const message = reason instanceof Error ? reason.message : "操作失败";
+      if (shouldShowVrchatNotRunningWarning(
+        message,
+        settings?.audio.output.mode === "vrchat",
+      )) {
+        setError(null);
+        setLookup(null);
+        setVrchatWarningOpen(true);
+        if (compact) {
+          try {
+            await resizeCompactWindow(true);
+          } catch (resizeError) {
+            setError(resizeError instanceof Error ? resizeError.message : "警告窗口展开失败");
+          }
+        }
+      } else {
+        setError(message);
+      }
     }
   };
 
-  const saveSettings = async (next: Settings) => {
-    if (DEMO_MODE) {
-      setSettings(next);
-      return;
-    }
+  const persistSettings = async (next: Settings): Promise<Settings> => {
+    const previous = persistedSettingsRef.current;
+    const restartCapture = (
+      !DEMO_MODE
+      && Boolean(health?.capture_running)
+      && previous !== null
+      && audioSettingsChanged(previous, next)
+    );
+    let captureStopped = false;
+    let saved: Settings | null = null;
+
     try {
-      setSettings(await coreApi.saveSettings(next));
-      setError(null);
+      if (restartCapture) {
+        await coreApi.stop();
+        captureStopped = true;
+      }
+      saved = DEMO_MODE ? next : await coreApi.saveSettings(next);
+      if (restartCapture) {
+        await coreApi.start();
+        void coreApi.health().then(setHealth).catch(() => undefined);
+      }
+      persistedSettingsRef.current = saved;
+      return saved;
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "设置保存失败");
+      if (restartCapture && captureStopped) {
+        let recoveryError: unknown = null;
+        if (saved !== null && previous !== null) {
+          try {
+            await coreApi.saveSettings(previous);
+          } catch (rollbackReason) {
+            recoveryError = rollbackReason;
+          }
+        }
+        try {
+          await coreApi.start();
+          void coreApi.health().then(setHealth).catch(() => undefined);
+        } catch (restartReason) {
+          recoveryError ??= restartReason;
+        }
+        if (recoveryError) {
+          const applyMessage = reason instanceof Error ? reason.message : "设置应用失败";
+          const recoveryMessage = recoveryError instanceof Error
+            ? recoveryError.message
+            : "未知错误";
+          throw new Error(
+            `${applyMessage}；恢复旧配置或旧采集失败：${recoveryMessage}`,
+            { cause: reason },
+          );
+        }
+      }
+      throw reason;
     }
   };
+  const persistSettingsRef = useRef(persistSettings);
+  persistSettingsRef.current = persistSettings;
+  const settingsAutosaveRef = useRef<ReturnType<typeof createSettingsAutosave<Settings>> | null>(null);
+  if (settingsAutosaveRef.current === null) {
+    settingsAutosaveRef.current = createSettingsAutosave<Settings>({
+      persist: (next) => persistSettingsRef.current(next),
+      onOptimistic: setSettings,
+      onCommit: (saved) => {
+        persistedSettingsRef.current = saved;
+        setSettings(saved);
+        setError(null);
+        void loadAsrCapabilitiesRef.current();
+      },
+      onError: (reason) => {
+        if (persistedSettingsRef.current) setSettings(persistedSettingsRef.current);
+        setError(reason instanceof Error ? reason.message : "设置应用失败");
+      },
+    });
+  }
+  const saveSettings = settingsAutosaveRef.current;
 
   const importDictionary = async (file: File) => {
     if (DEMO_MODE) {
@@ -399,6 +655,15 @@ function MainApp() {
     void resizeCompactWindow(false).catch((reason) => {
       setError(reason instanceof Error ? reason.message : "小窗收起失败");
     });
+  };
+
+  const closeVrchatWarning = () => {
+    setVrchatWarningOpen(false);
+    if (compact) {
+      void resizeCompactWindow(false).catch((reason) => {
+        setError(reason instanceof Error ? reason.message : "小窗收起失败");
+      });
+    }
   };
 
   const toggleCompact = async () => {
@@ -474,6 +739,8 @@ function MainApp() {
           onClose={() => void closeWindow()}
         />
         {lookup && <DictionaryPopover lookup={lookup} demo={DEMO_MODE} compact onClose={closeCompactLookup} />}
+        {vrchatWarningOpen && <VrchatNotRunningDialog onClose={closeVrchatWarning} />}
+        {cudaRuntimeWarningOpen && <CudaRuntimeDialog onClose={() => setCudaRuntimeWarningOpen(false)} />}
       </div>
     );
   }
@@ -530,12 +797,15 @@ function MainApp() {
             <SettingsPanel
               settings={settings}
               devices={devices}
+              devicesReady={devicesReady}
               dictionaries={dictionarySources}
               disabled={health?.capture_running ?? false}
               modelStatus={health?.asr_status ?? "unknown"}
+              asrCapabilities={asrCapabilities}
               onRefresh={loadDevices}
               onImportDictionary={importDictionary}
               onDeleteDictionary={deleteDictionary}
+              onModelsChanged={loadAsrCapabilities}
               onSave={saveSettings}
             />
           )}
@@ -552,6 +822,87 @@ function MainApp() {
       />
 
       {lookup && <DictionaryPopover lookup={lookup} demo={DEMO_MODE} onClose={() => setLookup(null)} />}
+      {vrchatWarningOpen && <VrchatNotRunningDialog onClose={closeVrchatWarning} />}
+      {cudaRuntimeWarningOpen && <CudaRuntimeDialog onClose={() => setCudaRuntimeWarningOpen(false)} />}
+    </div>
+  );
+}
+
+function VrchatNotRunningDialog({ onClose }: { onClose: () => void }) {
+  return (
+    <WarningDialog
+      id="vrchat-warning"
+      title="未检测到 VRChat"
+      description="请先启动 VRChat，等待程序完成加载后再开始转写。"
+      onClose={onClose}
+    />
+  );
+}
+
+function CudaRuntimeDialog({ onClose }: { onClose: () => void }) {
+  return (
+    <WarningDialog
+      id="cuda-runtime-warning"
+      title="缺少 CUDA 12 运行库"
+      description="检测到 NVIDIA GPU，但无法加载 CUDA 12 的 cuBLAS 运行库。请安装 CUDA 12.x Runtime，完成后重新启动 VRCS。"
+      onClose={onClose}
+    />
+  );
+}
+
+function WarningDialog({ id, title, description, onClose }: {
+  id: string;
+  title: string;
+  description: string;
+  onClose: () => void;
+}) {
+  const confirmRef = useRef<HTMLButtonElement>(null);
+  const onCloseRef = useRef(onClose);
+
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
+
+  useEffect(() => {
+    const previousFocus = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null;
+    confirmRef.current?.focus();
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onCloseRef.current();
+      if (event.key === "Tab") {
+        event.preventDefault();
+        confirmRef.current?.focus();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      previousFocus?.focus();
+    };
+  }, []);
+
+  return (
+    <div
+      className="warning-dialog-backdrop"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
+      <section
+        className="warning-dialog"
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby={`${id}-title`}
+        aria-describedby={`${id}-description`}
+      >
+        <div className="warning-dialog-icon" aria-hidden="true"><TriangleAlert size={22} /></div>
+        <div className="warning-dialog-copy">
+          <h2 id={`${id}-title`}>{title}</h2>
+          <p id={`${id}-description`}>{description}</p>
+        </div>
+        <button ref={confirmRef} className="primary-button" type="button" onClick={onClose}>我知道了</button>
+      </section>
     </div>
   );
 }
@@ -772,33 +1123,220 @@ function HistoryView({ subtitles, onSelect }: { subtitles: Subtitle[]; onSelect:
   );
 }
 
-function SettingsPanel({ settings, devices, dictionaries, disabled, modelStatus, onRefresh, onImportDictionary, onDeleteDictionary, onSave }: {
+function SettingsPanel({ settings, devices, devicesReady, dictionaries, disabled, modelStatus, asrCapabilities, onRefresh, onImportDictionary, onDeleteDictionary, onModelsChanged, onSave }: {
   settings: Settings;
   devices: AudioDevice[];
+  devicesReady: boolean;
   dictionaries: DictionarySource[];
   disabled: boolean;
   modelStatus: string;
+  asrCapabilities: AsrCapabilities | null;
   onRefresh: () => Promise<void>;
   onImportDictionary: (file: File) => Promise<DictionarySource>;
   onDeleteDictionary: (id: number) => Promise<void>;
-  onSave: (value: Settings) => Promise<void>;
+  onModelsChanged: () => Promise<void>;
+  onSave: (value: Settings) => Promise<Settings>;
 }) {
   const [draft, setDraft] = useState(settings);
-  const [saved, setSaved] = useState(false);
+  const [activeCategory, setActiveCategory] = useState<SettingsCategory>("system");
+  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [saveMessage, setSaveMessage] = useState("");
+  const [desktopPreferences, setDesktopPreferences] = useState(defaultDesktopPreferences);
+  const [desktopPreferencesReady, setDesktopPreferencesReady] = useState(false);
+  const [desktopSaveState, setDesktopSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [desktopMessage, setDesktopMessage] = useState("");
   const [dictionaryBusy, setDictionaryBusy] = useState(false);
   const [dictionaryMessage, setDictionaryMessage] = useState("");
+  const [managedModels, setManagedModels] = useState<AsrModelRecord[]>(DEMO_MODE ? demoModels : []);
+  const [modelsReady, setModelsReady] = useState(DEMO_MODE);
+  const [modelMessage, setModelMessage] = useState("");
   const dictionaryFileRef = useRef<HTMLInputElement>(null);
-  useEffect(() => setDraft(settings), [settings]);
-  const updateAsr = (key: keyof Settings["asr"], value: string) => {
-    setDraft({ ...draft, asr: { ...draft.asr, [key]: value } });
-    setSaved(false);
+  const draftRef = useRef(settings);
+  const saveVersionRef = useRef(0);
+  const managedModelsRef = useRef(managedModels);
+  managedModelsRef.current = managedModels;
+  useEffect(() => {
+    draftRef.current = settings;
+    setDraft(settings);
+  }, [settings]);
+  useEffect(() => {
+    let cancelled = false;
+    void loadDesktopPreferences().then(
+      (saved) => {
+        if (cancelled) return;
+        setDesktopPreferences(saved);
+        setDesktopPreferencesReady(true);
+      },
+      (reason) => {
+        if (cancelled) return;
+        setDesktopMessage(reason instanceof Error ? reason.message : "系统设置读取失败");
+        setDesktopSaveState("error");
+        setDesktopPreferencesReady(true);
+      },
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  const loadModels = useCallback(async () => {
+    if (DEMO_MODE) return;
+    try {
+      const previous = managedModelsRef.current;
+      const next = await coreApi.asrModels();
+      managedModelsRef.current = next;
+      setManagedModels(next);
+      setModelsReady(true);
+      if (
+        previous.some((model) => model.status === "downloading")
+        && !next.some((model) => model.status === "downloading")
+      ) {
+        void onModelsChanged();
+      }
+    } catch (reason) {
+      setModelsReady(false);
+      setModelMessage(reason instanceof Error ? reason.message : "模型列表读取失败");
+    }
+  }, [onModelsChanged]);
+  useEffect(() => {
+    void loadModels();
+  }, [loadModels]);
+  useEffect(() => {
+    if (DEMO_MODE || activeCategory !== "recognition") return;
+    const timer = window.setInterval(() => void loadModels(), 750);
+    return () => window.clearInterval(timer);
+  }, [activeCategory, loadModels]);
+  const applySettings = (update: (current: Settings) => Settings) => {
+    const next = update(draftRef.current);
+    const version = ++saveVersionRef.current;
+    draftRef.current = next;
+    setDraft(next);
+    setSaveState("saving");
+    setSaveMessage("");
+    void onSave(next).then(
+      (saved) => {
+        if (version !== saveVersionRef.current) return;
+        draftRef.current = saved;
+        setDraft(saved);
+        setSaveState("saved");
+      },
+      (reason) => {
+        if (version !== saveVersionRef.current) return;
+        setSaveMessage(reason instanceof Error ? reason.message : "设置应用失败");
+        setSaveState("error");
+      },
+    );
+  };
+  const updateAsr = <K extends keyof Settings["asr"]>(key: K, value: Settings["asr"][K]) => {
+    applySettings((current) => {
+      const nextAsr = { ...current.asr, [key]: value };
+      if (key === "device") {
+        const allowed = validComputeTypes(asrCapabilities, nextAsr.device);
+        if (!allowed.includes(nextAsr.compute_type)) {
+          nextAsr.compute_type = allowed[0] ?? "int8";
+        }
+      }
+      return { ...current, asr: nextAsr };
+    });
+  };
+  const updateDesktop = async (key: keyof DesktopPreferences, enabled: boolean) => {
+    const previous = desktopPreferences;
+    const optimistic = { ...previous, [key]: enabled };
+    setDesktopPreferences(optimistic);
+    setDesktopSaveState("saving");
+    setDesktopMessage("");
+    try {
+      const saved = await updateDesktopPreference(previous, key, enabled);
+      setDesktopPreferences(saved);
+      setDesktopSaveState("saved");
+    } catch (reason) {
+      setDesktopPreferences(previous);
+      setDesktopMessage(reason instanceof Error ? reason.message : "系统设置保存失败");
+      setDesktopSaveState("error");
+    }
   };
   const outputDevices = devices.filter((device) => device.is_loopback);
   const microphoneDevices = devices.filter((device) => !device.is_loopback);
-  const save = async () => {
-    await onSave(draft);
-    setSaved(true);
-  };
+  const deviceErrors = devicesReady ? audioSelectionErrors(draft, devices) : [];
+  const asrError = asrSelectionError(draft, asrCapabilities);
+  const validationError = deviceErrors[0] ?? asrError;
+  const computeTypes = validComputeTypes(asrCapabilities, draft.asr.device);
+  const selectedModelCapability = asrCapabilities?.models.find(
+    (model) => model.id === draft.asr.model,
+  );
+  const selectedModelStatus = (
+    draft.asr.model === settings.asr.model
+    && ["loading", "ready", "error"].includes(modelStatus)
+  )
+    ? modelStatus
+    : selectedModelCapability?.status;
+  const modelStatusLabel = selectedModelStatus === "not_downloaded"
+    ? "请先在模型管理器中下载"
+    : selectedModelStatus === "loading"
+      ? "正在下载或加载模型"
+      : selectedModelStatus === "error"
+        ? "模型加载失败"
+        : selectedModelStatus
+          ? "模型文件已就绪"
+          : "正在检查模型文件";
+  const installedModels = managedModels.filter((model) =>
+    ["downloaded", "loading", "ready"].includes(model.status),
+  );
+  const downloadingModels = managedModels.filter((model) => model.status === "downloading");
+  const installedBytes = installedModels.reduce(
+    (total, model) => total + model.downloaded_bytes,
+    0,
+  );
+  const selectableModels = modelsReady
+    ? managedModels.filter((model) =>
+        model.id === draft.asr.model
+        || ["downloaded", "loading", "ready"].includes(model.status),
+      )
+    : (asrCapabilities?.models ?? demoAsrCapabilities.models).filter((model) =>
+        model.id === draft.asr.model || model.status !== "not_downloaded",
+      );
+  const settingsCategories: Array<{ id: SettingsCategory; label: string; icon: React.ReactNode }> = [
+    { id: "system", label: "常规", icon: <SlidersHorizontal size={18} /> },
+    { id: "audio", label: "音频", icon: <Volume2 size={18} /> },
+    { id: "recognition", label: "识别", icon: <Languages size={18} /> },
+    { id: "dictionary", label: "词典", icon: <BookOpen size={18} /> },
+    { id: "debug", label: "Debug", icon: <Wrench size={18} /> },
+  ];
+  const debugRows = [
+    { label: "配置 Schema", value: `v${draft.schema_version}` },
+    { label: "Core 地址", value: `${draft.server.host}:${draft.server.port}` },
+    { label: "数据库路径", value: draft.storage.database_path },
+    { label: "采样率", value: `${draft.audio.sample_rate.toLocaleString("zh-CN")} Hz` },
+    { label: "字幕保留上限", value: `${draft.storage.subtitle_history_limit.toLocaleString("zh-CN")} 条` },
+    { label: "识别模型状态", value: modelStatus },
+    { label: "CUDA 预检", value: asrCapabilities?.cuda.available ? `${asrCapabilities.cuda.device_count} 个可用设备` : "不可用" },
+    { label: "转写状态", value: disabled ? "正在转写" : "已停止" },
+    { label: "音频设备", value: `${outputDevices.length} 个系统输出，${microphoneDevices.length} 个麦克风输入` },
+    { label: "词典数量", value: dictionaries.length ? `${dictionaries.length} 部` : "尚未导入" },
+  ];
+  const settingsActionText = activeCategory === "dictionary"
+    ? "词典导入和移除会立即生效"
+    : activeCategory === "system"
+      ? !desktopPreferencesReady
+        ? "正在读取 Windows 启动与托盘设置…"
+        : desktopSaveState === "saving"
+          ? "正在保存系统设置…"
+          : desktopSaveState === "saved"
+            ? "系统设置已保存"
+            : desktopSaveState === "error"
+              ? desktopMessage || "系统设置保存失败，请稍后重试"
+              : "这些设置只影响桌面应用，不会自动开始转写"
+    : activeCategory === "debug"
+      ? "Debug 信息用于排查本地服务、配置与采集状态"
+      : validationError
+          ? validationError
+          : saveState === "saving"
+        ? "正在应用设置…"
+        : saveState === "saved"
+          ? "设置已应用"
+          : saveState === "error"
+            ? saveMessage || "应用失败，原设置仍然有效"
+            : "修改后立即校验并应用";
+  const visibleSaveState = activeCategory === "system" ? desktopSaveState : saveState;
   const chooseDictionary = async (file?: File) => {
     if (!file) return;
     setDictionaryBusy(true);
@@ -825,95 +1363,460 @@ function SettingsPanel({ settings, devices, dictionaries, disabled, modelStatus,
       setDictionaryBusy(false);
     }
   };
+  const downloadModel = async (model: AsrModelRecord) => {
+    setModelMessage(`正在准备下载 ${MODEL_PRESENTATION[model.id].name}…`);
+    if (DEMO_MODE) {
+      setManagedModels((current) => current.map((item) => (
+        item.id === model.id
+          ? {
+              ...item,
+              status: "downloading",
+              progress: 0.04,
+              downloaded_bytes: Math.round(item.total_bytes * 0.04),
+              error: null,
+            }
+          : item
+      )));
+      for (let step = 1; step <= 8; step += 1) {
+        await new Promise((resolve) => window.setTimeout(resolve, 120));
+        const progress = Math.min(0.08 + step * 0.115, 0.99);
+        setManagedModels((current) => current.map((item) => (
+          item.id === model.id
+            ? {
+                ...item,
+                progress,
+                downloaded_bytes: Math.round(item.total_bytes * progress),
+              }
+            : item
+        )));
+      }
+      setManagedModels((current) => current.map((item) => (
+        item.id === model.id
+          ? {
+              ...item,
+              status: "downloaded",
+              progress: 1,
+              downloaded_bytes: item.total_bytes,
+            }
+          : item
+      )));
+      setModelMessage(`${MODEL_PRESENTATION[model.id].name} 已下载`);
+      return;
+    }
+    try {
+      await coreApi.downloadAsrModel(model.id);
+      setModelMessage(`${MODEL_PRESENTATION[model.id].name} 已加入下载队列`);
+      await loadModels();
+    } catch (reason) {
+      setModelMessage(reason instanceof Error ? reason.message : "模型下载启动失败");
+    }
+  };
+  const removeModel = async (model: AsrModelRecord) => {
+    const name = MODEL_PRESENTATION[model.id].name;
+    if (!window.confirm(`确定删除 ${name} 模型吗？以后仍可重新下载。`)) return;
+    setModelMessage(`正在删除 ${name}…`);
+    if (DEMO_MODE) {
+      setManagedModels((current) => current.map((item) => (
+        item.id === model.id
+          ? {
+              ...item,
+              status: "not_downloaded",
+              progress: 0,
+              downloaded_bytes: 0,
+            }
+          : item
+      )));
+      setModelMessage(`${name} 已从本机删除`);
+      return;
+    }
+    try {
+      await coreApi.deleteAsrModel(model.id);
+      await loadModels();
+      await onModelsChanged();
+      setModelMessage(`${name} 已从本机删除`);
+    } catch (reason) {
+      setModelMessage(reason instanceof Error ? reason.message : "模型删除失败");
+    }
+  };
 
   return (
     <section className="settings-surface">
-      <div className="settings-section">
-        <div className="section-heading">
-          <div><h2>识别引擎</h2><span className="status-chip">状态：{modelStatus}</span></div>
-          <p>{disabled ? "停止转写后可修改" : "本地 Whisper 配置"}</p>
-        </div>
-        <div className="form-grid">
-          <Select label="模型" helper="平衡速度与精度，适合大多数场景" value={draft.asr.model} values={["tiny", "base", "small", "medium", "large-v3"]} disabled={disabled} onChange={(value) => updateAsr("model", value)} />
-          <Select label="语言" helper="保留原语言进行转写，不进行翻译" value={draft.asr.language} values={["auto", "en", "ja", "zh", "ko", "es", "fr", "de"]} disabled={disabled} onChange={(value) => updateAsr("language", value)} />
-          <Select label="运行设备" value={draft.asr.device} values={["auto", "cpu", "cuda"]} disabled={disabled} onChange={(value) => updateAsr("device", value)} />
-          <Select label="计算类型" value={draft.asr.compute_type} values={["int8", "float16", "int8_float16"]} disabled={disabled} onChange={(value) => updateAsr("compute_type", value)} />
+      <div className="settings-tabbar-wrap">
+        <div className="settings-tabbar" role="tablist" aria-label="设置分类">
+          {settingsCategories.map((category) => {
+            const active = activeCategory === category.id;
+            return (
+              <button
+                key={category.id}
+                id={`settings-tab-${category.id}`}
+                className={active ? "active" : ""}
+                type="button"
+                role="tab"
+                aria-selected={active}
+                aria-controls={`settings-panel-${category.id}`}
+                aria-label={category.label}
+                onClick={() => setActiveCategory(category.id)}
+              >
+                <span className="settings-tab-icon" aria-hidden="true">{category.icon}</span>
+                <span className="settings-tab-label">{category.label}</span>
+              </button>
+            );
+          })}
         </div>
       </div>
 
-      <div className="settings-divider" />
-
-      <div className="settings-section audio-section">
-        <div className="section-heading">
-          <div><h2>音频来源</h2><span>{devices.length ? `已发现 ${devices.length} 个设备` : "等待扫描"}</span></div>
-          <button className="secondary-button" type="button" onClick={() => void onRefresh()}><RefreshCw size={15} />重新扫描</button>
+      {activeCategory === "system" && (
+        <div className="settings-section settings-section-active system-section" id="settings-panel-system" role="tabpanel" aria-labelledby="settings-tab-system">
+          <div className="section-heading">
+            <div><SlidersHorizontal size={18} /><h2>常规</h2><span>Windows 应用行为</span></div>
+            <p>修改后立即保存</p>
+          </div>
+          <div className="settings-toggle-list">
+            <PreferenceToggle
+              title="开机时启动 VRCS"
+              description="登录 Windows 后自动启动应用，但不会自动开始转写。"
+              checked={desktopPreferences.launchAtStartup}
+              disabled={!desktopPreferencesReady || desktopSaveState === "saving"}
+              onChange={(enabled) => void updateDesktop("launchAtStartup", enabled)}
+            />
+            <PreferenceToggle
+              title="关闭时最小化到系统托盘"
+              description="点击关闭按钮时隐藏主窗口，转写和 Core 服务会继续运行。"
+              checked={desktopPreferences.minimizeToTray}
+              disabled={!desktopPreferencesReady || desktopSaveState === "saving"}
+              onChange={(enabled) => void updateDesktop("minimizeToTray", enabled)}
+            />
+          </div>
         </div>
+      )}
 
-        <DeviceGroup
-          icon={<Volume2 size={18} />}
-          title="系统音频输出 · 对方"
-          devices={outputDevices}
-          selected={draft.audio_device_id}
-          includeDefault
-          disabled={disabled}
-          onSelect={(id) => { setDraft({ ...draft, audio_device_id: id }); setSaved(false); }}
-        />
-        <DeviceGroup
-          icon={<Mic size={18} />}
-          title="麦克风输入 · 我"
-          note="启用后将识别为自己的发言"
-          devices={microphoneDevices}
-          selected={draft.microphone_device_id}
-          offLabel="关闭麦克风"
-          disabled={disabled}
-          onSelect={(id) => { setDraft({ ...draft, microphone_device_id: id }); setSaved(false); }}
-        />
-      </div>
+      {activeCategory === "recognition" && (
+        <div className="settings-section settings-section-active" id="settings-panel-recognition" role="tabpanel" aria-labelledby="settings-tab-recognition">
+          <div className="section-heading">
+            <div><h2>识别引擎</h2><span className="status-chip">状态：{modelStatus}</span></div>
+            <p>{disabled ? "停止转写后可修改" : "修改后立即应用"}</p>
+          </div>
+          <div className={`capability-banner ${asrCapabilities?.cuda.available ? "available" : "unavailable"}`}>
+            <strong>CUDA 预检</strong>
+            <span>
+              {asrCapabilities === null
+                ? "正在检测运行环境…"
+                : asrCapabilities.cuda.available
+                  ? `已发现 ${asrCapabilities.cuda.device_count} 个 CUDA 设备`
+                  : asrCapabilities.cuda.device_count > 0
+                    ? "已检测到 NVIDIA GPU，但 CUDA 12 运行库不可用"
+                    : "未发现可用 CUDA，已过滤 GPU 专用组合"}
+            </span>
+          </div>
+          <div className="form-grid">
+            <Select
+              label="模型"
+              helper={modelStatusLabel}
+              value={draft.asr.model}
+              options={selectableModels.map((model) => ({
+                value: model.id,
+                label: `${model.id} · ${
+                  model.status === "not_downloaded"
+                    ? "未下载"
+                    : model.status === "loading"
+                      ? "加载中"
+                      : model.status === "error"
+                        ? "错误"
+                        : "已就绪"
+                }`,
+              }))}
+              disabled={disabled}
+              onChange={(value) => updateAsr("model", value as Settings["asr"]["model"])}
+            />
+            <Select label="语言" helper="保留原语言进行转写，不进行翻译" value={draft.asr.language} values={["auto", "en", "ja", "zh", "ko", "es", "fr", "de"]} disabled={disabled} onChange={(value) => updateAsr("language", value as Settings["asr"]["language"])} />
+            <Select
+              label="运行设备"
+              helper={asrError ?? "只显示通过预检的设备"}
+              value={draft.asr.device}
+              options={[
+                { value: "auto", label: "自动选择" },
+                { value: "cpu", label: "CPU" },
+                ...(asrCapabilities?.cuda.available ? [{ value: "cuda", label: "CUDA" }] : []),
+                ...(draft.asr.device === "cuda" && !asrCapabilities?.cuda.available
+                  ? [{ value: "cuda", label: "CUDA · 不可用" }]
+                  : []),
+              ]}
+              disabled={disabled}
+              onChange={(value) => updateAsr("device", value as Settings["asr"]["device"])}
+            />
+            <Select
+              label="计算类型"
+              helper="根据运行设备过滤有效组合"
+              value={draft.asr.compute_type}
+              values={computeTypes}
+              disabled={disabled}
+              onChange={(value) => updateAsr("compute_type", value as Settings["asr"]["compute_type"])}
+            />
+          </div>
+          <section className="model-section recognition-models" aria-labelledby="local-models-heading">
+          <div className="section-heading">
+            <div>
+              <HardDrive size={18} />
+              <h2 id="local-models-heading">本地模型</h2>
+              <span>
+                {downloadingModels.length
+                  ? `${downloadingModels.length} 个下载中`
+                  : modelsReady
+                    ? `已安装 ${installedModels.length} 个`
+                    : "正在读取"}
+              </span>
+            </div>
+            <button className="secondary-button" type="button" disabled={!modelsReady} onClick={() => void loadModels()}><RefreshCw size={15} />刷新</button>
+          </div>
 
-      <div className="settings-divider" />
+          <div className="model-storage-summary">
+            <div>
+              <span>本地占用</span>
+              <strong>{formatBytes(installedBytes)}</strong>
+            </div>
+            <p>模型文件保存在 VRCS 的本地数据目录。下载可以在后台继续，已安装模型无需联网即可使用。</p>
+          </div>
 
-      <div className="settings-section dictionary-section">
-        <div className="section-heading">
-          <div><BookOpen size={18} /><h2>Yomitan 词典</h2><span>{dictionaries.length ? `已导入 ${dictionaries.length} 部` : "尚未导入"}</span></div>
-          <button className="secondary-button" type="button" disabled={dictionaryBusy} onClick={() => dictionaryFileRef.current?.click()}><Upload size={15} />导入词典</button>
-          <input
-            ref={dictionaryFileRef}
-            className="dictionary-file-input"
-            type="file"
-            accept=".zip,application/zip"
-            onChange={(event) => void chooseDictionary(event.target.files?.[0])}
+          {!modelsReady && managedModels.length === 0 ? (
+            <div className="model-list-pending" role="status">
+              <RefreshCw size={17} />
+              <span>正在检查本地模型文件…</span>
+            </div>
+          ) : (
+            <div className="model-list">
+              {managedModels.map((model) => {
+                const presentation = MODEL_PRESENTATION[model.id];
+                const downloaded = ["downloaded", "loading", "ready"].includes(model.status);
+                const downloading = model.status === "downloading";
+                const percentage = Math.round(model.progress * 100);
+                const sizeLabel = downloading
+                  ? `${formatBytes(model.downloaded_bytes)} / ${formatBytes(model.total_bytes)}`
+                  : formatBytes(model.total_bytes);
+                return (
+                  <article className={`model-row model-status-${model.status}`} key={model.id}>
+                    <div className="model-row-icon" aria-hidden="true">
+                      <span>{presentation.name.slice(0, 1)}</span>
+                    </div>
+                    <div className="model-row-body">
+                      <div className="model-row-title">
+                        <strong>{presentation.name}</strong>
+                        {model.active && <span className="model-active-chip">使用中</span>}
+                        <span className="model-size">{sizeLabel}</span>
+                      </div>
+                      <p>{presentation.description}</p>
+                      <code>{model.repository}</code>
+                      {downloading && (
+                        <div className="model-progress-wrap">
+                          <div
+                            className="model-progress-track"
+                            role="progressbar"
+                            aria-label={`${presentation.name} 下载进度`}
+                            aria-valuemin={0}
+                            aria-valuemax={100}
+                            aria-valuenow={percentage}
+                          >
+                            <span style={{ transform: `scaleX(${Math.max(0.02, model.progress)})` }} />
+                          </div>
+                          <span>{percentage}%</span>
+                        </div>
+                      )}
+                      {model.status === "error" && model.error && (
+                        <p className="model-error" role="alert">{model.error}</p>
+                      )}
+                    </div>
+                    <div className="model-row-action">
+                      {downloading ? (
+                        <span className="model-download-state"><RefreshCw size={15} />下载中</span>
+                      ) : downloaded ? (
+                        model.active ? (
+                          <span className="model-ready-state"><Check size={15} />已就绪</span>
+                        ) : (
+                          <button className="model-delete-button" type="button" aria-label={`删除 ${presentation.name}`} onClick={() => void removeModel(model)}><Trash2 size={16} /><span>删除</span></button>
+                        )
+                      ) : (
+                        <button className="model-download-button" type="button" onClick={() => void downloadModel(model)}><Download size={16} />{model.status === "error" ? "重试" : "下载"}</button>
+                      )}
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          )}
+          {modelMessage && <p className="model-manager-feedback" role="status">{modelMessage}</p>}
+          </section>
+        </div>
+      )}
+
+      {activeCategory === "audio" && (
+        <div className="settings-section settings-section-active audio-section" id="settings-panel-audio" role="tabpanel" aria-labelledby="settings-tab-audio">
+          <div className="section-heading">
+            <div><h2>音频来源</h2><span>{devices.length ? `已发现 ${devices.length} 个设备` : "等待扫描"}</span></div>
+            <button className="secondary-button" type="button" onClick={() => void onRefresh()}><RefreshCw size={15} />重新扫描</button>
+          </div>
+
+          {deviceErrors.map((message) => (
+            <p className="settings-validation-error" role="alert" key={message}>
+              <TriangleAlert size={15} />{message}
+            </p>
+          ))}
+          <DeviceGroup
+            icon={<Volume2 size={18} />}
+            title="对方声音"
+            note="选择完整系统输出、仅 VRChat，或指定输出设备"
+            devices={outputDevices}
+            devicesReady={devicesReady}
+            selectedDeviceId={draft.audio.output.mode === "system" ? draft.audio.output.device_id : null}
+            specialRows={[
+              {
+                key: "system",
+                name: "系统输出",
+                description: "采集 Windows 默认输出设备的全部声音",
+                chosen: draft.audio.output.mode === "system" && draft.audio.output.device_id === null,
+                onSelect: () => applySettings((current) => ({
+                  ...current,
+                  audio: { ...current.audio, output: { mode: "system", device_id: null } },
+                })),
+              },
+              {
+                key: "vrchat",
+                name: "VRChat",
+                description: "仅采集 VRChat.exe，排除浏览器和系统提示音",
+                chosen: draft.audio.output.mode === "vrchat",
+                onSelect: () => applySettings((current) => ({
+                  ...current,
+                  audio: { ...current.audio, output: { mode: "vrchat", device_id: null } },
+                })),
+              },
+            ]}
+            disabled={saveState === "saving"}
+            onSelectDevice={(id) => applySettings((current) => ({
+              ...current,
+              audio: { ...current.audio, output: { mode: "system", device_id: id } },
+            }))}
+          />
+          <DeviceGroup
+            icon={<Mic size={18} />}
+            title="自己的声音"
+            note="默认麦克风会跟随 Windows，关闭后仅转写对方声音"
+            devices={microphoneDevices}
+            devicesReady={devicesReady}
+            selectedDeviceId={draft.audio.microphone.mode === "device" ? draft.audio.microphone.device_id : null}
+            specialRows={[
+              {
+                key: "default",
+                name: "默认麦克风",
+                description: "跟随 Windows 默认输入设备",
+                chosen: draft.audio.microphone.mode === "default",
+                onSelect: () => applySettings((current) => ({
+                  ...current,
+                  audio: { ...current.audio, microphone: { mode: "default", device_id: null } },
+                })),
+              },
+              {
+                key: "disabled",
+                name: "关闭麦克风",
+                description: "不采集自己的声音",
+                chosen: draft.audio.microphone.mode === "disabled",
+                onSelect: () => applySettings((current) => ({
+                  ...current,
+                  audio: { ...current.audio, microphone: { mode: "disabled", device_id: null } },
+                })),
+              },
+            ]}
+            disabled={saveState === "saving"}
+            onSelectDevice={(id) => applySettings((current) => ({
+              ...current,
+              audio: { ...current.audio, microphone: { mode: "device", device_id: id } },
+            }))}
           />
         </div>
-        {dictionaries.length ? (
-          <div className="dictionary-source-list">
-            {dictionaries.map((dictionary) => (
-              <div className="dictionary-source-row" key={dictionary.id}>
-                <div className="dictionary-source-icon"><BookOpen size={17} /></div>
-                <div>
-                  <strong>{dictionary.title}</strong>
-                  <span>{dictionary.source_language.toUpperCase()}{dictionary.target_language ? ` → ${dictionary.target_language.toUpperCase()}` : ""} · {dictionary.entry_count.toLocaleString("zh-CN")} 条 · {dictionary.revision}</span>
+      )}
+
+      {activeCategory === "dictionary" && (
+        <div className="settings-section settings-section-active dictionary-section" id="settings-panel-dictionary" role="tabpanel" aria-labelledby="settings-tab-dictionary">
+          <div className="section-heading">
+            <div><BookOpen size={18} /><h2>Yomitan 词典</h2><span>{dictionaries.length ? `已导入 ${dictionaries.length} 部` : "尚未导入"}</span></div>
+            <button className="secondary-button" type="button" disabled={dictionaryBusy} onClick={() => dictionaryFileRef.current?.click()}><Upload size={15} />导入词典</button>
+            <input
+              ref={dictionaryFileRef}
+              className="dictionary-file-input"
+              type="file"
+              accept=".zip,application/zip"
+              onChange={(event) => void chooseDictionary(event.target.files?.[0])}
+            />
+          </div>
+          {dictionaries.length ? (
+            <div className="dictionary-source-list">
+              {dictionaries.map((dictionary) => (
+                <div className="dictionary-source-row" key={dictionary.id}>
+                  <div className="dictionary-source-icon"><BookOpen size={17} /></div>
+                  <div>
+                    <strong>{dictionary.title}</strong>
+                    <span>{dictionary.source_language.toUpperCase()}{dictionary.target_language ? ` → ${dictionary.target_language.toUpperCase()}` : ""} · {dictionary.entry_count.toLocaleString("zh-CN")} 条 · {dictionary.revision}</span>
+                  </div>
+                  <button type="button" disabled={dictionaryBusy} aria-label={`移除 ${dictionary.title}`} title="移除词典" onClick={() => void removeDictionary(dictionary)}><Trash2 size={16} /></button>
                 </div>
-                <button type="button" disabled={dictionaryBusy} aria-label={`移除 ${dictionary.title}`} title="移除词典" onClick={() => void removeDictionary(dictionary)}><Trash2 size={16} /></button>
+              ))}
+            </div>
+          ) : <p className="dictionary-empty">导入 Yomitan ZIP 词典后，划词查询会优先显示其中的释义。</p>}
+          {dictionaryMessage && <p className="dictionary-feedback" role="status">{dictionaryMessage}</p>}
+        </div>
+      )}
+
+      {activeCategory === "debug" && (
+        <div className="settings-section settings-section-active debug-section" id="settings-panel-debug" role="tabpanel" aria-labelledby="settings-tab-debug">
+          <div className="section-heading">
+            <div><Wrench size={18} /><h2>Debug</h2><span>运行信息与诊断</span></div>
+            <p>只读，不会修改配置</p>
+          </div>
+          <div className="debug-list">
+            {debugRows.map((row) => (
+              <div className="debug-row" key={row.label}>
+                <span>{row.label}</span>
+                <strong>{row.value}</strong>
               </div>
             ))}
           </div>
-        ) : <p className="dictionary-empty">导入 Yomitan ZIP 词典后，划词查询会优先显示其中的释义。</p>}
-        {dictionaryMessage && <p className="dictionary-feedback" role="status">{dictionaryMessage}</p>}
-      </div>
+        </div>
+      )}
 
-      <div className="settings-actions">
-        <span>{saved ? "设置已保存" : "所有更改将在下次转写时生效"}</span>
-        <button className="primary-button" type="button" disabled={disabled} onClick={() => void save()}>保存设置</button>
+      <div className={`settings-actions save-state-${visibleSaveState}`}>
+        <span role="status" aria-live="polite">{settingsActionText}</span>
       </div>
     </section>
   );
 }
 
-function Select({ label, helper, value, values, disabled, onChange }: {
+function PreferenceToggle({ title, description, checked, disabled, onChange }: {
+  title: string;
+  description: string;
+  checked: boolean;
+  disabled: boolean;
+  onChange: (checked: boolean) => void;
+}) {
+  return (
+    <label className={`settings-toggle-row ${disabled ? "disabled" : ""}`}>
+      <span className="settings-toggle-copy">
+        <strong>{title}</strong>
+        <small>{description}</small>
+      </span>
+      <input
+        type="checkbox"
+        checked={checked}
+        disabled={disabled}
+        onChange={(event) => onChange(event.target.checked)}
+      />
+      <span className="switch-track" aria-hidden="true"><span /></span>
+    </label>
+  );
+}
+
+function Select({ label, helper, value, values = [], options, disabled, onChange }: {
   label: string;
   helper?: string;
   value: string;
-  values: string[];
+  values?: readonly string[];
+  options?: Array<{ value: string; label: string }>;
   disabled: boolean;
   onChange: (value: string) => void;
 }) {
@@ -923,7 +1826,7 @@ function Select({ label, helper, value, values, disabled, onChange }: {
       <DropdownField
         label={label}
         value={value}
-        options={values.map((item) => ({ value: item, label: item }))}
+        options={options ?? values.map((item) => ({ value: item, label: item }))}
         disabled={disabled}
         onChange={onChange}
       />
@@ -1015,38 +1918,53 @@ function DropdownField({ label, value, options, disabled = false, compact = fals
   );
 }
 
-function DeviceGroup({ icon, title, note, devices, selected, includeDefault = false, offLabel, disabled, onSelect }: {
+function DeviceGroup({ icon, title, note, devices, devicesReady, selectedDeviceId, specialRows, disabled, onSelectDevice }: {
   icon: React.ReactNode;
   title: string;
   note?: string;
   devices: AudioDevice[];
-  selected: number | null;
-  includeDefault?: boolean;
-  offLabel?: string;
+  devicesReady: boolean;
+  selectedDeviceId: number | null;
+  specialRows: Array<{
+    key: string;
+    name: string;
+    description: string;
+    chosen: boolean;
+    onSelect: () => void;
+  }>;
   disabled: boolean;
-  onSelect: (id: number | null) => void;
+  onSelectDevice: (id: number) => void;
 }) {
-  const defaultDevice = devices.find((device) => device.is_default);
-  const defaultDescription = defaultDevice
-    ? `跟随 Windows 默认设备 · ${defaultDevice.sample_rate} Hz · ${defaultDevice.channels} 声道`
-    : "跟随 Windows 默认设备";
   return (
     <div className="device-group">
-      <div className="device-group-title">{icon}<div><h3>{title}</h3>{note && <span>{note}</span>}</div></div>
+      <div className="device-group-title">
+        <span className="device-group-icon">{icon}</span>
+        <div><h3>{title}</h3>{note && <span>{note}</span>}</div>
+      </div>
       <div className="device-list">
-        {includeDefault && <DeviceRow name="系统默认输出" description={defaultDescription} chosen={selected === null} disabled={disabled} onSelect={() => onSelect(null)} />}
-        {offLabel && <DeviceRow name={offLabel} description="仅转写系统音频" chosen={selected === null} disabled={disabled} onSelect={() => onSelect(null)} />}
+        {specialRows.map((row) => (
+          <DeviceRow
+            key={row.key}
+            name={row.name}
+            description={row.description}
+            chosen={row.chosen}
+            disabled={disabled}
+            onSelect={row.onSelect}
+          />
+        ))}
         {devices.map((device) => (
           <DeviceRow
             key={device.id}
             name={device.name}
             description={`${device.sample_rate} Hz · ${device.channels} 声道${device.is_default ? " · 默认" : ""}`}
-            chosen={selected === device.id}
+            chosen={selectedDeviceId === device.id}
             disabled={disabled}
-            onSelect={() => onSelect(device.id)}
+            onSelect={() => onSelectDevice(device.id)}
           />
         ))}
-        {!devices.length && !includeDefault && !offLabel && <p className="device-empty">未发现可用设备。</p>}
+        {!devicesReady
+          ? <p className="device-empty">正在扫描设备…</p>
+          : !devices.length && <p className="device-empty">未发现其他可用设备。</p>}
       </div>
     </div>
   );

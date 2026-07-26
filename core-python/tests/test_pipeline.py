@@ -12,7 +12,8 @@ class FakeCapture:
     def __init__(self) -> None:
         self.device = None
 
-    def start(self, device_id):
+    def start(self, device_id, process_name=None):
+        del process_name
         self.device = AudioDevice(
             id=device_id,
             name="microphone",
@@ -24,6 +25,9 @@ class FakeCapture:
     async def read(self):
         await asyncio.sleep(0)
         return np.ones(512, dtype=np.float32)
+
+    def interrupt(self):
+        pass
 
     def stop(self):
         self.device = None
