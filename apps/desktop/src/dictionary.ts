@@ -42,3 +42,26 @@ export function groupDictionaryEntries(entries: DictionaryEntry[]): DictionaryEn
     definition: glosses.join("\n"),
   }));
 }
+
+export interface AnkiDictionaryContent {
+  definition: string;
+  dictionary: string | null;
+}
+
+export function ankiDictionaryContent(entries: DictionaryEntry[]): AnkiDictionaryContent {
+  const sources = new Set<string>();
+  const primaryTerm = entries[0]?.term;
+  const sections = entries.map((entry) => {
+    const source = entry.dictionary || "内置词典";
+    sources.add(source);
+    const variant = entry.term !== primaryTerm ? ` · ${entry.term}` : "";
+    const glosses = definitionGlosses(entry.definition)
+      .map((gloss, index) => `${index + 1}. ${gloss}`)
+      .join("\n");
+    return `【${source}${variant}】\n${glosses}`;
+  });
+  return {
+    definition: sections.join("\n\n"),
+    dictionary: sources.size ? [...sources].join(" · ") : null,
+  };
+}

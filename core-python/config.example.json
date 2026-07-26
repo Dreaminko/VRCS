@@ -1,8 +1,8 @@
 {
-  "schema_version": 2,
+  "schema_version": 3,
   "server": {
     "host": "127.0.0.1",
-    "port": 8765
+    "port": 8766
   },
   "storage": {
     "database_path": "data/vrcs.db",
@@ -24,5 +24,12 @@
     "language": "auto",
     "device": "auto",
     "compute_type": "int8"
+  },
+  "anki": {
+    "port": 8765,
+    "deck": "VRCS",
+    "model": "Basic",
+    "front_field": "Front",
+    "back_field": "Back"
   }
 }

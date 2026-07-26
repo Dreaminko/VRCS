@@ -21,6 +21,8 @@ struct CoreConnection {
 
 struct CoreProcess(Mutex<Option<CommandChild>>);
 
+const DEFAULT_CORE_PORT: u16 = 8766;
+
 fn available_port() -> u16 {
     TcpListener::bind(("127.0.0.1", 0))
         .and_then(|listener| listener.local_addr())
@@ -31,8 +33,8 @@ fn available_port() -> u16 {
 fn core_connection_config() -> CoreConnection {
     if cfg!(debug_assertions) {
         return CoreConnection {
-            http_url: "http://127.0.0.1:8765".into(),
-            ws_url: "ws://127.0.0.1:8765/ws".into(),
+            http_url: format!("http://127.0.0.1:{DEFAULT_CORE_PORT}"),
+            ws_url: format!("ws://127.0.0.1:{DEFAULT_CORE_PORT}/ws"),
             token: String::new(),
         };
     }
@@ -176,6 +178,8 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
+    use super::DEFAULT_CORE_PORT;
+
     const CAPABILITIES: &str = include_str!("../capabilities/default.json");
 
     #[test]
@@ -198,5 +202,11 @@ mod tests {
         ] {
             assert!(CAPABILITIES.contains(permission), "missing {permission}");
         }
+    }
+
+    #[test]
+    fn development_core_port_avoids_anki_and_vrchat_osc_defaults() {
+        assert_eq!(DEFAULT_CORE_PORT, 8766);
+        assert!(![8765, 9000, 9001].contains(&DEFAULT_CORE_PORT));
     }
 }

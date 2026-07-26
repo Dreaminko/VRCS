@@ -16,7 +16,7 @@ VRCS 是一个本地优先的 VRChat 字幕学习工具。它同时捕获 Window
 - FastAPI HTTP 接口和 WebSocket 字幕推送
 - SQLite 字幕历史与内置英日测试词典
 - React + Tauri 桌面端，包括实时字幕、历史、识别设置和音频设备页面
-- 通过本机 AnkiConnect 创建基础卡片
+- 管理本机 AnkiConnect 连接、牌组、笔记类型与字段映射，并从查词结果创建笔记
 
 VR Overlay、说话人分离、翻译和完整词典导入还没有实现，见 [路线图](docs/roadmap.md)。
 
@@ -72,7 +72,7 @@ npm run dev
 
 该命令会同时启动 Core 服务与 Tauri 桌面端；按 `Ctrl+C` 会一起停止。需要单独调试时，可以分别运行 `npm run dev:core` 或 `npm run dev:desktop`。
 
-开发模式下 Core 默认监听 `http://127.0.0.1:8765`，WebSocket 地址是 `ws://127.0.0.1:8765/ws`。源码运行时配置写入 `core-python/config.json`，SQLite 数据保存在 `core-python/data/vrcs.db`。
+开发模式下 Core 默认监听 `http://127.0.0.1:8766`，WebSocket 地址是 `ws://127.0.0.1:8766/ws`。这个端口避开了 AnkiConnect 的 `8765`，以及 VRChat OSC 的 `9000`、`9001`。源码运行时配置写入 `core-python/config.json`，SQLite 数据保存在 `core-python/data/vrcs.db`。
 
 安装版由 Tauri 自动启动 Core，并为每次会话分配随机本机端口。安装版的配置、数据库、Whisper 模型和日志统一保存在 `%LOCALAPPDATA%\.vrcs`，升级应用不会覆盖这些数据。
 
@@ -100,9 +100,9 @@ npm run build
 
 ## AnkiConnect
 
-在 Anki 中安装 AnkiConnect 插件并保持 Anki 运行。VRCS 会向 `http://127.0.0.1:8766` 发送 `addNote` 请求，默认使用 `VRCS` 牌组和 `Basic` 笔记类型。请提前创建同名牌组；卡片字段需要包含 `Front` 和 `Back`。
+在 Anki 中安装 AnkiConnect 插件并保持 Anki 运行。VRCS 默认连接 AnkiConnect 的官方默认地址 `http://127.0.0.1:8765`，通常无需修改插件配置；如果你自行调整过 AnkiConnect 端口，可以在 VRCS 的“设置 → Anki”中同步修改。
 
-桌面端选中字幕文字后会打开查词面板。内置词典只含少量测试词条，查到释义后可以点击“添加到 Anki”。
+设置页会检测连接并读取已有牌组、笔记类型和字段。默认选择 `VRCS` 牌组、`Basic` 笔记类型以及 `Front`、`Back` 字段，请提前创建所需牌组。桌面端选中字幕文字后会打开查词面板，查到释义后可以点击“添加到 Anki”；词条、读音、面板中显示的多组词典释义、语境、语言和词典来源会在本机完成转义与组装。
 
 ## 隐私
 

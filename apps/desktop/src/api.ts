@@ -1,4 +1,6 @@
 import type {
+  AnkiCardInput,
+  AnkiStatus,
   AsrCapabilities,
   AsrModelRecord,
   AudioDevice,
@@ -17,8 +19,8 @@ export interface CoreConnection {
 }
 
 let connection: CoreConnection = {
-  httpUrl: "http://127.0.0.1:8765",
-  wsUrl: "ws://127.0.0.1:8765/ws",
+  httpUrl: "http://127.0.0.1:8766",
+  wsUrl: "ws://127.0.0.1:8766/ws",
   token: "",
 };
 
@@ -95,9 +97,10 @@ export const coreApi = {
   },
   deleteDictionary: (id: number) =>
     request<{ deleted: boolean }>(`/api/dictionaries/${id}`, { method: "DELETE" }),
-  createCard: (front: string, back: string, context: string) =>
+  ankiStatus: () => request<AnkiStatus>("/api/anki/status"),
+  createCard: (card: AnkiCardInput) =>
     request<{ note_id: number }>("/api/anki/cards", {
       method: "POST",
-      body: JSON.stringify({ front, back, context }),
+      body: JSON.stringify(card),
     }),
 };

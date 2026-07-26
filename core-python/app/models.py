@@ -44,7 +44,7 @@ class ServerSettings(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     host: str = "127.0.0.1"
-    port: int = Field(default=8765, ge=1, le=65_535)
+    port: int = Field(default=8766, ge=1, le=65_535)
 
 
 class StorageSettings(BaseModel):
@@ -90,22 +90,42 @@ class AudioSettings(BaseModel):
     microphone: MicrophoneSettings = Field(default_factory=MicrophoneSettings)
 
 
+class AnkiSettings(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    port: int = Field(default=8765, ge=1, le=65_535)
+    deck: str = Field(default="VRCS", min_length=1, max_length=100)
+    model: str = Field(default="Basic", min_length=1, max_length=100)
+    front_field: str = Field(default="Front", min_length=1, max_length=100)
+    back_field: str = Field(default="Back", min_length=1, max_length=100)
+
+    @model_validator(mode="after")
+    def validate_field_mapping(self) -> "AnkiSettings":
+        if self.front_field == self.back_field:
+            raise ValueError("Anki 正面和背面不能映射到同一个字段")
+        return self
+
+
 class SettingsUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal[2] = 2
+    schema_version: Literal[3] = 3
     server: ServerSettings
     storage: StorageSettings
     audio: AudioSettings
     asr: AsrSettings
+    anki: AnkiSettings = Field(default_factory=AnkiSettings)
 
 
 class CardRequest(BaseModel):
-    front: str
-    back: str
-    context: str = ""
-    deck: str = "VRCS"
-    model: str = "Basic"
+    model_config = ConfigDict(extra="forbid")
+
+    term: str = Field(min_length=1, max_length=500)
+    definition: str = Field(min_length=1, max_length=20_000)
+    context: str = Field(default="", max_length=20_000)
+    reading: str | None = Field(default=None, max_length=500)
+    dictionary: str | None = Field(default=None, max_length=500)
+    language: str | None = Field(default=None, max_length=20)
 
 
 class DictionaryEntry(BaseModel):

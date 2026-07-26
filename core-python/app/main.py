@@ -15,7 +15,7 @@ from fastapi import FastAPI, HTTPException, Query, Request, WebSocket, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from .anki import AnkiError, create_card
+from .anki import AnkiError, anki_status, create_card
 from .asr import WhisperTranscriber
 from .asr.capabilities import asr_capabilities, validate_asr_config
 from .asr.model_manager import ModelManager
@@ -209,9 +209,17 @@ def create_app(
     @app.put("/api/settings")
     async def update_settings(update: SettingsUpdate) -> dict[str, object]:
         core = state()
-        if core.pipeline.running or core.microphone_pipeline.running:
-            raise HTTPException(status_code=409, detail="Stop capture before changing settings")
         candidate = config_from_dict(update.model_dump())
+        if (
+            core.pipeline.running or core.microphone_pipeline.running
+        ) and (
+            candidate.audio != core.config.audio
+            or candidate.asr != core.config.asr
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail="Stop capture before changing audio or recognition settings",
+            )
         async with core.settings_lock:
             if candidate.server != core.config.server:
                 raise HTTPException(
@@ -322,12 +330,16 @@ def create_app(
             raise HTTPException(status_code=404, detail="词典不存在")
         return {"deleted": True}
 
+    @app.get("/api/anki/status")
+    async def get_anki_status() -> dict[str, object]:
+        return await anki_status(state().config.anki)
+
     @app.post("/api/anki/cards")
     async def add_anki_card(card: CardRequest) -> dict[str, int]:
         try:
-            note_id = await create_card(card)
-        except (AnkiError, OSError, ValueError) as exc:
-            raise HTTPException(status_code=502, detail=f"AnkiConnect error: {exc}") from exc
+            note_id = await create_card(card, state().config.anki)
+        except AnkiError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
         return {"note_id": note_id}
 
     @app.websocket("/ws")

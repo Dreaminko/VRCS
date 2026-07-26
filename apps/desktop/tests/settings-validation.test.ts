@@ -9,8 +9,8 @@ import {
 import type { AsrCapabilities, AudioDevice, Settings } from "../src/types.ts";
 
 const settings: Settings = {
-  schema_version: 2,
-  server: { host: "127.0.0.1", port: 8765 },
+  schema_version: 3,
+  server: { host: "127.0.0.1", port: 8766 },
   storage: { database_path: "data/vrcs.db", subtitle_history_limit: 500 },
   audio: {
     sample_rate: 16_000,
@@ -18,6 +18,7 @@ const settings: Settings = {
     microphone: { mode: "device", device_id: 20 },
   },
   asr: { model: "small", language: "auto", device: "auto", compute_type: "int8" },
+  anki: { port: 8765, deck: "VRCS", model: "Basic", front_field: "Front", back_field: "Back" },
 };
 
 const devices: AudioDevice[] = [

@@ -9,6 +9,7 @@ from app.main import create_app
 from unittest.mock import Mock
 
 from app.audio.capture import AudioUnavailableError
+from app.anki import AnkiDuplicateError
 from app.config import MicrophoneConfig, OutputConfig
 from app.models import AudioDevice, Subtitle
 
@@ -49,12 +50,14 @@ def test_health_history_and_settings(tmp_path):
         health = client.get("/health")
         assert health.status_code == 200
         assert health.json()["status"] == "ok"
-        assert health.json()["config_schema"] == 2
+        assert health.json()["config_schema"] == 3
         assert client.get("/api/subtitles").json() == []
         settings = client.get("/api/settings").json()
-        assert settings["schema_version"] == 2
+        assert settings["schema_version"] == 3
         assert settings["asr"]["model"] == "small"
         assert settings["audio"]["output"]["mode"] == "system"
+        assert settings["server"]["port"] == 8766
+        assert settings["anki"]["port"] == 8765
 
 
 def test_session_token_protects_http_and_websocket(tmp_path):
@@ -220,6 +223,39 @@ def test_asr_capabilities_expose_models_cuda_and_combinations(tmp_path):
         }
         assert "cpu" in payload["compute_types"]
         assert "available" in payload["cuda"]
+
+
+def test_anki_status_and_card_error_mapping(monkeypatch, tmp_path):
+    async def fake_status(config):
+        return {
+            "connected": True,
+            "version": 6,
+            "decks": ["VRCS"],
+            "models": ["Basic"],
+            "fields": ["Front", "Back"],
+            "configuration_valid": True,
+            "error_code": None,
+            "message": "ready",
+        }
+
+    async def duplicate_card(card, config):
+        raise AnkiDuplicateError("这条笔记已存在，未重复添加")
+
+    monkeypatch.setattr(main_module, "anki_status", fake_status)
+    monkeypatch.setattr(main_module, "create_card", duplicate_card)
+
+    app = create_app(tmp_path / "config.json")
+    with TestClient(app) as client:
+        status = client.get("/api/anki/status")
+        assert status.status_code == 200
+        assert status.json()["configuration_valid"] is True
+
+        response = client.post(
+            "/api/anki/cards",
+            json={"term": "hello", "definition": "greeting"},
+        )
+        assert response.status_code == 409
+        assert "已存在" in response.json()["detail"]
 
 
 def test_imports_lists_looks_up_and_deletes_yomitan_dictionary(tmp_path):

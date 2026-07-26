@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 OutputMode = Literal["system", "vrchat"]
 MicrophoneMode = Literal["default", "device", "disabled"]
 
@@ -16,7 +16,7 @@ MicrophoneMode = Literal["default", "device", "disabled"]
 @dataclass(slots=True)
 class ServerConfig:
     host: str = "127.0.0.1"
-    port: int = 8765
+    port: int = 8766
 
 
 @dataclass(slots=True)
@@ -53,12 +53,22 @@ class AsrConfig:
 
 
 @dataclass(slots=True)
+class AnkiConfig:
+    port: int = 8765
+    deck: str = "VRCS"
+    model: str = "Basic"
+    front_field: str = "Front"
+    back_field: str = "Back"
+
+
+@dataclass(slots=True)
 class AppConfig:
     schema_version: int = SCHEMA_VERSION
     server: ServerConfig = field(default_factory=ServerConfig)
     storage: StorageConfig = field(default_factory=StorageConfig)
     audio: AudioConfig = field(default_factory=AudioConfig)
     asr: AsrConfig = field(default_factory=AsrConfig)
+    anki: AnkiConfig = field(default_factory=AnkiConfig)
 
 
 def _dataclass_values(instance: Any, raw: Any) -> dict[str, Any]:
@@ -70,7 +80,7 @@ def _dataclass_values(instance: Any, raw: Any) -> dict[str, Any]:
     }
 
 
-def _decode_v2(raw: dict[str, Any]) -> AppConfig:
+def _decode_current(raw: dict[str, Any]) -> AppConfig:
     defaults = AppConfig()
     audio_raw = raw.get("audio", {})
     if not isinstance(audio_raw, dict):
@@ -92,20 +102,30 @@ def _decode_v2(raw: dict[str, Any]) -> AppConfig:
             ),
         ),
         asr=AsrConfig(**_dataclass_values(defaults.asr, raw.get("asr"))),
+        anki=AnkiConfig(**_dataclass_values(defaults.anki, raw.get("anki"))),
     )
 
 
 def config_from_dict(raw: dict[str, Any]) -> AppConfig:
     if raw.get("schema_version") != SCHEMA_VERSION:
         raise ValueError(f"Expected configuration schema v{SCHEMA_VERSION}")
-    return _decode_v2(raw)
+    return _decode_current(raw)
+
+
+def _migrate_v2(raw: dict[str, Any]) -> AppConfig:
+    config = _decode_current(raw)
+    if config.server.port == 8765:
+        config.server.port = 8766
+    if config.anki.port == 8766:
+        config.anki.port = 8765
+    return config
 
 
 def _migrate_v1(raw: dict[str, Any]) -> AppConfig:
     defaults = AppConfig()
     microphone_device_id = raw.get("microphone_device_id")
     vrchat_only = bool(raw.get("vrchat_only", False))
-    return AppConfig(
+    config = AppConfig(
         server=ServerConfig(
             host=str(raw.get("host", defaults.server.host)),
             port=int(raw.get("port", defaults.server.port)),
@@ -134,6 +154,9 @@ def _migrate_v1(raw: dict[str, Any]) -> AppConfig:
         ),
         asr=AsrConfig(**_dataclass_values(defaults.asr, raw.get("asr"))),
     )
+    if config.server.port == 8765:
+        config.server.port = 8766
+    return config
 
 
 def load_config(path: Path) -> AppConfig:
@@ -145,10 +168,15 @@ def load_config(path: Path) -> AppConfig:
     if not isinstance(raw, dict):
         raise ValueError("Configuration root must be an object")
     version = raw.get("schema_version", 1)
-    if version not in {1, SCHEMA_VERSION}:
+    if version not in {1, 2, SCHEMA_VERSION}:
         raise ValueError(f"Unsupported configuration schema v{version}")
-    migrated = version == 1
-    config = _migrate_v1(raw) if migrated else config_from_dict(raw)
+    migrated = version != SCHEMA_VERSION
+    if version == 1:
+        config = _migrate_v1(raw)
+    elif version == 2:
+        config = _migrate_v2(raw)
+    else:
+        config = config_from_dict(raw)
     if migrated:
         save_config(path, config)
     return config

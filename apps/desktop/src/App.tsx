@@ -5,6 +5,7 @@ import {
   BookOpen,
   Check,
   ChevronDown,
+  ChevronRight,
   Clock3,
   History,
   HardDrive,
@@ -30,6 +31,15 @@ import {
   X,
 } from "lucide-react";
 import { coreApi, coreWebSocketUrl, initializeCoreApi } from "./api";
+import { ankiButtonLabel } from "./anki";
+import type { AnkiAddState } from "./anki";
+import {
+  ankiDeckAncestors,
+  ankiDeckDisplayName,
+  ankiDeckParent,
+  buildAnkiDeckTree,
+  visibleAnkiDeckNodes,
+} from "./anki-decks";
 import { isTauri } from "@tauri-apps/api/core";
 import {
   COMPACT_WINDOW_SIZE,
@@ -45,7 +55,7 @@ import {
   updateDesktopPreference,
 } from "./desktop-preferences";
 import type { DesktopPreferences } from "./desktop-preferences";
-import { definitionGlosses, groupDictionaryEntries } from "./dictionary";
+import { ankiDictionaryContent, definitionGlosses, groupDictionaryEntries } from "./dictionary";
 import { isLookupAnchorVisible, LOOKUP_POPOVER_HEIGHT, placeLookupPopover } from "./popover-placement";
 import type { LookupAnchor } from "./popover-placement";
 import { createSettingsAutosave } from "./settings-autosave";
@@ -58,6 +68,7 @@ import {
 import type {
   AsrCapabilities,
   AsrModelRecord,
+  AnkiStatus,
   AudioDevice,
   ConnectionState,
   DictionaryEntry,
@@ -68,7 +79,7 @@ import type {
 } from "./types";
 
 type Page = "live" | "history" | "settings";
-type SettingsCategory = "system" | "recognition" | "audio" | "dictionary" | "debug";
+type SettingsCategory = "system" | "recognition" | "audio" | "dictionary" | "anki" | "debug";
 type SubtitleSource = "speaker" | "microphone";
 type Lookup = {
   term: string;
@@ -90,8 +101,8 @@ const CONVERSATION_STARTS_KEY = "vrcs.conversation-starts.v1";
 const SIDEBAR_OPEN_KEY = "vrcs.conversation-sidebar-open";
 
 const demoSettings: Settings = {
-  schema_version: 2,
-  server: { host: "127.0.0.1", port: 8765 },
+  schema_version: 3,
+  server: { host: "127.0.0.1", port: 8766 },
   storage: { database_path: "data/vrcs.db", subtitle_history_limit: 500 },
   audio: {
     sample_rate: 16000,
@@ -99,6 +110,27 @@ const demoSettings: Settings = {
     microphone: { mode: "device", device_id: 2 },
   },
   asr: { model: "small", language: "auto", device: "auto", compute_type: "int8" },
+  anki: { port: 8765, deck: "VRCS", model: "Basic", front_field: "Front", back_field: "Back" },
+};
+
+const demoAnkiStatus: AnkiStatus = {
+  connected: true,
+  version: 6,
+  decks: [
+    "Default",
+    "VRCS",
+    "VRCS::English",
+    "VRCS::Japanese",
+    "VRCS::Japanese::JLPT N5",
+    "VRCS::Japanese::JLPT N4",
+    "Study",
+    "Study::Sentences",
+  ],
+  models: ["Basic", "Cloze"],
+  fields: ["Front", "Back"],
+  configuration_valid: true,
+  error_code: null,
+  message: "AnkiConnect 已连接，制卡配置有效",
 };
 
 const demoDevices: AudioDevice[] = [
@@ -1150,6 +1182,11 @@ function SettingsPanel({ settings, devices, devicesReady, dictionaries, disabled
   const [managedModels, setManagedModels] = useState<AsrModelRecord[]>(DEMO_MODE ? demoModels : []);
   const [modelsReady, setModelsReady] = useState(DEMO_MODE);
   const [modelMessage, setModelMessage] = useState("");
+  const [ankiStatus, setAnkiStatus] = useState<AnkiStatus | null>(DEMO_MODE ? demoAnkiStatus : null);
+  const [ankiBusy, setAnkiBusy] = useState(false);
+  const [ankiMessage, setAnkiMessage] = useState("");
+  const [ankiPortText, setAnkiPortText] = useState(String(settings.anki.port));
+  const [ankiPortError, setAnkiPortError] = useState("");
   const dictionaryFileRef = useRef<HTMLInputElement>(null);
   const draftRef = useRef(settings);
   const saveVersionRef = useRef(0);
@@ -1158,6 +1195,7 @@ function SettingsPanel({ settings, devices, devicesReady, dictionaries, disabled
   useEffect(() => {
     draftRef.current = settings;
     setDraft(settings);
+    setAnkiPortText(String(settings.anki.port));
   }, [settings]);
   useEffect(() => {
     let cancelled = false;
@@ -1205,7 +1243,27 @@ function SettingsPanel({ settings, devices, devicesReady, dictionaries, disabled
     const timer = window.setInterval(() => void loadModels(), 750);
     return () => window.clearInterval(timer);
   }, [activeCategory, loadModels]);
-  const applySettings = (update: (current: Settings) => Settings) => {
+  const loadAnkiStatus = useCallback(async () => {
+    setAnkiBusy(true);
+    setAnkiMessage("");
+    try {
+      const next = DEMO_MODE ? demoAnkiStatus : await coreApi.ankiStatus();
+      setAnkiStatus(next);
+      setAnkiMessage(next.message);
+    } catch (reason) {
+      setAnkiStatus(null);
+      setAnkiMessage(reason instanceof Error ? reason.message : "AnkiConnect 检测失败");
+    } finally {
+      setAnkiBusy(false);
+    }
+  }, []);
+  useEffect(() => {
+    if (activeCategory === "anki") void loadAnkiStatus();
+  }, [activeCategory, loadAnkiStatus]);
+  const applySettings = (
+    update: (current: Settings) => Settings,
+    afterSave?: () => void,
+  ) => {
     const next = update(draftRef.current);
     const version = ++saveVersionRef.current;
     draftRef.current = next;
@@ -1218,6 +1276,7 @@ function SettingsPanel({ settings, devices, devicesReady, dictionaries, disabled
         draftRef.current = saved;
         setDraft(saved);
         setSaveState("saved");
+        afterSave?.();
       },
       (reason) => {
         if (version !== saveVersionRef.current) return;
@@ -1225,6 +1284,24 @@ function SettingsPanel({ settings, devices, devicesReady, dictionaries, disabled
         setSaveState("error");
       },
     );
+  };
+  const updateAnki = <K extends keyof Settings["anki"]>(
+    key: K,
+    value: Settings["anki"][K],
+  ) => {
+    applySettings(
+      (current) => ({ ...current, anki: { ...current.anki, [key]: value } }),
+      () => void loadAnkiStatus(),
+    );
+  };
+  const commitAnkiPort = () => {
+    const port = Number(ankiPortText);
+    if (!Number.isInteger(port) || port < 1 || port > 65_535) {
+      setAnkiPortError("请输入 1 到 65535 之间的端口");
+      return;
+    }
+    setAnkiPortError("");
+    if (port !== draftRef.current.anki.port) updateAnki("port", port);
   };
   const updateAsr = <K extends keyof Settings["asr"]>(key: K, value: Settings["asr"][K]) => {
     applySettings((current) => {
@@ -1282,10 +1359,6 @@ function SettingsPanel({ settings, devices, devicesReady, dictionaries, disabled
     ["downloaded", "loading", "ready"].includes(model.status),
   );
   const downloadingModels = managedModels.filter((model) => model.status === "downloading");
-  const installedBytes = installedModels.reduce(
-    (total, model) => total + model.downloaded_bytes,
-    0,
-  );
   const selectableModels = modelsReady
     ? managedModels.filter((model) =>
         model.id === draft.asr.model
@@ -1294,11 +1367,28 @@ function SettingsPanel({ settings, devices, devicesReady, dictionaries, disabled
     : (asrCapabilities?.models ?? demoAsrCapabilities.models).filter((model) =>
         model.id === draft.asr.model || model.status !== "not_downloaded",
       );
+  const ankiOptionList = (values: string[], current: string) => (
+    Array.from(new Set([current, ...values])).map((value) => ({ value, label: value }))
+  );
+  const ankiDeckNames = useMemo(
+    () => Array.from(new Set([draft.anki.deck, ...(ankiStatus?.decks ?? [])])),
+    [ankiStatus?.decks, draft.anki.deck],
+  );
+  const ankiModelOptions = ankiOptionList(ankiStatus?.models ?? [], draft.anki.model);
+  const ankiFieldOptions = ankiOptionList(
+    (ankiStatus?.fields ?? []).filter((field) => field !== draft.anki.back_field),
+    draft.anki.front_field,
+  );
+  const ankiBackFieldOptions = ankiOptionList(
+    (ankiStatus?.fields ?? []).filter((field) => field !== draft.anki.front_field),
+    draft.anki.back_field,
+  );
   const settingsCategories: Array<{ id: SettingsCategory; label: string; icon: React.ReactNode }> = [
     { id: "system", label: "常规", icon: <SlidersHorizontal size={18} /> },
     { id: "audio", label: "音频", icon: <Volume2 size={18} /> },
     { id: "recognition", label: "识别", icon: <Languages size={18} /> },
     { id: "dictionary", label: "词典", icon: <BookOpen size={18} /> },
+    { id: "anki", label: "Anki", icon: <PlusCircle size={18} /> },
     { id: "debug", label: "Debug", icon: <Wrench size={18} /> },
   ];
   const debugRows = [
@@ -1315,6 +1405,13 @@ function SettingsPanel({ settings, devices, devicesReady, dictionaries, disabled
   ];
   const settingsActionText = activeCategory === "dictionary"
     ? "词典导入和移除会立即生效"
+    : activeCategory === "anki"
+      ? ankiPortError
+        || (saveState === "saving"
+          ? "正在保存 Anki 设置…"
+          : saveState === "error"
+            ? saveMessage || "Anki 设置保存失败"
+            : ankiMessage || "Anki 设置保存后会自动重新检测连接")
     : activeCategory === "system"
       ? !desktopPreferencesReady
         ? "正在读取 Windows 启动与托盘设置…"
@@ -1336,7 +1433,11 @@ function SettingsPanel({ settings, devices, devicesReady, dictionaries, disabled
           : saveState === "error"
             ? saveMessage || "应用失败，原设置仍然有效"
             : "修改后立即校验并应用";
-  const visibleSaveState = activeCategory === "system" ? desktopSaveState : saveState;
+  const visibleSaveState = activeCategory === "system"
+    ? desktopSaveState
+    : activeCategory === "anki" && (ankiPortError || (ankiStatus && !ankiStatus.configuration_valid))
+      ? "error"
+      : saveState;
   const chooseDictionary = async (file?: File) => {
     if (!file) return;
     setDictionaryBusy(true);
@@ -1491,67 +1592,86 @@ function SettingsPanel({ settings, devices, devicesReady, dictionaries, disabled
       )}
 
       {activeCategory === "recognition" && (
-        <div className="settings-section settings-section-active" id="settings-panel-recognition" role="tabpanel" aria-labelledby="settings-tab-recognition">
+        <div className="settings-section settings-section-active recognition-section" id="settings-panel-recognition" role="tabpanel" aria-labelledby="settings-tab-recognition">
           <div className="section-heading">
-            <div><h2>识别引擎</h2><span className="status-chip">状态：{modelStatus}</span></div>
+            <div><Languages size={18} /><h2>识别引擎</h2><span className="status-chip">状态：{modelStatus}</span></div>
             <p>{disabled ? "停止转写后可修改" : "修改后立即应用"}</p>
           </div>
-          <div className={`capability-banner ${asrCapabilities?.cuda.available ? "available" : "unavailable"}`}>
-            <strong>CUDA 预检</strong>
-            <span>
-              {asrCapabilities === null
-                ? "正在检测运行环境…"
-                : asrCapabilities.cuda.available
-                  ? `已发现 ${asrCapabilities.cuda.device_count} 个 CUDA 设备`
-                  : asrCapabilities.cuda.device_count > 0
-                    ? "已检测到 NVIDIA GPU，但 CUDA 12 运行库不可用"
-                    : "未发现可用 CUDA，已过滤 GPU 专用组合"}
-            </span>
+          <div className={`recognition-runtime ${asrCapabilities?.cuda.available ? "available" : "unavailable"}`}>
+            <span className="recognition-runtime-dot" aria-hidden="true" />
+            <div>
+              <strong>运行环境</strong>
+              <span>
+                {asrCapabilities === null
+                  ? "正在检测运行环境…"
+                  : asrCapabilities.cuda.available
+                    ? `已发现 ${asrCapabilities.cuda.device_count} 个 CUDA 设备，可选择 GPU 加速`
+                    : asrCapabilities.cuda.device_count > 0
+                      ? "已检测到 NVIDIA GPU，但 CUDA 12 运行库不可用"
+                      : "未发现可用 CUDA，已过滤 GPU 专用组合"}
+              </span>
+            </div>
           </div>
-          <div className="form-grid">
-            <Select
-              label="模型"
-              helper={modelStatusLabel}
-              value={draft.asr.model}
-              options={selectableModels.map((model) => ({
-                value: model.id,
-                label: `${model.id} · ${
-                  model.status === "not_downloaded"
-                    ? "未下载"
-                    : model.status === "loading"
-                      ? "加载中"
-                      : model.status === "error"
-                        ? "错误"
-                        : "已就绪"
-                }`,
-              }))}
-              disabled={disabled}
-              onChange={(value) => updateAsr("model", value as Settings["asr"]["model"])}
-            />
-            <Select label="语言" helper="保留原语言进行转写，不进行翻译" value={draft.asr.language} values={["auto", "en", "ja", "zh", "ko", "es", "fr", "de"]} disabled={disabled} onChange={(value) => updateAsr("language", value as Settings["asr"]["language"])} />
-            <Select
-              label="运行设备"
-              helper={asrError ?? "只显示通过预检的设备"}
-              value={draft.asr.device}
-              options={[
-                { value: "auto", label: "自动选择" },
-                { value: "cpu", label: "CPU" },
-                ...(asrCapabilities?.cuda.available ? [{ value: "cuda", label: "CUDA" }] : []),
-                ...(draft.asr.device === "cuda" && !asrCapabilities?.cuda.available
-                  ? [{ value: "cuda", label: "CUDA · 不可用" }]
-                  : []),
-              ]}
-              disabled={disabled}
-              onChange={(value) => updateAsr("device", value as Settings["asr"]["device"])}
-            />
-            <Select
-              label="计算类型"
-              helper="根据运行设备过滤有效组合"
-              value={draft.asr.compute_type}
-              values={computeTypes}
-              disabled={disabled}
-              onChange={(value) => updateAsr("compute_type", value as Settings["asr"]["compute_type"])}
-            />
+          <div className="recognition-config">
+            <div className="recognition-config-row">
+              <div className="recognition-config-title">
+                <Languages size={17} />
+                <span><strong>识别内容</strong><small>选择模型大小与输入语言</small></span>
+              </div>
+              <div className="recognition-config-fields">
+                <Select
+                  label="模型"
+                  helper={modelStatusLabel}
+                  value={draft.asr.model}
+                  options={selectableModels.map((model) => ({
+                    value: model.id,
+                    label: `${model.id} · ${
+                      model.status === "not_downloaded"
+                        ? "未下载"
+                        : model.status === "loading"
+                          ? "加载中"
+                          : model.status === "error"
+                            ? "错误"
+                            : "已就绪"
+                    }`,
+                  }))}
+                  disabled={disabled}
+                  onChange={(value) => updateAsr("model", value as Settings["asr"]["model"])}
+                />
+                <Select label="语言" helper="保留原语言转写，不翻译" value={draft.asr.language} values={["auto", "en", "ja", "zh", "ko", "es", "fr", "de"]} disabled={disabled} onChange={(value) => updateAsr("language", value as Settings["asr"]["language"])} />
+              </div>
+            </div>
+            <div className="recognition-config-row">
+              <div className="recognition-config-title">
+                <HardDrive size={17} />
+                <span><strong>运行方式</strong><small>按硬件能力过滤有效组合</small></span>
+              </div>
+              <div className="recognition-config-fields">
+                <Select
+                  label="运行设备"
+                  helper={asrError ?? "只显示通过预检的设备"}
+                  value={draft.asr.device}
+                  options={[
+                    { value: "auto", label: "自动选择" },
+                    { value: "cpu", label: "CPU" },
+                    ...(asrCapabilities?.cuda.available ? [{ value: "cuda", label: "CUDA" }] : []),
+                    ...(draft.asr.device === "cuda" && !asrCapabilities?.cuda.available
+                      ? [{ value: "cuda", label: "CUDA · 不可用" }]
+                      : []),
+                  ]}
+                  disabled={disabled}
+                  onChange={(value) => updateAsr("device", value as Settings["asr"]["device"])}
+                />
+                <Select
+                  label="计算类型"
+                  helper="根据运行设备过滤"
+                  value={draft.asr.compute_type}
+                  values={computeTypes}
+                  disabled={disabled}
+                  onChange={(value) => updateAsr("compute_type", value as Settings["asr"]["compute_type"])}
+                />
+              </div>
+            </div>
           </div>
           <section className="model-section recognition-models" aria-labelledby="local-models-heading">
           <div className="section-heading">
@@ -1567,14 +1687,6 @@ function SettingsPanel({ settings, devices, devicesReady, dictionaries, disabled
               </span>
             </div>
             <button className="secondary-button" type="button" disabled={!modelsReady} onClick={() => void loadModels()}><RefreshCw size={15} />刷新</button>
-          </div>
-
-          <div className="model-storage-summary">
-            <div>
-              <span>本地占用</span>
-              <strong>{formatBytes(installedBytes)}</strong>
-            </div>
-            <p>模型文件保存在 VRCS 的本地数据目录。下载可以在后台继续，已安装模型无需联网即可使用。</p>
           </div>
 
           {!modelsReady && managedModels.length === 0 ? (
@@ -1594,9 +1706,6 @@ function SettingsPanel({ settings, devices, devicesReady, dictionaries, disabled
                   : formatBytes(model.total_bytes);
                 return (
                   <article className={`model-row model-status-${model.status}`} key={model.id}>
-                    <div className="model-row-icon" aria-hidden="true">
-                      <span>{presentation.name.slice(0, 1)}</span>
-                    </div>
                     <div className="model-row-body">
                       <div className="model-row-title">
                         <strong>{presentation.name}</strong>
@@ -1763,6 +1872,106 @@ function SettingsPanel({ settings, devices, devicesReady, dictionaries, disabled
         </div>
       )}
 
+      {activeCategory === "anki" && (
+        <div className="settings-section settings-section-active anki-section" id="settings-panel-anki" role="tabpanel" aria-labelledby="settings-tab-anki">
+          <div className="section-heading">
+            <div>
+              <PlusCircle size={18} />
+              <h2>Anki 制卡</h2>
+              <span>本地 AnkiConnect</span>
+            </div>
+            <button className="secondary-button" type="button" disabled={ankiBusy} onClick={() => void loadAnkiStatus()}>
+              <RefreshCw className={ankiBusy ? "spin" : ""} size={15} />
+              {ankiBusy ? "检测中" : "重新检测"}
+            </button>
+          </div>
+
+          <div className={`anki-connection ${ankiBusy ? "checking" : ankiStatus?.connected ? (ankiStatus.configuration_valid ? "ready" : "needs-setup") : "offline"}`} aria-live="polite">
+            <span className="anki-connection-dot" aria-hidden="true" />
+            <div>
+              <strong>
+                {ankiBusy
+                  ? "正在检测 AnkiConnect"
+                  : ankiStatus?.connected
+                    ? ankiStatus.configuration_valid
+                      ? "可以制卡"
+                      : "已连接，需要完成配置"
+                    : "AnkiConnect 未连接"}
+              </strong>
+              <p>{ankiMessage || ankiStatus?.message || "启动 Anki 后重新检测连接"}</p>
+            </div>
+            <code>
+              {ankiStatus?.version ? `API v${ankiStatus.version}` : `127.0.0.1:${draft.anki.port}`}
+            </code>
+          </div>
+
+          <div className="anki-endpoint-row">
+            <div>
+              <span>连接地址</span>
+              <strong>127.0.0.1</strong>
+              <small>仅允许访问本机，避免把制卡内容发送到远程服务</small>
+            </div>
+            <label className="anki-port-field">
+              <span>端口</span>
+              <input
+                type="text"
+                inputMode="numeric"
+                value={ankiPortText}
+                disabled={saveState === "saving"}
+                aria-invalid={Boolean(ankiPortError)}
+                aria-describedby="anki-port-help"
+                onChange={(event) => setAnkiPortText(event.target.value.replace(/\D/g, "").slice(0, 5))}
+                onBlur={commitAnkiPort}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    event.currentTarget.blur();
+                  }
+                }}
+              />
+            </label>
+          </div>
+          <p id="anki-port-help" className={`anki-port-help ${ankiPortError ? "error" : ""}`}>
+            {ankiPortError || "AnkiConnect 默认使用 8765，一般无需修改。仅在插件配置了其他端口时调整。"}
+          </p>
+
+          <div className="form-grid anki-mapping-grid">
+            <DeckTreeSelect
+              label="牌组"
+              helper={ankiStatus?.connected ? "新笔记会保存到此牌组" : "连接后读取可用牌组"}
+              value={draft.anki.deck}
+              decks={ankiDeckNames}
+              disabled={!ankiStatus?.connected || ankiBusy || saveState === "saving"}
+              onChange={(value) => updateAnki("deck", value)}
+            />
+            <Select
+              label="笔记类型"
+              helper={ankiStatus?.connected ? "选择 Anki 中已有的笔记类型" : "连接后读取笔记类型"}
+              value={draft.anki.model}
+              options={ankiModelOptions}
+              disabled={!ankiStatus?.connected || ankiBusy || saveState === "saving"}
+              onChange={(value) => updateAnki("model", value)}
+            />
+            <Select
+              label="正面字段"
+              helper="写入词条和读音"
+              value={draft.anki.front_field}
+              options={ankiFieldOptions}
+              disabled={!ankiStatus?.connected || !ankiStatus.fields.length || ankiBusy || saveState === "saving"}
+              onChange={(value) => updateAnki("front_field", value)}
+            />
+            <Select
+              label="背面字段"
+              helper="写入释义、语境和词典来源"
+              value={draft.anki.back_field}
+              options={ankiBackFieldOptions}
+              disabled={!ankiStatus?.connected || !ankiStatus.fields.length || ankiBusy || saveState === "saving"}
+              onChange={(value) => updateAnki("back_field", value)}
+            />
+          </div>
+        </div>
+      )}
+
       {activeCategory === "debug" && (
         <div className="settings-section settings-section-active debug-section" id="settings-panel-debug" role="tabpanel" aria-labelledby="settings-tab-debug">
           <div className="section-heading">
@@ -1795,19 +2004,23 @@ function PreferenceToggle({ title, description, checked, disabled, onChange }: {
   onChange: (checked: boolean) => void;
 }) {
   return (
-    <label className={`settings-toggle-row ${disabled ? "disabled" : ""}`}>
+    <div className={`settings-toggle-row ${disabled ? "disabled" : ""}`}>
       <span className="settings-toggle-copy">
         <strong>{title}</strong>
         <small>{description}</small>
       </span>
-      <input
-        type="checkbox"
-        checked={checked}
+      <button
+        className="settings-switch-button"
+        type="button"
+        role="switch"
+        aria-checked={checked}
+        aria-label={title}
         disabled={disabled}
-        onChange={(event) => onChange(event.target.checked)}
-      />
-      <span className="switch-track" aria-hidden="true"><span /></span>
-    </label>
+        onClick={() => onChange(!checked)}
+      >
+        <span className="switch-track" aria-hidden="true"><span /></span>
+      </button>
+    </div>
   );
 }
 
@@ -1830,6 +2043,204 @@ function Select({ label, helper, value, values = [], options, disabled, onChange
         disabled={disabled}
         onChange={onChange}
       />
+      {helper && <small>{helper}</small>}
+    </div>
+  );
+}
+
+function DeckTreeSelect({ label, helper, value, decks, disabled, onChange }: {
+  label: string;
+  helper?: string;
+  value: string;
+  decks: string[];
+  disabled: boolean;
+  onChange: (value: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [expandedNames, setExpandedNames] = useState<Set<string>>(
+    () => new Set(ankiDeckAncestors(value)),
+  );
+  const [activeName, setActiveName] = useState(value);
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const itemRefs = useRef(new Map<string, HTMLButtonElement>());
+  const tree = useMemo(() => buildAnkiDeckTree(decks), [decks]);
+  const visibleNodes = useMemo(
+    () => visibleAnkiDeckNodes(tree, expandedNames),
+    [tree, expandedNames],
+  );
+
+  const closeAndFocusTrigger = () => {
+    setOpen(false);
+    requestAnimationFrame(() => triggerRef.current?.focus());
+  };
+
+  const openTree = () => {
+    setExpandedNames((current) => new Set([
+      ...current,
+      ...ankiDeckAncestors(value),
+    ]));
+    setActiveName(value || tree[0]?.name || "");
+    setOpen(true);
+  };
+
+  const toggleExpanded = (name: string) => {
+    setExpandedNames((current) => {
+      const next = new Set(current);
+      if (next.has(name)) next.delete(name);
+      else next.add(name);
+      return next;
+    });
+  };
+
+  const choose = (name: string) => {
+    onChange(name);
+    setActiveName(name);
+    closeAndFocusTrigger();
+  };
+
+  useEffect(() => {
+    if (!open) return;
+    const closeOnOutside = (event: PointerEvent) => {
+      if (rootRef.current && !rootRef.current.contains(event.target as Node)) setOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeAndFocusTrigger();
+      }
+    };
+    document.addEventListener("pointerdown", closeOnOutside);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeOnOutside);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [open]);
+
+  useEffect(() => {
+    if (disabled) setOpen(false);
+  }, [disabled]);
+
+  useEffect(() => {
+    if (!open) return;
+    const frame = requestAnimationFrame(() => itemRefs.current.get(activeName)?.focus());
+    return () => cancelAnimationFrame(frame);
+  }, [activeName, open]);
+
+  return (
+    <div className="field">
+      <span>{label}</span>
+      <div className={`deck-tree-field ${open ? "open" : ""}`} ref={rootRef}>
+        <button
+          className="dropdown-trigger deck-tree-trigger"
+          type="button"
+          ref={triggerRef}
+          disabled={disabled}
+          aria-haspopup="tree"
+          aria-expanded={open}
+          aria-controls="anki-deck-tree"
+          onClick={() => {
+            if (open) setOpen(false);
+            else openTree();
+          }}
+          onKeyDown={(event) => {
+            if (event.key === "ArrowDown" || event.key === "Enter" || event.key === " ") {
+              event.preventDefault();
+              openTree();
+            }
+          }}
+        >
+          <span className="dropdown-value">{ankiDeckDisplayName(value)}</span>
+          <ChevronDown className="dropdown-chevron" size={16} />
+        </button>
+        {open && (
+          <div className="deck-tree-menu">
+            <div
+              className="deck-tree-list"
+              id="anki-deck-tree"
+              role="tree"
+              aria-label={label}
+            >
+              {visibleNodes.map((node, index) => {
+                const current = node.name === value;
+                return (
+                  <div
+                    className={`deck-tree-row ${current ? "selected" : ""}`}
+                    key={node.name}
+                    role="none"
+                    style={{ "--deck-indent": `${(node.depth - 1) * 16}px` } as CSSProperties}
+                  >
+                    {node.hasChildren ? (
+                      <button
+                        className="deck-tree-toggle"
+                        type="button"
+                        tabIndex={-1}
+                        aria-label={`${node.expanded ? "收起" : "展开"} ${node.label}`}
+                        onClick={() => toggleExpanded(node.name)}
+                      >
+                        <ChevronRight className={node.expanded ? "expanded" : ""} size={15} />
+                      </button>
+                    ) : (
+                      <span className="deck-tree-leaf-space" aria-hidden="true" />
+                    )}
+                    <button
+                      className={`deck-tree-item ${node.selectable ? "" : "group-only"}`}
+                      type="button"
+                      role="treeitem"
+                      aria-level={node.depth}
+                      aria-expanded={node.hasChildren ? node.expanded : undefined}
+                      aria-selected={current}
+                      tabIndex={node.name === activeName ? 0 : -1}
+                      ref={(element) => {
+                        if (element) itemRefs.current.set(node.name, element);
+                        else itemRefs.current.delete(node.name);
+                      }}
+                      onClick={() => {
+                        if (node.selectable) choose(node.name);
+                        else toggleExpanded(node.name);
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.key === "ArrowDown") {
+                          event.preventDefault();
+                          setActiveName(visibleNodes[Math.min(index + 1, visibleNodes.length - 1)].name);
+                        } else if (event.key === "ArrowUp") {
+                          event.preventDefault();
+                          setActiveName(visibleNodes[Math.max(index - 1, 0)].name);
+                        } else if (event.key === "Home") {
+                          event.preventDefault();
+                          setActiveName(visibleNodes[0].name);
+                        } else if (event.key === "End") {
+                          event.preventDefault();
+                          setActiveName(visibleNodes[visibleNodes.length - 1].name);
+                        } else if (event.key === "ArrowRight" && node.hasChildren) {
+                          event.preventDefault();
+                          if (!node.expanded) toggleExpanded(node.name);
+                          else if (visibleNodes[index + 1]) setActiveName(visibleNodes[index + 1].name);
+                        } else if (event.key === "ArrowLeft") {
+                          event.preventDefault();
+                          if (node.expanded) toggleExpanded(node.name);
+                          else {
+                            const parent = ankiDeckParent(node.name);
+                            if (parent) setActiveName(parent);
+                          }
+                        } else if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          if (node.selectable) choose(node.name);
+                          else toggleExpanded(node.name);
+                        }
+                      }}
+                    >
+                      <span>{node.label}</span>
+                      {current && <Check size={15} />}
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </div>
       {helper && <small>{helper}</small>}
     </div>
   );
@@ -1978,8 +2389,8 @@ function DeviceRow({ name, description, chosen, disabled, onSelect }: {
   onSelect: () => void;
 }) {
   return (
-    <label className={`device-row ${chosen ? "chosen" : ""}`}>
-      <input type="radio" checked={chosen} disabled={disabled} onChange={onSelect} />
+    <label className={`device-row ${chosen ? "chosen" : ""} ${disabled ? "disabled" : ""}`}>
+      <input type="radio" aria-label={name} checked={chosen} disabled={disabled} onChange={onSelect} />
       <span><strong>{name}</strong><small>{description}</small></span>
     </label>
   );
@@ -2027,7 +2438,8 @@ function DockButton({ label, active = false, tonal = false, primary = false, onC
 
 function DictionaryPopover({ lookup, demo, compact = false, onClose }: { lookup: Lookup; demo: boolean; compact?: boolean; onClose: () => void }) {
   const ref = useRef<HTMLDivElement>(null);
-  const [message, setMessage] = useState("");
+  const [ankiState, setAnkiState] = useState<AnkiAddState>("idle");
+  const [ankiFeedback, setAnkiFeedback] = useState("");
   const [anchor, setAnchor] = useState(lookup.anchor);
   const groupedEntries = groupDictionaryEntries(lookup.entries);
   const entry = groupedEntries[0];
@@ -2044,6 +2456,11 @@ function DictionaryPopover({ lookup, demo, compact = false, onClose }: { lookup:
   const style = compact
     ? undefined
     : { left, top: placement.top, width, height: placement.height, "--arrow-left": `${arrowLeft}px` };
+
+  useEffect(() => {
+    setAnkiState("idle");
+    setAnkiFeedback("");
+  }, [lookup.term, lookup.context]);
 
   useEffect(() => {
     if (compact || !lookup.range) return;
@@ -2085,16 +2502,29 @@ function DictionaryPopover({ lookup, demo, compact = false, onClose }: { lookup:
   }, [compact, onClose]);
 
   const add = async () => {
-    if (!entry) return;
+    if (!entry || ankiState === "adding") return;
+    const cardContent = ankiDictionaryContent(visibleEntries);
+    setAnkiState("adding");
+    setAnkiFeedback("");
     if (demo) {
-      setMessage("已添加到 Anki");
+      setAnkiState("success");
+      setAnkiFeedback(`已创建演示笔记 #42，写入 ${visibleEntries.length} 组释义`);
       return;
     }
     try {
-      const result = await coreApi.createCard(lookup.term, entry.definition, lookup.context);
-      setMessage(`已创建卡片 #${result.note_id}`);
+      const result = await coreApi.createCard({
+        term: lookup.term,
+        reading: entry.reading,
+        definition: cardContent.definition,
+        context: lookup.context,
+        dictionary: cardContent.dictionary,
+        language: entry.language,
+      });
+      setAnkiState("success");
+      setAnkiFeedback(`已创建 Anki 笔记 #${result.note_id}，写入 ${visibleEntries.length} 组释义`);
     } catch (reason) {
-      setMessage(reason instanceof Error ? reason.message : "制卡失败");
+      setAnkiState("error");
+      setAnkiFeedback(reason instanceof Error ? reason.message : "制卡失败，请重试");
     }
   };
 
@@ -2122,7 +2552,19 @@ function DictionaryPopover({ lookup, demo, compact = false, onClose }: { lookup:
         ) : <p className="definition muted">已导入的词典中暂无释义。</p>}
         <div className="lookup-context"><span>原文语境</span><q>{contextExcerpt(lookup.context, lookup.term)}</q></div>
       </div>
-      <button className="anki-button" type="button" disabled={!entry} onClick={() => void add()}><PlusCircle size={16} />{message || "添加到 Anki"}</button>
+      <button className={`anki-button anki-state-${ankiState}`} type="button" disabled={!entry || ankiState === "adding" || ankiState === "success"} onClick={() => void add()}>
+        {ankiState === "success"
+          ? <Check size={16} />
+          : ankiState === "error"
+            ? <TriangleAlert size={16} />
+            : <PlusCircle size={16} />}
+        {ankiButtonLabel(ankiState)}
+      </button>
+      {ankiFeedback && (
+        <p className={`dictionary-anki-feedback ${ankiState}`} role={ankiState === "error" ? "alert" : "status"}>
+          {ankiFeedback}
+        </p>
+      )}
       {!compact && <i className="popover-arrow" aria-hidden="true" />}
     </div>
   );
