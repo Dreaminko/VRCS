@@ -4,6 +4,8 @@ import pytest
 
 from app.asr.model_manager import ModelManager
 
+from conftest import write_hf_snapshot
+
 
 def wait_for_status(manager: ModelManager, model: str, expected: str) -> None:
     deadline = time.monotonic() + 2
@@ -19,15 +21,7 @@ def test_model_manager_downloads_lists_and_deletes_model(tmp_path, monkeypatch):
     monkeypatch.setenv("HUGGINGFACE_HUB_CACHE", str(cache))
 
     def download(repository: str) -> None:
-        snapshot = (
-            cache
-            / f"models--{repository.replace('/', '--')}"
-            / "snapshots"
-            / "revision"
-        )
-        snapshot.mkdir(parents=True)
-        (snapshot / "model.bin").write_bytes(b"model")
-        (snapshot / "config.json").write_text("{}", encoding="utf-8")
+        write_hf_snapshot(cache, repository)
 
     manager = ModelManager(download)
     manager.start_download("tiny")

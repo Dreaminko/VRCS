@@ -43,7 +43,6 @@ class ProcessStream:
         self.closed = True
 
 
-@pytest.mark.asyncio
 async def test_cancelled_read_interrupts_stream_before_it_is_closed() -> None:
     capture = AudioCapture()
     stream = BlockingStream()

@@ -1,5 +1,5 @@
 export type LookupAnchor = { top: number; bottom: number; centerX: number };
-export type LookupRect = { top: number; bottom: number; left: number; right: number; width: number; height: number };
+type LookupRect = { top: number; bottom: number; left: number; right: number; width: number; height: number };
 
 export const LOOKUP_POPOVER_HEIGHT = 360;
 

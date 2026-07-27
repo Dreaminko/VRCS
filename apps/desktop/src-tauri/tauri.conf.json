@@ -26,7 +26,6 @@
     }
   },
   "bundle": {
-    "active": false,
-    "targets": "all"
+    "active": false
   }
 }

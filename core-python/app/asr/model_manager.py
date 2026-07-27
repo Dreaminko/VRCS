@@ -149,7 +149,7 @@ class ModelManager:
             self._jobs.pop(model, None)
 
     def delete(self, model: str, *, active_model: str | None = None) -> None:
-        repository = self._validate_model(model)
+        self._validate_model(model)
         if model == active_model:
             raise ValueError("当前正在使用该模型，请先选择其他模型")
         status, _ = self._job_status(model)

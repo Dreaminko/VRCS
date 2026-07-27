@@ -12,7 +12,7 @@ import type {
 } from "./types";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 
-export interface CoreConnection {
+interface CoreConnection {
   httpUrl: string;
   wsUrl: string;
   token: string;

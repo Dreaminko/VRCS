@@ -51,11 +51,7 @@ apps/desktop/src-tauri/binaries/
 apps/desktop/src-tauri/resources/vrcs-core-runtime/
 
 # Design tool working output
-.superdesign/tmp/
-.superdesign/qa/
-
-# Local project documentation
-/docs/
+.superdesign/
 
 # Logs and temporary files
 *.log
@@ -72,3 +68,5 @@ apps/desktop/src-tauri/resources/vrcs-core-runtime/
 .DS_Store
 Thumbs.db
 Desktop.ini
+
+docs/

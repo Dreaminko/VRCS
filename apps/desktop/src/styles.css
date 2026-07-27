@@ -768,7 +768,6 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 .section-heading > div { display: flex; align-items: center; gap: 10px; }
 .section-heading p { margin: 0; }
 .section-heading .status-chip { color: var(--primary); background: var(--primary-softer); }
-.settings-divider { height: 1px; margin: 0 30px; background: var(--border); }
 .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px 28px; }
 .recognition-runtime {
   display: grid;
@@ -1495,7 +1494,6 @@ button:focus-visible, select:focus-visible, input:focus-visible {
   color: var(--primary-hover);
   background: var(--primary-soft);
 }
-.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 
 @keyframes popover-in {
   from { opacity: 0; transform: translateY(5px) scale(0.985); }
@@ -1522,7 +1520,6 @@ button:focus-visible, select:focus-visible, input:focus-visible {
   .message-group { max-width: 82%; }
   .settings-tabbar-wrap { padding: 16px 24px 0; }
   .settings-section { padding: 24px; }
-  .settings-divider { margin-inline: 24px; }
   .recognition-config-row { grid-template-columns: 1fr; gap: 14px; }
   .settings-actions { padding-inline: 24px; }
 }

@@ -1,4 +1,4 @@
-export type AnkiDeckNode = {
+type AnkiDeckNode = {
   name: string;
   label: string;
   depth: number;
@@ -6,7 +6,7 @@ export type AnkiDeckNode = {
   children: AnkiDeckNode[];
 };
 
-export type VisibleAnkiDeckNode = AnkiDeckNode & {
+type VisibleAnkiDeckNode = AnkiDeckNode & {
   expanded: boolean;
   hasChildren: boolean;
 };

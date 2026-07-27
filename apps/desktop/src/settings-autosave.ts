@@ -1,4 +1,4 @@
-export type SettingsAutosaveOptions<T> = {
+type SettingsAutosaveOptions<T> = {
   persist: (value: T) => Promise<T>;
   onOptimistic: (value: T) => void;
   onCommit: (value: T) => void;

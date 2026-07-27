@@ -16,11 +16,10 @@ dependencies = [
 
 [project.optional-dependencies]
 audio = ["PyAudioWPatch>=0.2.12.7"]
-asr = ["faster-whisper>=1.1,<2"]
-vad = ["faster-whisper>=1.1,<2"]
+asr = ["faster-whisper>=1.2.1,<2"]
 full = [
   "PyAudioWPatch>=0.2.12.7",
-  "faster-whisper>=1.1,<2",
+  "faster-whisper>=1.2.1,<2",
 ]
 dev = ["httpx>=0.27,<1", "pytest>=8,<9", "pytest-asyncio>=0.24,<1"]
 release = ["pyinstaller>=6.19,<7"]

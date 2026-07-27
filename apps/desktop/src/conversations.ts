@@ -1,6 +1,6 @@
 import type { Subtitle } from "./types";
 
-export const CONVERSATION_GAP_MS = 30 * 60 * 1000;
+const CONVERSATION_GAP_MS = 30 * 60 * 1000;
 
 export type SubtitleConversation = {
   id: string;

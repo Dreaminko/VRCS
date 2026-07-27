@@ -115,7 +115,7 @@ def create_app(
         yield
         await app.state.core.close()
 
-    app = FastAPI(title="VRCS Core", version="0.1.0", lifespan=lifespan)
+    app = FastAPI(title="VRCS Core", version=CORE_VERSION, lifespan=lifespan)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=ALLOWED_ORIGINS,
@@ -378,9 +378,6 @@ def create_app(
             core.subtitles.unsubscribe(queue)
 
     return app
-
-
-app = create_app()
 
 
 def run() -> None:

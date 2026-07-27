@@ -93,14 +93,6 @@ class SpeechSegmenter:
         self.reset()
         return segment if valid else None
 
-    def flush(self) -> np.ndarray | None:
-        if self._speech_samples < self.min_speech_samples:
-            self.reset()
-            return None
-        segment = np.concatenate(self._chunks)
-        self.reset()
-        return segment
-
     def reset(self) -> None:
         self._chunks.clear()
         self._speech_samples = 0

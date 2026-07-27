@@ -43,7 +43,7 @@ export function groupDictionaryEntries(entries: DictionaryEntry[]): DictionaryEn
   }));
 }
 
-export interface AnkiDictionaryContent {
+interface AnkiDictionaryContent {
   definition: string;
   dictionary: string | null;
 }

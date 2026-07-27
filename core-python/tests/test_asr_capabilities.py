@@ -19,18 +19,12 @@ from app.asr.runtime import (
 )
 from app.config import AsrConfig
 
+from conftest import write_hf_snapshot
+
 
 def test_model_download_status_reads_hugging_face_snapshot(tmp_path, monkeypatch):
     cache = tmp_path / "hub"
-    snapshot = (
-        cache
-        / "models--Systran--faster-whisper-small"
-        / "snapshots"
-        / "revision"
-    )
-    snapshot.mkdir(parents=True)
-    (snapshot / "model.bin").write_bytes(b"model")
-    (snapshot / "config.json").write_text("{}", encoding="utf-8")
+    write_hf_snapshot(cache, "Systran/faster-whisper-small")
     monkeypatch.setenv("HUGGINGFACE_HUB_CACHE", str(cache))
 
     assert model_is_downloaded("small") is True

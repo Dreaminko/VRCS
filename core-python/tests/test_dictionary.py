@@ -7,50 +7,38 @@ import pytest
 from app.database import Database
 from app.dictionary import YomitanDictionaryError
 
+from conftest import build_yomitan_archive
+
 
 def yomitan_archive() -> bytes:
-    output = BytesIO()
-    with ZipFile(output, "w", ZIP_DEFLATED) as package:
-        package.writestr(
-            "index.json",
-            json.dumps(
-                {
-                    "title": "Test Japanese Dictionary",
-                    "revision": "2026.07",
-                    "format": 3,
-                    "sourceLanguage": "ja",
-                    "targetLanguage": "zh",
-                }
-            ),
-        )
-        package.writestr(
-            "term_bank_1.json",
-            json.dumps(
+    return build_yomitan_archive(
+        "Test Japanese Dictionary",
+        "2026.07",
+        [
+            ["便利", "べんり", "adj-na", "", 10, ["方便", {"type": "text", "text": "有用"}], 1, ""],
+            [
+                "辞書",
+                "じしょ",
+                "n",
+                "",
+                5,
                 [
-                    ["便利", "べんり", "adj-na", "", 10, ["方便", {"type": "text", "text": "有用"}], 1, ""],
-                    [
-                        "辞書",
-                        "じしょ",
-                        "n",
-                        "",
-                        5,
-                        [
-                            {
-                                "type": "structured-content",
-                                "content": [
-                                    {"tag": "span", "content": "词典"},
-                                    {"tag": "br"},
-                                    {"tag": "span", "content": "辞典"},
-                                ],
-                            }
+                    {
+                        "type": "structured-content",
+                        "content": [
+                            {"tag": "span", "content": "词典"},
+                            {"tag": "br"},
+                            {"tag": "span", "content": "辞典"},
                         ],
-                        2,
-                        "",
-                    ],
-                ]
-            ),
-        )
-    return output.getvalue()
+                    }
+                ],
+                2,
+                "",
+            ],
+        ],
+        source_language="ja",
+        target_language="zh",
+    )
 
 
 def test_imports_yomitan_terms_and_replaces_same_title(tmp_path):

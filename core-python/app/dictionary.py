@@ -25,7 +25,6 @@ class DictionaryMetadata:
     revision: str
     source_language: str
     target_language: str | None
-    format: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -114,7 +113,7 @@ class YomitanDictionaryImporter:
 
         source_language = str(index.get("sourceLanguage") or "ja").strip() or "ja"
         target = str(index.get("targetLanguage") or "").strip() or None
-        return DictionaryMetadata(title, revision, source_language, target, format_version)
+        return DictionaryMetadata(title, revision, source_language, target)
 
     @staticmethod
     def _read_json(package: ZipFile, name: str) -> Any:
