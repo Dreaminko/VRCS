@@ -77,7 +77,7 @@ class AppState:
         self.pipeline = TranscriptionPipeline(
             self.capture,
             self.detector,
-            SpeechSegmenter(self.config.audio.sample_rate),
+            self.create_segmenter(self.config),
             self.transcriber,
             self.subtitles,
             source="speaker",
@@ -85,12 +85,20 @@ class AppState:
         self.microphone_pipeline = TranscriptionPipeline(
             self.microphone_capture,
             self.microphone_detector,
-            SpeechSegmenter(self.config.audio.sample_rate),
+            self.create_segmenter(self.config),
             self.transcriber,
             self.subtitles,
             source="microphone",
         )
         self.settings_lock = asyncio.Lock()
+
+    @staticmethod
+    def create_segmenter(config: AppConfig) -> SpeechSegmenter:
+        return SpeechSegmenter(
+            config.audio.sample_rate,
+            silence_seconds=config.vad.silence_seconds,
+            max_speech_seconds=config.vad.max_speech_seconds,
+        )
 
     async def close(self) -> None:
         await asyncio.gather(self.pipeline.stop(), self.microphone_pipeline.stop())
@@ -214,11 +222,12 @@ def create_app(
             core.pipeline.running or core.microphone_pipeline.running
         ) and (
             candidate.audio != core.config.audio
+            or candidate.vad != core.config.vad
             or candidate.asr != core.config.asr
         ):
             raise HTTPException(
                 status_code=409,
-                detail="Stop capture before changing audio or recognition settings",
+                detail="Stop capture before changing audio, segmentation, or recognition settings",
             )
         async with core.settings_lock:
             if candidate.server != core.config.server:
@@ -252,7 +261,11 @@ def create_app(
                 await asyncio.to_thread(save_config, core.config_path, candidate)
             except (AudioUnavailableError, ValueError) as exc:
                 raise HTTPException(status_code=422, detail=str(exc)) from exc
+            vad_changed = candidate.vad != core.config.vad
             core.config = candidate
+            if vad_changed:
+                core.pipeline.segmenter = core.create_segmenter(candidate)
+                core.microphone_pipeline.segmenter = core.create_segmenter(candidate)
             core.transcriber.update(candidate.asr)
             return asdict(core.config)
 

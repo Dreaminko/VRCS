@@ -63,9 +63,9 @@ class SpeechSegmenter:
     def __init__(
         self,
         sample_rate: int = 16_000,
-        silence_seconds: float = 0.7,
+        silence_seconds: float = 0.4,
         min_speech_seconds: float = 0.25,
-        max_speech_seconds: float = 20.0,
+        max_speech_seconds: float = 6.0,
     ) -> None:
         self.sample_rate = sample_rate
         self.silence_samples = int(silence_seconds * sample_rate)

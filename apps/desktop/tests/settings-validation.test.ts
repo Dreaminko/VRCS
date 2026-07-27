@@ -17,6 +17,7 @@ const settings: Settings = {
     output: { mode: "system", device_id: 10 },
     microphone: { mode: "device", device_id: 20 },
   },
+  vad: { silence_seconds: 0.4, max_speech_seconds: 6 },
   asr: { model: "small", language: "auto", device: "auto", compute_type: "int8" },
   anki: { port: 8765, deck: "VRCS", model: "Basic", front_field: "Front", back_field: "Back" },
 };

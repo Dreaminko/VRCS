@@ -19,6 +19,10 @@
       "device_id": null
     }
   },
+  "vad": {
+    "silence_seconds": 0.4,
+    "max_speech_seconds": 6.0
+  },
   "asr": {
     "model": "small",
     "language": "auto",

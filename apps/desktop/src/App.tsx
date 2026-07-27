@@ -89,197 +89,11 @@ type Lookup = {
   range?: Range;
 };
 
-const demoParams = new URLSearchParams(window.location.search);
-const DEMO_MODE = demoParams.has("demo");
-const DEMO_LOOKUP = demoParams.has("lookup");
-const DEMO_STOPPED = demoParams.has("stopped");
-const DEMO_COMPACT = demoParams.has("compact");
-const DEMO_VRCHAT_WARNING = demoParams.has("vrchat-warning");
-const DEMO_CUDA_MISSING = demoParams.has("cuda-missing");
 const NATIVE_APP = isTauri();
 const CONVERSATION_STARTS_KEY = "vrcs.conversation-starts.v1";
 const SIDEBAR_OPEN_KEY = "vrcs.conversation-sidebar-open";
 
-const demoSettings: Settings = {
-  schema_version: 3,
-  server: { host: "127.0.0.1", port: 8766 },
-  storage: { database_path: "data/vrcs.db", subtitle_history_limit: 500 },
-  audio: {
-    sample_rate: 16000,
-    output: { mode: "system", device_id: null },
-    microphone: { mode: "device", device_id: 2 },
-  },
-  asr: { model: "small", language: "auto", device: "auto", compute_type: "int8" },
-  anki: { port: 8765, deck: "VRCS", model: "Basic", front_field: "Front", back_field: "Back" },
-};
 
-const demoAnkiStatus: AnkiStatus = {
-  connected: true,
-  version: 6,
-  decks: [
-    "Default",
-    "VRCS",
-    "VRCS::English",
-    "VRCS::Japanese",
-    "VRCS::Japanese::JLPT N5",
-    "VRCS::Japanese::JLPT N4",
-    "Study",
-    "Study::Sentences",
-  ],
-  models: ["Basic", "Cloze"],
-  fields: ["Front", "Back"],
-  configuration_valid: true,
-  error_code: null,
-  message: "AnkiConnect 已连接，制卡配置有效",
-};
-
-const demoDevices: AudioDevice[] = [
-  { id: 1, name: "Realtek High Definition Audio", is_default: true, is_loopback: true, sample_rate: 48000, channels: 2 },
-  { id: 2, name: "Realtek Microphone Array", is_default: true, is_loopback: false, sample_rate: 48000, channels: 1 },
-  { id: 3, name: "Yeti Stereo Microphone", is_default: false, is_loopback: false, sample_rate: 48000, channels: 2 },
-];
-
-const demoSubtitles: Subtitle[] = [
-  {
-    id: 3,
-    text: "このアプリは本当に便利ですね。言語学習にとても役立ちます。",
-    language: "ja",
-    source: "speaker",
-    started_at: null,
-    ended_at: null,
-    created_at: new Date(Date.now() - 60_000).toISOString(),
-  },
-  {
-    id: 2,
-    text: "谢谢你的介绍！这个功能看起来非常实用，对语言学习很有帮助。",
-    language: "zh",
-    source: "microphone",
-    started_at: null,
-    ended_at: null,
-    created_at: new Date(Date.now() - 120_000).toISOString(),
-  },
-  {
-    id: 1,
-    text: "はじめまして、VRCSの世界へようこそ。ここではリアルタイムで翻訳が表示されます。",
-    language: "ja",
-    source: "speaker",
-    started_at: null,
-    ended_at: null,
-    created_at: new Date(Date.now() - 180_000).toISOString(),
-  },
-  {
-    id: 5,
-    text: "昨日はQuest対応のワールドをいくつか巡りました。",
-    language: "ja",
-    source: "speaker",
-    started_at: null,
-    ended_at: null,
-    created_at: new Date(Date.now() - 3 * 3_600_000).toISOString(),
-  },
-  {
-    id: 4,
-    text: "我把不熟悉的表达都记录下来了。",
-    language: "zh",
-    source: "microphone",
-    started_at: null,
-    ended_at: null,
-    created_at: new Date(Date.now() - 3 * 3_600_000 - 60_000).toISOString(),
-  },
-  {
-    id: 6,
-    text: "次回はフレンドと英会話イベントに参加する予定です。",
-    language: "ja",
-    source: "speaker",
-    started_at: null,
-    ended_at: null,
-    created_at: new Date(Date.now() - 26 * 3_600_000).toISOString(),
-  },
-];
-
-const demoHealth: Health = {
-  status: "ok",
-  capture_running: true,
-  audio_device: demoDevices[0],
-  asr_status: "ready",
-  vad_backend: "silero",
-  last_error: null,
-};
-
-const demoAsrCapabilities: AsrCapabilities = {
-  runtime_available: true,
-  cuda: DEMO_CUDA_MISSING
-    ? {
-        available: false,
-        device_count: 1,
-        error: "未找到 CUDA 12 运行库：cudart64_12.dll、cublasLt64_12.dll、cublas64_12.dll",
-      }
-    : { available: true, device_count: 1, error: null },
-  compute_types: {
-    auto: DEMO_CUDA_MISSING ? ["int8"] : ["int8", "float16", "int8_float16"],
-    cpu: ["int8"],
-    cuda: DEMO_CUDA_MISSING ? [] : ["int8", "float16", "int8_float16"],
-  },
-  models: [
-    { id: "tiny", repository: "Systran/faster-whisper-tiny", status: "downloaded" },
-    { id: "base", repository: "Systran/faster-whisper-base", status: "downloaded" },
-    { id: "small", repository: "Systran/faster-whisper-small", status: "ready" },
-    { id: "medium", repository: "Systran/faster-whisper-medium", status: "not_downloaded" },
-    { id: "large-v3", repository: "Systran/faster-whisper-large-v3", status: "not_downloaded" },
-  ],
-};
-
-const demoModels: AsrModelRecord[] = [
-  {
-    id: "tiny",
-    repository: "Systran/faster-whisper-tiny",
-    status: "downloaded",
-    active: false,
-    downloaded_bytes: 75_120_000,
-    total_bytes: 75_120_000,
-    progress: 1,
-    error: null,
-  },
-  {
-    id: "base",
-    repository: "Systran/faster-whisper-base",
-    status: "downloaded",
-    active: false,
-    downloaded_bytes: 142_380_000,
-    total_bytes: 142_380_000,
-    progress: 1,
-    error: null,
-  },
-  {
-    id: "small",
-    repository: "Systran/faster-whisper-small",
-    status: "ready",
-    active: true,
-    downloaded_bytes: 466_050_000,
-    total_bytes: 466_050_000,
-    progress: 1,
-    error: null,
-  },
-  {
-    id: "medium",
-    repository: "Systran/faster-whisper-medium",
-    status: "not_downloaded",
-    active: false,
-    downloaded_bytes: 0,
-    total_bytes: 1_530_000_000,
-    progress: 0,
-    error: null,
-  },
-  {
-    id: "large-v3",
-    repository: "Systran/faster-whisper-large-v3",
-    status: "not_downloaded",
-    active: false,
-    downloaded_bytes: 0,
-    total_bytes: 3_100_000_000,
-    progress: 0,
-    error: null,
-  },
-];
 
 const MODEL_PRESENTATION: Record<AsrModelRecord["id"], {
   name: string;
@@ -332,29 +146,22 @@ function App() {
 function MainApp() {
   const openedAt = useRef(Date.now()).current;
   const [page, setPage] = useState<Page>("live");
-  const [connection, setConnection] = useState<ConnectionState>(DEMO_MODE ? "connected" : "connecting");
-  const [coreConfigured, setCoreConfigured] = useState(DEMO_MODE);
-  const [health, setHealth] = useState<Health | null>(DEMO_MODE ? { ...demoHealth, capture_running: !DEMO_STOPPED } : null);
-  const [subtitles, setSubtitles] = useState<Subtitle[]>(DEMO_MODE ? demoSubtitles : []);
-  const [settings, setSettings] = useState<Settings | null>(DEMO_MODE ? demoSettings : null);
-  const persistedSettingsRef = useRef<Settings | null>(DEMO_MODE ? demoSettings : null);
-  const [devices, setDevices] = useState<AudioDevice[]>(DEMO_MODE ? demoDevices : []);
-  const [devicesReady, setDevicesReady] = useState(DEMO_MODE);
-  const [asrCapabilities, setAsrCapabilities] = useState<AsrCapabilities | null>(
-    DEMO_MODE ? demoAsrCapabilities : null,
-  );
+  const [connection, setConnection] = useState<ConnectionState>("connecting");
+  const [coreConfigured, setCoreConfigured] = useState(false);
+  const [health, setHealth] = useState<Health | null>(null);
+  const [subtitles, setSubtitles] = useState<Subtitle[]>([]);
+  const [settings, setSettings] = useState<Settings | null>(null);
+  const persistedSettingsRef = useRef<Settings | null>(null);
+  const [devices, setDevices] = useState<AudioDevice[]>([]);
+  const [devicesReady, setDevicesReady] = useState(false);
+  const [asrCapabilities, setAsrCapabilities] = useState<AsrCapabilities | null>(null);
   const [dictionarySources, setDictionarySources] = useState<DictionarySource[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [vrchatWarningOpen, setVrchatWarningOpen] = useState(DEMO_MODE && DEMO_VRCHAT_WARNING);
+  const [vrchatWarningOpen, setVrchatWarningOpen] = useState(false);
   const [cudaRuntimeWarningOpen, setCudaRuntimeWarningOpen] = useState(false);
   const cudaRuntimeWarningShownRef = useRef(false);
-  const [lookup, setLookup] = useState<Lookup | null>(DEMO_MODE && DEMO_LOOKUP ? {
-    term: "便利",
-    context: demoSubtitles[0].text,
-    entries: [{ term: "便利", reading: "べんり", language: "ja", definition: "方便的；有用的；省事的" }],
-    anchor: { top: 386, bottom: 408, centerX: 432 },
-  } : null);
-  const [compact, setCompact] = useState(DEMO_COMPACT);
+  const [lookup, setLookup] = useState<Lookup | null>(null);
+  const [compact, setCompact] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(() => localStorage.getItem(SIDEBAR_OPEN_KEY) !== "false");
   const [conversationStarts, setConversationStarts] = useState(storedConversationStarts);
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
@@ -395,7 +202,6 @@ function MainApp() {
   }, [activeConversation, conversations, selectedConversationId]);
 
   useEffect(() => {
-    if (DEMO_MODE) return;
     let cancelled = false;
     void initializeCoreApi()
       .then(() => {
@@ -413,7 +219,7 @@ function MainApp() {
   }, []);
 
   const refresh = useCallback(async () => {
-    if (DEMO_MODE || !coreConfigured) return;
+    if (!coreConfigured) return;
     try {
       const [nextHealth, nextSettings, historyItems, nextAsrCapabilities] = await Promise.all([
         coreApi.health(),
@@ -433,7 +239,7 @@ function MainApp() {
   }, [coreConfigured]);
 
   useEffect(() => {
-    if (DEMO_MODE || !coreConfigured) return;
+    if (!coreConfigured) return;
     void refresh();
     const timer = window.setInterval(
       () => {
@@ -446,7 +252,7 @@ function MainApp() {
   }, [coreConfigured, refresh, settings]);
 
   useEffect(() => {
-    if (DEMO_MODE || !coreConfigured) return;
+    if (!coreConfigured) return;
     let socket: WebSocket | null = null;
     let retry: number | null = null;
     let closed = false;
@@ -474,7 +280,7 @@ function MainApp() {
   }, [coreConfigured]);
 
   const loadDevices = useCallback(async () => {
-    if (DEMO_MODE || !coreConfigured) return;
+    if (!coreConfigured) return;
     try {
       setDevices(await coreApi.devices());
       setDevicesReady(true);
@@ -486,7 +292,7 @@ function MainApp() {
   }, [coreConfigured]);
 
   const loadDictionaries = useCallback(async () => {
-    if (DEMO_MODE || !coreConfigured) return;
+    if (!coreConfigured) return;
     try {
       setDictionarySources(await coreApi.dictionaries());
       setError(null);
@@ -496,7 +302,7 @@ function MainApp() {
   }, [coreConfigured]);
 
   const loadAsrCapabilities = useCallback(async () => {
-    if (DEMO_MODE || !coreConfigured) return;
+    if (!coreConfigured) return;
     try {
       setAsrCapabilities(await coreApi.asrCapabilities());
       setError(null);
@@ -514,10 +320,6 @@ function MainApp() {
   }, [loadAsrCapabilities, loadDevices, loadDictionaries, page]);
 
   const toggleCapture = async () => {
-    if (DEMO_MODE) {
-      setHealth((current) => current ? { ...current, capture_running: !current.capture_running } : current);
-      return;
-    }
     try {
       if (health?.capture_running) await coreApi.stop();
       else await coreApi.start();
@@ -548,8 +350,7 @@ function MainApp() {
   const persistSettings = async (next: Settings): Promise<Settings> => {
     const previous = persistedSettingsRef.current;
     const restartCapture = (
-      !DEMO_MODE
-      && Boolean(health?.capture_running)
+      Boolean(health?.capture_running)
       && previous !== null
       && audioSettingsChanged(previous, next)
     );
@@ -561,7 +362,7 @@ function MainApp() {
         await coreApi.stop();
         captureStopped = true;
       }
-      saved = DEMO_MODE ? next : await coreApi.saveSettings(next);
+      saved = await coreApi.saveSettings(next);
       if (restartCapture) {
         await coreApi.start();
         void coreApi.health().then(setHealth).catch(() => undefined);
@@ -605,9 +406,7 @@ function MainApp() {
     settingsAutosaveRef.current = createSettingsAutosave<Settings>({
       persist: (next) => persistSettingsRef.current(next),
       onOptimistic: setSettings,
-      onCommit: (saved) => {
-        persistedSettingsRef.current = saved;
-        setSettings(saved);
+      onCommit: (_saved) => {
         setError(null);
         void loadAsrCapabilitiesRef.current();
       },
@@ -620,29 +419,12 @@ function MainApp() {
   const saveSettings = settingsAutosaveRef.current;
 
   const importDictionary = async (file: File) => {
-    if (DEMO_MODE) {
-      const imported: DictionarySource = {
-        id: Date.now(),
-        title: file.name.replace(/\.zip$/i, ""),
-        revision: "demo",
-        source_language: "ja",
-        target_language: "zh",
-        entry_count: 128_430,
-        imported_at: new Date().toISOString(),
-      };
-      setDictionarySources((current) => [imported, ...current.filter((item) => item.title !== imported.title)]);
-      return imported;
-    }
     const imported = await coreApi.importDictionary(file);
     await loadDictionaries();
     return imported;
   };
 
   const deleteDictionary = async (id: number) => {
-    if (DEMO_MODE) {
-      setDictionarySources((current) => current.filter((item) => item.id !== id));
-      return;
-    }
     await coreApi.deleteDictionary(id);
     await loadDictionaries();
   };
@@ -658,9 +440,7 @@ function MainApp() {
     const rect = range.getBoundingClientRect();
     if (!rect.width && !rect.height) return;
     try {
-      const entries = DEMO_MODE
-        ? [{ term, reading: term === "便利" ? "べんり" : "", language: "ja", definition: "方便的；有用的；省事的" }]
-        : await coreApi.lookup(term);
+      const entries = await coreApi.lookup(term);
       const nextLookup: Lookup = {
         term,
         context,
@@ -770,7 +550,7 @@ function MainApp() {
           onRestore={() => void toggleCompact()}
           onClose={() => void closeWindow()}
         />
-        {lookup && <DictionaryPopover lookup={lookup} demo={DEMO_MODE} compact onClose={closeCompactLookup} />}
+        {lookup && <DictionaryPopover lookup={lookup} compact onClose={closeCompactLookup} />}
         {vrchatWarningOpen && <VrchatNotRunningDialog onClose={closeVrchatWarning} />}
         {cudaRuntimeWarningOpen && <CudaRuntimeDialog onClose={() => setCudaRuntimeWarningOpen(false)} />}
       </div>
@@ -853,7 +633,7 @@ function MainApp() {
         onCapture={() => void toggleCapture()}
       />
 
-      {lookup && <DictionaryPopover lookup={lookup} demo={DEMO_MODE} onClose={() => setLookup(null)} />}
+      {lookup && <DictionaryPopover lookup={lookup} onClose={() => setLookup(null)} />}
       {vrchatWarningOpen && <VrchatNotRunningDialog onClose={closeVrchatWarning} />}
       {cudaRuntimeWarningOpen && <CudaRuntimeDialog onClose={() => setCudaRuntimeWarningOpen(false)} />}
     </div>
@@ -1179,10 +959,10 @@ function SettingsPanel({ settings, devices, devicesReady, dictionaries, disabled
   const [desktopMessage, setDesktopMessage] = useState("");
   const [dictionaryBusy, setDictionaryBusy] = useState(false);
   const [dictionaryMessage, setDictionaryMessage] = useState("");
-  const [managedModels, setManagedModels] = useState<AsrModelRecord[]>(DEMO_MODE ? demoModels : []);
-  const [modelsReady, setModelsReady] = useState(DEMO_MODE);
+  const [managedModels, setManagedModels] = useState<AsrModelRecord[]>([]);
+  const [modelsReady, setModelsReady] = useState(false);
   const [modelMessage, setModelMessage] = useState("");
-  const [ankiStatus, setAnkiStatus] = useState<AnkiStatus | null>(DEMO_MODE ? demoAnkiStatus : null);
+  const [ankiStatus, setAnkiStatus] = useState<AnkiStatus | null>(null);
   const [ankiBusy, setAnkiBusy] = useState(false);
   const [ankiMessage, setAnkiMessage] = useState("");
   const [ankiPortText, setAnkiPortText] = useState(String(settings.anki.port));
@@ -1190,10 +970,12 @@ function SettingsPanel({ settings, devices, devicesReady, dictionaries, disabled
   const dictionaryFileRef = useRef<HTMLInputElement>(null);
   const draftRef = useRef(settings);
   const saveVersionRef = useRef(0);
+  const savingRef = useRef(false);
   const managedModelsRef = useRef(managedModels);
   managedModelsRef.current = managedModels;
   useEffect(() => {
     draftRef.current = settings;
+    if (savingRef.current) return;
     setDraft(settings);
     setAnkiPortText(String(settings.anki.port));
   }, [settings]);
@@ -1217,7 +999,6 @@ function SettingsPanel({ settings, devices, devicesReady, dictionaries, disabled
     };
   }, []);
   const loadModels = useCallback(async () => {
-    if (DEMO_MODE) return;
     try {
       const previous = managedModelsRef.current;
       const next = await coreApi.asrModels();
@@ -1239,7 +1020,7 @@ function SettingsPanel({ settings, devices, devicesReady, dictionaries, disabled
     void loadModels();
   }, [loadModels]);
   useEffect(() => {
-    if (DEMO_MODE || activeCategory !== "recognition") return;
+    if (activeCategory !== "recognition") return;
     const timer = window.setInterval(() => void loadModels(), 750);
     return () => window.clearInterval(timer);
   }, [activeCategory, loadModels]);
@@ -1247,7 +1028,7 @@ function SettingsPanel({ settings, devices, devicesReady, dictionaries, disabled
     setAnkiBusy(true);
     setAnkiMessage("");
     try {
-      const next = DEMO_MODE ? demoAnkiStatus : await coreApi.ankiStatus();
+      const next = await coreApi.ankiStatus();
       setAnkiStatus(next);
       setAnkiMessage(next.message);
     } catch (reason) {
@@ -1266,6 +1047,7 @@ function SettingsPanel({ settings, devices, devicesReady, dictionaries, disabled
   ) => {
     const next = update(draftRef.current);
     const version = ++saveVersionRef.current;
+    savingRef.current = true;
     draftRef.current = next;
     setDraft(next);
     setSaveState("saving");
@@ -1273,6 +1055,7 @@ function SettingsPanel({ settings, devices, devicesReady, dictionaries, disabled
     void onSave(next).then(
       (saved) => {
         if (version !== saveVersionRef.current) return;
+        savingRef.current = false;
         draftRef.current = saved;
         setDraft(saved);
         setSaveState("saved");
@@ -1280,6 +1063,7 @@ function SettingsPanel({ settings, devices, devicesReady, dictionaries, disabled
       },
       (reason) => {
         if (version !== saveVersionRef.current) return;
+        savingRef.current = false;
         setSaveMessage(reason instanceof Error ? reason.message : "设置应用失败");
         setSaveState("error");
       },
@@ -1314,6 +1098,12 @@ function SettingsPanel({ settings, devices, devicesReady, dictionaries, disabled
       }
       return { ...current, asr: nextAsr };
     });
+  };
+  const updateVad = <K extends keyof Settings["vad"]>(key: K, value: Settings["vad"][K]) => {
+    applySettings((current) => ({
+      ...current,
+      vad: { ...current.vad, [key]: value },
+    }));
   };
   const updateDesktop = async (key: keyof DesktopPreferences, enabled: boolean) => {
     const previous = desktopPreferences;
@@ -1364,7 +1154,7 @@ function SettingsPanel({ settings, devices, devicesReady, dictionaries, disabled
         model.id === draft.asr.model
         || ["downloaded", "loading", "ready"].includes(model.status),
       )
-    : (asrCapabilities?.models ?? demoAsrCapabilities.models).filter((model) =>
+    : (asrCapabilities?.models ?? []).filter((model) =>
         model.id === draft.asr.model || model.status !== "not_downloaded",
       );
   const ankiOptionList = (values: string[], current: string) => (
@@ -1396,6 +1186,8 @@ function SettingsPanel({ settings, devices, devicesReady, dictionaries, disabled
     { label: "Core 地址", value: `${draft.server.host}:${draft.server.port}` },
     { label: "数据库路径", value: draft.storage.database_path },
     { label: "采样率", value: `${draft.audio.sample_rate.toLocaleString("zh-CN")} Hz` },
+    { label: "静音断句", value: `${draft.vad.silence_seconds.toFixed(1)} 秒` },
+    { label: "最长片段", value: `${draft.vad.max_speech_seconds} 秒` },
     { label: "字幕保留上限", value: `${draft.storage.subtitle_history_limit.toLocaleString("zh-CN")} 条` },
     { label: "识别模型状态", value: modelStatus },
     { label: "CUDA 预检", value: asrCapabilities?.cuda.available ? `${asrCapabilities.cuda.device_count} 个可用设备` : "不可用" },
@@ -1466,44 +1258,6 @@ function SettingsPanel({ settings, devices, devicesReady, dictionaries, disabled
   };
   const downloadModel = async (model: AsrModelRecord) => {
     setModelMessage(`正在准备下载 ${MODEL_PRESENTATION[model.id].name}…`);
-    if (DEMO_MODE) {
-      setManagedModels((current) => current.map((item) => (
-        item.id === model.id
-          ? {
-              ...item,
-              status: "downloading",
-              progress: 0.04,
-              downloaded_bytes: Math.round(item.total_bytes * 0.04),
-              error: null,
-            }
-          : item
-      )));
-      for (let step = 1; step <= 8; step += 1) {
-        await new Promise((resolve) => window.setTimeout(resolve, 120));
-        const progress = Math.min(0.08 + step * 0.115, 0.99);
-        setManagedModels((current) => current.map((item) => (
-          item.id === model.id
-            ? {
-                ...item,
-                progress,
-                downloaded_bytes: Math.round(item.total_bytes * progress),
-              }
-            : item
-        )));
-      }
-      setManagedModels((current) => current.map((item) => (
-        item.id === model.id
-          ? {
-              ...item,
-              status: "downloaded",
-              progress: 1,
-              downloaded_bytes: item.total_bytes,
-            }
-          : item
-      )));
-      setModelMessage(`${MODEL_PRESENTATION[model.id].name} 已下载`);
-      return;
-    }
     try {
       await coreApi.downloadAsrModel(model.id);
       setModelMessage(`${MODEL_PRESENTATION[model.id].name} 已加入下载队列`);
@@ -1516,20 +1270,6 @@ function SettingsPanel({ settings, devices, devicesReady, dictionaries, disabled
     const name = MODEL_PRESENTATION[model.id].name;
     if (!window.confirm(`确定删除 ${name} 模型吗？以后仍可重新下载。`)) return;
     setModelMessage(`正在删除 ${name}…`);
-    if (DEMO_MODE) {
-      setManagedModels((current) => current.map((item) => (
-        item.id === model.id
-          ? {
-              ...item,
-              status: "not_downloaded",
-              progress: 0,
-              downloaded_bytes: 0,
-            }
-          : item
-      )));
-      setModelMessage(`${name} 已从本机删除`);
-      return;
-    }
     try {
       await coreApi.deleteAsrModel(model.id);
       await loadModels();
@@ -1669,6 +1409,36 @@ function SettingsPanel({ settings, devices, devicesReady, dictionaries, disabled
                   values={computeTypes}
                   disabled={disabled}
                   onChange={(value) => updateAsr("compute_type", value as Settings["asr"]["compute_type"])}
+                />
+              </div>
+            </div>
+            <div className="recognition-config-row">
+              <div className="recognition-config-title">
+                <Clock3 size={17} />
+                <span><strong>断句速度</strong><small>控制停顿提交和连续语音切分</small></span>
+              </div>
+              <div className="recognition-config-fields">
+                <RangeField
+                  label="静音断句"
+                  helper="越短响应越快，也更容易拆成短句"
+                  value={draft.vad.silence_seconds}
+                  min={0.1}
+                  max={2}
+                  step={0.1}
+                  disabled={disabled}
+                  formatValue={(value) => `${value.toFixed(1)} 秒`}
+                  onCommit={(value) => updateVad("silence_seconds", value)}
+                />
+                <RangeField
+                  label="最长片段"
+                  helper="连续讲话达到该时长时强制提交"
+                  value={draft.vad.max_speech_seconds}
+                  min={1}
+                  max={30}
+                  step={1}
+                  disabled={disabled}
+                  formatValue={(value) => `${value} 秒`}
+                  onCommit={(value) => updateVad("max_speech_seconds", value)}
                 />
               </div>
             </div>
@@ -2045,6 +1815,71 @@ function Select({ label, helper, value, values = [], options, disabled, onChange
       />
       {helper && <small>{helper}</small>}
     </div>
+  );
+}
+
+function RangeField({ label, helper, value, min, max, step, disabled, formatValue, onCommit }: {
+  label: string;
+  helper: string;
+  value: number;
+  min: number;
+  max: number;
+  step: number;
+  disabled: boolean;
+  formatValue: (value: number) => string;
+  onCommit: (value: number) => void;
+}) {
+  const [draftValue, setDraftValue] = useState(value);
+  const draftValueRef = useRef(value);
+  const committedValueRef = useRef(value);
+  const progress = ((draftValue - min) / (max - min)) * 100;
+
+  useEffect(() => {
+    draftValueRef.current = value;
+    committedValueRef.current = value;
+    setDraftValue(value);
+  }, [value]);
+
+  const commit = () => {
+    const next = draftValueRef.current;
+    if (next === committedValueRef.current) return;
+    committedValueRef.current = next;
+    onCommit(next);
+  };
+
+  return (
+    <label className={`range-field ${disabled ? "disabled" : ""}`}>
+      <span className="range-field-header">
+        <span>{label}</span>
+        <output aria-label={`${label}当前值`}>{formatValue(draftValue)}</output>
+      </span>
+      <input
+        className="range-input"
+        type="range"
+        min={min}
+        max={max}
+        step={step}
+        value={draftValue}
+        disabled={disabled}
+        aria-label={label}
+        aria-valuetext={formatValue(draftValue)}
+        style={{ "--range-progress": `${progress}%` } as CSSProperties}
+        onChange={(event) => {
+          const next = Number(event.target.value);
+          draftValueRef.current = next;
+          setDraftValue(next);
+        }}
+        onPointerUp={commit}
+        onPointerCancel={commit}
+        onKeyUp={commit}
+        onBlur={commit}
+      />
+      <span className="range-bounds" aria-hidden="true">
+        <span>{formatValue(min)}</span>
+        <span>{formatValue(max)}</span>
+      </span>
+      <small>{helper}</small>
+    </label>
   );
 }
 
@@ -2436,7 +2271,7 @@ function DockButton({ label, active = false, tonal = false, primary = false, onC
   );
 }
 
-function DictionaryPopover({ lookup, demo, compact = false, onClose }: { lookup: Lookup; demo: boolean; compact?: boolean; onClose: () => void }) {
+function DictionaryPopover({ lookup, compact = false, onClose }: { lookup: Lookup; compact?: boolean; onClose: () => void }) {
   const ref = useRef<HTMLDivElement>(null);
   const [ankiState, setAnkiState] = useState<AnkiAddState>("idle");
   const [ankiFeedback, setAnkiFeedback] = useState("");
@@ -2506,11 +2341,6 @@ function DictionaryPopover({ lookup, demo, compact = false, onClose }: { lookup:
     const cardContent = ankiDictionaryContent(visibleEntries);
     setAnkiState("adding");
     setAnkiFeedback("");
-    if (demo) {
-      setAnkiState("success");
-      setAnkiFeedback(`已创建演示笔记 #42，写入 ${visibleEntries.length} 组释义`);
-      return;
-    }
     try {
       const result = await coreApi.createCard({
         term: lookup.term,

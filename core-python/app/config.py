@@ -45,6 +45,18 @@ class AudioConfig:
 
 
 @dataclass(slots=True)
+class VadConfig:
+    silence_seconds: float = 0.4
+    max_speech_seconds: float = 6.0
+
+    def __post_init__(self) -> None:
+        if not 0.1 <= self.silence_seconds <= 2.0:
+            raise ValueError("VAD silence_seconds must be between 0.1 and 2.0")
+        if not 1.0 <= self.max_speech_seconds <= 30.0:
+            raise ValueError("VAD max_speech_seconds must be between 1.0 and 30.0")
+
+
+@dataclass(slots=True)
 class AsrConfig:
     model: str = "small"
     language: str = "auto"
@@ -67,6 +79,7 @@ class AppConfig:
     server: ServerConfig = field(default_factory=ServerConfig)
     storage: StorageConfig = field(default_factory=StorageConfig)
     audio: AudioConfig = field(default_factory=AudioConfig)
+    vad: VadConfig = field(default_factory=VadConfig)
     asr: AsrConfig = field(default_factory=AsrConfig)
     anki: AnkiConfig = field(default_factory=AnkiConfig)
 
@@ -85,6 +98,9 @@ def _decode_current(raw: dict[str, Any]) -> AppConfig:
     audio_raw = raw.get("audio", {})
     if not isinstance(audio_raw, dict):
         audio_raw = {}
+    vad_raw = raw.get("vad", {})
+    if not isinstance(vad_raw, dict):
+        vad_raw = {}
     return AppConfig(
         schema_version=SCHEMA_VERSION,
         server=ServerConfig(**_dataclass_values(defaults.server, raw.get("server"))),
@@ -99,6 +115,14 @@ def _decode_current(raw: dict[str, Any]) -> AppConfig:
                     defaults.audio.microphone,
                     audio_raw.get("microphone"),
                 )
+            ),
+        ),
+        vad=VadConfig(
+            silence_seconds=float(
+                vad_raw.get("silence_seconds", defaults.vad.silence_seconds)
+            ),
+            max_speech_seconds=float(
+                vad_raw.get("max_speech_seconds", defaults.vad.max_speech_seconds)
             ),
         ),
         asr=AsrConfig(**_dataclass_values(defaults.asr, raw.get("asr"))),

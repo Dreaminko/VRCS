@@ -90,6 +90,13 @@ class AudioSettings(BaseModel):
     microphone: MicrophoneSettings = Field(default_factory=MicrophoneSettings)
 
 
+class VadSettings(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    silence_seconds: float = Field(default=0.4, ge=0.1, le=2.0)
+    max_speech_seconds: float = Field(default=6.0, ge=1.0, le=30.0)
+
+
 class AnkiSettings(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -113,6 +120,7 @@ class SettingsUpdate(BaseModel):
     server: ServerSettings
     storage: StorageSettings
     audio: AudioSettings
+    vad: VadSettings = Field(default_factory=VadSettings)
     asr: AsrSettings
     anki: AnkiSettings = Field(default_factory=AnkiSettings)
 

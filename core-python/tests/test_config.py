@@ -7,6 +7,7 @@ from app.config import (
     AppConfig,
     MicrophoneConfig,
     OutputConfig,
+    VadConfig,
     load_config,
     save_config,
 )
@@ -18,6 +19,7 @@ def test_config_round_trip(tmp_path):
     expected.server.port = 18_766
     expected.audio.output = OutputConfig(mode="vrchat")
     expected.audio.microphone = MicrophoneConfig(mode="default")
+    expected.vad = VadConfig(silence_seconds=0.3, max_speech_seconds=8.0)
     expected.anki = AnkiConfig(
         port=8877,
         deck="Learning",
@@ -162,6 +164,29 @@ def test_current_config_without_anki_section_uses_compatible_defaults(tmp_path):
     loaded = load_config(path)
 
     assert loaded.anki == AnkiConfig()
+
+
+def test_current_config_without_vad_section_uses_low_latency_defaults(tmp_path):
+    path = tmp_path / "config.json"
+    save_config(path, AppConfig())
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload.pop("vad")
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    loaded = load_config(path)
+
+    assert loaded.vad == VadConfig(silence_seconds=0.4, max_speech_seconds=6.0)
+
+
+def test_current_config_rejects_vad_values_outside_supported_range(tmp_path):
+    path = tmp_path / "config.json"
+    save_config(path, AppConfig())
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["vad"]["max_speech_seconds"] = 60
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="max_speech_seconds"):
+        load_config(path)
 
 
 def test_default_ports_do_not_overlap_anki_or_vrchat_osc():

@@ -56,6 +56,10 @@ def test_health_history_and_settings(tmp_path):
         assert settings["schema_version"] == 3
         assert settings["asr"]["model"] == "small"
         assert settings["audio"]["output"]["mode"] == "system"
+        assert settings["vad"] == {
+            "silence_seconds": 0.4,
+            "max_speech_seconds": 6.0,
+        }
         assert settings["server"]["port"] == 8766
         assert settings["anki"]["port"] == 8765
 
@@ -205,6 +209,39 @@ def test_settings_apply_commits_complete_v2_document(tmp_path):
         assert response.json()["asr"]["model"] == "base"
         persisted = json.loads((tmp_path / "config.json").read_text(encoding="utf-8"))
         assert persisted == response.json()
+
+
+def test_settings_apply_updates_both_vad_segmenters(tmp_path):
+    app = create_app(tmp_path / "config.json")
+    with TestClient(app) as client:
+        update = client.get("/api/settings").json()
+        update["vad"] = {
+            "silence_seconds": 0.3,
+            "max_speech_seconds": 8.0,
+        }
+
+        response = client.put("/api/settings", json=update)
+
+        assert response.status_code == 200
+        assert response.json()["vad"] == update["vad"]
+        core = client.app.state.core
+        assert core.pipeline.segmenter.silence_samples == 4_800
+        assert core.pipeline.segmenter.max_speech_samples == 128_000
+        assert core.microphone_pipeline.segmenter.silence_samples == 4_800
+        assert core.microphone_pipeline.segmenter.max_speech_samples == 128_000
+        persisted = json.loads((tmp_path / "config.json").read_text(encoding="utf-8"))
+        assert persisted["vad"] == update["vad"]
+
+
+def test_settings_rejects_vad_values_outside_supported_range(tmp_path):
+    app = create_app(tmp_path / "config.json")
+    with TestClient(app) as client:
+        update = client.get("/api/settings").json()
+        update["vad"]["silence_seconds"] = 0
+
+        response = client.put("/api/settings", json=update)
+
+        assert response.status_code == 422
 
 
 def test_asr_capabilities_expose_models_cuda_and_combinations(tmp_path):

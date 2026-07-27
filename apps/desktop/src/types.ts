@@ -36,6 +36,11 @@ export interface MicrophoneSettings {
   device_id: number | null;
 }
 
+export interface VadSettings {
+  silence_seconds: number;
+  max_speech_seconds: number;
+}
+
 export interface AnkiSettings {
   port: number;
   deck: string;
@@ -59,6 +64,7 @@ export interface Settings {
     output: AudioOutputSettings;
     microphone: MicrophoneSettings;
   };
+  vad: VadSettings;
   asr: AsrSettings;
   anki: AnkiSettings;
 }
