@@ -14,6 +14,7 @@ VRCS 是一个本地优先的 VRChat 字幕学习工具。它捕获 Windows 系�
 - Axum HTTP 接口和 WebSocket 字幕推送
 - SQLite 字幕历史、Yomitan 词典导入和内置英日测试词典
 - React + Tauri 桌面端，包括实时字幕、历史、识别设置和音频设备页面
+- 可跟随系统或手动切换的简体中文、日语、英语界面
 - AnkiConnect 连接、牌组/笔记类型/字段映射与一键制卡
 
 完整进度见[路线图](docs/roadmap.md)。
@@ -61,6 +62,7 @@ npm run dev:core
 ```powershell
 .\scripts\test-core.ps1
 npm --workspace apps/desktop test
+npm run check:i18n
 cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml
 ```
 
@@ -90,6 +92,7 @@ npm run build
 
 - [架构](docs/architecture.md)
 - [开发说明](docs/development.md)
+- [本地化贡献指南](LOCALIZATION.md)
 - [隐私说明](docs/privacy.md)
 - [路线图](docs/roadmap.md)
 

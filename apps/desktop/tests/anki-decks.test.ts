@@ -64,7 +64,10 @@ test("provides display paths and navigation relatives for nested decks", () => {
 });
 
 test("deck tree focus is not retriggered by visible list renders", () => {
-  const source = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
+  const source = readFileSync(
+    new URL("../src/settings/SettingsControls.tsx", import.meta.url),
+    "utf8",
+  );
   const focusEffect = source.match(
     /useEffect\(\(\) => \{\s*if \(!open\) return;[\s\S]*?itemRefs\.current\.get\(activeName\)\?\.focus\(\)[\s\S]*?\}, \[([^\]]+)\]\);/,
   );

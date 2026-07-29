@@ -1,10 +1,17 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import test from "node:test";
+
+import { validateLocalization } from "../../../scripts/check-i18n.mjs";
 
 type JsonObject = Record<string, unknown>;
 
-const localeNames = ["en-US", "ja-JP", "zh-CN"] as const;
+const localeDirectory = new URL("../src/i18n/locales/", import.meta.url);
+const localeNames = readdirSync(localeDirectory)
+  .filter((filename) => filename.endsWith(".json"))
+  .map((filename) => filename.replace(/\.json$/, ""))
+  .sort();
 
 function loadLocale(name: string): JsonObject {
   return JSON.parse(
@@ -32,15 +39,25 @@ function placeholders(value: string): string[] {
     .sort();
 }
 
+function sourceFiles(directory: URL): URL[] {
+  return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+    const child = new URL(entry.name + (entry.isDirectory() ? "/" : ""), directory);
+    if (entry.isDirectory()) return sourceFiles(child);
+    return /\.(?:ts|tsx)$/.test(entry.name) ? [child] : [];
+  });
+}
+
 test("locale resources have identical keys and interpolation variables", () => {
   const resources = localeNames.map((name) => {
     const resource = loadLocale(name);
     assert.equal((resource._meta as JsonObject).status, "complete");
     return [name, leaves(resource.translation)] as const;
   });
-  const [referenceName, reference] = resources[0];
+  const referenceResource = resources.find(([name]) => name === "en-US");
+  assert.ok(referenceResource);
+  const [referenceName, reference] = referenceResource;
 
-  for (const [name, resource] of resources.slice(1)) {
+  for (const [name, resource] of resources.filter(([name]) => name !== referenceName)) {
     assert.deepEqual(
       [...resource.keys()].sort(),
       [...reference.keys()].sort(),
@@ -58,16 +75,22 @@ test("locale resources have identical keys and interpolation variables", () => {
   }
 });
 
+test("repository localization validator accepts every locale", () => {
+  assert.deepEqual(
+    validateLocalization(fileURLToPath(new URL("../../..", import.meta.url))),
+    [],
+  );
+});
+
 test("every statically referenced translation key exists", () => {
   const english = leaves(loadLocale("en-US").translation);
-  const sourceFiles = [
-    "../src/App.tsx",
-    "../src/i18n/index.ts",
-  ];
-  for (const sourceFile of sourceFiles) {
-    const source = readFileSync(new URL(sourceFile, import.meta.url), "utf8");
+  for (const sourceFile of sourceFiles(new URL("../src/", import.meta.url))) {
+    const source = readFileSync(sourceFile, "utf8");
     for (const match of source.matchAll(/\bt\("([^"]+)"/g)) {
-      assert.ok(english.has(match[1]), `${sourceFile} references missing key ${match[1]}`);
+      assert.ok(
+        english.has(match[1]),
+        `${fileURLToPath(sourceFile)} references missing key ${match[1]}`,
+      );
     }
   }
 });

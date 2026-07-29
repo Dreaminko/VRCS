@@ -365,7 +365,10 @@
         "connect": "Could not connect to VRCS Core."
       },
       "audio": {
-        "devices": "Could not load audio devices."
+        "devices": "Could not load audio devices.",
+        "device_unavailable": "The selected audio device is unavailable.",
+        "unavailable": "Audio capture is unavailable.",
+        "vrchat_not_running": "VRChat is not running. Start VRChat and try again."
       },
       "dictionary": {
         "list": "Could not load dictionaries.",

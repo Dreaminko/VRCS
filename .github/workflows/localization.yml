@@ -1,0 +1,67 @@
+name: Localization
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/localization.yml"
+      - "apps/desktop/package.json"
+      - "apps/desktop/src/App.tsx"
+      - "apps/desktop/src/anki.ts"
+      - "apps/desktop/src/i18n/**"
+      - "apps/desktop/src/settings-validation.ts"
+      - "apps/desktop/src/ui-language.ts"
+      - "apps/desktop/tests/i18n-resources.test.ts"
+      - "apps/desktop/tests/ui-language.test.ts"
+      - "package-lock.json"
+      - "package.json"
+      - "scripts/check-i18n.mjs"
+      - "scripts/create-locale.mjs"
+      - "core-rust/src/anki.rs"
+      - "core-rust/src/audio.rs"
+      - "core-rust/src/server.rs"
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/localization.yml"
+      - "apps/desktop/package.json"
+      - "apps/desktop/src/App.tsx"
+      - "apps/desktop/src/anki.ts"
+      - "apps/desktop/src/i18n/**"
+      - "apps/desktop/src/settings-validation.ts"
+      - "apps/desktop/src/ui-language.ts"
+      - "apps/desktop/tests/i18n-resources.test.ts"
+      - "apps/desktop/tests/ui-language.test.ts"
+      - "package-lock.json"
+      - "package.json"
+      - "scripts/check-i18n.mjs"
+      - "scripts/create-locale.mjs"
+      - "core-rust/src/anki.rs"
+      - "core-rust/src/audio.rs"
+      - "core-rust/src/server.rs"
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate locale resources
+        run: npm run check:i18n
+
+      - name: Run desktop tests
+        run: npm --workspace apps/desktop test
+
+      - name: Build frontend
+        run: npm run build:frontend

@@ -365,7 +365,10 @@
         "connect": "VRCS Core に接続できませんでした。"
       },
       "audio": {
-        "devices": "音声デバイスを読み込めませんでした。"
+        "devices": "音声デバイスを読み込めませんでした。",
+        "device_unavailable": "選択した音声デバイスを利用できません。",
+        "unavailable": "音声キャプチャを利用できません。",
+        "vrchat_not_running": "VRChat が起動していません。起動してからもう一度お試しください。"
       },
       "dictionary": {
         "list": "辞書を読み込めませんでした。",

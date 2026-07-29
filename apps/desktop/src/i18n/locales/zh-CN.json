@@ -365,7 +365,10 @@
         "connect": "无法连接 VRCS Core。"
       },
       "audio": {
-        "devices": "无法加载音频设备。"
+        "devices": "无法加载音频设备。",
+        "device_unavailable": "所选音频设备不可用。",
+        "unavailable": "音频采集不可用。",
+        "vrchat_not_running": "VRChat 未运行，请启动 VRChat 后重试。"
       },
       "dictionary": {
         "list": "无法加载词典。",

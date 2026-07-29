@@ -1,44 +1,59 @@
 import { isTauri } from "@tauri-apps/api/core";
 
-export const SUPPORTED_UI_LOCALES = ["zh-CN", "ja-JP", "en-US"] as const;
-export type UiLocale = (typeof SUPPORTED_UI_LOCALES)[number];
+export type UiLocale = string;
 export type UiLanguagePreference = "system" | UiLocale;
 
 const UI_LANGUAGE_KEY = "uiLanguage";
 const WEB_STORAGE_KEY = "vrcs.ui-language";
 
-export function isUiLanguagePreference(value: unknown): value is UiLanguagePreference {
+export function isUiLanguagePreference(
+  value: unknown,
+  supportedLocales: readonly string[],
+): value is UiLanguagePreference {
   return value === "system"
-    || SUPPORTED_UI_LOCALES.includes(value as UiLocale);
+    || (typeof value === "string" && supportedLocales.includes(value));
 }
 
 export function resolveUiLocale(
   preference: UiLanguagePreference,
-  systemLanguages: readonly string[] = typeof navigator === "undefined"
-    ? []
-    : navigator.languages,
+  supportedLocales: readonly string[],
+  systemLanguages: readonly string[] = typeof navigator === "undefined" ? [] : navigator.languages,
+  fallbackLocale = "en-US",
 ): UiLocale {
-  if (preference !== "system") return preference;
+  if (preference !== "system" && supportedLocales.includes(preference)) return preference;
 
+  const normalizedLocales = supportedLocales.map((locale) => ({
+    locale,
+    normalized: locale.toLowerCase(),
+    language: locale.split("-")[0].toLowerCase(),
+  }));
   for (const language of systemLanguages) {
     const normalized = language.toLowerCase();
-    if (normalized === "zh" || normalized.startsWith("zh-")) return "zh-CN";
-    if (normalized === "ja" || normalized.startsWith("ja-")) return "ja-JP";
-    if (normalized === "en" || normalized.startsWith("en-")) return "en-US";
+    const exact = normalizedLocales.find((candidate) => candidate.normalized === normalized);
+    if (exact) return exact.locale;
+    const languageCode = normalized.split("-")[0];
+    const sameLanguage = normalizedLocales.find(
+      (candidate) => candidate.language === languageCode,
+    );
+    if (sameLanguage) return sameLanguage.locale;
   }
-  return "en-US";
+  return supportedLocales.includes(fallbackLocale)
+    ? fallbackLocale
+    : supportedLocales[0] ?? fallbackLocale;
 }
 
-export async function loadUiLanguagePreference(): Promise<UiLanguagePreference> {
+export async function loadUiLanguagePreference(
+  supportedLocales: readonly string[],
+): Promise<UiLanguagePreference> {
   if (!isTauri()) {
     const stored = globalThis.localStorage?.getItem(WEB_STORAGE_KEY);
-    return isUiLanguagePreference(stored) ? stored : "system";
+    return isUiLanguagePreference(stored, supportedLocales) ? stored : "system";
   }
 
   const { load } = await import("@tauri-apps/plugin-store");
   const store = await load("preferences.json", { autoSave: false });
   const stored = await store.get(UI_LANGUAGE_KEY);
-  return isUiLanguagePreference(stored) ? stored : "system";
+  return isUiLanguagePreference(stored, supportedLocales) ? stored : "system";
 }
 
 export async function saveUiLanguagePreference(

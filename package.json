@@ -8,6 +8,8 @@
     "dev:core:cpu": "cargo run --manifest-path core-rust/Cargo.toml",
     "dev:desktop": "powershell -ExecutionPolicy Bypass -File scripts/run-cuda-dev.ps1 -Target desktop",
     "dev:desktop:cpu": "npm --workspace apps/desktop run tauri -- dev",
+    "check:i18n": "node scripts/check-i18n.mjs",
+    "i18n:new": "node scripts/create-locale.mjs",
     "build:frontend": "npm --workspace apps/desktop run build",
     "build": "powershell -ExecutionPolicy Bypass -File scripts/build-release.ps1"
   }
