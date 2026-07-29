@@ -10,6 +10,7 @@ import {
   History,
   HardDrive,
   Download,
+  FolderOpen,
   Languages,
   MessageSquare,
   MessageSquareText,
@@ -41,6 +42,7 @@ import {
   visibleAnkiDeckNodes,
 } from "./anki-decks";
 import { isTauri } from "@tauri-apps/api/core";
+import { open } from "@tauri-apps/plugin-dialog";
 import {
   COMPACT_WINDOW_SIZE,
   compactWindowSize,
@@ -988,6 +990,7 @@ function SettingsPanel({ settings, devices, devicesReady, dictionaries, disabled
   const [managedModels, setManagedModels] = useState<AsrModelRecord[]>([]);
   const [modelsReady, setModelsReady] = useState(false);
   const [modelMessage, setModelMessage] = useState("");
+  const [modelDirectoryText, setModelDirectoryText] = useState(settings.storage.model_directory);
   const [ankiStatus, setAnkiStatus] = useState<AnkiStatus | null>(null);
   const [ankiBusy, setAnkiBusy] = useState(false);
   const [ankiMessage, setAnkiMessage] = useState("");
@@ -1003,6 +1006,7 @@ function SettingsPanel({ settings, devices, devicesReady, dictionaries, disabled
     draftRef.current = settings;
     if (savingRef.current) return;
     setDraft(settings);
+    setModelDirectoryText(settings.storage.model_directory);
     setAnkiPortText(String(settings.anki.port));
   }, [settings]);
   useEffect(() => {
@@ -1131,6 +1135,39 @@ function SettingsPanel({ settings, devices, devicesReady, dictionaries, disabled
       vad: { ...current.vad, [key]: value },
     }));
   };
+  const updateModelDirectory = (value: string) => {
+    const directory = value.trim();
+    if (!directory) {
+      setSaveMessage("模型保存位置不能为空");
+      setSaveState("error");
+      return;
+    }
+    setModelDirectoryText(directory);
+    if (directory === draftRef.current.storage.model_directory) return;
+    applySettings(
+      (current) => ({
+        ...current,
+        storage: { ...current.storage, model_directory: directory },
+      }),
+      () => {
+        void loadModels();
+        void onModelsChanged();
+      },
+    );
+  };
+  const chooseModelDirectory = async () => {
+    try {
+      const directory = await open({
+        directory: true,
+        multiple: false,
+        title: "选择模型保存位置",
+      });
+      if (typeof directory === "string") updateModelDirectory(directory);
+    } catch (reason) {
+      setSaveMessage(reason instanceof Error ? reason.message : "无法打开文件夹选择器");
+      setSaveState("error");
+    }
+  };
   const updateDesktop = async (key: keyof DesktopPreferences, enabled: boolean) => {
     const previous = desktopPreferences;
     const optimistic = { ...previous, [key]: enabled };
@@ -1211,6 +1248,7 @@ function SettingsPanel({ settings, devices, devicesReady, dictionaries, disabled
     { label: "配置 Schema", value: `v${draft.schema_version}` },
     { label: "Core 地址", value: `${draft.server.host}:${draft.server.port}` },
     { label: "数据库路径", value: draft.storage.database_path },
+    { label: "模型保存位置", value: draft.storage.model_directory },
     { label: "采样率", value: `${draft.audio.sample_rate.toLocaleString("zh-CN")} Hz` },
     { label: "静音断句", value: `${draft.vad.silence_seconds.toFixed(1)} 秒` },
     { label: "最长片段", value: `${draft.vad.max_speech_seconds} 秒` },
@@ -1483,6 +1521,40 @@ function SettingsPanel({ settings, devices, devicesReady, dictionaries, disabled
               </span>
             </div>
             <button className="secondary-button" type="button" disabled={!modelsReady} onClick={() => void loadModels()}><RefreshCw size={15} />刷新</button>
+          </div>
+
+          <div className="model-directory-setting">
+            <label htmlFor="model-directory">
+              <span>模型保存位置</span>
+              <small>更改后自动移动已下载模型；相对路径以应用配置目录为基准</small>
+            </label>
+            <div>
+              <input
+                id="model-directory"
+                type="text"
+                value={modelDirectoryText}
+                disabled={disabled || downloadingModels.length > 0 || saveState === "saving"}
+                spellCheck={false}
+                onChange={(event) => setModelDirectoryText(event.target.value)}
+                onBlur={() => updateModelDirectory(modelDirectoryText)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    event.currentTarget.blur();
+                  }
+                }}
+              />
+              <button
+                className="secondary-button"
+                type="button"
+                disabled={!NATIVE_APP || disabled || downloadingModels.length > 0 || saveState === "saving"}
+                title={NATIVE_APP ? "选择文件夹" : "浏览器预览中请直接输入路径"}
+                onClick={() => void chooseModelDirectory()}
+              >
+                <FolderOpen size={16} />
+                选择文件夹
+              </button>
+            </div>
           </div>
 
           {!modelsReady && managedModels.length === 0 ? (

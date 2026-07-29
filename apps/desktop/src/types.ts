@@ -57,6 +57,7 @@ export interface Settings {
   };
   storage: {
     database_path: string;
+    model_directory: string;
     subtitle_history_limit: number;
   };
   audio: {

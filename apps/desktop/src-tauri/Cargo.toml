@@ -6,6 +6,10 @@ authors = ["VRCS contributors"]
 edition = "2021"
 default-run = "vrcs-desktop"
 
+[features]
+default = []
+cuda = ["vrcs-core/cuda"]
+
 [lib]
 name = "vrcs_desktop_lib"
 crate-type = ["rlib"]
@@ -17,10 +21,8 @@ tauri-build = { version = "2", features = [] }
 tauri = { version = "2", features = ["tray-icon"] }
 serde = { version = "1", features = ["derive"] }
 tauri-plugin-autostart = "2"
-tauri-plugin-shell = "2"
+tauri-plugin-dialog = "2"
 tauri-plugin-single-instance = "2"
 tauri-plugin-store = "2"
 uuid = { version = "1", features = ["v4"] }
-
-[target.'cfg(windows)'.dependencies]
-wasapi = "0.23"
+vrcs-core = { path = "../../../core-rust" }

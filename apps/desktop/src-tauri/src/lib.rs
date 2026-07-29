@@ -5,9 +5,6 @@ use serde::Serialize;
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{Manager, RunEvent, State, WindowEvent};
-use tauri_plugin_shell::process::CommandChild;
-#[cfg(not(debug_assertions))]
-use tauri_plugin_shell::ShellExt;
 use tauri_plugin_store::StoreExt;
 use uuid::Uuid;
 
@@ -19,7 +16,7 @@ struct CoreConnection {
     token: String,
 }
 
-struct CoreProcess(Mutex<Option<CommandChild>>);
+struct CoreRuntime(Mutex<Option<vrcs_core::CoreHandle>>);
 
 const DEFAULT_CORE_PORT: u16 = 8766;
 
@@ -69,17 +66,22 @@ fn minimize_to_tray_enabled(app: &tauri::AppHandle) -> bool {
 }
 
 fn stop_core(app: &tauri::AppHandle) {
-    let process = app.state::<CoreProcess>();
-    let child = process.0.lock().expect("core process lock poisoned").take();
-    if let Some(child) = child {
-        let _ = child.kill();
+    let runtime = app.state::<CoreRuntime>();
+    let core = runtime.0.lock().expect("core runtime lock poisoned").take();
+    if let Some(mut core) = core {
+        core.stop();
+        tauri::async_runtime::spawn(async move {
+            if let Err(error) = core.wait().await {
+                eprintln!("VRCS Core shutdown failed: {error}");
+            }
+        });
     }
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    vrcs_core::init_tracing();
     let connection = core_connection_config();
-    #[cfg(not(debug_assertions))]
     let setup_connection = connection.clone();
 
     let app = tauri::Builder::default()
@@ -90,10 +92,10 @@ pub fn run() {
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             None,
         ))
-        .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_store::Builder::default().build())
         .manage(connection)
-        .manage(CoreProcess(Mutex::new(None)))
+        .manage(CoreRuntime(Mutex::new(None)))
         .invoke_handler(tauri::generate_handler![core_connection])
         .setup(move |app| {
             app.store("preferences.json")?;
@@ -125,35 +127,31 @@ pub fn run() {
             }
             tray.build(app)?;
 
-            #[cfg(not(debug_assertions))]
-            {
-                let data_dir = app.path().local_data_dir()?.join(".vrcs");
-                let model_dir = data_dir.join("models");
-                let log_dir = data_dir.join("logs");
-                std::fs::create_dir_all(&model_dir)?;
-                std::fs::create_dir_all(&log_dir)?;
+            let data_dir = app.path().local_data_dir()?.join(".vrcs");
+            let model_dir = data_dir.join("models");
+            std::fs::create_dir_all(&model_dir)?;
 
-                let port = setup_connection
-                    .http_url
-                    .rsplit(':')
-                    .next()
-                    .expect("core URL is missing a port");
-                let sidecar = app
-                    .shell()
-                    .sidecar("vrcs-core")?
-                    .env("VRCS_CONFIG", data_dir.join("config.json"))
-                    .env("VRCS_HOST", "127.0.0.1")
-                    .env("VRCS_PORT", port)
-                    .env("VRCS_SESSION_TOKEN", &setup_connection.token)
-                    .env("VRCS_LOG_DIR", &log_dir)
-                    .env("HF_HOME", &model_dir);
-                let (mut events, child) = sidecar.spawn()?;
-                *app.state::<CoreProcess>()
-                    .0
-                    .lock()
-                    .expect("core process lock poisoned") = Some(child);
-                tauri::async_runtime::spawn(async move { while events.recv().await.is_some() {} });
-            }
+            let port = setup_connection
+                .http_url
+                .rsplit(':')
+                .next()
+                .and_then(|value| value.parse().ok())
+                .ok_or_else(|| std::io::Error::other("core URL is missing a valid port"))?;
+            let session_token =
+                (!setup_connection.token.is_empty()).then(|| setup_connection.token.clone());
+            let core = tauri::async_runtime::block_on(vrcs_core::start(vrcs_core::CoreOptions {
+                config_path: data_dir.join("config.json"),
+                host: Some("127.0.0.1".into()),
+                port: Some(port),
+                session_token,
+                vad_model_path: Some(model_dir.join("silero_vad.onnx")),
+                asr_model_dir: None,
+            }))
+            .map_err(std::io::Error::other)?;
+            *app.state::<CoreRuntime>()
+                .0
+                .lock()
+                .expect("core runtime lock poisoned") = Some(core);
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -195,6 +193,7 @@ mod tests {
             "autostart:allow-enable",
             "autostart:allow-disable",
             "autostart:allow-is-enabled",
+            "dialog:allow-open",
             "store:default",
         ] {
             assert!(CAPABILITIES.contains(permission), "missing {permission}");

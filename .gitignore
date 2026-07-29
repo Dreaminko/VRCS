@@ -3,6 +3,8 @@
 .env.*
 !.env.example
 core-python/config.json
+core-rust/config.json
+core-rust/data/
 
 # Python environments and caches
 .venv/

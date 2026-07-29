@@ -14,11 +14,6 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v6
-        with:
-          python-version: "3.12"
-          cache: pip
-
       - uses: actions/setup-node@v6
         with:
           node-version: "24"
@@ -26,9 +21,18 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
+      - name: Install CUDA Toolkit
+        uses: Jimver/cuda-toolkit@v0.2.35
+        with:
+          cuda: "12.4.1"
+          method: network
+          sub-packages: '["nvcc", "cudart", "cublas"]'
+
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: apps/desktop/src-tauri
+          workspaces: |
+            core-rust
+            apps/desktop/src-tauri
 
       - name: Verify release version
         shell: pwsh
@@ -40,10 +44,6 @@ jobs:
 
       - name: Install frontend dependencies
         run: npm ci
-
-      - name: Build Python sidecar
-        shell: pwsh
-        run: .\scripts\build-sidecar.ps1
 
       - name: Run tests
         shell: pwsh
@@ -60,9 +60,9 @@ jobs:
           projectPath: apps/desktop
           tagName: ${{ github.ref_name }}
           releaseName: "VRCS ${{ github.ref_name }}"
-          releaseBody: "Windows x64 installer for VRCS. The default Whisper model is downloaded on first use."
+          releaseBody: "Windows x64 CUDA build for VRCS. CUDA 12.x Runtime and cuBLAS must be installed separately. The default Whisper model is downloaded on first use."
           releaseDraft: true
-          args: --config src-tauri/tauri.release.conf.json --bundles nsis
+          args: --features cuda --config src-tauri/tauri.release.conf.json --bundles nsis
 
       - name: Upload SHA-256 checksum
         shell: pwsh

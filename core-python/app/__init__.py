@@ -1,2 +1,0 @@
-"""VRCS local core service."""
-

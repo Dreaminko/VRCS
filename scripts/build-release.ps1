@@ -10,13 +10,13 @@ $ErrorActionPreference = "Stop"
 $repoRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot ".."))
 $tauriConfigPath = Join-Path $repoRoot "apps\desktop\src-tauri\tauri.conf.json"
 $cargoManifestPath = Join-Path $repoRoot "apps\desktop\src-tauri\Cargo.toml"
-$pythonProjectPath = Join-Path $repoRoot "core-python\pyproject.toml"
+$coreManifestPath = Join-Path $repoRoot "core-rust\Cargo.toml"
 $tauriConfig = Get-Content -LiteralPath $tauriConfigPath -Raw | ConvertFrom-Json
 if (-not $Version) { $Version = $tauriConfig.version }
 $cargoVersion = (Select-String -LiteralPath $cargoManifestPath -Pattern '^version = "(.+)"$').Matches[0].Groups[1].Value
-$pythonVersion = (Select-String -LiteralPath $pythonProjectPath -Pattern '^version = "(.+)"$').Matches[0].Groups[1].Value
+$coreVersion = (Select-String -LiteralPath $coreManifestPath -Pattern '^version = "(.+)"$').Matches[0].Groups[1].Value
 
-foreach ($actual in @($tauriConfig.version, $cargoVersion, $pythonVersion)) {
+foreach ($actual in @($tauriConfig.version, $cargoVersion, $coreVersion)) {
     if ($actual -ne $Version) {
         throw "Release version mismatch: requested $Version but a project manifest contains $actual"
     }
@@ -29,21 +29,16 @@ try {
         if ($LASTEXITCODE -ne 0) { throw "npm ci failed" }
     }
 
-    & (Join-Path $PSScriptRoot "build-sidecar.ps1") `
-        -SkipInstall:$SkipInstall `
-        -CleanEnvironment:(-not $SkipInstall)
-    if ($LASTEXITCODE -ne 0) { throw "Sidecar build failed" }
-
     if (-not $SkipTests) {
-        & (Join-Path $PSScriptRoot "test-core.ps1") -SkipInstall:$SkipInstall
-        if ($LASTEXITCODE -ne 0) { throw "Python tests failed" }
+        & (Join-Path $PSScriptRoot "test-core.ps1")
+        if ($LASTEXITCODE -ne 0) { throw "Rust Core tests failed" }
         & npm --workspace apps/desktop test
         if ($LASTEXITCODE -ne 0) { throw "Frontend tests failed" }
         & cargo test --manifest-path $cargoManifestPath
-        if ($LASTEXITCODE -ne 0) { throw "Rust tests failed" }
+        if ($LASTEXITCODE -ne 0) { throw "Desktop Rust tests failed" }
     }
 
-    & npm --workspace apps/desktop run tauri -- build --config src-tauri/tauri.release.conf.json --bundles nsis
+    & npm --workspace apps/desktop run tauri -- build --features cuda --config src-tauri/tauri.release.conf.json --bundles nsis
     if ($LASTEXITCODE -ne 0) { throw "Tauri NSIS build failed" }
 }
 finally {

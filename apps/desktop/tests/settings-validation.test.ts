@@ -11,7 +11,11 @@ import type { AsrCapabilities, AudioDevice, Settings } from "../src/types.ts";
 const settings: Settings = {
   schema_version: 3,
   server: { host: "127.0.0.1", port: 8766 },
-  storage: { database_path: "data/vrcs.db", subtitle_history_limit: 500 },
+  storage: {
+    database_path: "data/vrcs.db",
+    model_directory: "models/whisper",
+    subtitle_history_limit: 500,
+  },
   audio: {
     sample_rate: 16_000,
     output: { mode: "system", device_id: 10 },
