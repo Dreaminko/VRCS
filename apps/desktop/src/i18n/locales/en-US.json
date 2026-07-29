@@ -1,0 +1,450 @@
+{
+  "_meta": {
+    "locale": "en-US",
+    "name": "English",
+    "direction": "ltr",
+    "status": "complete"
+  },
+  "translation": {
+    "common": {
+      "autoSelect": "Auto select",
+      "available": "Available",
+      "checking": "Checking…",
+      "checkAgain": "Check again",
+      "close": "Close",
+      "closeError": "Dismiss error",
+      "collapseNamed": "Collapse {{name}}",
+      "currentValue": "Current value for {{label}}",
+      "delete": "Delete",
+      "download": "Download",
+      "downloading": "Downloading…",
+      "expandNamed": "Expand {{name}}",
+      "loading": "Loading…",
+      "ready": "Ready",
+      "refresh": "Refresh",
+      "retry": "Retry",
+      "unavailable": "Unavailable",
+      "understood": "Got it"
+    },
+    "navigation": {
+      "main": "Main navigation",
+      "live": "Live subtitles",
+      "history": "Subtitle history",
+      "settings": "Settings",
+      "compact": "Subtitle mode"
+    },
+    "capture": {
+      "start": "Start transcription",
+      "stop": "Stop transcription",
+      "pause": "Pause transcription"
+    },
+    "date": {
+      "today": "Today",
+      "yesterday": "Yesterday"
+    },
+    "units": {
+      "seconds": "{{value}} sec"
+    },
+    "languages": {
+      "all": "All languages",
+      "auto": "Auto detect",
+      "chinese": "Chinese",
+      "english": "English",
+      "french": "French",
+      "german": "German",
+      "japanese": "Japanese",
+      "korean": "Korean",
+      "spanish": "Spanish"
+    },
+    "native": {
+      "tray": {
+        "show": "Show VRCS",
+        "quit": "Quit VRCS"
+      }
+    },
+    "window": {
+      "controls": "Window controls",
+      "minimize": "Minimize window",
+      "minimizeShort": "Minimize",
+      "maximize": "Maximize or restore window",
+      "maximizeShort": "Maximize / restore",
+      "restore": "Restore full window",
+      "close": "Close window"
+    },
+    "status": {
+      "summary": "Application status",
+      "label": "Status",
+      "engine": "Engine",
+      "transcribing": "Transcribing",
+      "waiting": "Waiting",
+      "stopped": "Stopped",
+      "connection": {
+        "connecting": "Connecting",
+        "connected": "Connected",
+        "disconnected": "Disconnected"
+      }
+    },
+    "warnings": {
+      "vrchat": {
+        "title": "VRChat is not running",
+        "description": "VRCS can continue listening, but game audio may not be available until VRChat starts."
+      },
+      "cuda": {
+        "title": "CUDA is unavailable",
+        "description": "The selected CUDA runtime is unavailable. Choose automatic selection or CPU in Settings."
+      }
+    },
+    "conversations": {
+      "untitled": "Untitled conversation",
+      "new": "New conversation",
+      "title": "Conversations",
+      "sidebar": "Conversation sidebar",
+      "closeSidebar": "Close conversation sidebar",
+      "expandSidebar": "Expand conversation sidebar",
+      "collapseSidebar": "Collapse conversation sidebar",
+      "create": "New conversation",
+      "viewCurrent": "View current conversation",
+      "current": "Current",
+      "previous": "Previous",
+      "empty": "No previous conversations",
+      "subtitleCount": "{{count}} subtitles",
+      "viewingPast": "Viewing a conversation from {{time}}",
+      "returnCurrent": "Return to current conversation"
+    },
+    "live": {
+      "title": "Live subtitles",
+      "listening": "Listening for speech…",
+      "startHint": "Start transcription to see subtitles here.",
+      "transcribing": "Transcribing",
+      "waiting": "Waiting for subtitles…",
+      "microphoneMe": "You · microphone",
+      "speakerOther": "Others · system audio",
+      "returnToBottom": "Return to the latest subtitle",
+      "returnToBottomShort": "Latest subtitle"
+    },
+    "history": {
+      "title": "Subtitle history",
+      "recordCount": "{{count}} records",
+      "language": "Language",
+      "dateRange": "Date range",
+      "allTime": "All time",
+      "lastSevenDays": "Last 7 days",
+      "empty": "No subtitles match these filters."
+    },
+    "dictionary": {
+      "builtIn": "Built-in dictionary",
+      "dialogLabel": "Dictionary definition for {{term}}",
+      "close": "Close dictionary",
+      "noDefinitions": "No definition was found in imported dictionaries.",
+      "context": "Original context",
+      "anki": {
+        "add": "Add to Anki",
+        "adding": "Adding…",
+        "success": "Added to Anki",
+        "retry": "Retry",
+        "created": "Created Anki note #{{noteId}} with {{count}} definition groups"
+      }
+    },
+    "anki": {
+      "card": {
+        "definition": "Definition",
+        "context": "Context"
+      }
+    },
+    "validation": {
+      "audio": {
+        "outputUnavailable": "The selected system output device is no longer available. Select it again.",
+        "microphoneUnavailable": "The selected microphone is no longer available. Select it again."
+      },
+      "asr": {
+        "cudaUnavailable": "CUDA preflight failed. Choose automatic selection or CPU.",
+        "invalidComputeType": "This runtime device and compute type combination is invalid."
+      }
+    },
+    "settings": {
+      "categories": {
+        "label": "Settings categories",
+        "system": "System",
+        "audio": "Audio",
+        "recognition": "Recognition",
+        "dictionary": "Dictionary"
+      },
+      "system": {
+        "title": "System",
+        "subtitle": "Language, startup, and window behavior",
+        "saveImmediately": "Changes are saved immediately.",
+        "language": "Interface language",
+        "languageDescription": "Use the system language or choose one for VRCS.",
+        "followSystem": "Follow system",
+        "launchAtStartup": "Launch at startup",
+        "launchAtStartupDescription": "Start VRCS automatically after you sign in.",
+        "minimizeToTray": "Minimize to system tray",
+        "minimizeToTrayDescription": "Keep VRCS running in the tray when its window is closed."
+      },
+      "recognition": {
+        "title": "Speech recognition",
+        "status": "Model {{status}}",
+        "stopToModify": "Stop transcription before changing recognition settings.",
+        "applyImmediately": "Changes are applied immediately.",
+        "runtime": "Runtime availability",
+        "runtimeChecking": "Checking available runtimes…",
+        "cudaAvailable": "CUDA is available on {{count}} device(s).",
+        "cudaRuntimeMissing": "A CUDA device was detected, but its runtime is unavailable.",
+        "cudaUnavailable": "CUDA was not detected; CPU remains available.",
+        "content": "Recognition content",
+        "contentDescription": "Select the local model and spoken language.",
+        "model": "Model",
+        "language": "Spoken language",
+        "languageDescription": "Auto detection works well for multilingual conversations.",
+        "execution": "Execution",
+        "executionDescription": "Choose a runtime and numeric precision.",
+        "device": "Runtime device",
+        "deviceDescription": "Automatic selection prefers CUDA when it passes preflight.",
+        "computeType": "Compute type",
+        "computeTypeDescription": "Available choices depend on the selected runtime.",
+        "segmentation": "Speech segmentation",
+        "segmentationDescription": "Control when speech segments end and their maximum length.",
+        "silence": "End after silence",
+        "silenceDescription": "Shorter pauses produce subtitles sooner.",
+        "maxSegment": "Maximum segment",
+        "maxSegmentDescription": "Long speech is split after this duration.",
+        "localModels": "Local models",
+        "downloadingCount": "{{count}} download(s) in progress",
+        "installedCount": "{{count}} model(s) installed",
+        "modelDirectory": "Model directory",
+        "modelDirectoryDescription": "Downloaded Whisper models are stored here.",
+        "modelDirectoryRequired": "Choose a model directory first.",
+        "chooseModelDirectory": "Choose model directory",
+        "chooseFolder": "Choose folder",
+        "browserPathHint": "Folder selection is available in the desktop app.",
+        "checkingLocalModels": "Checking local models…",
+        "inUse": "In use",
+        "downloadProgress": "Download progress for {{name}}",
+        "deleteModel": "Delete {{name}}",
+        "preparingDownload": "Preparing {{name}} download…",
+        "downloadQueued": "{{name}} download started.",
+        "confirmDelete": "Delete the local {{name}} model?",
+        "deleting": "Deleting {{name}}…",
+        "deleted": "{{name}} was deleted.",
+        "models": {
+          "tiny": "Fastest and smallest; useful for quick drafts.",
+          "base": "A balanced lightweight model.",
+          "small": "Recommended balance of speed and accuracy.",
+          "medium": "More accurate, with higher resource use.",
+          "largeV3": "Highest accuracy, with the largest download and resource use."
+        },
+        "modelStatus": {
+          "notDownloaded": "not downloaded",
+          "loading": "loading",
+          "error": "error",
+          "ready": "ready",
+          "checking": "checking"
+        },
+        "modelState": {
+          "notDownloaded": "Not downloaded",
+          "loading": "Loading",
+          "error": "Error",
+          "ready": "Ready"
+        }
+      },
+      "audio": {
+        "title": "Audio sources",
+        "devicesFound": "{{count}} devices found",
+        "waitingScan": "Waiting for device scan",
+        "rescan": "Rescan",
+        "otherVoice": "Other voices",
+        "otherVoiceDescription": "Capture system or VRChat output.",
+        "systemOutput": "System output",
+        "systemOutputDescription": "Use the default Windows output device.",
+        "vrchatDescription": "Capture the output device selected by VRChat.",
+        "ownVoice": "Your voice",
+        "ownVoiceDescription": "Choose the microphone used for your speech.",
+        "defaultMicrophone": "Default microphone",
+        "defaultMicrophoneDescription": "Follow the Windows default input device.",
+        "disableMicrophone": "Disable microphone",
+        "disableMicrophoneDescription": "Only transcribe other voices.",
+        "deviceDescription": "{{sampleRate}} Hz · {{channels}} channels{{defaultSuffix}}",
+        "defaultSuffix": " · default",
+        "scanning": "Scanning devices…",
+        "noDevices": "No other available devices were found."
+      },
+      "dictionary": {
+        "title": "Dictionaries",
+        "count": "{{count}} dictionaries",
+        "importedCount": "{{count}} imported",
+        "noneImported": "None imported",
+        "import": "Import",
+        "importing": "Importing {{file}}…",
+        "imported": "Imported {{title}} with {{formatted}} entries.",
+        "confirmRemove": "Remove dictionary “{{title}}”?",
+        "removed": "Removed {{title}}.",
+        "entryCount": "{{formatted}} entries",
+        "removeNamed": "Remove {{title}}",
+        "remove": "Remove",
+        "emptyHint": "Import a supported dictionary file to enable word lookup."
+      },
+      "anki": {
+        "title": "Anki integration",
+        "subtitle": "Create cards from dictionary lookups through AnkiConnect",
+        "invalidPort": "Enter a valid port from 1 to 65535.",
+        "checking": "Checking AnkiConnect…",
+        "ready": "Connected and ready",
+        "needsSetup": "Connected; configuration needs attention",
+        "offline": "AnkiConnect is offline",
+        "startHint": "Start Anki and install AnkiConnect to check the connection.",
+        "address": "Address",
+        "addressDescription": "AnkiConnect is restricted to this local address.",
+        "port": "Port",
+        "portHint": "The AnkiConnect default is 8765.",
+        "deck": "Deck",
+        "deckDescription": "Choose the target deck.",
+        "deckOffline": "Connect to Anki to load available decks.",
+        "noteType": "Note type",
+        "noteTypeDescription": "Choose the Anki note type.",
+        "noteTypeOffline": "Connect to Anki to load note types.",
+        "frontField": "Front field",
+        "frontFieldDescription": "The term and reading are written to this field.",
+        "backField": "Back field",
+        "backFieldDescription": "Definitions and context are written to this field."
+      },
+      "debug": {
+        "subtitle": "Runtime and configuration details",
+        "readOnly": "Read only",
+        "schema": "Schema",
+        "coreAddress": "Core address",
+        "databasePath": "Database path",
+        "modelDirectory": "Model directory",
+        "sampleRate": "Sample rate",
+        "silence": "Silence threshold",
+        "maxSegment": "Maximum segment",
+        "historyLimit": "History limit",
+        "subtitleLimitValue": "{{formatted}} subtitles",
+        "modelStatus": "Model status",
+        "cuda": "CUDA",
+        "availableDevices": "{{count}} device(s)",
+        "transcription": "Transcription",
+        "audioDevices": "Audio devices",
+        "audioDeviceCounts": "{{outputs}} outputs · {{microphones}} microphones",
+        "dictionaries": "Dictionaries"
+      },
+      "action": {
+        "dictionaryImmediate": "Dictionary changes take effect immediately.",
+        "savingAnki": "Saving Anki settings…",
+        "ankiSaveFailed": "Could not save Anki settings.",
+        "ankiAutoCheck": "Anki connection is checked automatically after saving.",
+        "readingDesktop": "Reading desktop preferences…",
+        "savingDesktop": "Saving desktop preferences…",
+        "desktopSaved": "Desktop preferences saved.",
+        "desktopSaveFailed": "Could not save desktop preferences.",
+        "desktopHint": "Desktop changes take effect immediately.",
+        "debugHint": "Diagnostic values are read only.",
+        "applying": "Applying settings…",
+        "applied": "Settings applied.",
+        "applyFailed": "Could not apply settings.",
+        "immediate": "Changes take effect immediately."
+      }
+    },
+    "apiStatus": {
+      "anki": {
+        "connected": "AnkiConnect is connected and the card configuration is valid.",
+        "incompatible_version": "AnkiConnect API v{{version}} is too old; v{{minimum_version}} or later is required.",
+        "missing_deck": "Deck “{{deck}}” was not found.",
+        "missing_model": "Note type “{{model}}” was not found.",
+        "missing_field": "Note type “{{model}}” is missing required fields.",
+        "unavailable": "Could not connect to AnkiConnect on port {{port}}.",
+        "duplicate": "This note already exists.",
+        "protocol_error": "AnkiConnect returned an invalid response.",
+        "invalid_configuration": "The Anki card configuration is invalid."
+      }
+    },
+    "errors": {
+      "unknown": "An unknown error occurred.",
+      "operation": "The operation failed.",
+      "core": {
+        "initialize": "Could not initialize VRCS Core.",
+        "connect": "Could not connect to VRCS Core."
+      },
+      "audio": {
+        "devices": "Could not load audio devices."
+      },
+      "dictionary": {
+        "list": "Could not load dictionaries.",
+        "lookup": "Dictionary lookup failed.",
+        "import": "Could not import the dictionary.",
+        "remove": "Could not remove the dictionary.",
+        "invalid_query": "Enter a valid lookup term.",
+        "lookup_failed": "Dictionary lookup failed.",
+        "list_failed": "Could not load dictionaries.",
+        "import_task_failed": "Could not start dictionary import.",
+        "import_invalid": "The dictionary file is invalid.",
+        "delete_failed": "Could not delete the dictionary.",
+        "not_found": "The dictionary was not found."
+      },
+      "asr": {
+        "capabilities": "Could not inspect recognition runtimes.",
+        "models": "Could not load local models.",
+        "download": "Could not download the model.",
+        "delete": "Could not delete the model.",
+        "model": {
+          "inspect_failed": "Could not inspect the selected model.",
+          "not_downloaded": "Model {{model}} is not downloaded.",
+          "unsupported": "Model {{model}} is not supported.",
+          "download_start_failed": "Could not start the model download.",
+          "describe_failed": "Could not read model download status.",
+          "in_use": "Model {{model}} is currently in use.",
+          "delete_failed": "Could not delete model {{model}}."
+        }
+      },
+      "settings": {
+        "apply": "Could not apply settings.",
+        "invalid": "The settings are invalid.",
+        "capture_must_be_stopped": "Stop transcription before changing these settings.",
+        "model_directory_migration_failed": "Could not move models to the new directory.",
+        "rollback_failed": "Settings failed and could not be restored automatically.",
+        "asr_update_task_failed": "Could not start the recognition update.",
+        "asr_update_failed": "Could not update the recognition engine.",
+        "recovery": "{{apply}} Previous settings were restored with an additional error: {{recovery}}"
+      },
+      "window": {
+        "warningExpand": "Could not resize the warning window.",
+        "compactCollapse": "Could not enter subtitle mode.",
+        "compactToggle": "Could not change subtitle mode.",
+        "alwaysOnTop": "Could not update always-on-top mode."
+      },
+      "desktop": {
+        "read": "Could not read desktop preferences.",
+        "save": "Could not save desktop preferences.",
+        "language": "Could not change the interface language.",
+        "autostart_not_applied": "Windows did not apply the startup setting.",
+        "tray_not_saved": "The system tray preference could not be saved."
+      },
+      "dialog": {
+        "folder": "Could not open the folder picker."
+      },
+      "anki": {
+        "status": "Could not check AnkiConnect.",
+        "createCard": "Could not create the Anki card.",
+        "card_invalid": "The card content is invalid.",
+        "unavailable": "Could not connect to AnkiConnect on port {{port}}.",
+        "duplicate": "This note already exists.",
+        "protocol_error": "AnkiConnect returned an invalid response.",
+        "incompatible_version": "AnkiConnect is too old.",
+        "missing_deck": "Deck “{{deck}}” was not found.",
+        "missing_model": "Note type “{{model}}” was not found.",
+        "missing_field": "The selected note type is missing required fields.",
+        "invalid_configuration": "The Anki card configuration is invalid."
+      },
+      "capture": {
+        "invalid_sample_rate": "The audio sample rate is invalid.",
+        "already_running": "Transcription is already running."
+      },
+      "subtitles": {
+        "invalid_limit": "The history limit is invalid.",
+        "history_failed": "Could not load subtitle history."
+      },
+      "auth": {
+        "unauthorized": "The local session is not authorized."
+      }
+    }
+  }
+}

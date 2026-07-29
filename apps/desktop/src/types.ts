@@ -23,7 +23,7 @@ export interface AsrSettings {
   model: "tiny" | "base" | "small" | "medium" | "large-v3";
   language: "auto" | "en" | "ja" | "zh" | "ko" | "es" | "fr" | "de";
   device: "auto" | "cpu" | "cuda";
-  compute_type: "int8" | "float16" | "int8_float16";
+  compute_type: "int8";
 }
 
 export interface AudioOutputSettings {
@@ -78,6 +78,7 @@ export interface Health {
   microphone_device?: AudioDevice | null;
   asr_status: string;
   vad_backend: string;
+  vad_model_version: string | null;
   last_error: string | null;
 }
 
@@ -143,6 +144,9 @@ export interface AnkiStatus {
   fields: string[];
   configuration_valid: boolean;
   error_code: string | null;
+  status_code: string;
+  params: Record<string, unknown>;
+  detail: string;
   message: string;
 }
 
@@ -153,4 +157,8 @@ export interface AnkiCardInput {
   reading?: string | null;
   dictionary?: string | null;
   language?: string | null;
+  labels?: {
+    definition: string;
+    context: string;
+  };
 }

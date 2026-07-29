@@ -9,7 +9,7 @@ VRCS 是一个本地优先的 VRChat 字幕学习工具。它捕获 Windows 系�
 ## 当前功能
 
 - Windows WASAPI 系统回环、VRChat 进程专用回环与麦克风双路捕获
-- Silero ONNX VAD，模型不可用时自动使用能量检测回退
+- Silero ONNX VAD，首次启动自动下载并校验固定版本，模型不可用时使用能量检测回退
 - whisper.cpp 本地 CPU/CUDA 转写、自动 GPU 回退与 GGML 模型管理
 - Axum HTTP 接口和 WebSocket 字幕推送
 - SQLite 字幕历史、Yomitan 词典导入和内置英日测试词典
@@ -29,7 +29,7 @@ Release 安装包面向 Windows 10/11 x64。运行安装版需要：
 - **Microsoft Visual C++ v14 Redistributable（x64）**：安装[微软当前支持的最新 x64 版本](https://aka.ms/vc14/vc_redist.x64.exe)。
 - **Microsoft Edge WebView2 Evergreen Runtime**：Windows 11 和已更新的 Windows 10 通常已包含；安装器会在缺失时联网安装。
 - **NVIDIA CUDA Runtime（安装版必需）**：官方安装包按 CUDA 12.4.1 构建，需要用户自行安装 CUDA 12.x Runtime、cuBLAS、cuBLASLt，相关 DLL 必须位于系统 `PATH`。CUDA 推理还需要兼容的 NVIDIA GPU 和 551.78 或更高版本驱动；选择 CPU 只停用 GPU 推理，不会移除程序启动时的 CUDA DLL 依赖。
-- **网络连接（首次识别模型）**：标准安装包不包含 Whisper 模型，下载后保存在 `%LOCALAPPDATA%\.vrcs\models\whisper`。
+- **网络连接（首次启动与首次识别模型）**：首次启动下载 Silero VAD v6.2.1，首次使用某个 Whisper 模型时下载该模型；文件保存在 `%LOCALAPPDATA%\.vrcs\models`。
 
 安装版不附带 NVIDIA CUDA 运行库，也不需要另行安装 Python、Node.js、Rust 或 FFmpeg。Anki 和 AnkiConnect 只在使用制卡功能时需要。
 
@@ -70,7 +70,7 @@ cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml
 npm run build
 ```
 
-构建脚本校验 `tauri.conf.json`、桌面端 `Cargo.toml` 和 Core `Cargo.toml` 的版本，执行测试，以 CUDA 特性构建后生成不含 NVIDIA 运行库的 NSIS 安装包与 SHA-256。也可显式指定版本：
+构建脚本校验 `tauri.conf.json`、桌面端 `Cargo.toml` 和 Core `Cargo.toml` 的版本，执行测试，以 CUDA 特性构建，并对生成的桌面程序执行一次 Core 与 Silero 首启下载自检，最后生成不含 NVIDIA 运行库的 NSIS 安装包与 SHA-256。也可显式指定版本：
 
 ```powershell
 .\scripts\build-release.ps1 -Version 0.1.0

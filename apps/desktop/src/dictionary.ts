@@ -48,11 +48,14 @@ interface AnkiDictionaryContent {
   dictionary: string | null;
 }
 
-export function ankiDictionaryContent(entries: DictionaryEntry[]): AnkiDictionaryContent {
+export function ankiDictionaryContent(
+  entries: DictionaryEntry[],
+  builtInLabel = "内置词典",
+): AnkiDictionaryContent {
   const sources = new Set<string>();
   const primaryTerm = entries[0]?.term;
   const sections = entries.map((entry) => {
-    const source = entry.dictionary || "内置词典";
+    const source = entry.dictionary || builtInLabel;
     sources.add(source);
     const variant = entry.term !== primaryTerm ? ` · ${entry.term}` : "";
     const glosses = definitionGlosses(entry.definition)

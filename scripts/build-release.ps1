@@ -40,6 +40,13 @@ try {
 
     & npm --workspace apps/desktop run tauri -- build --features cuda --config src-tauri/tauri.release.conf.json --bundles nsis
     if ($LASTEXITCODE -ne 0) { throw "Tauri NSIS build failed" }
+
+    $desktopExecutable = Join-Path $repoRoot "apps\desktop\src-tauri\target\release\vrcs-desktop.exe"
+    if (-not (Test-Path -LiteralPath $desktopExecutable -PathType Leaf)) {
+        throw "Built desktop executable not found: $desktopExecutable"
+    }
+    $selfTest = Start-Process -FilePath $desktopExecutable -ArgumentList "--release-self-test" -Wait -PassThru -WindowStyle Hidden
+    if ($selfTest.ExitCode -ne 0) { throw "Release self-test failed with exit code $($selfTest.ExitCode)" }
 }
 finally {
     Pop-Location

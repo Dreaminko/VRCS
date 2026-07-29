@@ -1,0 +1,450 @@
+{
+  "_meta": {
+    "locale": "zh-CN",
+    "name": "简体中文",
+    "direction": "ltr",
+    "status": "complete"
+  },
+  "translation": {
+    "common": {
+      "autoSelect": "自动选择",
+      "available": "可用",
+      "checking": "正在检查…",
+      "checkAgain": "重新检查",
+      "close": "关闭",
+      "closeError": "关闭错误提示",
+      "collapseNamed": "收起 {{name}}",
+      "currentValue": "{{label}}当前值",
+      "delete": "删除",
+      "download": "下载",
+      "downloading": "正在下载…",
+      "expandNamed": "展开 {{name}}",
+      "loading": "正在加载…",
+      "ready": "就绪",
+      "refresh": "刷新",
+      "retry": "重试",
+      "unavailable": "不可用",
+      "understood": "知道了"
+    },
+    "navigation": {
+      "main": "主导航",
+      "live": "实时字幕",
+      "history": "字幕历史",
+      "settings": "设置",
+      "compact": "字幕模式"
+    },
+    "capture": {
+      "start": "开始转写",
+      "stop": "停止转写",
+      "pause": "暂停转录"
+    },
+    "date": {
+      "today": "今天",
+      "yesterday": "昨天"
+    },
+    "units": {
+      "seconds": "{{value}} 秒"
+    },
+    "languages": {
+      "all": "全部语言",
+      "auto": "自动检测",
+      "chinese": "中文",
+      "english": "英语",
+      "french": "法语",
+      "german": "德语",
+      "japanese": "日语",
+      "korean": "韩语",
+      "spanish": "西班牙语"
+    },
+    "native": {
+      "tray": {
+        "show": "显示 VRCS",
+        "quit": "退出 VRCS"
+      }
+    },
+    "window": {
+      "controls": "窗口控制",
+      "minimize": "最小化窗口",
+      "minimizeShort": "最小化",
+      "maximize": "最大化或还原窗口",
+      "maximizeShort": "最大化 / 还原",
+      "restore": "恢复完整窗口",
+      "close": "关闭窗口"
+    },
+    "status": {
+      "summary": "应用状态",
+      "label": "状态",
+      "engine": "引擎",
+      "transcribing": "正在转写",
+      "waiting": "等待中",
+      "stopped": "已停止",
+      "connection": {
+        "connecting": "正在连接",
+        "connected": "已连接",
+        "disconnected": "未连接"
+      }
+    },
+    "warnings": {
+      "vrchat": {
+        "title": "VRChat 未运行",
+        "description": "VRCS 可以继续监听，但在 VRChat 启动前可能无法获取游戏音频。"
+      },
+      "cuda": {
+        "title": "CUDA 不可用",
+        "description": "所选 CUDA 运行环境不可用，请在设置中改用自动选择或 CPU。"
+      }
+    },
+    "conversations": {
+      "untitled": "未命名对话",
+      "new": "新对话",
+      "title": "对话",
+      "sidebar": "对话侧栏",
+      "closeSidebar": "关闭对话侧栏",
+      "expandSidebar": "展开对话侧栏",
+      "collapseSidebar": "收起对话侧栏",
+      "create": "新建对话",
+      "viewCurrent": "查看当前对话",
+      "current": "当前",
+      "previous": "此前对话",
+      "empty": "暂无此前对话",
+      "subtitleCount": "{{count}} 条字幕",
+      "viewingPast": "正在查看 {{time}} 的对话",
+      "returnCurrent": "返回当前对话"
+    },
+    "live": {
+      "title": "实时字幕",
+      "listening": "正在聆听语音…",
+      "startHint": "开始转写后，字幕会显示在这里。",
+      "transcribing": "正在转写",
+      "waiting": "等待字幕…",
+      "microphoneMe": "我 · 麦克风",
+      "speakerOther": "其他人 · 系统音频",
+      "returnToBottom": "返回最新字幕",
+      "returnToBottomShort": "最新字幕"
+    },
+    "history": {
+      "title": "字幕历史",
+      "recordCount": "{{count}} 条记录",
+      "language": "语言",
+      "dateRange": "日期范围",
+      "allTime": "全部时间",
+      "lastSevenDays": "最近 7 天",
+      "empty": "没有符合筛选条件的字幕。"
+    },
+    "dictionary": {
+      "builtIn": "内置词典",
+      "dialogLabel": "{{term}} 的词典解释",
+      "close": "关闭词典",
+      "noDefinitions": "已导入的词典中暂无释义。",
+      "context": "原文语境",
+      "anki": {
+        "add": "添加到 Anki",
+        "adding": "正在添加…",
+        "success": "已添加到 Anki",
+        "retry": "重试添加",
+        "created": "已创建 Anki 笔记 #{{noteId}}，写入 {{count}} 组释义"
+      }
+    },
+    "anki": {
+      "card": {
+        "definition": "释义",
+        "context": "语境"
+      }
+    },
+    "validation": {
+      "audio": {
+        "outputUnavailable": "所选系统输出设备已失效，请重新选择。",
+        "microphoneUnavailable": "所选麦克风设备已失效，请重新选择。"
+      },
+      "asr": {
+        "cudaUnavailable": "CUDA 预检失败，请改用自动选择或 CPU。",
+        "invalidComputeType": "当前运行设备与计算类型组合无效。"
+      }
+    },
+    "settings": {
+      "categories": {
+        "label": "设置分类",
+        "system": "系统",
+        "audio": "音频",
+        "recognition": "识别",
+        "dictionary": "词典"
+      },
+      "system": {
+        "title": "系统",
+        "subtitle": "语言、开机启动与窗口行为",
+        "saveImmediately": "更改会立即保存。",
+        "language": "界面语言",
+        "languageDescription": "跟随系统语言，或单独指定 VRCS 使用的语言。",
+        "followSystem": "跟随系统",
+        "launchAtStartup": "开机启动",
+        "launchAtStartupDescription": "登录系统后自动启动 VRCS。",
+        "minimizeToTray": "最小化到系统托盘",
+        "minimizeToTrayDescription": "关闭窗口时让 VRCS 继续在托盘中运行。"
+      },
+      "recognition": {
+        "title": "语音识别",
+        "status": "模型{{status}}",
+        "stopToModify": "请先停止转写，再修改识别设置。",
+        "applyImmediately": "更改会立即应用。",
+        "runtime": "运行环境",
+        "runtimeChecking": "正在检查可用运行环境…",
+        "cudaAvailable": "CUDA 可用，共检测到 {{count}} 个设备。",
+        "cudaRuntimeMissing": "检测到 CUDA 设备，但运行环境不可用。",
+        "cudaUnavailable": "未检测到 CUDA；仍可使用 CPU。",
+        "content": "识别内容",
+        "contentDescription": "选择本地模型和语音语言。",
+        "model": "模型",
+        "language": "语音语言",
+        "languageDescription": "多语言对话建议使用自动检测。",
+        "execution": "运行方式",
+        "executionDescription": "选择运行设备和计算精度。",
+        "device": "运行设备",
+        "deviceDescription": "自动选择会优先使用通过预检的 CUDA。",
+        "computeType": "计算类型",
+        "computeTypeDescription": "可用选项取决于所选运行设备。",
+        "segmentation": "语音分段",
+        "segmentationDescription": "控制语音片段结束时机和最大长度。",
+        "silence": "静音后结束",
+        "silenceDescription": "停顿越短，字幕出现得越快。",
+        "maxSegment": "最长片段",
+        "maxSegmentDescription": "连续讲话超过此时长后会分段。",
+        "localModels": "本地模型",
+        "downloadingCount": "正在下载 {{count}} 个模型",
+        "installedCount": "已安装 {{count}} 个模型",
+        "modelDirectory": "模型目录",
+        "modelDirectoryDescription": "下载的 Whisper 模型保存在这里。",
+        "modelDirectoryRequired": "请先选择模型目录。",
+        "chooseModelDirectory": "选择模型目录",
+        "chooseFolder": "选择文件夹",
+        "browserPathHint": "文件夹选择功能仅在桌面应用中可用。",
+        "checkingLocalModels": "正在检查本地模型…",
+        "inUse": "使用中",
+        "downloadProgress": "{{name}} 下载进度",
+        "deleteModel": "删除 {{name}}",
+        "preparingDownload": "正在准备下载 {{name}}…",
+        "downloadQueued": "{{name}} 已开始下载。",
+        "confirmDelete": "删除本地 {{name}} 模型？",
+        "deleting": "正在删除 {{name}}…",
+        "deleted": "{{name}} 已删除。",
+        "models": {
+          "tiny": "速度最快、体积最小，适合快速预览。",
+          "base": "兼顾体积与效果的轻量模型。",
+          "small": "速度与准确度平衡，推荐使用。",
+          "medium": "准确度更高，也会占用更多资源。",
+          "largeV3": "准确度最高，下载体积和资源占用也最大。"
+        },
+        "modelStatus": {
+          "notDownloaded": "未下载",
+          "loading": "加载中",
+          "error": "异常",
+          "ready": "就绪",
+          "checking": "检查中"
+        },
+        "modelState": {
+          "notDownloaded": "未下载",
+          "loading": "加载中",
+          "error": "异常",
+          "ready": "就绪"
+        }
+      },
+      "audio": {
+        "title": "音频来源",
+        "devicesFound": "发现 {{count}} 个设备",
+        "waitingScan": "等待设备扫描",
+        "rescan": "重新扫描",
+        "otherVoice": "其他人的声音",
+        "otherVoiceDescription": "捕获系统或 VRChat 输出。",
+        "systemOutput": "系统输出",
+        "systemOutputDescription": "使用 Windows 默认输出设备。",
+        "vrchatDescription": "捕获 VRChat 选择的输出设备。",
+        "ownVoice": "自己的声音",
+        "ownVoiceDescription": "选择用于捕获自己语音的麦克风。",
+        "defaultMicrophone": "默认麦克风",
+        "defaultMicrophoneDescription": "跟随 Windows 默认输入设备。",
+        "disableMicrophone": "禁用麦克风",
+        "disableMicrophoneDescription": "只转写其他人的声音。",
+        "deviceDescription": "{{sampleRate}} Hz · {{channels}} 声道{{defaultSuffix}}",
+        "defaultSuffix": " · 默认",
+        "scanning": "正在扫描设备…",
+        "noDevices": "未发现其他可用设备。"
+      },
+      "dictionary": {
+        "title": "词典",
+        "count": "{{count}} 部词典",
+        "importedCount": "已导入 {{count}} 部",
+        "noneImported": "尚未导入",
+        "import": "导入",
+        "importing": "正在导入 {{file}}…",
+        "imported": "已导入 {{title}}，共 {{formatted}} 个词条。",
+        "confirmRemove": "移除词典“{{title}}”？",
+        "removed": "已移除 {{title}}。",
+        "entryCount": "{{formatted}} 个词条",
+        "removeNamed": "移除 {{title}}",
+        "remove": "移除",
+        "emptyHint": "导入受支持的词典文件后即可查询单词。"
+      },
+      "anki": {
+        "title": "Anki 集成",
+        "subtitle": "通过 AnkiConnect 从词典查询结果创建卡片",
+        "invalidPort": "请输入 1 到 65535 之间的有效端口。",
+        "checking": "正在检查 AnkiConnect…",
+        "ready": "已连接，可以制卡",
+        "needsSetup": "已连接，但配置需要调整",
+        "offline": "AnkiConnect 未连接",
+        "startHint": "请启动 Anki 并安装 AnkiConnect 后检查连接。",
+        "address": "地址",
+        "addressDescription": "AnkiConnect 仅连接此本地地址。",
+        "port": "端口",
+        "portHint": "AnkiConnect 默认端口为 8765。",
+        "deck": "牌组",
+        "deckDescription": "选择卡片写入的目标牌组。",
+        "deckOffline": "连接 Anki 后加载可用牌组。",
+        "noteType": "笔记类型",
+        "noteTypeDescription": "选择 Anki 笔记类型。",
+        "noteTypeOffline": "连接 Anki 后加载笔记类型。",
+        "frontField": "正面字段",
+        "frontFieldDescription": "词条和读音会写入此字段。",
+        "backField": "背面字段",
+        "backFieldDescription": "释义和语境会写入此字段。"
+      },
+      "debug": {
+        "subtitle": "运行状态与配置详情",
+        "readOnly": "只读",
+        "schema": "配置版本",
+        "coreAddress": "Core 地址",
+        "databasePath": "数据库路径",
+        "modelDirectory": "模型目录",
+        "sampleRate": "采样率",
+        "silence": "静音阈值",
+        "maxSegment": "最长片段",
+        "historyLimit": "历史上限",
+        "subtitleLimitValue": "{{formatted}} 条字幕",
+        "modelStatus": "模型状态",
+        "cuda": "CUDA",
+        "availableDevices": "{{count}} 个设备",
+        "transcription": "转写",
+        "audioDevices": "音频设备",
+        "audioDeviceCounts": "{{outputs}} 个输出 · {{microphones}} 个麦克风",
+        "dictionaries": "词典"
+      },
+      "action": {
+        "dictionaryImmediate": "词典更改会立即生效。",
+        "savingAnki": "正在保存 Anki 设置…",
+        "ankiSaveFailed": "无法保存 Anki 设置。",
+        "ankiAutoCheck": "保存后会自动检查 Anki 连接。",
+        "readingDesktop": "正在读取桌面偏好…",
+        "savingDesktop": "正在保存桌面偏好…",
+        "desktopSaved": "桌面偏好已保存。",
+        "desktopSaveFailed": "无法保存桌面偏好。",
+        "desktopHint": "桌面偏好更改会立即生效。",
+        "debugHint": "诊断信息为只读。",
+        "applying": "正在应用设置…",
+        "applied": "设置已应用。",
+        "applyFailed": "无法应用设置。",
+        "immediate": "更改会立即生效。"
+      }
+    },
+    "apiStatus": {
+      "anki": {
+        "connected": "AnkiConnect 已连接，制卡配置有效。",
+        "incompatible_version": "AnkiConnect API v{{version}} 过旧，需要 v{{minimum_version}} 或更高版本。",
+        "missing_deck": "找不到牌组“{{deck}}”。",
+        "missing_model": "找不到笔记类型“{{model}}”。",
+        "missing_field": "笔记类型“{{model}}”缺少必要字段。",
+        "unavailable": "无法连接端口 {{port}} 上的 AnkiConnect。",
+        "duplicate": "这条笔记已存在。",
+        "protocol_error": "AnkiConnect 返回了无效响应。",
+        "invalid_configuration": "Anki 制卡配置无效。"
+      }
+    },
+    "errors": {
+      "unknown": "发生未知错误。",
+      "operation": "操作失败。",
+      "core": {
+        "initialize": "无法初始化 VRCS Core。",
+        "connect": "无法连接 VRCS Core。"
+      },
+      "audio": {
+        "devices": "无法加载音频设备。"
+      },
+      "dictionary": {
+        "list": "无法加载词典。",
+        "lookup": "词典查询失败。",
+        "import": "无法导入词典。",
+        "remove": "无法移除词典。",
+        "invalid_query": "请输入有效的查询词。",
+        "lookup_failed": "词典查询失败。",
+        "list_failed": "无法加载词典。",
+        "import_task_failed": "无法启动词典导入。",
+        "import_invalid": "词典文件无效。",
+        "delete_failed": "无法删除词典。",
+        "not_found": "找不到该词典。"
+      },
+      "asr": {
+        "capabilities": "无法检查识别运行环境。",
+        "models": "无法加载本地模型。",
+        "download": "无法下载模型。",
+        "delete": "无法删除模型。",
+        "model": {
+          "inspect_failed": "无法检查所选模型。",
+          "not_downloaded": "模型 {{model}} 尚未下载。",
+          "unsupported": "不支持模型 {{model}}。",
+          "download_start_failed": "无法启动模型下载。",
+          "describe_failed": "无法读取模型下载状态。",
+          "in_use": "模型 {{model}} 正在使用中。",
+          "delete_failed": "无法删除模型 {{model}}。"
+        }
+      },
+      "settings": {
+        "apply": "无法应用设置。",
+        "invalid": "设置无效。",
+        "capture_must_be_stopped": "更改这些设置前请先停止转写。",
+        "model_directory_migration_failed": "无法将模型迁移到新目录。",
+        "rollback_failed": "设置失败，且无法自动恢复。",
+        "asr_update_task_failed": "无法启动识别更新。",
+        "asr_update_failed": "无法更新识别引擎。",
+        "recovery": "{{apply}} 恢复此前设置时又发生错误：{{recovery}}"
+      },
+      "window": {
+        "warningExpand": "无法调整警告窗口大小。",
+        "compactCollapse": "无法进入字幕模式。",
+        "compactToggle": "无法切换字幕模式。",
+        "alwaysOnTop": "无法更新窗口置顶状态。"
+      },
+      "desktop": {
+        "read": "无法读取桌面偏好。",
+        "save": "无法保存桌面偏好。",
+        "language": "无法切换界面语言。",
+        "autostart_not_applied": "Windows 开机启动设置未能生效。",
+        "tray_not_saved": "无法保存系统托盘偏好。"
+      },
+      "dialog": {
+        "folder": "无法打开文件夹选择器。"
+      },
+      "anki": {
+        "status": "无法检查 AnkiConnect。",
+        "createCard": "无法创建 Anki 卡片。",
+        "card_invalid": "卡片内容无效。",
+        "unavailable": "无法连接端口 {{port}} 上的 AnkiConnect。",
+        "duplicate": "这条笔记已存在。",
+        "protocol_error": "AnkiConnect 返回了无效响应。",
+        "incompatible_version": "AnkiConnect 版本过旧。",
+        "missing_deck": "找不到牌组“{{deck}}”。",
+        "missing_model": "找不到笔记类型“{{model}}”。",
+        "missing_field": "所选笔记类型缺少必要字段。",
+        "invalid_configuration": "Anki 制卡配置无效。"
+      },
+      "capture": {
+        "invalid_sample_rate": "音频采样率无效。",
+        "already_running": "转写已在运行。"
+      },
+      "subtitles": {
+        "invalid_limit": "历史记录上限无效。",
+        "history_failed": "无法加载字幕历史。"
+      },
+      "auth": {
+        "unauthorized": "本地会话未获授权。"
+      }
+    }
+  }
+}

@@ -1,8 +1,10 @@
-const VRCHAT_NOT_RUNNING_ERROR = "未发现正在运行的 VRChat";
-
 export function shouldShowVrchatNotRunningWarning(
-  message: string,
+  error: unknown,
   vrchatOnly: boolean,
 ): boolean {
-  return vrchatOnly && message.includes(VRCHAT_NOT_RUNNING_ERROR);
+  return vrchatOnly
+    && typeof error === "object"
+    && error !== null
+    && "code" in error
+    && error.code === "audio.vrchat_not_running";
 }

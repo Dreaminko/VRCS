@@ -54,11 +54,20 @@ pub struct CoreHandle {
     shutdown: Option<oneshot::Sender<()>>,
     task: JoinHandle<Result<(), String>>,
     model_manager: Arc<asr::ModelManager>,
+    vad_runtime: vad::VadRuntimeState,
 }
 
 impl CoreHandle {
     pub fn address(&self) -> SocketAddr {
         self.address
+    }
+
+    pub fn vad_backend(&self) -> &'static str {
+        self.vad_runtime.backend()
+    }
+
+    pub fn vad_model_version(&self) -> Option<&'static str> {
+        self.vad_runtime.model_version()
     }
 
     pub fn stop(&mut self) {
@@ -80,13 +89,41 @@ impl CoreHandle {
     }
 }
 
-pub fn init_tracing() {
-    let _ = tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "vrcs_core=info,tower_http=info".into()),
-        )
-        .try_init();
+pub struct LoggingGuard {
+    _guard: Option<tracing_appender::non_blocking::WorkerGuard>,
+}
+
+pub fn init_tracing(log_dir: Option<&Path>) -> Result<LoggingGuard, String> {
+    use tracing_subscriber::fmt::writer::MakeWriterExt;
+
+    let filter = tracing_subscriber::EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| "vrcs_core=info,tower_http=info".into());
+    if let Some(log_dir) = log_dir {
+        std::fs::create_dir_all(log_dir)
+            .map_err(|error| format!("无法创建日志目录 {}：{error}", log_dir.display()))?;
+        let appender = tracing_appender::rolling::RollingFileAppender::builder()
+            .rotation(tracing_appender::rolling::Rotation::DAILY)
+            .filename_prefix("vrcs-core")
+            .filename_suffix("log")
+            .max_log_files(4)
+            .build(log_dir)
+            .map_err(|error| format!("无法创建日志文件：{error}"))?;
+        let (file_writer, guard) = tracing_appender::non_blocking(appender);
+        tracing_subscriber::fmt()
+            .with_env_filter(filter)
+            .with_writer(file_writer.and(std::io::stderr))
+            .try_init()
+            .map_err(|error| format!("无法初始化日志：{error}"))?;
+        Ok(LoggingGuard {
+            _guard: Some(guard),
+        })
+    } else {
+        tracing_subscriber::fmt()
+            .with_env_filter(filter)
+            .try_init()
+            .map_err(|error| format!("无法初始化日志：{error}"))?;
+        Ok(LoggingGuard { _guard: None })
+    }
 }
 
 pub(crate) fn resolve_config_path(config_path: &Path, value: &str) -> PathBuf {
@@ -130,9 +167,17 @@ pub async fn start(options: CoreOptions) -> Result<CoreHandle, String> {
     let database_path = resolve_config_path(&options.config_path, &config.storage.database_path);
     let database = Database::open(&database_path)
         .map_err(|error| format!("无法打开数据库 {}: {error}", database_path.display()))?;
+    let managed_vad_model = options.vad_model_path.is_none();
     let vad_model_path = options
         .vad_model_path
         .unwrap_or_else(|| config_dir.join("models").join("silero_vad.onnx"));
+    if managed_vad_model {
+        if let Err(error) = vad::ensure_model(&vad_model_path).await {
+            tracing::warn!(%error, "Silero VAD model unavailable; using energy fallback");
+        }
+    }
+    let vad_runtime = vad::VadRuntimeState::default();
+    let _ = vad::VoiceDetector::load_with_runtime(&vad_model_path, vad_runtime.clone());
     let asr_model_dir_override = options.asr_model_dir.clone();
     let asr_model_dir = options.asr_model_dir.unwrap_or_else(|| {
         resolve_config_path(&options.config_path, &config.storage.model_directory)
@@ -144,6 +189,7 @@ pub async fn start(options: CoreOptions) -> Result<CoreHandle, String> {
     let asr_service = asr::AsrService::new(asr_config, asr_model_dir);
     let asr_runtime = asr_service.runtime_state();
     let asr = Arc::new(Mutex::new(asr_service));
+    let handle_vad_runtime = vad_runtime.clone();
     let state = Arc::new(AppState {
         config_path: options.config_path,
         asr_model_dir_override,
@@ -152,7 +198,7 @@ pub async fn start(options: CoreOptions) -> Result<CoreHandle, String> {
         subtitles_tx,
         http: anki::client(),
         session_token,
-        vad: Mutex::new(vad::VoiceDetector::load(&vad_model_path)),
+        vad_runtime: vad_runtime.clone(),
         asr,
         asr_runtime,
         model_manager: Arc::clone(&model_manager),
@@ -161,11 +207,13 @@ pub async fn start(options: CoreOptions) -> Result<CoreHandle, String> {
             audio::CaptureSource::Speaker,
             "speaker",
             vad_model_path.clone(),
+            vad_runtime.clone(),
         )),
         microphone_pipeline: tokio::sync::Mutex::new(TranscriptionPipeline::new(
             audio::CaptureSource::Microphone,
             "microphone",
             vad_model_path,
+            vad_runtime,
         )),
     });
 
@@ -190,6 +238,7 @@ pub async fn start(options: CoreOptions) -> Result<CoreHandle, String> {
         shutdown: Some(shutdown_tx),
         task,
         model_manager,
+        vad_runtime: handle_vad_runtime,
     })
 }
 
@@ -205,7 +254,7 @@ mod tests {
             host: Some("127.0.0.1".into()),
             port: Some(0),
             session_token: None,
-            vad_model_path: None,
+            vad_model_path: Some(directory.path().join("missing-silero.onnx")),
             asr_model_dir: None,
         })
         .await
@@ -228,7 +277,7 @@ mod tests {
             host: Some("127.0.0.1".into()),
             port: Some(port),
             session_token: None,
-            vad_model_path: None,
+            vad_model_path: Some(directory.path().join("missing-silero.onnx")),
             asr_model_dir: None,
         })
         .await
@@ -285,7 +334,7 @@ mod tests {
             host: Some("127.0.0.1".into()),
             port: Some(0),
             session_token: Some("test-token".into()),
-            vad_model_path: None,
+            vad_model_path: Some(directory.path().join("missing-silero.onnx")),
             asr_model_dir: None,
         })
         .await
@@ -313,7 +362,7 @@ mod tests {
             host: Some("127.0.0.1".into()),
             port: Some(0),
             session_token: Some("test-token".into()),
-            vad_model_path: None,
+            vad_model_path: Some(directory.path().join("missing-silero.onnx")),
             asr_model_dir: None,
         })
         .await
@@ -348,7 +397,7 @@ mod tests {
             host: Some("127.0.0.1".into()),
             port: Some(0),
             session_token: None,
-            vad_model_path: None,
+            vad_model_path: Some(directory.path().join("missing-silero.onnx")),
             asr_model_dir: None,
         })
         .await
@@ -380,7 +429,7 @@ mod tests {
             host: None,
             port: Some(0),
             session_token: None,
-            vad_model_path: None,
+            vad_model_path: Some(directory.path().join("missing-silero.onnx")),
             asr_model_dir: None,
         })
         .await
@@ -398,7 +447,7 @@ mod tests {
             host: Some("0.0.0.0".into()),
             port: Some(0),
             session_token: None,
-            vad_model_path: None,
+            vad_model_path: Some(directory.path().join("missing-silero.onnx")),
             asr_model_dir: None,
         })
         .await

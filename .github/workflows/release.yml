@@ -64,6 +64,18 @@ jobs:
           releaseDraft: true
           args: --features cuda --config src-tauri/tauri.release.conf.json --bundles nsis
 
+      - name: Run packaged-core self-test
+        shell: pwsh
+        run: |
+          $executable = "apps/desktop/src-tauri/target/release/vrcs-desktop.exe"
+          if (-not (Test-Path -LiteralPath $executable -PathType Leaf)) {
+            throw "Built desktop executable not found: $executable"
+          }
+          $process = Start-Process -FilePath $executable -ArgumentList "--release-self-test" -Wait -PassThru -WindowStyle Hidden
+          if ($process.ExitCode -ne 0) {
+            throw "Release self-test failed with exit code $($process.ExitCode)"
+          }
+
       - name: Upload SHA-256 checksum
         shell: pwsh
         env:

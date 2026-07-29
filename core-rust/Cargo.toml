@@ -22,11 +22,13 @@ regex = "1"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-appender = "0.2"
 ndarray = "0.17"
 ort = { version = "=2.0.0-rc.12", features = ["ndarray"] }
 futures-util = "0.3"
 whisper-rs = "0.16"
 sha2 = "0.10"
+serde_ignored = "0.1"
 
 [target.'cfg(windows)'.dependencies]
 wasapi = "0.23"

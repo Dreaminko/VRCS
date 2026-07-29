@@ -18,6 +18,7 @@ const FONT_STACK: &str = "-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFa
 pub struct AnkiError {
     pub status_code: u16,
     pub code: &'static str,
+    pub params: Value,
     pub message: String,
 }
 
@@ -26,13 +27,15 @@ impl AnkiError {
         Self {
             status_code: 503,
             code: "unavailable",
+            params: json!({}),
             message,
         }
     }
-    fn configuration(message: String) -> Self {
+    fn configuration(code: &'static str, params: Value, message: String) -> Self {
         Self {
             status_code: 422,
-            code: "invalid_configuration",
+            code,
+            params,
             message,
         }
     }
@@ -40,6 +43,7 @@ impl AnkiError {
         Self {
             status_code: 409,
             code: "duplicate",
+            params: json!({}),
             message,
         }
     }
@@ -47,8 +51,14 @@ impl AnkiError {
         Self {
             status_code: 502,
             code: "protocol_error",
+            params: json!({}),
             message,
         }
+    }
+
+    fn with_params(mut self, params: Value) -> Self {
+        self.params = params;
+        self
     }
 }
 
@@ -59,6 +69,7 @@ struct Discovery {
     fields: Vec<String>,
     configuration_valid: bool,
     error_code: Option<&'static str>,
+    params: Value,
     message: String,
 }
 
@@ -79,11 +90,13 @@ async fn invoke(
                 "无法连接 AnkiConnect（127.0.0.1:{}），请先启动 Anki",
                 config.port
             ))
+            .with_params(json!({ "port": config.port }))
         } else {
             AnkiError::unavailable(format!(
                 "端口 {} 没有响应 AnkiConnect，请检查端口是否被 VRCS Core 或其他服务占用",
                 config.port
             ))
+            .with_params(json!({ "port": config.port }))
         }
     })?;
     let result: Value = response.json().await.map_err(|_| {
@@ -134,6 +147,10 @@ async fn discover(client: &reqwest::Client, config: &AnkiConfig) -> Result<Disco
             fields: vec![],
             configuration_valid: false,
             error_code: Some("incompatible_version"),
+            params: json!({
+                "version": version,
+                "minimum_version": API_VERSION,
+            }),
             message: format!("AnkiConnect API v{version} 过旧，需要 v{API_VERSION} 或更高版本"),
         });
     }
@@ -172,18 +189,20 @@ async fn discover(client: &reqwest::Client, config: &AnkiConfig) -> Result<Disco
         Vec::new()
     };
 
-    let invalid = |error_code, message: String| Discovery {
+    let invalid = |error_code, params: Value, message: String| Discovery {
         version,
         decks: decks.clone(),
         models: models.clone(),
         fields: fields.clone(),
         configuration_valid: false,
         error_code: Some(error_code),
+        params,
         message,
     };
     if !decks.contains(&config.deck) {
         return Ok(invalid(
             "missing_deck",
+            json!({ "deck": config.deck }),
             format!(
                 "找不到牌组“{}”，请先在 Anki 中创建或选择其他牌组",
                 config.deck
@@ -193,6 +212,7 @@ async fn discover(client: &reqwest::Client, config: &AnkiConfig) -> Result<Disco
     if !models.contains(&config.model) {
         return Ok(invalid(
             "missing_model",
+            json!({ "model": config.model }),
             format!("找不到笔记类型“{}”", config.model),
         ));
     }
@@ -204,12 +224,20 @@ async fn discover(client: &reqwest::Client, config: &AnkiConfig) -> Result<Disco
     if !missing.is_empty() {
         return Ok(invalid(
             "missing_field",
+            json!({
+                "model": config.model,
+                "fields": missing,
+            }),
             format!("笔记类型“{}”缺少字段：{}", config.model, missing.join("、")),
         ));
     }
     if config.front_field == config.back_field {
         return Ok(invalid(
             "duplicate_field_mapping",
+            json!({
+                "front_field": config.front_field,
+                "back_field": config.back_field,
+            }),
             "正面和背面不能映射到同一个字段".into(),
         ));
     }
@@ -220,6 +248,7 @@ async fn discover(client: &reqwest::Client, config: &AnkiConfig) -> Result<Disco
         fields,
         configuration_valid: true,
         error_code: None,
+        params: json!({}),
         message: "AnkiConnect 已连接，制卡配置有效".into(),
     })
 }
@@ -234,6 +263,11 @@ pub async fn status(client: &reqwest::Client, config: &AnkiConfig) -> Value {
             "fields": d.fields,
             "configuration_valid": d.configuration_valid,
             "error_code": d.error_code,
+            "status_code": d.error_code
+                .map(|code| format!("anki.{code}"))
+                .unwrap_or_else(|| "anki.connected".into()),
+            "params": d.params,
+            "detail": d.message,
             "message": d.message,
         }),
         Err(e) => json!({
@@ -244,6 +278,9 @@ pub async fn status(client: &reqwest::Client, config: &AnkiConfig) -> Value {
             "fields": [],
             "configuration_valid": false,
             "error_code": e.code,
+            "status_code": format!("anki.{}", e.code),
+            "params": e.params,
+            "detail": e.message,
             "message": e.message,
         }),
     }
@@ -256,7 +293,11 @@ pub async fn create_card(
 ) -> Result<i64, AnkiError> {
     let discovery = discover(client, config).await?;
     if !discovery.configuration_valid {
-        return Err(AnkiError::configuration(discovery.message));
+        return Err(AnkiError::configuration(
+            discovery.error_code.unwrap_or("invalid_configuration"),
+            discovery.params,
+            discovery.message,
+        ));
     }
     let note = build_note(card, config);
     let can_add = invoke(
@@ -390,6 +431,16 @@ fn definition_html(value: &str) -> String {
 }
 
 fn build_note(card: &CardRequest, config: &AnkiConfig) -> Value {
+    let definition_label = card
+        .labels
+        .as_ref()
+        .map(|labels| labels.definition.as_str())
+        .unwrap_or("释义");
+    let context_label = card
+        .labels
+        .as_ref()
+        .map(|labels| labels.context.as_str())
+        .unwrap_or("语境");
     let mut front = format!(
         r#"<div class="vrcs-note vrcs-note-front" style="max-width:42rem;margin:0 auto;padding:0.35rem 0;text-align:center;font-family:{FONT_STACK};color:inherit;overflow-wrap:anywhere;"><div class="vrcs-term" style="font-size:2rem;font-weight:700;line-height:1.25;">{}</div>"#,
         escaped_lines(&card.term)
@@ -404,13 +455,13 @@ fn build_note(card: &CardRequest, config: &AnkiConfig) -> Value {
 
     let mut back = format!(
         r#"<div class="vrcs-note vrcs-note-back" style="max-width:42rem;margin:0 auto;text-align:left;font-family:{FONT_STACK};font-size:1rem;line-height:1.72;color:inherit;overflow-wrap:anywhere;"><section class="vrcs-definition">{}<div class="vrcs-definition-content">{}</div></section>"#,
-        section_label("释义"),
+        section_label(definition_label),
         definition_html(&card.definition)
     );
     if !card.context.is_empty() {
         back.push_str(&format!(
             r#"<section class="vrcs-context" style="margin-top:1.45rem;padding-top:1rem;border-top:1px solid rgba(127,127,127,0.24);">{}<div class="vrcs-context-content" style="padding:0.82rem 0.95rem;border-radius:0.65rem;background:rgba(61,115,168,0.08);font-size:0.95rem;line-height:1.7;">{}</div></section>"#,
-            section_label("语境"),
+            section_label(context_label),
             escaped_lines(&card.context)
         ));
     }
@@ -488,6 +539,10 @@ mod tests {
             reading: Some("たべる".into()),
             dictionary: Some("TestDict".into()),
             language: Some("ja".into()),
+            labels: Some(crate::models::CardLabels {
+                definition: "Definition".into(),
+                context: "Context".into(),
+            }),
         };
         let config = AnkiConfig::default();
         let note = build_note(&card, &config);
@@ -498,6 +553,8 @@ mod tests {
         assert!(front.contains("たべる"));
         assert!(back.contains("ご飯を食べる"));
         assert!(back.contains("TestDict · JA"));
+        assert!(back.contains("Definition"));
+        assert!(back.contains("Context"));
         assert_eq!(note["tags"], json!(["vrcs"]));
     }
 }

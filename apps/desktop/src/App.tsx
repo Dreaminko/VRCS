@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, RefObject } from "react";
+import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
 import {
   CalendarDays,
   BookOpen,
@@ -32,6 +34,7 @@ import {
   X,
 } from "lucide-react";
 import { coreApi, coreWebSocketUrl, initializeCoreApi } from "./api";
+import { ApiError } from "./api-error";
 import { ankiButtonLabel } from "./anki";
 import type { AnkiAddState } from "./anki";
 import {
@@ -61,6 +64,7 @@ import { ankiDictionaryContent, definitionGlosses, groupDictionaryEntries } from
 import { isLookupAnchorVisible, LOOKUP_POPOVER_HEIGHT, placeLookupPopover } from "./popover-placement";
 import type { LookupAnchor } from "./popover-placement";
 import { createSettingsAutosave } from "./settings-autosave";
+import { shouldFollowLiveScroll } from "./live-scroll";
 import {
   asrSelectionError,
   audioSettingsChanged,
@@ -79,6 +83,11 @@ import type {
   Settings,
   Subtitle,
 } from "./types";
+import {
+  changeUiLanguage,
+  currentUiLanguagePreference,
+} from "./i18n";
+import type { UiLanguagePreference } from "./ui-language";
 
 type Page = "live" | "history" | "settings";
 type SettingsCategory = "system" | "recognition" | "audio" | "dictionary" | "anki" | "debug";
@@ -99,26 +108,55 @@ const SIDEBAR_OPEN_KEY = "vrcs.conversation-sidebar-open";
 
 const MODEL_PRESENTATION: Record<AsrModelRecord["id"], {
   name: string;
-  description: string;
+  descriptionKey: string;
 }> = {
-  tiny: { name: "Tiny", description: "启动最快，适合轻量设备和短对话" },
-  base: { name: "Base", description: "低资源占用，日常语音的均衡起点" },
-  small: { name: "Small", description: "速度与识别质量平衡，推荐多数设备使用" },
-  medium: { name: "Medium", description: "更高识别质量，需要更多内存和显存" },
-  "large-v3": { name: "Large v3", description: "最高识别质量，适合高性能显卡" },
+  tiny: { name: "Tiny", descriptionKey: "settings.recognition.models.tiny" },
+  base: { name: "Base", descriptionKey: "settings.recognition.models.base" },
+  small: { name: "Small", descriptionKey: "settings.recognition.models.small" },
+  medium: { name: "Medium", descriptionKey: "settings.recognition.models.medium" },
+  "large-v3": { name: "Large v3", descriptionKey: "settings.recognition.models.largeV3" },
 };
 
-function formatBytes(bytes: number): string {
-  if (bytes < 1_000_000) return `${Math.max(0, Math.round(bytes / 1_000))} KB`;
-  if (bytes < 1_000_000_000) return `${(bytes / 1_000_000).toFixed(bytes < 100_000_000 ? 1 : 0)} MB`;
-  return `${(bytes / 1_000_000_000).toFixed(1)} GB`;
+function formatBytes(bytes: number, locale: string): string {
+  if (bytes < 1_000_000) {
+    return `${new Intl.NumberFormat(locale, { maximumFractionDigits: 0 }).format(Math.max(0, bytes / 1_000))} KB`;
+  }
+  if (bytes < 1_000_000_000) {
+    return `${new Intl.NumberFormat(locale, {
+      maximumFractionDigits: bytes < 100_000_000 ? 1 : 0,
+    }).format(bytes / 1_000_000)} MB`;
+  }
+  return `${new Intl.NumberFormat(locale, { maximumFractionDigits: 1 }).format(bytes / 1_000_000_000)} GB`;
 }
 
-function timestamp(value: string): string {
-  return new Intl.DateTimeFormat("zh-CN", {
+function timestamp(value: string, locale: string): string {
+  return new Intl.DateTimeFormat(locale, {
     hour: "2-digit",
     minute: "2-digit",
   }).format(new Date(value));
+}
+
+function localizedError(
+  reason: unknown,
+  t: TFunction,
+  fallbackKey: string,
+): string {
+  if (reason instanceof ApiError) {
+    const fallback = t(fallbackKey);
+    return t(`errors.${reason.code}`, {
+      ...reason.params,
+      defaultValue: fallback,
+    });
+  }
+  if (
+    reason
+    && typeof reason === "object"
+    && "code" in reason
+    && typeof reason.code === "string"
+  ) {
+    return t(`errors.${reason.code}`, { defaultValue: t(fallbackKey) });
+  }
+  return reason instanceof Error ? reason.message : t(fallbackKey);
 }
 
 function storedConversationStarts() {
@@ -130,15 +168,20 @@ function storedConversationStarts() {
   }
 }
 
-function conversationTime(value: string) {
+function conversationTime(
+  value: string,
+  locale: string,
+  todayLabel: string,
+  yesterdayLabel: string,
+) {
   const date = new Date(value);
   const today = new Date();
   const yesterday = new Date(today);
   yesterday.setDate(today.getDate() - 1);
   const sameDay = (left: Date, right: Date) => left.toDateString() === right.toDateString();
-  if (sameDay(date, today)) return `今天 ${timestamp(value)}`;
-  if (sameDay(date, yesterday)) return `昨天 ${timestamp(value)}`;
-  return new Intl.DateTimeFormat("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }).format(date);
+  if (sameDay(date, today)) return `${todayLabel} ${timestamp(value, locale)}`;
+  if (sameDay(date, yesterday)) return `${yesterdayLabel} ${timestamp(value, locale)}`;
+  return new Intl.DateTimeFormat(locale, { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }).format(date);
 }
 
 function useDismissibleLayer(
@@ -172,6 +215,8 @@ function useDismissibleLayer(
 }
 
 function App() {
+  const { t, i18n } = useTranslation();
+  const locale = i18n.resolvedLanguage ?? "en-US";
   const openedAt = useRef(Date.now()).current;
   const [page, setPage] = useState<Page>("live");
   const [connection, setConnection] = useState<ConnectionState>("connecting");
@@ -194,11 +239,47 @@ function App() {
   const [conversationStarts, setConversationStarts] = useState(storedConversationStarts);
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
   const conversations = useMemo(
-    () => groupConversations(subtitles, conversationStarts, openedAt),
-    [conversationStarts, openedAt, subtitles],
+    () => groupConversations(subtitles, conversationStarts, openedAt, {
+      untitled: t("conversations.untitled"),
+      newConversation: t("conversations.new"),
+    }),
+    [conversationStarts, i18n.resolvedLanguage, openedAt, subtitles, t],
   );
   const activeConversation = conversations[0];
   const selectedConversation = conversations.find((conversation) => conversation.id === selectedConversationId) ?? activeConversation;
+  const liveScrollRef = useRef<HTMLDivElement>(null);
+  const previousLiveScrollTopRef = useRef(0);
+  const [followingLiveSubtitles, setFollowingLiveSubtitles] = useState(true);
+  const showingActiveConversation = selectedConversation?.id === activeConversation?.id;
+  const liveAutoScrollActive = page === "live"
+    && (health?.capture_running ?? false)
+    && showingActiveConversation;
+
+  const scrollLiveViewToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
+    const scrollRegion = liveScrollRef.current;
+    if (!scrollRegion) return;
+    setFollowingLiveSubtitles(true);
+    previousLiveScrollTopRef.current = scrollRegion.scrollTop;
+    scrollRegion.scrollTo({ top: scrollRegion.scrollHeight, behavior });
+  }, []);
+
+  useEffect(() => {
+    if (page !== "live") return;
+    setFollowingLiveSubtitles(true);
+    const frame = window.requestAnimationFrame(() => scrollLiveViewToBottom("auto"));
+    return () => window.cancelAnimationFrame(frame);
+  }, [page, scrollLiveViewToBottom, selectedConversation?.id]);
+
+  useEffect(() => {
+    if (!liveAutoScrollActive || !followingLiveSubtitles) return;
+    const frame = window.requestAnimationFrame(() => scrollLiveViewToBottom());
+    return () => window.cancelAnimationFrame(frame);
+  }, [
+    followingLiveSubtitles,
+    liveAutoScrollActive,
+    scrollLiveViewToBottom,
+    selectedConversation?.updatedAt,
+  ]);
 
   useEffect(() => {
     const runtimeMissing = Boolean(
@@ -238,7 +319,7 @@ function App() {
       .catch((reason) => {
         if (!cancelled) {
           setConnection("disconnected");
-          setError(reason instanceof Error ? reason.message : "Core 服务初始化失败");
+          setError(localizedError(reason, t, "errors.core.initialize"));
         }
       });
     return () => {
@@ -262,7 +343,7 @@ function App() {
       setAsrCapabilities(nextAsrCapabilities);
       setError(null);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "无法连接 Core 服务");
+      setError(localizedError(reason, t, "errors.core.connect"));
     }
   }, [coreConfigured]);
 
@@ -315,7 +396,7 @@ function App() {
       setError(null);
     } catch (reason) {
       setDevicesReady(false);
-      setError(reason instanceof Error ? reason.message : "设备枚举失败");
+      setError(localizedError(reason, t, "errors.audio.devices"));
     }
   }, [coreConfigured]);
 
@@ -325,7 +406,7 @@ function App() {
       setDictionarySources(await coreApi.dictionaries());
       setError(null);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "词典列表加载失败");
+      setError(localizedError(reason, t, "errors.dictionary.list"));
     }
   }, [coreConfigured]);
 
@@ -335,7 +416,7 @@ function App() {
       setAsrCapabilities(await coreApi.asrCapabilities());
       setError(null);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "识别能力检测失败");
+      setError(localizedError(reason, t, "errors.asr.capabilities"));
     }
   }, [coreConfigured]);
   const loadAsrCapabilitiesRef = useRef(loadAsrCapabilities);
@@ -354,9 +435,9 @@ function App() {
       setHealth(await coreApi.health());
       setError(null);
     } catch (reason) {
-      const message = reason instanceof Error ? reason.message : "操作失败";
+      const message = localizedError(reason, t, "errors.operation");
       if (shouldShowVrchatNotRunningWarning(
-        message,
+        reason,
         settings?.audio.output.mode === "vrchat",
       )) {
         setError(null);
@@ -366,7 +447,7 @@ function App() {
           try {
             await resizeCompactWindow(true);
           } catch (resizeError) {
-            setError(resizeError instanceof Error ? resizeError.message : "警告窗口展开失败");
+            setError(localizedError(resizeError, t, "errors.window.warningExpand"));
           }
         }
       } else {
@@ -414,12 +495,13 @@ function App() {
           recoveryError ??= restartReason;
         }
         if (recoveryError) {
-          const applyMessage = reason instanceof Error ? reason.message : "设置应用失败";
-          const recoveryMessage = recoveryError instanceof Error
-            ? recoveryError.message
-            : "未知错误";
+          const applyMessage = localizedError(reason, t, "errors.settings.apply");
+          const recoveryMessage = localizedError(recoveryError, t, "errors.unknown");
           throw new Error(
-            `${applyMessage}；恢复旧配置或旧采集失败：${recoveryMessage}`,
+            t("errors.settings.recovery", {
+              applyMessage,
+              recoveryMessage,
+            }),
             { cause: reason },
           );
         }
@@ -440,7 +522,7 @@ function App() {
       },
       onError: (reason) => {
         if (persistedSettingsRef.current) setSettings(persistedSettingsRef.current);
-        setError(reason instanceof Error ? reason.message : "设置应用失败");
+        setError(localizedError(reason, t, "errors.settings.apply"));
       },
     });
   }
@@ -479,7 +561,7 @@ function App() {
       setLookup(nextLookup);
       if (compact) await resizeCompactWindow(true);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "查词失败");
+      setError(localizedError(reason, t, "errors.dictionary.lookup"));
     }
   };
 
@@ -493,7 +575,7 @@ function App() {
   const closeCompactLookup = () => {
     setLookup(null);
     void resizeCompactWindow(false).catch((reason) => {
-      setError(reason instanceof Error ? reason.message : "小窗收起失败");
+      setError(localizedError(reason, t, "errors.window.compactCollapse"));
     });
   };
 
@@ -501,7 +583,7 @@ function App() {
     setVrchatWarningOpen(false);
     if (compact) {
       void resizeCompactWindow(false).catch((reason) => {
-        setError(reason instanceof Error ? reason.message : "小窗收起失败");
+        setError(localizedError(reason, t, "errors.window.compactCollapse"));
       });
     }
   };
@@ -532,12 +614,12 @@ function App() {
       }
 
       if (await appWindow.isAlwaysOnTop() !== next) {
-        throw new Error("窗口置顶状态未生效");
+        throw new Error(t("errors.window.alwaysOnTop"));
       }
       setCompact(next);
       setError(null);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "小窗模式切换失败");
+      setError(localizedError(reason, t, "errors.window.compactToggle"));
     }
   };
 
@@ -600,15 +682,29 @@ function App() {
             onSelect={(id) => { setSelectedConversationId(id); setLookup(null); }}
           />
         )}
-        {page === "live" && sidebarOpen && <button className="sidebar-scrim" type="button" aria-label="关闭对话侧栏" onClick={() => setSidebarOpen(false)} />}
-        <div className="app-scroll-region">
+        {page === "live" && sidebarOpen && <button className="sidebar-scrim" type="button" aria-label={t("conversations.closeSidebar")} onClick={() => setSidebarOpen(false)} />}
+        <div
+          className="app-scroll-region"
+          ref={liveScrollRef}
+          onScroll={(event) => {
+            if (page !== "live") return;
+            const scrollRegion = event.currentTarget;
+            setFollowingLiveSubtitles((current) => shouldFollowLiveScroll(current, {
+              scrollTop: scrollRegion.scrollTop,
+              previousScrollTop: previousLiveScrollTopRef.current,
+              scrollHeight: scrollRegion.scrollHeight,
+              clientHeight: scrollRegion.clientHeight,
+            }));
+            previousLiveScrollTopRef.current = scrollRegion.scrollTop;
+          }}
+        >
           <main className={`workspace workspace-${page}`}>
           {page === "live" && <TopStatus connection={connection} health={health} settings={settings} />}
 
           {error && (
             <div className="error-banner" role="alert">
               <span>{error}</span>
-              <button type="button" aria-label="关闭错误提示" onClick={() => setError(null)}><X size={18} /></button>
+              <button type="button" aria-label={t("common.closeError")} onClick={() => setError(null)}><X size={18} /></button>
             </div>
           )}
 
@@ -617,8 +713,15 @@ function App() {
               {selectedConversation && activeConversation && selectedConversation.id !== activeConversation.id && (
                 <div className="conversation-history-notice">
                   <Clock3 size={15} />
-                  <span>正在查看 {conversationTime(selectedConversation.startedAt)} 的对话</span>
-                  <button type="button" onClick={() => setSelectedConversationId(activeConversation.id)}>返回当前</button>
+                  <span>{t("conversations.viewingPast", {
+                    time: conversationTime(
+                      selectedConversation.startedAt,
+                      locale,
+                      t("date.today"),
+                      t("date.yesterday"),
+                    ),
+                  })}</span>
+                  <button type="button" onClick={() => setSelectedConversationId(activeConversation.id)}>{t("conversations.returnCurrent")}</button>
                 </div>
               )}
               <LiveView
@@ -653,6 +756,18 @@ function App() {
         </div>
       </div>
 
+      {page === "live" && !followingLiveSubtitles && (
+        <button
+          className="live-scroll-to-bottom"
+          type="button"
+          aria-label={t("live.returnToBottom")}
+          title={t("live.returnToBottomShort")}
+          onClick={() => scrollLiveViewToBottom()}
+        >
+          <ChevronDown size={20} strokeWidth={2} />
+        </button>
+      )}
+
       <BottomDock
         page={page}
         running={health?.capture_running ?? false}
@@ -669,22 +784,24 @@ function App() {
 }
 
 function VrchatNotRunningDialog({ onClose }: { onClose: () => void }) {
+  const { t } = useTranslation();
   return (
     <WarningDialog
       id="vrchat-warning"
-      title="未检测到 VRChat"
-      description="请先启动 VRChat，等待程序完成加载后再开始转写。"
+      title={t("warnings.vrchat.title")}
+      description={t("warnings.vrchat.description")}
       onClose={onClose}
     />
   );
 }
 
 function CudaRuntimeDialog({ onClose }: { onClose: () => void }) {
+  const { t } = useTranslation();
   return (
     <WarningDialog
       id="cuda-runtime-warning"
-      title="缺少 CUDA 12 运行库"
-      description="检测到 NVIDIA GPU，但无法加载 CUDA 12 的 cuBLAS 运行库。请安装 CUDA 12.x Runtime，完成后重新启动 VRCS。"
+      title={t("warnings.cuda.title")}
+      description={t("warnings.cuda.description")}
       onClose={onClose}
     />
   );
@@ -696,6 +813,7 @@ function WarningDialog({ id, title, description, onClose }: {
   description: string;
   onClose: () => void;
 }) {
+  const { t } = useTranslation();
   const confirmRef = useRef<HTMLButtonElement>(null);
   const onCloseRef = useRef(onClose);
 
@@ -741,7 +859,7 @@ function WarningDialog({ id, title, description, onClose }: {
           <h2 id={`${id}-title`}>{title}</h2>
           <p id={`${id}-description`}>{description}</p>
         </div>
-        <button ref={confirmRef} className="primary-button" type="button" onClick={onClose}>我知道了</button>
+        <button ref={confirmRef} className="primary-button" type="button" onClick={onClose}>{t("common.understood")}</button>
       </section>
     </div>
   );
@@ -756,38 +874,39 @@ function ConversationSidebar({ open, conversations, activeId, selectedId, onTogg
   onNew: () => void;
   onSelect: (id: string) => void;
 }) {
+  const { t } = useTranslation();
   const active = conversations.find((conversation) => conversation.id === activeId);
   const history = conversations.filter((conversation) => conversation.id !== activeId);
 
   if (!open) {
     return (
-      <aside className="conversation-sidebar conversation-sidebar-collapsed" aria-label="对话侧栏">
-        <button className="sidebar-icon-button" type="button" aria-label="展开对话侧栏" aria-expanded="false" onClick={onToggle}><PanelLeftOpen size={19} /></button>
-        <button className="sidebar-icon-button sidebar-new-icon" type="button" aria-label="新建对话" onClick={onNew}><Plus size={20} /></button>
-        {active && <button className={`sidebar-icon-button sidebar-current-icon ${selectedId === active.id ? "active" : ""}`} type="button" aria-label="查看当前对话" onClick={() => onSelect(active.id)}><MessageSquareText size={19} /></button>}
+      <aside className="conversation-sidebar conversation-sidebar-collapsed" aria-label={t("conversations.sidebar")}>
+        <button className="sidebar-icon-button" type="button" aria-label={t("conversations.expandSidebar")} aria-expanded="false" onClick={onToggle}><PanelLeftOpen size={19} /></button>
+        <button className="sidebar-icon-button sidebar-new-icon" type="button" aria-label={t("conversations.create")} onClick={onNew}><Plus size={20} /></button>
+        {active && <button className={`sidebar-icon-button sidebar-current-icon ${selectedId === active.id ? "active" : ""}`} type="button" aria-label={t("conversations.viewCurrent")} onClick={() => onSelect(active.id)}><MessageSquareText size={19} /></button>}
       </aside>
     );
   }
 
   return (
-    <aside className="conversation-sidebar" aria-label="对话侧栏">
+    <aside className="conversation-sidebar" aria-label={t("conversations.sidebar")}>
       <div className="conversation-sidebar-header">
-        <span>对话</span>
-        <button className="sidebar-icon-button" type="button" aria-label="收起对话侧栏" aria-expanded="true" onClick={onToggle}><PanelLeftClose size={19} /></button>
+        <span>{t("conversations.title")}</span>
+        <button className="sidebar-icon-button" type="button" aria-label={t("conversations.collapseSidebar")} aria-expanded="true" onClick={onToggle}><PanelLeftClose size={19} /></button>
       </div>
-      <button className="new-conversation-button" type="button" onClick={onNew}><Plus size={18} />新建对话</button>
+      <button className="new-conversation-button" type="button" onClick={onNew}><Plus size={18} />{t("conversations.create")}</button>
       <div className="conversation-sidebar-list">
         {active && (
           <section className="conversation-group" aria-labelledby="current-conversation-heading">
-            <h2 id="current-conversation-heading">当前对话</h2>
+            <h2 id="current-conversation-heading">{t("conversations.current")}</h2>
             <ConversationButton conversation={active} active selected={selectedId === active.id} onSelect={onSelect} />
           </section>
         )}
         <section className="conversation-group" aria-labelledby="recent-conversations-heading">
-          <h2 id="recent-conversations-heading">以往对话</h2>
+          <h2 id="recent-conversations-heading">{t("conversations.previous")}</h2>
           {history.length ? history.map((conversation) => (
             <ConversationButton key={conversation.id} conversation={conversation} selected={selectedId === conversation.id} onSelect={onSelect} />
-          )) : <p className="conversation-list-empty">历史对话会显示在这里</p>}
+          )) : <p className="conversation-list-empty">{t("conversations.empty")}</p>}
         </section>
       </div>
     </aside>
@@ -800,6 +919,8 @@ function ConversationButton({ conversation, active = false, selected, onSelect }
   selected: boolean;
   onSelect: (id: string) => void;
 }) {
+  const { t, i18n } = useTranslation();
+  const locale = i18n.resolvedLanguage ?? "en-US";
   return (
     <button
       className={`conversation-button ${selected ? "selected" : ""}`}
@@ -807,13 +928,17 @@ function ConversationButton({ conversation, active = false, selected, onSelect }
       aria-current={selected ? "true" : undefined}
       onClick={() => onSelect(conversation.id)}
     >
-      <span className="conversation-button-title"><MessageSquareText size={16} /><strong>{conversation.title}</strong>{active && <i aria-label="当前" />}</span>
-      <span className="conversation-button-meta"><time>{conversationTime(conversation.startedAt)}</time><span>{conversation.subtitles.length} 条字幕</span></span>
+      <span className="conversation-button-title"><MessageSquareText size={16} /><strong>{conversation.title}</strong>{active && <i aria-label={t("conversations.current")} />}</span>
+      <span className="conversation-button-meta">
+        <time>{conversationTime(conversation.startedAt, locale, t("date.today"), t("date.yesterday"))}</time>
+        <span>{t("conversations.subtitleCount", { count: conversation.subtitles.length })}</span>
+      </span>
     </button>
   );
 }
 
 function WindowChrome() {
+  const { t } = useTranslation();
   const runWindowAction = async (action: "minimize" | "maximize" | "close") => {
     try {
       const { getCurrentWindow } = await import("@tauri-apps/api/window");
@@ -827,12 +952,12 @@ function WindowChrome() {
   };
 
   return (
-    <header className="window-chrome" data-tauri-drag-region aria-label="窗口控制区">
+    <header className="window-chrome" data-tauri-drag-region aria-label={t("window.controls")}>
       <div className="window-drag-region" data-tauri-drag-region />
       <div className="window-actions">
-        <button type="button" aria-label="最小化窗口" title="最小化" onClick={() => void runWindowAction("minimize")}><Minus size={15} strokeWidth={1.8} /></button>
-        <button type="button" aria-label="最大化或还原窗口" title="最大化或还原" onClick={() => void runWindowAction("maximize")}><Square size={12} strokeWidth={1.7} /></button>
-        <button className="window-close" type="button" aria-label="关闭窗口" title="关闭" onClick={() => void runWindowAction("close")}><X size={15} strokeWidth={1.8} /></button>
+        <button type="button" aria-label={t("window.minimize")} title={t("window.minimizeShort")} onClick={() => void runWindowAction("minimize")}><Minus size={15} strokeWidth={1.8} /></button>
+        <button type="button" aria-label={t("window.maximize")} title={t("window.maximizeShort")} onClick={() => void runWindowAction("maximize")}><Square size={12} strokeWidth={1.7} /></button>
+        <button className="window-close" type="button" aria-label={t("window.close")} title={t("common.close")} onClick={() => void runWindowAction("close")}><X size={15} strokeWidth={1.8} /></button>
       </div>
     </header>
   );
@@ -843,15 +968,16 @@ function TopStatus({ connection, health, settings }: {
   health: Health | null;
   settings: Settings | null;
 }) {
-  const connectionLabel = connection === "connected" ? "已连接" : connection === "connecting" ? "连接中" : "未连接";
+  const { t } = useTranslation();
+  const connectionLabel = t(`status.connection.${connection}`);
   return (
     <div className="top-status-row">
-      <div className="status-summary" aria-label="连接与转写状态">
+      <div className="status-summary" aria-label={t("status.summary")}>
         <div className={`core-summary connection-${connection}`}><span>Core</span><strong><i aria-hidden="true" />{connectionLabel}</strong></div>
         <i aria-hidden="true" />
-        <div><span>状态</span><strong>{health?.capture_running ? "正在转写" : "等待开始"}</strong></div>
+        <div><span>{t("status.label")}</span><strong>{health?.capture_running ? t("status.transcribing") : t("status.waiting")}</strong></div>
         <i aria-hidden="true" />
-        <div><span>引擎</span><strong>Whisper {capitalize(settings?.asr.model ?? "small")}</strong></div>
+        <div><span>{t("status.engine")}</span><strong>Whisper {capitalize(settings?.asr.model ?? "small")}</strong></div>
       </div>
     </div>
   );
@@ -870,17 +996,18 @@ function LiveView({ subtitles, running, onSelect }: {
   running: boolean;
   onSelect: (context: string) => Promise<void>;
 }) {
+  const { t } = useTranslation();
   const chronological = [...subtitles].reverse();
   return (
-    <section className="conversation" aria-label="实时字幕">
+    <section className="conversation" aria-label={t("live.title")}>
       {chronological.length ? chronological.map((subtitle, index) => (
         <ChatBubble key={subtitle.id ?? `${subtitle.created_at}-${index}`} subtitle={subtitle} onSelect={onSelect} />
       )) : (
-        <div className="empty-state"><MessageSquare size={22} /><p>{running ? "正在聆听，新的字幕会出现在这里。" : "开始转写后，字幕会显示在这里。"}</p></div>
+        <div className="empty-state"><MessageSquare size={22} /><p>{running ? t("live.listening") : t("live.startHint")}</p></div>
       )}
       {running && (
         <div className="message-group source-speaker streaming-message">
-          <div className="bubble">转写中<span className="streaming-ellipsis" aria-hidden="true">…</span></div>
+          <div className="bubble">{t("live.transcribing")}<span className="streaming-ellipsis" aria-hidden="true">…</span></div>
         </div>
       )}
     </section>
@@ -888,15 +1015,17 @@ function LiveView({ subtitles, running, onSelect }: {
 }
 
 function ChatBubble({ subtitle, onSelect }: { subtitle: Subtitle; onSelect: (context: string) => Promise<void> }) {
+  const { t, i18n } = useTranslation();
+  const locale = i18n.resolvedLanguage ?? "en-US";
   const source: SubtitleSource = subtitle.source ?? "speaker";
   const mine = source === "microphone";
   return (
     <article className={`message-group source-${source}`}>
       <div className="message-meta">
         {!mine && <Volume2 size={14} />}
-        {mine && <time>{timestamp(subtitle.created_at)}</time>}
-        <span>{mine ? "麦克风 · 我" : "扬声器 · 对方"}</span>
-        {!mine && <time>{timestamp(subtitle.created_at)}</time>}
+        {mine && <time>{timestamp(subtitle.created_at, locale)}</time>}
+        <span>{mine ? t("live.microphoneMe") : t("live.speakerOther")}</span>
+        {!mine && <time>{timestamp(subtitle.created_at, locale)}</time>}
         {mine && <Mic size={14} />}
       </div>
       <p className="bubble" onMouseUp={() => void onSelect(subtitle.text)}>{subtitle.text}</p>
@@ -905,6 +1034,8 @@ function ChatBubble({ subtitle, onSelect }: { subtitle: Subtitle; onSelect: (con
 }
 
 function HistoryView({ subtitles, onSelect }: { subtitles: Subtitle[]; onSelect: (context: string) => Promise<void> }) {
+  const { t, i18n } = useTranslation();
+  const locale = i18n.resolvedLanguage ?? "en-US";
   const [language, setLanguage] = useState("all");
   const [range, setRange] = useState("all");
   const filtered = useMemo(() => {
@@ -920,31 +1051,31 @@ function HistoryView({ subtitles, onSelect }: { subtitles: Subtitle[]; onSelect:
   return (
     <section className="history-surface">
       <div className="history-toolbar">
-        <div><h2>字幕历史</h2><span>共 {filtered.length} 条记录</span></div>
+        <div><h2>{t("history.title")}</h2><span>{t("history.recordCount", { count: filtered.length })}</span></div>
         <div className="history-filters">
           <DropdownField
             compact
             icon={<Languages size={15} />}
-            label="语言"
+            label={t("history.language")}
             value={language}
             options={[
-              { value: "all", label: "全部语言" },
-              { value: "ja", label: "日语" },
-              { value: "en", label: "英语" },
-              { value: "zh", label: "中文" },
-              { value: "ko", label: "韩语" },
+              { value: "all", label: t("languages.all") },
+              { value: "ja", label: t("languages.japanese") },
+              { value: "en", label: t("languages.english") },
+              { value: "zh", label: t("languages.chinese") },
+              { value: "ko", label: t("languages.korean") },
             ]}
             onChange={setLanguage}
           />
           <DropdownField
             compact
             icon={<CalendarDays size={15} />}
-            label="日期范围"
+            label={t("history.dateRange")}
             value={range}
             options={[
-              { value: "all", label: "全部时间" },
-              { value: "today", label: "今天" },
-              { value: "week", label: "最近 7 天" },
+              { value: "all", label: t("history.allTime") },
+              { value: "today", label: t("date.today") },
+              { value: "week", label: t("history.lastSevenDays") },
             ]}
             onChange={setRange}
           />
@@ -953,12 +1084,12 @@ function HistoryView({ subtitles, onSelect }: { subtitles: Subtitle[]; onSelect:
       {filtered.length ? (
         <div className="history-list">{filtered.map((subtitle, index) => (
           <article key={subtitle.id ?? `${subtitle.created_at}-${index}`} onMouseUp={() => void onSelect(subtitle.text)}>
-            <time>{timestamp(subtitle.created_at)}</time>
+            <time>{timestamp(subtitle.created_at, locale)}</time>
             <p>{subtitle.text}</p>
             <span>{subtitle.language?.toUpperCase() ?? "—"}</span>
           </article>
         ))}</div>
-      ) : <div className="empty-state"><History size={22} /><p>没有符合筛选条件的字幕。</p></div>}
+      ) : <div className="empty-state"><History size={22} /><p>{t("history.empty")}</p></div>}
     </section>
   );
 }
@@ -977,6 +1108,8 @@ function SettingsPanel({ settings, devices, devicesReady, dictionaries, disabled
   onModelsChanged: () => Promise<void>;
   onSave: (value: Settings) => Promise<Settings>;
 }) {
+  const { t, i18n } = useTranslation();
+  const locale = i18n.resolvedLanguage ?? "en-US";
   const [draft, setDraft] = useState(settings);
   const [activeCategory, setActiveCategory] = useState<SettingsCategory>("system");
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
@@ -985,6 +1118,9 @@ function SettingsPanel({ settings, devices, devicesReady, dictionaries, disabled
   const [desktopPreferencesReady, setDesktopPreferencesReady] = useState(false);
   const [desktopSaveState, setDesktopSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [desktopMessage, setDesktopMessage] = useState("");
+  const [uiLanguagePreference, setUiLanguagePreference] = useState<UiLanguagePreference>(
+    currentUiLanguagePreference,
+  );
   const [dictionaryBusy, setDictionaryBusy] = useState(false);
   const [dictionaryMessage, setDictionaryMessage] = useState("");
   const [managedModels, setManagedModels] = useState<AsrModelRecord[]>([]);
@@ -1019,7 +1155,7 @@ function SettingsPanel({ settings, devices, devicesReady, dictionaries, disabled
       },
       (reason) => {
         if (cancelled) return;
-        setDesktopMessage(reason instanceof Error ? reason.message : "系统设置读取失败");
+        setDesktopMessage(localizedError(reason, t, "errors.desktop.read"));
         setDesktopSaveState("error");
         setDesktopPreferencesReady(true);
       },
@@ -1043,7 +1179,7 @@ function SettingsPanel({ settings, devices, devicesReady, dictionaries, disabled
       }
     } catch (reason) {
       setModelsReady(false);
-      setModelMessage(reason instanceof Error ? reason.message : "模型列表读取失败");
+      setModelMessage(localizedError(reason, t, "errors.asr.models"));
     }
   }, [onModelsChanged]);
   useEffect(() => {
@@ -1060,10 +1196,13 @@ function SettingsPanel({ settings, devices, devicesReady, dictionaries, disabled
     try {
       const next = await coreApi.ankiStatus();
       setAnkiStatus(next);
-      setAnkiMessage(next.message);
+      setAnkiMessage(t(`apiStatus.${next.status_code}`, {
+        ...next.params,
+        defaultValue: next.detail,
+      }));
     } catch (reason) {
       setAnkiStatus(null);
-      setAnkiMessage(reason instanceof Error ? reason.message : "AnkiConnect 检测失败");
+      setAnkiMessage(localizedError(reason, t, "errors.anki.status"));
     } finally {
       setAnkiBusy(false);
     }
@@ -1094,7 +1233,7 @@ function SettingsPanel({ settings, devices, devicesReady, dictionaries, disabled
       (reason) => {
         if (version !== saveVersionRef.current) return;
         savingRef.current = false;
-        setSaveMessage(reason instanceof Error ? reason.message : "设置应用失败");
+        setSaveMessage(localizedError(reason, t, "errors.settings.apply"));
         setSaveState("error");
       },
     );
@@ -1111,7 +1250,7 @@ function SettingsPanel({ settings, devices, devicesReady, dictionaries, disabled
   const commitAnkiPort = () => {
     const port = Number(ankiPortText);
     if (!Number.isInteger(port) || port < 1 || port > 65_535) {
-      setAnkiPortError("请输入 1 到 65535 之间的端口");
+      setAnkiPortError(t("settings.anki.invalidPort"));
       return;
     }
     setAnkiPortError("");
@@ -1138,7 +1277,7 @@ function SettingsPanel({ settings, devices, devicesReady, dictionaries, disabled
   const updateModelDirectory = (value: string) => {
     const directory = value.trim();
     if (!directory) {
-      setSaveMessage("模型保存位置不能为空");
+      setSaveMessage(t("settings.recognition.modelDirectoryRequired"));
       setSaveState("error");
       return;
     }
@@ -1160,11 +1299,11 @@ function SettingsPanel({ settings, devices, devicesReady, dictionaries, disabled
       const directory = await open({
         directory: true,
         multiple: false,
-        title: "选择模型保存位置",
+        title: t("settings.recognition.chooseModelDirectory"),
       });
       if (typeof directory === "string") updateModelDirectory(directory);
     } catch (reason) {
-      setSaveMessage(reason instanceof Error ? reason.message : "无法打开文件夹选择器");
+      setSaveMessage(localizedError(reason, t, "errors.dialog.folder"));
       setSaveState("error");
     }
   };
@@ -1180,14 +1319,30 @@ function SettingsPanel({ settings, devices, devicesReady, dictionaries, disabled
       setDesktopSaveState("saved");
     } catch (reason) {
       setDesktopPreferences(previous);
-      setDesktopMessage(reason instanceof Error ? reason.message : "系统设置保存失败");
+      setDesktopMessage(localizedError(reason, t, "errors.desktop.save"));
+      setDesktopSaveState("error");
+    }
+  };
+  const updateUiLanguage = async (preference: UiLanguagePreference) => {
+    const previous = uiLanguagePreference;
+    setUiLanguagePreference(preference);
+    setDesktopSaveState("saving");
+    setDesktopMessage("");
+    try {
+      await changeUiLanguage(preference);
+      setDesktopSaveState("saved");
+    } catch (reason) {
+      setUiLanguagePreference(previous);
+      setDesktopMessage(localizedError(reason, t, "errors.desktop.language"));
       setDesktopSaveState("error");
     }
   };
   const outputDevices = devices.filter((device) => device.is_loopback);
   const microphoneDevices = devices.filter((device) => !device.is_loopback);
-  const deviceErrors = devicesReady ? audioSelectionErrors(draft, devices) : [];
-  const asrError = asrSelectionError(draft, asrCapabilities);
+  const deviceErrors = devicesReady
+    ? audioSelectionErrors(draft, devices, (key) => t(key))
+    : [];
+  const asrError = asrSelectionError(draft, asrCapabilities, (key) => t(key));
   const validationError = deviceErrors[0] ?? asrError;
   const computeTypes = validComputeTypes(asrCapabilities, draft.asr.device);
   const selectedModelCapability = asrCapabilities?.models.find(
@@ -1200,14 +1355,14 @@ function SettingsPanel({ settings, devices, devicesReady, dictionaries, disabled
     ? modelStatus
     : selectedModelCapability?.status;
   const modelStatusLabel = selectedModelStatus === "not_downloaded"
-    ? "请先在模型管理器中下载"
+    ? t("settings.recognition.modelStatus.notDownloaded")
     : selectedModelStatus === "loading"
-      ? "正在下载或加载模型"
+      ? t("settings.recognition.modelStatus.loading")
       : selectedModelStatus === "error"
-        ? "模型加载失败"
+        ? t("settings.recognition.modelStatus.error")
         : selectedModelStatus
-          ? "模型文件已就绪"
-          : "正在检查模型文件";
+          ? t("settings.recognition.modelStatus.ready")
+          : t("settings.recognition.modelStatus.checking");
   const installedModels = managedModels.filter((model) =>
     ["downloaded", "loading", "ready"].includes(model.status),
   );
@@ -1237,58 +1392,58 @@ function SettingsPanel({ settings, devices, devicesReady, dictionaries, disabled
     draft.anki.back_field,
   );
   const settingsCategories: Array<{ id: SettingsCategory; label: string; icon: React.ReactNode }> = [
-    { id: "system", label: "常规", icon: <SlidersHorizontal size={18} /> },
-    { id: "audio", label: "音频", icon: <Volume2 size={18} /> },
-    { id: "recognition", label: "识别", icon: <Languages size={18} /> },
-    { id: "dictionary", label: "词典", icon: <BookOpen size={18} /> },
+    { id: "system", label: t("settings.categories.system"), icon: <SlidersHorizontal size={18} /> },
+    { id: "audio", label: t("settings.categories.audio"), icon: <Volume2 size={18} /> },
+    { id: "recognition", label: t("settings.categories.recognition"), icon: <Languages size={18} /> },
+    { id: "dictionary", label: t("settings.categories.dictionary"), icon: <BookOpen size={18} /> },
     { id: "anki", label: "Anki", icon: <PlusCircle size={18} /> },
     { id: "debug", label: "Debug", icon: <Wrench size={18} /> },
   ];
   const debugRows = [
-    { label: "配置 Schema", value: `v${draft.schema_version}` },
-    { label: "Core 地址", value: `${draft.server.host}:${draft.server.port}` },
-    { label: "数据库路径", value: draft.storage.database_path },
-    { label: "模型保存位置", value: draft.storage.model_directory },
-    { label: "采样率", value: `${draft.audio.sample_rate.toLocaleString("zh-CN")} Hz` },
-    { label: "静音断句", value: `${draft.vad.silence_seconds.toFixed(1)} 秒` },
-    { label: "最长片段", value: `${draft.vad.max_speech_seconds} 秒` },
-    { label: "字幕保留上限", value: `${draft.storage.subtitle_history_limit.toLocaleString("zh-CN")} 条` },
-    { label: "识别模型状态", value: modelStatus },
-    { label: "CUDA 预检", value: asrCapabilities?.cuda.available ? `${asrCapabilities.cuda.device_count} 个可用设备` : "不可用" },
-    { label: "转写状态", value: disabled ? "正在转写" : "已停止" },
-    { label: "音频设备", value: `${outputDevices.length} 个系统输出，${microphoneDevices.length} 个麦克风输入` },
-    { label: "词典数量", value: dictionaries.length ? `${dictionaries.length} 部` : "尚未导入" },
+    { label: t("settings.debug.schema"), value: `v${draft.schema_version}` },
+    { label: t("settings.debug.coreAddress"), value: `${draft.server.host}:${draft.server.port}` },
+    { label: t("settings.debug.databasePath"), value: draft.storage.database_path },
+    { label: t("settings.debug.modelDirectory"), value: draft.storage.model_directory },
+    { label: t("settings.debug.sampleRate"), value: `${new Intl.NumberFormat(locale).format(draft.audio.sample_rate)} Hz` },
+    { label: t("settings.debug.silence"), value: t("units.seconds", { value: draft.vad.silence_seconds.toFixed(1) }) },
+    { label: t("settings.debug.maxSegment"), value: t("units.seconds", { value: draft.vad.max_speech_seconds }) },
+    { label: t("settings.debug.historyLimit"), value: t("settings.debug.subtitleLimitValue", { count: draft.storage.subtitle_history_limit, formatted: new Intl.NumberFormat(locale).format(draft.storage.subtitle_history_limit) }) },
+    { label: t("settings.debug.modelStatus"), value: modelStatus },
+    { label: t("settings.debug.cuda"), value: asrCapabilities?.cuda.available ? t("settings.debug.availableDevices", { count: asrCapabilities.cuda.device_count }) : t("common.unavailable") },
+    { label: t("settings.debug.transcription"), value: disabled ? t("status.transcribing") : t("status.stopped") },
+    { label: t("settings.debug.audioDevices"), value: t("settings.debug.audioDeviceCounts", { outputs: outputDevices.length, microphones: microphoneDevices.length }) },
+    { label: t("settings.debug.dictionaries"), value: dictionaries.length ? t("settings.dictionary.count", { count: dictionaries.length }) : t("settings.dictionary.noneImported") },
   ];
   const settingsActionText = activeCategory === "dictionary"
-    ? "词典导入和移除会立即生效"
+    ? t("settings.action.dictionaryImmediate")
     : activeCategory === "anki"
       ? ankiPortError
         || (saveState === "saving"
-          ? "正在保存 Anki 设置…"
+          ? t("settings.action.savingAnki")
           : saveState === "error"
-            ? saveMessage || "Anki 设置保存失败"
-            : ankiMessage || "Anki 设置保存后会自动重新检测连接")
+            ? saveMessage || t("settings.action.ankiSaveFailed")
+            : ankiMessage || t("settings.action.ankiAutoCheck"))
     : activeCategory === "system"
       ? !desktopPreferencesReady
-        ? "正在读取 Windows 启动与托盘设置…"
+        ? t("settings.action.readingDesktop")
         : desktopSaveState === "saving"
-          ? "正在保存系统设置…"
+          ? t("settings.action.savingDesktop")
           : desktopSaveState === "saved"
-            ? "系统设置已保存"
+            ? t("settings.action.desktopSaved")
             : desktopSaveState === "error"
-              ? desktopMessage || "系统设置保存失败，请稍后重试"
-              : "这些设置只影响桌面应用，不会自动开始转写"
+              ? desktopMessage || t("settings.action.desktopSaveFailed")
+              : t("settings.action.desktopHint")
     : activeCategory === "debug"
-      ? "Debug 信息用于排查本地服务、配置与采集状态"
+      ? t("settings.action.debugHint")
       : validationError
           ? validationError
           : saveState === "saving"
-        ? "正在应用设置…"
+        ? t("settings.action.applying")
         : saveState === "saved"
-          ? "设置已应用"
+          ? t("settings.action.applied")
           : saveState === "error"
-            ? saveMessage || "应用失败，原设置仍然有效"
-            : "修改后立即校验并应用";
+            ? saveMessage || t("settings.action.applyFailed")
+            : t("settings.action.immediate");
   const visibleSaveState = activeCategory === "system"
     ? desktopSaveState
     : activeCategory === "anki" && (ankiPortError || (ankiStatus && !ankiStatus.configuration_valid))
@@ -1297,57 +1452,61 @@ function SettingsPanel({ settings, devices, devicesReady, dictionaries, disabled
   const chooseDictionary = async (file?: File) => {
     if (!file) return;
     setDictionaryBusy(true);
-    setDictionaryMessage(`正在导入 ${file.name}…`);
+    setDictionaryMessage(t("settings.dictionary.importing", { file: file.name }));
     try {
       const imported = await onImportDictionary(file);
-      setDictionaryMessage(`已导入 ${imported.title}，共 ${imported.entry_count.toLocaleString("zh-CN")} 条词条`);
+      setDictionaryMessage(t("settings.dictionary.imported", {
+        title: imported.title,
+        count: imported.entry_count,
+        formatted: new Intl.NumberFormat(locale).format(imported.entry_count),
+      }));
     } catch (reason) {
-      setDictionaryMessage(reason instanceof Error ? reason.message : "词典导入失败");
+      setDictionaryMessage(localizedError(reason, t, "errors.dictionary.import"));
     } finally {
       setDictionaryBusy(false);
       if (dictionaryFileRef.current) dictionaryFileRef.current.value = "";
     }
   };
   const removeDictionary = async (dictionary: DictionarySource) => {
-    if (!window.confirm(`确定移除词典“${dictionary.title}”吗？`)) return;
+    if (!window.confirm(t("settings.dictionary.confirmRemove", { title: dictionary.title }))) return;
     setDictionaryBusy(true);
     try {
       await onDeleteDictionary(dictionary.id);
-      setDictionaryMessage(`已移除 ${dictionary.title}`);
+      setDictionaryMessage(t("settings.dictionary.removed", { title: dictionary.title }));
     } catch (reason) {
-      setDictionaryMessage(reason instanceof Error ? reason.message : "词典移除失败");
+      setDictionaryMessage(localizedError(reason, t, "errors.dictionary.remove"));
     } finally {
       setDictionaryBusy(false);
     }
   };
   const downloadModel = async (model: AsrModelRecord) => {
-    setModelMessage(`正在准备下载 ${MODEL_PRESENTATION[model.id].name}…`);
+    setModelMessage(t("settings.recognition.preparingDownload", { name: MODEL_PRESENTATION[model.id].name }));
     try {
       await coreApi.downloadAsrModel(model.id);
-      setModelMessage(`${MODEL_PRESENTATION[model.id].name} 已加入下载队列`);
+      setModelMessage(t("settings.recognition.downloadQueued", { name: MODEL_PRESENTATION[model.id].name }));
       await loadModels();
     } catch (reason) {
-      setModelMessage(reason instanceof Error ? reason.message : "模型下载启动失败");
+      setModelMessage(localizedError(reason, t, "errors.asr.download"));
     }
   };
   const removeModel = async (model: AsrModelRecord) => {
     const name = MODEL_PRESENTATION[model.id].name;
-    if (!window.confirm(`确定删除 ${name} 模型吗？以后仍可重新下载。`)) return;
-    setModelMessage(`正在删除 ${name}…`);
+    if (!window.confirm(t("settings.recognition.confirmDelete", { name }))) return;
+    setModelMessage(t("settings.recognition.deleting", { name }));
     try {
       await coreApi.deleteAsrModel(model.id);
       await loadModels();
       await onModelsChanged();
-      setModelMessage(`${name} 已从本机删除`);
+      setModelMessage(t("settings.recognition.deleted", { name }));
     } catch (reason) {
-      setModelMessage(reason instanceof Error ? reason.message : "模型删除失败");
+      setModelMessage(localizedError(reason, t, "errors.asr.delete"));
     }
   };
 
   return (
     <section className="settings-surface">
       <div className="settings-tabbar-wrap">
-        <div className="settings-tabbar" role="tablist" aria-label="设置分类">
+        <div className="settings-tabbar" role="tablist" aria-label={t("settings.categories.label")}>
           {settingsCategories.map((category) => {
             const active = activeCategory === category.id;
             return (
@@ -1373,20 +1532,38 @@ function SettingsPanel({ settings, devices, devicesReady, dictionaries, disabled
       {activeCategory === "system" && (
         <div className="settings-section settings-section-active system-section" id="settings-panel-system" role="tabpanel" aria-labelledby="settings-tab-system">
           <div className="section-heading">
-            <div><SlidersHorizontal size={18} /><h2>常规</h2><span>Windows 应用行为</span></div>
-            <p>修改后立即保存</p>
+            <div><SlidersHorizontal size={18} /><h2>{t("settings.system.title")}</h2><span>{t("settings.system.subtitle")}</span></div>
+            <p>{t("settings.system.saveImmediately")}</p>
+          </div>
+          <div className="system-language-setting">
+            <div>
+              <strong>{t("settings.system.language")}</strong>
+              <small>{t("settings.system.languageDescription")}</small>
+            </div>
+            <Select
+              label={t("settings.system.language")}
+              value={uiLanguagePreference}
+              options={[
+                { value: "system", label: t("settings.system.followSystem") },
+                { value: "zh-CN", label: "简体中文" },
+                { value: "ja-JP", label: "日本語" },
+                { value: "en-US", label: "English" },
+              ]}
+              disabled={desktopSaveState === "saving"}
+              onChange={(value) => void updateUiLanguage(value as UiLanguagePreference)}
+            />
           </div>
           <div className="settings-toggle-list">
             <PreferenceToggle
-              title="开机时启动 VRCS"
-              description="登录 Windows 后自动启动应用，但不会自动开始转写。"
+              title={t("settings.system.launchAtStartup")}
+              description={t("settings.system.launchAtStartupDescription")}
               checked={desktopPreferences.launchAtStartup}
               disabled={!desktopPreferencesReady || desktopSaveState === "saving"}
               onChange={(enabled) => void updateDesktop("launchAtStartup", enabled)}
             />
             <PreferenceToggle
-              title="关闭时最小化到系统托盘"
-              description="点击关闭按钮时隐藏主窗口，转写和 Core 服务会继续运行。"
+              title={t("settings.system.minimizeToTray")}
+              description={t("settings.system.minimizeToTrayDescription")}
               checked={desktopPreferences.minimizeToTray}
               disabled={!desktopPreferencesReady || desktopSaveState === "saving"}
               onChange={(enabled) => void updateDesktop("minimizeToTray", enabled)}
@@ -1398,21 +1575,21 @@ function SettingsPanel({ settings, devices, devicesReady, dictionaries, disabled
       {activeCategory === "recognition" && (
         <div className="settings-section settings-section-active recognition-section" id="settings-panel-recognition" role="tabpanel" aria-labelledby="settings-tab-recognition">
           <div className="section-heading">
-            <div><Languages size={18} /><h2>识别引擎</h2><span className="status-chip">状态：{modelStatus}</span></div>
-            <p>{disabled ? "停止转写后可修改" : "修改后立即应用"}</p>
+            <div><Languages size={18} /><h2>{t("settings.recognition.title")}</h2><span className="status-chip">{t("settings.recognition.status", { status: modelStatus })}</span></div>
+            <p>{disabled ? t("settings.recognition.stopToModify") : t("settings.recognition.applyImmediately")}</p>
           </div>
           <div className={`recognition-runtime ${asrCapabilities?.cuda.available ? "available" : "unavailable"}`}>
             <span className="recognition-runtime-dot" aria-hidden="true" />
             <div>
-              <strong>运行环境</strong>
+              <strong>{t("settings.recognition.runtime")}</strong>
               <span>
                 {asrCapabilities === null
-                  ? "正在检测运行环境…"
+                  ? t("settings.recognition.runtimeChecking")
                   : asrCapabilities.cuda.available
-                    ? `已发现 ${asrCapabilities.cuda.device_count} 个 CUDA 设备，可选择 GPU 加速`
+                    ? t("settings.recognition.cudaAvailable", { count: asrCapabilities.cuda.device_count })
                     : asrCapabilities.cuda.device_count > 0
-                      ? "已检测到 NVIDIA GPU，但 CUDA 12 运行库不可用"
-                      : "未发现可用 CUDA，已过滤 GPU 专用组合"}
+                      ? t("settings.recognition.cudaRuntimeMissing")
+                      : t("settings.recognition.cudaUnavailable")}
               </span>
             </div>
           </div>
@@ -1420,55 +1597,71 @@ function SettingsPanel({ settings, devices, devicesReady, dictionaries, disabled
             <div className="recognition-config-row">
               <div className="recognition-config-title">
                 <Languages size={17} />
-                <span><strong>识别内容</strong><small>选择模型大小与输入语言</small></span>
+                <span><strong>{t("settings.recognition.content")}</strong><small>{t("settings.recognition.contentDescription")}</small></span>
               </div>
               <div className="recognition-config-fields">
                 <Select
-                  label="模型"
+                  label={t("settings.recognition.model")}
                   helper={modelStatusLabel}
                   value={draft.asr.model}
                   options={selectableModels.map((model) => ({
                     value: model.id,
                     label: `${model.id} · ${
                       model.status === "not_downloaded"
-                        ? "未下载"
+                        ? t("settings.recognition.modelState.notDownloaded")
                         : model.status === "loading"
-                          ? "加载中"
+                          ? t("settings.recognition.modelState.loading")
                           : model.status === "error"
-                            ? "错误"
-                            : "已就绪"
+                            ? t("settings.recognition.modelState.error")
+                            : t("settings.recognition.modelState.ready")
                     }`,
                   }))}
                   disabled={disabled}
                   onChange={(value) => updateAsr("model", value as Settings["asr"]["model"])}
                 />
-                <Select label="语言" helper="保留原语言转写，不翻译" value={draft.asr.language} values={["auto", "en", "ja", "zh", "ko", "es", "fr", "de"]} disabled={disabled} onChange={(value) => updateAsr("language", value as Settings["asr"]["language"])} />
+                <Select
+                  label={t("settings.recognition.language")}
+                  helper={t("settings.recognition.languageDescription")}
+                  value={draft.asr.language}
+                  options={[
+                    { value: "auto", label: t("languages.auto") },
+                    { value: "en", label: t("languages.english") },
+                    { value: "ja", label: t("languages.japanese") },
+                    { value: "zh", label: t("languages.chinese") },
+                    { value: "ko", label: t("languages.korean") },
+                    { value: "es", label: t("languages.spanish") },
+                    { value: "fr", label: t("languages.french") },
+                    { value: "de", label: t("languages.german") },
+                  ]}
+                  disabled={disabled}
+                  onChange={(value) => updateAsr("language", value as Settings["asr"]["language"])}
+                />
               </div>
             </div>
             <div className="recognition-config-row">
               <div className="recognition-config-title">
                 <HardDrive size={17} />
-                <span><strong>运行方式</strong><small>按硬件能力过滤有效组合</small></span>
+                <span><strong>{t("settings.recognition.execution")}</strong><small>{t("settings.recognition.executionDescription")}</small></span>
               </div>
               <div className="recognition-config-fields">
                 <Select
-                  label="运行设备"
-                  helper={asrError ?? "只显示通过预检的设备"}
+                  label={t("settings.recognition.device")}
+                  helper={asrError ?? t("settings.recognition.deviceDescription")}
                   value={draft.asr.device}
                   options={[
-                    { value: "auto", label: "自动选择" },
+                    { value: "auto", label: t("common.autoSelect") },
                     { value: "cpu", label: "CPU" },
                     ...(asrCapabilities?.cuda.available ? [{ value: "cuda", label: "CUDA" }] : []),
                     ...(draft.asr.device === "cuda" && !asrCapabilities?.cuda.available
-                      ? [{ value: "cuda", label: "CUDA · 不可用" }]
+                      ? [{ value: "cuda", label: `CUDA · ${t("common.unavailable")}` }]
                       : []),
                   ]}
                   disabled={disabled}
                   onChange={(value) => updateAsr("device", value as Settings["asr"]["device"])}
                 />
                 <Select
-                  label="计算类型"
-                  helper="根据运行设备过滤"
+                  label={t("settings.recognition.computeType")}
+                  helper={t("settings.recognition.computeTypeDescription")}
                   value={draft.asr.compute_type}
                   values={computeTypes}
                   disabled={disabled}
@@ -1479,29 +1672,29 @@ function SettingsPanel({ settings, devices, devicesReady, dictionaries, disabled
             <div className="recognition-config-row">
               <div className="recognition-config-title">
                 <Clock3 size={17} />
-                <span><strong>断句速度</strong><small>控制停顿提交和连续语音切分</small></span>
+                <span><strong>{t("settings.recognition.segmentation")}</strong><small>{t("settings.recognition.segmentationDescription")}</small></span>
               </div>
               <div className="recognition-config-fields">
                 <RangeField
-                  label="静音断句"
-                  helper="越短响应越快，也更容易拆成短句"
+                  label={t("settings.recognition.silence")}
+                  helper={t("settings.recognition.silenceDescription")}
                   value={draft.vad.silence_seconds}
                   min={0.1}
                   max={2}
                   step={0.1}
                   disabled={disabled}
-                  formatValue={(value) => `${value.toFixed(1)} 秒`}
+                  formatValue={(value) => t("units.seconds", { value: value.toFixed(1) })}
                   onCommit={(value) => updateVad("silence_seconds", value)}
                 />
                 <RangeField
-                  label="最长片段"
-                  helper="连续讲话达到该时长时强制提交"
+                  label={t("settings.recognition.maxSegment")}
+                  helper={t("settings.recognition.maxSegmentDescription")}
                   value={draft.vad.max_speech_seconds}
                   min={1}
                   max={30}
                   step={1}
                   disabled={disabled}
-                  formatValue={(value) => `${value} 秒`}
+                  formatValue={(value) => t("units.seconds", { value })}
                   onCommit={(value) => updateVad("max_speech_seconds", value)}
                 />
               </div>
@@ -1511,22 +1704,22 @@ function SettingsPanel({ settings, devices, devicesReady, dictionaries, disabled
           <div className="section-heading">
             <div>
               <HardDrive size={18} />
-              <h2 id="local-models-heading">本地模型</h2>
+              <h2 id="local-models-heading">{t("settings.recognition.localModels")}</h2>
               <span>
                 {downloadingModels.length
-                  ? `${downloadingModels.length} 个下载中`
+                  ? t("settings.recognition.downloadingCount", { count: downloadingModels.length })
                   : modelsReady
-                    ? `已安装 ${installedModels.length} 个`
-                    : "正在读取"}
+                    ? t("settings.recognition.installedCount", { count: installedModels.length })
+                    : t("common.loading")}
               </span>
             </div>
-            <button className="secondary-button" type="button" disabled={!modelsReady} onClick={() => void loadModels()}><RefreshCw size={15} />刷新</button>
+            <button className="secondary-button" type="button" disabled={!modelsReady} onClick={() => void loadModels()}><RefreshCw size={15} />{t("common.refresh")}</button>
           </div>
 
           <div className="model-directory-setting">
             <label htmlFor="model-directory">
-              <span>模型保存位置</span>
-              <small>更改后自动移动已下载模型；相对路径以应用配置目录为基准</small>
+              <span>{t("settings.recognition.modelDirectory")}</span>
+              <small>{t("settings.recognition.modelDirectoryDescription")}</small>
             </label>
             <div>
               <input
@@ -1548,11 +1741,11 @@ function SettingsPanel({ settings, devices, devicesReady, dictionaries, disabled
                 className="secondary-button"
                 type="button"
                 disabled={!NATIVE_APP || disabled || downloadingModels.length > 0 || saveState === "saving"}
-                title={NATIVE_APP ? "选择文件夹" : "浏览器预览中请直接输入路径"}
+                title={NATIVE_APP ? t("settings.recognition.chooseFolder") : t("settings.recognition.browserPathHint")}
                 onClick={() => void chooseModelDirectory()}
               >
                 <FolderOpen size={16} />
-                选择文件夹
+                {t("settings.recognition.chooseFolder")}
               </button>
             </div>
           </div>
@@ -1560,7 +1753,7 @@ function SettingsPanel({ settings, devices, devicesReady, dictionaries, disabled
           {!modelsReady && managedModels.length === 0 ? (
             <div className="model-list-pending" role="status">
               <RefreshCw size={17} />
-              <span>正在检查本地模型文件…</span>
+              <span>{t("settings.recognition.checkingLocalModels")}</span>
             </div>
           ) : (
             <div className="model-list">
@@ -1570,24 +1763,24 @@ function SettingsPanel({ settings, devices, devicesReady, dictionaries, disabled
                 const downloading = model.status === "downloading";
                 const percentage = Math.round(model.progress * 100);
                 const sizeLabel = downloading
-                  ? `${formatBytes(model.downloaded_bytes)} / ${formatBytes(model.total_bytes)}`
-                  : formatBytes(model.total_bytes);
+                  ? `${formatBytes(model.downloaded_bytes, locale)} / ${formatBytes(model.total_bytes, locale)}`
+                  : formatBytes(model.total_bytes, locale);
                 return (
                   <article className={`model-row model-status-${model.status}`} key={model.id}>
                     <div className="model-row-body">
                       <div className="model-row-title">
                         <strong>{presentation.name}</strong>
-                        {model.active && <span className="model-active-chip">使用中</span>}
+                        {model.active && <span className="model-active-chip">{t("settings.recognition.inUse")}</span>}
                         <span className="model-size">{sizeLabel}</span>
                       </div>
-                      <p>{presentation.description}</p>
+                      <p>{t(presentation.descriptionKey)}</p>
                       <code>{model.repository}</code>
                       {downloading && (
                         <div className="model-progress-wrap">
                           <div
                             className="model-progress-track"
                             role="progressbar"
-                            aria-label={`${presentation.name} 下载进度`}
+                            aria-label={t("settings.recognition.downloadProgress", { name: presentation.name })}
                             aria-valuemin={0}
                             aria-valuemax={100}
                             aria-valuenow={percentage}
@@ -1603,15 +1796,15 @@ function SettingsPanel({ settings, devices, devicesReady, dictionaries, disabled
                     </div>
                     <div className="model-row-action">
                       {downloading ? (
-                        <span className="model-download-state"><RefreshCw size={15} />下载中</span>
+                        <span className="model-download-state"><RefreshCw size={15} />{t("common.downloading")}</span>
                       ) : downloaded ? (
                         model.active ? (
-                          <span className="model-ready-state"><Check size={15} />已就绪</span>
+                          <span className="model-ready-state"><Check size={15} />{t("common.ready")}</span>
                         ) : (
-                          <button className="model-delete-button" type="button" aria-label={`删除 ${presentation.name}`} onClick={() => void removeModel(model)}><Trash2 size={16} /><span>删除</span></button>
+                          <button className="model-delete-button" type="button" aria-label={t("settings.recognition.deleteModel", { name: presentation.name })} onClick={() => void removeModel(model)}><Trash2 size={16} /><span>{t("common.delete")}</span></button>
                         )
                       ) : (
-                        <button className="model-download-button" type="button" onClick={() => void downloadModel(model)}><Download size={16} />{model.status === "error" ? "重试" : "下载"}</button>
+                        <button className="model-download-button" type="button" onClick={() => void downloadModel(model)}><Download size={16} />{model.status === "error" ? t("common.retry") : t("common.download")}</button>
                       )}
                     </div>
                   </article>
@@ -1627,8 +1820,8 @@ function SettingsPanel({ settings, devices, devicesReady, dictionaries, disabled
       {activeCategory === "audio" && (
         <div className="settings-section settings-section-active audio-section" id="settings-panel-audio" role="tabpanel" aria-labelledby="settings-tab-audio">
           <div className="section-heading">
-            <div><h2>音频来源</h2><span>{devices.length ? `已发现 ${devices.length} 个设备` : "等待扫描"}</span></div>
-            <button className="secondary-button" type="button" onClick={() => void onRefresh()}><RefreshCw size={15} />重新扫描</button>
+            <div><h2>{t("settings.audio.title")}</h2><span>{devices.length ? t("settings.audio.devicesFound", { count: devices.length }) : t("settings.audio.waitingScan")}</span></div>
+            <button className="secondary-button" type="button" onClick={() => void onRefresh()}><RefreshCw size={15} />{t("settings.audio.rescan")}</button>
           </div>
 
           {deviceErrors.map((message) => (
@@ -1638,16 +1831,16 @@ function SettingsPanel({ settings, devices, devicesReady, dictionaries, disabled
           ))}
           <DeviceGroup
             icon={<Volume2 size={18} />}
-            title="对方声音"
-            note="选择完整系统输出、仅 VRChat，或指定输出设备"
+            title={t("settings.audio.otherVoice")}
+            note={t("settings.audio.otherVoiceDescription")}
             devices={outputDevices}
             devicesReady={devicesReady}
             selectedDeviceId={draft.audio.output.mode === "system" ? draft.audio.output.device_id : null}
             specialRows={[
               {
                 key: "system",
-                name: "系统输出",
-                description: "采集 Windows 默认输出设备的全部声音",
+                name: t("settings.audio.systemOutput"),
+                description: t("settings.audio.systemOutputDescription"),
                 chosen: draft.audio.output.mode === "system" && draft.audio.output.device_id === null,
                 onSelect: () => applySettings((current) => ({
                   ...current,
@@ -1657,7 +1850,7 @@ function SettingsPanel({ settings, devices, devicesReady, dictionaries, disabled
               {
                 key: "vrchat",
                 name: "VRChat",
-                description: "仅采集 VRChat.exe，排除浏览器和系统提示音",
+                description: t("settings.audio.vrchatDescription"),
                 chosen: draft.audio.output.mode === "vrchat",
                 onSelect: () => applySettings((current) => ({
                   ...current,
@@ -1673,16 +1866,16 @@ function SettingsPanel({ settings, devices, devicesReady, dictionaries, disabled
           />
           <DeviceGroup
             icon={<Mic size={18} />}
-            title="自己的声音"
-            note="默认麦克风会跟随 Windows，关闭后仅转写对方声音"
+            title={t("settings.audio.ownVoice")}
+            note={t("settings.audio.ownVoiceDescription")}
             devices={microphoneDevices}
             devicesReady={devicesReady}
             selectedDeviceId={draft.audio.microphone.mode === "device" ? draft.audio.microphone.device_id : null}
             specialRows={[
               {
                 key: "default",
-                name: "默认麦克风",
-                description: "跟随 Windows 默认输入设备",
+                name: t("settings.audio.defaultMicrophone"),
+                description: t("settings.audio.defaultMicrophoneDescription"),
                 chosen: draft.audio.microphone.mode === "default",
                 onSelect: () => applySettings((current) => ({
                   ...current,
@@ -1691,8 +1884,8 @@ function SettingsPanel({ settings, devices, devicesReady, dictionaries, disabled
               },
               {
                 key: "disabled",
-                name: "关闭麦克风",
-                description: "不采集自己的声音",
+                name: t("settings.audio.disableMicrophone"),
+                description: t("settings.audio.disableMicrophoneDescription"),
                 chosen: draft.audio.microphone.mode === "disabled",
                 onSelect: () => applySettings((current) => ({
                   ...current,
@@ -1712,8 +1905,8 @@ function SettingsPanel({ settings, devices, devicesReady, dictionaries, disabled
       {activeCategory === "dictionary" && (
         <div className="settings-section settings-section-active dictionary-section" id="settings-panel-dictionary" role="tabpanel" aria-labelledby="settings-tab-dictionary">
           <div className="section-heading">
-            <div><BookOpen size={18} /><h2>Yomitan 词典</h2><span>{dictionaries.length ? `已导入 ${dictionaries.length} 部` : "尚未导入"}</span></div>
-            <button className="secondary-button" type="button" disabled={dictionaryBusy} onClick={() => dictionaryFileRef.current?.click()}><Upload size={15} />导入词典</button>
+            <div><BookOpen size={18} /><h2>{t("settings.dictionary.title")}</h2><span>{dictionaries.length ? t("settings.dictionary.importedCount", { count: dictionaries.length }) : t("settings.dictionary.noneImported")}</span></div>
+            <button className="secondary-button" type="button" disabled={dictionaryBusy} onClick={() => dictionaryFileRef.current?.click()}><Upload size={15} />{t("settings.dictionary.import")}</button>
             <input
               ref={dictionaryFileRef}
               className="dictionary-file-input"
@@ -1729,13 +1922,13 @@ function SettingsPanel({ settings, devices, devicesReady, dictionaries, disabled
                   <div className="dictionary-source-icon"><BookOpen size={17} /></div>
                   <div>
                     <strong>{dictionary.title}</strong>
-                    <span>{dictionary.source_language.toUpperCase()}{dictionary.target_language ? ` → ${dictionary.target_language.toUpperCase()}` : ""} · {dictionary.entry_count.toLocaleString("zh-CN")} 条 · {dictionary.revision}</span>
+                    <span>{dictionary.source_language.toUpperCase()}{dictionary.target_language ? ` → ${dictionary.target_language.toUpperCase()}` : ""} · {t("settings.dictionary.entryCount", { count: dictionary.entry_count, formatted: new Intl.NumberFormat(locale).format(dictionary.entry_count) })} · {dictionary.revision}</span>
                   </div>
-                  <button type="button" disabled={dictionaryBusy} aria-label={`移除 ${dictionary.title}`} title="移除词典" onClick={() => void removeDictionary(dictionary)}><Trash2 size={16} /></button>
+                  <button type="button" disabled={dictionaryBusy} aria-label={t("settings.dictionary.removeNamed", { title: dictionary.title })} title={t("settings.dictionary.remove")} onClick={() => void removeDictionary(dictionary)}><Trash2 size={16} /></button>
                 </div>
               ))}
             </div>
-          ) : <p className="dictionary-empty">导入 Yomitan ZIP 词典后，划词查询会优先显示其中的释义。</p>}
+          ) : <p className="dictionary-empty">{t("settings.dictionary.emptyHint")}</p>}
           {dictionaryMessage && <p className="dictionary-feedback" role="status">{dictionaryMessage}</p>}
         </div>
       )}
@@ -1745,12 +1938,12 @@ function SettingsPanel({ settings, devices, devicesReady, dictionaries, disabled
           <div className="section-heading">
             <div>
               <PlusCircle size={18} />
-              <h2>Anki 制卡</h2>
-              <span>本地 AnkiConnect</span>
+              <h2>{t("settings.anki.title")}</h2>
+              <span>{t("settings.anki.subtitle")}</span>
             </div>
             <button className="secondary-button" type="button" disabled={ankiBusy} onClick={() => void loadAnkiStatus()}>
               <RefreshCw className={ankiBusy ? "spin" : ""} size={15} />
-              {ankiBusy ? "检测中" : "重新检测"}
+              {ankiBusy ? t("common.checking") : t("common.checkAgain")}
             </button>
           </div>
 
@@ -1759,14 +1952,14 @@ function SettingsPanel({ settings, devices, devicesReady, dictionaries, disabled
             <div>
               <strong>
                 {ankiBusy
-                  ? "正在检测 AnkiConnect"
+                  ? t("settings.anki.checking")
                   : ankiStatus?.connected
                     ? ankiStatus.configuration_valid
-                      ? "可以制卡"
-                      : "已连接，需要完成配置"
-                    : "AnkiConnect 未连接"}
+                      ? t("settings.anki.ready")
+                      : t("settings.anki.needsSetup")
+                    : t("settings.anki.offline")}
               </strong>
-              <p>{ankiMessage || ankiStatus?.message || "启动 Anki 后重新检测连接"}</p>
+              <p>{ankiMessage || t("settings.anki.startHint")}</p>
             </div>
             <code>
               {ankiStatus?.version ? `API v${ankiStatus.version}` : `127.0.0.1:${draft.anki.port}`}
@@ -1775,12 +1968,12 @@ function SettingsPanel({ settings, devices, devicesReady, dictionaries, disabled
 
           <div className="anki-endpoint-row">
             <div>
-              <span>连接地址</span>
+              <span>{t("settings.anki.address")}</span>
               <strong>127.0.0.1</strong>
-              <small>仅允许访问本机，避免把制卡内容发送到远程服务</small>
+              <small>{t("settings.anki.addressDescription")}</small>
             </div>
             <label className="anki-port-field">
-              <span>端口</span>
+              <span>{t("settings.anki.port")}</span>
               <input
                 type="text"
                 inputMode="numeric"
@@ -1800,37 +1993,37 @@ function SettingsPanel({ settings, devices, devicesReady, dictionaries, disabled
             </label>
           </div>
           <p id="anki-port-help" className={`anki-port-help ${ankiPortError ? "error" : ""}`}>
-            {ankiPortError || "AnkiConnect 默认使用 8765，一般无需修改。仅在插件配置了其他端口时调整。"}
+            {ankiPortError || t("settings.anki.portHint")}
           </p>
 
           <div className="form-grid anki-mapping-grid">
             <DeckTreeSelect
-              label="牌组"
-              helper={ankiStatus?.connected ? "新笔记会保存到此牌组" : "连接后读取可用牌组"}
+              label={t("settings.anki.deck")}
+              helper={ankiStatus?.connected ? t("settings.anki.deckDescription") : t("settings.anki.deckOffline")}
               value={draft.anki.deck}
               decks={ankiDeckNames}
               disabled={!ankiStatus?.connected || ankiBusy || saveState === "saving"}
               onChange={(value) => updateAnki("deck", value)}
             />
             <Select
-              label="笔记类型"
-              helper={ankiStatus?.connected ? "选择 Anki 中已有的笔记类型" : "连接后读取笔记类型"}
+              label={t("settings.anki.noteType")}
+              helper={ankiStatus?.connected ? t("settings.anki.noteTypeDescription") : t("settings.anki.noteTypeOffline")}
               value={draft.anki.model}
               options={ankiModelOptions}
               disabled={!ankiStatus?.connected || ankiBusy || saveState === "saving"}
               onChange={(value) => updateAnki("model", value)}
             />
             <Select
-              label="正面字段"
-              helper="写入词条和读音"
+              label={t("settings.anki.frontField")}
+              helper={t("settings.anki.frontFieldDescription")}
               value={draft.anki.front_field}
               options={ankiFieldOptions}
               disabled={!ankiStatus?.connected || !ankiStatus.fields.length || ankiBusy || saveState === "saving"}
               onChange={(value) => updateAnki("front_field", value)}
             />
             <Select
-              label="背面字段"
-              helper="写入释义、语境和词典来源"
+              label={t("settings.anki.backField")}
+              helper={t("settings.anki.backFieldDescription")}
               value={draft.anki.back_field}
               options={ankiBackFieldOptions}
               disabled={!ankiStatus?.connected || !ankiStatus.fields.length || ankiBusy || saveState === "saving"}
@@ -1843,8 +2036,8 @@ function SettingsPanel({ settings, devices, devicesReady, dictionaries, disabled
       {activeCategory === "debug" && (
         <div className="settings-section settings-section-active debug-section" id="settings-panel-debug" role="tabpanel" aria-labelledby="settings-tab-debug">
           <div className="section-heading">
-            <div><Wrench size={18} /><h2>Debug</h2><span>运行信息与诊断</span></div>
-            <p>只读，不会修改配置</p>
+            <div><Wrench size={18} /><h2>Debug</h2><span>{t("settings.debug.subtitle")}</span></div>
+            <p>{t("settings.debug.readOnly")}</p>
           </div>
           <div className="debug-list">
             {debugRows.map((row) => (
@@ -1927,6 +2120,7 @@ function RangeField({ label, helper, value, min, max, step, disabled, formatValu
   formatValue: (value: number) => string;
   onCommit: (value: number) => void;
 }) {
+  const { t } = useTranslation();
   const [draftValue, setDraftValue] = useState(value);
   const draftValueRef = useRef(value);
   const committedValueRef = useRef(value);
@@ -1949,7 +2143,7 @@ function RangeField({ label, helper, value, min, max, step, disabled, formatValu
     <label className={`range-field ${disabled ? "disabled" : ""}`}>
       <span className="range-field-header">
         <span>{label}</span>
-        <output aria-label={`${label}当前值`}>{formatValue(draftValue)}</output>
+        <output aria-label={t("common.currentValue", { label })}>{formatValue(draftValue)}</output>
       </span>
       <input
         className="range-input"
@@ -1989,6 +2183,8 @@ function DeckTreeSelect({ label, helper, value, decks, disabled, onChange }: {
   disabled: boolean;
   onChange: (value: string) => void;
 }) {
+  const { t, i18n } = useTranslation();
+  const locale = i18n.resolvedLanguage ?? "en-US";
   const [open, setOpen] = useState(false);
   const [expandedNames, setExpandedNames] = useState<Set<string>>(
     () => new Set(ankiDeckAncestors(value)),
@@ -1997,7 +2193,7 @@ function DeckTreeSelect({ label, helper, value, decks, disabled, onChange }: {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const itemRefs = useRef(new Map<string, HTMLButtonElement>());
-  const tree = useMemo(() => buildAnkiDeckTree(decks), [decks]);
+  const tree = useMemo(() => buildAnkiDeckTree(decks, locale), [decks, locale]);
   const visibleNodes = useMemo(
     () => visibleAnkiDeckNodes(tree, expandedNames),
     [tree, expandedNames],
@@ -2092,7 +2288,10 @@ function DeckTreeSelect({ label, helper, value, decks, disabled, onChange }: {
                         className="deck-tree-toggle"
                         type="button"
                         tabIndex={-1}
-                        aria-label={`${node.expanded ? "收起" : "展开"} ${node.label}`}
+                        aria-label={t(
+                          node.expanded ? "common.collapseNamed" : "common.expandNamed",
+                          { name: node.label },
+                        )}
                         onClick={() => toggleExpanded(node.name)}
                       >
                         <ChevronRight className={node.expanded ? "expanded" : ""} size={15} />
@@ -2248,6 +2447,8 @@ function DeviceGroup({ icon, title, note, devices, devicesReady, selectedDeviceI
   disabled: boolean;
   onSelectDevice: (id: number) => void;
 }) {
+  const { t, i18n } = useTranslation();
+  const locale = i18n.resolvedLanguage ?? "en-US";
   return (
     <div className="device-group">
       <div className="device-group-title">
@@ -2269,15 +2470,19 @@ function DeviceGroup({ icon, title, note, devices, devicesReady, selectedDeviceI
           <DeviceRow
             key={device.id}
             name={device.name}
-            description={`${device.sample_rate} Hz · ${device.channels} 声道${device.is_default ? " · 默认" : ""}`}
+            description={t("settings.audio.deviceDescription", {
+              sampleRate: new Intl.NumberFormat(locale).format(device.sample_rate),
+              channels: device.channels,
+              defaultSuffix: device.is_default ? t("settings.audio.defaultSuffix") : "",
+            })}
             chosen={selectedDeviceId === device.id}
             disabled={disabled}
             onSelect={() => onSelectDevice(device.id)}
           />
         ))}
         {!devicesReady
-          ? <p className="device-empty">正在扫描设备…</p>
-          : !devices.length && <p className="device-empty">未发现其他可用设备。</p>}
+          ? <p className="device-empty">{t("settings.audio.scanning")}</p>
+          : !devices.length && <p className="device-empty">{t("settings.audio.noDevices")}</p>}
       </div>
     </div>
   );
@@ -2305,14 +2510,15 @@ function BottomDock({ page, running, onPageChange, onCompact, onCapture }: {
   onCompact: () => void;
   onCapture: () => void;
 }) {
+  const { t } = useTranslation();
   return (
-    <nav className="bottom-dock" aria-label="主导航">
-      <DockButton label="实时字幕" active={page === "live"} onClick={() => onPageChange("live")}><MessageSquare /></DockButton>
-      <DockButton label="字幕历史" active={page === "history"} onClick={() => onPageChange("history")}><History /></DockButton>
-      <DockButton label="设置" active={page === "settings"} onClick={() => onPageChange("settings")}><SlidersHorizontal /></DockButton>
+    <nav className="bottom-dock" aria-label={t("navigation.main")}>
+      <DockButton label={t("navigation.live")} active={page === "live"} onClick={() => onPageChange("live")}><MessageSquare /></DockButton>
+      <DockButton label={t("navigation.history")} active={page === "history"} onClick={() => onPageChange("history")}><History /></DockButton>
+      <DockButton label={t("navigation.settings")} active={page === "settings"} onClick={() => onPageChange("settings")}><SlidersHorizontal /></DockButton>
       <i className="dock-divider" aria-hidden="true" />
-      <DockButton label="字幕模式" tonal onClick={onCompact}><Shrink /></DockButton>
-      <DockButton label={running ? "停止转写" : "开始转写"} primary onClick={onCapture}>{running ? <Square /> : <Mic />}</DockButton>
+      <DockButton label={t("navigation.compact")} tonal onClick={onCompact}><Shrink /></DockButton>
+      <DockButton label={t(running ? "capture.stop" : "capture.start")} primary onClick={onCapture}>{running ? <Square /> : <Mic />}</DockButton>
     </nav>
   );
 }
@@ -2339,6 +2545,7 @@ function DockButton({ label, active = false, tonal = false, primary = false, onC
 }
 
 function DictionaryPopover({ lookup, compact = false, onClose }: { lookup: Lookup; compact?: boolean; onClose: () => void }) {
+  const { t } = useTranslation();
   const ref = useRef<HTMLDivElement>(null);
   const [ankiState, setAnkiState] = useState<AnkiAddState>("idle");
   const [ankiFeedback, setAnkiFeedback] = useState("");
@@ -2405,7 +2612,7 @@ function DictionaryPopover({ lookup, compact = false, onClose }: { lookup: Looku
 
   const add = async () => {
     if (!entry || ankiState === "adding") return;
-    const cardContent = ankiDictionaryContent(visibleEntries);
+    const cardContent = ankiDictionaryContent(visibleEntries, t("dictionary.builtIn"));
     setAnkiState("adding");
     setAnkiFeedback("");
     try {
@@ -2416,20 +2623,27 @@ function DictionaryPopover({ lookup, compact = false, onClose }: { lookup: Looku
         context: lookup.context,
         dictionary: cardContent.dictionary,
         language: entry.language,
+        labels: {
+          definition: t("anki.card.definition"),
+          context: t("anki.card.context"),
+        },
       });
       setAnkiState("success");
-      setAnkiFeedback(`已创建 Anki 笔记 #${result.note_id}，写入 ${visibleEntries.length} 组释义`);
+      setAnkiFeedback(t("dictionary.anki.created", {
+        noteId: result.note_id,
+        count: visibleEntries.length,
+      }));
     } catch (reason) {
       setAnkiState("error");
-      setAnkiFeedback(reason instanceof Error ? reason.message : "制卡失败，请重试");
+      setAnkiFeedback(localizedError(reason, t, "errors.anki.createCard"));
     }
   };
 
   return (
-    <div ref={ref} className={`dictionary-popover ${compact ? "compact-inline-dictionary" : `popover-${placement.side}`}`} style={style as CSSProperties} role="dialog" aria-label={`${lookup.term} 的词典解释`}>
+    <div ref={ref} className={`dictionary-popover ${compact ? "compact-inline-dictionary" : `popover-${placement.side}`}`} style={style as CSSProperties} role="dialog" aria-label={t("dictionary.dialogLabel", { term: lookup.term })}>
       <div className="dictionary-header">
         <div><h2>{lookup.term}</h2>{entry?.reading && <span className="reading">{entry.reading}</span>}{entry && <span className="language-chip">{entry.language.toUpperCase()}</span>}</div>
-        <button type="button" aria-label="关闭词典" onClick={onClose}><X size={19} /></button>
+        <button type="button" aria-label={t("dictionary.close")} onClick={onClose}><X size={19} /></button>
       </div>
       <div className="dictionary-scroll">
         {visibleEntries.length ? (
@@ -2437,7 +2651,7 @@ function DictionaryPopover({ lookup, compact = false, onClose }: { lookup: Looku
             {visibleEntries.map((item, index) => (
               <article className="dictionary-definition-item" key={`${item.dictionary ?? "local"}-${item.term}-${item.reading ?? ""}-${index}`}>
                 <div className="dictionary-entry-meta">
-                  <span className="dictionary-source-name">{item.dictionary || "内置词典"}</span>
+                  <span className="dictionary-source-name">{item.dictionary || t("dictionary.builtIn")}</span>
                   {visibleEntries.length > 1 && <span className="dictionary-entry-index">{String(index + 1).padStart(2, "0")}</span>}
                 </div>
                 <ol className="definition-glosses">
@@ -2446,8 +2660,8 @@ function DictionaryPopover({ lookup, compact = false, onClose }: { lookup: Looku
               </article>
             ))}
           </div>
-        ) : <p className="definition muted">已导入的词典中暂无释义。</p>}
-        <div className="lookup-context"><span>原文语境</span><q>{contextExcerpt(lookup.context, lookup.term)}</q></div>
+        ) : <p className="definition muted">{t("dictionary.noDefinitions")}</p>}
+        <div className="lookup-context"><span>{t("dictionary.context")}</span><q>{contextExcerpt(lookup.context, lookup.term)}</q></div>
       </div>
       <button className={`anki-button anki-state-${ankiState}`} type="button" disabled={!entry || ankiState === "adding" || ankiState === "success"} onClick={() => void add()}>
         {ankiState === "success"
@@ -2455,7 +2669,7 @@ function DictionaryPopover({ lookup, compact = false, onClose }: { lookup: Looku
           : ankiState === "error"
             ? <TriangleAlert size={16} />
             : <PlusCircle size={16} />}
-        {ankiButtonLabel(ankiState)}
+        {ankiButtonLabel(ankiState, (key) => t(key))}
       </button>
       {ankiFeedback && (
         <p className={`dictionary-anki-feedback ${ankiState}`} role={ankiState === "error" ? "alert" : "status"}>
@@ -2475,17 +2689,19 @@ function CompactView({ subtitle, running, onSelect, onCapture, onRestore, onClos
   onRestore: () => void;
   onClose: () => void;
 }) {
+  const { t } = useTranslation();
+  const captureLabel = t(running ? "capture.pause" : "capture.start");
   return (
     <div className="compact-shell">
       <div className="compact-drag-region" data-tauri-drag-region />
       <div className="compact-status"><i className={running ? "running" : ""} />{subtitle?.language?.toUpperCase() ?? "AUTO"}</div>
-      <p onMouseUp={() => subtitle && void onSelect(subtitle.text)}>{subtitle?.text ?? "等待字幕…"}</p>
+      <p onMouseUp={() => subtitle && void onSelect(subtitle.text)}>{subtitle?.text ?? t("live.waiting")}</p>
       <div className="compact-actions">
-        <button className={`compact-capture-button ${running ? "running" : ""}`} type="button" aria-label={running ? "暂停转录" : "开始转录"} title={running ? "暂停转录" : "开始转录"} onClick={onCapture}>
+        <button className={`compact-capture-button ${running ? "running" : ""}`} type="button" aria-label={captureLabel} title={captureLabel} onClick={onCapture}>
           {running ? <Square size={15} /> : <Mic size={16} />}
         </button>
-        <button className="compact-secondary-action" type="button" aria-label="恢复完整窗口" title="恢复完整窗口" onClick={onRestore}><MessageSquare size={17} /></button>
-        <button className="compact-secondary-action" type="button" aria-label="关闭窗口" title="关闭窗口" onClick={onClose}><X size={17} /></button>
+        <button className="compact-secondary-action" type="button" aria-label={t("window.restore")} title={t("window.restore")} onClick={onRestore}><MessageSquare size={17} /></button>
+        <button className="compact-secondary-action" type="button" aria-label={t("window.close")} title={t("window.close")} onClick={onClose}><X size={17} /></button>
       </div>
     </div>
   );

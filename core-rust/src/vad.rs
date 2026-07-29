@@ -2,10 +2,16 @@
 
 use std::mem::take;
 use std::path::Path;
+use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::Arc;
+use std::time::Duration;
 
+use futures_util::StreamExt;
 use ndarray::{Array1, Array2, ArrayD};
 use ort::session::Session;
 use ort::value::Value;
+use sha2::{Digest, Sha256};
+use tokio::io::AsyncWriteExt;
 
 const SAMPLE_RATE: i64 = 16_000;
 const FRAME_SAMPLES: usize = 512;
@@ -13,11 +19,44 @@ const CONTEXT_SAMPLES: usize = 64;
 const ENERGY_REFERENCE_RMS: f32 = 0.04;
 const DEFAULT_THRESHOLD: f32 = 0.5;
 const DEFAULT_MIN_SPEECH_SECONDS: f64 = 0.25;
+pub const MODEL_VERSION: &str = "v6.2.1";
+const MODEL_REVISION: &str = "7e30209a3e901f9842f81b225f3e93d8199902b1";
+const MODEL_URL: &str = "https://raw.githubusercontent.com/snakers4/silero-vad/7e30209a3e901f9842f81b225f3e93d8199902b1/src/silero_vad/data/silero_vad.onnx";
+const MODEL_BYTES: u64 = 2_327_524;
+const MODEL_SHA256: &str = "1a153a22f4509e292a94e67d6f9b85e8deb25b4988682b7e174c65279d8788e3";
+
+#[derive(Clone, Debug, Default)]
+pub struct VadRuntimeState {
+    backend: Arc<AtomicU8>,
+}
+
+impl VadRuntimeState {
+    pub fn backend(&self) -> &'static str {
+        if self.backend.load(Ordering::Relaxed) == 1 {
+            "silero-onnx"
+        } else {
+            "energy"
+        }
+    }
+
+    pub fn model_version(&self) -> Option<&'static str> {
+        (self.backend() == "silero-onnx").then_some(MODEL_VERSION)
+    }
+
+    fn set_silero(&self) {
+        self.backend.store(1, Ordering::Relaxed);
+    }
+
+    fn set_energy(&self) {
+        self.backend.store(0, Ordering::Relaxed);
+    }
+}
 
 #[derive(Debug)]
 pub struct VoiceDetector {
     threshold: f32,
     backend: DetectorBackend,
+    runtime: VadRuntimeState,
 }
 
 #[derive(Debug)]
@@ -35,43 +74,74 @@ struct SileroVad {
 
 impl Default for VoiceDetector {
     fn default() -> Self {
-        Self::energy(DEFAULT_THRESHOLD)
+        Self::energy(DEFAULT_THRESHOLD, VadRuntimeState::default())
     }
 }
 
 impl VoiceDetector {
+    #[cfg(test)]
     pub fn load(model_path: &Path) -> Self {
+        Self::load_with_runtime(model_path, VadRuntimeState::default())
+    }
+
+    pub fn load_with_runtime(model_path: &Path, runtime: VadRuntimeState) -> Self {
         if !model_path.is_file() {
             tracing::warn!(
                 path = %model_path.display(),
                 "Silero VAD model not found; using energy fallback"
             );
-            return Self::default();
+            return Self::energy(DEFAULT_THRESHOLD, runtime);
+        }
+        match model_file_is_valid_sync(model_path) {
+            Ok(true) => {}
+            Ok(false) => {
+                tracing::warn!(
+                    path = %model_path.display(),
+                    version = MODEL_VERSION,
+                    "Silero VAD model validation failed; using energy fallback"
+                );
+                return Self::energy(DEFAULT_THRESHOLD, runtime);
+            }
+            Err(error) => {
+                tracing::warn!(
+                    path = %model_path.display(),
+                    %error,
+                    "Silero VAD model validation failed; using energy fallback"
+                );
+                return Self::energy(DEFAULT_THRESHOLD, runtime);
+            }
         }
 
         match SileroVad::load(model_path) {
-            Ok(model) => Self {
-                threshold: DEFAULT_THRESHOLD,
-                backend: DetectorBackend::Silero(Box::new(model)),
-            },
+            Ok(model) => {
+                runtime.set_silero();
+                Self {
+                    threshold: DEFAULT_THRESHOLD,
+                    backend: DetectorBackend::Silero(Box::new(model)),
+                    runtime,
+                }
+            }
             Err(error) => {
                 tracing::warn!(
                     path = %model_path.display(),
                     %error,
                     "Silero VAD initialization failed; using energy fallback"
                 );
-                Self::default()
+                Self::energy(DEFAULT_THRESHOLD, runtime)
             }
         }
     }
 
-    fn energy(threshold: f32) -> Self {
+    fn energy(threshold: f32, runtime: VadRuntimeState) -> Self {
+        runtime.set_energy();
         Self {
             threshold,
             backend: DetectorBackend::Energy,
+            runtime,
         }
     }
 
+    #[cfg(test)]
     pub fn backend(&self) -> &'static str {
         match self.backend {
             DetectorBackend::Silero(_) => "silero-onnx",
@@ -87,6 +157,7 @@ impl VoiceDetector {
                 Err(error) => {
                     tracing::warn!(%error, "Silero VAD inference failed; using energy fallback");
                     self.backend = DetectorBackend::Energy;
+                    self.runtime.set_energy();
                     energy_probability(samples)
                 }
             },
@@ -101,6 +172,126 @@ impl VoiceDetector {
             model.reset();
         }
     }
+}
+
+pub async fn ensure_model(model_path: &Path) -> Result<(), String> {
+    if model_file_is_valid(model_path).await? {
+        return Ok(());
+    }
+    let parent = model_path
+        .parent()
+        .ok_or_else(|| format!("Silero 模型路径无父目录：{}", model_path.display()))?;
+    tokio::fs::create_dir_all(parent)
+        .await
+        .map_err(|error| format!("无法创建 Silero 模型目录：{error}"))?;
+    let partial = model_path.with_extension("onnx.part");
+    let _ = tokio::fs::remove_file(&partial).await;
+
+    tracing::info!(
+        version = MODEL_VERSION,
+        revision = MODEL_REVISION,
+        "downloading Silero VAD model"
+    );
+    let client = reqwest::Client::builder()
+        .connect_timeout(Duration::from_secs(15))
+        .read_timeout(Duration::from_secs(60))
+        .build()
+        .map_err(|error| error.to_string())?;
+    let response = client
+        .get(MODEL_URL)
+        .send()
+        .await
+        .map_err(|error| format!("Silero 模型下载失败：{error}"))?
+        .error_for_status()
+        .map_err(|error| format!("Silero 模型下载失败：{error}"))?;
+    if response
+        .content_length()
+        .is_some_and(|length| length != MODEL_BYTES)
+    {
+        return Err("Silero 模型下载大小与固定版本不符".into());
+    }
+
+    let mut file = tokio::fs::File::create(&partial)
+        .await
+        .map_err(|error| format!("无法创建 Silero 临时文件：{error}"))?;
+    let mut stream = response.bytes_stream();
+    let mut downloaded = 0u64;
+    let mut hasher = Sha256::new();
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(|error| format!("Silero 模型下载失败：{error}"))?;
+        downloaded = downloaded
+            .checked_add(chunk.len() as u64)
+            .ok_or_else(|| "Silero 模型大小溢出".to_string())?;
+        if downloaded > MODEL_BYTES {
+            let _ = tokio::fs::remove_file(&partial).await;
+            return Err("Silero 模型下载内容超过固定版本大小".into());
+        }
+        hasher.update(&chunk);
+        file.write_all(&chunk)
+            .await
+            .map_err(|error| format!("无法写入 Silero 模型：{error}"))?;
+    }
+    file.flush()
+        .await
+        .map_err(|error| format!("无法刷新 Silero 模型：{error}"))?;
+    file.sync_all()
+        .await
+        .map_err(|error| format!("无法落盘 Silero 模型：{error}"))?;
+    drop(file);
+
+    let digest = format!("{:x}", hasher.finalize());
+    if let Err(error) = validate_model_metadata(downloaded, &digest) {
+        let _ = tokio::fs::remove_file(&partial).await;
+        return Err(error);
+    }
+    if model_path.exists() {
+        tokio::fs::remove_file(model_path)
+            .await
+            .map_err(|error| format!("无法替换无效的 Silero 模型：{error}"))?;
+    }
+    tokio::fs::rename(&partial, model_path)
+        .await
+        .map_err(|error| format!("无法安装 Silero 模型：{error}"))?;
+    tracing::info!(version = MODEL_VERSION, "Silero VAD model ready");
+    Ok(())
+}
+
+async fn model_file_is_valid(path: &Path) -> Result<bool, String> {
+    let metadata = match tokio::fs::metadata(path).await {
+        Ok(metadata) if metadata.is_file() && metadata.len() == MODEL_BYTES => metadata,
+        Ok(_) => return Ok(false),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(error) => return Err(format!("无法检查 Silero 模型：{error}")),
+    };
+    let bytes = tokio::fs::read(path)
+        .await
+        .map_err(|error| format!("无法读取 Silero 模型：{error}"))?;
+    debug_assert_eq!(metadata.len(), bytes.len() as u64);
+    let digest = format!("{:x}", Sha256::digest(&bytes));
+    Ok(validate_model_metadata(bytes.len() as u64, &digest).is_ok())
+}
+
+fn validate_model_metadata(bytes: u64, sha256: &str) -> Result<(), String> {
+    if bytes != MODEL_BYTES {
+        return Err(format!(
+            "Silero {MODEL_VERSION} 模型大小不符：应为 {MODEL_BYTES} 字节，实际为 {bytes} 字节"
+        ));
+    }
+    if sha256 != MODEL_SHA256 {
+        return Err(format!("Silero {MODEL_VERSION} 模型 SHA-256 校验失败"));
+    }
+    Ok(())
+}
+
+fn model_file_is_valid_sync(path: &Path) -> Result<bool, String> {
+    let metadata =
+        std::fs::metadata(path).map_err(|error| format!("无法检查 Silero 模型：{error}"))?;
+    if !metadata.is_file() || metadata.len() != MODEL_BYTES {
+        return Ok(false);
+    }
+    let bytes = std::fs::read(path).map_err(|error| format!("无法读取 Silero 模型：{error}"))?;
+    let digest = format!("{:x}", Sha256::digest(&bytes));
+    Ok(validate_model_metadata(bytes.len() as u64, &digest).is_ok())
 }
 
 impl SileroVad {
@@ -296,5 +487,24 @@ mod tests {
             assert!(segmenter.push(&[1.0; 100], true).is_none());
         }
         assert_eq!(segmenter.push(&[1.0; 100], true).unwrap().len(), 600);
+    }
+
+    #[test]
+    fn validates_pinned_model_metadata() {
+        assert!(validate_model_metadata(MODEL_BYTES, MODEL_SHA256).is_ok());
+        assert!(validate_model_metadata(MODEL_BYTES - 1, MODEL_SHA256).is_err());
+        assert!(validate_model_metadata(MODEL_BYTES, "invalid").is_err());
+    }
+
+    #[test]
+    fn runtime_state_tracks_the_active_backend() {
+        let runtime = VadRuntimeState::default();
+        assert_eq!(runtime.backend(), "energy");
+        assert_eq!(runtime.model_version(), None);
+        runtime.set_silero();
+        assert_eq!(runtime.backend(), "silero-onnx");
+        assert_eq!(runtime.model_version(), Some(MODEL_VERSION));
+        runtime.set_energy();
+        assert_eq!(runtime.backend(), "energy");
     }
 }

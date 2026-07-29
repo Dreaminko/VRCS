@@ -18,27 +18,27 @@ type MutableDeckNode = {
   children: Map<string, MutableDeckNode>;
 };
 
-const deckCollator = new Intl.Collator("zh-CN", {
-  numeric: true,
-  sensitivity: "base",
-});
-
 function toDeckNodes(
   nodes: Iterable<MutableDeckNode>,
   depth: number,
+  collator: Intl.Collator,
 ): AnkiDeckNode[] {
   return Array.from(nodes)
-    .sort((left, right) => deckCollator.compare(left.label, right.label))
+    .sort((left, right) => collator.compare(left.label, right.label))
     .map((node) => ({
       name: node.name,
       label: node.label,
       depth,
       selectable: node.selectable,
-      children: toDeckNodes(node.children.values(), depth + 1),
+      children: toDeckNodes(node.children.values(), depth + 1, collator),
     }));
 }
 
-export function buildAnkiDeckTree(deckNames: readonly string[]): AnkiDeckNode[] {
+export function buildAnkiDeckTree(
+  deckNames: readonly string[],
+  locale = "zh-CN",
+): AnkiDeckNode[] {
+  const collator = new Intl.Collator(locale, { numeric: true, sensitivity: "base" });
   const roots = new Map<string, MutableDeckNode>();
 
   for (const deckName of new Set(deckNames.filter(Boolean))) {
@@ -65,7 +65,7 @@ export function buildAnkiDeckTree(deckNames: readonly string[]): AnkiDeckNode[] 
     }
   }
 
-  return toDeckNodes(roots.values(), 1);
+  return toDeckNodes(roots.values(), 1, collator);
 }
 
 export function ankiDeckAncestors(deckName: string): string[] {

@@ -2,7 +2,9 @@
 //! 与 Python 版 `app/config.py` 行为保持一致。
 
 use std::fs;
+use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 
@@ -233,7 +235,7 @@ impl VadConfig {
 
 const ASR_LANGUAGES: [&str; 8] = ["auto", "en", "ja", "zh", "ko", "es", "fr", "de"];
 const ASR_DEVICES: [&str; 3] = ["auto", "cpu", "cuda"];
-const ASR_COMPUTE_TYPES: [&str; 3] = ["int8", "float16", "int8_float16"];
+const ASR_COMPUTE_TYPES: [&str; 1] = ["int8"];
 
 impl AppConfig {
     /// 配置文件与 PUT /api/settings 共用的完整结构校验。
@@ -288,7 +290,7 @@ impl AppConfig {
             ("正面字段", &self.anki.front_field),
             ("背面字段", &self.anki.back_field),
         ] {
-            if value.is_empty() || value.len() > 100 {
+            if value.is_empty() || value.chars().count() > 100 {
                 return Err(format!("Anki {label}名称必须在 1 到 100 字符之间"));
             }
         }
@@ -382,11 +384,20 @@ fn fix_colliding_ports(config: &mut AppConfig) {
     }
 }
 
+fn config_version(raw: &serde_json::Value) -> Result<u64, String> {
+    let object = raw
+        .as_object()
+        .ok_or_else(|| "Configuration root must be an object".to_string())?;
+    match object.get("schema_version") {
+        None => Ok(1),
+        Some(value) => value
+            .as_u64()
+            .ok_or_else(|| "Configuration schema_version must be an integer".to_string()),
+    }
+}
+
 pub fn config_from_value(raw: &serde_json::Value) -> Result<AppConfig, String> {
-    let version = raw
-        .get("schema_version")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(1);
+    let version = config_version(raw)?;
     let mut config = match version {
         v if v == SCHEMA_VERSION as u64 => {
             serde_json::from_value(raw.clone()).map_err(|e| e.to_string())?
@@ -413,11 +424,8 @@ pub fn load_config(path: &Path) -> Result<AppConfig, String> {
     }
     let text = fs::read_to_string(path).map_err(|e| e.to_string())?;
     let raw: serde_json::Value = serde_json::from_str(&text)
-        .map_err(|_| "Configuration root must be an object".to_string())?;
-    let version = raw
-        .get("schema_version")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(1);
+        .map_err(|error| format!("Configuration JSON is invalid: {error}"))?;
+    let version = config_version(&raw)?;
     let config = config_from_value(&raw)?;
     if version != SCHEMA_VERSION as u64 {
         save_config(path, &config)?;
@@ -431,10 +439,24 @@ pub fn save_config(path: &Path, config: &AppConfig) -> Result<(), String> {
         fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
     let payload = serde_json::to_string_pretty(config).map_err(|e| e.to_string())?;
-    let temporary: PathBuf = path.with_extension("json.tmp");
-    fs::write(&temporary, payload).map_err(|e| e.to_string())?;
-    fs::rename(&temporary, path).map_err(|e| e.to_string())?;
-    Ok(())
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|error| error.to_string())?
+        .as_nanos();
+    let temporary: PathBuf =
+        path.with_extension(format!("json.{}.{nonce}.tmp", std::process::id()));
+    let result = (|| {
+        let mut file = fs::File::create(&temporary).map_err(|e| e.to_string())?;
+        file.write_all(payload.as_bytes())
+            .map_err(|e| e.to_string())?;
+        file.sync_all().map_err(|e| e.to_string())?;
+        drop(file);
+        fs::rename(&temporary, path).map_err(|e| e.to_string())
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(&temporary);
+    }
+    result
 }
 
 #[cfg(test)]
@@ -501,5 +523,20 @@ mod tests {
             "vad": {"silence_seconds": 5.0}
         });
         assert!(config_from_value(&raw).is_err());
+    }
+
+    #[test]
+    fn rejects_non_object_and_invalid_schema_version() {
+        assert!(config_from_value(&serde_json::json!([])).is_err());
+        assert!(config_from_value(&serde_json::json!({"schema_version": "3"})).is_err());
+    }
+
+    #[test]
+    fn anki_name_limits_count_unicode_characters() {
+        let mut config = AppConfig::default();
+        config.anki.deck = "学".repeat(100);
+        assert!(config.validate_settings().is_ok());
+        config.anki.deck.push('ぶ');
+        assert!(config.validate_settings().is_err());
     }
 }

@@ -1,5 +1,7 @@
 use std::net::TcpListener;
+use std::path::PathBuf;
 use std::sync::Mutex;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::Serialize;
 use tauri::menu::{Menu, MenuItem};
@@ -17,6 +19,11 @@ struct CoreConnection {
 }
 
 struct CoreRuntime(Mutex<Option<vrcs_core::CoreHandle>>);
+
+struct NativeUiState {
+    show_item: Mutex<Option<MenuItem<tauri::Wry>>>,
+    quit_item: Mutex<Option<MenuItem<tauri::Wry>>>,
+}
 
 const DEFAULT_CORE_PORT: u16 = 8766;
 
@@ -47,6 +54,31 @@ fn core_connection_config() -> CoreConnection {
 #[tauri::command]
 fn core_connection(connection: State<'_, CoreConnection>) -> CoreConnection {
     connection.inner().clone()
+}
+
+#[tauri::command]
+fn update_native_labels(
+    show: String,
+    quit: String,
+    native_ui: State<'_, NativeUiState>,
+) -> Result<(), String> {
+    if let Some(item) = native_ui
+        .show_item
+        .lock()
+        .map_err(|error| error.to_string())?
+        .as_ref()
+    {
+        item.set_text(show).map_err(|error| error.to_string())?;
+    }
+    if let Some(item) = native_ui
+        .quit_item
+        .lock()
+        .map_err(|error| error.to_string())?
+        .as_ref()
+    {
+        item.set_text(quit).map_err(|error| error.to_string())?;
+    }
+    Ok(())
 }
 
 fn show_main_window(app: &tauri::AppHandle) {
@@ -80,7 +112,12 @@ fn stop_core(app: &tauri::AppHandle) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    vrcs_core::init_tracing();
+    let log_dir = std::env::var("LOCALAPPDATA")
+        .map(PathBuf::from)
+        .ok()
+        .map(|path| path.join(".vrcs").join("logs"));
+    let _logging_guard =
+        vrcs_core::init_tracing(log_dir.as_deref()).unwrap_or_else(|error| panic!("{error}"));
     let connection = core_connection_config();
     let setup_connection = connection.clone();
 
@@ -96,13 +133,29 @@ pub fn run() {
         .plugin(tauri_plugin_store::Builder::default().build())
         .manage(connection)
         .manage(CoreRuntime(Mutex::new(None)))
-        .invoke_handler(tauri::generate_handler![core_connection])
+        .manage(NativeUiState {
+            show_item: Mutex::new(None),
+            quit_item: Mutex::new(None),
+        })
+        .invoke_handler(tauri::generate_handler![
+            core_connection,
+            update_native_labels
+        ])
         .setup(move |app| {
             app.store("preferences.json")?;
 
-            let show_item = MenuItem::with_id(app, "show", "显示 VRCS", true, None::<&str>)?;
-            let quit_item = MenuItem::with_id(app, "quit", "退出 VRCS", true, None::<&str>)?;
+            let show_item = MenuItem::with_id(app, "show", "Show VRCS", true, None::<&str>)?;
+            let quit_item = MenuItem::with_id(app, "quit", "Quit VRCS", true, None::<&str>)?;
             let tray_menu = Menu::with_items(app, &[&show_item, &quit_item])?;
+            let native_ui = app.state::<NativeUiState>();
+            *native_ui
+                .show_item
+                .lock()
+                .expect("native UI state lock poisoned") = Some(show_item.clone());
+            *native_ui
+                .quit_item
+                .lock()
+                .expect("native UI state lock poisoned") = Some(quit_item.clone());
             let mut tray = TrayIconBuilder::new()
                 .tooltip("VRCS")
                 .menu(&tray_menu)
@@ -128,8 +181,7 @@ pub fn run() {
             tray.build(app)?;
 
             let data_dir = app.path().local_data_dir()?.join(".vrcs");
-            let model_dir = data_dir.join("models");
-            std::fs::create_dir_all(&model_dir)?;
+            std::fs::create_dir_all(data_dir.join("models"))?;
 
             let port = setup_connection
                 .http_url
@@ -144,7 +196,7 @@ pub fn run() {
                 host: Some("127.0.0.1".into()),
                 port: Some(port),
                 session_token,
-                vad_model_path: Some(model_dir.join("silero_vad.onnx")),
+                vad_model_path: None,
                 asr_model_dir: None,
             }))
             .map_err(std::io::Error::other)?;
@@ -172,6 +224,38 @@ pub fn run() {
             stop_core(app_handle);
         }
     });
+}
+
+pub fn release_self_test() -> Result<(), String> {
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|error| error.to_string())?
+        .as_nanos();
+    let directory = std::env::temp_dir().join(format!(
+        "vrcs-release-self-test-{}-{nonce}",
+        std::process::id()
+    ));
+    let result = tauri::async_runtime::block_on(async {
+        let handle = vrcs_core::start(vrcs_core::CoreOptions {
+            config_path: directory.join("config.json"),
+            host: Some("127.0.0.1".into()),
+            port: Some(0),
+            session_token: None,
+            vad_model_path: None,
+            asr_model_dir: None,
+        })
+        .await?;
+        let vad_error = (handle.vad_backend() != "silero-onnx"
+            || handle.vad_model_version() != Some("v6.2.1"))
+        .then(|| "Silero v6.2.1 未通过首次启动下载与加载自检".to_string());
+        let shutdown_result = handle.shutdown().await;
+        if let Some(error) = vad_error {
+            return Err(error);
+        }
+        shutdown_result
+    });
+    let _ = std::fs::remove_dir_all(&directory);
+    result
 }
 
 #[cfg(test)]

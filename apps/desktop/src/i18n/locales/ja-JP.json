@@ -1,0 +1,450 @@
+{
+  "_meta": {
+    "locale": "ja-JP",
+    "name": "日本語",
+    "direction": "ltr",
+    "status": "complete"
+  },
+  "translation": {
+    "common": {
+      "autoSelect": "自動選択",
+      "available": "利用可能",
+      "checking": "確認中…",
+      "checkAgain": "再確認",
+      "close": "閉じる",
+      "closeError": "エラーを閉じる",
+      "collapseNamed": "{{name}}を折りたたむ",
+      "currentValue": "{{label}}の現在値",
+      "delete": "削除",
+      "download": "ダウンロード",
+      "downloading": "ダウンロード中…",
+      "expandNamed": "{{name}}を展開",
+      "loading": "読み込み中…",
+      "ready": "準備完了",
+      "refresh": "更新",
+      "retry": "再試行",
+      "unavailable": "利用不可",
+      "understood": "了解"
+    },
+    "navigation": {
+      "main": "メインナビゲーション",
+      "live": "リアルタイム字幕",
+      "history": "字幕履歴",
+      "settings": "設定",
+      "compact": "字幕モード"
+    },
+    "capture": {
+      "start": "文字起こしを開始",
+      "stop": "文字起こしを停止",
+      "pause": "文字起こしを一時停止"
+    },
+    "date": {
+      "today": "今日",
+      "yesterday": "昨日"
+    },
+    "units": {
+      "seconds": "{{value}} 秒"
+    },
+    "languages": {
+      "all": "すべての言語",
+      "auto": "自動検出",
+      "chinese": "中国語",
+      "english": "英語",
+      "french": "フランス語",
+      "german": "ドイツ語",
+      "japanese": "日本語",
+      "korean": "韓国語",
+      "spanish": "スペイン語"
+    },
+    "native": {
+      "tray": {
+        "show": "VRCS を表示",
+        "quit": "VRCS を終了"
+      }
+    },
+    "window": {
+      "controls": "ウィンドウ操作",
+      "minimize": "ウィンドウを最小化",
+      "minimizeShort": "最小化",
+      "maximize": "ウィンドウを最大化または元に戻す",
+      "maximizeShort": "最大化 / 元に戻す",
+      "restore": "通常ウィンドウに戻す",
+      "close": "ウィンドウを閉じる"
+    },
+    "status": {
+      "summary": "アプリの状態",
+      "label": "状態",
+      "engine": "エンジン",
+      "transcribing": "文字起こし中",
+      "waiting": "待機中",
+      "stopped": "停止",
+      "connection": {
+        "connecting": "接続中",
+        "connected": "接続済み",
+        "disconnected": "未接続"
+      }
+    },
+    "warnings": {
+      "vrchat": {
+        "title": "VRChat が起動していません",
+        "description": "VRCS は待機を続けますが、VRChat を起動するまでゲーム音声を取得できない場合があります。"
+      },
+      "cuda": {
+        "title": "CUDA を利用できません",
+        "description": "選択した CUDA ランタイムを利用できません。設定で自動選択または CPU を選んでください。"
+      }
+    },
+    "conversations": {
+      "untitled": "無題の会話",
+      "new": "新しい会話",
+      "title": "会話",
+      "sidebar": "会話サイドバー",
+      "closeSidebar": "会話サイドバーを閉じる",
+      "expandSidebar": "会話サイドバーを展開",
+      "collapseSidebar": "会話サイドバーを折りたたむ",
+      "create": "新しい会話",
+      "viewCurrent": "現在の会話を表示",
+      "current": "現在",
+      "previous": "過去の会話",
+      "empty": "過去の会話はありません",
+      "subtitleCount": "字幕 {{count}} 件",
+      "viewingPast": "{{time}} の会話を表示中",
+      "returnCurrent": "現在の会話に戻る"
+    },
+    "live": {
+      "title": "リアルタイム字幕",
+      "listening": "音声を待っています…",
+      "startHint": "文字起こしを開始すると、ここに字幕が表示されます。",
+      "transcribing": "文字起こし中",
+      "waiting": "字幕を待っています…",
+      "microphoneMe": "自分 · マイク",
+      "speakerOther": "相手 · システム音声",
+      "returnToBottom": "最新の字幕に戻る",
+      "returnToBottomShort": "最新の字幕"
+    },
+    "history": {
+      "title": "字幕履歴",
+      "recordCount": "{{count}} 件",
+      "language": "言語",
+      "dateRange": "期間",
+      "allTime": "すべて",
+      "lastSevenDays": "過去 7 日間",
+      "empty": "条件に一致する字幕はありません。"
+    },
+    "dictionary": {
+      "builtIn": "内蔵辞書",
+      "dialogLabel": "{{term}} の辞書定義",
+      "close": "辞書を閉じる",
+      "noDefinitions": "インポート済みの辞書に定義がありません。",
+      "context": "元の文脈",
+      "anki": {
+        "add": "Anki に追加",
+        "adding": "追加中…",
+        "success": "Anki に追加しました",
+        "retry": "もう一度追加",
+        "created": "Anki ノート #{{noteId}} を作成し、{{count}} 組の定義を書き込みました"
+      }
+    },
+    "anki": {
+      "card": {
+        "definition": "意味",
+        "context": "文脈"
+      }
+    },
+    "validation": {
+      "audio": {
+        "outputUnavailable": "選択したシステム出力デバイスが利用できません。選び直してください。",
+        "microphoneUnavailable": "選択したマイクが利用できません。選び直してください。"
+      },
+      "asr": {
+        "cudaUnavailable": "CUDA の事前確認に失敗しました。自動選択または CPU を選んでください。",
+        "invalidComputeType": "実行デバイスと計算タイプの組み合わせが無効です。"
+      }
+    },
+    "settings": {
+      "categories": {
+        "label": "設定カテゴリー",
+        "system": "システム",
+        "audio": "音声",
+        "recognition": "音声認識",
+        "dictionary": "辞書"
+      },
+      "system": {
+        "title": "システム",
+        "subtitle": "言語、起動、ウィンドウの動作",
+        "saveImmediately": "変更はすぐに保存されます。",
+        "language": "表示言語",
+        "languageDescription": "システム言語に従うか、VRCS 用の言語を選びます。",
+        "followSystem": "システム設定に従う",
+        "launchAtStartup": "ログイン時に起動",
+        "launchAtStartupDescription": "サインイン後に VRCS を自動的に起動します。",
+        "minimizeToTray": "システムトレイに最小化",
+        "minimizeToTrayDescription": "ウィンドウを閉じても VRCS をトレイで実行し続けます。"
+      },
+      "recognition": {
+        "title": "音声認識",
+        "status": "モデル：{{status}}",
+        "stopToModify": "音声認識の設定を変更する前に、文字起こしを停止してください。",
+        "applyImmediately": "変更はすぐに適用されます。",
+        "runtime": "ランタイム",
+        "runtimeChecking": "利用可能なランタイムを確認中…",
+        "cudaAvailable": "{{count}} 台のデバイスで CUDA を利用できます。",
+        "cudaRuntimeMissing": "CUDA デバイスは検出されましたが、ランタイムを利用できません。",
+        "cudaUnavailable": "CUDA は検出されませんでした。CPU は利用できます。",
+        "content": "認識内容",
+        "contentDescription": "ローカルモデルと音声言語を選択します。",
+        "model": "モデル",
+        "language": "音声言語",
+        "languageDescription": "多言語の会話には自動検出がおすすめです。",
+        "execution": "実行方法",
+        "executionDescription": "実行デバイスと計算精度を選択します。",
+        "device": "実行デバイス",
+        "deviceDescription": "自動選択では、事前確認に成功した CUDA を優先します。",
+        "computeType": "計算タイプ",
+        "computeTypeDescription": "選択肢は実行デバイスによって変わります。",
+        "segmentation": "音声の分割",
+        "segmentationDescription": "発話区間の終了タイミングと最大長を調整します。",
+        "silence": "無音で終了",
+        "silenceDescription": "短くすると字幕が早く表示されます。",
+        "maxSegment": "区間の最大長",
+        "maxSegmentDescription": "連続した音声をこの時間で分割します。",
+        "localModels": "ローカルモデル",
+        "downloadingCount": "{{count}} 件をダウンロード中",
+        "installedCount": "{{count}} 個のモデルをインストール済み",
+        "modelDirectory": "モデルフォルダー",
+        "modelDirectoryDescription": "ダウンロードした Whisper モデルの保存先です。",
+        "modelDirectoryRequired": "先にモデルフォルダーを選んでください。",
+        "chooseModelDirectory": "モデルフォルダーを選択",
+        "chooseFolder": "フォルダーを選択",
+        "browserPathHint": "フォルダー選択はデスクトップアプリで利用できます。",
+        "checkingLocalModels": "ローカルモデルを確認中…",
+        "inUse": "使用中",
+        "downloadProgress": "{{name}} のダウンロード進捗",
+        "deleteModel": "{{name}} を削除",
+        "preparingDownload": "{{name}} のダウンロードを準備中…",
+        "downloadQueued": "{{name}} のダウンロードを開始しました。",
+        "confirmDelete": "ローカルの {{name}} モデルを削除しますか？",
+        "deleting": "{{name}} を削除中…",
+        "deleted": "{{name}} を削除しました。",
+        "models": {
+          "tiny": "最速・最小。簡単な確認に適しています。",
+          "base": "軽量でバランスのよいモデルです。",
+          "small": "速度と精度のバランスがよく、おすすめです。",
+          "medium": "より高精度ですが、多くのリソースを使用します。",
+          "largeV3": "最高精度。ダウンロードサイズとリソース使用量も最大です。"
+        },
+        "modelStatus": {
+          "notDownloaded": "未ダウンロード",
+          "loading": "読み込み中",
+          "error": "エラー",
+          "ready": "準備完了",
+          "checking": "確認中"
+        },
+        "modelState": {
+          "notDownloaded": "未ダウンロード",
+          "loading": "読み込み中",
+          "error": "エラー",
+          "ready": "準備完了"
+        }
+      },
+      "audio": {
+        "title": "音声ソース",
+        "devicesFound": "{{count}} 台のデバイスを検出",
+        "waitingScan": "デバイスの検出待ち",
+        "rescan": "再スキャン",
+        "otherVoice": "相手の声",
+        "otherVoiceDescription": "システムまたは VRChat の出力を取得します。",
+        "systemOutput": "システム出力",
+        "systemOutputDescription": "Windows の既定の出力デバイスを使用します。",
+        "vrchatDescription": "VRChat で選択した出力デバイスを取得します。",
+        "ownVoice": "自分の声",
+        "ownVoiceDescription": "自分の音声に使用するマイクを選びます。",
+        "defaultMicrophone": "既定のマイク",
+        "defaultMicrophoneDescription": "Windows の既定の入力デバイスに従います。",
+        "disableMicrophone": "マイクを無効化",
+        "disableMicrophoneDescription": "相手の声だけを文字起こしします。",
+        "deviceDescription": "{{sampleRate}} Hz · {{channels}} チャンネル{{defaultSuffix}}",
+        "defaultSuffix": " · 既定",
+        "scanning": "デバイスをスキャン中…",
+        "noDevices": "ほかに利用可能なデバイスはありません。"
+      },
+      "dictionary": {
+        "title": "辞書",
+        "count": "{{count}} 件の辞書",
+        "importedCount": "{{count}} 件をインポート済み",
+        "noneImported": "未インポート",
+        "import": "インポート",
+        "importing": "{{file}} をインポート中…",
+        "imported": "{{title}}（{{formatted}} 語）をインポートしました。",
+        "confirmRemove": "辞書「{{title}}」を削除しますか？",
+        "removed": "{{title}} を削除しました。",
+        "entryCount": "{{formatted}} 語",
+        "removeNamed": "{{title}} を削除",
+        "remove": "削除",
+        "emptyHint": "対応する辞書ファイルをインポートすると単語検索を利用できます。"
+      },
+      "anki": {
+        "title": "Anki 連携",
+        "subtitle": "AnkiConnect を使って辞書検索からカードを作成",
+        "invalidPort": "1～65535 の有効なポートを入力してください。",
+        "checking": "AnkiConnect を確認中…",
+        "ready": "接続済み・作成可能",
+        "needsSetup": "接続済み・設定の修正が必要",
+        "offline": "AnkiConnect はオフラインです",
+        "startHint": "Anki を起動して AnkiConnect をインストールし、接続を確認してください。",
+        "address": "アドレス",
+        "addressDescription": "AnkiConnect はこのローカルアドレスだけに接続します。",
+        "port": "ポート",
+        "portHint": "AnkiConnect の既定ポートは 8765 です。",
+        "deck": "デッキ",
+        "deckDescription": "保存先のデッキを選択します。",
+        "deckOffline": "Anki に接続するとデッキを読み込めます。",
+        "noteType": "ノートタイプ",
+        "noteTypeDescription": "Anki のノートタイプを選択します。",
+        "noteTypeOffline": "Anki に接続するとノートタイプを読み込めます。",
+        "frontField": "表面フィールド",
+        "frontFieldDescription": "単語と読みをこのフィールドに書き込みます。",
+        "backField": "裏面フィールド",
+        "backFieldDescription": "意味と文脈をこのフィールドに書き込みます。"
+      },
+      "debug": {
+        "subtitle": "ランタイムと設定の詳細",
+        "readOnly": "読み取り専用",
+        "schema": "スキーマ",
+        "coreAddress": "Core アドレス",
+        "databasePath": "データベースのパス",
+        "modelDirectory": "モデルフォルダー",
+        "sampleRate": "サンプルレート",
+        "silence": "無音しきい値",
+        "maxSegment": "区間の最大長",
+        "historyLimit": "履歴の上限",
+        "subtitleLimitValue": "字幕 {{formatted}} 件",
+        "modelStatus": "モデルの状態",
+        "cuda": "CUDA",
+        "availableDevices": "{{count}} 台",
+        "transcription": "文字起こし",
+        "audioDevices": "音声デバイス",
+        "audioDeviceCounts": "出力 {{outputs}} · マイク {{microphones}}",
+        "dictionaries": "辞書"
+      },
+      "action": {
+        "dictionaryImmediate": "辞書の変更はすぐに反映されます。",
+        "savingAnki": "Anki 設定を保存中…",
+        "ankiSaveFailed": "Anki 設定を保存できませんでした。",
+        "ankiAutoCheck": "保存後に Anki 接続を自動確認します。",
+        "readingDesktop": "デスクトップ設定を読み込み中…",
+        "savingDesktop": "デスクトップ設定を保存中…",
+        "desktopSaved": "デスクトップ設定を保存しました。",
+        "desktopSaveFailed": "デスクトップ設定を保存できませんでした。",
+        "desktopHint": "デスクトップ設定はすぐに反映されます。",
+        "debugHint": "診断情報は読み取り専用です。",
+        "applying": "設定を適用中…",
+        "applied": "設定を適用しました。",
+        "applyFailed": "設定を適用できませんでした。",
+        "immediate": "変更はすぐに反映されます。"
+      }
+    },
+    "apiStatus": {
+      "anki": {
+        "connected": "AnkiConnect に接続済みで、カード設定も有効です。",
+        "incompatible_version": "AnkiConnect API v{{version}} は古すぎます。v{{minimum_version}} 以降が必要です。",
+        "missing_deck": "デッキ「{{deck}}」が見つかりません。",
+        "missing_model": "ノートタイプ「{{model}}」が見つかりません。",
+        "missing_field": "ノートタイプ「{{model}}」に必要なフィールドがありません。",
+        "unavailable": "ポート {{port}} の AnkiConnect に接続できません。",
+        "duplicate": "このノートはすでに存在します。",
+        "protocol_error": "AnkiConnect から無効な応答が返されました。",
+        "invalid_configuration": "Anki のカード設定が無効です。"
+      }
+    },
+    "errors": {
+      "unknown": "不明なエラーが発生しました。",
+      "operation": "操作に失敗しました。",
+      "core": {
+        "initialize": "VRCS Core を初期化できませんでした。",
+        "connect": "VRCS Core に接続できませんでした。"
+      },
+      "audio": {
+        "devices": "音声デバイスを読み込めませんでした。"
+      },
+      "dictionary": {
+        "list": "辞書を読み込めませんでした。",
+        "lookup": "辞書検索に失敗しました。",
+        "import": "辞書をインポートできませんでした。",
+        "remove": "辞書を削除できませんでした。",
+        "invalid_query": "有効な検索語を入力してください。",
+        "lookup_failed": "辞書検索に失敗しました。",
+        "list_failed": "辞書を読み込めませんでした。",
+        "import_task_failed": "辞書のインポートを開始できませんでした。",
+        "import_invalid": "辞書ファイルが無効です。",
+        "delete_failed": "辞書を削除できませんでした。",
+        "not_found": "辞書が見つかりません。"
+      },
+      "asr": {
+        "capabilities": "音声認識ランタイムを確認できませんでした。",
+        "models": "ローカルモデルを読み込めませんでした。",
+        "download": "モデルをダウンロードできませんでした。",
+        "delete": "モデルを削除できませんでした。",
+        "model": {
+          "inspect_failed": "選択したモデルを確認できませんでした。",
+          "not_downloaded": "モデル {{model}} は未ダウンロードです。",
+          "unsupported": "モデル {{model}} はサポートされていません。",
+          "download_start_failed": "モデルのダウンロードを開始できませんでした。",
+          "describe_failed": "モデルのダウンロード状態を取得できませんでした。",
+          "in_use": "モデル {{model}} は使用中です。",
+          "delete_failed": "モデル {{model}} を削除できませんでした。"
+        }
+      },
+      "settings": {
+        "apply": "設定を適用できませんでした。",
+        "invalid": "設定が無効です。",
+        "capture_must_be_stopped": "この設定を変更する前に文字起こしを停止してください。",
+        "model_directory_migration_failed": "モデルを新しいフォルダーに移動できませんでした。",
+        "rollback_failed": "設定に失敗し、自動復元もできませんでした。",
+        "asr_update_task_failed": "音声認識の更新を開始できませんでした。",
+        "asr_update_failed": "音声認識エンジンを更新できませんでした。",
+        "recovery": "{{apply}} 以前の設定を復元する際にもエラーが発生しました：{{recovery}}"
+      },
+      "window": {
+        "warningExpand": "警告ウィンドウのサイズを変更できませんでした。",
+        "compactCollapse": "字幕モードに切り替えられませんでした。",
+        "compactToggle": "字幕モードを変更できませんでした。",
+        "alwaysOnTop": "最前面表示を変更できませんでした。"
+      },
+      "desktop": {
+        "read": "デスクトップ設定を読み込めませんでした。",
+        "save": "デスクトップ設定を保存できませんでした。",
+        "language": "表示言語を変更できませんでした。",
+        "autostart_not_applied": "Windows にスタートアップ設定が反映されませんでした。",
+        "tray_not_saved": "システムトレイの設定を保存できませんでした。"
+      },
+      "dialog": {
+        "folder": "フォルダー選択を開けませんでした。"
+      },
+      "anki": {
+        "status": "AnkiConnect を確認できませんでした。",
+        "createCard": "Anki カードを作成できませんでした。",
+        "card_invalid": "カードの内容が無効です。",
+        "unavailable": "ポート {{port}} の AnkiConnect に接続できません。",
+        "duplicate": "このノートはすでに存在します。",
+        "protocol_error": "AnkiConnect から無効な応答が返されました。",
+        "incompatible_version": "AnkiConnect のバージョンが古すぎます。",
+        "missing_deck": "デッキ「{{deck}}」が見つかりません。",
+        "missing_model": "ノートタイプ「{{model}}」が見つかりません。",
+        "missing_field": "選択したノートタイプに必要なフィールドがありません。",
+        "invalid_configuration": "Anki のカード設定が無効です。"
+      },
+      "capture": {
+        "invalid_sample_rate": "音声のサンプルレートが無効です。",
+        "already_running": "文字起こしはすでに実行中です。"
+      },
+      "subtitles": {
+        "invalid_limit": "履歴の上限が無効です。",
+        "history_failed": "字幕履歴を読み込めませんでした。"
+      },
+      "auth": {
+        "unauthorized": "ローカルセッションが認証されていません。"
+      }
+    }
+  }
+}

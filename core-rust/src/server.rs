@@ -32,7 +32,7 @@ pub struct AppState {
     pub subtitles_tx: broadcast::Sender<Subtitle>,
     pub http: reqwest::Client,
     pub session_token: Option<String>,
-    pub vad: Mutex<vad::VoiceDetector>,
+    pub vad_runtime: vad::VadRuntimeState,
     pub asr: Arc<Mutex<asr::AsrService>>,
     pub asr_runtime: asr::AsrRuntimeState,
     pub model_manager: Arc<asr::ModelManager>,
@@ -43,8 +43,28 @@ pub struct AppState {
 
 type ApiResult<T> = Result<T, (StatusCode, Json<Value>)>;
 
-fn api_error(status: StatusCode, detail: impl Into<String>) -> (StatusCode, Json<Value>) {
-    (status, Json(json!({ "detail": detail.into() })))
+fn api_error(
+    status: StatusCode,
+    code: impl Into<String>,
+    detail: impl Into<String>,
+) -> (StatusCode, Json<Value>) {
+    api_error_with_params(status, code, json!({}), detail)
+}
+
+fn api_error_with_params(
+    status: StatusCode,
+    code: impl Into<String>,
+    params: Value,
+    detail: impl Into<String>,
+) -> (StatusCode, Json<Value>) {
+    (
+        status,
+        Json(json!({
+            "code": code.into(),
+            "params": params,
+            "detail": detail.into(),
+        })),
+    )
 }
 
 /// 简单的常时间比较，避免 token 比较的时序侧信道
@@ -73,7 +93,12 @@ async fn authenticate(
                 .unwrap_or("");
             let expected = format!("Bearer {token}");
             if !token_eq(supplied, &expected) {
-                return api_error(StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
+                return api_error(
+                    StatusCode::UNAUTHORIZED,
+                    "auth.unauthorized",
+                    "Unauthorized",
+                )
+                .into_response();
             }
         }
     }
@@ -119,7 +144,8 @@ pub fn router(state: Arc<AppState>) -> Router {
 
 async fn health(State(state): State<Arc<AppState>>) -> Json<Value> {
     let config_schema = state.config.read().expect("config lock").schema_version;
-    let vad_backend = state.vad.lock().expect("vad lock").backend();
+    let vad_backend = state.vad_runtime.backend();
+    let vad_model_version = state.vad_runtime.model_version();
     let (asr_status, asr_error) = state.asr_runtime.snapshot();
     let (speaker_running, audio_device, speaker_error) = {
         let pipeline = state.speaker_pipeline.lock().await;
@@ -148,13 +174,19 @@ async fn health(State(state): State<Arc<AppState>>) -> Json<Value> {
         "microphone_device": microphone_device,
         "asr_status": asr_status,
         "vad_backend": vad_backend,
+        "vad_model_version": vad_model_version,
         "last_error": last_error,
     }))
 }
 
 async fn audio_devices() -> ApiResult<Json<Value>> {
-    let devices = audio::list_devices()
-        .map_err(|e| api_error(StatusCode::SERVICE_UNAVAILABLE, e.to_string()))?;
+    let devices = audio::list_devices().map_err(|error| {
+        api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            error.code(),
+            error.to_string(),
+        )
+    })?;
     Ok(Json(json!(devices)))
 }
 
@@ -164,16 +196,26 @@ async fn capture_start(State(state): State<Arc<AppState>>) -> ApiResult<Json<Val
     if config.audio.sample_rate != 16_000 {
         return Err(api_error(
             StatusCode::UNPROCESSABLE_ENTITY,
+            "capture.invalid_sample_rate",
             "Rust ASR 管线要求 16000 Hz 采样率",
         ));
     }
     if !state
         .model_manager
         .is_downloaded(&config.asr.model)
-        .map_err(|error| api_error(StatusCode::UNPROCESSABLE_ENTITY, error))?
+        .map_err(|error| {
+            api_error_with_params(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "asr.model.inspect_failed",
+                json!({ "model": config.asr.model }),
+                error,
+            )
+        })?
     {
-        return Err(api_error(
+        return Err(api_error_with_params(
             StatusCode::CONFLICT,
+            "asr.model.not_downloaded",
+            json!({ "model": config.asr.model }),
             format!("识别模型 {} 尚未下载", config.asr.model),
         ));
     }
@@ -182,6 +224,7 @@ async fn capture_start(State(state): State<Arc<AppState>>) -> ApiResult<Json<Val
     {
         return Err(api_error(
             StatusCode::CONFLICT,
+            "capture.already_running",
             "Transcription is already running",
         ));
     }
@@ -205,7 +248,13 @@ async fn capture_start(State(state): State<Arc<AppState>>) -> ApiResult<Json<Val
             state.subtitles_tx.clone(),
             config.storage.subtitle_history_limit,
         )
-        .map_err(|error| api_error(StatusCode::SERVICE_UNAVAILABLE, error))?;
+        .map_err(|error| {
+            api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                error.code(),
+                error.to_string(),
+            )
+        })?;
 
     let microphone = if config.audio.microphone.mode == "disabled" {
         None
@@ -226,7 +275,11 @@ async fn capture_start(State(state): State<Arc<AppState>>) -> ApiResult<Json<Val
             Ok(device) => Some(device),
             Err(error) => {
                 state.speaker_pipeline.lock().await.stop().await;
-                return Err(api_error(StatusCode::SERVICE_UNAVAILABLE, error));
+                return Err(api_error(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    error.code(),
+                    error.to_string(),
+                ));
             }
         }
     };
@@ -288,16 +341,38 @@ async fn asr_model_download(
     State(state): State<Arc<AppState>>,
     axum::extract::Path(model): axum::extract::Path<String>,
 ) -> ApiResult<(StatusCode, Json<Value>)> {
+    if !asr::is_supported_model(&model) {
+        return Err(api_error_with_params(
+            StatusCode::NOT_FOUND,
+            "asr.model.unsupported",
+            json!({ "model": model }),
+            format!("不支持的识别模型：{model}"),
+        ));
+    }
     state
         .model_manager
         .start_download(&model)
-        .map_err(|error| api_error(StatusCode::NOT_FOUND, error))?;
+        .map_err(|error| {
+            api_error_with_params(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "asr.model.download_start_failed",
+                json!({ "model": model }),
+                error,
+            )
+        })?;
     let active_model = state.config.read().expect("config lock").asr.model.clone();
     let (runtime_status, _) = state.asr_runtime.snapshot();
     let record = state
         .model_manager
         .describe(&model, &active_model, runtime_status)
-        .map_err(|error| api_error(StatusCode::NOT_FOUND, error))?;
+        .map_err(|error| {
+            api_error_with_params(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "asr.model.describe_failed",
+                json!({ "model": model }),
+                error,
+            )
+        })?;
     Ok((StatusCode::ACCEPTED, Json(json!(record))))
 }
 
@@ -306,17 +381,33 @@ async fn asr_model_delete(
     axum::extract::Path(model): axum::extract::Path<String>,
 ) -> ApiResult<Json<Value>> {
     let active_model = state.config.read().expect("config lock").asr.model.clone();
+    if !asr::is_supported_model(&model) {
+        return Err(api_error_with_params(
+            StatusCode::NOT_FOUND,
+            "asr.model.unsupported",
+            json!({ "model": model }),
+            format!("不支持的识别模型：{model}"),
+        ));
+    }
+    if model == active_model {
+        return Err(api_error_with_params(
+            StatusCode::CONFLICT,
+            "asr.model.in_use",
+            json!({ "model": model }),
+            "当前正在使用该模型，请先选择其他模型",
+        ));
+    }
     state
         .model_manager
         .delete(&model, &active_model)
         .await
         .map_err(|error| {
-            let status = if error.starts_with("不支持") {
-                StatusCode::NOT_FOUND
-            } else {
-                StatusCode::CONFLICT
-            };
-            api_error(status, error)
+            api_error_with_params(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "asr.model.delete_failed",
+                json!({ "model": model }),
+                error,
+            )
         })?;
     Ok(Json(json!({ "deleted": true })))
 }
@@ -334,6 +425,7 @@ async fn subtitle_history(
             .ok_or_else(|| {
                 api_error(
                     StatusCode::UNPROCESSABLE_ENTITY,
+                    "subtitles.invalid_limit",
                     "limit 必须在 1 到 500 之间",
                 )
             })?,
@@ -347,7 +439,13 @@ async fn subtitle_history(
     let db = state.db.lock().expect("db lock");
     let subtitles = db
         .subtitle_history(limit.min(history_limit))
-        .map_err(|e| api_error(StatusCode::INTERNAL_SERVER_ERROR, e))?;
+        .map_err(|error| {
+            api_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "subtitles.history_failed",
+                error,
+            )
+        })?;
     Ok(Json(json!(subtitles)))
 }
 
@@ -360,9 +458,9 @@ async fn update_settings(
     State(state): State<Arc<AppState>>,
     body: axum::body::Bytes,
 ) -> ApiResult<Json<Value>> {
-    let unprocessable = |detail: String| api_error(StatusCode::UNPROCESSABLE_ENTITY, detail);
-    let update: SettingsUpdate =
-        serde_json::from_slice(&body).map_err(|e| unprocessable(format!("设置格式无效：{e}")))?;
+    let unprocessable =
+        |detail: String| api_error(StatusCode::UNPROCESSABLE_ENTITY, "settings.invalid", detail);
+    let update = parse_settings_update(&body).map_err(unprocessable)?;
     if update.schema_version != crate::config::SCHEMA_VERSION {
         return Err(unprocessable(format!(
             "Expected configuration schema v{}",
@@ -393,6 +491,7 @@ async fn update_settings(
     {
         return Err(api_error(
             StatusCode::CONFLICT,
+            "settings.capture_must_be_stopped",
             "请先停止转写，再修改音频、断句、识别或模型保存位置",
         ));
     }
@@ -443,6 +542,7 @@ async fn update_settings(
             .map_err(|error| {
                 api_error(
                     StatusCode::INTERNAL_SERVER_ERROR,
+                    "settings.model_directory_migration_failed",
                     format!("模型目录迁移任务失败：{error}"),
                 )
             })?
@@ -457,6 +557,7 @@ async fn update_settings(
             if !matches!(rollback, Ok(Ok(()))) {
                 return Err(api_error(
                     StatusCode::INTERNAL_SERVER_ERROR,
+                    "settings.rollback_failed",
                     format!("设置保存失败且无法恢复原模型目录：{error}"),
                 ));
             }
@@ -476,10 +577,17 @@ async fn update_settings(
     .map_err(|error| {
         api_error(
             StatusCode::INTERNAL_SERVER_ERROR,
+            "settings.asr_update_task_failed",
             format!("ASR 配置更新任务失败：{error}"),
         )
     })?
-    .map_err(|error| api_error(StatusCode::INTERNAL_SERVER_ERROR, error))?;
+    .map_err(|error| {
+        api_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "settings.asr_update_failed",
+            error,
+        )
+    })?;
     Ok(Json(json!(candidate)))
 }
 
@@ -489,25 +597,34 @@ async fn dictionary_lookup(
 ) -> ApiResult<Json<Value>> {
     let query = params
         .get("q")
-        .filter(|value| !value.is_empty() && value.len() <= 100)
+        .filter(|value| !value.is_empty() && value.chars().count() <= 100)
         .ok_or_else(|| {
             api_error(
                 StatusCode::UNPROCESSABLE_ENTITY,
+                "dictionary.invalid_query",
                 "q 必须在 1 到 100 字符之间",
             )
         })?;
     let db = state.db.lock().expect("db lock");
-    let entries = db
-        .lookup(query, 10)
-        .map_err(|e| api_error(StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    let entries = db.lookup(query, 10).map_err(|error| {
+        api_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "dictionary.lookup_failed",
+            error,
+        )
+    })?;
     Ok(Json(json!(entries)))
 }
 
 async fn dictionary_list(State(state): State<Arc<AppState>>) -> ApiResult<Json<Value>> {
     let db = state.db.lock().expect("db lock");
-    let sources = db
-        .dictionary_sources()
-        .map_err(|e| api_error(StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    let sources = db.dictionary_sources().map_err(|error| {
+        api_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "dictionary.list_failed",
+            error,
+        )
+    })?;
     Ok(Json(json!(sources)))
 }
 
@@ -525,10 +642,17 @@ async fn dictionary_import(
     .map_err(|error| {
         api_error(
             StatusCode::INTERNAL_SERVER_ERROR,
+            "dictionary.import_task_failed",
             format!("词典导入任务失败：{error}"),
         )
     })?
-    .map_err(|e| api_error(StatusCode::UNPROCESSABLE_ENTITY, e))?;
+    .map_err(|error| {
+        api_error(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "dictionary.import_invalid",
+            error,
+        )
+    })?;
     Ok(Json(json!(imported)))
 }
 
@@ -537,11 +661,21 @@ async fn dictionary_delete(
     axum::extract::Path(source_id): axum::extract::Path<i64>,
 ) -> ApiResult<Json<Value>> {
     let db = state.db.lock().expect("db lock");
-    let deleted = db
-        .delete_dictionary_source(source_id)
-        .map_err(|e| api_error(StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    let deleted = db.delete_dictionary_source(source_id).map_err(|error| {
+        api_error_with_params(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "dictionary.delete_failed",
+            json!({ "source_id": source_id }),
+            error,
+        )
+    })?;
     if !deleted {
-        return Err(api_error(StatusCode::NOT_FOUND, "词典不存在"));
+        return Err(api_error_with_params(
+            StatusCode::NOT_FOUND,
+            "dictionary.not_found",
+            json!({ "source_id": source_id }),
+            "词典不存在",
+        ));
     }
     Ok(Json(json!({ "deleted": true })))
 }
@@ -555,22 +689,33 @@ async fn anki_add_card(
     State(state): State<Arc<AppState>>,
     Json(card): Json<CardRequest>,
 ) -> ApiResult<Json<Value>> {
-    if card.term.is_empty() || card.term.len() > 500 || card.definition.is_empty() {
-        return Err(api_error(
-            StatusCode::UNPROCESSABLE_ENTITY,
-            "词条或释义内容无效",
-        ));
-    }
+    card.validate()
+        .map_err(|error| api_error(StatusCode::UNPROCESSABLE_ENTITY, "anki.card_invalid", error))?;
     let config = state.config.read().expect("config lock").anki.clone();
     let note_id = anki::create_card(&state.http, &card, &config)
         .await
         .map_err(|e| {
-            api_error(
+            api_error_with_params(
                 StatusCode::from_u16(e.status_code).unwrap_or(StatusCode::BAD_GATEWAY),
+                format!("anki.{}", e.code),
+                e.params,
                 e.message,
             )
         })?;
     Ok(Json(json!({ "note_id": note_id })))
+}
+
+fn parse_settings_update(body: &[u8]) -> Result<SettingsUpdate, String> {
+    let mut ignored = Vec::new();
+    let mut deserializer = serde_json::Deserializer::from_slice(body);
+    let update = serde_ignored::deserialize(&mut deserializer, |path| {
+        ignored.push(path.to_string());
+    })
+    .map_err(|error| format!("设置格式无效：{error}"))?;
+    if let Some(path) = ignored.first() {
+        return Err(format!("设置包含未知字段：{path}"));
+    }
+    Ok(update)
 }
 
 async fn ws_handler(
@@ -581,7 +726,12 @@ async fn ws_handler(
     if let Some(token) = &state.session_token {
         let supplied = params.get("token").map(String::as_str).unwrap_or("");
         if !token_eq(supplied, token) {
-            return api_error(StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
+            return api_error(
+                StatusCode::UNAUTHORIZED,
+                "auth.unauthorized",
+                "Unauthorized",
+            )
+            .into_response();
         }
     }
     ws.on_upgrade(move |socket| handle_socket(state, socket))
@@ -607,5 +757,40 @@ async fn handle_socket(state: Arc<AppState>, mut socket: WebSocket) {
             Err(broadcast::error::RecvError::Lagged(_)) => continue,
             Err(broadcast::error::RecvError::Closed) => break,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use axum::http::StatusCode;
+    use serde_json::json;
+
+    use super::{api_error_with_params, parse_settings_update};
+
+    #[test]
+    fn settings_reject_unknown_nested_fields() {
+        let mut settings = serde_json::to_value(crate::config::AppConfig::default()).unwrap();
+        settings["audio"]["unknown"] = serde_json::json!(true);
+        let body = serde_json::to_vec(&settings).unwrap();
+
+        assert!(parse_settings_update(&body)
+            .err()
+            .unwrap()
+            .contains("audio.unknown"));
+    }
+
+    #[test]
+    fn api_errors_include_stable_code_params_and_diagnostic_detail() {
+        let (status, body) = api_error_with_params(
+            StatusCode::CONFLICT,
+            "asr.model.not_downloaded",
+            json!({ "model": "small" }),
+            "识别模型 small 尚未下载",
+        );
+
+        assert_eq!(status, StatusCode::CONFLICT);
+        assert_eq!(body["code"], "asr.model.not_downloaded");
+        assert_eq!(body["params"], json!({ "model": "small" }));
+        assert_eq!(body["detail"], "识别模型 small 尚未下载");
     }
 }

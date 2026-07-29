@@ -5,6 +5,16 @@ export interface DesktopPreferences {
   minimizeToTray: boolean;
 }
 
+export class DesktopPreferenceError extends Error {
+  readonly code: string;
+
+  constructor(code: string) {
+    super(code);
+    this.name = "DesktopPreferenceError";
+    this.code = code;
+  }
+}
+
 export interface DesktopPreferencesRuntime {
   isNative: () => boolean;
   isLaunchAtStartupEnabled: () => Promise<boolean>;
@@ -67,11 +77,15 @@ export async function updateDesktopPreference(
   if (key === "launchAtStartup") {
     await adapter.setLaunchAtStartup(enabled);
     const saved = await adapter.isLaunchAtStartupEnabled();
-    if (saved !== enabled) throw new Error("Windows 开机启动状态未生效");
+    if (saved !== enabled) {
+      throw new DesktopPreferenceError("desktop.autostart_not_applied");
+    }
   } else {
     await adapter.setMinimizeToTray(enabled);
     const saved = await adapter.getMinimizeToTray();
-    if ((saved === true) !== enabled) throw new Error("托盘偏好未能保存");
+    if ((saved === true) !== enabled) {
+      throw new DesktopPreferenceError("desktop.tray_not_saved");
+    }
   }
 
   return { ...current, [key]: enabled };

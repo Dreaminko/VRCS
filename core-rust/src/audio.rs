@@ -20,11 +20,31 @@ const CHANNEL_CAPACITY: usize = 128;
 const START_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(8);
 
 #[derive(Debug, Clone)]
-pub struct AudioError(pub String);
+pub struct AudioError {
+    code: &'static str,
+    message: String,
+}
+
+impl AudioError {
+    fn new(message: impl Into<String>) -> Self {
+        Self::with_code("audio.unavailable", message)
+    }
+
+    pub(crate) fn with_code(code: &'static str, message: impl Into<String>) -> Self {
+        Self {
+            code,
+            message: message.into(),
+        }
+    }
+
+    pub fn code(&self) -> &'static str {
+        self.code
+    }
+}
 
 impl std::fmt::Display for AudioError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&self.0)
+        f.write_str(&self.message)
     }
 }
 
@@ -75,16 +95,23 @@ impl AudioCapture {
         process_name: Option<&str>,
     ) -> Result<AudioDevice, AudioError> {
         if self.session.is_some() {
-            return Err(AudioError("Audio capture is already running".into()));
+            return Err(AudioError::with_code(
+                "capture.already_running",
+                "Audio capture is already running",
+            ));
         }
         if let Some(name) = process_name {
             if self.source != CaptureSource::Speaker {
-                return Err(AudioError(
-                    "Process loopback is only valid for speaker capture".into(),
+                return Err(AudioError::new(
+                    "Process loopback is only valid for speaker capture",
                 ));
             }
-            let pid = platform::find_process_id(name)?
-                .ok_or_else(|| AudioError("未发现正在运行的 VRChat，请先启动 VRChat".into()))?;
+            let pid = platform::find_process_id(name)?.ok_or_else(|| {
+                AudioError::with_code(
+                    "audio.vrchat_not_running",
+                    "未发现正在运行的 VRChat，请先启动 VRChat",
+                )
+            })?;
             return self.start_session(platform::CaptureTarget::Process(pid));
         }
         let direction = match self.source {
@@ -119,19 +146,19 @@ impl AudioCapture {
             .spawn(move || {
                 platform::capture_main(target, output_rate, thread_stop, tx, ready_tx);
             })
-            .map_err(|e| AudioError(format!("无法启动音频采集线程：{e}")))?;
+            .map_err(|e| AudioError::new(format!("无法启动音频采集线程：{e}")))?;
 
         let device = match ready_rx.recv_timeout(START_TIMEOUT) {
             Ok(Ok(device)) => device,
             Ok(Err(message)) => {
                 stop.store(true, Ordering::Relaxed);
                 let _ = join.join();
-                return Err(AudioError(message));
+                return Err(AudioError::new(message));
             }
             Err(_) => {
                 stop.store(true, Ordering::Relaxed);
                 let _ = join.join();
-                return Err(AudioError("启动音频采集超时".into()));
+                return Err(AudioError::new("启动音频采集超时"));
             }
         };
         self.session = Some(CaptureSession {
@@ -148,12 +175,12 @@ impl AudioCapture {
         let session = self
             .session
             .as_mut()
-            .ok_or_else(|| AudioError("Audio capture is not running".into()))?;
+            .ok_or_else(|| AudioError::new("Audio capture is not running"))?;
         session
             .rx
             .recv()
             .await
-            .ok_or_else(|| AudioError("音频采集已停止".into()))
+            .ok_or_else(|| AudioError::new("音频采集已停止"))
     }
 
     /// 让采集线程退出，使阻塞中的 read 解除（channel 随线程结束关闭）。
@@ -199,7 +226,10 @@ pub fn validate_device_id(
             } else {
                 "麦克风"
             };
-            AudioError(format!("所选{label}设备已失效，请重新选择"))
+            AudioError::with_code(
+                "audio.device_unavailable",
+                format!("所选{label}设备已失效，请重新选择"),
+            )
         })
 }
 
@@ -261,7 +291,7 @@ pub(crate) mod platform {
                         reported_valid_bits
                     };
                     if valid_bits == 0 || valid_bits > bits {
-                        return Err(AudioError(format!(
+                        return Err(AudioError::new(format!(
                             "无效的 PCM 位深：容器 {bits} bit，有效 {valid_bits} bit"
                         )));
                     }
@@ -273,7 +303,7 @@ pub(crate) mod platform {
                 SampleType::Float if bits == 32 => SampleEncoding::Float32,
                 SampleType::Float if bits == 64 => SampleEncoding::Float64,
                 sample_type => {
-                    return Err(AudioError(format!(
+                    return Err(AudioError::new(format!(
                         "暂不支持该设备格式（{sample_type:?} {bits} bit），请选择其他输出设备"
                     )));
                 }
@@ -308,7 +338,7 @@ pub(crate) mod platform {
     }
 
     fn err<E: std::fmt::Display>(e: E) -> AudioError {
-        AudioError(e.to_string())
+        AudioError::new(e.to_string())
     }
 
     /// 端点 ID 字符串的稳定散列，限制到 JavaScript 可精确表示的 53 位整数。
@@ -344,7 +374,7 @@ pub(crate) mod platform {
         if result.is_ok() {
             Ok(())
         } else {
-            Err(AudioError(format!("COM 初始化失败：{result:?}")))
+            Err(AudioError::new(format!("COM 初始化失败：{result:?}")))
         }
     }
 
@@ -400,7 +430,10 @@ pub(crate) mod platform {
                 return Ok(wasapi_id);
             }
         }
-        Err(AudioError("所选音频设备已失效，请重新选择".into()))
+        Err(AudioError::with_code(
+            "audio.device_unavailable",
+            "所选音频设备已失效，请重新选择",
+        ))
     }
 
     pub(crate) fn find_process_id(process_name: &str) -> Result<Option<u32>, AudioError> {
@@ -413,7 +446,7 @@ pub(crate) mod platform {
         let target = process_name.to_lowercase();
         unsafe {
             let snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0)
-                .map_err(|e| AudioError(format!("无法枚举 Windows 进程：{e}")))?;
+                .map_err(|e| AudioError::new(format!("无法枚举 Windows 进程：{e}")))?;
             let mut entry = PROCESSENTRY32W {
                 dwSize: std::mem::size_of::<PROCESSENTRY32W>() as u32,
                 ..Default::default()
@@ -458,7 +491,10 @@ pub(crate) mod platform {
                 return Ok(device);
             }
         }
-        Err(AudioError("所选音频设备已失效，请重新选择".into()))
+        Err(AudioError::with_code(
+            "audio.device_unavailable",
+            "所选音频设备已失效，请重新选择",
+        ))
     }
 
     fn decode_sample(bytes: &[u8], encoding: SampleEncoding) -> f32 {
@@ -504,7 +540,7 @@ pub(crate) mod platform {
         let sample_bytes = format.encoding.sample_bytes();
         let frame_bytes = channels * sample_bytes;
         if !packet.len().is_multiple_of(frame_bytes) {
-            return Err(AudioError("WASAPI 返回了不完整的音频帧".into()));
+            return Err(AudioError::new("WASAPI 返回了不完整的音频帧"));
         }
 
         for frame in packet.make_contiguous().chunks_exact(frame_bytes) {
@@ -560,7 +596,7 @@ pub(crate) mod platform {
                     // 进程回环支持 autoconvert（原 vrcs-process-audio 同款方案）：
                     // 直接向引擎请求 16 kHz 单声道 Int16。
                     let client = AudioClient::new_application_loopback_client(*pid, true)
-                        .map_err(|e| AudioError(format!("无法连接 VRChat 音频：{e}")))?;
+                        .map_err(|e| AudioError::new(format!("无法连接 VRChat 音频：{e}")))?;
                     let device = AudioDevice {
                         id: -1,
                         name: "VRChat（仅应用音频）".into(),
@@ -633,7 +669,7 @@ pub(crate) mod platform {
         let (client, device, native) = match run() {
             Ok(ok) => ok,
             Err(e) => {
-                let _ = ready.send(Err(e.0));
+                let _ = ready.send(Err(e.to_string()));
                 return;
             }
         };
@@ -679,7 +715,7 @@ pub(crate) mod platform {
         })();
         let _ = client.stop_stream();
         if let Err(e) = stream {
-            tracing::warn!("audio capture stopped with error: {}", e.0);
+            tracing::warn!("audio capture stopped with error: {e}");
         }
     }
 
@@ -777,18 +813,18 @@ pub(crate) mod platform {
     }
 
     pub(crate) fn list_devices() -> Result<Vec<AudioDevice>, AudioError> {
-        Err(AudioError("音频采集仅支持 Windows".into()))
+        Err(AudioError::new("音频采集仅支持 Windows"))
     }
 
     pub(crate) fn resolve_device_id(
         _id: i64,
         _source: super::CaptureSource,
     ) -> Result<String, AudioError> {
-        Err(AudioError("音频采集仅支持 Windows".into()))
+        Err(AudioError::new("音频采集仅支持 Windows"))
     }
 
     pub(crate) fn find_process_id(_name: &str) -> Result<Option<u32>, AudioError> {
-        Err(AudioError("音频采集仅支持 Windows".into()))
+        Err(AudioError::new("音频采集仅支持 Windows"))
     }
 
     pub(crate) fn capture_main(

@@ -1,5 +1,5 @@
 :root {
-  font-family: "Segoe UI", "Microsoft YaHei UI", sans-serif;
+  font-family: "Segoe UI", "Yu Gothic UI", "Meiryo UI", "Microsoft YaHei UI", sans-serif;
   color: #18232d;
   background: #f6f9fc;
   font-synthesis: none;
@@ -398,11 +398,49 @@ button:focus-visible, select:focus-visible, input:focus-visible {
   will-change: transform;
 }
 
+.live-scroll-to-bottom {
+  position: fixed;
+  z-index: 39;
+  bottom: 96px;
+  left: 50%;
+  display: grid;
+  width: 40px;
+  height: 40px;
+  place-items: center;
+  padding: 0;
+  transform: translateX(calc(-50% + var(--dock-sidebar-offset)));
+  border: 1px solid var(--border-strong);
+  border-radius: 50%;
+  color: var(--primary);
+  background: var(--surface);
+  box-shadow: 0 8px 24px rgba(40, 76, 110, 0.16), 0 1px 3px rgba(40, 76, 110, 0.1);
+  cursor: pointer;
+  animation: live-scroll-button-in 160ms cubic-bezier(0.16, 1, 0.3, 1);
+  transition:
+    color 140ms ease-out,
+    background-color 140ms ease-out,
+    box-shadow 140ms ease-out,
+    transform 180ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.live-scroll-to-bottom:hover {
+  color: white;
+  background: var(--primary);
+  box-shadow: 0 10px 28px rgba(40, 76, 110, 0.2), 0 1px 3px rgba(40, 76, 110, 0.12);
+}
+.live-scroll-to-bottom:active { background: var(--primary-hover); }
+
 @media (hover: hover) {
   .sidebar-icon-button:hover { color: var(--primary); background: rgba(255, 255, 255, 0.62); }
   .sidebar-new-icon:hover, .new-conversation-button:hover { color: white; background: var(--primary-hover); }
   .conversation-button:hover { color: var(--text); background: rgba(255, 255, 255, 0.56); }
   .conversation-button.selected:hover { background: var(--surface); }
+}
+
+@keyframes live-scroll-button-in {
+  from {
+    opacity: 0;
+    transform: translateX(calc(-50% + var(--dock-sidebar-offset))) translateY(8px) scale(0.94);
+  }
 }
 .dock-button {
   position: relative;
@@ -936,6 +974,19 @@ button:focus-visible, select:focus-visible, input:focus-visible {
   transition: transform 160ms ease;
 }
 .settings-toggle-list { display: grid; gap: 0; }
+.system-language-setting {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) minmax(180px, 280px);
+  align-items: center;
+  gap: 24px;
+  min-height: 72px;
+  padding: 12px 4px;
+  border-bottom: 1px solid var(--border);
+}
+.system-language-setting > div:first-child { display: grid; gap: 4px; }
+.system-language-setting strong { color: var(--text); font-size: 13px; font-weight: 650; }
+.system-language-setting small { color: var(--text-secondary); font-size: 11px; line-height: 1.5; }
+.system-language-setting .field { min-width: 0; }
 .settings-toggle-row {
   display: flex;
   min-height: 64px;
@@ -1563,6 +1614,7 @@ button:focus-visible, select:focus-visible, input:focus-visible {
   .history-filters .dropdown-field { flex: 1; }
   .history-filters .dropdown-field-compact { min-width: 0; }
   .form-grid { grid-template-columns: 1fr; }
+  .system-language-setting { grid-template-columns: 1fr; gap: 10px; }
   .recognition-config-fields { grid-template-columns: 1fr; }
   .model-row { grid-template-columns: minmax(0, 1fr); }
   .model-row-action { grid-column: 1; justify-content: flex-start; }

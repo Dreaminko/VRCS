@@ -69,10 +69,23 @@ fn model_spec(model: &str) -> Result<ModelSpec, String> {
         .ok_or_else(|| format!("不支持的识别模型：{model}"))
 }
 
+pub fn is_supported_model(model: &str) -> bool {
+    MODELS.iter().any(|spec| spec.id == model)
+}
+
 pub fn validate_config(config: &AsrConfig) -> Result<(), String> {
     model_spec(&config.model)?;
-    if config.device == "cuda" && !cfg!(feature = "cuda") {
-        return Err("当前构建未包含 CUDA 后端".into());
+    if config.device == "cuda" {
+        if !cfg!(feature = "cuda") {
+            return Err("当前构建未包含 CUDA 后端".into());
+        }
+        let capability = cuda_capability();
+        if !capability.available {
+            return Err(format!(
+                "CUDA 预检失败：{}",
+                capability.error.unwrap_or_else(|| "CUDA 不可用".into())
+            ));
+        }
     }
     if config.compute_type != "int8" {
         return Err("Rust Core 的 whisper.cpp 后端当前仅接受 int8 兼容配置".into());
@@ -881,10 +894,14 @@ mod tests {
 
         let mut cuda = config.clone();
         cuda.device = "cuda".into();
-        if cfg!(feature = "cuda") {
+        if !cfg!(feature = "cuda") {
+            assert!(validate_config(&cuda).unwrap_err().contains("未包含 CUDA"));
+        } else if cuda_capability().available {
             assert!(validate_config(&cuda).is_ok());
         } else {
-            assert!(validate_config(&cuda).unwrap_err().contains("未包含 CUDA"));
+            assert!(validate_config(&cuda)
+                .unwrap_err()
+                .contains("CUDA 预检失败"));
         }
     }
 

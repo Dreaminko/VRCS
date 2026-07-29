@@ -14,14 +14,25 @@ export function conversationId(startedAt: number) {
   return `conversation-${startedAt}`;
 }
 
-function titleFrom(text: string) {
-  return Array.from(text.replace(/\s+/g, " ").trim()).slice(0, 14).join("") || "未命名对话";
+interface ConversationLabels {
+  untitled: string;
+  newConversation: string;
+}
+
+const DEFAULT_LABELS: ConversationLabels = {
+  untitled: "未命名对话",
+  newConversation: "新对话",
+};
+
+function titleFrom(text: string, untitled: string) {
+  return Array.from(text.replace(/\s+/g, " ").trim()).slice(0, 14).join("") || untitled;
 }
 
 export function groupConversations(
   subtitles: Subtitle[],
   manualStarts: number[],
   emptyStart: number,
+  labels: ConversationLabels = DEFAULT_LABELS,
 ): SubtitleConversation[] {
   const ordered = subtitles
     .filter((subtitle) => Number.isFinite(Date.parse(subtitle.created_at)))
@@ -52,7 +63,7 @@ export function groupConversations(
       const last = items[items.length - 1];
       return {
         id: conversationId(startedAt),
-        title: first ? titleFrom(first.text) : "新对话",
+        title: first ? titleFrom(first.text, labels.untitled) : labels.newConversation,
         startedAt: new Date(startedAt).toISOString(),
         updatedAt: last?.created_at ?? new Date(startedAt).toISOString(),
         subtitles: [...items].reverse(),

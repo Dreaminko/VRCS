@@ -74,6 +74,14 @@ pub struct SettingsUpdate {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CardLabels {
+    pub definition: String,
+    pub context: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CardRequest {
     pub term: String,
     pub definition: String,
@@ -85,8 +93,81 @@ pub struct CardRequest {
     pub dictionary: Option<String>,
     #[serde(default)]
     pub language: Option<String>,
+    #[serde(default)]
+    pub labels: Option<CardLabels>,
+}
+
+impl CardRequest {
+    pub fn validate(&self) -> Result<(), String> {
+        validate_text("词条", &self.term, 1, 500)?;
+        validate_text("释义", &self.definition, 1, 20_000)?;
+        validate_text("语境", &self.context, 0, 20_000)?;
+        validate_optional_text("读音", self.reading.as_deref(), 500)?;
+        validate_optional_text("词典", self.dictionary.as_deref(), 500)?;
+        validate_optional_text("语言", self.language.as_deref(), 20)?;
+        if let Some(labels) = &self.labels {
+            validate_text("释义标签", &labels.definition, 1, 100)?;
+            validate_text("语境标签", &labels.context, 1, 100)?;
+        }
+        Ok(())
+    }
+}
+
+fn validate_text(label: &str, value: &str, minimum: usize, maximum: usize) -> Result<(), String> {
+    let length = value.chars().count();
+    if !(minimum..=maximum).contains(&length) {
+        return Err(format!("{label}长度必须在 {minimum} 到 {maximum} 字符之间"));
+    }
+    Ok(())
+}
+
+fn validate_optional_text(label: &str, value: Option<&str>, maximum: usize) -> Result<(), String> {
+    if value.is_some_and(|value| value.chars().count() > maximum) {
+        return Err(format!("{label}不能超过 {maximum} 字符"));
+    }
+    Ok(())
 }
 
 pub fn now_iso8601() -> String {
     chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Micros, true)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn card() -> CardRequest {
+        CardRequest {
+            term: "学ぶ".into(),
+            definition: "学习".into(),
+            context: String::new(),
+            reading: None,
+            dictionary: None,
+            language: None,
+            labels: None,
+        }
+    }
+
+    #[test]
+    fn card_limits_count_unicode_characters() {
+        let mut card = card();
+        card.term = "学".repeat(500);
+        assert!(card.validate().is_ok());
+        card.term.push('ぶ');
+        assert!(card.validate().is_err());
+    }
+
+    #[test]
+    fn card_rejects_unknown_fields_and_oversized_content() {
+        let unknown = serde_json::from_value::<CardRequest>(serde_json::json!({
+            "term": "hello",
+            "definition": "greeting",
+            "typo": true
+        }));
+        assert!(unknown.is_err());
+
+        let mut card = card();
+        card.definition = "x".repeat(20_001);
+        assert!(card.validate().is_err());
+    }
 }

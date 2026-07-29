@@ -11,6 +11,7 @@ import type {
   Subtitle,
 } from "./types";
 import { invoke, isTauri } from "@tauri-apps/api/core";
+import { apiErrorFromResponse } from "./api-error";
 
 interface CoreConnection {
   httpUrl: string;
@@ -49,8 +50,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     headers: requestHeaders(init?.headers),
   });
   if (!response.ok) {
-    const body = (await response.json().catch(() => null)) as { detail?: string } | null;
-    throw new Error(body?.detail ?? `${response.status} ${response.statusText}`);
+    throw await apiErrorFromResponse(response);
   }
   return (await response.json()) as T;
 }
@@ -90,8 +90,7 @@ export const coreApi = {
       body: file,
     });
     if (!response.ok) {
-      const body = (await response.json().catch(() => null)) as { detail?: string } | null;
-      throw new Error(body?.detail ?? `${response.status} ${response.statusText}`);
+      throw await apiErrorFromResponse(response);
     }
     return (await response.json()) as DictionarySource;
   },

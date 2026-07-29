@@ -19,11 +19,11 @@ VRCS 的本地后端。数据面、音频采集、VAD、本地 ASR 与字幕发�
 
 SQLite DDL 与 Python 版完全一致，可直接打开已有的 `vrcs.db`。配置文件格式、环境变量（`VRCS_CONFIG` / `VRCS_HOST` / `VRCS_PORT` / `VRCS_SESSION_TOKEN`）与 Python 版一致。监听非回环地址时必须设置非空的 `VRCS_SESSION_TOKEN`；Yomitan 压缩包上限为 128 MiB。
 
-将 Silero 官方仓库提供的 `silero_vad.onnx` 放到配置文件同目录的 `models/` 下即可启用，也可通过 `VRCS_SILERO_MODEL` 指定其他位置。模型缺失、初始化或推理失败时自动回退到能量检测，`/health` 的 `vad_backend` 会报告实际后端。
+Core 首次启动时会从 Silero 官方仓库下载固定的 v6.2.1 模型到配置文件同目录的 `models/`。下载文件仅在大小为 2,327,524 字节且 SHA-256 为 `1a153a22f4509e292a94e67d6f9b85e8deb25b4988682b7e174c65279d8788e3` 时安装；已有文件也会在启动和加载时校验。`VRCS_SILERO_MODEL` 可将同一固定版本放在自行管理的位置，此路径不会触发自动下载。模型下载、校验、初始化或推理失败时自动回退到能量检测，`/health` 的 `vad_backend` 和 `vad_model_version` 会报告实际状态。
 
 Whisper GGML 模型默认存放在配置文件同目录的 `models/whisper/`，可通过设置页或配置项 `storage.model_directory` 自定义；相对路径以配置文件目录为基准。修改保存位置时，Core 会自动迁移已下载的有效模型；跨磁盘时采用复制完成后再删除源文件，迁移失败则保留原设置和原目录。`VRCS_ASR_MODEL_DIR` 可用于启动时强制覆盖该设置。`/api/asr/models` 会报告模型大小与下载进度，下载文件完成前使用 `.part` 后缀；下载源固定到已知仓库版本，完成后校验精确大小与 SHA-256，删除下载中的模型会取消任务。
 
-Core 默认构建保持 CPU-only，`--features cuda` 会编译 GGML CUDA 后端。`device=auto` 在检测到可用 NVIDIA GPU 时优先 CUDA，模型装载失败会记录原因并回退 CPU；`device=cuda` 不会静默降级。`/api/asr/capabilities` 通过 CUDA Driver API 返回真实设备数量。
+Core 默认构建保持 CPU-only，`--features cuda` 会编译 GGML CUDA 后端。`device=auto` 在检测到可用 NVIDIA GPU 时优先 CUDA，模型装载失败会记录原因并回退 CPU；显式保存 `device=cuda` 前会预检驱动与设备，不可用时拒绝设置且不会静默降级。`/api/asr/capabilities` 通过 CUDA Driver API 返回真实设备数量。
 
 ## 运行与测试
 

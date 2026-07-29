@@ -5,9 +5,19 @@ import type {
   Settings,
 } from "./types";
 
+type TranslateValidation = (key: string) => string;
+
+const validationMessage: TranslateValidation = (key) => ({
+  "validation.audio.outputUnavailable": "所选系统输出设备已失效，请重新选择",
+  "validation.audio.microphoneUnavailable": "所选麦克风设备已失效，请重新选择",
+  "validation.asr.cudaUnavailable": "CUDA 预检失败，请改用自动选择或 CPU",
+  "validation.asr.invalidComputeType": "当前运行设备与计算类型组合无效",
+})[key] ?? key;
+
 export function audioSelectionErrors(
   settings: Settings,
   devices: AudioDevice[],
+  translate: TranslateValidation = validationMessage,
 ): string[] {
   const errors: string[] = [];
   const output = settings.audio.output;
@@ -16,7 +26,7 @@ export function audioSelectionErrors(
     && output.device_id !== null
     && !devices.some((device) => device.is_loopback && device.id === output.device_id)
   ) {
-    errors.push("所选系统输出设备已失效，请重新选择");
+    errors.push(translate("validation.audio.outputUnavailable"));
   }
   const microphone = settings.audio.microphone;
   if (
@@ -28,7 +38,7 @@ export function audioSelectionErrors(
       )
     )
   ) {
-    errors.push("所选麦克风设备已失效，请重新选择");
+    errors.push(translate("validation.audio.microphoneUnavailable"));
   }
   return errors;
 }
@@ -43,13 +53,14 @@ export function validComputeTypes(
 export function asrSelectionError(
   settings: Settings,
   capabilities: AsrCapabilities | null,
+  translate: TranslateValidation = validationMessage,
 ): string | null {
   if (!capabilities) return null;
   if (settings.asr.device === "cuda" && !capabilities.cuda.available) {
-    return "CUDA 预检失败，请改用自动选择或 CPU";
+    return translate("validation.asr.cudaUnavailable");
   }
   if (!validComputeTypes(capabilities, settings.asr.device).includes(settings.asr.compute_type)) {
-    return "当前运行设备与计算类型组合无效";
+    return translate("validation.asr.invalidComputeType");
   }
   return null;
 }

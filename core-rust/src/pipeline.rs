@@ -7,27 +7,34 @@ use tokio::sync::broadcast;
 use tokio::task::JoinHandle;
 
 use crate::asr::AsrService;
-use crate::audio::{AudioCapture, CaptureSource};
+use crate::audio::{AudioCapture, AudioError, CaptureSource};
 use crate::config::VadConfig;
 use crate::db::Database;
 use crate::models::{now_iso8601, AudioDevice, Subtitle};
-use crate::vad::{SpeechSegmenter, VoiceDetector};
+use crate::vad::{SpeechSegmenter, VadRuntimeState, VoiceDetector};
 
 pub struct TranscriptionPipeline {
     source: CaptureSource,
     source_name: &'static str,
     vad_model_path: PathBuf,
+    vad_runtime: VadRuntimeState,
     task: Option<JoinHandle<()>>,
     device: Option<AudioDevice>,
     last_error: Arc<Mutex<Option<String>>>,
 }
 
 impl TranscriptionPipeline {
-    pub fn new(source: CaptureSource, source_name: &'static str, vad_model_path: PathBuf) -> Self {
+    pub fn new(
+        source: CaptureSource,
+        source_name: &'static str,
+        vad_model_path: PathBuf,
+        vad_runtime: VadRuntimeState,
+    ) -> Self {
         Self {
             source,
             source_name,
             vad_model_path,
+            vad_runtime,
             task: None,
             device: None,
             last_error: Arc::new(Mutex::new(None)),
@@ -61,19 +68,21 @@ impl TranscriptionPipeline {
         db: Arc<Mutex<Database>>,
         subtitles_tx: broadcast::Sender<Subtitle>,
         history_limit: u32,
-    ) -> Result<AudioDevice, String> {
+    ) -> Result<AudioDevice, AudioError> {
         if self.running() {
-            return Err("Transcription is already running".into());
+            return Err(AudioError::with_code(
+                "capture.already_running",
+                "Transcription is already running",
+            ));
         }
         self.task.take();
         self.device = None;
         *self.last_error.lock().expect("pipeline error lock") = None;
 
         let mut capture = AudioCapture::new(sample_rate, self.source);
-        let device = capture
-            .start(device_id, process_name)
-            .map_err(|error| error.to_string())?;
-        let detector = VoiceDetector::load(&self.vad_model_path);
+        let device = capture.start(device_id, process_name)?;
+        let detector =
+            VoiceDetector::load_with_runtime(&self.vad_model_path, self.vad_runtime.clone());
         let segmenter = SpeechSegmenter::new(
             sample_rate,
             vad_config.silence_seconds,
