@@ -275,6 +275,7 @@
         "noneImported": "尚未导入",
         "import": "导入",
         "importing": "正在导入 {{file}}…",
+        "progressLabel": "词典导入进度",
         "imported": "已导入 {{title}}，共 {{formatted}} 个词条。",
         "confirmRemove": "移除词典“{{title}}”？",
         "removed": "已移除 {{title}}。",

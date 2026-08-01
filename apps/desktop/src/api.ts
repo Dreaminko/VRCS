@@ -5,6 +5,7 @@ import type {
   AsrModelRecord,
   AudioDevice,
   DictionaryEntry,
+  DictionaryImportProgress,
   DictionarySource,
   Health,
   Settings,
@@ -70,6 +71,15 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return (await response.json()) as T;
 }
 
+function dictionaryImportId(): string {
+  if (typeof crypto.randomUUID === "function") return crypto.randomUUID();
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+}
+
+function delay(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
+}
+
 export const coreApi = {
   health: () => request<Health>("/health"),
   subtitles: () => request<Subtitle[]>("/api/subtitles"),
@@ -98,16 +108,41 @@ export const coreApi = {
   lookup: (term: string) =>
     request<DictionaryEntry[]>(`/api/dictionary?q=${encodeURIComponent(term)}`),
   dictionaries: () => request<DictionarySource[]>("/api/dictionaries"),
-  importDictionary: async (file: File) => {
-    const response = await fetch(`${connection.httpUrl}/api/dictionaries/import`, {
-      method: "POST",
-      headers: requestHeaders({ "Content-Type": "application/zip" }),
-      body: file,
-    });
-    if (!response.ok) {
-      throw await apiErrorFromResponse(response);
+  importDictionary: async (file: File, onProgress?: (progress: number) => void) => {
+    const importId = dictionaryImportId();
+    let finished = false;
+    onProgress?.(0);
+    const polling = (async () => {
+      while (!finished) {
+        try {
+          const status = await request<DictionaryImportProgress>(
+            `/api/dictionaries/import/${encodeURIComponent(importId)}`,
+          );
+          onProgress?.(Math.max(0, Math.min(1, status.progress)));
+        } catch {
+          // 上传完成且 Core 注册任务前会短暂返回 404，主请求仍负责错误处理。
+        }
+        await delay(100);
+      }
+    })();
+    try {
+      const response = await fetch(`${connection.httpUrl}/api/dictionaries/import`, {
+        method: "POST",
+        headers: requestHeaders({
+          "Content-Type": "application/zip",
+          "X-VRCS-Import-Id": importId,
+        }),
+        body: file,
+      });
+      if (!response.ok) {
+        throw await apiErrorFromResponse(response);
+      }
+      onProgress?.(1);
+      return (await response.json()) as DictionarySource;
+    } finally {
+      finished = true;
+      await polling;
     }
-    return (await response.json()) as DictionarySource;
   },
   deleteDictionary: (id: number) =>
     request<{ deleted: boolean }>(`/api/dictionaries/${id}`, { method: "DELETE" }),

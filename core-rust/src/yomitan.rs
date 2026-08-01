@@ -43,7 +43,7 @@ pub struct DictionaryRecord {
 pub struct YomitanImporter<'a> {
     archive: &'a [u8],
     prefix: String,
-    term_files: Vec<String>,
+    term_files: Vec<(String, u64)>,
     pub metadata: DictionaryMetadata,
 }
 
@@ -131,7 +131,7 @@ impl<'a> YomitanImporter<'a> {
         }
 
         let bank_pattern = Regex::new(r"^term_bank_(\d+)\.json$").unwrap();
-        let mut banks: Vec<(u64, String)> = Vec::new();
+        let mut banks: Vec<(u64, String, u64)> = Vec::new();
         for (name, size) in &files {
             let Some(relative) = name.strip_prefix(&prefix) else {
                 continue;
@@ -140,14 +140,17 @@ impl<'a> YomitanImporter<'a> {
                 if *size > MAX_JSON_FILE_BYTES {
                     return Err(format!("词条文件过大：{relative}"));
                 }
-                banks.push((caps[1].parse().unwrap_or(0), name.clone()));
+                banks.push((caps[1].parse().unwrap_or(0), name.clone(), *size));
             }
         }
         if banks.is_empty() {
             return Err("不是有效的 Yomitan 词典：缺少 term_bank_*.json".into());
         }
-        banks.sort_by_key(|(number, _)| *number);
-        self.term_files = banks.into_iter().map(|(_, name)| name).collect();
+        banks.sort_by_key(|(number, _, _)| *number);
+        self.term_files = banks
+            .into_iter()
+            .map(|(_, name, size)| (name, size))
+            .collect();
         self.prefix = prefix;
 
         let index = read_json(&mut zip, &index_name, MAX_INDEX_BYTES)?;
@@ -156,20 +159,44 @@ impl<'a> YomitanImporter<'a> {
     }
 
     /// 逐条处理词条，只在内存中保留当前 term bank。
+    #[cfg(test)]
     pub fn for_each_entry(
         &self,
+        process: impl FnMut(DictionaryRecord) -> AppResult<()>,
+    ) -> AppResult<u64> {
+        self.for_each_entry_with_progress(process, |_| {})
+    }
+
+    pub fn for_each_entry_with_progress(
+        &self,
         mut process: impl FnMut(DictionaryRecord) -> AppResult<()>,
+        mut report_progress: impl FnMut(f64),
     ) -> AppResult<u64> {
         let mut zip = Self::zip_archive(self.archive).map_err(AppError::validation)?;
         let mut count = 0u64;
         let mut total_text_chars = 0u64;
-        for name in &self.term_files {
+        let total_file_bytes = self
+            .term_files
+            .iter()
+            .map(|(_, size)| *size)
+            .sum::<u64>()
+            .max(1);
+        let mut completed_file_bytes = 0u64;
+        report_progress(0.0);
+        for (name, file_bytes) in &self.term_files {
             let bank =
                 read_json(&mut zip, name, MAX_JSON_FILE_BYTES).map_err(AppError::validation)?;
             let Value::Array(items) = bank else {
                 return Err(AppError::validation(format!("{name} 必须包含词条数组")));
             };
             for (index, raw) in items.iter().enumerate() {
+                if index % 256 == 0 {
+                    let bank_progress =
+                        (*file_bytes as f64 * index as f64) / items.len().max(1) as f64;
+                    report_progress(
+                        (completed_file_bytes as f64 + bank_progress) / total_file_bytes as f64,
+                    );
+                }
                 let Value::Array(fields) = raw else {
                     return Err(AppError::validation(format!(
                         "{name} 的第 {} 条词条格式无效",
@@ -182,30 +209,23 @@ impl<'a> YomitanImporter<'a> {
                         index + 1
                     )));
                 }
-                let term = json_text(&fields[0]).trim().to_string();
-                let reading = json_text(&fields[1]).trim().to_string();
+                let term = json_text(&fields[0]);
+                let reading = json_text(&fields[1]);
                 let Value::Array(glossary) = &fields[5] else {
                     continue;
                 };
                 if term.is_empty() {
                     continue;
                 }
-                if term.chars().count() > MAX_TERM_CHARS
-                    || reading.chars().count() > MAX_READING_CHARS
-                {
+                let term_chars = term.chars().count();
+                let reading_chars = reading.chars().count();
+                if term_chars > MAX_TERM_CHARS || reading_chars > MAX_READING_CHARS {
                     return Err(AppError::validation(format!(
                         "{name} 的第 {} 条词条文本过长",
                         index + 1
                     )));
                 }
-                let definition = glossary
-                    .iter()
-                    .map(text_content)
-                    .filter(|part| !part.is_empty())
-                    .collect::<Vec<_>>()
-                    .join("\n")
-                    .trim()
-                    .to_string();
+                let mut definition = glossary_text(glossary);
                 if definition.is_empty() {
                     continue;
                 }
@@ -214,10 +234,9 @@ impl<'a> YomitanImporter<'a> {
                         "词典词条数量超过 {MAX_ENTRIES} 条限制"
                     )));
                 }
-                let definition: String = definition.chars().take(MAX_DEFINITION_CHARS).collect();
-                let entry_chars = term.chars().count() as u64
-                    + reading.chars().count() as u64
-                    + definition.chars().count() as u64;
+                let definition_chars = truncate_chars(&mut definition, MAX_DEFINITION_CHARS);
+                let entry_chars =
+                    term_chars as u64 + reading_chars as u64 + definition_chars as u64;
                 total_text_chars = total_text_chars
                     .checked_add(entry_chars)
                     .ok_or_else(|| AppError::validation("词典文本大小溢出"))?;
@@ -233,7 +252,10 @@ impl<'a> YomitanImporter<'a> {
                 })?;
                 count += 1;
             }
+            completed_file_bytes = completed_file_bytes.saturating_add(*file_bytes);
+            report_progress(completed_file_bytes as f64 / total_file_bytes as f64);
         }
+        report_progress(1.0);
         Ok(count)
     }
 }
@@ -322,47 +344,86 @@ fn read_json(
 /// 词条字段的字符串化（Yomitan 词条首两项恒为字符串，容忍数字兜底）。
 fn json_text(value: &Value) -> String {
     match value {
-        Value::String(text) => text.clone(),
-        other => other.to_string(),
+        Value::String(text) => text.trim().to_owned(),
+        other => other.to_string().trim().to_owned(),
     }
 }
 
-/// 从 Yomitan 结构化内容中抽取纯文本（忽略图片，br 转换行）。
-fn text_content(value: &Value) -> String {
+fn glossary_text(glossary: &[Value]) -> String {
+    let mut output = String::new();
+    for value in glossary {
+        let before_separator = output.len();
+        if !output.is_empty() {
+            output.push('\n');
+        }
+        let before_content = output.len();
+        append_text_content(value, &mut output);
+        if output.len() == before_content {
+            output.truncate(before_separator);
+        }
+    }
+    trim_in_place(&mut output);
+    output
+}
+
+/// 从 Yomitan 结构化内容中抽取纯文本（图片使用替代文本，br 转换为换行）。
+fn append_text_content(value: &Value, output: &mut String) {
     match value {
-        Value::String(text) => text.trim().to_string(),
-        Value::Array(items) => items
-            .iter()
-            .map(text_content)
-            .filter(|p| !p.is_empty())
-            .collect(),
+        Value::String(text) => output.push_str(text.trim()),
+        Value::Array(items) => {
+            for item in items {
+                append_text_content(item, output);
+            }
+        }
         Value::Object(map) => {
             let entry_type = map.get("type").and_then(Value::as_str);
             let tag = map.get("tag").and_then(Value::as_str);
             if entry_type == Some("text") {
-                map.get("text")
-                    .and_then(Value::as_str)
-                    .unwrap_or("")
-                    .trim()
-                    .to_string()
+                output.push_str(map.get("text").and_then(Value::as_str).unwrap_or("").trim());
             } else if entry_type == Some("image") || tag == Some("img") {
-                map.get("alt")
-                    .or_else(|| map.get("description"))
-                    .or_else(|| map.get("title"))
-                    .and_then(Value::as_str)
-                    .unwrap_or("")
-                    .trim()
-                    .to_string()
+                output.push_str(
+                    map.get("alt")
+                        .or_else(|| map.get("description"))
+                        .or_else(|| map.get("title"))
+                        .and_then(Value::as_str)
+                        .unwrap_or("")
+                        .trim(),
+                );
             } else if tag == Some("br") {
-                "\n".to_string()
+                output.push('\n');
             } else if let Some(content) = map.get("content") {
-                text_content(content)
-            } else {
-                String::new()
+                append_text_content(content, output);
             }
         }
-        _ => String::new(),
+        _ => {}
     }
+}
+
+fn trim_in_place(value: &mut String) {
+    let start = value.len() - value.trim_start().len();
+    let end = value.trim_end().len();
+    if start >= end {
+        value.clear();
+        return;
+    }
+    value.truncate(end);
+    value.drain(..start);
+}
+
+fn truncate_chars(value: &mut String, max_chars: usize) -> usize {
+    let mut count = 0;
+    let mut truncate_at = None;
+    for (index, _) in value.char_indices() {
+        if count == max_chars {
+            truncate_at = Some(index);
+            break;
+        }
+        count += 1;
+    }
+    if let Some(index) = truncate_at {
+        value.truncate(index);
+    }
+    count
 }
 
 #[cfg(test)]

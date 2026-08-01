@@ -164,7 +164,11 @@ pub fn router(state: Arc<AppState>) -> Router {
     let cors = CorsLayer::new()
         .allow_origin(ALLOWED_ORIGINS.map(|origin| origin.parse().unwrap()))
         .allow_methods(tower_http::cors::Any)
-        .allow_headers([header::AUTHORIZATION, header::CONTENT_TYPE]);
+        .allow_headers([
+            header::AUTHORIZATION,
+            header::CONTENT_TYPE,
+            header::HeaderName::from_static("x-vrcs-import-id"),
+        ]);
 
     Router::new()
         .route("/health", get(health))
@@ -189,6 +193,10 @@ pub fn router(state: Arc<AppState>) -> Router {
             "/api/dictionaries/import",
             post(dictionary::dictionary_import)
                 .layer(DefaultBodyLimit::max(yomitan::MAX_ARCHIVE_BYTES)),
+        )
+        .route(
+            "/api/dictionaries/import/{import_id}",
+            get(dictionary::dictionary_import_progress),
         )
         .route(
             "/api/dictionaries/{source_id}",

@@ -275,6 +275,7 @@
         "noneImported": "None imported",
         "import": "Import",
         "importing": "Importing {{file}}…",
+        "progressLabel": "Dictionary import progress",
         "imported": "Imported {{title}} with {{formatted}} entries.",
         "confirmRemove": "Remove dictionary “{{title}}”?",
         "removed": "Removed {{title}}.",

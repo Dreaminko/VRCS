@@ -303,8 +303,11 @@ export function useCoreSession(settingsPageActive: boolean) {
     });
   }
 
-  const importDictionary = useCallback(async (file: File) => {
-    const imported = await coreApi.importDictionary(file);
+  const importDictionary = useCallback(async (
+    file: File,
+    onProgress?: (progress: number) => void,
+  ) => {
+    const imported = await coreApi.importDictionary(file, onProgress);
     await loadDictionaries();
     return imported;
   }, [loadDictionaries]);

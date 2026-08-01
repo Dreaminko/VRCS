@@ -60,7 +60,10 @@ export function SettingsPanel({
   modelStatus: string;
   asrCapabilities: AsrCapabilities | null;
   onRefresh: () => Promise<void>;
-  onImportDictionary: (file: File) => Promise<DictionarySource>;
+  onImportDictionary: (
+    file: File,
+    onProgress?: (progress: number) => void,
+  ) => Promise<DictionarySource>;
   onDeleteDictionary: (id: number) => Promise<void>;
   onModelsChanged: () => Promise<void>;
   onSave: (value: Settings) => Promise<Settings>;
@@ -132,6 +135,7 @@ export function SettingsPanel({
 
   const dictionaryBusy = dictionary.busy;
   const dictionaryMessage = dictionary.message;
+  const dictionaryProgress = dictionary.progress;
   const dictionaryFileRef = dictionary.fileInputRef;
   const chooseDictionary = dictionary.choose;
   const removeDictionary = dictionary.remove;
@@ -271,6 +275,7 @@ export function SettingsPanel({
           dictionaries={dictionaries}
           busy={dictionaryBusy}
           message={dictionaryMessage}
+          progress={dictionaryProgress}
           fileInputRef={dictionaryFileRef}
           onChoose={chooseDictionary}
           onRemove={removeDictionary}

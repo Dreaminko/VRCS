@@ -3,11 +3,13 @@
 
 use std::path::Path;
 
-use rusqlite::{params, Connection};
+use rusqlite::{params, params_from_iter, Connection, Statement, ToSql};
 
 use crate::error::{AppError, AppResult};
 use crate::models::{DictionaryEntry, DictionarySource, Subtitle};
-use crate::yomitan::YomitanImporter;
+use crate::yomitan::{DictionaryRecord, YomitanImporter};
+
+const DICTIONARY_INSERT_BATCH_SIZE: usize = 500;
 
 const SEED_ENTRIES: [(&str, &str, &str); 4] = [
     ("hello", "en", "used as a greeting"),
@@ -77,6 +79,36 @@ fn like_prefix(value: &str) -> String {
     }
     escaped.push('%');
     escaped
+}
+
+fn dictionary_insert_sql(record_count: usize) -> String {
+    let placeholders = (0..record_count)
+        .map(|_| "(?, ?, ?, ?, ?, ?)")
+        .collect::<Vec<_>>()
+        .join(",");
+    format!(
+        "INSERT INTO dictionary_entries(source_id, term, reading, language, definition, score) VALUES {placeholders}"
+    )
+}
+
+fn insert_dictionary_batch(
+    statement: &mut Statement<'_>,
+    source_id: i64,
+    records: &mut Vec<DictionaryRecord>,
+) -> AppResult<()> {
+    let parameters = records.iter().flat_map(|record| {
+        [
+            &source_id as &dyn ToSql,
+            &record.term as &dyn ToSql,
+            &record.reading as &dyn ToSql,
+            &record.language as &dyn ToSql,
+            &record.definition as &dyn ToSql,
+            &record.score as &dyn ToSql,
+        ]
+    });
+    statement.execute(params_from_iter(parameters))?;
+    records.clear();
+    Ok(())
 }
 
 impl Database {
@@ -281,7 +313,17 @@ impl Database {
     }
 
     /// 导入 Yomitan 词典包；同名词典整体替换。
+    #[cfg(test)]
     pub fn import_yomitan(&mut self, archive: &[u8]) -> AppResult<DictionarySource> {
+        self.import_yomitan_with_progress(archive, |_| {})
+    }
+
+    pub fn import_yomitan_with_progress(
+        &mut self,
+        archive: &[u8],
+        mut report_progress: impl FnMut(f64),
+    ) -> AppResult<DictionarySource> {
+        report_progress(0.0);
         let importer = YomitanImporter::new(archive).map_err(AppError::validation)?;
         let imported_at = crate::models::now_iso8601();
         let tx = self.conn.transaction()?;
@@ -313,24 +355,26 @@ impl Database {
             params![source_id],
         )?;
 
+        let mut records = Vec::with_capacity(DICTIONARY_INSERT_BATCH_SIZE);
         let count = {
-            let mut stmt = tx
-                .prepare(
-                    "INSERT INTO dictionary_entries(source_id, term, reading, language, definition, score)
-                     VALUES (?, ?, ?, ?, ?, ?)",
-                )?;
-            importer.for_each_entry(|record| {
-                stmt.execute(params![
-                    source_id,
-                    record.term,
-                    record.reading,
-                    record.language,
-                    record.definition,
-                    record.score,
-                ])?;
-                Ok(())
-            })? as i64
+            let sql = dictionary_insert_sql(DICTIONARY_INSERT_BATCH_SIZE);
+            let mut statement = tx.prepare(&sql)?;
+            importer.for_each_entry_with_progress(
+                |record| {
+                    records.push(record);
+                    if records.len() == DICTIONARY_INSERT_BATCH_SIZE {
+                        insert_dictionary_batch(&mut statement, source_id, &mut records)?;
+                    }
+                    Ok(())
+                },
+                |progress| report_progress(progress * 0.99),
+            )? as i64
         };
+        if !records.is_empty() {
+            let sql = dictionary_insert_sql(records.len());
+            let mut statement = tx.prepare(&sql)?;
+            insert_dictionary_batch(&mut statement, source_id, &mut records)?;
+        }
         if count == 0 {
             return Err(AppError::validation("Yomitan 词典中没有可导入的文本词条"));
         }
@@ -339,6 +383,7 @@ impl Database {
             params![count, source_id],
         )?;
         tx.commit()?;
+        report_progress(1.0);
         self.dictionary_source(source_id)
     }
 
@@ -393,6 +438,7 @@ impl Database {
 mod tests {
     use super::*;
     use crate::models::now_iso8601;
+    use std::io::{Cursor, Write};
 
     fn open_temp_db(name: &str) -> (std::path::PathBuf, Database) {
         let dir = std::env::temp_dir().join(format!("vrcs-db-{}-{}", name, std::process::id()));
@@ -412,6 +458,25 @@ mod tests {
             source: "speaker".into(),
             created_at: now_iso8601(),
         }
+    }
+
+    fn dictionary_archive(count: usize) -> Vec<u8> {
+        let mut writer = zip::ZipWriter::new(Cursor::new(Vec::new()));
+        let options = zip::write::SimpleFileOptions::default();
+        writer.start_file("index.json", options).unwrap();
+        writer
+            .write_all(br#"{"title":"BatchDict","revision":"1","format":3}"#)
+            .unwrap();
+        writer.start_file("term_bank_1.json", options).unwrap();
+        let entries = (0..count)
+            .map(|index| {
+                serde_json::json!([format!("term-{index}"), "", "", "", 0, ["definition"]])
+            })
+            .collect::<Vec<_>>();
+        writer
+            .write_all(serde_json::to_string(&entries).unwrap().as_bytes())
+            .unwrap();
+        writer.finish().unwrap().into_inner()
     }
 
     #[test]
@@ -488,5 +553,36 @@ mod tests {
             .join(" ");
 
         assert!(plan.contains("dictionary_entries_term_idx"), "{plan}");
+    }
+
+    #[test]
+    fn dictionary_import_flushes_full_and_partial_batches() {
+        let (_path, mut db) = open_temp_db("batch-import");
+        let archive = dictionary_archive(DICTIONARY_INSERT_BATCH_SIZE + 1);
+
+        let mut progress = Vec::new();
+        let imported = db
+            .import_yomitan_with_progress(&archive, |value| progress.push(value))
+            .unwrap();
+        assert_eq!(imported.entry_count, 501);
+        assert_eq!(progress.first(), Some(&0.0));
+        assert_eq!(progress.last(), Some(&1.0));
+        assert!(progress.windows(2).all(|pair| pair[0] <= pair[1]));
+        assert_eq!(
+            db.conn
+                .query_row("SELECT COUNT(*) FROM dictionary_entries", [], |row| row
+                    .get::<_, i64>(0))
+                .unwrap(),
+            501
+        );
+
+        db.import_yomitan(&archive).unwrap();
+        assert_eq!(
+            db.conn
+                .query_row("SELECT COUNT(*) FROM dictionary_entries", [], |row| row
+                    .get::<_, i64>(0))
+                .unwrap(),
+            501
+        );
     }
 }

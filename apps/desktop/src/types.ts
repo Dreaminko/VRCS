@@ -136,6 +136,10 @@ export interface DictionarySource {
   imported_at: string;
 }
 
+export interface DictionaryImportProgress {
+  progress: number;
+}
+
 export interface AnkiStatus {
   connected: boolean;
   version: number | null;

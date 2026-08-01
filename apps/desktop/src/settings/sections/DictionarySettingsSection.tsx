@@ -9,6 +9,7 @@ export function DictionarySettingsSection({
   dictionaries,
   busy,
   message,
+  progress,
   fileInputRef,
   onChoose,
   onRemove,
@@ -17,6 +18,7 @@ export function DictionarySettingsSection({
   dictionaries: DictionarySource[];
   busy: boolean;
   message: string;
+  progress: number | null;
   fileInputRef: RefObject<HTMLInputElement | null>;
   onChoose: (file?: File) => Promise<void>;
   onRemove: (dictionary: DictionarySource) => Promise<void>;
@@ -24,6 +26,8 @@ export function DictionarySettingsSection({
   const { t } = useTranslation();
   const dictionaryBusy = busy;
   const dictionaryMessage = message;
+  const dictionaryProgress = progress === null ? null : Math.max(0, Math.min(1, progress));
+  const progressPercentage = dictionaryProgress === null ? null : Math.round(dictionaryProgress * 100);
   const dictionaryFileRef = fileInputRef;
   const chooseDictionary = onChoose;
   const removeDictionary = onRemove;
@@ -55,6 +59,21 @@ export function DictionarySettingsSection({
             </div>
           ) : <p className="dictionary-empty">{t("settings.dictionary.emptyHint")}</p>}
           {dictionaryMessage && <p className="dictionary-feedback" role="status">{dictionaryMessage}</p>}
+          {dictionaryBusy && dictionaryProgress !== null && progressPercentage !== null && (
+            <div className="dictionary-import-progress">
+              <div
+                className="dictionary-progress-track"
+                role="progressbar"
+                aria-label={t("settings.dictionary.progressLabel")}
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-valuenow={progressPercentage}
+              >
+                <span style={{ transform: `scaleX(${dictionaryProgress})` }} />
+              </div>
+              <span aria-hidden="true">{progressPercentage}%</span>
+            </div>
+          )}
         </div>
   );
 }

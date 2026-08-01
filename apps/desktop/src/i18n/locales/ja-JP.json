@@ -275,6 +275,7 @@
         "noneImported": "未インポート",
         "import": "インポート",
         "importing": "{{file}} をインポート中…",
+        "progressLabel": "辞書インポートの進行状況",
         "imported": "{{title}}（{{formatted}} 語）をインポートしました。",
         "confirmRemove": "辞書「{{title}}」を削除しますか？",
         "removed": "{{title}} を削除しました。",

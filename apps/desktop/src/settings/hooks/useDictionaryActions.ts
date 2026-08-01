@@ -10,20 +10,22 @@ export function useDictionaryActions({
   onDelete,
 }: {
   locale: string;
-  onImport: (file: File) => Promise<DictionarySource>;
+  onImport: (file: File, onProgress?: (progress: number) => void) => Promise<DictionarySource>;
   onDelete: (id: number) => Promise<void>;
 }) {
   const { t } = useTranslation();
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
+  const [progress, setProgress] = useState<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const choose = async (file?: File) => {
     if (!file) return;
     setBusy(true);
+    setProgress(0);
     setMessage(t("settings.dictionary.importing", { file: file.name }));
     try {
-      const imported = await onImport(file);
+      const imported = await onImport(file, setProgress);
       setMessage(t("settings.dictionary.imported", {
         title: imported.title,
         count: imported.entry_count,
@@ -33,6 +35,7 @@ export function useDictionaryActions({
       setMessage(localizedError(reason, t, "errors.dictionary.import"));
     } finally {
       setBusy(false);
+      setProgress(null);
       if (fileInputRef.current) fileInputRef.current.value = "";
     }
   };
@@ -55,6 +58,7 @@ export function useDictionaryActions({
   return {
     busy,
     message,
+    progress,
     fileInputRef,
     choose,
     remove,
