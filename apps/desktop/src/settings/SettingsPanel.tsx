@@ -112,6 +112,7 @@ export function SettingsPanel({
   const selectableModels = asr.selectable;
   const loadModels = asr.loadModels;
   const updateAsr = asr.updateAsr;
+  const updateLocalAsr = asr.updateLocalAsr;
   const updateVad = asr.updateVad;
   const setModelDirectoryText = asr.setModelDirectoryText;
   const updateModelDirectory = asr.updateModelDirectory;
@@ -147,7 +148,7 @@ export function SettingsPanel({
     : [];
   const asrError = asrSelectionError(draft, asrCapabilities, (key) => t(key));
   const validationError = deviceErrors[0] ?? asrError;
-  const computeTypes = validComputeTypes(asrCapabilities, draft.asr.device);
+  const computeTypes = validComputeTypes(asrCapabilities, draft.asr.local.device);
 
   const settingsCategories: Array<{
     id: SettingsCategory;
@@ -245,6 +246,7 @@ export function SettingsPanel({
           modelDirectoryText={modelDirectoryText}
           saveState={saveState}
           onUpdateAsr={updateAsr}
+          onUpdateLocalAsr={updateLocalAsr}
           onUpdateVad={updateVad}
           onLoadModels={loadModels}
           onSetModelDirectoryText={setModelDirectoryText}

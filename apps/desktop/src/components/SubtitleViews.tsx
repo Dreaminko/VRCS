@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import { CalendarDays, History, Languages, MessageSquare, Mic, Volume2 } from "lucide-react";
 
 import { timestamp } from "../app-utils";
-import type { ConnectionState, Health, Settings, Subtitle } from "../types";
+import type { ConnectionState, Health, LiveTranscription, Settings, Subtitle } from "../types";
 import { DropdownField } from "./DropdownField";
 
 type SubtitleSource = "speaker" | "microphone";
@@ -22,18 +22,26 @@ export function TopStatus({ connection, health, settings }: {
         <i aria-hidden="true" />
         <div><span>{t("status.label")}</span><strong>{health?.capture_running ? t("status.transcribing") : t("status.waiting")}</strong></div>
         <i aria-hidden="true" />
-        <div><span>{t("status.engine")}</span><strong>Whisper {capitalize(settings?.asr.model ?? "small")}</strong></div>
+        <div><span>{t("status.engine")}</span><strong>{engineLabel(settings)}</strong></div>
       </div>
     </div>
   );
+}
+
+function engineLabel(settings: Settings | null): string {
+  if (settings?.asr.backend === "qwen_realtime") return "Qwen3 ASR";
+  if (settings?.asr.backend === "fun_asr_realtime") return "Fun-ASR";
+  if (settings?.asr.backend === "openai_realtime") return "OpenAI Realtime";
+  return `Whisper ${capitalize(settings?.asr.local.model ?? "small")}`;
 }
 
 function capitalize(value: string): string {
   return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
-export function LiveView({ subtitles, running, onSelect }: {
+export function LiveView({ subtitles, partials, running, onSelect }: {
   subtitles: Subtitle[];
+  partials: Partial<Record<LiveTranscription["source"], LiveTranscription>>;
   running: boolean;
   onSelect: (context: string) => Promise<void>;
 }) {
@@ -46,11 +54,12 @@ export function LiveView({ subtitles, running, onSelect }: {
       )) : (
         <div className="empty-state"><MessageSquare size={22} /><p>{running ? t("live.listening") : t("live.startHint")}</p></div>
       )}
-      {running && (
-        <div className="message-group source-speaker streaming-message">
-          <div className="bubble">{t("live.transcribing")}<span className="streaming-ellipsis" aria-hidden="true">…</span></div>
+      {([partials.speaker, partials.microphone].filter(Boolean) as LiveTranscription[]).map((partial) => (
+        <div className={`message-group source-${partial.source} streaming-message`} key={`${partial.source}-${partial.utterance_id}`}>
+          <div className="bubble">{partial.text}<span className="streaming-ellipsis" aria-hidden="true">…</span></div>
         </div>
-      )}
+      ))}
+      {running && !partials.speaker && !partials.microphone && <div className="message-group source-speaker streaming-message"><div className="bubble">{t("live.transcribing")}<span className="streaming-ellipsis" aria-hidden="true">…</span></div></div>}
     </section>
   );
 }

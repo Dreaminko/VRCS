@@ -6,6 +6,7 @@ import {
   classifyModels,
   createAnkiOptions,
   createSettingsActionState,
+  showsLocalRecognitionSettings,
 } from "../src/settings/settings-derived.ts";
 import type {
   AsrCapabilities,
@@ -17,7 +18,7 @@ import type {
 const t = ((key: string) => key) as TFunction;
 
 const settings: Settings = {
-  schema_version: 3,
+  schema_version: 4,
   server: { host: "127.0.0.1", port: 8766 },
   storage: {
     database_path: "data/vrcs.db",
@@ -30,7 +31,7 @@ const settings: Settings = {
     microphone: { mode: "default", device_id: null },
   },
   vad: { silence_seconds: 0.4, max_speech_seconds: 6 },
-  asr: { model: "small", language: "auto", device: "auto", compute_type: "int8" },
+  asr: { backend: "local_whisper", language: "auto", local: { model: "small", device: "auto", compute_type: "int8" }, qwen: { region: "singapore", workspace_id: "", context: "", model: "qwen3-asr-flash-realtime" }, fun_asr: { context: "", model: "fun-asr-realtime" }, openai: { model: "gpt-4o-mini-transcribe" }, cloud_failure_policy: "reconnect" },
   anki: {
     port: 8765,
     deck: "VRCS",
@@ -53,6 +54,13 @@ const ankiStatus: AnkiStatus = {
   detail: "",
   message: "",
 };
+
+test("only local ASR shows local recognition settings", () => {
+  assert.equal(showsLocalRecognitionSettings("local_whisper"), true);
+  assert.equal(showsLocalRecognitionSettings("qwen_realtime"), false);
+  assert.equal(showsLocalRecognitionSettings("fun_asr_realtime"), false);
+  assert.equal(showsLocalRecognitionSettings("openai_realtime"), false);
+});
 
 test("settings action state preserves category-specific priority", () => {
   const base = {

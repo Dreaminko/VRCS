@@ -75,13 +75,21 @@ export function useAsrModels({
   ) => {
     draftController.applySettings((current) => {
       const nextAsr = { ...current.asr, [key]: value };
-      if (key === "device") {
-        const allowed = validComputeTypes(asrCapabilities, nextAsr.device);
-        if (!allowed.includes(nextAsr.compute_type)) {
-          nextAsr.compute_type = allowed[0] ?? "int8";
-        }
-      }
       return { ...current, asr: nextAsr };
+    });
+  };
+
+  const updateLocalAsr = <K extends keyof Settings["asr"]["local"]>(
+    key: K,
+    value: Settings["asr"]["local"][K],
+  ) => {
+    draftController.applySettings((current) => {
+      const local = { ...current.asr.local, [key]: value };
+      if (key === "device") {
+        const allowed = validComputeTypes(asrCapabilities, local.device);
+        if (!allowed.includes(local.compute_type)) local.compute_type = allowed[0] ?? "int8";
+      }
+      return { ...current, asr: { ...current.asr, local } };
     });
   };
 
@@ -158,10 +166,10 @@ export function useAsrModels({
   };
 
   const selectedModelCapability = asrCapabilities?.models.find(
-    (model) => model.id === draftController.draft.asr.model,
+    (model) => model.id === draftController.draft.asr.local.model,
   );
   const selectedModelStatus = (
-    draftController.draft.asr.model === settings.asr.model
+    draftController.draft.asr.local.model === settings.asr.local.model
     && ["loading", "ready", "error"].includes(modelStatus)
   )
     ? modelStatus
@@ -169,7 +177,7 @@ export function useAsrModels({
   const classified = classifyModels(
     managedModels,
     asrCapabilities,
-    draftController.draft.asr.model,
+    draftController.draft.asr.local.model,
     modelsReady,
   );
 
@@ -181,6 +189,7 @@ export function useAsrModels({
     setModelDirectoryText,
     loadModels,
     updateAsr,
+    updateLocalAsr,
     updateVad,
     updateModelDirectory,
     chooseModelDirectory,

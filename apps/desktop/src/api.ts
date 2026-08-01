@@ -3,6 +3,7 @@ import type {
   AnkiStatus,
   AsrCapabilities,
   AsrModelRecord,
+  CredentialStatus,
   AudioDevice,
   DictionaryEntry,
   DictionaryImportProgress,
@@ -98,6 +99,16 @@ export const coreApi = {
   stop: () => request<{ running: boolean }>("/api/capture/stop", { method: "POST" }),
   asrCapabilities: () => request<AsrCapabilities>("/api/asr/capabilities"),
   asrModels: () => request<AsrModelRecord[]>("/api/asr/models"),
+  asrCredentials: () => request<Record<"qwen" | "openai", CredentialStatus>>("/api/asr/credentials"),
+  saveAsrCredential: (provider: "qwen" | "openai", apiKey: string) =>
+    request<CredentialStatus>(`/api/asr/credentials/${provider}`, {
+      method: "PUT",
+      body: JSON.stringify({ api_key: apiKey }),
+    }),
+  deleteAsrCredential: (provider: "qwen" | "openai") =>
+    request<CredentialStatus>(`/api/asr/credentials/${provider}`, { method: "DELETE" }),
+  testAsrCredential: (provider: "qwen" | "openai") =>
+    request<{ ok: boolean }>(`/api/asr/credentials/${provider}/test`, { method: "POST" }),
   downloadAsrModel: (model: AsrModelRecord["id"]) =>
     request<AsrModelRecord>(`/api/asr/models/${model}/download`, {
       method: "POST",

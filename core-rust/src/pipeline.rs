@@ -1,16 +1,17 @@
 //! 音频采集 → VAD → ASR → SQLite/WebSocket 字幕发布管线。
 
+use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use tokio::sync::{broadcast, watch};
 use tokio::task::JoinHandle;
 
-use crate::asr::AsrService;
+use crate::asr::{spawn_streaming_session, AsrService, CloudEvent, StreamingSession};
 use crate::audio::{AudioCapture, AudioError, CaptureSource};
-use crate::config::VadConfig;
+use crate::config::{AsrConfig, VadConfig};
 use crate::db::Database;
-use crate::models::{now_iso8601, AudioDevice, Subtitle};
+use crate::models::{now_iso8601, AudioDevice, LiveTranscription, Subtitle};
 use crate::vad::{SpeechSegmenter, VadRuntimeState, VoiceDetector};
 
 pub struct TranscriptionPipeline {
@@ -69,9 +70,11 @@ impl TranscriptionPipeline {
         device_id: Option<i64>,
         process_name: Option<&str>,
         vad_config: &VadConfig,
+        asr_config: AsrConfig,
         asr: Arc<Mutex<AsrService>>,
         db: Arc<Mutex<Database>>,
         subtitles_tx: broadcast::Sender<Subtitle>,
+        live_tx: broadcast::Sender<LiveTranscription>,
         history_limit: u32,
     ) -> Result<AudioDevice, AudioError> {
         if self.running() {
@@ -99,6 +102,25 @@ impl TranscriptionPipeline {
                 format!("音频启动任务异常退出：{error}"),
             )
         })??;
+        let cloud = if asr_config.backend == "local_whisper" {
+            None
+        } else {
+            match spawn_streaming_session(asr_config.clone(), vad_config.silence_seconds).await {
+                Ok(session) => Some(session),
+                Err(error) if asr_config.cloud_failure_policy == "local" => {
+                    let _ = live_tx.send(LiveTranscription::Failed {
+                        source: self.source_name.into(),
+                        code: "asr.cloud_connect_failed".into(),
+                        detail: error,
+                    });
+                    None
+                }
+                Err(error) => {
+                    capture.shutdown().await;
+                    return Err(AudioError::with_code("asr.cloud_connect_failed", error));
+                }
+            }
+        };
         let detector =
             VoiceDetector::load_with_runtime(&self.vad_model_path, self.vad_runtime.clone());
         let segmenter = SpeechSegmenter::new(
@@ -107,6 +129,7 @@ impl TranscriptionPipeline {
             vad_config.max_speech_seconds,
         );
         let source = self.source_name;
+        let silence_seconds = vad_config.silence_seconds;
         let last_error = Arc::clone(&self.last_error);
         let mut shutdown = self.shutdown.clone();
         let (stop_tx, stop_rx) = watch::channel(false);
@@ -119,8 +142,13 @@ impl TranscriptionPipeline {
                 asr,
                 db,
                 subtitles_tx,
+                live_tx,
                 history_limit,
                 source,
+                cloud,
+                asr_config.cloud_failure_policy == "local",
+                sample_rate,
+                silence_seconds,
                 &mut shutdown,
                 stop_rx,
             )
@@ -161,16 +189,27 @@ async fn run(
     asr: Arc<Mutex<AsrService>>,
     db: Arc<Mutex<Database>>,
     subtitles_tx: broadcast::Sender<Subtitle>,
+    live_tx: broadcast::Sender<LiveTranscription>,
     history_limit: u32,
     source: &'static str,
+    mut cloud: Option<StreamingSession>,
+    local_fallback: bool,
+    sample_rate: u32,
+    silence_seconds: f64,
     shutdown: &mut watch::Receiver<bool>,
     mut stop: watch::Receiver<bool>,
 ) -> Result<(), String> {
-    let result = loop {
+    let mut pre_roll = VecDeque::<Vec<f32>>::new();
+    let mut pre_roll_samples = 0usize;
+    let pre_roll_limit = (sample_rate as f64 * 0.2) as usize;
+    let tail_limit = (sample_rate as f64 * silence_seconds) as usize;
+    let mut streaming = false;
+    let mut tail_samples = 0usize;
+    let mut result = loop {
         if *shutdown.borrow() || *stop.borrow() {
             break Ok(());
         }
-        let chunk = tokio::select! {
+        let input = tokio::select! {
             changed = shutdown.changed() => {
                 let _ = changed;
                 break Ok(());
@@ -179,23 +218,144 @@ async fn run(
                 let _ = changed;
                 break Ok(());
             }
+            event = async {
+                match cloud.as_mut() {
+                    Some(session) => session.recv().await,
+                    None => std::future::pending().await,
+                }
+            } => {
+                match event {
+                    Some(event) => PipelineInput::Cloud(event),
+                    None if local_fallback => {
+                        cloud = None;
+                        continue;
+                    }
+                    None => break Err("云端识别会话已关闭".into()),
+                }
+            }
             chunk = capture.read() => match chunk {
-                Ok(chunk) => chunk,
+                Ok(chunk) => PipelineInput::Audio(chunk),
                 Err(error) => break Err(error.to_string()),
             },
         };
+        let PipelineInput::Audio(chunk) = input else {
+            if let PipelineInput::Cloud(event) = input {
+                match event {
+                    CloudEvent::Partial {
+                        utterance_id,
+                        text,
+                        language,
+                    } => {
+                        let _ = live_tx.send(LiveTranscription::Partial {
+                            utterance_id,
+                            source: source.into(),
+                            text,
+                            language,
+                        });
+                    }
+                    CloudEvent::Final { text, language, .. } => {
+                        publish_text(text, language, &db, &subtitles_tx, history_limit, source)
+                            .await?;
+                    }
+                    CloudEvent::Failed { code, detail } => {
+                        let _ = live_tx.send(LiveTranscription::Failed {
+                            source: source.into(),
+                            code,
+                            detail,
+                        });
+                        if local_fallback {
+                            if let Some(session) = cloud.take() {
+                                session.stop().await;
+                            }
+                        }
+                    }
+                }
+            }
+            continue;
+        };
         let speech = detector.is_speech(&chunk);
+        if let Some(session) = cloud.as_ref() {
+            if streaming {
+                session.send(chunk.clone()).await?;
+                if speech {
+                    tail_samples = 0;
+                } else {
+                    tail_samples += chunk.len();
+                    if tail_samples >= tail_limit {
+                        streaming = false;
+                        tail_samples = 0;
+                    }
+                }
+            } else if speech {
+                streaming = true;
+                while let Some(buffered) = pre_roll.pop_front() {
+                    session.send(buffered).await?;
+                }
+                pre_roll_samples = 0;
+                session.send(chunk.clone()).await?;
+            } else {
+                pre_roll_samples += chunk.len();
+                pre_roll.push_back(chunk.clone());
+                while pre_roll_samples > pre_roll_limit {
+                    if let Some(removed) = pre_roll.pop_front() {
+                        pre_roll_samples = pre_roll_samples.saturating_sub(removed.len());
+                    }
+                }
+            }
+        }
         let Some(segment) = segmenter.push(&chunk, speech) else {
             continue;
         };
-        if let Err(error) =
-            transcribe_and_publish(segment, &asr, &db, &subtitles_tx, history_limit, source).await
-        {
-            break Err(error);
+        if cloud.is_none() {
+            if let Err(error) =
+                transcribe_and_publish(segment, &asr, &db, &subtitles_tx, history_limit, source)
+                    .await
+            {
+                break Err(error);
+            }
         }
     };
+    if let Some(session) = cloud {
+        for event in session.stop_and_drain().await {
+            match event {
+                CloudEvent::Final { text, language, .. } => {
+                    if let Err(error) =
+                        publish_text(text, language, &db, &subtitles_tx, history_limit, source)
+                            .await
+                    {
+                        result = Err(error);
+                        break;
+                    }
+                }
+                CloudEvent::Partial {
+                    utterance_id,
+                    text,
+                    language,
+                } => {
+                    let _ = live_tx.send(LiveTranscription::Partial {
+                        utterance_id,
+                        source: source.into(),
+                        text,
+                        language,
+                    });
+                }
+                CloudEvent::Failed { code, detail } => {
+                    let _ = live_tx.send(LiveTranscription::Failed {
+                        source: source.into(),
+                        code,
+                        detail,
+                    });
+                }
+            }
+        }
+    }
     capture.shutdown().await;
     result
+}
+
+enum PipelineInput {
+    Audio(Vec<f32>),
+    Cloud(CloudEvent),
 }
 
 async fn transcribe_and_publish(
@@ -230,14 +390,34 @@ async fn transcribe_and_publish(
         language = transcription.language.as_deref().unwrap_or("unknown"),
         "ASR transcription completed"
     );
-    if transcription.text.is_empty() {
+    publish_text(
+        transcription.text,
+        transcription.language,
+        db,
+        subtitles_tx,
+        history_limit,
+        source,
+    )
+    .await
+}
+
+async fn publish_text(
+    text: String,
+    language: Option<String>,
+    db: &Arc<Mutex<Database>>,
+    subtitles_tx: &broadcast::Sender<Subtitle>,
+    history_limit: u32,
+    source: &'static str,
+) -> Result<(), String> {
+    let text = text.trim().to_string();
+    if text.is_empty() {
         return Ok(());
     }
 
     let subtitle = Subtitle {
         id: None,
-        text: transcription.text,
-        language: transcription.language,
+        text,
+        language,
         started_at: None,
         ended_at: None,
         source: source.into(),
@@ -285,10 +465,12 @@ mod tests {
             Database::open(&directory.path().join("test.db")).unwrap(),
         ));
         let config = AsrConfig {
-            model: "tiny".into(),
-            language: "auto".into(),
-            device: "cpu".into(),
-            compute_type: "int8".into(),
+            local: crate::config::LocalAsrConfig {
+                model: "tiny".into(),
+                device: "cpu".into(),
+                compute_type: "int8".into(),
+            },
+            ..AsrConfig::default()
         };
         let asr = Arc::new(Mutex::new(AsrService::with_engine(
             config,

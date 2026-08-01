@@ -24,6 +24,12 @@ export const MODEL_PRESENTATION: Record<AsrModelRecord["id"], {
   "large-v3": { name: "Large v3", descriptionKey: "settings.recognition.models.largeV3" },
 };
 
+export function showsLocalRecognitionSettings(
+  backend: Settings["asr"]["backend"],
+): boolean {
+  return backend === "local_whisper";
+}
+
 export function formatBytes(bytes: number, locale: string): string {
   if (bytes < 1_000_000) {
     return `${new Intl.NumberFormat(locale, { maximumFractionDigits: 0 }).format(Math.max(0, bytes / 1_000))} KB`;
@@ -39,7 +45,7 @@ export function formatBytes(bytes: number, locale: string): string {
 export function classifyModels(
   managedModels: AsrModelRecord[],
   capabilities: AsrCapabilities | null,
-  currentModel: Settings["asr"]["model"],
+  currentModel: Settings["asr"]["local"]["model"],
   modelsReady: boolean,
 ) {
   const installed = managedModels.filter((model) =>

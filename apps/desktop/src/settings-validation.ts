@@ -45,8 +45,8 @@ export function audioSelectionErrors(
 
 export function validComputeTypes(
   capabilities: AsrCapabilities | null,
-  device: AsrSettings["device"],
-): AsrSettings["compute_type"][] {
+  device: AsrSettings["local"]["device"],
+): AsrSettings["local"]["compute_type"][] {
   return capabilities?.compute_types[device] ?? ["int8"];
 }
 
@@ -56,10 +56,10 @@ export function asrSelectionError(
   translate: TranslateValidation = validationMessage,
 ): string | null {
   if (!capabilities) return null;
-  if (settings.asr.device === "cuda" && !capabilities.cuda.available) {
+  if (settings.asr.local.device === "cuda" && !capabilities.cuda.available) {
     return translate("validation.asr.cudaUnavailable");
   }
-  if (!validComputeTypes(capabilities, settings.asr.device).includes(settings.asr.compute_type)) {
+  if (!validComputeTypes(capabilities, settings.asr.local.device).includes(settings.asr.local.compute_type)) {
     return translate("validation.asr.invalidComputeType");
   }
   return null;
@@ -73,5 +73,6 @@ export function audioSettingsChanged(
     || previous.audio.output.mode !== next.audio.output.mode
     || previous.audio.output.device_id !== next.audio.output.device_id
     || previous.audio.microphone.mode !== next.audio.microphone.mode
-    || previous.audio.microphone.device_id !== next.audio.microphone.device_id;
+    || previous.audio.microphone.device_id !== next.audio.microphone.device_id
+    || JSON.stringify(previous.asr) !== JSON.stringify(next.asr);
 }

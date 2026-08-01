@@ -37,32 +37,69 @@ pub(super) async fn capture_start(State(state): State<Arc<AppState>>) -> ApiResu
             "Rust ASR 管线要求 16000 Hz 采样率",
         ));
     }
+    if config.asr.backend != "local_whisper" {
+        let provider = if matches!(
+            config.asr.backend.as_str(),
+            "qwen_realtime" | "fun_asr_realtime"
+        ) {
+            "qwen"
+        } else {
+            "openai"
+        };
+        if provider == "qwen" && config.asr.qwen.workspace_id.trim().is_empty() {
+            return Err(api_error(
+                StatusCode::CONFLICT,
+                "asr.qwen_workspace_missing",
+                "阿里云 Workspace ID 尚未配置",
+            ));
+        }
+        if crate::asr::read_credential(provider)
+            .map_err(|error| {
+                api_error(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "asr.credential_read_failed",
+                    error,
+                )
+            })?
+            .is_none()
+        {
+            return Err(api_error_with_params(
+                StatusCode::CONFLICT,
+                "asr.credential_missing",
+                json!({ "provider": provider }),
+                format!("{provider} API Key 尚未配置"),
+            ));
+        }
+    }
     let manager = Arc::clone(&state.model_manager);
-    let model = config.asr.model.clone();
-    if !tokio::task::spawn_blocking(move || manager.is_downloaded(&model))
-        .await
-        .map_err(|error| {
-            api_error_with_params(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "asr.model.inspect_task_failed",
-                json!({ "model": config.asr.model }),
-                format!("模型校验任务失败：{error}"),
-            )
-        })?
-        .map_err(|error| {
-            api_error_with_params(
-                StatusCode::UNPROCESSABLE_ENTITY,
-                "asr.model.inspect_failed",
-                json!({ "model": config.asr.model }),
-                error,
-            )
-        })?
+    let model = config.asr.local.model.clone();
+    let local_required =
+        config.asr.backend == "local_whisper" || config.asr.cloud_failure_policy == "local";
+    if local_required
+        && !tokio::task::spawn_blocking(move || manager.is_downloaded(&model))
+            .await
+            .map_err(|error| {
+                api_error_with_params(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "asr.model.inspect_task_failed",
+                    json!({ "model": config.asr.local.model }),
+                    format!("模型校验任务失败：{error}"),
+                )
+            })?
+            .map_err(|error| {
+                api_error_with_params(
+                    StatusCode::UNPROCESSABLE_ENTITY,
+                    "asr.model.inspect_failed",
+                    json!({ "model": config.asr.local.model }),
+                    error,
+                )
+            })?
     {
         return Err(api_error_with_params(
             StatusCode::CONFLICT,
             "asr.model.not_downloaded",
-            json!({ "model": config.asr.model }),
-            format!("识别模型 {} 尚未下载", config.asr.model),
+            json!({ "model": config.asr.local.model }),
+            format!("识别模型 {} 尚未下载", config.asr.local.model),
         ));
     }
     if state.speaker_pipeline.lock().await.running()
@@ -89,9 +126,11 @@ pub(super) async fn capture_start(State(state): State<Arc<AppState>>) -> ApiResu
             output_device_id,
             process_name,
             &config.vad,
+            config.asr.clone(),
             Arc::clone(&state.asr),
             Arc::clone(&state.db),
             state.subtitles_tx.clone(),
+            state.live_tx.clone(),
             config.storage.subtitle_history_limit,
         )
         .await
@@ -118,9 +157,11 @@ pub(super) async fn capture_start(State(state): State<Arc<AppState>>) -> ApiResu
                 microphone_id,
                 None,
                 &config.vad,
+                config.asr.clone(),
                 Arc::clone(&state.asr),
                 Arc::clone(&state.db),
                 state.subtitles_tx.clone(),
+                state.live_tx.clone(),
                 config.storage.subtitle_history_limit,
             )
             .await
@@ -145,7 +186,8 @@ pub(super) async fn capture_start(State(state): State<Arc<AppState>>) -> ApiResu
 
 pub(super) async fn capture_stop(State(state): State<Arc<AppState>>) -> Json<Value> {
     let _control = state.capture_control.lock().await;
-    state.speaker_pipeline.lock().await.stop().await;
-    state.microphone_pipeline.lock().await.stop().await;
+    let mut speaker = state.speaker_pipeline.lock().await;
+    let mut microphone = state.microphone_pipeline.lock().await;
+    tokio::join!(speaker.stop(), microphone.stop());
     Json(json!({ "running": false }))
 }

@@ -80,6 +80,23 @@ pub struct CardLabels {
     pub context: String,
 }
 
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum LiveTranscription {
+    Partial {
+        utterance_id: String,
+        source: String,
+        text: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        language: Option<String>,
+    },
+    Failed {
+        source: String,
+        code: String,
+        detail: String,
+    },
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CardRequest {

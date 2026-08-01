@@ -12,7 +12,14 @@ use super::{api_domain_error_with_params, api_error_with_params, ApiResult, AppS
 
 pub(super) async fn asr_capabilities(State(state): State<Arc<AppState>>) -> Json<Value> {
     let cuda = asr::cuda_capability();
-    let active_model = state.config.read().expect("config lock").asr.model.clone();
+    let active_model = state
+        .config
+        .read()
+        .expect("config lock")
+        .asr
+        .local
+        .model
+        .clone();
     let (runtime_status, _) = state.asr_runtime.snapshot();
     let models = state
         .model_manager
@@ -43,7 +50,14 @@ pub(super) async fn asr_capabilities(State(state): State<Arc<AppState>>) -> Json
 }
 
 pub(super) async fn asr_models(State(state): State<Arc<AppState>>) -> Json<Value> {
-    let active_model = state.config.read().expect("config lock").asr.model.clone();
+    let active_model = state
+        .config
+        .read()
+        .expect("config lock")
+        .asr
+        .local
+        .model
+        .clone();
     let (runtime_status, _) = state.asr_runtime.snapshot();
     Json(json!(state
         .model_manager
@@ -81,7 +95,14 @@ pub(super) async fn asr_model_download(
                 json!({ "model": model }),
             )
         })?;
-    let active_model = state.config.read().expect("config lock").asr.model.clone();
+    let active_model = state
+        .config
+        .read()
+        .expect("config lock")
+        .asr
+        .local
+        .model
+        .clone();
     let (runtime_status, _) = state.asr_runtime.snapshot();
     let record = state
         .model_manager
@@ -101,7 +122,14 @@ pub(super) async fn asr_model_delete(
     State(state): State<Arc<AppState>>,
     axum::extract::Path(model): axum::extract::Path<String>,
 ) -> ApiResult<Json<Value>> {
-    let active_model = state.config.read().expect("config lock").asr.model.clone();
+    let active_model = state
+        .config
+        .read()
+        .expect("config lock")
+        .asr
+        .local
+        .model
+        .clone();
     if !asr::is_supported_model(&model) {
         return Err(api_error_with_params(
             StatusCode::NOT_FOUND,

@@ -1,6 +1,6 @@
 # VRCS
 
-VRCS 是一个本地优先的 VRChat 字幕学习工具。它捕获 Windows 系统输出或 VRChat 进程音频，并可同时捕获麦克风；语音在本机切分和转写，字幕实时显示在桌面端，也可以查词并发送到本机 Anki。
+VRCS 是一个本地优先的 VRChat 字幕学习工具。它捕获 Windows 系统输出或 VRChat 进程音频，并可同时捕获麦克风；语音始终在本机切分，可选择本地 Whisper 或 Qwen/Fun-ASR/OpenAI 云端流式识别，字幕实时显示在桌面端，也可以查词并发送到本机 Anki。
 
 ## 项目状态
 
@@ -11,6 +11,7 @@ VRCS 是一个本地优先的 VRChat 字幕学习工具。它捕获 Windows 系�
 - Windows WASAPI 系统回环、VRChat 进程专用回环与麦克风双路捕获
 - Silero ONNX VAD，首次启动自动下载并校验固定版本，模型不可用时使用能量检测回退
 - whisper.cpp 本地 CPU/CUDA 转写、自动 GPU 回退与 GGML 模型管理
+- Qwen3 ASR、Fun-ASR 与 OpenAI 实时流式转写，支持增量字幕、断线重连和本地回退
 - Axum HTTP 接口和 WebSocket 字幕推送
 - SQLite 字幕历史、Yomitan 词典导入和内置英日测试词典
 - React + Tauri 桌面端，包括实时字幕、历史、识别设置和音频设备页面
@@ -53,7 +54,7 @@ Tauri 会在同一进程内启动 Rust Core，退出桌面端时一并停止。�
 npm run dev:core
 ```
 
-独立 Core 默认使用 `core-rust/config.json`，也支持 `VRCS_CONFIG`、`VRCS_HOST`、`VRCS_PORT`、`VRCS_SESSION_TOKEN`、`VRCS_SILERO_MODEL` 和 `VRCS_ASR_MODEL_DIR`。未设置 `VRCS_SESSION_TOKEN` 时会为回环监听生成临时 token 并输出到终端；监听非回环地址时必须显式设置非空 token。
+独立 Core 默认使用 `core-rust/config.json`，也支持 `VRCS_CONFIG`、`VRCS_HOST`、`VRCS_PORT`、`VRCS_SESSION_TOKEN`、`VRCS_SILERO_MODEL`、`VRCS_ASR_MODEL_DIR`、`VRCS_QWEN_API_KEY` 和 `VRCS_OPENAI_API_KEY`。同时兼容 DashScope/OpenAI SDK 常用的 `DASHSCOPE_API_KEY` 与 `OPENAI_API_KEY`；VRCS 专用变量优先。云端 API Key 也可在设置页写入 Windows 凭据管理器。未设置 `VRCS_SESSION_TOKEN` 时会为回环监听生成临时 token 并输出到终端；监听非回环地址时必须显式设置非空 token。
 
 如果绕过 Tauri、单独运行 Vite 前端，请把同一个 token 同时设置为 `VRCS_SESSION_TOKEN` 和 `VITE_VRCS_SESSION_TOKEN`。
 
@@ -88,7 +89,7 @@ npm run build
 
 ## 隐私
 
-音频、转写和存储均在本机完成。VRCS 默认不保存原始音频，也不会上传音频。录制他人语音前，请确认符合 VRChat 社区规则和当地法律。详见[隐私说明](docs/privacy.md)。
+VRCS 默认使用 Qwen3 ASR 云端流式识别，也可切换到 Fun-ASR、OpenAI 或完全本地的 Whisper。VRCS 不保存原始音频；使用云端识别时，检测到语音的 PCM 片段会发送给所选服务商，字幕历史仍保存在本机。录制或上传他人语音前，请确认符合 VRChat 社区规则、服务商条款和当地法律。详见[隐私说明](docs/privacy.md)。
 
 ## 文档
 

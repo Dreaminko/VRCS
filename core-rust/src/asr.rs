@@ -1,23 +1,31 @@
 //! whisper.cpp 本地识别、GGML 模型状态与下载管理。
 
+mod credentials;
 mod cuda;
 mod download;
 mod engine;
 mod manager;
 mod migration;
 mod model;
+mod streaming;
 
+pub use credentials::{credential_status, delete_credential, read_credential, write_credential};
 pub use cuda::cuda_capability;
 pub use engine::{AsrRuntimeState, AsrService};
 pub use manager::ModelManager;
 pub use model::is_supported_model;
+pub use streaming::{
+    spawn_streaming_session, test_streaming_connection, CloudEvent, StreamingSession,
+};
 
 use crate::config::AsrConfig;
 use model::model_spec;
 
 pub fn validate_config(config: &AsrConfig) -> Result<(), String> {
-    model_spec(&config.model)?;
-    if config.device == "cuda" {
+    model_spec(&config.local.model)?;
+    let local_required =
+        config.backend == "local_whisper" || config.cloud_failure_policy == "local";
+    if local_required && config.local.device == "cuda" {
         if !cfg!(feature = "cuda") {
             return Err("当前构建未包含 CUDA 后端".into());
         }
@@ -29,7 +37,7 @@ pub fn validate_config(config: &AsrConfig) -> Result<(), String> {
             ));
         }
     }
-    if config.compute_type != "int8" {
+    if config.local.compute_type != "int8" {
         return Err("Rust Core 的 whisper.cpp 后端当前仅接受 int8 兼容配置".into());
     }
     Ok(())
@@ -61,15 +69,19 @@ mod tests {
     #[test]
     fn validates_supported_configuration() {
         let config = AsrConfig {
-            model: "small".into(),
+            backend: "local_whisper".into(),
             language: "auto".into(),
-            device: "cpu".into(),
-            compute_type: "int8".into(),
+            local: crate::config::LocalAsrConfig {
+                model: "small".into(),
+                device: "cpu".into(),
+                compute_type: "int8".into(),
+            },
+            ..AsrConfig::default()
         };
         assert!(validate_config(&config).is_ok());
 
         let mut cuda = config.clone();
-        cuda.device = "cuda".into();
+        cuda.local.device = "cuda".into();
         if !cfg!(feature = "cuda") {
             assert!(validate_config(&cuda).unwrap_err().contains("未包含 CUDA"));
         } else if cuda_capability().available {
@@ -117,10 +129,13 @@ mod tests {
     #[test]
     fn service_uses_engine_abstraction_and_resets_on_update() {
         let config = AsrConfig {
-            model: "small".into(),
             language: "ja".into(),
-            device: "cpu".into(),
-            compute_type: "int8".into(),
+            local: crate::config::LocalAsrConfig {
+                model: "small".into(),
+                device: "cpu".into(),
+                compute_type: "int8".into(),
+            },
+            ..AsrConfig::default()
         };
         let mut service = AsrService::new(config.clone(), PathBuf::new());
         service.engine = Some(Box::new(FakeEngine));
@@ -131,7 +146,7 @@ mod tests {
         assert_eq!(service.runtime.snapshot(), ("ready", None));
 
         let mut changed = config;
-        changed.model = "tiny".into();
+        changed.local.model = "tiny".into();
         service.update(changed, PathBuf::new());
         assert_eq!(service.runtime.snapshot(), ("not_loaded", None));
         assert!(service.engine.is_none());

@@ -196,14 +196,14 @@ impl AsrService {
     pub fn transcribe(&mut self, samples: &[f32]) -> Result<Transcription, String> {
         if self.engine.is_none() {
             self.runtime.set("loading", None);
-            let spec = model_spec(&self.config.model)?;
+            let spec = model_spec(&self.config.local.model)?;
             let path = self.model_dir.join(spec.filename);
             if !verify_model_file(&path, spec, false)? {
                 let error = format!("模型文件 {} 完整性校验失败，请重新下载", path.display());
                 self.runtime.set("error", Some(error.clone()));
                 return Err(error);
             }
-            match WhisperEngine::load(&path, &self.config.device) {
+            match WhisperEngine::load(&path, &self.config.local.device) {
                 Ok(engine) => {
                     self.engine = Some(Box::new(engine));
                     self.runtime.set("ready", None);

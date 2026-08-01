@@ -243,6 +243,7 @@ async fn start_inner(options: CoreOptions, defer_managed_vad: bool) -> Result<Co
     let model_manager = Arc::new(asr::ModelManager::new(asr_model_dir.clone())?);
     let asr_config = config.asr.clone();
     let (subtitles_tx, _) = broadcast::channel(50);
+    let (live_tx, _) = broadcast::channel(100);
     let db = Arc::new(Mutex::new(database));
     let asr_service = asr::AsrService::new(asr_config, asr_model_dir);
     let asr_runtime = asr_service.runtime_state();
@@ -255,6 +256,7 @@ async fn start_inner(options: CoreOptions, defer_managed_vad: bool) -> Result<Co
         config: RwLock::new(config),
         db,
         subtitles_tx,
+        live_tx,
         http: anki::client(),
         session_token: session_token.clone(),
         shutdown: shutdown_rx.clone(),

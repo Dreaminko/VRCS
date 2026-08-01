@@ -20,10 +20,38 @@ export interface AudioDevice {
 }
 
 export interface AsrSettings {
-  model: "tiny" | "base" | "small" | "medium" | "large-v3";
+  backend: "local_whisper" | "qwen_realtime" | "fun_asr_realtime" | "openai_realtime";
   language: "auto" | "en" | "ja" | "zh" | "ko" | "es" | "fr" | "de";
-  device: "auto" | "cpu" | "cuda";
-  compute_type: "int8";
+  local: {
+    model: "tiny" | "base" | "small" | "medium" | "large-v3";
+    device: "auto" | "cpu" | "cuda";
+    compute_type: "int8";
+  };
+  qwen: {
+    region: "singapore" | "china_beijing";
+    workspace_id: string;
+    context: string;
+    model: "qwen3-asr-flash-realtime";
+  };
+  fun_asr: {
+    context: string;
+    model: "fun-asr-realtime";
+  };
+  openai: { model: "gpt-4o-mini-transcribe" | "gpt-4o-transcribe" };
+  cloud_failure_policy: "reconnect" | "local";
+}
+
+export interface LiveTranscription {
+  type: "partial";
+  utterance_id: string;
+  source: "speaker" | "microphone";
+  text: string;
+  language?: string | null;
+}
+
+export interface CredentialStatus {
+  configured: boolean;
+  source: "environment" | "credential_manager" | null;
 }
 
 export interface AudioOutputSettings {
@@ -50,7 +78,7 @@ export interface AnkiSettings {
 }
 
 export interface Settings {
-  schema_version: 3;
+  schema_version: 4;
   server: {
     host: string;
     port: number;
@@ -83,7 +111,7 @@ export interface Health {
 }
 
 export interface AsrModelCapability {
-  id: AsrSettings["model"];
+  id: AsrSettings["local"]["model"];
   repository: string;
   status: "not_downloaded" | "downloaded" | "loading" | "ready" | "error";
 }
@@ -97,7 +125,7 @@ export type AsrModelStatus =
   | "error";
 
 export interface AsrModelRecord {
-  id: AsrSettings["model"];
+  id: AsrSettings["local"]["model"];
   repository: string;
   status: AsrModelStatus;
   active: boolean;
@@ -114,7 +142,7 @@ export interface AsrCapabilities {
     device_count: number;
     error: string | null;
   };
-  compute_types: Record<AsrSettings["device"], AsrSettings["compute_type"][]>;
+  compute_types: Record<AsrSettings["local"]["device"], AsrSettings["local"]["compute_type"][]>;
   models: AsrModelCapability[];
 }
 

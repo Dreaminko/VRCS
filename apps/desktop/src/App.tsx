@@ -33,6 +33,7 @@ function App() {
     startupFailed,
     health,
     subtitles,
+    partials,
     settings,
     devices,
     devicesReady,
@@ -155,6 +156,7 @@ function App() {
       <div className={`compact-root ${lookup ? "compact-root-lookup" : ""}`}>
         <CompactView
           subtitle={compactSubtitle}
+          partial={partials.microphone ?? partials.speaker}
           running={health?.capture_running ?? false}
           captureDisabled={!coreReady}
           onSelect={selectWord}
@@ -270,6 +272,7 @@ function App() {
                   )}
                 <LiveView
                   subtitles={(selectedConversation?.subtitles ?? []).slice(0, 12)}
+                  partials={selectedConversation?.id === activeConversation?.id ? partials : {}}
                   running={
                     (health?.capture_running ?? false)
                     && selectedConversation?.id === activeConversation?.id

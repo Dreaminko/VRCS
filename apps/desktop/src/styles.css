@@ -858,6 +858,20 @@ button:focus-visible, select:focus-visible, input:focus-visible {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 16px;
 }
+.cloud-text-field input,
+.cloud-text-field textarea {
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  background: var(--surface);
+}
+.cloud-text-field textarea { min-height: 72px; resize: vertical; font: inherit; }
+.cloud-context-field { grid-column: 1 / -1; }
+.cloud-text-field input:focus,
+.cloud-text-field textarea:focus { outline: 2px solid var(--primary-softer); border-color: var(--primary); }
+.settings-inline-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
 .field { display: grid; gap: 7px; }
 .field > span { color: var(--text-secondary); font-size: 13px; font-weight: 600; }
 .field > small { margin-top: -1px; color: var(--text-quiet); font-size: 11px; }

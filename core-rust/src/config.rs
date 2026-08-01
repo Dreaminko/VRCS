@@ -1,4 +1,4 @@
-//! 服务配置：JSON 文件读写与 schema v1→v3 迁移。
+//! 服务配置：JSON 文件读写与 schema v1→v4 迁移。
 //! 与 Python 版 `app/config.py` 行为保持一致。
 
 use std::fs;
@@ -8,7 +8,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 
-pub const SCHEMA_VERSION: u32 = 3;
+pub const SCHEMA_VERSION: u32 = 4;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ServerConfig {
@@ -64,14 +64,79 @@ pub struct VadConfig {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AsrConfig {
-    #[serde(default = "default_asr_model")]
-    pub model: String,
+    #[serde(default = "default_asr_backend")]
+    pub backend: String,
     #[serde(default = "default_language")]
     pub language: String,
+    #[serde(default)]
+    pub local: LocalAsrConfig,
+    #[serde(default)]
+    pub qwen: QwenAsrConfig,
+    #[serde(default)]
+    pub fun_asr: FunAsrConfig,
+    #[serde(default)]
+    pub openai: OpenAiAsrConfig,
+    #[serde(default = "default_cloud_failure_policy")]
+    pub cloud_failure_policy: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LocalAsrConfig {
+    #[serde(default = "default_asr_model")]
+    pub model: String,
     #[serde(default = "default_device")]
     pub device: String,
     #[serde(default = "default_compute_type")]
     pub compute_type: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct QwenAsrConfig {
+    #[serde(default = "default_qwen_region")]
+    pub region: String,
+    #[serde(default)]
+    pub workspace_id: String,
+    #[serde(default)]
+    pub context: String,
+    #[serde(default = "default_qwen_model")]
+    pub model: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FunAsrConfig {
+    #[serde(default)]
+    pub context: String,
+    #[serde(default = "default_fun_asr_model")]
+    pub model: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct OpenAiAsrConfig {
+    #[serde(default = "default_openai_model")]
+    pub model: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct LegacyAsrConfig {
+    #[serde(default = "default_asr_model")]
+    model: String,
+    #[serde(default = "default_language")]
+    language: String,
+    #[serde(default = "default_device")]
+    device: String,
+    #[serde(default = "default_compute_type")]
+    compute_type: String,
+}
+
+impl Default for LegacyAsrConfig {
+    fn default() -> Self {
+        Self {
+            model: default_asr_model(),
+            language: default_language(),
+            device: default_device(),
+            compute_type: default_compute_type(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -142,6 +207,9 @@ fn default_max_speech_seconds() -> f64 {
 fn default_asr_model() -> String {
     "small".into()
 }
+fn default_asr_backend() -> String {
+    "qwen_realtime".into()
+}
 fn default_language() -> String {
     "auto".into()
 }
@@ -150,6 +218,21 @@ fn default_device() -> String {
 }
 fn default_compute_type() -> String {
     "int8".into()
+}
+fn default_qwen_region() -> String {
+    "china_beijing".into()
+}
+fn default_qwen_model() -> String {
+    "qwen3-asr-flash-realtime".into()
+}
+fn default_openai_model() -> String {
+    "gpt-4o-mini-transcribe".into()
+}
+fn default_fun_asr_model() -> String {
+    "fun-asr-realtime".into()
+}
+fn default_cloud_failure_policy() -> String {
+    "reconnect".into()
 }
 fn default_anki_port() -> u16 {
     8765
@@ -195,11 +278,30 @@ impl_default!(VadConfig, {
     max_speech_seconds: default_max_speech_seconds,
 });
 impl_default!(AsrConfig, {
-    model: default_asr_model,
+    backend: default_asr_backend,
     language: default_language,
+    local: LocalAsrConfig::default,
+    qwen: QwenAsrConfig::default,
+    fun_asr: FunAsrConfig::default,
+    openai: OpenAiAsrConfig::default,
+    cloud_failure_policy: default_cloud_failure_policy,
+});
+impl_default!(LocalAsrConfig, {
+    model: default_asr_model,
     device: default_device,
     compute_type: default_compute_type,
 });
+impl_default!(QwenAsrConfig, {
+    region: default_qwen_region,
+    workspace_id: String::default,
+    context: String::default,
+    model: default_qwen_model,
+});
+impl_default!(FunAsrConfig, {
+    context: String::default,
+    model: default_fun_asr_model,
+});
+impl_default!(OpenAiAsrConfig, { model: default_openai_model });
 impl_default!(AnkiConfig, {
     port: default_anki_port,
     deck: default_anki_deck,
@@ -234,8 +336,15 @@ impl VadConfig {
 }
 
 const ASR_LANGUAGES: [&str; 8] = ["auto", "en", "ja", "zh", "ko", "es", "fr", "de"];
+const ASR_BACKENDS: [&str; 4] = [
+    "local_whisper",
+    "qwen_realtime",
+    "fun_asr_realtime",
+    "openai_realtime",
+];
 const ASR_DEVICES: [&str; 3] = ["auto", "cpu", "cuda"];
 const ASR_COMPUTE_TYPES: [&str; 1] = ["int8"];
+const CLOUD_FAILURE_POLICIES: [&str; 2] = ["reconnect", "local"];
 
 impl AppConfig {
     /// 配置文件与 PUT /api/settings 共用的完整结构校验。
@@ -272,14 +381,58 @@ impl AppConfig {
             other => return Err(format!("不支持的麦克风模式：{other}")),
         }
         self.vad.validate()?;
+        if !ASR_BACKENDS.contains(&self.asr.backend.as_str()) {
+            return Err(format!("不支持的识别后端：{}", self.asr.backend));
+        }
         if !ASR_LANGUAGES.contains(&self.asr.language.as_str()) {
             return Err(format!("不支持的识别语言：{}", self.asr.language));
         }
-        if !ASR_DEVICES.contains(&self.asr.device.as_str()) {
-            return Err(format!("不支持的识别设备：{}", self.asr.device));
+        if !ASR_DEVICES.contains(&self.asr.local.device.as_str()) {
+            return Err(format!("不支持的识别设备：{}", self.asr.local.device));
         }
-        if !ASR_COMPUTE_TYPES.contains(&self.asr.compute_type.as_str()) {
-            return Err(format!("不支持的计算类型：{}", self.asr.compute_type));
+        if !ASR_COMPUTE_TYPES.contains(&self.asr.local.compute_type.as_str()) {
+            return Err(format!("不支持的计算类型：{}", self.asr.local.compute_type));
+        }
+        if !CLOUD_FAILURE_POLICIES.contains(&self.asr.cloud_failure_policy.as_str()) {
+            return Err(format!(
+                "不支持的云端失败策略：{}",
+                self.asr.cloud_failure_policy
+            ));
+        }
+        if !["singapore", "china_beijing"].contains(&self.asr.qwen.region.as_str()) {
+            return Err(format!("不支持的 Qwen 区域：{}", self.asr.qwen.region));
+        }
+        if self.asr.qwen.model != "qwen3-asr-flash-realtime" {
+            return Err(format!("不支持的 Qwen ASR 模型：{}", self.asr.qwen.model));
+        }
+        if self.asr.fun_asr.model != "fun-asr-realtime" {
+            return Err(format!("不支持的 Fun-ASR 模型：{}", self.asr.fun_asr.model));
+        }
+        if self.asr.fun_asr.context.chars().count() > 400 {
+            return Err("Fun-ASR 上下文不能超过 400 个字符".into());
+        }
+        if !["gpt-4o-mini-transcribe", "gpt-4o-transcribe"]
+            .contains(&self.asr.openai.model.as_str())
+        {
+            return Err(format!(
+                "不支持的 OpenAI ASR 模型：{}",
+                self.asr.openai.model
+            ));
+        }
+        if matches!(
+            self.asr.backend.as_str(),
+            "qwen_realtime" | "fun_asr_realtime"
+        ) {
+            let workspace = self.asr.qwen.workspace_id.trim();
+            let valid_workspace = workspace
+                .bytes()
+                .all(|value| value.is_ascii_alphanumeric() || value == b'-');
+            if !workspace.is_empty() && (workspace.len() > 128 || !valid_workspace) {
+                return Err("阿里云 Workspace ID 无效".into());
+            }
+            if self.vad.silence_seconds < 0.2 {
+                return Err("阿里云实时识别的静音阈值不能低于 0.2 秒".into());
+            }
         }
         if self.anki.port == 0 {
             return Err("AnkiConnect 端口必须在 1 到 65535 之间".into());
@@ -308,7 +461,12 @@ fn migrate_v1(raw: &serde_json::Value) -> AppConfig {
         .get("vrchat_only")
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
-    let asr_raw = raw.get("asr").cloned().unwrap_or_default();
+    let legacy_asr: LegacyAsrConfig = serde_json::from_value(
+        raw.get("asr")
+            .cloned()
+            .unwrap_or_else(|| serde_json::json!({})),
+    )
+    .unwrap_or_default();
 
     let mut config = AppConfig {
         server: ServerConfig {
@@ -367,11 +525,47 @@ fn migrate_v1(raw: &serde_json::Value) -> AppConfig {
                 device_id: microphone_device_id,
             },
         },
-        asr: serde_json::from_value(asr_raw).unwrap_or_default(),
+        asr: asr_from_legacy(legacy_asr),
         ..AppConfig::default()
     };
     fix_colliding_ports(&mut config);
     config
+}
+
+fn asr_from_legacy(legacy: LegacyAsrConfig) -> AsrConfig {
+    AsrConfig {
+        backend: "local_whisper".into(),
+        language: legacy.language,
+        local: LocalAsrConfig {
+            model: legacy.model,
+            device: legacy.device,
+            compute_type: legacy.compute_type,
+        },
+        ..AsrConfig::default()
+    }
+}
+
+fn migrate_v2_or_v3(raw: &serde_json::Value) -> Result<AppConfig, String> {
+    let legacy: LegacyAsrConfig = serde_json::from_value(
+        raw.get("asr")
+            .cloned()
+            .unwrap_or_else(|| serde_json::json!({})),
+    )
+    .map_err(|error| error.to_string())?;
+    let mut value = raw.clone();
+    let object = value
+        .as_object_mut()
+        .ok_or_else(|| "Configuration root must be an object".to_string())?;
+    object.insert("schema_version".into(), serde_json::json!(SCHEMA_VERSION));
+    object.insert(
+        "asr".into(),
+        serde_json::to_value(asr_from_legacy(legacy)).map_err(|error| error.to_string())?,
+    );
+    let mut config: AppConfig = serde_json::from_value(value).map_err(|error| error.to_string())?;
+    if raw.get("schema_version").and_then(|value| value.as_u64()) == Some(2) {
+        fix_colliding_ports(&mut config);
+    }
+    Ok(config)
 }
 
 /// v1/v2 迁移共用：避免 Core 端口与 AnkiConnect 默认端口冲突。
@@ -402,12 +596,7 @@ pub fn config_from_value(raw: &serde_json::Value) -> Result<AppConfig, String> {
         v if v == SCHEMA_VERSION as u64 => {
             serde_json::from_value(raw.clone()).map_err(|e| e.to_string())?
         }
-        2 => {
-            let mut config: AppConfig =
-                serde_json::from_value(raw.clone()).map_err(|e| e.to_string())?;
-            fix_colliding_ports(&mut config);
-            config
-        }
+        2 | 3 => migrate_v2_or_v3(raw)?,
         1 => migrate_v1(raw),
         other => return Err(format!("Unsupported configuration schema v{other}")),
     };
@@ -428,6 +617,11 @@ pub fn load_config(path: &Path) -> Result<AppConfig, String> {
     let version = config_version(&raw)?;
     let config = config_from_value(&raw)?;
     if version != SCHEMA_VERSION as u64 {
+        let backup = path.with_extension(format!("v{version}.backup.json"));
+        if !backup.exists() {
+            fs::copy(path, &backup)
+                .map_err(|error| format!("无法备份旧配置到 {}：{error}", backup.display()))?;
+        }
         save_config(path, &config)?;
     }
     Ok(config)
@@ -482,6 +676,8 @@ mod tests {
         .unwrap();
 
         assert_eq!(config.storage.model_directory, "models/whisper");
+        assert_eq!(config.schema_version, 4);
+        assert_eq!(config.asr.backend, "local_whisper");
     }
 
     #[test]
@@ -504,9 +700,9 @@ mod tests {
         assert_eq!(config.audio.output.device_id, Some(3));
         assert_eq!(config.audio.microphone.mode, "device");
         assert_eq!(config.audio.microphone.device_id, Some(7));
-        assert_eq!(config.asr.model, "tiny");
+        assert_eq!(config.asr.local.model, "tiny");
         assert_eq!(config.asr.language, "ja");
-        assert_eq!(config.asr.device, "auto");
+        assert_eq!(config.asr.local.device, "auto");
     }
 
     #[test]
@@ -519,10 +715,34 @@ mod tests {
     #[test]
     fn rejects_invalid_vad() {
         let raw = serde_json::json!({
-            "schema_version": 3,
+            "schema_version": 4,
             "vad": {"silence_seconds": 5.0}
         });
         assert!(config_from_value(&raw).is_err());
+    }
+
+    #[test]
+    fn qwen_is_the_default_backend() {
+        let config = AppConfig::default();
+        assert_eq!(config.asr.backend, "qwen_realtime");
+        assert_eq!(config.asr.qwen.region, "china_beijing");
+        assert!(config.asr.qwen.workspace_id.is_empty());
+        assert!(config.validate_settings().is_ok());
+    }
+
+    #[test]
+    fn validates_fun_asr_specific_limits() {
+        let mut config = AppConfig::default();
+        config.asr.backend = "fun_asr_realtime".into();
+        config.asr.qwen.workspace_id = "ws-example".into();
+        config.asr.fun_asr.context = "字".repeat(400);
+        assert!(config.validate_settings().is_ok());
+
+        config.asr.fun_asr.context.push('字');
+        assert_eq!(
+            config.validate_settings().unwrap_err(),
+            "Fun-ASR 上下文不能超过 400 个字符"
+        );
     }
 
     #[test]

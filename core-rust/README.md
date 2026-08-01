@@ -1,6 +1,6 @@
 # VRCS Core（Rust）
 
-VRCS 的本地后端。数据面、音频采集、VAD、本地 ASR 与字幕发布管线均使用 Rust 实现，并作为库直接嵌入 Tauri 主进程；也可单独运行二进制调试 API。
+VRCS 的本地后端。数据面、音频采集、VAD、本地/云端 ASR 与字幕发布管线均使用 Rust 实现，并作为库直接嵌入 Tauri 主进程；也可单独运行二进制调试 API。
 
 ## 当前状态
 
@@ -14,8 +14,8 @@ VRCS 的本地后端。数据面、音频采集、VAD、本地 ASR 与字幕发�
 | 音频设备枚举（回环+麦克风）与设置校验 | 已实现（`src/audio.rs`、`/api/audio/devices`） |
 | 音频采集（系统回环/进程回环/麦克风，`AudioCapture`） | 已实现并接入管线（`src/audio.rs`） |
 | VAD | 已实现 Silero ONNX、能量检测回退与流式语音分段（`src/vad.rs`） |
-| ASR（whisper.cpp） | 已实现 CPU/CUDA 推理、自动回退、真实设备探测、GGML 模型发现/下载/删除与引擎抽象（`src/asr.rs`） |
-| 识别管线与 `/api/capture/start` `/api/capture/stop` | 已实现双音源采集、分段识别、SQLite 写入与 WebSocket 发布（`src/pipeline.rs`） |
+| ASR | 已实现 whisper.cpp CPU/CUDA，以及 Qwen3 ASR / Fun-ASR / OpenAI WebSocket 流式适配（`src/asr.rs`） |
+| 识别管线与 `/api/capture/start` `/api/capture/stop` | 已实现双音源采集、VAD 上传门控、增量事件、最终结果 SQLite 写入与 WebSocket 发布（`src/pipeline.rs`） |
 
 SQLite DDL 与 Python 版完全一致，可直接打开已有的 `vrcs.db`。配置文件格式、环境变量（`VRCS_CONFIG` / `VRCS_HOST` / `VRCS_PORT` / `VRCS_SESSION_TOKEN`）与 Python 版一致。回环监听未设置 token 时会自动生成临时 token；监听非回环地址时必须显式设置非空的 `VRCS_SESSION_TOKEN`。Yomitan 压缩包上限为 128 MiB，并额外限制解压大小、压缩比、单文件大小和词条文本总量。
 

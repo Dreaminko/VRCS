@@ -3502,6 +3502,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "rustls-native-certs"
+version = "0.8.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dab5152771c58876a2146916e53e35057e1a4dfa2b9df0f0305b07f611fdea4d"
+dependencies = [
+ "openssl-probe",
+ "rustls-pki-types",
+ "schannel",
+ "security-framework",
+]
+
+[[package]]
 name = "rustls-pki-types"
 version = "1.15.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4668,7 +4680,11 @@ checksum = "8f72a05e828585856dacd553fba484c242c46e391fb0e58917c942ee9202915c"
 dependencies = [
  "futures-util",
  "log",
+ "rustls",
+ "rustls-native-certs",
+ "rustls-pki-types",
  "tokio",
+ "tokio-rustls",
  "tungstenite",
 ]
 
@@ -4966,6 +4982,8 @@ dependencies = [
  "httparse",
  "log",
  "rand 0.9.5",
+ "rustls",
+ "rustls-pki-types",
  "sha1",
  "thiserror 2.0.19",
 ]
@@ -5160,6 +5178,7 @@ name = "vrcs-core"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "base64 0.22.1",
  "chrono",
  "futures-util",
  "ndarray",
@@ -5173,6 +5192,7 @@ dependencies = [
  "sha2",
  "thiserror 2.0.19",
  "tokio",
+ "tokio-tungstenite",
  "tower-http",
  "tracing",
  "tracing-appender",

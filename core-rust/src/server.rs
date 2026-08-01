@@ -3,6 +3,7 @@
 
 mod anki;
 mod capture;
+mod cloud;
 mod dictionary;
 mod models;
 mod settings;
@@ -24,7 +25,7 @@ use tower_http::cors::CorsLayer;
 use crate::config::AppConfig;
 use crate::db::Database;
 use crate::error::{AppError, AppResult};
-use crate::models::Subtitle;
+use crate::models::{LiveTranscription, Subtitle};
 use crate::pipeline::TranscriptionPipeline;
 use crate::{asr, vad, yomitan};
 
@@ -42,6 +43,7 @@ pub struct AppState {
     pub config: RwLock<AppConfig>,
     pub db: Arc<Mutex<Database>>,
     pub subtitles_tx: broadcast::Sender<Subtitle>,
+    pub live_tx: broadcast::Sender<LiveTranscription>,
     pub http: reqwest::Client,
     pub session_token: String,
     pub shutdown: watch::Receiver<bool>,
@@ -181,6 +183,15 @@ pub fn router(state: Arc<AppState>) -> Router {
             get(settings::get_settings).put(settings::update_settings),
         )
         .route("/api/asr/capabilities", get(models::asr_capabilities))
+        .route("/api/asr/credentials", get(cloud::credential_statuses))
+        .route(
+            "/api/asr/credentials/{provider}",
+            axum::routing::put(cloud::credential_write).delete(cloud::credential_delete),
+        )
+        .route(
+            "/api/asr/credentials/{provider}/test",
+            post(cloud::credential_test),
+        )
         .route("/api/asr/models", get(models::asr_models))
         .route(
             "/api/asr/models/{model}/download",

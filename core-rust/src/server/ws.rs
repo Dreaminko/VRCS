@@ -39,6 +39,7 @@ pub(super) async fn ws_handler(
 
 pub(super) async fn handle_socket(state: Arc<AppState>, socket: WebSocket) {
     let mut receiver = state.subtitles_tx.subscribe();
+    let mut live_receiver = state.live_tx.subscribe();
     let mut shutdown = state.shutdown.clone();
     let (mut sender, mut incoming) = socket.split();
     if sender
@@ -64,6 +65,18 @@ pub(super) async fn handle_socket(state: Arc<AppState>, socket: WebSocket) {
                 match subtitle {
                     Ok(subtitle) => {
                         let payload = json!({ "type": "subtitle", "subtitle": subtitle }).to_string();
+                        if sender.send(Message::Text(payload.into())).await.is_err() {
+                            break;
+                        }
+                    }
+                    Err(broadcast::error::RecvError::Lagged(_)) => continue,
+                    Err(broadcast::error::RecvError::Closed) => break,
+                }
+            }
+            event = live_receiver.recv() => {
+                match event {
+                    Ok(event) => {
+                        let payload = serde_json::to_string(&event).expect("live event serialization");
                         if sender.send(Message::Text(payload.into())).await.is_err() {
                             break;
                         }

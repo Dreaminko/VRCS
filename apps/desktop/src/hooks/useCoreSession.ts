@@ -17,6 +17,7 @@ import type {
   ConnectionState,
   DictionarySource,
   Health,
+  LiveTranscription,
   Settings,
   Subtitle,
 } from "../types";
@@ -34,6 +35,7 @@ export function useCoreSession(settingsPageActive: boolean) {
   const healthRef = useRef<Health | null>(null);
   healthRef.current = health;
   const [subtitles, setSubtitles] = useState<Subtitle[]>([]);
+  const [partials, setPartials] = useState<Partial<Record<LiveTranscription["source"], LiveTranscription>>>({});
   const [settings, setSettings] = useState<Settings | null>(null);
   const persistedSettingsRef = useRef<Settings | null>(null);
   const [devices, setDevices] = useState<AudioDevice[]>([]);
@@ -150,9 +152,24 @@ export function useCoreSession(settingsPageActive: boolean) {
       socket = new WebSocket(coreWebSocketUrl());
       socket.onopen = () => setConnection("connected");
       socket.onmessage = (event) => {
-        const message = JSON.parse(String(event.data)) as { type: string; subtitle?: Subtitle };
+        const message = JSON.parse(String(event.data)) as {
+          type: string;
+          subtitle?: Subtitle;
+          source?: LiveTranscription["source"];
+          text?: string;
+          utterance_id?: string;
+          language?: string | null;
+          detail?: string;
+        };
         if (message.type === "subtitle" && message.subtitle) {
           setSubtitles((current) => [message.subtitle!, ...current].slice(0, 500));
+          const source = message.subtitle.source ?? "speaker";
+          setPartials((current) => ({ ...current, [source]: undefined }));
+        } else if (message.type === "partial" && message.source && message.text && message.utterance_id) {
+          const partial = message as LiveTranscription;
+          setPartials((current) => ({ ...current, [partial.source]: partial }));
+        } else if (message.type === "failed" && message.detail) {
+          setError(message.detail);
         }
       };
       socket.onclose = () => {
@@ -214,7 +231,10 @@ export function useCoreSession(settingsPageActive: boolean) {
   ]);
 
   const toggleCapture = useCallback(async () => {
-    if (healthRef.current?.capture_running) await coreApi.stop();
+    if (healthRef.current?.capture_running) {
+      await coreApi.stop();
+      setPartials({});
+    }
     else await coreApi.start();
     setHealth(await coreApi.health());
     clearError();
@@ -323,6 +343,7 @@ export function useCoreSession(settingsPageActive: boolean) {
     startupFailed: startupState === "failed",
     health,
     subtitles,
+    partials,
     settings,
     devices,
     devicesReady,
