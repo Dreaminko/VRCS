@@ -3,7 +3,7 @@
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
-use tokio::sync::broadcast;
+use tokio::sync::{broadcast, watch};
 use tokio::task::JoinHandle;
 
 use crate::asr::AsrService;
@@ -18,7 +18,9 @@ pub struct TranscriptionPipeline {
     source_name: &'static str,
     vad_model_path: PathBuf,
     vad_runtime: VadRuntimeState,
+    shutdown: watch::Receiver<bool>,
     task: Option<JoinHandle<()>>,
+    stop: Option<watch::Sender<bool>>,
     device: Option<AudioDevice>,
     last_error: Arc<Mutex<Option<String>>>,
 }
@@ -29,13 +31,16 @@ impl TranscriptionPipeline {
         source_name: &'static str,
         vad_model_path: PathBuf,
         vad_runtime: VadRuntimeState,
+        shutdown: watch::Receiver<bool>,
     ) -> Self {
         Self {
             source,
             source_name,
             vad_model_path,
             vad_runtime,
+            shutdown,
             task: None,
+            stop: None,
             device: None,
             last_error: Arc::new(Mutex::new(None)),
         }
@@ -58,7 +63,7 @@ impl TranscriptionPipeline {
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub fn start(
+    pub async fn start(
         &mut self,
         sample_rate: u32,
         device_id: Option<i64>,
@@ -76,11 +81,24 @@ impl TranscriptionPipeline {
             ));
         }
         self.task.take();
+        self.stop.take();
         self.device = None;
         *self.last_error.lock().expect("pipeline error lock") = None;
 
-        let mut capture = AudioCapture::new(sample_rate, self.source);
-        let device = capture.start(device_id, process_name)?;
+        let source_kind = self.source;
+        let process_name = process_name.map(str::to_owned);
+        let (mut capture, device) = tokio::task::spawn_blocking(move || {
+            let mut capture = AudioCapture::new(sample_rate, source_kind);
+            let device = capture.start(device_id, process_name.as_deref())?;
+            Ok::<_, AudioError>((capture, device))
+        })
+        .await
+        .map_err(|error| {
+            AudioError::with_code(
+                "audio.start_task_failed",
+                format!("音频启动任务异常退出：{error}"),
+            )
+        })??;
         let detector =
             VoiceDetector::load_with_runtime(&self.vad_model_path, self.vad_runtime.clone());
         let segmenter = SpeechSegmenter::new(
@@ -90,6 +108,9 @@ impl TranscriptionPipeline {
         );
         let source = self.source_name;
         let last_error = Arc::clone(&self.last_error);
+        let mut shutdown = self.shutdown.clone();
+        let (stop_tx, stop_rx) = watch::channel(false);
+        self.stop = Some(stop_tx);
         self.task = Some(tokio::spawn(async move {
             if let Err(error) = run(
                 &mut capture,
@@ -100,6 +121,8 @@ impl TranscriptionPipeline {
                 subtitles_tx,
                 history_limit,
                 source,
+                &mut shutdown,
+                stop_rx,
             )
             .await
             {
@@ -112,8 +135,10 @@ impl TranscriptionPipeline {
     }
 
     pub async fn stop(&mut self) {
+        if let Some(stop) = self.stop.take() {
+            let _ = stop.send(true);
+        }
         if let Some(task) = self.task.take() {
-            task.abort();
             let _ = task.await;
         }
         self.device = None;
@@ -122,8 +147,8 @@ impl TranscriptionPipeline {
 
 impl Drop for TranscriptionPipeline {
     fn drop(&mut self) {
-        if let Some(task) = &self.task {
-            task.abort();
+        if let Some(stop) = self.stop.take() {
+            let _ = stop.send(true);
         }
     }
 }
@@ -138,15 +163,39 @@ async fn run(
     subtitles_tx: broadcast::Sender<Subtitle>,
     history_limit: u32,
     source: &'static str,
+    shutdown: &mut watch::Receiver<bool>,
+    mut stop: watch::Receiver<bool>,
 ) -> Result<(), String> {
-    loop {
-        let chunk = capture.read().await.map_err(|error| error.to_string())?;
+    let result = loop {
+        if *shutdown.borrow() || *stop.borrow() {
+            break Ok(());
+        }
+        let chunk = tokio::select! {
+            changed = shutdown.changed() => {
+                let _ = changed;
+                break Ok(());
+            }
+            changed = stop.changed() => {
+                let _ = changed;
+                break Ok(());
+            }
+            chunk = capture.read() => match chunk {
+                Ok(chunk) => chunk,
+                Err(error) => break Err(error.to_string()),
+            },
+        };
         let speech = detector.is_speech(&chunk);
         let Some(segment) = segmenter.push(&chunk, speech) else {
             continue;
         };
-        transcribe_and_publish(segment, &asr, &db, &subtitles_tx, history_limit, source).await?;
-    }
+        if let Err(error) =
+            transcribe_and_publish(segment, &asr, &db, &subtitles_tx, history_limit, source).await
+        {
+            break Err(error);
+        }
+    };
+    capture.shutdown().await;
+    result
 }
 
 async fn transcribe_and_publish(
@@ -194,10 +243,16 @@ async fn transcribe_and_publish(
         source: source.into(),
         created_at: now_iso8601(),
     };
-    let saved = db
-        .lock()
-        .expect("db lock")
-        .add_subtitle(&subtitle, history_limit)?;
+    let database = Arc::clone(db);
+    let saved = tokio::task::spawn_blocking(move || {
+        database
+            .lock()
+            .map_err(|_| "数据库锁不可用".to_string())?
+            .add_subtitle(&subtitle, history_limit)
+            .map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| format!("字幕存储任务异常退出：{error}"))??;
     let _ = subtitles_tx.send(saved);
     Ok(())
 }
@@ -251,5 +306,34 @@ mod tests {
         let history = db.lock().unwrap().subtitle_history(10).unwrap();
         assert_eq!(history.len(), 1);
         assert_eq!(history[0].language.as_deref(), Some("ja"));
+    }
+
+    #[tokio::test]
+    async fn stop_waits_for_running_blocking_work() {
+        let (_shutdown_tx, shutdown_rx) = watch::channel(false);
+        let mut pipeline = TranscriptionPipeline::new(
+            CaptureSource::Speaker,
+            "speaker",
+            PathBuf::new(),
+            VadRuntimeState::default(),
+            shutdown_rx,
+        );
+        let (stop_tx, mut stop_rx) = watch::channel(false);
+        let (stop_seen_tx, stop_seen_rx) = tokio::sync::oneshot::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        pipeline.stop = Some(stop_tx);
+        pipeline.task = Some(tokio::spawn(async move {
+            stop_rx.changed().await.unwrap();
+            stop_seen_tx.send(()).unwrap();
+            tokio::task::spawn_blocking(move || release_rx.recv().unwrap())
+                .await
+                .unwrap();
+        }));
+
+        let stopping = tokio::spawn(async move { pipeline.stop().await });
+        stop_seen_rx.await.unwrap();
+        assert!(!stopping.is_finished());
+        release_tx.send(()).unwrap();
+        stopping.await.unwrap();
     }
 }

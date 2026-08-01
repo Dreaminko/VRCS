@@ -3,6 +3,10 @@
 #[tokio::main]
 async fn main() {
     let options = vrcs_core::CoreOptions::from_env();
+    let token_was_supplied = options
+        .session_token
+        .as_deref()
+        .is_some_and(|token| !token.trim().is_empty());
     let log_dir = std::env::var("VRCS_LOG_DIR")
         .map(std::path::PathBuf::from)
         .unwrap_or_else(|_| {
@@ -20,6 +24,9 @@ async fn main() {
         eprintln!("{error}");
         std::process::exit(1);
     });
+    if !token_was_supplied {
+        eprintln!("VRCS Core session token: {}", handle.session_token());
+    }
 
     let _ = tokio::signal::ctrl_c().await;
     if let Err(error) = handle.shutdown().await {

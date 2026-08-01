@@ -199,6 +199,18 @@ impl AudioCapture {
         }
         self.device = None;
     }
+
+    pub async fn shutdown(&mut self) {
+        let Some(mut session) = self.session.take() else {
+            self.device = None;
+            return;
+        };
+        session.stop.store(true, Ordering::Relaxed);
+        if let Some(join) = session.join.take() {
+            let _ = tokio::task::spawn_blocking(move || join.join()).await;
+        }
+        self.device = None;
+    }
 }
 
 impl Drop for AudioCapture {

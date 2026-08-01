@@ -465,6 +465,7 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 .dock-button.tonal:hover { background: var(--primary-soft); }
 .dock-button.primary { color: white; background: var(--primary); }
 .dock-button.primary:hover { color: white; background: var(--primary-hover); }
+.dock-button:disabled { opacity: 0.5; pointer-events: none; }
 .dock-divider { width: 1px; height: 24px; margin: 0 4px; background: var(--border); }
 .dock-button::after {
   position: absolute;
@@ -1556,6 +1557,7 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 }
 .compact-actions button:hover { color: var(--primary); background: var(--primary-soft); }
 .compact-actions button:active { transform: scale(0.96); }
+.compact-actions button:disabled { opacity: 0.45; pointer-events: none; }
 .compact-actions .compact-capture-button {
   color: white;
   background: var(--primary);

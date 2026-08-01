@@ -53,7 +53,9 @@ Tauri 会在同一进程内启动 Rust Core，退出桌面端时一并停止。�
 npm run dev:core
 ```
 
-独立 Core 默认使用 `core-rust/config.json`，也支持 `VRCS_CONFIG`、`VRCS_HOST`、`VRCS_PORT`、`VRCS_SESSION_TOKEN`、`VRCS_SILERO_MODEL` 和 `VRCS_ASR_MODEL_DIR`。监听非回环地址时必须设置非空的 `VRCS_SESSION_TOKEN`。
+独立 Core 默认使用 `core-rust/config.json`，也支持 `VRCS_CONFIG`、`VRCS_HOST`、`VRCS_PORT`、`VRCS_SESSION_TOKEN`、`VRCS_SILERO_MODEL` 和 `VRCS_ASR_MODEL_DIR`。未设置 `VRCS_SESSION_TOKEN` 时会为回环监听生成临时 token 并输出到终端；监听非回环地址时必须显式设置非空 token。
+
+如果绕过 Tauri、单独运行 Vite 前端，请把同一个 token 同时设置为 `VRCS_SESSION_TOKEN` 和 `VITE_VRCS_SESSION_TOKEN`。
 
 “仅采集 VRChat 音频”使用 Windows 进程回环 API，需要 Windows 10 Build 20348 或更高版本；开启前请先运行 VRChat。
 

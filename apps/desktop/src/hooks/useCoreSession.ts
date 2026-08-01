@@ -1,7 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
-import { coreApi, coreWebSocketUrl, initializeCoreApi } from "../api";
+import {
+  coreApi,
+  coreStartup,
+  coreWebSocketUrl,
+  initializeCoreApi,
+  retryCore as retryCoreStartup,
+} from "../api";
 import { localizedError } from "../app-utils";
 import { createSettingsAutosave } from "../settings-autosave";
 import { audioSettingsChanged } from "../settings-validation";
@@ -22,6 +28,8 @@ export function useCoreSession(settingsPageActive: boolean) {
 
   const [connection, setConnection] = useState<ConnectionState>("connecting");
   const [coreConfigured, setCoreConfigured] = useState(false);
+  const [startupState, setStartupState] = useState<"starting" | "ready" | "failed">("starting");
+  const [startupAttempt, setStartupAttempt] = useState(0);
   const [health, setHealth] = useState<Health | null>(null);
   const healthRef = useRef<Health | null>(null);
   healthRef.current = health;
@@ -44,20 +52,60 @@ export function useCoreSession(settingsPageActive: boolean) {
 
   useEffect(() => {
     let cancelled = false;
-    void initializeCoreApi()
-      .then(() => {
-        if (!cancelled) setCoreConfigured(true);
-      })
-      .catch((reason) => {
+    let timer: number | null = null;
+    const pollStartup = async () => {
+      try {
+        const startup = await coreStartup();
+        if (cancelled) return;
+        setStartupState(startup.state);
+        if (startup.state === "ready") {
+          setCoreConfigured(true);
+          return;
+        }
+        if (startup.state === "failed") {
+          setConnection("disconnected");
+          reportError(
+            new Error(startup.error ?? "Core startup failed"),
+            "errors.core.initialize",
+          );
+          return;
+        }
+        timer = window.setTimeout(() => void pollStartup(), 150);
+      } catch (reason) {
         if (!cancelled) {
+          setStartupState("failed");
           setConnection("disconnected");
           reportError(reason, "errors.core.initialize");
         }
-      });
+      }
+    };
+    void initializeCoreApi().then(pollStartup).catch((reason) => {
+      if (!cancelled) {
+        setStartupState("failed");
+        setConnection("disconnected");
+        reportError(reason, "errors.core.initialize");
+      }
+    });
     return () => {
       cancelled = true;
+      if (timer !== null) window.clearTimeout(timer);
     };
-  }, [reportError]);
+  }, [reportError, startupAttempt]);
+
+  const retryCore = useCallback(async () => {
+    clearError();
+    setConnection("connecting");
+    setCoreConfigured(false);
+    setStartupState("starting");
+    try {
+      await retryCoreStartup();
+      setStartupAttempt((attempt) => attempt + 1);
+    } catch (reason) {
+      setStartupState("failed");
+      setConnection("disconnected");
+      reportError(reason, "errors.core.initialize");
+    }
+  }, [clearError, reportError]);
 
   const refresh = useCallback(async () => {
     if (!coreConfigured) return;
@@ -268,6 +316,8 @@ export function useCoreSession(settingsPageActive: boolean) {
 
   return {
     connection,
+    coreReady: startupState === "ready",
+    startupFailed: startupState === "failed",
     health,
     subtitles,
     settings,
@@ -278,6 +328,7 @@ export function useCoreSession(settingsPageActive: boolean) {
     error,
     clearError,
     reportError,
+    retryCore,
     loadDevices,
     loadAsrCapabilities,
     toggleCapture,

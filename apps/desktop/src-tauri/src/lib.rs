@@ -1,7 +1,8 @@
 use std::net::TcpListener;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use serde::Serialize;
 use tauri::menu::{Menu, MenuItem};
@@ -18,7 +19,34 @@ struct CoreConnection {
     token: String,
 }
 
-struct CoreRuntime(Mutex<Option<vrcs_core::CoreHandle>>);
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CoreStartup {
+    state: CoreStartupState,
+    error: Option<String>,
+}
+
+#[derive(Clone, Copy, Serialize)]
+#[serde(rename_all = "camelCase")]
+enum CoreStartupState {
+    Starting,
+    Ready,
+    Failed,
+}
+
+#[derive(Clone)]
+struct CoreLaunchOptions {
+    config_path: PathBuf,
+    port: u16,
+    token: String,
+}
+
+struct CoreRuntime {
+    handle: Mutex<Option<vrcs_core::CoreHandle>>,
+    startup: Mutex<CoreStartup>,
+    options: CoreLaunchOptions,
+    stop_requested: AtomicBool,
+}
 
 struct NativeUiState {
     show_item: Mutex<Option<MenuItem<tauri::Wry>>>,
@@ -35,11 +63,12 @@ fn available_port() -> u16 {
 }
 
 fn core_connection_config() -> CoreConnection {
+    let token = Uuid::new_v4().simple().to_string();
     if cfg!(debug_assertions) {
         return CoreConnection {
             http_url: format!("http://127.0.0.1:{DEFAULT_CORE_PORT}"),
             ws_url: format!("ws://127.0.0.1:{DEFAULT_CORE_PORT}/ws"),
-            token: String::new(),
+            token,
         };
     }
 
@@ -47,13 +76,91 @@ fn core_connection_config() -> CoreConnection {
     CoreConnection {
         http_url: format!("http://127.0.0.1:{port}"),
         ws_url: format!("ws://127.0.0.1:{port}/ws"),
-        token: Uuid::new_v4().simple().to_string(),
+        token,
     }
 }
 
 #[tauri::command]
 fn core_connection(connection: State<'_, CoreConnection>) -> CoreConnection {
     connection.inner().clone()
+}
+
+#[tauri::command]
+fn core_startup(runtime: State<'_, CoreRuntime>) -> Result<CoreStartup, String> {
+    runtime
+        .startup
+        .lock()
+        .map(|startup| startup.clone())
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn retry_core(app: tauri::AppHandle) -> Result<(), String> {
+    launch_core(&app)
+}
+
+fn launch_core(app: &tauri::AppHandle) -> Result<(), String> {
+    let runtime = app.state::<CoreRuntime>();
+    {
+        let mut startup = runtime.startup.lock().map_err(|error| error.to_string())?;
+        if matches!(
+            startup.state,
+            CoreStartupState::Starting | CoreStartupState::Ready
+        ) {
+            return Ok(());
+        }
+        *startup = CoreStartup {
+            state: CoreStartupState::Starting,
+            error: None,
+        };
+    }
+    runtime.stop_requested.store(false, Ordering::Release);
+
+    let options = runtime.options.clone();
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let started = Instant::now();
+        let result = vrcs_core::start_with_deferred_vad(vrcs_core::CoreOptions {
+            config_path: options.config_path,
+            host: Some("127.0.0.1".into()),
+            port: Some(options.port),
+            session_token: Some(options.token),
+            vad_model_path: None,
+            asr_model_dir: None,
+        })
+        .await;
+        let runtime = app.state::<CoreRuntime>();
+        match result {
+            Ok(core) if runtime.stop_requested.load(Ordering::Acquire) => {
+                if let Err(error) = core.shutdown().await {
+                    tracing::warn!(%error, "Core shutdown after cancelled startup failed");
+                }
+            }
+            Ok(core) => {
+                *runtime.handle.lock().expect("core runtime lock poisoned") = Some(core);
+                *runtime.startup.lock().expect("core startup lock poisoned") = CoreStartup {
+                    state: CoreStartupState::Ready,
+                    error: None,
+                };
+                tracing::info!(
+                    elapsed_ms = started.elapsed().as_millis(),
+                    "desktop Core startup ready"
+                );
+            }
+            Err(error) => {
+                tracing::error!(
+                    %error,
+                    elapsed_ms = started.elapsed().as_millis(),
+                    "desktop Core startup failed"
+                );
+                *runtime.startup.lock().expect("core startup lock poisoned") = CoreStartup {
+                    state: CoreStartupState::Failed,
+                    error: Some(error),
+                };
+            }
+        }
+    });
+    Ok(())
 }
 
 #[tauri::command]
@@ -99,7 +206,12 @@ fn minimize_to_tray_enabled(app: &tauri::AppHandle) -> bool {
 
 fn stop_core(app: &tauri::AppHandle) {
     let runtime = app.state::<CoreRuntime>();
-    let core = runtime.0.lock().expect("core runtime lock poisoned").take();
+    runtime.stop_requested.store(true, Ordering::Release);
+    let core = runtime
+        .handle
+        .lock()
+        .expect("core runtime lock poisoned")
+        .take();
     if let Some(mut core) = core {
         core.stop();
         tauri::async_runtime::spawn(async move {
@@ -132,13 +244,14 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_store::Builder::default().build())
         .manage(connection)
-        .manage(CoreRuntime(Mutex::new(None)))
         .manage(NativeUiState {
             show_item: Mutex::new(None),
             quit_item: Mutex::new(None),
         })
         .invoke_handler(tauri::generate_handler![
             core_connection,
+            core_startup,
+            retry_core,
             update_native_labels
         ])
         .setup(move |app| {
@@ -189,21 +302,20 @@ pub fn run() {
                 .next()
                 .and_then(|value| value.parse().ok())
                 .ok_or_else(|| std::io::Error::other("core URL is missing a valid port"))?;
-            let session_token =
-                (!setup_connection.token.is_empty()).then(|| setup_connection.token.clone());
-            let core = tauri::async_runtime::block_on(vrcs_core::start(vrcs_core::CoreOptions {
-                config_path: data_dir.join("config.json"),
-                host: Some("127.0.0.1".into()),
-                port: Some(port),
-                session_token,
-                vad_model_path: None,
-                asr_model_dir: None,
-            }))
-            .map_err(std::io::Error::other)?;
-            *app.state::<CoreRuntime>()
-                .0
-                .lock()
-                .expect("core runtime lock poisoned") = Some(core);
+            app.manage(CoreRuntime {
+                handle: Mutex::new(None),
+                startup: Mutex::new(CoreStartup {
+                    state: CoreStartupState::Failed,
+                    error: None,
+                }),
+                options: CoreLaunchOptions {
+                    config_path: data_dir.join("config.json"),
+                    port,
+                    token: setup_connection.token.clone(),
+                },
+                stop_requested: AtomicBool::new(false),
+            });
+            launch_core(app.handle()).map_err(std::io::Error::other)?;
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -260,7 +372,7 @@ pub fn release_self_test() -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
-    use super::DEFAULT_CORE_PORT;
+    use super::{core_connection_config, DEFAULT_CORE_PORT};
 
     const CAPABILITIES: &str = include_str!("../capabilities/default.json");
 
@@ -288,5 +400,6 @@ mod tests {
     fn development_core_port_avoids_anki_and_vrchat_osc_defaults() {
         assert_eq!(DEFAULT_CORE_PORT, 8766);
         assert!(![8765, 9000, 9001].contains(&DEFAULT_CORE_PORT));
+        assert!(!core_connection_config().token.is_empty());
     }
 }

@@ -29,6 +29,8 @@ futures-util = "0.3"
 whisper-rs = "0.16"
 sha2 = "0.10"
 serde_ignored = "0.1"
+uuid = { version = "1", features = ["v4"] }
+thiserror = "2"
 
 [target.'cfg(windows)'.dependencies]
 wasapi = "0.23"

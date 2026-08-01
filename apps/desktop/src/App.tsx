@@ -29,6 +29,8 @@ function App() {
   const core = useCoreSession(page === "settings");
   const {
     connection,
+    coreReady,
+    startupFailed,
     health,
     subtitles,
     settings,
@@ -39,6 +41,7 @@ function App() {
     error,
     clearError,
     reportError,
+    retryCore,
     loadDevices,
     loadAsrCapabilities,
     toggleCapture: toggleCoreCapture,
@@ -103,6 +106,7 @@ function App() {
   }, [asrCapabilities]);
 
   const toggleCapture = async () => {
+    if (!coreReady) return;
     try {
       await toggleCoreCapture();
     } catch (reason) {
@@ -152,6 +156,7 @@ function App() {
         <CompactView
           subtitle={compactSubtitle}
           running={health?.capture_running ?? false}
+          captureDisabled={!coreReady}
           onSelect={selectWord}
           onCapture={() => void toggleCapture()}
           onRestore={() => void toggleCompact(clearLookup)}
@@ -222,6 +227,11 @@ function App() {
             {error && (
               <div className="error-banner" role="alert">
                 <span>{error}</span>
+                {startupFailed && (
+                  <button type="button" onClick={() => void retryCore()}>
+                    {t("common.retry")}
+                  </button>
+                )}
                 <button
                   type="button"
                   aria-label={t("common.closeError")}
@@ -308,6 +318,7 @@ function App() {
       <BottomDock
         page={page}
         running={health?.capture_running ?? false}
+        captureDisabled={!coreReady}
         onPageChange={(next) => {
           clearLookup();
           setPage(next);

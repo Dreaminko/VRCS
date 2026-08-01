@@ -19,16 +19,31 @@ interface CoreConnection {
   token: string;
 }
 
+export interface CoreStartup {
+  state: "starting" | "ready" | "failed";
+  error: string | null;
+}
+
 let connection: CoreConnection = {
   httpUrl: "http://127.0.0.1:8766",
   wsUrl: "ws://127.0.0.1:8766/ws",
-  token: "",
+  token: import.meta.env.VITE_VRCS_SESSION_TOKEN ?? "",
 };
 
 export async function initializeCoreApi(): Promise<void> {
   if (isTauri()) {
     connection = await invoke<CoreConnection>("core_connection");
   }
+}
+
+export async function coreStartup(): Promise<CoreStartup> {
+  if (!isTauri()) return { state: "ready", error: null };
+  return invoke<CoreStartup>("core_startup");
+}
+
+export async function retryCore(): Promise<void> {
+  if (!isTauri()) return;
+  await invoke("retry_core");
 }
 
 function requestHeaders(initial?: HeadersInit): Headers {

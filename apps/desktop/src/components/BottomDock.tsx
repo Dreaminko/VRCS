@@ -4,9 +4,10 @@ import { History, MessageSquare, Mic, Shrink, SlidersHorizontal, Square } from "
 
 import type { Page } from "../app-types";
 
-export function BottomDock({ page, running, onPageChange, onCompact, onCapture }: {
+export function BottomDock({ page, running, captureDisabled, onPageChange, onCompact, onCapture }: {
   page: Page;
   running: boolean;
+  captureDisabled: boolean;
   onPageChange: (page: Page) => void;
   onCompact: () => void;
   onCapture: () => void;
@@ -19,16 +20,17 @@ export function BottomDock({ page, running, onPageChange, onCompact, onCapture }
       <DockButton label={t("navigation.settings")} active={page === "settings"} onClick={() => onPageChange("settings")}><SlidersHorizontal /></DockButton>
       <i className="dock-divider" aria-hidden="true" />
       <DockButton label={t("navigation.compact")} tonal onClick={onCompact}><Shrink /></DockButton>
-      <DockButton label={t(running ? "capture.stop" : "capture.start")} primary onClick={onCapture}>{running ? <Square /> : <Mic />}</DockButton>
+      <DockButton label={t(running ? "capture.stop" : "capture.start")} primary disabled={captureDisabled} onClick={onCapture}>{running ? <Square /> : <Mic />}</DockButton>
     </nav>
   );
 }
 
-function DockButton({ label, active = false, tonal = false, primary = false, onClick, children }: {
+function DockButton({ label, active = false, tonal = false, primary = false, disabled = false, onClick, children }: {
   label: string;
   active?: boolean;
   tonal?: boolean;
   primary?: boolean;
+  disabled?: boolean;
   onClick: () => void;
   children: ReactNode;
 }) {
@@ -40,6 +42,7 @@ function DockButton({ label, active = false, tonal = false, primary = false, onC
       aria-current={active ? "page" : undefined}
       data-tooltip={label}
       title={label}
+      disabled={disabled}
       onClick={onClick}
     >{children}</button>
   );
