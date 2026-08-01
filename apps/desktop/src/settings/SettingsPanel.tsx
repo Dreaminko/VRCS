@@ -233,27 +233,33 @@ export function SettingsPanel({
           draft={draft}
           disabled={disabled}
           modelStatus={modelStatus}
-          asrCapabilities={asrCapabilities}
-          asrError={asrError}
-          modelStatusLabel={modelStatusLabel}
-          computeTypes={computeTypes}
-          selectableModels={selectableModels}
-          installedModels={installedModels}
-          downloadingModels={downloadingModels}
-          managedModels={managedModels}
-          modelsReady={modelsReady}
-          modelMessage={modelMessage}
-          modelDirectoryText={modelDirectoryText}
+          status={{
+            capabilities: asrCapabilities,
+            error: asrError,
+            modelStatusLabel,
+            computeTypes,
+            selectableModels,
+          }}
+          models={{
+            installed: installedModels,
+            downloading: downloadingModels,
+            managed: managedModels,
+            ready: modelsReady,
+            message: modelMessage,
+            directoryText: modelDirectoryText,
+          }}
           saveState={saveState}
-          onUpdateAsr={updateAsr}
-          onUpdateLocalAsr={updateLocalAsr}
-          onUpdateVad={updateVad}
-          onLoadModels={loadModels}
-          onSetModelDirectoryText={setModelDirectoryText}
-          onUpdateModelDirectory={updateModelDirectory}
-          onChooseModelDirectory={chooseModelDirectory}
-          onDownloadModel={downloadModel}
-          onRemoveModel={removeModel}
+          actions={{
+            updateAsr,
+            updateLocalAsr,
+            updateVad,
+            loadModels,
+            setModelDirectoryText,
+            updateModelDirectory,
+            chooseModelDirectory,
+            downloadModel,
+            removeModel,
+          }}
         />
       )}
 

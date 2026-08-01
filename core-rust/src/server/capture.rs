@@ -7,6 +7,7 @@ use serde_json::{json, Value};
 
 use crate::audio;
 use crate::error::AppError;
+use crate::pipeline::PipelineDependencies;
 
 use super::{api_domain_error, api_error, api_error_with_params, ApiResult, AppState};
 
@@ -117,6 +118,13 @@ pub(super) async fn capture_start(State(state): State<Arc<AppState>>) -> ApiResu
         .then_some(output.device_id)
         .flatten();
     let process_name = (output.mode == "vrchat").then_some("VRChat.exe");
+    let dependencies = PipelineDependencies::new(
+        Arc::clone(&state.asr),
+        Arc::clone(&state.db),
+        state.subtitles_tx.clone(),
+        state.live_tx.clone(),
+        config.storage.subtitle_history_limit,
+    );
     let device = state
         .speaker_pipeline
         .lock()
@@ -127,11 +135,7 @@ pub(super) async fn capture_start(State(state): State<Arc<AppState>>) -> ApiResu
             process_name,
             &config.vad,
             config.asr.clone(),
-            Arc::clone(&state.asr),
-            Arc::clone(&state.db),
-            state.subtitles_tx.clone(),
-            state.live_tx.clone(),
-            config.storage.subtitle_history_limit,
+            dependencies.clone(),
         )
         .await
         .map_err(|error| {
@@ -158,11 +162,7 @@ pub(super) async fn capture_start(State(state): State<Arc<AppState>>) -> ApiResu
                 None,
                 &config.vad,
                 config.asr.clone(),
-                Arc::clone(&state.asr),
-                Arc::clone(&state.db),
-                state.subtitles_tx.clone(),
-                state.live_tx.clone(),
-                config.storage.subtitle_history_limit,
+                dependencies,
             )
             .await
         {

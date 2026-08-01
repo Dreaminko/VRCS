@@ -1,0 +1,216 @@
+mod fun_asr;
+mod openai;
+mod qwen;
+
+use std::collections::HashMap;
+
+use serde_json::Value;
+use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+use tokio_tungstenite::tungstenite::http::HeaderValue;
+use tokio_tungstenite::tungstenite::http::Request;
+use tokio_tungstenite::tungstenite::Message;
+
+use crate::config::AsrConfig;
+
+use super::CloudEvent;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Provider {
+    Qwen,
+    FunAsr,
+    OpenAi,
+}
+
+pub(super) enum InitializationEvent {
+    Ready,
+    Failed(String),
+    Pending,
+}
+
+impl Provider {
+    pub(super) fn from_config(config: &AsrConfig) -> Result<Self, String> {
+        match config.backend.as_str() {
+            "qwen_realtime" => Ok(Self::Qwen),
+            "fun_asr_realtime" => Ok(Self::FunAsr),
+            "openai_realtime" => Ok(Self::OpenAi),
+            other => Err(format!("后端 {other} 不是云端实时识别后端")),
+        }
+    }
+
+    pub(super) fn credential_name(self) -> &'static str {
+        match self {
+            Self::Qwen | Self::FunAsr => "qwen",
+            Self::OpenAi => "openai",
+        }
+    }
+
+    pub(super) fn build_request(
+        self,
+        config: &AsrConfig,
+        key: &str,
+    ) -> Result<Request<()>, String> {
+        match self {
+            Self::Qwen => qwen::build_request(config, key),
+            Self::FunAsr => fun_asr::build_request(config, key),
+            Self::OpenAi => openai::build_request(key),
+        }
+    }
+
+    pub(super) fn task_id(self) -> Option<String> {
+        (self == Self::FunAsr).then(|| uuid::Uuid::new_v4().to_string())
+    }
+
+    pub(super) fn start_message(
+        self,
+        config: &AsrConfig,
+        silence_seconds: f64,
+        task_id: Option<&str>,
+    ) -> Value {
+        match self {
+            Self::Qwen => qwen::session_update(config, silence_seconds),
+            Self::FunAsr => fun_asr::run_task(
+                config,
+                silence_seconds,
+                task_id.expect("Fun-ASR sessions always have a task id"),
+            ),
+            Self::OpenAi => openai::session_update(config, silence_seconds),
+        }
+    }
+
+    pub(super) fn initialization_event(self, value: &Value) -> InitializationEvent {
+        match self {
+            Self::Qwen | Self::OpenAi => match value.get("type").and_then(Value::as_str) {
+                Some("session.updated") => InitializationEvent::Ready,
+                Some("error") => InitializationEvent::Failed(
+                    value
+                        .pointer("/error/message")
+                        .and_then(Value::as_str)
+                        .unwrap_or("云端识别会话配置失败")
+                        .to_string(),
+                ),
+                _ => InitializationEvent::Pending,
+            },
+            Self::FunAsr => match value.pointer("/header/event").and_then(Value::as_str) {
+                Some("task-started") => InitializationEvent::Ready,
+                Some("task-failed") => InitializationEvent::Failed(
+                    value
+                        .pointer("/header/error_message")
+                        .and_then(Value::as_str)
+                        .unwrap_or("云端识别会话配置失败")
+                        .to_string(),
+                ),
+                _ => InitializationEvent::Pending,
+            },
+        }
+    }
+
+    pub(super) fn normalize_event(
+        self,
+        config: &AsrConfig,
+        value: &Value,
+        transcripts: &mut HashMap<String, String>,
+    ) -> Result<Option<CloudEvent>, String> {
+        match self {
+            Self::Qwen => qwen::normalize_event(config, value, transcripts),
+            Self::FunAsr => fun_asr::normalize_event(config, value),
+            Self::OpenAi => openai::normalize_event(config, value, transcripts),
+        }
+    }
+
+    pub(super) fn audio_message(self, samples: &[f32]) -> Message {
+        match self {
+            Self::Qwen => qwen::audio_message(samples),
+            Self::FunAsr => fun_asr::audio_message(samples),
+            Self::OpenAi => openai::audio_message(samples),
+        }
+    }
+
+    pub(super) fn finish_message(self, task_id: Option<&str>) -> Message {
+        match self {
+            Self::Qwen => qwen::finish_message(),
+            Self::FunAsr => {
+                fun_asr::finish_message(task_id.expect("Fun-ASR sessions always have a task id"))
+            }
+            Self::OpenAi => openai::finish_message(),
+        }
+    }
+
+    pub(super) fn is_finished(self, value: &Value) -> bool {
+        match self {
+            Self::Qwen | Self::OpenAi => {
+                value.get("type").and_then(Value::as_str) == Some("session.finished")
+            }
+            Self::FunAsr => {
+                value.pointer("/header/event").and_then(Value::as_str) == Some("task-finished")
+            }
+        }
+    }
+}
+
+pub(super) fn pcm16_bytes(samples: &[f32]) -> Vec<u8> {
+    let mut bytes = Vec::with_capacity(samples.len() * 2);
+    for sample in samples {
+        bytes.extend_from_slice(&((sample.clamp(-1.0, 1.0) * 32767.0) as i16).to_le_bytes());
+    }
+    bytes
+}
+
+pub(super) fn pcm16_base64(samples: &[f32]) -> String {
+    use base64::Engine as _;
+    base64::engine::general_purpose::STANDARD.encode(pcm16_bytes(samples))
+}
+
+pub(super) fn resample_16k_to_24k(samples: &[f32]) -> Vec<f32> {
+    if samples.is_empty() {
+        return Vec::new();
+    }
+    let output_len = samples.len() * 3 / 2;
+    (0..output_len)
+        .map(|index| {
+            let position = index as f32 * 2.0 / 3.0;
+            let left = position.floor() as usize;
+            let fraction = position - left as f32;
+            let right = (left + 1).min(samples.len() - 1);
+            samples[left] + (samples[right] - samples[left]) * fraction
+        })
+        .collect()
+}
+
+pub(super) fn authenticated_request(
+    url: String,
+    key: &str,
+    realtime_header: bool,
+) -> Result<Request<()>, String> {
+    let mut request = url
+        .into_client_request()
+        .map_err(|error| format!("云端识别地址无效：{error}"))?;
+    request.headers_mut().insert(
+        "Authorization",
+        HeaderValue::from_str(&format!("Bearer {key}"))
+            .map_err(|_| "API Key 包含无效字符".to_string())?,
+    );
+    if realtime_header {
+        request
+            .headers_mut()
+            .insert("OpenAI-Beta", HeaderValue::from_static("realtime=v1"));
+    }
+    Ok(request)
+}
+
+pub(super) fn event_id(value: &Value) -> String {
+    value
+        .get("item_id")
+        .or_else(|| value.get("utterance_id"))
+        .or_else(|| value.get("event_id"))
+        .and_then(Value::as_str)
+        .unwrap_or("current")
+        .to_string()
+}
+
+pub(super) fn event_language(config: &AsrConfig, value: &Value) -> Option<String> {
+    value
+        .get("language")
+        .and_then(Value::as_str)
+        .map(str::to_owned)
+        .or_else(|| (config.language != "auto").then(|| config.language.clone()))
+}

@@ -1,0 +1,143 @@
+use std::collections::HashMap;
+
+use serde_json::{json, Value};
+use tokio_tungstenite::tungstenite::http::Request;
+use tokio_tungstenite::tungstenite::Message;
+
+use crate::config::AsrConfig;
+
+use super::{authenticated_request, event_id, event_language, pcm16_base64, CloudEvent};
+
+pub(super) fn build_request(config: &AsrConfig, key: &str) -> Result<Request<()>, String> {
+    let workspace = config.qwen.workspace_id.trim();
+    if workspace.is_empty() {
+        return Err("阿里云 Workspace ID 尚未配置".into());
+    }
+    let region = match config.qwen.region.as_str() {
+        "singapore" => "ap-southeast-1",
+        "china_beijing" => "cn-beijing",
+        other => return Err(format!("不支持的阿里云区域：{other}")),
+    };
+    let url = format!(
+        "wss://{}.{}.maas.aliyuncs.com/api-ws/v1/realtime?model={}",
+        workspace, region, config.qwen.model
+    );
+    authenticated_request(url, key, true)
+}
+
+pub(super) fn session_update(config: &AsrConfig, silence_seconds: f64) -> Value {
+    let mut transcription = (config.language != "auto")
+        .then(|| json!({ "language": config.language }))
+        .unwrap_or_else(|| json!({}));
+    if !config.qwen.context.trim().is_empty() {
+        transcription["corpus"] = json!({ "text": config.qwen.context.trim() });
+    }
+    json!({
+        "event_id": uuid::Uuid::new_v4().to_string(),
+        "type": "session.update",
+        "session": {
+            "input_audio_format": "pcm",
+            "sample_rate": 16000,
+            "input_audio_transcription": transcription,
+            "turn_detection": {
+                "type": "server_vad",
+                "threshold": 0.0,
+                "silence_duration_ms": (silence_seconds * 1000.0).round() as u64,
+            }
+        }
+    })
+}
+
+pub(super) fn normalize_event(
+    config: &AsrConfig,
+    value: &Value,
+    transcripts: &mut HashMap<String, String>,
+) -> Result<Option<CloudEvent>, String> {
+    let kind = value
+        .get("type")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    if kind == "error" || kind.ends_with(".failed") {
+        let detail = value
+            .pointer("/error/message")
+            .or_else(|| value.get("message"))
+            .and_then(Value::as_str)
+            .unwrap_or("云端识别请求失败");
+        return Ok(Some(CloudEvent::Failed {
+            code: "asr.cloud_error".into(),
+            detail: detail.into(),
+        }));
+    }
+    let id = event_id(value);
+    let language = event_language(config, value);
+    if kind.ends_with(".delta") {
+        let delta = value
+            .get("delta")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        let text = transcripts.entry(id.clone()).or_default();
+        text.push_str(delta);
+        return Ok((!text.is_empty()).then(|| CloudEvent::Partial {
+            utterance_id: id,
+            text: text.clone(),
+            language,
+        }));
+    }
+    if kind.ends_with(".completed") {
+        let text = value
+            .get("transcript")
+            .or_else(|| value.get("text"))
+            .and_then(Value::as_str)
+            .map(str::to_owned)
+            .or_else(|| transcripts.remove(&id))
+            .unwrap_or_default();
+        transcripts.remove(&id);
+        return Ok(Some(CloudEvent::Final {
+            utterance_id: id,
+            text,
+            language,
+        }));
+    }
+    if kind.ends_with(".text") {
+        let text = format!(
+            "{}{}",
+            value
+                .get("text")
+                .and_then(Value::as_str)
+                .unwrap_or_default(),
+            value
+                .get("stash")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+        );
+        return Ok((!text.is_empty()).then(|| CloudEvent::Partial {
+            utterance_id: id,
+            text,
+            language,
+        }));
+    }
+    Ok(None)
+}
+
+pub(super) fn audio_message(samples: &[f32]) -> Message {
+    Message::Text(
+        json!({
+            "type": "input_audio_buffer.append",
+            "audio": pcm16_base64(samples),
+            "event_id": uuid::Uuid::new_v4().to_string(),
+        })
+        .to_string()
+        .into(),
+    )
+}
+
+pub(super) fn finish_message() -> Message {
+    Message::Text(
+        json!({
+            "event_id": uuid::Uuid::new_v4().to_string(),
+            "type": "session.finish"
+        })
+        .to_string()
+        .into(),
+    )
+}

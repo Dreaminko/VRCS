@@ -4,15 +4,18 @@ use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
-use tokio::sync::{broadcast, watch};
+use tokio::sync::watch;
 use tokio::task::JoinHandle;
 
-use crate::asr::{spawn_streaming_session, AsrService, CloudEvent, StreamingSession};
+use crate::asr::{spawn_streaming_session, CloudEvent, StreamingSession};
 use crate::audio::{AudioCapture, AudioError, CaptureSource};
 use crate::config::{AsrConfig, VadConfig};
-use crate::db::Database;
-use crate::models::{now_iso8601, AudioDevice, LiveTranscription, Subtitle};
+use crate::models::{AudioDevice, LiveTranscription};
 use crate::vad::{SpeechSegmenter, VadRuntimeState, VoiceDetector};
+
+mod dependencies;
+
+pub(crate) use dependencies::PipelineDependencies;
 
 pub struct TranscriptionPipeline {
     source: CaptureSource,
@@ -63,7 +66,6 @@ impl TranscriptionPipeline {
         self.last_error.lock().expect("pipeline error lock").clone()
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub async fn start(
         &mut self,
         sample_rate: u32,
@@ -71,11 +73,7 @@ impl TranscriptionPipeline {
         process_name: Option<&str>,
         vad_config: &VadConfig,
         asr_config: AsrConfig,
-        asr: Arc<Mutex<AsrService>>,
-        db: Arc<Mutex<Database>>,
-        subtitles_tx: broadcast::Sender<Subtitle>,
-        live_tx: broadcast::Sender<LiveTranscription>,
-        history_limit: u32,
+        dependencies: PipelineDependencies,
     ) -> Result<AudioDevice, AudioError> {
         if self.running() {
             return Err(AudioError::with_code(
@@ -108,7 +106,7 @@ impl TranscriptionPipeline {
             match spawn_streaming_session(asr_config.clone(), vad_config.silence_seconds).await {
                 Ok(session) => Some(session),
                 Err(error) if asr_config.cloud_failure_policy == "local" => {
-                    let _ = live_tx.send(LiveTranscription::Failed {
+                    dependencies.publish_live(LiveTranscription::Failed {
                         source: self.source_name.into(),
                         code: "asr.cloud_connect_failed".into(),
                         detail: error,
@@ -139,11 +137,7 @@ impl TranscriptionPipeline {
                 &mut capture,
                 detector,
                 segmenter,
-                asr,
-                db,
-                subtitles_tx,
-                live_tx,
-                history_limit,
+                dependencies,
                 source,
                 cloud,
                 asr_config.cloud_failure_policy == "local",
@@ -181,16 +175,11 @@ impl Drop for TranscriptionPipeline {
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 async fn run(
     capture: &mut AudioCapture,
     mut detector: VoiceDetector,
     mut segmenter: SpeechSegmenter,
-    asr: Arc<Mutex<AsrService>>,
-    db: Arc<Mutex<Database>>,
-    subtitles_tx: broadcast::Sender<Subtitle>,
-    live_tx: broadcast::Sender<LiveTranscription>,
-    history_limit: u32,
+    dependencies: PipelineDependencies,
     source: &'static str,
     mut cloud: Option<StreamingSession>,
     local_fallback: bool,
@@ -246,7 +235,7 @@ async fn run(
                         text,
                         language,
                     } => {
-                        let _ = live_tx.send(LiveTranscription::Partial {
+                        dependencies.publish_live(LiveTranscription::Partial {
                             utterance_id,
                             source: source.into(),
                             text,
@@ -254,11 +243,10 @@ async fn run(
                         });
                     }
                     CloudEvent::Final { text, language, .. } => {
-                        publish_text(text, language, &db, &subtitles_tx, history_limit, source)
-                            .await?;
+                        dependencies.publish_text(text, language, source).await?;
                     }
                     CloudEvent::Failed { code, detail } => {
-                        let _ = live_tx.send(LiveTranscription::Failed {
+                        dependencies.publish_live(LiveTranscription::Failed {
                             source: source.into(),
                             code,
                             detail,
@@ -307,10 +295,7 @@ async fn run(
             continue;
         };
         if cloud.is_none() {
-            if let Err(error) =
-                transcribe_and_publish(segment, &asr, &db, &subtitles_tx, history_limit, source)
-                    .await
-            {
+            if let Err(error) = dependencies.transcribe_and_publish(segment, source).await {
                 break Err(error);
             }
         }
@@ -319,10 +304,7 @@ async fn run(
         for event in session.stop_and_drain().await {
             match event {
                 CloudEvent::Final { text, language, .. } => {
-                    if let Err(error) =
-                        publish_text(text, language, &db, &subtitles_tx, history_limit, source)
-                            .await
-                    {
+                    if let Err(error) = dependencies.publish_text(text, language, source).await {
                         result = Err(error);
                         break;
                     }
@@ -332,7 +314,7 @@ async fn run(
                     text,
                     language,
                 } => {
-                    let _ = live_tx.send(LiveTranscription::Partial {
+                    dependencies.publish_live(LiveTranscription::Partial {
                         utterance_id,
                         source: source.into(),
                         text,
@@ -340,7 +322,7 @@ async fn run(
                     });
                 }
                 CloudEvent::Failed { code, detail } => {
-                    let _ = live_tx.send(LiveTranscription::Failed {
+                    dependencies.publish_live(LiveTranscription::Failed {
                         source: source.into(),
                         code,
                         detail,
@@ -358,90 +340,13 @@ enum PipelineInput {
     Cloud(CloudEvent),
 }
 
-async fn transcribe_and_publish(
-    segment: Vec<f32>,
-    asr: &Arc<Mutex<AsrService>>,
-    db: &Arc<Mutex<Database>>,
-    subtitles_tx: &broadcast::Sender<Subtitle>,
-    history_limit: u32,
-    source: &'static str,
-) -> Result<(), String> {
-    let rms = (segment.iter().map(|sample| sample * sample).sum::<f32>()
-        / segment.len().max(1) as f32)
-        .sqrt();
-    let peak = segment.iter().copied().map(f32::abs).fold(0.0, f32::max);
-    tracing::debug!(
-        source,
-        samples = segment.len(),
-        duration_seconds = segment.len() as f64 / 16_000.0,
-        rms,
-        peak,
-        "sending speech segment to ASR"
-    );
-    let transcriber = Arc::clone(asr);
-    let transcription = tokio::task::spawn_blocking(move || {
-        transcriber.lock().expect("asr lock").transcribe(&segment)
-    })
-    .await
-    .map_err(|error| format!("识别任务异常退出：{error}"))??;
-    tracing::debug!(
-        source,
-        text_length = transcription.text.chars().count(),
-        language = transcription.language.as_deref().unwrap_or("unknown"),
-        "ASR transcription completed"
-    );
-    publish_text(
-        transcription.text,
-        transcription.language,
-        db,
-        subtitles_tx,
-        history_limit,
-        source,
-    )
-    .await
-}
-
-async fn publish_text(
-    text: String,
-    language: Option<String>,
-    db: &Arc<Mutex<Database>>,
-    subtitles_tx: &broadcast::Sender<Subtitle>,
-    history_limit: u32,
-    source: &'static str,
-) -> Result<(), String> {
-    let text = text.trim().to_string();
-    if text.is_empty() {
-        return Ok(());
-    }
-
-    let subtitle = Subtitle {
-        id: None,
-        text,
-        language,
-        started_at: None,
-        ended_at: None,
-        source: source.into(),
-        created_at: now_iso8601(),
-    };
-    let database = Arc::clone(db);
-    let saved = tokio::task::spawn_blocking(move || {
-        database
-            .lock()
-            .map_err(|_| "数据库锁不可用".to_string())?
-            .add_subtitle(&subtitle, history_limit)
-            .map_err(|error| error.to_string())
-    })
-    .await
-    .map_err(|error| format!("字幕存储任务异常退出：{error}"))??;
-    let _ = subtitles_tx.send(saved);
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::asr::{AsrEngine, Transcription};
+    use crate::asr::{AsrEngine, AsrService, Transcription};
     use crate::config::AsrConfig;
+    use crate::db::Database;
+    use tokio::sync::broadcast;
 
     struct FakeEngine;
 
@@ -477,8 +382,11 @@ mod tests {
             Box::new(FakeEngine),
         )));
         let (tx, mut rx) = broadcast::channel(4);
+        let (live_tx, _) = broadcast::channel(4);
+        let dependencies = PipelineDependencies::new(asr, Arc::clone(&db), tx, live_tx, 10);
 
-        transcribe_and_publish(vec![0.0; 512], &asr, &db, &tx, 10, "microphone")
+        dependencies
+            .transcribe_and_publish(vec![0.0; 512], "microphone")
             .await
             .unwrap();
 
