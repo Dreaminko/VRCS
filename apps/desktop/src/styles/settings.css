@@ -39,7 +39,7 @@
   transition: background-color 140ms ease-out, box-shadow 140ms ease-out, color 140ms ease-out, gap 150ms ease-out, transform 140ms ease-out, width 150ms ease-out;
 }
 .settings-tabbar button:hover { color: var(--text); background: rgba(255, 255, 255, 0.58); }
-.settings-tabbar button:focus-visible { outline: 3px solid rgba(140, 208, 242, 0.18); outline-offset: 2px; }
+.settings-tabbar button:focus-visible { outline: 3px solid rgba(116, 214, 255, 0.18); outline-offset: 2px; }
 .settings-tabbar button:active { transform: scale(0.985); }
 .settings-tabbar button.active {
   width: auto;
@@ -194,7 +194,7 @@
   background: var(--text-quiet);
   box-shadow: 0 0 0 4px rgba(139, 152, 167, 0.10);
 }
-.api-credential-status.configured > span { background: var(--primary); box-shadow: 0 0 0 4px rgba(140, 208, 242, 0.13); }
+.api-credential-status.configured > span { background: var(--primary); box-shadow: 0 0 0 4px rgba(116, 214, 255, 0.13); }
 .api-credential-status strong { color: var(--text); font-size: 12px; font-weight: 650; }
 .api-credential-status small { color: var(--text-quiet); font-size: 10px; }
 .api-environment-note,
@@ -266,8 +266,8 @@
   transition: box-shadow 140ms ease-out, transform 140ms ease-out;
 }
 .range-input:focus-visible { outline: none; }
-.range-input:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 4px rgba(140, 208, 242, 0.2), 0 2px 5px rgba(0, 0, 0, 0.10); }
-.range-input:focus-visible::-moz-range-thumb { box-shadow: 0 0 0 4px rgba(140, 208, 242, 0.2), 0 2px 5px rgba(0, 0, 0, 0.10); }
+.range-input:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 4px rgba(116, 214, 255, 0.2), 0 2px 5px rgba(0, 0, 0, 0.10); }
+.range-input:focus-visible::-moz-range-thumb { box-shadow: 0 0 0 4px rgba(116, 214, 255, 0.2), 0 2px 5px rgba(0, 0, 0, 0.10); }
 .range-input:active::-webkit-slider-thumb { transform: scale(1.08); }
 .range-input:active::-moz-range-thumb { transform: scale(1.08); }
 .range-input:disabled { cursor: not-allowed; }
@@ -460,7 +460,7 @@
 }
 .anki-connection.ready .anki-connection-dot {
   background: var(--primary);
-  box-shadow: 0 0 0 4px rgba(140, 208, 242, 0.13);
+  box-shadow: 0 0 0 4px rgba(116, 214, 255, 0.13);
 }
 .anki-connection.needs-setup .anki-connection-dot {
   background: #d4942c;
