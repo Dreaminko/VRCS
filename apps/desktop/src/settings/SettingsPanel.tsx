@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import {
   BookOpen,
+  KeyRound,
   Languages,
   PlusCircle,
   SlidersHorizontal,
@@ -31,6 +32,7 @@ import {
   createSettingsActionState,
 } from "./settings-derived";
 import { AnkiSettingsSection } from "./sections/AnkiSettingsSection";
+import { ApiManagementSettingsSection } from "./sections/ApiManagementSettingsSection";
 import { AudioSettingsSection } from "./sections/AudioSettingsSection";
 import { DebugSettingsSection } from "./sections/DebugSettingsSection";
 import { DictionarySettingsSection } from "./sections/DictionarySettingsSection";
@@ -40,6 +42,7 @@ import type { SettingsCategory } from "./settings-types";
 
 export function SettingsPanel({
   settings,
+  interfaceScale,
   devices,
   devicesReady,
   dictionaries,
@@ -50,9 +53,11 @@ export function SettingsPanel({
   onImportDictionary,
   onDeleteDictionary,
   onModelsChanged,
+  onInterfaceScaleChange,
   onSave,
 }: {
   settings: Settings;
+  interfaceScale: number;
   devices: AudioDevice[];
   devicesReady: boolean;
   dictionaries: DictionarySource[];
@@ -66,6 +71,7 @@ export function SettingsPanel({
   ) => Promise<DictionarySource>;
   onDeleteDictionary: (id: number) => Promise<void>;
   onModelsChanged: () => Promise<void>;
+  onInterfaceScaleChange: (value: number) => void;
   onSave: (value: Settings) => Promise<Settings>;
 }) {
   const { t, i18n } = useTranslation();
@@ -158,6 +164,7 @@ export function SettingsPanel({
     { id: "system", label: t("settings.categories.system"), icon: <SlidersHorizontal size={18} /> },
     { id: "audio", label: t("settings.categories.audio"), icon: <Volume2 size={18} /> },
     { id: "recognition", label: t("settings.categories.recognition"), icon: <Languages size={18} /> },
+    { id: "api", label: t("settings.categories.api"), icon: <KeyRound size={18} /> },
     { id: "dictionary", label: t("settings.categories.dictionary"), icon: <BookOpen size={18} /> },
     { id: "anki", label: "Anki", icon: <PlusCircle size={18} /> },
     { id: "debug", label: "Debug", icon: <Wrench size={18} /> },
@@ -222,7 +229,9 @@ export function SettingsPanel({
           desktopPreferencesReady={desktopPreferencesReady}
           desktopSaveState={desktopSaveState}
           uiLanguagePreference={uiLanguagePreference}
+          interfaceScale={interfaceScale}
           onUpdateDesktop={updateDesktop}
+          onInterfaceScaleChange={onInterfaceScaleChange}
           onUpdateUiLanguage={updateUiLanguage}
         />
       )}
@@ -274,6 +283,14 @@ export function SettingsPanel({
           saveState={saveState}
           onRefresh={onRefresh}
           applySettings={applySettings}
+        />
+      )}
+
+      {activeCategory === "api" && (
+        <ApiManagementSettingsSection
+          draft={draft}
+          disabled={disabled}
+          onUpdateAsr={updateAsr}
         />
       )}
 

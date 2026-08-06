@@ -168,19 +168,41 @@
         "system": "系统",
         "audio": "音频",
         "recognition": "识别",
+        "api": "API 管理",
         "dictionary": "词典"
       },
       "system": {
         "title": "系统",
-        "subtitle": "语言、开机启动与窗口行为",
+        "subtitle": "语言、界面大小、开机启动与窗口行为",
         "saveImmediately": "更改会立即保存。",
         "language": "界面语言",
         "languageDescription": "跟随系统语言，或单独指定 VRCS 使用的语言。",
         "followSystem": "跟随系统",
+        "interfaceScale": "界面大小",
+        "interfaceScaleDescription": "调整界面显示比例，也可按 Ctrl + 或 Ctrl - 以 5% 为步进快速调整。",
         "launchAtStartup": "开机启动",
         "launchAtStartupDescription": "登录系统后自动启动 VRCS。",
         "minimizeToTray": "最小化到系统托盘",
         "minimizeToTrayDescription": "关闭窗口时让 VRCS 继续在托盘中运行。"
+      },
+      "apiManagement": {
+        "title": "API 管理",
+        "subtitle": "集中管理云端服务的凭据与连接参数",
+        "securityNotice": "API Key 保存在 Windows 凭据管理器中，不会写入配置文件。环境变量中的密钥会优先使用。",
+        "alibabaDescription": "Qwen3 ASR 与 Fun-ASR 共用此连接",
+        "openaiDescription": "用于 OpenAI Realtime 云端识别",
+        "region": "服务区域",
+        "apiKey": "API Key",
+        "checking": "正在检查",
+        "configured": "已配置",
+        "notConfigured": "未配置",
+        "sourceEnvironment": "来自环境变量",
+        "sourceCredentialManager": "保存在 Windows 凭据管理器",
+        "credentialConfigured": "已安全配置，可输入新密钥替换",
+        "credentialSaved": "API Key 已安全保存。",
+        "testConnection": "测试连接",
+        "connectionSucceeded": "连接成功。",
+        "environmentManaged": "当前密钥由环境变量提供，请在应用外修改或删除。"
       },
       "recognition": {
         "title": "语音识别",
@@ -193,6 +215,7 @@
         "region": "服务区域",
         "context": "识别上下文",
         "contextDescription": "可选：人名、领域词汇或对话背景。",
+        "apiManagedCentrally": "Workspace、服务区域和 API Key 请在“API 管理”中统一设置。",
         "credentialConfigured": "已安全配置",
         "credentialSaved": "API Key 已安全保存。",
         "testConnection": "测试连接",
@@ -427,6 +450,7 @@
         "warningExpand": "无法调整警告窗口大小。",
         "compactCollapse": "无法进入字幕模式。",
         "compactToggle": "无法切换字幕模式。",
+        "interfaceScale": "无法调整界面大小。",
         "alwaysOnTop": "无法更新窗口置顶状态。"
       },
       "desktop": {

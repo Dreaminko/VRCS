@@ -1,0 +1,40 @@
+{
+  "schema_version": 3,
+  "server": {
+    "host": "127.0.0.1",
+    "port": 8766
+  },
+  "storage": {
+    "database_path": "data/vrcs.db",
+    "model_directory": "models/whisper",
+    "subtitle_history_limit": 500
+  },
+  "audio": {
+    "sample_rate": 16000,
+    "output": {
+      "mode": "system",
+      "device_id": null
+    },
+    "microphone": {
+      "mode": "disabled",
+      "device_id": null
+    }
+  },
+  "vad": {
+    "silence_seconds": 0.4,
+    "max_speech_seconds": 6.0
+  },
+  "asr": {
+    "model": "small",
+    "language": "auto",
+    "device": "auto",
+    "compute_type": "int8"
+  },
+  "anki": {
+    "port": 8765,
+    "deck": "VRCS",
+    "model": "Basic",
+    "front_field": "Front",
+    "back_field": "Back"
+  }
+}

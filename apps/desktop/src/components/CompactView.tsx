@@ -2,6 +2,7 @@ import { useTranslation } from "react-i18next";
 import { MessageSquare, Mic, Square, X } from "lucide-react";
 
 import type { LiveTranscription, Subtitle } from "../types";
+import { contentLanguageTag } from "../ui-language";
 
 export function CompactView({ subtitle, partial, running, captureDisabled, onSelect, onCapture, onRestore, onClose }: {
   subtitle?: Subtitle;
@@ -19,7 +20,7 @@ export function CompactView({ subtitle, partial, running, captureDisabled, onSel
     <div className="compact-shell">
       <div className="compact-drag-region" data-tauri-drag-region />
       <div className="compact-status"><i className={running ? "running" : ""} />{partial?.language?.toUpperCase() ?? subtitle?.language?.toUpperCase() ?? "AUTO"}</div>
-      <p onMouseUp={() => (partial?.text || subtitle?.text) && void onSelect(partial?.text ?? subtitle!.text)}>{partial?.text ?? subtitle?.text ?? t("live.waiting")}</p>
+      <p lang={contentLanguageTag(partial?.language ?? subtitle?.language)} onMouseUp={() => (partial?.text || subtitle?.text) && void onSelect(partial?.text ?? subtitle!.text)}>{partial?.text ?? subtitle?.text ?? t("live.waiting")}</p>
       <div className="compact-actions">
         <button className={`compact-capture-button ${running ? "running" : ""}`} type="button" aria-label={captureLabel} title={captureLabel} disabled={captureDisabled} onClick={onCapture}>
           {running ? <Square size={15} /> : <Mic size={16} />}

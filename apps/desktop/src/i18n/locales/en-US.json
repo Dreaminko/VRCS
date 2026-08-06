@@ -168,19 +168,41 @@
         "system": "System",
         "audio": "Audio",
         "recognition": "Recognition",
+        "api": "API access",
         "dictionary": "Dictionary"
       },
       "system": {
         "title": "System",
-        "subtitle": "Language, startup, and window behavior",
+        "subtitle": "Language, interface size, startup, and window behavior",
         "saveImmediately": "Changes are saved immediately.",
         "language": "Interface language",
         "languageDescription": "Use the system language or choose one for VRCS.",
         "followSystem": "Follow system",
+        "interfaceScale": "Interface size",
+        "interfaceScaleDescription": "Adjust the interface scale, or press Ctrl + or Ctrl - to change it in 5% steps.",
         "launchAtStartup": "Launch at startup",
         "launchAtStartupDescription": "Start VRCS automatically after you sign in.",
         "minimizeToTray": "Minimize to system tray",
         "minimizeToTrayDescription": "Keep VRCS running in the tray when its window is closed."
+      },
+      "apiManagement": {
+        "title": "API access",
+        "subtitle": "Manage cloud credentials and connection details in one place",
+        "securityNotice": "API keys are stored in Windows Credential Manager and are never written to the settings file. Keys from environment variables take priority.",
+        "alibabaDescription": "Shared by Qwen3 ASR and Fun-ASR",
+        "openaiDescription": "Used by OpenAI Realtime transcription",
+        "region": "Service region",
+        "apiKey": "API key",
+        "checking": "Checking",
+        "configured": "Configured",
+        "notConfigured": "Not configured",
+        "sourceEnvironment": "From an environment variable",
+        "sourceCredentialManager": "Stored in Windows Credential Manager",
+        "credentialConfigured": "Configured securely; enter a new key to replace it",
+        "credentialSaved": "API key saved securely.",
+        "testConnection": "Test connection",
+        "connectionSucceeded": "Connection succeeded.",
+        "environmentManaged": "The current key comes from an environment variable. Change or remove it outside the app."
       },
       "recognition": {
         "title": "Speech recognition",
@@ -193,6 +215,7 @@
         "region": "Service region",
         "context": "Recognition context",
         "contextDescription": "Optional names, domain terms, or conversation background.",
+        "apiManagedCentrally": "Manage the workspace, service region, and API key under API access.",
         "credentialConfigured": "Configured securely",
         "credentialSaved": "API key saved securely.",
         "testConnection": "Test connection",
@@ -427,6 +450,7 @@
         "warningExpand": "Could not resize the warning window.",
         "compactCollapse": "Could not enter subtitle mode.",
         "compactToggle": "Could not change subtitle mode.",
+        "interfaceScale": "Could not adjust the interface size.",
         "alwaysOnTop": "Could not update always-on-top mode."
       },
       "desktop": {

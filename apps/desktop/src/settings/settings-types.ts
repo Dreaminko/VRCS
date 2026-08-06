@@ -3,6 +3,7 @@ import type { Settings } from "../types";
 export type SettingsCategory =
   | "system"
   | "recognition"
+  | "api"
   | "audio"
   | "dictionary"
   | "anki"

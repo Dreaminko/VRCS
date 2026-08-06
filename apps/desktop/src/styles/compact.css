@@ -1,0 +1,97 @@
+
+.compact-root {
+  position: relative;
+  display: grid;
+  grid-template-rows: 120px;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  background: var(--surface);
+}
+.compact-root-lookup {
+  grid-template-rows: 120px minmax(0, 1fr);
+  background: var(--canvas);
+}
+.compact-shell {
+  position: relative;
+  display: flex;
+  width: 100%;
+  height: 120px;
+  min-height: 120px;
+  align-items: center;
+  gap: 14px;
+  padding: 16px 20px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  box-shadow: var(--overlay-shadow);
+}
+.compact-root-lookup .compact-shell {
+  border-bottom-color: var(--border-strong);
+  box-shadow: none;
+}
+.compact-inline-dictionary {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  padding: 16px 20px 18px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-top: 0;
+  border-radius: 0;
+  box-shadow: var(--overlay-shadow);
+  animation: compact-dictionary-in 150ms ease-out both;
+}
+.compact-drag-region { position: absolute; z-index: 0; inset: 0; }
+.compact-status { position: relative; z-index: 1; display: flex; flex: 0 0 auto; align-items: center; gap: 7px; color: var(--text-quiet); font: 11px "Cascadia Mono", "Consolas", monospace; }
+.compact-status i { width: 7px; height: 7px; border-radius: 50%; background: var(--text-quiet); }
+.compact-status i.running { background: var(--primary); }
+.compact-shell > p { position: relative; z-index: 1; flex: 1; margin: 0; overflow: hidden; cursor: text; font-size: 18px; line-height: 1.55; text-overflow: ellipsis; white-space: nowrap; user-select: text; }
+.compact-actions {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  gap: 6px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 150ms ease-out;
+}
+.compact-shell:hover .compact-actions,
+.compact-actions:focus-within {
+  opacity: 1;
+  pointer-events: auto;
+}
+.compact-actions button {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  color: var(--text-secondary);
+  background: var(--surface-subtle);
+  cursor: pointer;
+  transition: color 140ms ease-out, background-color 140ms ease-out, opacity 140ms ease-out, transform 140ms ease-out;
+}
+.compact-actions button:hover { color: var(--primary); background: var(--primary-soft); }
+.compact-actions button:active { transform: scale(0.96); }
+.compact-actions button:disabled { opacity: 0.45; pointer-events: none; }
+.compact-actions .compact-capture-button {
+  color: white;
+  background: var(--primary);
+}
+.compact-actions .compact-capture-button:hover {
+  color: white;
+  background: var(--primary-hover);
+}
+.compact-actions .compact-capture-button.running {
+  color: var(--primary);
+  background: var(--primary-softer);
+}
+.compact-actions .compact-capture-button.running:hover {
+  color: var(--primary-hover);
+  background: var(--primary-soft);
+}

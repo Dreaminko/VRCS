@@ -5,6 +5,26 @@ export type UiLanguagePreference = "system" | UiLocale;
 
 const UI_LANGUAGE_KEY = "uiLanguage";
 const WEB_STORAGE_KEY = "vrcs.ui-language";
+const DEFAULT_CONTENT_LOCALES: Readonly<Record<string, string>> = {
+  en: "en-US",
+  ja: "ja-JP",
+  ko: "ko-KR",
+  zh: "zh-CN",
+};
+
+export function contentLanguageTag(language: string | null | undefined): string | undefined {
+  const normalized = language?.trim().replaceAll("_", "-");
+  if (!normalized || normalized.toLowerCase() === "auto") return undefined;
+
+  const defaultLocale = DEFAULT_CONTENT_LOCALES[normalized.toLowerCase()];
+  if (defaultLocale) return defaultLocale;
+
+  try {
+    return Intl.getCanonicalLocales(normalized)[0];
+  } catch {
+    return undefined;
+  }
+}
 
 export function isUiLanguagePreference(
   value: unknown,

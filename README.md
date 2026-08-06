@@ -26,18 +26,19 @@ Core 使用 Rust、Axum、Tokio、SQLite、WASAPI、ONNX Runtime 和 whisper.cpp
 
 ## 运行 Release 安装版
 
-Release 安装包面向 Windows 10/11 x64。运行安装版需要：
+Release 安装包面向 Windows 10/11 x64。默认下载不带 `-CUDA` 后缀的统一客户端；它同时支持云端识别和本地 CPU Whisper，不需要安装 CUDA。运行安装版需要：
 
 - **Microsoft Visual C++ v14 Redistributable（x64）**：安装[微软当前支持的最新 x64 版本](https://aka.ms/vc14/vc_redist.x64.exe)。
 - **Microsoft Edge WebView2 Evergreen Runtime**：Windows 11 和已更新的 Windows 10 通常已包含；安装器会在缺失时联网安装。
-- **NVIDIA CUDA Runtime（安装版必需）**：官方安装包按 CUDA 12.4.1 构建，需要用户自行安装 CUDA 12.x Runtime、cuBLAS、cuBLASLt，相关 DLL 必须位于系统 `PATH`。CUDA 推理还需要兼容的 NVIDIA GPU 和 551.78 或更高版本驱动；选择 CPU 只停用 GPU 推理，不会移除程序启动时的 CUDA DLL 依赖。
 - **网络连接（首次启动与首次识别模型）**：首次启动下载 Silero VAD v6.2.1，首次使用某个 Whisper 模型时下载该模型；文件保存在 `%LOCALAPPDATA%\.vrcs\models`。
 
-安装版不附带 NVIDIA CUDA 运行库，也不需要另行安装 Python、Node.js、Rust 或 FFmpeg。Anki 和 AnkiConnect 只在使用制卡功能时需要。
+文件名带 `-CUDA` 后缀的可选安装包额外提供 NVIDIA CUDA 加速。该版本按 CUDA 12.4.1 构建，需要用户自行安装 CUDA 12.x Runtime、cuBLAS、cuBLASLt，相关 DLL 必须位于系统 `PATH`，并使用兼容的 NVIDIA GPU 和 551.78 或更高版本驱动。标准版和 CUDA 版使用相同配置、数据库和模型目录，可以直接互换安装。
+
+两个安装版都不附带 NVIDIA CUDA 运行库，也不需要另行安装 Python、Node.js、Rust 或 FFmpeg。Anki 和 AnkiConnect 只在使用制卡功能时需要。
 
 ## 从源码开发
 
-开发环境需要 Windows 10/11、Node.js 20+、Rust stable、NVIDIA CUDA Toolkit（设置 `CUDA_PATH`），以及安装了“使用 C++ 的桌面开发”工作负载的 Visual Studio Build Tools。
+开发环境需要 Windows 10/11、Node.js 20+、Rust stable，以及安装了“使用 C++ 的桌面开发”工作负载的 Visual Studio Build Tools。只有启用 CUDA 开发命令时才需要 NVIDIA CUDA Toolkit，并设置 `CUDA_PATH`。
 
 ```powershell
 npm install
@@ -46,7 +47,12 @@ npm run dev
 
 Tauri 会在同一进程内启动 Rust Core，退出桌面端时一并停止。开发模式 Core 默认监听 `http://127.0.0.1:8766`，WebSocket 为 `ws://127.0.0.1:8766/ws`；配置、数据库和模型保存在 `%LOCALAPPDATA%\.vrcs`。
 
-`npm run dev` 和 `npm run dev:core` 默认启用 CUDA；无 Toolkit 的 CPU-only 开发可分别使用 `npm run dev:desktop:cpu` 和 `npm run dev:core:cpu`。
+`npm run dev` 和 `npm run dev:core` 默认不启用 CUDA。需要 CUDA 加速时显式使用：
+
+```powershell
+npm run dev:cuda
+npm run dev:core:cuda
+```
 
 只调试后端 API：
 
@@ -75,13 +81,19 @@ cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml
 npm run build
 ```
 
-构建脚本校验 `tauri.conf.json`、桌面端 `Cargo.toml` 和 Core `Cargo.toml` 的版本，执行测试，以 CUDA 特性构建，并对生成的桌面程序执行一次 Core 与 Silero 首启下载自检，最后生成不含 NVIDIA 运行库的 NSIS 安装包与 SHA-256。也可显式指定版本：
+构建脚本校验 `tauri.conf.json`、桌面端 `Cargo.toml` 和 Core `Cargo.toml` 的版本，执行测试，默认生成不依赖 CUDA 的统一客户端，并对生成的桌面程序执行一次 Core 与 Silero 首启下载自检，最后生成 NSIS 安装包与 SHA-256。也可显式指定版本：
 
 ```powershell
 .\scripts\build-release.ps1 -Version 0.1.0
 ```
 
-产物位于 `apps/desktop/src-tauri/target/release/bundle/nsis/`。推送匹配的标签（例如 `v0.1.0`）会触发 Windows GitHub Actions 并创建 Draft Release。
+需要同时构建可选 CUDA 版本时使用：
+
+```powershell
+.\scripts\build-release.ps1 -Version 0.1.0 -IncludeCuda
+```
+
+规范化产物位于 `release-artifacts/`：标准版为 `VRCS-<version>-windows-x64.exe`，CUDA 版为 `VRCS-<version>-windows-x64-CUDA.exe`。推送匹配的标签（例如 `v0.1.0`）会触发 Windows GitHub Actions，在同一个 Draft Release 中发布两个安装包及其 SHA-256。
 
 ## AnkiConnect
 

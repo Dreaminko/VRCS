@@ -52,38 +52,50 @@ jobs:
           npm --workspace apps/desktop test
           cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml
 
-      - name: Build draft GitHub release
-        uses: tauri-apps/tauri-action@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          projectPath: apps/desktop
-          tagName: ${{ github.ref_name }}
-          releaseName: "VRCS ${{ github.ref_name }}"
-          releaseBody: "Windows x64 CUDA build for VRCS. CUDA 12.x Runtime and cuBLAS must be installed separately. The default Whisper model is downloaded on first use."
-          releaseDraft: true
-          args: --features cuda --config src-tauri/tauri.release.conf.json --bundles nsis
-
-      - name: Run packaged-core self-test
+      - name: Build standard and CUDA release packages
         shell: pwsh
         run: |
-          $executable = "apps/desktop/src-tauri/target/release/vrcs-desktop.exe"
-          if (-not (Test-Path -LiteralPath $executable -PathType Leaf)) {
-            throw "Built desktop executable not found: $executable"
-          }
-          $process = Start-Process -FilePath $executable -ArgumentList "--release-self-test" -Wait -PassThru -WindowStyle Hidden
-          if ($process.ExitCode -ne 0) {
-            throw "Release self-test failed with exit code $($process.ExitCode)"
-          }
+          $version = (Get-Content -LiteralPath "apps/desktop/src-tauri/tauri.conf.json" -Raw | ConvertFrom-Json).version
+          .\scripts\build-release.ps1 -Version $version -SkipInstall -SkipTests -IncludeCuda
 
-      - name: Upload SHA-256 checksum
+      - name: Create draft GitHub release
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          $installer = Get-ChildItem -LiteralPath "apps/desktop/src-tauri/target/release/bundle/nsis" -Filter "*.exe" | Select-Object -First 1
-          if (-not $installer) { throw "NSIS installer not found" }
-          $hash = Get-FileHash -LiteralPath $installer.FullName -Algorithm SHA256
-          $checksum = "$($installer.FullName).sha256"
-          "$($hash.Hash.ToLowerInvariant())  $($installer.Name)" | Set-Content -LiteralPath $checksum -Encoding ascii
-          gh release upload "${{ github.ref_name }}" $checksum --clobber
+          $tag = "${{ github.ref_name }}"
+          $version = $tag.TrimStart("v")
+          $notes = @"
+          Windows 10/11 x64 release for VRCS.
+
+          - `VRCS-$version-windows-x64.exe` is the recommended unified client. It supports cloud recognition and local CPU Whisper without requiring CUDA.
+          - `VRCS-$version-windows-x64-CUDA.exe` adds NVIDIA CUDA acceleration. CUDA 12.x Runtime, cuBLAS, and a compatible NVIDIA driver must be installed separately.
+          - Whisper models are downloaded only when local recognition is used.
+          "@
+
+          gh release view $tag *> $null
+          if ($LASTEXITCODE -eq 0) {
+            gh release edit $tag --draft --title "VRCS $tag" --notes $notes
+          } else {
+            gh release create $tag --draft --title "VRCS $tag" --notes $notes
+          }
+          if ($LASTEXITCODE -ne 0) {
+            throw "Failed to create or update draft release $tag"
+          }
+
+      - name: Upload release packages and SHA-256 checksums
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $version = "${{ github.ref_name }}".TrimStart("v")
+          $assets = @(
+            "release-artifacts/VRCS-$version-windows-x64.exe",
+            "release-artifacts/VRCS-$version-windows-x64.exe.sha256",
+            "release-artifacts/VRCS-$version-windows-x64-CUDA.exe",
+            "release-artifacts/VRCS-$version-windows-x64-CUDA.exe.sha256"
+          )
+          gh release upload "${{ github.ref_name }}" @assets --clobber
+          if ($LASTEXITCODE -ne 0) {
+            throw "Failed to upload release assets"
+          }

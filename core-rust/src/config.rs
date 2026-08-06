@@ -1,12 +1,14 @@
-//! 服务配置：JSON 文件读写与 schema v1→v4 迁移。
+//! 服务配置类型、默认值与结构校验。
 //! 与 Python 版 `app/config.py` 行为保持一致。
 
-use std::fs;
-use std::io::Write;
-use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
-
 use serde::{Deserialize, Serialize};
+
+mod io;
+mod migration;
+
+pub use io::{load_config, save_config};
+#[cfg(test)]
+use migration::config_from_value;
 
 pub const SCHEMA_VERSION: u32 = 4;
 
@@ -114,29 +116,6 @@ pub struct FunAsrConfig {
 pub struct OpenAiAsrConfig {
     #[serde(default = "default_openai_model")]
     pub model: String,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-struct LegacyAsrConfig {
-    #[serde(default = "default_asr_model")]
-    model: String,
-    #[serde(default = "default_language")]
-    language: String,
-    #[serde(default = "default_device")]
-    device: String,
-    #[serde(default = "default_compute_type")]
-    compute_type: String,
-}
-
-impl Default for LegacyAsrConfig {
-    fn default() -> Self {
-        Self {
-            model: default_asr_model(),
-            language: default_language(),
-            device: default_device(),
-            compute_type: default_compute_type(),
-        }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -454,208 +433,10 @@ impl AppConfig {
     }
 }
 
-fn migrate_v1(raw: &serde_json::Value) -> AppConfig {
-    let defaults = AppConfig::default();
-    let microphone_device_id = raw.get("microphone_device_id").and_then(|v| v.as_i64());
-    let vrchat_only = raw
-        .get("vrchat_only")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
-    let legacy_asr: LegacyAsrConfig = serde_json::from_value(
-        raw.get("asr")
-            .cloned()
-            .unwrap_or_else(|| serde_json::json!({})),
-    )
-    .unwrap_or_default();
-
-    let mut config = AppConfig {
-        server: ServerConfig {
-            host: raw
-                .get("host")
-                .and_then(|v| v.as_str())
-                .map(str::to_owned)
-                .unwrap_or_else(|| defaults.server.host.clone()),
-            port: raw
-                .get("port")
-                .and_then(|v| v.as_u64())
-                .map(|v| v as u16)
-                .unwrap_or(defaults.server.port),
-        },
-        storage: StorageConfig {
-            database_path: raw
-                .get("database_path")
-                .and_then(|v| v.as_str())
-                .map(str::to_owned)
-                .unwrap_or_else(|| defaults.storage.database_path.clone()),
-            model_directory: raw
-                .get("model_directory")
-                .and_then(|v| v.as_str())
-                .map(str::to_owned)
-                .unwrap_or_else(|| defaults.storage.model_directory.clone()),
-            subtitle_history_limit: raw
-                .get("subtitle_history_limit")
-                .and_then(|v| v.as_u64())
-                .map(|v| v as u32)
-                .unwrap_or(defaults.storage.subtitle_history_limit),
-        },
-        audio: AudioConfig {
-            sample_rate: raw
-                .get("sample_rate")
-                .and_then(|v| v.as_u64())
-                .map(|v| v as u32)
-                .unwrap_or(defaults.audio.sample_rate),
-            output: OutputConfig {
-                mode: if vrchat_only {
-                    "vrchat".into()
-                } else {
-                    "system".into()
-                },
-                device_id: if vrchat_only {
-                    None
-                } else {
-                    raw.get("audio_device_id").and_then(|v| v.as_i64())
-                },
-            },
-            microphone: MicrophoneConfig {
-                mode: if microphone_device_id.is_some() {
-                    "device".into()
-                } else {
-                    "disabled".into()
-                },
-                device_id: microphone_device_id,
-            },
-        },
-        asr: asr_from_legacy(legacy_asr),
-        ..AppConfig::default()
-    };
-    fix_colliding_ports(&mut config);
-    config
-}
-
-fn asr_from_legacy(legacy: LegacyAsrConfig) -> AsrConfig {
-    AsrConfig {
-        backend: "local_whisper".into(),
-        language: legacy.language,
-        local: LocalAsrConfig {
-            model: legacy.model,
-            device: legacy.device,
-            compute_type: legacy.compute_type,
-        },
-        ..AsrConfig::default()
-    }
-}
-
-fn migrate_v2_or_v3(raw: &serde_json::Value) -> Result<AppConfig, String> {
-    let legacy: LegacyAsrConfig = serde_json::from_value(
-        raw.get("asr")
-            .cloned()
-            .unwrap_or_else(|| serde_json::json!({})),
-    )
-    .map_err(|error| error.to_string())?;
-    let mut value = raw.clone();
-    let object = value
-        .as_object_mut()
-        .ok_or_else(|| "Configuration root must be an object".to_string())?;
-    object.insert("schema_version".into(), serde_json::json!(SCHEMA_VERSION));
-    object.insert(
-        "asr".into(),
-        serde_json::to_value(asr_from_legacy(legacy)).map_err(|error| error.to_string())?,
-    );
-    let mut config: AppConfig = serde_json::from_value(value).map_err(|error| error.to_string())?;
-    if raw.get("schema_version").and_then(|value| value.as_u64()) == Some(2) {
-        fix_colliding_ports(&mut config);
-    }
-    Ok(config)
-}
-
-/// v1/v2 迁移共用：避免 Core 端口与 AnkiConnect 默认端口冲突。
-fn fix_colliding_ports(config: &mut AppConfig) {
-    if config.server.port == 8765 {
-        config.server.port = 8766;
-    }
-    if config.anki.port == 8766 {
-        config.anki.port = 8765;
-    }
-}
-
-fn config_version(raw: &serde_json::Value) -> Result<u64, String> {
-    let object = raw
-        .as_object()
-        .ok_or_else(|| "Configuration root must be an object".to_string())?;
-    match object.get("schema_version") {
-        None => Ok(1),
-        Some(value) => value
-            .as_u64()
-            .ok_or_else(|| "Configuration schema_version must be an integer".to_string()),
-    }
-}
-
-pub fn config_from_value(raw: &serde_json::Value) -> Result<AppConfig, String> {
-    let version = config_version(raw)?;
-    let mut config = match version {
-        v if v == SCHEMA_VERSION as u64 => {
-            serde_json::from_value(raw.clone()).map_err(|e| e.to_string())?
-        }
-        2 | 3 => migrate_v2_or_v3(raw)?,
-        1 => migrate_v1(raw),
-        other => return Err(format!("Unsupported configuration schema v{other}")),
-    };
-    config.schema_version = SCHEMA_VERSION;
-    config.validate_settings()?;
-    Ok(config)
-}
-
-pub fn load_config(path: &Path) -> Result<AppConfig, String> {
-    if !path.exists() {
-        let config = AppConfig::default();
-        save_config(path, &config)?;
-        return Ok(config);
-    }
-    let text = fs::read_to_string(path).map_err(|e| e.to_string())?;
-    let raw: serde_json::Value = serde_json::from_str(&text)
-        .map_err(|error| format!("Configuration JSON is invalid: {error}"))?;
-    let version = config_version(&raw)?;
-    let config = config_from_value(&raw)?;
-    if version != SCHEMA_VERSION as u64 {
-        let backup = path.with_extension(format!("v{version}.backup.json"));
-        if !backup.exists() {
-            fs::copy(path, &backup)
-                .map_err(|error| format!("无法备份旧配置到 {}：{error}", backup.display()))?;
-        }
-        save_config(path, &config)?;
-    }
-    Ok(config)
-}
-
-/// 原子写入：先写临时文件再替换，避免崩溃时留下半截配置。
-pub fn save_config(path: &Path, config: &AppConfig) -> Result<(), String> {
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-    }
-    let payload = serde_json::to_string_pretty(config).map_err(|e| e.to_string())?;
-    let nonce = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_err(|error| error.to_string())?
-        .as_nanos();
-    let temporary: PathBuf =
-        path.with_extension(format!("json.{}.{nonce}.tmp", std::process::id()));
-    let result = (|| {
-        let mut file = fs::File::create(&temporary).map_err(|e| e.to_string())?;
-        file.write_all(payload.as_bytes())
-            .map_err(|e| e.to_string())?;
-        file.sync_all().map_err(|e| e.to_string())?;
-        drop(file);
-        fs::rename(&temporary, path).map_err(|e| e.to_string())
-    })();
-    if result.is_err() {
-        let _ = fs::remove_file(&temporary);
-    }
-    result
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
 
     #[test]
     fn default_config_round_trips() {

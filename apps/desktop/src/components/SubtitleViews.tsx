@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { CalendarDays, History, Languages, MessageSquare, Mic, Volume2 } from "lucide-react";
 
 import { timestamp } from "../app-utils";
+import { contentLanguageTag } from "../ui-language";
 import type { ConnectionState, Health, LiveTranscription, Settings, Subtitle } from "../types";
 import { DropdownField } from "./DropdownField";
 
@@ -56,7 +57,7 @@ export function LiveView({ subtitles, partials, running, onSelect }: {
       )}
       {([partials.speaker, partials.microphone].filter(Boolean) as LiveTranscription[]).map((partial) => (
         <div className={`message-group source-${partial.source} streaming-message`} key={`${partial.source}-${partial.utterance_id}`}>
-          <div className="bubble">{partial.text}<span className="streaming-ellipsis" aria-hidden="true">…</span></div>
+          <div className="bubble" lang={contentLanguageTag(partial.language)}>{partial.text}<span className="streaming-ellipsis" aria-hidden="true">…</span></div>
         </div>
       ))}
       {running && !partials.speaker && !partials.microphone && <div className="message-group source-speaker streaming-message"><div className="bubble">{t("live.transcribing")}<span className="streaming-ellipsis" aria-hidden="true">…</span></div></div>}
@@ -78,7 +79,7 @@ function ChatBubble({ subtitle, onSelect }: { subtitle: Subtitle; onSelect: (con
         {!mine && <time>{timestamp(subtitle.created_at, locale)}</time>}
         {mine && <Mic size={14} />}
       </div>
-      <p className="bubble" onMouseUp={() => void onSelect(subtitle.text)}>{subtitle.text}</p>
+      <p className="bubble" lang={contentLanguageTag(subtitle.language)} onMouseUp={() => void onSelect(subtitle.text)}>{subtitle.text}</p>
     </article>
   );
 }
@@ -135,7 +136,7 @@ export function HistoryView({ subtitles, onSelect }: { subtitles: Subtitle[]; on
         <div className="history-list">{filtered.map((subtitle, index) => (
           <article key={subtitle.id ?? `${subtitle.created_at}-${index}`} onMouseUp={() => void onSelect(subtitle.text)}>
             <time>{timestamp(subtitle.created_at, locale)}</time>
-            <p>{subtitle.text}</p>
+            <p lang={contentLanguageTag(subtitle.language)}>{subtitle.text}</p>
             <span>{subtitle.language?.toUpperCase() ?? "—"}</span>
           </article>
         ))}</div>

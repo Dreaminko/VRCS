@@ -51,6 +51,7 @@ core-python/build-release/
 core-python/dist-release/
 apps/desktop/src-tauri/binaries/
 apps/desktop/src-tauri/resources/vrcs-core-runtime/
+release-artifacts/
 
 # Design tool working output
 .superdesign/

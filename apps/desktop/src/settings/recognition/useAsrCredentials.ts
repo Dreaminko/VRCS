@@ -16,9 +16,13 @@ export function useAsrCredentials(provider: CloudCredentialProvider) {
   const [credentials, setCredentials] = useState<Record<CloudCredentialProvider, CredentialStatus> | null>(null);
   const [apiKey, setApiKey] = useState("");
   const [message, setMessage] = useState("");
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    void coreApi.asrCredentials().then(setCredentials).catch(() => setCredentials(null));
+    void coreApi.asrCredentials()
+      .then(setCredentials)
+      .catch((reason) => setMessage(reason instanceof Error ? reason.message : String(reason)))
+      .finally(() => setLoading(false));
   }, []);
 
   useEffect(() => {
@@ -32,7 +36,7 @@ export function useAsrCredentials(provider: CloudCredentialProvider) {
       const status = await coreApi.saveAsrCredential(provider, apiKey);
       setCredentials((current) => ({ ...(current ?? emptyCredentials()), [provider]: status }));
       setApiKey("");
-      setMessage(t("settings.recognition.credentialSaved"));
+      setMessage(t("settings.apiManagement.credentialSaved"));
     } catch (reason) {
       setMessage(reason instanceof Error ? reason.message : String(reason));
     }
@@ -41,7 +45,7 @@ export function useAsrCredentials(provider: CloudCredentialProvider) {
   const test = async () => {
     try {
       await coreApi.testAsrCredential(provider);
-      setMessage(t("settings.recognition.connectionSucceeded"));
+      setMessage(t("settings.apiManagement.connectionSucceeded"));
     } catch (reason) {
       setMessage(reason instanceof Error ? reason.message : String(reason));
     }
@@ -61,6 +65,7 @@ export function useAsrCredentials(provider: CloudCredentialProvider) {
     status: credentials?.[provider] ?? null,
     apiKey,
     message,
+    loading,
     setApiKey,
     save,
     test,

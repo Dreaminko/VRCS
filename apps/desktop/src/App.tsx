@@ -20,12 +20,20 @@ import { useCompactWindow } from "./hooks/useCompactWindow";
 import { useConversationWorkspace } from "./hooks/useConversationWorkspace";
 import { useCoreSession } from "./hooks/useCoreSession";
 import { useDictionaryLookup } from "./hooks/useDictionaryLookup";
+import {
+  applyInterfaceScale,
+  interfaceScaleShortcutStep,
+  normalizeInterfaceScale,
+  readInterfaceScale,
+  writeInterfaceScale,
+} from "./interface-scale";
 import { SettingsPanel } from "./settings/SettingsPanel";
 
 function App() {
   const { t, i18n } = useTranslation();
   const locale = i18n.resolvedLanguage ?? "en-US";
   const [page, setPage] = useState<Page>("live");
+  const [interfaceScale, setInterfaceScale] = useState(readInterfaceScale);
   const core = useCoreSession(page === "settings");
   const {
     connection,
@@ -90,6 +98,24 @@ function App() {
     scrollLiveViewToBottom,
     onLiveScroll,
   } = conversation;
+
+  useEffect(() => {
+    writeInterfaceScale(interfaceScale);
+    void applyInterfaceScale(interfaceScale).catch((reason) => {
+      reportError(reason, "errors.window.interfaceScale");
+    });
+  }, [interfaceScale, reportError]);
+
+  useEffect(() => {
+    const handleInterfaceScaleShortcut = (event: KeyboardEvent) => {
+      const step = interfaceScaleShortcutStep(event);
+      if (step === 0) return;
+      event.preventDefault();
+      setInterfaceScale((current) => normalizeInterfaceScale(current + step));
+    };
+    window.addEventListener("keydown", handleInterfaceScaleShortcut);
+    return () => window.removeEventListener("keydown", handleInterfaceScaleShortcut);
+  }, []);
 
   useEffect(() => {
     const runtimeMissing = Boolean(
@@ -289,6 +315,7 @@ function App() {
             {page === "settings" && settings && (
               <SettingsPanel
                 settings={settings}
+                interfaceScale={interfaceScale}
                 devices={devices}
                 devicesReady={devicesReady}
                 dictionaries={dictionarySources}
@@ -299,6 +326,7 @@ function App() {
                 onImportDictionary={importDictionary}
                 onDeleteDictionary={deleteDictionary}
                 onModelsChanged={loadAsrCapabilities}
+                onInterfaceScaleChange={setInterfaceScale}
                 onSave={saveSettings}
               />
             )}

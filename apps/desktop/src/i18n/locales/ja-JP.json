@@ -168,19 +168,41 @@
         "system": "システム",
         "audio": "音声",
         "recognition": "音声認識",
+        "api": "API 管理",
         "dictionary": "辞書"
       },
       "system": {
         "title": "システム",
-        "subtitle": "言語、起動、ウィンドウの動作",
+        "subtitle": "言語、表示サイズ、起動、ウィンドウの動作",
         "saveImmediately": "変更はすぐに保存されます。",
         "language": "表示言語",
         "languageDescription": "システム言語に従うか、VRCS 用の言語を選びます。",
         "followSystem": "システム設定に従う",
+        "interfaceScale": "表示サイズ",
+        "interfaceScaleDescription": "表示倍率を調整します。Ctrl + または Ctrl - でも 5% ずつ変更できます。",
         "launchAtStartup": "ログイン時に起動",
         "launchAtStartupDescription": "サインイン後に VRCS を自動的に起動します。",
         "minimizeToTray": "システムトレイに最小化",
         "minimizeToTrayDescription": "ウィンドウを閉じても VRCS をトレイで実行し続けます。"
+      },
+      "apiManagement": {
+        "title": "API 管理",
+        "subtitle": "クラウドサービスの認証情報と接続設定を一元管理します",
+        "securityNotice": "API キーは Windows 資格情報マネージャーに保存され、設定ファイルには書き込まれません。環境変数のキーが優先されます。",
+        "alibabaDescription": "Qwen3 ASR と Fun-ASR で共有します",
+        "openaiDescription": "OpenAI Realtime 音声認識で使用します",
+        "region": "サービス地域",
+        "apiKey": "API キー",
+        "checking": "確認中",
+        "configured": "設定済み",
+        "notConfigured": "未設定",
+        "sourceEnvironment": "環境変数から取得",
+        "sourceCredentialManager": "Windows 資格情報マネージャーに保存",
+        "credentialConfigured": "安全に設定済みです。新しいキーを入力すると置き換えられます",
+        "credentialSaved": "API キーを安全に保存しました。",
+        "testConnection": "接続テスト",
+        "connectionSucceeded": "接続に成功しました。",
+        "environmentManaged": "現在のキーは環境変数から提供されています。アプリ外で変更または削除してください。"
       },
       "recognition": {
         "title": "音声認識",
@@ -193,6 +215,7 @@
         "region": "サービス地域",
         "context": "認識コンテキスト",
         "contextDescription": "任意：人名、専門用語、会話の背景。",
+        "apiManagedCentrally": "Workspace、サービス地域、API キーは「API 管理」で一元設定できます。",
         "credentialConfigured": "安全に設定済み",
         "credentialSaved": "API キーを安全に保存しました。",
         "testConnection": "接続テスト",
@@ -427,6 +450,7 @@
         "warningExpand": "警告ウィンドウのサイズを変更できませんでした。",
         "compactCollapse": "字幕モードに切り替えられませんでした。",
         "compactToggle": "字幕モードを変更できませんでした。",
+        "interfaceScale": "表示サイズを変更できませんでした。",
         "alwaysOnTop": "最前面表示を変更できませんでした。"
       },
       "desktop": {
