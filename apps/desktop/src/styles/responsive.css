@@ -11,8 +11,8 @@
 
 @media (max-width: 680px) {
   .app-shell.live-shell.sidebar-open { --dock-sidebar-offset: 0px; }
-  .conversation-sidebar:not(.conversation-sidebar-collapsed) { position: absolute; inset: 12px auto 12px 12px; width: min(300px, calc(100vw - 72px)); min-width: 0; margin: 0; box-shadow: 0 18px 46px rgba(40, 76, 110, 0.18), 0 1px 3px rgba(40, 76, 110, 0.12); }
-  .sidebar-scrim { position: absolute; z-index: 50; inset: 0; display: block; padding: 0; border: 0; background: rgba(24, 35, 45, 0.14); }
+  .conversation-sidebar:not(.conversation-sidebar-collapsed) { position: absolute; inset: 12px auto 12px 12px; width: min(300px, calc(100vw - 72px)); min-width: 0; margin: 0; box-shadow: 0 18px 46px rgba(0, 0, 0, 0.10), 0 1px 3px rgba(0, 0, 0, 0.065); }
+  .sidebar-scrim { position: absolute; z-index: 50; inset: 0; display: block; padding: 0; border: 0; background: rgba(0, 0, 0, 0.12); }
   .status-summary { display: none; }
   .top-status-row { margin-bottom: 8px; }
   .message-group { max-width: 92%; }

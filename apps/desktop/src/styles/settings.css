@@ -48,7 +48,7 @@
   padding-inline: 13px 15px;
   color: var(--primary-ink);
   background: var(--surface);
-  box-shadow: 0 1px 3px rgba(40, 76, 110, 0.12);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.065);
 }
 .settings-tab-icon {
   display: grid;
@@ -192,7 +192,7 @@
   flex: 0 0 8px;
   border-radius: 50%;
   background: var(--text-quiet);
-  box-shadow: 0 0 0 4px rgba(135, 150, 163, 0.12);
+  box-shadow: 0 0 0 4px rgba(139, 152, 167, 0.10);
 }
 .api-credential-status.configured > span { background: var(--primary); box-shadow: 0 0 0 4px rgba(140, 208, 242, 0.13); }
 .api-credential-status strong { color: var(--text); font-size: 12px; font-weight: 650; }
@@ -242,7 +242,7 @@
   border: 3px solid var(--surface);
   border-radius: 50%;
   background: var(--primary);
-  box-shadow: 0 0 0 1px var(--primary), 0 2px 5px rgba(40, 76, 110, 0.18);
+  box-shadow: 0 0 0 1px var(--primary), 0 2px 5px rgba(0, 0, 0, 0.10);
   transition: box-shadow 140ms ease-out, transform 140ms ease-out;
 }
 .range-input::-moz-range-track {
@@ -262,12 +262,12 @@
   border: 3px solid var(--surface);
   border-radius: 50%;
   background: var(--primary);
-  box-shadow: 0 0 0 1px var(--primary), 0 2px 5px rgba(40, 76, 110, 0.18);
+  box-shadow: 0 0 0 1px var(--primary), 0 2px 5px rgba(0, 0, 0, 0.10);
   transition: box-shadow 140ms ease-out, transform 140ms ease-out;
 }
 .range-input:focus-visible { outline: none; }
-.range-input:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 4px rgba(140, 208, 242, 0.2), 0 2px 5px rgba(40, 76, 110, 0.18); }
-.range-input:focus-visible::-moz-range-thumb { box-shadow: 0 0 0 4px rgba(140, 208, 242, 0.2), 0 2px 5px rgba(40, 76, 110, 0.18); }
+.range-input:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 4px rgba(140, 208, 242, 0.2), 0 2px 5px rgba(0, 0, 0, 0.10); }
+.range-input:focus-visible::-moz-range-thumb { box-shadow: 0 0 0 4px rgba(140, 208, 242, 0.2), 0 2px 5px rgba(0, 0, 0, 0.10); }
 .range-input:active::-webkit-slider-thumb { transform: scale(1.08); }
 .range-input:active::-moz-range-thumb { transform: scale(1.08); }
 .range-input:disabled { cursor: not-allowed; }
@@ -456,15 +456,15 @@
   height: 9px;
   border-radius: 50%;
   background: var(--text-quiet);
-  box-shadow: 0 0 0 4px rgba(135, 150, 163, 0.12);
+  box-shadow: 0 0 0 4px rgba(139, 152, 167, 0.10);
 }
 .anki-connection.ready .anki-connection-dot {
   background: var(--primary);
   box-shadow: 0 0 0 4px rgba(140, 208, 242, 0.13);
 }
 .anki-connection.needs-setup .anki-connection-dot {
-  background: #b47a2f;
-  box-shadow: 0 0 0 4px rgba(180, 122, 47, 0.13);
+  background: #d4942c;
+  box-shadow: 0 0 0 4px rgba(212, 148, 44, 0.13);
 }
 .anki-connection.offline .anki-connection-dot {
   background: var(--error);
@@ -507,7 +507,7 @@
   border-radius: var(--radius-sm);
   color: var(--text);
   background: var(--surface);
-  box-shadow: 0 1px 2px rgba(40, 76, 110, 0.06);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.035);
   font: 13px "Cascadia Mono", "Consolas", monospace;
   font-variant-numeric: tabular-nums;
   transition: border-color 140ms ease-out, box-shadow 140ms ease-out;
@@ -545,7 +545,7 @@
   border-radius: var(--radius-sm);
   color: var(--text);
   background: var(--surface);
-  box-shadow: 0 1px 2px rgba(40, 76, 110, 0.06);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.035);
   font: 12px "Cascadia Mono", "Consolas", monospace;
 }
 .model-directory-setting input:disabled { color: var(--text-quiet); background: var(--surface-subtle); }
