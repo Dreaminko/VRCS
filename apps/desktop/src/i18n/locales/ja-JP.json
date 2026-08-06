@@ -307,6 +307,8 @@
       },
       "dictionary": {
         "title": "辞書",
+        "selectionLookup": "選択範囲の辞書検索を有効にする",
+        "selectionLookupDescription": "ライブ字幕または履歴でテキストを選択したときに辞書の意味を表示します。",
         "count": "{{count}} 件の辞書",
         "importedCount": "{{count}} 件をインポート済み",
         "noneImported": "未インポート",
@@ -324,6 +326,8 @@
       "anki": {
         "title": "Anki 連携",
         "subtitle": "AnkiConnect を使って辞書検索からカードを作成",
+        "enable": "AnkiConnect を有効にする",
+        "enableDescription": "ローカルの Anki 接続確認と辞書検索結果からのカード作成を許可します。",
         "invalidPort": "1～65535 の有効なポートを入力してください。",
         "checking": "AnkiConnect を確認中…",
         "ready": "接続済み・作成可能",
@@ -370,6 +374,7 @@
         "savingAnki": "Anki 設定を保存中…",
         "ankiSaveFailed": "Anki 設定を保存できませんでした。",
         "ankiAutoCheck": "保存後に Anki 接続を自動確認します。",
+        "ankiDisabled": "AnkiConnect は無効です。",
         "readingDesktop": "デスクトップ設定を読み込み中…",
         "savingDesktop": "デスクトップ設定を保存中…",
         "desktopSaved": "デスクトップ設定を保存しました。",
@@ -385,6 +390,7 @@
     "apiStatus": {
       "anki": {
         "connected": "AnkiConnect に接続済みで、カード設定も有効です。",
+        "disabled": "AnkiConnect 連携は無効です。",
         "incompatible_version": "AnkiConnect API v{{version}} は古すぎます。v{{minimum_version}} 以降が必要です。",
         "missing_deck": "デッキ「{{deck}}」が見つかりません。",
         "missing_model": "ノートタイプ「{{model}}」が見つかりません。",
@@ -467,6 +473,7 @@
         "status": "AnkiConnect を確認できませんでした。",
         "createCard": "Anki カードを作成できませんでした。",
         "card_invalid": "カードの内容が無効です。",
+        "disabled": "AnkiConnect 連携は無効です。",
         "unavailable": "ポート {{port}} の AnkiConnect に接続できません。",
         "duplicate": "このノートはすでに存在します。",
         "protocol_error": "AnkiConnect から無効な応答が返されました。",

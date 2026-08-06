@@ -76,19 +76,19 @@
   cursor: pointer;
   transition: color 140ms ease-out, background-color 140ms ease-out, opacity 140ms ease-out, transform 140ms ease-out;
 }
-.compact-actions button:hover { color: var(--primary); background: var(--primary-soft); }
+.compact-actions button:hover { color: var(--primary-ink); background: var(--primary-soft); }
 .compact-actions button:active { transform: scale(0.96); }
 .compact-actions button:disabled { opacity: 0.45; pointer-events: none; }
 .compact-actions .compact-capture-button {
-  color: white;
+  color: var(--on-primary);
   background: var(--primary);
 }
 .compact-actions .compact-capture-button:hover {
-  color: white;
+  color: var(--on-primary);
   background: var(--primary-hover);
 }
 .compact-actions .compact-capture-button.running {
-  color: var(--primary);
+  color: var(--primary-ink);
   background: var(--primary-softer);
 }
 .compact-actions .compact-capture-button.running:hover {

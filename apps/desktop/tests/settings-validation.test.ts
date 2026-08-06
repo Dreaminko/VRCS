@@ -9,7 +9,7 @@ import {
 import type { AsrCapabilities, AudioDevice, Settings } from "../src/types.ts";
 
 const settings: Settings = {
-  schema_version: 4,
+  schema_version: 5,
   server: { host: "127.0.0.1", port: 8766 },
   storage: {
     database_path: "data/vrcs.db",
@@ -23,7 +23,8 @@ const settings: Settings = {
   },
   vad: { silence_seconds: 0.4, max_speech_seconds: 6 },
   asr: { backend: "local_whisper", language: "auto", local: { model: "small", device: "auto", compute_type: "int8" }, qwen: { region: "singapore", workspace_id: "", context: "", model: "qwen3-asr-flash-realtime" }, fun_asr: { context: "", model: "fun-asr-realtime" }, openai: { model: "gpt-4o-mini-transcribe" }, cloud_failure_policy: "reconnect" },
-  anki: { port: 8765, deck: "VRCS", model: "Basic", front_field: "Front", back_field: "Back" },
+  dictionary: { selection_lookup_enabled: true },
+  anki: { enabled: true, port: 8765, deck: "VRCS", model: "Basic", front_field: "Front", back_field: "Back" },
 };
 
 const devices: AudioDevice[] = [

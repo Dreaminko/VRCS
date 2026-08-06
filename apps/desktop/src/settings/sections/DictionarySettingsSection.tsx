@@ -3,23 +3,31 @@ import { useTranslation } from "react-i18next";
 import { BookOpen, Trash2, Upload } from "lucide-react";
 
 import type { DictionarySource } from "../../types";
+import type { SaveState } from "../settings-types";
+import { PreferenceToggle } from "../SettingsControls";
 
 export function DictionarySettingsSection({
   locale,
+  selectionLookupEnabled,
   dictionaries,
   busy,
   message,
   progress,
   fileInputRef,
+  saveState,
+  onSelectionLookupChange,
   onChoose,
   onRemove,
 }: {
   locale: string;
+  selectionLookupEnabled: boolean;
   dictionaries: DictionarySource[];
   busy: boolean;
   message: string;
   progress: number | null;
   fileInputRef: RefObject<HTMLInputElement | null>;
+  saveState: SaveState;
+  onSelectionLookupChange: (enabled: boolean) => void;
   onChoose: (file?: File) => Promise<void>;
   onRemove: (dictionary: DictionarySource) => Promise<void>;
 }) {
@@ -42,6 +50,15 @@ export function DictionarySettingsSection({
               type="file"
               accept=".zip,application/zip"
               onChange={(event) => void chooseDictionary(event.target.files?.[0])}
+            />
+          </div>
+          <div className="settings-toggle-list settings-feature-toggle">
+            <PreferenceToggle
+              title={t("settings.dictionary.selectionLookup")}
+              description={t("settings.dictionary.selectionLookupDescription")}
+              checked={selectionLookupEnabled}
+              disabled={saveState === "saving"}
+              onChange={onSelectionLookupChange}
             />
           </div>
           {dictionaries.length ? (

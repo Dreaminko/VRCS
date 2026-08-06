@@ -307,6 +307,8 @@
       },
       "dictionary": {
         "title": "Dictionaries",
+        "selectionLookup": "Enable selection lookup",
+        "selectionLookupDescription": "Show dictionary definitions after selecting text in live subtitles or history.",
         "count": "{{count}} dictionaries",
         "importedCount": "{{count}} imported",
         "noneImported": "None imported",
@@ -324,6 +326,8 @@
       "anki": {
         "title": "Anki integration",
         "subtitle": "Create cards from dictionary lookups through AnkiConnect",
+        "enable": "Enable AnkiConnect",
+        "enableDescription": "Allow local Anki connection checks and card creation from dictionary results.",
         "invalidPort": "Enter a valid port from 1 to 65535.",
         "checking": "Checking AnkiConnect…",
         "ready": "Connected and ready",
@@ -370,6 +374,7 @@
         "savingAnki": "Saving Anki settings…",
         "ankiSaveFailed": "Could not save Anki settings.",
         "ankiAutoCheck": "Anki connection is checked automatically after saving.",
+        "ankiDisabled": "AnkiConnect is disabled.",
         "readingDesktop": "Reading desktop preferences…",
         "savingDesktop": "Saving desktop preferences…",
         "desktopSaved": "Desktop preferences saved.",
@@ -385,6 +390,7 @@
     "apiStatus": {
       "anki": {
         "connected": "AnkiConnect is connected and the card configuration is valid.",
+        "disabled": "AnkiConnect integration is disabled.",
         "incompatible_version": "AnkiConnect API v{{version}} is too old; v{{minimum_version}} or later is required.",
         "missing_deck": "Deck “{{deck}}” was not found.",
         "missing_model": "Note type “{{model}}” was not found.",
@@ -467,6 +473,7 @@
         "status": "Could not check AnkiConnect.",
         "createCard": "Could not create the Anki card.",
         "card_invalid": "The card content is invalid.",
+        "disabled": "AnkiConnect integration is disabled.",
         "unavailable": "Could not connect to AnkiConnect on port {{port}}.",
         "duplicate": "This note already exists.",
         "protocol_error": "AnkiConnect returned an invalid response.",

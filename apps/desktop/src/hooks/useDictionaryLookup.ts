@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { coreApi } from "../api";
 import type { Lookup } from "../app-types";
@@ -8,10 +8,12 @@ const TERM_BOUNDARY_PUNCTUATION = (
 );
 
 export function useDictionaryLookup({
+  enabled,
   compact,
   resizeCompactWindow,
   reportError,
 }: {
+  enabled: boolean;
   compact: boolean;
   resizeCompactWindow: (lookupOpen: boolean) => Promise<void>;
   reportError: (reason: unknown, fallbackKey: string) => void;
@@ -29,7 +31,18 @@ export function useDictionaryLookup({
     });
   }, [clearLookup, reportError, resizeCompactWindow]);
 
+  useEffect(() => {
+    if (enabled || !lookup) return;
+    setLookup(null);
+    if (compact) {
+      void resizeCompactWindow(false).catch((reason) => {
+        reportError(reason, "errors.window.compactCollapse");
+      });
+    }
+  }, [compact, enabled, lookup, reportError, resizeCompactWindow]);
+
   const selectWord = useCallback(async (context: string) => {
+    if (!enabled) return;
     const selection = window.getSelection();
     const term = selection
       ?.toString()
@@ -56,7 +69,7 @@ export function useDictionaryLookup({
     } catch (reason) {
       reportError(reason, "errors.dictionary.lookup");
     }
-  }, [compact, reportError, resizeCompactWindow]);
+  }, [compact, enabled, reportError, resizeCompactWindow]);
 
   return {
     lookup,

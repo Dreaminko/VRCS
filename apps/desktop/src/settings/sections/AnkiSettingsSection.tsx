@@ -3,7 +3,7 @@ import { PlusCircle, RefreshCw } from "lucide-react";
 
 import type { AnkiStatus, Settings } from "../../types";
 import type { SaveState, SettingOption } from "../settings-types";
-import { DeckTreeSelect, Select } from "../SettingsControls";
+import { DeckTreeSelect, PreferenceToggle, Select } from "../SettingsControls";
 
 export function AnkiSettingsSection({
   draft,
@@ -60,13 +60,26 @@ export function AnkiSettingsSection({
               <h2>{t("settings.anki.title")}</h2>
               <span>{t("settings.anki.subtitle")}</span>
             </div>
-            <button className="secondary-button" type="button" disabled={ankiBusy} onClick={() => void loadAnkiStatus()}>
-              <RefreshCw className={ankiBusy ? "spin" : ""} size={15} />
-              {ankiBusy ? t("common.checking") : t("common.checkAgain")}
-            </button>
+            {draft.anki.enabled && (
+              <button className="secondary-button" type="button" disabled={ankiBusy} onClick={() => void loadAnkiStatus()}>
+                <RefreshCw className={ankiBusy ? "spin" : ""} size={15} />
+                {ankiBusy ? t("common.checking") : t("common.checkAgain")}
+              </button>
+            )}
           </div>
 
-          <div className={`anki-connection ${ankiBusy ? "checking" : ankiStatus?.connected ? (ankiStatus.configuration_valid ? "ready" : "needs-setup") : "offline"}`} aria-live="polite">
+          <div className="settings-toggle-list settings-feature-toggle">
+            <PreferenceToggle
+              title={t("settings.anki.enable")}
+              description={t("settings.anki.enableDescription")}
+              checked={draft.anki.enabled}
+              disabled={saveState === "saving"}
+              onChange={(enabled) => updateAnki("enabled", enabled)}
+            />
+          </div>
+
+          {draft.anki.enabled && <>
+            <div className={`anki-connection ${ankiBusy ? "checking" : ankiStatus?.connected ? (ankiStatus.configuration_valid ? "ready" : "needs-setup") : "offline"}`} aria-live="polite">
             <span className="anki-connection-dot" aria-hidden="true" />
             <div>
               <strong>
@@ -149,6 +162,7 @@ export function AnkiSettingsSection({
               onChange={(value) => updateAnki("back_field", value)}
             />
           </div>
+          </>}
         </div>
   );
 }

@@ -169,6 +169,7 @@ export function createSettingsActionState({
   saveMessage,
   validationError,
   ankiPortError,
+  ankiEnabled,
   ankiStatus,
   ankiMessage,
   desktopReady,
@@ -181,6 +182,7 @@ export function createSettingsActionState({
   saveMessage: string;
   validationError?: string | null;
   ankiPortError: string;
+  ankiEnabled: boolean;
   ankiStatus: AnkiStatus | null;
   ankiMessage: string;
   desktopReady: boolean;
@@ -192,13 +194,15 @@ export function createSettingsActionState({
     return { text: t("settings.action.dictionaryImmediate"), state: saveState };
   }
   if (activeCategory === "anki") {
-    const text = ankiPortError
+    const text = ankiEnabled && ankiPortError
       || (saveState === "saving"
         ? t("settings.action.savingAnki")
         : saveState === "error"
           ? saveMessage || t("settings.action.ankiSaveFailed")
-          : ankiMessage || t("settings.action.ankiAutoCheck"));
-    const state = ankiPortError || (ankiStatus && !ankiStatus.configuration_valid)
+          : !ankiEnabled
+            ? t("settings.action.ankiDisabled")
+            : ankiMessage || t("settings.action.ankiAutoCheck"));
+    const state = ankiEnabled && (ankiPortError || (ankiStatus && !ankiStatus.configuration_valid))
       ? "error"
       : saveState;
     return { text, state };

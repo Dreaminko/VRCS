@@ -22,6 +22,15 @@ pub struct AnkiError {
 }
 
 impl AnkiError {
+    fn disabled() -> Self {
+        Self {
+            status_code: 403,
+            code: "disabled",
+            params: json!({}),
+            message: "AnkiConnect 集成已关闭".into(),
+        }
+    }
+
     fn unavailable(message: String) -> Self {
         Self {
             status_code: 503,
@@ -65,6 +74,21 @@ impl AnkiError {
 }
 
 pub async fn status(client: &reqwest::Client, config: &AnkiConfig) -> Value {
+    if !config.enabled {
+        return json!({
+            "connected": false,
+            "version": null,
+            "decks": [],
+            "models": [],
+            "fields": [],
+            "configuration_valid": false,
+            "error_code": "disabled",
+            "status_code": "anki.disabled",
+            "params": {},
+            "detail": "AnkiConnect 集成已关闭",
+            "message": "AnkiConnect 集成已关闭",
+        });
+    }
     match discover(client, config).await {
         Ok(discovery) => json!({
             "connected": true,
@@ -102,6 +126,9 @@ pub async fn create_card(
     card: &CardRequest,
     config: &AnkiConfig,
 ) -> Result<i64, AnkiError> {
+    if !config.enabled {
+        return Err(AnkiError::disabled());
+    }
     let discovery = discover(client, config).await?;
     if !discovery.configuration_valid {
         return Err(AnkiError::configuration(
@@ -148,4 +175,33 @@ pub async fn create_card(
 
 pub fn client() -> reqwest::Client {
     client::http_client()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn disabled_integration_skips_status_checks_and_card_creation() {
+        let mut config = AnkiConfig::default();
+        config.enabled = false;
+        let http = client();
+
+        let status = status(&http, &config).await;
+        assert_eq!(status["status_code"], "anki.disabled");
+        assert_eq!(status["connected"], false);
+
+        let card = CardRequest {
+            term: "学ぶ".into(),
+            definition: "学习".into(),
+            context: String::new(),
+            reading: None,
+            dictionary: None,
+            language: None,
+            labels: None,
+        };
+        let error = create_card(&http, &card, &config).await.unwrap_err();
+        assert_eq!(error.code, "disabled");
+        assert_eq!(error.status_code, 403);
+    }
 }

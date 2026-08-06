@@ -70,6 +70,7 @@ export interface VadSettings {
 }
 
 export interface AnkiSettings {
+  enabled: boolean;
   port: number;
   deck: string;
   model: string;
@@ -78,7 +79,7 @@ export interface AnkiSettings {
 }
 
 export interface Settings {
-  schema_version: 4;
+  schema_version: 5;
   server: {
     host: string;
     port: number;
@@ -95,6 +96,9 @@ export interface Settings {
   };
   vad: VadSettings;
   asr: AsrSettings;
+  dictionary: {
+    selection_lookup_enabled: boolean;
+  };
   anki: AnkiSettings;
 }
 

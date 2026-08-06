@@ -307,6 +307,8 @@
       },
       "dictionary": {
         "title": "词典",
+        "selectionLookup": "启用划词查询",
+        "selectionLookupDescription": "在实时字幕或历史记录中选择文本后显示词典释义。",
         "count": "{{count}} 部词典",
         "importedCount": "已导入 {{count}} 部",
         "noneImported": "尚未导入",
@@ -324,6 +326,8 @@
       "anki": {
         "title": "Anki 集成",
         "subtitle": "通过 AnkiConnect 从词典查询结果创建卡片",
+        "enable": "启用 AnkiConnect",
+        "enableDescription": "允许检查本地 Anki 连接，并在词典查询中创建卡片。",
         "invalidPort": "请输入 1 到 65535 之间的有效端口。",
         "checking": "正在检查 AnkiConnect…",
         "ready": "已连接，可以制卡",
@@ -370,6 +374,7 @@
         "savingAnki": "正在保存 Anki 设置…",
         "ankiSaveFailed": "无法保存 Anki 设置。",
         "ankiAutoCheck": "保存后会自动检查 Anki 连接。",
+        "ankiDisabled": "AnkiConnect 已关闭。",
         "readingDesktop": "正在读取桌面偏好…",
         "savingDesktop": "正在保存桌面偏好…",
         "desktopSaved": "桌面偏好已保存。",
@@ -385,6 +390,7 @@
     "apiStatus": {
       "anki": {
         "connected": "AnkiConnect 已连接，制卡配置有效。",
+        "disabled": "AnkiConnect 集成已关闭。",
         "incompatible_version": "AnkiConnect API v{{version}} 过旧，需要 v{{minimum_version}} 或更高版本。",
         "missing_deck": "找不到牌组“{{deck}}”。",
         "missing_model": "找不到笔记类型“{{model}}”。",
@@ -467,6 +473,7 @@
         "status": "无法检查 AnkiConnect。",
         "createCard": "无法创建 Anki 卡片。",
         "card_invalid": "卡片内容无效。",
+        "disabled": "AnkiConnect 集成已关闭。",
         "unavailable": "无法连接端口 {{port}} 上的 AnkiConnect。",
         "duplicate": "这条笔记已存在。",
         "protocol_error": "AnkiConnect 返回了无效响应。",

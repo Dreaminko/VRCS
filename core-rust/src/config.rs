@@ -10,7 +10,7 @@ pub use io::{load_config, save_config};
 #[cfg(test)]
 use migration::config_from_value;
 
-pub const SCHEMA_VERSION: u32 = 4;
+pub const SCHEMA_VERSION: u32 = 5;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ServerConfig {
@@ -120,6 +120,8 @@ pub struct OpenAiAsrConfig {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AnkiConfig {
+    #[serde(default = "default_enabled")]
+    pub enabled: bool,
     #[serde(default = "default_anki_port")]
     pub port: u16,
     #[serde(default = "default_anki_deck")]
@@ -130,6 +132,12 @@ pub struct AnkiConfig {
     pub front_field: String,
     #[serde(default = "default_back_field")]
     pub back_field: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DictionaryConfig {
+    #[serde(default = "default_enabled")]
+    pub selection_lookup_enabled: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -147,6 +155,8 @@ pub struct AppConfig {
     #[serde(default)]
     pub asr: AsrConfig,
     #[serde(default)]
+    pub dictionary: DictionaryConfig,
+    #[serde(default)]
     pub anki: AnkiConfig,
 }
 
@@ -155,6 +165,9 @@ fn schema_version() -> u32 {
 }
 fn default_host() -> String {
     "127.0.0.1".into()
+}
+fn default_enabled() -> bool {
+    true
 }
 fn default_port() -> u16 {
     8766
@@ -281,7 +294,9 @@ impl_default!(FunAsrConfig, {
     model: default_fun_asr_model,
 });
 impl_default!(OpenAiAsrConfig, { model: default_openai_model });
+impl_default!(DictionaryConfig, { selection_lookup_enabled: default_enabled });
 impl_default!(AnkiConfig, {
+    enabled: default_enabled,
     port: default_anki_port,
     deck: default_anki_deck,
     model: default_anki_model,
@@ -297,6 +312,7 @@ impl Default for AppConfig {
             audio: AudioConfig::default(),
             vad: VadConfig::default(),
             asr: AsrConfig::default(),
+            dictionary: DictionaryConfig::default(),
             anki: AnkiConfig::default(),
         }
     }
@@ -457,8 +473,20 @@ mod tests {
         .unwrap();
 
         assert_eq!(config.storage.model_directory, "models/whisper");
-        assert_eq!(config.schema_version, 4);
+        assert_eq!(config.schema_version, 5);
         assert_eq!(config.asr.backend, "local_whisper");
+    }
+
+    #[test]
+    fn schema_v4_without_feature_switches_keeps_existing_features_enabled() {
+        let config = config_from_value(&serde_json::json!({
+            "schema_version": 4
+        }))
+        .unwrap();
+
+        assert_eq!(config.schema_version, 5);
+        assert!(config.anki.enabled);
+        assert!(config.dictionary.selection_lookup_enabled);
     }
 
     #[test]

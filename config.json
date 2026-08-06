@@ -1,5 +1,5 @@
 {
-  "schema_version": 4,
+  "schema_version": 5,
   "server": {
     "host": "127.0.0.1",
     "port": 8766
@@ -47,7 +47,11 @@
     },
     "cloud_failure_policy": "reconnect"
   },
+  "dictionary": {
+    "selection_lookup_enabled": true
+  },
   "anki": {
+    "enabled": true,
     "port": 8765,
     "deck": "VRCS",
     "model": "Basic",

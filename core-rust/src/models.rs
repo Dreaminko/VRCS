@@ -2,7 +2,9 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::config::{AnkiConfig, AsrConfig, AudioConfig, ServerConfig, StorageConfig, VadConfig};
+use crate::config::{
+    AnkiConfig, AsrConfig, AudioConfig, DictionaryConfig, ServerConfig, StorageConfig, VadConfig,
+};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Subtitle {
@@ -59,7 +61,7 @@ pub struct DictionarySource {
 }
 
 /// PUT /api/settings 的请求体。
-/// server/storage/audio/asr 为必填（与 Python 的 SettingsUpdate 一致），vad/anki 可省略。
+/// server/storage/audio/asr 为必填，vad/dictionary/anki 可省略。
 #[derive(Debug, Deserialize)]
 pub struct SettingsUpdate {
     pub schema_version: u32,
@@ -69,6 +71,8 @@ pub struct SettingsUpdate {
     #[serde(default)]
     pub vad: VadConfig,
     pub asr: AsrConfig,
+    #[serde(default)]
+    pub dictionary: DictionaryConfig,
     #[serde(default)]
     pub anki: AnkiConfig,
 }

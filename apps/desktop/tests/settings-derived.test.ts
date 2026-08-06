@@ -18,7 +18,7 @@ import type {
 const t = ((key: string) => key) as TFunction;
 
 const settings: Settings = {
-  schema_version: 4,
+  schema_version: 5,
   server: { host: "127.0.0.1", port: 8766 },
   storage: {
     database_path: "data/vrcs.db",
@@ -32,7 +32,9 @@ const settings: Settings = {
   },
   vad: { silence_seconds: 0.4, max_speech_seconds: 6 },
   asr: { backend: "local_whisper", language: "auto", local: { model: "small", device: "auto", compute_type: "int8" }, qwen: { region: "singapore", workspace_id: "", context: "", model: "qwen3-asr-flash-realtime" }, fun_asr: { context: "", model: "fun-asr-realtime" }, openai: { model: "gpt-4o-mini-transcribe" }, cloud_failure_policy: "reconnect" },
+  dictionary: { selection_lookup_enabled: true },
   anki: {
+    enabled: true,
     port: 8765,
     deck: "VRCS",
     model: "Basic",
@@ -68,6 +70,7 @@ test("settings action state preserves category-specific priority", () => {
     saveMessage: "",
     validationError: null,
     ankiPortError: "",
+    ankiEnabled: true,
     ankiStatus: null,
     ankiMessage: "",
     desktopReady: true,
@@ -106,6 +109,14 @@ test("settings action state preserves category-specific priority", () => {
       validationError: "missing device",
     }),
     { text: "missing device", state: "idle" },
+  );
+  assert.deepEqual(
+    createSettingsActionState({
+      ...base,
+      activeCategory: "anki",
+      ankiEnabled: false,
+    }),
+    { text: "settings.action.ankiDisabled", state: "idle" },
   );
 });
 

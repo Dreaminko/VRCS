@@ -187,6 +187,7 @@ export function SettingsPanel({
     saveMessage,
     validationError,
     ankiPortError,
+    ankiEnabled: draft.anki.enabled,
     ankiStatus,
     ankiMessage,
     desktopReady: desktopPreferencesReady,
@@ -297,11 +298,20 @@ export function SettingsPanel({
       {activeCategory === "dictionary" && (
         <DictionarySettingsSection
           locale={locale}
+          selectionLookupEnabled={draft.dictionary.selection_lookup_enabled}
           dictionaries={dictionaries}
           busy={dictionaryBusy}
           message={dictionaryMessage}
           progress={dictionaryProgress}
           fileInputRef={dictionaryFileRef}
+          saveState={saveState}
+          onSelectionLookupChange={(enabled) => applySettings((current) => ({
+            ...current,
+            dictionary: {
+              ...current.dictionary,
+              selection_lookup_enabled: enabled,
+            },
+          }))}
           onChoose={chooseDictionary}
           onRemove={removeDictionary}
         />

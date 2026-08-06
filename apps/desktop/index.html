@@ -14,16 +14,21 @@
         height: 100%;
         place-content: center;
         place-items: center;
-        gap: 18px;
-        color: #315f8b;
+        gap: 24px;
+        color: #17617D;
         font: 600 18px/1 "Segoe UI", "Yu Gothic UI", "Meiryo UI", "Microsoft YaHei UI", sans-serif;
         letter-spacing: 0.08em;
+      }
+      .startup-logo {
+        display: block;
+        width: min(340px, 68vw);
+        height: auto;
       }
       .startup-spinner {
         width: 24px;
         height: 24px;
-        border: 2px solid #deedfa;
-        border-top-color: #3d73a8;
+        border: 2px solid #DFF6FF;
+        border-top-color: #74D6FF;
         border-radius: 50%;
         animation: startup-spin 720ms linear infinite;
       }
@@ -36,7 +41,7 @@
   <body>
     <div id="root">
       <div class="startup-shell" role="status" aria-label="Starting VRCS">
-        <span>VRCS</span>
+        <img class="startup-logo" src="/logos/VRCS_Logo.svg" alt="VRCS" />
         <i class="startup-spinner" aria-hidden="true"></i>
       </div>
     </div>

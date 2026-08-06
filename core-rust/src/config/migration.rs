@@ -145,6 +145,15 @@ fn migrate_v2_or_v3(raw: &serde_json::Value) -> Result<AppConfig, String> {
     Ok(config)
 }
 
+fn migrate_v4(raw: &serde_json::Value) -> Result<AppConfig, String> {
+    let mut value = raw.clone();
+    let object = value
+        .as_object_mut()
+        .ok_or_else(|| "Configuration root must be an object".to_string())?;
+    object.insert("schema_version".into(), serde_json::json!(SCHEMA_VERSION));
+    serde_json::from_value(value).map_err(|error| error.to_string())
+}
+
 /// v1/v2 迁移共用：避免 Core 端口与 AnkiConnect 默认端口冲突。
 fn fix_colliding_ports(config: &mut AppConfig) {
     if config.server.port == 8765 {
@@ -173,6 +182,7 @@ pub fn config_from_value(raw: &serde_json::Value) -> Result<AppConfig, String> {
         version if version == SCHEMA_VERSION as u64 => {
             serde_json::from_value(raw.clone()).map_err(|error| error.to_string())?
         }
+        4 => migrate_v4(raw)?,
         2 | 3 => migrate_v2_or_v3(raw)?,
         1 => migrate_v1(raw),
         other => return Err(format!("Unsupported configuration schema v{other}")),

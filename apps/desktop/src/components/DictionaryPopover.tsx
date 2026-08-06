@@ -15,7 +15,7 @@ import {
   placeLookupPopover,
 } from "../popover-placement";
 
-export function DictionaryPopover({ lookup, compact = false, onClose }: { lookup: Lookup; compact?: boolean; onClose: () => void }) {
+export function DictionaryPopover({ lookup, ankiEnabled, compact = false, onClose }: { lookup: Lookup; ankiEnabled: boolean; compact?: boolean; onClose: () => void }) {
   const { t } = useTranslation();
   const ref = useRef<HTMLDivElement>(null);
   const [ankiState, setAnkiState] = useState<AnkiAddState>("idle");
@@ -134,18 +134,22 @@ export function DictionaryPopover({ lookup, compact = false, onClose }: { lookup
         ) : <p className="definition muted">{t("dictionary.noDefinitions")}</p>}
         <div className="lookup-context"><span>{t("dictionary.context")}</span><q>{contextExcerpt(lookup.context, lookup.term)}</q></div>
       </div>
-      <button className={`anki-button anki-state-${ankiState}`} type="button" disabled={!entry || ankiState === "adding" || ankiState === "success"} onClick={() => void add()}>
-        {ankiState === "success"
-          ? <Check size={16} />
-          : ankiState === "error"
-            ? <TriangleAlert size={16} />
-            : <PlusCircle size={16} />}
-        {ankiButtonLabel(ankiState, (key) => t(key))}
-      </button>
-      {ankiFeedback && (
-        <p className={`dictionary-anki-feedback ${ankiState}`} role={ankiState === "error" ? "alert" : "status"}>
-          {ankiFeedback}
-        </p>
+      {ankiEnabled && (
+        <>
+          <button className={`anki-button anki-state-${ankiState}`} type="button" disabled={!entry || ankiState === "adding" || ankiState === "success"} onClick={() => void add()}>
+            {ankiState === "success"
+              ? <Check size={16} />
+              : ankiState === "error"
+                ? <TriangleAlert size={16} />
+                : <PlusCircle size={16} />}
+            {ankiButtonLabel(ankiState, (key) => t(key))}
+          </button>
+          {ankiFeedback && (
+            <p className={`dictionary-anki-feedback ${ankiState}`} role={ankiState === "error" ? "alert" : "status"}>
+              {ankiFeedback}
+            </p>
+          )}
+        </>
       )}
       {!compact && <i className="popover-arrow" aria-hidden="true" />}
     </div>

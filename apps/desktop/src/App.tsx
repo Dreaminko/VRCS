@@ -70,6 +70,7 @@ function App() {
     closeWindow,
   } = compactWindow;
   const dictionaryLookup = useDictionaryLookup({
+    enabled: settings?.dictionary.selection_lookup_enabled ?? true,
     compact,
     resizeCompactWindow,
     reportError,
@@ -193,6 +194,7 @@ function App() {
         {lookup && (
           <DictionaryPopover
             lookup={lookup}
+            ankiEnabled={settings?.anki.enabled ?? true}
             compact
             onClose={closeCompactLookup}
           />
@@ -359,7 +361,11 @@ function App() {
       />
 
       {lookup && (
-        <DictionaryPopover lookup={lookup} onClose={clearLookup} />
+        <DictionaryPopover
+          lookup={lookup}
+          ankiEnabled={settings?.anki.enabled ?? true}
+          onClose={clearLookup}
+        />
       )}
       {vrchatWarningOpen && (
         <VrchatNotRunningDialog onClose={closeVrchatWarning} />

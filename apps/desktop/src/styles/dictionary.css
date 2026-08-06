@@ -28,7 +28,7 @@
   overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
-  scrollbar-color: rgba(61, 115, 168, 0.34) transparent;
+  scrollbar-color: rgba(140, 208, 242, 0.34) transparent;
   scrollbar-width: thin;
 }
 .dictionary-scroll::-webkit-scrollbar { width: 6px; height: 6px; }
@@ -37,10 +37,10 @@
   min-height: 36px;
   border: 2px solid transparent;
   border-radius: 999px;
-  background: rgba(61, 115, 168, 0.34);
+  background: rgba(140, 208, 242, 0.34);
   background-clip: padding-box;
 }
-.dictionary-scroll::-webkit-scrollbar-thumb:hover { background-color: rgba(61, 115, 168, 0.52); }
+.dictionary-scroll::-webkit-scrollbar-thumb:hover { background-color: rgba(140, 208, 242, 0.52); }
 .dictionary-definitions { display: grid; gap: 8px; margin-bottom: 11px; }
 .dictionary-definition-item {
   padding: 10px 10px 11px;
@@ -62,7 +62,7 @@
   padding: 0 7px;
   overflow: hidden;
   border-radius: 999px;
-  color: var(--primary);
+  color: var(--primary-ink);
   background: var(--primary-softer);
   font-size: 10px;
   font-weight: 650;
@@ -98,7 +98,7 @@
   height: 20px;
   place-items: center;
   border-radius: 6px;
-  color: var(--primary);
+  color: var(--primary-ink);
   background: var(--primary-softer);
   content: counter(glossary);
   counter-increment: glossary;
@@ -116,7 +116,7 @@
 .lookup-context span {
   display: block;
   margin-bottom: 3px;
-  color: var(--primary);
+  color: var(--primary-ink);
   font-size: 10px;
   font-weight: 650;
 }
@@ -140,7 +140,7 @@
   text-wrap: pretty;
 }
 .dictionary-anki-feedback.error { color: var(--error); }
-.dictionary-anki-feedback.success { color: var(--primary); }
+.dictionary-anki-feedback.success { color: var(--primary-ink); }
 .popover-arrow { position: absolute; left: var(--arrow-left); width: 16px; height: 16px; border: solid var(--border-strong); background: var(--surface); transform: rotate(45deg); }
 .popover-above .popover-arrow { bottom: -9px; border-width: 0 1px 1px 0; }
 .popover-below .popover-arrow { top: -9px; border-width: 1px 0 0 1px; }

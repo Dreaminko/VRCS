@@ -36,6 +36,7 @@ pub(super) async fn update_settings(
         audio: update.audio,
         vad: update.vad,
         asr: update.asr,
+        dictionary: update.dictionary,
         anki: update.anki,
     };
 
