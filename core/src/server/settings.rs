@@ -29,7 +29,7 @@ pub(super) async fn update_settings(
             crate::config::SCHEMA_VERSION
         )));
     }
-    let candidate = AppConfig {
+    let mut candidate = AppConfig {
         schema_version: update.schema_version,
         server: update.server,
         storage: update.storage,
@@ -79,7 +79,7 @@ pub(super) async fn update_settings(
         return Err(unprocessable("采样率不能在运行中修改".into()));
     }
     candidate.validate_settings().map_err(unprocessable)?;
-    asr::validate_config(&candidate.asr).map_err(unprocessable)?;
+    asr::validate_config(&mut candidate.asr).map_err(unprocessable)?;
     // WASAPI 枚举可能阻塞，不能占用 Tokio worker。
     let audio_config = candidate.audio.clone();
     tokio::task::spawn_blocking(move || {

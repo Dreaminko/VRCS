@@ -21,20 +21,38 @@ pub use streaming::{
 use crate::config::AsrConfig;
 use model::model_spec;
 
-pub fn validate_config(config: &AsrConfig) -> Result<(), String> {
+pub fn validate_config(config: &mut AsrConfig) -> Result<(), String> {
     model_spec(&config.local.model)?;
     let local_required =
         config.backend == "local_whisper" || config.cloud_failure_policy == "local";
     if local_required && config.local.device == "cuda" {
-        if !cfg!(feature = "cuda") {
-            return Err("当前构建未包含 CUDA 后端".into());
-        }
-        let capability = cuda_capability();
-        if !capability.available {
-            return Err(format!(
-                "CUDA 预检失败：{}",
-                capability.error.unwrap_or_else(|| "CUDA 不可用".into())
-            ));
+        let cuda_error = if !cfg!(feature = "cuda") {
+            Some("当前构建未包含 CUDA 后端".to_string())
+        } else {
+            let capability = cuda_capability();
+            if capability.available {
+                None
+            } else {
+                Some(format!(
+                    "CUDA 预检失败：{}",
+                    capability.error.unwrap_or_else(|| "CUDA 不可用".into())
+                ))
+            }
+        };
+        if let Some(error) = cuda_error {
+            // Whisper 本地识别模式下，CUDA 预检失败不应阻塞启动/切换：
+            // 之前在其他机器或 CUDA 构建下选择的 CUDA 配置可能在当前环境
+            // 不可用，硬性报错会导致无法回到设置里改回自动/CPU 的死锁。
+            // 因此自动回退到自动选择模式，由引擎在装载时再决定实际后端。
+            if config.backend == "local_whisper" {
+                tracing::warn!(
+                    %error,
+                    "CUDA 预检失败，自动回退到自动选择模式"
+                );
+                config.local.device = "auto".into();
+            } else {
+                return Err(error);
+            }
         }
     }
     if config.local.compute_type != "int8" {
@@ -68,7 +86,7 @@ mod tests {
 
     #[test]
     fn validates_supported_configuration() {
-        let config = AsrConfig {
+        let mut config = AsrConfig {
             backend: "local_whisper".into(),
             language: "auto".into(),
             local: crate::config::LocalAsrConfig {
@@ -78,16 +96,35 @@ mod tests {
             },
             ..AsrConfig::default()
         };
-        assert!(validate_config(&config).is_ok());
+        assert!(validate_config(&mut config).is_ok());
 
         let mut cuda = config.clone();
         cuda.local.device = "cuda".into();
+        // 识别后端为 local_whisper 时，CUDA 预检失败应自动回退到自动选择
+        // 模式，而不是硬性报错阻塞启动/切换（避免死锁）。
         if !cfg!(feature = "cuda") {
-            assert!(validate_config(&cuda).unwrap_err().contains("未包含 CUDA"));
+            assert!(validate_config(&mut cuda).is_ok());
+            assert_eq!(cuda.local.device, "auto");
         } else if cuda_capability().available {
-            assert!(validate_config(&cuda).is_ok());
+            assert!(validate_config(&mut cuda).is_ok());
+            assert_eq!(cuda.local.device, "cuda");
         } else {
-            assert!(validate_config(&cuda)
+            assert!(validate_config(&mut cuda).is_ok());
+            assert_eq!(cuda.local.device, "auto");
+        }
+
+        // 非 Whisper 后端（例如以 cloud_failure_policy=local 触发本地校验）
+        // 时，CUDA 预检失败仍应报错，因为切换本地设备的入口本身仍然可用。
+        let mut cloud_fallback = config.clone();
+        cloud_fallback.backend = "qwen_realtime".into();
+        cloud_fallback.cloud_failure_policy = "local".into();
+        cloud_fallback.local.device = "cuda".into();
+        if !cfg!(feature = "cuda") {
+            assert!(validate_config(&mut cloud_fallback)
+                .unwrap_err()
+                .contains("未包含 CUDA"));
+        } else if !cuda_capability().available {
+            assert!(validate_config(&mut cloud_fallback)
                 .unwrap_err()
                 .contains("CUDA 预检失败"));
         }

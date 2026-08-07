@@ -80,11 +80,11 @@
 .compact-actions button:active { transform: scale(0.96); }
 .compact-actions button:disabled { opacity: 0.45; pointer-events: none; }
 .compact-actions .compact-capture-button {
-  color: var(--on-primary);
+  color: #ffffff;
   background: var(--primary);
 }
 .compact-actions .compact-capture-button:hover {
-  color: var(--on-primary);
+  color: #ffffff;
   background: var(--primary-hover);
 }
 .compact-actions .compact-capture-button.running {

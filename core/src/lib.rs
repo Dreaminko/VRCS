@@ -178,7 +178,7 @@ async fn start_inner(options: CoreOptions, defer_managed_vad: bool) -> Result<Co
     config
         .validate_settings()
         .map_err(|error| format!("启动配置无效：{error}"))?;
-    asr::validate_config(&config.asr).map_err(|error| format!("启动配置无效：{error}"))?;
+    asr::validate_config(&mut config.asr).map_err(|error| format!("启动配置无效：{error}"))?;
     let host = options.host.unwrap_or_else(|| config.server.host.clone());
     let port = options.port.unwrap_or(config.server.port);
     config.server.host = host.clone();
