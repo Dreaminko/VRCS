@@ -26,4 +26,4 @@ tauri-plugin-dialog = "2"
 tauri-plugin-single-instance = "2"
 tauri-plugin-store = "2"
 uuid = { version = "1", features = ["v4"] }
-vrcs-core = { path = "../../../core-rust" }
+vrcs-core = { path = "../../../core" }

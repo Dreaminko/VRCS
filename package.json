@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "npm run dev:desktop",
     "dev:cuda": "npm run dev:desktop:cuda",
-    "dev:core": "cargo run --manifest-path core-rust/Cargo.toml",
+    "dev:core": "cargo run --manifest-path core/Cargo.toml",
     "dev:core:cuda": "powershell -ExecutionPolicy Bypass -File scripts/run-cuda-dev.ps1 -Target core",
     "dev:desktop": "npm --workspace apps/desktop run tauri -- dev",
     "dev:desktop:cuda": "powershell -ExecutionPolicy Bypass -File scripts/run-cuda-dev.ps1 -Target desktop",

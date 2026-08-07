@@ -28,7 +28,7 @@ Core 默认构建保持 CPU-only，`--features cuda` 会编译 GGML CUDA 后端�
 ## 运行与测试
 
 ```powershell
-cd core-rust
+cd core
 cargo test        # 单元测试（配置迁移、查词、Yomitan、Anki HTML）
 cargo run         # 监听 127.0.0.1:8766，配置写入 ./config.json
 

@@ -2,9 +2,8 @@
 .env
 .env.*
 !.env.example
-core-python/config.json
-core-rust/config.json
-core-rust/data/
+core/config.json
+core/data/
 
 # Python environments and caches
 .venv/
@@ -27,9 +26,9 @@ htmlcov/
 .eggs/
 
 # Local application data and downloaded models
-core-python/data/
-core-python/models/
-core-python/.cache/
+core/data/
+core/models/
+core/.cache/
 *.db-shm
 *.db-wal
 
@@ -47,8 +46,8 @@ pnpm-debug.log*
 # Rust and Tauri generated output
 target/
 apps/desktop/src-tauri/gen/
-core-python/build-release/
-core-python/dist-release/
+core/build-release/
+core/dist-release/
 apps/desktop/src-tauri/binaries/
 apps/desktop/src-tauri/resources/vrcs-core-runtime/
 release-artifacts/

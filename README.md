@@ -60,7 +60,7 @@ npm run dev:core:cuda
 npm run dev:core
 ```
 
-独立 Core 默认使用 `core-rust/config.json`，也支持 `VRCS_CONFIG`、`VRCS_HOST`、`VRCS_PORT`、`VRCS_SESSION_TOKEN`、`VRCS_SILERO_MODEL`、`VRCS_ASR_MODEL_DIR`、`VRCS_QWEN_API_KEY` 和 `VRCS_OPENAI_API_KEY`。同时兼容 DashScope/OpenAI SDK 常用的 `DASHSCOPE_API_KEY` 与 `OPENAI_API_KEY`；VRCS 专用变量优先。云端 API Key 也可在设置页写入 Windows 凭据管理器。未设置 `VRCS_SESSION_TOKEN` 时会为回环监听生成临时 token 并输出到终端；监听非回环地址时必须显式设置非空 token。
+独立 Core 默认使用 `core/config.json`，也支持 `VRCS_CONFIG`、`VRCS_HOST`、`VRCS_PORT`、`VRCS_SESSION_TOKEN`、`VRCS_SILERO_MODEL`、`VRCS_ASR_MODEL_DIR`、`VRCS_QWEN_API_KEY` 和 `VRCS_OPENAI_API_KEY`。同时兼容 DashScope/OpenAI SDK 常用的 `DASHSCOPE_API_KEY` 与 `OPENAI_API_KEY`；VRCS 专用变量优先。云端 API Key 也可在设置页写入 Windows 凭据管理器。未设置 `VRCS_SESSION_TOKEN` 时会为回环监听生成临时 token 并输出到终端；监听非回环地址时必须显式设置非空 token。
 
 如果绕过 Tauri、单独运行 Vite 前端，请把同一个 token 同时设置为 `VRCS_SESSION_TOKEN` 和 `VITE_VRCS_SESSION_TOKEN`。
 

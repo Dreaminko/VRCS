@@ -23,7 +23,7 @@ $repoRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot ".."))
 Push-Location $repoRoot
 try {
     if ($Target -eq "core") {
-        & cargo run --manifest-path core-rust\Cargo.toml --features cuda
+        & cargo run --manifest-path core\Cargo.toml --features cuda
     }
     else {
         & npm --workspace apps/desktop run tauri -- dev --features cuda
