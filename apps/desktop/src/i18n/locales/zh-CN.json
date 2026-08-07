@@ -368,23 +368,6 @@
         "audioDevices": "音频设备",
         "audioDeviceCounts": "{{outputs}} 个输出 · {{microphones}} 个麦克风",
         "dictionaries": "词典"
-      },
-      "action": {
-        "dictionaryImmediate": "词典更改会立即生效。",
-        "savingAnki": "正在保存 Anki 设置…",
-        "ankiSaveFailed": "无法保存 Anki 设置。",
-        "ankiAutoCheck": "保存后会自动检查 Anki 连接。",
-        "ankiDisabled": "AnkiConnect 已关闭。",
-        "readingDesktop": "正在读取桌面偏好…",
-        "savingDesktop": "正在保存桌面偏好…",
-        "desktopSaved": "桌面偏好已保存。",
-        "desktopSaveFailed": "无法保存桌面偏好。",
-        "desktopHint": "桌面偏好更改会立即生效。",
-        "debugHint": "诊断信息为只读。",
-        "applying": "正在应用设置…",
-        "applied": "设置已应用。",
-        "applyFailed": "无法应用设置。",
-        "immediate": "更改会立即生效。"
       }
     },
     "apiStatus": {

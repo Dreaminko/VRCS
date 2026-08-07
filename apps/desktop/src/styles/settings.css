@@ -422,10 +422,6 @@
 .device-row small { color: var(--text-secondary); font-size: 11px; }
 .device-row.disabled { opacity: 0.62; }
 .device-empty { margin: 0; padding: 16px; border: 1px dashed var(--border); border-radius: 10px; color: var(--text-quiet); font-size: 12px; }
-.settings-actions { display: flex; align-items: center; gap: 20px; padding: 18px 30px; border-top: 1px solid var(--border); border-radius: 0 0 19px 19px; background: var(--surface-elevated); }
-.settings-actions > span { color: var(--text-quiet); font-size: 11px; }
-.settings-actions.save-state-saving > span { color: var(--primary-ink); }
-.settings-actions.save-state-error > span { color: var(--error); }
 @keyframes settings-panel-in {
   from { opacity: 0; transform: translateY(4px); }
   to { opacity: 1; transform: translateY(0); }

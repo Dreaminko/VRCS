@@ -27,15 +27,15 @@ pub fn validate_config(config: &mut AsrConfig) -> Result<(), String> {
         config.backend == "local_whisper" || config.cloud_failure_policy == "local";
     if local_required && config.local.device == "cuda" {
         let cuda_error = if !cfg!(feature = "cuda") {
-            Some("当前构建未包含 CUDA 后端".to_string())
+            Some("This build does not include the CUDA backend".to_string())
         } else {
             let capability = cuda_capability();
             if capability.available {
                 None
             } else {
                 Some(format!(
-                    "CUDA 预检失败：{}",
-                    capability.error.unwrap_or_else(|| "CUDA 不可用".into())
+                    "CUDA preflight failed: {}",
+                    capability.error.unwrap_or_else(|| "CUDA is unavailable".into())
                 ))
             }
         };
@@ -47,7 +47,7 @@ pub fn validate_config(config: &mut AsrConfig) -> Result<(), String> {
             if config.backend == "local_whisper" {
                 tracing::warn!(
                     %error,
-                    "CUDA 预检失败，自动回退到自动选择模式"
+                    "CUDA preflight failed, falling back to automatic selection mode"
                 );
                 config.local.device = "auto".into();
             } else {
@@ -122,11 +122,11 @@ mod tests {
         if !cfg!(feature = "cuda") {
             assert!(validate_config(&mut cloud_fallback)
                 .unwrap_err()
-                .contains("未包含 CUDA"));
+                .contains("does not include the CUDA backend"));
         } else if !cuda_capability().available {
             assert!(validate_config(&mut cloud_fallback)
                 .unwrap_err()
-                .contains("CUDA 预检失败"));
+                .contains("CUDA preflight failed"));
         }
     }
 

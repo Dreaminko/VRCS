@@ -27,10 +27,7 @@ import { useAsrModels } from "./hooks/useAsrModels";
 import { useDesktopPreferences } from "./hooks/useDesktopPreferences";
 import { useDictionaryActions } from "./hooks/useDictionaryActions";
 import { useSettingsDraft } from "./hooks/useSettingsDraft";
-import {
-  createDebugRows,
-  createSettingsActionState,
-} from "./settings-derived";
+import { createDebugRows } from "./settings-derived";
 import { AnkiSettingsSection } from "./sections/AnkiSettingsSection";
 import { ApiManagementSettingsSection } from "./sections/ApiManagementSettingsSection";
 import { AudioSettingsSection } from "./sections/AudioSettingsSection";
@@ -99,11 +96,10 @@ export function SettingsPanel({
     onDelete: onDeleteDictionary,
   });
 
-  const { draft, saveState, saveMessage, applySettings } = draftController;
+  const { draft, saveState, applySettings } = draftController;
   const desktopPreferences = desktop.desktopPreferences;
   const desktopPreferencesReady = desktop.ready;
   const desktopSaveState = desktop.saveState;
-  const desktopMessage = desktop.message;
   const uiLanguagePreference = desktop.uiLanguagePreference;
   const updateDesktop = desktop.updateDesktop;
   const updateUiLanguage = desktop.updateUiLanguage;
@@ -153,7 +149,6 @@ export function SettingsPanel({
     ? audioSelectionErrors(draft, devices, (key) => t(key))
     : [];
   const asrError = asrSelectionError(draft, asrCapabilities, (key) => t(key));
-  const validationError = deviceErrors[0] ?? asrError;
   const computeTypes = validComputeTypes(asrCapabilities, draft.asr.local.device);
 
   const settingsCategories: Array<{
@@ -181,22 +176,6 @@ export function SettingsPanel({
     locale,
     t,
   });
-  const actionState = createSettingsActionState({
-    activeCategory,
-    saveState,
-    saveMessage,
-    validationError,
-    ankiPortError,
-    ankiEnabled: draft.anki.enabled,
-    ankiStatus,
-    ankiMessage,
-    desktopReady: desktopPreferencesReady,
-    desktopSaveState,
-    desktopMessage,
-    t,
-  });
-  const settingsActionText = actionState.text;
-  const visibleSaveState = actionState.state;
 
   return (
     <section className="settings-surface">
@@ -340,10 +319,6 @@ export function SettingsPanel({
       {activeCategory === "debug" && (
         <DebugSettingsSection rows={debugRows} />
       )}
-
-      <div className={`settings-actions save-state-${visibleSaveState}`}>
-        <span role="status" aria-live="polite">{settingsActionText}</span>
-      </div>
     </section>
   );
 }

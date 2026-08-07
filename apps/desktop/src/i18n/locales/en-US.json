@@ -368,23 +368,6 @@
         "audioDevices": "Audio devices",
         "audioDeviceCounts": "{{outputs}} outputs · {{microphones}} microphones",
         "dictionaries": "Dictionaries"
-      },
-      "action": {
-        "dictionaryImmediate": "Dictionary changes take effect immediately.",
-        "savingAnki": "Saving Anki settings…",
-        "ankiSaveFailed": "Could not save Anki settings.",
-        "ankiAutoCheck": "Anki connection is checked automatically after saving.",
-        "ankiDisabled": "AnkiConnect is disabled.",
-        "readingDesktop": "Reading desktop preferences…",
-        "savingDesktop": "Saving desktop preferences…",
-        "desktopSaved": "Desktop preferences saved.",
-        "desktopSaveFailed": "Could not save desktop preferences.",
-        "desktopHint": "Desktop changes take effect immediately.",
-        "debugHint": "Diagnostic values are read only.",
-        "applying": "Applying settings…",
-        "applied": "Settings applied.",
-        "applyFailed": "Could not apply settings.",
-        "immediate": "Changes take effect immediately."
       }
     },
     "apiStatus": {

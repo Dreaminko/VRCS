@@ -8,9 +8,7 @@ import type {
 } from "../types";
 import type {
   DebugRow,
-  SaveState,
   SettingOption,
-  SettingsCategory,
 } from "./settings-types";
 
 export const MODEL_PRESENTATION: Record<AsrModelRecord["id"], {
@@ -163,77 +161,4 @@ export function createDebugRows({
   ];
 }
 
-export function createSettingsActionState({
-  activeCategory,
-  saveState,
-  saveMessage,
-  validationError,
-  ankiPortError,
-  ankiEnabled,
-  ankiStatus,
-  ankiMessage,
-  desktopReady,
-  desktopSaveState,
-  desktopMessage,
-  t,
-}: {
-  activeCategory: SettingsCategory;
-  saveState: SaveState;
-  saveMessage: string;
-  validationError?: string | null;
-  ankiPortError: string;
-  ankiEnabled: boolean;
-  ankiStatus: AnkiStatus | null;
-  ankiMessage: string;
-  desktopReady: boolean;
-  desktopSaveState: SaveState;
-  desktopMessage: string;
-  t: TFunction;
-}): { text: string; state: SaveState } {
-  if (activeCategory === "dictionary") {
-    return { text: t("settings.action.dictionaryImmediate"), state: saveState };
-  }
-  if (activeCategory === "anki") {
-    const text = ankiEnabled && ankiPortError
-      || (saveState === "saving"
-        ? t("settings.action.savingAnki")
-        : saveState === "error"
-          ? saveMessage || t("settings.action.ankiSaveFailed")
-          : !ankiEnabled
-            ? t("settings.action.ankiDisabled")
-            : ankiMessage || t("settings.action.ankiAutoCheck"));
-    const state = ankiEnabled && (ankiPortError || (ankiStatus && !ankiStatus.configuration_valid))
-      ? "error"
-      : saveState;
-    return { text, state };
-  }
-  if (activeCategory === "system") {
-    const text = !desktopReady
-      ? t("settings.action.readingDesktop")
-      : desktopSaveState === "saving"
-        ? t("settings.action.savingDesktop")
-        : desktopSaveState === "saved"
-          ? t("settings.action.desktopSaved")
-          : desktopSaveState === "error"
-            ? desktopMessage || t("settings.action.desktopSaveFailed")
-            : t("settings.action.desktopHint");
-    return { text, state: desktopSaveState };
-  }
-  if (activeCategory === "debug") {
-    return { text: t("settings.action.debugHint"), state: saveState };
-  }
-  if (validationError) return { text: validationError, state: saveState };
-  if (saveState === "saving") {
-    return { text: t("settings.action.applying"), state: saveState };
-  }
-  if (saveState === "saved") {
-    return { text: t("settings.action.applied"), state: saveState };
-  }
-  if (saveState === "error") {
-    return {
-      text: saveMessage || t("settings.action.applyFailed"),
-      state: saveState,
-    };
-  }
-  return { text: t("settings.action.immediate"), state: saveState };
-}
+

@@ -368,23 +368,6 @@
         "audioDevices": "音声デバイス",
         "audioDeviceCounts": "出力 {{outputs}} · マイク {{microphones}}",
         "dictionaries": "辞書"
-      },
-      "action": {
-        "dictionaryImmediate": "辞書の変更はすぐに反映されます。",
-        "savingAnki": "Anki 設定を保存中…",
-        "ankiSaveFailed": "Anki 設定を保存できませんでした。",
-        "ankiAutoCheck": "保存後に Anki 接続を自動確認します。",
-        "ankiDisabled": "AnkiConnect は無効です。",
-        "readingDesktop": "デスクトップ設定を読み込み中…",
-        "savingDesktop": "デスクトップ設定を保存中…",
-        "desktopSaved": "デスクトップ設定を保存しました。",
-        "desktopSaveFailed": "デスクトップ設定を保存できませんでした。",
-        "desktopHint": "デスクトップ設定はすぐに反映されます。",
-        "debugHint": "診断情報は読み取り専用です。",
-        "applying": "設定を適用中…",
-        "applied": "設定を適用しました。",
-        "applyFailed": "設定を適用できませんでした。",
-        "immediate": "変更はすぐに反映されます。"
       }
     },
     "apiStatus": {

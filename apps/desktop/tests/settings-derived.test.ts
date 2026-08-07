@@ -1,11 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import type { TFunction } from "i18next";
 
 import {
   classifyModels,
   createAnkiOptions,
-  createSettingsActionState,
   showsLocalRecognitionSettings,
 } from "../src/settings/settings-derived.ts";
 import type {
@@ -14,8 +12,6 @@ import type {
   AnkiStatus,
   Settings,
 } from "../src/types.ts";
-
-const t = ((key: string) => key) as TFunction;
 
 const settings: Settings = {
   schema_version: 5,
@@ -62,62 +58,6 @@ test("only local ASR shows local recognition settings", () => {
   assert.equal(showsLocalRecognitionSettings("qwen_realtime"), false);
   assert.equal(showsLocalRecognitionSettings("fun_asr_realtime"), false);
   assert.equal(showsLocalRecognitionSettings("openai_realtime"), false);
-});
-
-test("settings action state preserves category-specific priority", () => {
-  const base = {
-    saveState: "idle" as const,
-    saveMessage: "",
-    validationError: null,
-    ankiPortError: "",
-    ankiEnabled: true,
-    ankiStatus: null,
-    ankiMessage: "",
-    desktopReady: true,
-    desktopSaveState: "idle" as const,
-    desktopMessage: "",
-    t,
-  };
-
-  assert.deepEqual(
-    createSettingsActionState({
-      ...base,
-      activeCategory: "dictionary",
-    }),
-    { text: "settings.action.dictionaryImmediate", state: "idle" },
-  );
-  assert.deepEqual(
-    createSettingsActionState({
-      ...base,
-      activeCategory: "system",
-      desktopReady: false,
-    }),
-    { text: "settings.action.readingDesktop", state: "idle" },
-  );
-  assert.deepEqual(
-    createSettingsActionState({
-      ...base,
-      activeCategory: "anki",
-      ankiPortError: "invalid port",
-    }),
-    { text: "invalid port", state: "error" },
-  );
-  assert.deepEqual(
-    createSettingsActionState({
-      ...base,
-      activeCategory: "audio",
-      validationError: "missing device",
-    }),
-    { text: "missing device", state: "idle" },
-  );
-  assert.deepEqual(
-    createSettingsActionState({
-      ...base,
-      activeCategory: "anki",
-      ankiEnabled: false,
-    }),
-    { text: "settings.action.ankiDisabled", state: "idle" },
-  );
 });
 
 test("model classification keeps the current model selectable", () => {

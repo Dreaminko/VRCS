@@ -6,7 +6,6 @@
   .settings-section { padding: 24px; }
   .recognition-config-row { grid-template-columns: 1fr; gap: 14px; }
   .api-provider-row { grid-template-columns: 1fr; gap: 14px; }
-  .settings-actions { padding-inline: 24px; }
 }
 
 @media (max-width: 680px) {
@@ -32,7 +31,6 @@
   .model-row-title .model-size { width: 100%; margin-left: 0; }
   .model-directory-setting > div { align-items: stretch; flex-direction: column; }
   .device-group-title { display: grid; grid-template-columns: 20px minmax(0, 1fr); }
-  .settings-actions { align-items: stretch; flex-direction: column; }
   .debug-row { grid-template-columns: 1fr; gap: 4px; }
   .anki-connection { grid-template-columns: 10px minmax(0, 1fr); }
   .anki-connection code { grid-column: 2; }

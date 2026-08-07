@@ -17,7 +17,7 @@ pub fn cuda_capability() -> CudaCapability {
         Ok(_) => CudaCapability {
             available: false,
             device_count: 0,
-            error: Some("未发现 CUDA 设备".into()),
+            error: Some("No CUDA devices found".into()),
         },
         Err(error) => CudaCapability {
             available: false,
@@ -38,23 +38,23 @@ fn cuda_device_count() -> Result<u32, String> {
 
     unsafe {
         let library = LoadLibraryA(s!("nvcuda.dll"))
-            .map_err(|error| format!("无法加载 CUDA 驱动：{error}"))?;
+            .map_err(|error| format!("Failed to load CUDA driver: {error}"))?;
         let result = (|| {
             let init = GetProcAddress(library, s!("cuInit"))
-                .ok_or_else(|| "CUDA 驱动缺少 cuInit".to_string())?;
+                .ok_or_else(|| "CUDA driver is missing cuInit".to_string())?;
             let get_count = GetProcAddress(library, s!("cuDeviceGetCount"))
-                .ok_or_else(|| "CUDA 驱动缺少 cuDeviceGetCount".to_string())?;
+                .ok_or_else(|| "CUDA driver is missing cuDeviceGetCount".to_string())?;
             let init: CuInit = std::mem::transmute(init);
             let get_count: CuDeviceGetCount = std::mem::transmute(get_count);
 
             let status = init(0);
             if status != 0 {
-                return Err(format!("CUDA 驱动初始化失败（错误码 {status}）"));
+                return Err(format!("CUDA driver initialization failed (error code {status})"));
             }
             let mut count = 0;
             let status = get_count(&mut count);
             if status != 0 {
-                return Err(format!("无法枚举 CUDA 设备（错误码 {status}）"));
+                return Err(format!("Failed to enumerate CUDA devices (error code {status})"));
             }
             Ok(count.max(0) as u32)
         })();
@@ -65,5 +65,5 @@ fn cuda_device_count() -> Result<u32, String> {
 
 #[cfg(not(all(feature = "cuda", windows)))]
 fn cuda_device_count() -> Result<u32, String> {
-    Err("当前构建未包含 CUDA 后端".into())
+    Err("This build does not include the CUDA backend".into())
 }
