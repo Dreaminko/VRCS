@@ -113,7 +113,12 @@ export function DictionaryPopover({ lookup, ankiEnabled, compact = false, onClos
   return (
     <div ref={ref} className={`dictionary-popover ${compact ? "compact-inline-dictionary" : `popover-${placement.side}`}`} style={style as CSSProperties} role="dialog" aria-label={t("dictionary.dialogLabel", { term: lookup.term })}>
       <div className="dictionary-header">
-        <div><h2>{lookup.term}</h2>{entry?.reading && <span className="reading">{entry.reading}</span>}{entry && <span className="language-chip">{entry.language.toUpperCase()}</span>}</div>
+        <div className="dictionary-title-block">
+          <div className="dictionary-title-copy">
+            <div className="dictionary-term-row"><h2>{lookup.term}</h2>{entry && <span className="language-chip">{entry.language.toUpperCase()}</span>}</div>
+            {entry?.reading && <span className="reading">{entry.reading}</span>}
+          </div>
+        </div>
         <button type="button" aria-label={t("dictionary.close")} onClick={onClose}><X size={19} /></button>
       </div>
       <div className="dictionary-scroll">
