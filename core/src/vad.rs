@@ -178,12 +178,15 @@ pub async fn ensure_model(model_path: &Path) -> Result<(), String> {
     if model_file_is_valid(model_path).await? {
         return Ok(());
     }
-    let parent = model_path
-        .parent()
-        .ok_or_else(|| format!("Silero 模型路径无父目录：{}", model_path.display()))?;
+    let parent = model_path.parent().ok_or_else(|| {
+        format!(
+            "Silero model path has no parent directory: {}",
+            model_path.display()
+        )
+    })?;
     tokio::fs::create_dir_all(parent)
         .await
-        .map_err(|error| format!("无法创建 Silero 模型目录：{error}"))?;
+        .map_err(|error| format!("Failed to create Silero model directory: {error}"))?;
     let partial = model_path.with_extension("onnx.part");
     let _ = tokio::fs::remove_file(&partial).await;
 
@@ -201,42 +204,42 @@ pub async fn ensure_model(model_path: &Path) -> Result<(), String> {
         .get(MODEL_URL)
         .send()
         .await
-        .map_err(|error| format!("Silero 模型下载失败：{error}"))?
+        .map_err(|error| format!("Silero model download failed: {error}"))?
         .error_for_status()
-        .map_err(|error| format!("Silero 模型下载失败：{error}"))?;
+        .map_err(|error| format!("Silero model download failed: {error}"))?;
     if response
         .content_length()
         .is_some_and(|length| length != MODEL_BYTES)
     {
-        return Err("Silero 模型下载大小与固定版本不符".into());
+        return Err("Silero model download size does not match the pinned version".into());
     }
 
     let mut file = tokio::fs::File::create(&partial)
         .await
-        .map_err(|error| format!("无法创建 Silero 临时文件：{error}"))?;
+        .map_err(|error| format!("Failed to create Silero temporary file: {error}"))?;
     let mut stream = response.bytes_stream();
     let mut downloaded = 0u64;
     let mut hasher = Sha256::new();
     while let Some(chunk) = stream.next().await {
-        let chunk = chunk.map_err(|error| format!("Silero 模型下载失败：{error}"))?;
+        let chunk = chunk.map_err(|error| format!("Silero model download failed: {error}"))?;
         downloaded = downloaded
             .checked_add(chunk.len() as u64)
-            .ok_or_else(|| "Silero 模型大小溢出".to_string())?;
+            .ok_or_else(|| "Silero model size overflow".to_string())?;
         if downloaded > MODEL_BYTES {
             let _ = tokio::fs::remove_file(&partial).await;
-            return Err("Silero 模型下载内容超过固定版本大小".into());
+            return Err("Silero model download exceeds the pinned version size".into());
         }
         hasher.update(&chunk);
         file.write_all(&chunk)
             .await
-            .map_err(|error| format!("无法写入 Silero 模型：{error}"))?;
+            .map_err(|error| format!("Failed to write Silero model: {error}"))?;
     }
     file.flush()
         .await
-        .map_err(|error| format!("无法刷新 Silero 模型：{error}"))?;
+        .map_err(|error| format!("Failed to flush Silero model: {error}"))?;
     file.sync_all()
         .await
-        .map_err(|error| format!("无法落盘 Silero 模型：{error}"))?;
+        .map_err(|error| format!("Failed to persist Silero model: {error}"))?;
     drop(file);
 
     let digest = format!("{:x}", hasher.finalize());
@@ -247,11 +250,11 @@ pub async fn ensure_model(model_path: &Path) -> Result<(), String> {
     if model_path.exists() {
         tokio::fs::remove_file(model_path)
             .await
-            .map_err(|error| format!("无法替换无效的 Silero 模型：{error}"))?;
+            .map_err(|error| format!("Failed to replace invalid Silero model: {error}"))?;
     }
     tokio::fs::rename(&partial, model_path)
         .await
-        .map_err(|error| format!("无法安装 Silero 模型：{error}"))?;
+        .map_err(|error| format!("Failed to install Silero model: {error}"))?;
     tracing::info!(version = MODEL_VERSION, "Silero VAD model ready");
     Ok(())
 }
@@ -261,11 +264,11 @@ async fn model_file_is_valid(path: &Path) -> Result<bool, String> {
         Ok(metadata) if metadata.is_file() && metadata.len() == MODEL_BYTES => metadata,
         Ok(_) => return Ok(false),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
-        Err(error) => return Err(format!("无法检查 Silero 模型：{error}")),
+        Err(error) => return Err(format!("Failed to inspect Silero model: {error}")),
     };
     let bytes = tokio::fs::read(path)
         .await
-        .map_err(|error| format!("无法读取 Silero 模型：{error}"))?;
+        .map_err(|error| format!("Failed to read Silero model: {error}"))?;
     debug_assert_eq!(metadata.len(), bytes.len() as u64);
     let digest = format!("{:x}", Sha256::digest(&bytes));
     Ok(validate_model_metadata(bytes.len() as u64, &digest).is_ok())
@@ -274,22 +277,25 @@ async fn model_file_is_valid(path: &Path) -> Result<bool, String> {
 fn validate_model_metadata(bytes: u64, sha256: &str) -> Result<(), String> {
     if bytes != MODEL_BYTES {
         return Err(format!(
-            "Silero {MODEL_VERSION} 模型大小不符：应为 {MODEL_BYTES} 字节，实际为 {bytes} 字节"
+            "Silero {MODEL_VERSION} model size mismatch: expected {MODEL_BYTES} bytes, found {bytes} bytes"
         ));
     }
     if sha256 != MODEL_SHA256 {
-        return Err(format!("Silero {MODEL_VERSION} 模型 SHA-256 校验失败"));
+        return Err(format!(
+            "Silero {MODEL_VERSION} model SHA-256 verification failed"
+        ));
     }
     Ok(())
 }
 
 fn model_file_is_valid_sync(path: &Path) -> Result<bool, String> {
-    let metadata =
-        std::fs::metadata(path).map_err(|error| format!("无法检查 Silero 模型：{error}"))?;
+    let metadata = std::fs::metadata(path)
+        .map_err(|error| format!("Failed to inspect Silero model: {error}"))?;
     if !metadata.is_file() || metadata.len() != MODEL_BYTES {
         return Ok(false);
     }
-    let bytes = std::fs::read(path).map_err(|error| format!("无法读取 Silero 模型：{error}"))?;
+    let bytes =
+        std::fs::read(path).map_err(|error| format!("Failed to read Silero model: {error}"))?;
     let digest = format!("{:x}", Sha256::digest(&bytes));
     Ok(validate_model_metadata(bytes.len() as u64, &digest).is_ok())
 }
@@ -454,7 +460,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "需要通过 VRCS_SILERO_MODEL 指定真实模型"]
+    #[ignore = "requires a real model specified by VRCS_SILERO_MODEL"]
     fn silero_model_runs_when_provided() {
         let path = std::env::var("VRCS_SILERO_MODEL").expect("VRCS_SILERO_MODEL");
         let mut detector = VoiceDetector::load(Path::new(&path));

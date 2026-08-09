@@ -8,6 +8,20 @@ export interface Subtitle {
   ended_at: number | null;
   created_at: string;
   source?: "speaker" | "microphone";
+  translations: SubtitleTranslation[];
+  translation_partial?: {
+    text: string;
+    target_language: string;
+  };
+}
+
+export interface SubtitleTranslation {
+  text: string;
+  source_language: string | null;
+  target_language: string;
+  provider: ApiProvider | "local";
+  model: string | null;
+  created_at: string;
 }
 
 export interface AudioDevice {
@@ -28,8 +42,6 @@ export interface AsrSettings {
     compute_type: "int8";
   };
   qwen: {
-    region: "singapore" | "china_beijing";
-    workspace_id: string;
     context: string;
     model: "qwen3-asr-flash-realtime";
   };
@@ -38,7 +50,31 @@ export interface AsrSettings {
     model: "fun-asr-realtime";
   };
   openai: { model: "gpt-4o-mini-transcribe" | "gpt-4o-transcribe" };
+  api_profiles: ApiProfile[];
+  active_api_profiles: Record<AsrApiProvider, string | null>;
   cloud_failure_policy: "reconnect" | "local";
+}
+
+export type AsrApiProvider = "alibaba_cloud" | "openai";
+export type ApiProvider = AsrApiProvider | "deepl" | "microsoft_translator";
+
+export interface ApiProfile {
+  id: string;
+  name: string;
+  provider: ApiProvider;
+  region?: string;
+  workspace_id?: string;
+  base_url?: string;
+}
+
+export interface ApiProfileView extends ApiProfile {
+  active: boolean;
+  translation_active: boolean;
+  credential: CredentialStatus;
+}
+
+export interface ApiModelCatalog {
+  models: string[];
 }
 
 export interface LiveTranscription {
@@ -51,6 +87,8 @@ export interface LiveTranscription {
 
 export interface CredentialStatus {
   configured: boolean;
+  stored_configured: boolean;
+  environment_override: boolean;
   source: "environment" | "credential_manager" | null;
 }
 
@@ -79,7 +117,7 @@ export interface AnkiSettings {
 }
 
 export interface Settings {
-  schema_version: 5;
+  schema_version: 7;
   server: {
     host: string;
     port: number;
@@ -96,10 +134,29 @@ export interface Settings {
   };
   vad: VadSettings;
   asr: AsrSettings;
+  translation: TranslationSettings;
   dictionary: {
     selection_lookup_enabled: boolean;
   };
   anki: AnkiSettings;
+}
+
+export interface TranslationSettings {
+  mode: "disabled" | "manual" | "automatic";
+  target_language: "zh-Hans" | "zh-Hant" | "en" | "ja" | "ko" | "es" | "fr" | "de" | "ru";
+  profile_id: string | null;
+  model: string;
+  thinking_enabled: boolean;
+}
+
+export interface TranslationEvent {
+  type: "translation_started" | "translation_partial" | "translation_completed" | "translation_failed";
+  subtitle_id: number;
+  text?: string;
+  target_language?: string;
+  translation?: SubtitleTranslation;
+  code?: string;
+  detail?: string;
 }
 
 export interface Health {

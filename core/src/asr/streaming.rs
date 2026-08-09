@@ -9,7 +9,7 @@ use tokio::task::JoinHandle;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
 
-use crate::config::AsrConfig;
+use crate::config::{ApiProfile, AsrConfig, ALIBABA_PROVIDER, OPENAI_PROVIDER};
 
 use super::read_credential;
 
@@ -52,7 +52,7 @@ impl StreamingSession {
         self.audio
             .send(samples)
             .await
-            .map_err(|_| "云端识别会话已关闭".to_string())
+            .map_err(|_| "Cloud recognition session is closed".to_string())
     }
 
     pub async fn recv(&mut self) -> Option<CloudEvent> {
@@ -75,15 +75,38 @@ impl StreamingSession {
     }
 }
 
+fn active_profile<'a>(config: &'a AsrConfig, provider: &str) -> Result<&'a ApiProfile, String> {
+    let active_id = match provider {
+        ALIBABA_PROVIDER => config.active_api_profiles.alibaba_cloud.as_deref(),
+        OPENAI_PROVIDER => config.active_api_profiles.openai.as_deref(),
+        other => return Err(format!("Unsupported API provider: {other}")),
+    }
+    .ok_or_else(|| format!("No API profile is selected for {provider}"))?;
+    config
+        .api_profiles
+        .iter()
+        .find(|profile| profile.id == active_id && profile.provider == provider)
+        .ok_or_else(|| format!("The active API profile for {provider} does not exist"))
+}
+
+pub fn validate_cloud_connection(config: &AsrConfig) -> Result<(), String> {
+    let provider = Provider::from_config(config)?;
+    let profile = active_profile(config, provider.api_provider())?;
+    let key = read_credential(&profile.id, &profile.provider)?
+        .ok_or_else(|| format!("API key is not configured for {}", profile.name))?;
+    provider.build_request(config, profile, &key).map(|_| ())
+}
+
 pub async fn spawn_streaming_session(
     config: AsrConfig,
     silence_seconds: f64,
 ) -> Result<StreamingSession, String> {
     let provider = Provider::from_config(&config)?;
-    let credential_name = provider.credential_name();
-    let key = read_credential(credential_name)?
-        .ok_or_else(|| format!("{credential_name} API Key 尚未配置"))?;
-    let (socket, task_id) = connect_initialized(provider, &config, silence_seconds, &key).await?;
+    let profile = active_profile(&config, provider.api_provider())?.clone();
+    let key = read_credential(&profile.id, &profile.provider)?
+        .ok_or_else(|| format!("API key is not configured for {}", profile.name))?;
+    let (socket, task_id) =
+        connect_initialized(provider, &config, &profile, silence_seconds, &key).await?;
     let (audio_tx, audio_rx) = mpsc::channel(32);
     let (event_tx, event_rx) = mpsc::channel(32);
     let (stop_tx, stop_rx) = watch::channel(false);
@@ -92,6 +115,7 @@ pub async fn spawn_streaming_session(
         run_with_reconnect(
             provider,
             task_config,
+            profile,
             silence_seconds,
             key,
             socket,
@@ -110,22 +134,25 @@ pub async fn spawn_streaming_session(
     })
 }
 
-pub async fn test_streaming_connection(
-    config: &AsrConfig,
-    provider_name: &str,
-) -> Result<(), String> {
-    let key = read_credential(provider_name)?
-        .ok_or_else(|| format!("{provider_name} API Key 尚未配置"))?;
+pub async fn test_streaming_connection(config: &AsrConfig, profile_id: &str) -> Result<(), String> {
+    let profile = config
+        .api_profiles
+        .iter()
+        .find(|profile| profile.id == profile_id)
+        .ok_or_else(|| "API profile does not exist".to_string())?;
+    let key = read_credential(&profile.id, &profile.provider)?
+        .ok_or_else(|| format!("API key is not configured for {}", profile.name))?;
     let mut test_config = config.clone();
-    test_config.backend = match provider_name {
-        "qwen" if config.backend == "fun_asr_realtime" => "fun_asr_realtime",
-        "qwen" => "qwen_realtime",
-        "openai" => "openai_realtime",
-        _ => return Err(format!("不支持的云端识别服务：{provider_name}")),
+    test_config.backend = match profile.provider.as_str() {
+        ALIBABA_PROVIDER if config.backend == "fun_asr_realtime" => "fun_asr_realtime",
+        ALIBABA_PROVIDER => "qwen_realtime",
+        OPENAI_PROVIDER => "openai_realtime",
+        other => return Err(format!("Unsupported cloud recognition service: {other}")),
     }
     .into();
     let provider = Provider::from_config(&test_config)?;
-    let (mut socket, task_id) = connect_initialized(provider, &test_config, 0.4, &key).await?;
+    let (mut socket, task_id) =
+        connect_initialized(provider, &test_config, profile, 0.4, &key).await?;
     let (events, _) = mpsc::channel(1);
     finish(
         provider,
@@ -143,6 +170,7 @@ pub async fn test_streaming_connection(
 async fn run_with_reconnect(
     provider: Provider,
     config: AsrConfig,
+    profile: ApiProfile,
     silence_seconds: f64,
     key: String,
     mut socket: Socket,
@@ -167,7 +195,7 @@ async fn run_with_reconnect(
             break;
         }
         let detail = match outcome {
-            Ok(()) => "云端识别连接已关闭".to_string(),
+            Ok(()) => "Cloud recognition connection was closed".to_string(),
             Err(error) => error,
         };
         let _ = events
@@ -183,7 +211,7 @@ async fn run_with_reconnect(
             _ = tokio::time::sleep(backoff) => {}
             _ = stop.changed() => break,
         }
-        match connect_initialized(provider, &config, silence_seconds, &key).await {
+        match connect_initialized(provider, &config, &profile, silence_seconds, &key).await {
             Ok((next_socket, next_task_id)) => {
                 socket = next_socket;
                 task_id = next_task_id;
@@ -240,8 +268,8 @@ async fn run_session(
             }
             message = socket.next() => {
                 let message = message
-                    .ok_or_else(|| "云端识别连接已关闭".to_string())?
-                    .map_err(|error| format!("读取云端识别事件失败：{error}"))?;
+                    .ok_or_else(|| "Cloud recognition connection was closed".to_string())?
+                    .map_err(|error| format!("Failed to read cloud recognition event: {error}"))?;
                 match message {
                     Message::Text(text) => {
                         if let Some(event) = normalize_event(provider, config, &text, &mut transcripts)? {
@@ -250,9 +278,9 @@ async fn run_session(
                             }
                         }
                     }
-                    Message::Close(_) => return Err("云端识别服务关闭了连接".into()),
+                    Message::Close(_) => return Err("Cloud recognition service closed the connection".into()),
                     Message::Ping(value) => socket.send(Message::Pong(value)).await
-                        .map_err(|error| format!("云端识别心跳失败：{error}"))?,
+                        .map_err(|error| format!("Cloud recognition heartbeat failed: {error}"))?,
                     _ => {}
                 }
             }
@@ -260,40 +288,54 @@ async fn run_session(
     }
 }
 
-async fn connect(provider: Provider, config: &AsrConfig, key: &str) -> Result<Socket, String> {
-    let request = provider.build_request(config, key)?;
+async fn connect(
+    provider: Provider,
+    config: &AsrConfig,
+    profile: &ApiProfile,
+    key: &str,
+) -> Result<Socket, String> {
+    let request = provider.build_request(config, profile, key)?;
     tokio_tungstenite::connect_async(request)
         .await
         .map(|(socket, _)| socket)
-        .map_err(|error| format!("无法连接云端识别服务：{error}"))
+        .map_err(|error| format!("Failed to connect to cloud recognition service: {error}"))
 }
 
 async fn connect_initialized(
     provider: Provider,
     config: &AsrConfig,
+    profile: &ApiProfile,
     silence_seconds: f64,
     key: &str,
 ) -> Result<(Socket, Option<String>), String> {
-    let mut socket = tokio::time::timeout(Duration::from_secs(10), connect(provider, config, key))
-        .await
-        .map_err(|_| "连接云端识别服务超时".to_string())??;
+    let mut socket = tokio::time::timeout(
+        Duration::from_secs(10),
+        connect(provider, config, profile, key),
+    )
+    .await
+    .map_err(|_| "Timed out while connecting to cloud recognition service".to_string())??;
     let task_id = provider.task_id();
     let update = provider.start_message(config, silence_seconds, task_id.as_deref());
     socket
         .send(Message::Text(update.to_string().into()))
         .await
-        .map_err(|error| format!("无法初始化云端识别会话：{error}"))?;
+        .map_err(|error| format!("Failed to initialize cloud recognition session: {error}"))?;
     let configured = tokio::time::timeout(Duration::from_secs(10), async {
         loop {
             let message = socket
                 .next()
                 .await
-                .ok_or_else(|| "云端识别连接在初始化时关闭".to_string())?
-                .map_err(|error| format!("读取云端识别初始化事件失败：{error}"))?;
+                .ok_or_else(|| {
+                    "Cloud recognition connection closed during initialization".to_string()
+                })?
+                .map_err(|error| {
+                    format!("Failed to read cloud recognition initialization event: {error}")
+                })?;
             match message {
                 Message::Text(text) => {
-                    let value: Value = serde_json::from_str(&text)
-                        .map_err(|error| format!("云端识别返回无效 JSON：{error}"))?;
+                    let value: Value = serde_json::from_str(&text).map_err(|error| {
+                        format!("Cloud recognition returned invalid JSON: {error}")
+                    })?;
                     match provider.initialization_event(&value) {
                         InitializationEvent::Ready => return Ok(()),
                         InitializationEvent::Failed(detail) => return Err(detail),
@@ -303,14 +345,18 @@ async fn connect_initialized(
                 Message::Ping(value) => socket
                     .send(Message::Pong(value))
                     .await
-                    .map_err(|error| format!("云端识别心跳失败：{error}"))?,
-                Message::Close(_) => return Err("云端识别服务关闭了初始化连接".into()),
+                    .map_err(|error| format!("Cloud recognition heartbeat failed: {error}"))?,
+                Message::Close(_) => {
+                    return Err(
+                        "Cloud recognition service closed the initialization connection".into(),
+                    )
+                }
                 _ => {}
             }
         }
     })
     .await
-    .map_err(|_| "等待云端识别会话确认超时".to_string())?;
+    .map_err(|_| "Timed out waiting for cloud recognition session confirmation".to_string())?;
     configured?;
     Ok((socket, task_id))
 }
@@ -321,8 +367,8 @@ fn normalize_event(
     message: &str,
     transcripts: &mut HashMap<String, String>,
 ) -> Result<Option<CloudEvent>, String> {
-    let value: Value =
-        serde_json::from_str(message).map_err(|error| format!("云端识别返回无效 JSON：{error}"))?;
+    let value: Value = serde_json::from_str(message)
+        .map_err(|error| format!("Cloud recognition returned invalid JSON: {error}"))?;
     provider.normalize_event(config, &value, transcripts)
 }
 
@@ -334,7 +380,7 @@ async fn send_audio(
     socket
         .send(provider.audio_message(&samples))
         .await
-        .map_err(|error| format!("发送云端音频失败：{error}"))
+        .map_err(|error| format!("Failed to send cloud recognition audio: {error}"))
 }
 
 async fn finish(
@@ -369,8 +415,12 @@ async fn finish(
 }
 
 #[cfg(test)]
-fn build_request(config: &AsrConfig, key: &str) -> Result<Request<()>, String> {
-    Provider::from_config(config)?.build_request(config, key)
+fn build_request(
+    config: &AsrConfig,
+    profile: &ApiProfile,
+    key: &str,
+) -> Result<Request<()>, String> {
+    Provider::from_config(config)?.build_request(config, profile, key)
 }
 
 #[cfg(test)]
@@ -483,13 +533,19 @@ mod tests {
 
     #[test]
     fn qwen_request_uses_workspace_endpoint_and_realtime_headers() {
-        let mut config = AsrConfig {
+        let config = AsrConfig {
             backend: "qwen_realtime".into(),
             ..AsrConfig::default()
         };
-        config.qwen.workspace_id = "ws-example".into();
-        config.qwen.region = "china_beijing".into();
-        let request = build_request(&config, "sk-test").unwrap();
+        let profile = ApiProfile {
+            id: "profile".into(),
+            name: "Test".into(),
+            provider: ALIBABA_PROVIDER.into(),
+            region: Some("china_beijing".into()),
+            workspace_id: Some("ws-example".into()),
+            base_url: None,
+        };
+        let request = build_request(&config, &profile, "sk-test").unwrap();
         assert_eq!(request.uri().to_string(), "wss://ws-example.cn-beijing.maas.aliyuncs.com/api-ws/v1/realtime?model=qwen3-asr-flash-realtime");
         assert_eq!(request.headers()["Authorization"], "Bearer sk-test");
         assert_eq!(request.headers()["OpenAI-Beta"], "realtime=v1");
@@ -501,21 +557,35 @@ mod tests {
             backend: "qwen_realtime".into(),
             ..AsrConfig::default()
         };
+        let profile = ApiProfile {
+            id: "profile".into(),
+            name: "Test".into(),
+            provider: ALIBABA_PROVIDER.into(),
+            region: Some("china_beijing".into()),
+            workspace_id: Some(String::new()),
+            base_url: None,
+        };
         assert_eq!(
-            build_request(&config, "sk-test").unwrap_err(),
-            "阿里云 Workspace ID 尚未配置"
+            build_request(&config, &profile, "sk-test").unwrap_err(),
+            "Alibaba Cloud Workspace ID is not configured"
         );
     }
 
     #[test]
     fn fun_asr_request_uses_inference_endpoint_without_realtime_header() {
-        let mut config = AsrConfig {
+        let config = AsrConfig {
             backend: "fun_asr_realtime".into(),
             ..AsrConfig::default()
         };
-        config.qwen.workspace_id = "ws-example".into();
-        config.qwen.region = "singapore".into();
-        let request = build_request(&config, "sk-test").unwrap();
+        let profile = ApiProfile {
+            id: "profile".into(),
+            name: "Test".into(),
+            provider: ALIBABA_PROVIDER.into(),
+            region: Some("singapore".into()),
+            workspace_id: Some("ws-example".into()),
+            base_url: None,
+        };
+        let request = build_request(&config, &profile, "sk-test").unwrap();
         assert_eq!(
             request.uri().to_string(),
             "wss://ws-example.ap-southeast-1.maas.aliyuncs.com/api-ws/v1/inference"

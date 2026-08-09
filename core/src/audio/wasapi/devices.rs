@@ -13,7 +13,9 @@ pub(super) fn init_com() -> Result<(), AudioError> {
     if result.is_ok() {
         Ok(())
     } else {
-        Err(AudioError::new(format!("COM 初始化失败：{result:?}")))
+        Err(AudioError::new(format!(
+            "COM initialization failed: {result:?}"
+        )))
     }
 }
 
@@ -94,7 +96,7 @@ pub(crate) fn resolve_device_id(
     }
     Err(AudioError::with_code(
         "audio.device_unavailable",
-        "所选音频设备已失效，请重新选择",
+        "The selected audio device is no longer available",
     ))
 }
 
@@ -107,8 +109,9 @@ pub(crate) fn find_process_id(process_name: &str) -> Result<Option<u32>, AudioEr
 
     let target = process_name.to_lowercase();
     unsafe {
-        let snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0)
-            .map_err(|error| AudioError::new(format!("无法枚举 Windows 进程：{error}")))?;
+        let snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0).map_err(|error| {
+            AudioError::new(format!("Failed to enumerate Windows processes: {error}"))
+        })?;
         let mut entry = PROCESSENTRY32W {
             dwSize: std::mem::size_of::<PROCESSENTRY32W>() as u32,
             ..Default::default()
@@ -154,7 +157,7 @@ pub(super) fn find_device_by_wasapi_id(
     }
     Err(AudioError::with_code(
         "audio.device_unavailable",
-        "所选音频设备已失效，请重新选择",
+        "The selected audio device is no longer available",
     ))
 }
 

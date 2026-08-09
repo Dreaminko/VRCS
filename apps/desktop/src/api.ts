@@ -1,9 +1,12 @@
 import type {
   AnkiCardInput,
   AnkiStatus,
+  ApiProfile,
+  ApiProfileView,
+  ApiModelCatalog,
+  AsrApiProvider,
   AsrCapabilities,
   AsrModelRecord,
-  CredentialStatus,
   AudioDevice,
   DictionaryEntry,
   DictionaryImportProgress,
@@ -11,6 +14,7 @@ import type {
   Health,
   Settings,
   Subtitle,
+  SubtitleTranslation,
 } from "./types";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { apiErrorFromResponse } from "./api-error";
@@ -99,16 +103,54 @@ export const coreApi = {
   stop: () => request<{ running: boolean }>("/api/capture/stop", { method: "POST" }),
   asrCapabilities: () => request<AsrCapabilities>("/api/asr/capabilities"),
   asrModels: () => request<AsrModelRecord[]>("/api/asr/models"),
-  asrCredentials: () => request<Record<"qwen" | "openai", CredentialStatus>>("/api/asr/credentials"),
-  saveAsrCredential: (provider: "qwen" | "openai", apiKey: string) =>
-    request<CredentialStatus>(`/api/asr/credentials/${provider}`, {
+  apiProfiles: () => request<{ profiles: ApiProfileView[] }>("/api/asr/profiles"),
+  createApiProfile: (profile: Omit<ApiProfile, "id"> & { api_key?: string }) =>
+    request<ApiProfileView>("/api/asr/profiles", {
+      method: "POST",
+      body: JSON.stringify(profile),
+    }),
+  updateApiProfile: (profile: ApiProfile) =>
+    request<ApiProfileView>(`/api/asr/profiles/${profile.id}`, {
+      method: "PUT",
+      body: JSON.stringify({
+        name: profile.name,
+        region: profile.region,
+        workspace_id: profile.workspace_id,
+        base_url: profile.base_url,
+      }),
+    }),
+  deleteApiProfile: (profileId: string) =>
+    request<{ deleted: boolean }>(`/api/asr/profiles/${profileId}`, { method: "DELETE" }),
+  saveApiProfileCredential: (profileId: string, apiKey: string) =>
+    request<ApiProfileView>(`/api/asr/profiles/${profileId}/credential`, {
       method: "PUT",
       body: JSON.stringify({ api_key: apiKey }),
     }),
-  deleteAsrCredential: (provider: "qwen" | "openai") =>
-    request<CredentialStatus>(`/api/asr/credentials/${provider}`, { method: "DELETE" }),
-  testAsrCredential: (provider: "qwen" | "openai") =>
-    request<{ ok: boolean }>(`/api/asr/credentials/${provider}/test`, { method: "POST" }),
+  deleteApiProfileCredential: (profileId: string) =>
+    request<ApiProfileView>(`/api/asr/profiles/${profileId}/credential`, { method: "DELETE" }),
+  activateApiProfile: (provider: AsrApiProvider, profileId: string | null) =>
+    request<{ profiles: ApiProfileView[] }>(`/api/asr/profiles/active/${provider}`, {
+      method: "PUT",
+      body: JSON.stringify({ profile_id: profileId }),
+    }),
+  testApiProfile: (profileId: string) =>
+    request<{ ok: boolean }>(`/api/asr/profiles/${profileId}/test`, { method: "POST" }),
+  apiProfileModels: (profileId: string) =>
+    request<ApiModelCatalog>(`/api/asr/profiles/${profileId}/models`),
+  translateSubtitle: (subtitleId: number) =>
+    request<SubtitleTranslation>(`/api/subtitles/${subtitleId}/translation`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    }),
+  previewTranslation: (text: string, sourceLanguage?: string | null, targetLanguage?: string) =>
+    request<SubtitleTranslation>("/api/translations/preview", {
+      method: "POST",
+      body: JSON.stringify({
+        text,
+        source_language: sourceLanguage,
+        target_language: targetLanguage,
+      }),
+    }),
   downloadAsrModel: (model: AsrModelRecord["id"]) =>
     request<AsrModelRecord>(`/api/asr/models/${model}/download`, {
       method: "POST",

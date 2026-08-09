@@ -3,7 +3,8 @@
 use serde::{Deserialize, Serialize};
 
 use crate::config::{
-    AnkiConfig, AsrConfig, AudioConfig, DictionaryConfig, ServerConfig, StorageConfig, VadConfig,
+    AnkiConfig, AsrConfig, AudioConfig, DictionaryConfig, ServerConfig, StorageConfig,
+    TranslationConfig, VadConfig,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -19,6 +20,19 @@ pub struct Subtitle {
     pub ended_at: Option<f64>,
     #[serde(default = "default_source")]
     pub source: String,
+    pub created_at: String,
+    #[serde(default)]
+    pub translations: Vec<SubtitleTranslation>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SubtitleTranslation {
+    pub text: String,
+    pub source_language: Option<String>,
+    pub target_language: String,
+    pub provider: String,
+    #[serde(default)]
+    pub model: Option<String>,
     pub created_at: String,
 }
 
@@ -74,6 +88,8 @@ pub struct SettingsUpdate {
     #[serde(default)]
     pub dictionary: DictionaryConfig,
     #[serde(default)]
+    pub translation: TranslationConfig,
+    #[serde(default)]
     pub anki: AnkiConfig,
 }
 
@@ -120,15 +136,15 @@ pub struct CardRequest {
 
 impl CardRequest {
     pub fn validate(&self) -> Result<(), String> {
-        validate_text("词条", &self.term, 1, 500)?;
-        validate_text("释义", &self.definition, 1, 20_000)?;
-        validate_text("语境", &self.context, 0, 20_000)?;
-        validate_optional_text("读音", self.reading.as_deref(), 500)?;
-        validate_optional_text("词典", self.dictionary.as_deref(), 500)?;
-        validate_optional_text("语言", self.language.as_deref(), 20)?;
+        validate_text("term", &self.term, 1, 500)?;
+        validate_text("definition", &self.definition, 1, 20_000)?;
+        validate_text("context", &self.context, 0, 20_000)?;
+        validate_optional_text("reading", self.reading.as_deref(), 500)?;
+        validate_optional_text("dictionary", self.dictionary.as_deref(), 500)?;
+        validate_optional_text("language", self.language.as_deref(), 20)?;
         if let Some(labels) = &self.labels {
-            validate_text("释义标签", &labels.definition, 1, 100)?;
-            validate_text("语境标签", &labels.context, 1, 100)?;
+            validate_text("definition label", &labels.definition, 1, 100)?;
+            validate_text("context label", &labels.context, 1, 100)?;
         }
         Ok(())
     }
@@ -137,14 +153,16 @@ impl CardRequest {
 fn validate_text(label: &str, value: &str, minimum: usize, maximum: usize) -> Result<(), String> {
     let length = value.chars().count();
     if !(minimum..=maximum).contains(&length) {
-        return Err(format!("{label}长度必须在 {minimum} 到 {maximum} 字符之间"));
+        return Err(format!(
+            "{label} length must be between {minimum} and {maximum} characters"
+        ));
     }
     Ok(())
 }
 
 fn validate_optional_text(label: &str, value: Option<&str>, maximum: usize) -> Result<(), String> {
     if value.is_some_and(|value| value.chars().count() > maximum) {
-        return Err(format!("{label}不能超过 {maximum} 字符"));
+        return Err(format!("{label} cannot exceed {maximum} characters"));
     }
     Ok(())
 }

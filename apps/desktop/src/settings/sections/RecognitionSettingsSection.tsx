@@ -6,7 +6,11 @@ import { CloudProviderSettings } from "../recognition/CloudProviderSettings";
 import { LocalRecognitionSettings, LocalRuntimeStatus } from "../recognition/LocalRecognitionSettings";
 import { ModelManagerPanel } from "../recognition/ModelManagerPanel";
 import { VadSettings } from "../recognition/VadSettings";
-import { showsLocalRecognitionSettings } from "../settings-derived";
+import {
+  LOCAL_RECOGNITION_SOURCE,
+  recognitionSourceValue,
+  showsLocalRecognitionSettings,
+} from "../settings-derived";
 import type { SaveState } from "../settings-types";
 import { Select } from "../SettingsControls";
 
@@ -29,6 +33,7 @@ type RecognitionModels = {
 
 type RecognitionActions = {
   updateAsr: <K extends keyof Settings["asr"]>(key: K, value: Settings["asr"][K]) => void;
+  updateRecognitionSource: (source: string) => void;
   updateLocalAsr: <K extends keyof Settings["asr"]["local"]>(key: K, value: Settings["asr"]["local"][K]) => void;
   updateVad: <K extends keyof Settings["vad"]>(key: K, value: Settings["vad"][K]) => void;
   loadModels: () => Promise<void>;
@@ -60,6 +65,24 @@ export function RecognitionSettingsSection({
 }) {
   const { t } = useTranslation();
   const usesLocalAsr = showsLocalRecognitionSettings(draft.asr.backend);
+  const recognitionSource = recognitionSourceValue(draft.asr);
+  const sourceOptions = [
+    { value: LOCAL_RECOGNITION_SOURCE, label: t("settings.recognition.localSource") },
+    ...draft.asr.api_profiles
+      .filter((profile) => profile.provider === "alibaba_cloud" || (profile.provider === "openai" && !profile.base_url))
+      .map((profile) => {
+        const providerLabel = profile.provider === "alibaba_cloud" ? "Alibaba Cloud" : "OpenAI";
+        return {
+          value: profile.id,
+          label: profile.name.toLocaleLowerCase() === providerLabel.toLocaleLowerCase()
+            ? profile.name
+            : `${profile.name} · ${providerLabel}`,
+        };
+      }),
+  ];
+  if (!recognitionSource) {
+    sourceOptions.unshift({ value: "", label: t("settings.recognition.selectApiProfile") });
+  }
 
   return (
     <div className="settings-section settings-section-active recognition-section" id="settings-panel-recognition" role="tabpanel" aria-labelledby="settings-tab-recognition">
@@ -72,20 +95,16 @@ export function RecognitionSettingsSection({
         <div className="recognition-config-row">
           <div className="recognition-config-title">
             <Languages size={17} />
-            <span><strong>{t("settings.recognition.backend")}</strong><small>{t("settings.recognition.backendDescription")}</small></span>
+            <span><strong>{t("settings.recognition.source")}</strong><small>{t("settings.recognition.sourceDescription")}</small></span>
           </div>
           <div className="recognition-config-fields">
             <Select
-              label={t("settings.recognition.backend")}
-              value={draft.asr.backend}
-              options={[
-                { value: "qwen_realtime", label: "Qwen3 ASR · Streaming" },
-                { value: "fun_asr_realtime", label: "Fun-ASR · Streaming" },
-                { value: "openai_realtime", label: "OpenAI · Streaming" },
-                { value: "local_whisper", label: "Whisper · Local" },
-              ]}
+              label={t("settings.recognition.source")}
+              helper={t("settings.recognition.manageApiHint")}
+              value={recognitionSource}
+              options={sourceOptions}
               disabled={disabled}
-              onChange={(value) => actions.updateAsr("backend", value as Settings["asr"]["backend"])}
+              onChange={(value) => { if (value) actions.updateRecognitionSource(value); }}
             />
             <Select
               label={t("settings.recognition.failurePolicy")}

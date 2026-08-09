@@ -234,7 +234,9 @@ impl Database {
             insert_batch(&mut statement, source_id, &mut records)?;
         }
         if count == 0 {
-            return Err(AppError::validation("Yomitan 词典中没有可导入的文本词条"));
+            return Err(AppError::validation(
+                "The Yomitan dictionary contains no importable text entries",
+            ));
         }
         transaction.execute(
             "UPDATE dictionary_sources SET entry_count = ? WHERE id = ?",

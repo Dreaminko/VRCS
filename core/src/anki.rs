@@ -27,7 +27,7 @@ impl AnkiError {
             status_code: 403,
             code: "disabled",
             params: json!({}),
-            message: "AnkiConnect 集成已关闭".into(),
+            message: "AnkiConnect integration is disabled".into(),
         }
     }
 
@@ -85,8 +85,8 @@ pub async fn status(client: &reqwest::Client, config: &AnkiConfig) -> Value {
             "error_code": "disabled",
             "status_code": "anki.disabled",
             "params": {},
-            "detail": "AnkiConnect 集成已关闭",
-            "message": "AnkiConnect 集成已关闭",
+            "detail": "AnkiConnect integration is disabled",
+            "message": "AnkiConnect integration is disabled",
         });
     }
     match discover(client, config).await {
@@ -147,15 +147,17 @@ pub async fn create_card(
     .await?;
     let Some(flags) = can_add.as_array() else {
         return Err(AnkiError::protocol(
-            "AnkiConnect 返回的制卡校验结果无效".into(),
+            "AnkiConnect returned an invalid card validation result".into(),
         ));
     };
     if flags.len() != 1 || flags[0].as_bool() != Some(true) {
         if flags.len() == 1 && flags[0].as_bool() == Some(false) {
-            return Err(AnkiError::duplicate("这条笔记已存在，未重复添加".into()));
+            return Err(AnkiError::duplicate(
+                "This note already exists and was not added again".into(),
+            ));
         }
         return Err(AnkiError::protocol(
-            "AnkiConnect 返回的制卡校验结果无效".into(),
+            "AnkiConnect returned an invalid card validation result".into(),
         ));
     }
     let result = match invoke(client, config, "addNote", Some(json!({ "note": note }))).await {
@@ -164,13 +166,15 @@ pub async fn create_card(
             if error.code == "protocol_error"
                 && error.message.to_lowercase().contains("duplicate") =>
         {
-            return Err(AnkiError::duplicate("这条笔记已存在，未重复添加".into()));
+            return Err(AnkiError::duplicate(
+                "This note already exists and was not added again".into(),
+            ));
         }
         Err(error) => return Err(error),
     };
     result
         .as_i64()
-        .ok_or_else(|| AnkiError::protocol("AnkiConnect 未返回有效的笔记 ID".into()))
+        .ok_or_else(|| AnkiError::protocol("AnkiConnect did not return a valid note ID".into()))
 }
 
 pub fn client() -> reqwest::Client {

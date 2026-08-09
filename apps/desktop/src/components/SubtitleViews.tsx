@@ -40,18 +40,20 @@ function capitalize(value: string): string {
   return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
-export function LiveView({ subtitles, partials, running, onSelect }: {
+export function LiveView({ subtitles, partials, running, onSelect, onTranslate, translatingSubtitleIds = [] }: {
   subtitles: Subtitle[];
   partials: Partial<Record<LiveTranscription["source"], LiveTranscription>>;
   running: boolean;
   onSelect: (context: string) => Promise<void>;
+  onTranslate?: (subtitleId: number) => void;
+  translatingSubtitleIds?: number[];
 }) {
   const { t } = useTranslation();
   const chronological = [...subtitles].reverse();
   return (
     <section className="conversation" aria-label={t("live.title")}>
       {chronological.length ? chronological.map((subtitle, index) => (
-        <ChatBubble key={subtitle.id ?? `${subtitle.created_at}-${index}`} subtitle={subtitle} onSelect={onSelect} />
+        <ChatBubble key={subtitle.id ?? `${subtitle.created_at}-${index}`} subtitle={subtitle} onSelect={onSelect} onTranslate={onTranslate} translating={subtitle.id !== null && translatingSubtitleIds.includes(subtitle.id)} />
       )) : (
         <div className="empty-state"><MessageSquare size={22} /><p>{running ? t("live.listening") : t("live.startHint")}</p></div>
       )}
@@ -65,11 +67,18 @@ export function LiveView({ subtitles, partials, running, onSelect }: {
   );
 }
 
-function ChatBubble({ subtitle, onSelect }: { subtitle: Subtitle; onSelect: (context: string) => Promise<void> }) {
+function ChatBubble({ subtitle, onSelect, onTranslate, translating }: {
+  subtitle: Subtitle;
+  onSelect: (context: string) => Promise<void>;
+  onTranslate?: (subtitleId: number) => void;
+  translating?: boolean;
+}) {
   const { t, i18n } = useTranslation();
   const locale = i18n.resolvedLanguage ?? "en-US";
   const source: SubtitleSource = subtitle.source ?? "speaker";
   const mine = source === "microphone";
+  const completedTranslation = subtitle.translations.at(-1);
+  const visibleTranslation = subtitle.translation_partial ?? completedTranslation;
   return (
     <article className={`message-group source-${source}`}>
       <div className="message-meta">
@@ -80,11 +89,27 @@ function ChatBubble({ subtitle, onSelect }: { subtitle: Subtitle; onSelect: (con
         {mine && <Mic size={14} />}
       </div>
       <p className="bubble" lang={contentLanguageTag(subtitle.language)} onMouseUp={() => void onSelect(subtitle.text)}>{subtitle.text}</p>
+      {visibleTranslation && (
+        <p className={`bubble translation-bubble ${subtitle.translation_partial ? "streaming-translation" : ""}`} lang={contentLanguageTag(visibleTranslation.target_language)}>
+          {visibleTranslation.text}
+          {subtitle.translation_partial && <span className="streaming-ellipsis" aria-hidden="true">…</span>}
+        </p>
+      )}
+      {onTranslate && subtitle.id !== null && (
+        <button className="translation-action" type="button" disabled={translating} onClick={() => onTranslate(subtitle.id!)}>
+          <Languages size={13} />{t(translating ? "translation.translating" : subtitle.translations.length ? "translation.retry" : "translation.action")}
+        </button>
+      )}
     </article>
   );
 }
 
-export function HistoryView({ subtitles, onSelect }: { subtitles: Subtitle[]; onSelect: (context: string) => Promise<void> }) {
+export function HistoryView({ subtitles, onSelect, onTranslate, translatingSubtitleIds = [] }: {
+  subtitles: Subtitle[];
+  onSelect: (context: string) => Promise<void>;
+  onTranslate?: (subtitleId: number) => void;
+  translatingSubtitleIds?: number[];
+}) {
   const { t, i18n } = useTranslation();
   const locale = i18n.resolvedLanguage ?? "en-US";
   const [language, setLanguage] = useState("all");
@@ -137,7 +162,14 @@ export function HistoryView({ subtitles, onSelect }: { subtitles: Subtitle[]; on
           <article key={subtitle.id ?? `${subtitle.created_at}-${index}`} onMouseUp={() => void onSelect(subtitle.text)}>
             <time>{timestamp(subtitle.created_at, locale)}</time>
             <p lang={contentLanguageTag(subtitle.language)}>{subtitle.text}</p>
+            {(subtitle.translation_partial ?? subtitle.translations.at(-1)) && (
+              <p className={subtitle.translation_partial ? "history-translation streaming-translation" : "history-translation"}>
+                {(subtitle.translation_partial ?? subtitle.translations.at(-1))?.text}
+                {subtitle.translation_partial && <span className="streaming-ellipsis" aria-hidden="true">…</span>}
+              </p>
+            )}
             <span>{subtitle.language?.toUpperCase() ?? "—"}</span>
+            {onTranslate && subtitle.id !== null && <button className="translation-action" type="button" disabled={translatingSubtitleIds.includes(subtitle.id)} onClick={() => onTranslate(subtitle.id!)}><Languages size={13} />{t(translatingSubtitleIds.includes(subtitle.id) ? "translation.translating" : subtitle.translations.length ? "translation.retry" : "translation.action")}</button>}
           </article>
         ))}</div>
       ) : <div className="empty-state"><History size={22} /><p>{t("history.empty")}</p></div>}

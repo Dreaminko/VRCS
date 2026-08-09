@@ -40,15 +40,19 @@ pub struct ModelManager {
 
 impl ModelManager {
     pub fn new(model_dir: PathBuf) -> Result<Self, String> {
-        std::fs::create_dir_all(&model_dir)
-            .map_err(|error| format!("无法创建 ASR 模型目录 {}：{error}", model_dir.display()))?;
+        std::fs::create_dir_all(&model_dir).map_err(|error| {
+            format!(
+                "Failed to create ASR model directory {}: {error}",
+                model_dir.display()
+            )
+        })?;
         Ok(Self {
             model_dir: RwLock::new(model_dir),
             client: reqwest::Client::builder()
                 .connect_timeout(Duration::from_secs(15))
                 .read_timeout(Duration::from_secs(60))
                 .build()
-                .map_err(|error| format!("无法创建模型下载客户端：{error}"))?,
+                .map_err(|error| format!("Failed to create model download client: {error}"))?,
             jobs: Mutex::new(HashMap::new()),
         })
     }
@@ -60,7 +64,7 @@ impl ModelManager {
     pub fn move_model_dir(&self, model_dir: PathBuf) -> Result<(), String> {
         let mut jobs = self.jobs.lock().expect("model jobs lock");
         if jobs.values().any(|job| job.status == "downloading") {
-            return Err("模型下载期间不能更改保存位置".into());
+            return Err("The model storage path cannot be changed during a download".into());
         }
         super::migration::move_model_dir(self.model_dir(), model_dir.clone())?;
         *self.model_dir.write().expect("model directory lock") = model_dir;
@@ -155,7 +159,7 @@ impl ModelManager {
             return Ok(());
         }
         if model == active_model {
-            return Err("当前正在使用该模型，请先选择其他模型".into());
+            return Err("This model is currently in use; select another model first".into());
         }
         let path = self.model_dir().join(spec.filename);
         if path.exists() {

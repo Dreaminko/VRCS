@@ -49,12 +49,16 @@ fn cuda_device_count() -> Result<u32, String> {
 
             let status = init(0);
             if status != 0 {
-                return Err(format!("CUDA driver initialization failed (error code {status})"));
+                return Err(format!(
+                    "CUDA driver initialization failed (error code {status})"
+                ));
             }
             let mut count = 0;
             let status = get_count(&mut count);
             if status != 0 {
-                return Err(format!("Failed to enumerate CUDA devices (error code {status})"));
+                return Err(format!(
+                    "Failed to enumerate CUDA devices (error code {status})"
+                ));
             }
             Ok(count.max(0) as u32)
         })();

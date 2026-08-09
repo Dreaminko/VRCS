@@ -54,7 +54,7 @@ pub(super) fn normalize_event(
             .pointer("/error/message")
             .or_else(|| value.get("message"))
             .and_then(Value::as_str)
-            .unwrap_or("云端识别请求失败");
+            .unwrap_or("Cloud recognition request failed");
         return Ok(Some(CloudEvent::Failed {
             code: "asr.cloud_error".into(),
             detail: detail.into(),

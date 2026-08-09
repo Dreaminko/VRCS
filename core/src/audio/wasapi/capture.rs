@@ -27,7 +27,9 @@ pub(crate) fn capture_main(
         let (mut client, device, wave_format, native) = match &target {
             CaptureTarget::Process(process_id) => {
                 let client = AudioClient::new_application_loopback_client(*process_id, true)
-                    .map_err(|error| AudioError::new(format!("无法连接 VRChat 音频：{error}")))?;
+                    .map_err(|error| {
+                        AudioError::new(format!("Failed to connect to VRChat audio: {error}"))
+                    })?;
                 let device = AudioDevice {
                     id: -1,
                     name: "VRChat（仅应用音频）".into(),

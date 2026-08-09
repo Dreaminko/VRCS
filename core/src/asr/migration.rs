@@ -34,8 +34,12 @@ pub(super) fn move_model_dir(source_dir: PathBuf, model_dir: PathBuf) -> Result<
         }
     }
 
-    std::fs::create_dir_all(&model_dir)
-        .map_err(|error| format!("无法创建 ASR 模型目录 {}：{error}", model_dir.display()))?;
+    std::fs::create_dir_all(&model_dir).map_err(|error| {
+        format!(
+            "Failed to create ASR model directory {}: {error}",
+            model_dir.display()
+        )
+    })?;
     let same_directory = source_dir == model_dir
         || matches!(
             (
@@ -62,20 +66,20 @@ pub(super) fn move_model_dir(source_dir: PathBuf, model_dir: PathBuf) -> Result<
     for (spec, source, destination) in &models {
         if !verify_model_file(source, *spec, false)? {
             return Err(format!(
-                "源目录中的模型文件 {} 校验失败，请重新下载",
+                "Model file {} in the source directory failed verification; download it again",
                 source.display()
             ));
         }
         if let Ok(metadata) = destination.metadata() {
             if !metadata.is_file() || metadata.len() != spec.expected_bytes {
                 return Err(format!(
-                    "目标目录中已存在不完整的模型文件 {}，请移走后重试",
+                    "An incomplete model file {} already exists in the target directory; move it and try again",
                     destination.display()
                 ));
             }
             if !verify_model_file(destination, *spec, false)? {
                 return Err(format!(
-                    "目标目录中的模型文件 {} 校验失败，请移走后重试",
+                    "Model file {} in the target directory failed verification; move it and try again",
                     destination.display()
                 ));
             }
@@ -109,7 +113,7 @@ pub(super) fn move_model_dir(source_dir: PathBuf, model_dir: PathBuf) -> Result<
                 if temporary.exists() {
                     rollback(&transfers);
                     return Err(format!(
-                        "目标目录中存在未完成的迁移文件 {}，请移走后重试",
+                        "An unfinished migration file {} exists in the target directory; move it and try again",
                         temporary.display()
                     ));
                 }
@@ -118,14 +122,17 @@ pub(super) fn move_model_dir(source_dir: PathBuf, model_dir: PathBuf) -> Result<
                     Err(error) => {
                         let _ = std::fs::remove_file(&temporary);
                         rollback(&transfers);
-                        return Err(format!("无法移动模型文件 {}：{error}", source.display()));
+                        return Err(format!(
+                            "Failed to move model file {}: {error}",
+                            source.display()
+                        ));
                     }
                 };
                 if copied != spec.expected_bytes {
                     let _ = std::fs::remove_file(&temporary);
                     rollback(&transfers);
                     return Err(format!(
-                        "模型文件复制不完整：应为 {} 字节，实际为 {copied} 字节",
+                        "Incomplete model file copy: expected {} bytes, copied {copied} bytes",
                         spec.expected_bytes
                     ));
                 }
@@ -140,13 +147,16 @@ pub(super) fn move_model_dir(source_dir: PathBuf, model_dir: PathBuf) -> Result<
                 if copied_digest != spec.sha256 {
                     let _ = std::fs::remove_file(&temporary);
                     rollback(&transfers);
-                    return Err(format!("模型文件复制校验失败：{}", source.display()));
+                    return Err(format!(
+                        "Model file copy verification failed: {}",
+                        source.display()
+                    ));
                 }
                 if let Err(error) = std::fs::rename(&temporary, &destination) {
                     let _ = std::fs::remove_file(&temporary);
                     rollback(&transfers);
                     return Err(format!(
-                        "无法完成模型文件迁移 {}：{error}",
+                        "Failed to complete model file migration {}: {error}",
                         destination.display()
                     ));
                 }
@@ -171,7 +181,7 @@ pub(super) fn move_model_dir(source_dir: PathBuf, model_dir: PathBuf) -> Result<
                 tracing::warn!(
                     path = %transfer.source.display(),
                     %error,
-                    "模型已迁移，但无法删除旧目录中的副本"
+                    "The model was migrated, but the copy in the old directory could not be deleted"
                 );
             }
         }

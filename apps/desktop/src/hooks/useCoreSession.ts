@@ -20,7 +20,43 @@ import type {
   LiveTranscription,
   Settings,
   Subtitle,
+  SubtitleTranslation,
 } from "../types";
+
+function withTranslation(
+  subtitles: Subtitle[],
+  subtitleId: number,
+  translation: SubtitleTranslation,
+): Subtitle[] {
+  return subtitles.map((subtitle) => subtitle.id === subtitleId
+    ? {
+        ...subtitle,
+        translations: [
+          ...subtitle.translations.filter(
+            (item) => item.target_language !== translation.target_language,
+          ),
+          translation,
+        ],
+        translation_partial: undefined,
+      }
+    : subtitle);
+}
+
+function withTranslationPartial(
+  subtitles: Subtitle[],
+  subtitleId: number,
+  text?: string,
+  targetLanguage?: string,
+): Subtitle[] {
+  return subtitles.map((subtitle) => subtitle.id === subtitleId
+    ? {
+        ...subtitle,
+        translation_partial: text && targetLanguage
+          ? { text, target_language: targetLanguage }
+          : undefined,
+      }
+    : subtitle);
+}
 
 export function useCoreSession(settingsPageActive: boolean) {
   const { t } = useTranslation();
@@ -43,6 +79,7 @@ export function useCoreSession(settingsPageActive: boolean) {
   const [asrCapabilities, setAsrCapabilities] = useState<AsrCapabilities | null>(null);
   const [dictionarySources, setDictionarySources] = useState<DictionarySource[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [translatingSubtitleIds, setTranslatingSubtitleIds] = useState<number[]>([]);
 
   const reportError = useCallback((reason: unknown, fallbackKey: string) => {
     setError(localizedError(reason, tRef.current, fallbackKey));
@@ -66,10 +103,7 @@ export function useCoreSession(settingsPageActive: boolean) {
         }
         if (startup.state === "failed") {
           setConnection("disconnected");
-          reportError(
-            new Error(startup.error ?? "Core startup failed"),
-            "errors.core.initialize",
-          );
+          setError(tRef.current("errors.core.initialize"));
           return;
         }
         timer = window.setTimeout(() => void pollStartup(), 150);
@@ -160,6 +194,10 @@ export function useCoreSession(settingsPageActive: boolean) {
           utterance_id?: string;
           language?: string | null;
           detail?: string;
+          code?: string;
+          subtitle_id?: number;
+          translation?: SubtitleTranslation;
+          target_language?: string;
         };
         if (message.type === "subtitle" && message.subtitle) {
           setSubtitles((current) => [message.subtitle!, ...current].slice(0, 500));
@@ -169,7 +207,47 @@ export function useCoreSession(settingsPageActive: boolean) {
           const partial = message as LiveTranscription;
           setPartials((current) => ({ ...current, [partial.source]: partial }));
         } else if (message.type === "failed" && message.detail) {
-          setError(message.detail);
+          setError(localizedError(
+            { code: message.code ?? "asr.cloud_connect_failed" },
+            tRef.current,
+            "errors.core.connect",
+          ));
+        } else if (message.type === "translation_started" && message.subtitle_id !== undefined) {
+          setSubtitles((current) => withTranslationPartial(current, message.subtitle_id!));
+          setTranslatingSubtitleIds((current) => current.includes(message.subtitle_id!)
+            ? current
+            : [...current, message.subtitle_id!]);
+        } else if (
+          message.type === "translation_partial"
+          && message.subtitle_id !== undefined
+          && message.text
+          && message.target_language
+        ) {
+          setSubtitles((current) => withTranslationPartial(
+            current,
+            message.subtitle_id!,
+            message.text,
+            message.target_language,
+          ));
+        } else if (
+          message.type === "translation_completed"
+          && message.subtitle_id !== undefined
+          && message.translation
+        ) {
+          setSubtitles((current) => withTranslation(
+            current,
+            message.subtitle_id!,
+            message.translation!,
+          ));
+          setTranslatingSubtitleIds((current) => current.filter((id) => id !== message.subtitle_id));
+        } else if (message.type === "translation_failed" && message.subtitle_id !== undefined) {
+          setSubtitles((current) => withTranslationPartial(current, message.subtitle_id!));
+          setTranslatingSubtitleIds((current) => current.filter((id) => id !== message.subtitle_id));
+          setError(localizedError(
+            { code: message.code ?? "translation.request_failed" },
+            tRef.current,
+            "errors.translation.failed",
+          ));
         }
       };
       socket.onclose = () => {
@@ -337,6 +415,22 @@ export function useCoreSession(settingsPageActive: boolean) {
     await loadDictionaries();
   }, [loadDictionaries]);
 
+  const translateSubtitle = useCallback(async (subtitleId: number) => {
+    setTranslatingSubtitleIds((current) => current.includes(subtitleId)
+      ? current
+      : [...current, subtitleId]);
+    try {
+      const translation = await coreApi.translateSubtitle(subtitleId);
+      setSubtitles((current) => withTranslation(current, subtitleId, translation));
+      clearError();
+    } catch (reason) {
+      setSubtitles((current) => withTranslationPartial(current, subtitleId));
+      reportError(reason, "errors.translation.failed");
+    } finally {
+      setTranslatingSubtitleIds((current) => current.filter((id) => id !== subtitleId));
+    }
+  }, [clearError, reportError]);
+
   return {
     connection,
     coreReady: startupState === "ready",
@@ -359,5 +453,7 @@ export function useCoreSession(settingsPageActive: boolean) {
     saveSettings: settingsAutosaveRef.current,
     importDictionary,
     deleteDictionary,
+    translateSubtitle,
+    translatingSubtitleIds,
   };
 }

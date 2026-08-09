@@ -10,6 +10,7 @@ import {
   classifyModels,
   MODEL_PRESENTATION,
   modelStatusLabel,
+  selectRecognitionSource,
 } from "../settings-derived";
 import type { SettingsDraftController } from "./useSettingsDraft";
 
@@ -77,6 +78,13 @@ export function useAsrModels({
       const nextAsr = { ...current.asr, [key]: value };
       return { ...current, asr: nextAsr };
     });
+  };
+
+  const updateRecognitionSource = (source: string) => {
+    draftController.applySettings((current) => ({
+      ...current,
+      asr: selectRecognitionSource(current.asr, source),
+    }));
   };
 
   const updateLocalAsr = <K extends keyof Settings["asr"]["local"]>(
@@ -189,6 +197,7 @@ export function useAsrModels({
     setModelDirectoryText,
     loadModels,
     updateAsr,
+    updateRecognitionSource,
     updateLocalAsr,
     updateVad,
     updateModelDirectory,

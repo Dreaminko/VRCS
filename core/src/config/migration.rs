@@ -145,12 +145,61 @@ fn migrate_v2_or_v3(raw: &serde_json::Value) -> Result<AppConfig, String> {
     Ok(config)
 }
 
-fn migrate_v4(raw: &serde_json::Value) -> Result<AppConfig, String> {
+fn migrate_v4_or_v5(raw: &serde_json::Value) -> Result<AppConfig, String> {
     let mut value = raw.clone();
     let object = value
         .as_object_mut()
         .ok_or_else(|| "Configuration root must be an object".to_string())?;
     object.insert("schema_version".into(), serde_json::json!(SCHEMA_VERSION));
+    let asr = object
+        .entry("asr")
+        .or_insert_with(|| serde_json::json!({}))
+        .as_object_mut()
+        .ok_or_else(|| "Configuration asr must be an object".to_string())?;
+    let qwen = asr
+        .entry("qwen")
+        .or_insert_with(|| serde_json::json!({}))
+        .as_object_mut()
+        .ok_or_else(|| "Configuration asr.qwen must be an object".to_string())?;
+    let region = qwen
+        .remove("region")
+        .unwrap_or_else(|| serde_json::json!("china_beijing"));
+    let workspace_id = qwen
+        .remove("workspace_id")
+        .unwrap_or_else(|| serde_json::json!(""));
+    asr.insert(
+        "api_profiles".into(),
+        serde_json::json!([
+            {
+                "id": "legacy-alibaba-cloud",
+                "name": "Alibaba Cloud",
+                "provider": "alibaba_cloud",
+                "region": region,
+                "workspace_id": workspace_id
+            },
+            {
+                "id": "legacy-openai",
+                "name": "OpenAI",
+                "provider": "openai"
+            }
+        ]),
+    );
+    asr.insert(
+        "active_api_profiles".into(),
+        serde_json::json!({
+            "alibaba_cloud": "legacy-alibaba-cloud",
+            "openai": "legacy-openai"
+        }),
+    );
+    serde_json::from_value(value).map_err(|error| error.to_string())
+}
+
+fn migrate_v6(raw: &serde_json::Value) -> Result<AppConfig, String> {
+    let mut value = raw.clone();
+    value
+        .as_object_mut()
+        .ok_or_else(|| "Configuration root must be an object".to_string())?
+        .insert("schema_version".into(), serde_json::json!(SCHEMA_VERSION));
     serde_json::from_value(value).map_err(|error| error.to_string())
 }
 
@@ -182,7 +231,8 @@ pub fn config_from_value(raw: &serde_json::Value) -> Result<AppConfig, String> {
         version if version == SCHEMA_VERSION as u64 => {
             serde_json::from_value(raw.clone()).map_err(|error| error.to_string())?
         }
-        4 => migrate_v4(raw)?,
+        6 => migrate_v6(raw)?,
+        4 | 5 => migrate_v4_or_v5(raw)?,
         2 | 3 => migrate_v2_or_v3(raw)?,
         1 => migrate_v1(raw),
         other => return Err(format!("Unsupported configuration schema v{other}")),

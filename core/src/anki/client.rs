@@ -38,29 +38,31 @@ pub(super) async fn invoke(
         .map_err(|error| {
             if error.is_connect() || error.is_timeout() {
                 AnkiError::unavailable(format!(
-                    "无法连接 AnkiConnect（127.0.0.1:{}），请先启动 Anki",
+                    "Could not connect to AnkiConnect at 127.0.0.1:{}; start Anki first",
                     config.port
                 ))
                 .with_params(json!({ "port": config.port }))
             } else {
                 AnkiError::unavailable(format!(
-                    "端口 {} 没有响应 AnkiConnect，请检查端口是否被 VRCS Core 或其他服务占用",
+                    "Port {} did not respond as AnkiConnect; check whether VRCS Core or another service is using it",
                     config.port
                 ))
                 .with_params(json!({ "port": config.port }))
             }
         })?;
     let result: Value = response.json().await.map_err(|_| {
-        AnkiError::protocol("本地端口返回了无法识别的响应，不像 AnkiConnect".into())
+        AnkiError::protocol(
+            "The local port returned an unrecognized response that is not AnkiConnect".into(),
+        )
     })?;
     let Some(object) = result.as_object() else {
         return Err(AnkiError::protocol(
-            "本地端口返回了无法识别的响应，不像 AnkiConnect".into(),
+            "The local port returned an unrecognized response that is not AnkiConnect".into(),
         ));
     };
     if !object.contains_key("result") || !object.contains_key("error") {
         return Err(AnkiError::protocol(
-            "本地端口返回了无法识别的响应，不像 AnkiConnect".into(),
+            "The local port returned an unrecognized response that is not AnkiConnect".into(),
         ));
     }
     if !result["error"].is_null() {
@@ -72,15 +74,15 @@ pub(super) async fn invoke(
 fn string_list(value: &Value, label: &str) -> Result<Vec<String>, AnkiError> {
     let Some(items) = value.as_array() else {
         return Err(AnkiError::protocol(format!(
-            "AnkiConnect 返回的{label}格式无效"
+            "AnkiConnect returned an invalid {label}"
         )));
     };
     items
         .iter()
         .map(|item| {
-            item.as_str()
-                .map(str::to_owned)
-                .ok_or_else(|| AnkiError::protocol(format!("AnkiConnect 返回的{label}格式无效")))
+            item.as_str().map(str::to_owned).ok_or_else(|| {
+                AnkiError::protocol(format!("AnkiConnect returned an invalid {label}"))
+            })
         })
         .collect()
 }
@@ -92,7 +94,9 @@ pub(super) async fn discover(
     let version = invoke(client, config, "version", None)
         .await?
         .as_i64()
-        .ok_or_else(|| AnkiError::protocol("AnkiConnect 返回了无效版本号".into()))?;
+        .ok_or_else(|| {
+            AnkiError::protocol("AnkiConnect returned an invalid version number".into())
+        })?;
     if version < API_VERSION {
         return Ok(Discovery {
             version,
@@ -102,7 +106,9 @@ pub(super) async fn discover(
             configuration_valid: false,
             error_code: Some("incompatible_version"),
             params: json!({ "version": version, "minimum_version": API_VERSION }),
-            message: format!("AnkiConnect API v{version} 过旧，需要 v{API_VERSION} 或更高版本"),
+            message: format!(
+                "AnkiConnect API v{version} is too old; v{API_VERSION} or later is required"
+            ),
         });
     }
 
@@ -115,16 +121,16 @@ pub(super) async fn discover(
     .await?;
     let Some(entries) = catalog.as_array() else {
         return Err(AnkiError::protocol(
-            "AnkiConnect 返回的牌组或笔记类型列表无效".into(),
+            "AnkiConnect returned an invalid deck or note type list".into(),
         ));
     };
     if entries.len() != 2 {
         return Err(AnkiError::protocol(
-            "AnkiConnect 返回的牌组或笔记类型列表无效".into(),
+            "AnkiConnect returned an invalid deck or note type list".into(),
         ));
     }
-    let decks = string_list(&entries[0], "牌组列表")?;
-    let models = string_list(&entries[1], "笔记类型列表")?;
+    let decks = string_list(&entries[0], "deck list")?;
+    let models = string_list(&entries[1], "note type list")?;
     let fields = if models.contains(&config.model) {
         string_list(
             &invoke(
@@ -134,7 +140,7 @@ pub(super) async fn discover(
                 Some(json!({ "modelName": config.model })),
             )
             .await?,
-            "字段列表",
+            "field list",
         )?
     } else {
         Vec::new()
@@ -155,7 +161,7 @@ pub(super) async fn discover(
             "missing_deck",
             json!({ "deck": config.deck }),
             format!(
-                "找不到牌组“{}”，请先在 Anki 中创建或选择其他牌组",
+                "Deck '{}' was not found; create it in Anki or select another deck",
                 config.deck
             ),
         ));
@@ -164,7 +170,7 @@ pub(super) async fn discover(
         return Ok(invalid(
             "missing_model",
             json!({ "model": config.model }),
-            format!("找不到笔记类型“{}”", config.model),
+            format!("Note type '{}' was not found", config.model),
         ));
     }
     let missing: Vec<&str> = [&config.front_field, &config.back_field]
@@ -176,7 +182,11 @@ pub(super) async fn discover(
         return Ok(invalid(
             "missing_field",
             json!({ "model": config.model, "fields": missing }),
-            format!("笔记类型“{}”缺少字段：{}", config.model, missing.join("、")),
+            format!(
+                "Note type '{}' is missing fields: {}",
+                config.model,
+                missing.join(", ")
+            ),
         ));
     }
     if config.front_field == config.back_field {
@@ -186,7 +196,7 @@ pub(super) async fn discover(
                 "front_field": config.front_field,
                 "back_field": config.back_field,
             }),
-            "正面和背面不能映射到同一个字段".into(),
+            "Front and back cannot map to the same field".into(),
         ));
     }
     Ok(Discovery {
@@ -197,7 +207,7 @@ pub(super) async fn discover(
         configuration_valid: true,
         error_code: None,
         params: json!({}),
-        message: "AnkiConnect 已连接，制卡配置有效".into(),
+        message: "AnkiConnect is connected and the card configuration is valid".into(),
     })
 }
 

@@ -73,7 +73,7 @@ pub(super) async fn asr_model_download(
             StatusCode::NOT_FOUND,
             "asr.model.unsupported",
             json!({ "model": model }),
-            format!("不支持的识别模型：{model}"),
+            format!("Unsupported recognition model: {model}"),
         ));
     }
     let manager = Arc::clone(&state.model_manager);
@@ -85,7 +85,7 @@ pub(super) async fn asr_model_download(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "asr.model.download_task_failed",
                 json!({ "model": model }),
-                format!("模型下载启动任务失败：{error}"),
+                format!("Model download startup task failed: {error}"),
             )
         })?
         .map_err(|error| {
@@ -135,7 +135,7 @@ pub(super) async fn asr_model_delete(
             StatusCode::NOT_FOUND,
             "asr.model.unsupported",
             json!({ "model": model }),
-            format!("不支持的识别模型：{model}"),
+            format!("Unsupported recognition model: {model}"),
         ));
     }
     if model == active_model {
@@ -143,7 +143,7 @@ pub(super) async fn asr_model_delete(
             StatusCode::CONFLICT,
             "asr.model.in_use",
             json!({ "model": model }),
-            "当前正在使用该模型，请先选择其他模型",
+            "This model is currently in use; select another model first",
         ));
     }
     state

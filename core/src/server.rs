@@ -7,6 +7,7 @@ mod cloud;
 mod dictionary;
 mod models;
 mod settings;
+mod translation;
 mod ws;
 
 use std::path::PathBuf;
@@ -27,6 +28,7 @@ use crate::db::Database;
 use crate::error::{AppError, AppResult};
 use crate::models::{LiveTranscription, Subtitle};
 use crate::pipeline::TranscriptionPipeline;
+use crate::translation::{TranslationDispatcher, TranslationEvent, TranslationService};
 use crate::{asr, vad, yomitan};
 
 pub const CORE_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -44,6 +46,9 @@ pub struct AppState {
     pub db: Arc<Mutex<Database>>,
     pub subtitles_tx: broadcast::Sender<Subtitle>,
     pub live_tx: broadcast::Sender<LiveTranscription>,
+    pub translation_tx: broadcast::Sender<TranslationEvent>,
+    pub translation_service: Arc<TranslationService>,
+    pub translation_dispatcher: TranslationDispatcher,
     pub http: reqwest::Client,
     pub session_token: String,
     pub shutdown: watch::Receiver<bool>,
@@ -119,11 +124,11 @@ where
     tokio::task::spawn_blocking(move || {
         let mut database = db
             .lock()
-            .map_err(|_| AppError::internal("数据库锁不可用"))?;
+            .map_err(|_| AppError::internal("Database lock is unavailable"))?;
         operation(&mut database)
     })
     .await
-    .map_err(|error| AppError::internal(format!("数据库任务异常退出：{error}")))?
+    .map_err(|error| AppError::internal(format!("Database task exited unexpectedly: {error}")))?
 }
 
 /// 简单的常时间比较，避免 token 比较的时序侧信道
@@ -179,18 +184,41 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/api/capture/stop", post(capture::capture_stop))
         .route("/api/subtitles", get(dictionary::subtitle_history))
         .route(
+            "/api/translations/preview",
+            post(translation::translation_preview),
+        )
+        .route(
+            "/api/subtitles/{subtitle_id}/translation",
+            post(translation::subtitle_translate),
+        )
+        .route(
             "/api/settings",
             get(settings::get_settings).put(settings::update_settings),
         )
         .route("/api/asr/capabilities", get(models::asr_capabilities))
-        .route("/api/asr/credentials", get(cloud::credential_statuses))
         .route(
-            "/api/asr/credentials/{provider}",
+            "/api/asr/profiles",
+            get(cloud::profile_list).post(cloud::profile_create),
+        )
+        .route(
+            "/api/asr/profiles/{profile_id}",
+            axum::routing::put(cloud::profile_update).delete(cloud::profile_delete),
+        )
+        .route(
+            "/api/asr/profiles/{profile_id}/credential",
             axum::routing::put(cloud::credential_write).delete(cloud::credential_delete),
         )
         .route(
-            "/api/asr/credentials/{provider}/test",
+            "/api/asr/profiles/active/{provider}",
+            axum::routing::put(cloud::profile_activate),
+        )
+        .route(
+            "/api/asr/profiles/{profile_id}/test",
             post(cloud::credential_test),
+        )
+        .route(
+            "/api/asr/profiles/{profile_id}/models",
+            get(cloud::profile_models),
         )
         .route("/api/asr/models", get(models::asr_models))
         .route(
@@ -284,13 +312,16 @@ mod tests {
             StatusCode::CONFLICT,
             "asr.model.not_downloaded",
             json!({ "model": "small" }),
-            "识别模型 small 尚未下载",
+            "Recognition model small has not been downloaded",
         );
 
         assert_eq!(status, StatusCode::CONFLICT);
         assert_eq!(body["code"], "asr.model.not_downloaded");
         assert_eq!(body["params"], json!({ "model": "small" }));
-        assert_eq!(body["detail"], "识别模型 small 尚未下载");
+        assert_eq!(
+            body["detail"],
+            "Recognition model small has not been downloaded"
+        );
     }
 
     #[test]

@@ -36,6 +36,7 @@ pub(super) async fn update_settings(
         audio: update.audio,
         vad: update.vad,
         asr: update.asr,
+        translation: update.translation,
         dictionary: update.dictionary,
         anki: update.anki,
     };
@@ -50,33 +51,36 @@ pub(super) async fn update_settings(
         && (candidate.audio != current.audio
             || candidate.vad != current.vad
             || candidate.asr != current.asr
+            || candidate.translation != current.translation
             || model_directory_changed)
     {
         return Err(api_error(
             StatusCode::CONFLICT,
             "settings.capture_must_be_stopped",
-            "请先停止转写，再修改音频、断句、识别或模型保存位置",
+            "Stop transcription before changing audio, segmentation, recognition, translation, or model storage settings",
         ));
     }
     if candidate.server != current.server {
         return Err(unprocessable(
-            "Core 地址属于启动配置，不能在运行中修改".into(),
+            "The Core address is a startup setting and cannot be changed at runtime".into(),
         ));
     }
     if candidate.storage.database_path != current.storage.database_path
         || candidate.storage.subtitle_history_limit != current.storage.subtitle_history_limit
     {
         return Err(unprocessable(
-            "数据库路径和字幕保留上限不能在运行中修改".into(),
+            "The database path and subtitle history limit cannot be changed at runtime".into(),
         ));
     }
     if model_directory_changed && state.asr_model_dir_override.is_some() {
         return Err(unprocessable(
-            "VRCS_ASR_MODEL_DIR 正在覆盖模型保存位置，请先移除该环境变量".into(),
+            "VRCS_ASR_MODEL_DIR overrides the model storage path; remove it before changing this setting".into(),
         ));
     }
     if candidate.audio.sample_rate != current.audio.sample_rate {
-        return Err(unprocessable("采样率不能在运行中修改".into()));
+        return Err(unprocessable(
+            "The sample rate cannot be changed at runtime".into(),
+        ));
     }
     candidate.validate_settings().map_err(unprocessable)?;
     asr::validate_config(&mut candidate.asr).map_err(unprocessable)?;
@@ -100,7 +104,7 @@ pub(super) async fn update_settings(
         api_error(
             StatusCode::INTERNAL_SERVER_ERROR,
             "audio.device_validation_task_failed",
-            format!("音频设备校验任务失败：{error}"),
+            format!("Audio device validation task failed: {error}"),
         )
     })?
     .map_err(|error| unprocessable(error.to_string()))?;
@@ -117,7 +121,7 @@ pub(super) async fn update_settings(
                 api_error(
                     StatusCode::INTERNAL_SERVER_ERROR,
                     "settings.model_directory_migration_failed",
-                    format!("模型目录迁移任务失败：{error}"),
+                    format!("Model directory migration task failed: {error}"),
                 )
             })?
             .map_err(unprocessable)?;
@@ -132,7 +136,7 @@ pub(super) async fn update_settings(
                 return Err(api_error(
                     StatusCode::INTERNAL_SERVER_ERROR,
                     "settings.rollback_failed",
-                    format!("设置保存失败且无法恢复原模型目录：{error}"),
+                    format!("Settings could not be saved and the previous model directory could not be restored: {error}"),
                 ));
             }
         }
@@ -143,7 +147,7 @@ pub(super) async fn update_settings(
     let asr_config = candidate.asr.clone();
     tokio::task::spawn_blocking(move || {
         asr.lock()
-            .map_err(|_| "ASR 推理锁不可用".to_string())?
+            .map_err(|_| "The ASR inference lock is unavailable".to_string())?
             .update(asr_config, candidate_model_dir);
         Ok::<_, String>(())
     })
@@ -152,7 +156,7 @@ pub(super) async fn update_settings(
         api_error(
             StatusCode::INTERNAL_SERVER_ERROR,
             "settings.asr_update_task_failed",
-            format!("ASR 配置更新任务失败：{error}"),
+            format!("ASR configuration update task failed: {error}"),
         )
     })?
     .map_err(|error| {
@@ -171,9 +175,11 @@ pub(super) fn parse_settings_update(body: &[u8]) -> Result<SettingsUpdate, Strin
     let update = serde_ignored::deserialize(&mut deserializer, |path| {
         ignored.push(path.to_string());
     })
-    .map_err(|error| format!("设置格式无效：{error}"))?;
+    .map_err(|error| format!("Invalid settings payload: {error}"))?;
     if let Some(path) = ignored.first() {
-        return Err(format!("设置包含未知字段：{path}"));
+        return Err(format!(
+            "Settings payload contains an unknown field: {path}"
+        ));
     }
     Ok(update)
 }

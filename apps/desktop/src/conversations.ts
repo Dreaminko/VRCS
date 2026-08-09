@@ -2,9 +2,37 @@ import type { Subtitle } from "./types";
 
 const CONVERSATION_GAP_MS = 30 * 60 * 1000;
 
+export const CONVERSATION_ICON_KEYS = [
+  "message",
+  "game",
+  "headphones",
+  "languages",
+  "study",
+  "users",
+  "bookmark",
+  "sparkles",
+  "mic",
+  "music",
+  "video",
+  "globe",
+  "heart",
+  "star",
+  "coffee",
+  "trophy",
+] as const;
+
+export type ConversationIcon = typeof CONVERSATION_ICON_KEYS[number];
+
+export type ConversationCustomization = {
+  title?: string;
+  icon?: ConversationIcon;
+};
+
 export type SubtitleConversation = {
   id: string;
   title: string;
+  icon: ConversationIcon;
+  customized: boolean;
   startedAt: string;
   updatedAt: string;
   subtitles: Subtitle[];
@@ -33,6 +61,7 @@ export function groupConversations(
   manualStarts: number[],
   emptyStart: number,
   labels: ConversationLabels = DEFAULT_LABELS,
+  customizations: Record<string, ConversationCustomization> = {},
 ): SubtitleConversation[] {
   const ordered = subtitles
     .filter((subtitle) => Number.isFinite(Date.parse(subtitle.created_at)))
@@ -61,9 +90,14 @@ export function groupConversations(
       });
       const first = items[0];
       const last = items[items.length - 1];
+      const id = conversationId(startedAt);
+      const customization = customizations[id];
       return {
-        id: conversationId(startedAt),
-        title: first ? titleFrom(first.text, labels.untitled) : labels.newConversation,
+        id,
+        title: customization?.title
+          ?? (first ? titleFrom(first.text, labels.untitled) : labels.newConversation),
+        icon: customization?.icon ?? "message",
+        customized: Boolean(customization?.title || customization?.icon),
         startedAt: new Date(startedAt).toISOString(),
         updatedAt: last?.created_at ?? new Date(startedAt).toISOString(),
         subtitles: [...items].reverse(),

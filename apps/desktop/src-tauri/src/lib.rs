@@ -359,7 +359,7 @@ pub fn release_self_test() -> Result<(), String> {
         .await?;
         let vad_error = (handle.vad_backend() != "silero-onnx"
             || handle.vad_model_version() != Some("v6.2.1"))
-        .then(|| "Silero v6.2.1 未通过首次启动下载与加载自检".to_string());
+        .then(|| "Silero v6.2.1 failed the first-start download and load self-test".to_string());
         let shutdown_result = handle.shutdown().await;
         if let Some(error) = vad_error {
             return Err(error);

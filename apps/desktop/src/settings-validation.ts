@@ -8,10 +8,10 @@ import type {
 type TranslateValidation = (key: string) => string;
 
 const validationMessage: TranslateValidation = (key) => ({
-  "validation.audio.outputUnavailable": "所选系统输出设备已失效，请重新选择",
-  "validation.audio.microphoneUnavailable": "所选麦克风设备已失效，请重新选择",
-  "validation.asr.cudaUnavailable": "CUDA 预检失败，请改用自动选择或 CPU",
-  "validation.asr.invalidComputeType": "当前运行设备与计算类型组合无效",
+  "validation.audio.outputUnavailable": "The selected system output device is no longer available",
+  "validation.audio.microphoneUnavailable": "The selected microphone device is no longer available",
+  "validation.asr.cudaUnavailable": "CUDA preflight failed; use automatic selection or CPU",
+  "validation.asr.invalidComputeType": "The selected runtime device and compute type are incompatible",
 })[key] ?? key;
 
 export function audioSelectionErrors(

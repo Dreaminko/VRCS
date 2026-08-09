@@ -49,3 +49,20 @@ test("keeps an empty latest conversation available", () => {
   assert.equal(conversations[0].title, "新对话");
   assert.equal(conversations[0].subtitles.length, 0);
 });
+
+test("applies a custom title and icon without changing the conversation id", () => {
+  const start = Date.parse("2026-07-21T08:00:00Z");
+  const id = conversationId(start);
+  const conversations = groupConversations(
+    [subtitle(1, start, "自动生成的标题")],
+    [],
+    start,
+    undefined,
+    { [id]: { title: "VRChat 好友聚会", icon: "game" } },
+  );
+
+  assert.equal(conversations[0].id, id);
+  assert.equal(conversations[0].title, "VRChat 好友聚会");
+  assert.equal(conversations[0].icon, "game");
+  assert.equal(conversations[0].customized, true);
+});

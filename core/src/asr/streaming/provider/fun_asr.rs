@@ -2,19 +2,19 @@ use serde_json::{json, Value};
 use tokio_tungstenite::tungstenite::http::Request;
 use tokio_tungstenite::tungstenite::Message;
 
-use crate::config::AsrConfig;
+use crate::config::{ApiProfile, AsrConfig};
 
 use super::{authenticated_request, pcm16_bytes, CloudEvent};
 
-pub(super) fn build_request(config: &AsrConfig, key: &str) -> Result<Request<()>, String> {
-    let workspace = config.qwen.workspace_id.trim();
+pub(super) fn build_request(profile: &ApiProfile, key: &str) -> Result<Request<()>, String> {
+    let workspace = profile.workspace_id.as_deref().unwrap_or("").trim();
     if workspace.is_empty() {
-        return Err("阿里云 Workspace ID 尚未配置".into());
+        return Err("Alibaba Cloud Workspace ID is not configured".into());
     }
-    let region = match config.qwen.region.as_str() {
+    let region = match profile.region.as_deref().unwrap_or("") {
         "singapore" => "ap-southeast-1",
         "china_beijing" => "cn-beijing",
-        other => return Err(format!("不支持的阿里云区域：{other}")),
+        other => return Err(format!("Unsupported Alibaba Cloud region: {other}")),
     };
     authenticated_request(
         format!("wss://{workspace}.{region}.maas.aliyuncs.com/api-ws/v1/inference"),
@@ -79,7 +79,7 @@ pub(super) fn normalize_event(
             detail: value
                 .pointer("/header/error_message")
                 .and_then(Value::as_str)
-                .unwrap_or("Fun-ASR 请求失败")
+                .unwrap_or("Fun-ASR request failed")
                 .to_string(),
         }));
     }

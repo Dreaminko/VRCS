@@ -9,31 +9,23 @@ import type { UIEvent } from "react";
 import { useTranslation } from "react-i18next";
 
 import type { Page } from "../app-types";
-import { conversationId, groupConversations } from "../conversations";
+import {
+  conversationId,
+  groupConversations,
+  type ConversationCustomization,
+  type ConversationIcon,
+} from "../conversations";
+import {
+  conversationStateSnapshot,
+  loadConversationState,
+  mergeConversationStarts,
+  normalizeConversationTitle,
+  saveConversationState,
+} from "../conversation-state";
 import { shouldFollowLiveScroll } from "../live-scroll";
 import type { Subtitle } from "../types";
 
-const CONVERSATION_STARTS_KEY = "vrcs.conversation-starts.v1";
 const SIDEBAR_OPEN_KEY = "vrcs.conversation-sidebar-open";
-
-function storedConversationStarts() {
-  try {
-    const value = JSON.parse(
-      localStorage.getItem(CONVERSATION_STARTS_KEY) ?? "[]",
-    ) as unknown;
-    return Array.isArray(value)
-      ? value
-        .filter(
-          (item): item is number => (
-            typeof item === "number" && Number.isFinite(item)
-          ),
-        )
-        .slice(-50)
-      : [];
-  } catch {
-    return [];
-  }
-}
 
 export function useConversationWorkspace({
   subtitles,
@@ -49,9 +41,14 @@ export function useConversationWorkspace({
   const [sidebarOpen, setSidebarOpen] = useState(
     () => localStorage.getItem(SIDEBAR_OPEN_KEY) !== "false",
   );
+  const initialConversationState = useRef(conversationStateSnapshot()).current;
   const [conversationStarts, setConversationStarts] = useState(
-    storedConversationStarts,
+    initialConversationState.starts,
   );
+  const [customizations, setCustomizations] = useState<
+    Record<string, ConversationCustomization>
+  >(initialConversationState.customizations);
+  const [conversationStateReady, setConversationStateReady] = useState(false);
   const [selectedConversationId, setSelectedConversationId] = useState<
     string | null
   >(null);
@@ -59,8 +56,8 @@ export function useConversationWorkspace({
     () => groupConversations(subtitles, conversationStarts, openedAt, {
       untitled: t("conversations.untitled"),
       newConversation: t("conversations.new"),
-    }),
-    [conversationStarts, i18n.resolvedLanguage, openedAt, subtitles, t],
+    }, customizations),
+    [conversationStarts, customizations, i18n.resolvedLanguage, openedAt, subtitles, t],
   );
   const activeConversation = conversations[0];
   const selectedConversation = conversations.find(
@@ -114,11 +111,35 @@ export function useConversationWorkspace({
   }, [sidebarOpen]);
 
   useEffect(() => {
-    localStorage.setItem(
-      CONVERSATION_STARTS_KEY,
-      JSON.stringify(conversationStarts),
-    );
-  }, [conversationStarts]);
+    let active = true;
+    void loadConversationState().then((state) => {
+      if (!active) return;
+      setConversationStarts(state.starts);
+      setCustomizations(state.customizations);
+      setConversationStateReady(true);
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!conversationStateReady) return;
+    const timer = window.setTimeout(() => {
+      void saveConversationState({
+        starts: conversationStarts,
+        customizations,
+      });
+    }, 120);
+    return () => window.clearTimeout(timer);
+  }, [conversationStarts, conversationStateReady, customizations]);
+
+  useEffect(() => {
+    const discovered = conversations
+      .map((conversation) => Date.parse(conversation.startedAt))
+      .filter(Number.isFinite);
+    setConversationStarts((current) => mergeConversationStarts(current, discovered));
+  }, [conversations]);
 
   useEffect(() => {
     if (
@@ -158,6 +179,33 @@ export function useConversationWorkspace({
     setSelectedConversationId(conversationId(startedAt));
   }, [activeConversation, conversationStarts, subtitles]);
 
+  const renameConversation = useCallback((id: string, value: string) => {
+    const title = normalizeConversationTitle(value);
+    if (!title) return;
+    setCustomizations((current) => ({
+      ...current,
+      [id]: { ...current[id], title },
+    }));
+  }, []);
+
+  const setConversationIcon = useCallback((id: string, icon: ConversationIcon | null) => {
+    setCustomizations((current) => {
+      const next = { ...current[id], icon: icon ?? undefined };
+      if (!next.title && !next.icon) {
+        const { [id]: _removed, ...rest } = current;
+        return rest;
+      }
+      return { ...current, [id]: next };
+    });
+  }, []);
+
+  const resetConversationCustomization = useCallback((id: string) => {
+    setCustomizations((current) => {
+      const { [id]: _removed, ...rest } = current;
+      return rest;
+    });
+  }, []);
+
   const onLiveScroll = useCallback((event: UIEvent<HTMLDivElement>) => {
     if (page !== "live") return;
     const scrollRegion = event.currentTarget;
@@ -178,6 +226,9 @@ export function useConversationWorkspace({
     setSidebarOpen,
     selectConversation: setSelectedConversationId,
     createConversation,
+    renameConversation,
+    setConversationIcon,
+    resetConversationCustomization,
     liveScrollRef,
     followingLiveSubtitles,
     scrollLiveViewToBottom,

@@ -49,6 +49,7 @@
 .compact-status i { width: 7px; height: 7px; border-radius: 50%; background: var(--text-quiet); }
 .compact-status i.running { background: var(--primary); }
 .compact-shell > p { position: relative; z-index: 1; flex: 1; margin: 0; overflow: hidden; cursor: text; font-size: 18px; line-height: 1.55; text-overflow: ellipsis; white-space: nowrap; user-select: text; }
+.compact-translation { color: var(--text-secondary); }
 .compact-actions {
   position: relative;
   z-index: 1;

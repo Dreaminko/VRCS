@@ -28,26 +28,53 @@ impl Database {
         )?;
         let mut saved = subtitle.clone();
         saved.id = Some(id);
+        saved.translations.clear();
         Ok(saved)
     }
 
     /// 历史按 id 倒序返回（最新的在前）。
     pub fn subtitle_history(&self, limit: u32) -> AppResult<Vec<Subtitle>> {
+        let mut subtitles = {
+            let mut statement = self.conn.prepare(
+                "SELECT id, text, language, started_at, ended_at, source, created_at
+                          FROM subtitles ORDER BY id DESC LIMIT ?",
+            )?;
+            let rows = statement.query_map(params![limit], subtitle_from_row)?;
+            rows.collect::<Result<Vec<_>, _>>()?
+        };
+        for subtitle in &mut subtitles {
+            subtitle.translations =
+                self.translations_for_subtitle(subtitle.id.unwrap_or_default())?;
+        }
+        Ok(subtitles)
+    }
+
+    pub fn subtitle(&self, id: i64) -> AppResult<Option<Subtitle>> {
         let mut statement = self.conn.prepare(
             "SELECT id, text, language, started_at, ended_at, source, created_at
-                      FROM subtitles ORDER BY id DESC LIMIT ?",
+             FROM subtitles WHERE id = ?",
         )?;
-        let rows = statement.query_map(params![limit], |row| {
-            Ok(Subtitle {
-                id: Some(row.get(0)?),
-                text: row.get(1)?,
-                language: row.get(2)?,
-                started_at: row.get(3)?,
-                ended_at: row.get(4)?,
-                source: row.get(5)?,
-                created_at: row.get(6)?,
-            })
-        })?;
-        Ok(rows.collect::<Result<Vec<_>, _>>()?)
+        let mut rows = statement.query(params![id])?;
+        let Some(row) = rows.next()? else {
+            return Ok(None);
+        };
+        let mut subtitle = subtitle_from_row(row)?;
+        drop(rows);
+        drop(statement);
+        subtitle.translations = self.translations_for_subtitle(id)?;
+        Ok(Some(subtitle))
     }
+}
+
+fn subtitle_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Subtitle> {
+    Ok(Subtitle {
+        id: Some(row.get(0)?),
+        text: row.get(1)?,
+        language: row.get(2)?,
+        started_at: row.get(3)?,
+        ended_at: row.get(4)?,
+        source: row.get(5)?,
+        created_at: row.get(6)?,
+        translations: Vec::new(),
+    })
 }

@@ -54,7 +54,7 @@ pub(super) fn model_spec(model: &str) -> Result<ModelSpec, String> {
         .iter()
         .copied()
         .find(|spec| spec.id == model)
-        .ok_or_else(|| format!("不支持的识别模型：{model}"))
+        .ok_or_else(|| format!("Unsupported recognition model: {model}"))
 }
 
 pub fn is_supported_model(model: &str) -> bool {
@@ -81,20 +81,20 @@ pub(super) fn modified_nanos(metadata: &std::fs::Metadata) -> Result<u64, String
         .duration_since(UNIX_EPOCH)
         .map_err(|error| error.to_string())?
         .as_nanos();
-    u64::try_from(nanos).map_err(|_| "模型文件修改时间超出支持范围".to_string())
+    u64::try_from(nanos).map_err(|_| "Model file modification time is out of range".to_string())
 }
 
 pub(super) fn file_sha256(path: &Path) -> Result<String, String> {
     use std::io::Read;
 
     let mut file = std::fs::File::open(path)
-        .map_err(|error| format!("无法打开模型文件 {}：{error}", path.display()))?;
+        .map_err(|error| format!("Failed to open model file {}: {error}", path.display()))?;
     let mut hasher = Sha256::new();
     let mut buffer = vec![0u8; 1024 * 1024];
     loop {
         let read = file
             .read(&mut buffer)
-            .map_err(|error| format!("无法读取模型文件 {}：{error}", path.display()))?;
+            .map_err(|error| format!("Failed to read model file {}: {error}", path.display()))?;
         if read == 0 {
             break;
         }
@@ -166,12 +166,12 @@ pub(super) fn validate_download(
 ) -> Result<(), String> {
     if downloaded != spec.expected_bytes {
         return Err(format!(
-            "模型文件大小不符：应为 {} 字节，实际为 {downloaded} 字节",
+            "Model file size mismatch: expected {} bytes, found {downloaded} bytes",
             spec.expected_bytes
         ));
     }
     if sha256 != spec.sha256 {
-        return Err("模型文件 SHA-256 校验失败".into());
+        return Err("Model file SHA-256 verification failed".into());
     }
     Ok(())
 }

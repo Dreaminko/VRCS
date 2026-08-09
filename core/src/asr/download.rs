@@ -27,7 +27,7 @@ impl ModelManager {
                 return Ok(());
             }
             if jobs.values().any(|job| job.status == "downloading") {
-                return Err("已有模型下载任务正在进行，请等待完成后再试".into());
+                return Err("Another model download is already in progress".into());
             }
             jobs.insert(
                 model.into(),
@@ -74,12 +74,12 @@ impl ModelManager {
         mut cancel: watch::Receiver<bool>,
     ) -> Result<(), String> {
         if *cancel.borrow() {
-            return Err("模型下载已取消".into());
+            return Err("Model download was cancelled".into());
         }
         let url = format!("{MODEL_BASE_URL}/{MODEL_REVISION}/{}", spec.filename);
         let request = self.client.get(url).send();
         let response = tokio::select! {
-            _ = cancel.changed() => return Err("模型下载已取消".into()),
+            _ = cancel.changed() => return Err("Model download was cancelled".into()),
             response = request => response,
         }
         .and_then(reqwest::Response::error_for_status)
@@ -89,7 +89,7 @@ impl ModelManager {
             .is_some_and(|length| length != spec.expected_bytes)
         {
             return Err(format!(
-                "模型文件大小不符：应为 {} 字节",
+                "Model file size mismatch: expected {} bytes",
                 spec.expected_bytes
             ));
         }
@@ -106,7 +106,7 @@ impl ModelManager {
         let mut stream = response.bytes_stream();
         loop {
             let next = tokio::select! {
-                _ = cancel.changed() => return Err("模型下载已取消".into()),
+                _ = cancel.changed() => return Err("Model download was cancelled".into()),
                 chunk = stream.next() => chunk,
             };
             let Some(chunk) = next else {
@@ -115,9 +115,9 @@ impl ModelManager {
             let chunk = chunk.map_err(|error| error.to_string())?;
             downloaded = downloaded
                 .checked_add(chunk.len() as u64)
-                .ok_or_else(|| "模型文件大小溢出".to_string())?;
+                .ok_or_else(|| "Model file size overflow".to_string())?;
             if downloaded > spec.expected_bytes {
-                return Err("模型文件超过预期大小".into());
+                return Err("Model file exceeds the expected size".into());
             }
             file.write_all(&chunk)
                 .await
@@ -131,7 +131,7 @@ impl ModelManager {
         drop(file);
         if downloaded != spec.expected_bytes {
             return Err(format!(
-                "模型下载不完整：应为 {} 字节，实际为 {downloaded} 字节",
+                "Incomplete model download: expected {} bytes, received {downloaded} bytes",
                 spec.expected_bytes
             ));
         }

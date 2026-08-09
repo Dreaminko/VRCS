@@ -55,7 +55,7 @@ pub(super) async fn subtitle_history(
                 api_error(
                     StatusCode::UNPROCESSABLE_ENTITY,
                     "subtitles.invalid_limit",
-                    "limit 必须在 1 到 500 之间",
+                    "limit must be between 1 and 500",
                 )
             })?,
     };
@@ -90,7 +90,7 @@ pub(super) async fn dictionary_lookup(
             api_error(
                 StatusCode::UNPROCESSABLE_ENTITY,
                 "dictionary.invalid_query",
-                "q 必须在 1 到 100 字符之间",
+                "q must contain 1 to 100 characters",
             )
         })?;
     let query = query.clone();
@@ -135,7 +135,7 @@ pub(super) async fn dictionary_import(
         return Err(api_error(
             StatusCode::UNPROCESSABLE_ENTITY,
             "dictionary.import_id_invalid",
-            "词典导入标识无效",
+            "Dictionary import identifier is invalid",
         ));
     }
     let progress = import_id.as_deref().map(register_import);
@@ -177,7 +177,7 @@ pub(super) async fn dictionary_import_progress(
             api_error(
                 StatusCode::NOT_FOUND,
                 "dictionary.import_progress_not_found",
-                "词典导入任务不存在",
+                "Dictionary import task does not exist",
             )
         })?;
     Ok(Json(json!({
@@ -206,7 +206,7 @@ pub(super) async fn dictionary_delete(
             StatusCode::NOT_FOUND,
             "dictionary.not_found",
             json!({ "source_id": source_id }),
-            "词典不存在",
+            "Dictionary does not exist",
         ));
     }
     Ok(Json(json!({ "deleted": true })))

@@ -54,10 +54,10 @@ fn base_name(name: &str) -> &str {
 impl<'a> YomitanImporter<'a> {
     pub fn new(archive: &'a [u8]) -> Result<Self, String> {
         if archive.is_empty() {
-            return Err("词典文件为空".into());
+            return Err("Dictionary file is empty".into());
         }
         if archive.len() > MAX_ARCHIVE_BYTES {
-            return Err("词典压缩包超过 128 MiB 限制".into());
+            return Err("Dictionary archive exceeds the 128 MiB limit".into());
         }
         let mut importer = Self {
             archive,
@@ -75,14 +75,17 @@ impl<'a> YomitanImporter<'a> {
     }
 
     fn zip_archive(bytes: &[u8]) -> Result<ZipArchive<Cursor<&[u8]>>, String> {
-        ZipArchive::new(Cursor::new(bytes)).map_err(|_| "词典文件不是有效的 ZIP 压缩包".to_string())
+        ZipArchive::new(Cursor::new(bytes))
+            .map_err(|_| "Dictionary file is not a valid ZIP archive".to_string())
     }
 
     /// 扫描压缩包：定位 index.json 与 term_bank_*.json，并解析元数据。
     fn inspect(&mut self) -> Result<(), String> {
         let mut zip = Self::zip_archive(self.archive)?;
         if zip.len() > MAX_FILES {
-            return Err(format!("词典文件数量超过 {MAX_FILES} 个限制"));
+            return Err(format!(
+                "Dictionary file count exceeds the limit of {MAX_FILES}"
+            ));
         }
         let mut files: Vec<(String, u64)> = Vec::new();
         for i in 0..zip.len() {
@@ -93,13 +96,15 @@ impl<'a> YomitanImporter<'a> {
             files.push((entry.name().to_string(), entry.size()));
         }
         let uncompressed = files.iter().try_fold(0u64, |total, (_, size)| {
-            total.checked_add(*size).ok_or("词典解压大小溢出")
+            total
+                .checked_add(*size)
+                .ok_or("Dictionary extracted size overflow")
         })?;
         if uncompressed > MAX_UNCOMPRESSED_BYTES {
-            return Err("词典解压后超过 512 MiB 限制".into());
+            return Err("Extracted dictionary exceeds the 512 MiB limit".into());
         }
         if uncompressed > (self.archive.len() as u64).saturating_mul(MAX_COMPRESSION_RATIO) {
-            return Err("词典压缩比异常，已拒绝导入".into());
+            return Err("Dictionary compression ratio is suspicious; import was rejected".into());
         }
 
         let mut indexes: Vec<&str> = Vec::new();
@@ -109,7 +114,7 @@ impl<'a> YomitanImporter<'a> {
             }
         }
         if indexes.is_empty() {
-            return Err("不是有效的 Yomitan 词典：缺少 index.json".into());
+            return Err("Invalid Yomitan dictionary: index.json is missing".into());
         }
         // 取路径最浅的 index.json
         let index_name = indexes
@@ -127,7 +132,7 @@ impl<'a> YomitanImporter<'a> {
             .map(|(_, size)| *size)
             .unwrap_or(0);
         if index_size > MAX_INDEX_BYTES {
-            return Err("index.json 超过 1 MiB 限制".into());
+            return Err("index.json exceeds the 1 MiB limit".into());
         }
 
         let bank_pattern = Regex::new(r"^term_bank_(\d+)\.json$").unwrap();
@@ -138,13 +143,13 @@ impl<'a> YomitanImporter<'a> {
             };
             if let Some(caps) = bank_pattern.captures(relative) {
                 if *size > MAX_JSON_FILE_BYTES {
-                    return Err(format!("词条文件过大：{relative}"));
+                    return Err(format!("Term bank file is too large: {relative}"));
                 }
                 banks.push((caps[1].parse().unwrap_or(0), name.clone(), *size));
             }
         }
         if banks.is_empty() {
-            return Err("不是有效的 Yomitan 词典：缺少 term_bank_*.json".into());
+            return Err("Invalid Yomitan dictionary: term_bank_*.json is missing".into());
         }
         banks.sort_by_key(|(number, _, _)| *number);
         self.term_files = banks
@@ -187,7 +192,9 @@ impl<'a> YomitanImporter<'a> {
             let bank =
                 read_json(&mut zip, name, MAX_JSON_FILE_BYTES).map_err(AppError::validation)?;
             let Value::Array(items) = bank else {
-                return Err(AppError::validation(format!("{name} 必须包含词条数组")));
+                return Err(AppError::validation(format!(
+                    "{name} must contain a term array"
+                )));
             };
             for (index, raw) in items.iter().enumerate() {
                 if index % 256 == 0 {
@@ -199,13 +206,13 @@ impl<'a> YomitanImporter<'a> {
                 }
                 let Value::Array(fields) = raw else {
                     return Err(AppError::validation(format!(
-                        "{name} 的第 {} 条词条格式无效",
+                        "Term {} in {name} has an invalid format",
                         index + 1
                     )));
                 };
                 if fields.len() < 6 {
                     return Err(AppError::validation(format!(
-                        "{name} 的第 {} 条词条格式无效",
+                        "Term {} in {name} has an invalid format",
                         index + 1
                     )));
                 }
@@ -221,7 +228,7 @@ impl<'a> YomitanImporter<'a> {
                 let reading_chars = reading.chars().count();
                 if term_chars > MAX_TERM_CHARS || reading_chars > MAX_READING_CHARS {
                     return Err(AppError::validation(format!(
-                        "{name} 的第 {} 条词条文本过长",
+                        "Term {} in {name} contains text that is too long",
                         index + 1
                     )));
                 }
@@ -231,7 +238,7 @@ impl<'a> YomitanImporter<'a> {
                 }
                 if count >= MAX_ENTRIES {
                     return Err(AppError::validation(format!(
-                        "词典词条数量超过 {MAX_ENTRIES} 条限制"
+                        "Dictionary entry count exceeds the limit of {MAX_ENTRIES}"
                     )));
                 }
                 let definition_chars = truncate_chars(&mut definition, MAX_DEFINITION_CHARS);
@@ -239,9 +246,11 @@ impl<'a> YomitanImporter<'a> {
                     term_chars as u64 + reading_chars as u64 + definition_chars as u64;
                 total_text_chars = total_text_chars
                     .checked_add(entry_chars)
-                    .ok_or_else(|| AppError::validation("词典文本大小溢出"))?;
+                    .ok_or_else(|| AppError::validation("Dictionary text size overflow"))?;
                 if total_text_chars > MAX_TOTAL_TEXT_CHARS {
-                    return Err(AppError::validation("词典文本总量超过限制"));
+                    return Err(AppError::validation(
+                        "Total dictionary text exceeds the limit",
+                    ));
                 }
                 process(DictionaryRecord {
                     term,
@@ -262,7 +271,7 @@ impl<'a> YomitanImporter<'a> {
 
 fn parse_metadata(index: &Value) -> Result<DictionaryMetadata, String> {
     let Value::Object(map) = index else {
-        return Err("index.json 内容无效".into());
+        return Err("index.json content is invalid".into());
     };
     let title = map
         .get("title")
@@ -280,14 +289,14 @@ fn parse_metadata(index: &Value) -> Result<DictionaryMetadata, String> {
         .get("format")
         .or_else(|| map.get("version"))
         .and_then(Value::as_i64)
-        .ok_or_else(|| "index.json 中的词典格式版本无效".to_string())?;
+        .ok_or_else(|| "Dictionary format version in index.json is invalid".to_string())?;
     if title.is_empty()
         || revision.is_empty()
         || title.chars().count() > MAX_METADATA_CHARS
         || revision.chars().count() > MAX_METADATA_CHARS
         || !(1..=3).contains(&format_version)
     {
-        return Err("仅支持包含标题、修订号且格式为 1 到 3 的 Yomitan 词典".into());
+        return Err("Only Yomitan dictionaries with a title, revision, and format version 1 to 3 are supported".into());
     }
     let source_language = map
         .get("sourceLanguage")
@@ -307,7 +316,7 @@ fn parse_metadata(index: &Value) -> Result<DictionaryMetadata, String> {
             .as_deref()
             .is_some_and(|language| language.chars().count() > MAX_LANGUAGE_CHARS)
     {
-        return Err("词典语言标识过长".into());
+        return Err("Dictionary language identifier is too long".into());
     }
     Ok(DictionaryMetadata {
         title,
@@ -322,23 +331,25 @@ fn read_json(
     name: &str,
     max_bytes: u64,
 ) -> Result<Value, String> {
-    let entry = zip.by_name(name).map_err(|_| format!("无法读取 {name}"))?;
+    let entry = zip
+        .by_name(name)
+        .map_err(|_| format!("Failed to read {name}"))?;
     if entry.size() > max_bytes {
-        return Err(format!("{name} 超过大小限制"));
+        return Err(format!("{name} exceeds the size limit"));
     }
     let mut bytes = Vec::new();
     entry
         .take(max_bytes + 1)
         .read_to_end(&mut bytes)
-        .map_err(|_| format!("无法读取 {name}"))?;
+        .map_err(|_| format!("Failed to read {name}"))?;
     if bytes.len() as u64 > max_bytes {
-        return Err(format!("{name} 超过大小限制"));
+        return Err(format!("{name} exceeds the size limit"));
     }
     // 容忍 UTF-8 BOM（Python 侧用 utf-8-sig 解码）
     if bytes.starts_with(&[0xEF, 0xBB, 0xBF]) {
         bytes.drain(..3);
     }
-    serde_json::from_slice(&bytes).map_err(|_| format!("无法读取 {name}"))
+    serde_json::from_slice(&bytes).map_err(|_| format!("Failed to read {name}"))
 }
 
 /// 词条字段的字符串化（Yomitan 词条首两项恒为字符串，容忍数字兜底）。
@@ -537,6 +548,6 @@ mod tests {
             .for_each_entry(|_| Ok(()))
             .unwrap_err()
             .to_string()
-            .contains("文本过长"));
+            .contains("text that is too long"));
     }
 }

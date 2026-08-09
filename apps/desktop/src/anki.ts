@@ -3,10 +3,10 @@ export type AnkiAddState = "idle" | "adding" | "success" | "error";
 type TranslateAnki = (key: string) => string;
 
 const defaultLabel: TranslateAnki = (key) => ({
-  "dictionary.anki.adding": "正在添加…",
-  "dictionary.anki.success": "已添加到 Anki",
-  "dictionary.anki.retry": "重试添加",
-  "dictionary.anki.add": "添加到 Anki",
+  "dictionary.anki.adding": "Adding…",
+  "dictionary.anki.success": "Added to Anki",
+  "dictionary.anki.retry": "Try adding again",
+  "dictionary.anki.add": "Add to Anki",
 })[key] ?? key;
 
 export function ankiButtonLabel(state: AnkiAddState, translate: TranslateAnki = defaultLabel): string {

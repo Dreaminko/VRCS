@@ -4,6 +4,8 @@ import assert from "node:assert/strict";
 import {
   classifyModels,
   createAnkiOptions,
+  recognitionSourceValue,
+  selectRecognitionSource,
   showsLocalRecognitionSettings,
 } from "../src/settings/settings-derived.ts";
 import type {
@@ -14,7 +16,7 @@ import type {
 } from "../src/types.ts";
 
 const settings: Settings = {
-  schema_version: 5,
+  schema_version: 7,
   server: { host: "127.0.0.1", port: 8766 },
   storage: {
     database_path: "data/vrcs.db",
@@ -27,7 +29,8 @@ const settings: Settings = {
     microphone: { mode: "default", device_id: null },
   },
   vad: { silence_seconds: 0.4, max_speech_seconds: 6 },
-  asr: { backend: "local_whisper", language: "auto", local: { model: "small", device: "auto", compute_type: "int8" }, qwen: { region: "singapore", workspace_id: "", context: "", model: "qwen3-asr-flash-realtime" }, fun_asr: { context: "", model: "fun-asr-realtime" }, openai: { model: "gpt-4o-mini-transcribe" }, cloud_failure_policy: "reconnect" },
+  asr: { backend: "local_whisper", language: "auto", local: { model: "small", device: "auto", compute_type: "int8" }, qwen: { context: "", model: "qwen3-asr-flash-realtime" }, fun_asr: { context: "", model: "fun-asr-realtime" }, openai: { model: "gpt-4o-mini-transcribe" }, api_profiles: [], active_api_profiles: { alibaba_cloud: null, openai: null }, cloud_failure_policy: "reconnect" },
+  translation: { mode: "disabled", target_language: "zh-Hans", profile_id: null, model: "gpt-5-mini", thinking_enabled: false },
   dictionary: { selection_lookup_enabled: true },
   anki: {
     enabled: true,
@@ -58,6 +61,33 @@ test("only local ASR shows local recognition settings", () => {
   assert.equal(showsLocalRecognitionSettings("qwen_realtime"), false);
   assert.equal(showsLocalRecognitionSettings("fun_asr_realtime"), false);
   assert.equal(showsLocalRecognitionSettings("openai_realtime"), false);
+});
+
+test("recognition source selects a named API profile and compatible backend atomically", () => {
+  const withProfiles: Settings["asr"] = {
+    ...settings.asr,
+    api_profiles: [
+      { id: "ali-work", name: "Work", provider: "alibaba_cloud", region: "singapore" },
+      { id: "openai-personal", name: "Personal", provider: "openai" },
+      { id: "deepseek", name: "DeepSeek", provider: "openai", base_url: "https://api.deepseek.com/v1" },
+    ],
+  };
+
+  const openai = selectRecognitionSource(withProfiles, "openai-personal");
+  assert.equal(openai.backend, "openai_realtime");
+  assert.equal(openai.active_api_profiles.openai, "openai-personal");
+  assert.equal(recognitionSourceValue(openai), "openai-personal");
+
+  assert.deepEqual(selectRecognitionSource(openai, "deepseek"), openai);
+
+  const alibaba = selectRecognitionSource({ ...openai, backend: "fun_asr_realtime" }, "ali-work");
+  assert.equal(alibaba.backend, "fun_asr_realtime");
+  assert.equal(alibaba.active_api_profiles.alibaba_cloud, "ali-work");
+  assert.equal(recognitionSourceValue(alibaba), "ali-work");
+
+  const local = selectRecognitionSource(alibaba, "local");
+  assert.equal(local.backend, "local_whisper");
+  assert.equal(recognitionSourceValue(local), "local");
 });
 
 test("model classification keeps the current model selectable", () => {

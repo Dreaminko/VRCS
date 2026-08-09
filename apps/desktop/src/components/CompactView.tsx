@@ -20,7 +20,15 @@ export function CompactView({ subtitle, partial, running, captureDisabled, onSel
     <div className="compact-shell">
       <div className="compact-drag-region" data-tauri-drag-region />
       <div className="compact-status"><i className={running ? "running" : ""} />{partial?.language?.toUpperCase() ?? subtitle?.language?.toUpperCase() ?? "AUTO"}</div>
-      <p lang={contentLanguageTag(partial?.language ?? subtitle?.language)} onMouseUp={() => (partial?.text || subtitle?.text) && void onSelect(partial?.text ?? subtitle!.text)}>{partial?.text ?? subtitle?.text ?? t("live.waiting")}</p>
+      <p lang={contentLanguageTag(partial?.language ?? subtitle?.language)} onMouseUp={() => (partial?.text || subtitle?.text) && void onSelect(partial?.text ?? subtitle!.text)}>
+        {partial?.text ?? subtitle?.text ?? t("live.waiting")}
+        {!partial && (subtitle?.translation_partial ?? subtitle?.translations.at(-1)) && (
+          <span className="compact-translation" lang={contentLanguageTag((subtitle?.translation_partial ?? subtitle?.translations.at(-1))?.target_language)}>
+            {" · "}{(subtitle?.translation_partial ?? subtitle?.translations.at(-1))?.text}
+            {subtitle?.translation_partial && <span className="streaming-ellipsis" aria-hidden="true">…</span>}
+          </span>
+        )}
+      </p>
       <div className="compact-actions">
         <button className={`compact-capture-button ${running ? "running" : ""}`} type="button" aria-label={captureLabel} title={captureLabel} disabled={captureDisabled} onClick={onCapture}>
           {running ? <Square size={15} /> : <Mic size={16} />}

@@ -103,10 +103,7 @@ impl AudioCapture {
                 ));
             }
             let process_id = platform::find_process_id(name)?.ok_or_else(|| {
-                AudioError::with_code(
-                    "audio.vrchat_not_running",
-                    "未发现正在运行的 VRChat，请先启动 VRChat",
-                )
+                AudioError::with_code("audio.vrchat_not_running", "VRChat is not running")
             })?;
             return self.start_session(platform::CaptureTarget::Process(process_id));
         }
@@ -141,7 +138,9 @@ impl AudioCapture {
             .spawn(move || {
                 platform::capture_main(target, output_rate, thread_stop, tx, ready_tx);
             })
-            .map_err(|error| AudioError::new(format!("无法启动音频采集线程：{error}")))?;
+            .map_err(|error| {
+                AudioError::new(format!("Failed to start audio capture thread: {error}"))
+            })?;
 
         let device = match ready_rx.recv_timeout(START_TIMEOUT) {
             Ok(Ok(device)) => device,
@@ -153,7 +152,7 @@ impl AudioCapture {
             Err(_) => {
                 stop.store(true, Ordering::Relaxed);
                 let _ = join.join();
-                return Err(AudioError::new("启动音频采集超时"));
+                return Err(AudioError::new("Timed out while starting audio capture"));
             }
         };
         self.session = Some(CaptureSession {
@@ -174,7 +173,7 @@ impl AudioCapture {
             .rx
             .recv()
             .await
-            .ok_or_else(|| AudioError::new("音频采集已停止"))
+            .ok_or_else(|| AudioError::new("Audio capture has stopped"))
     }
 
     #[allow(dead_code)]
@@ -227,13 +226,13 @@ pub fn validate_device_id(
         .find(|item| item.id == device_id && item.is_loopback == expected_loopback)
         .ok_or_else(|| {
             let label = if expected_loopback {
-                "系统输出"
+                "system output"
             } else {
-                "麦克风"
+                "microphone"
             };
             AudioError::with_code(
                 "audio.device_unavailable",
-                format!("所选{label}设备已失效，请重新选择"),
+                format!("The selected {label} device is no longer available"),
             )
         })
 }
@@ -251,7 +250,7 @@ mod tests {
             assert!(device.sample_rate > 0);
         }
         let ids: std::collections::HashSet<i64> = devices.iter().map(|device| device.id).collect();
-        assert_eq!(ids.len(), devices.len(), "设备 id 应唯一");
+        assert_eq!(ids.len(), devices.len(), "device IDs must be unique");
     }
 
     #[cfg(windows)]

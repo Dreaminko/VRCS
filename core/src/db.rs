@@ -9,6 +9,7 @@ use crate::error::AppResult;
 
 mod dictionary;
 mod subtitles;
+mod translations;
 
 const SEED_ENTRIES: [(&str, &str, &str); 4] = [
     ("hello", "en", "used as a greeting"),
@@ -26,6 +27,17 @@ CREATE TABLE IF NOT EXISTS subtitles (
     ended_at REAL,
     source TEXT NOT NULL DEFAULT 'speaker',
     created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS subtitle_translations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    subtitle_id INTEGER NOT NULL REFERENCES subtitles(id) ON DELETE CASCADE,
+    text TEXT NOT NULL,
+    source_language TEXT,
+    target_language TEXT NOT NULL,
+    provider TEXT NOT NULL,
+    model TEXT,
+    created_at TEXT NOT NULL,
+    UNIQUE(subtitle_id, target_language)
 );
 CREATE TABLE IF NOT EXISTS dictionary (
     term TEXT NOT NULL,
@@ -108,7 +120,7 @@ impl Database {
 mod tests {
     use super::dictionary::{like_prefix, INSERT_BATCH_SIZE};
     use super::*;
-    use crate::models::{now_iso8601, Subtitle};
+    use crate::models::{now_iso8601, Subtitle, SubtitleTranslation};
     use std::io::{Cursor, Write};
 
     fn open_temp_db(name: &str) -> (std::path::PathBuf, Database) {
@@ -128,6 +140,7 @@ mod tests {
             ended_at: None,
             source: "speaker".into(),
             created_at: now_iso8601(),
+            translations: Vec::new(),
         }
     }
 
@@ -163,6 +176,26 @@ mod tests {
         assert_eq!(history[0].text, "line 4");
         assert_eq!(history[2].text, "line 2");
         assert!(history[0].id.unwrap() > history[1].id.unwrap());
+    }
+
+    #[test]
+    fn subtitle_translation_is_saved_and_loaded() {
+        let (_path, database) = open_temp_db("translation");
+        let saved = database.add_subtitle(&subtitle("hello"), 10).unwrap();
+        let translation = SubtitleTranslation {
+            text: "你好".into(),
+            source_language: Some("en".into()),
+            target_language: "zh-Hans".into(),
+            provider: "deepl".into(),
+            model: None,
+            created_at: now_iso8601(),
+        };
+        database
+            .save_translation(saved.id.unwrap(), &translation)
+            .unwrap();
+
+        let loaded = database.subtitle(saved.id.unwrap()).unwrap().unwrap();
+        assert_eq!(loaded.translations, vec![translation]);
     }
 
     #[test]

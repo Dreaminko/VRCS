@@ -4,10 +4,10 @@ import { ankiButtonLabel } from "../src/anki.ts";
 import { ankiDictionaryContent } from "../src/dictionary.ts";
 
 test("Anki action labels remain recoverable after an error", () => {
-  assert.equal(ankiButtonLabel("idle"), "添加到 Anki");
-  assert.equal(ankiButtonLabel("adding"), "正在添加…");
-  assert.equal(ankiButtonLabel("success"), "已添加到 Anki");
-  assert.equal(ankiButtonLabel("error"), "重试添加");
+  assert.equal(ankiButtonLabel("idle"), "Add to Anki");
+  assert.equal(ankiButtonLabel("adding"), "Adding…");
+  assert.equal(ankiButtonLabel("success"), "Added to Anki");
+  assert.equal(ankiButtonLabel("error"), "Try adding again");
 });
 
 test("collects every displayed dictionary definition for the Anki back field", () => {

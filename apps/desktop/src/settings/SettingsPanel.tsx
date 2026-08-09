@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import {
+  AudioLines,
   BookOpen,
   KeyRound,
   Languages,
@@ -35,6 +36,7 @@ import { DebugSettingsSection } from "./sections/DebugSettingsSection";
 import { DictionarySettingsSection } from "./sections/DictionarySettingsSection";
 import { RecognitionSettingsSection } from "./sections/RecognitionSettingsSection";
 import { SystemSettingsSection } from "./sections/SystemSettingsSection";
+import { TranslationSettingsSection } from "./sections/TranslationSettingsSection";
 import type { SettingsCategory } from "./settings-types";
 
 export function SettingsPanel({
@@ -114,6 +116,7 @@ export function SettingsPanel({
   const selectableModels = asr.selectable;
   const loadModels = asr.loadModels;
   const updateAsr = asr.updateAsr;
+  const updateRecognitionSource = asr.updateRecognitionSource;
   const updateLocalAsr = asr.updateLocalAsr;
   const updateVad = asr.updateVad;
   const setModelDirectoryText = asr.setModelDirectoryText;
@@ -158,7 +161,8 @@ export function SettingsPanel({
   }> = [
     { id: "system", label: t("settings.categories.system"), icon: <SlidersHorizontal size={18} /> },
     { id: "audio", label: t("settings.categories.audio"), icon: <Volume2 size={18} /> },
-    { id: "recognition", label: t("settings.categories.recognition"), icon: <Languages size={18} /> },
+    { id: "recognition", label: t("settings.categories.recognition"), icon: <AudioLines size={18} /> },
+    { id: "translation", label: t("settings.categories.translation"), icon: <Languages size={18} /> },
     { id: "api", label: t("settings.categories.api"), icon: <KeyRound size={18} /> },
     { id: "dictionary", label: t("settings.categories.dictionary"), icon: <BookOpen size={18} /> },
     { id: "anki", label: "Anki", icon: <PlusCircle size={18} /> },
@@ -240,6 +244,7 @@ export function SettingsPanel({
           saveState={saveState}
           actions={{
             updateAsr,
+            updateRecognitionSource,
             updateLocalAsr,
             updateVad,
             loadModels,
@@ -266,11 +271,19 @@ export function SettingsPanel({
         />
       )}
 
-      {activeCategory === "api" && (
-        <ApiManagementSettingsSection
+      {activeCategory === "translation" && (
+        <TranslationSettingsSection
           draft={draft}
           disabled={disabled}
-          onUpdateAsr={updateAsr}
+          saveState={saveState}
+          applySettings={applySettings}
+        />
+      )}
+
+      {activeCategory === "api" && (
+        <ApiManagementSettingsSection
+          disabled={disabled}
+          onRefresh={onRefresh}
         />
       )}
 

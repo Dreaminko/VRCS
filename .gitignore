@@ -71,4 +71,12 @@ release-artifacts/
 Thumbs.db
 Desktop.ini
 
+# Root runtime state
+/config.json
+/data/
+/models/
+
+# Automatically generated config migration backups
+*.v*.backup.json
+
 docs/

@@ -1,6 +1,5 @@
 //! whisper.cpp 本地识别、GGML 模型状态与下载管理。
 
-mod credentials;
 mod cuda;
 mod download;
 mod engine;
@@ -9,13 +8,16 @@ mod migration;
 mod model;
 mod streaming;
 
-pub use credentials::{credential_status, delete_credential, read_credential, write_credential};
+pub use crate::credentials::{
+    credential_status, delete_credential, read_credential, write_credential,
+};
 pub use cuda::cuda_capability;
 pub use engine::{AsrRuntimeState, AsrService};
 pub use manager::ModelManager;
 pub use model::is_supported_model;
 pub use streaming::{
-    spawn_streaming_session, test_streaming_connection, CloudEvent, StreamingSession,
+    spawn_streaming_session, test_streaming_connection, validate_cloud_connection, CloudEvent,
+    StreamingSession,
 };
 
 use crate::config::AsrConfig;
@@ -35,7 +37,9 @@ pub fn validate_config(config: &mut AsrConfig) -> Result<(), String> {
             } else {
                 Some(format!(
                     "CUDA preflight failed: {}",
-                    capability.error.unwrap_or_else(|| "CUDA is unavailable".into())
+                    capability
+                        .error
+                        .unwrap_or_else(|| "CUDA is unavailable".into())
                 ))
             }
         };
@@ -56,7 +60,7 @@ pub fn validate_config(config: &mut AsrConfig) -> Result<(), String> {
         }
     }
     if config.local.compute_type != "int8" {
-        return Err("Rust Core 的 whisper.cpp 后端当前仅接受 int8 兼容配置".into());
+        return Err("The Rust Core whisper.cpp backend currently supports only int8-compatible configurations".into());
     }
     Ok(())
 }
@@ -237,7 +241,7 @@ mod tests {
             .move_model_dir(second.path().to_path_buf())
             .unwrap_err();
 
-        assert!(error.contains("不完整"));
+        assert!(error.contains("incomplete"));
         assert_eq!(manager.model_dir(), first.path());
         assert!(source.exists());
         assert_eq!(std::fs::read(destination).unwrap(), b"incomplete");
@@ -258,7 +262,7 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let manager = ModelManager::new(directory.path().to_path_buf()).unwrap();
         let error = manager.delete("small", "small").await.unwrap_err();
-        assert!(error.contains("当前正在使用"));
+        assert!(error.contains("currently in use"));
     }
 
     #[tokio::test]
@@ -308,7 +312,7 @@ mod tests {
         assert!(manager
             .start_download("small")
             .unwrap_err()
-            .contains("已有模型下载任务"));
+            .contains("already in progress"));
     }
 
     #[test]
@@ -351,7 +355,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "需要通过 VRCS_WHISPER_MODEL 指定真实 GGML 模型"]
+    #[ignore = "requires a real GGML model specified by VRCS_WHISPER_MODEL"]
     fn whisper_model_transcribes_when_provided() {
         let path = std::env::var("VRCS_WHISPER_MODEL").expect("VRCS_WHISPER_MODEL");
         let mut engine = WhisperEngine::load(Path::new(&path), "cpu").unwrap();
@@ -360,7 +364,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "需要通过 VRCS_WHISPER_MODEL 和 VRCS_WHISPER_WAV 指定真实文件"]
+    #[ignore = "requires real files specified by VRCS_WHISPER_MODEL and VRCS_WHISPER_WAV"]
     fn whisper_model_transcribes_wav_when_provided() {
         let model = std::env::var("VRCS_WHISPER_MODEL").expect("VRCS_WHISPER_MODEL");
         let wav = std::env::var("VRCS_WHISPER_WAV").expect("VRCS_WHISPER_WAV");

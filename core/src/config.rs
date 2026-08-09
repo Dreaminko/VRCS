@@ -10,7 +10,43 @@ pub use io::{load_config, save_config};
 #[cfg(test)]
 use migration::config_from_value;
 
-pub const SCHEMA_VERSION: u32 = 5;
+pub const SCHEMA_VERSION: u32 = 7;
+
+pub const ALIBABA_PROVIDER: &str = "alibaba_cloud";
+pub const OPENAI_PROVIDER: &str = "openai";
+pub const DEEPL_PROVIDER: &str = "deepl";
+pub const MICROSOFT_PROVIDER: &str = "microsoft_translator";
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ApiProfile {
+    pub id: String,
+    pub name: String,
+    pub provider: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub region: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub base_url: Option<String>,
+}
+
+impl ApiProfile {
+    pub fn uses_openai_compatible_api(&self) -> bool {
+        self.provider == OPENAI_PROVIDER
+            && self
+                .base_url
+                .as_deref()
+                .is_some_and(|value| !value.trim().is_empty())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct ActiveApiProfiles {
+    #[serde(default)]
+    pub alibaba_cloud: Option<String>,
+    #[serde(default)]
+    pub openai: Option<String>,
+}
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ServerConfig {
@@ -78,6 +114,10 @@ pub struct AsrConfig {
     pub fun_asr: FunAsrConfig,
     #[serde(default)]
     pub openai: OpenAiAsrConfig,
+    #[serde(default)]
+    pub api_profiles: Vec<ApiProfile>,
+    #[serde(default)]
+    pub active_api_profiles: ActiveApiProfiles,
     #[serde(default = "default_cloud_failure_policy")]
     pub cloud_failure_policy: String,
 }
@@ -94,10 +134,6 @@ pub struct LocalAsrConfig {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct QwenAsrConfig {
-    #[serde(default = "default_qwen_region")]
-    pub region: String,
-    #[serde(default)]
-    pub workspace_id: String,
     #[serde(default)]
     pub context: String,
     #[serde(default = "default_qwen_model")]
@@ -141,6 +177,20 @@ pub struct DictionaryConfig {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TranslationConfig {
+    #[serde(default = "default_translation_mode")]
+    pub mode: String,
+    #[serde(default = "default_translation_target")]
+    pub target_language: String,
+    #[serde(default)]
+    pub profile_id: Option<String>,
+    #[serde(default = "default_translation_model")]
+    pub model: String,
+    #[serde(default)]
+    pub thinking_enabled: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AppConfig {
     #[serde(default = "schema_version")]
     pub schema_version: u32,
@@ -156,6 +206,8 @@ pub struct AppConfig {
     pub asr: AsrConfig,
     #[serde(default)]
     pub dictionary: DictionaryConfig,
+    #[serde(default)]
+    pub translation: TranslationConfig,
     #[serde(default)]
     pub anki: AnkiConfig,
 }
@@ -211,9 +263,6 @@ fn default_device() -> String {
 fn default_compute_type() -> String {
     "int8".into()
 }
-fn default_qwen_region() -> String {
-    "china_beijing".into()
-}
 fn default_qwen_model() -> String {
     "qwen3-asr-flash-realtime".into()
 }
@@ -225,6 +274,15 @@ fn default_fun_asr_model() -> String {
 }
 fn default_cloud_failure_policy() -> String {
     "reconnect".into()
+}
+fn default_translation_mode() -> String {
+    "disabled".into()
+}
+fn default_translation_target() -> String {
+    "zh-Hans".into()
+}
+fn default_translation_model() -> String {
+    "gpt-5-mini".into()
 }
 fn default_anki_port() -> u16 {
     8765
@@ -276,6 +334,8 @@ impl_default!(AsrConfig, {
     qwen: QwenAsrConfig::default,
     fun_asr: FunAsrConfig::default,
     openai: OpenAiAsrConfig::default,
+    api_profiles: Vec::default,
+    active_api_profiles: ActiveApiProfiles::default,
     cloud_failure_policy: default_cloud_failure_policy,
 });
 impl_default!(LocalAsrConfig, {
@@ -284,8 +344,6 @@ impl_default!(LocalAsrConfig, {
     compute_type: default_compute_type,
 });
 impl_default!(QwenAsrConfig, {
-    region: default_qwen_region,
-    workspace_id: String::default,
     context: String::default,
     model: default_qwen_model,
 });
@@ -295,6 +353,13 @@ impl_default!(FunAsrConfig, {
 });
 impl_default!(OpenAiAsrConfig, { model: default_openai_model });
 impl_default!(DictionaryConfig, { selection_lookup_enabled: default_enabled });
+impl_default!(TranslationConfig, {
+    mode: default_translation_mode,
+    target_language: default_translation_target,
+    profile_id: Option::default,
+    model: default_translation_model,
+    thinking_enabled: bool::default,
+});
 impl_default!(AnkiConfig, {
     enabled: default_enabled,
     port: default_anki_port,
@@ -313,6 +378,7 @@ impl Default for AppConfig {
             vad: VadConfig::default(),
             asr: AsrConfig::default(),
             dictionary: DictionaryConfig::default(),
+            translation: TranslationConfig::default(),
             anki: AnkiConfig::default(),
         }
     }
@@ -345,72 +411,89 @@ impl AppConfig {
     /// 配置文件与 PUT /api/settings 共用的完整结构校验。
     pub fn validate_settings(&self) -> Result<(), String> {
         if self.server.port == 0 {
-            return Err("端口必须在 1 到 65535 之间".into());
+            return Err("Port must be between 1 and 65535".into());
         }
         if !(1..=10_000).contains(&self.storage.subtitle_history_limit) {
-            return Err("subtitle_history_limit 必须在 1 到 10000 之间".into());
+            return Err("subtitle_history_limit must be between 1 and 10000".into());
         }
         if self.storage.model_directory.trim().is_empty() {
-            return Err("模型保存位置不能为空".into());
+            return Err("Model storage path cannot be empty".into());
         }
         if !(8_000..=96_000).contains(&self.audio.sample_rate) {
-            return Err("采样率必须在 8000 到 96000 之间".into());
+            return Err("Sample rate must be between 8000 and 96000".into());
         }
         match self.audio.output.mode.as_str() {
             "system" => {}
             "vrchat" if self.audio.output.device_id.is_some() => {
-                return Err("VRChat 模式不能指定系统输出设备".into());
+                return Err("VRChat mode cannot specify a system output device".into());
             }
             "vrchat" => {}
-            other => return Err(format!("不支持的输出模式：{other}")),
+            other => return Err(format!("Unsupported output mode: {other}")),
         }
         match self.audio.microphone.mode.as_str() {
             "device" if self.audio.microphone.device_id.is_none() => {
-                return Err("指定麦克风模式必须选择设备".into());
+                return Err("A device must be selected in microphone device mode".into());
             }
             "device" => {}
             "default" | "disabled" if self.audio.microphone.device_id.is_some() => {
-                return Err("默认或关闭麦克风模式不能指定设备".into());
+                return Err("Default or disabled microphone mode cannot specify a device".into());
             }
             "default" | "disabled" => {}
-            other => return Err(format!("不支持的麦克风模式：{other}")),
+            other => return Err(format!("Unsupported microphone mode: {other}")),
         }
         self.vad.validate()?;
         if !ASR_BACKENDS.contains(&self.asr.backend.as_str()) {
-            return Err(format!("不支持的识别后端：{}", self.asr.backend));
+            return Err(format!(
+                "Unsupported recognition backend: {}",
+                self.asr.backend
+            ));
         }
         if !ASR_LANGUAGES.contains(&self.asr.language.as_str()) {
-            return Err(format!("不支持的识别语言：{}", self.asr.language));
+            return Err(format!(
+                "Unsupported recognition language: {}",
+                self.asr.language
+            ));
         }
         if !ASR_DEVICES.contains(&self.asr.local.device.as_str()) {
-            return Err(format!("不支持的识别设备：{}", self.asr.local.device));
+            return Err(format!(
+                "Unsupported recognition device: {}",
+                self.asr.local.device
+            ));
         }
         if !ASR_COMPUTE_TYPES.contains(&self.asr.local.compute_type.as_str()) {
-            return Err(format!("不支持的计算类型：{}", self.asr.local.compute_type));
+            return Err(format!(
+                "Unsupported compute type: {}",
+                self.asr.local.compute_type
+            ));
         }
         if !CLOUD_FAILURE_POLICIES.contains(&self.asr.cloud_failure_policy.as_str()) {
             return Err(format!(
-                "不支持的云端失败策略：{}",
+                "Unsupported cloud failure policy: {}",
                 self.asr.cloud_failure_policy
             ));
         }
-        if !["singapore", "china_beijing"].contains(&self.asr.qwen.region.as_str()) {
-            return Err(format!("不支持的 Qwen 区域：{}", self.asr.qwen.region));
-        }
+        validate_api_profiles(&self.asr)?;
+        validate_translation(&self.translation, &self.asr.api_profiles)?;
         if self.asr.qwen.model != "qwen3-asr-flash-realtime" {
-            return Err(format!("不支持的 Qwen ASR 模型：{}", self.asr.qwen.model));
+            return Err(format!(
+                "Unsupported Qwen ASR model: {}",
+                self.asr.qwen.model
+            ));
         }
         if self.asr.fun_asr.model != "fun-asr-realtime" {
-            return Err(format!("不支持的 Fun-ASR 模型：{}", self.asr.fun_asr.model));
+            return Err(format!(
+                "Unsupported Fun-ASR model: {}",
+                self.asr.fun_asr.model
+            ));
         }
         if self.asr.fun_asr.context.chars().count() > 400 {
-            return Err("Fun-ASR 上下文不能超过 400 个字符".into());
+            return Err("Fun-ASR context cannot exceed 400 characters".into());
         }
         if !["gpt-4o-mini-transcribe", "gpt-4o-transcribe"]
             .contains(&self.asr.openai.model.as_str())
         {
             return Err(format!(
-                "不支持的 OpenAI ASR 模型：{}",
+                "Unsupported OpenAI ASR model: {}",
                 self.asr.openai.model
             ));
         }
@@ -418,35 +501,204 @@ impl AppConfig {
             self.asr.backend.as_str(),
             "qwen_realtime" | "fun_asr_realtime"
         ) {
-            let workspace = self.asr.qwen.workspace_id.trim();
-            let valid_workspace = workspace
-                .bytes()
-                .all(|value| value.is_ascii_alphanumeric() || value == b'-');
-            if !workspace.is_empty() && (workspace.len() > 128 || !valid_workspace) {
-                return Err("阿里云 Workspace ID 无效".into());
-            }
             if self.vad.silence_seconds < 0.2 {
-                return Err("阿里云实时识别的静音阈值不能低于 0.2 秒".into());
+                return Err(
+                    "Alibaba Cloud realtime recognition requires at least 0.2 seconds of silence"
+                        .into(),
+                );
             }
         }
         if self.anki.port == 0 {
-            return Err("AnkiConnect 端口必须在 1 到 65535 之间".into());
+            return Err("AnkiConnect port must be between 1 and 65535".into());
         }
         for (label, value) in [
-            ("牌组", &self.anki.deck),
-            ("笔记类型", &self.anki.model),
-            ("正面字段", &self.anki.front_field),
-            ("背面字段", &self.anki.back_field),
+            ("deck", &self.anki.deck),
+            ("note type", &self.anki.model),
+            ("front field", &self.anki.front_field),
+            ("back field", &self.anki.back_field),
         ] {
             if value.is_empty() || value.chars().count() > 100 {
-                return Err(format!("Anki {label}名称必须在 1 到 100 字符之间"));
+                return Err(format!(
+                    "Anki {label} name must contain 1 to 100 characters"
+                ));
             }
         }
         if self.anki.front_field == self.anki.back_field {
-            return Err("Anki 正面和背面不能映射到同一个字段".into());
+            return Err("Anki front and back fields cannot map to the same field".into());
         }
         Ok(())
     }
+}
+
+fn validate_api_profiles(asr: &AsrConfig) -> Result<(), String> {
+    use std::collections::HashSet;
+
+    let mut ids = HashSet::new();
+    let mut names = HashSet::new();
+    for profile in &asr.api_profiles {
+        let valid_id = !profile.id.is_empty()
+            && profile.id.len() <= 64
+            && profile
+                .id
+                .bytes()
+                .all(|value| value.is_ascii_alphanumeric() || matches!(value, b'-' | b'_'));
+        if !valid_id || !ids.insert(profile.id.as_str()) {
+            return Err("An API profile ID is invalid or duplicated".into());
+        }
+        let name = profile.name.trim();
+        if name.is_empty() || name.chars().count() > 50 {
+            return Err("An API profile name must contain 1 to 50 characters".into());
+        }
+        if !names.insert((profile.provider.as_str(), name.to_lowercase())) {
+            return Err(format!(
+                "API profile names must be unique per provider: {name}"
+            ));
+        }
+        match profile.provider.as_str() {
+            ALIBABA_PROVIDER => {
+                if profile.base_url.is_some() {
+                    return Err(
+                        "Alibaba Cloud profiles cannot contain an OpenAI-compatible Base URL"
+                            .into(),
+                    );
+                }
+                let region = profile.region.as_deref().unwrap_or("");
+                if !["singapore", "china_beijing"].contains(&region) {
+                    return Err(format!("Unsupported Alibaba Cloud region: {region}"));
+                }
+                let workspace = profile.workspace_id.as_deref().unwrap_or("").trim();
+                let valid_workspace = workspace
+                    .bytes()
+                    .all(|value| value.is_ascii_alphanumeric() || value == b'-');
+                if !workspace.is_empty() && (workspace.len() > 128 || !valid_workspace) {
+                    return Err("The Alibaba Cloud Workspace ID is invalid".into());
+                }
+            }
+            MICROSOFT_PROVIDER => {
+                let region = profile.region.as_deref().unwrap_or("").trim();
+                if region.is_empty() || region.len() > 64 {
+                    return Err(
+                        "Microsoft Translator region must contain 1 to 64 characters".into(),
+                    );
+                }
+                if profile.workspace_id.is_some() {
+                    return Err(
+                        "Microsoft Translator profiles cannot contain a Workspace ID".into(),
+                    );
+                }
+                if profile.base_url.is_some() {
+                    return Err(
+                        "Microsoft Translator profiles cannot contain an OpenAI-compatible Base URL"
+                            .into(),
+                    );
+                }
+            }
+            OPENAI_PROVIDER if profile.region.is_none() && profile.workspace_id.is_none() => {
+                if let Some(base_url) = profile.base_url.as_deref() {
+                    validate_openai_base_url(base_url)?;
+                }
+            }
+            DEEPL_PROVIDER
+                if profile.region.is_none()
+                    && profile.workspace_id.is_none()
+                    && profile.base_url.is_none() => {}
+            OPENAI_PROVIDER | DEEPL_PROVIDER => {
+                return Err(format!(
+                    "API profile {} contains unsupported connection fields",
+                    profile.provider
+                ));
+            }
+            other => return Err(format!("Unsupported API provider: {other}")),
+        }
+    }
+
+    for (provider, active_id) in [
+        (
+            ALIBABA_PROVIDER,
+            asr.active_api_profiles.alibaba_cloud.as_deref(),
+        ),
+        (OPENAI_PROVIDER, asr.active_api_profiles.openai.as_deref()),
+    ] {
+        if let Some(active_id) = active_id {
+            let active_profile = asr
+                .api_profiles
+                .iter()
+                .find(|profile| profile.id == active_id && profile.provider == provider);
+            if active_profile.is_none() {
+                return Err(format!(
+                    "The active API profile does not match provider {provider}"
+                ));
+            }
+            if active_profile.is_some_and(ApiProfile::uses_openai_compatible_api) {
+                return Err(
+                    "OpenAI-compatible text API profiles cannot be used for realtime speech recognition"
+                        .into(),
+                );
+            }
+        }
+    }
+    Ok(())
+}
+
+fn validate_openai_base_url(base_url: &str) -> Result<(), String> {
+    let base_url = base_url.trim();
+    if base_url.is_empty() || base_url.len() > 2048 {
+        return Err("The OpenAI-compatible Base URL must contain 1 to 2048 characters".into());
+    }
+    let url = reqwest::Url::parse(base_url)
+        .map_err(|_| "The OpenAI-compatible Base URL is invalid".to_string())?;
+    if !matches!(url.scheme(), "http" | "https") || url.host_str().is_none() {
+        return Err("The OpenAI-compatible Base URL must use HTTP or HTTPS".into());
+    }
+    if !url.username().is_empty()
+        || url.password().is_some()
+        || url.query().is_some()
+        || url.fragment().is_some()
+    {
+        return Err(
+            "The OpenAI-compatible Base URL cannot contain credentials, a query, or a fragment"
+                .into(),
+        );
+    }
+    Ok(())
+}
+
+fn validate_translation(
+    translation: &TranslationConfig,
+    profiles: &[ApiProfile],
+) -> Result<(), String> {
+    if !["disabled", "manual", "automatic"].contains(&translation.mode.as_str()) {
+        return Err(format!(
+            "Unsupported translation mode: {}",
+            translation.mode
+        ));
+    }
+    const LANGUAGES: [&str; 9] = [
+        "zh-Hans", "zh-Hant", "en", "ja", "ko", "es", "fr", "de", "ru",
+    ];
+    if !LANGUAGES.contains(&translation.target_language.as_str()) {
+        return Err(format!(
+            "Unsupported translation target language: {}",
+            translation.target_language
+        ));
+    }
+    if translation.mode == "disabled" {
+        return Ok(());
+    }
+    let profile_id = translation
+        .profile_id
+        .as_deref()
+        .ok_or_else(|| "A translation API profile must be selected".to_string())?;
+    let profile = profiles
+        .iter()
+        .find(|profile| profile.id == profile_id)
+        .ok_or_else(|| "The selected translation API profile does not exist".to_string())?;
+    if [ALIBABA_PROVIDER, OPENAI_PROVIDER].contains(&profile.provider.as_str())
+        && translation.model.trim().is_empty()
+    {
+        return Err("The LLM translation model cannot be empty".into());
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -473,7 +725,7 @@ mod tests {
         .unwrap();
 
         assert_eq!(config.storage.model_directory, "models/whisper");
-        assert_eq!(config.schema_version, 5);
+        assert_eq!(config.schema_version, SCHEMA_VERSION);
         assert_eq!(config.asr.backend, "local_whisper");
     }
 
@@ -484,7 +736,7 @@ mod tests {
         }))
         .unwrap();
 
-        assert_eq!(config.schema_version, 5);
+        assert_eq!(config.schema_version, SCHEMA_VERSION);
         assert!(config.anki.enabled);
         assert!(config.dictionary.selection_lookup_enabled);
     }
@@ -534,8 +786,135 @@ mod tests {
     fn qwen_is_the_default_backend() {
         let config = AppConfig::default();
         assert_eq!(config.asr.backend, "qwen_realtime");
-        assert_eq!(config.asr.qwen.region, "china_beijing");
-        assert!(config.asr.qwen.workspace_id.is_empty());
+        assert!(config.asr.api_profiles.is_empty());
+        assert!(config.validate_settings().is_ok());
+    }
+
+    #[test]
+    fn translation_accepts_direct_and_llm_profiles() {
+        let mut config = AppConfig::default();
+        config.asr.api_profiles.push(ApiProfile {
+            id: "deepl-one".into(),
+            name: "DeepL".into(),
+            provider: DEEPL_PROVIDER.into(),
+            region: None,
+            workspace_id: None,
+            base_url: None,
+        });
+        config.translation.mode = "manual".into();
+        config.translation.profile_id = Some("deepl-one".into());
+        assert!(config.validate_settings().is_ok());
+
+        config.asr.api_profiles.push(ApiProfile {
+            id: "openai-one".into(),
+            name: "OpenAI".into(),
+            provider: OPENAI_PROVIDER.into(),
+            region: None,
+            workspace_id: None,
+            base_url: None,
+        });
+        config.translation.profile_id = Some("openai-one".into());
+        config.translation.model.clear();
+        assert!(config.validate_settings().is_err());
+    }
+
+    #[test]
+    fn validates_openai_compatible_profiles_and_keeps_them_out_of_realtime_asr() {
+        let mut config = AppConfig::default();
+        config.asr.api_profiles.push(ApiProfile {
+            id: "deepseek".into(),
+            name: "DeepSeek".into(),
+            provider: OPENAI_PROVIDER.into(),
+            region: None,
+            workspace_id: None,
+            base_url: Some("https://api.deepseek.com/v1".into()),
+        });
+        config.translation.mode = "manual".into();
+        config.translation.profile_id = Some("deepseek".into());
+        config.translation.model = "deepseek-chat".into();
+        assert!(config.validate_settings().is_ok());
+
+        config.asr.active_api_profiles.openai = Some("deepseek".into());
+        assert_eq!(
+            config.validate_settings().unwrap_err(),
+            "OpenAI-compatible text API profiles cannot be used for realtime speech recognition"
+        );
+
+        config.asr.active_api_profiles.openai = None;
+        config.asr.api_profiles[0].base_url =
+            Some("https://api.deepseek.com/v1?token=secret".into());
+        assert_eq!(
+            config.validate_settings().unwrap_err(),
+            "The OpenAI-compatible Base URL cannot contain credentials, a query, or a fragment"
+        );
+    }
+
+    #[test]
+    fn migrates_v5_provider_slots_to_named_profiles() {
+        let config = config_from_value(&serde_json::json!({
+            "schema_version": 5,
+            "asr": {
+                "qwen": {
+                    "region": "singapore",
+                    "workspace_id": "ws-example"
+                }
+            }
+        }))
+        .unwrap();
+
+        assert_eq!(config.asr.api_profiles.len(), 2);
+        let alibaba = &config.asr.api_profiles[0];
+        assert_eq!(alibaba.id, "legacy-alibaba-cloud");
+        assert_eq!(alibaba.region.as_deref(), Some("singapore"));
+        assert_eq!(alibaba.workspace_id.as_deref(), Some("ws-example"));
+        assert_eq!(
+            config.asr.active_api_profiles.alibaba_cloud.as_deref(),
+            Some("legacy-alibaba-cloud")
+        );
+    }
+
+    #[test]
+    fn migrates_v6_with_translation_disabled_by_default() {
+        let config = config_from_value(&serde_json::json!({
+            "schema_version": 6
+        }))
+        .unwrap();
+
+        assert_eq!(config.schema_version, SCHEMA_VERSION);
+        assert_eq!(config.translation.mode, "disabled");
+        assert_eq!(config.translation.target_language, "zh-Hans");
+        assert!(!config.translation.thinking_enabled);
+    }
+
+    #[test]
+    fn api_profiles_require_unique_names_and_matching_active_provider() {
+        let mut config = AppConfig::default();
+        config.asr.api_profiles = vec![
+            ApiProfile {
+                id: "alibaba-one".into(),
+                name: "Personal".into(),
+                provider: ALIBABA_PROVIDER.into(),
+                region: Some("china_beijing".into()),
+                workspace_id: Some("workspace-one".into()),
+                base_url: None,
+            },
+            ApiProfile {
+                id: "alibaba-two".into(),
+                name: "personal".into(),
+                provider: ALIBABA_PROVIDER.into(),
+                region: Some("singapore".into()),
+                workspace_id: Some("workspace-two".into()),
+                base_url: None,
+            },
+        ];
+        assert!(config.validate_settings().is_err());
+
+        config.asr.api_profiles[1].name = "Work".into();
+        config.asr.active_api_profiles.openai = Some("alibaba-two".into());
+        assert!(config.validate_settings().is_err());
+
+        config.asr.active_api_profiles.openai = None;
+        config.asr.active_api_profiles.alibaba_cloud = Some("alibaba-two".into());
         assert!(config.validate_settings().is_ok());
     }
 
@@ -543,14 +922,13 @@ mod tests {
     fn validates_fun_asr_specific_limits() {
         let mut config = AppConfig::default();
         config.asr.backend = "fun_asr_realtime".into();
-        config.asr.qwen.workspace_id = "ws-example".into();
         config.asr.fun_asr.context = "字".repeat(400);
         assert!(config.validate_settings().is_ok());
 
         config.asr.fun_asr.context.push('字');
         assert_eq!(
             config.validate_settings().unwrap_err(),
-            "Fun-ASR 上下文不能超过 400 个字符"
+            "Fun-ASR context cannot exceed 400 characters"
         );
     }
 

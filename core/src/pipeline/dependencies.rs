@@ -3,8 +3,10 @@ use std::sync::{Arc, Mutex};
 use tokio::sync::broadcast;
 
 use crate::asr::AsrService;
+use crate::config::{ApiProfile, TranslationConfig};
 use crate::db::Database;
 use crate::models::{now_iso8601, LiveTranscription, Subtitle};
+use crate::translation::TranslationDispatcher;
 
 #[derive(Clone)]
 pub(crate) struct PipelineDependencies {
@@ -13,6 +15,9 @@ pub(crate) struct PipelineDependencies {
     subtitles: broadcast::Sender<Subtitle>,
     live: broadcast::Sender<LiveTranscription>,
     history_limit: u32,
+    translation: TranslationDispatcher,
+    translation_config: TranslationConfig,
+    api_profiles: Vec<ApiProfile>,
 }
 
 impl PipelineDependencies {
@@ -22,6 +27,9 @@ impl PipelineDependencies {
         subtitles: broadcast::Sender<Subtitle>,
         live: broadcast::Sender<LiveTranscription>,
         history_limit: u32,
+        translation: TranslationDispatcher,
+        translation_config: TranslationConfig,
+        api_profiles: Vec<ApiProfile>,
     ) -> Self {
         Self {
             asr,
@@ -29,6 +37,9 @@ impl PipelineDependencies {
             subtitles,
             live,
             history_limit,
+            translation,
+            translation_config,
+            api_profiles,
         }
     }
 
@@ -58,7 +69,7 @@ impl PipelineDependencies {
             transcriber.lock().expect("asr lock").transcribe(&segment)
         })
         .await
-        .map_err(|error| format!("识别任务异常退出：{error}"))??;
+        .map_err(|error| format!("Recognition task exited unexpectedly: {error}"))??;
         tracing::debug!(
             source,
             text_length = transcription.text.chars().count(),
@@ -87,19 +98,29 @@ impl PipelineDependencies {
             ended_at: None,
             source: source.into(),
             created_at: now_iso8601(),
+            translations: Vec::new(),
         };
         let database = Arc::clone(&self.database);
         let history_limit = self.history_limit;
         let saved = tokio::task::spawn_blocking(move || {
             database
                 .lock()
-                .map_err(|_| "数据库锁不可用".to_string())?
+                .map_err(|_| "Database lock is unavailable".to_string())?
                 .add_subtitle(&subtitle, history_limit)
                 .map_err(|error| error.to_string())
         })
         .await
-        .map_err(|error| format!("字幕存储任务异常退出：{error}"))??;
-        let _ = self.subtitles.send(saved);
+        .map_err(|error| format!("Subtitle storage task exited unexpectedly: {error}"))??;
+        let _ = self.subtitles.send(saved.clone());
+        if self.translation_config.mode == "automatic" {
+            if let Err(detail) = self.translation.enqueue(
+                saved,
+                self.translation_config.clone(),
+                self.api_profiles.clone(),
+            ) {
+                tracing::warn!(%detail, "automatic translation was not queued");
+            }
+        }
         Ok(())
     }
 }

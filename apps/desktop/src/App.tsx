@@ -57,6 +57,8 @@ function App() {
     saveSettings,
     importDictionary,
     deleteDictionary,
+    translateSubtitle,
+    translatingSubtitleIds,
   } = core;
   const [vrchatWarningOpen, setVrchatWarningOpen] = useState(false);
   const [cudaRuntimeWarningOpen, setCudaRuntimeWarningOpen] = useState(false);
@@ -94,6 +96,9 @@ function App() {
     setSidebarOpen,
     selectConversation,
     createConversation,
+    renameConversation,
+    setConversationIcon,
+    resetConversationCustomization,
     liveScrollRef,
     followingLiveSubtitles,
     scrollLiveViewToBottom,
@@ -116,6 +121,12 @@ function App() {
     };
     window.addEventListener("keydown", handleInterfaceScaleShortcut);
     return () => window.removeEventListener("keydown", handleInterfaceScaleShortcut);
+  }, []);
+
+  useEffect(() => {
+    const preventBrowserContextMenu = (event: MouseEvent) => event.preventDefault();
+    document.addEventListener("contextmenu", preventBrowserContextMenu);
+    return () => document.removeEventListener("contextmenu", preventBrowserContextMenu);
   }, []);
 
   useEffect(() => {
@@ -230,6 +241,9 @@ function App() {
             onToggle={() => setSidebarOpen((current) => !current)}
             onNew={createConversationAndCloseLookup}
             onSelect={selectConversationAndCloseLookup}
+            onRename={renameConversation}
+            onIconChange={setConversationIcon}
+            onResetCustomization={resetConversationCustomization}
           />
         )}
         {page === "live" && sidebarOpen && (
@@ -306,12 +320,19 @@ function App() {
                     && selectedConversation?.id === activeConversation?.id
                   }
                   onSelect={selectWord}
+                  onTranslate={settings?.translation.mode === "disabled" ? undefined : (id) => void translateSubtitle(id)}
+                  translatingSubtitleIds={translatingSubtitleIds}
                 />
               </>
             )}
 
             {page === "history" && (
-              <HistoryView subtitles={subtitles} onSelect={selectWord} />
+              <HistoryView
+                subtitles={subtitles}
+                onSelect={selectWord}
+                onTranslate={settings?.translation.mode === "disabled" ? undefined : (id) => void translateSubtitle(id)}
+                translatingSubtitleIds={translatingSubtitleIds}
+              />
             )}
 
             {page === "settings" && settings && (

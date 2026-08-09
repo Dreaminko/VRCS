@@ -20,8 +20,12 @@ pub fn load_config(path: &Path) -> Result<AppConfig, String> {
     if version != SCHEMA_VERSION as u64 {
         let backup = path.with_extension(format!("v{version}.backup.json"));
         if !backup.exists() {
-            fs::copy(path, &backup)
-                .map_err(|error| format!("无法备份旧配置到 {}：{error}", backup.display()))?;
+            fs::copy(path, &backup).map_err(|error| {
+                format!(
+                    "Failed to back up the previous configuration to {}: {error}",
+                    backup.display()
+                )
+            })?;
         }
         save_config(path, &config)?;
     }

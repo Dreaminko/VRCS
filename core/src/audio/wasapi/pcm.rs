@@ -47,7 +47,7 @@ impl NativeFormat {
                 };
                 if valid_bits == 0 || valid_bits > bits {
                     return Err(AudioError::new(format!(
-                        "无效的 PCM 位深：容器 {bits} bit，有效 {valid_bits} bit"
+                        "Invalid PCM bit depth: {bits}-bit container with {valid_bits} valid bits"
                     )));
                 }
                 SampleEncoding::SignedInt {
@@ -59,7 +59,7 @@ impl NativeFormat {
             SampleType::Float if bits == 64 => SampleEncoding::Float64,
             sample_type => {
                 return Err(AudioError::new(format!(
-                    "暂不支持该设备格式（{sample_type:?} {bits} bit），请选择其他输出设备"
+                    "Unsupported device format ({sample_type:?}, {bits} bit); select another output device"
                 )));
             }
         };
@@ -113,7 +113,7 @@ pub(super) fn append_mono_f32(
     let sample_bytes = format.encoding.sample_bytes();
     let frame_bytes = channels * sample_bytes;
     if !packet.len().is_multiple_of(frame_bytes) {
-        return Err(AudioError::new("WASAPI 返回了不完整的音频帧"));
+        return Err(AudioError::new("WASAPI returned an incomplete audio frame"));
     }
     for frame in packet.make_contiguous().chunks_exact(frame_bytes) {
         let sum = frame

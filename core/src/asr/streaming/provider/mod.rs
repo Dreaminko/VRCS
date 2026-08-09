@@ -10,7 +10,7 @@ use tokio_tungstenite::tungstenite::http::HeaderValue;
 use tokio_tungstenite::tungstenite::http::Request;
 use tokio_tungstenite::tungstenite::Message;
 
-use crate::config::AsrConfig;
+use crate::config::{ApiProfile, AsrConfig, ALIBABA_PROVIDER, OPENAI_PROVIDER};
 
 use super::CloudEvent;
 
@@ -33,25 +33,28 @@ impl Provider {
             "qwen_realtime" => Ok(Self::Qwen),
             "fun_asr_realtime" => Ok(Self::FunAsr),
             "openai_realtime" => Ok(Self::OpenAi),
-            other => Err(format!("后端 {other} 不是云端实时识别后端")),
+            other => Err(format!(
+                "Backend {other} is not a realtime cloud recognition backend"
+            )),
         }
     }
 
-    pub(super) fn credential_name(self) -> &'static str {
+    pub(super) fn api_provider(self) -> &'static str {
         match self {
-            Self::Qwen | Self::FunAsr => "qwen",
-            Self::OpenAi => "openai",
+            Self::Qwen | Self::FunAsr => ALIBABA_PROVIDER,
+            Self::OpenAi => OPENAI_PROVIDER,
         }
     }
 
     pub(super) fn build_request(
         self,
         config: &AsrConfig,
+        profile: &ApiProfile,
         key: &str,
     ) -> Result<Request<()>, String> {
         match self {
-            Self::Qwen => qwen::build_request(config, key),
-            Self::FunAsr => fun_asr::build_request(config, key),
+            Self::Qwen => qwen::build_request(config, profile, key),
+            Self::FunAsr => fun_asr::build_request(profile, key),
             Self::OpenAi => openai::build_request(key),
         }
     }
@@ -85,7 +88,7 @@ impl Provider {
                     value
                         .pointer("/error/message")
                         .and_then(Value::as_str)
-                        .unwrap_or("云端识别会话配置失败")
+                        .unwrap_or("Cloud recognition session configuration failed")
                         .to_string(),
                 ),
                 _ => InitializationEvent::Pending,
@@ -96,7 +99,7 @@ impl Provider {
                     value
                         .pointer("/header/error_message")
                         .and_then(Value::as_str)
-                        .unwrap_or("云端识别会话配置失败")
+                        .unwrap_or("Cloud recognition session configuration failed")
                         .to_string(),
                 ),
                 _ => InitializationEvent::Pending,
@@ -183,11 +186,11 @@ pub(super) fn authenticated_request(
 ) -> Result<Request<()>, String> {
     let mut request = url
         .into_client_request()
-        .map_err(|error| format!("云端识别地址无效：{error}"))?;
+        .map_err(|error| format!("Invalid cloud recognition URL: {error}"))?;
     request.headers_mut().insert(
         "Authorization",
         HeaderValue::from_str(&format!("Bearer {key}"))
-            .map_err(|_| "API Key 包含无效字符".to_string())?,
+            .map_err(|_| "API key contains invalid characters".to_string())?,
     );
     if realtime_header {
         request

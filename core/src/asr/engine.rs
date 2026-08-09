@@ -68,7 +68,9 @@ impl WhisperEngine {
             "cuda" => {
                 let capability = cuda_capability();
                 if !capability.available {
-                    return Err(capability.error.unwrap_or_else(|| "CUDA 当前不可用".into()));
+                    return Err(capability
+                        .error
+                        .unwrap_or_else(|| "CUDA is currently unavailable".into()));
                 }
                 Self::load_with_backend(model_path, true)
             }
@@ -79,28 +81,28 @@ impl WhisperEngine {
                         Ok(engine) => return Ok(engine),
                         Err(error) => tracing::warn!(
                             %error,
-                            "CUDA 模型装载失败，自动回退到 CPU"
+                            "CUDA model loading failed; falling back to CPU"
                         ),
                     }
                 }
                 Self::load_with_backend(model_path, false)
             }
-            value => Err(format!("不支持的识别设备：{value}")),
+            value => Err(format!("Unsupported recognition device: {value}")),
         }
     }
 
     fn load_with_backend(model_path: &Path, use_gpu: bool) -> Result<Self, String> {
         let path = model_path
             .to_str()
-            .ok_or_else(|| format!("模型路径不是有效 UTF-8：{}", model_path.display()))?;
+            .ok_or_else(|| format!("Model path is not valid UTF-8: {}", model_path.display()))?;
         let mut parameters = WhisperContextParameters::default();
         parameters.use_gpu(use_gpu);
         let context = WhisperContext::new_with_params(path, parameters)
-            .map_err(|error| format!("无法加载 Whisper 模型：{error}"))?;
+            .map_err(|error| format!("Failed to load Whisper model: {error}"))?;
         tracing::info!(
             backend = if use_gpu { "cuda" } else { "cpu" },
             model = %model_path.display(),
-            "Whisper 模型已装载"
+            "Whisper model loaded"
         );
         Ok(Self { context })
     }
@@ -134,7 +136,7 @@ impl AsrEngine for WhisperEngine {
 
         state
             .full(parameters, samples)
-            .map_err(|error| format!("Whisper 识别失败：{error}"))?;
+            .map_err(|error| format!("Whisper transcription failed: {error}"))?;
 
         let mut text = Vec::new();
         for segment in state.as_iter() {
@@ -199,7 +201,10 @@ impl AsrService {
             let spec = model_spec(&self.config.local.model)?;
             let path = self.model_dir.join(spec.filename);
             if !verify_model_file(&path, spec, false)? {
-                let error = format!("模型文件 {} 完整性校验失败，请重新下载", path.display());
+                let error = format!(
+                    "Model file {} failed integrity verification; download it again",
+                    path.display()
+                );
                 self.runtime.set("error", Some(error.clone()));
                 return Err(error);
             }
@@ -211,11 +216,14 @@ impl AsrService {
                 Err(mut error) => {
                     match verify_model_file(&path, spec, true) {
                         Ok(false) => {
-                            error =
-                                format!("模型文件 {} 完整性校验失败，请重新下载", path.display());
+                            error = format!(
+                                "Model file {} failed integrity verification; download it again",
+                                path.display()
+                            );
                         }
                         Err(verify_error) => {
-                            error = format!("{error}；重新校验模型失败：{verify_error}");
+                            error =
+                                format!("{error}; model re-verification failed: {verify_error}");
                         }
                         Ok(true) => {}
                     }

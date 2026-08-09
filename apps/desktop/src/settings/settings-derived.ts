@@ -28,6 +28,44 @@ export function showsLocalRecognitionSettings(
   return backend === "local_whisper";
 }
 
+export const LOCAL_RECOGNITION_SOURCE = "local";
+
+export function recognitionSourceValue(asr: Settings["asr"]): string {
+  if (asr.backend === "local_whisper") return LOCAL_RECOGNITION_SOURCE;
+  const provider = asr.backend === "openai_realtime" ? "openai" : "alibaba_cloud";
+  return asr.active_api_profiles[provider] ?? "";
+}
+
+export function selectRecognitionSource(
+  asr: Settings["asr"],
+  source: string,
+): Settings["asr"] {
+  if (source === LOCAL_RECOGNITION_SOURCE) {
+    return { ...asr, backend: "local_whisper" };
+  }
+
+  const profile = asr.api_profiles.find((item) => item.id === source);
+  if (!profile) return asr;
+
+  if (profile.provider === "openai") {
+    if (profile.base_url) return asr;
+    return {
+      ...asr,
+      backend: "openai_realtime",
+      active_api_profiles: { ...asr.active_api_profiles, openai: profile.id },
+    };
+  }
+
+  const backend = asr.backend === "qwen_realtime" || asr.backend === "fun_asr_realtime"
+    ? asr.backend
+    : "qwen_realtime";
+  return {
+    ...asr,
+    backend,
+    active_api_profiles: { ...asr.active_api_profiles, alibaba_cloud: profile.id },
+  };
+}
+
 export function formatBytes(bytes: number, locale: string): string {
   if (bytes < 1_000_000) {
     return `${new Intl.NumberFormat(locale, { maximumFractionDigits: 0 }).format(Math.max(0, bytes / 1_000))} KB`;
@@ -160,5 +198,3 @@ export function createDebugRows({
     },
   ];
 }
-
-

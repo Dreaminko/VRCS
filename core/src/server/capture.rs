@@ -18,7 +18,7 @@ pub(super) async fn audio_devices() -> ApiResult<Json<Value>> {
             api_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "audio.device_task_failed",
-                format!("音频设备枚举任务失败：{error}"),
+                format!("Audio device enumeration task failed: {error}"),
             )
         })?
         .map_err(|error| {
@@ -35,42 +35,12 @@ pub(super) async fn capture_start(State(state): State<Arc<AppState>>) -> ApiResu
         return Err(api_error(
             StatusCode::UNPROCESSABLE_ENTITY,
             "capture.invalid_sample_rate",
-            "Rust ASR 管线要求 16000 Hz 采样率",
+            "The Rust ASR pipeline requires a 16000 Hz sample rate",
         ));
     }
     if config.asr.backend != "local_whisper" {
-        let provider = if matches!(
-            config.asr.backend.as_str(),
-            "qwen_realtime" | "fun_asr_realtime"
-        ) {
-            "qwen"
-        } else {
-            "openai"
-        };
-        if provider == "qwen" && config.asr.qwen.workspace_id.trim().is_empty() {
-            return Err(api_error(
-                StatusCode::CONFLICT,
-                "asr.qwen_workspace_missing",
-                "阿里云 Workspace ID 尚未配置",
-            ));
-        }
-        if crate::asr::read_credential(provider)
-            .map_err(|error| {
-                api_error(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "asr.credential_read_failed",
-                    error,
-                )
-            })?
-            .is_none()
-        {
-            return Err(api_error_with_params(
-                StatusCode::CONFLICT,
-                "asr.credential_missing",
-                json!({ "provider": provider }),
-                format!("{provider} API Key 尚未配置"),
-            ));
-        }
+        crate::asr::validate_cloud_connection(&config.asr)
+            .map_err(|error| api_error(StatusCode::CONFLICT, "asr.cloud_profile_invalid", error))?;
     }
     let manager = Arc::clone(&state.model_manager);
     let model = config.asr.local.model.clone();
@@ -84,7 +54,7 @@ pub(super) async fn capture_start(State(state): State<Arc<AppState>>) -> ApiResu
                     StatusCode::INTERNAL_SERVER_ERROR,
                     "asr.model.inspect_task_failed",
                     json!({ "model": config.asr.local.model }),
-                    format!("模型校验任务失败：{error}"),
+                    format!("Model validation task failed: {error}"),
                 )
             })?
             .map_err(|error| {
@@ -100,7 +70,10 @@ pub(super) async fn capture_start(State(state): State<Arc<AppState>>) -> ApiResu
             StatusCode::CONFLICT,
             "asr.model.not_downloaded",
             json!({ "model": config.asr.local.model }),
-            format!("识别模型 {} 尚未下载", config.asr.local.model),
+            format!(
+                "Recognition model {} has not been downloaded",
+                config.asr.local.model
+            ),
         ));
     }
     if state.speaker_pipeline.lock().await.running()
@@ -124,6 +97,9 @@ pub(super) async fn capture_start(State(state): State<Arc<AppState>>) -> ApiResu
         state.subtitles_tx.clone(),
         state.live_tx.clone(),
         config.storage.subtitle_history_limit,
+        state.translation_dispatcher.clone(),
+        config.translation.clone(),
+        config.asr.api_profiles.clone(),
     );
     let device = state
         .speaker_pipeline

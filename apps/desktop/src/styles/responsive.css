@@ -5,7 +5,9 @@
   .settings-tabbar-wrap { padding: 16px 24px 0; }
   .settings-section { padding: 24px; }
   .recognition-config-row { grid-template-columns: 1fr; gap: 14px; }
-  .api-provider-row { grid-template-columns: 1fr; gap: 14px; }
+  .translation-config-row { grid-template-columns: 1fr; gap: 14px; }
+  .api-profile-row { grid-template-columns: minmax(0, 1fr) minmax(125px, auto); gap: 10px 16px; }
+  .api-profile-actions { grid-column: 1 / -1; justify-content: flex-start; }
 }
 
 @media (max-width: 680px) {
@@ -22,7 +24,15 @@
   .form-grid { grid-template-columns: 1fr; }
   .system-language-setting { grid-template-columns: 1fr; gap: 10px; }
   .recognition-config-fields { grid-template-columns: 1fr; }
-  .api-provider-endpoint { grid-template-columns: 1fr; }
+  .translation-config-fields { grid-template-columns: 1fr; }
+  .translation-section-subtitle { margin-left: 0; }
+  .api-profile-row { grid-template-columns: 1fr; align-items: start; }
+  .api-profile-actions { grid-column: 1; flex-wrap: wrap; }
+  .api-profile-form-grid { grid-template-columns: 1fr; }
+  .api-profile-key-field { grid-column: 1; }
+  .api-profile-editor-actions { align-items: stretch; flex-direction: column; }
+  .api-profile-editor-actions > div:last-child { justify-content: flex-end; }
+  .api-section-subtitle { margin-left: 0; }
   .api-section .section-heading { align-items: flex-start; flex-direction: column; gap: 6px; }
   .api-section .section-heading h2 { white-space: nowrap; }
   .model-row { grid-template-columns: minmax(0, 1fr); }

@@ -4,11 +4,14 @@ mod anki;
 mod asr;
 mod audio;
 mod config;
+mod credentials;
 mod db;
 mod error;
+mod llm;
 mod models;
 mod pipeline;
 mod server;
+mod translation;
 mod vad;
 mod yomitan;
 
@@ -120,21 +123,25 @@ pub fn init_tracing(log_dir: Option<&Path>) -> Result<LoggingGuard, String> {
     let filter = tracing_subscriber::EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| "vrcs_core=info,tower_http=info".into());
     if let Some(log_dir) = log_dir {
-        std::fs::create_dir_all(log_dir)
-            .map_err(|error| format!("无法创建日志目录 {}：{error}", log_dir.display()))?;
+        std::fs::create_dir_all(log_dir).map_err(|error| {
+            format!(
+                "Failed to create log directory {}: {error}",
+                log_dir.display()
+            )
+        })?;
         let appender = tracing_appender::rolling::RollingFileAppender::builder()
             .rotation(tracing_appender::rolling::Rotation::DAILY)
             .filename_prefix("vrcs-core")
             .filename_suffix("log")
             .max_log_files(4)
             .build(log_dir)
-            .map_err(|error| format!("无法创建日志文件：{error}"))?;
+            .map_err(|error| format!("Failed to create log file: {error}"))?;
         let (file_writer, guard) = tracing_appender::non_blocking(appender);
         tracing_subscriber::fmt()
             .with_env_filter(filter)
             .with_writer(file_writer.and(std::io::stderr))
             .try_init()
-            .map_err(|error| format!("无法初始化日志：{error}"))?;
+            .map_err(|error| format!("Failed to initialize logging: {error}"))?;
         Ok(LoggingGuard {
             _guard: Some(guard),
         })
@@ -142,7 +149,7 @@ pub fn init_tracing(log_dir: Option<&Path>) -> Result<LoggingGuard, String> {
         tracing_subscriber::fmt()
             .with_env_filter(filter)
             .try_init()
-            .map_err(|error| format!("无法初始化日志：{error}"))?;
+            .map_err(|error| format!("Failed to initialize logging: {error}"))?;
         Ok(LoggingGuard { _guard: None })
     }
 }
@@ -177,8 +184,9 @@ async fn start_inner(options: CoreOptions, defer_managed_vad: bool) -> Result<Co
     let mut config = load_config(&options.config_path)?;
     config
         .validate_settings()
-        .map_err(|error| format!("启动配置无效：{error}"))?;
-    asr::validate_config(&mut config.asr).map_err(|error| format!("启动配置无效：{error}"))?;
+        .map_err(|error| format!("Invalid startup configuration: {error}"))?;
+    asr::validate_config(&mut config.asr)
+        .map_err(|error| format!("Invalid startup configuration: {error}"))?;
     let host = options.host.unwrap_or_else(|| config.server.host.clone());
     let port = options.port.unwrap_or(config.server.port);
     config.server.host = host.clone();
@@ -188,11 +196,11 @@ async fn start_inner(options: CoreOptions, defer_managed_vad: bool) -> Result<Co
         .filter(|token| !token.trim().is_empty());
     let address = SocketAddr::new(
         host.parse()
-            .map_err(|_| format!("无效的监听地址：{host}"))?,
+            .map_err(|_| format!("Invalid listen address: {host}"))?,
         port,
     );
     if !address.ip().is_loopback() && supplied_session_token.is_none() {
-        return Err("非回环监听地址必须配置 VRCS_SESSION_TOKEN".into());
+        return Err("VRCS_SESSION_TOKEN is required for non-loopback listen addresses".into());
     }
     let session_token =
         supplied_session_token.unwrap_or_else(|| uuid::Uuid::new_v4().simple().to_string());
@@ -202,8 +210,12 @@ async fn start_inner(options: CoreOptions, defer_managed_vad: bool) -> Result<Co
         .parent()
         .unwrap_or_else(|| Path::new("."));
     let database_path = resolve_config_path(&options.config_path, &config.storage.database_path);
-    let database = Database::open(&database_path)
-        .map_err(|error| format!("无法打开数据库 {}: {error}", database_path.display()))?;
+    let database = Database::open(&database_path).map_err(|error| {
+        format!(
+            "Failed to open database {}: {error}",
+            database_path.display()
+        )
+    })?;
     let managed_vad_model = options.vad_model_path.is_none();
     let vad_model_path = options
         .vad_model_path
@@ -244,7 +256,14 @@ async fn start_inner(options: CoreOptions, defer_managed_vad: bool) -> Result<Co
     let asr_config = config.asr.clone();
     let (subtitles_tx, _) = broadcast::channel(50);
     let (live_tx, _) = broadcast::channel(100);
+    let (translation_tx, _) = broadcast::channel(100);
     let db = Arc::new(Mutex::new(database));
+    let translation_service = Arc::new(translation::TranslationService::new()?);
+    let translation_dispatcher = translation::TranslationDispatcher::new(
+        Arc::clone(&translation_service),
+        Arc::clone(&db),
+        translation_tx.clone(),
+    );
     let asr_service = asr::AsrService::new(asr_config, asr_model_dir);
     let asr_runtime = asr_service.runtime_state();
     let asr = Arc::new(Mutex::new(asr_service));
@@ -257,6 +276,9 @@ async fn start_inner(options: CoreOptions, defer_managed_vad: bool) -> Result<Co
         db,
         subtitles_tx,
         live_tx,
+        translation_tx,
+        translation_service,
+        translation_dispatcher,
         http: anki::client(),
         session_token: session_token.clone(),
         shutdown: shutdown_rx.clone(),
@@ -283,10 +305,10 @@ async fn start_inner(options: CoreOptions, defer_managed_vad: bool) -> Result<Co
 
     let listener = tokio::net::TcpListener::bind(address)
         .await
-        .map_err(|error| format!("无法监听 {address}: {error}"))?;
+        .map_err(|error| format!("Failed to listen on {address}: {error}"))?;
     let address = listener
         .local_addr()
-        .map_err(|error| format!("无法读取监听地址：{error}"))?;
+        .map_err(|error| format!("Failed to read the listen address: {error}"))?;
     tracing::info!(version = CORE_VERSION, %address, "vrcs-core listening");
     tracing::info!(
         elapsed_ms = startup_started.elapsed().as_millis(),
@@ -303,7 +325,7 @@ async fn start_inner(options: CoreOptions, defer_managed_vad: bool) -> Result<Co
                 }
             })
             .await
-            .map_err(|error| format!("服务运行失败: {error}"))
+            .map_err(|error| format!("Server failed: {error}"))
     });
     Ok(CoreHandle {
         address,

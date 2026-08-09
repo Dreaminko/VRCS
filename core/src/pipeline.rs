@@ -97,7 +97,7 @@ impl TranscriptionPipeline {
         .map_err(|error| {
             AudioError::with_code(
                 "audio.start_task_failed",
-                format!("音频启动任务异常退出：{error}"),
+                format!("Audio startup task exited unexpectedly: {error}"),
             )
         })??;
         let cloud = if asr_config.backend == "local_whisper" {
@@ -219,7 +219,7 @@ async fn run(
                         cloud = None;
                         continue;
                     }
-                    None => break Err("云端识别会话已关闭".into()),
+                    None => break Err("Cloud recognition session is closed".into()),
                 }
             }
             chunk = capture.read() => match chunk {
@@ -383,7 +383,22 @@ mod tests {
         )));
         let (tx, mut rx) = broadcast::channel(4);
         let (live_tx, _) = broadcast::channel(4);
-        let dependencies = PipelineDependencies::new(asr, Arc::clone(&db), tx, live_tx, 10);
+        let (translation_tx, _) = broadcast::channel(4);
+        let translation = crate::translation::TranslationDispatcher::new(
+            Arc::new(crate::translation::TranslationService::new().unwrap()),
+            Arc::clone(&db),
+            translation_tx,
+        );
+        let dependencies = PipelineDependencies::new(
+            asr,
+            Arc::clone(&db),
+            tx,
+            live_tx,
+            10,
+            translation,
+            crate::config::TranslationConfig::default(),
+            Vec::new(),
+        );
 
         dependencies
             .transcribe_and_publish(vec![0.0; 512], "microphone")
