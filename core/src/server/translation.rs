@@ -1,5 +1,4 @@
-use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::sync::Arc;
 
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
@@ -72,32 +71,14 @@ pub(super) async fn subtitle_translate(
     let _ = state
         .translation_tx
         .send(TranslationEvent::TranslationStarted { subtitle_id });
-    let progress_tx = state.translation_tx.clone();
-    let target_language = config.translation.target_language.clone();
-    let last_progress = Mutex::new(Instant::now() - Duration::from_millis(50));
-    let progress = move |text: &str| {
-        let Ok(mut last) = last_progress.lock() else {
-            return;
-        };
-        if last.elapsed() < Duration::from_millis(40) {
-            return;
-        }
-        *last = Instant::now();
-        let _ = progress_tx.send(TranslationEvent::TranslationPartial {
-            subtitle_id,
-            text: text.to_owned(),
-            target_language: target_language.clone(),
-        });
-    };
     let record = state
         .translation_service
-        .translate_with_progress(
+        .translate(
             &config.translation,
             &config.asr.api_profiles,
             &subtitle.text,
             subtitle.language.as_deref(),
             None,
-            Some(&progress),
         )
         .await
         .map_err(translation_error)?

@@ -88,13 +88,18 @@ function ChatBubble({ subtitle, onSelect, onTranslate, translating }: {
         {!mine && <time>{timestamp(subtitle.created_at, locale)}</time>}
         {mine && <Mic size={14} />}
       </div>
-      <p className="bubble" lang={contentLanguageTag(subtitle.language)} onMouseUp={() => void onSelect(subtitle.text)}>{subtitle.text}</p>
-      {visibleTranslation && (
-        <p className={`bubble translation-bubble ${subtitle.translation_partial ? "streaming-translation" : ""}`} lang={contentLanguageTag(visibleTranslation.target_language)}>
-          {visibleTranslation.text}
-          {subtitle.translation_partial && <span className="streaming-ellipsis" aria-hidden="true">…</span>}
-        </p>
-      )}
+      <div className="bubble">
+        <p className="bubble-original" lang={contentLanguageTag(subtitle.language)} onMouseUp={() => void onSelect(subtitle.text)}>{subtitle.text}</p>
+        {visibleTranslation && (
+          <>
+            <div className="bubble-translation-divider" aria-hidden="true" />
+            <p className={`bubble-translation ${subtitle.translation_partial ? "streaming-translation" : ""}`} lang={contentLanguageTag(visibleTranslation.target_language)}>
+              {visibleTranslation.text}
+              {subtitle.translation_partial && <span className="streaming-ellipsis" aria-hidden="true">…</span>}
+            </p>
+          </>
+        )}
+      </div>
       {onTranslate && subtitle.id !== null && (
         <button className="translation-action" type="button" disabled={translating} onClick={() => onTranslate(subtitle.id!)}>
           <Languages size={13} />{t(translating ? "translation.translating" : subtitle.translations.length ? "translation.retry" : "translation.action")}
