@@ -35,8 +35,16 @@ let connection: CoreConnection = {
   wsUrl: "ws://127.0.0.1:8766/ws",
   token: import.meta.env.VITE_VRCS_SESSION_TOKEN ?? "",
 };
+interface ConfigRevision {
+  token: string;
+  epoch: string;
+  counter: number;
+}
+
+let configRevision: ConfigRevision | null = null;
 
 export async function initializeCoreApi(): Promise<void> {
+  configRevision = null;
   if (isTauri()) {
     connection = await invoke<CoreConnection>("core_connection");
   }
@@ -50,6 +58,7 @@ export async function coreStartup(): Promise<CoreStartup> {
 export async function retryCore(): Promise<void> {
   if (!isTauri()) return;
   await invoke("retry_core");
+  configRevision = null;
 }
 
 function requestHeaders(initial?: HeadersInit): Headers {
@@ -76,6 +85,53 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return (await response.json()) as T;
 }
 
+function parseConfigRevision(value: string | null): ConfigRevision | null {
+  if (value === null) return null;
+  const separator = value.lastIndexOf(":");
+  if (separator <= 0) return null;
+  const epoch = value.slice(0, separator);
+  const counter = Number.parseInt(value.slice(separator + 1), 10);
+  if (!Number.isSafeInteger(counter) || counter < 0) return null;
+  return { token: value, epoch, counter };
+}
+
+async function settingsRequest(
+  init?: RequestInit,
+  retryStaleResponse = true,
+): Promise<Settings> {
+  const headers = requestHeaders(init?.headers);
+  if (init?.method === "PUT" && configRevision !== null) {
+    headers.set("X-VRCS-Config-Revision", configRevision.token);
+  }
+  const response = await fetch(`${connection.httpUrl}/api/settings`, {
+    ...init,
+    headers,
+  });
+  if (!response.ok) {
+    throw await apiErrorFromResponse(response);
+  }
+  const responseRevision = parseConfigRevision(
+    response.headers.get("X-VRCS-Config-Revision"),
+  );
+  if (
+    responseRevision !== null
+    && configRevision !== null
+    && responseRevision.epoch === configRevision.epoch
+    && responseRevision.counter < configRevision.counter
+  ) {
+    if (retryStaleResponse) return settingsRequest(undefined, false);
+    throw new Error("The Core returned an outdated settings revision");
+  }
+  if (responseRevision !== null && (
+    configRevision === null
+    || responseRevision.epoch !== configRevision.epoch
+    || responseRevision.counter >= configRevision.counter
+  )) {
+    configRevision = responseRevision;
+  }
+  return (await response.json()) as Settings;
+}
+
 function dictionaryImportId(): string {
   if (typeof crypto.randomUUID === "function") return crypto.randomUUID();
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
@@ -89,9 +145,9 @@ export const coreApi = {
   health: () => request<Health>("/health"),
   subtitles: () => request<Subtitle[]>("/api/subtitles"),
   devices: () => request<AudioDevice[]>("/api/audio/devices"),
-  settings: () => request<Settings>("/api/settings"),
+  settings: () => settingsRequest(),
   saveSettings: (settings: Settings) =>
-    request<Settings>("/api/settings", {
+    settingsRequest({
       method: "PUT",
       body: JSON.stringify(settings),
     }),

@@ -100,12 +100,12 @@ export function OscSettingsSection({
         </div>
 
         <div className="osc-endpoint-row">
-          <div>
+          <div className="osc-endpoint-field">
             <span>{t("settings.osc.address")}</span>
-            <strong>127.0.0.1</strong>
+            <code className="osc-address-value">127.0.0.1</code>
             <small>{t("settings.osc.addressDescription")}</small>
           </div>
-          <label className="osc-port-field">
+          <label className="osc-endpoint-field osc-port-field">
             <span>{t("settings.osc.port")}</span>
             <input
               type="text"
@@ -123,11 +123,11 @@ export function OscSettingsSection({
                 }
               }}
             />
+            <small id="osc-port-help" className={portError ? "error" : ""}>
+              {portError || t("settings.osc.portHint")}
+            </small>
           </label>
         </div>
-        <p id="osc-port-help" className={`osc-port-help ${portError ? "error" : ""}`}>
-          {portError || t("settings.osc.portHint")}
-        </p>
         <p className="osc-vrchat-hint">{t("settings.osc.vrchatHint")}</p>
       </>}
     </div>

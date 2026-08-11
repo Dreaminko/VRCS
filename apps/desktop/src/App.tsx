@@ -51,6 +51,7 @@ function App() {
     clearError,
     reportError,
     retryCore,
+    loadSettings,
     loadDevices,
     loadAsrCapabilities,
     toggleCapture: toggleCoreCapture,
@@ -109,7 +110,7 @@ function App() {
   useEffect(() => {
     writeInterfaceScale(interfaceScale);
     void applyInterfaceScale(interfaceScale).catch((reason) => {
-      reportError(reason, "errors.window.interfaceScale");
+      reportError(reason, "errors.window.interfaceScale", "window");
     });
   }, [interfaceScale, reportError]);
 
@@ -161,11 +162,11 @@ function App() {
           try {
             await resizeCompactWindow(true);
           } catch (resizeError) {
-            reportError(resizeError, "errors.window.warningExpand");
+            reportError(resizeError, "errors.window.warningExpand", "window");
           }
         }
       } else {
-        reportError(reason, "errors.operation");
+        reportError(reason, "errors.operation", "capture");
       }
     }
   };
@@ -348,6 +349,7 @@ function App() {
                 modelStatus={health?.asr_status ?? "unknown"}
                 asrCapabilities={asrCapabilities}
                 onRefresh={loadDevices}
+                onRefreshSettings={loadSettings}
                 onImportDictionary={importDictionary}
                 onDeleteDictionary={deleteDictionary}
                 onModelsChanged={loadAsrCapabilities}

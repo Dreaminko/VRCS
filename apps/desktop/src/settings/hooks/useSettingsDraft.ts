@@ -18,8 +18,8 @@ export function useSettingsDraft(
   const savingRef = useRef(false);
 
   useEffect(() => {
-    draftRef.current = settings;
     if (savingRef.current) return;
+    draftRef.current = settings;
     setDraft(settings);
   }, [settings]);
 

@@ -1,4 +1,4 @@
-import { Cloud, Languages, RefreshCw, Workflow } from "lucide-react";
+import { Cloud, Languages, Mic2, RefreshCw, Workflow } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -7,7 +7,7 @@ import { localizedError } from "../../app-utils";
 import { EditableDropdownField } from "../../components/DropdownField";
 import type { ApiProfile, Settings, TranslationSettings } from "../../types";
 import type { ApplySettings, SaveState } from "../settings-types";
-import { Select } from "../SettingsControls";
+import { PreferenceToggle, Select } from "../SettingsControls";
 
 const targetLanguages: TranslationSettings["target_language"][] = [
   "zh-Hans", "zh-Hant", "en", "ja", "ko", "es", "fr", "de", "ru",
@@ -73,6 +73,9 @@ export function TranslationSettingsSection({ draft, disabled, saveState, applySe
     translation,
   }));
   const controlsDisabled = disabled || saveState === "saving";
+  const statusMode = draft.translation.mode === "disabled" && draft.translation.translate_microphone
+    ? "microphone"
+    : draft.translation.mode;
 
   return (
     <div className="settings-section settings-section-active translation-section" id="settings-panel-translation" role="tabpanel" aria-labelledby="settings-tab-translation">
@@ -80,8 +83,8 @@ export function TranslationSettingsSection({ draft, disabled, saveState, applySe
         <div>
           <Languages size={18} />
           <h2>{t("settings.translation.title")}</h2>
-          <span className={`status-chip ${draft.translation.mode}`}>
-            {t(`settings.translation.modes.${draft.translation.mode}`)}
+          <span className={`status-chip ${statusMode}`}>
+            {t(`settings.translation.modes.${statusMode}`)}
           </span>
         </div>
       </div>
@@ -118,6 +121,52 @@ export function TranslationSettingsSection({ draft, disabled, saveState, applySe
                   model: modelForProfile(profile, draft.translation.model),
                 });
               }}
+            />
+          </div>
+        </div>
+
+        <div className="translation-config-row">
+          <div className="translation-config-title">
+            <Mic2 size={17} />
+            <span>
+              <strong>{t("settings.translation.ownVoice")}</strong>
+              <small>{t("settings.translation.ownVoiceDescription")}</small>
+            </span>
+          </div>
+          <div className="translation-own-voice-fields">
+            <PreferenceToggle
+              title={t("settings.translation.translateOwnVoice")}
+              description={t("settings.translation.translateOwnVoiceDescription")}
+              checked={draft.translation.translate_microphone}
+              disabled={controlsDisabled || !draft.asr.api_profiles.length}
+              onChange={(translate_microphone) => {
+                const profileId = translate_microphone
+                  ? draft.translation.profile_id ?? draft.asr.api_profiles[0]?.id ?? null
+                  : draft.translation.profile_id;
+                const profile = draft.asr.api_profiles.find((item) => item.id === profileId);
+                update({
+                  ...draft.translation,
+                  translate_microphone,
+                  profile_id: profileId,
+                  model: modelForProfile(profile, draft.translation.model),
+                });
+              }}
+            />
+            <Select
+              label={t("settings.translation.ownVoiceTargetLanguage")}
+              helper={draft.asr.api_profiles.length
+                ? t("settings.translation.ownVoiceTargetLanguageDescription")
+                : t("settings.translation.noProfiles")}
+              value={draft.translation.microphone_target_language}
+              disabled={controlsDisabled || !draft.translation.translate_microphone}
+              options={targetLanguages.map((value) => ({
+                value,
+                label: t(`translation.languages.${value}`),
+              }))}
+              onChange={(microphone_target_language) => update({
+                ...draft.translation,
+                microphone_target_language: microphone_target_language as TranslationSettings["microphone_target_language"],
+              })}
             />
           </div>
         </div>

@@ -193,13 +193,13 @@ function providerLabel(provider: ApiProvider) {
 
 export function ApiManagementSettingsSection({
   disabled,
-  onRefresh,
+  onRefreshSettings,
 }: {
   disabled: boolean;
-  onRefresh: () => Promise<void>;
+  onRefreshSettings: () => Promise<void>;
 }) {
   const { t } = useTranslation();
-  const profiles = useApiProfiles(onRefresh);
+  const profiles = useApiProfiles(onRefreshSettings);
   const [editor, setEditor] = useState<EditorDraft | null>(null);
   const locked = disabled || profiles.busy !== null;
 

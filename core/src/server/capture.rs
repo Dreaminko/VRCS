@@ -94,13 +94,12 @@ pub(super) async fn capture_start(State(state): State<Arc<AppState>>) -> ApiResu
     let dependencies = PipelineDependencies::new(
         Arc::clone(&state.asr),
         Arc::clone(&state.db),
-        state.subtitles_tx.clone(),
         state.live_tx.clone(),
         config.storage.subtitle_history_limit,
         state.translation_dispatcher.clone(),
         config.translation.clone(),
         config.asr.api_profiles.clone(),
-        state.osc.clone(),
+        state.subtitle_output.clone(),
     );
     let device = state
         .speaker_pipeline

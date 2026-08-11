@@ -152,6 +152,12 @@
 .translation-config-title > svg { flex: 0 0 auto; margin-top: 1px; }
 .translation-config-title small { text-wrap: pretty; }
 .translation-config-fields-single > .field { grid-column: 1; }
+.translation-own-voice-fields { display: grid; gap: 12px; }
+.translation-own-voice-fields .settings-toggle-row {
+  min-height: 0;
+  padding: 0 0 12px;
+}
+.translation-own-voice-fields > .field { max-width: 280px; }
 .translation-model-input-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -674,6 +680,31 @@
   gap: 14px;
   align-items: end;
 }
+.osc-endpoint-row {
+  grid-template-columns: minmax(0, 1fr) minmax(180px, 0.42fr);
+  align-items: start;
+  margin-bottom: 14px;
+}
+.osc-endpoint-row > .osc-endpoint-field {
+  display: grid;
+  min-width: 0;
+  grid-template-rows: auto 40px auto;
+  gap: 7px;
+}
+.osc-endpoint-field > span { color: var(--text-secondary); font-size: 13px; font-weight: 600; }
+.osc-address-value {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  background: var(--surface-subtle);
+  font: 13px var(--font-mono);
+}
+.osc-endpoint-field > small { color: var(--text-quiet); font-size: 11px; line-height: 1.55; }
+.osc-endpoint-field > small.error { color: var(--error); }
 .anki-endpoint-row > div,
 .osc-endpoint-row > div { display: grid; gap: 4px; }
 .anki-endpoint-row > div > span,
@@ -707,11 +738,9 @@
 .anki-port-field input:disabled,
 .osc-port-field input:disabled,
 .model-directory-setting input:disabled { color: var(--text-quiet); background: var(--surface-subtle); }
-.anki-port-help,
-.osc-port-help { margin: 8px 0 14px; color: var(--text-quiet); font-size: 11px; line-height: 1.55; }
+.anki-port-help { margin: 8px 0 14px; color: var(--text-quiet); font-size: 11px; line-height: 1.55; }
 .anki-port-help { margin-bottom: 22px; }
-.anki-port-help.error,
-.osc-port-help.error { color: var(--error); }
+.anki-port-help.error { color: var(--error); }
 .osc-vrchat-hint { margin: 0; padding: 12px 14px; border-radius: var(--radius-sm); color: var(--text-secondary); background: var(--primary-softer); font-size: 11px; line-height: 1.6; text-wrap: pretty; }
 .anki-mapping-grid { padding-top: 22px; border-top: 1px solid var(--border); }
 .model-section .section-heading { margin-bottom: 16px; }

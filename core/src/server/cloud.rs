@@ -90,6 +90,7 @@ pub(super) async fn profile_create(
     State(state): State<Arc<AppState>>,
     Json(input): Json<CreateProfileInput>,
 ) -> ApiResult<Json<Value>> {
+    let _config_control = state.config_control.lock().await;
     let mut profile = ApiProfile {
         id: uuid::Uuid::new_v4().to_string(),
         name: input.name.trim().to_string(),
@@ -124,6 +125,7 @@ pub(super) async fn profile_update(
     Path(profile_id): Path<String>,
     Json(input): Json<UpdateProfileInput>,
 ) -> ApiResult<Json<Value>> {
+    let _config_control = state.config_control.lock().await;
     let mut candidate = state.config.read().expect("config lock").clone();
     let profile = candidate
         .asr
@@ -163,6 +165,7 @@ pub(super) async fn profile_delete(
     State(state): State<Arc<AppState>>,
     Path(profile_id): Path<String>,
 ) -> ApiResult<Json<Value>> {
+    let _config_control = state.config_control.lock().await;
     let mut candidate = state.config.read().expect("config lock").clone();
     let profile = candidate
         .asr
@@ -184,6 +187,7 @@ pub(super) async fn profile_delete(
     if candidate.translation.profile_id.as_deref() == Some(profile_id.as_str()) {
         candidate.translation.profile_id = None;
         candidate.translation.mode = "disabled".into();
+        candidate.translation.translate_microphone = false;
     }
     commit_profile_config(&state, candidate).await?;
     asr::delete_credential(&profile.id, &profile.provider)
@@ -196,6 +200,7 @@ pub(super) async fn credential_write(
     Path(profile_id): Path<String>,
     Json(input): Json<CredentialInput>,
 ) -> ApiResult<Json<Value>> {
+    let _config_control = state.config_control.lock().await;
     ensure_capture_stopped(&state).await?;
     let config = state.config.read().expect("config lock").clone();
     let profile = config
@@ -215,6 +220,7 @@ pub(super) async fn credential_delete(
     State(state): State<Arc<AppState>>,
     Path(profile_id): Path<String>,
 ) -> ApiResult<Json<Value>> {
+    let _config_control = state.config_control.lock().await;
     ensure_capture_stopped(&state).await?;
     let config = state.config.read().expect("config lock").clone();
     let profile = config
@@ -245,6 +251,7 @@ pub(super) async fn profile_activate(
     Path(provider): Path<String>,
     Json(input): Json<ActiveProfileInput>,
 ) -> ApiResult<Json<Value>> {
+    let _config_control = state.config_control.lock().await;
     if ![ALIBABA_PROVIDER, OPENAI_PROVIDER].contains(&provider.as_str()) {
         return Err(api_error(
             StatusCode::UNPROCESSABLE_ENTITY,
@@ -283,7 +290,7 @@ pub(super) async fn profile_activate(
         _ => unreachable!(),
     }
     commit_profile_config(&state, candidate).await?;
-    profile_list(State(state)).await
+    profile_list(State(Arc::clone(&state))).await
 }
 
 pub(super) async fn credential_test(
@@ -317,6 +324,7 @@ pub(super) async fn credential_test(
                 config.translation.model.clone()
             },
             thinking_enabled: false,
+            ..TranslationConfig::default()
         };
         state
             .translation_service
@@ -402,6 +410,9 @@ async fn commit_profile_config(
         )
     })?;
     *state.config.write().expect("config lock") = candidate;
+    state
+        .config_revision
+        .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     Ok(())
 }
 

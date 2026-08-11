@@ -38,9 +38,9 @@ pub(super) async fn ws_handler(
 }
 
 pub(super) async fn handle_socket(state: Arc<AppState>, socket: WebSocket) {
-    let mut receiver = state.subtitles_tx.subscribe();
+    let mut receiver = state.subtitle_output.subscribe_subtitles();
     let mut live_receiver = state.live_tx.subscribe();
-    let mut translation_receiver = state.translation_tx.subscribe();
+    let mut translation_receiver = state.subtitle_output.subscribe_translations();
     let mut shutdown = state.shutdown.clone();
     let (mut sender, mut incoming) = socket.split();
     if sender

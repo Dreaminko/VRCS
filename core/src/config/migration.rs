@@ -194,12 +194,31 @@ fn migrate_v4_or_v5(raw: &serde_json::Value) -> Result<AppConfig, String> {
     serde_json::from_value(value).map_err(|error| error.to_string())
 }
 
-fn migrate_v6_or_v7(raw: &serde_json::Value) -> Result<AppConfig, String> {
+fn migrate_v6_to_v8(raw: &serde_json::Value) -> Result<AppConfig, String> {
     let mut value = raw.clone();
-    value
+    let object = value
         .as_object_mut()
-        .ok_or_else(|| "Configuration root must be an object".to_string())?
-        .insert("schema_version".into(), serde_json::json!(SCHEMA_VERSION));
+        .ok_or_else(|| "Configuration root must be an object".to_string())?;
+    let translation = object
+        .entry("translation")
+        .or_insert_with(|| serde_json::json!({}))
+        .as_object_mut()
+        .ok_or_else(|| "Configuration translation must be an object".to_string())?;
+    let translated_microphone = translation
+        .get("mode")
+        .and_then(|value| value.as_str())
+        .is_some_and(|mode| mode == "automatic");
+    let microphone_target = translation
+        .get("target_language")
+        .cloned()
+        .unwrap_or_else(|| serde_json::json!("zh-Hans"));
+    translation
+        .entry("translate_microphone")
+        .or_insert_with(|| serde_json::json!(translated_microphone));
+    translation
+        .entry("microphone_target_language")
+        .or_insert(microphone_target);
+    object.insert("schema_version".into(), serde_json::json!(SCHEMA_VERSION));
     serde_json::from_value(value).map_err(|error| error.to_string())
 }
 
@@ -231,7 +250,7 @@ pub fn config_from_value(raw: &serde_json::Value) -> Result<AppConfig, String> {
         version if version == SCHEMA_VERSION as u64 => {
             serde_json::from_value(raw.clone()).map_err(|error| error.to_string())?
         }
-        6 | 7 => migrate_v6_or_v7(raw)?,
+        6 | 7 | 8 => migrate_v6_to_v8(raw)?,
         4 | 5 => migrate_v4_or_v5(raw)?,
         2 | 3 => migrate_v2_or_v3(raw)?,
         1 => migrate_v1(raw),

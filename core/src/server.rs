@@ -12,6 +12,7 @@ mod translation;
 mod ws;
 
 use std::path::PathBuf;
+use std::sync::atomic::AtomicU64;
 use std::sync::{Arc, Mutex, RwLock};
 
 use axum::extract::{DefaultBodyLimit, State};
@@ -27,13 +28,15 @@ use tower_http::cors::CorsLayer;
 use crate::config::AppConfig;
 use crate::db::Database;
 use crate::error::{AppError, AppResult};
-use crate::models::{LiveTranscription, Subtitle};
+use crate::models::LiveTranscription;
 use crate::osc::OscChatboxDispatcher;
 use crate::pipeline::TranscriptionPipeline;
-use crate::translation::{TranslationDispatcher, TranslationEvent, TranslationService};
+use crate::subtitle_output::SubtitleLifecyclePublisher;
+use crate::translation::{TranslationDispatcher, TranslationService};
 use crate::{asr, vad, yomitan};
 
 pub const CORE_VERSION: &str = env!("CARGO_PKG_VERSION");
+const CONFIG_REVISION_HEADER: &str = "x-vrcs-config-revision";
 const ALLOWED_ORIGINS: [&str; 4] = [
     "http://tauri.localhost",
     "https://tauri.localhost",
@@ -46,9 +49,8 @@ pub struct AppState {
     pub asr_model_dir_override: Option<PathBuf>,
     pub config: RwLock<AppConfig>,
     pub db: Arc<Mutex<Database>>,
-    pub subtitles_tx: broadcast::Sender<Subtitle>,
     pub live_tx: broadcast::Sender<LiveTranscription>,
-    pub translation_tx: broadcast::Sender<TranslationEvent>,
+    pub subtitle_output: SubtitleLifecyclePublisher,
     pub translation_service: Arc<TranslationService>,
     pub translation_dispatcher: TranslationDispatcher,
     pub osc: OscChatboxDispatcher,
@@ -59,6 +61,9 @@ pub struct AppState {
     pub asr: Arc<Mutex<asr::AsrService>>,
     pub asr_runtime: asr::AsrRuntimeState,
     pub model_manager: Arc<asr::ModelManager>,
+    pub config_epoch: String,
+    pub config_revision: AtomicU64,
+    pub config_control: AsyncMutex<()>,
     pub capture_control: AsyncMutex<()>,
     pub speaker_pipeline: AsyncMutex<TranscriptionPipeline>,
     pub microphone_pipeline: AsyncMutex<TranscriptionPipeline>,
@@ -178,7 +183,9 @@ pub fn router(state: Arc<AppState>) -> Router {
             header::AUTHORIZATION,
             header::CONTENT_TYPE,
             header::HeaderName::from_static("x-vrcs-import-id"),
-        ]);
+            header::HeaderName::from_static(CONFIG_REVISION_HEADER),
+        ])
+        .expose_headers([header::HeaderName::from_static(CONFIG_REVISION_HEADER)]);
 
     Router::new()
         .route("/health", get(health))

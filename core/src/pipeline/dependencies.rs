@@ -6,44 +6,41 @@ use crate::asr::AsrService;
 use crate::config::{ApiProfile, TranslationConfig};
 use crate::db::Database;
 use crate::models::{now_iso8601, LiveTranscription, Subtitle};
-use crate::osc::OscChatboxDispatcher;
+use crate::subtitle_output::SubtitleLifecyclePublisher;
 use crate::translation::TranslationDispatcher;
 
 #[derive(Clone)]
 pub(crate) struct PipelineDependencies {
     asr: Arc<Mutex<AsrService>>,
     database: Arc<Mutex<Database>>,
-    subtitles: broadcast::Sender<Subtitle>,
     live: broadcast::Sender<LiveTranscription>,
     history_limit: u32,
     translation: TranslationDispatcher,
     translation_config: TranslationConfig,
     api_profiles: Vec<ApiProfile>,
-    osc: OscChatboxDispatcher,
+    output: SubtitleLifecyclePublisher,
 }
 
 impl PipelineDependencies {
     pub(crate) fn new(
         asr: Arc<Mutex<AsrService>>,
         database: Arc<Mutex<Database>>,
-        subtitles: broadcast::Sender<Subtitle>,
         live: broadcast::Sender<LiveTranscription>,
         history_limit: u32,
         translation: TranslationDispatcher,
         translation_config: TranslationConfig,
         api_profiles: Vec<ApiProfile>,
-        osc: OscChatboxDispatcher,
+        output: SubtitleLifecyclePublisher,
     ) -> Self {
         Self {
             asr,
             database,
-            subtitles,
             live,
             history_limit,
             translation,
             translation_config,
             api_profiles,
-            osc,
+            output,
         }
     }
 
@@ -115,23 +112,70 @@ impl PipelineDependencies {
         })
         .await
         .map_err(|error| format!("Subtitle storage task exited unexpectedly: {error}"))??;
-        let _ = self.subtitles.send(saved.clone());
-        if source == "microphone" {
-            self.osc
-                .publish_subtitle(saved.clone(), self.translation_config.mode == "automatic");
-        }
-        if self.translation_config.mode == "automatic" {
-            if let Err(detail) = self.translation.enqueue(
-                saved.clone(),
-                self.translation_config.clone(),
-                self.api_profiles.clone(),
-            ) {
+        let translation_settings = automatic_translation_settings(&self.translation_config, source);
+        self.output
+            .subtitle_stored(saved.clone(), translation_settings.is_some());
+        if let Some(settings) = translation_settings {
+            if let Err(detail) =
+                self.translation
+                    .enqueue(saved.clone(), settings, self.api_profiles.clone())
+            {
                 if let Some(subtitle_id) = saved.id {
-                    self.osc.translation_failed(subtitle_id);
+                    self.output.translation_queue_failed(subtitle_id);
                 }
                 tracing::warn!(%detail, "automatic translation was not queued");
             }
         }
         Ok(())
+    }
+}
+
+fn automatic_translation_settings(
+    config: &TranslationConfig,
+    source: &str,
+) -> Option<TranslationConfig> {
+    if source == "microphone" {
+        if !config.translate_microphone {
+            return None;
+        }
+        let mut settings = config.clone();
+        settings.target_language = settings.microphone_target_language.clone();
+        return Some(settings);
+    }
+    (config.mode == "automatic").then(|| config.clone())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::automatic_translation_settings;
+    use crate::config::TranslationConfig;
+
+    #[test]
+    fn microphone_translation_has_an_independent_switch_and_target() {
+        let mut config = TranslationConfig {
+            mode: "disabled".into(),
+            target_language: "zh-Hans".into(),
+            microphone_target_language: "ja".into(),
+            ..TranslationConfig::default()
+        };
+
+        assert!(automatic_translation_settings(&config, "microphone").is_none());
+        config.translate_microphone = true;
+        let settings = automatic_translation_settings(&config, "microphone").unwrap();
+        assert_eq!(settings.target_language, "ja");
+        assert!(automatic_translation_settings(&config, "speaker").is_none());
+    }
+
+    #[test]
+    fn automatic_mode_still_translates_other_voices() {
+        let config = TranslationConfig {
+            mode: "automatic".into(),
+            target_language: "zh-Hans".into(),
+            ..TranslationConfig::default()
+        };
+
+        let settings = automatic_translation_settings(&config, "speaker").unwrap();
+        assert_eq!(settings.target_language, "zh-Hans");
+        assert!(automatic_translation_settings(&config, "microphone").is_none());
     }
 }

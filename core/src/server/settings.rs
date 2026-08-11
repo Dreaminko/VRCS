@@ -1,25 +1,29 @@
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
 use axum::extract::State;
-use axum::http::StatusCode;
+use axum::http::{HeaderMap, HeaderValue, StatusCode};
 use axum::Json;
 use serde_json::{json, Value};
 
-use crate::config::{save_config, AppConfig};
+use crate::config::{save_config, AppConfig, ALIBABA_PROVIDER, OPENAI_PROVIDER};
 use crate::models::SettingsUpdate;
 use crate::{asr, audio};
 
-use super::{api_error, ApiResult, AppState};
+use super::{api_error, ApiResult, AppState, CONFIG_REVISION_HEADER};
 
-pub(super) async fn get_settings(State(state): State<Arc<AppState>>) -> Json<Value> {
-    let config = state.config.read().expect("config lock");
-    Json(json!(*config))
+pub(super) async fn get_settings(State(state): State<Arc<AppState>>) -> (HeaderMap, Json<Value>) {
+    let _config_control = state.config_control.lock().await;
+    let config = state.config.read().expect("config lock").clone();
+    let revision = state.config_revision.load(Ordering::SeqCst);
+    (revision_headers(&state, revision), Json(json!(config)))
 }
 
 pub(super) async fn update_settings(
     State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
     body: axum::body::Bytes,
-) -> ApiResult<Json<Value>> {
+) -> ApiResult<(HeaderMap, Json<Value>)> {
     let unprocessable =
         |detail: String| api_error(StatusCode::UNPROCESSABLE_ENTITY, "settings.invalid", detail);
     let update = parse_settings_update(&body).map_err(unprocessable)?;
@@ -42,8 +46,62 @@ pub(super) async fn update_settings(
         anki: update.anki,
     };
 
+    let expected_revision = headers
+        .get(CONFIG_REVISION_HEADER)
+        .map(|value| {
+            value
+                .to_str()
+                .map(str::to_owned)
+                .map_err(|_| "The configuration revision header is invalid".to_string())
+        })
+        .transpose()
+        .map_err(unprocessable)?;
+    let _config_control = state.config_control.lock().await;
+    let current_revision = state.config_revision.load(Ordering::SeqCst);
+    let current_revision_token = revision_token(&state, current_revision);
+    if expected_revision.is_some_and(|revision| revision != current_revision_token) {
+        return Err(api_error(
+            StatusCode::CONFLICT,
+            "settings.stale",
+            "Settings changed since they were loaded; reload and try again",
+        ));
+    }
     let _control = state.capture_control.lock().await;
     let current = state.config.read().expect("config lock").clone();
+    // The profile catalog has its own mutation endpoints. A full settings payload can
+    // be stale, so it must not recreate profiles changed or deleted elsewhere.
+    candidate.asr.api_profiles = current.asr.api_profiles.clone();
+    if candidate
+        .asr
+        .active_api_profiles
+        .alibaba_cloud
+        .as_deref()
+        .is_some_and(|profile_id| {
+            !current
+                .asr
+                .api_profiles
+                .iter()
+                .any(|profile| profile.id == profile_id && profile.provider == ALIBABA_PROVIDER)
+        })
+    {
+        candidate.asr.active_api_profiles.alibaba_cloud =
+            current.asr.active_api_profiles.alibaba_cloud.clone();
+    }
+    if candidate
+        .asr
+        .active_api_profiles
+        .openai
+        .as_deref()
+        .is_some_and(|profile_id| {
+            !current
+                .asr
+                .api_profiles
+                .iter()
+                .any(|profile| profile.id == profile_id && profile.provider == OPENAI_PROVIDER)
+        })
+    {
+        candidate.asr.active_api_profiles.openai = current.asr.active_api_profiles.openai.clone();
+    }
     let model_directory_changed =
         candidate.storage.model_directory != current.storage.model_directory;
     let capture_running = state.speaker_pipeline.lock().await.running()
@@ -144,6 +202,7 @@ pub(super) async fn update_settings(
         return Err(unprocessable(error));
     }
     *state.config.write().expect("config lock") = candidate.clone();
+    let revision = state.config_revision.fetch_add(1, Ordering::SeqCst) + 1;
     state.osc.update_config(candidate.osc.clone());
     let asr = Arc::clone(&state.asr);
     let asr_config = candidate.asr.clone();
@@ -168,7 +227,20 @@ pub(super) async fn update_settings(
             error,
         )
     })?;
-    Ok(Json(json!(candidate)))
+    Ok((revision_headers(&state, revision), Json(json!(candidate))))
+}
+
+fn revision_token(state: &AppState, revision: u64) -> String {
+    format!("{}:{revision}", state.config_epoch)
+}
+
+fn revision_headers(state: &AppState, revision: u64) -> HeaderMap {
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        CONFIG_REVISION_HEADER,
+        HeaderValue::from_str(&revision_token(state, revision)).expect("revision header"),
+    );
+    headers
 }
 
 pub(super) fn parse_settings_update(body: &[u8]) -> Result<SettingsUpdate, String> {

@@ -384,22 +384,25 @@ mod tests {
         let (tx, mut rx) = broadcast::channel(4);
         let (live_tx, _) = broadcast::channel(4);
         let (translation_tx, _) = broadcast::channel(4);
+        let output = crate::subtitle_output::SubtitleLifecyclePublisher::new(
+            tx,
+            translation_tx,
+            crate::osc::OscChatboxDispatcher::new(crate::config::OscConfig::default()),
+        );
         let translation = crate::translation::TranslationDispatcher::new(
             Arc::new(crate::translation::TranslationService::new().unwrap()),
             Arc::clone(&db),
-            translation_tx,
-            crate::osc::OscChatboxDispatcher::new(crate::config::OscConfig::default()),
+            output.clone(),
         );
         let dependencies = PipelineDependencies::new(
             asr,
             Arc::clone(&db),
-            tx,
             live_tx,
             10,
             translation,
             crate::config::TranslationConfig::default(),
             Vec::new(),
-            crate::osc::OscChatboxDispatcher::new(crate::config::OscConfig::default()),
+            output,
         );
 
         dependencies

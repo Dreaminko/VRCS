@@ -16,7 +16,7 @@ import type {
 } from "../src/types.ts";
 
 const settings: Settings = {
-  schema_version: 8,
+  schema_version: 9,
   server: { host: "127.0.0.1", port: 8766 },
   storage: {
     database_path: "data/vrcs.db",
@@ -30,7 +30,7 @@ const settings: Settings = {
   },
   vad: { silence_seconds: 0.4, max_speech_seconds: 6 },
   asr: { backend: "local_whisper", language: "auto", local: { model: "small", device: "auto", compute_type: "int8" }, qwen: { context: "", model: "qwen3-asr-flash-realtime" }, fun_asr: { context: "", model: "fun-asr-realtime" }, openai: { model: "gpt-4o-mini-transcribe" }, api_profiles: [], active_api_profiles: { alibaba_cloud: null, openai: null }, cloud_failure_policy: "reconnect" },
-  translation: { mode: "disabled", target_language: "zh-Hans", profile_id: null, model: "gpt-5-mini", thinking_enabled: false },
+  translation: { mode: "disabled", target_language: "zh-Hans", profile_id: null, model: "gpt-5-mini", thinking_enabled: false, translate_microphone: false, microphone_target_language: "en" },
   osc: { enabled: false, port: 9000 },
   dictionary: { selection_lookup_enabled: true },
   anki: {

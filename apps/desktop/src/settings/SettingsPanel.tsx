@@ -53,6 +53,7 @@ export function SettingsPanel({
   modelStatus,
   asrCapabilities,
   onRefresh,
+  onRefreshSettings,
   onImportDictionary,
   onDeleteDictionary,
   onModelsChanged,
@@ -70,6 +71,7 @@ export function SettingsPanel({
   modelStatus: string;
   asrCapabilities: AsrCapabilities | null;
   onRefresh: () => Promise<void>;
+  onRefreshSettings: () => Promise<void>;
   onImportDictionary: (
     file: File,
     onProgress?: (progress: number) => void,
@@ -291,7 +293,7 @@ export function SettingsPanel({
       {activeCategory === "api" && (
         <ApiManagementSettingsSection
           disabled={disabled}
-          onRefresh={onRefresh}
+          onRefreshSettings={onRefreshSettings}
         />
       )}
 

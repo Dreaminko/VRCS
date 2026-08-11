@@ -12,6 +12,7 @@ mod models;
 mod osc;
 mod pipeline;
 mod server;
+mod subtitle_output;
 mod translation;
 mod vad;
 mod yomitan;
@@ -260,12 +261,16 @@ async fn start_inner(options: CoreOptions, defer_managed_vad: bool) -> Result<Co
     let (translation_tx, _) = broadcast::channel(100);
     let db = Arc::new(Mutex::new(database));
     let osc = osc::OscChatboxDispatcher::new(config.osc.clone());
+    let subtitle_output = subtitle_output::SubtitleLifecyclePublisher::new(
+        subtitles_tx.clone(),
+        translation_tx.clone(),
+        osc.clone(),
+    );
     let translation_service = Arc::new(translation::TranslationService::new()?);
     let translation_dispatcher = translation::TranslationDispatcher::new(
         Arc::clone(&translation_service),
         Arc::clone(&db),
-        translation_tx.clone(),
-        osc.clone(),
+        subtitle_output.clone(),
     );
     let asr_service = asr::AsrService::new(asr_config, asr_model_dir);
     let asr_runtime = asr_service.runtime_state();
@@ -277,9 +282,8 @@ async fn start_inner(options: CoreOptions, defer_managed_vad: bool) -> Result<Co
         asr_model_dir_override,
         config: RwLock::new(config),
         db,
-        subtitles_tx,
         live_tx,
-        translation_tx,
+        subtitle_output,
         translation_service,
         translation_dispatcher,
         osc,
@@ -290,6 +294,9 @@ async fn start_inner(options: CoreOptions, defer_managed_vad: bool) -> Result<Co
         asr,
         asr_runtime,
         model_manager: Arc::clone(&model_manager),
+        config_epoch: uuid::Uuid::new_v4().to_string(),
+        config_revision: std::sync::atomic::AtomicU64::new(0),
+        config_control: tokio::sync::Mutex::new(()),
         capture_control: tokio::sync::Mutex::new(()),
         speaker_pipeline: tokio::sync::Mutex::new(TranscriptionPipeline::new(
             audio::CaptureSource::Speaker,
@@ -674,5 +681,204 @@ mod tests {
         .expect("unauthenticated external binding must fail");
 
         assert!(error.contains("VRCS_SESSION_TOKEN"));
+    }
+
+    #[tokio::test]
+    async fn concurrent_api_profile_creates_do_not_lose_updates() {
+        let directory = tempfile::tempdir().unwrap();
+        let port = std::net::TcpListener::bind(("127.0.0.1", 0))
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port();
+        let handle = start(CoreOptions {
+            config_path: directory.path().join("config.json"),
+            host: Some("127.0.0.1".into()),
+            port: Some(port),
+            session_token: Some("test-token".into()),
+            vad_model_path: Some(directory.path().join("missing-silero.onnx")),
+            asr_model_dir: None,
+        })
+        .await
+        .unwrap();
+        let client = reqwest::Client::new();
+        let url = format!("http://{}/api/asr/profiles", handle.address());
+        let mut requests = tokio::task::JoinSet::new();
+        for index in 0..16 {
+            let client = client.clone();
+            let url = url.clone();
+            requests.spawn(async move {
+                let response = client
+                    .post(url)
+                    .bearer_auth("test-token")
+                    .json(&serde_json::json!({
+                        "name": format!("DeepL {index}"),
+                        "provider": "deepl"
+                    }))
+                    .send()
+                    .await
+                    .unwrap();
+                let status = response.status();
+                let body = response.text().await.unwrap();
+                (status, body)
+            });
+        }
+        while let Some(result) = requests.join_next().await {
+            let (status, body) = result.unwrap();
+            assert_eq!(status, reqwest::StatusCode::OK, "{body}");
+        }
+
+        let profiles: serde_json::Value = client
+            .get(url)
+            .bearer_auth("test-token")
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert_eq!(profiles["profiles"].as_array().unwrap().len(), 16);
+        handle.shutdown().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn stale_settings_cannot_restore_a_deleted_api_profile() {
+        let directory = tempfile::tempdir().unwrap();
+        let port = std::net::TcpListener::bind(("127.0.0.1", 0))
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port();
+        let handle = start(CoreOptions {
+            config_path: directory.path().join("config.json"),
+            host: Some("127.0.0.1".into()),
+            port: Some(port),
+            session_token: Some("test-token".into()),
+            vad_model_path: Some(directory.path().join("missing-silero.onnx")),
+            asr_model_dir: None,
+        })
+        .await
+        .unwrap();
+        let client = reqwest::Client::new();
+        let base_url = format!("http://{}", handle.address());
+        let preflight = client
+            .request(reqwest::Method::OPTIONS, format!("{base_url}/api/settings"))
+            .header("Origin", "http://tauri.localhost")
+            .header("Access-Control-Request-Method", "PUT")
+            .header(
+                "Access-Control-Request-Headers",
+                "content-type,x-vrcs-config-revision",
+            )
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(preflight.status(), reqwest::StatusCode::OK);
+        assert!(preflight
+            .headers()
+            .get("access-control-allow-headers")
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .contains("x-vrcs-config-revision"));
+
+        let initial_response = client
+            .get(format!("{base_url}/api/settings"))
+            .bearer_auth("test-token")
+            .header("Origin", "http://tauri.localhost")
+            .send()
+            .await
+            .unwrap();
+        assert!(initial_response
+            .headers()
+            .get("access-control-expose-headers")
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .contains("x-vrcs-config-revision"));
+        let initial_revision = initial_response
+            .headers()
+            .get("x-vrcs-config-revision")
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .to_owned();
+        let initial_settings: serde_json::Value = initial_response.json().await.unwrap();
+        let response = client
+            .post(format!("{base_url}/api/asr/profiles"))
+            .bearer_auth("test-token")
+            .json(&serde_json::json!({
+                "name": "Temporary Alibaba",
+                "provider": "alibaba_cloud",
+                "region": "china_beijing",
+                "workspace_id": "test-workspace"
+            }))
+            .send()
+            .await
+            .unwrap();
+        let status = response.status();
+        let body = response.text().await.unwrap();
+        assert_eq!(status, reqwest::StatusCode::OK, "{body}");
+        let created: serde_json::Value = serde_json::from_str(&body).unwrap();
+        let profile_id = created["id"].as_str().unwrap();
+        let rejected = client
+            .put(format!("{base_url}/api/settings"))
+            .bearer_auth("test-token")
+            .header("x-vrcs-config-revision", initial_revision)
+            .json(&initial_settings)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(rejected.status(), reqwest::StatusCode::CONFLICT);
+        let rejected_body: serde_json::Value = rejected.json().await.unwrap();
+        assert_eq!(rejected_body["code"], "settings.stale");
+
+        let mut stale_settings: serde_json::Value = client
+            .get(format!("{base_url}/api/settings"))
+            .bearer_auth("test-token")
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        stale_settings["asr"]["active_api_profiles"]["alibaba_cloud"] =
+            serde_json::json!(profile_id);
+        stale_settings = client
+            .put(format!("{base_url}/api/settings"))
+            .bearer_auth("test-token")
+            .json(&stale_settings)
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert_eq!(
+            stale_settings["asr"]["active_api_profiles"]["alibaba_cloud"],
+            serde_json::json!(profile_id)
+        );
+
+        let deleted = client
+            .delete(format!("{base_url}/api/asr/profiles/{profile_id}"))
+            .bearer_auth("test-token")
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(deleted.status(), reqwest::StatusCode::OK);
+
+        stale_settings["osc"]["port"] = serde_json::json!(9001);
+        let saved: serde_json::Value = client
+            .put(format!("{base_url}/api/settings"))
+            .bearer_auth("test-token")
+            .json(&stale_settings)
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert!(saved["asr"]["api_profiles"].as_array().unwrap().is_empty());
+        assert!(saved["asr"]["active_api_profiles"]["alibaba_cloud"].is_null());
+        handle.shutdown().await.unwrap();
     }
 }

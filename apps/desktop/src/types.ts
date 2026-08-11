@@ -117,7 +117,7 @@ export interface AnkiSettings {
 }
 
 export interface Settings {
-  schema_version: 8;
+  schema_version: 9;
   server: {
     host: string;
     port: number;
@@ -151,6 +151,8 @@ export interface TranslationSettings {
   profile_id: string | null;
   model: string;
   thinking_enabled: boolean;
+  translate_microphone: boolean;
+  microphone_target_language: "zh-Hans" | "zh-Hant" | "en" | "ja" | "ko" | "es" | "fr" | "de" | "ru";
 }
 
 export interface TranslationEvent {

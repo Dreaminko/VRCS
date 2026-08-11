@@ -1,18 +1,26 @@
 use std::collections::VecDeque;
-use std::net::{Ipv4Addr, SocketAddrV4};
-use std::sync::{Arc, Mutex, RwLock};
+use std::net::Ipv4Addr;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use rosc::{encoder, OscMessage, OscPacket, OscType};
+#[cfg(test)]
+use rosc::{OscPacket, OscType};
 use serde::Serialize;
 use tokio::net::UdpSocket;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, watch};
 
 use crate::config::OscConfig;
 use crate::models::{now_iso8601, Subtitle, SubtitleTranslation};
 
-const CHATBOX_ADDRESS: &str = "/chatbox/input";
-const CHATBOX_LIMIT: usize = 144;
+mod message;
+mod transport;
+
+use message::format_chatbox;
+#[cfg(test)]
+use message::CHATBOX_LIMIT;
+use transport::send_chatbox;
+#[cfg(test)]
+use transport::CHATBOX_ADDRESS;
 const TRANSLATION_GRACE: Duration = Duration::from_millis(1_200);
 const SEND_INTERVAL: Duration = Duration::from_millis(1_500);
 const LATE_TRANSLATION_TTL: Duration = Duration::from_secs(30);
@@ -32,24 +40,45 @@ pub struct OscRuntimeStatus {
 #[derive(Clone)]
 pub struct OscChatboxDispatcher {
     sender: mpsc::Sender<OscEvent>,
-    config: Arc<RwLock<OscConfig>>,
+    config: watch::Sender<OscConfigState>,
     status: Arc<Mutex<OscRuntimeStatus>>,
 }
 
 enum OscEvent {
     Subtitle {
+        generation: u64,
         subtitle: Subtitle,
         wait_for_translation: bool,
     },
     TranslationCompleted {
+        generation: u64,
         subtitle_id: i64,
         translation: SubtitleTranslation,
     },
     TranslationFailed {
+        generation: u64,
         subtitle_id: i64,
     },
-    Test,
-    ConfigChanged,
+    Test {
+        generation: u64,
+    },
+}
+
+impl OscEvent {
+    fn generation(&self) -> u64 {
+        match self {
+            Self::Subtitle { generation, .. }
+            | Self::TranslationCompleted { generation, .. }
+            | Self::TranslationFailed { generation, .. }
+            | Self::Test { generation } => *generation,
+        }
+    }
+}
+
+#[derive(Clone)]
+struct OscConfigState {
+    config: OscConfig,
+    generation: u64,
 }
 
 struct PendingMessage {
@@ -69,14 +98,12 @@ struct SentMessage {
 impl OscChatboxDispatcher {
     pub fn new(config: OscConfig) -> Self {
         let (sender, receiver) = mpsc::channel(EVENT_QUEUE_CAPACITY);
-        let config = Arc::new(RwLock::new(config));
-        let initial = config.read().expect("OSC config lock").clone();
-        let status = Arc::new(Mutex::new(runtime_status(&initial)));
-        tokio::spawn(run_worker(
-            receiver,
-            Arc::clone(&config),
-            Arc::clone(&status),
-        ));
+        let status = Arc::new(Mutex::new(runtime_status(&config)));
+        let (config, config_rx) = watch::channel(OscConfigState {
+            config,
+            generation: 0,
+        });
+        tokio::spawn(run_worker(receiver, config_rx, Arc::clone(&status)));
         Self {
             sender,
             config,
@@ -85,18 +112,23 @@ impl OscChatboxDispatcher {
     }
 
     pub fn publish_subtitle(&self, subtitle: Subtitle, wait_for_translation: bool) {
-        if subtitle.source != "microphone" || !self.enabled() {
+        let Some(generation) = self.active_generation() else {
+            return;
+        };
+        if subtitle.source != "microphone" {
             return;
         }
         self.try_send(OscEvent::Subtitle {
+            generation,
             subtitle,
             wait_for_translation,
         });
     }
 
     pub fn translation_completed(&self, subtitle_id: i64, translation: SubtitleTranslation) {
-        if self.enabled() {
+        if let Some(generation) = self.active_generation() {
             self.try_send(OscEvent::TranslationCompleted {
+                generation,
                 subtitle_id,
                 translation,
             });
@@ -104,33 +136,41 @@ impl OscChatboxDispatcher {
     }
 
     pub fn translation_failed(&self, subtitle_id: i64) {
-        if self.enabled() {
-            self.try_send(OscEvent::TranslationFailed { subtitle_id });
+        if let Some(generation) = self.active_generation() {
+            self.try_send(OscEvent::TranslationFailed {
+                generation,
+                subtitle_id,
+            });
         }
     }
 
     pub fn queue_test(&self) -> Result<(), &'static str> {
-        if !self.enabled() {
+        let Some(generation) = self.active_generation() else {
             return Err("osc.disabled");
-        }
-        self.sender.try_send(OscEvent::Test).map_err(|_| {
-            self.record_drop();
-            "osc.queue_full"
-        })
+        };
+        self.sender
+            .try_send(OscEvent::Test { generation })
+            .map_err(|_| {
+                self.record_drop();
+                "osc.queue_full"
+            })
     }
 
     pub fn update_config(&self, config: OscConfig) {
-        *self.config.write().expect("OSC config lock") = config.clone();
         *self.status.lock().expect("OSC status lock") = runtime_status(&config);
-        self.try_send(OscEvent::ConfigChanged);
+        self.config.send_modify(|state| {
+            state.config = config;
+            state.generation = state.generation.wrapping_add(1);
+        });
     }
 
     pub fn status(&self) -> OscRuntimeStatus {
         self.status.lock().expect("OSC status lock").clone()
     }
 
-    fn enabled(&self) -> bool {
-        self.config.read().expect("OSC config lock").enabled
+    fn active_generation(&self) -> Option<u64> {
+        let state = self.config.borrow();
+        state.config.enabled.then_some(state.generation)
     }
 
     fn try_send(&self, event: OscEvent) {
@@ -149,10 +189,11 @@ impl OscChatboxDispatcher {
 
 async fn run_worker(
     mut receiver: mpsc::Receiver<OscEvent>,
-    config: Arc<RwLock<OscConfig>>,
+    mut config_rx: watch::Receiver<OscConfigState>,
     status: Arc<Mutex<OscRuntimeStatus>>,
 ) {
     let socket = UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).await;
+    let mut config = config_rx.borrow().clone();
     let mut queue = VecDeque::<PendingMessage>::new();
     let mut latest_subtitle_id = None;
     let mut current_sent = None::<SentMessage>;
@@ -162,15 +203,23 @@ async fn run_worker(
 
     loop {
         tokio::select! {
+            biased;
+            changed = config_rx.changed() => {
+                if changed.is_err() {
+                    break;
+                }
+                config = config_rx.borrow().clone();
+                queue.clear();
+                current_sent = None;
+                last_send = None;
+            }
             event = receiver.recv() => {
                 let Some(event) = event else { break };
+                if event.generation() != config.generation {
+                    continue;
+                }
                 match event {
-                    OscEvent::ConfigChanged => {
-                        queue.clear();
-                        current_sent = None;
-                        last_send = None;
-                    }
-                    OscEvent::Test => push_bounded(
+                    OscEvent::Test { .. } => push_bounded(
                         &mut queue,
                         PendingMessage {
                             subtitle_id: None,
@@ -180,7 +229,7 @@ async fn run_worker(
                         },
                         &status,
                     ),
-                    OscEvent::Subtitle { subtitle, wait_for_translation } => {
+                    OscEvent::Subtitle { subtitle, wait_for_translation, .. } => {
                         let Some(subtitle_id) = subtitle.id else { continue };
                         latest_subtitle_id = Some(subtitle_id);
                         current_sent = None;
@@ -199,12 +248,12 @@ async fn run_worker(
                             &status,
                         );
                     }
-                    OscEvent::TranslationFailed { subtitle_id } => {
+                    OscEvent::TranslationFailed { subtitle_id, .. } => {
                         if let Some(message) = queue.iter_mut().find(|item| item.subtitle_id == Some(subtitle_id)) {
                             message.ready_at = Instant::now();
                         }
                     }
-                    OscEvent::TranslationCompleted { subtitle_id, translation } => {
+                    OscEvent::TranslationCompleted { subtitle_id, translation, .. } => {
                         if let Some(message) = queue.iter_mut().find(|item| item.subtitle_id == Some(subtitle_id)) {
                             message.translation = Some(translation.text);
                             message.ready_at = Instant::now();
@@ -230,8 +279,7 @@ async fn run_worker(
                 }
             }
             _ = tick.tick() => {
-                let enabled = config.read().expect("OSC config lock").enabled;
-                if !enabled {
+                if !config.config.enabled {
                     queue.clear();
                     continue;
                 }
@@ -242,9 +290,24 @@ async fn run_worker(
                 }
                 let Some(message) = queue.pop_front() else { continue };
                 let text = format_chatbox(&message.original, message.translation.as_deref());
-                let port = config.read().expect("OSC config lock").port;
+                let port = config.config.port;
                 let result = match &socket {
-                    Ok(socket) => send_chatbox(socket, port, &text).await,
+                    Ok(socket) => {
+                        tokio::select! {
+                            biased;
+                            changed = config_rx.changed() => {
+                                if changed.is_err() {
+                                    break;
+                                }
+                                config = config_rx.borrow().clone();
+                                queue.clear();
+                                current_sent = None;
+                                last_send = None;
+                                continue;
+                            }
+                            result = send_chatbox(socket, port, &text) => result,
+                        }
+                    }
                     Err(error) => Err(error.to_string()),
                 };
                 let mut runtime = status.lock().expect("OSC status lock");
@@ -285,23 +348,6 @@ fn push_bounded(
     queue.push_back(message);
 }
 
-async fn send_chatbox(socket: &UdpSocket, port: u16, text: &str) -> Result<(), String> {
-    let packet = OscPacket::Message(OscMessage {
-        addr: CHATBOX_ADDRESS.into(),
-        args: vec![
-            OscType::String(text.into()),
-            OscType::Bool(true),
-            OscType::Bool(false),
-        ],
-    });
-    let bytes = encoder::encode(&packet).map_err(|error| error.to_string())?;
-    socket
-        .send_to(&bytes, SocketAddrV4::new(Ipv4Addr::LOCALHOST, port))
-        .await
-        .map(|_| ())
-        .map_err(|error| error.to_string())
-}
-
 fn runtime_status(config: &OscConfig) -> OscRuntimeStatus {
     OscRuntimeStatus {
         enabled: config.enabled,
@@ -311,55 +357,6 @@ fn runtime_status(config: &OscConfig) -> OscRuntimeStatus {
         last_sent_at: None,
         dropped_messages: 0,
     }
-}
-
-fn format_chatbox(original: &str, translation: Option<&str>) -> String {
-    let original = compact_line(original);
-    let translation = translation
-        .map(compact_line)
-        .filter(|value| value != &original);
-    match translation {
-        None => truncate(&original, CHATBOX_LIMIT),
-        Some(translation) => {
-            let combined = format!("{original}\n{translation}");
-            if combined.chars().count() <= CHATBOX_LIMIT {
-                combined
-            } else {
-                format!(
-                    "{}\n{}",
-                    truncate(&original, 71),
-                    truncate(&translation, 72)
-                )
-            }
-        }
-    }
-}
-
-fn compact_line(value: &str) -> String {
-    value
-        .chars()
-        .map(|character| {
-            if character.is_control() {
-                ' '
-            } else {
-                character
-            }
-        })
-        .collect::<String>()
-        .split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ")
-}
-
-fn truncate(value: &str, limit: usize) -> String {
-    if value.chars().count() <= limit {
-        return value.to_owned();
-    }
-    value
-        .chars()
-        .take(limit.saturating_sub(1))
-        .chain(std::iter::once('…'))
-        .collect()
 }
 
 #[cfg(test)]
@@ -454,5 +451,32 @@ mod tests {
             panic!("expected OSC message")
         };
         assert_eq!(message.args[0], OscType::String("こんにちは\n你好".into()));
+    }
+
+    #[tokio::test]
+    async fn config_change_discards_events_from_a_saturated_previous_generation() {
+        let receiver = UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();
+        let config = OscConfig {
+            enabled: true,
+            port: receiver.local_addr().unwrap().port(),
+        };
+        let dispatcher = OscChatboxDispatcher::new(config.clone());
+
+        // A current-thread Tokio test does not run the worker until this task yields,
+        // so this fills the entire data channel before the configuration update.
+        for id in 0..EVENT_QUEUE_CAPACITY as i64 {
+            dispatcher.publish_subtitle(subtitle(id, "microphone", "stale"), false);
+        }
+        dispatcher.update_config(config);
+
+        let received = tokio::time::timeout(Duration::from_millis(1_700), async {
+            let mut buffer = [0u8; 512];
+            receiver.recv_from(&mut buffer).await
+        })
+        .await;
+        assert!(
+            received.is_err(),
+            "old-generation messages must be discarded"
+        );
     }
 }

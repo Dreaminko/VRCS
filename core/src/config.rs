@@ -10,7 +10,7 @@ pub use io::{load_config, save_config};
 #[cfg(test)]
 use migration::config_from_value;
 
-pub const SCHEMA_VERSION: u32 = 8;
+pub const SCHEMA_VERSION: u32 = 9;
 
 pub const ALIBABA_PROVIDER: &str = "alibaba_cloud";
 pub const OPENAI_PROVIDER: &str = "openai";
@@ -188,6 +188,10 @@ pub struct TranslationConfig {
     pub model: String,
     #[serde(default)]
     pub thinking_enabled: bool,
+    #[serde(default)]
+    pub translate_microphone: bool,
+    #[serde(default = "default_microphone_translation_target")]
+    pub microphone_target_language: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -291,6 +295,9 @@ fn default_translation_mode() -> String {
 fn default_translation_target() -> String {
     "zh-Hans".into()
 }
+fn default_microphone_translation_target() -> String {
+    "en".into()
+}
 fn default_translation_model() -> String {
     "gpt-5-mini".into()
 }
@@ -372,6 +379,8 @@ impl_default!(TranslationConfig, {
     profile_id: Option::default,
     model: default_translation_model,
     thinking_enabled: bool::default,
+    translate_microphone: bool::default,
+    microphone_target_language: default_microphone_translation_target,
 });
 impl_default!(OscConfig, { enabled: bool::default, port: default_osc_port });
 impl_default!(AnkiConfig, {
@@ -700,7 +709,13 @@ fn validate_translation(
             translation.target_language
         ));
     }
-    if translation.mode == "disabled" {
+    if !LANGUAGES.contains(&translation.microphone_target_language.as_str()) {
+        return Err(format!(
+            "Unsupported microphone translation target language: {}",
+            translation.microphone_target_language
+        ));
+    }
+    if translation.mode == "disabled" && !translation.translate_microphone {
         return Ok(());
     }
     let profile_id = translation
@@ -844,6 +859,16 @@ mod tests {
     }
 
     #[test]
+    fn microphone_translation_requires_a_profile_when_enabled() {
+        let mut config = AppConfig::default();
+        config.translation.translate_microphone = true;
+        assert_eq!(
+            config.validate_settings().unwrap_err(),
+            "A translation API profile must be selected"
+        );
+    }
+
+    #[test]
     fn validates_openai_compatible_profiles_and_keeps_them_out_of_realtime_asr() {
         let mut config = AppConfig::default();
         config.asr.api_profiles.push(ApiProfile {
@@ -909,6 +934,8 @@ mod tests {
         assert_eq!(config.translation.mode, "disabled");
         assert_eq!(config.translation.target_language, "zh-Hans");
         assert!(!config.translation.thinking_enabled);
+        assert!(!config.translation.translate_microphone);
+        assert_eq!(config.translation.microphone_target_language, "zh-Hans");
     }
 
     #[test]
@@ -921,6 +948,29 @@ mod tests {
         assert_eq!(config.schema_version, SCHEMA_VERSION);
         assert!(!config.osc.enabled);
         assert_eq!(config.osc.port, 9000);
+    }
+
+    #[test]
+    fn migrates_v8_automatic_translation_without_changing_behavior() {
+        let config = config_from_value(&serde_json::json!({
+            "schema_version": 8,
+            "asr": {
+                "api_profiles": [{
+                    "id": "deepl-one",
+                    "name": "DeepL",
+                    "provider": "deepl"
+                }]
+            },
+            "translation": {
+                "mode": "automatic",
+                "target_language": "ja",
+                "profile_id": "deepl-one"
+            }
+        }))
+        .unwrap();
+
+        assert!(config.translation.translate_microphone);
+        assert_eq!(config.translation.microphone_target_language, "ja");
     }
 
     #[test]

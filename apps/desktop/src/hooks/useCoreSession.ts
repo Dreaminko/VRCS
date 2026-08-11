@@ -4,7 +4,6 @@ import { useTranslation } from "react-i18next";
 import {
   coreApi,
   coreStartup,
-  coreWebSocketUrl,
   initializeCoreApi,
   retryCore as retryCoreStartup,
 } from "../api";
@@ -14,80 +13,73 @@ import { audioSettingsChanged } from "../settings-validation";
 import type {
   AsrCapabilities,
   AudioDevice,
-  ConnectionState,
   DictionarySource,
   Health,
-  LiveTranscription,
   Settings,
-  Subtitle,
-  SubtitleTranslation,
 } from "../types";
-
-function withTranslation(
-  subtitles: Subtitle[],
-  subtitleId: number,
-  translation: SubtitleTranslation,
-): Subtitle[] {
-  return subtitles.map((subtitle) => subtitle.id === subtitleId
-    ? {
-        ...subtitle,
-        translations: [
-          ...subtitle.translations.filter(
-            (item) => item.target_language !== translation.target_language,
-          ),
-          translation,
-        ],
-        translation_partial: undefined,
-      }
-    : subtitle);
-}
-
-function withTranslationPartial(
-  subtitles: Subtitle[],
-  subtitleId: number,
-  text?: string,
-  targetLanguage?: string,
-): Subtitle[] {
-  return subtitles.map((subtitle) => subtitle.id === subtitleId
-    ? {
-        ...subtitle,
-        translation_partial: text && targetLanguage
-          ? { text, target_language: targetLanguage }
-          : undefined,
-      }
-    : subtitle);
-}
+import { useSubtitleStream } from "./useSubtitleStream";
 
 export function useCoreSession(settingsPageActive: boolean) {
   const { t } = useTranslation();
   const tRef = useRef(t);
   tRef.current = t;
 
-  const [connection, setConnection] = useState<ConnectionState>("connecting");
   const [coreConfigured, setCoreConfigured] = useState(false);
   const [startupState, setStartupState] = useState<"starting" | "ready" | "failed">("starting");
   const [startupAttempt, setStartupAttempt] = useState(0);
   const [health, setHealth] = useState<Health | null>(null);
   const healthRef = useRef<Health | null>(null);
   healthRef.current = health;
-  const [subtitles, setSubtitles] = useState<Subtitle[]>([]);
-  const [partials, setPartials] = useState<Partial<Record<LiveTranscription["source"], LiveTranscription>>>({});
   const [settings, setSettings] = useState<Settings | null>(null);
   const persistedSettingsRef = useRef<Settings | null>(null);
   const [devices, setDevices] = useState<AudioDevice[]>([]);
   const [devicesReady, setDevicesReady] = useState(false);
   const [asrCapabilities, setAsrCapabilities] = useState<AsrCapabilities | null>(null);
   const [dictionarySources, setDictionarySources] = useState<DictionarySource[]>([]);
-  const [error, setError] = useState<string | null>(null);
-  const [translatingSubtitleIds, setTranslatingSubtitleIds] = useState<number[]>([]);
+  const [errors, setErrors] = useState<Map<string, string>>(() => new Map());
+  const error = [...errors.values()].at(-1) ?? null;
 
-  const reportError = useCallback((reason: unknown, fallbackKey: string) => {
-    setError(localizedError(reason, tRef.current, fallbackKey));
+  const reportError = useCallback((
+    reason: unknown,
+    fallbackKey: string,
+    source = "general",
+  ) => {
+    const message = localizedError(reason, tRef.current, fallbackKey);
+    setErrors((current) => {
+      const next = new Map(current);
+      next.delete(source);
+      next.set(source, message);
+      return next;
+    });
   }, []);
 
   const clearError = useCallback(() => {
-    setError(null);
+    setErrors(new Map());
   }, []);
+
+  const clearErrorFrom = useCallback((source: string) => {
+    setErrors((current) => {
+      if (!current.has(source)) return current;
+      const next = new Map(current);
+      next.delete(source);
+      return next;
+    });
+  }, []);
+
+  const {
+    connection: streamConnection,
+    subtitles,
+    partials,
+    translatingSubtitleIds,
+    mergeSnapshot,
+    clearPartials,
+    translateSubtitle,
+  } = useSubtitleStream({
+    coreConfigured,
+    reportError,
+    clearErrorFrom,
+  });
+  const connection = startupState === "failed" ? "disconnected" : streamConnection;
 
   useEffect(() => {
     let cancelled = false;
@@ -102,24 +94,25 @@ export function useCoreSession(settingsPageActive: boolean) {
           return;
         }
         if (startup.state === "failed") {
-          setConnection("disconnected");
-          setError(tRef.current("errors.core.initialize"));
+          setErrors((current) => {
+            const next = new Map(current);
+            next.set("core", tRef.current("errors.core.initialize"));
+            return next;
+          });
           return;
         }
         timer = window.setTimeout(() => void pollStartup(), 150);
       } catch (reason) {
         if (!cancelled) {
           setStartupState("failed");
-          setConnection("disconnected");
-          reportError(reason, "errors.core.initialize");
+          reportError(reason, "errors.core.initialize", "core");
         }
       }
     };
     void initializeCoreApi().then(pollStartup).catch((reason) => {
       if (!cancelled) {
         setStartupState("failed");
-        setConnection("disconnected");
-        reportError(reason, "errors.core.initialize");
+        reportError(reason, "errors.core.initialize", "core");
       }
     });
     return () => {
@@ -130,7 +123,6 @@ export function useCoreSession(settingsPageActive: boolean) {
 
   const retryCore = useCallback(async () => {
     clearError();
-    setConnection("connecting");
     setCoreConfigured(false);
     setStartupState("starting");
     try {
@@ -138,8 +130,7 @@ export function useCoreSession(settingsPageActive: boolean) {
       setStartupAttempt((attempt) => attempt + 1);
     } catch (reason) {
       setStartupState("failed");
-      setConnection("disconnected");
-      reportError(reason, "errors.core.initialize");
+      reportError(reason, "errors.core.initialize", "core");
     }
   }, [clearError, reportError]);
 
@@ -155,13 +146,22 @@ export function useCoreSession(settingsPageActive: boolean) {
       setHealth(nextHealth);
       persistedSettingsRef.current = nextSettings;
       setSettings(nextSettings);
-      setSubtitles(historyItems);
+      mergeSnapshot(historyItems);
       setAsrCapabilities(nextAsrCapabilities);
-      clearError();
+      clearErrorFrom("core");
     } catch (reason) {
-      reportError(reason, "errors.core.connect");
+      reportError(reason, "errors.core.connect", "core");
     }
-  }, [clearError, coreConfigured, reportError]);
+  }, [clearErrorFrom, coreConfigured, mergeSnapshot, reportError]);
+
+  const loadSettings = useCallback(async () => {
+    if (!coreConfigured) return;
+    const nextSettings = await coreApi.settings();
+    persistedSettingsRef.current = nextSettings;
+    setSettings(nextSettings);
+  }, [coreConfigured]);
+  const loadSettingsRef = useRef(loadSettings);
+  loadSettingsRef.current = loadSettings;
 
   useEffect(() => {
     if (!coreConfigured) return;
@@ -176,124 +176,37 @@ export function useCoreSession(settingsPageActive: boolean) {
     return () => window.clearInterval(timer);
   }, [coreConfigured, refresh, settings]);
 
-  useEffect(() => {
-    if (!coreConfigured) return;
-    let socket: WebSocket | null = null;
-    let retry: number | null = null;
-    let closed = false;
-    const connect = () => {
-      setConnection("connecting");
-      socket = new WebSocket(coreWebSocketUrl());
-      socket.onopen = () => setConnection("connected");
-      socket.onmessage = (event) => {
-        const message = JSON.parse(String(event.data)) as {
-          type: string;
-          subtitle?: Subtitle;
-          source?: LiveTranscription["source"];
-          text?: string;
-          utterance_id?: string;
-          language?: string | null;
-          detail?: string;
-          code?: string;
-          subtitle_id?: number;
-          translation?: SubtitleTranslation;
-          target_language?: string;
-        };
-        if (message.type === "subtitle" && message.subtitle) {
-          setSubtitles((current) => [message.subtitle!, ...current].slice(0, 500));
-          const source = message.subtitle.source ?? "speaker";
-          setPartials((current) => ({ ...current, [source]: undefined }));
-        } else if (message.type === "partial" && message.source && message.text && message.utterance_id) {
-          const partial = message as LiveTranscription;
-          setPartials((current) => ({ ...current, [partial.source]: partial }));
-        } else if (message.type === "failed" && message.detail) {
-          setError(localizedError(
-            { code: message.code ?? "asr.cloud_connect_failed" },
-            tRef.current,
-            "errors.core.connect",
-          ));
-        } else if (message.type === "translation_started" && message.subtitle_id !== undefined) {
-          setSubtitles((current) => withTranslationPartial(current, message.subtitle_id!));
-          setTranslatingSubtitleIds((current) => current.includes(message.subtitle_id!)
-            ? current
-            : [...current, message.subtitle_id!]);
-        } else if (
-          message.type === "translation_partial"
-          && message.subtitle_id !== undefined
-          && message.text
-          && message.target_language
-        ) {
-          setSubtitles((current) => withTranslationPartial(
-            current,
-            message.subtitle_id!,
-            message.text,
-            message.target_language,
-          ));
-        } else if (
-          message.type === "translation_completed"
-          && message.subtitle_id !== undefined
-          && message.translation
-        ) {
-          setSubtitles((current) => withTranslation(
-            current,
-            message.subtitle_id!,
-            message.translation!,
-          ));
-          setTranslatingSubtitleIds((current) => current.filter((id) => id !== message.subtitle_id));
-        } else if (message.type === "translation_failed" && message.subtitle_id !== undefined) {
-          setSubtitles((current) => withTranslationPartial(current, message.subtitle_id!));
-          setTranslatingSubtitleIds((current) => current.filter((id) => id !== message.subtitle_id));
-          setError(localizedError(
-            { code: message.code ?? "translation.request_failed" },
-            tRef.current,
-            "errors.translation.failed",
-          ));
-        }
-      };
-      socket.onclose = () => {
-        setConnection("disconnected");
-        if (!closed) retry = window.setTimeout(connect, 1500);
-      };
-    };
-    connect();
-    return () => {
-      closed = true;
-      if (retry !== null) window.clearTimeout(retry);
-      socket?.close();
-    };
-  }, [coreConfigured]);
-
   const loadDevices = useCallback(async () => {
     if (!coreConfigured) return;
     try {
       setDevices(await coreApi.devices());
       setDevicesReady(true);
-      clearError();
+      clearErrorFrom("devices");
     } catch (reason) {
       setDevicesReady(false);
-      reportError(reason, "errors.audio.devices");
+      reportError(reason, "errors.audio.devices", "devices");
     }
-  }, [clearError, coreConfigured, reportError]);
+  }, [clearErrorFrom, coreConfigured, reportError]);
 
   const loadDictionaries = useCallback(async () => {
     if (!coreConfigured) return;
     try {
       setDictionarySources(await coreApi.dictionaries());
-      clearError();
+      clearErrorFrom("dictionary");
     } catch (reason) {
-      reportError(reason, "errors.dictionary.list");
+      reportError(reason, "errors.dictionary.list", "dictionary");
     }
-  }, [clearError, coreConfigured, reportError]);
+  }, [clearErrorFrom, coreConfigured, reportError]);
 
   const loadAsrCapabilities = useCallback(async () => {
     if (!coreConfigured) return;
     try {
       setAsrCapabilities(await coreApi.asrCapabilities());
-      clearError();
+      clearErrorFrom("asr");
     } catch (reason) {
-      reportError(reason, "errors.asr.capabilities");
+      reportError(reason, "errors.asr.capabilities", "asr");
     }
-  }, [clearError, coreConfigured, reportError]);
+  }, [clearErrorFrom, coreConfigured, reportError]);
   const loadAsrCapabilitiesRef = useRef(loadAsrCapabilities);
   loadAsrCapabilitiesRef.current = loadAsrCapabilities;
 
@@ -311,20 +224,20 @@ export function useCoreSession(settingsPageActive: boolean) {
   const toggleCapture = useCallback(async () => {
     if (healthRef.current?.capture_running) {
       await coreApi.stop();
-      setPartials({});
+      clearPartials();
     }
     else await coreApi.start();
     setHealth(await coreApi.health());
-    clearError();
-  }, [clearError]);
+    clearErrorFrom("capture");
+  }, [clearErrorFrom, clearPartials]);
 
   const testOsc = useCallback(async () => {
     await coreApi.testOsc();
-    clearError();
+    clearErrorFrom("osc");
     window.setTimeout(() => {
       void coreApi.health().then(setHealth).catch(() => undefined);
     }, 200);
-  }, [clearError]);
+  }, [clearErrorFrom]);
 
   const persistSettings = useCallback(async (next: Settings): Promise<Settings> => {
     const previous = persistedSettingsRef.current;
@@ -397,14 +310,15 @@ export function useCoreSession(settingsPageActive: boolean) {
       persist: (next) => persistSettingsRef.current(next),
       onOptimistic: setSettings,
       onCommit: () => {
-        clearError();
+        clearErrorFrom("settings");
         void loadAsrCapabilitiesRef.current();
       },
       onError: (reason) => {
         if (persistedSettingsRef.current) {
           setSettings(persistedSettingsRef.current);
         }
-        reportError(reason, "errors.settings.apply");
+        reportError(reason, "errors.settings.apply", "settings");
+        void loadSettingsRef.current();
       },
     });
   }
@@ -423,22 +337,6 @@ export function useCoreSession(settingsPageActive: boolean) {
     await loadDictionaries();
   }, [loadDictionaries]);
 
-  const translateSubtitle = useCallback(async (subtitleId: number) => {
-    setTranslatingSubtitleIds((current) => current.includes(subtitleId)
-      ? current
-      : [...current, subtitleId]);
-    try {
-      const translation = await coreApi.translateSubtitle(subtitleId);
-      setSubtitles((current) => withTranslation(current, subtitleId, translation));
-      clearError();
-    } catch (reason) {
-      setSubtitles((current) => withTranslationPartial(current, subtitleId));
-      reportError(reason, "errors.translation.failed");
-    } finally {
-      setTranslatingSubtitleIds((current) => current.filter((id) => id !== subtitleId));
-    }
-  }, [clearError, reportError]);
-
   return {
     connection,
     coreReady: startupState === "ready",
@@ -455,6 +353,7 @@ export function useCoreSession(settingsPageActive: boolean) {
     clearError,
     reportError,
     retryCore,
+    loadSettings,
     loadDevices,
     loadAsrCapabilities,
     toggleCapture,

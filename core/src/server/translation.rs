@@ -6,7 +6,7 @@ use axum::Json;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
-use crate::translation::{TranslationError, TranslationEvent};
+use crate::translation::TranslationError;
 
 use super::{api_error, api_error_with_params, db_call, ApiResult, AppState};
 
@@ -68,10 +68,8 @@ pub(super) async fn subtitle_translate(
             "Translation is disabled",
         ));
     }
-    let _ = state
-        .translation_tx
-        .send(TranslationEvent::TranslationStarted { subtitle_id });
-    let record = state
+    state.subtitle_output.translation_started(subtitle_id);
+    let result = state
         .translation_service
         .translate(
             &config.translation,
@@ -80,28 +78,38 @@ pub(super) async fn subtitle_translate(
             subtitle.language.as_deref(),
             None,
         )
-        .await
-        .map_err(translation_error)?
-        .into_record();
+        .await;
+    let record = match result {
+        Ok(result) => result.into_record(),
+        Err(error) => {
+            state.subtitle_output.translation_failed(
+                subtitle_id,
+                error.code.into(),
+                error.detail.clone(),
+            );
+            return Err(translation_error(error));
+        }
+    };
     let saved = record.clone();
-    db_call(Arc::clone(&state.db), move |db| {
+    if let Err(error) = db_call(Arc::clone(&state.db), move |db| {
         db.save_translation(subtitle_id, &saved)
     })
     .await
-    .map_err(|error| {
-        api_error(
+    {
+        state.subtitle_output.translation_failed(
+            subtitle_id,
+            "translation.storage_failed".into(),
+            error.to_string(),
+        );
+        return Err(api_error(
             StatusCode::INTERNAL_SERVER_ERROR,
             "translation.storage_failed",
             error.to_string(),
-        )
-    })?;
-    let _ = state
-        .translation_tx
-        .send(TranslationEvent::TranslationCompleted {
-            subtitle_id,
-            translation: record.clone(),
-        });
-    state.osc.translation_completed(subtitle_id, record.clone());
+        ));
+    }
+    state
+        .subtitle_output
+        .translation_completed(subtitle_id, record.clone());
     Ok(Json(json!(record)))
 }
 
