@@ -105,7 +105,7 @@ export function RangeField({ label, helper, value, min, max, step, disabled, for
         <span>{label}</span>
         {!hideValue && <output aria-label={t("common.currentValue", { label })}>{formatValue(draftValue)}</output>}
       </span>
-      <span className="range-input-wrap">
+      <span className={`range-input-wrap${trackSlot ? " range-input-wrap-meter" : ""}`}>
         {trackSlot}
         <input
           className="range-input"

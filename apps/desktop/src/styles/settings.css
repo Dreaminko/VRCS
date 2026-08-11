@@ -583,9 +583,9 @@
 .microphone-level-setting.triggered .microphone-level-status { color: var(--primary-ink); }
 .range-input-wrap { position: relative; display: grid; }
 .range-input-wrap > .range-input { position: relative; z-index: 1; grid-area: 1 / 1; min-width: 0; margin: 0; }
-.range-input-wrap > .range-input::-webkit-slider-runnable-track { border-color: transparent; background: transparent; }
-.range-input-wrap > .range-input::-moz-range-track { background: transparent; }
-.range-input-wrap > .range-input::-moz-range-progress { background: transparent; }
+.range-input-wrap-meter > .range-input::-webkit-slider-runnable-track { border-color: transparent; background: transparent; }
+.range-input-wrap-meter > .range-input::-moz-range-track { background: transparent; }
+.range-input-wrap-meter > .range-input::-moz-range-progress { background: transparent; }
 .microphone-live-track {
   position: relative;
   grid-area: 1 / 1;
