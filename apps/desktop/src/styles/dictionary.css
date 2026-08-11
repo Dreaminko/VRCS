@@ -17,7 +17,7 @@
 .dictionary-title-copy { display: grid; min-width: 0; flex: 1; gap: 2px; }
 .dictionary-term-row { display: flex; min-width: 0; align-items: center; gap: 7px; }
 .dictionary-header h2 { min-width: 0; margin: 0; overflow: hidden; font-size: 18px; font-weight: 650; line-height: 1.25; text-overflow: ellipsis; white-space: nowrap; }
-.dictionary-header .reading { overflow: hidden; color: var(--text-quiet); font: 11px/1.4 "Cascadia Mono", "Consolas", monospace; text-overflow: ellipsis; white-space: nowrap; }
+.dictionary-header .reading { overflow: hidden; color: var(--text-quiet); font: 11px/1.4 var(--font-mono); text-overflow: ellipsis; white-space: nowrap; }
 .dictionary-header .language-chip {
   display: inline-flex;
   min-height: 18px;
@@ -101,7 +101,7 @@
 .dictionary-entry-index {
   margin-left: auto;
   color: var(--text-quiet);
-  font: 10px/1.4 "Cascadia Mono", "Consolas", monospace;
+  font: 10px/1.4 var(--font-mono);
 }
 .definition-glosses {
   display: grid;
@@ -132,7 +132,7 @@
   background: var(--primary-softer);
   content: counter(glossary);
   counter-increment: glossary;
-  font: 10px/1 "Cascadia Mono", "Consolas", monospace;
+  font: 10px/1 var(--font-mono);
 }
 .lookup-context {
   margin: 0;

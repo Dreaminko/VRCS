@@ -678,14 +678,14 @@ body { zoom: var(--interface-scale, 1); }
   outline: 0;
   color: var(--text);
   background: var(--surface);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.035);
+  box-shadow: var(--control-shadow);
   cursor: pointer;
   font-size: 13px;
   text-align: left;
   transition: border-color 140ms ease-out, background-color 140ms ease-out, box-shadow 140ms ease-out, color 140ms ease-out, transform 140ms ease-out;
 }
 .dropdown-trigger:hover:not(:disabled) { border-color: var(--border-strong); background: var(--surface-elevated); }
-.dropdown-trigger:focus-visible { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(116, 214, 255, 0.14), 0 1px 2px rgba(0, 0, 0, 0.035); }
+.dropdown-trigger:focus-visible { border-color: var(--primary); box-shadow: var(--control-focus-shadow); }
 .dropdown-trigger:active:not(:disabled) { transform: scale(0.985); }
 .dropdown-trigger:disabled { color: var(--text-quiet); background: var(--surface-subtle); cursor: not-allowed; }
 .dropdown-icon {
@@ -714,7 +714,7 @@ body { zoom: var(--interface-scale, 1); }
 .deck-tree-field.open { z-index: 180; }
 .deck-tree-field.open .dropdown-trigger {
   border-color: var(--primary);
-  box-shadow: 0 0 0 3px rgba(116, 214, 255, 0.12), 0 1px 2px rgba(0, 0, 0, 0.035);
+  box-shadow: 0 0 0 3px rgba(116, 214, 255, 0.12), var(--control-shadow);
 }
 .deck-tree-field.open .dropdown-chevron { transform: rotate(180deg); }
 .deck-tree-menu {
@@ -881,7 +881,7 @@ body { zoom: var(--interface-scale, 1); }
 }
 .history-list article:last-child { border-bottom: 0; }
 .history-list article:hover { background: #fafcfe; }
-.history-list time, .history-list article > span { padding-top: 3px; color: var(--text-quiet); font: 11px/1.4 "Cascadia Mono", "Consolas", monospace; }
+.history-list time, .history-list article > span { padding-top: 3px; color: var(--text-quiet); font: 11px/1.4 var(--font-mono); }
 .history-list p { margin: 0; font-size: 14px; line-height: 1.65; user-select: text; }
 .history-list .history-translation { grid-column: 2; color: var(--text-secondary); font-size: 13px; }
 .history-list .translation-action { grid-column: 4; grid-row: 1 / span 2; align-self: center; }
