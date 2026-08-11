@@ -28,6 +28,7 @@ use tower_http::cors::CorsLayer;
 use crate::config::AppConfig;
 use crate::db::Database;
 use crate::error::{AppError, AppResult};
+use crate::microphone_monitor::MicrophoneMonitor;
 use crate::models::LiveTranscription;
 use crate::osc::OscChatboxDispatcher;
 use crate::pipeline::TranscriptionPipeline;
@@ -67,6 +68,7 @@ pub struct AppState {
     pub capture_control: AsyncMutex<()>,
     pub speaker_pipeline: AsyncMutex<TranscriptionPipeline>,
     pub microphone_pipeline: AsyncMutex<TranscriptionPipeline>,
+    pub microphone_monitor: AsyncMutex<MicrophoneMonitor>,
 }
 
 type ApiResult<T> = Result<T, (StatusCode, Json<Value>)>;
@@ -192,6 +194,14 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/api/audio/devices", get(capture::audio_devices))
         .route("/api/capture/start", post(capture::capture_start))
         .route("/api/capture/stop", post(capture::capture_stop))
+        .route(
+            "/api/audio/microphone-test/start",
+            post(capture::microphone_test_start),
+        )
+        .route(
+            "/api/audio/microphone-test/stop",
+            post(capture::microphone_test_stop),
+        )
         .route("/api/osc/test", post(osc::test_message))
         .route("/api/subtitles", get(dictionary::subtitle_history))
         .route(
@@ -281,6 +291,10 @@ async fn health(State(state): State<Arc<AppState>>) -> Json<Value> {
             pipeline.last_error(),
         )
     };
+    let (microphone_test_running, microphone_test_device) = {
+        let monitor = state.microphone_monitor.lock().await;
+        (monitor.running(), monitor.device().cloned())
+    };
     let last_error = speaker_error.or(microphone_error).or(asr_error);
     let osc = state.osc.status();
     Json(json!({
@@ -291,6 +305,8 @@ async fn health(State(state): State<Arc<AppState>>) -> Json<Value> {
         "capture_running": speaker_running || microphone_running,
         "audio_device": audio_device,
         "microphone_device": microphone_device,
+        "microphone_test_running": microphone_test_running,
+        "microphone_test_device": microphone_test_device,
         "asr_status": asr_status,
         "vad_backend": vad_backend,
         "vad_model_version": vad_model_version,

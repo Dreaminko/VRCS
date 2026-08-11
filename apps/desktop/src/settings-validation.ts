@@ -74,5 +74,6 @@ export function audioSettingsChanged(
     || previous.audio.output.device_id !== next.audio.output.device_id
     || previous.audio.microphone.mode !== next.audio.microphone.mode
     || previous.audio.microphone.device_id !== next.audio.microphone.device_id
+    || previous.audio.microphone.trigger_threshold_dbfs !== next.audio.microphone.trigger_threshold_dbfs
     || JSON.stringify(previous.asr) !== JSON.stringify(next.asr);
 }

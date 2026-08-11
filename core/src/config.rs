@@ -80,6 +80,8 @@ pub struct MicrophoneConfig {
     pub mode: String,
     #[serde(default)]
     pub device_id: Option<i64>,
+    #[serde(default = "default_microphone_trigger_threshold_dbfs")]
+    pub trigger_threshold_dbfs: f32,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -253,6 +255,9 @@ fn default_output_mode() -> String {
 fn default_microphone_mode() -> String {
     "disabled".into()
 }
+fn default_microphone_trigger_threshold_dbfs() -> f32 {
+    -45.0
+}
 fn default_sample_rate() -> u32 {
     16_000
 }
@@ -337,7 +342,11 @@ impl_default!(StorageConfig, {
     subtitle_history_limit: default_history_limit,
 });
 impl_default!(OutputConfig, { mode: default_output_mode, device_id: Option::default });
-impl_default!(MicrophoneConfig, { mode: default_microphone_mode, device_id: Option::default });
+impl_default!(MicrophoneConfig, {
+    mode: default_microphone_mode,
+    device_id: Option::default,
+    trigger_threshold_dbfs: default_microphone_trigger_threshold_dbfs,
+});
 impl_default!(AudioConfig, {
     sample_rate: default_sample_rate,
     output: OutputConfig::default,
@@ -448,10 +457,12 @@ impl AppConfig {
         }
         match self.audio.output.mode.as_str() {
             "system" => {}
-            "vrchat" if self.audio.output.device_id.is_some() => {
-                return Err("VRChat mode cannot specify a system output device".into());
+            "vrchat" | "disabled" if self.audio.output.device_id.is_some() => {
+                return Err(
+                    "VRChat or disabled output mode cannot specify a system output device".into(),
+                );
             }
-            "vrchat" => {}
+            "vrchat" | "disabled" => {}
             other => return Err(format!("Unsupported output mode: {other}")),
         }
         match self.audio.microphone.mode.as_str() {
@@ -464,6 +475,9 @@ impl AppConfig {
             }
             "default" | "disabled" => {}
             other => return Err(format!("Unsupported microphone mode: {other}")),
+        }
+        if !(-80.0..=-10.0).contains(&self.audio.microphone.trigger_threshold_dbfs) {
+            return Err("Microphone trigger_threshold_dbfs must be between -80 and -10".into());
         }
         self.vad.validate()?;
         if !ASR_BACKENDS.contains(&self.asr.backend.as_str()) {
@@ -828,6 +842,35 @@ mod tests {
         assert_eq!(config.asr.backend, "qwen_realtime");
         assert!(config.asr.api_profiles.is_empty());
         assert!(config.validate_settings().is_ok());
+    }
+
+    #[test]
+    fn disabled_output_mode_cannot_select_a_device() {
+        let mut config = AppConfig::default();
+        config.audio.output.mode = "disabled".into();
+        assert!(config.validate_settings().is_ok());
+
+        config.audio.output.device_id = Some(3);
+        assert_eq!(
+            config.validate_settings().unwrap_err(),
+            "VRChat or disabled output mode cannot specify a system output device"
+        );
+    }
+
+    #[test]
+    fn microphone_trigger_threshold_is_bounded() {
+        let mut config = AppConfig::default();
+        config.audio.microphone.trigger_threshold_dbfs = -80.0;
+        assert!(config.validate_settings().is_ok());
+
+        config.audio.microphone.trigger_threshold_dbfs = -10.0;
+        assert!(config.validate_settings().is_ok());
+
+        config.audio.microphone.trigger_threshold_dbfs = -81.0;
+        assert_eq!(
+            config.validate_settings().unwrap_err(),
+            "Microphone trigger_threshold_dbfs must be between -80 and -10"
+        );
     }
 
     #[test]

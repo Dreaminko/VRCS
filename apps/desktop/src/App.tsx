@@ -28,6 +28,10 @@ import {
   writeInterfaceScale,
 } from "./interface-scale";
 import { SettingsPanel } from "./settings/SettingsPanel";
+import {
+  readTranscriptionStartBehavior,
+  shouldCreateConversationOnCaptureToggle,
+} from "./transcription-start";
 
 function App() {
   const { t, i18n } = useTranslation();
@@ -42,6 +46,7 @@ function App() {
     health,
     subtitles,
     partials,
+    audioLevels,
     settings,
     devices,
     devicesReady,
@@ -55,6 +60,8 @@ function App() {
     loadDevices,
     loadAsrCapabilities,
     toggleCapture: toggleCoreCapture,
+    startMicrophoneTest,
+    stopMicrophoneTest,
     testOsc,
     saveSettings,
     importDictionary,
@@ -149,6 +156,13 @@ function App() {
   const toggleCapture = async () => {
     if (!coreReady) return;
     try {
+      if (shouldCreateConversationOnCaptureToggle(
+        health?.capture_running ?? false,
+        readTranscriptionStartBehavior(),
+      )) {
+        createConversation();
+        clearLookup();
+      }
       await toggleCoreCapture();
     } catch (reason) {
       if (shouldShowVrchatNotRunningWarning(
@@ -343,6 +357,9 @@ function App() {
                 interfaceScale={interfaceScale}
                 devices={devices}
                 devicesReady={devicesReady}
+                microphoneLevel={audioLevels.microphone ?? null}
+                onStartMicrophoneTest={startMicrophoneTest}
+                onStopMicrophoneTest={stopMicrophoneTest}
                 dictionaries={dictionarySources}
                 disabled={health?.capture_running ?? false}
                 health={health}

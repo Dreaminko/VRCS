@@ -100,6 +100,7 @@ fn migrate_v1(raw: &serde_json::Value) -> AppConfig {
                     "disabled".into()
                 },
                 device_id: microphone_device_id,
+                ..MicrophoneConfig::default()
             },
         },
         asr: asr_from_legacy(legacy_asr),

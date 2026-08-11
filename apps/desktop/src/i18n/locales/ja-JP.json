@@ -62,7 +62,8 @@
       "yesterday": "昨日"
     },
     "units": {
-      "seconds": "{{value}} 秒"
+      "seconds": "{{value}} 秒",
+      "dbfs": "{{value}} dBFS"
     },
     "languages": {
       "all": "すべての言語",
@@ -231,6 +232,10 @@
         "followSystem": "システム設定に従う",
         "interfaceScale": "表示サイズ",
         "interfaceScaleDescription": "表示倍率を調整します。Ctrl + または Ctrl - でも 5% ずつ変更できます。",
+        "transcriptionStartBehavior": "文字起こし開始時",
+        "transcriptionStartBehaviorDescription": "文字起こしを開始するたびに会話をどう扱うか選びます。",
+        "continueCurrentConversation": "現在の会話を続ける",
+        "createNewConversation": "新しい会話を作成",
         "launchAtStartup": "ログイン時に起動",
         "launchAtStartupDescription": "サインイン後に VRCS を自動的に起動します。",
         "minimizeToTray": "システムトレイに最小化",
@@ -410,8 +415,24 @@
         "systemOutput": "システム出力",
         "systemOutputDescription": "Windows の既定の出力デバイスを使用します。",
         "vrchatDescription": "VRChat で選択した出力デバイスを取得します。",
+        "disableOtherVoices": "相手の声を無効化",
+        "disableOtherVoicesDescription": "自分の声だけを文字起こしします。",
         "ownVoice": "自分の声",
         "ownVoiceDescription": "自分の音声に使用するマイクを選びます。",
+        "inputLevel": "現在の入力レベル",
+        "previewDisabled": "マイクを選択するとプレビューできます",
+        "previewReady": "テスト待機中",
+        "previewTesting": "テスト中",
+        "previewThresholdReached": "しきい値に到達",
+        "previewTranscribing": "文字起こし中",
+        "microphoneTestDescription": "入力レベルのみを測定し、音声認識、字幕生成、録音保存は行いません。",
+        "startMicrophoneTest": "マイクをテスト",
+        "stopMicrophoneTest": "テストを停止",
+        "microphoneTestBusy": "処理中…",
+        "levelMeterLabel": "現在のマイク入力レベル",
+        "triggerThreshold": "マイクのトリガーしきい値",
+        "triggerThresholdDescription": "音声が検出され、このレベル以上になった場合のみ発話を開始します。周囲が騒がしい場合は高くします。",
+        "thresholdMarkerLabel": "トリガーしきい値 {{value}} dBFS",
         "defaultMicrophone": "既定のマイク",
         "defaultMicrophoneDescription": "Windows の既定の入力デバイスに従います。",
         "disableMicrophone": "マイクを無効化",
@@ -567,6 +588,10 @@
       },
       "audio": {
         "devices": "音声デバイスを読み込めませんでした。",
+        "microphoneTestFailed": "マイクをテストできませんでした。",
+        "microphone_test_disabled": "先にマイクを選択してください。",
+        "microphone_test_capture_running": "文字起こしを停止してからマイクをテストしてください。",
+        "microphone_test_already_running": "マイクテストはすでに実行中です。",
         "device_unavailable": "選択した音声デバイスを利用できません。",
         "unavailable": "音声キャプチャを利用できません。",
         "vrchat_not_running": "VRChat が起動していません。起動してからもう一度お試しください。"
@@ -642,7 +667,8 @@
       },
       "capture": {
         "invalid_sample_rate": "音声のサンプルレートが無効です。",
-        "already_running": "文字起こしはすでに実行中です。"
+        "already_running": "文字起こしはすでに実行中です。",
+        "no_audio_sources": "音声ソースを1つ以上有効にしてください。"
       },
       "subtitles": {
         "invalid_limit": "履歴の上限が無効です。",

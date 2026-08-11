@@ -1,4 +1,5 @@
 import type {
+  AudioLevel,
   LiveTranscription,
   Subtitle,
   SubtitleTranslation,
@@ -10,6 +11,7 @@ const MAX_STREAM_TEXT_LENGTH = 100_000;
 export type SubtitleStreamMessage =
   | { type: "subtitle"; subtitle: Subtitle }
   | LiveTranscription
+  | AudioLevel
   | {
       type: "failed";
       source?: LiveTranscription["source"];
@@ -49,6 +51,13 @@ function isSubtitleId(value: unknown): value is number {
 
 function isSource(value: unknown): value is LiveTranscription["source"] {
   return value === "speaker" || value === "microphone";
+}
+
+function isDbfs(value: unknown): value is number {
+  return typeof value === "number"
+    && Number.isFinite(value)
+    && value >= -80
+    && value <= 0;
 }
 
 function isNullableText(value: unknown): value is string | null {
@@ -115,6 +124,13 @@ export function parseSubtitleStreamMessage(
           value.language === undefined
           || isNullableText(value.language)
         )
+        ? value as SubtitleStreamMessage
+        : null;
+    case "audio_level":
+      return isSource(value.source)
+        && isDbfs(value.rms_dbfs)
+        && isDbfs(value.peak_dbfs)
+        && typeof value.speech === "boolean"
         ? value as SubtitleStreamMessage
         : null;
     case "failed":

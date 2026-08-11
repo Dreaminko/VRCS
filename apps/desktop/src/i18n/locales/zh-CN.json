@@ -62,7 +62,8 @@
       "yesterday": "昨天"
     },
     "units": {
-      "seconds": "{{value}} 秒"
+      "seconds": "{{value}} 秒",
+      "dbfs": "{{value}} dBFS"
     },
     "languages": {
       "all": "全部语言",
@@ -231,6 +232,10 @@
         "followSystem": "跟随系统",
         "interfaceScale": "界面大小",
         "interfaceScaleDescription": "调整界面显示比例，也可按 Ctrl + 或 Ctrl - 以 5% 为步进快速调整。",
+        "transcriptionStartBehavior": "开始转写时",
+        "transcriptionStartBehaviorDescription": "选择每次开始转写时如何处理对话。",
+        "continueCurrentConversation": "继续当前对话",
+        "createNewConversation": "新建对话",
         "launchAtStartup": "开机启动",
         "launchAtStartupDescription": "登录系统后自动启动 VRCS。",
         "minimizeToTray": "最小化到系统托盘",
@@ -410,8 +415,24 @@
         "systemOutput": "系统输出",
         "systemOutputDescription": "使用 Windows 默认输出设备。",
         "vrchatDescription": "捕获 VRChat 选择的输出设备。",
+        "disableOtherVoices": "禁用其他人的声音",
+        "disableOtherVoicesDescription": "只转写自己的声音。",
         "ownVoice": "自己的声音",
         "ownVoiceDescription": "选择用于捕获自己语音的麦克风。",
+        "inputLevel": "当前输入音量",
+        "previewDisabled": "选择麦克风后可预览",
+        "previewReady": "等待测试",
+        "previewTesting": "正在测试",
+        "previewThresholdReached": "已达到阈值",
+        "previewTranscribing": "转写中",
+        "microphoneTestDescription": "仅测量输入音量，不会识别、生成字幕或保存录音。",
+        "startMicrophoneTest": "测试麦克风",
+        "stopMicrophoneTest": "停止测试",
+        "microphoneTestBusy": "处理中…",
+        "levelMeterLabel": "麦克风当前输入音量",
+        "triggerThreshold": "麦克风触发阈值",
+        "triggerThresholdDescription": "只有音量达到此阈值且检测到语音时才开始记录一句话。环境噪声较大时可调高。",
+        "thresholdMarkerLabel": "触发阈值 {{value}} dBFS",
         "defaultMicrophone": "默认麦克风",
         "defaultMicrophoneDescription": "跟随 Windows 默认输入设备。",
         "disableMicrophone": "禁用麦克风",
@@ -567,6 +588,10 @@
       },
       "audio": {
         "devices": "无法加载音频设备。",
+        "microphoneTestFailed": "无法测试麦克风。",
+        "microphone_test_disabled": "请先选择一个麦克风。",
+        "microphone_test_capture_running": "请先停止转写，再测试麦克风。",
+        "microphone_test_already_running": "麦克风测试已在运行。",
         "device_unavailable": "所选音频设备不可用。",
         "unavailable": "音频采集不可用。",
         "vrchat_not_running": "VRChat 未运行，请启动 VRChat 后重试。"
@@ -642,7 +667,8 @@
       },
       "capture": {
         "invalid_sample_rate": "音频采样率无效。",
-        "already_running": "转写已在运行。"
+        "already_running": "转写已在运行。",
+        "no_audio_sources": "请至少启用一个声音来源。"
       },
       "subtitles": {
         "invalid_limit": "历史记录上限无效。",

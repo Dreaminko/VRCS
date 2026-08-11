@@ -141,3 +141,30 @@ test("valid stream payloads pass protocol validation", () => {
   }));
   assert.equal(message?.type, "subtitle");
 });
+
+test("microphone audio levels pass protocol validation", () => {
+  const message = parseSubtitleStreamMessage(JSON.stringify({
+    type: "audio_level",
+    source: "microphone",
+    rms_dbfs: -42.5,
+    peak_dbfs: -31.2,
+    speech: true,
+  }));
+  assert.deepEqual(message, {
+    type: "audio_level",
+    source: "microphone",
+    rms_dbfs: -42.5,
+    peak_dbfs: -31.2,
+    speech: true,
+  });
+});
+
+test("out-of-range microphone levels are rejected", () => {
+  assert.equal(parseSubtitleStreamMessage(JSON.stringify({
+    type: "audio_level",
+    source: "microphone",
+    rms_dbfs: -81,
+    peak_dbfs: -31.2,
+    speech: false,
+  })), null);
+});

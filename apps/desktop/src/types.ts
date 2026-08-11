@@ -85,6 +85,14 @@ export interface LiveTranscription {
   language?: string | null;
 }
 
+export interface AudioLevel {
+  type: "audio_level";
+  source: "speaker" | "microphone";
+  rms_dbfs: number;
+  peak_dbfs: number;
+  speech: boolean;
+}
+
 export interface CredentialStatus {
   configured: boolean;
   stored_configured: boolean;
@@ -93,13 +101,14 @@ export interface CredentialStatus {
 }
 
 export interface AudioOutputSettings {
-  mode: "system" | "vrchat";
+  mode: "system" | "vrchat" | "disabled";
   device_id: number | null;
 }
 
 export interface MicrophoneSettings {
   mode: "default" | "device" | "disabled";
   device_id: number | null;
+  trigger_threshold_dbfs: number;
 }
 
 export interface VadSettings {
@@ -171,6 +180,8 @@ export interface Health {
   capture_running: boolean;
   audio_device: AudioDevice | null;
   microphone_device?: AudioDevice | null;
+  microphone_test_running?: boolean;
+  microphone_test_device?: AudioDevice | null;
   asr_status: string;
   vad_backend: string;
   vad_model_version: string | null;

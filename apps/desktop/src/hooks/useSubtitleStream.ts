@@ -6,6 +6,7 @@ import {
   parseSubtitleStreamMessage,
 } from "../subtitle-stream";
 import type {
+  AudioLevel,
   ConnectionState,
   LiveTranscription,
   Subtitle,
@@ -65,17 +66,24 @@ export function useSubtitleStream({
   const [partials, setPartials] = useState<
     Partial<Record<LiveTranscription["source"], LiveTranscription>>
   >({});
+  const [audioLevels, setAudioLevels] = useState<
+    Partial<Record<AudioLevel["source"], AudioLevel>>
+  >({});
   const [translatingSubtitleIds, setTranslatingSubtitleIds] = useState<number[]>([]);
 
   const mergeSnapshot = useCallback((historyItems: Subtitle[]) => {
     setSubtitles((current) => mergeSubtitleHistory(current, historyItems));
   }, []);
 
-  const clearPartials = useCallback(() => setPartials({}), []);
+  const clearPartials = useCallback(() => {
+    setPartials({});
+    setAudioLevels({});
+  }, []);
 
   useEffect(() => {
     if (!coreConfigured) {
       setConnection("connecting");
+      setAudioLevels({});
       return;
     }
     let socket: WebSocket | null = null;
@@ -103,6 +111,9 @@ export function useSubtitleStream({
           case "partial":
             setPartials((current) => ({ ...current, [message.source]: message }));
             clearErrorFrom(`stream:${message.source}`);
+            break;
+          case "audio_level":
+            setAudioLevels((current) => ({ ...current, [message.source]: message }));
             break;
           case "failed":
             reportError(
@@ -151,6 +162,7 @@ export function useSubtitleStream({
       };
       socket.onclose = () => {
         setConnection("disconnected");
+        setAudioLevels({});
         if (!closed) retry = window.setTimeout(connect, 1500);
       };
     };
@@ -186,6 +198,7 @@ export function useSubtitleStream({
     connection,
     subtitles,
     partials,
+    audioLevels,
     translatingSubtitleIds,
     mergeSnapshot,
     clearPartials,

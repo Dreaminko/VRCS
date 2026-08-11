@@ -8,6 +8,7 @@ mod credentials;
 mod db;
 mod error;
 mod llm;
+mod microphone_monitor;
 mod models;
 mod osc;
 mod pipeline;
@@ -105,6 +106,7 @@ impl CoreHandle {
         let _control = self.state.capture_control.lock().await;
         self.state.speaker_pipeline.lock().await.stop().await;
         self.state.microphone_pipeline.lock().await.stop().await;
+        self.state.microphone_monitor.lock().await.stop().await;
         self.model_manager.cancel_all_and_wait().await;
         result
     }
@@ -312,6 +314,7 @@ async fn start_inner(options: CoreOptions, defer_managed_vad: bool) -> Result<Co
             vad_runtime,
             shutdown_rx.clone(),
         )),
+        microphone_monitor: tokio::sync::Mutex::new(microphone_monitor::MicrophoneMonitor::new()),
     });
 
     let listener = tokio::net::TcpListener::bind(address)
@@ -368,6 +371,51 @@ mod tests {
         .await
         .unwrap();
         assert!(handle.address().port() > 0);
+        handle.shutdown().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn microphone_test_requires_a_selected_input_and_stop_is_idempotent() {
+        let directory = tempfile::tempdir().unwrap();
+        let handle = start(CoreOptions {
+            config_path: directory.path().join("config.json"),
+            host: Some("127.0.0.1".into()),
+            port: Some(0),
+            session_token: Some("test-token".into()),
+            vad_model_path: Some(directory.path().join("missing-silero.onnx")),
+            asr_model_dir: None,
+        })
+        .await
+        .unwrap();
+        let client = reqwest::Client::new();
+        let base_url = format!("http://{}", handle.address());
+        let rejected = client
+            .post(format!("{base_url}/api/audio/microphone-test/start"))
+            .bearer_auth("test-token")
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(rejected.status(), reqwest::StatusCode::UNPROCESSABLE_ENTITY);
+        let body: serde_json::Value = rejected.json().await.unwrap();
+        assert_eq!(body["code"], "audio.microphone_test_disabled");
+
+        let stopped = client
+            .post(format!("{base_url}/api/audio/microphone-test/stop"))
+            .bearer_auth("test-token")
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(stopped.status(), reqwest::StatusCode::OK);
+        let health: serde_json::Value = client
+            .get(format!("{base_url}/health"))
+            .bearer_auth("test-token")
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert_eq!(health["microphone_test_running"], false);
         handle.shutdown().await.unwrap();
     }
 

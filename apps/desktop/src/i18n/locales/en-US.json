@@ -62,7 +62,8 @@
       "yesterday": "Yesterday"
     },
     "units": {
-      "seconds": "{{value}} sec"
+      "seconds": "{{value}} sec",
+      "dbfs": "{{value}} dBFS"
     },
     "languages": {
       "all": "All languages",
@@ -231,6 +232,10 @@
         "followSystem": "Follow system",
         "interfaceScale": "Interface size",
         "interfaceScaleDescription": "Adjust the interface scale, or press Ctrl + or Ctrl - to change it in 5% steps.",
+        "transcriptionStartBehavior": "When transcription starts",
+        "transcriptionStartBehaviorDescription": "Choose how each transcription start handles conversations.",
+        "continueCurrentConversation": "Continue current conversation",
+        "createNewConversation": "Create a new conversation",
         "launchAtStartup": "Launch at startup",
         "launchAtStartupDescription": "Start VRCS automatically after you sign in.",
         "minimizeToTray": "Minimize to system tray",
@@ -410,8 +415,24 @@
         "systemOutput": "System output",
         "systemOutputDescription": "Use the default Windows output device.",
         "vrchatDescription": "Capture the output device selected by VRChat.",
+        "disableOtherVoices": "Disable other voices",
+        "disableOtherVoicesDescription": "Only transcribe your voice.",
         "ownVoice": "Your voice",
         "ownVoiceDescription": "Choose the microphone used for your speech.",
+        "inputLevel": "Current input level",
+        "previewDisabled": "Select a microphone to preview",
+        "previewReady": "Ready to test",
+        "previewTesting": "Testing",
+        "previewThresholdReached": "Threshold reached",
+        "previewTranscribing": "Transcribing",
+        "microphoneTestDescription": "Measures input level only. It does not recognize speech, create subtitles, or save audio.",
+        "startMicrophoneTest": "Test microphone",
+        "stopMicrophoneTest": "Stop test",
+        "microphoneTestBusy": "Working…",
+        "levelMeterLabel": "Current microphone input level",
+        "triggerThreshold": "Microphone trigger threshold",
+        "triggerThresholdDescription": "A sentence starts only when speech is detected at or above this level. Raise it in noisy environments.",
+        "thresholdMarkerLabel": "Trigger threshold {{value}} dBFS",
         "defaultMicrophone": "Default microphone",
         "defaultMicrophoneDescription": "Follow the Windows default input device.",
         "disableMicrophone": "Disable microphone",
@@ -567,6 +588,10 @@
       },
       "audio": {
         "devices": "Could not load audio devices.",
+        "microphoneTestFailed": "Could not test the microphone.",
+        "microphone_test_disabled": "Select a microphone first.",
+        "microphone_test_capture_running": "Stop transcription before testing the microphone.",
+        "microphone_test_already_running": "The microphone test is already running.",
         "device_unavailable": "The selected audio device is unavailable.",
         "unavailable": "Audio capture is unavailable.",
         "vrchat_not_running": "VRChat is not running. Start VRChat and try again."
@@ -642,7 +667,8 @@
       },
       "capture": {
         "invalid_sample_rate": "The audio sample rate is invalid.",
-        "already_running": "Transcription is already running."
+        "already_running": "Transcription is already running.",
+        "no_audio_sources": "Enable at least one audio source."
       },
       "subtitles": {
         "invalid_limit": "The history limit is invalid.",

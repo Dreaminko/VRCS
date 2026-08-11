@@ -71,6 +71,7 @@ impl TranscriptionPipeline {
         sample_rate: u32,
         device_id: Option<i64>,
         process_name: Option<&str>,
+        trigger_threshold_dbfs: Option<f32>,
         vad_config: &VadConfig,
         asr_config: AsrConfig,
         dependencies: PipelineDependencies,
@@ -143,6 +144,7 @@ impl TranscriptionPipeline {
                 asr_config.cloud_failure_policy == "local",
                 sample_rate,
                 silence_seconds,
+                trigger_threshold_dbfs,
                 &mut shutdown,
                 stop_rx,
             )
@@ -185,6 +187,7 @@ async fn run(
     local_fallback: bool,
     sample_rate: u32,
     silence_seconds: f64,
+    trigger_threshold_dbfs: Option<f32>,
     shutdown: &mut watch::Receiver<bool>,
     mut stop: watch::Receiver<bool>,
 ) -> Result<(), String> {
@@ -261,7 +264,17 @@ async fn run(
             }
             continue;
         };
-        let speech = detector.is_speech(&chunk);
+        let (rms_dbfs, peak_dbfs) = audio_level_dbfs(&chunk);
+        let vad_speech = detector.is_speech(&chunk);
+        let speech = thresholded_speech(vad_speech, rms_dbfs, trigger_threshold_dbfs);
+        if trigger_threshold_dbfs.is_some() {
+            dependencies.publish_live(LiveTranscription::AudioLevel {
+                source: source.into(),
+                rms_dbfs,
+                peak_dbfs,
+                speech,
+            });
+        }
         if let Some(session) = cloud.as_ref() {
             if streaming {
                 session.send(chunk.clone()).await?;
@@ -340,6 +353,31 @@ enum PipelineInput {
     Cloud(CloudEvent),
 }
 
+const MIN_AUDIO_LEVEL_DBFS: f32 = -80.0;
+
+pub(crate) fn audio_level_dbfs(samples: &[f32]) -> (f32, f32) {
+    if samples.is_empty() {
+        return (MIN_AUDIO_LEVEL_DBFS, MIN_AUDIO_LEVEL_DBFS);
+    }
+    let mean_square =
+        samples.iter().map(|sample| sample * sample).sum::<f32>() / samples.len() as f32;
+    let rms = mean_square.sqrt();
+    let peak = samples.iter().copied().map(f32::abs).fold(0.0, f32::max);
+    (amplitude_dbfs(rms), amplitude_dbfs(peak))
+}
+
+fn amplitude_dbfs(amplitude: f32) -> f32 {
+    (20.0 * amplitude.max(0.0001).log10()).clamp(MIN_AUDIO_LEVEL_DBFS, 0.0)
+}
+
+fn thresholded_speech(
+    vad_speech: bool,
+    rms_dbfs: f32,
+    trigger_threshold_dbfs: Option<f32>,
+) -> bool {
+    trigger_threshold_dbfs.map_or(vad_speech, |threshold| vad_speech && rms_dbfs >= threshold)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -349,6 +387,22 @@ mod tests {
     use tokio::sync::broadcast;
 
     struct FakeEngine;
+
+    #[test]
+    fn audio_level_uses_dbfs_and_a_finite_silence_floor() {
+        assert_eq!(audio_level_dbfs(&[0.0; 512]), (-80.0, -80.0));
+        let (rms, peak) = audio_level_dbfs(&[0.01; 512]);
+        assert!((rms + 40.0).abs() < 0.001);
+        assert!((peak + 40.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn microphone_trigger_requires_vad_and_the_configured_level() {
+        assert!(!thresholded_speech(true, -46.0, Some(-45.0)));
+        assert!(!thresholded_speech(false, -30.0, Some(-45.0)));
+        assert!(thresholded_speech(true, -45.0, Some(-45.0)));
+        assert!(thresholded_speech(true, -80.0, None));
+    }
 
     impl AsrEngine for FakeEngine {
         fn transcribe(

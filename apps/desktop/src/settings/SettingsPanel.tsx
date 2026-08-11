@@ -19,6 +19,7 @@ import {
   validComputeTypes,
 } from "../settings-validation";
 import type {
+  AudioLevel,
   AsrCapabilities,
   AudioDevice,
   DictionarySource,
@@ -48,6 +49,9 @@ export function SettingsPanel({
   interfaceScale,
   devices,
   devicesReady,
+  microphoneLevel,
+  onStartMicrophoneTest,
+  onStopMicrophoneTest,
   dictionaries,
   disabled,
   modelStatus,
@@ -66,6 +70,9 @@ export function SettingsPanel({
   interfaceScale: number;
   devices: AudioDevice[];
   devicesReady: boolean;
+  microphoneLevel: AudioLevel | null;
+  onStartMicrophoneTest: () => Promise<void>;
+  onStopMicrophoneTest: () => Promise<void>;
   dictionaries: DictionarySource[];
   disabled: boolean;
   modelStatus: string;
@@ -272,12 +279,18 @@ export function SettingsPanel({
           draft={draft}
           devices={devices}
           devicesReady={devicesReady}
+          microphoneLevel={microphoneLevel}
+          microphoneRunning={Boolean(health?.capture_running && health.microphone_device)}
+          transcriptionRunning={health?.capture_running ?? false}
+          microphoneTestRunning={health?.microphone_test_running ?? false}
           deviceErrors={deviceErrors}
           outputDevices={outputDevices}
           microphoneDevices={microphoneDevices}
           saveState={saveState}
           onRefresh={onRefresh}
           applySettings={applySettings}
+          onStartMicrophoneTest={onStartMicrophoneTest}
+          onStopMicrophoneTest={onStopMicrophoneTest}
         />
       )}
 

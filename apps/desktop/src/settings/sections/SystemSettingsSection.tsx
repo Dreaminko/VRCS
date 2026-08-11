@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { SlidersHorizontal } from "lucide-react";
 
@@ -9,6 +10,11 @@ import {
   INTERFACE_SCALE_STEP,
 } from "../../interface-scale";
 import type { UiLanguagePreference } from "../../ui-language";
+import {
+  readTranscriptionStartBehavior,
+  writeTranscriptionStartBehavior,
+  type TranscriptionStartBehavior,
+} from "../../transcription-start";
 import type { SaveState } from "../settings-types";
 import { PreferenceToggle, RangeField, Select } from "../SettingsControls";
 
@@ -32,6 +38,9 @@ export function SystemSettingsSection({
   onUpdateUiLanguage: (preference: UiLanguagePreference) => Promise<void>;
 }) {
   const { t } = useTranslation();
+  const [transcriptionStartBehavior, setTranscriptionStartBehavior] = useState(
+    readTranscriptionStartBehavior,
+  );
   const updateDesktop = onUpdateDesktop;
   const updateUiLanguage = onUpdateUiLanguage;
   return (
@@ -40,7 +49,7 @@ export function SystemSettingsSection({
             <div><SlidersHorizontal size={18} /><h2>{t("settings.system.title")}</h2><span>{t("settings.system.subtitle")}</span></div>
             <p>{t("settings.system.saveImmediately")}</p>
           </div>
-          <div className="system-language-setting">
+          <div className="system-select-setting">
             <div>
               <strong>{t("settings.system.language")}</strong>
               <small>{t("settings.system.languageDescription")}</small>
@@ -57,6 +66,32 @@ export function SystemSettingsSection({
               ]}
               disabled={desktopSaveState === "saving"}
               onChange={(value) => void updateUiLanguage(value as UiLanguagePreference)}
+            />
+          </div>
+          <div className="system-select-setting">
+            <div>
+              <strong>{t("settings.system.transcriptionStartBehavior")}</strong>
+              <small>{t("settings.system.transcriptionStartBehaviorDescription")}</small>
+            </div>
+            <Select
+              label={t("settings.system.transcriptionStartBehavior")}
+              value={transcriptionStartBehavior}
+              options={[
+                {
+                  value: "continue_current",
+                  label: t("settings.system.continueCurrentConversation"),
+                },
+                {
+                  value: "new_conversation",
+                  label: t("settings.system.createNewConversation"),
+                },
+              ]}
+              disabled={false}
+              onChange={(value) => {
+                const behavior = value as TranscriptionStartBehavior;
+                setTranscriptionStartBehavior(behavior);
+                writeTranscriptionStartBehavior(behavior);
+              }}
             />
           </div>
           <div className="system-scale-setting">

@@ -1,9 +1,11 @@
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Mic, RefreshCw, TriangleAlert, Volume2 } from "lucide-react";
 
-import type { AudioDevice, Settings } from "../../types";
+import type { AudioDevice, AudioLevel, Settings } from "../../types";
 import type { ApplySettings, SaveState } from "../settings-types";
 import { DeviceGroup } from "../SettingsControls";
+import { MicrophoneLevelSetting } from "./MicrophoneLevelSetting";
 
 export function AudioSettingsSection({
   draft,
@@ -12,9 +14,15 @@ export function AudioSettingsSection({
   deviceErrors,
   outputDevices,
   microphoneDevices,
+  microphoneLevel,
+  microphoneRunning,
+  transcriptionRunning,
+  microphoneTestRunning,
   saveState,
   onRefresh,
   applySettings,
+  onStartMicrophoneTest,
+  onStopMicrophoneTest,
 }: {
   draft: Settings;
   devices: AudioDevice[];
@@ -22,11 +30,33 @@ export function AudioSettingsSection({
   deviceErrors: string[];
   outputDevices: AudioDevice[];
   microphoneDevices: AudioDevice[];
+  microphoneLevel: AudioLevel | null;
+  microphoneRunning: boolean;
+  transcriptionRunning: boolean;
+  microphoneTestRunning: boolean;
   saveState: SaveState;
   onRefresh: () => Promise<void>;
   applySettings: ApplySettings;
+  onStartMicrophoneTest: () => Promise<void>;
+  onStopMicrophoneTest: () => Promise<void>;
 }) {
   const { t } = useTranslation();
+  const [microphoneTestBusy, setMicrophoneTestBusy] = useState(false);
+
+  useEffect(() => () => {
+    void onStopMicrophoneTest().catch(() => undefined);
+  }, [onStopMicrophoneTest]);
+
+  const toggleMicrophoneTest = async () => {
+    if (microphoneTestBusy) return;
+    setMicrophoneTestBusy(true);
+    try {
+      if (microphoneTestRunning) await onStopMicrophoneTest();
+      else await onStartMicrophoneTest();
+    } finally {
+      setMicrophoneTestBusy(false);
+    }
+  };
   return (
         <div className="settings-section settings-section-active audio-section" id="settings-panel-audio" role="tabpanel" aria-labelledby="settings-tab-audio">
           <div className="section-heading">
@@ -67,6 +97,16 @@ export function AudioSettingsSection({
                   audio: { ...current.audio, output: { mode: "vrchat", device_id: null } },
                 })),
               },
+              {
+                key: "disabled",
+                name: t("settings.audio.disableOtherVoices"),
+                description: t("settings.audio.disableOtherVoicesDescription"),
+                chosen: draft.audio.output.mode === "disabled",
+                onSelect: () => applySettings((current) => ({
+                  ...current,
+                  audio: { ...current.audio, output: { mode: "disabled", device_id: null } },
+                })),
+              },
             ]}
             disabled={saveState === "saving"}
             onSelectDevice={(id) => applySettings((current) => ({
@@ -78,6 +118,29 @@ export function AudioSettingsSection({
             icon={<Mic size={18} />}
             title={t("settings.audio.ownVoice")}
             note={t("settings.audio.ownVoiceDescription")}
+            beforeList={(
+              <MicrophoneLevelSetting
+                level={microphoneLevel}
+                enabled={draft.audio.microphone.mode !== "disabled"}
+                captureRunning={microphoneRunning}
+                transcriptionRunning={transcriptionRunning}
+                testing={microphoneTestRunning}
+                busy={microphoneTestBusy}
+                threshold={draft.audio.microphone.trigger_threshold_dbfs}
+                disabled={saveState === "saving"}
+                onToggleTest={() => void toggleMicrophoneTest()}
+                onCommit={(triggerThresholdDbfs) => applySettings((current) => ({
+                  ...current,
+                  audio: {
+                    ...current.audio,
+                    microphone: {
+                      ...current.audio.microphone,
+                      trigger_threshold_dbfs: triggerThresholdDbfs,
+                    },
+                  },
+                }))}
+              />
+            )}
             devices={microphoneDevices}
             devicesReady={devicesReady}
             selectedDeviceId={draft.audio.microphone.mode === "device" ? draft.audio.microphone.device_id : null}
@@ -89,7 +152,10 @@ export function AudioSettingsSection({
                 chosen: draft.audio.microphone.mode === "default",
                 onSelect: () => applySettings((current) => ({
                   ...current,
-                  audio: { ...current.audio, microphone: { mode: "default", device_id: null } },
+                  audio: {
+                    ...current.audio,
+                    microphone: { ...current.audio.microphone, mode: "default", device_id: null },
+                  },
                 })),
               },
               {
@@ -99,14 +165,20 @@ export function AudioSettingsSection({
                 chosen: draft.audio.microphone.mode === "disabled",
                 onSelect: () => applySettings((current) => ({
                   ...current,
-                  audio: { ...current.audio, microphone: { mode: "disabled", device_id: null } },
+                  audio: {
+                    ...current.audio,
+                    microphone: { ...current.audio.microphone, mode: "disabled", device_id: null },
+                  },
                 })),
               },
             ]}
             disabled={saveState === "saving"}
             onSelectDevice={(id) => applySettings((current) => ({
               ...current,
-              audio: { ...current.audio, microphone: { mode: "device", device_id: id } },
+              audio: {
+                ...current.audio,
+                microphone: { ...current.audio.microphone, mode: "device", device_id: id },
+              },
             }))}
           />
         </div>

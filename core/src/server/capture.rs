@@ -28,6 +28,52 @@ pub(super) async fn audio_devices() -> ApiResult<Json<Value>> {
     Ok(Json(json!(devices)))
 }
 
+pub(super) async fn microphone_test_start(
+    State(state): State<Arc<AppState>>,
+) -> ApiResult<Json<Value>> {
+    let _control = state.capture_control.lock().await;
+    if state.speaker_pipeline.lock().await.running()
+        || state.microphone_pipeline.lock().await.running()
+    {
+        return Err(api_error(
+            StatusCode::CONFLICT,
+            "audio.microphone_test_capture_running",
+            "Stop transcription before testing the microphone",
+        ));
+    }
+    let config = state.config.read().expect("config lock").clone();
+    if config.audio.microphone.mode == "disabled" {
+        return Err(api_error(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "audio.microphone_test_disabled",
+            "Select a microphone before starting the test",
+        ));
+    }
+    let device_id = (config.audio.microphone.mode == "device")
+        .then_some(config.audio.microphone.device_id)
+        .flatten();
+    let device = state
+        .microphone_monitor
+        .lock()
+        .await
+        .start(config.audio.sample_rate, device_id, state.live_tx.clone())
+        .await
+        .map_err(|error| {
+            api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                error.code(),
+                error.to_string(),
+            )
+        })?;
+    Ok(Json(json!({ "running": true, "device": device })))
+}
+
+pub(super) async fn microphone_test_stop(State(state): State<Arc<AppState>>) -> Json<Value> {
+    let _control = state.capture_control.lock().await;
+    state.microphone_monitor.lock().await.stop().await;
+    Json(json!({ "running": false }))
+}
+
 pub(super) async fn capture_start(State(state): State<Arc<AppState>>) -> ApiResult<Json<Value>> {
     let _control = state.capture_control.lock().await;
     let config = state.config.read().expect("config lock").clone();
@@ -36,6 +82,13 @@ pub(super) async fn capture_start(State(state): State<Arc<AppState>>) -> ApiResu
             StatusCode::UNPROCESSABLE_ENTITY,
             "capture.invalid_sample_rate",
             "The Rust ASR pipeline requires a 16000 Hz sample rate",
+        ));
+    }
+    if config.audio.output.mode == "disabled" && config.audio.microphone.mode == "disabled" {
+        return Err(api_error(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "capture.no_audio_sources",
+            "At least one audio source must be enabled",
         ));
     }
     if config.asr.backend != "local_whisper" {
@@ -85,6 +138,7 @@ pub(super) async fn capture_start(State(state): State<Arc<AppState>>) -> ApiResu
             "Transcription is already running",
         ));
     }
+    state.microphone_monitor.lock().await.stop().await;
 
     let output = &config.audio.output;
     let output_device_id = (output.mode == "system")
@@ -101,26 +155,33 @@ pub(super) async fn capture_start(State(state): State<Arc<AppState>>) -> ApiResu
         config.asr.api_profiles.clone(),
         state.subtitle_output.clone(),
     );
-    let device = state
-        .speaker_pipeline
-        .lock()
-        .await
-        .start(
-            config.audio.sample_rate,
-            output_device_id,
-            process_name,
-            &config.vad,
-            config.asr.clone(),
-            dependencies.clone(),
+    let device = if output.mode == "disabled" {
+        None
+    } else {
+        Some(
+            state
+                .speaker_pipeline
+                .lock()
+                .await
+                .start(
+                    config.audio.sample_rate,
+                    output_device_id,
+                    process_name,
+                    None,
+                    &config.vad,
+                    config.asr.clone(),
+                    dependencies.clone(),
+                )
+                .await
+                .map_err(|error| {
+                    api_error(
+                        StatusCode::SERVICE_UNAVAILABLE,
+                        error.code(),
+                        error.to_string(),
+                    )
+                })?,
         )
-        .await
-        .map_err(|error| {
-            api_error(
-                StatusCode::SERVICE_UNAVAILABLE,
-                error.code(),
-                error.to_string(),
-            )
-        })?;
+    };
 
     let microphone = if config.audio.microphone.mode == "disabled" {
         None
@@ -136,6 +197,7 @@ pub(super) async fn capture_start(State(state): State<Arc<AppState>>) -> ApiResu
                 config.audio.sample_rate,
                 microphone_id,
                 None,
+                Some(config.audio.microphone.trigger_threshold_dbfs),
                 &config.vad,
                 config.asr.clone(),
                 dependencies,

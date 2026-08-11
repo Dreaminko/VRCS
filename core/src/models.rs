@@ -117,6 +117,12 @@ pub enum LiveTranscription {
         code: String,
         detail: String,
     },
+    AudioLevel {
+        source: String,
+        rms_dbfs: f32,
+        peak_dbfs: f32,
+        speech: bool,
+    },
 }
 
 #[derive(Debug, Clone, Deserialize)]

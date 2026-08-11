@@ -318,10 +318,11 @@ export function DeckTreeSelect({ label, helper, value, decks, disabled, onChange
   );
 }
 
-export function DeviceGroup({ icon, title, note, devices, devicesReady, selectedDeviceId, specialRows, disabled, onSelectDevice }: {
+export function DeviceGroup({ icon, title, note, beforeList, devices, devicesReady, selectedDeviceId, specialRows, disabled, onSelectDevice }: {
   icon: ReactNode;
   title: string;
   note?: string;
+  beforeList?: ReactNode;
   devices: AudioDevice[];
   devicesReady: boolean;
   selectedDeviceId: number | null;
@@ -343,6 +344,7 @@ export function DeviceGroup({ icon, title, note, devices, devicesReady, selected
         <span className="device-group-icon">{icon}</span>
         <div><h3>{title}</h3>{note && <span>{note}</span>}</div>
       </div>
+      {beforeList}
       <div className="device-list">
         {specialRows.map((row) => (
           <DeviceRow

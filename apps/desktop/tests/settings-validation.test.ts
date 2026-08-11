@@ -19,7 +19,7 @@ const settings: Settings = {
   audio: {
     sample_rate: 16_000,
     output: { mode: "system", device_id: 10 },
-    microphone: { mode: "device", device_id: 20 },
+    microphone: { mode: "device", device_id: 20, trigger_threshold_dbfs: -45 },
   },
   vad: { silence_seconds: 0.4, max_speech_seconds: 6 },
   asr: { backend: "local_whisper", language: "auto", local: { model: "small", device: "auto", compute_type: "int8" }, qwen: { context: "", model: "qwen3-asr-flash-realtime" }, fun_asr: { context: "", model: "fun-asr-realtime" }, openai: { model: "gpt-4o-mini-transcribe" }, api_profiles: [], active_api_profiles: { alibaba_cloud: null, openai: null }, cloud_failure_policy: "reconnect" },
@@ -72,6 +72,19 @@ test("audio and recognition changes require a running capture restart", () => {
         audio: {
           ...settings.audio,
           output: { mode: "vrchat", device_id: null },
+        },
+      },
+    ),
+    true,
+  );
+  assert.equal(
+    audioSettingsChanged(
+      settings,
+      {
+        ...settings,
+        audio: {
+          ...settings.audio,
+          microphone: { ...settings.audio.microphone, trigger_threshold_dbfs: -36 },
         },
       },
     ),

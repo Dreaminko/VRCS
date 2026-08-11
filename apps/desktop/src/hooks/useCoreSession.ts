@@ -70,6 +70,7 @@ export function useCoreSession(settingsPageActive: boolean) {
     connection: streamConnection,
     subtitles,
     partials,
+    audioLevels,
     translatingSubtitleIds,
     mergeSnapshot,
     clearPartials,
@@ -222,14 +223,44 @@ export function useCoreSession(settingsPageActive: boolean) {
   ]);
 
   const toggleCapture = useCallback(async () => {
-    if (healthRef.current?.capture_running) {
-      await coreApi.stop();
-      clearPartials();
+    try {
+      if (healthRef.current?.capture_running) {
+        await coreApi.stop();
+        clearPartials();
+      }
+      else await coreApi.start();
+      clearErrorFrom("capture");
+    } finally {
+      try {
+        setHealth(await coreApi.health());
+      } catch {
+        // Preserve the original capture error when the follow-up refresh also fails.
+      }
     }
-    else await coreApi.start();
-    setHealth(await coreApi.health());
-    clearErrorFrom("capture");
   }, [clearErrorFrom, clearPartials]);
+
+  const startMicrophoneTest = useCallback(async () => {
+    try {
+      await coreApi.startMicrophoneTest();
+      setHealth(await coreApi.health());
+      clearErrorFrom("microphone-test");
+    } catch (reason) {
+      reportError(reason, "errors.audio.microphoneTestFailed", "microphone-test");
+      throw reason;
+    }
+  }, [clearErrorFrom, reportError]);
+
+  const stopMicrophoneTest = useCallback(async () => {
+    try {
+      await coreApi.stopMicrophoneTest();
+      clearPartials();
+      setHealth(await coreApi.health());
+      clearErrorFrom("microphone-test");
+    } catch (reason) {
+      reportError(reason, "errors.audio.microphoneTestFailed", "microphone-test");
+      throw reason;
+    }
+  }, [clearErrorFrom, clearPartials, reportError]);
 
   const testOsc = useCallback(async () => {
     await coreApi.testOsc();
@@ -246,10 +277,23 @@ export function useCoreSession(settingsPageActive: boolean) {
       && previous !== null
       && audioSettingsChanged(previous, next)
     );
+    const stopMicrophoneTestForSettings = Boolean(
+      healthRef.current?.microphone_test_running
+      && previous !== null
+      && (
+        previous.audio.microphone.mode !== next.audio.microphone.mode
+        || previous.audio.microphone.device_id !== next.audio.microphone.device_id
+      )
+    );
     let captureStopped = false;
     let saved: Settings | null = null;
 
     try {
+      if (stopMicrophoneTestForSettings) {
+        await coreApi.stopMicrophoneTest();
+        clearPartials();
+        setHealth(await coreApi.health());
+      }
       if (restartCapture) {
         await coreApi.stop();
         captureStopped = true;
@@ -299,7 +343,7 @@ export function useCoreSession(settingsPageActive: boolean) {
       }
       throw reason;
     }
-  }, []);
+  }, [clearPartials]);
   const persistSettingsRef = useRef(persistSettings);
   persistSettingsRef.current = persistSettings;
   const settingsAutosaveRef = useRef<
@@ -344,6 +388,7 @@ export function useCoreSession(settingsPageActive: boolean) {
     health,
     subtitles,
     partials,
+    audioLevels,
     settings,
     devices,
     devicesReady,
@@ -357,6 +402,8 @@ export function useCoreSession(settingsPageActive: boolean) {
     loadDevices,
     loadAsrCapabilities,
     toggleCapture,
+    startMicrophoneTest,
+    stopMicrophoneTest,
     testOsc,
     saveSettings: settingsAutosaveRef.current,
     importDictionary,
