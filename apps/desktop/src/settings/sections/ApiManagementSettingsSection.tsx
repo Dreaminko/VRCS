@@ -237,7 +237,7 @@ export function ApiManagementSettingsSection({
       <div className="section-heading api-section-heading">
         <div><KeyRound size={18} /><h2>{t("settings.apiManagement.title")}</h2></div>
         <button className="primary-button api-add-button" type="button" disabled={locked || Boolean(editor)} onClick={() => setEditor(emptyDraft())}>
-          <Plus size={15} aria-hidden="true" />
+          <Plus size={18} aria-hidden="true" />
           {t("settings.apiManagement.addProfile")}
         </button>
       </div>

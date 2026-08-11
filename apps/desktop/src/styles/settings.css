@@ -261,7 +261,6 @@
   font-size: 12px;
   line-height: 1.6;
 }
-.api-add-button { display: inline-flex; min-height: 36px; align-items: center; gap: 7px; }
 .api-profile-list {
   overflow: hidden;
   border: 1px solid var(--border);
@@ -480,6 +479,21 @@
 .primary-button, .anki-button, .model-download-button { border: 1px solid var(--primary); color: var(--on-primary); background: var(--primary); }
 .primary-button:hover, .anki-button:hover, .model-download-button:hover { background: var(--primary-hover); }
 .primary-button:disabled, .anki-button:disabled { opacity: 0.45; cursor: not-allowed; }
+.api-add-button {
+  display: inline-flex;
+  min-height: 40px;
+  align-items: center;
+  gap: 7px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: var(--radius-md);
+  color: var(--primary-ink);
+  background: var(--primary-soft);
+  font-size: 13px;
+  font-weight: 600;
+  transition: background-color 140ms ease-out, color 140ms ease-out, transform 120ms ease-out, border-color 120ms ease-out;
+}
+.api-add-button:hover:not(:disabled) { color: #ffffff; background: var(--primary); }
 .device-group + .device-group { margin-top: 28px; }
 .switch-track {
   display: flex;
