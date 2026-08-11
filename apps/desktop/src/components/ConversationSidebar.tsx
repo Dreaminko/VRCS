@@ -34,6 +34,10 @@ import {
   type ConversationIcon,
   type SubtitleConversation,
 } from "../conversations";
+import {
+  interfaceLayoutPixels,
+  readAppliedInterfaceScaleFactor,
+} from "../interface-scale";
 import { useDismissibleLayer } from "../use-dismissible-layer";
 
 const ICONS: Record<ConversationIcon, LucideIcon> = {
@@ -90,13 +94,18 @@ type SidebarProps = {
 };
 
 function actionsPosition(clientX: number, clientY: number): FloatingPosition {
+  const scale = readAppliedInterfaceScaleFactor();
+  const x = interfaceLayoutPixels(clientX, scale);
+  const y = interfaceLayoutPixels(clientY, scale);
+  const viewportWidth = interfaceLayoutPixels(window.innerWidth, scale);
+  const viewportHeight = interfaceLayoutPixels(window.innerHeight, scale);
   const width = 186;
   const expectedHeight = 220;
   const gap = 4;
-  const side = window.innerHeight - clientY >= expectedHeight ? "below" : "above";
+  const side = viewportHeight - y >= expectedHeight ? "below" : "above";
   return {
-    top: side === "below" ? clientY + gap : clientY - gap,
-    left: Math.max(8, Math.min(clientX + gap, window.innerWidth - width - 8)),
+    top: side === "below" ? y + gap : y - gap,
+    left: Math.max(8, Math.min(x + gap, viewportWidth - width - 8)),
     side,
   };
 }
@@ -183,11 +192,15 @@ export function ConversationSidebar({
     clearTooltipFrame();
     const reveal = () => {
       const rect = target.getBoundingClientRect();
-      const left = rect.right + 10;
+      const scale = readAppliedInterfaceScaleFactor();
+      const viewportWidth = interfaceLayoutPixels(window.innerWidth, scale);
+      const viewportHeight = interfaceLayoutPixels(window.innerHeight, scale);
+      const left = interfaceLayoutPixels(rect.right, scale) + 10;
+      const centerY = interfaceLayoutPixels(rect.top + rect.height / 2, scale);
       const nextTooltip: SidebarTooltip = {
-        top: Math.max(30, Math.min(rect.top + rect.height / 2, window.innerHeight - 30)),
+        top: Math.max(30, Math.min(centerY, viewportHeight - 30)),
         left,
-        maxWidth: Math.max(140, Math.min(240, window.innerWidth - left - 12)),
+        maxWidth: Math.max(140, Math.min(240, viewportWidth - left - 12)),
         title,
         detail,
         current,

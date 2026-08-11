@@ -10,6 +10,10 @@ import { contextExcerpt, localizedError } from "../app-utils";
 import type { Lookup } from "../app-types";
 import { ankiDictionaryContent, definitionGlosses, groupDictionaryEntries } from "../dictionary";
 import {
+  interfaceLayoutPixels,
+  readAppliedInterfaceScaleFactor,
+} from "../interface-scale";
+import {
   isLookupAnchorVisible,
   LOOKUP_POPOVER_HEIGHT,
   placeLookupPopover,
@@ -24,15 +28,26 @@ export function DictionaryPopover({ lookup, ankiEnabled, compact = false, onClos
   const groupedEntries = groupDictionaryEntries(lookup.entries);
   const entry = groupedEntries[0];
   const visibleEntries = groupedEntries.slice(0, 6);
-  const width = Math.min(340, window.innerWidth - 24);
+  const scale = compact ? 1 : readAppliedInterfaceScaleFactor();
+  const viewportWidth = interfaceLayoutPixels(window.innerWidth, scale);
+  const viewportHeight = interfaceLayoutPixels(window.innerHeight, scale);
+  const layoutAnchor = compact ? anchor : {
+    top: interfaceLayoutPixels(anchor.top, scale),
+    bottom: interfaceLayoutPixels(anchor.bottom, scale),
+    centerX: interfaceLayoutPixels(anchor.centerX, scale),
+  };
+  const width = Math.min(340, viewportWidth - 24);
   const placement = placeLookupPopover({
-    anchor,
+    anchor: layoutAnchor,
     popoverHeight: LOOKUP_POPOVER_HEIGHT,
-    viewportHeight: window.innerHeight,
+    viewportHeight,
     viewportTop: 40,
   });
-  const left = Math.min(Math.max(12, anchor.centerX - 34), window.innerWidth - width - 12);
-  const arrowLeft = Math.min(Math.max(22, anchor.centerX - left - 8), width - 38);
+  const left = Math.min(
+    Math.max(12, layoutAnchor.centerX - 34),
+    viewportWidth - width - 12,
+  );
+  const arrowLeft = Math.min(Math.max(22, layoutAnchor.centerX - left - 8), width - 38);
   const style = compact
     ? undefined
     : { left, top: placement.top, width, height: placement.height, "--arrow-left": `${arrowLeft}px` };

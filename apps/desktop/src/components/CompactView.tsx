@@ -1,5 +1,5 @@
 import { useTranslation } from "react-i18next";
-import { MessageSquare, Mic, Square, X } from "lucide-react";
+import { Maximize2, Mic, Square, X } from "lucide-react";
 
 import type { LiveTranscription, Subtitle } from "../types";
 import { contentLanguageTag } from "../ui-language";
@@ -19,22 +19,27 @@ export function CompactView({ subtitle, partial, running, captureDisabled, onSel
   return (
     <div className="compact-shell">
       <div className="compact-drag-region" data-tauri-drag-region />
-      <div className="compact-status"><i className={running ? "running" : ""} />{partial?.language?.toUpperCase() ?? subtitle?.language?.toUpperCase() ?? "AUTO"}</div>
-      <p lang={contentLanguageTag(partial?.language ?? subtitle?.language)} onMouseUp={() => (partial?.text || subtitle?.text) && void onSelect(partial?.text ?? subtitle!.text)}>
-        {partial?.text ?? subtitle?.text ?? t("live.waiting")}
+      <div className={`compact-status ${running ? "running" : ""}`}>
+        <i aria-hidden="true" />
+        <span>{partial?.language?.toUpperCase() ?? subtitle?.language?.toUpperCase() ?? "AUTO"}</span>
+      </div>
+      <div className="compact-content">
+        <p className="compact-original" lang={contentLanguageTag(partial?.language ?? subtitle?.language)} onMouseUp={() => (partial?.text || subtitle?.text) && void onSelect(partial?.text ?? subtitle!.text)}>
+          {partial?.text ?? subtitle?.text ?? t("live.waiting")}
+        </p>
         {!partial && (subtitle?.translation_partial ?? subtitle?.translations.at(-1)) && (
-          <span className="compact-translation" lang={contentLanguageTag((subtitle?.translation_partial ?? subtitle?.translations.at(-1))?.target_language)}>
-            {" · "}{(subtitle?.translation_partial ?? subtitle?.translations.at(-1))?.text}
+          <p className="compact-translation" lang={contentLanguageTag((subtitle?.translation_partial ?? subtitle?.translations.at(-1))?.target_language)}>
+            {(subtitle?.translation_partial ?? subtitle?.translations.at(-1))?.text}
             {subtitle?.translation_partial && <span className="streaming-ellipsis" aria-hidden="true">…</span>}
-          </span>
+          </p>
         )}
-      </p>
+      </div>
       <div className="compact-actions">
-        <button className={`compact-capture-button ${running ? "running" : ""}`} type="button" aria-label={captureLabel} title={captureLabel} disabled={captureDisabled} onClick={onCapture}>
+        <button className="compact-capture-button" type="button" aria-label={captureLabel} aria-pressed={running} title={captureLabel} disabled={captureDisabled} onClick={onCapture}>
           {running ? <Square size={15} /> : <Mic size={16} />}
         </button>
-        <button className="compact-secondary-action" type="button" aria-label={t("window.restore")} title={t("window.restore")} onClick={onRestore}><MessageSquare size={17} /></button>
-        <button className="compact-secondary-action" type="button" aria-label={t("window.close")} title={t("window.close")} onClick={onClose}><X size={17} /></button>
+        <button className="compact-secondary-action" type="button" aria-label={t("window.restore")} title={t("window.restore")} onClick={onRestore}><Maximize2 size={17} /></button>
+        <button className="compact-secondary-action compact-close-button" type="button" aria-label={t("window.close")} title={t("window.close")} onClick={onClose}><X size={17} /></button>
       </div>
     </div>
   );

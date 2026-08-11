@@ -298,7 +298,6 @@
   border-bottom: 1px solid var(--border);
 }
 .api-profile-row:last-child { border-bottom: 0; }
-.api-profile-row.active { background: var(--primary-softer); }
 .api-profile-identity {
   display: flex;
   min-width: 0;

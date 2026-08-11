@@ -13,14 +13,15 @@
   background: var(--canvas);
 }
 .compact-shell {
+  --compact-side-rail: 132px;
   position: relative;
-  display: flex;
+  display: grid;
+  grid-template-columns: var(--compact-side-rail) minmax(0, 1fr) var(--compact-side-rail);
   width: 100%;
   height: 120px;
   min-height: 120px;
   align-items: center;
-  gap: 14px;
-  padding: 16px 20px;
+  padding: 16px 18px;
   overflow: hidden;
   border: 1px solid var(--border);
   background: var(--surface);
@@ -46,39 +47,87 @@
 }
 .compact-inline-dictionary .dictionary-header { margin-bottom: 12px; }
 .compact-drag-region { position: absolute; z-index: 0; inset: 0; }
-.compact-status { position: relative; z-index: 1; display: flex; flex: 0 0 auto; align-items: center; gap: 7px; color: var(--text-quiet); font: 11px "Cascadia Mono", "Consolas", monospace; }
-.compact-status i { width: 7px; height: 7px; border-radius: 50%; background: var(--text-quiet); }
-.compact-status i.running { background: var(--primary); }
-.compact-shell > p { position: relative; z-index: 1; flex: 1; margin: 0; overflow: hidden; cursor: text; font-size: 18px; line-height: 1.55; text-overflow: ellipsis; white-space: nowrap; user-select: text; }
-.compact-translation { color: var(--text-secondary); }
+.compact-status {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  height: 28px;
+  align-items: center;
+  justify-self: start;
+  gap: 7px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  color: var(--text-secondary);
+  background: var(--surface-elevated);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+.compact-status i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-quiet);
+}
+.compact-status.running { color: var(--primary-ink); border-color: rgba(116, 214, 255, 0.48); background: var(--primary-softer); }
+.compact-status.running i { background: var(--primary); box-shadow: 0 0 0 3px rgba(116, 214, 255, 0.22); }
+.compact-content {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  flex-direction: column;
+  justify-content: center;
+  gap: 3px;
+  overflow: hidden;
+  text-align: center;
+}
+.compact-content p {
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.compact-original {
+  cursor: text;
+  color: var(--text);
+  font-size: 17px;
+  font-weight: 500;
+  line-height: 24px;
+  user-select: text;
+}
+.compact-translation {
+  color: var(--text-secondary);
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 20px;
+}
 .compact-actions {
   position: relative;
   z-index: 1;
   display: flex;
-  gap: 6px;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 150ms ease-out;
-}
-.compact-shell:hover .compact-actions,
-.compact-actions:focus-within {
-  opacity: 1;
-  pointer-events: auto;
+  align-items: center;
+  gap: 4px;
+  justify-self: end;
+  padding-left: 12px;
+  border-left: 1px solid var(--border);
 }
 .compact-actions button {
   display: grid;
-  width: 34px;
-  height: 34px;
+  width: 36px;
+  height: 36px;
   place-items: center;
   padding: 0;
   border: 0;
   border-radius: 50%;
   color: var(--text-secondary);
-  background: var(--surface-subtle);
+  background: transparent;
   cursor: pointer;
   transition: color 140ms ease-out, background-color 140ms ease-out, opacity 140ms ease-out, transform 140ms ease-out;
 }
-.compact-actions button:hover { color: var(--primary-ink); background: var(--primary-soft); }
+.compact-actions button:hover { color: var(--primary-ink); background: var(--primary-softer); }
 .compact-actions button:active { transform: scale(0.96); }
 .compact-actions button:disabled { opacity: 0.45; pointer-events: none; }
 .compact-actions .compact-capture-button {
@@ -89,11 +138,4 @@
   color: #ffffff;
   background: var(--primary-hover);
 }
-.compact-actions .compact-capture-button.running {
-  color: var(--primary-ink);
-  background: var(--primary-softer);
-}
-.compact-actions .compact-capture-button.running:hover {
-  color: var(--primary-hover);
-  background: var(--primary-soft);
-}
+.compact-actions .compact-close-button:hover { color: var(--error); background: var(--error-soft); }
