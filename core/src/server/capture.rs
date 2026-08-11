@@ -100,6 +100,7 @@ pub(super) async fn capture_start(State(state): State<Arc<AppState>>) -> ApiResu
         state.translation_dispatcher.clone(),
         config.translation.clone(),
         config.asr.api_profiles.clone(),
+        state.osc.clone(),
     );
     let device = state
         .speaker_pipeline

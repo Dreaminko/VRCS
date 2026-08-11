@@ -7,6 +7,7 @@ import {
   KeyRound,
   Languages,
   PlusCircle,
+  RadioTower,
   SlidersHorizontal,
   Volume2,
   Wrench,
@@ -21,6 +22,7 @@ import type {
   AsrCapabilities,
   AudioDevice,
   DictionarySource,
+  Health,
   Settings,
 } from "../types";
 import { useAnkiSettings } from "./hooks/useAnkiSettings";
@@ -35,12 +37,14 @@ import { AudioSettingsSection } from "./sections/AudioSettingsSection";
 import { DebugSettingsSection } from "./sections/DebugSettingsSection";
 import { DictionarySettingsSection } from "./sections/DictionarySettingsSection";
 import { RecognitionSettingsSection } from "./sections/RecognitionSettingsSection";
+import { OscSettingsSection } from "./sections/OscSettingsSection";
 import { SystemSettingsSection } from "./sections/SystemSettingsSection";
 import { TranslationSettingsSection } from "./sections/TranslationSettingsSection";
 import type { SettingsCategory } from "./settings-types";
 
 export function SettingsPanel({
   settings,
+  health,
   interfaceScale,
   devices,
   devicesReady,
@@ -54,8 +58,10 @@ export function SettingsPanel({
   onModelsChanged,
   onInterfaceScaleChange,
   onSave,
+  onTestOsc,
 }: {
   settings: Settings;
+  health: Health | null;
   interfaceScale: number;
   devices: AudioDevice[];
   devicesReady: boolean;
@@ -72,6 +78,7 @@ export function SettingsPanel({
   onModelsChanged: () => Promise<void>;
   onInterfaceScaleChange: (value: number) => void;
   onSave: (value: Settings) => Promise<Settings>;
+  onTestOsc: () => Promise<void>;
 }) {
   const { t, i18n } = useTranslation();
   const locale = i18n.resolvedLanguage ?? "en-US";
@@ -166,6 +173,7 @@ export function SettingsPanel({
     { id: "api", label: t("settings.categories.api"), icon: <KeyRound size={18} /> },
     { id: "dictionary", label: t("settings.categories.dictionary"), icon: <BookOpen size={18} /> },
     { id: "anki", label: "Anki", icon: <PlusCircle size={18} /> },
+    { id: "osc", label: t("settings.categories.osc"), icon: <RadioTower size={18} /> },
     { id: "debug", label: "Debug", icon: <Wrench size={18} /> },
   ];
 
@@ -326,6 +334,16 @@ export function SettingsPanel({
           onSetPortText={setAnkiPortText}
           onCommitPort={commitAnkiPort}
           onUpdate={updateAnki}
+        />
+      )}
+
+      {activeCategory === "osc" && (
+        <OscSettingsSection
+          draft={draft}
+          health={health}
+          saveState={saveState}
+          applySettings={applySettings}
+          onTest={onTestOsc}
         />
       )}
 

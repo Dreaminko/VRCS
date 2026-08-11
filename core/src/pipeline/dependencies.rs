@@ -6,6 +6,7 @@ use crate::asr::AsrService;
 use crate::config::{ApiProfile, TranslationConfig};
 use crate::db::Database;
 use crate::models::{now_iso8601, LiveTranscription, Subtitle};
+use crate::osc::OscChatboxDispatcher;
 use crate::translation::TranslationDispatcher;
 
 #[derive(Clone)]
@@ -18,6 +19,7 @@ pub(crate) struct PipelineDependencies {
     translation: TranslationDispatcher,
     translation_config: TranslationConfig,
     api_profiles: Vec<ApiProfile>,
+    osc: OscChatboxDispatcher,
 }
 
 impl PipelineDependencies {
@@ -30,6 +32,7 @@ impl PipelineDependencies {
         translation: TranslationDispatcher,
         translation_config: TranslationConfig,
         api_profiles: Vec<ApiProfile>,
+        osc: OscChatboxDispatcher,
     ) -> Self {
         Self {
             asr,
@@ -40,6 +43,7 @@ impl PipelineDependencies {
             translation,
             translation_config,
             api_profiles,
+            osc,
         }
     }
 
@@ -112,12 +116,19 @@ impl PipelineDependencies {
         .await
         .map_err(|error| format!("Subtitle storage task exited unexpectedly: {error}"))??;
         let _ = self.subtitles.send(saved.clone());
+        if source == "microphone" {
+            self.osc
+                .publish_subtitle(saved.clone(), self.translation_config.mode == "automatic");
+        }
         if self.translation_config.mode == "automatic" {
             if let Err(detail) = self.translation.enqueue(
-                saved,
+                saved.clone(),
                 self.translation_config.clone(),
                 self.api_profiles.clone(),
             ) {
+                if let Some(subtitle_id) = saved.id {
+                    self.osc.translation_failed(subtitle_id);
+                }
                 tracing::warn!(%detail, "automatic translation was not queued");
             }
         }

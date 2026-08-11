@@ -10,6 +10,7 @@ VRCS 是一个本地优先的 VRChat 字幕学习工具。它捕获 Windows 系�
 
 - Windows WASAPI 系统回环、VRChat 进程专用回环与麦克风双路捕获
 - 手动或自动字幕翻译，支持 DeepL、Microsoft Translator、OpenAI 与 Alibaba Cloud LLM
+- 将自己的麦克风最终识别结果和译文通过 OSC 发送到 VRChat Chatbox
 - Silero ONNX VAD，首次启动自动下载并校验固定版本，模型不可用时使用能量检测回退
 - whisper.cpp 本地 CPU/CUDA 转写、自动 GPU 回退与 GGML 模型管理
 - Qwen3 ASR、Fun-ASR 与 OpenAI 实时流式转写，支持增量字幕、断线重连和本地回退
@@ -107,6 +108,10 @@ Base URL 留空时使用 OpenAI 官方 Responses API，并保留 OpenAI Realtime
 ## AnkiConnect
 
 在 Anki 中安装 AnkiConnect 并保持 Anki 运行。VRCS 默认连接 `http://127.0.0.1:8765`；如果修改过端口，可在“设置 → Anki”中同步修改。
+
+## VRChat OSC Chatbox
+
+在“设置 → VRChat OSC”中启用聊天框输出，默认向本机 UDP 9000 端口发送消息。同时需要在 VRChat 的动作菜单中打开 `OSC → Enabled`。VRCS 只发送自己的麦克风最终字幕；自动翻译开启时优先发送“原文 + 译文”的两行消息，不发送其他人的语音或流式临时结果。
 
 ## 隐私
 

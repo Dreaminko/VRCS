@@ -33,6 +33,7 @@ sha2 = "0.10"
 serde_ignored = "0.1"
 uuid = { version = "1", features = ["v4"] }
 thiserror = "2"
+rosc = "0.11"
 
 [target.'cfg(windows)'.dependencies]
 wasapi = "0.23"

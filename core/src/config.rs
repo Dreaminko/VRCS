@@ -10,7 +10,7 @@ pub use io::{load_config, save_config};
 #[cfg(test)]
 use migration::config_from_value;
 
-pub const SCHEMA_VERSION: u32 = 7;
+pub const SCHEMA_VERSION: u32 = 8;
 
 pub const ALIBABA_PROVIDER: &str = "alibaba_cloud";
 pub const OPENAI_PROVIDER: &str = "openai";
@@ -191,6 +191,14 @@ pub struct TranslationConfig {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct OscConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default = "default_osc_port")]
+    pub port: u16,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AppConfig {
     #[serde(default = "schema_version")]
     pub schema_version: u32,
@@ -208,6 +216,8 @@ pub struct AppConfig {
     pub dictionary: DictionaryConfig,
     #[serde(default)]
     pub translation: TranslationConfig,
+    #[serde(default)]
+    pub osc: OscConfig,
     #[serde(default)]
     pub anki: AnkiConfig,
 }
@@ -283,6 +293,9 @@ fn default_translation_target() -> String {
 }
 fn default_translation_model() -> String {
     "gpt-5-mini".into()
+}
+fn default_osc_port() -> u16 {
+    9000
 }
 fn default_anki_port() -> u16 {
     8765
@@ -360,6 +373,7 @@ impl_default!(TranslationConfig, {
     model: default_translation_model,
     thinking_enabled: bool::default,
 });
+impl_default!(OscConfig, { enabled: bool::default, port: default_osc_port });
 impl_default!(AnkiConfig, {
     enabled: default_enabled,
     port: default_anki_port,
@@ -379,6 +393,7 @@ impl Default for AppConfig {
             asr: AsrConfig::default(),
             dictionary: DictionaryConfig::default(),
             translation: TranslationConfig::default(),
+            osc: OscConfig::default(),
             anki: AnkiConfig::default(),
         }
     }
@@ -474,6 +489,9 @@ impl AppConfig {
         }
         validate_api_profiles(&self.asr)?;
         validate_translation(&self.translation, &self.asr.api_profiles)?;
+        if self.osc.port == 0 {
+            return Err("OSC port must be between 1 and 65535".into());
+        }
         if self.asr.qwen.model != "qwen3-asr-flash-realtime" {
             return Err(format!(
                 "Unsupported Qwen ASR model: {}",
@@ -783,6 +801,13 @@ mod tests {
     }
 
     #[test]
+    fn rejects_zero_osc_port() {
+        let mut config = AppConfig::default();
+        config.osc.port = 0;
+        assert!(config.validate_settings().is_err());
+    }
+
+    #[test]
     fn qwen_is_the_default_backend() {
         let config = AppConfig::default();
         assert_eq!(config.asr.backend, "qwen_realtime");
@@ -884,6 +909,18 @@ mod tests {
         assert_eq!(config.translation.mode, "disabled");
         assert_eq!(config.translation.target_language, "zh-Hans");
         assert!(!config.translation.thinking_enabled);
+    }
+
+    #[test]
+    fn migrates_v7_with_osc_disabled_by_default() {
+        let config = config_from_value(&serde_json::json!({
+            "schema_version": 7
+        }))
+        .unwrap();
+
+        assert_eq!(config.schema_version, SCHEMA_VERSION);
+        assert!(!config.osc.enabled);
+        assert_eq!(config.osc.port, 9000);
     }
 
     #[test]

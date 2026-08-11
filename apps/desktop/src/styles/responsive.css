@@ -42,9 +42,12 @@
   .model-directory-setting > div { align-items: stretch; flex-direction: column; }
   .device-group-title { display: grid; grid-template-columns: 20px minmax(0, 1fr); }
   .debug-row { grid-template-columns: 1fr; gap: 4px; }
-  .anki-connection { grid-template-columns: 10px minmax(0, 1fr); }
-  .anki-connection code { grid-column: 2; }
-  .anki-endpoint-row { grid-template-columns: 1fr; }
+  .anki-connection,
+  .osc-connection { grid-template-columns: 10px minmax(0, 1fr); }
+  .anki-connection code,
+  .osc-connection code { grid-column: 2; }
+  .anki-endpoint-row,
+  .osc-endpoint-row { grid-template-columns: 1fr; }
   .anki-section .section-heading { align-items: flex-start; }
   .anki-section .section-heading > div {
     display: grid;
@@ -59,6 +62,14 @@
     padding-inline: 10px;
     white-space: nowrap;
   }
+  .osc-section .section-heading { align-items: flex-start; }
+  .osc-section .section-heading > div {
+    display: grid;
+    grid-template-columns: 18px minmax(0, 1fr);
+    gap: 3px 8px;
+  }
+  .osc-section .section-heading > div > svg { grid-row: 1 / 3; margin-top: 1px; }
+  .osc-section .section-heading > div > span { grid-column: 2; line-height: 1.4; }
 }
 
 @media (prefers-reduced-motion: reduce) {

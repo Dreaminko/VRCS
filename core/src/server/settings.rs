@@ -37,6 +37,7 @@ pub(super) async fn update_settings(
         vad: update.vad,
         asr: update.asr,
         translation: update.translation,
+        osc: update.osc,
         dictionary: update.dictionary,
         anki: update.anki,
     };
@@ -143,6 +144,7 @@ pub(super) async fn update_settings(
         return Err(unprocessable(error));
     }
     *state.config.write().expect("config lock") = candidate.clone();
+    state.osc.update_config(candidate.osc.clone());
     let asr = Arc::clone(&state.asr);
     let asr_config = candidate.asr.clone();
     tokio::task::spawn_blocking(move || {

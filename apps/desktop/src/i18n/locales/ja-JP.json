@@ -219,7 +219,8 @@
         "recognition": "音声認識",
         "translation": "翻訳",
         "api": "API 管理",
-        "dictionary": "辞書"
+        "dictionary": "辞書",
+        "osc": "VRChat OSC"
       },
       "system": {
         "title": "システム",
@@ -456,6 +457,28 @@
         "frontFieldDescription": "単語と読みをこのフィールドに書き込みます。",
         "backField": "裏面フィールド",
         "backFieldDescription": "意味と文脈をこのフィールドに書き込みます。"
+      },
+      "osc": {
+        "title": "VRChat OSC",
+        "subtitle": "自分のマイクの文字起こしと翻訳を VRChat のチャットボックスへ送信",
+        "enable": "チャットボックス出力を有効にする",
+        "enableDescription": "自分のマイクの確定字幕だけを送信し、他人の音声や途中結果は送りません。",
+        "invalidPort": "1～65535 の有効なポートを入力してください。",
+        "address": "アドレス",
+        "addressDescription": "VRCS はこの PC の VRChat にだけ UDP メッセージを送信します。",
+        "port": "ポート",
+        "portHint": "VRChat OSC の既定入力ポートは 9000 です。",
+        "vrchatHint": "VRChat のアクションメニューでも OSC → Enabled をオンにしてください。自動翻訳では原文と訳文の 2 行表示を優先します。",
+        "test": "テストメッセージを送信",
+        "testing": "送信中…",
+        "testQueued": "テストメッセージを送信キューに追加しました。",
+        "testFailed": "テストメッセージを送信できませんでした。設定とポートを確認してください。",
+        "statusHint": "UDP には受信確認がありません。VRChat の OSC Debug で受信を確認できます。",
+        "status": {
+          "disabled": "チャットボックス出力はオフです",
+          "ready": "OSC 送信準備完了",
+          "error": "OSC 送信エラー"
+        }
       },
       "debug": {
         "subtitle": "ランタイムと設定の詳細",

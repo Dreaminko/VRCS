@@ -219,7 +219,8 @@
         "recognition": "Recognition",
         "translation": "Translation",
         "api": "API access",
-        "dictionary": "Dictionary"
+        "dictionary": "Dictionary",
+        "osc": "VRChat OSC"
       },
       "system": {
         "title": "System",
@@ -456,6 +457,28 @@
         "frontFieldDescription": "The term and reading are written to this field.",
         "backField": "Back field",
         "backFieldDescription": "Definitions and context are written to this field."
+      },
+      "osc": {
+        "title": "VRChat OSC",
+        "subtitle": "Send your microphone transcription and translation to the VRChat chatbox",
+        "enable": "Enable chatbox output",
+        "enableDescription": "Send only final microphone subtitles, never other voices or streaming partials.",
+        "invalidPort": "Enter a valid port from 1 to 65535.",
+        "address": "Address",
+        "addressDescription": "VRCS sends UDP messages only to VRChat on this computer.",
+        "port": "Port",
+        "portHint": "The default VRChat OSC input port is 9000.",
+        "vrchatHint": "You must also enable OSC in the VRChat Action Menu. With automatic translation, VRCS prefers a two-line original and translation message.",
+        "test": "Send test message",
+        "testing": "Sending…",
+        "testQueued": "The test message was added to the send queue.",
+        "testFailed": "The test message could not be sent. Check the setting and port.",
+        "statusHint": "UDP has no delivery acknowledgement. Use VRChat OSC Debug to confirm receipt.",
+        "status": {
+          "disabled": "Chatbox output is off",
+          "ready": "OSC sender is ready",
+          "error": "OSC send failed"
+        }
       },
       "debug": {
         "subtitle": "Runtime and configuration details",

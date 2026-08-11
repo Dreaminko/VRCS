@@ -1,4 +1,4 @@
-.settings-surface { max-width: 932px; margin: 0 auto; }
+.settings-surface { width: 100%; min-width: 0; max-width: 932px; margin: 0 auto; }
 .settings-tabbar-wrap {
   display: flex;
   justify-content: safe center;
@@ -636,6 +636,7 @@
 .model-section .section-heading > div > svg,
 .dictionary-section .section-heading > div > svg,
 .anki-section .section-heading > div > svg,
+.osc-section .section-heading > div > svg,
 .debug-section .section-heading > div > svg { color: var(--primary-ink); }
 .anki-connection {
   display: grid;
@@ -715,6 +716,63 @@
 .anki-port-field input:disabled { color: var(--text-quiet); background: var(--surface-subtle); }
 .anki-port-help { margin: 8px 0 22px; color: var(--text-quiet); font-size: 11px; line-height: 1.55; }
 .anki-port-help.error { color: var(--error); }
+.osc-connection {
+  display: grid;
+  grid-template-columns: 10px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  min-height: 72px;
+  margin-bottom: 18px;
+  padding: 14px 16px;
+  border-radius: var(--radius-md);
+  background: var(--surface-subtle);
+}
+.osc-connection-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--text-quiet);
+  box-shadow: 0 0 0 4px rgba(139, 152, 167, 0.10);
+}
+.osc-connection.ready .osc-connection-dot { background: var(--primary); box-shadow: 0 0 0 4px rgba(116, 214, 255, 0.13); }
+.osc-connection.error .osc-connection-dot { background: var(--error); box-shadow: 0 0 0 4px rgba(168, 70, 61, 0.12); }
+.osc-connection > div { display: grid; min-width: 0; gap: 4px; }
+.osc-connection strong { font-size: 13px; font-weight: 650; }
+.osc-connection p { margin: 0; color: var(--text-secondary); font-size: 11px; line-height: 1.55; text-wrap: pretty; }
+.osc-connection code { color: var(--text-quiet); font: 10px/1.5 "Cascadia Mono", "Consolas", monospace; white-space: nowrap; }
+.osc-endpoint-row { display: grid; grid-template-columns: minmax(0, 1fr) 130px; gap: 14px; align-items: end; }
+.osc-endpoint-row > div { display: grid; gap: 4px; }
+.osc-endpoint-row > div > span,
+.osc-port-field > span { color: var(--text-secondary); font-size: 13px; font-weight: 600; }
+.osc-endpoint-row > div > strong {
+  min-height: 40px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  background: var(--surface-subtle);
+  font: 13px/18px "Cascadia Mono", "Consolas", monospace;
+}
+.osc-endpoint-row > div > small { color: var(--text-quiet); font-size: 11px; }
+.osc-port-field { display: grid; gap: 7px; }
+.osc-port-field input {
+  width: 100%;
+  height: 40px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  background: var(--surface);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.035);
+  font: 13px "Cascadia Mono", "Consolas", monospace;
+  font-variant-numeric: tabular-nums;
+  transition: border-color 140ms ease-out, box-shadow 140ms ease-out;
+}
+.osc-port-field input[aria-invalid="true"] { border-color: var(--error); }
+.osc-port-field input:disabled { color: var(--text-quiet); background: var(--surface-subtle); }
+.osc-port-help { margin: 8px 0 14px; color: var(--text-quiet); font-size: 11px; line-height: 1.55; }
+.osc-port-help.error { color: var(--error); }
+.osc-vrchat-hint { margin: 0; padding: 12px 14px; border-radius: var(--radius-sm); color: var(--text-secondary); background: var(--primary-softer); font-size: 11px; line-height: 1.6; text-wrap: pretty; }
 .anki-mapping-grid { padding-top: 22px; border-top: 1px solid var(--border); }
 .model-section .section-heading { margin-bottom: 16px; }
 .recognition-models {

@@ -117,7 +117,7 @@ export interface AnkiSettings {
 }
 
 export interface Settings {
-  schema_version: 7;
+  schema_version: 8;
   server: {
     host: string;
     port: number;
@@ -135,6 +135,10 @@ export interface Settings {
   vad: VadSettings;
   asr: AsrSettings;
   translation: TranslationSettings;
+  osc: {
+    enabled: boolean;
+    port: number;
+  };
   dictionary: {
     selection_lookup_enabled: boolean;
   };
@@ -169,6 +173,16 @@ export interface Health {
   vad_backend: string;
   vad_model_version: string | null;
   last_error: string | null;
+  osc?: OscRuntimeStatus;
+}
+
+export interface OscRuntimeStatus {
+  enabled: boolean;
+  target: string;
+  status: "disabled" | "ready" | "error";
+  last_error: string | null;
+  last_sent_at: string | null;
+  dropped_messages: number;
 }
 
 export interface AsrModelCapability {

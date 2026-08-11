@@ -318,6 +318,14 @@ export function useCoreSession(settingsPageActive: boolean) {
     clearError();
   }, [clearError]);
 
+  const testOsc = useCallback(async () => {
+    await coreApi.testOsc();
+    clearError();
+    window.setTimeout(() => {
+      void coreApi.health().then(setHealth).catch(() => undefined);
+    }, 200);
+  }, [clearError]);
+
   const persistSettings = useCallback(async (next: Settings): Promise<Settings> => {
     const previous = persistedSettingsRef.current;
     const restartCapture = (
@@ -450,6 +458,7 @@ export function useCoreSession(settingsPageActive: boolean) {
     loadDevices,
     loadAsrCapabilities,
     toggleCapture,
+    testOsc,
     saveSettings: settingsAutosaveRef.current,
     importDictionary,
     deleteDictionary,

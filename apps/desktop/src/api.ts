@@ -101,6 +101,7 @@ export const coreApi = {
       body: JSON.stringify({}),
     }),
   stop: () => request<{ running: boolean }>("/api/capture/stop", { method: "POST" }),
+  testOsc: () => request<{ queued: boolean }>("/api/osc/test", { method: "POST" }),
   asrCapabilities: () => request<AsrCapabilities>("/api/asr/capabilities"),
   asrModels: () => request<AsrModelRecord[]>("/api/asr/models"),
   apiProfiles: () => request<{ profiles: ApiProfileView[] }>("/api/asr/profiles"),

@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::config::{
-    AnkiConfig, AsrConfig, AudioConfig, DictionaryConfig, ServerConfig, StorageConfig,
+    AnkiConfig, AsrConfig, AudioConfig, DictionaryConfig, OscConfig, ServerConfig, StorageConfig,
     TranslationConfig, VadConfig,
 };
 
@@ -89,6 +89,8 @@ pub struct SettingsUpdate {
     pub dictionary: DictionaryConfig,
     #[serde(default)]
     pub translation: TranslationConfig,
+    #[serde(default)]
+    pub osc: OscConfig,
     #[serde(default)]
     pub anki: AnkiConfig,
 }

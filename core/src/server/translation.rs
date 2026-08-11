@@ -101,6 +101,7 @@ pub(super) async fn subtitle_translate(
             subtitle_id,
             translation: record.clone(),
         });
+    state.osc.translation_completed(subtitle_id, record.clone());
     Ok(Json(json!(record)))
 }
 

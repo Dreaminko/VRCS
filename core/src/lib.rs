@@ -9,6 +9,7 @@ mod db;
 mod error;
 mod llm;
 mod models;
+mod osc;
 mod pipeline;
 mod server;
 mod translation;
@@ -258,11 +259,13 @@ async fn start_inner(options: CoreOptions, defer_managed_vad: bool) -> Result<Co
     let (live_tx, _) = broadcast::channel(100);
     let (translation_tx, _) = broadcast::channel(100);
     let db = Arc::new(Mutex::new(database));
+    let osc = osc::OscChatboxDispatcher::new(config.osc.clone());
     let translation_service = Arc::new(translation::TranslationService::new()?);
     let translation_dispatcher = translation::TranslationDispatcher::new(
         Arc::clone(&translation_service),
         Arc::clone(&db),
         translation_tx.clone(),
+        osc.clone(),
     );
     let asr_service = asr::AsrService::new(asr_config, asr_model_dir);
     let asr_runtime = asr_service.runtime_state();
@@ -279,6 +282,7 @@ async fn start_inner(options: CoreOptions, defer_managed_vad: bool) -> Result<Co
         translation_tx,
         translation_service,
         translation_dispatcher,
+        osc,
         http: anki::client(),
         session_token: session_token.clone(),
         shutdown: shutdown_rx.clone(),

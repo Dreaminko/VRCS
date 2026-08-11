@@ -6,6 +6,7 @@ mod capture;
 mod cloud;
 mod dictionary;
 mod models;
+mod osc;
 mod settings;
 mod translation;
 mod ws;
@@ -27,6 +28,7 @@ use crate::config::AppConfig;
 use crate::db::Database;
 use crate::error::{AppError, AppResult};
 use crate::models::{LiveTranscription, Subtitle};
+use crate::osc::OscChatboxDispatcher;
 use crate::pipeline::TranscriptionPipeline;
 use crate::translation::{TranslationDispatcher, TranslationEvent, TranslationService};
 use crate::{asr, vad, yomitan};
@@ -49,6 +51,7 @@ pub struct AppState {
     pub translation_tx: broadcast::Sender<TranslationEvent>,
     pub translation_service: Arc<TranslationService>,
     pub translation_dispatcher: TranslationDispatcher,
+    pub osc: OscChatboxDispatcher,
     pub http: reqwest::Client,
     pub session_token: String,
     pub shutdown: watch::Receiver<bool>,
@@ -182,6 +185,7 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/api/audio/devices", get(capture::audio_devices))
         .route("/api/capture/start", post(capture::capture_start))
         .route("/api/capture/stop", post(capture::capture_stop))
+        .route("/api/osc/test", post(osc::test_message))
         .route("/api/subtitles", get(dictionary::subtitle_history))
         .route(
             "/api/translations/preview",
@@ -271,6 +275,7 @@ async fn health(State(state): State<Arc<AppState>>) -> Json<Value> {
         )
     };
     let last_error = speaker_error.or(microphone_error).or(asr_error);
+    let osc = state.osc.status();
     Json(json!({
         "status": "ok",
         "service": "vrcs-core",
@@ -283,6 +288,7 @@ async fn health(State(state): State<Arc<AppState>>) -> Json<Value> {
         "vad_backend": vad_backend,
         "vad_model_version": vad_model_version,
         "last_error": last_error,
+        "osc": osc,
     }))
 }
 

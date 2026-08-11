@@ -219,7 +219,8 @@
         "recognition": "识别",
         "translation": "翻译",
         "api": "API 管理",
-        "dictionary": "词典"
+        "dictionary": "词典",
+        "osc": "VRChat OSC"
       },
       "system": {
         "title": "系统",
@@ -456,6 +457,28 @@
         "frontFieldDescription": "词条和读音会写入此字段。",
         "backField": "背面字段",
         "backFieldDescription": "释义和语境会写入此字段。"
+      },
+      "osc": {
+        "title": "VRChat OSC",
+        "subtitle": "将自己的麦克风识别结果和译文发送到 VRChat 聊天框",
+        "enable": "启用聊天框输出",
+        "enableDescription": "只发送自己的麦克风最终字幕，不发送其他人的语音或流式临时结果。",
+        "invalidPort": "请输入 1 到 65535 之间的有效端口。",
+        "address": "地址",
+        "addressDescription": "VRCS 只向本机 VRChat 发送 UDP 消息。",
+        "port": "端口",
+        "portHint": "VRChat OSC 默认接收端口为 9000。",
+        "vrchatHint": "还需要在 VRChat 的动作菜单中打开 OSC → Enabled。自动翻译开启时会优先发送原文和译文两行内容。",
+        "test": "发送测试消息",
+        "testing": "正在发送…",
+        "testQueued": "测试消息已加入发送队列。",
+        "testFailed": "无法发送测试消息，请检查设置和端口。",
+        "statusHint": "UDP 没有连接确认，可使用 VRChat 的 OSC Debug 检查是否收到。",
+        "status": {
+          "disabled": "聊天框输出已关闭",
+          "ready": "OSC 发送器就绪",
+          "error": "OSC 发送失败"
+        }
       },
       "debug": {
         "subtitle": "运行状态与配置详情",

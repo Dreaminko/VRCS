@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -83,6 +84,14 @@ export function useConversationWorkspace({
     },
     [],
   );
+
+  useLayoutEffect(() => {
+    if (page === "live") return;
+    const scrollRegion = liveScrollRef.current;
+    if (!scrollRegion) return;
+    scrollRegion.scrollTop = 0;
+    previousLiveScrollTopRef.current = 0;
+  }, [page]);
 
   useEffect(() => {
     if (page !== "live") return;

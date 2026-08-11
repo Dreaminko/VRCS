@@ -54,6 +54,7 @@ function App() {
     loadDevices,
     loadAsrCapabilities,
     toggleCapture: toggleCoreCapture,
+    testOsc,
     saveSettings,
     importDictionary,
     deleteDictionary,
@@ -343,6 +344,7 @@ function App() {
                 devicesReady={devicesReady}
                 dictionaries={dictionarySources}
                 disabled={health?.capture_running ?? false}
+                health={health}
                 modelStatus={health?.asr_status ?? "unknown"}
                 asrCapabilities={asrCapabilities}
                 onRefresh={loadDevices}
@@ -351,6 +353,7 @@ function App() {
                 onModelsChanged={loadAsrCapabilities}
                 onInterfaceScaleChange={setInterfaceScale}
                 onSave={saveSettings}
+                onTestOsc={testOsc}
               />
             )}
           </main>

@@ -11,5 +11,6 @@ notices and license terms remain applicable.
 - wasapi-rs — MIT
 - Silero VAD — MIT
 - ONNX Runtime — MIT
+- rosc — MIT OR Apache-2.0
 The standard installer does not redistribute a Whisper model. The selected
 model is downloaded on first use and remains subject to its upstream license.

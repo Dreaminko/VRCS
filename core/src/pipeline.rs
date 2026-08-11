@@ -388,6 +388,7 @@ mod tests {
             Arc::new(crate::translation::TranslationService::new().unwrap()),
             Arc::clone(&db),
             translation_tx,
+            crate::osc::OscChatboxDispatcher::new(crate::config::OscConfig::default()),
         );
         let dependencies = PipelineDependencies::new(
             asr,
@@ -398,6 +399,7 @@ mod tests {
             translation,
             crate::config::TranslationConfig::default(),
             Vec::new(),
+            crate::osc::OscChatboxDispatcher::new(crate::config::OscConfig::default()),
         );
 
         dependencies

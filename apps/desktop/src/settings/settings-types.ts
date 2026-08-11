@@ -8,6 +8,7 @@ export type SettingsCategory =
   | "audio"
   | "dictionary"
   | "anki"
+  | "osc"
   | "debug";
 
 export type SaveState = "idle" | "saving" | "saved" | "error";
