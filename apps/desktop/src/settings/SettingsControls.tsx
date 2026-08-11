@@ -66,7 +66,7 @@ export function Select({ label, helper, value, values = [], options, disabled, o
   );
 }
 
-export function RangeField({ label, helper, value, min, max, step, disabled, formatValue, onCommit }: {
+export function RangeField({ label, helper, value, min, max, step, disabled, formatValue, onCommit, hideValue, hideBounds, trackSlot }: {
   label: string;
   helper: string;
   value: number;
@@ -76,6 +76,9 @@ export function RangeField({ label, helper, value, min, max, step, disabled, for
   disabled: boolean;
   formatValue: (value: number) => string;
   onCommit: (value: number) => void;
+  hideValue?: boolean;
+  hideBounds?: boolean;
+  trackSlot?: ReactNode;
 }) {
   const { t } = useTranslation();
   const [draftValue, setDraftValue] = useState(value);
@@ -100,33 +103,38 @@ export function RangeField({ label, helper, value, min, max, step, disabled, for
     <label className={`range-field ${disabled ? "disabled" : ""}`}>
       <span className="range-field-header">
         <span>{label}</span>
-        <output aria-label={t("common.currentValue", { label })}>{formatValue(draftValue)}</output>
+        {!hideValue && <output aria-label={t("common.currentValue", { label })}>{formatValue(draftValue)}</output>}
       </span>
-      <input
-        className="range-input"
-        type="range"
-        min={min}
-        max={max}
-        step={step}
-        value={draftValue}
-        disabled={disabled}
-        aria-label={label}
-        aria-valuetext={formatValue(draftValue)}
-        style={{ "--range-progress": `${progress}%` } as CSSProperties}
-        onChange={(event) => {
-          const next = Number(event.target.value);
-          draftValueRef.current = next;
-          setDraftValue(next);
-        }}
-        onPointerUp={commit}
-        onPointerCancel={commit}
-        onKeyUp={commit}
-        onBlur={commit}
-      />
-      <span className="range-bounds" aria-hidden="true">
-        <span>{formatValue(min)}</span>
-        <span>{formatValue(max)}</span>
+      <span className="range-input-wrap">
+        {trackSlot}
+        <input
+          className="range-input"
+          type="range"
+          min={min}
+          max={max}
+          step={step}
+          value={draftValue}
+          disabled={disabled}
+          aria-label={label}
+          aria-valuetext={formatValue(draftValue)}
+          style={{ "--range-progress": `${progress}%` } as CSSProperties}
+          onChange={(event) => {
+            const next = Number(event.target.value);
+            draftValueRef.current = next;
+            setDraftValue(next);
+          }}
+          onPointerUp={commit}
+          onPointerCancel={commit}
+          onKeyUp={commit}
+          onBlur={commit}
+        />
       </span>
+      {!hideBounds && (
+        <span className="range-bounds" aria-hidden="true">
+          <span>{formatValue(min)}</span>
+          <span>{formatValue(max)}</span>
+        </span>
+      )}
       <small>{helper}</small>
     </label>
   );

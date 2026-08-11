@@ -6,16 +6,16 @@ import type { AudioLevel } from "../../types";
 import { RangeField } from "../SettingsControls";
 
 const MIN_LEVEL_DBFS = -80;
-const MAX_LEVEL_DBFS = 0;
 const MAX_THRESHOLD_DBFS = -10;
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
 
+// 与触发阈值滑动条共用同一刻度（-80..-10），使指示条上的阈值刻度线与滑块位置对齐。
 function levelPercent(value: number): number {
-  return ((clamp(value, MIN_LEVEL_DBFS, MAX_LEVEL_DBFS) - MIN_LEVEL_DBFS)
-    / (MAX_LEVEL_DBFS - MIN_LEVEL_DBFS)) * 100;
+  return ((clamp(value, MIN_LEVEL_DBFS, MAX_THRESHOLD_DBFS) - MIN_LEVEL_DBFS)
+    / (MAX_THRESHOLD_DBFS - MIN_LEVEL_DBFS)) * 100;
 }
 
 export function MicrophoneLevelSetting({
@@ -60,44 +60,15 @@ export function MicrophoneLevelSetting({
   const meterStyle = {
     "--microphone-level-scale": levelPercent(rmsDbfs) / 100,
     "--microphone-peak": `${levelPercent(peakDbfs)}%`,
-    "--microphone-threshold": `${levelPercent(threshold)}%`,
   } as CSSProperties;
   const formatDbfs = (value: number) => t("units.dbfs", { value: Math.round(value) });
 
   return (
     <div className={`microphone-level-setting ${speech ? "triggered" : ""}`}>
-      <div className="microphone-level-header">
-        <strong>{t("settings.audio.inputLevel")}</strong>
-        <span className="microphone-level-status">
-          <span aria-hidden="true" />
-          {status}
-          {active && <output>{formatDbfs(rmsDbfs)}</output>}
-        </span>
-      </div>
-      <div
-        className="microphone-level-meter"
-        role="meter"
-        aria-label={t("settings.audio.levelMeterLabel")}
-        aria-valuemin={MIN_LEVEL_DBFS}
-        aria-valuemax={MAX_LEVEL_DBFS}
-        aria-valuenow={Math.round(rmsDbfs)}
-        aria-valuetext={active ? formatDbfs(rmsDbfs) : status}
-        style={meterStyle}
-      >
-        <span className="microphone-level-fill" aria-hidden="true" />
-        <span className="microphone-level-peak" aria-hidden="true" />
-        <span
-          className="microphone-threshold-marker"
-          title={t("settings.audio.thresholdMarkerLabel", { value: Math.round(threshold) })}
-          aria-hidden="true"
-        />
-      </div>
-      <div className="microphone-meter-scale" aria-hidden="true">
-        <span>-80 dBFS</span>
-        <span>0 dBFS</span>
-      </div>
       <div className="microphone-test-control">
-        <span>{t("settings.audio.microphoneTestDescription")}</span>
+        <span className="microphone-level-status">
+          {status}
+        </span>
         <button
           className="secondary-button microphone-test-button"
           type="button"
@@ -113,6 +84,7 @@ export function MicrophoneLevelSetting({
               : t("settings.audio.startMicrophoneTest")}
         </button>
       </div>
+      <span className="microphone-test-note">{t("settings.audio.microphoneTestDescription")}</span>
       <RangeField
         label={t("settings.audio.triggerThreshold")}
         helper={t("settings.audio.triggerThresholdDescription")}
@@ -122,6 +94,23 @@ export function MicrophoneLevelSetting({
         step={1}
         disabled={disabled}
         formatValue={formatDbfs}
+        hideValue
+        hideBounds
+        trackSlot={(
+          <span
+            className="microphone-live-track"
+            role="meter"
+            aria-label={t("settings.audio.levelMeterLabel")}
+            aria-valuemin={MIN_LEVEL_DBFS}
+            aria-valuemax={MAX_THRESHOLD_DBFS}
+            aria-valuenow={Math.round(rmsDbfs)}
+            aria-valuetext={status}
+            style={meterStyle}
+          >
+            <span className="microphone-live-fill" aria-hidden="true" />
+            <span className="microphone-live-peak" aria-hidden="true" />
+          </span>
+        )}
         onCommit={onCommit}
       />
     </div>

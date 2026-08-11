@@ -41,7 +41,6 @@
   .model-row-title .model-size { width: 100%; margin-left: 0; }
   .model-directory-setting > div { align-items: stretch; flex-direction: column; }
   .device-group-title { display: grid; grid-template-columns: 20px minmax(0, 1fr); }
-  .microphone-level-header { align-items: flex-start; flex-direction: column; gap: 4px; }
   .microphone-test-control { align-items: stretch; flex-direction: column; gap: 8px; }
   .microphone-test-button { align-self: flex-start; }
   .debug-row { grid-template-columns: 1fr; gap: 4px; }

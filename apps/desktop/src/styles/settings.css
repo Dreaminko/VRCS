@@ -579,22 +579,25 @@
   border-radius: 12px;
   background: var(--surface-elevated);
 }
-.microphone-level-header { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 12px; }
-.microphone-level-header > strong { color: var(--text); font-size: 12px; font-weight: 650; }
-.microphone-level-status { display: flex; min-width: 0; align-items: center; gap: 6px; color: var(--text-quiet); font-size: 10px; white-space: nowrap; }
-.microphone-level-status > span { width: 6px; height: 6px; flex: 0 0 auto; border-radius: 50%; background: var(--text-quiet); }
-.microphone-level-status output { color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+.microphone-level-status { min-width: 0; color: var(--text-quiet); font-size: 10px; white-space: nowrap; }
 .microphone-level-setting.triggered .microphone-level-status { color: var(--primary-ink); }
-.microphone-level-setting.triggered .microphone-level-status > span { background: var(--primary); box-shadow: 0 0 0 3px var(--primary-soft); }
-.microphone-level-meter {
+.range-input-wrap { position: relative; display: grid; }
+.range-input-wrap > .range-input { position: relative; z-index: 1; grid-area: 1 / 1; min-width: 0; margin: 0; }
+.range-input-wrap > .range-input::-webkit-slider-runnable-track { border-color: transparent; background: transparent; }
+.range-input-wrap > .range-input::-moz-range-track { background: transparent; }
+.range-input-wrap > .range-input::-moz-range-progress { background: transparent; }
+.microphone-live-track {
   position: relative;
-  height: 12px;
-  margin-top: 2px;
+  grid-area: 1 / 1;
+  align-self: center;
+  height: 6px;
+  overflow: hidden;
   border: 1px solid var(--border);
   border-radius: var(--radius-pill);
   background: var(--surface-subtle);
+  pointer-events: none;
 }
-.microphone-level-fill {
+.microphone-live-fill {
   position: absolute;
   inset: 0;
   border-radius: inherit;
@@ -603,25 +606,10 @@
   transform-origin: left center;
   transition: transform 80ms linear, background-color 120ms ease-out;
 }
-.microphone-level-setting.triggered .microphone-level-fill { background: var(--primary-hover); }
-.microphone-level-peak,
-.microphone-threshold-marker { position: absolute; z-index: 1; left: var(--microphone-peak); width: 2px; transform: translateX(-1px); }
-.microphone-level-peak { top: 1px; bottom: 1px; border-radius: var(--radius-pill); background: var(--surface); box-shadow: 0 0 0 1px rgb(29 40 52 / 22%); }
-.microphone-threshold-marker { top: -5px; bottom: -5px; left: var(--microphone-threshold); background: var(--primary-ink); }
-.microphone-threshold-marker::before {
-  position: absolute;
-  top: -3px;
-  left: 50%;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--primary-ink);
-  content: "";
-  transform: translate(-50%, -50%);
-}
-.microphone-meter-scale { display: flex; justify-content: space-between; margin-top: -3px; color: var(--text-quiet); font-size: 9px; font-variant-numeric: tabular-nums; }
-.microphone-test-control { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 16px; padding: 5px 0 7px; }
-.microphone-test-control > span { max-width: 52ch; color: var(--text-quiet); font-size: 10px; line-height: 1.5; }
+.microphone-level-setting.triggered .microphone-live-fill { background: var(--primary-hover); }
+.microphone-live-peak { position: absolute; z-index: 1; top: 1px; bottom: 1px; left: var(--microphone-peak); width: 2px; border-radius: var(--radius-pill); background: var(--surface); box-shadow: 0 0 0 1px rgb(29 40 52 / 22%); transform: translateX(-1px); }
+.microphone-test-control { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 16px; padding: 0 0 2px; }
+.microphone-test-note { display: block; color: var(--text-quiet); font-size: 10px; line-height: 1.5; }
 .microphone-test-button { flex: 0 0 auto; min-width: 128px; }
 .microphone-test-button[aria-pressed="true"] { border-color: var(--primary); color: var(--primary-ink); background: var(--primary-softer); }
 .microphone-test-button:active:not(:disabled) { transform: scale(0.96); }
