@@ -99,7 +99,7 @@ pub(super) fn normalize_event(
                 .and_then(Value::as_str)
                 .unwrap_or_default()
         );
-        return Ok((!text.is_empty()).then(|| CloudEvent::Partial {
+        return Ok((!text.is_empty()).then_some(CloudEvent::Partial {
             utterance_id: id,
             text,
             language,

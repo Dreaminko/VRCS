@@ -3,6 +3,7 @@ name = "vrcs-desktop"
 version = "0.1.0"
 description = "VRCS desktop subtitle client"
 authors = ["VRCS contributors"]
+license = "AGPL-3.0-only"
 edition = "2021"
 default-run = "vrcs-desktop"
 

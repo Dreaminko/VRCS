@@ -66,6 +66,7 @@ impl TranscriptionPipeline {
         self.last_error.lock().expect("pipeline error lock").clone()
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn start(
         &mut self,
         sample_rate: u32,
@@ -176,6 +177,7 @@ impl Drop for TranscriptionPipeline {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn run(
     capture: &mut AudioCapture,
     mut detector: VoiceDetector,

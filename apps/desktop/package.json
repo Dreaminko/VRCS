@@ -2,11 +2,13 @@
   "name": "@vrcs/desktop",
   "private": true,
   "version": "0.1.0",
+  "license": "AGPL-3.0-only",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "test": "node --test tests/*.test.ts",
+    "typecheck:tests": "tsc -p tsconfig.tests.json",
+    "test": "npm run typecheck:tests && node --test tests/*.test.ts",
     "tauri": "tauri"
   },
   "dependencies": {
@@ -22,6 +24,7 @@
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.0.0",
+    "@types/node": "^24.0.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "@vitejs/plugin-react": "^4.3.0",

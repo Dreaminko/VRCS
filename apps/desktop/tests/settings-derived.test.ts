@@ -99,12 +99,11 @@ test("model classification keeps the current model selectable", () => {
     cuda: {
       available: false,
       device_count: 0,
-      devices: [],
       error: null,
     },
     models: [
-      { id: "small", status: "not_downloaded" },
-      { id: "base", status: "ready" },
+      { id: "small", repository: "ggerganov/whisper.cpp", status: "not_downloaded" },
+      { id: "base", repository: "ggerganov/whisper.cpp", status: "ready" },
     ],
     compute_types: {
       auto: ["int8"],

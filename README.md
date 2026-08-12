@@ -40,7 +40,7 @@ Release 安装包面向 Windows 10/11 x64。默认下载不带 `-CUDA` 后缀的
 
 ## 从源码开发
 
-开发环境需要 Windows 10/11、Node.js 20+、Rust stable，以及安装了“使用 C++ 的桌面开发”工作负载的 Visual Studio Build Tools。只有启用 CUDA 开发命令时才需要 NVIDIA CUDA Toolkit，并设置 `CUDA_PATH`。
+开发环境需要 Windows 10/11、Node.js 24+、Rust stable，以及安装了“使用 C++ 的桌面开发”工作负载的 Visual Studio Build Tools。只有启用 CUDA 开发命令时才需要 NVIDIA CUDA Toolkit，并设置 `CUDA_PATH`。
 
 ```powershell
 npm install
@@ -129,4 +129,4 @@ VRCS 默认使用 Qwen3 ASR 云端流式识别，也可切换到 Fun-ASR、OpenA
 
 ## License
 
-[MIT](LICENSE)
+[GNU Affero General Public License v3.0](LICENSE) (`AGPL-3.0-only`)

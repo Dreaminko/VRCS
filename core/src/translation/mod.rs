@@ -179,6 +179,7 @@ impl TranslationService {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn llm(
         &self,
         profile: &ApiProfile,

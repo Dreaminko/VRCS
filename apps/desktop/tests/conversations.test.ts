@@ -11,6 +11,7 @@ function subtitle(id: number, createdAt: number, text: string): Subtitle {
     started_at: null,
     ended_at: null,
     created_at: new Date(createdAt).toISOString(),
+    translations: [],
   };
 }
 

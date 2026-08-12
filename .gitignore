@@ -78,5 +78,3 @@ Desktop.ini
 
 # Automatically generated config migration backups
 *.v*.backup.json
-
-docs/

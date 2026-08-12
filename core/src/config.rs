@@ -575,12 +575,10 @@ impl AppConfig {
                 self.asr.openai.model
             ));
         }
-        if self.asr.backend == "fun_asr_realtime" {
-            if self.vad.silence_seconds < 0.2 {
-                return Err(
-                    "Fun-ASR realtime recognition requires at least 0.2 seconds of silence".into(),
-                );
-            }
+        if self.asr.backend == "fun_asr_realtime" && self.vad.silence_seconds < 0.2 {
+            return Err(
+                "Fun-ASR realtime recognition requires at least 0.2 seconds of silence".into(),
+            );
         }
         if self.anki.port == 0 {
             return Err("AnkiConnect port must be between 1 and 65535".into());

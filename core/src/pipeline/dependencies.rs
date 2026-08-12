@@ -22,6 +22,7 @@ pub(crate) struct PipelineDependencies {
 }
 
 impl PipelineDependencies {
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
         asr: Arc<Mutex<AsrService>>,
         database: Arc<Mutex<Database>>,

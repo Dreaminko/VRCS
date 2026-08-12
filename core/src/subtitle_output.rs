@@ -3,6 +3,7 @@ use tokio::sync::broadcast;
 use crate::models::{Subtitle, SubtitleTranslation};
 use crate::osc::OscChatboxDispatcher;
 
+#[allow(clippy::enum_variant_names)]
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum TranslationEvent {

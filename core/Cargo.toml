@@ -3,6 +3,7 @@ name = "vrcs-core"
 version = "0.1.0"
 description = "VRCS local core service (Rust)"
 authors = ["VRCS contributors"]
+license = "AGPL-3.0-only"
 edition = "2021"
 
 [features]

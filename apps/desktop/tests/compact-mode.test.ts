@@ -19,6 +19,7 @@ const subtitles: Subtitle[] = [
     started_at: null,
     ended_at: null,
     created_at: "2026-07-21T10:01:00.000Z",
+    translations: [],
   },
   {
     id: 1,
@@ -28,6 +29,7 @@ const subtitles: Subtitle[] = [
     started_at: null,
     ended_at: null,
     created_at: "2026-07-21T10:00:00.000Z",
+    translations: [],
   },
 ];
 

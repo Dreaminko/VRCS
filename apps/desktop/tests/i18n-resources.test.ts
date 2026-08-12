@@ -67,7 +67,7 @@ test("locale resources have identical keys and interpolation variables", () => {
       const value = resource.get(key);
       assert.ok(value?.trim(), `${name}:${key} must not be empty`);
       assert.deepEqual(
-        placeholders(value),
+        placeholders(value!),
         placeholders(referenceValue),
         `${name}:${key} interpolation variables differ`,
       );

@@ -1,0 +1,66 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate localization
+        run: npm run check:i18n
+
+      - name: Test desktop
+        run: npm --workspace apps/desktop test
+
+      - name: Build frontend
+        run: npm run build:frontend
+
+  rust:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            core
+            apps/desktop/src-tauri
+
+      - name: Check formatting
+        shell: pwsh
+        run: |
+          cargo fmt --manifest-path core/Cargo.toml -- --check
+          cargo fmt --manifest-path apps/desktop/src-tauri/Cargo.toml -- --check
+
+      - name: Run Clippy
+        shell: pwsh
+        run: |
+          cargo clippy --manifest-path core/Cargo.toml --all-targets --locked -- -D warnings
+          cargo clippy --manifest-path apps/desktop/src-tauri/Cargo.toml --all-targets --locked -- -D warnings
+
+      - name: Test Rust
+        shell: pwsh
+        run: |
+          cargo test --manifest-path core/Cargo.toml --locked
+          cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml --locked

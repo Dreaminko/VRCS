@@ -2,7 +2,7 @@ use std::net::TcpListener;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use serde::Serialize;
 use tauri::menu::{Menu, MenuItem};
@@ -43,6 +43,7 @@ struct CoreLaunchOptions {
 
 struct CoreRuntime {
     handle: Mutex<Option<vrcs_core::CoreHandle>>,
+    launch_task: Mutex<Option<tauri::async_runtime::JoinHandle<()>>>,
     startup: Mutex<CoreStartup>,
     options: CoreLaunchOptions,
     stop_requested: AtomicBool,
@@ -118,7 +119,7 @@ fn launch_core(app: &tauri::AppHandle) -> Result<(), String> {
 
     let options = runtime.options.clone();
     let app = app.clone();
-    tauri::async_runtime::spawn(async move {
+    let launch_task = tauri::async_runtime::spawn(async move {
         let started = Instant::now();
         let result = vrcs_core::start_with_deferred_vad(vrcs_core::CoreOptions {
             config_path: options.config_path,
@@ -160,6 +161,10 @@ fn launch_core(app: &tauri::AppHandle) -> Result<(), String> {
             }
         }
     });
+    *runtime
+        .launch_task
+        .lock()
+        .map_err(|error| error.to_string())? = Some(launch_task);
     Ok(())
 }
 
@@ -207,18 +212,34 @@ fn minimize_to_tray_enabled(app: &tauri::AppHandle) -> bool {
 fn stop_core(app: &tauri::AppHandle) {
     let runtime = app.state::<CoreRuntime>();
     runtime.stop_requested.store(true, Ordering::Release);
-    let core = runtime
-        .handle
+    let launch_task = runtime
+        .launch_task
         .lock()
-        .expect("core runtime lock poisoned")
+        .expect("core launch task lock poisoned")
         .take();
-    if let Some(mut core) = core {
-        core.stop();
-        tauri::async_runtime::spawn(async move {
-            if let Err(error) = core.wait().await {
-                eprintln!("VRCS Core shutdown failed: {error}");
-            }
-        });
+    let app = app.clone();
+    let (done_tx, done_rx) = std::sync::mpsc::sync_channel(1);
+    tauri::async_runtime::spawn(async move {
+        if let Some(task) = launch_task {
+            let _ = task.await;
+        }
+        let core = app
+            .state::<CoreRuntime>()
+            .handle
+            .lock()
+            .expect("core runtime lock poisoned")
+            .take();
+        let result = match core {
+            Some(core) => core.shutdown().await,
+            None => Ok(()),
+        };
+        let _ = done_tx.send(result);
+    });
+
+    match done_rx.recv_timeout(Duration::from_secs(10)) {
+        Ok(Ok(())) => {}
+        Ok(Err(error)) => eprintln!("VRCS Core shutdown failed: {error}"),
+        Err(_) => eprintln!("VRCS Core shutdown timed out"),
     }
 }
 
@@ -304,6 +325,7 @@ pub fn run() {
                 .ok_or_else(|| std::io::Error::other("core URL is missing a valid port"))?;
             app.manage(CoreRuntime {
                 handle: Mutex::new(None),
+                launch_task: Mutex::new(None),
                 startup: Mutex::new(CoreStartup {
                     state: CoreStartupState::Failed,
                     error: None,

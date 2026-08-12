@@ -30,9 +30,11 @@ pub(super) fn build_request(
 }
 
 pub(super) fn session_update(config: &AsrConfig) -> Value {
-    let mut transcription = (config.language != "auto")
-        .then(|| json!({ "language": config.language }))
-        .unwrap_or_else(|| json!({}));
+    let mut transcription = if config.language != "auto" {
+        json!({ "language": config.language })
+    } else {
+        json!({})
+    };
     if !config.qwen.context.trim().is_empty() {
         transcription["corpus"] = json!({ "text": config.qwen.context.trim() });
     }
@@ -111,7 +113,7 @@ pub(super) fn normalize_event(
                 .and_then(Value::as_str)
                 .unwrap_or_default()
         );
-        return Ok((!text.is_empty()).then(|| CloudEvent::Partial {
+        return Ok((!text.is_empty()).then_some(CloudEvent::Partial {
             utterance_id: id,
             text,
             language,

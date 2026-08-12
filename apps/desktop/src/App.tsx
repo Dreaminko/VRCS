@@ -330,7 +330,7 @@ function App() {
                     </div>
                   )}
                 <LiveView
-                  subtitles={(selectedConversation?.subtitles ?? []).slice(0, 12)}
+                  subtitles={selectedConversation?.subtitles ?? []}
                   partials={selectedConversation?.id === activeConversation?.id ? partials : {}}
                   running={
                     (health?.capture_running ?? false)

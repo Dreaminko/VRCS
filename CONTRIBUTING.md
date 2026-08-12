@@ -2,6 +2,9 @@
 
 Thank you for helping improve VRCS.
 
+By contributing, you agree that your contributions are licensed under the
+[GNU Affero General Public License v3.0](LICENSE).
+
 ## Localization
 
 Adding a language is intentionally a file-only contribution: create one locale JSON file, translate it, and submit it with the localization checks passing. The application discovers valid locale files automatically.

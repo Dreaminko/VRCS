@@ -187,8 +187,10 @@ mod tests {
 
     #[tokio::test]
     async fn disabled_integration_skips_status_checks_and_card_creation() {
-        let mut config = AnkiConfig::default();
-        config.enabled = false;
+        let config = AnkiConfig {
+            enabled: false,
+            ..AnkiConfig::default()
+        };
         let http = client();
 
         let status = status(&http, &config).await;

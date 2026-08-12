@@ -1,6 +1,10 @@
 {
   "name": "vrcs",
   "private": true,
+  "license": "AGPL-3.0-only",
+  "engines": {
+    "node": ">=24"
+  },
   "workspaces": ["apps/desktop"],
   "scripts": {
     "dev": "npm run dev:desktop",
