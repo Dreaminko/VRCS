@@ -610,6 +610,7 @@ mod tests {
             region: None,
             workspace_id: None,
             base_url: Some("https://api.deepseek.com/v1/".into()),
+            purpose: None,
         };
         assert_eq!(
             openai_chat_completions_url(&profile).unwrap(),
@@ -626,6 +627,7 @@ mod tests {
             region: None,
             workspace_id: None,
             base_url: Some("https://api.deepseek.com/v1".into()),
+            purpose: None,
         };
         assert_eq!(
             openai_models_url(&profile).unwrap(),
@@ -663,6 +665,7 @@ mod tests {
             region: Some("singapore".into()),
             workspace_id: Some("ws-example".into()),
             base_url: None,
+            purpose: None,
         };
         assert_eq!(
             alibaba_base_url(&profile).unwrap(),

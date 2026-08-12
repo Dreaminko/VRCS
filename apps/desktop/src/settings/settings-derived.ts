@@ -45,10 +45,11 @@ export function selectRecognitionSource(
   }
 
   const profile = asr.api_profiles.find((item) => item.id === source);
-  if (!profile) return asr;
+  const purpose = profile?.purpose
+    ?? (profile?.provider === "openai" && profile.base_url ? "llm" : "shared");
+  if (!profile || purpose === "llm") return asr;
 
   if (profile.provider === "openai") {
-    if (profile.base_url) return asr;
     return {
       ...asr,
       backend: "openai_realtime",

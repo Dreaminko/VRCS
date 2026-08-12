@@ -99,9 +99,9 @@ npm run build
 
 ## OpenAI 兼容 LLM
 
-字幕翻译支持 OpenAI 兼容的 Chat Completions API。前往“设置 → API 管理”，新增 `OpenAI / Compatible` 配置并填写 Base URL；例如 DeepSeek 可使用 `https://api.deepseek.com/v1`。保存 API Key 后，再到“字幕翻译”中选择该配置并填写服务商支持的模型名（例如 `deepseek-chat`）。
+字幕翻译支持 OpenAI 兼容的 Chat Completions API。前往“设置 → API 管理”，新增 `OpenAI / Compatible` 配置，将服务用途设为“仅 LLM / 翻译”并填写 Base URL；例如 DeepSeek 可使用 `https://api.deepseek.com/v1`。保存 API Key 后，再到“字幕翻译”中选择该配置并填写服务商支持的模型名（例如 `deepseek-chat`）。
 
-Base URL 留空时使用 OpenAI 官方 Responses API，并保留 OpenAI Realtime 语音识别能力；填写自定义 Base URL 后，该配置仅用于 LLM 翻译，VRCS 会请求 `{Base URL}/chat/completions`。Base URL 也可以直接填写完整的 `/chat/completions` 地址。
+OpenAI 官方连接可按需设为“仅语音识别”“仅 LLM / 翻译”或共享；仅 LLM 配置可以填写兼容 Base URL。Base URL 留空时 LLM 使用 OpenAI 官方 Responses API，填写后请求 `{Base URL}/chat/completions`。Base URL 也可以直接填写完整的 `/chat/completions` 地址。
 
 配置了 API Key 后，VRCS 会自动请求对应的 `/models` 接口获取可用模型；可在“API 管理”中手动刷新，字幕翻译的模型输入框也会提供获取到的模型建议。如果服务商未实现模型列表接口，仍可直接手动填写模型名。
 

@@ -283,6 +283,12 @@
         "profileName": "名前",
         "profileNamePlaceholder": "例：個人アカウント",
         "provider": "プロバイダー",
+        "purpose": "サービス用途",
+        "purposes": {
+          "asr": "音声認識のみ",
+          "llm": "LLM・翻訳のみ",
+          "shared": "音声認識と LLM で共有"
+        },
         "baseUrl": "OpenAI 互換 Base URL",
         "baseUrlHint": "空欄の場合は OpenAI 公式 API を使用します。設定時は LLM 翻訳専用として /chat/completions を呼び出します。",
         "apiKeyOptional": "後から設定できます",
@@ -310,6 +316,8 @@
         "credentialConfigured": "安全に設定済みです。新しいキーを入力すると置き換えられます",
         "credentialSaved": "API キーを安全に保存しました。",
         "testConnection": "接続テスト",
+        "testAsr": "ASR をテスト",
+        "testTranslation": "翻訳をテスト",
         "connectionSucceeded": "接続に成功しました。",
         "refreshModels": "モデルを更新",
         "loadingModels": "利用可能なモデルを取得中…",

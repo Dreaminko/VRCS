@@ -182,6 +182,7 @@ export const coreApi = {
         region: profile.region,
         workspace_id: profile.workspace_id,
         base_url: profile.base_url,
+        purpose: profile.purpose,
       }),
     }),
   deleteApiProfile: (profileId: string) =>
@@ -198,8 +199,11 @@ export const coreApi = {
       method: "PUT",
       body: JSON.stringify({ profile_id: profileId }),
     }),
-  testApiProfile: (profileId: string) =>
-    request<{ ok: boolean }>(`/api/asr/profiles/${profileId}/test`, { method: "POST" }),
+  testApiProfile: (profileId: string, capability: "asr" | "llm") =>
+    request<{ ok: boolean }>(
+      `/api/asr/profiles/${profileId}/test?capability=${capability}`,
+      { method: "POST" },
+    ),
   apiProfileModels: (profileId: string) =>
     request<ApiModelCatalog>(`/api/asr/profiles/${profileId}/models`),
   translateSubtitle: (subtitleId: number) =>

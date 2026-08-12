@@ -69,7 +69,8 @@ test("recognition source selects a named API profile and compatible backend atom
     ...settings.asr,
     api_profiles: [
       { id: "ali-work", name: "Work", provider: "alibaba_cloud", region: "singapore" },
-      { id: "openai-personal", name: "Personal", provider: "openai" },
+      { id: "openai-personal", name: "Personal", provider: "openai", purpose: "asr" },
+      { id: "openai-llm", name: "OpenAI LLM", provider: "openai", purpose: "llm" },
       { id: "deepseek", name: "DeepSeek", provider: "openai", base_url: "https://api.deepseek.com/v1" },
     ],
   };
@@ -79,6 +80,7 @@ test("recognition source selects a named API profile and compatible backend atom
   assert.equal(openai.active_api_profiles.openai, "openai-personal");
   assert.equal(recognitionSourceValue(openai), "openai-personal");
 
+  assert.deepEqual(selectRecognitionSource(openai, "openai-llm"), openai);
   assert.deepEqual(selectRecognitionSource(openai, "deepseek"), openai);
 
   const alibaba = selectRecognitionSource({ ...openai, backend: "fun_asr_realtime" }, "ali-work");

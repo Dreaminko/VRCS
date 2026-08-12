@@ -2,8 +2,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { coreApi } from "../api";
+import { supportsLlmModels } from "../api-profile-purpose";
 import { localizedError } from "../app-utils";
-import type { ApiProfile, ApiProfileView, AsrApiProvider } from "../types";
+import type { ApiProfile, ApiProfilePurpose, ApiProfileView, AsrApiProvider } from "../types";
 
 export interface ApiModelCatalogState {
   models: string[];
@@ -65,7 +66,7 @@ export function useApiProfiles(onRefreshSettings: () => Promise<void>) {
   useEffect(() => {
     for (const profile of profiles) {
       if (
-        ["openai", "alibaba_cloud"].includes(profile.provider)
+        supportsLlmModels(profile)
         && profile.credential.configured
       ) {
         void refreshModels(profile.id, false);
@@ -144,9 +145,9 @@ export function useApiProfiles(onRefreshSettings: () => Promise<void>) {
       "settings.apiManagement.profileActivated",
       true,
     ),
-    test: (profileId: string) => run(
+    test: (profileId: string, capability: Extract<ApiProfilePurpose, "asr" | "llm">) => run(
       profileId,
-      () => coreApi.testApiProfile(profileId),
+      () => coreApi.testApiProfile(profileId, capability),
       "settings.apiManagement.connectionSucceeded",
       false,
     ),

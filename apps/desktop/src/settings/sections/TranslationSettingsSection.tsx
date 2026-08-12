@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { coreApi } from "../../api";
+import { supportsLlmModels, supportsTranslation } from "../../api-profile-purpose";
 import { localizedError } from "../../app-utils";
 import { EditableDropdownField } from "../../components/DropdownField";
 import type { ApiProfile, Settings, TranslationSettings } from "../../types";
@@ -26,12 +27,11 @@ export function TranslationSettingsSection({ draft, disabled, saveState, applySe
   applySettings: ApplySettings;
 }) {
   const { t } = useTranslation();
-  const selectedProfile = draft.asr.api_profiles.find(
+  const translationProfiles = draft.asr.api_profiles.filter(supportsTranslation);
+  const selectedProfile = translationProfiles.find(
     (profile) => profile.id === draft.translation.profile_id,
   );
-  const usesLlmProfile = Boolean(
-    selectedProfile && ["openai", "alibaba_cloud"].includes(selectedProfile.provider),
-  );
+  const usesLlmProfile = Boolean(selectedProfile && supportsLlmModels(selectedProfile));
   const supportsThinkingToggle = Boolean(
     selectedProfile?.provider === "openai"
       && (
@@ -103,8 +103,8 @@ export function TranslationSettingsSection({ draft, disabled, saveState, applySe
             <Select
               label={t("settings.translation.mode")}
               value={draft.translation.mode}
-              disabled={controlsDisabled || !draft.asr.api_profiles.length}
-              helper={!draft.asr.api_profiles.length ? t("settings.translation.noProfiles") : undefined}
+              disabled={controlsDisabled || !translationProfiles.length}
+              helper={!translationProfiles.length ? t("settings.translation.noProfiles") : undefined}
               options={["disabled", "manual", "automatic"].map((value) => ({
                 value,
                 label: t(`settings.translation.modes.${value}`),
@@ -112,8 +112,8 @@ export function TranslationSettingsSection({ draft, disabled, saveState, applySe
               onChange={(mode) => {
                 const profileId = mode === "disabled"
                   ? draft.translation.profile_id
-                  : draft.translation.profile_id ?? draft.asr.api_profiles[0]?.id ?? null;
-                const profile = draft.asr.api_profiles.find((item) => item.id === profileId);
+                  : selectedProfile?.id ?? translationProfiles[0]?.id ?? null;
+                const profile = translationProfiles.find((item) => item.id === profileId);
                 update({
                   ...draft.translation,
                   mode: mode as TranslationSettings["mode"],
@@ -138,12 +138,12 @@ export function TranslationSettingsSection({ draft, disabled, saveState, applySe
               title={t("settings.translation.translateOwnVoice")}
               description={t("settings.translation.translateOwnVoiceDescription")}
               checked={draft.translation.translate_microphone}
-              disabled={controlsDisabled || !draft.asr.api_profiles.length}
+              disabled={controlsDisabled || !translationProfiles.length}
               onChange={(translate_microphone) => {
                 const profileId = translate_microphone
-                  ? draft.translation.profile_id ?? draft.asr.api_profiles[0]?.id ?? null
+                  ? selectedProfile?.id ?? translationProfiles[0]?.id ?? null
                   : draft.translation.profile_id;
-                const profile = draft.asr.api_profiles.find((item) => item.id === profileId);
+                const profile = translationProfiles.find((item) => item.id === profileId);
                 update({
                   ...draft.translation,
                   translate_microphone,
@@ -154,7 +154,7 @@ export function TranslationSettingsSection({ draft, disabled, saveState, applySe
             />
             <Select
               label={t("settings.translation.ownVoiceTargetLanguage")}
-              helper={draft.asr.api_profiles.length
+              helper={translationProfiles.length
                 ? t("settings.translation.ownVoiceTargetLanguageDescription")
                 : t("settings.translation.noProfiles")}
               value={draft.translation.microphone_target_language}
@@ -207,17 +207,17 @@ export function TranslationSettingsSection({ draft, disabled, saveState, applySe
           <div className={`translation-config-fields ${usesLlmProfile ? "" : "translation-config-fields-single"}`}>
             <Select
               label={t("settings.translation.profile")}
-              helper={draft.asr.api_profiles.length ? undefined : t("settings.translation.noProfiles")}
-              value={draft.translation.profile_id ?? ""}
-              disabled={controlsDisabled || !draft.asr.api_profiles.length}
+              helper={translationProfiles.length ? undefined : t("settings.translation.noProfiles")}
+              value={selectedProfile?.id ?? ""}
+              disabled={controlsDisabled || !translationProfiles.length}
               options={[
                 ...(!draft.translation.profile_id
                   ? [{ value: "", label: t("settings.translation.selectProfile") }]
                   : []),
-                ...draft.asr.api_profiles.map((profile) => ({ value: profile.id, label: profile.name })),
+                ...translationProfiles.map((profile) => ({ value: profile.id, label: profile.name })),
               ]}
               onChange={(profile_id) => {
-                const profile = draft.asr.api_profiles.find((item) => item.id === profile_id);
+                const profile = translationProfiles.find((item) => item.id === profile_id);
                 update({
                   ...draft.translation,
                   profile_id,

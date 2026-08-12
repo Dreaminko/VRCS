@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::Json;
 use serde::Deserialize;
@@ -8,8 +8,8 @@ use serde_json::{json, Value};
 
 use crate::asr;
 use crate::config::{
-    save_config, ApiProfile, TranslationConfig, ALIBABA_PROVIDER, DEEPL_PROVIDER,
-    MICROSOFT_PROVIDER, OPENAI_PROVIDER,
+    save_config, ApiProfile, TranslationConfig, ALIBABA_PROVIDER, API_PURPOSE_ASR, API_PURPOSE_LLM,
+    API_PURPOSE_SHARED, DEEPL_PROVIDER, MICROSOFT_PROVIDER, OPENAI_PROVIDER,
 };
 
 use super::{api_error, ApiResult, AppState};
@@ -26,6 +26,8 @@ pub(super) struct CreateProfileInput {
     #[serde(default)]
     base_url: Option<String>,
     #[serde(default)]
+    purpose: Option<String>,
+    #[serde(default)]
     api_key: Option<String>,
 }
 
@@ -39,6 +41,8 @@ pub(super) struct UpdateProfileInput {
     workspace_id: Option<String>,
     #[serde(default)]
     base_url: Option<String>,
+    #[serde(default)]
+    purpose: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -51,6 +55,11 @@ pub(super) struct CredentialInput {
 #[serde(deny_unknown_fields)]
 pub(super) struct ActiveProfileInput {
     profile_id: Option<String>,
+}
+
+#[derive(Default, Deserialize)]
+pub(super) struct TestProfileQuery {
+    capability: Option<String>,
 }
 
 fn profile_value(profile: &ApiProfile, config: &crate::config::AppConfig) -> Result<Value, String> {
@@ -68,6 +77,7 @@ fn profile_value(profile: &ApiProfile, config: &crate::config::AppConfig) -> Res
         "region": profile.region,
         "workspace_id": profile.workspace_id,
         "base_url": profile.base_url,
+        "purpose": profile.effective_purpose(),
         "active": active,
         "translation_active": translation_active,
         "credential": status,
@@ -98,6 +108,7 @@ pub(super) async fn profile_create(
         region: input.region,
         workspace_id: input.workspace_id.map(|value| value.trim().to_string()),
         base_url: input.base_url.map(|value| value.trim().to_string()),
+        purpose: input.purpose,
     };
     normalize_profile_fields(&mut profile);
     let mut candidate = state.config.read().expect("config lock").clone();
@@ -143,16 +154,36 @@ pub(super) async fn profile_update(
     if profile.provider == OPENAI_PROVIDER {
         profile.base_url = input.base_url.map(|value| value.trim().to_string());
     }
+    if input.purpose.is_some() {
+        profile.purpose = input.purpose;
+    }
     normalize_profile_fields(profile);
-    let disable_openai_realtime = profile.uses_openai_compatible_api();
+    let disable_realtime = !profile.supports_realtime_asr();
+    let disable_translation = !profile.supports_translation();
     let updated = profile.clone();
-    if disable_openai_realtime
-        && candidate.asr.active_api_profiles.openai.as_deref() == Some(profile_id.as_str())
-    {
-        candidate.asr.active_api_profiles.openai = None;
-        if candidate.asr.backend == "openai_realtime" {
-            candidate.asr.backend = "local_whisper".into();
+    if disable_realtime {
+        if candidate.asr.active_api_profiles.openai.as_deref() == Some(profile_id.as_str()) {
+            candidate.asr.active_api_profiles.openai = None;
+            if candidate.asr.backend == "openai_realtime" {
+                candidate.asr.backend = "local_whisper".into();
+            }
         }
+        if candidate.asr.active_api_profiles.alibaba_cloud.as_deref() == Some(profile_id.as_str()) {
+            candidate.asr.active_api_profiles.alibaba_cloud = None;
+            if matches!(
+                candidate.asr.backend.as_str(),
+                "qwen_realtime" | "fun_asr_realtime"
+            ) {
+                candidate.asr.backend = "local_whisper".into();
+            }
+        }
+    }
+    if disable_translation
+        && candidate.translation.profile_id.as_deref() == Some(profile_id.as_str())
+    {
+        candidate.translation.profile_id = None;
+        candidate.translation.mode = "disabled".into();
+        candidate.translation.translate_microphone = false;
     }
     commit_profile_config(&state, candidate).await?;
     let config = state.config.read().expect("config lock").clone();
@@ -276,11 +307,11 @@ pub(super) async fn profile_activate(
                 "Configure an API key before activating this profile",
             ));
         }
-        if profile.uses_openai_compatible_api() {
+        if !profile.supports_realtime_asr() {
             return Err(api_error(
                 StatusCode::UNPROCESSABLE_ENTITY,
                 "asr.profile_invalid",
-                "OpenAI-compatible text API profiles cannot be used for realtime speech recognition",
+                "This API profile does not support realtime speech recognition",
             ));
         }
     }
@@ -296,6 +327,7 @@ pub(super) async fn profile_activate(
 pub(super) async fn credential_test(
     State(state): State<Arc<AppState>>,
     Path(profile_id): Path<String>,
+    Query(query): Query<TestProfileQuery>,
 ) -> ApiResult<Json<Value>> {
     let config = state.config.read().expect("config lock").clone();
     let profile = config
@@ -304,16 +336,29 @@ pub(super) async fn credential_test(
         .iter()
         .find(|profile| profile.id == profile_id)
         .ok_or_else(profile_not_found)?;
-    let translation_test = matches!(
-        profile.provider.as_str(),
-        DEEPL_PROVIDER | MICROSOFT_PROVIDER
-    ) || profile.uses_openai_compatible_api()
-        || (profile.provider == ALIBABA_PROVIDER
-            && profile
-                .workspace_id
-                .as_deref()
-                .map_or(true, |workspace| workspace.trim().is_empty()));
-    if translation_test {
+    let capability = query.capability.as_deref().unwrap_or_else(|| {
+        if profile.effective_purpose() == API_PURPOSE_ASR
+            || (profile.effective_purpose() == API_PURPOSE_SHARED
+                && profile.supports_realtime_asr()
+                && (profile.provider != ALIBABA_PROVIDER
+                    || profile
+                        .workspace_id
+                        .as_deref()
+                        .is_some_and(|workspace| !workspace.trim().is_empty())))
+        {
+            API_PURPOSE_ASR
+        } else {
+            API_PURPOSE_LLM
+        }
+    });
+    if capability == API_PURPOSE_LLM {
+        if !profile.supports_translation() {
+            return Err(api_error(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "translation.profile_invalid",
+                "This API profile does not support translation",
+            ));
+        }
         let settings = TranslationConfig {
             mode: "manual".into(),
             target_language: "en".into(),
@@ -339,7 +384,14 @@ pub(super) async fn credential_test(
             .map_err(|error| {
                 api_error(StatusCode::SERVICE_UNAVAILABLE, error.code, error.detail)
             })?;
-    } else {
+    } else if capability == API_PURPOSE_ASR {
+        if !profile.supports_realtime_asr() {
+            return Err(api_error(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "asr.profile_invalid",
+                "This API profile does not support realtime speech recognition",
+            ));
+        }
         asr::test_streaming_connection(&config.asr, &profile_id)
             .await
             .map_err(|error| {
@@ -349,6 +401,12 @@ pub(super) async fn credential_test(
                     error,
                 )
             })?;
+    } else {
+        return Err(api_error(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "asr.profile_invalid",
+            "Capability must be asr or llm",
+        ));
     }
     Ok(Json(json!({ "ok": true })))
 }
@@ -364,10 +422,7 @@ pub(super) async fn profile_models(
         .iter()
         .find(|profile| profile.id == profile_id)
         .ok_or_else(profile_not_found)?;
-    if !matches!(
-        profile.provider.as_str(),
-        OPENAI_PROVIDER | ALIBABA_PROVIDER
-    ) {
+    if !profile.supports_llm_models() {
         return Err(api_error(
             StatusCode::UNPROCESSABLE_ENTITY,
             "llm.models_unsupported",
@@ -471,5 +526,11 @@ fn normalize_profile_fields(profile: &mut ApiProfile) {
             profile.base_url = None;
         }
         _ => profile.base_url = None,
+    }
+    if matches!(
+        profile.provider.as_str(),
+        DEEPL_PROVIDER | MICROSOFT_PROVIDER
+    ) {
+        profile.purpose = Some(API_PURPOSE_LLM.into());
     }
 }

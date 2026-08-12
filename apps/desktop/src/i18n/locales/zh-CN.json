@@ -283,6 +283,12 @@
         "profileName": "名称",
         "profileNamePlaceholder": "例如：个人账号",
         "provider": "供应商",
+        "purpose": "服务用途",
+        "purposes": {
+          "asr": "仅语音识别",
+          "llm": "仅 LLM / 翻译",
+          "shared": "语音识别与 LLM 共用"
+        },
         "baseUrl": "OpenAI 兼容 Base URL",
         "baseUrlHint": "留空使用 OpenAI 官方 API；填写后通过 /chat/completions 调用，仅用于 LLM 翻译。",
         "apiKeyOptional": "可稍后配置",
@@ -310,6 +316,8 @@
         "credentialConfigured": "已安全配置，可输入新密钥替换",
         "credentialSaved": "API Key 已安全保存。",
         "testConnection": "测试连接",
+        "testAsr": "测试 ASR",
+        "testTranslation": "测试翻译",
         "connectionSucceeded": "连接成功。",
         "refreshModels": "刷新模型",
         "loadingModels": "正在获取可用模型…",

@@ -1,6 +1,7 @@
 import { Languages } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
+import { supportsRecognition } from "../../api-profile-purpose";
 import type { AsrCapabilities, AsrModelRecord, Settings } from "../../types";
 import { CloudProviderSettings } from "../recognition/CloudProviderSettings";
 import { LocalRecognitionSettings, LocalRuntimeStatus } from "../recognition/LocalRecognitionSettings";
@@ -69,7 +70,7 @@ export function RecognitionSettingsSection({
   const sourceOptions = [
     { value: LOCAL_RECOGNITION_SOURCE, label: t("settings.recognition.localSource") },
     ...draft.asr.api_profiles
-      .filter((profile) => profile.provider === "alibaba_cloud" || (profile.provider === "openai" && !profile.base_url))
+      .filter(supportsRecognition)
       .map((profile) => {
         const providerLabel = profile.provider === "alibaba_cloud" ? "Alibaba Cloud" : "OpenAI";
         return {

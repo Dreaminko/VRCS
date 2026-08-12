@@ -283,6 +283,12 @@
         "profileName": "Name",
         "profileNamePlaceholder": "For example: Personal account",
         "provider": "Provider",
+        "purpose": "Service purpose",
+        "purposes": {
+          "asr": "Speech recognition only",
+          "llm": "LLM / translation only",
+          "shared": "Speech recognition and LLM"
+        },
         "baseUrl": "OpenAI-compatible Base URL",
         "baseUrlHint": "Leave blank for the official OpenAI API. When set, /chat/completions is used for LLM translation only.",
         "apiKeyOptional": "Can be configured later",
@@ -310,6 +316,8 @@
         "credentialConfigured": "Configured securely; enter a new key to replace it",
         "credentialSaved": "API key saved securely.",
         "testConnection": "Test connection",
+        "testAsr": "Test ASR",
+        "testTranslation": "Test translation",
         "connectionSucceeded": "Connection succeeded.",
         "refreshModels": "Refresh models",
         "loadingModels": "Loading available models…",

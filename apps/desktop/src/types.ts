@@ -57,6 +57,7 @@ export interface AsrSettings {
 
 export type AsrApiProvider = "alibaba_cloud" | "openai";
 export type ApiProvider = AsrApiProvider | "deepl" | "microsoft_translator";
+export type ApiProfilePurpose = "asr" | "llm" | "shared";
 
 export interface ApiProfile {
   id: string;
@@ -65,6 +66,7 @@ export interface ApiProfile {
   region?: string;
   workspace_id?: string;
   base_url?: string;
+  purpose?: ApiProfilePurpose;
 }
 
 export interface ApiProfileView extends ApiProfile {

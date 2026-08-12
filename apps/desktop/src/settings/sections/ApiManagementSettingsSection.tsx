@@ -2,7 +2,13 @@ import { Check, Cloud, KeyRound, Pencil, Plus, RefreshCw, ShieldCheck, Trash2 } 
 import { Fragment, useState } from "react";
 import { useTranslation } from "react-i18next";
 
-import type { ApiProfile, ApiProfileView, ApiProvider } from "../../types";
+import {
+  apiProfilePurpose,
+  supportsLlmModels,
+  supportsRecognition,
+  supportsTranslation,
+} from "../../api-profile-purpose";
+import type { ApiProfile, ApiProfilePurpose, ApiProfileView, ApiProvider } from "../../types";
 import { Select } from "../SettingsControls";
 import { useApiProfiles } from "../useApiProfiles";
 
@@ -10,6 +16,7 @@ interface EditorDraft {
   id?: string;
   name: string;
   provider: ApiProvider;
+  purpose: ApiProfilePurpose;
   region: string;
   workspace_id: string;
   base_url: string;
@@ -19,6 +26,7 @@ interface EditorDraft {
 const emptyDraft = (): EditorDraft => ({
   name: "",
   provider: "alibaba_cloud",
+  purpose: "shared",
   region: "china_beijing",
   workspace_id: "",
   base_url: "",
@@ -30,6 +38,7 @@ function draftFromProfile(profile: ApiProfileView): EditorDraft {
     id: profile.id,
     name: profile.name,
     provider: profile.provider,
+    purpose: apiProfilePurpose(profile),
     region: profile.region ?? "china_beijing",
     workspace_id: profile.workspace_id ?? "",
     base_url: profile.base_url ?? "",
@@ -93,6 +102,7 @@ function ProfileEditor({
             onChange({
               ...draft,
               provider,
+              purpose: provider === "openai" ? "asr" : provider === "alibaba_cloud" ? "shared" : "llm",
               region: provider === "microsoft_translator"
                 ? "eastasia"
                 : provider === "alibaba_cloud"
@@ -103,6 +113,23 @@ function ProfileEditor({
             });
           }}
         />
+        {(draft.provider === "alibaba_cloud" || draft.provider === "openai") && (
+          <Select
+            label={t("settings.apiManagement.purpose")}
+            value={draft.purpose}
+            options={[
+              { value: "asr", label: t("settings.apiManagement.purposes.asr") },
+              { value: "llm", label: t("settings.apiManagement.purposes.llm") },
+              { value: "shared", label: t("settings.apiManagement.purposes.shared") },
+            ]}
+            disabled={saving}
+            onChange={(value) => onChange({
+              ...draft,
+              purpose: value as ApiProfilePurpose,
+              base_url: value === "llm" ? draft.base_url : "",
+            })}
+          />
+        )}
         {draft.provider === "alibaba_cloud" && <>
           <Select
             label={t("settings.apiManagement.region")}
@@ -135,7 +162,7 @@ function ProfileEditor({
             />
           </label>
         )}
-        {draft.provider === "openai" && (
+        {draft.provider === "openai" && draft.purpose === "llm" && (
           <label className="field cloud-text-field">
             <span>{t("settings.apiManagement.baseUrl")}</span>
             <input
@@ -211,16 +238,18 @@ export function ApiManagementSettingsSection({
           provider: editor.provider,
           region: editor.region,
           workspace_id: editor.workspace_id.trim(),
+          purpose: editor.purpose,
         }
       : editor.provider === "microsoft_translator"
-        ? { name: editor.name.trim(), provider: editor.provider, region: editor.region.trim() }
+        ? { name: editor.name.trim(), provider: editor.provider, region: editor.region.trim(), purpose: "llm" }
         : editor.provider === "openai"
           ? {
               name: editor.name.trim(),
               provider: editor.provider,
-              base_url: editor.base_url.trim() || undefined,
+              base_url: editor.purpose === "llm" ? editor.base_url.trim() || undefined : undefined,
+              purpose: editor.purpose,
             }
-          : { name: editor.name.trim(), provider: editor.provider };
+          : { name: editor.name.trim(), provider: editor.provider, purpose: "llm" };
     const saved = editor.id
       ? await profiles.update({ id: editor.id, ...profile }, editor.api_key)
       : await profiles.create(profile, editor.api_key);
@@ -267,7 +296,10 @@ export function ApiManagementSettingsSection({
         )}
         {profiles.profiles.map((profile) => {
           const editing = editor?.id === profile.id;
-          const supportsModels = profile.provider === "openai" || profile.provider === "alibaba_cloud";
+          const recognitionCapable = supportsRecognition(profile);
+          const translationCapable = supportsTranslation(profile);
+          const supportsModels = supportsLlmModels(profile);
+          const purpose = apiProfilePurpose(profile);
           const modelCatalog = profiles.modelCatalogs[profile.id];
           const status = profile.credential.environment_override
             ? t("settings.apiManagement.sourceEnvironment")
@@ -288,7 +320,7 @@ export function ApiManagementSettingsSection({
                   <span className="api-profile-icon"><Cloud size={16} aria-hidden="true" /></span>
                   <span>
                     <strong>{profile.name}</strong>
-                    <small>{providerLabel(profile.provider)} · {detail}</small>
+                    <small>{providerLabel(profile.provider)} · {t(`settings.apiManagement.purposes.${purpose}`)} · {detail}</small>
                     {supportsModels && modelCatalog && (
                       <small className={modelCatalog.error ? "api-model-catalog-error" : ""}>
                         {modelCatalog.loading
@@ -309,7 +341,7 @@ export function ApiManagementSettingsSection({
                 <div className="api-profile-actions">
                   {profile.active ? (
                     <span className="api-active-badge"><Check size={13} aria-hidden="true" />{t("settings.apiManagement.transcriptionActive")}</span>
-                  ) : profile.provider === "alibaba_cloud" || (profile.provider === "openai" && !profile.base_url) ? (
+                  ) : recognitionCapable ? (
                     <button className="secondary-button" type="button" disabled={locked || !profile.credential.configured} onClick={() => void profiles.activate(profile.provider === "alibaba_cloud" ? "alibaba_cloud" : "openai", profile.id)}>{t("settings.apiManagement.setActive")}</button>
                   ) : null}
                   {profile.translation_active && <span className="api-active-badge"><Check size={13} aria-hidden="true" />{t("settings.apiManagement.translationActive")}</span>}
@@ -324,7 +356,8 @@ export function ApiManagementSettingsSection({
                       {t("settings.apiManagement.refreshModels")}
                     </button>
                   )}
-                  <button className="secondary-button" type="button" disabled={profiles.busy !== null || !profile.credential.configured} onClick={() => void profiles.test(profile.id)}>{t("settings.apiManagement.testConnection")}</button>
+                  {recognitionCapable && <button className="secondary-button" type="button" disabled={profiles.busy !== null || !profile.credential.configured} onClick={() => void profiles.test(profile.id, "asr")}>{t("settings.apiManagement.testAsr")}</button>}
+                  {translationCapable && <button className="secondary-button" type="button" disabled={profiles.busy !== null || !profile.credential.configured} onClick={() => void profiles.test(profile.id, "llm")}>{t("settings.apiManagement.testTranslation")}</button>}
                   <button className="api-row-icon-button" type="button" aria-label={t("common.edit")} disabled={locked || Boolean(editor)} onClick={() => setEditor(draftFromProfile(profile))}><Pencil size={15} /></button>
                   <button className="api-row-icon-button danger" type="button" aria-label={t("common.delete")} disabled={locked} onClick={() => void removeProfile(profile)}><Trash2 size={15} /></button>
                 </div>

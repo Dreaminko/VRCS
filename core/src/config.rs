@@ -16,6 +16,9 @@ pub const ALIBABA_PROVIDER: &str = "alibaba_cloud";
 pub const OPENAI_PROVIDER: &str = "openai";
 pub const DEEPL_PROVIDER: &str = "deepl";
 pub const MICROSOFT_PROVIDER: &str = "microsoft_translator";
+pub const API_PURPOSE_ASR: &str = "asr";
+pub const API_PURPOSE_LLM: &str = "llm";
+pub const API_PURPOSE_SHARED: &str = "shared";
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ApiProfile {
@@ -28,6 +31,8 @@ pub struct ApiProfile {
     pub workspace_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub base_url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub purpose: Option<String>,
 }
 
 impl ApiProfile {
@@ -37,6 +42,38 @@ impl ApiProfile {
                 .base_url
                 .as_deref()
                 .is_some_and(|value| !value.trim().is_empty())
+    }
+
+    pub fn effective_purpose(&self) -> &str {
+        self.purpose.as_deref().unwrap_or_else(|| {
+            if self.uses_openai_compatible_api()
+                || matches!(self.provider.as_str(), DEEPL_PROVIDER | MICROSOFT_PROVIDER)
+            {
+                API_PURPOSE_LLM
+            } else {
+                API_PURPOSE_SHARED
+            }
+        })
+    }
+
+    pub fn supports_realtime_asr(&self) -> bool {
+        matches!(
+            self.effective_purpose(),
+            API_PURPOSE_ASR | API_PURPOSE_SHARED
+        ) && (self.provider == ALIBABA_PROVIDER
+            || (self.provider == OPENAI_PROVIDER && !self.uses_openai_compatible_api()))
+    }
+
+    pub fn supports_translation(&self) -> bool {
+        matches!(
+            self.effective_purpose(),
+            API_PURPOSE_LLM | API_PURPOSE_SHARED
+        )
+    }
+
+    pub fn supports_llm_models(&self) -> bool {
+        self.supports_translation()
+            && matches!(self.provider.as_str(), ALIBABA_PROVIDER | OPENAI_PROVIDER)
     }
 }
 
@@ -591,6 +628,15 @@ fn validate_api_profiles(asr: &AsrConfig) -> Result<(), String> {
                 "API profile names must be unique per provider: {name}"
             ));
         }
+        if !matches!(
+            profile.effective_purpose(),
+            API_PURPOSE_ASR | API_PURPOSE_LLM | API_PURPOSE_SHARED
+        ) {
+            return Err(format!(
+                "Unsupported API profile purpose: {}",
+                profile.effective_purpose()
+            ));
+        }
         match profile.provider.as_str() {
             ALIBABA_PROVIDER => {
                 if profile.base_url.is_some() {
@@ -633,12 +679,18 @@ fn validate_api_profiles(asr: &AsrConfig) -> Result<(), String> {
             OPENAI_PROVIDER if profile.region.is_none() && profile.workspace_id.is_none() => {
                 if let Some(base_url) = profile.base_url.as_deref() {
                     validate_openai_base_url(base_url)?;
+                    if profile.effective_purpose() != API_PURPOSE_LLM {
+                        return Err(
+                            "OpenAI-compatible APIs can only be used by LLM profiles".into()
+                        );
+                    }
                 }
             }
             DEEPL_PROVIDER
                 if profile.region.is_none()
                     && profile.workspace_id.is_none()
-                    && profile.base_url.is_none() => {}
+                    && profile.base_url.is_none()
+                    && profile.effective_purpose() == API_PURPOSE_LLM => {}
             OPENAI_PROVIDER | DEEPL_PROVIDER => {
                 return Err(format!(
                     "API profile {} contains unsupported connection fields",
@@ -666,10 +718,9 @@ fn validate_api_profiles(asr: &AsrConfig) -> Result<(), String> {
                     "The active API profile does not match provider {provider}"
                 ));
             }
-            if active_profile.is_some_and(ApiProfile::uses_openai_compatible_api) {
+            if active_profile.is_some_and(|profile| !profile.supports_realtime_asr()) {
                 return Err(
-                    "OpenAI-compatible text API profiles cannot be used for realtime speech recognition"
-                        .into(),
+                    "The active API profile does not support realtime speech recognition".into(),
                 );
             }
         }
@@ -736,6 +787,9 @@ fn validate_translation(
         .iter()
         .find(|profile| profile.id == profile_id)
         .ok_or_else(|| "The selected translation API profile does not exist".to_string())?;
+    if !profile.supports_translation() {
+        return Err("The selected API profile does not support translation".into());
+    }
     if [ALIBABA_PROVIDER, OPENAI_PROVIDER].contains(&profile.provider.as_str())
         && translation.model.trim().is_empty()
     {
@@ -879,6 +933,7 @@ mod tests {
             region: None,
             workspace_id: None,
             base_url: None,
+            purpose: None,
         });
         config.translation.mode = "manual".into();
         config.translation.profile_id = Some("deepl-one".into());
@@ -891,10 +946,61 @@ mod tests {
             region: None,
             workspace_id: None,
             base_url: None,
+            purpose: None,
         });
         config.translation.profile_id = Some("openai-one".into());
         config.translation.model.clear();
         assert!(config.validate_settings().is_err());
+    }
+
+    #[test]
+    fn api_profile_purposes_separate_asr_and_translation() {
+        let mut config = AppConfig::default();
+        config.asr.api_profiles.push(ApiProfile {
+            id: "openai-asr".into(),
+            name: "OpenAI ASR".into(),
+            provider: OPENAI_PROVIDER.into(),
+            region: None,
+            workspace_id: None,
+            base_url: None,
+            purpose: Some(API_PURPOSE_ASR.into()),
+        });
+        config.asr.active_api_profiles.openai = Some("openai-asr".into());
+        assert!(config.validate_settings().is_ok());
+
+        config.translation.mode = "manual".into();
+        config.translation.profile_id = Some("openai-asr".into());
+        assert_eq!(
+            config.validate_settings().unwrap_err(),
+            "The selected API profile does not support translation"
+        );
+
+        config.translation.mode = "disabled".into();
+        config.translation.profile_id = None;
+        config.asr.api_profiles[0].purpose = Some(API_PURPOSE_LLM.into());
+        assert_eq!(
+            config.validate_settings().unwrap_err(),
+            "The active API profile does not support realtime speech recognition"
+        );
+    }
+
+    #[test]
+    fn legacy_api_profile_purposes_are_inferred() {
+        let official = ApiProfile {
+            id: "openai".into(),
+            name: "OpenAI".into(),
+            provider: OPENAI_PROVIDER.into(),
+            region: None,
+            workspace_id: None,
+            base_url: None,
+            purpose: None,
+        };
+        let compatible = ApiProfile {
+            base_url: Some("https://api.deepseek.com/v1".into()),
+            ..official.clone()
+        };
+        assert_eq!(official.effective_purpose(), API_PURPOSE_SHARED);
+        assert_eq!(compatible.effective_purpose(), API_PURPOSE_LLM);
     }
 
     #[test]
@@ -917,6 +1023,7 @@ mod tests {
             region: None,
             workspace_id: None,
             base_url: Some("https://api.deepseek.com/v1".into()),
+            purpose: None,
         });
         config.translation.mode = "manual".into();
         config.translation.profile_id = Some("deepseek".into());
@@ -926,7 +1033,7 @@ mod tests {
         config.asr.active_api_profiles.openai = Some("deepseek".into());
         assert_eq!(
             config.validate_settings().unwrap_err(),
-            "OpenAI-compatible text API profiles cannot be used for realtime speech recognition"
+            "The active API profile does not support realtime speech recognition"
         );
 
         config.asr.active_api_profiles.openai = None;
@@ -1023,6 +1130,7 @@ mod tests {
                 region: Some("china_beijing".into()),
                 workspace_id: Some("workspace-one".into()),
                 base_url: None,
+                purpose: None,
             },
             ApiProfile {
                 id: "alibaba-two".into(),
@@ -1031,6 +1139,7 @@ mod tests {
                 region: Some("singapore".into()),
                 workspace_id: Some("workspace-two".into()),
                 base_url: None,
+                purpose: None,
             },
         ];
         assert!(config.validate_settings().is_err());
