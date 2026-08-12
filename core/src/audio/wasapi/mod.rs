@@ -5,6 +5,7 @@ mod pcm;
 pub(crate) use capture::capture_main;
 pub(crate) use devices::{find_process_id, list_devices, resolve_device_id};
 
+#[derive(Clone)]
 pub(crate) enum CaptureTarget {
     Process(u32),
     Device {

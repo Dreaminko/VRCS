@@ -44,6 +44,7 @@ function App() {
     coreReady,
     startupFailed,
     health,
+    capturePending,
     subtitles,
     partials,
     audioLevels,
@@ -212,7 +213,7 @@ function App() {
           subtitle={compactSubtitle}
           partial={partials.microphone ?? partials.speaker}
           running={health?.capture_running ?? false}
-          captureDisabled={!coreReady}
+          captureDisabled={!coreReady || capturePending}
           onSelect={selectWord}
           onCapture={() => void toggleCapture()}
           onRestore={() => void toggleCompact(clearLookup)}
@@ -394,7 +395,7 @@ function App() {
       <BottomDock
         page={page}
         running={health?.capture_running ?? false}
-        captureDisabled={!coreReady}
+        captureDisabled={!coreReady || capturePending}
         onPageChange={(next) => {
           clearLookup();
           setPage(next);

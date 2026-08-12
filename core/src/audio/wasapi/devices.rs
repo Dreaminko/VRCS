@@ -4,8 +4,29 @@ use crate::models::AudioDevice;
 
 use super::super::{AudioError, CaptureSource};
 
-pub(super) fn err<E: std::fmt::Display>(error: E) -> AudioError {
-    AudioError::new(error.to_string())
+pub(super) fn err(error: ::wasapi::WasapiError) -> AudioError {
+    use windows::Win32::Media::Audio::{
+        AUDCLNT_E_DEVICE_INVALIDATED, AUDCLNT_E_DEVICE_IN_USE, AUDCLNT_E_ENDPOINT_CREATE_FAILED,
+        AUDCLNT_E_RESOURCES_INVALIDATED, AUDCLNT_E_SERVICE_NOT_RUNNING,
+    };
+
+    let retryable = match &error {
+        ::wasapi::WasapiError::DeviceNotFound(_) => true,
+        ::wasapi::WasapiError::Windows(error) => matches!(
+            error.code(),
+            AUDCLNT_E_DEVICE_INVALIDATED
+                | AUDCLNT_E_DEVICE_IN_USE
+                | AUDCLNT_E_ENDPOINT_CREATE_FAILED
+                | AUDCLNT_E_RESOURCES_INVALIDATED
+                | AUDCLNT_E_SERVICE_NOT_RUNNING
+        ),
+        _ => false,
+    };
+    if retryable {
+        AudioError::retryable(error.to_string())
+    } else {
+        AudioError::new(error.to_string())
+    }
 }
 
 pub(super) fn init_com() -> Result<(), AudioError> {

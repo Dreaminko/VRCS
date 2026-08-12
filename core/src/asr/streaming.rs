@@ -4,7 +4,7 @@ use std::time::Duration;
 use futures_util::{SinkExt, StreamExt};
 use serde_json::Value;
 use tokio::net::TcpStream;
-use tokio::sync::{mpsc, watch};
+use tokio::sync::{mpsc, oneshot, watch};
 use tokio::task::JoinHandle;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
@@ -40,8 +40,13 @@ pub enum CloudEvent {
     },
 }
 
+enum StreamingInput {
+    Audio(Vec<f32>),
+    Flush(oneshot::Sender<Result<(), String>>),
+}
+
 pub struct StreamingSession {
-    audio: mpsc::Sender<Vec<f32>>,
+    audio: mpsc::Sender<StreamingInput>,
     events: mpsc::Receiver<CloudEvent>,
     stop: watch::Sender<bool>,
     task: JoinHandle<()>,
@@ -50,9 +55,20 @@ pub struct StreamingSession {
 impl StreamingSession {
     pub async fn send(&self, samples: Vec<f32>) -> Result<(), String> {
         self.audio
-            .send(samples)
+            .send(StreamingInput::Audio(samples))
             .await
             .map_err(|_| "Cloud recognition session is closed".to_string())
+    }
+
+    pub async fn flush(&self) -> Result<(), String> {
+        let (result_tx, result_rx) = oneshot::channel();
+        self.audio
+            .send(StreamingInput::Flush(result_tx))
+            .await
+            .map_err(|_| "Cloud recognition session is closed".to_string())?;
+        result_rx
+            .await
+            .map_err(|_| "Cloud recognition session is closed".to_string())?
     }
 
     pub async fn recv(&mut self) -> Option<CloudEvent> {
@@ -175,7 +191,7 @@ async fn run_with_reconnect(
     key: String,
     mut socket: Socket,
     mut task_id: Option<String>,
-    mut audio: mpsc::Receiver<Vec<f32>>,
+    mut audio: mpsc::Receiver<StreamingInput>,
     events: mpsc::Sender<CloudEvent>,
     mut stop: watch::Receiver<bool>,
 ) {
@@ -235,7 +251,7 @@ async fn run_session(
     config: &AsrConfig,
     socket: &mut Socket,
     task_id: Option<&str>,
-    audio: &mut mpsc::Receiver<Vec<f32>>,
+    audio: &mut mpsc::Receiver<StreamingInput>,
     events: &mpsc::Sender<CloudEvent>,
     stop: &mut watch::Receiver<bool>,
 ) -> Result<(), String> {
@@ -244,26 +260,34 @@ async fn run_session(
     loop {
         tokio::select! {
             _ = stop.changed() => {
-                if !audio_buffer.is_empty() {
-                    let packet = std::mem::take(&mut audio_buffer);
-                    let _ = send_audio(provider, socket, packet).await;
-                }
+                let _ = flush_audio_buffer(provider, socket, &mut audio_buffer).await;
                 finish(provider, socket, config, task_id, &mut transcripts, events).await;
                 return Ok(());
             }
-            samples = audio.recv() => {
-                let Some(samples) = samples else {
-                    if !audio_buffer.is_empty() {
-                        let packet = std::mem::take(&mut audio_buffer);
-                        let _ = send_audio(provider, socket, packet).await;
+            input = audio.recv() => {
+                match input {
+                    Some(StreamingInput::Audio(samples)) => {
+                        audio_buffer.extend(samples);
+                        while let Some(packet) = take_audio_packet(&mut audio_buffer) {
+                            send_audio(provider, socket, packet).await?;
+                        }
                     }
-                    finish(provider, socket, config, task_id, &mut transcripts, events).await;
-                    return Ok(());
-                };
-                audio_buffer.extend(samples);
-                while audio_buffer.len() >= 1600 {
-                    let packet = audio_buffer.drain(..1600).collect::<Vec<_>>();
-                    send_audio(provider, socket, packet).await?;
+                    Some(StreamingInput::Flush(result)) => {
+                        match flush_audio_buffer(provider, socket, &mut audio_buffer).await {
+                            Ok(()) => {
+                                let _ = result.send(Ok(()));
+                            }
+                            Err(error) => {
+                                let _ = result.send(Err(error.clone()));
+                                return Err(error);
+                            }
+                        }
+                    }
+                    None => {
+                        let _ = flush_audio_buffer(provider, socket, &mut audio_buffer).await;
+                        finish(provider, socket, config, task_id, &mut transcripts, events).await;
+                        return Ok(());
+                    }
                 }
             }
             message = socket.next() => {
@@ -372,6 +396,27 @@ fn normalize_event(
     provider.normalize_event(config, &value, transcripts)
 }
 
+const AUDIO_PACKET_SAMPLES: usize = 1600;
+
+fn take_audio_packet(buffer: &mut Vec<f32>) -> Option<Vec<f32>> {
+    (buffer.len() >= AUDIO_PACKET_SAMPLES).then(|| buffer.drain(..AUDIO_PACKET_SAMPLES).collect())
+}
+
+fn take_buffered_audio(buffer: &mut Vec<f32>) -> Option<Vec<f32>> {
+    (!buffer.is_empty()).then(|| std::mem::take(buffer))
+}
+
+async fn flush_audio_buffer(
+    provider: Provider,
+    socket: &mut Socket,
+    buffer: &mut Vec<f32>,
+) -> Result<(), String> {
+    let Some(samples) = take_buffered_audio(buffer) else {
+        return Ok(());
+    };
+    send_audio(provider, socket, samples).await
+}
+
 async fn send_audio(
     provider: Provider,
     socket: &mut Socket,
@@ -470,6 +515,31 @@ mod tests {
         assert!(matches!(first, Some(CloudEvent::Partial { text, .. }) if text == "hel"));
         assert!(matches!(second, Some(CloudEvent::Partial { text, .. }) if text == "hello"));
         assert!(matches!(final_event, Some(CloudEvent::Final { text, .. }) if text == "hello"));
+    }
+
+    #[test]
+    fn audio_buffer_flushes_the_final_partial_packet() {
+        let mut buffer = Vec::new();
+        let mut sent_samples = 0;
+        for _ in 0..13 {
+            buffer.extend(vec![0.0; 512]);
+            while let Some(packet) = take_audio_packet(&mut buffer) {
+                assert_eq!(packet.len(), 1600);
+                sent_samples += packet.len();
+            }
+        }
+
+        assert_eq!(sent_samples, 6400);
+        assert_eq!(buffer.len(), 256);
+        let final_packet = take_buffered_audio(&mut buffer).unwrap();
+        assert_eq!(final_packet.len(), 256);
+        assert!(buffer.is_empty());
+        assert_eq!(sent_samples + final_packet.len(), 6656);
+    }
+
+    #[test]
+    fn empty_audio_buffer_does_not_create_a_packet() {
+        assert!(take_buffered_audio(&mut Vec::new()).is_none());
     }
 
     #[test]

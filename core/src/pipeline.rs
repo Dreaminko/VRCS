@@ -283,6 +283,7 @@ async fn run(
                 } else {
                     tail_samples += chunk.len();
                     if tail_samples >= tail_limit {
+                        session.flush().await?;
                         streaming = false;
                         tail_samples = 0;
                     }

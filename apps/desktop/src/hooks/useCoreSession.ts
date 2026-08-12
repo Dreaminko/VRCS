@@ -28,6 +28,8 @@ export function useCoreSession(settingsPageActive: boolean) {
   const [startupState, setStartupState] = useState<"starting" | "ready" | "failed">("starting");
   const [startupAttempt, setStartupAttempt] = useState(0);
   const [health, setHealth] = useState<Health | null>(null);
+  const [capturePending, setCapturePending] = useState(false);
+  const capturePendingRef = useRef(false);
   const healthRef = useRef<Health | null>(null);
   healthRef.current = health;
   const [settings, setSettings] = useState<Settings | null>(null);
@@ -223,6 +225,9 @@ export function useCoreSession(settingsPageActive: boolean) {
   ]);
 
   const toggleCapture = useCallback(async () => {
+    if (capturePendingRef.current) return;
+    capturePendingRef.current = true;
+    setCapturePending(true);
     try {
       if (healthRef.current?.capture_running) {
         await coreApi.stop();
@@ -235,6 +240,9 @@ export function useCoreSession(settingsPageActive: boolean) {
         setHealth(await coreApi.health());
       } catch {
         // Preserve the original capture error when the follow-up refresh also fails.
+      } finally {
+        capturePendingRef.current = false;
+        setCapturePending(false);
       }
     }
   }, [clearErrorFrom, clearPartials]);
@@ -386,6 +394,7 @@ export function useCoreSession(settingsPageActive: boolean) {
     coreReady: startupState === "ready",
     startupFailed: startupState === "failed",
     health,
+    capturePending,
     subtitles,
     partials,
     audioLevels,

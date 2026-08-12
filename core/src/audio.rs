@@ -19,11 +19,17 @@ use wasapi as platform;
 pub const CHUNK_FRAMES: usize = 512;
 const CHANNEL_CAPACITY: usize = 128;
 const START_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(8);
+const START_ATTEMPTS: usize = 3;
+const START_RETRY_DELAYS: [std::time::Duration; START_ATTEMPTS - 1] = [
+    std::time::Duration::from_millis(150),
+    std::time::Duration::from_millis(400),
+];
 
 #[derive(Debug, Clone)]
 pub struct AudioError {
     code: &'static str,
     message: String,
+    retryable: bool,
 }
 
 impl AudioError {
@@ -35,11 +41,29 @@ impl AudioError {
         Self {
             code,
             message: message.into(),
+            retryable: false,
+        }
+    }
+
+    pub(crate) fn retryable(message: impl Into<String>) -> Self {
+        Self {
+            code: "audio.unavailable",
+            message: message.into(),
+            retryable: true,
         }
     }
 
     pub fn code(&self) -> &'static str {
         self.code
+    }
+
+    fn is_retryable(&self) -> bool {
+        self.retryable
+    }
+
+    fn at_stage(mut self, stage: &'static str) -> Self {
+        self.message = format!("{stage}: {}", self.message);
+        self
     }
 }
 
@@ -128,8 +152,16 @@ impl AudioCapture {
         &mut self,
         target: platform::CaptureTarget,
     ) -> Result<AudioDevice, AudioError> {
+        let source = self.source;
+        start_with_retry(source, || self.start_session_once(target.clone()))
+    }
+
+    fn start_session_once(
+        &mut self,
+        target: platform::CaptureTarget,
+    ) -> Result<AudioDevice, AudioError> {
         let (tx, rx) = mpsc::channel(CHANNEL_CAPACITY);
-        let (ready_tx, ready_rx) = std::sync::mpsc::channel::<Result<AudioDevice, String>>();
+        let (ready_tx, ready_rx) = std::sync::mpsc::channel::<Result<AudioDevice, AudioError>>();
         let stop = Arc::new(AtomicBool::new(false));
         let thread_stop = Arc::clone(&stop);
         let output_rate = self.output_rate;
@@ -144,10 +176,10 @@ impl AudioCapture {
 
         let device = match ready_rx.recv_timeout(START_TIMEOUT) {
             Ok(Ok(device)) => device,
-            Ok(Err(message)) => {
+            Ok(Err(error)) => {
                 stop.store(true, Ordering::Relaxed);
                 let _ = join.join();
-                return Err(AudioError::new(message));
+                return Err(error);
             }
             Err(_) => {
                 stop.store(true, Ordering::Relaxed);
@@ -212,6 +244,33 @@ impl Drop for AudioCapture {
     }
 }
 
+fn start_with_retry<T>(
+    source: CaptureSource,
+    mut operation: impl FnMut() -> Result<T, AudioError>,
+) -> Result<T, AudioError> {
+    for attempt in 1..=START_ATTEMPTS {
+        match operation() {
+            Ok(value) => return Ok(value),
+            Err(error) => {
+                let retrying = error.is_retryable() && attempt < START_ATTEMPTS;
+                tracing::warn!(
+                    ?source,
+                    attempt,
+                    code = error.code(),
+                    detail = %error,
+                    retrying,
+                    "failed to start audio capture"
+                );
+                if !retrying {
+                    return Err(error);
+                }
+                std::thread::sleep(START_RETRY_DELAYS[attempt - 1]);
+            }
+        }
+    }
+    unreachable!("audio startup attempts are non-zero")
+}
+
 pub fn list_devices() -> Result<Vec<AudioDevice>, AudioError> {
     platform::list_devices()
 }
@@ -240,6 +299,37 @@ pub fn validate_device_id(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn retries_a_transient_default_device_start_failure() {
+        let mut attempts = 0;
+        let result = start_with_retry(CaptureSource::Speaker, || {
+            attempts += 1;
+            if attempts == 1 {
+                Err(AudioError::retryable("device is switching"))
+            } else {
+                Ok(())
+            }
+        });
+
+        assert!(result.is_ok());
+        assert_eq!(attempts, 2);
+    }
+
+    #[test]
+    fn does_not_retry_permanent_start_failures() {
+        let mut attempts = 0;
+        let result = start_with_retry(CaptureSource::Speaker, || {
+            attempts += 1;
+            Err::<(), _>(AudioError::with_code(
+                "audio.device_unavailable",
+                "selected device is unavailable",
+            ))
+        });
+
+        assert!(result.is_err());
+        assert_eq!(attempts, 1);
+    }
 
     #[cfg(windows)]
     #[test]

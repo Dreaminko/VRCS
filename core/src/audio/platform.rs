@@ -1,5 +1,6 @@
 use super::{AudioDevice, AudioError};
 
+#[derive(Clone)]
 pub(crate) enum CaptureTarget {
     Process(u32),
     Device {
@@ -40,7 +41,9 @@ pub(crate) fn capture_main(
     _rate: u32,
     _stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
     _tx: tokio::sync::mpsc::Sender<Vec<f32>>,
-    ready: std::sync::mpsc::Sender<Result<AudioDevice, String>>,
+    ready: std::sync::mpsc::Sender<Result<AudioDevice, AudioError>>,
 ) {
-    let _ = ready.send(Err("Audio capture is supported only on Windows".into()));
+    let _ = ready.send(Err(AudioError::new(
+        "Audio capture is supported only on Windows",
+    )));
 }

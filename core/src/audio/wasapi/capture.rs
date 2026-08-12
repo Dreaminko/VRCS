@@ -20,7 +20,7 @@ pub(crate) fn capture_main(
     output_rate: u32,
     stop: Arc<AtomicBool>,
     tx: mpsc::Sender<Vec<f32>>,
-    ready: std::sync::mpsc::Sender<Result<AudioDevice, String>>,
+    ready: std::sync::mpsc::Sender<Result<AudioDevice, AudioError>>,
 ) {
     let initialize = || -> Result<(AudioClient, AudioDevice, NativeFormat), AudioError> {
         init_com()?;
@@ -99,17 +99,32 @@ pub(crate) fn capture_main(
     let (client, device, native) = match initialize() {
         Ok(initialized) => initialized,
         Err(error) => {
-            let _ = ready.send(Err(error.to_string()));
+            let _ = ready.send(Err(error.at_stage("initialize")));
             return;
         }
     };
 
-    let stream = (|| -> Result<(), AudioError> {
-        let event = client.set_get_eventhandle().map_err(err)?;
-        let capture = client.get_audiocaptureclient().map_err(err)?;
-        client.start_stream().map_err(err)?;
-        let _ = ready.send(Ok(device));
+    let event = match client.set_get_eventhandle().map_err(err) {
+        Ok(event) => event,
+        Err(error) => {
+            let _ = ready.send(Err(error.at_stage("create_event")));
+            return;
+        }
+    };
+    let capture = match client.get_audiocaptureclient().map_err(err) {
+        Ok(capture) => capture,
+        Err(error) => {
+            let _ = ready.send(Err(error.at_stage("get_capture_client")));
+            return;
+        }
+    };
+    if let Err(error) = client.start_stream().map_err(err) {
+        let _ = ready.send(Err(error.at_stage("start_stream")));
+        return;
+    }
+    let _ = ready.send(Ok(device));
 
+    let stream = (|| -> Result<(), AudioError> {
         let frames_per_chunk = ((native.sample_rate as u64 * CHUNK_FRAMES as u64
             + output_rate as u64 / 2)
             / output_rate as u64)
