@@ -18,7 +18,7 @@ pub(super) fn build_request(key: &str) -> Result<Request<()>, String> {
     )
 }
 
-pub(super) fn session_update(config: &AsrConfig, silence_seconds: f64) -> Value {
+pub(super) fn session_update(config: &AsrConfig) -> Value {
     let mut transcription = json!({ "model": config.openai.model });
     if config.language != "auto" {
         transcription["language"] = json!(config.language);
@@ -30,11 +30,7 @@ pub(super) fn session_update(config: &AsrConfig, silence_seconds: f64) -> Value 
             "audio": { "input": {
                 "format": { "type": "audio/pcm", "rate": 24000 },
                 "transcription": transcription,
-                "turn_detection": {
-                    "type": "server_vad",
-                    "prefix_padding_ms": 200,
-                    "silence_duration_ms": (silence_seconds * 1000.0).round() as u64,
-                }
+                "turn_detection": null
             }}
         }
     })
@@ -123,7 +119,7 @@ pub(super) fn audio_message(samples: &[f32]) -> Message {
     )
 }
 
-pub(super) fn finish_message() -> Message {
+pub(super) fn commit_message() -> Message {
     Message::Text(
         json!({ "type": "input_audio_buffer.commit" })
             .to_string()

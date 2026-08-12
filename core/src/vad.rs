@@ -434,6 +434,10 @@ impl SpeechSegmenter {
         segment
     }
 
+    pub fn is_active(&self) -> bool {
+        !self.chunks.is_empty()
+    }
+
     pub fn reset(&mut self) {
         self.chunks.clear();
         self.speech_samples = 0;

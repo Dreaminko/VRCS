@@ -17,7 +17,7 @@ pub use manager::ModelManager;
 pub use model::is_supported_model;
 pub use streaming::{
     spawn_streaming_session, test_streaming_connection, validate_cloud_connection, CloudEvent,
-    StreamingSession,
+    SegmentationMode, StreamingSession,
 };
 
 use crate::config::AsrConfig;

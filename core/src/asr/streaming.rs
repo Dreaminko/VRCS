@@ -15,6 +15,7 @@ use super::read_credential;
 
 mod provider;
 
+pub use provider::SegmentationMode;
 use provider::{InitializationEvent, Provider};
 
 #[cfg(test)]
@@ -42,7 +43,7 @@ pub enum CloudEvent {
 
 enum StreamingInput {
     Audio(Vec<f32>),
-    Flush(oneshot::Sender<Result<(), String>>),
+    Commit(oneshot::Sender<Result<(), String>>),
 }
 
 pub struct StreamingSession {
@@ -50,6 +51,7 @@ pub struct StreamingSession {
     events: mpsc::Receiver<CloudEvent>,
     stop: watch::Sender<bool>,
     task: JoinHandle<()>,
+    segmentation_mode: SegmentationMode,
 }
 
 impl StreamingSession {
@@ -60,15 +62,19 @@ impl StreamingSession {
             .map_err(|_| "Cloud recognition session is closed".to_string())
     }
 
-    pub async fn flush(&self) -> Result<(), String> {
+    pub async fn commit(&self) -> Result<(), String> {
         let (result_tx, result_rx) = oneshot::channel();
         self.audio
-            .send(StreamingInput::Flush(result_tx))
+            .send(StreamingInput::Commit(result_tx))
             .await
             .map_err(|_| "Cloud recognition session is closed".to_string())?;
         result_rx
             .await
             .map_err(|_| "Cloud recognition session is closed".to_string())?
+    }
+
+    pub fn segmentation_mode(&self) -> SegmentationMode {
+        self.segmentation_mode
     }
 
     pub async fn recv(&mut self) -> Option<CloudEvent> {
@@ -147,6 +153,7 @@ pub async fn spawn_streaming_session(
         events: event_rx,
         stop: stop_tx,
         task,
+        segmentation_mode: provider.segmentation_mode(),
     })
 }
 
@@ -257,24 +264,35 @@ async fn run_session(
 ) -> Result<(), String> {
     let mut transcripts = HashMap::new();
     let mut audio_buffer = Vec::with_capacity(2048);
+    let mut pending_audio = false;
     loop {
         tokio::select! {
             _ = stop.changed() => {
                 let _ = flush_audio_buffer(provider, socket, &mut audio_buffer).await;
+                if pending_audio {
+                    let _ = commit_utterance(provider, socket).await;
+                }
                 finish(provider, socket, config, task_id, &mut transcripts, events).await;
                 return Ok(());
             }
             input = audio.recv() => {
                 match input {
                     Some(StreamingInput::Audio(samples)) => {
+                        pending_audio = true;
                         audio_buffer.extend(samples);
                         while let Some(packet) = take_audio_packet(&mut audio_buffer) {
                             send_audio(provider, socket, packet).await?;
                         }
                     }
-                    Some(StreamingInput::Flush(result)) => {
-                        match flush_audio_buffer(provider, socket, &mut audio_buffer).await {
+                    Some(StreamingInput::Commit(result)) => {
+                        let commit = async {
+                            flush_audio_buffer(provider, socket, &mut audio_buffer).await?;
+                            commit_utterance(provider, socket).await
+                        }
+                        .await;
+                        match commit {
                             Ok(()) => {
+                                pending_audio = false;
                                 let _ = result.send(Ok(()));
                             }
                             Err(error) => {
@@ -285,6 +303,9 @@ async fn run_session(
                     }
                     None => {
                         let _ = flush_audio_buffer(provider, socket, &mut audio_buffer).await;
+                        if pending_audio {
+                            let _ = commit_utterance(provider, socket).await;
+                        }
                         finish(provider, socket, config, task_id, &mut transcripts, events).await;
                         return Ok(());
                     }
@@ -428,6 +449,16 @@ async fn send_audio(
         .map_err(|error| format!("Failed to send cloud recognition audio: {error}"))
 }
 
+async fn commit_utterance(provider: Provider, socket: &mut Socket) -> Result<(), String> {
+    let Some(message) = provider.commit_message() else {
+        return Ok(());
+    };
+    socket
+        .send(message)
+        .await
+        .map_err(|error| format!("Failed to commit cloud recognition audio: {error}"))
+}
+
 async fn finish(
     provider: Provider,
     socket: &mut Socket,
@@ -436,7 +467,9 @@ async fn finish(
     transcripts: &mut HashMap<String, String>,
     events: &mpsc::Sender<CloudEvent>,
 ) {
-    let _ = socket.send(provider.finish_message(task_id)).await;
+    if let Some(message) = provider.finish_message(task_id) {
+        let _ = socket.send(message).await;
+    }
     let deadline = tokio::time::sleep(Duration::from_secs(3));
     tokio::pin!(deadline);
     loop {
@@ -563,8 +596,15 @@ mod tests {
         assert!(matches!(event, Some(CloudEvent::Partial { text, .. }) if text == "hello world"));
     }
 
+    fn message_json(message: Message) -> Value {
+        let Message::Text(text) = message else {
+            panic!("expected a text message");
+        };
+        serde_json::from_str(&text).unwrap()
+    }
+
     #[test]
-    fn session_updates_use_provider_sample_rates_and_vad_timeout() {
+    fn session_updates_use_local_commit_when_supported() {
         let mut qwen = AsrConfig {
             backend: "qwen_realtime".into(),
             ..AsrConfig::default()
@@ -573,11 +613,7 @@ mod tests {
         qwen.qwen.context = "VRChat, VRCX".into();
         let qwen_update = session_update(&qwen, 0.7);
         assert_eq!(qwen_update["session"]["sample_rate"], 16_000);
-        assert_eq!(
-            qwen_update["session"]["turn_detection"]["silence_duration_ms"],
-            700
-        );
-        assert_eq!(qwen_update["session"]["turn_detection"]["threshold"], 0.0);
+        assert!(qwen_update["session"]["turn_detection"].is_null());
         assert!(qwen_update["session"]["input_audio_transcription"]
             .get("language")
             .is_none());
@@ -599,6 +635,33 @@ mod tests {
             openai_update["session"]["audio"]["input"]["transcription"]["model"],
             "gpt-4o-mini-transcribe"
         );
+        assert!(openai_update["session"]["audio"]["input"]["turn_detection"].is_null());
+    }
+
+    #[test]
+    fn providers_expose_their_segmentation_capabilities() {
+        assert_eq!(
+            Provider::Qwen.segmentation_mode(),
+            SegmentationMode::LocalCommit
+        );
+        assert_eq!(
+            Provider::OpenAi.segmentation_mode(),
+            SegmentationMode::LocalCommit
+        );
+        assert_eq!(
+            Provider::FunAsr.segmentation_mode(),
+            SegmentationMode::ServerVad
+        );
+
+        assert_eq!(
+            message_json(Provider::Qwen.commit_message().unwrap())["type"],
+            "input_audio_buffer.commit"
+        );
+        assert_eq!(
+            message_json(Provider::OpenAi.commit_message().unwrap())["type"],
+            "input_audio_buffer.commit"
+        );
+        assert!(Provider::FunAsr.commit_message().is_none());
     }
 
     #[test]

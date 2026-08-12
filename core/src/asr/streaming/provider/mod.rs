@@ -21,6 +21,12 @@ pub(super) enum Provider {
     OpenAi,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SegmentationMode {
+    LocalCommit,
+    ServerVad,
+}
+
 pub(super) enum InitializationEvent {
     Ready,
     Failed(String),
@@ -63,6 +69,13 @@ impl Provider {
         (self == Self::FunAsr).then(|| uuid::Uuid::new_v4().to_string())
     }
 
+    pub(super) fn segmentation_mode(self) -> SegmentationMode {
+        match self {
+            Self::Qwen | Self::OpenAi => SegmentationMode::LocalCommit,
+            Self::FunAsr => SegmentationMode::ServerVad,
+        }
+    }
+
     pub(super) fn start_message(
         self,
         config: &AsrConfig,
@@ -70,13 +83,13 @@ impl Provider {
         task_id: Option<&str>,
     ) -> Value {
         match self {
-            Self::Qwen => qwen::session_update(config, silence_seconds),
+            Self::Qwen => qwen::session_update(config),
             Self::FunAsr => fun_asr::run_task(
                 config,
                 silence_seconds,
                 task_id.expect("Fun-ASR sessions always have a task id"),
             ),
-            Self::OpenAi => openai::session_update(config, silence_seconds),
+            Self::OpenAi => openai::session_update(config),
         }
     }
 
@@ -128,24 +141,31 @@ impl Provider {
         }
     }
 
-    pub(super) fn finish_message(self, task_id: Option<&str>) -> Message {
+    pub(super) fn commit_message(self) -> Option<Message> {
         match self {
-            Self::Qwen => qwen::finish_message(),
-            Self::FunAsr => {
-                fun_asr::finish_message(task_id.expect("Fun-ASR sessions always have a task id"))
-            }
-            Self::OpenAi => openai::finish_message(),
+            Self::Qwen => Some(qwen::commit_message()),
+            Self::OpenAi => Some(openai::commit_message()),
+            Self::FunAsr => None,
+        }
+    }
+
+    pub(super) fn finish_message(self, task_id: Option<&str>) -> Option<Message> {
+        match self {
+            Self::Qwen => Some(qwen::finish_message()),
+            Self::FunAsr => Some(fun_asr::finish_message(
+                task_id.expect("Fun-ASR sessions always have a task id"),
+            )),
+            Self::OpenAi => None,
         }
     }
 
     pub(super) fn is_finished(self, value: &Value) -> bool {
         match self {
-            Self::Qwen | Self::OpenAi => {
-                value.get("type").and_then(Value::as_str) == Some("session.finished")
-            }
+            Self::Qwen => value.get("type").and_then(Value::as_str) == Some("session.finished"),
             Self::FunAsr => {
                 value.pointer("/header/event").and_then(Value::as_str) == Some("task-finished")
             }
+            Self::OpenAi => false,
         }
     }
 }

@@ -538,14 +538,10 @@ impl AppConfig {
                 self.asr.openai.model
             ));
         }
-        if matches!(
-            self.asr.backend.as_str(),
-            "qwen_realtime" | "fun_asr_realtime"
-        ) {
+        if self.asr.backend == "fun_asr_realtime" {
             if self.vad.silence_seconds < 0.2 {
                 return Err(
-                    "Alibaba Cloud realtime recognition requires at least 0.2 seconds of silence"
-                        .into(),
+                    "Fun-ASR realtime recognition requires at least 0.2 seconds of silence".into(),
                 );
             }
         }

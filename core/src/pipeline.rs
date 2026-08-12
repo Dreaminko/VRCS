@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex};
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
 
-use crate::asr::{spawn_streaming_session, CloudEvent, StreamingSession};
+use crate::asr::{spawn_streaming_session, CloudEvent, SegmentationMode, StreamingSession};
 use crate::audio::{AudioCapture, AudioError, CaptureSource};
 use crate::config::{AsrConfig, VadConfig};
 use crate::models::{AudioDevice, LiveTranscription};
@@ -128,7 +128,7 @@ impl TranscriptionPipeline {
             vad_config.max_speech_seconds,
         );
         let source = self.source_name;
-        let silence_seconds = vad_config.silence_seconds;
+
         let last_error = Arc::clone(&self.last_error);
         let mut shutdown = self.shutdown.clone();
         let (stop_tx, stop_rx) = watch::channel(false);
@@ -143,7 +143,6 @@ impl TranscriptionPipeline {
                 cloud,
                 asr_config.cloud_failure_policy == "local",
                 sample_rate,
-                silence_seconds,
                 trigger_threshold_dbfs,
                 &mut shutdown,
                 stop_rx,
@@ -186,17 +185,15 @@ async fn run(
     mut cloud: Option<StreamingSession>,
     local_fallback: bool,
     sample_rate: u32,
-    silence_seconds: f64,
     trigger_threshold_dbfs: Option<f32>,
     shutdown: &mut watch::Receiver<bool>,
     mut stop: watch::Receiver<bool>,
 ) -> Result<(), String> {
-    let mut pre_roll = VecDeque::<Vec<f32>>::new();
+    let mut pre_roll = VecDeque::<(Vec<f32>, bool)>::new();
     let mut pre_roll_samples = 0usize;
     let pre_roll_limit = (sample_rate as f64 * 0.2) as usize;
-    let tail_limit = (sample_rate as f64 * silence_seconds) as usize;
     let mut streaming = false;
-    let mut tail_samples = 0usize;
+    let mut trigger_chunks = 0usize;
     let mut result = loop {
         if *shutdown.borrow() || *stop.borrow() {
             break Ok(());
@@ -266,49 +263,53 @@ async fn run(
         };
         let (rms_dbfs, peak_dbfs) = audio_level_dbfs(&chunk);
         let vad_speech = detector.is_speech(&chunk);
-        let speech = thresholded_speech(vad_speech, rms_dbfs, trigger_threshold_dbfs);
+        let trigger_speech = thresholded_speech(vad_speech, rms_dbfs, trigger_threshold_dbfs);
         if trigger_threshold_dbfs.is_some() {
             dependencies.publish_live(LiveTranscription::AudioLevel {
                 source: source.into(),
                 rms_dbfs,
                 peak_dbfs,
-                speech,
+                speech: trigger_speech,
             });
         }
-        if let Some(session) = cloud.as_ref() {
-            if streaming {
-                session.send(chunk.clone()).await?;
-                if speech {
-                    tail_samples = 0;
-                } else {
-                    tail_samples += chunk.len();
-                    if tail_samples >= tail_limit {
-                        session.flush().await?;
-                        streaming = false;
-                        tail_samples = 0;
-                    }
-                }
-            } else if speech {
-                streaming = true;
-                while let Some(buffered) = pre_roll.pop_front() {
-                    session.send(buffered).await?;
-                }
-                pre_roll_samples = 0;
-                session.send(chunk.clone()).await?;
-            } else {
-                pre_roll_samples += chunk.len();
-                pre_roll.push_back(chunk.clone());
-                while pre_roll_samples > pre_roll_limit {
-                    if let Some(removed) = pre_roll.pop_front() {
-                        pre_roll_samples = pre_roll_samples.saturating_sub(removed.len());
-                    }
-                }
+        if !streaming {
+            if !confirm_trigger(&mut trigger_chunks, trigger_speech) {
+                buffer_pre_roll(
+                    &mut pre_roll,
+                    &mut pre_roll_samples,
+                    pre_roll_limit,
+                    chunk,
+                    vad_speech,
+                );
+                continue;
             }
+            streaming = true;
+            trigger_chunks = 0;
+            while let Some((buffered, speech)) = pre_roll.pop_front() {
+                if let Some(session) = cloud.as_ref() {
+                    session.send(buffered.clone()).await?;
+                }
+                segmenter.push(&buffered, speech);
+            }
+            pre_roll_samples = 0;
         }
-        let Some(segment) = segmenter.push(&chunk, speech) else {
+
+        if let Some(session) = cloud.as_ref() {
+            session.send(chunk.clone()).await?;
+        }
+        let was_active = segmenter.is_active();
+        let segment = segmenter.push(&chunk, vad_speech);
+        let ended = was_active && !segmenter.is_active();
+        if !ended {
             continue;
-        };
-        if cloud.is_none() {
+        }
+
+        streaming = false;
+        if let Some(session) = cloud.as_ref() {
+            if session.segmentation_mode() == SegmentationMode::LocalCommit {
+                session.commit().await?;
+            }
+        } else if let Some(segment) = segment {
             if let Err(error) = dependencies.transcribe_and_publish(segment, source).await {
                 break Err(error);
             }
@@ -352,6 +353,29 @@ async fn run(
 enum PipelineInput {
     Audio(Vec<f32>),
     Cloud(CloudEvent),
+}
+
+const TRIGGER_CONFIRM_CHUNKS: usize = 2;
+
+fn confirm_trigger(chunks: &mut usize, triggered: bool) -> bool {
+    *chunks = if triggered { *chunks + 1 } else { 0 };
+    *chunks >= TRIGGER_CONFIRM_CHUNKS
+}
+
+fn buffer_pre_roll(
+    pre_roll: &mut VecDeque<(Vec<f32>, bool)>,
+    samples: &mut usize,
+    limit: usize,
+    chunk: Vec<f32>,
+    speech: bool,
+) {
+    *samples += chunk.len();
+    pre_roll.push_back((chunk, speech));
+    while *samples > limit {
+        if let Some((removed, _)) = pre_roll.pop_front() {
+            *samples = samples.saturating_sub(removed.len());
+        }
+    }
 }
 
 const MIN_AUDIO_LEVEL_DBFS: f32 = -80.0;
@@ -403,6 +427,26 @@ mod tests {
         assert!(!thresholded_speech(false, -30.0, Some(-45.0)));
         assert!(thresholded_speech(true, -45.0, Some(-45.0)));
         assert!(thresholded_speech(true, -80.0, None));
+    }
+
+    #[test]
+    fn microphone_start_requires_two_consecutive_trigger_chunks() {
+        let mut chunks = 0;
+        assert!(!confirm_trigger(&mut chunks, true));
+        assert!(!confirm_trigger(&mut chunks, false));
+        assert!(!confirm_trigger(&mut chunks, true));
+        assert!(confirm_trigger(&mut chunks, true));
+    }
+
+    #[test]
+    fn pre_roll_keeps_only_the_configured_tail() {
+        let mut chunks = VecDeque::new();
+        let mut samples = 0;
+        buffer_pre_roll(&mut chunks, &mut samples, 10, vec![0.0; 6], false);
+        buffer_pre_roll(&mut chunks, &mut samples, 10, vec![0.0; 6], true);
+        assert_eq!(chunks.len(), 1);
+        assert_eq!(samples, 6);
+        assert!(chunks.front().unwrap().1);
     }
 
     impl AsrEngine for FakeEngine {

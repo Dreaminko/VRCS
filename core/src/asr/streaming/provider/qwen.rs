@@ -29,7 +29,7 @@ pub(super) fn build_request(
     authenticated_request(url, key, true)
 }
 
-pub(super) fn session_update(config: &AsrConfig, silence_seconds: f64) -> Value {
+pub(super) fn session_update(config: &AsrConfig) -> Value {
     let mut transcription = (config.language != "auto")
         .then(|| json!({ "language": config.language }))
         .unwrap_or_else(|| json!({}));
@@ -43,11 +43,7 @@ pub(super) fn session_update(config: &AsrConfig, silence_seconds: f64) -> Value 
             "input_audio_format": "pcm",
             "sample_rate": 16000,
             "input_audio_transcription": transcription,
-            "turn_detection": {
-                "type": "server_vad",
-                "threshold": 0.0,
-                "silence_duration_ms": (silence_seconds * 1000.0).round() as u64,
-            }
+            "turn_detection": null
         }
     })
 }
@@ -72,6 +68,7 @@ pub(super) fn normalize_event(
             detail: detail.into(),
         }));
     }
+
     let id = event_id(value);
     let language = event_language(config, value);
     if kind.ends_with(".delta") {
@@ -129,6 +126,17 @@ pub(super) fn audio_message(samples: &[f32]) -> Message {
             "type": "input_audio_buffer.append",
             "audio": pcm16_base64(samples),
             "event_id": uuid::Uuid::new_v4().to_string(),
+        })
+        .to_string()
+        .into(),
+    )
+}
+
+pub(super) fn commit_message() -> Message {
+    Message::Text(
+        json!({
+            "event_id": uuid::Uuid::new_v4().to_string(),
+            "type": "input_audio_buffer.commit"
         })
         .to_string()
         .into(),
