@@ -73,6 +73,7 @@ export function useCoreSession(settingsPageActive: boolean) {
     subtitles,
     partials,
     audioLevels,
+    vrchatMuteStatus,
     translatingSubtitleIds,
     mergeSnapshot,
     clearPartials,
@@ -229,7 +230,7 @@ export function useCoreSession(settingsPageActive: boolean) {
     capturePendingRef.current = true;
     setCapturePending(true);
     try {
-      if (healthRef.current?.capture_running) {
+      if (healthRef.current?.capture_requested) {
         await coreApi.stop();
         clearPartials();
       }
@@ -291,7 +292,7 @@ export function useCoreSession(settingsPageActive: boolean) {
   const persistSettings = useCallback(async (next: Settings): Promise<Settings> => {
     const previous = persistedSettingsRef.current;
     const restartCapture = (
-      Boolean(healthRef.current?.capture_running)
+      Boolean(healthRef.current?.capture_requested)
       && previous !== null
       && audioSettingsChanged(previous, next)
     );
@@ -408,6 +409,7 @@ export function useCoreSession(settingsPageActive: boolean) {
     subtitles,
     partials,
     audioLevels,
+    vrchatMuteStatus: vrchatMuteStatus ?? health?.vrchat_mute_sync ?? null,
     settings,
     devices,
     devicesReady,

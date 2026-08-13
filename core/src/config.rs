@@ -10,7 +10,7 @@ pub use io::{load_config, save_config};
 #[cfg(test)]
 use migration::config_from_value;
 
-pub const SCHEMA_VERSION: u32 = 9;
+pub const SCHEMA_VERSION: u32 = 10;
 
 pub const ALIBABA_PROVIDER: &str = "alibaba_cloud";
 pub const OPENAI_PROVIDER: &str = "openai";
@@ -239,6 +239,10 @@ pub struct OscConfig {
     pub enabled: bool,
     #[serde(default = "default_osc_port")]
     pub port: u16,
+    #[serde(default = "default_enabled")]
+    pub mute_sync_enabled: bool,
+    #[serde(default)]
+    pub mute_status_toast_enabled: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -428,7 +432,12 @@ impl_default!(TranslationConfig, {
     translate_microphone: bool::default,
     microphone_target_language: default_microphone_translation_target,
 });
-impl_default!(OscConfig, { enabled: bool::default, port: default_osc_port });
+impl_default!(OscConfig, {
+    enabled: bool::default,
+    port: default_osc_port,
+    mute_sync_enabled: default_enabled,
+    mute_status_toast_enabled: bool::default,
+});
 impl_default!(AnkiConfig, {
     enabled: default_enabled,
     port: default_anki_port,
@@ -1092,6 +1101,26 @@ mod tests {
         assert_eq!(config.schema_version, SCHEMA_VERSION);
         assert!(!config.osc.enabled);
         assert_eq!(config.osc.port, 9000);
+        assert!(config.osc.mute_sync_enabled);
+        assert!(!config.osc.mute_status_toast_enabled);
+    }
+
+    #[test]
+    fn migrates_v9_with_mute_sync_enabled_by_default() {
+        let config = config_from_value(&serde_json::json!({
+            "schema_version": 9,
+            "osc": {
+                "enabled": true,
+                "port": 9001
+            }
+        }))
+        .unwrap();
+
+        assert_eq!(config.schema_version, SCHEMA_VERSION);
+        assert!(config.osc.enabled);
+        assert_eq!(config.osc.port, 9001);
+        assert!(config.osc.mute_sync_enabled);
+        assert!(!config.osc.mute_status_toast_enabled);
     }
 
     #[test]

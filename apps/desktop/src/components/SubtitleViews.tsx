@@ -4,15 +4,16 @@ import { CalendarDays, History, Languages, MessageSquare, Mic, Volume2 } from "l
 
 import { timestamp } from "../app-utils";
 import { contentLanguageTag } from "../ui-language";
-import type { ConnectionState, Health, LiveTranscription, Settings, Subtitle } from "../types";
+import type { ConnectionState, Health, LiveTranscription, Settings, Subtitle, VrchatMuteStatus } from "../types";
 import { DropdownField } from "./DropdownField";
 
 type SubtitleSource = "speaker" | "microphone";
 
-export function TopStatus({ connection, health, settings }: {
+export function TopStatus({ connection, health, settings, vrchatMuteStatus }: {
   connection: ConnectionState;
   health: Health | null;
   settings: Settings | null;
+  vrchatMuteStatus: VrchatMuteStatus | null;
 }) {
   const { t } = useTranslation();
   const connectionLabel = t(`status.connection.${connection}`);
@@ -21,12 +22,24 @@ export function TopStatus({ connection, health, settings }: {
       <div className="status-summary" aria-label={t("status.summary")}>
         <div className={`core-summary connection-${connection}`}><span>Core</span><strong><i aria-hidden="true" />{connectionLabel}</strong></div>
         <i aria-hidden="true" />
-        <div><span>{t("status.label")}</span><strong>{health?.capture_running ? t("status.transcribing") : t("status.waiting")}</strong></div>
+        <div><span>{t("status.label")}</span><strong>{health?.capture_requested ? t("status.transcribing") : t("status.waiting")}</strong></div>
+        <i aria-hidden="true" />
+        <div className={vrchatMuteStatus?.muted ? "mute-summary muted" : "mute-summary"}>
+          <span>{t("status.vrchat")}</span>
+          <strong>{muteStatusLabel(vrchatMuteStatus, t)}</strong>
+        </div>
         <i aria-hidden="true" />
         <div><span>{t("status.engine")}</span><strong>{engineLabel(settings)}</strong></div>
       </div>
     </div>
   );
+}
+
+function muteStatusLabel(status: VrchatMuteStatus | null, t: (key: string) => string): string {
+  if (!status?.enabled) return t("status.muteSyncDisabled");
+  if (status.muted === true) return t("status.pausedVrchatMuted");
+  if (status.muted === false) return t("status.sendReady");
+  return t("status.muteUnknown");
 }
 
 function engineLabel(settings: Settings | null): string {

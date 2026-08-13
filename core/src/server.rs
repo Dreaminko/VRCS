@@ -2,7 +2,7 @@
 //! 数据面、音频识别管线与管理端点。
 
 mod anki;
-mod capture;
+pub(crate) mod capture;
 mod cloud;
 mod dictionary;
 mod models;
@@ -12,7 +12,7 @@ mod translation;
 mod ws;
 
 use std::path::PathBuf;
-use std::sync::atomic::AtomicU64;
+use std::sync::atomic::{AtomicBool, AtomicU64};
 use std::sync::{Arc, Mutex, RwLock};
 
 use axum::extract::{DefaultBodyLimit, State};
@@ -66,9 +66,11 @@ pub struct AppState {
     pub config_revision: AtomicU64,
     pub config_control: AsyncMutex<()>,
     pub capture_control: AsyncMutex<()>,
+    pub capture_requested: AtomicBool,
     pub speaker_pipeline: AsyncMutex<TranscriptionPipeline>,
     pub microphone_pipeline: AsyncMutex<TranscriptionPipeline>,
     pub microphone_monitor: AsyncMutex<MicrophoneMonitor>,
+    pub vrchat_mute_sync: crate::vrchat_mute_sync::VrchatMuteSync,
 }
 
 type ApiResult<T> = Result<T, (StatusCode, Json<Value>)>;
@@ -271,7 +273,13 @@ pub fn router(state: Arc<AppState>) -> Router {
 }
 
 async fn health(State(state): State<Arc<AppState>>) -> Json<Value> {
-    let config_schema = state.config.read().expect("config lock").schema_version;
+    let (config_schema, microphone_enabled) = {
+        let config = state.config.read().expect("config lock");
+        (
+            config.schema_version,
+            config.audio.microphone.mode != "disabled",
+        )
+    };
     let vad_backend = state.vad_runtime.backend();
     let vad_model_version = state.vad_runtime.model_version();
     let (asr_status, asr_error) = state.asr_runtime.snapshot();
@@ -297,12 +305,25 @@ async fn health(State(state): State<Arc<AppState>>) -> Json<Value> {
     };
     let last_error = speaker_error.or(microphone_error).or(asr_error);
     let osc = state.osc.status();
+    let capture_requested = state
+        .capture_requested
+        .load(std::sync::atomic::Ordering::SeqCst);
+    let vrchat_mute_sync = state.vrchat_mute_sync.status();
     Json(json!({
         "status": "ok",
         "service": "vrcs-core",
         "version": CORE_VERSION,
         "config_schema": config_schema,
         "capture_running": speaker_running || microphone_running,
+        "capture_requested": capture_requested,
+        "microphone_capture_state": if capture_requested && microphone_enabled
+            && vrchat_mute_sync.muted == Some(true) {
+            "paused_vrchat_muted"
+        } else if microphone_running {
+            "running"
+        } else {
+            "stopped"
+        },
         "audio_device": audio_device,
         "microphone_device": microphone_device,
         "microphone_test_running": microphone_test_running,
@@ -312,6 +333,7 @@ async fn health(State(state): State<Arc<AppState>>) -> Json<Value> {
         "vad_model_version": vad_model_version,
         "last_error": last_error,
         "osc": osc,
+        "vrchat_mute_sync": vrchat_mute_sync,
     }))
 }
 

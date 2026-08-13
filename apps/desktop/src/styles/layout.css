@@ -420,6 +420,36 @@ body { zoom: var(--interface-scale, 1); }
 .core-summary strong i { width: 6px; height: 6px; border-radius: 50%; background: var(--text-quiet); }
 .core-summary.connection-connected strong i { background: var(--primary); box-shadow: 0 0 0 3px rgba(116, 214, 255, 0.25); }
 .core-summary.connection-disconnected strong i { background: var(--error); box-shadow: 0 0 0 3px rgba(201, 68, 68, 0.2); }
+.mute-summary.muted strong { color: var(--warning); }
+
+.vrchat-mute-toast {
+  position: fixed;
+  z-index: 40;
+  top: 106px;
+  right: 24px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: min(360px, calc(100vw - 48px));
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  color: var(--text);
+  background: var(--surface);
+  box-shadow: var(--overlay-shadow);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.vrchat-mute-toast i {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: var(--warning);
+}
+
+.vrchat-mute-toast.ready i { background: var(--primary-ink); }
 
 .error-banner {
   display: flex;

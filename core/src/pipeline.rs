@@ -2,6 +2,7 @@
 
 use std::collections::VecDeque;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use tokio::sync::watch;
@@ -27,6 +28,7 @@ pub struct TranscriptionPipeline {
     stop: Option<watch::Sender<bool>>,
     device: Option<AudioDevice>,
     last_error: Arc<Mutex<Option<String>>>,
+    discard_on_stop: Arc<AtomicBool>,
 }
 
 impl TranscriptionPipeline {
@@ -47,6 +49,7 @@ impl TranscriptionPipeline {
             stop: None,
             device: None,
             last_error: Arc::new(Mutex::new(None)),
+            discard_on_stop: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -87,6 +90,7 @@ impl TranscriptionPipeline {
         self.stop.take();
         self.device = None;
         *self.last_error.lock().expect("pipeline error lock") = None;
+        self.discard_on_stop.store(false, Ordering::SeqCst);
 
         let source_kind = self.source;
         let process_name = process_name.map(str::to_owned);
@@ -131,6 +135,7 @@ impl TranscriptionPipeline {
         let source = self.source_name;
 
         let last_error = Arc::clone(&self.last_error);
+        let discard_on_stop = Arc::clone(&self.discard_on_stop);
         let mut shutdown = self.shutdown.clone();
         let (stop_tx, stop_rx) = watch::channel(false);
         self.stop = Some(stop_tx);
@@ -147,6 +152,7 @@ impl TranscriptionPipeline {
                 trigger_threshold_dbfs,
                 &mut shutdown,
                 stop_rx,
+                discard_on_stop,
             )
             .await
             {
@@ -166,6 +172,11 @@ impl TranscriptionPipeline {
             let _ = task.await;
         }
         self.device = None;
+    }
+
+    pub async fn stop_discarding_results(&mut self) {
+        self.discard_on_stop.store(true, Ordering::SeqCst);
+        self.stop().await;
     }
 }
 
@@ -190,6 +201,7 @@ async fn run(
     trigger_threshold_dbfs: Option<f32>,
     shutdown: &mut watch::Receiver<bool>,
     mut stop: watch::Receiver<bool>,
+    discard_on_stop: Arc<AtomicBool>,
 ) -> Result<(), String> {
     let mut pre_roll = VecDeque::<(Vec<f32>, bool)>::new();
     let mut pre_roll_samples = 0usize;
@@ -318,6 +330,11 @@ async fn run(
         }
     };
     if let Some(session) = cloud {
+        if discard_on_stop.load(Ordering::SeqCst) {
+            session.stop().await;
+            capture.shutdown().await;
+            return result;
+        }
         for event in session.stop_and_drain().await {
             match event {
                 CloudEvent::Final { text, language, .. } => {

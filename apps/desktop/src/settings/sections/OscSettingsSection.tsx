@@ -87,14 +87,38 @@ export function OscSettingsSection({
             osc: { ...current.osc, enabled },
           }))}
         />
+        <PreferenceToggle
+          title={t("settings.osc.muteSync")}
+          description={t("settings.osc.muteSyncDescription")}
+          checked={draft.osc.mute_sync_enabled}
+          disabled={saveState === "saving"}
+          onChange={(mute_sync_enabled) => applySettings((current) => ({
+            ...current,
+            osc: { ...current.osc, mute_sync_enabled },
+          }))}
+        />
+        <PreferenceToggle
+          title={t("settings.osc.muteToast")}
+          description={t("settings.osc.muteToastDescription")}
+          checked={draft.osc.mute_status_toast_enabled}
+          disabled={saveState === "saving"}
+          onChange={(mute_status_toast_enabled) => applySettings((current) => ({
+            ...current,
+            osc: { ...current.osc, mute_status_toast_enabled },
+          }))}
+        />
       </div>
 
       {draft.osc.enabled && <>
         <div className={`osc-connection ${state}`} aria-live="polite">
           <span className="osc-connection-dot" aria-hidden="true" />
           <div>
-            <strong>{t(`settings.osc.status.${state}`)}</strong>
-            <p>{runtime?.last_error || message || t("settings.osc.statusHint")}</p>
+            <strong>{health?.vrchat_mute_sync?.muted
+              ? t("settings.osc.status.muted")
+              : runtime?.send_gate === "blocked_mute_unknown"
+                ? t("settings.osc.status.unknown")
+                : t(`settings.osc.status.${state}`)}</strong>
+            <p>{health?.vrchat_mute_sync?.last_error || runtime?.last_error || message || t("settings.osc.statusHint")}</p>
           </div>
           <code>{runtime?.target || `127.0.0.1:${draft.osc.port}`}</code>
         </div>

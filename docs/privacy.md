@@ -19,6 +19,7 @@ VRCS 只在以下功能需要时访问外部网络或本机网络服务：
 - **WebView2 运行时**：安装器在目标机器缺少 WebView2 时会联网安装（微软官方 bootstrapper）。
 - **AnkiConnect**：制卡和连接检查只连接本机 AnkiConnect，默认地址为 `http://127.0.0.1:8765`。
 - **OSC Chatbox**：用户启用该功能后，自己的麦克风识别文本和译文会通过本机 UDP 发送给 VRChat，并可能作为聊天框内容显示给附近玩家。关闭 OSC 输出时不会发送。
+- **VRChat 静音同步**：启用后只通过本机 mDNS/OSCQuery 读取 VRChat 的 `MuteSelf` 布尔状态，用于暂停麦克风转写和阻止 Chatbox 输出；该状态不会写入字幕数据库或发送到外部服务。
 
 除上述情况外，查词和历史记录均不产生网络请求。
 

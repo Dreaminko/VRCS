@@ -57,6 +57,7 @@ function App() {
     subtitles,
     partials,
     audioLevels,
+    vrchatMuteStatus,
     settings,
     devices,
     devicesReady,
@@ -81,8 +82,42 @@ function App() {
   } = core;
   const [vrchatWarningOpen, setVrchatWarningOpen] = useState(false);
   const [cudaRuntimeWarningOpen, setCudaRuntimeWarningOpen] = useState(false);
+  const [vrchatMuteToast, setVrchatMuteToast] = useState<{ messageKey: string; muted: boolean } | null>(null);
+  const previousVrchatMuteRef = useRef<boolean | null | undefined>(undefined);
   const cudaRuntimeWarningShownRef = useRef(false);
   const compactWindow = useCompactWindow({ clearError, reportError });
+  const muteToastSettingsReady = settings !== null;
+  const muteToastEnabled = settings?.osc.mute_status_toast_enabled ?? false;
+  const currentVrchatMute = vrchatMuteStatus?.muted ?? null;
+  const vrchatMuteSyncEnabled = vrchatMuteStatus?.enabled ?? false;
+
+  useEffect(() => {
+    if (!muteToastSettingsReady) return;
+    if (!muteToastEnabled) {
+      previousVrchatMuteRef.current = currentVrchatMute;
+      setVrchatMuteToast(null);
+      return;
+    }
+    if (!vrchatMuteSyncEnabled || currentVrchatMute === null) {
+      setVrchatMuteToast(null);
+      return;
+    }
+    const previous = previousVrchatMuteRef.current;
+    previousVrchatMuteRef.current = currentVrchatMute;
+    if (previous === currentVrchatMute || (previous === undefined && !currentVrchatMute)) return;
+    setVrchatMuteToast({
+      muted: currentVrchatMute,
+      messageKey: currentVrchatMute ? "settings.osc.muteToastMuted" : "settings.osc.muteToastUnmuted",
+    });
+    const timer = window.setTimeout(() => setVrchatMuteToast(null), 3_000);
+    return () => window.clearTimeout(timer);
+  }, [
+    currentVrchatMute,
+    muteToastEnabled,
+    muteToastSettingsReady,
+    vrchatMuteSyncEnabled,
+  ]);
+
   const {
     compact,
     resizeCompactWindow,
@@ -105,7 +140,7 @@ function App() {
   const conversation = useConversationWorkspace({
     subtitles,
     page,
-    running: health?.capture_running ?? false,
+    running: health?.capture_requested ?? false,
   });
   const {
     conversations,
@@ -183,7 +218,7 @@ function App() {
     if (!coreReady) return false;
     try {
       if (shouldCreateConversationOnCaptureToggle(
-        health?.capture_running ?? false,
+        health?.capture_requested ?? false,
         readTranscriptionStartBehavior(),
       )) {
         createConversation();
@@ -287,7 +322,8 @@ function App() {
         <CompactView
           subtitle={compactSubtitle}
           partial={partials.microphone ?? partials.speaker}
-          running={health?.capture_running ?? false}
+          running={health?.capture_requested ?? false}
+          vrchatMuted={vrchatMuteStatus?.muted === true}
           captureDisabled={!coreReady || capturePending}
           onSelect={selectWord}
           onCapture={() => void toggleCapture()}
@@ -357,6 +393,7 @@ function App() {
                 connection={connection}
                 health={health}
                 settings={settings}
+                vrchatMuteStatus={vrchatMuteStatus}
               />
             )}
 
@@ -408,7 +445,7 @@ function App() {
                   subtitles={selectedConversation?.subtitles ?? []}
                   partials={selectedConversation?.id === activeConversation?.id ? partials : {}}
                   running={
-                    (health?.capture_running ?? false)
+                    (health?.capture_requested ?? false)
                     && selectedConversation?.id === activeConversation?.id
                   }
                   onSelect={selectWord}
@@ -437,7 +474,7 @@ function App() {
                 onStartMicrophoneTest={startMicrophoneTest}
                 onStopMicrophoneTest={stopMicrophoneTest}
                 dictionaries={dictionarySources}
-                disabled={health?.capture_running ?? false}
+                disabled={health?.capture_requested ?? false}
                 health={health}
                 modelStatus={health?.asr_status ?? "unknown"}
                 asrCapabilities={asrCapabilities}
@@ -450,7 +487,7 @@ function App() {
                 onSave={saveSettings}
                 onTestOsc={testOsc}
                 onStartOnboarding={() => {
-                  if (health?.capture_running) return;
+                  if (health?.capture_requested) return;
                   setOnboardingStep(0);
                   setOnboardingStatus("required");
                 }}
@@ -474,7 +511,7 @@ function App() {
 
       <BottomDock
         page={page}
-        running={health?.capture_running ?? false}
+        running={health?.capture_requested ?? false}
         captureDisabled={!coreReady || capturePending}
         onPageChange={(next) => {
           clearLookup();
@@ -498,6 +535,15 @@ function App() {
         <CudaRuntimeDialog
           onClose={() => setCudaRuntimeWarningOpen(false)}
         />
+      )}
+      {vrchatMuteToast && (
+        <div
+          className={`vrchat-mute-toast ${vrchatMuteToast.muted ? "muted" : "ready"}`}
+          role="status"
+        >
+          <i aria-hidden="true" />
+          <span>{t(vrchatMuteToast.messageKey)}</span>
+        </div>
       )}
     </div>
   );

@@ -15,7 +15,8 @@ Core 负责音频采集、语音识别、字幕存储和词典查询：
 - **存储**：SQLite 保存字幕历史与词典，JSON 文件保存服务配置
 - **词典**：内置英日测试词典，支持导入 Yomitan 格式词典包
 - **Anki**：连接本机 AnkiConnect 创建笔记
-- **OSC Chatbox**：将麦克风最终字幕与译文格式化、限速后发送到本机 VRChat
+- **OSC Chatbox**：将麦克风最终字幕与译文格式化、限速后发送到本机 VRChat；发送前统一经过 VRChat 静音安全门
+- **VRChat Mute Sync**：通过本机 OSCQuery 发现 VRChat、启动时读取 `MuteSelf` 并持续同步；静音时停止麦克风管线并丢弃未完成结果，取消静音后按原捕获意图自动重启
 
 `src/lib.rs` 提供嵌入式启动接口和可控生命周期，`src/main.rs` 提供独立调试入口。Windows 音频采集直接在 Core 内完成，不再需要音频辅助进程。
 
@@ -34,6 +35,7 @@ React + TypeScript + Vite 前端打包进 Tauri 2 应用：
 |---|---|
 | HTTP REST | 健康检查、设置、设备、词典、模型、Anki、查词与制卡 |
 | WebSocket `/ws` | 实时字幕推送 |
+| OSCQuery / mDNS（本机） | 发现 VRChat 并读取麦克风静音状态 |
 | UDP OSC `127.0.0.1:9000` | 向 VRChat Chatbox 发送自己的麦克风字幕与译文 |
 
 开发模式固定监听 `127.0.0.1:8766`，避开 AnkiConnect 的 8765 与 VRChat 的 OSC 端口 9000/9001。安装版每次启动选择随机本机端口并使用会话令牌，连接信息由 Tauri 的 `core_connection` 命令提供给前端。

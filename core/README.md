@@ -6,7 +6,7 @@ VRCS 的本地后端。数据面、音频采集、VAD、本地/云端 ASR 与字
 
 | 能力 | 状态 |
 |---|---|
-| 配置读写、schema v1→v9 迁移 | 已实现（`src/config.rs`） |
+| 配置读写、schema v1→v10 迁移 | 已实现（`src/config.rs`） |
 | 字幕历史存储与裁剪（SQLite） | 已实现（`src/db.rs`） |
 | 词典查询、Yomitan 词典包导入/删除 | 已实现（`src/db.rs`、`src/yomitan.rs`） |
 | AnkiConnect 状态探测与制卡 | 已实现（`src/anki.rs`） |
@@ -16,7 +16,7 @@ VRCS 的本地后端。数据面、音频采集、VAD、本地/云端 ASR 与字
 | VAD | 已实现 Silero ONNX、能量检测回退与流式语音分段（`src/vad.rs`） |
 | ASR | 已实现 whisper.cpp CPU/CUDA，以及 Qwen3 ASR / Fun-ASR / OpenAI WebSocket 流式适配（`src/asr.rs`） |
 | 识别管线与 `/api/capture/start` `/api/capture/stop` | 已实现双音源采集、VAD 上传门控、增量事件、最终结果 SQLite 写入与 WebSocket 发布（`src/pipeline.rs`） |
-| OSC Chatbox | 已实现麦克风最终字幕与译文的本机 UDP 输出、限长、限速和状态诊断（`src/osc.rs`） |
+| OSC Chatbox / Mute Sync | 已实现麦克风最终字幕与译文的本机 UDP 输出、限长、限速、静音发送门，以及通过 OSCQuery 同步 VRChat 麦克风静音状态（`src/osc.rs`、`src/vrchat_mute_sync.rs`） |
 
 SQLite DDL 与 Python 版完全一致，可直接打开已有的 `vrcs.db`。配置文件格式、环境变量（`VRCS_CONFIG` / `VRCS_HOST` / `VRCS_PORT` / `VRCS_SESSION_TOKEN`）与 Python 版一致。回环监听未设置 token 时会自动生成临时 token；监听非回环地址时必须显式设置非空的 `VRCS_SESSION_TOKEN`。Yomitan 压缩包上限为 128 MiB，并额外限制解压大小、压缩比、单文件大小和词条文本总量。
 

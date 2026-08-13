@@ -35,6 +35,7 @@ pub struct OscRuntimeStatus {
     pub last_error: Option<String>,
     pub last_sent_at: Option<String>,
     pub dropped_messages: u64,
+    pub send_gate: String,
 }
 
 #[derive(Clone)]
@@ -79,6 +80,32 @@ impl OscEvent {
 struct OscConfigState {
     config: OscConfig,
     generation: u64,
+    send_gate: SendGate,
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum SendGate {
+    Open,
+    VrchatMuted,
+    MuteUnknown,
+}
+
+impl SendGate {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Open => "open",
+            Self::VrchatMuted => "blocked_vrchat_muted",
+            Self::MuteUnknown => "blocked_mute_unknown",
+        }
+    }
+
+    fn error_code(self) -> Option<&'static str> {
+        match self {
+            Self::Open => None,
+            Self::VrchatMuted => Some("osc.blocked_vrchat_muted"),
+            Self::MuteUnknown => Some("osc.blocked_mute_unknown"),
+        }
+    }
 }
 
 struct PendingMessage {
@@ -100,6 +127,7 @@ impl OscChatboxDispatcher {
         let (sender, receiver) = mpsc::channel(EVENT_QUEUE_CAPACITY);
         let status = Arc::new(Mutex::new(runtime_status(&config)));
         let (config, config_rx) = watch::channel(OscConfigState {
+            send_gate: initial_gate(&config),
             config,
             generation: 0,
         });
@@ -112,7 +140,7 @@ impl OscChatboxDispatcher {
     }
 
     pub fn publish_subtitle(&self, subtitle: Subtitle, wait_for_translation: bool) {
-        let Some(generation) = self.active_generation() else {
+        let Ok(generation) = self.active_generation() else {
             return;
         };
         if subtitle.source != "microphone" {
@@ -126,7 +154,7 @@ impl OscChatboxDispatcher {
     }
 
     pub fn translation_completed(&self, subtitle_id: i64, translation: SubtitleTranslation) {
-        if let Some(generation) = self.active_generation() {
+        if let Ok(generation) = self.active_generation() {
             self.try_send(OscEvent::TranslationCompleted {
                 generation,
                 subtitle_id,
@@ -136,7 +164,7 @@ impl OscChatboxDispatcher {
     }
 
     pub fn translation_failed(&self, subtitle_id: i64) {
-        if let Some(generation) = self.active_generation() {
+        if let Ok(generation) = self.active_generation() {
             self.try_send(OscEvent::TranslationFailed {
                 generation,
                 subtitle_id,
@@ -145,9 +173,7 @@ impl OscChatboxDispatcher {
     }
 
     pub fn queue_test(&self) -> Result<(), &'static str> {
-        let Some(generation) = self.active_generation() else {
-            return Err("osc.disabled");
-        };
+        let generation = self.active_generation()?;
         self.sender
             .try_send(OscEvent::Test { generation })
             .map_err(|_| {
@@ -159,18 +185,55 @@ impl OscChatboxDispatcher {
     pub fn update_config(&self, config: OscConfig) {
         *self.status.lock().expect("OSC status lock") = runtime_status(&config);
         self.config.send_modify(|state| {
+            if config.mute_sync_enabled && !state.config.mute_sync_enabled {
+                state.send_gate = SendGate::MuteUnknown;
+            } else if !config.mute_sync_enabled {
+                state.send_gate = SendGate::Open;
+            }
             state.config = config;
             state.generation = state.generation.wrapping_add(1);
         });
+        self.refresh_gate_status();
+    }
+
+    pub fn update_mute_status(&self, muted: Option<bool>) {
+        self.config.send_modify(|state| {
+            let next = if !state.config.mute_sync_enabled {
+                SendGate::Open
+            } else {
+                match muted {
+                    Some(true) => SendGate::VrchatMuted,
+                    Some(false) => SendGate::Open,
+                    None => SendGate::MuteUnknown,
+                }
+            };
+            if next != state.send_gate {
+                state.send_gate = next;
+                state.generation = state.generation.wrapping_add(1);
+            }
+        });
+        self.refresh_gate_status();
     }
 
     pub fn status(&self) -> OscRuntimeStatus {
         self.status.lock().expect("OSC status lock").clone()
     }
 
-    fn active_generation(&self) -> Option<u64> {
+    fn active_generation(&self) -> Result<u64, &'static str> {
         let state = self.config.borrow();
-        state.config.enabled.then_some(state.generation)
+        if !state.config.enabled {
+            return Err("osc.disabled");
+        }
+        if let Some(code) = state.send_gate.error_code() {
+            return Err(code);
+        }
+        Ok(state.generation)
+    }
+
+    fn refresh_gate_status(&self) {
+        let state = self.config.borrow();
+        let mut status = self.status.lock().expect("OSC status lock");
+        status.send_gate = state.send_gate.label().into();
     }
 
     fn try_send(&self, event: OscEvent) {
@@ -279,7 +342,7 @@ async fn run_worker(
                 }
             }
             _ = tick.tick() => {
-                if !config.config.enabled {
+                if !config.config.enabled || config.send_gate != SendGate::Open {
                     queue.clear();
                     continue;
                 }
@@ -356,6 +419,15 @@ fn runtime_status(config: &OscConfig) -> OscRuntimeStatus {
         last_error: None,
         last_sent_at: None,
         dropped_messages: 0,
+        send_gate: initial_gate(config).label().into(),
+    }
+}
+
+fn initial_gate(config: &OscConfig) -> SendGate {
+    if config.mute_sync_enabled {
+        SendGate::MuteUnknown
+    } else {
+        SendGate::Open
     }
 }
 
@@ -418,6 +490,8 @@ mod tests {
         let dispatcher = OscChatboxDispatcher::new(OscConfig {
             enabled: true,
             port: receiver.local_addr().unwrap().port(),
+            mute_sync_enabled: false,
+            mute_status_toast_enabled: false,
         });
         dispatcher.publish_subtitle(subtitle(1, "speaker", "ignored"), false);
         assert!(tokio::time::timeout(Duration::from_millis(150), async {
@@ -459,6 +533,8 @@ mod tests {
         let config = OscConfig {
             enabled: true,
             port: receiver.local_addr().unwrap().port(),
+            mute_sync_enabled: false,
+            mute_status_toast_enabled: false,
         };
         let dispatcher = OscChatboxDispatcher::new(config.clone());
 
@@ -478,5 +554,30 @@ mod tests {
             received.is_err(),
             "old-generation messages must be discarded"
         );
+    }
+
+    #[tokio::test]
+    async fn mute_sync_fails_closed_and_clears_queued_messages() {
+        let receiver = UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();
+        let dispatcher = OscChatboxDispatcher::new(OscConfig {
+            enabled: true,
+            port: receiver.local_addr().unwrap().port(),
+            mute_sync_enabled: true,
+            mute_status_toast_enabled: false,
+        });
+
+        assert_eq!(dispatcher.queue_test(), Err("osc.blocked_mute_unknown"));
+        dispatcher.update_mute_status(Some(false));
+        dispatcher.publish_subtitle(subtitle(1, "microphone", "stale"), false);
+        dispatcher.update_mute_status(Some(true));
+        assert_eq!(dispatcher.queue_test(), Err("osc.blocked_vrchat_muted"));
+        assert_eq!(dispatcher.status().send_gate, "blocked_vrchat_muted");
+
+        let received = tokio::time::timeout(Duration::from_millis(250), async {
+            let mut buffer = [0u8; 512];
+            receiver.recv_from(&mut buffer).await
+        })
+        .await;
+        assert!(received.is_err(), "muting must discard queued messages");
     }
 }

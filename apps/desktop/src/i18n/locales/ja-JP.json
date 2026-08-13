@@ -98,6 +98,11 @@
       "transcribing": "文字起こし中",
       "waiting": "待機中",
       "stopped": "停止",
+      "vrchat": "VRChat 送信",
+      "pausedVrchatMuted": "VRChat がミュート中のため送信を一時停止",
+      "sendReady": "送信準備完了",
+      "muteUnknown": "ミュート状態を確認できないため送信を一時停止",
+      "muteSyncDisabled": "ミュート同期はオフ",
       "connection": {
         "connecting": "接続中",
         "connected": "接続済み",
@@ -503,6 +508,12 @@
         "subtitle": "自分のマイク字幕と翻訳を VRChat のチャットボックスへ送信",
         "enable": "チャットボックス出力を有効にする",
         "enableDescription": "自分のマイクの確定字幕だけを送信し、他の音声や途中結果は送りません。",
+        "muteSync": "VRChat のマイクミュートと同期",
+        "muteSyncDescription": "VRChat がミュート中はマイク文字起こしとチャットボックス送信を停止し、解除後に自動で再開します。",
+        "muteToast": "ミュート状態の通知を表示",
+        "muteToastDescription": "VRChat のミュート状態が変わったときに短いアプリ内通知を表示します。",
+        "muteToastMuted": "VRChat がミュート中のため送信を一時停止",
+        "muteToastUnmuted": "VRChat のミュート解除により送信を再開",
         "invalidPort": "1～65535 の有効なポートを入力してください。",
         "address": "IP アドレス",
         "addressDescription": "この PC に固定し、ローカルの VRChat にだけ送信します。",
@@ -517,6 +528,8 @@
         "status": {
           "disabled": "チャットボックス出力はオフです",
           "ready": "OSC 送信準備完了",
+          "muted": "VRChat がミュート中のため送信を一時停止",
+          "unknown": "VRChat のミュート状態を確認できないため送信を一時停止",
           "error": "OSC 送信エラー"
         }
       },

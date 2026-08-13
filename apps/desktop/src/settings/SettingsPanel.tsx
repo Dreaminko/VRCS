@@ -236,7 +236,7 @@ export function SettingsPanel({
           onUpdateDesktop={updateDesktop}
           onInterfaceScaleChange={onInterfaceScaleChange}
           onUpdateUiLanguage={updateUiLanguage}
-          onboardingDisabled={health?.capture_running ?? false}
+          onboardingDisabled={health?.capture_requested ?? false}
           onStartOnboarding={onStartOnboarding}
         />
       )}
@@ -285,7 +285,7 @@ export function SettingsPanel({
           devicesReady={devicesReady}
           microphoneLevel={microphoneLevel}
           microphoneRunning={Boolean(health?.capture_running && health.microphone_device)}
-          transcriptionRunning={health?.capture_running ?? false}
+          transcriptionRunning={health?.capture_requested ?? false}
           microphoneTestRunning={health?.microphone_test_running ?? false}
           deviceErrors={deviceErrors}
           outputDevices={outputDevices}

@@ -632,7 +632,7 @@ export function OnboardingWizard({
                       level={microphoneLevel}
                       enabled
                       captureRunning={false}
-                      transcriptionRunning={health?.capture_running ?? false}
+                      transcriptionRunning={health?.capture_requested ?? false}
                       testing={health?.microphone_test_running ?? false}
                       busy={microphoneOperationBusy}
                       threshold={settings.audio.microphone.trigger_threshold_dbfs}

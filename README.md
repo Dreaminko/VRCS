@@ -10,7 +10,7 @@ VRCS 是一个本地优先的 VRChat 字幕学习工具。它捕获 Windows 系�
 
 - Windows WASAPI 系统回环、VRChat 进程专用回环与麦克风双路捕获
 - 手动或自动字幕翻译，支持 DeepL、Microsoft Translator、OpenAI 与 Alibaba Cloud LLM
-- 将自己的麦克风最终识别结果和译文通过 OSC 发送到 VRChat Chatbox
+- 将自己的麦克风最终识别结果和译文通过 OSC 发送到 VRChat Chatbox，并同步 VRChat 麦克风静音状态作为发送安全门
 - Silero ONNX VAD，首次启动自动下载并校验固定版本，模型不可用时使用能量检测回退
 - whisper.cpp 本地 CPU/CUDA 转写、自动 GPU 回退与 GGML 模型管理
 - Qwen3 ASR、Fun-ASR 与 OpenAI 实时流式转写，支持增量字幕、断线重连和本地回退
@@ -112,6 +112,8 @@ OpenAI 官方连接可按需设为“仅语音识别”“仅 LLM / 翻译”或
 ## OSC Chatbox
 
 在“设置 → OSC”中启用聊天框输出，默认向本机 UDP 9000 端口发送消息。同时需要在 VRChat 的动作菜单中打开 `OSC → Enabled`。VRCS 只发送自己的麦克风最终字幕，不发送其他人的语音或流式临时结果。
+
+“同步 VRChat 麦克风静音”默认开启。VRCS 启动后会通过本机 OSCQuery 主动读取 `MuteSelf`，VRChat 静音时立即暂停麦克风转写并阻止 Chatbox 输出，取消静音后自动恢复。静音状态未知时发送门保持关闭，状态栏会显示当前原因；如不需要该联动，可在同一设置页关闭。可选的应用内静音状态提示默认关闭。
 
 如需向聊天框同时发送译文，请在“设置 → 翻译 → 自己的声音”中启用“自动翻译自己说的话”，并选择对方使用的目标语言。该设置独立于其他声音的自动翻译方向，例如可以把其他人的日语翻译成中文，同时把自己的中文翻译成日语。
 

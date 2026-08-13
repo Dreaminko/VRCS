@@ -128,7 +128,7 @@ export interface AnkiSettings {
 }
 
 export interface Settings {
-  schema_version: 9;
+  schema_version: 10;
   server: {
     host: string;
     port: number;
@@ -149,6 +149,8 @@ export interface Settings {
   osc: {
     enabled: boolean;
     port: number;
+    mute_sync_enabled: boolean;
+    mute_status_toast_enabled: boolean;
   };
   dictionary: {
     selection_lookup_enabled: boolean;
@@ -180,6 +182,8 @@ export interface Health {
   status: string;
   config_schema?: number;
   capture_running: boolean;
+  capture_requested: boolean;
+  microphone_capture_state: "running" | "stopped" | "paused_vrchat_muted";
   audio_device: AudioDevice | null;
   microphone_device?: AudioDevice | null;
   microphone_test_running?: boolean;
@@ -189,6 +193,14 @@ export interface Health {
   vad_model_version: string | null;
   last_error: string | null;
   osc?: OscRuntimeStatus;
+  vrchat_mute_sync: VrchatMuteStatus;
+}
+
+export interface VrchatMuteStatus {
+  enabled: boolean;
+  connection: "disabled" | "discovering" | "connected" | "unavailable";
+  muted: boolean | null;
+  last_error: string | null;
 }
 
 export interface OscRuntimeStatus {
@@ -198,6 +210,7 @@ export interface OscRuntimeStatus {
   last_error: string | null;
   last_sent_at: string | null;
   dropped_messages: number;
+  send_gate: "open" | "blocked_vrchat_muted" | "blocked_mute_unknown";
 }
 
 export interface AsrModelCapability {

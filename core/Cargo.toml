@@ -35,6 +35,7 @@ serde_ignored = "0.1"
 uuid = { version = "1", features = ["v4"] }
 thiserror = "2"
 rosc = "0.11"
+mdns-sd = "=0.20.3"
 
 [target.'cfg(windows)'.dependencies]
 wasapi = "0.23"

@@ -204,6 +204,9 @@ pub(super) async fn update_settings(
     *state.config.write().expect("config lock") = candidate.clone();
     let revision = state.config_revision.fetch_add(1, Ordering::SeqCst) + 1;
     state.osc.update_config(candidate.osc.clone());
+    state
+        .vrchat_mute_sync
+        .update_enabled(candidate.osc.mute_sync_enabled);
     let asr = Arc::clone(&state.asr);
     let asr_config = candidate.asr.clone();
     tokio::task::spawn_blocking(move || {

@@ -4,10 +4,11 @@ import { Maximize2, Mic, Square, X } from "lucide-react";
 import type { LiveTranscription, Subtitle } from "../types";
 import { contentLanguageTag } from "../ui-language";
 
-export function CompactView({ subtitle, partial, running, captureDisabled, onSelect, onCapture, onRestore, onClose }: {
+export function CompactView({ subtitle, partial, running, vrchatMuted, captureDisabled, onSelect, onCapture, onRestore, onClose }: {
   subtitle?: Subtitle;
   partial?: LiveTranscription;
   running: boolean;
+  vrchatMuted: boolean;
   captureDisabled: boolean;
   onSelect: (context: string) => Promise<void>;
   onCapture: () => void;
@@ -19,9 +20,9 @@ export function CompactView({ subtitle, partial, running, captureDisabled, onSel
   return (
     <div className="compact-shell">
       <div className="compact-drag-region" data-tauri-drag-region />
-      <div className={`compact-status ${running ? "running" : ""}`}>
+      <div className={`compact-status ${running ? "running" : ""} ${vrchatMuted ? "muted" : ""}`}>
         <i aria-hidden="true" />
-        <span>{partial?.language?.toUpperCase() ?? subtitle?.language?.toUpperCase() ?? "AUTO"}</span>
+        <span>{vrchatMuted ? t("status.pausedVrchatMuted") : partial?.language?.toUpperCase() ?? subtitle?.language?.toUpperCase() ?? "AUTO"}</span>
       </div>
       <div className="compact-content">
         <p className="compact-original" lang={contentLanguageTag(partial?.language ?? subtitle?.language)} onMouseUp={() => (partial?.text || subtitle?.text) && void onSelect(partial?.text ?? subtitle!.text)}>

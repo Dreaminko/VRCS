@@ -1,3 +1,4 @@
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
 use axum::extract::State;
@@ -32,7 +33,8 @@ pub(super) async fn microphone_test_start(
     State(state): State<Arc<AppState>>,
 ) -> ApiResult<Json<Value>> {
     let _control = state.capture_control.lock().await;
-    if state.speaker_pipeline.lock().await.running()
+    if state.capture_requested.load(Ordering::SeqCst)
+        || state.speaker_pipeline.lock().await.running()
         || state.microphone_pipeline.lock().await.running()
     {
         return Err(api_error(
@@ -183,7 +185,9 @@ pub(super) async fn capture_start(State(state): State<Arc<AppState>>) -> ApiResu
         )
     };
 
-    let microphone = if config.audio.microphone.mode == "disabled" {
+    let microphone = if config.audio.microphone.mode == "disabled"
+        || state.vrchat_mute_sync.status().muted == Some(true)
+    {
         None
     } else {
         let microphone_id = (config.audio.microphone.mode == "device")
@@ -206,6 +210,7 @@ pub(super) async fn capture_start(State(state): State<Arc<AppState>>) -> ApiResu
         {
             Ok(device) => Some(device),
             Err(error) => {
+                state.capture_requested.store(false, Ordering::SeqCst);
                 state.speaker_pipeline.lock().await.stop().await;
                 return Err(api_error(
                     StatusCode::SERVICE_UNAVAILABLE,
@@ -215,6 +220,7 @@ pub(super) async fn capture_start(State(state): State<Arc<AppState>>) -> ApiResu
             }
         }
     };
+    state.capture_requested.store(true, Ordering::SeqCst);
     Ok(Json(json!({
         "running": true,
         "device": device,
@@ -224,8 +230,50 @@ pub(super) async fn capture_start(State(state): State<Arc<AppState>>) -> ApiResu
 
 pub(super) async fn capture_stop(State(state): State<Arc<AppState>>) -> Json<Value> {
     let _control = state.capture_control.lock().await;
+    state.capture_requested.store(false, Ordering::SeqCst);
     let mut speaker = state.speaker_pipeline.lock().await;
     let mut microphone = state.microphone_pipeline.lock().await;
     tokio::join!(speaker.stop(), microphone.stop());
     Json(json!({ "running": false }))
+}
+
+pub(crate) async fn resume_microphone(state: &Arc<AppState>) -> Result<(), String> {
+    if !state.capture_requested.load(Ordering::SeqCst)
+        || state.microphone_pipeline.lock().await.running()
+    {
+        return Ok(());
+    }
+    let config = state.config.read().expect("config lock").clone();
+    if config.audio.microphone.mode == "disabled" {
+        return Ok(());
+    }
+    let microphone_id = (config.audio.microphone.mode == "device")
+        .then_some(config.audio.microphone.device_id)
+        .flatten();
+    let dependencies = PipelineDependencies::new(
+        Arc::clone(&state.asr),
+        Arc::clone(&state.db),
+        state.live_tx.clone(),
+        config.storage.subtitle_history_limit,
+        state.translation_dispatcher.clone(),
+        config.translation.clone(),
+        config.asr.api_profiles.clone(),
+        state.subtitle_output.clone(),
+    );
+    state
+        .microphone_pipeline
+        .lock()
+        .await
+        .start(
+            config.audio.sample_rate,
+            microphone_id,
+            None,
+            Some(config.audio.microphone.trigger_threshold_dbfs),
+            &config.vad,
+            config.asr,
+            dependencies,
+        )
+        .await
+        .map(|_| ())
+        .map_err(|error| error.to_string())
 }

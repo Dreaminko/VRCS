@@ -98,6 +98,11 @@
       "transcribing": "正在转写",
       "waiting": "等待中",
       "stopped": "已停止",
+      "vrchat": "VRChat 发送",
+      "pausedVrchatMuted": "因 VRChat 静音而暂停发送",
+      "sendReady": "发送就绪",
+      "muteUnknown": "静音状态未知，发送已暂停",
+      "muteSyncDisabled": "静音同步已关闭",
       "connection": {
         "connecting": "正在连接",
         "connected": "已连接",
@@ -503,6 +508,12 @@
         "subtitle": "将自己的麦克风字幕和译文发送到 VRChat 聊天框",
         "enable": "启用聊天框输出",
         "enableDescription": "仅发送自己的麦克风最终字幕，不发送其他声音或临时结果。",
+        "muteSync": "同步 VRChat 麦克风静音",
+        "muteSyncDescription": "VRChat 静音时暂停麦克风转写并阻止聊天框发送；取消静音后自动恢复。",
+        "muteToast": "显示静音状态提示",
+        "muteToastDescription": "VRChat 静音状态变化时显示简短的应用内提示。",
+        "muteToastMuted": "VRChat 已静音，发送已暂停",
+        "muteToastUnmuted": "VRChat 已取消静音，发送已恢复",
         "invalidPort": "请输入 1 到 65535 之间的有效端口。",
         "address": "IP 地址",
         "addressDescription": "固定为本机地址，仅发送给当前电脑上的 VRChat。",
@@ -517,6 +528,8 @@
         "status": {
           "disabled": "聊天框输出已关闭",
           "ready": "OSC 发送器就绪",
+          "muted": "因 VRChat 静音而暂停发送",
+          "unknown": "未读取到 VRChat 静音状态，发送已暂停",
           "error": "OSC 发送失败"
         }
       },

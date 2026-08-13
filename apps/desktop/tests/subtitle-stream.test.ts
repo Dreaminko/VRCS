@@ -159,6 +159,39 @@ test("microphone audio levels pass protocol validation", () => {
   });
 });
 
+test("VRChat mute status events pass protocol validation", () => {
+  const message = parseSubtitleStreamMessage(JSON.stringify({
+    type: "vrchat_mute_status",
+    status: {
+      enabled: true,
+      connection: "connected",
+      muted: true,
+      last_error: null,
+    },
+  }));
+  assert.deepEqual(message, {
+    type: "vrchat_mute_status",
+    status: {
+      enabled: true,
+      connection: "connected",
+      muted: true,
+      last_error: null,
+    },
+  });
+});
+
+test("invalid VRChat mute states are rejected", () => {
+  assert.equal(parseSubtitleStreamMessage(JSON.stringify({
+    type: "vrchat_mute_status",
+    status: {
+      enabled: true,
+      connection: "connected",
+      muted: "yes",
+      last_error: null,
+    },
+  })), null);
+});
+
 test("out-of-range microphone levels are rejected", () => {
   assert.equal(parseSubtitleStreamMessage(JSON.stringify({
     type: "audio_level",

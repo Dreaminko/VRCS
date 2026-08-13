@@ -16,6 +16,7 @@ mod server;
 mod subtitle_output;
 mod translation;
 mod vad;
+mod vrchat_mute_sync;
 mod yomitan;
 
 use std::net::SocketAddr;
@@ -279,6 +280,8 @@ async fn start_inner(options: CoreOptions, defer_managed_vad: bool) -> Result<Co
     let asr = Arc::new(Mutex::new(asr_service));
     let handle_vad_runtime = vad_runtime.clone();
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
+    let vrchat_mute_sync =
+        vrchat_mute_sync::VrchatMuteSync::new(config.osc.mute_sync_enabled, shutdown_rx.clone());
     let state = Arc::new(AppState {
         config_path: options.config_path,
         asr_model_dir_override,
@@ -300,6 +303,7 @@ async fn start_inner(options: CoreOptions, defer_managed_vad: bool) -> Result<Co
         config_revision: std::sync::atomic::AtomicU64::new(0),
         config_control: tokio::sync::Mutex::new(()),
         capture_control: tokio::sync::Mutex::new(()),
+        capture_requested: std::sync::atomic::AtomicBool::new(false),
         speaker_pipeline: tokio::sync::Mutex::new(TranscriptionPipeline::new(
             audio::CaptureSource::Speaker,
             "speaker",
@@ -315,6 +319,33 @@ async fn start_inner(options: CoreOptions, defer_managed_vad: bool) -> Result<Co
             shutdown_rx.clone(),
         )),
         microphone_monitor: tokio::sync::Mutex::new(microphone_monitor::MicrophoneMonitor::new()),
+        vrchat_mute_sync,
+    });
+
+    let mute_state = Arc::clone(&state);
+    let mut mute_updates = mute_state.vrchat_mute_sync.subscribe();
+    tokio::spawn(async move {
+        loop {
+            let snapshot = mute_updates.borrow().clone();
+            mute_state.osc.update_mute_status(snapshot.muted);
+            if snapshot.muted == Some(true) {
+                let _control = mute_state.capture_control.lock().await;
+                mute_state
+                    .microphone_pipeline
+                    .lock()
+                    .await
+                    .stop_discarding_results()
+                    .await;
+            } else if snapshot.muted == Some(false) || !snapshot.enabled {
+                let _control = mute_state.capture_control.lock().await;
+                if let Err(error) = server::capture::resume_microphone(&mute_state).await {
+                    tracing::warn!(%error, "failed to resume microphone after VRChat unmuted");
+                }
+            }
+            if mute_updates.changed().await.is_err() {
+                break;
+            }
+        }
     });
 
     let listener = tokio::net::TcpListener::bind(address)

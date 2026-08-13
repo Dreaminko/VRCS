@@ -195,7 +195,7 @@ fn migrate_v4_or_v5(raw: &serde_json::Value) -> Result<AppConfig, String> {
     serde_json::from_value(value).map_err(|error| error.to_string())
 }
 
-fn migrate_v6_to_v8(raw: &serde_json::Value) -> Result<AppConfig, String> {
+fn migrate_v6_to_v9(raw: &serde_json::Value) -> Result<AppConfig, String> {
     let mut value = raw.clone();
     let object = value
         .as_object_mut()
@@ -251,7 +251,7 @@ pub fn config_from_value(raw: &serde_json::Value) -> Result<AppConfig, String> {
         version if version == SCHEMA_VERSION as u64 => {
             serde_json::from_value(raw.clone()).map_err(|error| error.to_string())?
         }
-        6..=8 => migrate_v6_to_v8(raw)?,
+        6..=9 => migrate_v6_to_v9(raw)?,
         4 | 5 => migrate_v4_or_v5(raw)?,
         2 | 3 => migrate_v2_or_v3(raw)?,
         1 => migrate_v1(raw),

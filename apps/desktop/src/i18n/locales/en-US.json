@@ -98,6 +98,11 @@
       "transcribing": "Transcribing",
       "waiting": "Waiting",
       "stopped": "Stopped",
+      "vrchat": "VRChat send",
+      "pausedVrchatMuted": "Sending paused because VRChat is muted",
+      "sendReady": "Ready to send",
+      "muteUnknown": "Mute state unknown, sending paused",
+      "muteSyncDisabled": "Mute sync off",
       "connection": {
         "connecting": "Connecting",
         "connected": "Connected",
@@ -503,6 +508,12 @@
         "subtitle": "Send your microphone subtitles and translations to the VRChat chatbox",
         "enable": "Enable chatbox output",
         "enableDescription": "Send only your final microphone subtitles, never other voices or partial results.",
+        "muteSync": "Sync VRChat microphone mute",
+        "muteSyncDescription": "Pause microphone transcription and block chatbox output while VRChat is muted, then resume automatically.",
+        "muteToast": "Show mute status notifications",
+        "muteToastDescription": "Show a brief in-app notice when the VRChat mute state changes.",
+        "muteToastMuted": "VRChat muted, sending paused",
+        "muteToastUnmuted": "VRChat unmuted, sending resumed",
         "invalidPort": "Enter a valid port from 1 to 65535.",
         "address": "IP address",
         "addressDescription": "Fixed to this computer and sent only to the local VRChat client.",
@@ -517,6 +528,8 @@
         "status": {
           "disabled": "Chatbox output is off",
           "ready": "OSC sender is ready",
+          "muted": "Sending paused because VRChat is muted",
+          "unknown": "VRChat mute state is unavailable, sending paused",
           "error": "OSC send failed"
         }
       },

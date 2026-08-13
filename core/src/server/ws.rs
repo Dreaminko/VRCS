@@ -41,6 +41,7 @@ pub(super) async fn handle_socket(state: Arc<AppState>, socket: WebSocket) {
     let mut receiver = state.subtitle_output.subscribe_subtitles();
     let mut live_receiver = state.live_tx.subscribe();
     let mut translation_receiver = state.subtitle_output.subscribe_translations();
+    let mut mute_receiver = state.vrchat_mute_sync.subscribe();
     let mut shutdown = state.shutdown.clone();
     let (mut sender, mut incoming) = socket.split();
     if sender
@@ -96,6 +97,18 @@ pub(super) async fn handle_socket(state: Arc<AppState>, socket: WebSocket) {
                     }
                     Err(broadcast::error::RecvError::Lagged(_)) => continue,
                     Err(broadcast::error::RecvError::Closed) => break,
+                }
+            }
+            changed = mute_receiver.changed() => {
+                if changed.is_err() {
+                    break;
+                }
+                let payload = json!({
+                    "type": "vrchat_mute_status",
+                    "status": mute_receiver.borrow().clone(),
+                }).to_string();
+                if sender.send(Message::Text(payload.into())).await.is_err() {
+                    break;
                 }
             }
         }

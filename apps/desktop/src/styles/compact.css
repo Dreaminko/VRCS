@@ -72,6 +72,8 @@
 }
 .compact-status.running { color: var(--primary-ink); border-color: rgba(116, 214, 255, 0.48); background: var(--primary-softer); }
 .compact-status.running i { background: var(--primary); box-shadow: 0 0 0 3px rgba(116, 214, 255, 0.22); }
+.compact-status.muted { color: var(--warning); border-color: rgba(213, 153, 57, 0.42); background: rgba(213, 153, 57, 0.1); letter-spacing: 0; }
+.compact-status.muted i { background: var(--warning); box-shadow: 0 0 0 3px rgba(213, 153, 57, 0.16); }
 .compact-content {
   position: relative;
   z-index: 1;

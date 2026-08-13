@@ -3,6 +3,7 @@ import type {
   LiveTranscription,
   Subtitle,
   SubtitleTranslation,
+  VrchatMuteStatus,
 } from "./types";
 
 const DEFAULT_HISTORY_LIMIT = 500;
@@ -12,6 +13,7 @@ export type SubtitleStreamMessage =
   | { type: "subtitle"; subtitle: Subtitle }
   | LiveTranscription
   | AudioLevel
+  | { type: "vrchat_mute_status"; status: VrchatMuteStatus }
   | {
       type: "failed";
       source?: LiveTranscription["source"];
@@ -66,6 +68,14 @@ function isNullableText(value: unknown): value is string | null {
 
 function isNullableFiniteNumber(value: unknown): value is number | null {
   return value === null || (typeof value === "number" && Number.isFinite(value));
+}
+
+function isVrchatMuteStatus(value: unknown): value is VrchatMuteStatus {
+  return isObject(value)
+    && typeof value.enabled === "boolean"
+    && ["disabled", "discovering", "connected", "unavailable"].includes(String(value.connection))
+    && (value.muted === null || typeof value.muted === "boolean")
+    && isNullableText(value.last_error);
 }
 
 function isTranslation(value: unknown): value is SubtitleTranslation {
@@ -131,6 +141,10 @@ export function parseSubtitleStreamMessage(
         && isDbfs(value.rms_dbfs)
         && isDbfs(value.peak_dbfs)
         && typeof value.speech === "boolean"
+        ? value as SubtitleStreamMessage
+        : null;
+    case "vrchat_mute_status":
+      return isVrchatMuteStatus(value.status)
         ? value as SubtitleStreamMessage
         : null;
     case "failed":

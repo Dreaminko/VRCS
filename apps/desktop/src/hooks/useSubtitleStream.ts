@@ -11,6 +11,7 @@ import type {
   LiveTranscription,
   Subtitle,
   SubtitleTranslation,
+  VrchatMuteStatus,
 } from "../types";
 
 function withTranslation(
@@ -70,6 +71,7 @@ export function useSubtitleStream({
     Partial<Record<AudioLevel["source"], AudioLevel>>
   >({});
   const [translatingSubtitleIds, setTranslatingSubtitleIds] = useState<number[]>([]);
+  const [vrchatMuteStatus, setVrchatMuteStatus] = useState<VrchatMuteStatus | null>(null);
 
   const mergeSnapshot = useCallback((historyItems: Subtitle[]) => {
     setSubtitles((current) => mergeSubtitleHistory(current, historyItems));
@@ -84,6 +86,7 @@ export function useSubtitleStream({
     if (!coreConfigured) {
       setConnection("connecting");
       setAudioLevels({});
+      setVrchatMuteStatus(null);
       return;
     }
     let socket: WebSocket | null = null;
@@ -114,6 +117,12 @@ export function useSubtitleStream({
             break;
           case "audio_level":
             setAudioLevels((current) => ({ ...current, [message.source]: message }));
+            break;
+          case "vrchat_mute_status":
+            setVrchatMuteStatus(message.status);
+            setPartials((current) => message.status.muted
+              ? { ...current, microphone: undefined }
+              : current);
             break;
           case "failed":
             reportError(
@@ -163,6 +172,7 @@ export function useSubtitleStream({
       socket.onclose = () => {
         setConnection("disconnected");
         setAudioLevels({});
+        setVrchatMuteStatus(null);
         if (!closed) retry = window.setTimeout(connect, 1500);
       };
     };
@@ -199,6 +209,7 @@ export function useSubtitleStream({
     subtitles,
     partials,
     audioLevels,
+    vrchatMuteStatus,
     translatingSubtitleIds,
     mergeSnapshot,
     clearPartials,
