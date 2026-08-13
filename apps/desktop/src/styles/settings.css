@@ -628,6 +628,43 @@
 .microphone-test-button[aria-pressed="true"] { border-color: var(--primary); color: var(--primary-ink); background: var(--primary-softer); }
 .microphone-test-button:active:not(:disabled) { transform: scale(0.96); }
 .microphone-level-setting .range-field { margin-top: 7px; padding-top: 12px; border-top: 1px solid var(--border); }
+.microphone-calibration-card {
+  display: grid;
+  gap: 14px;
+  margin-bottom: 14px;
+  padding: 14px 15px 15px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface-elevated);
+}
+.microphone-calibration-heading { display: flex; align-items: flex-start; gap: 10px; }
+.microphone-calibration-heading > svg { flex: none; margin-top: 1px; color: var(--primary-ink); }
+.microphone-calibration-heading > div { display: grid; gap: 4px; }
+.microphone-calibration-heading strong { color: var(--text); font-size: 13px; }
+.microphone-calibration-heading small { color: var(--text-quiet); font-size: 10px; line-height: 1.55; }
+.microphone-calibration-status {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
+  border-radius: 10px;
+  background: var(--surface);
+}
+.microphone-calibration-status > span { display: grid; width: 30px; height: 30px; place-items: center; border-radius: 50%; background: var(--surface-subtle); }
+.microphone-calibration-status i { width: 8px; height: 8px; border-radius: 50%; background: var(--text-quiet); }
+.microphone-calibration-status.phase-quiet i,
+.microphone-calibration-status.phase-speech i { background: var(--primary); box-shadow: 0 0 0 5px rgba(116, 214, 255, 0.18); animation: microphone-calibration-pulse 1s ease-in-out infinite; }
+.microphone-calibration-status.phase-ready i { background: var(--primary-hover); box-shadow: 0 0 0 5px rgba(116, 214, 255, 0.16); }
+.microphone-calibration-status.phase-failed i { background: var(--error); }
+.microphone-calibration-status > div { display: grid; gap: 4px; }
+.microphone-calibration-status strong { color: var(--text); font-size: 12px; }
+.microphone-calibration-status small { color: var(--text-quiet); font-size: 10px; line-height: 1.5; }
+.microphone-calibration-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+@keyframes microphone-calibration-pulse {
+  0%, 100% { transform: scale(0.85); opacity: 0.72; }
+  50% { transform: scale(1.08); opacity: 1; }
+}
 .device-list { display: grid; gap: 10px; }
 .device-row {
   display: flex;

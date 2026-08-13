@@ -157,7 +157,49 @@ pub async fn spawn_streaming_session(
     })
 }
 
-pub async fn test_streaming_connection(config: &AsrConfig, profile_id: &str) -> Result<(), String> {
+fn resolve_test_backend(
+    provider: &str,
+    configured_backend: &str,
+    requested_backend: Option<&str>,
+) -> Result<String, String> {
+    match provider {
+        ALIBABA_PROVIDER => match requested_backend {
+            Some("qwen_realtime") => Ok("qwen_realtime".into()),
+            Some("fun_asr_realtime") => Ok("fun_asr_realtime".into()),
+            Some(other) => Err(format!(
+                "Backend {other} is not supported by Alibaba Cloud speech recognition"
+            )),
+            None if configured_backend == "fun_asr_realtime" => Ok("fun_asr_realtime".into()),
+            None => Ok("qwen_realtime".into()),
+        },
+        OPENAI_PROVIDER => match requested_backend {
+            Some("openai_realtime") | None => Ok("openai_realtime".into()),
+            Some(other) => Err(format!(
+                "Backend {other} is not supported by OpenAI speech recognition"
+            )),
+        },
+        other => Err(format!("Unsupported cloud recognition service: {other}")),
+    }
+}
+
+pub fn streaming_test_backend(
+    config: &AsrConfig,
+    profile_id: &str,
+    requested_backend: Option<&str>,
+) -> Result<String, String> {
+    let profile = config
+        .api_profiles
+        .iter()
+        .find(|profile| profile.id == profile_id)
+        .ok_or_else(|| "API profile does not exist".to_string())?;
+    resolve_test_backend(&profile.provider, &config.backend, requested_backend)
+}
+
+pub async fn test_streaming_connection(
+    config: &AsrConfig,
+    profile_id: &str,
+    requested_backend: Option<&str>,
+) -> Result<(), String> {
     let profile = config
         .api_profiles
         .iter()
@@ -166,13 +208,7 @@ pub async fn test_streaming_connection(config: &AsrConfig, profile_id: &str) -> 
     let key = read_credential(&profile.id, &profile.provider)?
         .ok_or_else(|| format!("API key is not configured for {}", profile.name))?;
     let mut test_config = config.clone();
-    test_config.backend = match profile.provider.as_str() {
-        ALIBABA_PROVIDER if config.backend == "fun_asr_realtime" => "fun_asr_realtime",
-        ALIBABA_PROVIDER => "qwen_realtime",
-        OPENAI_PROVIDER => "openai_realtime",
-        other => return Err(format!("Unsupported cloud recognition service: {other}")),
-    }
-    .into();
+    test_config.backend = streaming_test_backend(config, profile_id, requested_backend)?;
     let provider = Provider::from_config(&test_config)?;
     let (mut socket, task_id) =
         connect_initialized(provider, &test_config, profile, 0.4, &key).await?;
@@ -533,6 +569,49 @@ mod tests {
         transcripts: &mut HashMap<String, String>,
     ) -> Result<Option<CloudEvent>, String> {
         normalize_event(Provider::from_config(config)?, config, message, transcripts)
+    }
+
+    #[test]
+    fn explicit_test_backend_selects_only_compatible_services() {
+        assert_eq!(
+            resolve_test_backend(ALIBABA_PROVIDER, "qwen_realtime", Some("fun_asr_realtime"))
+                .unwrap(),
+            "fun_asr_realtime"
+        );
+        assert_eq!(
+            resolve_test_backend(ALIBABA_PROVIDER, "fun_asr_realtime", Some("qwen_realtime"))
+                .unwrap(),
+            "qwen_realtime"
+        );
+        assert_eq!(
+            resolve_test_backend(OPENAI_PROVIDER, "local_whisper", Some("openai_realtime"))
+                .unwrap(),
+            "openai_realtime"
+        );
+        assert!(
+            resolve_test_backend(ALIBABA_PROVIDER, "qwen_realtime", Some("openai_realtime"))
+                .is_err()
+        );
+        assert!(
+            resolve_test_backend(OPENAI_PROVIDER, "openai_realtime", Some("fun_asr_realtime"))
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn test_backend_falls_back_to_existing_provider_behavior() {
+        assert_eq!(
+            resolve_test_backend(ALIBABA_PROVIDER, "fun_asr_realtime", None).unwrap(),
+            "fun_asr_realtime"
+        );
+        assert_eq!(
+            resolve_test_backend(ALIBABA_PROVIDER, "openai_realtime", None).unwrap(),
+            "qwen_realtime"
+        );
+        assert_eq!(
+            resolve_test_backend(OPENAI_PROVIDER, "qwen_realtime", None).unwrap(),
+            "openai_realtime"
+        );
     }
 
     #[test]

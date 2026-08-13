@@ -239,7 +239,11 @@
         "launchAtStartup": "Launch at startup",
         "launchAtStartupDescription": "Start VRCS automatically after you sign in.",
         "minimizeToTray": "Minimize to system tray",
-        "minimizeToTrayDescription": "Keep VRCS running in the tray when its window is closed."
+        "minimizeToTrayDescription": "Keep VRCS running in the tray when its window is closed.",
+        "runOnboarding": "First-use guide",
+        "runOnboardingDescription": "Configure recognition, audio devices, and the microphone trigger threshold again.",
+        "runOnboardingAction": "Run guide again",
+        "runOnboardingStopFirst": "Stop transcription first"
       },
       "translation": {
         "title": "Subtitle translation",
@@ -535,6 +539,98 @@
         "audioDevices": "Audio devices",
         "audioDeviceCounts": "{{outputs}} outputs · {{microphones}} microphones",
         "dictionaries": "Dictionaries"
+      }
+    },
+    "onboarding": {
+      "title": "First-use setup",
+      "setup": "First setup",
+      "stepCounter": "Step {{current}} of {{total}}",
+      "saveImmediately": "Changes are saved immediately. You can return to adjust them at any time.",
+      "skip": "Set up later",
+      "back": "Back",
+      "next": "Next",
+      "steps": {
+        "welcome": "Welcome",
+        "recognition": "Recognition",
+        "audio": "Audio sources",
+        "microphone": "Microphone calibration",
+        "complete": "Finish"
+      },
+      "welcome": {
+        "title": "Welcome to VRCS",
+        "description": "Take a few minutes to configure recognition and audio. You can then get live subtitles from VRChat or system audio.",
+        "privacyTitle": "Local first",
+        "privacyDescription": "VRCS does not save raw audio. Cloud recognition sends only detected speech segments.",
+        "realtimeTitle": "Live subtitles",
+        "realtimeDescription": "Capture system output, VRChat process audio, and your microphone."
+      },
+      "recognition": {
+        "description": "Choose low-latency cloud recognition or run Whisper locally. Local recognition does not upload speech.",
+        "cloud": "Cloud recognition",
+        "cloudDescription": "Use Qwen3, Fun-ASR, or OpenAI Realtime for a quick start.",
+        "local": "Local Whisper",
+        "localDescription": "Run recognition on this PC after downloading a Whisper model.",
+        "cloudSetup": "Configure the recognition API",
+        "apiKeyRequired": "Enter an API key",
+        "addAnother": "Add another API",
+        "addApi": "Add an API connection",
+        "addApiDescription": "The API key is stored securely in Windows Credential Manager.",
+        "connectionReady": "The connection test succeeded. You can continue.",
+        "testRequired": "Test the connection before continuing.",
+        "downloadRequired": "Download and select a local model before continuing.",
+        "connectionReadyShort": "Connection ready"
+      },
+      "audio": {
+        "description": "Choose the system output and microphone to transcribe. Rescan if a device is missing.",
+        "sourceRequired": "Enable at least one audio source."
+      },
+      "microphone": {
+        "disabledTitle": "The microphone is disabled",
+        "disabledDescription": "VRCS will transcribe only other voices. You can enable the microphone later under Audio settings.",
+        "description": "The test measures input level only. It does not recognize speech, create subtitles, or save recordings. Set the threshold so quiet input stays inactive and normal speech triggers reliably.",
+        "autoTitle": "Guided calibration",
+        "autoDescription": "Stay quiet for 2 seconds, then speak normally for 3 seconds. VRCS will calculate a suggested threshold.",
+        "result": "Noise {{noise}} dBFS · Speech {{speech}} dBFS · Suggested {{threshold}} dBFS",
+        "phase": {
+          "idle": "Ready to calibrate",
+          "quiet": "Stay quiet",
+          "speech": "Speak at a normal volume",
+          "ready": "A suggestion is ready",
+          "failed": "Speech could not be separated reliably from background noise"
+        },
+        "phaseDescription": {
+          "idle": "Start when you are ready to complete two short samples.",
+          "quiet": "Measuring background noise…",
+          "speech": "Keep speaking for a complete sentence…",
+          "ready": "Apply the suggestion or continue adjusting manually.",
+          "failed": "Move closer to the microphone, reduce noise, or set the threshold manually."
+        },
+        "restoreDefault": "Restore default",
+        "applySuggestion": "Apply suggestion",
+        "startCalibration": "Start calibration",
+        "retryCalibration": "Calibrate again",
+        "skipCalibration": "Keep the current threshold"
+      },
+      "complete": {
+        "title": "Setup is complete",
+        "description": "Recognition and audio are ready. Start transcription now or enter the main interface first.",
+        "recognition": "Speech recognition",
+        "localReady": "The local Whisper model is ready",
+        "cloudReady": "The cloud API passed its connection test",
+        "audio": "Audio sources",
+        "audioReady": "Audio sources and device choices are saved",
+        "audioNotReady": "Return to Audio sources and enable at least one source",
+        "microphone": "Microphone",
+        "microphoneSkipped": "Your microphone will not be captured",
+        "microphoneReady": "The microphone and trigger threshold are confirmed",
+        "nextHint": "Translation, dictionaries, OSC, and Anki can be configured later under Settings.",
+        "finish": "Enter VRCS",
+        "finishAndStart": "Finish and start transcription"
+      },
+      "errors": {
+        "finish": "The first-use setup could not be completed.",
+        "startCapture": "Transcription could not start. Check the current configuration.",
+        "progress": "The first-use setup progress could not be saved."
       }
     },
     "apiStatus": {

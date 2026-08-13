@@ -239,7 +239,11 @@
         "launchAtStartup": "ログイン時に起動",
         "launchAtStartupDescription": "サインイン後に VRCS を自動的に起動します。",
         "minimizeToTray": "システムトレイに最小化",
-        "minimizeToTrayDescription": "ウィンドウを閉じても VRCS をトレイで実行し続けます。"
+        "minimizeToTrayDescription": "ウィンドウを閉じても VRCS をトレイで実行し続けます。",
+        "runOnboarding": "初回セットアップガイド",
+        "runOnboardingDescription": "音声認識、音声デバイス、マイクのトリガーしきい値を再設定します。",
+        "runOnboardingAction": "ガイドを再実行",
+        "runOnboardingStopFirst": "先に文字起こしを停止してください"
       },
       "translation": {
         "title": "字幕翻訳",
@@ -535,6 +539,98 @@
         "audioDevices": "音声デバイス",
         "audioDeviceCounts": "出力 {{outputs}} · マイク {{microphones}}",
         "dictionaries": "辞書"
+      }
+    },
+    "onboarding": {
+      "title": "初回セットアップ",
+      "setup": "初回設定",
+      "stepCounter": "ステップ {{current}} / {{total}}",
+      "saveImmediately": "変更はすぐに保存されます。いつでも戻って調整できます。",
+      "skip": "後で設定",
+      "back": "戻る",
+      "next": "次へ",
+      "steps": {
+        "welcome": "ようこそ",
+        "recognition": "音声認識",
+        "audio": "音声ソース",
+        "microphone": "マイク調整",
+        "complete": "完了"
+      },
+      "welcome": {
+        "title": "VRCS へようこそ",
+        "description": "数分で音声認識と音声入力を設定すると、VRChat やシステム音声のリアルタイム字幕を利用できます。",
+        "privacyTitle": "ローカル優先",
+        "privacyDescription": "VRCS は生の音声を保存しません。クラウド認識では、検出された発話区間だけを送信します。",
+        "realtimeTitle": "リアルタイム字幕",
+        "realtimeDescription": "システム出力、VRChat のプロセス音声、自分のマイクを取得できます。"
+      },
+      "recognition": {
+        "description": "低遅延のクラウド認識か、ローカル Whisper を選択します。ローカル認識では音声をアップロードしません。",
+        "cloud": "クラウド音声認識",
+        "cloudDescription": "Qwen3、Fun-ASR、OpenAI Realtime を使用してすぐに開始できます。",
+        "local": "ローカル Whisper",
+        "localDescription": "Whisper モデルをダウンロードし、この PC で音声認識を実行します。",
+        "cloudSetup": "音声認識 API の設定",
+        "apiKeyRequired": "API キーを入力",
+        "addAnother": "別の API を追加",
+        "addApi": "API 接続を追加",
+        "addApiDescription": "API キーは Windows 資格情報マネージャーに安全に保存されます。",
+        "connectionReady": "接続テストに成功しました。次へ進めます。",
+        "testRequired": "次へ進む前に接続をテストしてください。",
+        "downloadRequired": "ローカルモデルをダウンロードして選択してください。",
+        "connectionReadyShort": "接続準備完了"
+      },
+      "audio": {
+        "description": "文字起こしするシステム出力とマイクを選択します。デバイスがない場合は再スキャンしてください。",
+        "sourceRequired": "音声ソースを 1 つ以上有効にしてください。"
+      },
+      "microphone": {
+        "disabledTitle": "マイクは無効です",
+        "disabledDescription": "VRCS は他の人の音声だけを文字起こしします。後で音声設定からマイクを有効にできます。",
+        "description": "テストは入力レベルだけを測定し、音声認識、字幕生成、録音保存は行いません。静かなときは反応せず、通常の声で安定して反応するようにしきい値を調整してください。",
+        "autoTitle": "ガイド付き調整",
+        "autoDescription": "2 秒間静かにした後、3 秒間通常の声で話すと、推奨しきい値を計算します。",
+        "result": "環境音 {{noise}} dBFS · 発話 {{speech}} dBFS · 推奨 {{threshold}} dBFS",
+        "phase": {
+          "idle": "調整の準備完了",
+          "quiet": "静かにしてください",
+          "speech": "通常の声で話してください",
+          "ready": "推奨値を作成しました",
+          "failed": "環境音と発話を安定して区別できませんでした"
+        },
+        "phaseDescription": {
+          "idle": "開始後、案内に従って短い測定を 2 回行います。",
+          "quiet": "環境ノイズを測定しています…",
+          "speech": "一文を続けて話してください…",
+          "ready": "推奨値を適用するか、手動で調整できます。",
+          "failed": "マイクに近づく、周囲のノイズを減らす、または手動で設定してください。"
+        },
+        "restoreDefault": "既定値に戻す",
+        "applySuggestion": "推奨値を適用",
+        "startCalibration": "調整を開始",
+        "retryCalibration": "もう一度調整",
+        "skipCalibration": "現在のしきい値を使用"
+      },
+      "complete": {
+        "title": "セットアップが完了しました",
+        "description": "音声認識と音声入力の準備ができました。今すぐ文字起こしを開始するか、先にメイン画面へ進めます。",
+        "recognition": "音声認識",
+        "localReady": "ローカル Whisper モデルの準備完了",
+        "cloudReady": "クラウド API の接続テストに成功",
+        "audio": "音声ソース",
+        "audioReady": "音声ソースとデバイスの選択を保存済み",
+        "audioNotReady": "音声ソースに戻り、1 つ以上のソースを有効にしてください",
+        "microphone": "マイク",
+        "microphoneSkipped": "自分のマイク音声は取得しません",
+        "microphoneReady": "マイクとトリガーしきい値を確認済み",
+        "nextHint": "翻訳、辞書、OSC、Anki は設定画面で後から設定できます。",
+        "finish": "VRCS を開く",
+        "finishAndStart": "完了して文字起こしを開始"
+      },
+      "errors": {
+        "finish": "初回セットアップを完了できませんでした。",
+        "startCapture": "文字起こしを開始できません。現在の設定を確認してください。",
+        "progress": "初回セットアップの進行状況を保存できませんでした。"
       }
     },
     "apiStatus": {

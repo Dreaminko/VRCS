@@ -239,7 +239,11 @@
         "launchAtStartup": "开机启动",
         "launchAtStartupDescription": "登录系统后自动启动 VRCS。",
         "minimizeToTray": "最小化到系统托盘",
-        "minimizeToTrayDescription": "关闭窗口时让 VRCS 继续在托盘中运行。"
+        "minimizeToTrayDescription": "关闭窗口时让 VRCS 继续在托盘中运行。",
+        "runOnboarding": "首次使用指引",
+        "runOnboardingDescription": "重新配置识别服务、音频设备和麦克风触发阈值。",
+        "runOnboardingAction": "重新运行指引",
+        "runOnboardingStopFirst": "请先停止转写"
       },
       "translation": {
         "title": "字幕翻译",
@@ -535,6 +539,98 @@
         "audioDevices": "音频设备",
         "audioDeviceCounts": "{{outputs}} 个输出 · {{microphones}} 个麦克风",
         "dictionaries": "词典"
+      }
+    },
+    "onboarding": {
+      "title": "首次使用设置",
+      "setup": "首次设置",
+      "stepCounter": "第 {{current}} / {{total}} 步",
+      "saveImmediately": "设置更改会立即保存，可随时返回修改。",
+      "skip": "暂时跳过",
+      "back": "上一步",
+      "next": "下一步",
+      "steps": {
+        "welcome": "欢迎使用",
+        "recognition": "语音识别",
+        "audio": "音频来源",
+        "microphone": "麦克风校准",
+        "complete": "完成设置"
+      },
+      "welcome": {
+        "title": "欢迎使用 VRCS",
+        "description": "用几分钟完成识别服务和音频配置，之后即可在 VRChat 或系统音频中获得实时字幕。",
+        "privacyTitle": "本地优先",
+        "privacyDescription": "VRCS 不保存原始音频；使用云端识别时，只发送检测到的语音片段。",
+        "realtimeTitle": "实时字幕",
+        "realtimeDescription": "支持系统输出、VRChat 进程音频和自己的麦克风。"
+      },
+      "recognition": {
+        "description": "选择云端实时识别，或在本机运行 Whisper。云端模式延迟更低，本地模式不需要上传语音。",
+        "cloud": "云端实时识别",
+        "cloudDescription": "使用 Qwen3、Fun-ASR 或 OpenAI Realtime，适合快速开始。",
+        "local": "本地 Whisper",
+        "localDescription": "在本机完成识别，需要先下载 Whisper 模型。",
+        "cloudSetup": "配置识别 API",
+        "apiKeyRequired": "请输入 API Key",
+        "addAnother": "添加其他 API",
+        "addApi": "添加 API 配置",
+        "addApiDescription": "API Key 将安全保存在 Windows 凭据管理器中。",
+        "connectionReady": "连接测试成功，可以继续。",
+        "testRequired": "请先测试连接。",
+        "downloadRequired": "请下载并选择一个本地模型后继续。",
+        "connectionReadyShort": "连接就绪"
+      },
+      "audio": {
+        "description": "选择要转写的系统输出和麦克风。找不到设备时可以重新扫描。",
+        "sourceRequired": "请至少启用一个音频来源。"
+      },
+      "microphone": {
+        "disabledTitle": "麦克风已关闭",
+        "disabledDescription": "VRCS 只会转写其他人的声音。之后可以在音频设置中启用麦克风。",
+        "description": "测试只测量输入音量，不会识别、生成字幕或保存录音。调整阈值，使安静时不触发、正常说话时稳定触发。",
+        "autoTitle": "引导校准",
+        "autoDescription": "先保持安静 2 秒，再以正常音量说话 3 秒，VRCS 会计算建议阈值。",
+        "result": "环境 {{noise}} dBFS · 说话 {{speech}} dBFS · 建议 {{threshold}} dBFS",
+        "phase": {
+          "idle": "准备校准",
+          "quiet": "请保持安静",
+          "speech": "请以正常音量说话",
+          "ready": "建议值已生成",
+          "failed": "无法可靠区分环境音和说话声"
+        },
+        "phaseDescription": {
+          "idle": "开始后请按提示完成两段短采样。",
+          "quiet": "正在测量环境噪声…",
+          "speech": "持续说一句完整的话…",
+          "ready": "可以应用建议值，或继续手动调整。",
+          "failed": "请调整麦克风距离、降低环境噪声或手动设置阈值。"
+        },
+        "restoreDefault": "恢复默认值",
+        "applySuggestion": "应用建议值",
+        "startCalibration": "开始校准",
+        "retryCalibration": "重新校准",
+        "skipCalibration": "暂不校准，使用当前阈值"
+      },
+      "complete": {
+        "title": "设置完成",
+        "description": "基础识别和音频配置已经准备好。你可以直接开始转写，也可以先进入主界面。",
+        "recognition": "语音识别",
+        "localReady": "本地 Whisper 模型已准备",
+        "cloudReady": "云端 API 已通过连接测试",
+        "audio": "音频来源",
+        "audioReady": "音频来源和设备选择已保存",
+        "audioNotReady": "请返回音频来源步骤并至少启用一个来源",
+        "microphone": "麦克风",
+        "microphoneSkipped": "已选择不采集自己的声音",
+        "microphoneReady": "麦克风和触发阈值已确认",
+        "nextHint": "翻译、词典、OSC 和 Anki 可在设置中继续配置。",
+        "finish": "进入主界面",
+        "finishAndStart": "完成并开始转写"
+      },
+      "errors": {
+        "finish": "无法完成首次设置。",
+        "startCapture": "无法开始转写，请检查当前配置。",
+        "progress": "无法保存首次设置进度。"
       }
     },
     "apiStatus": {

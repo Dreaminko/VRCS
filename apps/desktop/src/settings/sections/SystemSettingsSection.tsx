@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { SlidersHorizontal } from "lucide-react";
+import { RotateCcw, SlidersHorizontal } from "lucide-react";
 
 import type { DesktopPreferences } from "../../desktop-preferences";
 import { localeCatalog } from "../../i18n/catalog";
@@ -27,6 +27,8 @@ export function SystemSettingsSection({
   onUpdateDesktop,
   onInterfaceScaleChange,
   onUpdateUiLanguage,
+  onboardingDisabled,
+  onStartOnboarding,
 }: {
   desktopPreferences: DesktopPreferences;
   desktopPreferencesReady: boolean;
@@ -36,6 +38,8 @@ export function SystemSettingsSection({
   onUpdateDesktop: (key: keyof DesktopPreferences, enabled: boolean) => Promise<void>;
   onInterfaceScaleChange: (value: number) => void;
   onUpdateUiLanguage: (preference: UiLanguagePreference) => Promise<void>;
+  onboardingDisabled: boolean;
+  onStartOnboarding: () => void;
 }) {
   const { t } = useTranslation();
   const [transcriptionStartBehavior, setTranscriptionStartBehavior] = useState(
@@ -106,6 +110,16 @@ export function SystemSettingsSection({
               formatValue={(value) => `${value}%`}
               onCommit={onInterfaceScaleChange}
             />
+          </div>
+          <div className="system-onboarding-setting">
+            <div>
+              <strong>{t("settings.system.runOnboarding")}</strong>
+              <small>{t("settings.system.runOnboardingDescription")}</small>
+            </div>
+            <button className="secondary-button" type="button" disabled={onboardingDisabled} onClick={onStartOnboarding}>
+              <RotateCcw size={15} />
+              {t(onboardingDisabled ? "settings.system.runOnboardingStopFirst" : "settings.system.runOnboardingAction")}
+            </button>
           </div>
           <div className="settings-toggle-list">
             <PreferenceToggle

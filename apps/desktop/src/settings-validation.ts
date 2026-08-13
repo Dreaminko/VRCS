@@ -14,6 +14,11 @@ const validationMessage: TranslateValidation = (key) => ({
   "validation.asr.invalidComputeType": "The selected runtime device and compute type are incompatible",
 })[key] ?? key;
 
+export function hasEnabledAudioSource(settings: Settings): boolean {
+  return settings.audio.output.mode !== "disabled"
+    || settings.audio.microphone.mode !== "disabled";
+}
+
 export function audioSelectionErrors(
   settings: Settings,
   devices: AudioDevice[],

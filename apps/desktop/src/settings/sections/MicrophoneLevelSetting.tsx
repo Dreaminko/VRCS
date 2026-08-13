@@ -2,11 +2,12 @@ import type { CSSProperties } from "react";
 import { useTranslation } from "react-i18next";
 import { AudioLines, Square } from "lucide-react";
 
+import {
+  MAX_MICROPHONE_THRESHOLD_DBFS,
+  MIN_MICROPHONE_LEVEL_DBFS,
+} from "../../microphone-calibration";
 import type { AudioLevel } from "../../types";
 import { RangeField } from "../SettingsControls";
-
-const MIN_LEVEL_DBFS = -80;
-const MAX_THRESHOLD_DBFS = -10;
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
@@ -14,8 +15,8 @@ function clamp(value: number, min: number, max: number): number {
 
 // 与触发阈值滑动条共用同一刻度（-80..-10），使指示条上的阈值刻度线与滑块位置对齐。
 function levelPercent(value: number): number {
-  return ((clamp(value, MIN_LEVEL_DBFS, MAX_THRESHOLD_DBFS) - MIN_LEVEL_DBFS)
-    / (MAX_THRESHOLD_DBFS - MIN_LEVEL_DBFS)) * 100;
+  return ((clamp(value, MIN_MICROPHONE_LEVEL_DBFS, MAX_MICROPHONE_THRESHOLD_DBFS) - MIN_MICROPHONE_LEVEL_DBFS)
+    / (MAX_MICROPHONE_THRESHOLD_DBFS - MIN_MICROPHONE_LEVEL_DBFS)) * 100;
 }
 
 export function MicrophoneLevelSetting({
@@ -43,8 +44,8 @@ export function MicrophoneLevelSetting({
 }) {
   const { t } = useTranslation();
   const active = captureRunning || testing;
-  const rmsDbfs = active && level ? level.rms_dbfs : MIN_LEVEL_DBFS;
-  const peakDbfs = active && level ? level.peak_dbfs : MIN_LEVEL_DBFS;
+  const rmsDbfs = active && level ? level.rms_dbfs : MIN_MICROPHONE_LEVEL_DBFS;
+  const peakDbfs = active && level ? level.peak_dbfs : MIN_MICROPHONE_LEVEL_DBFS;
   const speech = Boolean(
     active && level && (testing ? level.rms_dbfs >= threshold : level.speech),
   );
@@ -89,8 +90,8 @@ export function MicrophoneLevelSetting({
         label={t("settings.audio.triggerThreshold")}
         helper={t("settings.audio.triggerThresholdDescription")}
         value={threshold}
-        min={MIN_LEVEL_DBFS}
-        max={MAX_THRESHOLD_DBFS}
+        min={MIN_MICROPHONE_LEVEL_DBFS}
+        max={MAX_MICROPHONE_THRESHOLD_DBFS}
         step={1}
         disabled={disabled}
         formatValue={formatDbfs}
@@ -101,8 +102,8 @@ export function MicrophoneLevelSetting({
             className="microphone-live-track"
             role="meter"
             aria-label={t("settings.audio.levelMeterLabel")}
-            aria-valuemin={MIN_LEVEL_DBFS}
-            aria-valuemax={MAX_THRESHOLD_DBFS}
+            aria-valuemin={MIN_MICROPHONE_LEVEL_DBFS}
+            aria-valuemax={MAX_MICROPHONE_THRESHOLD_DBFS}
             aria-valuenow={Math.round(rmsDbfs)}
             aria-valuetext={status}
             style={meterStyle}

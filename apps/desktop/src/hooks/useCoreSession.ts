@@ -249,9 +249,14 @@ export function useCoreSession(settingsPageActive: boolean) {
 
   const startMicrophoneTest = useCallback(async () => {
     try {
-      await coreApi.startMicrophoneTest();
-      setHealth(await coreApi.health());
+      const result = await coreApi.startMicrophoneTest();
+      setHealth((current) => current ? {
+        ...current,
+        microphone_test_running: result.running,
+        microphone_test_device: result.device,
+      } : current);
       clearErrorFrom("microphone-test");
+      void coreApi.health().then(setHealth).catch(() => undefined);
     } catch (reason) {
       reportError(reason, "errors.audio.microphoneTestFailed", "microphone-test");
       throw reason;
@@ -260,10 +265,15 @@ export function useCoreSession(settingsPageActive: boolean) {
 
   const stopMicrophoneTest = useCallback(async () => {
     try {
-      await coreApi.stopMicrophoneTest();
+      const result = await coreApi.stopMicrophoneTest();
       clearPartials();
-      setHealth(await coreApi.health());
+      setHealth((current) => current ? {
+        ...current,
+        microphone_test_running: result.running,
+        microphone_test_device: null,
+      } : current);
       clearErrorFrom("microphone-test");
+      void coreApi.health().then(setHealth).catch(() => undefined);
     } catch (reason) {
       reportError(reason, "errors.audio.microphoneTestFailed", "microphone-test");
       throw reason;

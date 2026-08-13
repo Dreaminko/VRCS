@@ -199,11 +199,18 @@ export const coreApi = {
       method: "PUT",
       body: JSON.stringify({ profile_id: profileId }),
     }),
-  testApiProfile: (profileId: string, capability: "asr" | "llm") =>
-    request<{ ok: boolean }>(
-      `/api/asr/profiles/${profileId}/test?capability=${capability}`,
+  testApiProfile: (
+    profileId: string,
+    capability: "asr" | "llm",
+    backend?: Exclude<Settings["asr"]["backend"], "local_whisper">,
+  ) => {
+    const query = new URLSearchParams({ capability });
+    if (backend) query.set("backend", backend);
+    return request<{ ok: boolean }>(
+      `/api/asr/profiles/${profileId}/test?${query.toString()}`,
       { method: "POST" },
-    ),
+    );
+  },
   apiProfileModels: (profileId: string) =>
     request<ApiModelCatalog>(`/api/asr/profiles/${profileId}/models`),
   translateSubtitle: (subtitleId: number) =>

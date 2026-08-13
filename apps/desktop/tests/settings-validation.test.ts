@@ -4,6 +4,7 @@ import {
   asrSelectionError,
   audioSettingsChanged,
   audioSelectionErrors,
+  hasEnabledAudioSource,
   validComputeTypes,
 } from "../src/settings-validation.ts";
 import type { AsrCapabilities, AudioDevice, Settings } from "../src/types.ts";
@@ -50,6 +51,18 @@ test("reports stale output and microphone selections independently", () => {
     "The selected system output device is no longer available",
     "The selected microphone device is no longer available",
   ]);
+});
+
+test("requires at least one enabled audio source", () => {
+  assert.equal(hasEnabledAudioSource(settings), true);
+  assert.equal(hasEnabledAudioSource({
+    ...settings,
+    audio: {
+      ...settings.audio,
+      output: { mode: "disabled", device_id: null },
+      microphone: { ...settings.audio.microphone, mode: "disabled", device_id: null },
+    },
+  }), false);
 });
 
 test("filters compute types and rejects unavailable CUDA", () => {

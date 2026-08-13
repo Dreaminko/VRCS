@@ -60,6 +60,7 @@ pub(super) struct ActiveProfileInput {
 #[derive(Default, Deserialize)]
 pub(super) struct TestProfileQuery {
     capability: Option<String>,
+    backend: Option<String>,
 }
 
 fn profile_value(profile: &ApiProfile, config: &crate::config::AppConfig) -> Result<Value, String> {
@@ -392,7 +393,16 @@ pub(super) async fn credential_test(
                 "This API profile does not support realtime speech recognition",
             ));
         }
-        asr::test_streaming_connection(&config.asr, &profile_id)
+        asr::streaming_test_backend(&config.asr, &profile_id, query.backend.as_deref()).map_err(
+            |error| {
+                api_error(
+                    StatusCode::UNPROCESSABLE_ENTITY,
+                    "asr.profile_invalid",
+                    error,
+                )
+            },
+        )?;
+        asr::test_streaming_connection(&config.asr, &profile_id, query.backend.as_deref())
             .await
             .map_err(|error| {
                 api_error(

@@ -8,32 +8,16 @@ import {
   supportsRecognition,
   supportsTranslation,
 } from "../../api-profile-purpose";
-import type { ApiProfile, ApiProfilePurpose, ApiProfileView, ApiProvider } from "../../types";
-import { Select } from "../SettingsControls";
+import type { ApiProfileView, ApiProvider } from "../../types";
+import {
+  ApiProfileEditor,
+  apiProfileFromEditorDraft,
+  createApiProfileDraft,
+  type ApiProfileEditorDraft,
+} from "../api/ApiProfileEditor";
 import { useApiProfiles } from "../useApiProfiles";
 
-interface EditorDraft {
-  id?: string;
-  name: string;
-  provider: ApiProvider;
-  purpose: ApiProfilePurpose;
-  region: string;
-  workspace_id: string;
-  base_url: string;
-  api_key: string;
-}
-
-const emptyDraft = (): EditorDraft => ({
-  name: "",
-  provider: "alibaba_cloud",
-  purpose: "shared",
-  region: "china_beijing",
-  workspace_id: "",
-  base_url: "",
-  api_key: "",
-});
-
-function draftFromProfile(profile: ApiProfileView): EditorDraft {
+function draftFromProfile(profile: ApiProfileView): ApiProfileEditorDraft {
   return {
     id: profile.id,
     name: profile.name,
@@ -44,171 +28,6 @@ function draftFromProfile(profile: ApiProfileView): EditorDraft {
     base_url: profile.base_url ?? "",
     api_key: "",
   };
-}
-
-function ProfileEditor({
-  draft,
-  saving,
-  credential,
-  onChange,
-  onSave,
-  onCancel,
-  onRemoveCredential,
-}: {
-  draft: EditorDraft;
-  saving: boolean;
-  credential?: ApiProfileView["credential"];
-  onChange: (draft: EditorDraft) => void;
-  onSave: () => void;
-  onCancel: () => void;
-  onRemoveCredential?: () => void;
-}) {
-  const { t } = useTranslation();
-  const editing = Boolean(draft.id);
-  const canSave = Boolean(draft.name.trim())
-    && (draft.provider !== "microsoft_translator" || Boolean(draft.region.trim()))
-    && !saving;
-
-  return (
-    <form className="api-profile-editor" onSubmit={(event) => { event.preventDefault(); onSave(); }}>
-      <div className="api-profile-editor-heading">
-        <strong>{t(editing ? "settings.apiManagement.editProfile" : "settings.apiManagement.addProfile")}</strong>
-        <small>{t("settings.apiManagement.profileFormHint")}</small>
-      </div>
-      <div className="api-profile-form-grid">
-        <label className="field cloud-text-field">
-          <span>{t("settings.apiManagement.profileName")}</span>
-          <input
-            value={draft.name}
-            maxLength={50}
-            autoFocus
-            disabled={saving}
-            placeholder={t("settings.apiManagement.profileNamePlaceholder")}
-            onChange={(event) => onChange({ ...draft, name: event.target.value })}
-          />
-        </label>
-        <Select
-          label={t("settings.apiManagement.provider")}
-          value={draft.provider}
-          options={[
-            { value: "alibaba_cloud", label: "Alibaba Cloud" },
-            { value: "openai", label: "OpenAI / Compatible" },
-            { value: "deepl", label: "DeepL" },
-            { value: "microsoft_translator", label: "Microsoft Translator" },
-          ]}
-          disabled={editing || saving}
-          onChange={(value) => {
-            const provider = value as ApiProvider;
-            onChange({
-              ...draft,
-              provider,
-              purpose: provider === "openai" ? "asr" : provider === "alibaba_cloud" ? "shared" : "llm",
-              region: provider === "microsoft_translator"
-                ? "eastasia"
-                : provider === "alibaba_cloud"
-                  ? "china_beijing"
-                  : "",
-              workspace_id: "",
-              base_url: "",
-            });
-          }}
-        />
-        {(draft.provider === "alibaba_cloud" || draft.provider === "openai") && (
-          <Select
-            label={t("settings.apiManagement.purpose")}
-            value={draft.purpose}
-            options={[
-              { value: "asr", label: t("settings.apiManagement.purposes.asr") },
-              { value: "llm", label: t("settings.apiManagement.purposes.llm") },
-              { value: "shared", label: t("settings.apiManagement.purposes.shared") },
-            ]}
-            disabled={saving}
-            onChange={(value) => onChange({
-              ...draft,
-              purpose: value as ApiProfilePurpose,
-              base_url: value === "llm" ? draft.base_url : "",
-            })}
-          />
-        )}
-        {draft.provider === "alibaba_cloud" && <>
-          <Select
-            label={t("settings.apiManagement.region")}
-            value={draft.region}
-            options={[
-              { value: "china_beijing", label: "China (Beijing)" },
-              { value: "singapore", label: "Singapore" },
-            ]}
-            disabled={saving}
-            onChange={(value) => onChange({ ...draft, region: value as EditorDraft["region"] })}
-          />
-          <label className="field cloud-text-field">
-            <span>Workspace ID</span>
-            <input
-              value={draft.workspace_id}
-              disabled={saving}
-              spellCheck={false}
-              onChange={(event) => onChange({ ...draft, workspace_id: event.target.value })}
-            />
-          </label>
-        </>}
-        {draft.provider === "microsoft_translator" && (
-          <label className="field cloud-text-field">
-            <span>{t("settings.apiManagement.region")}</span>
-            <input
-              value={draft.region}
-              disabled={saving}
-              placeholder="eastasia"
-              onChange={(event) => onChange({ ...draft, region: event.target.value })}
-            />
-          </label>
-        )}
-        {draft.provider === "openai" && draft.purpose === "llm" && (
-          <label className="field cloud-text-field">
-            <span>{t("settings.apiManagement.baseUrl")}</span>
-            <input
-              type="url"
-              value={draft.base_url}
-              disabled={saving}
-              spellCheck={false}
-              placeholder="https://api.deepseek.com/v1"
-              onChange={(event) => onChange({ ...draft, base_url: event.target.value })}
-            />
-            <small>{t("settings.apiManagement.baseUrlHint")}</small>
-          </label>
-        )}
-        <label className="field cloud-text-field api-profile-key-field">
-          <span>{t("settings.apiManagement.apiKey")}</span>
-          <input
-            type="password"
-            value={draft.api_key}
-            autoComplete="off"
-            spellCheck={false}
-            disabled={saving || credential?.environment_override}
-            placeholder={credential?.configured
-              ? t("settings.apiManagement.credentialConfigured")
-              : t("settings.apiManagement.apiKeyOptional")}
-            onChange={(event) => onChange({ ...draft, api_key: event.target.value })}
-          />
-        </label>
-      </div>
-      {credential?.environment_override && (
-        <small className="api-environment-note">{t("settings.apiManagement.environmentManaged")}</small>
-      )}
-      <div className="api-profile-editor-actions">
-        <div>
-          {credential?.stored_configured && !credential.environment_override && onRemoveCredential && (
-            <button className="secondary-button api-danger-button" type="button" disabled={saving} onClick={onRemoveCredential}>
-              {t("settings.apiManagement.removeCredential")}
-            </button>
-          )}
-        </div>
-        <div className="settings-inline-actions">
-          <button className="secondary-button" type="button" disabled={saving} onClick={onCancel}>{t("common.cancel")}</button>
-          <button className="primary-button" type="submit" disabled={!canSave}>{t("common.save")}</button>
-        </div>
-      </div>
-    </form>
-  );
 }
 
 function providerLabel(provider: ApiProvider) {
@@ -227,29 +46,12 @@ export function ApiManagementSettingsSection({
 }) {
   const { t } = useTranslation();
   const profiles = useApiProfiles(onRefreshSettings);
-  const [editor, setEditor] = useState<EditorDraft | null>(null);
+  const [editor, setEditor] = useState<ApiProfileEditorDraft | null>(null);
   const locked = disabled || profiles.busy !== null;
 
   const saveEditor = async () => {
     if (!editor?.name.trim()) return;
-    const profile: Omit<ApiProfile, "id"> = editor.provider === "alibaba_cloud"
-      ? {
-          name: editor.name.trim(),
-          provider: editor.provider,
-          region: editor.region,
-          workspace_id: editor.workspace_id.trim(),
-          purpose: editor.purpose,
-        }
-      : editor.provider === "microsoft_translator"
-        ? { name: editor.name.trim(), provider: editor.provider, region: editor.region.trim(), purpose: "llm" }
-        : editor.provider === "openai"
-          ? {
-              name: editor.name.trim(),
-              provider: editor.provider,
-              base_url: editor.purpose === "llm" ? editor.base_url.trim() || undefined : undefined,
-              purpose: editor.purpose,
-            }
-          : { name: editor.name.trim(), provider: editor.provider, purpose: "llm" };
+    const profile = apiProfileFromEditorDraft(editor);
     const saved = editor.id
       ? await profiles.update({ id: editor.id, ...profile }, editor.api_key)
       : await profiles.create(profile, editor.api_key);
@@ -265,7 +67,7 @@ export function ApiManagementSettingsSection({
     <div className="settings-section settings-section-active api-section" id="settings-panel-api" role="tabpanel" aria-labelledby="settings-tab-api">
       <div className="section-heading api-section-heading">
         <div><KeyRound size={18} /><h2>{t("settings.apiManagement.title")}</h2></div>
-        <button className="primary-button api-add-button" type="button" disabled={locked || Boolean(editor)} onClick={() => setEditor(emptyDraft())}>
+        <button className="primary-button api-add-button" type="button" disabled={locked || Boolean(editor)} onClick={() => setEditor(createApiProfileDraft())}>
           <Plus size={18} aria-hidden="true" />
           {t("settings.apiManagement.addProfile")}
         </button>
@@ -278,7 +80,7 @@ export function ApiManagementSettingsSection({
 
       <div className="api-profile-list" aria-busy={profiles.loading || undefined}>
         {editor && !editor.id && (
-          <ProfileEditor
+          <ApiProfileEditor
             draft={editor}
             saving={profiles.busy === "create"}
             onChange={setEditor}
@@ -363,7 +165,7 @@ export function ApiManagementSettingsSection({
                 </div>
               </section>
               {editing && editor && (
-                <ProfileEditor
+                <ApiProfileEditor
                   draft={editor}
                   saving={profiles.busy === profile.id}
                   credential={profile.credential}

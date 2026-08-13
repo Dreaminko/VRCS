@@ -1,6 +1,7 @@
 @import "./styles/base.css";
 @import "./styles/layout.css";
 @import "./styles/settings.css";
+@import "./styles/onboarding.css";
 @import "./styles/dictionary.css";
 @import "./styles/compact.css";
 @import "./styles/motion.css";

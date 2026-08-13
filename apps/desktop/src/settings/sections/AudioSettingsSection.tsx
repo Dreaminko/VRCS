@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Mic, RefreshCw, TriangleAlert, Volume2 } from "lucide-react";
+import { Mic, RefreshCw, Sparkles, TriangleAlert, Volume2 } from "lucide-react";
 
+import { useMicrophoneCalibration } from "../../hooks/useMicrophoneCalibration";
+import { DEFAULT_MICROPHONE_THRESHOLD_DBFS } from "../../microphone-calibration";
 import type { AudioDevice, AudioLevel, Settings } from "../../types";
 import type { ApplySettings, SaveState } from "../settings-types";
 import { DeviceGroup } from "../SettingsControls";
@@ -42,13 +44,20 @@ export function AudioSettingsSection({
 }) {
   const { t } = useTranslation();
   const [microphoneTestBusy, setMicrophoneTestBusy] = useState(false);
+  const calibration = useMicrophoneCalibration({
+    level: microphoneLevel,
+    testing: microphoneTestRunning,
+    onStartTest: onStartMicrophoneTest,
+  });
+  const microphoneOperationBusy = microphoneTestBusy || calibration.calibrating;
 
   useEffect(() => () => {
     void onStopMicrophoneTest().catch(() => undefined);
   }, [onStopMicrophoneTest]);
 
   const toggleMicrophoneTest = async () => {
-    if (microphoneTestBusy) return;
+    if (microphoneOperationBusy) return;
+    calibration.reset();
     setMicrophoneTestBusy(true);
     try {
       if (microphoneTestRunning) await onStopMicrophoneTest();
@@ -57,6 +66,32 @@ export function AudioSettingsSection({
       setMicrophoneTestBusy(false);
     }
   };
+
+  const startCalibration = async () => {
+    if (microphoneOperationBusy) return;
+    try {
+      await calibration.start();
+    } catch {
+      // The shared core session reports the microphone-test error.
+    }
+  };
+
+  const updateMicrophoneThreshold = (threshold: number) => applySettings((current) => ({
+    ...current,
+    audio: {
+      ...current.audio,
+      microphone: {
+        ...current.audio.microphone,
+        trigger_threshold_dbfs: threshold,
+      },
+    },
+  }));
+
+  const calibrationDisabled = (
+    draft.audio.microphone.mode === "disabled"
+    || transcriptionRunning
+    || saveState === "saving"
+  );
   return (
         <div className="settings-section settings-section-active audio-section" id="settings-panel-audio" role="tabpanel" aria-labelledby="settings-tab-audio">
           <div className="section-heading">
@@ -119,27 +154,79 @@ export function AudioSettingsSection({
             title={t("settings.audio.ownVoice")}
             note={t("settings.audio.ownVoiceDescription")}
             beforeList={(
-              <MicrophoneLevelSetting
-                level={microphoneLevel}
-                enabled={draft.audio.microphone.mode !== "disabled"}
-                captureRunning={microphoneRunning}
-                transcriptionRunning={transcriptionRunning}
-                testing={microphoneTestRunning}
-                busy={microphoneTestBusy}
-                threshold={draft.audio.microphone.trigger_threshold_dbfs}
-                disabled={saveState === "saving"}
-                onToggleTest={() => void toggleMicrophoneTest()}
-                onCommit={(triggerThresholdDbfs) => applySettings((current) => ({
-                  ...current,
-                  audio: {
-                    ...current.audio,
-                    microphone: {
-                      ...current.audio.microphone,
-                      trigger_threshold_dbfs: triggerThresholdDbfs,
-                    },
-                  },
-                }))}
-              />
+              <>
+                <MicrophoneLevelSetting
+                  level={microphoneLevel}
+                  enabled={draft.audio.microphone.mode !== "disabled"}
+                  captureRunning={microphoneRunning}
+                  transcriptionRunning={transcriptionRunning}
+                  testing={microphoneTestRunning}
+                  busy={microphoneOperationBusy}
+                  threshold={draft.audio.microphone.trigger_threshold_dbfs}
+                  disabled={saveState === "saving"}
+                  onToggleTest={() => void toggleMicrophoneTest()}
+                  onCommit={(threshold) => {
+                    calibration.reset();
+                    updateMicrophoneThreshold(threshold);
+                  }}
+                />
+                <div className="microphone-calibration-card">
+                  <div className="microphone-calibration-heading">
+                    <Sparkles size={18} />
+                    <div>
+                      <strong>{t("onboarding.microphone.autoTitle")}</strong>
+                      <small>{t("onboarding.microphone.autoDescription")}</small>
+                    </div>
+                  </div>
+                  <div className={`microphone-calibration-status phase-${calibration.phase}`} role="status" aria-live="polite">
+                    <span><i /></span>
+                    <div>
+                      <strong>{t(`onboarding.microphone.phase.${calibration.phase}`)}</strong>
+                      <small>{calibration.phase === "ready" && calibration.result
+                        ? t("onboarding.microphone.result", {
+                            noise: calibration.result.noiseLevel,
+                            speech: calibration.result.speechLevel,
+                            threshold: calibration.result.threshold,
+                          })
+                        : t(`onboarding.microphone.phaseDescription.${calibration.phase}`)}</small>
+                    </div>
+                  </div>
+                  <div className="microphone-calibration-actions">
+                    <button
+                      className="secondary-button"
+                      type="button"
+                      disabled={microphoneOperationBusy || saveState === "saving"}
+                      onClick={() => {
+                        calibration.reset();
+                        updateMicrophoneThreshold(DEFAULT_MICROPHONE_THRESHOLD_DBFS);
+                      }}
+                    >
+                      {t("onboarding.microphone.restoreDefault")}
+                    </button>
+                    {calibration.result && (
+                      <button
+                        className="secondary-button"
+                        type="button"
+                        disabled={saveState === "saving"}
+                        onClick={() => updateMicrophoneThreshold(calibration.result!.threshold)}
+                      >
+                        {t("onboarding.microphone.applySuggestion")}
+                      </button>
+                    )}
+                    <button
+                      className="primary-button"
+                      type="button"
+                      disabled={microphoneOperationBusy || calibrationDisabled}
+                      onClick={() => void startCalibration()}
+                    >
+                      {microphoneOperationBusy ? <RefreshCw className="spin" size={15} /> : <Sparkles size={15} />}
+                      {calibration.phase === "idle"
+                        ? t("onboarding.microphone.startCalibration")
+                        : t("onboarding.microphone.retryCalibration")}
+                    </button>
+                  </div>
+                </div>
+              </>
             )}
             devices={microphoneDevices}
             devicesReady={devicesReady}
@@ -150,36 +237,45 @@ export function AudioSettingsSection({
                 name: t("settings.audio.defaultMicrophone"),
                 description: t("settings.audio.defaultMicrophoneDescription"),
                 chosen: draft.audio.microphone.mode === "default",
-                onSelect: () => applySettings((current) => ({
-                  ...current,
-                  audio: {
-                    ...current.audio,
-                    microphone: { ...current.audio.microphone, mode: "default", device_id: null },
-                  },
-                })),
+                onSelect: () => {
+                  calibration.reset();
+                  applySettings((current) => ({
+                    ...current,
+                    audio: {
+                      ...current.audio,
+                      microphone: { ...current.audio.microphone, mode: "default", device_id: null },
+                    },
+                  }));
+                },
               },
               {
                 key: "disabled",
                 name: t("settings.audio.disableMicrophone"),
                 description: t("settings.audio.disableMicrophoneDescription"),
                 chosen: draft.audio.microphone.mode === "disabled",
-                onSelect: () => applySettings((current) => ({
-                  ...current,
-                  audio: {
-                    ...current.audio,
-                    microphone: { ...current.audio.microphone, mode: "disabled", device_id: null },
-                  },
-                })),
+                onSelect: () => {
+                  calibration.reset();
+                  applySettings((current) => ({
+                    ...current,
+                    audio: {
+                      ...current.audio,
+                      microphone: { ...current.audio.microphone, mode: "disabled", device_id: null },
+                    },
+                  }));
+                },
               },
             ]}
-            disabled={saveState === "saving"}
-            onSelectDevice={(id) => applySettings((current) => ({
-              ...current,
-              audio: {
-                ...current.audio,
-                microphone: { ...current.audio.microphone, mode: "device", device_id: id },
-              },
-            }))}
+            disabled={saveState === "saving" || microphoneOperationBusy}
+            onSelectDevice={(id) => {
+              calibration.reset();
+              applySettings((current) => ({
+                ...current,
+                audio: {
+                  ...current.audio,
+                  microphone: { ...current.audio.microphone, mode: "device", device_id: id },
+                },
+              }));
+            }}
           />
         </div>
   );

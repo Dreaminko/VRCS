@@ -4,7 +4,13 @@ import { useTranslation } from "react-i18next";
 import { coreApi } from "../api";
 import { supportsLlmModels } from "../api-profile-purpose";
 import { localizedError } from "../app-utils";
-import type { ApiProfile, ApiProfilePurpose, ApiProfileView, AsrApiProvider } from "../types";
+import type {
+  ApiProfile,
+  ApiProfilePurpose,
+  ApiProfileView,
+  AsrApiProvider,
+  AsrSettings,
+} from "../types";
 
 export interface ApiModelCatalogState {
   models: string[];
@@ -83,20 +89,20 @@ export function useApiProfiles(onRefreshSettings: () => Promise<void>) {
     });
   };
 
-  const run = async (
+  const run = async <T,>(
     busyKey: string,
-    action: () => Promise<unknown>,
+    action: () => Promise<T>,
     successKey: string,
     refreshSettings: boolean,
-  ) => {
+  ): Promise<T | null> => {
     setBusy(busyKey);
     setMessage("");
     try {
-      await action();
+      const result = await action();
       if (refreshSettings) await onRefreshSettings();
       await load();
       setMessage(t(successKey));
-      return true;
+      return result;
     } catch (reason) {
       setMessage(localizedError(reason, t, "errors.apiProfiles.operation"));
       try {
@@ -105,7 +111,7 @@ export function useApiProfiles(onRefreshSettings: () => Promise<void>) {
       } catch {
         // 原始操作错误更有诊断价值。
       }
-      return false;
+      return null;
     } finally {
       setBusy(null);
     }
@@ -132,8 +138,9 @@ export function useApiProfiles(onRefreshSettings: () => Promise<void>) {
       return run(
         profile.id,
         async () => {
-          await coreApi.updateApiProfile(profile);
-          if (apiKey.trim()) await coreApi.saveApiProfileCredential(profile.id, apiKey);
+          let saved = await coreApi.updateApiProfile(profile);
+          if (apiKey.trim()) saved = await coreApi.saveApiProfileCredential(profile.id, apiKey);
+          return saved;
         },
         "settings.apiManagement.profileSaved",
         true,
@@ -145,9 +152,13 @@ export function useApiProfiles(onRefreshSettings: () => Promise<void>) {
       "settings.apiManagement.profileActivated",
       true,
     ),
-    test: (profileId: string, capability: Extract<ApiProfilePurpose, "asr" | "llm">) => run(
+    test: (
+      profileId: string,
+      capability: Extract<ApiProfilePurpose, "asr" | "llm">,
+      backend?: Exclude<AsrSettings["backend"], "local_whisper">,
+    ) => run(
       profileId,
-      () => coreApi.testApiProfile(profileId, capability),
+      () => coreApi.testApiProfile(profileId, capability, backend),
       "settings.apiManagement.connectionSucceeded",
       false,
     ),

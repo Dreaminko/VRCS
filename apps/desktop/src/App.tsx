@@ -16,6 +16,7 @@ import {
   VrchatNotRunningDialog,
 } from "./components/WarningDialogs";
 import { WindowChrome } from "./components/WindowChrome";
+import { OnboardingWizard } from "./onboarding/OnboardingWizard";
 import { useCompactWindow } from "./hooks/useCompactWindow";
 import { useConversationWorkspace } from "./hooks/useConversationWorkspace";
 import { useCoreSession } from "./hooks/useCoreSession";
@@ -29,6 +30,12 @@ import {
 } from "./interface-scale";
 import { SettingsPanel } from "./settings/SettingsPanel";
 import {
+  completeOnboarding,
+  loadOnboardingState,
+  needsOnboarding,
+  saveOnboardingProgress,
+} from "./onboarding-state";
+import {
   readTranscriptionStartBehavior,
   shouldCreateConversationOnCaptureToggle,
 } from "./transcription-start";
@@ -38,7 +45,9 @@ function App() {
   const locale = i18n.resolvedLanguage ?? "en-US";
   const [page, setPage] = useState<Page>("live");
   const [interfaceScale, setInterfaceScale] = useState(readInterfaceScale);
-  const core = useCoreSession(page === "settings");
+  const [onboardingStatus, setOnboardingStatus] = useState<"loading" | "required" | "complete">("loading");
+  const [onboardingStep, setOnboardingStep] = useState(0);
+  const core = useCoreSession(page === "settings" || onboardingStatus !== "complete");
   const {
     connection,
     coreReady,
@@ -116,6 +125,21 @@ function App() {
   } = conversation;
 
   useEffect(() => {
+    let cancelled = false;
+    void loadOnboardingState().then(
+      (state) => {
+        if (cancelled) return;
+        setOnboardingStep(state.currentStep);
+        setOnboardingStatus(needsOnboarding(state) ? "required" : "complete");
+      },
+      () => {
+        if (!cancelled) setOnboardingStatus("required");
+      },
+    );
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
     writeInterfaceScale(interfaceScale);
     void applyInterfaceScale(interfaceScale).catch((reason) => {
       reportError(reason, "errors.window.interfaceScale", "window");
@@ -140,6 +164,7 @@ function App() {
   }, []);
 
   useEffect(() => {
+    if (onboardingStatus !== "complete") return;
     const runtimeMissing = Boolean(
       asrCapabilities
       && asrCapabilities.cuda.device_count > 0
@@ -152,10 +177,10 @@ function App() {
       cudaRuntimeWarningShownRef.current = false;
       setCudaRuntimeWarningOpen(false);
     }
-  }, [asrCapabilities]);
+  }, [asrCapabilities, onboardingStatus]);
 
-  const toggleCapture = async () => {
-    if (!coreReady) return;
+  const toggleCapture = async (): Promise<boolean> => {
+    if (!coreReady) return false;
     try {
       if (shouldCreateConversationOnCaptureToggle(
         health?.capture_running ?? false,
@@ -165,6 +190,7 @@ function App() {
         clearLookup();
       }
       await toggleCoreCapture();
+      return true;
     } catch (reason) {
       if (shouldShowVrchatNotRunningWarning(
         reason,
@@ -183,6 +209,7 @@ function App() {
       } else {
         reportError(reason, "errors.operation", "capture");
       }
+      return false;
     }
   };
 
@@ -205,6 +232,54 @@ function App() {
     subtitles,
     lookup?.context,
   );
+
+  if (onboardingStatus !== "complete") {
+    return (
+      <div className="app-shell onboarding-shell">
+        <WindowChrome />
+        {onboardingStatus === "loading" || !settings ? (
+          <div className="onboarding-loading" role="status">
+            <span className="onboarding-loading-mark">VRCS</span>
+            <p>{startupFailed ? t("errors.core.initialize") : t("common.loading")}</p>
+            {startupFailed && <button className="primary-button" type="button" onClick={() => void retryCore()}>{t("common.retry")}</button>}
+          </div>
+        ) : (
+          <OnboardingWizard
+            initialStep={onboardingStep}
+            settings={settings}
+            health={health}
+            devices={devices}
+            devicesReady={devicesReady}
+            microphoneLevel={audioLevels.microphone ?? null}
+            asrCapabilities={asrCapabilities}
+            modelStatus={health?.asr_status ?? "unknown"}
+            onRefreshDevices={loadDevices}
+            onRefreshSettings={loadSettings}
+            onModelsChanged={loadAsrCapabilities}
+            onStartMicrophoneTest={startMicrophoneTest}
+            onStopMicrophoneTest={stopMicrophoneTest}
+            onSave={saveSettings}
+            onProgress={async (nextStep) => {
+              await saveOnboardingProgress(nextStep);
+              setOnboardingStep(nextStep);
+            }}
+            onSkip={async () => {
+              await completeOnboarding();
+              setOnboardingStatus("complete");
+            }}
+            onComplete={async (startCapture) => {
+              if (startCapture && !(await toggleCapture())) {
+                throw new Error(t("onboarding.errors.startCapture"));
+              }
+              await completeOnboarding();
+              setOnboardingStatus("complete");
+              setPage("live");
+            }}
+          />
+        )}
+      </div>
+    );
+  }
 
   if (compact) {
     return (
@@ -374,6 +449,11 @@ function App() {
                 onInterfaceScaleChange={setInterfaceScale}
                 onSave={saveSettings}
                 onTestOsc={testOsc}
+                onStartOnboarding={() => {
+                  if (health?.capture_running) return;
+                  setOnboardingStep(0);
+                  setOnboardingStatus("required");
+                }}
               />
             )}
           </main>

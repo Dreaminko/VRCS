@@ -64,6 +64,7 @@ export function SettingsPanel({
   onInterfaceScaleChange,
   onSave,
   onTestOsc,
+  onStartOnboarding,
 }: {
   settings: Settings;
   health: Health | null;
@@ -88,6 +89,7 @@ export function SettingsPanel({
   onInterfaceScaleChange: (value: number) => void;
   onSave: (value: Settings) => Promise<Settings>;
   onTestOsc: () => Promise<void>;
+  onStartOnboarding: () => void;
 }) {
   const { t, i18n } = useTranslation();
   const locale = i18n.resolvedLanguage ?? "en-US";
@@ -234,6 +236,8 @@ export function SettingsPanel({
           onUpdateDesktop={updateDesktop}
           onInterfaceScaleChange={onInterfaceScaleChange}
           onUpdateUiLanguage={updateUiLanguage}
+          onboardingDisabled={health?.capture_running ?? false}
+          onStartOnboarding={onStartOnboarding}
         />
       )}
 
