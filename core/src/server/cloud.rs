@@ -315,6 +315,7 @@ pub(super) async fn profile_activate(
                 "This API profile does not support realtime speech recognition",
             ));
         }
+        ensure_asr_profile_ready(profile)?;
     }
     match provider.as_str() {
         ALIBABA_PROVIDER => candidate.asr.active_api_profiles.alibaba_cloud = input.profile_id,
@@ -393,6 +394,7 @@ pub(super) async fn credential_test(
                 "This API profile does not support realtime speech recognition",
             ));
         }
+        ensure_asr_profile_ready(profile)?;
         asr::streaming_test_backend(&config.asr, &profile_id, query.backend.as_deref()).map_err(
             |error| {
                 api_error(
@@ -503,6 +505,22 @@ fn profile_not_found() -> (StatusCode, Json<Value>) {
     )
 }
 
+fn ensure_asr_profile_ready(profile: &ApiProfile) -> ApiResult<()> {
+    if profile.provider == ALIBABA_PROVIDER
+        && !profile
+            .workspace_id
+            .as_deref()
+            .is_some_and(|workspace| !workspace.trim().is_empty())
+    {
+        return Err(api_error(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "asr.alibaba_workspace_missing",
+            "Configure an Alibaba Cloud Workspace ID before using speech recognition",
+        ));
+    }
+    Ok(())
+}
+
 fn credential_error(profile_id: &str, detail: String) -> (StatusCode, Json<Value>) {
     let status = if detail.contains("Unsupported") || detail.contains("length") {
         StatusCode::UNPROCESSABLE_ENTITY
@@ -542,5 +560,32 @@ fn normalize_profile_fields(profile: &mut ApiProfile) {
         DEEPL_PROVIDER | MICROSOFT_PROVIDER
     ) {
         profile.purpose = Some(API_PURPOSE_LLM.into());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn alibaba_asr_requires_a_workspace() {
+        let profile = ApiProfile {
+            id: "alibaba".into(),
+            name: "Alibaba".into(),
+            provider: ALIBABA_PROVIDER.into(),
+            region: Some("china_beijing".into()),
+            workspace_id: None,
+            base_url: None,
+            purpose: Some(API_PURPOSE_SHARED.into()),
+        };
+
+        let (_, body) = ensure_asr_profile_ready(&profile).unwrap_err();
+        assert_eq!(body["code"], "asr.alibaba_workspace_missing");
+
+        let ready = ApiProfile {
+            workspace_id: Some("workspace-one".into()),
+            ..profile
+        };
+        assert!(ensure_asr_profile_ready(&ready).is_ok());
     }
 }

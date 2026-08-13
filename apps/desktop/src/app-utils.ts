@@ -14,12 +14,13 @@ export function localizedError(
   t: TFunction,
   fallbackKey: string,
 ): string {
+  const missing = "__VRCS_UNTRANSLATED_ERROR__";
   if (reason instanceof ApiError) {
-    const fallback = t(fallbackKey);
-    return t(`errors.${reason.code}`, {
+    const localized = t(`errors.${reason.code}`, {
       ...reason.params,
-      defaultValue: fallback,
+      defaultValue: missing,
     });
+    return localized === missing ? reason.detail || t(fallbackKey) : localized;
   }
   if (
     reason
@@ -27,7 +28,11 @@ export function localizedError(
     && "code" in reason
     && typeof reason.code === "string"
   ) {
-    return t(`errors.${reason.code}`, { defaultValue: t(fallbackKey) });
+    const localized = t(`errors.${reason.code}`, { defaultValue: missing });
+    if (localized !== missing) return localized;
+    return "detail" in reason && typeof reason.detail === "string" && reason.detail
+      ? reason.detail
+      : t(fallbackKey);
   }
   return reason instanceof Error ? reason.message : t(fallbackKey);
 }

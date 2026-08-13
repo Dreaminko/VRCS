@@ -80,9 +80,10 @@ export function ApiProfileEditor({
   const { t } = useTranslation();
   const editing = Boolean(draft.id);
   const credentialAvailable = credential?.configured || Boolean(draft.api_key.trim());
+  const workspaceRequired = draft.provider === "alibaba_cloud" && draft.purpose !== "llm";
   const canSave = Boolean(draft.name.trim())
     && (draft.provider !== "microsoft_translator" || Boolean(draft.region.trim()))
-    && (!requireCredential || draft.provider !== "alibaba_cloud" || Boolean(draft.workspace_id.trim()))
+    && (!workspaceRequired || Boolean(draft.workspace_id.trim()))
     && (!requireCredential || credentialAvailable)
     && !saving;
 
@@ -91,7 +92,7 @@ export function ApiProfileEditor({
     label: provider === "alibaba_cloud"
       ? "Alibaba Cloud"
       : provider === "openai"
-        ? "OpenAI / Compatible"
+        ? t("settings.apiManagement.openaiProvider")
         : provider === "deepl"
           ? "DeepL"
           : "Microsoft Translator",
@@ -153,13 +154,17 @@ export function ApiProfileEditor({
             onChange={(value) => onChange({ ...draft, region: value })}
           />
           <label className="field cloud-text-field">
-            <span>Workspace ID</span>
+            <span>{t("settings.apiManagement.workspaceId")}</span>
             <input
               value={draft.workspace_id}
               disabled={saving}
               spellCheck={false}
+              aria-invalid={workspaceRequired && !draft.workspace_id.trim()}
               onChange={(event) => onChange({ ...draft, workspace_id: event.target.value })}
             />
+            <small>{t(workspaceRequired
+              ? "settings.apiManagement.workspaceIdRequired"
+              : "settings.apiManagement.workspaceIdOptional")}</small>
           </label>
         </>}
         {draft.provider === "microsoft_translator" && (

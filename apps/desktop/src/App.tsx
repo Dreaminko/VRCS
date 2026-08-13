@@ -393,7 +393,6 @@ function App() {
                 connection={connection}
                 health={health}
                 settings={settings}
-                vrchatMuteStatus={vrchatMuteStatus}
               />
             )}
 

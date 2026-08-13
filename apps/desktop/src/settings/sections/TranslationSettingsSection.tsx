@@ -20,6 +20,20 @@ function modelForProfile(profile: ApiProfile | undefined, current: string): stri
   return current;
 }
 
+function profileProviderLabel(profile: ApiProfile): string {
+  if (profile.provider === "alibaba_cloud") return "Alibaba Cloud";
+  if (profile.provider === "microsoft_translator") return "Microsoft Translator";
+  if (profile.provider === "deepl") return "DeepL";
+  return profile.base_url ? "OpenAI Compatible" : "OpenAI";
+}
+
+function profileOptionLabel(profile: ApiProfile): string {
+  const provider = profileProviderLabel(profile);
+  return profile.name.localeCompare(provider, undefined, { sensitivity: "base" }) === 0
+    ? profile.name
+    : `${profile.name} · ${provider}`;
+}
+
 export function TranslationSettingsSection({ draft, disabled, saveState, applySettings }: {
   draft: Settings;
   disabled: boolean;
@@ -214,7 +228,10 @@ export function TranslationSettingsSection({ draft, disabled, saveState, applySe
                 ...(!draft.translation.profile_id
                   ? [{ value: "", label: t("settings.translation.selectProfile") }]
                   : []),
-                ...translationProfiles.map((profile) => ({ value: profile.id, label: profile.name })),
+                ...translationProfiles.map((profile) => ({
+                  value: profile.id,
+                  label: profileOptionLabel(profile),
+                })),
               ]}
               onChange={(profile_id) => {
                 const profile = translationProfiles.find((item) => item.id === profile_id);

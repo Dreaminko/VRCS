@@ -309,6 +309,7 @@ export function SettingsPanel({
 
       {activeCategory === "api" && (
         <ApiManagementSettingsSection
+          settings={draft}
           disabled={disabled}
           onRefreshSettings={onRefreshSettings}
         />

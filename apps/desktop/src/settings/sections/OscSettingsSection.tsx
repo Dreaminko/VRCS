@@ -59,6 +59,17 @@ export function OscSettingsSection({
     : runtime?.status === "error"
       ? "error"
       : "ready";
+  const statusKey = state === "error"
+    ? "error"
+    : runtime?.send_gate === "blocked_vrchat_muted"
+      ? "muted"
+      : runtime?.send_gate === "blocked_mute_unknown"
+        ? "unknown"
+        : state;
+  const statusDetail = runtime?.last_error
+    || (runtime?.send_gate === "blocked_mute_unknown" ? health?.vrchat_mute_sync?.last_error : null)
+    || message
+    || t("settings.osc.statusHint");
 
   return (
     <div className="settings-section settings-section-active osc-section" id="settings-panel-osc" role="tabpanel" aria-labelledby="settings-tab-osc">
@@ -113,12 +124,8 @@ export function OscSettingsSection({
         <div className={`osc-connection ${state}`} aria-live="polite">
           <span className="osc-connection-dot" aria-hidden="true" />
           <div>
-            <strong>{health?.vrchat_mute_sync?.muted
-              ? t("settings.osc.status.muted")
-              : runtime?.send_gate === "blocked_mute_unknown"
-                ? t("settings.osc.status.unknown")
-                : t(`settings.osc.status.${state}`)}</strong>
-            <p>{health?.vrchat_mute_sync?.last_error || runtime?.last_error || message || t("settings.osc.statusHint")}</p>
+            <strong>{t(`settings.osc.status.${statusKey}`)}</strong>
+            <p>{statusDetail}</p>
           </div>
           <code>{runtime?.target || `127.0.0.1:${draft.osc.port}`}</code>
         </div>

@@ -8,7 +8,7 @@ import {
   supportsRecognition,
   supportsTranslation,
 } from "../../api-profile-purpose";
-import type { ApiProfileView, ApiProvider } from "../../types";
+import type { ApiProfileView, ApiProvider, Settings } from "../../types";
 import {
   ApiProfileEditor,
   apiProfileFromEditorDraft,
@@ -30,17 +30,19 @@ function draftFromProfile(profile: ApiProfileView): ApiProfileEditorDraft {
   };
 }
 
-function providerLabel(provider: ApiProvider) {
+function providerLabel(provider: ApiProvider, baseUrl?: string) {
   if (provider === "alibaba_cloud") return "Alibaba Cloud";
   if (provider === "microsoft_translator") return "Microsoft Translator";
   if (provider === "deepl") return "DeepL";
-  return "OpenAI";
+  return baseUrl ? "OpenAI Compatible" : "OpenAI";
 }
 
 export function ApiManagementSettingsSection({
+  settings,
   disabled,
   onRefreshSettings,
 }: {
+  settings: Settings;
   disabled: boolean;
   onRefreshSettings: () => Promise<void>;
 }) {
@@ -59,7 +61,18 @@ export function ApiManagementSettingsSection({
   };
 
   const removeProfile = async (profile: ApiProfileView) => {
-    if (!window.confirm(t("settings.apiManagement.confirmDelete", { name: profile.name }))) return;
+    const affectsTranslation = profile.translation_active;
+    const impact = profile.active && affectsTranslation
+      ? t("settings.apiManagement.deleteImpacts.transcriptionAndTranslation")
+      : profile.active
+        ? t("settings.apiManagement.deleteImpacts.transcription")
+        : affectsTranslation
+          ? t("settings.apiManagement.deleteImpacts.translation")
+          : "";
+    if (!window.confirm(t("settings.apiManagement.confirmDelete", {
+      name: profile.name,
+      impact,
+    }))) return;
     if (await profiles.remove(profile.id)) setEditor((current) => current?.id === profile.id ? null : current);
   };
 
@@ -99,10 +112,21 @@ export function ApiManagementSettingsSection({
         {profiles.profiles.map((profile) => {
           const editing = editor?.id === profile.id;
           const recognitionCapable = supportsRecognition(profile);
+          const recognitionReady = recognitionCapable && !(
+            profile.provider === "alibaba_cloud" && !profile.workspace_id?.trim()
+          );
           const translationCapable = supportsTranslation(profile);
           const supportsModels = supportsLlmModels(profile);
           const purpose = apiProfilePurpose(profile);
           const modelCatalog = profiles.modelCatalogs[profile.id];
+          const transcriptionActive = profile.active && (
+            (profile.provider === "alibaba_cloud" && ["qwen_realtime", "fun_asr_realtime"].includes(settings.asr.backend))
+            || (profile.provider === "openai" && settings.asr.backend === "openai_realtime")
+          );
+          const translationActive = profile.translation_active && (
+            settings.translation.mode !== "disabled"
+            || settings.translation.translate_microphone
+          );
           const status = profile.credential.environment_override
             ? t("settings.apiManagement.sourceEnvironment")
             : profile.credential.configured
@@ -122,7 +146,7 @@ export function ApiManagementSettingsSection({
                   <span className="api-profile-icon"><Cloud size={16} aria-hidden="true" /></span>
                   <span>
                     <strong>{profile.name}</strong>
-                    <small>{providerLabel(profile.provider)} · {t(`settings.apiManagement.purposes.${purpose}`)} · {detail}</small>
+                    <small>{providerLabel(profile.provider, profile.base_url)} · {t(`settings.apiManagement.purposes.${purpose}`)} · {detail}</small>
                     {supportsModels && modelCatalog && (
                       <small className={modelCatalog.error ? "api-model-catalog-error" : ""}>
                         {modelCatalog.loading
@@ -142,11 +166,13 @@ export function ApiManagementSettingsSection({
                 </div>
                 <div className="api-profile-actions">
                   {profile.active ? (
-                    <span className="api-active-badge"><Check size={13} aria-hidden="true" />{t("settings.apiManagement.transcriptionActive")}</span>
+                    <span className="api-active-badge"><Check size={13} aria-hidden="true" />{t(transcriptionActive
+                      ? "settings.apiManagement.transcriptionActive"
+                      : "settings.apiManagement.transcriptionDefault")}</span>
                   ) : recognitionCapable ? (
-                    <button className="secondary-button" type="button" disabled={locked || !profile.credential.configured} onClick={() => void profiles.activate(profile.provider === "alibaba_cloud" ? "alibaba_cloud" : "openai", profile.id)}>{t("settings.apiManagement.setActive")}</button>
+                    <button className="secondary-button" type="button" disabled={locked || !profile.credential.configured || !recognitionReady} onClick={() => void profiles.activate(profile.provider === "alibaba_cloud" ? "alibaba_cloud" : "openai", profile.id)}>{t("settings.apiManagement.setDefault")}</button>
                   ) : null}
-                  {profile.translation_active && <span className="api-active-badge"><Check size={13} aria-hidden="true" />{t("settings.apiManagement.translationActive")}</span>}
+                  {translationActive && <span className="api-active-badge"><Check size={13} aria-hidden="true" />{t("settings.apiManagement.translationActive")}</span>}
                   {supportsModels && (
                     <button
                       className="secondary-button"
@@ -158,7 +184,7 @@ export function ApiManagementSettingsSection({
                       {t("settings.apiManagement.refreshModels")}
                     </button>
                   )}
-                  {recognitionCapable && <button className="secondary-button" type="button" disabled={profiles.busy !== null || !profile.credential.configured} onClick={() => void profiles.test(profile.id, "asr")}>{t("settings.apiManagement.testAsr")}</button>}
+                  {recognitionCapable && <button className="secondary-button" type="button" disabled={profiles.busy !== null || !profile.credential.configured || !recognitionReady} onClick={() => void profiles.test(profile.id, "asr")}>{t("settings.apiManagement.testAsr")}</button>}
                   {translationCapable && <button className="secondary-button" type="button" disabled={profiles.busy !== null || !profile.credential.configured} onClick={() => void profiles.test(profile.id, "llm")}>{t("settings.apiManagement.testTranslation")}</button>}
                   <button className="api-row-icon-button" type="button" aria-label={t("common.edit")} disabled={locked || Boolean(editor)} onClick={() => setEditor(draftFromProfile(profile))}><Pencil size={15} /></button>
                   <button className="api-row-icon-button danger" type="button" aria-label={t("common.delete")} disabled={locked} onClick={() => void removeProfile(profile)}><Trash2 size={15} /></button>
