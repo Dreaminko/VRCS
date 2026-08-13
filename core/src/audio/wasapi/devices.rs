@@ -5,6 +5,7 @@ use crate::models::AudioDevice;
 use super::super::{AudioError, CaptureSource};
 
 pub(super) fn err(error: ::wasapi::WasapiError) -> AudioError {
+    use windows::Win32::Foundation::ERROR_FILE_NOT_FOUND;
     use windows::Win32::Media::Audio::{
         AUDCLNT_E_DEVICE_INVALIDATED, AUDCLNT_E_DEVICE_IN_USE, AUDCLNT_E_ENDPOINT_CREATE_FAILED,
         AUDCLNT_E_RESOURCES_INVALIDATED, AUDCLNT_E_SERVICE_NOT_RUNNING,
@@ -12,14 +13,18 @@ pub(super) fn err(error: ::wasapi::WasapiError) -> AudioError {
 
     let retryable = match &error {
         ::wasapi::WasapiError::DeviceNotFound(_) => true,
-        ::wasapi::WasapiError::Windows(error) => matches!(
-            error.code(),
-            AUDCLNT_E_DEVICE_INVALIDATED
-                | AUDCLNT_E_DEVICE_IN_USE
-                | AUDCLNT_E_ENDPOINT_CREATE_FAILED
-                | AUDCLNT_E_RESOURCES_INVALIDATED
-                | AUDCLNT_E_SERVICE_NOT_RUNNING
-        ),
+        ::wasapi::WasapiError::Windows(error) => {
+            let code = error.code();
+            code == windows::core::HRESULT::from_win32(ERROR_FILE_NOT_FOUND.0)
+                || matches!(
+                    code,
+                    AUDCLNT_E_DEVICE_INVALIDATED
+                        | AUDCLNT_E_DEVICE_IN_USE
+                        | AUDCLNT_E_ENDPOINT_CREATE_FAILED
+                        | AUDCLNT_E_RESOURCES_INVALIDATED
+                        | AUDCLNT_E_SERVICE_NOT_RUNNING
+                )
+        }
         _ => false,
     };
     if retryable {
@@ -184,7 +189,18 @@ pub(super) fn find_device_by_wasapi_id(
 
 #[cfg(test)]
 mod tests {
-    use super::device_key;
+    use super::{device_key, err};
+    use windows::Win32::Foundation::ERROR_FILE_NOT_FOUND;
+
+    #[test]
+    fn file_not_found_is_retryable_during_audio_startup() {
+        let windows_error = windows::core::Error::from_hresult(windows::core::HRESULT::from_win32(
+            ERROR_FILE_NOT_FOUND.0,
+        ));
+        let error = err(::wasapi::WasapiError::Windows(windows_error));
+
+        assert!(error.is_retryable());
+    }
 
     #[test]
     fn device_keys_are_javascript_safe() {
