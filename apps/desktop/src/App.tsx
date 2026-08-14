@@ -7,6 +7,7 @@ import type { Page } from "./app-types";
 import { subtitleForCompactView } from "./compact-mode";
 import { shouldShowVrchatNotRunningWarning } from "./capture-warning";
 import { BottomDock } from "./components/BottomDock";
+import { ChatboxComposer } from "./components/ChatboxComposer";
 import { CompactView } from "./components/CompactView";
 import { ConversationSidebar } from "./components/ConversationSidebar";
 import { DictionaryPopover } from "./components/DictionaryPopover";
@@ -18,6 +19,7 @@ import {
 import { WindowChrome } from "./components/WindowChrome";
 import { OnboardingWizard } from "./onboarding/OnboardingWizard";
 import { useCompactWindow } from "./hooks/useCompactWindow";
+import { useChatboxWorkspace } from "./hooks/useChatboxWorkspace";
 import { useConversationWorkspace } from "./hooks/useConversationWorkspace";
 import { useCoreSession } from "./hooks/useCoreSession";
 import { useDictionaryLookup } from "./hooks/useDictionaryLookup";
@@ -83,6 +85,7 @@ function App() {
   const [vrchatWarningOpen, setVrchatWarningOpen] = useState(false);
   const [cudaRuntimeWarningOpen, setCudaRuntimeWarningOpen] = useState(false);
   const [vrchatMuteToast, setVrchatMuteToast] = useState<{ messageKey: string; muted: boolean } | null>(null);
+  const chatboxButtonRef = useRef<HTMLButtonElement | null>(null);
   const previousVrchatMuteRef = useRef<boolean | null | undefined>(undefined);
   const cudaRuntimeWarningShownRef = useRef(false);
   const compactWindow = useCompactWindow({ clearError, reportError });
@@ -137,6 +140,7 @@ function App() {
     closeCompactLookup,
     selectWord,
   } = dictionaryLookup;
+  const chatbox = useChatboxWorkspace(settings);
   const conversation = useConversationWorkspace({
     subtitles,
     page,
@@ -261,6 +265,16 @@ function App() {
   const createConversationAndCloseLookup = () => {
     createConversation();
     clearLookup();
+  };
+
+  const openChatbox = () => {
+    clearLookup();
+    chatbox.show();
+  };
+
+  const closeChatbox = () => {
+    chatbox.close();
+    requestAnimationFrame(() => chatboxButtonRef.current?.focus());
   };
 
   const compactSubtitle = subtitleForCompactView(
@@ -496,7 +510,7 @@ function App() {
         </div>
       </div>
 
-      {page === "live" && !followingLiveSubtitles && (
+      {page === "live" && !followingLiveSubtitles && !chatbox.open && (
         <button
           className="live-scroll-to-bottom"
           type="button"
@@ -512,13 +526,41 @@ function App() {
         page={page}
         running={health?.capture_requested ?? false}
         captureDisabled={!coreReady || capturePending}
+        chatboxOpen={page === "live" && chatbox.open}
+        chatboxDisabled={!coreReady || settings === null}
+        chatboxButtonRef={chatboxButtonRef}
         onPageChange={(next) => {
           clearLookup();
           setPage(next);
         }}
-        onCompact={() => void toggleCompact(clearLookup)}
+        onCompact={() => {
+          void toggleCompact(clearLookup);
+        }}
+        onChatbox={() => {
+          if (page !== "live") {
+            setPage("live");
+            openChatbox();
+            return;
+          }
+          if (chatbox.open) closeChatbox();
+          else openChatbox();
+        }}
         onCapture={() => void toggleCapture()}
       />
+
+      {page === "live" && chatbox.open && (
+        <ChatboxComposer
+          draft={chatbox.draft}
+          preview={chatbox.preview}
+          busy={chatbox.busy}
+          feedback={chatbox.feedback}
+          translationStale={chatbox.translationStale}
+          oscEnabled={settings?.osc.enabled ?? false}
+          onDraftChange={chatbox.setDraft}
+          onTranslate={chatbox.translate}
+          onSend={chatbox.send}
+        />
+      )}
 
       {lookup && (
         <DictionaryPopover

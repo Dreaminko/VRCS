@@ -50,7 +50,36 @@
       "live": "实时字幕",
       "history": "字幕历史",
       "settings": "设置",
-      "compact": "字幕模式"
+      "compact": "字幕模式",
+      "chatbox": "Chatbox 消息"
+    },
+    "chatbox": {
+      "title": "Chatbox 发送",
+      "detailsTitle": "发送设置",
+      "expandDetails": "展开发送设置",
+      "collapseDetails": "收起发送设置",
+      "translationOnSend": "发送时自动翻译",
+      "translationPreviewPending": "译文将在发送时自动生成",
+      "inputCount": "{{count}} 个字符",
+      "original": "原文",
+      "originalPlaceholder": "输入要发送到 VRChat 的消息",
+      "translation": "译文",
+      "translationPlaceholder": "翻译后可在这里修改",
+      "translationStale": "原文已修改",
+      "targetLanguage": "目标语言",
+      "translate": "翻译",
+      "sendMode": "发送内容",
+      "modes": { "original": "原文", "translation": "译文", "bilingual": "双语" },
+      "format": "消息格式",
+      "formats": { "originalFirst": "原文换行译文", "translationFirst": "译文换行原文", "slash": "斜线分隔", "custom": "自定义" },
+      "customFormat": "自定义消息格式",
+      "preview": "发送预览",
+      "previewEmpty": "输入消息后将在这里显示最终效果",
+      "smartTruncate": "智能截断后发送",
+      "send": "发送到 VRChat",
+      "sending": "正在发送…",
+      "oscDisabled": "请先在设置中启用 OSC Chatbox 输出。",
+      "errors": { "translate": "无法翻译这条消息。", "send": "无法发送 Chatbox 消息。" }
     },
     "capture": {
       "start": "开始转写",
@@ -679,6 +708,15 @@
     "errors": {
       "unknown": "发生未知错误。",
       "operation": "操作失败。",
+      "chatbox": {
+        "missing_original": "请输入原文。", "missing_translation": "请先填写或生成译文。", "missing_bilingual_text": "双语发送需要原文和译文。",
+        "text_too_long": "消息最多可输入 5000 个字符。", "invalid_language": "语言代码无效。", "invalid_format": "自定义格式必须各包含一次 {original} 和 {translation}。",
+        "over_limit": "消息共 {{count}} 个字符，超过 {{limit}} 字符限制。", "history_store_failed": "消息已处理，但无法保存发送记录。", "conversation_store_failed": "消息已发送，但无法写入当前对话。"
+      },
+      "osc": {
+        "disabled": "OSC Chatbox 输出尚未启用。", "blocked_vrchat_muted": "VRChat 当前处于静音状态，消息未发送。", "blocked_mute_unknown": "正在确认 VRChat 静音状态，请稍后再试。",
+        "queue_full": "OSC 发送队列已满，请稍后再试。", "send_timeout": "OSC 发送等待超时。", "send_cancelled": "OSC 设置发生变化，发送已取消。", "send_failed": "无法发送到本机 VRChat OSC 端口。"
+      },
       "apiProfiles": {
         "operation": "API 配置操作失败。",
         "models": "无法获取此 API 配置的模型列表，可手动填写模型名。"

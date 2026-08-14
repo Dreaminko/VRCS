@@ -142,6 +142,15 @@ test("valid stream payloads pass protocol validation", () => {
   assert.equal(message?.type, "subtitle");
 });
 
+test("Chatbox messages pass subtitle stream validation", () => {
+  const outgoing = { ...subtitle(4, "hello"), source: "chatbox" as const };
+  const message = parseSubtitleStreamMessage(JSON.stringify({
+    type: "subtitle",
+    subtitle: outgoing,
+  }));
+  assert.deepEqual(message, { type: "subtitle", subtitle: outgoing });
+});
+
 test("microphone audio levels pass protocol validation", () => {
   const message = parseSubtitleStreamMessage(JSON.stringify({
     type: "audio_level",

@@ -288,7 +288,9 @@
 .onboarding-next-hints { display: grid; width: 100%; gap: 9px; margin-top: 18px; color: var(--text-quiet); font-size: 10px; }
 .onboarding-next-hints > div { display: flex; flex-wrap: wrap; justify-content: center; gap: 7px; }
 .onboarding-next-hints > div span { padding: 5px 9px; border-radius: var(--radius-pill); color: var(--text-secondary); background: var(--surface-subtle); }
-.onboarding-message { margin: 0 26px 10px; padding: 9px 12px; border-radius: var(--radius-sm); color: var(--error); background: var(--error-soft); font-size: 11px; line-height: 1.45; }
+.onboarding-message { margin: 0 26px 10px; padding: 9px 12px; border-radius: var(--radius-sm); font-size: 11px; line-height: 1.45; }
+.onboarding-message.info { color: var(--primary-ink); background: var(--primary-softer); }
+.onboarding-message.error { color: var(--error); background: var(--error-soft); }
 .onboarding-actions {
   display: flex;
   min-height: 72px;

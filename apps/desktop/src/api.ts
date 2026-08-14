@@ -8,6 +8,9 @@ import type {
   AsrCapabilities,
   AsrModelRecord,
   AudioDevice,
+  ChatboxComposeInput,
+  ChatboxMessage,
+  ChatboxPreview,
   DictionaryEntry,
   DictionaryImportProgress,
   DictionarySource,
@@ -166,6 +169,16 @@ export const coreApi = {
     { method: "POST" },
   ),
   testOsc: () => request<{ queued: boolean }>("/api/osc/test", { method: "POST" }),
+  previewChatbox: (input: ChatboxComposeInput) =>
+    request<ChatboxPreview>("/api/chatbox/preview", {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  sendChatbox: (input: ChatboxComposeInput) =>
+    request<ChatboxMessage>("/api/chatbox/messages", {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
   asrCapabilities: () => request<AsrCapabilities>("/api/asr/capabilities"),
   asrModels: () => request<AsrModelRecord[]>("/api/asr/models"),
   apiProfiles: () => request<{ profiles: ApiProfileView[] }>("/api/asr/profiles"),

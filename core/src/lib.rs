@@ -3,6 +3,7 @@
 mod anki;
 mod asr;
 mod audio;
+mod chatbox;
 mod config;
 mod credentials;
 mod db;
@@ -263,7 +264,7 @@ async fn start_inner(options: CoreOptions, defer_managed_vad: bool) -> Result<Co
     let (live_tx, _) = broadcast::channel(100);
     let (translation_tx, _) = broadcast::channel(100);
     let db = Arc::new(Mutex::new(database));
-    let osc = osc::OscChatboxDispatcher::new(config.osc.clone());
+    let osc = osc::OscChatboxDispatcher::new_with_db(config.osc.clone(), Arc::clone(&db));
     let subtitle_output = subtitle_output::SubtitleLifecyclePublisher::new(
         subtitles_tx.clone(),
         translation_tx.clone(),
@@ -402,6 +403,101 @@ mod tests {
         .await
         .unwrap();
         assert!(handle.address().port() > 0);
+        handle.shutdown().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn chatbox_send_is_stored_and_broadcast_as_conversation_message() {
+        let directory = tempfile::tempdir().unwrap();
+        let port = std::net::TcpListener::bind(("127.0.0.1", 0))
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port();
+        let handle = start(CoreOptions {
+            config_path: directory.path().join("config.json"),
+            host: Some("127.0.0.1".into()),
+            port: Some(port),
+            session_token: Some("test-token".into()),
+            vad_model_path: Some(directory.path().join("missing-silero.onnx")),
+            asr_model_dir: None,
+        })
+        .await
+        .unwrap();
+        let client = reqwest::Client::new();
+        let base_url = format!("http://{}", handle.address());
+        let udp = tokio::net::UdpSocket::bind(("127.0.0.1", 0)).await.unwrap();
+        let mut settings: serde_json::Value = client
+            .get(format!("{base_url}/api/settings"))
+            .bearer_auth("test-token")
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        settings["osc"]["enabled"] = serde_json::json!(true);
+        settings["osc"]["mute_sync_enabled"] = serde_json::json!(false);
+        settings["osc"]["port"] = serde_json::json!(udp.local_addr().unwrap().port());
+        let updated = client
+            .put(format!("{base_url}/api/settings"))
+            .bearer_auth("test-token")
+            .json(&settings)
+            .send()
+            .await
+            .unwrap();
+        let updated_status = updated.status();
+        let updated_body = updated.text().await.unwrap();
+        assert_eq!(
+            updated_status,
+            reqwest::StatusCode::OK,
+            "settings update failed: {updated_body}"
+        );
+
+        let mut subtitles = handle.state.subtitle_output.subscribe_subtitles();
+        let sent = client
+            .post(format!("{base_url}/api/chatbox/messages"))
+            .bearer_auth("test-token")
+            .json(&serde_json::json!({
+                "original": "hello",
+                "translation": "こんにちは",
+                "source_language": "en",
+                "target_language": "ja",
+                "send_mode": "bilingual",
+                "message_format": "original_newline_translation",
+                "custom_format": null,
+                "overflow_policy": "smart_truncate"
+            }))
+            .send()
+            .await
+            .unwrap();
+        let sent_status = sent.status();
+        let sent_body = sent.text().await.unwrap();
+        assert_eq!(
+            sent_status,
+            reqwest::StatusCode::OK,
+            "Chatbox send failed: {sent_body}"
+        );
+
+        let streamed = tokio::time::timeout(std::time::Duration::from_secs(1), subtitles.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(streamed.source, "chatbox");
+        assert_eq!(streamed.text, "hello");
+        assert_eq!(streamed.translations[0].text, "こんにちは");
+
+        let history: serde_json::Value = client
+            .get(format!("{base_url}/api/subtitles?limit=10"))
+            .bearer_auth("test-token")
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert_eq!(history[0]["source"], "chatbox");
+        assert_eq!(history[0]["translations"][0]["text"], "こんにちは");
         handle.shutdown().await.unwrap();
     }
 

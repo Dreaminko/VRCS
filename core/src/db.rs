@@ -7,6 +7,7 @@ use rusqlite::{params, Connection};
 
 use crate::error::AppResult;
 
+mod chatbox;
 mod dictionary;
 mod subtitles;
 mod translations;
@@ -38,6 +39,26 @@ CREATE TABLE IF NOT EXISTS subtitle_translations (
     model TEXT,
     created_at TEXT NOT NULL,
     UNIQUE(subtitle_id, target_language)
+);
+CREATE TABLE IF NOT EXISTS chatbox_messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    source TEXT NOT NULL,
+    original TEXT NOT NULL,
+    translation TEXT,
+    source_language TEXT,
+    target_language TEXT,
+    send_mode TEXT NOT NULL,
+    message_format TEXT NOT NULL,
+    custom_format TEXT,
+    rendered_text TEXT NOT NULL,
+    char_count INTEGER NOT NULL,
+    truncated INTEGER NOT NULL,
+    status TEXT NOT NULL,
+    error_code TEXT,
+    error_detail TEXT,
+    resent_from_id INTEGER REFERENCES chatbox_messages(id) ON DELETE SET NULL,
+    created_at TEXT NOT NULL,
+    sent_at TEXT
 );
 CREATE TABLE IF NOT EXISTS dictionary (
     term TEXT NOT NULL,

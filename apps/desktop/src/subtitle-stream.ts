@@ -55,6 +55,10 @@ function isSource(value: unknown): value is LiveTranscription["source"] {
   return value === "speaker" || value === "microphone";
 }
 
+function isSubtitleSource(value: unknown): value is NonNullable<Subtitle["source"]> {
+  return isSource(value) || value === "chatbox";
+}
+
 function isDbfs(value: unknown): value is number {
   return typeof value === "number"
     && Number.isFinite(value)
@@ -98,7 +102,7 @@ function isSubtitle(value: unknown): value is Subtitle {
     && isNullableFiniteNumber(value.started_at)
     && isNullableFiniteNumber(value.ended_at)
     && isText(value.created_at)
-    && (value.source === undefined || isSource(value.source))
+    && (value.source === undefined || isSubtitleSource(value.source))
     && Array.isArray(value.translations)
     && value.translations.every(isTranslation)
     && (

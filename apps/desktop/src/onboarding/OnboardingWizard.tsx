@@ -111,6 +111,7 @@ export function OnboardingWizard({
   const locale = i18n.resolvedLanguage ?? "en-US";
   const [step, setStep] = useState(Math.min(STEP_COUNT - 1, Math.max(0, initialStep)));
   const [message, setMessage] = useState("");
+  const [messageTone, setMessageTone] = useState<"info" | "error">("error");
   const [busy, setBusy] = useState(false);
   const [languagePreference, setLanguagePreference] = useState<UiLanguagePreference>(
     currentUiLanguagePreference,
@@ -204,6 +205,7 @@ export function OnboardingWizard({
   }, [onStopMicrophoneTest]);
 
   const showError = (reason: unknown, fallbackKey = "errors.operation") => {
+    setMessageTone("error");
     setMessage(localizedError(reason, t, fallbackKey));
   };
 
@@ -265,6 +267,7 @@ export function OnboardingWizard({
         asr: { ...selectedAsr, backend: cloudBackend },
       });
       setTestedProfileId(selectedProfile.id);
+      setMessageTone("info");
       setMessage(t("onboarding.recognition.connectionReady"));
     } catch (reason) {
       showError(reason, "errors.apiProfiles.operation");
@@ -678,8 +681,8 @@ export function OnboardingWizard({
             )}
           </div>
 
-          {message && <p className="onboarding-message" role="alert">{message}</p>}
-          {draftController.saveMessage && <p className="onboarding-message" role="alert">{draftController.saveMessage}</p>}
+          {message && <p className={`onboarding-message ${messageTone}`} role={messageTone === "error" ? "alert" : "status"}>{message}</p>}
+          {draftController.saveMessage && <p className="onboarding-message error" role="alert">{draftController.saveMessage}</p>}
 
           <footer className="onboarding-actions">
             <div>

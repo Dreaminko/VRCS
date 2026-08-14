@@ -5,6 +5,7 @@ export function useDismissibleLayer(
   open: boolean,
   rootRef: RefObject<HTMLElement | null>,
   onClose: () => void,
+  excludedRef?: RefObject<HTMLElement | null>,
 ) {
   const onCloseRef = useRef(onClose);
   useEffect(() => {
@@ -14,7 +15,12 @@ export function useDismissibleLayer(
   useEffect(() => {
     if (!open) return;
     const closeOnOutside = (event: PointerEvent) => {
-      if (rootRef.current && !rootRef.current.contains(event.target as Node)) onCloseRef.current();
+      const target = event.target as Node;
+      if (
+        rootRef.current
+        && !rootRef.current.contains(target)
+        && !excludedRef?.current?.contains(target)
+      ) onCloseRef.current();
     };
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
@@ -28,5 +34,5 @@ export function useDismissibleLayer(
       document.removeEventListener("pointerdown", closeOnOutside);
       document.removeEventListener("keydown", closeOnEscape);
     };
-  }, [open, rootRef]);
+  }, [excludedRef, open, rootRef]);
 }

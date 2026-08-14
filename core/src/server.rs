@@ -3,6 +3,7 @@
 
 mod anki;
 pub(crate) mod capture;
+mod chatbox;
 mod cloud;
 mod dictionary;
 mod models;
@@ -205,6 +206,8 @@ pub fn router(state: Arc<AppState>) -> Router {
             post(capture::microphone_test_stop),
         )
         .route("/api/osc/test", post(osc::test_message))
+        .route("/api/chatbox/preview", post(chatbox::preview))
+        .route("/api/chatbox/messages", post(chatbox::send))
         .route("/api/subtitles", get(dictionary::subtitle_history))
         .route(
             "/api/translations/preview",

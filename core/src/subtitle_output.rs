@@ -58,8 +58,12 @@ impl SubtitleLifecyclePublisher {
     }
 
     pub fn subtitle_stored(&self, subtitle: Subtitle, wait_for_translation: bool) {
-        let _ = self.subtitles.send(subtitle.clone());
+        self.subtitle_recorded(subtitle.clone());
         self.osc.publish_subtitle(subtitle, wait_for_translation);
+    }
+
+    pub fn subtitle_recorded(&self, subtitle: Subtitle) {
+        let _ = self.subtitles.send(subtitle);
     }
 
     pub fn translation_queue_failed(&self, subtitle_id: i64) {

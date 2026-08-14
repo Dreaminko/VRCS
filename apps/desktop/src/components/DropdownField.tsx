@@ -1,23 +1,41 @@
-import { useEffect, useId, useRef, useState } from "react";
-import type { ReactNode } from "react";
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import type { CSSProperties, KeyboardEvent as ReactKeyboardEvent, ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { Check, ChevronDown } from "lucide-react";
 
+import {
+  interfaceLayoutPixels,
+  readAppliedInterfaceScaleFactor,
+} from "../interface-scale";
+import { placeLookupPopover } from "../popover-placement";
 import { useDismissibleLayer } from "../use-dismissible-layer";
 
-export function DropdownField({ label, value, options, disabled = false, compact = false, icon, onChange }: {
+type FloatingMenuPosition = Pick<CSSProperties, "bottom" | "left" | "maxHeight" | "right" | "top" | "width">;
+
+const FLOATING_MENU_GAP = 6;
+const FLOATING_MENU_MARGIN = 12;
+const FLOATING_MENU_MAX_HEIGHT = 216;
+
+export function DropdownField({ label, value, options, disabled = false, compact = false, floating = false, icon, onChange }: {
   label: string;
   value: string;
   options: Array<{ value: string; label: string }>;
   disabled?: boolean;
   compact?: boolean;
+  floating?: boolean;
   icon?: ReactNode;
   onChange: (value: string) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const [floatingPosition, setFloatingPosition] = useState<FloatingMenuPosition | null>(null);
   const rootRef = useRef<HTMLDivElement | null>(null);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+  const focusMenuOnOpenRef = useRef(false);
+  const menuId = useId();
   const selected = options.find((option) => option.value === value) ?? options[0];
 
-  useDismissibleLayer(open, rootRef, () => setOpen(false));
+  useDismissibleLayer(open, rootRef, () => setOpen(false), menuRef);
 
   useEffect(() => {
     if (disabled) setOpen(false);
@@ -26,21 +44,151 @@ export function DropdownField({ label, value, options, disabled = false, compact
   const choose = (next: string) => {
     onChange(next);
     setOpen(false);
+    requestAnimationFrame(() => triggerRef.current?.focus({ preventScroll: true }));
   };
 
+  const updateFloatingPosition = useCallback(() => {
+    if (!floating || !open || !triggerRef.current) return;
+
+    const scale = readAppliedInterfaceScaleFactor();
+    const rect = triggerRef.current.getBoundingClientRect();
+    const viewportWidth = interfaceLayoutPixels(window.innerWidth, scale);
+    const viewportHeight = interfaceLayoutPixels(window.innerHeight, scale);
+    const width = Math.min(
+      interfaceLayoutPixels(rect.width, scale),
+      viewportWidth - FLOATING_MENU_MARGIN * 2,
+    );
+    const triggerLeft = interfaceLayoutPixels(rect.left, scale);
+    const left = Math.min(
+      Math.max(FLOATING_MENU_MARGIN, triggerLeft),
+      viewportWidth - FLOATING_MENU_MARGIN - width,
+    );
+    const placement = placeLookupPopover({
+      anchor: {
+        top: interfaceLayoutPixels(rect.top, scale),
+        bottom: interfaceLayoutPixels(rect.bottom, scale),
+        centerX: triggerLeft + width / 2,
+      },
+      popoverHeight: FLOATING_MENU_MAX_HEIGHT,
+      viewportHeight,
+      gap: FLOATING_MENU_GAP,
+      margin: FLOATING_MENU_MARGIN,
+    });
+
+    setFloatingPosition({
+      bottom: "auto",
+      left,
+      maxHeight: placement.maxHeight,
+      right: "auto",
+      top: placement.top,
+      width,
+    });
+  }, [floating, open]);
+
+  useLayoutEffect(() => {
+    if (!floating || !open) {
+      setFloatingPosition(null);
+      return;
+    }
+
+    updateFloatingPosition();
+    window.addEventListener("resize", updateFloatingPosition);
+    document.addEventListener("scroll", updateFloatingPosition, true);
+    return () => {
+      window.removeEventListener("resize", updateFloatingPosition);
+      document.removeEventListener("scroll", updateFloatingPosition, true);
+    };
+  }, [floating, open, updateFloatingPosition]);
+
+  useLayoutEffect(() => {
+    if (!open || !focusMenuOnOpenRef.current || !menuRef.current) return;
+    focusMenuOnOpenRef.current = false;
+    const current = menuRef.current.querySelector<HTMLElement>('[aria-selected="true"]');
+    (current ?? menuRef.current.querySelector<HTMLElement>("button"))?.focus({ preventScroll: true });
+  }, [floatingPosition, open]);
+
+  const closeMenu = () => {
+    setOpen(false);
+    requestAnimationFrame(() => triggerRef.current?.focus({ preventScroll: true }));
+  };
+
+  const handleMenuKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      event.stopPropagation();
+      closeMenu();
+      return;
+    }
+
+    if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
+    const items = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>(".dropdown-option"));
+    if (items.length === 0) return;
+    event.preventDefault();
+    const currentIndex = items.indexOf(document.activeElement as HTMLButtonElement);
+    const nextIndex = event.key === "Home"
+      ? 0
+      : event.key === "End"
+        ? items.length - 1
+        : event.key === "ArrowUp"
+          ? (currentIndex <= 0 ? items.length - 1 : currentIndex - 1)
+          : (currentIndex + 1) % items.length;
+    items[nextIndex]?.focus({ preventScroll: true });
+  };
+
+  const menu = (
+    <div
+      className={`dropdown-menu ${floating ? "dropdown-menu-floating" : ""} ${compact ? "dropdown-menu-compact" : ""}`}
+      id={menuId}
+      ref={menuRef}
+      role="listbox"
+      aria-label={label}
+      style={floating ? floatingPosition ?? undefined : undefined}
+      onKeyDown={handleMenuKeyDown}
+    >
+      {options.map((option) => {
+        const current = option.value === value;
+        return (
+          <button
+            className={`dropdown-option ${current ? "selected" : ""}`}
+            key={option.value}
+            type="button"
+            role="option"
+            aria-selected={current}
+            onClick={() => choose(option.value)}
+          >
+            <span>{option.label}</span>
+            {current && <Check size={15} />}
+          </button>
+        );
+      })}
+    </div>
+  );
+
   return (
-    <div className={`dropdown-field ${compact ? "dropdown-field-compact" : ""} ${open ? "open" : ""}`} ref={rootRef}>
+    <div
+      className={`dropdown-field ${compact ? "dropdown-field-compact" : ""} ${open ? "open" : ""}`}
+      ref={rootRef}
+      onKeyDownCapture={(event) => {
+        if (event.key !== "Escape" || !open) return;
+        event.preventDefault();
+        event.stopPropagation();
+        closeMenu();
+      }}
+    >
       <button
         className="dropdown-trigger"
+        ref={triggerRef}
         type="button"
         disabled={disabled}
         aria-haspopup="listbox"
         aria-expanded={open}
+        aria-controls={open ? menuId : undefined}
         aria-label={compact ? label : undefined}
         onClick={() => setOpen((current) => !current)}
         onKeyDown={(event) => {
-          if (event.key === "ArrowDown" || event.key === "Enter" || event.key === " ") {
+          if (event.key === "ArrowDown" || event.key === "ArrowUp" || event.key === "Enter" || event.key === " ") {
             event.preventDefault();
+            focusMenuOnOpenRef.current = true;
             setOpen(true);
           }
         }}
@@ -49,25 +197,8 @@ export function DropdownField({ label, value, options, disabled = false, compact
         <span className="dropdown-value">{selected?.label ?? value}</span>
         <ChevronDown className="dropdown-chevron" size={16} />
       </button>
-      {open && (
-        <div className="dropdown-menu" role="listbox" aria-label={label}>
-          {options.map((option) => {
-            const current = option.value === value;
-            return (
-              <button
-                className={`dropdown-option ${current ? "selected" : ""}`}
-                key={option.value}
-                type="button"
-                role="option"
-                aria-selected={current}
-                onClick={() => choose(option.value)}
-              >
-                <span>{option.label}</span>
-                {current && <Check size={15} />}
-              </button>
-            );
-          })}
-        </div>
+      {open && (!floating || floatingPosition) && (
+        floating ? createPortal(menu, document.body) : menu
       )}
     </div>
   );

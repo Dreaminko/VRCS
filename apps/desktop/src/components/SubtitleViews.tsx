@@ -7,7 +7,7 @@ import { contentLanguageTag } from "../ui-language";
 import type { ConnectionState, Health, LiveTranscription, Settings, Subtitle } from "../types";
 import { DropdownField } from "./DropdownField";
 
-type SubtitleSource = "speaker" | "microphone";
+type SubtitleSource = NonNullable<Subtitle["source"]>;
 
 export function TopStatus({ connection, health, settings }: {
   connection: ConnectionState;
@@ -104,7 +104,7 @@ function ChatBubble({ subtitle, onSelect, onTranslate, translating }: {
   const { t, i18n } = useTranslation();
   const locale = i18n.resolvedLanguage ?? "en-US";
   const source: SubtitleSource = subtitle.source ?? "speaker";
-  const mine = source === "microphone";
+  const mine = source !== "speaker";
   const completedTranslation = subtitle.translations.at(-1);
   const visibleTranslation = subtitle.translation_partial ?? completedTranslation;
   return (
@@ -112,9 +112,10 @@ function ChatBubble({ subtitle, onSelect, onTranslate, translating }: {
       <div className="message-meta">
         {!mine && <Volume2 size={14} />}
         {mine && <time>{timestamp(subtitle.created_at, locale)}</time>}
-        <span>{mine ? t("live.microphoneMe") : t("live.speakerOther")}</span>
+        <span>{source === "chatbox" ? t("chatbox.title") : mine ? t("live.microphoneMe") : t("live.speakerOther")}</span>
         {!mine && <time>{timestamp(subtitle.created_at, locale)}</time>}
-        {mine && <Mic size={14} />}
+        {source === "microphone" && <Mic size={14} />}
+        {source === "chatbox" && <MessageSquare size={14} />}
       </div>
       <div className="bubble">
         <p className="bubble-original" lang={contentLanguageTag(subtitle.language)} onMouseUp={() => void onSelect(subtitle.text)}>{subtitle.text}</p>

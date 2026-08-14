@@ -50,7 +50,36 @@
       "live": "Live subtitles",
       "history": "Subtitle history",
       "settings": "Settings",
-      "compact": "Subtitle mode"
+      "compact": "Subtitle mode",
+      "chatbox": "Chatbox message"
+    },
+    "chatbox": {
+      "title": "Send to Chatbox",
+      "detailsTitle": "Send settings",
+      "expandDetails": "Expand send settings",
+      "collapseDetails": "Collapse send settings",
+      "translationOnSend": "Translates automatically when sent",
+      "translationPreviewPending": "The translation will be generated when you send",
+      "inputCount": "{{count}} characters",
+      "original": "Original",
+      "originalPlaceholder": "Write a message to send to VRChat",
+      "translation": "Translation",
+      "translationPlaceholder": "Edit the translated message here",
+      "translationStale": "Original changed",
+      "targetLanguage": "Target language",
+      "translate": "Translate",
+      "sendMode": "Send content",
+      "modes": { "original": "Original", "translation": "Translation", "bilingual": "Bilingual" },
+      "format": "Message format",
+      "formats": { "originalFirst": "Original, then translation", "translationFirst": "Translation, then original", "slash": "Slash separated", "custom": "Custom" },
+      "customFormat": "Custom message format",
+      "preview": "Send preview",
+      "previewEmpty": "Your final message will appear here",
+      "smartTruncate": "Send with smart truncation",
+      "send": "Send to VRChat",
+      "sending": "Sending…",
+      "oscDisabled": "Enable OSC Chatbox output in Settings before sending.",
+      "errors": { "translate": "We couldn't translate this message.", "send": "We couldn't send the Chatbox message." }
     },
     "capture": {
       "start": "Start transcription",
@@ -679,6 +708,15 @@
     "errors": {
       "unknown": "An unknown error occurred.",
       "operation": "The operation failed.",
+      "chatbox": {
+        "missing_original": "Enter the original message.", "missing_translation": "Enter or generate a translation first.", "missing_bilingual_text": "Bilingual messages need both original and translated text.",
+        "text_too_long": "Messages can contain up to 5,000 characters.", "invalid_language": "The language code is invalid.", "invalid_format": "Custom formats must contain {original} and {translation} once each.",
+        "over_limit": "This message has {{count}} characters. The limit is {{limit}}.", "history_store_failed": "The message was handled, but its history could not be saved.", "conversation_store_failed": "The message was sent, but it could not be added to the current conversation."
+      },
+      "osc": {
+        "disabled": "OSC Chatbox output is disabled.", "blocked_vrchat_muted": "VRChat is muted, so the message was not sent.", "blocked_mute_unknown": "VRCS is checking the VRChat mute state. Try again shortly.",
+        "queue_full": "The OSC send queue is full. Try again shortly.", "send_timeout": "The OSC send timed out.", "send_cancelled": "The OSC settings changed, so the send was cancelled.", "send_failed": "We couldn't send to the local VRChat OSC port."
+      },
       "apiProfiles": {
         "operation": "The API profile operation failed.",
         "models": "Could not load models for this API profile. You can enter a model name manually."

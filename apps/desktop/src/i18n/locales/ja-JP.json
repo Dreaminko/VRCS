@@ -50,7 +50,36 @@
       "live": "リアルタイム字幕",
       "history": "字幕履歴",
       "settings": "設定",
-      "compact": "字幕モード"
+      "compact": "字幕モード",
+      "chatbox": "Chatbox メッセージ"
+    },
+    "chatbox": {
+      "title": "Chatbox に送信",
+      "detailsTitle": "送信設定",
+      "expandDetails": "送信設定を開く",
+      "collapseDetails": "送信設定を閉じる",
+      "translationOnSend": "送信時に自動翻訳",
+      "translationPreviewPending": "送信時に翻訳を自動生成します",
+      "inputCount": "{{count}}文字",
+      "original": "原文",
+      "originalPlaceholder": "VRChat に送信するメッセージを入力",
+      "translation": "翻訳",
+      "translationPlaceholder": "翻訳後のメッセージを編集できます",
+      "translationStale": "原文が変更されました",
+      "targetLanguage": "翻訳先言語",
+      "translate": "翻訳",
+      "sendMode": "送信内容",
+      "modes": { "original": "原文", "translation": "翻訳", "bilingual": "二言語" },
+      "format": "メッセージ形式",
+      "formats": { "originalFirst": "原文の下に翻訳", "translationFirst": "翻訳の下に原文", "slash": "スラッシュ区切り", "custom": "カスタム" },
+      "customFormat": "カスタムメッセージ形式",
+      "preview": "送信プレビュー",
+      "previewEmpty": "入力したメッセージの送信結果がここに表示されます",
+      "smartTruncate": "適切に短縮して送信",
+      "send": "VRChat に送信",
+      "sending": "送信中…",
+      "oscDisabled": "送信する前に設定で OSC Chatbox 出力を有効にしてください。",
+      "errors": { "translate": "このメッセージを翻訳できませんでした。", "send": "Chatbox メッセージを送信できませんでした。" }
     },
     "capture": {
       "start": "文字起こしを開始",
@@ -679,6 +708,15 @@
     "errors": {
       "unknown": "不明なエラーが発生しました。",
       "operation": "操作に失敗しました。",
+      "chatbox": {
+        "missing_original": "原文を入力してください。", "missing_translation": "先に翻訳を入力または生成してください。", "missing_bilingual_text": "二言語メッセージには原文と翻訳が必要です。",
+        "text_too_long": "メッセージは5,000文字以内で入力してください。", "invalid_language": "言語コードが無効です。", "invalid_format": "カスタム形式には {original} と {translation} を1回ずつ含めてください。",
+        "over_limit": "メッセージは {{count}} 文字です。上限は {{limit}} 文字です。", "history_store_failed": "メッセージは処理されましたが、履歴を保存できませんでした。", "conversation_store_failed": "メッセージは送信されましたが、現在の会話に追加できませんでした。"
+      },
+      "osc": {
+        "disabled": "OSC Chatbox 出力が無効です。", "blocked_vrchat_muted": "VRChat がミュート中のため、メッセージは送信されませんでした。", "blocked_mute_unknown": "VRChat のミュート状態を確認中です。しばらくしてから再試行してください。",
+        "queue_full": "OSC 送信キューがいっぱいです。しばらくしてから再試行してください。", "send_timeout": "OSC 送信がタイムアウトしました。", "send_cancelled": "OSC 設定が変更されたため、送信を中止しました。", "send_failed": "ローカルの VRChat OSC ポートに送信できませんでした。"
+      },
       "apiProfiles": {
         "operation": "API プロファイルの操作に失敗しました。",
         "models": "この API プロファイルのモデル一覧を取得できませんでした。モデル名は手動で入力できます。"

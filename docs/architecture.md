@@ -15,7 +15,7 @@ Core 负责音频采集、语音识别、字幕存储和词典查询：
 - **存储**：SQLite 保存字幕历史与词典，JSON 文件保存服务配置
 - **词典**：内置英日测试词典，支持导入 Yomitan 格式词典包
 - **Anki**：连接本机 AnkiConnect 创建笔记
-- **OSC Chatbox**：将麦克风最终字幕与译文格式化、限速后发送到本机 VRChat；发送前统一经过 VRChat 静音安全门
+- **OSC Chatbox**：统一格式化、限制长度并调度麦克风最终字幕和手动消息；两类消息共用限速器、UDP 传输与 VRChat 静音安全门，手动发送等待实际传输结果
 - **VRChat Mute Sync**：通过本机 OSCQuery 发现 VRChat、启动时读取 `MuteSelf` 并持续同步；静音时停止麦克风管线并丢弃未完成结果，取消静音后按原捕获意图自动重启
 
 `src/lib.rs` 提供嵌入式启动接口和可控生命周期，`src/main.rs` 提供独立调试入口。Windows 音频采集直接在 Core 内完成，不再需要音频辅助进程。
@@ -25,6 +25,7 @@ Core 负责音频采集、语音识别、字幕存储和词典查询：
 React + TypeScript + Vite 前端打包进 Tauri 2 应用：
 
 - 实时字幕、历史对话、设置页（常规/音频/识别/词典/Anki/Debug）
+- 底栏上方的 Chatbox 工作台，支持输入、翻译预览与编辑、格式选择和长度处理
 - 选词查释义弹出面板与 Anki 制卡
 - 置顶 compact 小窗、系统托盘、开机自启和单实例运行
 - 启动时创建 Rust Core，退出时发送优雅停止信号
@@ -33,7 +34,7 @@ React + TypeScript + Vite 前端打包进 Tauri 2 应用：
 
 | 通道 | 用途 |
 |---|---|
-| HTTP REST | 健康检查、设置、设备、词典、模型、Anki、查词与制卡 |
+| HTTP REST | 健康检查、设置、设备、词典、模型、Anki、查词制卡与 Chatbox 工作台 |
 | WebSocket `/ws` | 实时字幕推送 |
 | OSCQuery / mDNS（本机） | 发现 VRChat 并读取麦克风静音状态 |
 | UDP OSC `127.0.0.1:9000` | 向 VRChat Chatbox 发送自己的麦克风字幕与译文 |
