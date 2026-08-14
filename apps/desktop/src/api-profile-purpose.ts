@@ -5,7 +5,7 @@ export function apiProfilePurpose(profile: ApiProfile): ApiProfilePurpose {
   if (
     profile.provider === "deepl"
     || profile.provider === "microsoft_translator"
-    || (profile.provider === "openai" && Boolean(profile.base_url))
+    || profile.provider === "openai_compatible"
   ) {
     return "llm";
   }
@@ -15,7 +15,7 @@ export function apiProfilePurpose(profile: ApiProfile): ApiProfilePurpose {
 export function supportsRecognition(profile: ApiProfile): boolean {
   const purpose = apiProfilePurpose(profile);
   return (purpose === "asr" || purpose === "shared")
-    && (profile.provider === "alibaba_cloud" || (profile.provider === "openai" && !profile.base_url));
+    && (profile.provider === "alibaba_cloud" || profile.provider === "openai");
 }
 
 export function supportsTranslation(profile: ApiProfile): boolean {
@@ -25,5 +25,5 @@ export function supportsTranslation(profile: ApiProfile): boolean {
 
 export function supportsLlmModels(profile: ApiProfile): boolean {
   return supportsTranslation(profile)
-    && (profile.provider === "alibaba_cloud" || profile.provider === "openai");
+    && ["alibaba_cloud", "openai", "openai_compatible"].includes(profile.provider);
 }

@@ -47,8 +47,15 @@ export function apiProfileFromEditorDraft(draft: ApiProfileEditorDraft): Omit<Ap
     return {
       name: draft.name.trim(),
       provider: draft.provider,
-      base_url: draft.purpose === "llm" ? draft.base_url.trim() || undefined : undefined,
       purpose: draft.purpose,
+    };
+  }
+  if (draft.provider === "openai_compatible") {
+    return {
+      name: draft.name.trim(),
+      provider: draft.provider,
+      base_url: draft.base_url.trim(),
+      purpose: "llm",
     };
   }
   return { name: draft.name.trim(), provider: draft.provider, purpose: "llm" };
@@ -58,7 +65,7 @@ export function ApiProfileEditor({
   draft,
   saving,
   credential,
-  providers = ["alibaba_cloud", "openai", "deepl", "microsoft_translator"],
+  providers = ["alibaba_cloud", "openai", "openai_compatible", "deepl", "microsoft_translator"],
   purposes = ["asr", "llm", "shared"],
   requireCredential = false,
   onChange,
@@ -82,6 +89,7 @@ export function ApiProfileEditor({
   const credentialAvailable = credential?.configured || Boolean(draft.api_key.trim());
   const workspaceRequired = draft.provider === "alibaba_cloud" && draft.purpose !== "llm";
   const canSave = Boolean(draft.name.trim())
+    && (draft.provider !== "openai_compatible" || Boolean(draft.base_url.trim()))
     && (draft.provider !== "microsoft_translator" || Boolean(draft.region.trim()))
     && (!workspaceRequired || Boolean(draft.workspace_id.trim()))
     && (!requireCredential || credentialAvailable)
@@ -93,6 +101,8 @@ export function ApiProfileEditor({
       ? "Alibaba Cloud"
       : provider === "openai"
         ? t("settings.apiManagement.openaiProvider")
+        : provider === "openai_compatible"
+          ? t("settings.apiManagement.openaiCompatibleProvider")
         : provider === "deepl"
           ? "DeepL"
           : "Microsoft Translator",
@@ -138,7 +148,7 @@ export function ApiProfileEditor({
             onChange={(value) => onChange({
               ...draft,
               purpose: value as ApiProfilePurpose,
-              base_url: value === "llm" ? draft.base_url : "",
+              base_url: "",
             })}
           />
         )}
@@ -178,7 +188,7 @@ export function ApiProfileEditor({
             />
           </label>
         )}
-        {draft.provider === "openai" && draft.purpose === "llm" && (
+        {draft.provider === "openai_compatible" && (
           <label className="field cloud-text-field">
             <span>{t("settings.apiManagement.baseUrl")}</span>
             <input

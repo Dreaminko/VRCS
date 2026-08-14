@@ -142,6 +142,25 @@ test("valid stream payloads pass protocol validation", () => {
   assert.equal(message?.type, "subtitle");
 });
 
+test("OpenAI-compatible translation payloads pass protocol validation", () => {
+  const translated = {
+    ...subtitle(3, "valid"),
+    translations: [{
+      text: "translated",
+      source_language: "ja",
+      target_language: "en",
+      provider: "openai_compatible" as const,
+      model: "deepseek-chat",
+      created_at: "2026-08-11T00:02:00Z",
+    }],
+  };
+  const message = parseSubtitleStreamMessage(JSON.stringify({
+    type: "subtitle",
+    subtitle: translated,
+  }));
+  assert.deepEqual(message, { type: "subtitle", subtitle: translated });
+});
+
 test("Chatbox messages pass subtitle stream validation", () => {
   const outgoing = { ...subtitle(4, "hello"), source: "chatbox" as const };
   const message = parseSubtitleStreamMessage(JSON.stringify({

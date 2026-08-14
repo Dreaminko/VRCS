@@ -30,11 +30,12 @@ function draftFromProfile(profile: ApiProfileView): ApiProfileEditorDraft {
   };
 }
 
-function providerLabel(provider: ApiProvider, baseUrl?: string) {
+function providerLabel(provider: ApiProvider) {
   if (provider === "alibaba_cloud") return "Alibaba Cloud";
   if (provider === "microsoft_translator") return "Microsoft Translator";
   if (provider === "deepl") return "DeepL";
-  return baseUrl ? "OpenAI Compatible" : "OpenAI";
+  if (provider === "openai_compatible") return "OpenAI Compatible";
+  return "OpenAI";
 }
 
 export function ApiManagementSettingsSection({
@@ -127,16 +128,11 @@ export function ApiManagementSettingsSection({
             settings.translation.mode !== "disabled"
             || settings.translation.translate_microphone
           );
-          const status = profile.credential.environment_override
-            ? t("settings.apiManagement.sourceEnvironment")
-            : profile.credential.configured
-              ? t("settings.apiManagement.configured")
-              : t("settings.apiManagement.notConfigured");
           const detail = profile.provider === "alibaba_cloud"
             ? `${profile.region === "singapore" ? "Singapore" : "China (Beijing)"} · ${profile.workspace_id || t("settings.apiManagement.workspaceMissing")}`
             : profile.provider === "microsoft_translator"
               ? profile.region
-              : profile.provider === "openai" && profile.base_url
+              : profile.provider === "openai_compatible"
                 ? profile.base_url
                 : t(`settings.apiManagement.${profile.provider === "deepl" ? "deeplDescription" : "openaiDescription"}`);
           return (
@@ -146,7 +142,7 @@ export function ApiManagementSettingsSection({
                   <span className="api-profile-icon"><Cloud size={16} aria-hidden="true" /></span>
                   <span>
                     <strong>{profile.name}</strong>
-                    <small>{providerLabel(profile.provider, profile.base_url)} · {t(`settings.apiManagement.purposes.${purpose}`)} · {detail}</small>
+                    <small>{providerLabel(profile.provider)} · {t(`settings.apiManagement.purposes.${purpose}`)} · {detail}</small>
                     {supportsModels && modelCatalog && (
                       <small className={modelCatalog.error ? "api-model-catalog-error" : ""}>
                         {modelCatalog.loading
@@ -154,15 +150,11 @@ export function ApiManagementSettingsSection({
                           : modelCatalog.error
                             ? modelCatalog.error
                             : modelCatalog.models.length
-                              ? `${t("settings.apiManagement.modelsAvailable", { count: modelCatalog.models.length })} · ${modelCatalog.models.slice(0, 4).join(", ")}${modelCatalog.models.length > 4 ? ` +${modelCatalog.models.length - 4}` : ""}`
+                              ? t("settings.apiManagement.modelsAvailable", { count: modelCatalog.models.length })
                               : t("settings.apiManagement.modelsUnavailable")}
                       </small>
                     )}
                   </span>
-                </div>
-                <div className="api-profile-status">
-                  <span className={`api-status-dot ${profile.credential.configured ? "configured" : ""}`} aria-hidden="true" />
-                  <span><strong>{status}</strong>{profile.credential.stored_configured && profile.credential.environment_override && <small>{t("settings.apiManagement.storedCredentialAvailable")}</small>}</span>
                 </div>
                 <div className="api-profile-actions">
                   {profile.active ? (

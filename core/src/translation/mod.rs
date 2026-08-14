@@ -8,7 +8,7 @@ use tokio::sync::{mpsc, Semaphore};
 
 use crate::config::{
     ApiProfile, TranslationConfig, ALIBABA_PROVIDER, DEEPL_PROVIDER, MICROSOFT_PROVIDER,
-    OPENAI_PROVIDER,
+    OPENAI_COMPATIBLE_PROVIDER, OPENAI_PROVIDER,
 };
 use crate::credentials;
 use crate::db::Database;
@@ -158,7 +158,7 @@ impl TranslationService {
                 self.microsoft(profile, &api_key, text, source_language, target)
                     .await
             }
-            OPENAI_PROVIDER | ALIBABA_PROVIDER => {
+            OPENAI_PROVIDER | OPENAI_COMPATIBLE_PROVIDER | ALIBABA_PROVIDER => {
                 self.llm(
                     profile,
                     &api_key,

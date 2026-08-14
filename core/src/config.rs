@@ -10,10 +10,11 @@ pub use io::{load_config, save_config};
 #[cfg(test)]
 use migration::config_from_value;
 
-pub const SCHEMA_VERSION: u32 = 10;
+pub const SCHEMA_VERSION: u32 = 11;
 
 pub const ALIBABA_PROVIDER: &str = "alibaba_cloud";
 pub const OPENAI_PROVIDER: &str = "openai";
+pub const OPENAI_COMPATIBLE_PROVIDER: &str = "openai_compatible";
 pub const DEEPL_PROVIDER: &str = "deepl";
 pub const MICROSOFT_PROVIDER: &str = "microsoft_translator";
 pub const API_PURPOSE_ASR: &str = "asr";
@@ -37,11 +38,7 @@ pub struct ApiProfile {
 
 impl ApiProfile {
     pub fn uses_openai_compatible_api(&self) -> bool {
-        self.provider == OPENAI_PROVIDER
-            && self
-                .base_url
-                .as_deref()
-                .is_some_and(|value| !value.trim().is_empty())
+        self.provider == OPENAI_COMPATIBLE_PROVIDER
     }
 
     pub fn effective_purpose(&self) -> &str {
@@ -60,8 +57,7 @@ impl ApiProfile {
         matches!(
             self.effective_purpose(),
             API_PURPOSE_ASR | API_PURPOSE_SHARED
-        ) && (self.provider == ALIBABA_PROVIDER
-            || (self.provider == OPENAI_PROVIDER && !self.uses_openai_compatible_api()))
+        ) && (self.provider == ALIBABA_PROVIDER || self.provider == OPENAI_PROVIDER)
     }
 
     pub fn supports_translation(&self) -> bool {
@@ -73,7 +69,10 @@ impl ApiProfile {
 
     pub fn supports_llm_models(&self) -> bool {
         self.supports_translation()
-            && matches!(self.provider.as_str(), ALIBABA_PROVIDER | OPENAI_PROVIDER)
+            && matches!(
+                self.provider.as_str(),
+                ALIBABA_PROVIDER | OPENAI_PROVIDER | OPENAI_COMPATIBLE_PROVIDER
+            )
     }
 }
 
@@ -683,14 +682,17 @@ fn validate_api_profiles(asr: &AsrConfig) -> Result<(), String> {
                     );
                 }
             }
-            OPENAI_PROVIDER if profile.region.is_none() && profile.workspace_id.is_none() => {
-                if let Some(base_url) = profile.base_url.as_deref() {
-                    validate_openai_base_url(base_url)?;
-                    if profile.effective_purpose() != API_PURPOSE_LLM {
-                        return Err(
-                            "OpenAI-compatible APIs can only be used by LLM profiles".into()
-                        );
-                    }
+            OPENAI_PROVIDER
+                if profile.region.is_none()
+                    && profile.workspace_id.is_none()
+                    && profile.base_url.is_none() => {}
+            OPENAI_COMPATIBLE_PROVIDER
+                if profile.region.is_none() && profile.workspace_id.is_none() =>
+            {
+                let base_url = profile.base_url.as_deref().unwrap_or("");
+                validate_openai_base_url(base_url)?;
+                if profile.effective_purpose() != API_PURPOSE_LLM {
+                    return Err("OpenAI-compatible APIs can only be used by LLM profiles".into());
                 }
             }
             DEEPL_PROVIDER
@@ -698,7 +700,7 @@ fn validate_api_profiles(asr: &AsrConfig) -> Result<(), String> {
                     && profile.workspace_id.is_none()
                     && profile.base_url.is_none()
                     && profile.effective_purpose() == API_PURPOSE_LLM => {}
-            OPENAI_PROVIDER | DEEPL_PROVIDER => {
+            OPENAI_PROVIDER | OPENAI_COMPATIBLE_PROVIDER | DEEPL_PROVIDER => {
                 return Err(format!(
                     "API profile {} contains unsupported connection fields",
                     profile.provider
@@ -797,7 +799,12 @@ fn validate_translation(
     if !profile.supports_translation() {
         return Err("The selected API profile does not support translation".into());
     }
-    if [ALIBABA_PROVIDER, OPENAI_PROVIDER].contains(&profile.provider.as_str())
+    if [
+        ALIBABA_PROVIDER,
+        OPENAI_PROVIDER,
+        OPENAI_COMPATIBLE_PROVIDER,
+    ]
+    .contains(&profile.provider.as_str())
         && translation.model.trim().is_empty()
     {
         return Err("The LLM translation model cannot be empty".into());
@@ -1003,6 +1010,7 @@ mod tests {
             purpose: None,
         };
         let compatible = ApiProfile {
+            provider: OPENAI_COMPATIBLE_PROVIDER.into(),
             base_url: Some("https://api.deepseek.com/v1".into()),
             ..official.clone()
         };
@@ -1026,7 +1034,7 @@ mod tests {
         config.asr.api_profiles.push(ApiProfile {
             id: "deepseek".into(),
             name: "DeepSeek".into(),
-            provider: OPENAI_PROVIDER.into(),
+            provider: OPENAI_COMPATIBLE_PROVIDER.into(),
             region: None,
             workspace_id: None,
             base_url: Some("https://api.deepseek.com/v1".into()),
@@ -1040,7 +1048,7 @@ mod tests {
         config.asr.active_api_profiles.openai = Some("deepseek".into());
         assert_eq!(
             config.validate_settings().unwrap_err(),
-            "The active API profile does not support realtime speech recognition"
+            "The active API profile does not match provider openai"
         );
 
         config.asr.active_api_profiles.openai = None;
@@ -1050,6 +1058,29 @@ mod tests {
             config.validate_settings().unwrap_err(),
             "The OpenAI-compatible Base URL cannot contain credentials, a query, or a fragment"
         );
+    }
+
+    #[test]
+    fn migrates_v10_openai_base_urls_to_llm_only_compatible_profiles() {
+        let config = config_from_value(&serde_json::json!({
+            "schema_version": 10,
+            "asr": {
+                "api_profiles": [{
+                    "id": "deepseek",
+                    "name": "DeepSeek",
+                    "provider": "openai",
+                    "base_url": "https://api.deepseek.com/v1",
+                    "purpose": "shared"
+                }]
+            }
+        }))
+        .unwrap();
+
+        let profile = &config.asr.api_profiles[0];
+        assert_eq!(profile.provider, OPENAI_COMPATIBLE_PROVIDER);
+        assert_eq!(profile.effective_purpose(), API_PURPOSE_LLM);
+        assert!(!profile.supports_realtime_asr());
+        assert!(profile.supports_translation());
     }
 
     #[test]

@@ -16,7 +16,7 @@ const targetLanguages: TranslationSettings["target_language"][] = [
 
 function modelForProfile(profile: ApiProfile | undefined, current: string): string {
   if (profile?.provider === "alibaba_cloud") return "qwen-plus";
-  if (profile?.provider === "openai" && !profile.base_url) return "gpt-5-mini";
+  if (profile?.provider === "openai") return "gpt-5-mini";
   return current;
 }
 
@@ -24,7 +24,7 @@ function profileProviderLabel(profile: ApiProfile): string {
   if (profile.provider === "alibaba_cloud") return "Alibaba Cloud";
   if (profile.provider === "microsoft_translator") return "Microsoft Translator";
   if (profile.provider === "deepl") return "DeepL";
-  return profile.base_url ? "OpenAI Compatible" : "OpenAI";
+  return profile.provider === "openai_compatible" ? "OpenAI Compatible" : "OpenAI";
 }
 
 function profileOptionLabel(profile: ApiProfile): string {
@@ -47,7 +47,7 @@ export function TranslationSettingsSection({ draft, disabled, saveState, applySe
   );
   const usesLlmProfile = Boolean(selectedProfile && supportsLlmModels(selectedProfile));
   const supportsThinkingToggle = Boolean(
-    selectedProfile?.provider === "openai"
+    selectedProfile?.provider === "openai_compatible"
       && (
         selectedProfile.base_url?.toLowerCase().includes("deepseek")
         || draft.translation.model.toLowerCase().startsWith("deepseek-")

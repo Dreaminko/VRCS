@@ -7,7 +7,7 @@ use futures_util::StreamExt;
 use reqwest::{header, StatusCode};
 use serde_json::{json, Value};
 
-use crate::config::{ApiProfile, ALIBABA_PROVIDER, OPENAI_PROVIDER};
+use crate::config::{ApiProfile, ALIBABA_PROVIDER, OPENAI_COMPATIBLE_PROVIDER, OPENAI_PROVIDER};
 
 #[derive(Debug, Clone)]
 pub struct LlmRequest<'a> {
@@ -50,6 +50,10 @@ impl LlmClient {
         let thinking_enabled = request.thinking_enabled;
         let result = match profile.provider.as_str() {
             OPENAI_PROVIDER => self.openai(profile, api_key, request, on_progress).await,
+            OPENAI_COMPATIBLE_PROVIDER => {
+                self.openai_compatible(profile, api_key, request, on_progress)
+                    .await
+            }
             ALIBABA_PROVIDER => self.alibaba(profile, api_key, request, on_progress).await,
             provider => Err(LlmError {
                 code: "llm.unsupported_provider",
@@ -77,7 +81,7 @@ impl LlmClient {
         api_key: &str,
     ) -> Result<Vec<String>, LlmError> {
         let endpoint = match profile.provider.as_str() {
-            OPENAI_PROVIDER => openai_models_url(profile)?,
+            OPENAI_PROVIDER | OPENAI_COMPATIBLE_PROVIDER => openai_models_url(profile)?,
             ALIBABA_PROVIDER => format!("{}/models", alibaba_base_url(profile)?),
             provider => {
                 return Err(LlmError {
@@ -112,24 +116,11 @@ impl LlmClient {
 
     async fn openai(
         &self,
-        profile: &ApiProfile,
+        _profile: &ApiProfile,
         api_key: &str,
         request: LlmRequest<'_>,
-        on_progress: Option<&LlmProgress>,
+        _on_progress: Option<&LlmProgress>,
     ) -> Result<String, LlmError> {
-        if profile.uses_openai_compatible_api() {
-            let deepseek_protocol = uses_deepseek_protocol(profile, request.model);
-            return self
-                .chat_completions(
-                    openai_chat_completions_url(profile)?,
-                    api_key,
-                    request,
-                    "OpenAI-compatible",
-                    deepseek_protocol,
-                    on_progress,
-                )
-                .await;
-        }
         let response = self
             .http
             .post("https://api.openai.com/v1/responses")
@@ -153,6 +144,25 @@ impl LlmClient {
             detail: "OpenAI response did not contain text".into(),
             retryable: false,
         })
+    }
+
+    async fn openai_compatible(
+        &self,
+        profile: &ApiProfile,
+        api_key: &str,
+        request: LlmRequest<'_>,
+        on_progress: Option<&LlmProgress>,
+    ) -> Result<String, LlmError> {
+        let deepseek_protocol = uses_deepseek_protocol(profile, request.model);
+        self.chat_completions(
+            openai_chat_completions_url(profile)?,
+            api_key,
+            request,
+            "OpenAI-compatible",
+            deepseek_protocol,
+            on_progress,
+        )
+        .await
     }
 
     async fn alibaba(
@@ -369,7 +379,7 @@ fn openai_chat_completions_url(profile: &ApiProfile) -> Result<String, LlmError>
 }
 
 fn openai_models_url(profile: &ApiProfile) -> Result<String, LlmError> {
-    if !profile.uses_openai_compatible_api() {
+    if profile.provider == OPENAI_PROVIDER {
         return Ok("https://api.openai.com/v1/models".into());
     }
     let base_url = profile
@@ -606,7 +616,7 @@ mod tests {
         let profile = ApiProfile {
             id: "deepseek".into(),
             name: "DeepSeek".into(),
-            provider: OPENAI_PROVIDER.into(),
+            provider: OPENAI_COMPATIBLE_PROVIDER.into(),
             region: None,
             workspace_id: None,
             base_url: Some("https://api.deepseek.com/v1/".into()),
@@ -623,7 +633,7 @@ mod tests {
         let mut profile = ApiProfile {
             id: "deepseek".into(),
             name: "DeepSeek".into(),
-            provider: OPENAI_PROVIDER.into(),
+            provider: OPENAI_COMPATIBLE_PROVIDER.into(),
             region: None,
             workspace_id: None,
             base_url: Some("https://api.deepseek.com/v1".into()),

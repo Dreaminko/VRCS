@@ -1,6 +1,9 @@
 use serde::Serialize;
 
-use crate::config::{ALIBABA_PROVIDER, DEEPL_PROVIDER, MICROSOFT_PROVIDER, OPENAI_PROVIDER};
+use crate::config::{
+    ALIBABA_PROVIDER, DEEPL_PROVIDER, MICROSOFT_PROVIDER, OPENAI_COMPATIBLE_PROVIDER,
+    OPENAI_PROVIDER,
+};
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
 pub struct CredentialStatus {
@@ -14,6 +17,7 @@ fn env_names(provider: &str) -> Result<&'static [&'static str], String> {
     match provider {
         ALIBABA_PROVIDER => Ok(&["VRCS_QWEN_API_KEY", "DASHSCOPE_API_KEY"]),
         OPENAI_PROVIDER => Ok(&["VRCS_OPENAI_API_KEY", "OPENAI_API_KEY"]),
+        OPENAI_COMPATIBLE_PROVIDER => Ok(&["VRCS_OPENAI_COMPATIBLE_API_KEY"]),
         DEEPL_PROVIDER => Ok(&["VRCS_DEEPL_API_KEY", "DEEPL_API_KEY"]),
         MICROSOFT_PROVIDER => Ok(&["VRCS_MICROSOFT_TRANSLATOR_KEY"]),
         _ => Err(format!("Unsupported API provider: {provider}")),
@@ -203,6 +207,7 @@ mod tests {
         for provider in [
             ALIBABA_PROVIDER,
             OPENAI_PROVIDER,
+            OPENAI_COMPATIBLE_PROVIDER,
             DEEPL_PROVIDER,
             MICROSOFT_PROVIDER,
         ] {

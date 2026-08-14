@@ -46,7 +46,7 @@ export function selectRecognitionSource(
 
   const profile = asr.api_profiles.find((item) => item.id === source);
   const purpose = profile?.purpose
-    ?? (profile?.provider === "openai" && profile.base_url ? "llm" : "shared");
+    ?? (profile?.provider === "openai_compatible" ? "llm" : "shared");
   if (!profile || purpose === "llm") return asr;
 
   if (profile.provider === "openai") {

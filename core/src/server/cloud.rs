@@ -9,7 +9,8 @@ use serde_json::{json, Value};
 use crate::asr;
 use crate::config::{
     save_config, ApiProfile, TranslationConfig, ALIBABA_PROVIDER, API_PURPOSE_ASR, API_PURPOSE_LLM,
-    API_PURPOSE_SHARED, DEEPL_PROVIDER, MICROSOFT_PROVIDER, OPENAI_PROVIDER,
+    API_PURPOSE_SHARED, DEEPL_PROVIDER, MICROSOFT_PROVIDER, OPENAI_COMPATIBLE_PROVIDER,
+    OPENAI_PROVIDER,
 };
 
 use super::{api_error, ApiResult, AppState};
@@ -152,7 +153,10 @@ pub(super) async fn profile_update(
     if profile.provider == ALIBABA_PROVIDER {
         profile.workspace_id = input.workspace_id.map(|value| value.trim().to_string());
     }
-    if profile.provider == OPENAI_PROVIDER {
+    if matches!(
+        profile.provider.as_str(),
+        OPENAI_PROVIDER | OPENAI_COMPATIBLE_PROVIDER
+    ) {
         profile.base_url = input.base_url.map(|value| value.trim().to_string());
     }
     if input.purpose.is_some() {
@@ -544,6 +548,12 @@ fn normalize_profile_fields(profile: &mut ApiProfile) {
         OPENAI_PROVIDER => {
             profile.region = None;
             profile.workspace_id = None;
+            profile.base_url = None;
+        }
+        OPENAI_COMPATIBLE_PROVIDER => {
+            profile.region = None;
+            profile.workspace_id = None;
+            profile.purpose = Some(API_PURPOSE_LLM.into());
             if profile.base_url.as_deref().is_some_and(str::is_empty) {
                 profile.base_url = None;
             }
@@ -557,7 +567,7 @@ fn normalize_profile_fields(profile: &mut ApiProfile) {
     }
     if matches!(
         profile.provider.as_str(),
-        DEEPL_PROVIDER | MICROSOFT_PROVIDER
+        DEEPL_PROVIDER | MICROSOFT_PROVIDER | OPENAI_COMPATIBLE_PROVIDER
     ) {
         profile.purpose = Some(API_PURPOSE_LLM.into());
     }

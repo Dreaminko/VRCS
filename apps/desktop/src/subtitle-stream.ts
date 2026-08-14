@@ -88,7 +88,7 @@ function isTranslation(value: unknown): value is SubtitleTranslation {
     && isNullableText(value.source_language)
     && isText(value.target_language)
     && typeof value.provider === "string"
-    && ["alibaba_cloud", "openai", "deepl", "microsoft_translator", "local"]
+    && ["alibaba_cloud", "openai", "openai_compatible", "deepl", "microsoft_translator", "local"]
       .includes(value.provider)
     && isNullableText(value.model)
     && isText(value.created_at);

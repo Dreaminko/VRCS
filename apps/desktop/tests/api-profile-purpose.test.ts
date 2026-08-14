@@ -18,7 +18,7 @@ const profile = (input: Partial<ApiProfile>): ApiProfile => ({
 
 test("legacy API profiles infer their existing purpose", () => {
   const officialOpenAi = profile({});
-  const compatibleOpenAi = profile({ base_url: "https://api.deepseek.com/v1" });
+  const compatibleOpenAi = profile({ provider: "openai_compatible", base_url: "https://api.deepseek.com/v1" });
   const deepL = profile({ provider: "deepl" });
 
   assert.equal(apiProfilePurpose(officialOpenAi), "shared");
@@ -29,7 +29,7 @@ test("legacy API profiles infer their existing purpose", () => {
 test("explicit API purposes isolate ASR and translation", () => {
   const asrOnly = profile({ purpose: "asr" });
   const llmOnly = profile({ purpose: "llm" });
-  const compatible = profile({ purpose: "llm", base_url: "https://api.deepseek.com/v1" });
+  const compatible = profile({ provider: "openai_compatible", purpose: "llm", base_url: "https://api.deepseek.com/v1" });
 
   assert.equal(supportsRecognition(asrOnly), true);
   assert.equal(supportsTranslation(asrOnly), false);
@@ -37,4 +37,5 @@ test("explicit API purposes isolate ASR and translation", () => {
   assert.equal(supportsRecognition(llmOnly), false);
   assert.equal(supportsTranslation(llmOnly), true);
   assert.equal(supportsLlmModels(compatible), true);
+  assert.equal(supportsRecognition(compatible), false);
 });

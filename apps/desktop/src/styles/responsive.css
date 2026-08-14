@@ -6,7 +6,7 @@
   .settings-section { padding: 24px; }
   .recognition-config-row,
   .translation-config-row { grid-template-columns: 1fr; gap: 14px; }
-  .api-profile-row { grid-template-columns: minmax(0, 1fr) minmax(125px, auto); gap: 10px 16px; }
+  .api-profile-row { grid-template-columns: minmax(0, 1fr); gap: 10px 16px; }
   .api-profile-actions { grid-column: 1 / -1; justify-content: flex-start; }
 }
 

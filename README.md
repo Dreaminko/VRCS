@@ -62,7 +62,7 @@ npm run dev:core:cuda
 npm run dev:core
 ```
 
-独立 Core 默认使用 `core/config.json`，也支持 `VRCS_CONFIG`、`VRCS_HOST`、`VRCS_PORT`、`VRCS_SESSION_TOKEN`、`VRCS_SILERO_MODEL`、`VRCS_ASR_MODEL_DIR`、`VRCS_QWEN_API_KEY`、`VRCS_OPENAI_API_KEY`、`VRCS_DEEPL_API_KEY` 和 `VRCS_MICROSOFT_TRANSLATOR_KEY`。同时兼容 `DASHSCOPE_API_KEY`、`OPENAI_API_KEY` 与 `DEEPL_API_KEY`；VRCS 专用变量优先。设置页可以为同一供应商保存多个命名 API 配置，API Key 分别写入 Windows 凭据管理器。环境变量会覆盖该供应商当前配置的已保存密钥，但区域和 Workspace 仍取自当前配置。未设置 `VRCS_SESSION_TOKEN` 时会为回环监听生成临时 token 并输出到终端；监听非回环地址时必须显式设置非空 token。
+独立 Core 默认使用 `core/config.json`，也支持 `VRCS_CONFIG`、`VRCS_HOST`、`VRCS_PORT`、`VRCS_SESSION_TOKEN`、`VRCS_SILERO_MODEL`、`VRCS_ASR_MODEL_DIR`、`VRCS_QWEN_API_KEY`、`VRCS_OPENAI_API_KEY`、`VRCS_OPENAI_COMPATIBLE_API_KEY`、`VRCS_DEEPL_API_KEY` 和 `VRCS_MICROSOFT_TRANSLATOR_KEY`。同时兼容 `DASHSCOPE_API_KEY`、`OPENAI_API_KEY` 与 `DEEPL_API_KEY`；VRCS 专用变量优先。设置页可以为同一供应商保存多个命名 API 配置，API Key 分别写入 Windows 凭据管理器。环境变量会覆盖该供应商当前配置的已保存密钥，但区域和 Workspace 仍取自当前配置。未设置 `VRCS_SESSION_TOKEN` 时会为回环监听生成临时 token 并输出到终端；监听非回环地址时必须显式设置非空 token。
 
 如果绕过 Tauri、单独运行 Vite 前端，请把同一个 token 同时设置为 `VRCS_SESSION_TOKEN` 和 `VITE_VRCS_SESSION_TOKEN`。
 
@@ -99,9 +99,9 @@ npm run build
 
 ## OpenAI 兼容 LLM
 
-字幕翻译支持 OpenAI 兼容的 Chat Completions API。前往“设置 → API 管理”，新增 `OpenAI / Compatible` 配置，将服务用途设为“仅 LLM / 翻译”并填写 Base URL；例如 DeepSeek 可使用 `https://api.deepseek.com/v1`。保存 API Key 后，再到“字幕翻译”中选择该配置并填写服务商支持的模型名（例如 `deepseek-chat`）。
+字幕翻译支持 OpenAI 兼容的 Chat Completions API。前往“设置 → API 管理”，新增“OpenAI 兼容（仅 LLM）”配置并填写 Base URL；例如 DeepSeek 可使用 `https://api.deepseek.com/v1`。保存 API Key 后，再到“字幕翻译”中选择该配置并填写服务商支持的模型名（例如 `deepseek-chat`）。
 
-OpenAI 官方连接可按需设为“仅语音识别”“仅 LLM / 翻译”或共享；仅 LLM 配置可以填写兼容 Base URL。Base URL 留空时 LLM 使用 OpenAI 官方 Responses API，填写后请求 `{Base URL}/chat/completions`。Base URL 也可以直接填写完整的 `/chat/completions` 地址。
+OpenAI 官方连接可按需设为“仅语音识别”“仅 LLM / 翻译”或共享，并通过 OpenAI Responses API 提供 LLM 翻译。OpenAI 兼容连接是独立供应商类型，只支持 LLM，且必须填写 Base URL；请求发送到 `{Base URL}/chat/completions`，也可以直接填写完整的 `/chat/completions` 地址。
 
 配置了 API Key 后，VRCS 会自动请求对应的 `/models` 接口获取可用模型；可在“API 管理”中手动刷新，字幕翻译的模型输入框也会提供获取到的模型建议。如果服务商未实现模型列表接口，仍可直接手动填写模型名。
 

@@ -16,7 +16,7 @@ import type {
 } from "../src/types.ts";
 
 const settings: Settings = {
-  schema_version: 10,
+  schema_version: 11,
   server: { host: "127.0.0.1", port: 8766 },
   storage: {
     database_path: "data/vrcs.db",
@@ -71,7 +71,7 @@ test("recognition source selects a named API profile and compatible backend atom
       { id: "ali-work", name: "Work", provider: "alibaba_cloud", region: "singapore" },
       { id: "openai-personal", name: "Personal", provider: "openai", purpose: "asr" },
       { id: "openai-llm", name: "OpenAI LLM", provider: "openai", purpose: "llm" },
-      { id: "deepseek", name: "DeepSeek", provider: "openai", base_url: "https://api.deepseek.com/v1" },
+      { id: "deepseek", name: "DeepSeek", provider: "openai_compatible", base_url: "https://api.deepseek.com/v1" },
     ],
   };
 

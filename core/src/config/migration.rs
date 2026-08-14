@@ -195,7 +195,7 @@ fn migrate_v4_or_v5(raw: &serde_json::Value) -> Result<AppConfig, String> {
     serde_json::from_value(value).map_err(|error| error.to_string())
 }
 
-fn migrate_v6_to_v9(raw: &serde_json::Value) -> Result<AppConfig, String> {
+fn migrate_v6_to_v10(raw: &serde_json::Value) -> Result<AppConfig, String> {
     let mut value = raw.clone();
     let object = value
         .as_object_mut()
@@ -219,6 +219,27 @@ fn migrate_v6_to_v9(raw: &serde_json::Value) -> Result<AppConfig, String> {
     translation
         .entry("microphone_target_language")
         .or_insert(microphone_target);
+    if let Some(profiles) = object
+        .get_mut("asr")
+        .and_then(|asr| asr.get_mut("api_profiles"))
+        .and_then(|profiles| profiles.as_array_mut())
+    {
+        for profile in profiles {
+            let Some(profile) = profile.as_object_mut() else {
+                continue;
+            };
+            let is_compatible = profile.get("provider").and_then(|value| value.as_str())
+                == Some("openai")
+                && profile
+                    .get("base_url")
+                    .and_then(|value| value.as_str())
+                    .is_some_and(|value| !value.trim().is_empty());
+            if is_compatible {
+                profile.insert("provider".into(), serde_json::json!("openai_compatible"));
+                profile.insert("purpose".into(), serde_json::json!("llm"));
+            }
+        }
+    }
     object.insert("schema_version".into(), serde_json::json!(SCHEMA_VERSION));
     serde_json::from_value(value).map_err(|error| error.to_string())
 }
@@ -251,7 +272,7 @@ pub fn config_from_value(raw: &serde_json::Value) -> Result<AppConfig, String> {
         version if version == SCHEMA_VERSION as u64 => {
             serde_json::from_value(raw.clone()).map_err(|error| error.to_string())?
         }
-        6..=9 => migrate_v6_to_v9(raw)?,
+        6..=10 => migrate_v6_to_v10(raw)?,
         4 | 5 => migrate_v4_or_v5(raw)?,
         2 | 3 => migrate_v2_or_v3(raw)?,
         1 => migrate_v1(raw),

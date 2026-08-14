@@ -6,7 +6,7 @@ VRCS 的本地后端。数据面、音频采集、VAD、本地/云端 ASR 与字
 
 | 能力 | 状态 |
 |---|---|
-| 配置读写、schema v1→v10 迁移 | 已实现（`src/config.rs`） |
+| 配置读写、schema v1→v11 迁移 | 已实现（`src/config.rs`） |
 | 字幕历史存储与裁剪（SQLite） | 已实现（`src/db.rs`） |
 | 词典查询、Yomitan 词典包导入/删除 | 已实现（`src/db.rs`、`src/yomitan.rs`） |
 | AnkiConnect 状态探测与制卡 | 已实现（`src/anki.rs`） |

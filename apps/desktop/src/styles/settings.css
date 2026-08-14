@@ -269,7 +269,7 @@
 }
 .api-profile-row {
   display: grid;
-  grid-template-columns: minmax(220px, 1fr) minmax(130px, 0.42fr) auto;
+  grid-template-columns: minmax(220px, 1fr) auto;
   min-height: 76px;
   align-items: center;
   gap: 18px;
@@ -293,24 +293,11 @@
   color: var(--primary-ink);
   background: var(--canvas);
 }
-.api-profile-identity > span:last-child,
-.api-profile-status > span:last-child { display: grid; min-width: 0; gap: 3px; }
+.api-profile-identity > span:last-child { display: grid; min-width: 0; gap: 3px; }
 .api-profile-identity strong { color: var(--text); font-size: 13px; font-weight: 650; }
 .api-profile-identity small { overflow-wrap: anywhere; color: var(--text-quiet); font-size: 11px; line-height: 1.5; }
 .api-profile-identity .api-model-catalog-error,
 .field > .api-model-catalog-error { color: var(--error); }
-.api-profile-status { display: flex; min-width: 0; align-items: center; gap: 8px; }
-.api-profile-status strong { color: var(--text-secondary); font-size: 11px; font-weight: 650; }
-.api-profile-status small { color: var(--text-quiet); font-size: 10px; line-height: 1.4; }
-.api-status-dot {
-  width: 8px;
-  height: 8px;
-  flex: 0 0 8px;
-  border-radius: 50%;
-  background: var(--text-quiet);
-  box-shadow: 0 0 0 4px rgba(139, 152, 167, 0.10);
-}
-.api-status-dot.configured { background: var(--primary); box-shadow: 0 0 0 4px rgba(116, 214, 255, 0.13); }
 .api-profile-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 7px; }
 .api-profile-actions .secondary-button { min-height: 34px; padding: 7px 10px; font-size: 11px; white-space: nowrap; }
 .api-active-badge {

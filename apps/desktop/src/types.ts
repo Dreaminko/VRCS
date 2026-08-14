@@ -105,7 +105,7 @@ export interface AsrSettings {
 }
 
 export type AsrApiProvider = "alibaba_cloud" | "openai";
-export type ApiProvider = AsrApiProvider | "deepl" | "microsoft_translator";
+export type ApiProvider = AsrApiProvider | "openai_compatible" | "deepl" | "microsoft_translator";
 export type ApiProfilePurpose = "asr" | "llm" | "shared";
 
 export interface ApiProfile {
@@ -177,7 +177,7 @@ export interface AnkiSettings {
 }
 
 export interface Settings {
-  schema_version: 10;
+  schema_version: 11;
   server: {
     host: string;
     port: number;
