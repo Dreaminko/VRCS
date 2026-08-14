@@ -52,6 +52,7 @@ struct CoreRuntime {
 struct NativeUiState {
     show_item: Mutex<Option<MenuItem<tauri::Wry>>>,
     quit_item: Mutex<Option<MenuItem<tauri::Wry>>>,
+    compact_topmost: AtomicBool,
 }
 
 const DEFAULT_CORE_PORT: u16 = 8766;
@@ -193,10 +194,100 @@ fn update_native_labels(
     Ok(())
 }
 
+#[cfg(windows)]
+fn apply_native_topmost(window: &tauri::WebviewWindow, enabled: bool) -> Result<(), String> {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        GetWindowLongPtrW, SetWindowPos, GWL_EXSTYLE, HWND_NOTOPMOST, HWND_TOPMOST, SWP_NOACTIVATE,
+        SWP_NOMOVE, SWP_NOOWNERZORDER, SWP_NOSIZE, WS_EX_TOPMOST,
+    };
+
+    let hwnd = window.hwnd().map_err(|error| error.to_string())?.0 as _;
+    let insert_after = if enabled {
+        HWND_TOPMOST
+    } else {
+        HWND_NOTOPMOST
+    };
+    let result = unsafe {
+        SetWindowPos(
+            hwnd,
+            insert_after,
+            0,
+            0,
+            0,
+            0,
+            SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOOWNERZORDER | SWP_NOSIZE,
+        )
+    };
+    if result == 0 {
+        return Err(format!(
+            "Windows failed to update the compact subtitle window Z-order: {}",
+            std::io::Error::last_os_error()
+        ));
+    }
+
+    let extended_style = unsafe { GetWindowLongPtrW(hwnd, GWL_EXSTYLE) } as u32;
+    let actual = extended_style & WS_EX_TOPMOST != 0;
+    if actual != enabled {
+        return Err("Windows did not retain the requested compact subtitle Z-order".into());
+    }
+    Ok(())
+}
+
+fn apply_compact_topmost(
+    window: &tauri::WebviewWindow,
+    enabled: bool,
+    reason: &'static str,
+) -> Result<(), String> {
+    window
+        .set_always_on_top(enabled)
+        .map_err(|error| error.to_string())?;
+
+    #[cfg(windows)]
+    apply_native_topmost(window, enabled)?;
+
+    #[cfg(not(windows))]
+    if window
+        .is_always_on_top()
+        .map_err(|error| error.to_string())?
+        != enabled
+    {
+        return Err("The compact subtitle window did not retain its requested Z-order".into());
+    }
+
+    tracing::debug!(enabled, reason, "compact window topmost state applied");
+    Ok(())
+}
+
+#[tauri::command]
+fn set_compact_window_topmost(
+    window: tauri::WebviewWindow,
+    enabled: bool,
+    native_ui: State<'_, NativeUiState>,
+) -> Result<(), String> {
+    apply_compact_topmost(&window, enabled, "mode_change")?;
+    native_ui.compact_topmost.store(enabled, Ordering::Release);
+    Ok(())
+}
+
+fn reassert_compact_topmost(window: &tauri::WebviewWindow, reason: &'static str) {
+    if !window
+        .app_handle()
+        .state::<NativeUiState>()
+        .compact_topmost
+        .load(Ordering::Acquire)
+    {
+        return;
+    }
+    if let Err(error) = apply_compact_topmost(window, true, reason) {
+        tracing::warn!(%error, reason, "compact window topmost reassertion failed");
+    }
+}
+
 fn show_main_window(app: &tauri::AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.unminimize();
         let _ = window.show();
+        reassert_compact_topmost(&window, "window_shown");
         let _ = window.set_focus();
     }
 }
@@ -268,12 +359,14 @@ pub fn run() {
         .manage(NativeUiState {
             show_item: Mutex::new(None),
             quit_item: Mutex::new(None),
+            compact_topmost: AtomicBool::new(false),
         })
         .invoke_handler(tauri::generate_handler![
             core_connection,
             core_startup,
             retry_core,
-            update_native_labels
+            update_native_labels,
+            set_compact_window_topmost
         ])
         .setup(move |app| {
             app.store("preferences.json")?;
@@ -342,6 +435,11 @@ pub fn run() {
         })
         .on_window_event(|window, event| {
             if window.label() == "main" {
+                if matches!(event, WindowEvent::Focused(false)) {
+                    if let Some(window) = window.app_handle().get_webview_window("main") {
+                        reassert_compact_topmost(&window, "focus_lost");
+                    }
+                }
                 if let WindowEvent::CloseRequested { api, .. } = event {
                     if minimize_to_tray_enabled(window.app_handle()) {
                         api.prevent_close();
@@ -406,8 +504,6 @@ mod tests {
             "core:window:allow-toggle-maximize",
             "core:window:allow-close",
             "core:window:allow-set-resizable",
-            "core:window:allow-set-always-on-top",
-            "core:window:allow-is-always-on-top",
             "autostart:allow-enable",
             "autostart:allow-disable",
             "autostart:allow-is-enabled",

@@ -28,3 +28,6 @@ tauri-plugin-single-instance = "2"
 tauri-plugin-store = "2"
 uuid = { version = "1", features = ["v4"] }
 vrcs-core = { path = "../../../core" }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_UI_WindowsAndMessaging"] }

@@ -5288,6 +5288,7 @@ dependencies = [
  "tracing",
  "uuid",
  "vrcs-core",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

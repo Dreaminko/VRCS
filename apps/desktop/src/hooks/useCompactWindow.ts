@@ -1,5 +1,5 @@
 import { useCallback, useState } from "react";
-import { useTranslation } from "react-i18next";
+import { invoke } from "@tauri-apps/api/core";
 
 import { NATIVE_APP } from "../app-environment";
 import {
@@ -15,7 +15,6 @@ export function useCompactWindow({
   clearError: () => void;
   reportError: (reason: unknown, fallbackKey: string) => void;
 }) {
-  const { t } = useTranslation();
   const [compact, setCompact] = useState(false);
 
   const resizeCompactWindow = useCallback(async (lookupOpen: boolean) => {
@@ -63,24 +62,24 @@ export function useCompactWindow({
         await appWindow.setSizeConstraints(compactWindowConstraints(false));
         await appWindow.setSize(compactSize);
         await appWindow.setResizable(true);
-        await appWindow.setAlwaysOnTop(true);
+        await invoke("set_compact_window_topmost", { enabled: true });
       } else {
         onExitCompact();
-        await appWindow.setAlwaysOnTop(false);
+        await invoke("set_compact_window_topmost", { enabled: false });
         await appWindow.setResizable(true);
         await appWindow.setSizeConstraints({ minWidth: 860, minHeight: 620 });
         await appWindow.setSize(new LogicalSize(1180, 760));
       }
 
-      if (await appWindow.isAlwaysOnTop() !== next) {
-        throw new Error(t("errors.window.alwaysOnTop"));
-      }
       setCompact(next);
       clearError();
     } catch (reason) {
-      reportError(reason, "errors.window.compactToggle");
+      reportError(
+        typeof reason === "string" ? new Error(reason) : reason,
+        "errors.window.compactToggle",
+      );
     }
-  }, [clearError, compact, reportError, t]);
+  }, [clearError, compact, reportError]);
 
   const closeWindow = useCallback(async () => {
     try {
