@@ -4,6 +4,14 @@ import { useTranslation } from "react-i18next";
 import { coreApi } from "../api";
 import { localizedError } from "../app-utils";
 import {
+  applyChatboxPreferences,
+  chatboxPreferencesFromDraft,
+} from "../chatbox";
+import {
+  loadChatboxPreferences,
+  saveChatboxPreferences,
+} from "../chatbox-preferences";
+import {
   clearSentDraft,
   createChatboxDraft,
   previewChatboxLocally,
@@ -26,18 +34,19 @@ export function useChatboxWorkspace(settings: Settings | null) {
   const [busy, setBusy] = useState<"translate" | "send" | null>(null);
   const [feedback, setFeedback] = useState<{ tone: "success" | "error"; text: string } | null>(null);
   const previewRequest = useRef(0);
-  const settingsApplied = useRef(false);
+  const preferencesLoaded = useRef(false);
+  const preferencesChanged = useRef(false);
   const translationFresh = Boolean(draft.translation?.trim())
     && translationBasis?.original === draft.original
     && translationBasis.targetLanguage === draft.target_language;
 
   useEffect(() => {
-    if (!settings || settingsApplied.current) return;
-    settingsApplied.current = true;
-    setDraft((current) => ({
-      ...current,
-      target_language: settings.translation.target_language,
-    }));
+    if (!settings || preferencesLoaded.current) return;
+    preferencesLoaded.current = true;
+    void loadChatboxPreferences(settings.translation.target_language).then((preferences) => {
+      if (preferencesChanged.current) return;
+      setDraft((current) => applyChatboxPreferences(current, preferences));
+    });
   }, [settings]);
 
   useEffect(() => {
@@ -61,6 +70,12 @@ export function useChatboxWorkspace(settings: Settings | null) {
       setTranslationBasis(next.translation?.trim()
         ? { original: next.original, targetLanguage: next.target_language }
         : null);
+    }
+    const currentPreferences = chatboxPreferencesFromDraft(draft);
+    const nextPreferences = chatboxPreferencesFromDraft(next);
+    if (JSON.stringify(currentPreferences) !== JSON.stringify(nextPreferences)) {
+      preferencesChanged.current = true;
+      void saveChatboxPreferences(nextPreferences);
     }
     setDraft(next);
     setFeedback(null);

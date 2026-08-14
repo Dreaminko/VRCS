@@ -2,8 +2,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  applyChatboxPreferences,
+  chatboxPreferencesFromDraft,
   clearSentDraft,
   createChatboxDraft,
+  normalizeChatboxPreferences,
   previewChatboxLocally,
 } from "../src/chatbox.ts";
 
@@ -40,4 +43,37 @@ test("new Chatbox drafts translate and send bilingually by default", () => {
   const draft = createChatboxDraft("zh-Hans");
   assert.equal(draft.send_mode, "bilingual");
   assert.equal(draft.target_language, "zh-Hans");
+});
+
+test("Chatbox send settings round-trip without retaining message text", () => {
+  const draft = {
+    ...createChatboxDraft("de"),
+    original: "hello",
+    translation: "hallo",
+    send_mode: "translation" as const,
+    message_format: "custom" as const,
+    custom_format: "{translation} | {original}",
+    overflow_policy: "smart_truncate" as const,
+  };
+  const restored = applyChatboxPreferences(
+    createChatboxDraft("ja"),
+    chatboxPreferencesFromDraft(draft),
+  );
+  assert.equal(restored.original, "");
+  assert.equal(restored.translation, null);
+  assert.equal(restored.target_language, "de");
+  assert.equal(restored.send_mode, "translation");
+  assert.equal(restored.message_format, "custom");
+  assert.equal(restored.custom_format, "{translation} | {original}");
+  assert.equal(restored.overflow_policy, "smart_truncate");
+});
+
+test("invalid persisted Chatbox settings fall back to current defaults", () => {
+  assert.deepEqual(normalizeChatboxPreferences({
+    target_language: "invalid",
+    send_mode: "invalid",
+    message_format: "invalid",
+    custom_format: 42,
+    overflow_policy: "invalid",
+  }, "zh-Hant"), chatboxPreferencesFromDraft(createChatboxDraft("zh-Hant")));
 });

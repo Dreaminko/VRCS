@@ -18,7 +18,7 @@ export function BottomDock({ page, running, chatboxOpen, captureDisabled, chatbo
 }) {
   const { t } = useTranslation();
   return (
-    <nav className="bottom-dock" aria-label={t("navigation.main")}>
+    <nav className={`bottom-dock ${chatboxOpen ? "chatbox-open" : ""}`} aria-label={t("navigation.main")}>
       <DockButton label={t("navigation.live")} active={page === "live"} onClick={() => onPageChange("live")}><MessageSquare /></DockButton>
       <DockButton label={t("navigation.history")} active={page === "history"} onClick={() => onPageChange("history")}><History /></DockButton>
       <DockButton label={t("navigation.settings")} active={page === "settings"} onClick={() => onPageChange("settings")}><SlidersHorizontal /></DockButton>
@@ -57,7 +57,6 @@ function DockButton({ label, active = false, tonal = false, primary = false, dis
       aria-current={active && expanded === undefined ? "page" : undefined}
       aria-expanded={expanded}
       data-tooltip={label}
-      title={label}
       disabled={disabled}
       onClick={onClick}
     >{children}</button>

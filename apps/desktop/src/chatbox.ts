@@ -1,9 +1,32 @@
 import type {
   ChatboxComposeInput,
+  ChatboxMessageFormat,
+  ChatboxOverflowPolicy,
   ChatboxPreview,
+  ChatboxSendMode,
+  TranslationSettings,
 } from "./types";
 
 export const CHATBOX_LIMIT = 144;
+export const CHATBOX_TARGET_LANGUAGES = [
+  "zh-Hans", "zh-Hant", "en", "ja", "ko", "es", "fr", "de", "ru",
+] as const;
+const SEND_MODES = new Set<ChatboxSendMode>(["original", "translation", "bilingual"]);
+const MESSAGE_FORMATS = new Set<ChatboxMessageFormat>([
+  "original_newline_translation",
+  "translation_newline_original",
+  "slash_separated",
+  "custom",
+]);
+const OVERFLOW_POLICIES = new Set<ChatboxOverflowPolicy>(["block", "smart_truncate"]);
+
+export interface ChatboxPreferences {
+  target_language: TranslationSettings["target_language"];
+  send_mode: ChatboxSendMode;
+  message_format: ChatboxMessageFormat;
+  custom_format: string | null;
+  overflow_policy: ChatboxOverflowPolicy;
+}
 
 export function createChatboxDraft(targetLanguage = "ja"): ChatboxComposeInput {
   return {
@@ -45,6 +68,48 @@ export function clearSentDraft(input: ChatboxComposeInput): ChatboxComposeInput 
   return { ...input, original: "", translation: null };
 }
 
+export function chatboxPreferencesFromDraft(draft: ChatboxComposeInput): ChatboxPreferences {
+  return {
+    target_language: normalizeTargetLanguage(draft.target_language, "ja"),
+    send_mode: draft.send_mode,
+    message_format: draft.message_format,
+    custom_format: draft.custom_format,
+    overflow_policy: draft.overflow_policy,
+  };
+}
+
+export function applyChatboxPreferences(
+  draft: ChatboxComposeInput,
+  preferences: ChatboxPreferences,
+): ChatboxComposeInput {
+  return { ...draft, ...preferences };
+}
+
+export function normalizeChatboxPreferences(
+  value: unknown,
+  fallbackTarget: TranslationSettings["target_language"] = "ja",
+): ChatboxPreferences {
+  const defaults = createChatboxDraft(fallbackTarget);
+  const candidate = parseStoredValue(value);
+  if (!candidate || typeof candidate !== "object") {
+    return chatboxPreferencesFromDraft(defaults);
+  }
+  const stored = candidate as Record<string, unknown>;
+  return {
+    target_language: normalizeTargetLanguage(stored.target_language, fallbackTarget),
+    send_mode: isSetValue(stored.send_mode, SEND_MODES) ? stored.send_mode : defaults.send_mode,
+    message_format: isSetValue(stored.message_format, MESSAGE_FORMATS)
+      ? stored.message_format
+      : defaults.message_format,
+    custom_format: typeof stored.custom_format === "string"
+      ? Array.from(stored.custom_format).slice(0, 200).join("") || null
+      : null,
+    overflow_policy: isSetValue(stored.overflow_policy, OVERFLOW_POLICIES)
+      ? stored.overflow_policy
+      : defaults.overflow_policy,
+  };
+}
+
 function renderDraft(
   input: ChatboxComposeInput,
   original: string,
@@ -74,4 +139,27 @@ function validCustomFormat(value: string): boolean {
     && value.match(/\{original\}/g)?.length === 1
     && value.match(/\{translation\}/g)?.length === 1
     && !/[{}\u0000-\u001f\u007f]/.test(remainder);
+}
+
+function normalizeTargetLanguage(
+  value: unknown,
+  fallback: TranslationSettings["target_language"],
+): TranslationSettings["target_language"] {
+  return typeof value === "string"
+    && CHATBOX_TARGET_LANGUAGES.includes(value as TranslationSettings["target_language"])
+    ? value as TranslationSettings["target_language"]
+    : fallback;
+}
+
+function isSetValue<T extends string>(value: unknown, values: Set<T>): value is T {
+  return typeof value === "string" && values.has(value as T);
+}
+
+function parseStoredValue(value: unknown): unknown {
+  if (typeof value !== "string") return value;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
 }

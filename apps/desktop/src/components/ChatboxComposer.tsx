@@ -11,13 +11,9 @@ import {
 import type {
   ChatboxComposeInput,
   ChatboxPreview,
-  TranslationSettings,
 } from "../types";
+import { CHATBOX_TARGET_LANGUAGES } from "../chatbox";
 import { DropdownField } from "./DropdownField";
-
-const LANGUAGE_VALUES: TranslationSettings["target_language"][] = [
-  "zh-Hans", "zh-Hant", "en", "ja", "ko", "es", "fr", "de", "ru",
-];
 
 export function ChatboxComposer({
   draft,
@@ -65,7 +61,7 @@ export function ChatboxComposer({
     : busy === "send"
       ? t("chatbox.sending")
       : t("chatbox.send");
-  const languageOptions = LANGUAGE_VALUES.map((value) => ({
+  const languageOptions = CHATBOX_TARGET_LANGUAGES.map((value) => ({
     value,
     label: t(`translation.languages.${value}`),
   }));

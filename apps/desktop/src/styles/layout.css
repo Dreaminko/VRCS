@@ -581,6 +581,8 @@ body { zoom: var(--interface-scale, 1); }
   will-change: transform;
 }
 
+.bottom-dock.chatbox-open { z-index: 320; }
+
 .live-scroll-to-bottom {
   position: fixed;
   z-index: 39;
@@ -656,24 +658,75 @@ body { zoom: var(--interface-scale, 1); }
 .dock-button.primary:hover { color: #ffffff; background: var(--primary-hover); }
 .dock-button:disabled { opacity: 0.5; pointer-events: none; }
 .dock-divider { width: 1px; height: 24px; margin: 0 4px; background: var(--border); }
+.dock-button::before,
 .dock-button::after {
   position: absolute;
-  bottom: calc(100% + 11px);
   left: 50%;
-  padding: 5px 8px;
-  transform: translate(-50%, 4px);
-  border-radius: 6px;
-  color: white;
-  background: var(--primary-ink);
-  content: attr(data-tooltip);
-  font-size: 11px;
-  line-height: 1;
   opacity: 0;
   pointer-events: none;
-  white-space: nowrap;
-  transition: opacity 120ms ease-out, transform 120ms ease-out;
+  visibility: hidden;
+  transition:
+    opacity 110ms ease-in,
+    transform 110ms ease-in,
+    visibility 0s linear 110ms;
 }
-.dock-button:hover::after, .dock-button:focus-visible::after { transform: translate(-50%, 0); opacity: 1; }
+.dock-button::before {
+  z-index: 3;
+  bottom: calc(100% + 10px);
+  width: 7px;
+  height: 7px;
+  transform: translateX(-50%) translateY(3px) rotate(45deg) scale(0.985);
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  content: "";
+}
+.dock-button::after {
+  z-index: 2;
+  bottom: calc(100% + 13px);
+  width: max-content;
+  max-width: min(220px, calc(100vw - 24px));
+  padding: 8px 10px;
+  transform: translateX(-50%) translateY(3px) scale(0.985);
+  transform-origin: bottom center;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  color: var(--text);
+  background: var(--surface);
+  box-shadow: 0 12px 32px rgba(29, 40, 52, 0.11), 0 1px 3px rgba(29, 40, 52, 0.07);
+  content: attr(data-tooltip);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+  text-align: center;
+}
+@media (hover: hover) {
+  .dock-button:hover::before,
+  .dock-button:hover::after {
+    opacity: 1;
+    visibility: visible;
+    transition:
+      opacity 150ms 180ms cubic-bezier(0.16, 1, 0.3, 1),
+      transform 150ms 180ms cubic-bezier(0.16, 1, 0.3, 1),
+      visibility 0s 180ms;
+  }
+  .dock-button:hover::before { transform: translateX(-50%) translateY(0) rotate(45deg) scale(1); }
+  .dock-button:hover::after { transform: translateX(-50%) translateY(0) scale(1); }
+}
+.dock-button:focus-visible::before,
+.dock-button:focus-visible::after {
+  opacity: 1;
+  visibility: visible;
+  transition: none;
+}
+.dock-button:focus-visible::before { transform: translateX(-50%) translateY(0) rotate(45deg) scale(1); }
+.dock-button:focus-visible::after { transform: translateX(-50%) translateY(0) scale(1); }
+
+@media (prefers-reduced-motion: reduce) {
+  .dock-button::before,
+  .dock-button::after { transition: none; }
+}
 
 .history-surface, .settings-surface {
   overflow: visible;
