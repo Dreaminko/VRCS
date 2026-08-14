@@ -923,6 +923,7 @@ body { zoom: var(--interface-scale, 1); }
   overflow-y: auto;
   overscroll-behavior: contain;
 }
+.dropdown-menu-floating-dialog { z-index: 1700; }
 .dropdown-menu-floating.dropdown-menu-compact .dropdown-option { font-size: 12px; }
 .dropdown-option {
   display: flex;

@@ -397,6 +397,7 @@
         "authNone": "无需鉴权",
         "timeout": "请求超时（毫秒）",
         "localService": "这是本地服务",
+        "localServiceHint": "服务运行在本机或局域网内。",
         "customHeaders": "自定义 HTTP Header",
         "addHeader": "添加 Header",
         "customHeadersWarning": "Header 会以明文写入本地配置。不要填写密钥、令牌或 Cookie。",

@@ -42,13 +42,14 @@ export function PreferenceToggle({ title, description, checked, disabled, onChan
   );
 }
 
-export function Select({ label, helper, value, values = [], options, disabled, onChange }: {
+export function Select({ label, helper, value, values = [], options, disabled, floating, onChange }: {
   label: string;
   helper?: string;
   value: string;
   values?: readonly string[];
   options?: Array<{ value: string; label: string }>;
   disabled: boolean;
+  floating?: "page" | "dialog";
   onChange: (value: string) => void;
 }) {
   return (
@@ -59,6 +60,8 @@ export function Select({ label, helper, value, values = [], options, disabled, o
         value={value}
         options={options ?? values.map((item) => ({ value: item, label: item }))}
         disabled={disabled}
+        floating={Boolean(floating)}
+        floatingLayer={floating}
         onChange={onChange}
       />
       {helper && <small>{helper}</small>}

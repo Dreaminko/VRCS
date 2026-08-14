@@ -4,6 +4,7 @@ import { createPortal } from "react-dom";
 import { Check, ChevronDown } from "lucide-react";
 
 import {
+  INTERFACE_LAYOUT_CHANGE_EVENT,
   interfaceLayoutPixels,
   readAppliedInterfaceScaleFactor,
 } from "../interface-scale";
@@ -16,13 +17,14 @@ const FLOATING_MENU_GAP = 6;
 const FLOATING_MENU_MARGIN = 12;
 const FLOATING_MENU_MAX_HEIGHT = 216;
 
-export function DropdownField({ label, value, options, disabled = false, compact = false, floating = false, icon, onChange }: {
+export function DropdownField({ label, value, options, disabled = false, compact = false, floating = false, floatingLayer = "page", icon, onChange }: {
   label: string;
   value: string;
   options: Array<{ value: string; label: string }>;
   disabled?: boolean;
   compact?: boolean;
   floating?: boolean;
+  floatingLayer?: "page" | "dialog";
   icon?: ReactNode;
   onChange: (value: string) => void;
 }) {
@@ -52,6 +54,14 @@ export function DropdownField({ label, value, options, disabled = false, compact
 
     const scale = readAppliedInterfaceScaleFactor();
     const rect = triggerRef.current.getBoundingClientRect();
+    const boundary = triggerRef.current.closest<HTMLElement>("[data-floating-boundary]");
+    if (boundary) {
+      const boundaryRect = boundary.getBoundingClientRect();
+      if (rect.bottom <= boundaryRect.top || rect.top >= boundaryRect.bottom) {
+        setOpen(false);
+        return;
+      }
+    }
     const viewportWidth = interfaceLayoutPixels(window.innerWidth, scale);
     const viewportHeight = interfaceLayoutPixels(window.innerHeight, scale);
     const width = Math.min(
@@ -92,10 +102,10 @@ export function DropdownField({ label, value, options, disabled = false, compact
     }
 
     updateFloatingPosition();
-    window.addEventListener("resize", updateFloatingPosition);
+    window.addEventListener(INTERFACE_LAYOUT_CHANGE_EVENT, updateFloatingPosition);
     document.addEventListener("scroll", updateFloatingPosition, true);
     return () => {
-      window.removeEventListener("resize", updateFloatingPosition);
+      window.removeEventListener(INTERFACE_LAYOUT_CHANGE_EVENT, updateFloatingPosition);
       document.removeEventListener("scroll", updateFloatingPosition, true);
     };
   }, [floating, open, updateFloatingPosition]);
@@ -120,6 +130,23 @@ export function DropdownField({ label, value, options, disabled = false, compact
       return;
     }
 
+    if (event.key === "Tab" && floatingLayer === "dialog") {
+      const dialog = triggerRef.current?.closest<HTMLElement>('[role="dialog"]');
+      if (!dialog || !triggerRef.current) return;
+      const focusable = Array.from(dialog.querySelectorAll<HTMLElement>(
+        'button:not(:disabled), input:not(:disabled), [tabindex]:not([tabindex="-1"])',
+      )).filter((element) => element.getClientRects().length > 0);
+      const triggerIndex = focusable.indexOf(triggerRef.current);
+      if (triggerIndex < 0 || focusable.length < 2) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const offset = event.shiftKey ? -1 : 1;
+      const nextIndex = (triggerIndex + offset + focusable.length) % focusable.length;
+      setOpen(false);
+      focusable[nextIndex]?.focus({ preventScroll: true });
+      return;
+    }
+
     if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
     const items = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>(".dropdown-option"));
     if (items.length === 0) return;
@@ -137,7 +164,7 @@ export function DropdownField({ label, value, options, disabled = false, compact
 
   const menu = (
     <div
-      className={`dropdown-menu ${floating ? "dropdown-menu-floating" : ""} ${compact ? "dropdown-menu-compact" : ""}`}
+      className={`dropdown-menu ${floating ? "dropdown-menu-floating" : ""} ${floating && floatingLayer === "dialog" ? "dropdown-menu-floating-dialog" : ""} ${compact ? "dropdown-menu-compact" : ""}`}
       id={menuId}
       ref={menuRef}
       role="listbox"
@@ -168,6 +195,12 @@ export function DropdownField({ label, value, options, disabled = false, compact
     <div
       className={`dropdown-field ${compact ? "dropdown-field-compact" : ""} ${open ? "open" : ""}`}
       ref={rootRef}
+      onBlurCapture={(event) => {
+        const next = event.relatedTarget as Node | null;
+        if (next && !event.currentTarget.contains(next) && !menuRef.current?.contains(next)) {
+          setOpen(false);
+        }
+      }}
       onKeyDownCapture={(event) => {
         if (event.key !== "Escape" || !open) return;
         event.preventDefault();

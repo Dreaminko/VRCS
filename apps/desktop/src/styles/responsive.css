@@ -39,9 +39,13 @@
   .api-profile-actions { grid-column: 1; flex-wrap: wrap; }
   .api-profile-form-grid { grid-template-columns: 1fr; }
   .api-profile-key-field { grid-column: 1; }
-  .api-profile-dialog-backdrop { padding: 12px; }
-  .api-profile-dialog { width: calc(100vw - 24px); max-height: calc(100vh - 24px); }
-  .api-profile-dialog .api-profile-editor { padding: 20px 16px 16px; }
+  .api-compatible-settings { padding: 14px; }
+  .api-compatible-grid { grid-template-columns: 1fr; }
+  .api-compatible-url-field { grid-column: 1; }
+  .api-profile-dialog-backdrop { --api-dialog-gutter: 12px; }
+  .api-profile-dialog .api-profile-editor-heading { padding: 20px 60px 14px 16px; }
+  .api-profile-dialog .api-profile-editor-content { padding: 0 16px 16px; }
+  .api-profile-dialog .api-profile-editor-actions { padding: 14px 16px 16px; }
   .api-profile-editor-actions { align-items: stretch; flex-direction: column; }
   .api-profile-editor-actions > div:last-child { justify-content: flex-end; }
   .api-section-subtitle { margin-left: 0; }

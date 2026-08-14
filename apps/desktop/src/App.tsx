@@ -28,6 +28,7 @@ import {
   interfaceScaleShortcutStep,
   normalizeInterfaceScale,
   readInterfaceScale,
+  syncInterfaceViewportProperties,
   writeInterfaceScale,
 } from "./interface-scale";
 import { SettingsPanel } from "./settings/SettingsPanel";
@@ -184,6 +185,11 @@ function App() {
       reportError(reason, "errors.window.interfaceScale", "window");
     });
   }, [interfaceScale, reportError]);
+
+  useEffect(() => {
+    window.addEventListener("resize", syncInterfaceViewportProperties);
+    return () => window.removeEventListener("resize", syncInterfaceViewportProperties);
+  }, []);
 
   useEffect(() => {
     const handleInterfaceScaleShortcut = (event: KeyboardEvent) => {

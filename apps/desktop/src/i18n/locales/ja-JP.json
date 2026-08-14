@@ -397,6 +397,7 @@
         "authNone": "認証なし",
         "timeout": "リクエストタイムアウト（ミリ秒）",
         "localService": "ローカルサービスとして使用",
+        "localServiceHint": "このコンピューターまたはローカルネットワークで動作します。",
         "customHeaders": "カスタム HTTP ヘッダー",
         "addHeader": "ヘッダーを追加",
         "customHeadersWarning": "ヘッダーはローカル設定に平文で保存されます。キー、トークン、Cookie は入力しないでください。",

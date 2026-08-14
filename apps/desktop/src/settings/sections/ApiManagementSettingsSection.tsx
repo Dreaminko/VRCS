@@ -146,6 +146,7 @@ function ApiProfileEditorDialog({
           draft={draft}
           saving={saving}
           providerDefinitions={providerDefinitions}
+          floatingSelects
           onChange={onChange}
           onSave={onSave}
           onCancel={onClose}

@@ -3,10 +3,12 @@ import test from "node:test";
 
 import {
   applyInterfaceScale,
+  COMPACT_OVERLAY_HEIGHT,
   DEFAULT_INTERFACE_SCALE,
   interfaceLayoutPixels,
   interfaceScaleFactors,
   interfaceScaleShortcutStep,
+  interfaceViewportMetrics,
   normalizeInterfaceScale,
 } from "../src/interface-scale.ts";
 
@@ -51,17 +53,45 @@ test("keeps layout coordinates stable while scaling interface lengths", () => {
   assert.equal(interfaceLayoutPixels(760, 0.75), 760 / 0.75);
 });
 
+test("derives scale-aware overlay viewport metrics", () => {
+  assert.deepEqual(interfaceViewportMetrics(1180, 760, 1), {
+    width: 1180,
+    height: 760,
+    overlayGutter: 24,
+  });
+  assert.deepEqual(interfaceViewportMetrics(1180, 760, 1.5), {
+    width: 1180 / 1.5,
+    height: 760 / 1.5,
+    overlayGutter: 12,
+  });
+  assert.equal(
+    interfaceViewportMetrics(860, COMPACT_OVERLAY_HEIGHT, 1).overlayGutter,
+    24,
+  );
+});
+
 test("applies interface scale through CSS factors", async () => {
   const properties = new Map<string, string>();
+  const dispatchedEvents: string[] = [];
   const previousDocument = Object.getOwnPropertyDescriptor(globalThis, "document");
+  const previousWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
   Object.defineProperty(globalThis, "document", {
     configurable: true,
     value: {
       documentElement: {
         style: {
+          getPropertyValue: (name: string) => properties.get(name) ?? "",
           setProperty: (name: string, value: string) => properties.set(name, value),
         },
       },
+    },
+  });
+  Object.defineProperty(globalThis, "window", {
+    configurable: true,
+    value: {
+      innerWidth: 1180,
+      innerHeight: 760,
+      dispatchEvent: (event: Event) => dispatchedEvents.push(event.type),
     },
   });
 
@@ -70,8 +100,14 @@ test("applies interface scale through CSS factors", async () => {
   } finally {
     if (previousDocument) Object.defineProperty(globalThis, "document", previousDocument);
     else delete (globalThis as { document?: unknown }).document;
+    if (previousWindow) Object.defineProperty(globalThis, "window", previousWindow);
+    else delete (globalThis as { window?: unknown }).window;
   }
 
   assert.equal(properties.get("--interface-scale"), "1.5");
   assert.equal(Number(properties.get("--interface-scale-inverse")), 2 / 3);
+  assert.equal(properties.get("--interface-layout-width"), `${1180 / 1.5}px`);
+  assert.equal(properties.get("--interface-layout-height"), `${760 / 1.5}px`);
+  assert.equal(properties.get("--interface-overlay-gutter"), "12px");
+  assert.deepEqual(dispatchedEvents, ["vrcs:interface-layout-change"]);
 });

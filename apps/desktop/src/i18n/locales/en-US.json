@@ -397,6 +397,7 @@
         "authNone": "No authentication",
         "timeout": "Request timeout (ms)",
         "localService": "This is a local service",
+        "localServiceHint": "The service runs on this computer or local network.",
         "customHeaders": "Custom HTTP headers",
         "addHeader": "Add header",
         "customHeadersWarning": "Headers are stored as plain text in the local configuration. Do not enter keys, tokens, or cookies.",

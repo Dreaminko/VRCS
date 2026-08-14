@@ -6,6 +6,12 @@ export const DEFAULT_INTERFACE_SCALE = 100;
 const INTERFACE_SCALE_STORAGE_KEY = "vrcs.interfaceScalePercent";
 const INTERFACE_SCALE_PROPERTY = "--interface-scale";
 const INTERFACE_SCALE_INVERSE_PROPERTY = "--interface-scale-inverse";
+const INTERFACE_LAYOUT_WIDTH_PROPERTY = "--interface-layout-width";
+const INTERFACE_LAYOUT_HEIGHT_PROPERTY = "--interface-layout-height";
+const INTERFACE_OVERLAY_GUTTER_PROPERTY = "--interface-overlay-gutter";
+
+export const INTERFACE_LAYOUT_CHANGE_EVENT = "vrcs:interface-layout-change";
+export const COMPACT_OVERLAY_HEIGHT = 720;
 
 export function normalizeInterfaceScale(value: unknown): number {
   if (value === null || value === undefined || value === "") return DEFAULT_INTERFACE_SCALE;
@@ -71,6 +77,30 @@ export function interfaceLayoutPixels(
   return value / (Number.isFinite(scale) && scale > 0 ? scale : 1);
 }
 
+export function interfaceViewportMetrics(
+  width: number,
+  height: number,
+  scale = readAppliedInterfaceScaleFactor(),
+): { width: number; height: number; overlayGutter: number } {
+  const layoutWidth = interfaceLayoutPixels(width, scale);
+  const layoutHeight = interfaceLayoutPixels(height, scale);
+  return {
+    width: layoutWidth,
+    height: layoutHeight,
+    overlayGutter: layoutHeight < COMPACT_OVERLAY_HEIGHT ? 12 : 24,
+  };
+}
+
+export function syncInterfaceViewportProperties(): void {
+  if (typeof document === "undefined" || typeof window === "undefined") return;
+  const metrics = interfaceViewportMetrics(window.innerWidth, window.innerHeight);
+  const style = document.documentElement.style;
+  style.setProperty(INTERFACE_LAYOUT_WIDTH_PROPERTY, `${metrics.width}px`);
+  style.setProperty(INTERFACE_LAYOUT_HEIGHT_PROPERTY, `${metrics.height}px`);
+  style.setProperty(INTERFACE_OVERLAY_GUTTER_PROPERTY, `${metrics.overlayGutter}px`);
+  window.dispatchEvent(new Event(INTERFACE_LAYOUT_CHANGE_EVENT));
+}
+
 export async function applyInterfaceScale(value: number): Promise<void> {
   const { scale, inverse } = interfaceScaleFactors(value);
   document.documentElement.style.setProperty(INTERFACE_SCALE_PROPERTY, String(scale));
@@ -78,4 +108,5 @@ export async function applyInterfaceScale(value: number): Promise<void> {
     INTERFACE_SCALE_INVERSE_PROPERTY,
     String(inverse),
   );
+  syncInterfaceViewportProperties();
 }
