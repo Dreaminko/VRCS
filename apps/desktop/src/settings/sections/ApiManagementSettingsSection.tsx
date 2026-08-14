@@ -1,5 +1,6 @@
-import { Check, Cloud, KeyRound, Pencil, Plus, RefreshCw, ShieldCheck, Trash2 } from "lucide-react";
-import { Fragment, useState } from "react";
+import { Check, Cloud, KeyRound, Pencil, Plus, RefreshCw, ShieldCheck, Trash2, X } from "lucide-react";
+import { Fragment, useEffect, useRef, useState, type RefObject } from "react";
+import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 
 import {
@@ -52,6 +53,109 @@ function supportLevel(profile: ApiProfileView) {
   return levels[0] ?? null;
 }
 
+function ApiProfileEditorDialog({
+  draft,
+  saving,
+  providerDefinitions,
+  returnFocusRef,
+  onChange,
+  onSave,
+  onClose,
+}: {
+  draft: ApiProfileEditorDraft;
+  saving: boolean;
+  providerDefinitions: ProviderDefinition[];
+  returnFocusRef: RefObject<HTMLButtonElement | null>;
+  onChange: (draft: ApiProfileEditorDraft) => void;
+  onSave: () => void;
+  onClose: () => void;
+}) {
+  const { t } = useTranslation();
+  const dialogRef = useRef<HTMLElement>(null);
+  const onCloseRef = useRef(onClose);
+  const savingRef = useRef(saving);
+
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
+
+  useEffect(() => {
+    savingRef.current = saving;
+  }, [saving]);
+
+  useEffect(() => {
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        if (!savingRef.current) onCloseRef.current();
+        return;
+      }
+      if (event.key !== "Tab" || !dialogRef.current) return;
+
+      const focusable = Array.from(dialogRef.current.querySelectorAll<HTMLElement>(
+        'button:not(:disabled), input:not(:disabled), [tabindex]:not([tabindex="-1"])',
+      )).filter((element) => element.getClientRects().length > 0);
+      if (!focusable.length) return;
+
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && (document.activeElement === first || !dialogRef.current.contains(document.activeElement))) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && (document.activeElement === last || !dialogRef.current.contains(document.activeElement))) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+      document.body.style.overflow = previousOverflow;
+      returnFocusRef.current?.focus();
+    };
+  }, [returnFocusRef]);
+
+  return createPortal(
+    <div
+      className="api-profile-dialog-backdrop"
+      onMouseDown={(event) => {
+        if (!saving && event.target === event.currentTarget) onClose();
+      }}
+    >
+      <section
+        className="api-profile-dialog"
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label={t("settings.apiManagement.addProfile")}
+      >
+        <button
+          className="api-profile-dialog-close"
+          type="button"
+          aria-label={t("common.close")}
+          disabled={saving}
+          onClick={onClose}
+        >
+          <X size={18} aria-hidden="true" />
+        </button>
+        <ApiProfileEditor
+          draft={draft}
+          saving={saving}
+          providerDefinitions={providerDefinitions}
+          onChange={onChange}
+          onSave={onSave}
+          onCancel={onClose}
+        />
+      </section>
+    </div>,
+    document.body,
+  );
+}
+
 export function ApiManagementSettingsSection({
   settings,
   disabled,
@@ -64,6 +168,7 @@ export function ApiManagementSettingsSection({
   const { t } = useTranslation();
   const profiles = useApiProfiles(onRefreshSettings);
   const [editor, setEditor] = useState<ApiProfileEditorDraft | null>(null);
+  const addButtonRef = useRef<HTMLButtonElement>(null);
   const locked = disabled || profiles.busy !== null;
 
   const saveEditor = async () => {
@@ -95,7 +200,7 @@ export function ApiManagementSettingsSection({
     <div className="settings-section settings-section-active api-section" id="settings-panel-api" role="tabpanel" aria-labelledby="settings-tab-api">
       <div className="section-heading api-section-heading">
         <div><KeyRound size={18} /><h2>{t("settings.apiManagement.title")}</h2></div>
-        <button className="primary-button api-add-button" type="button" disabled={locked || Boolean(editor)} onClick={() => setEditor(createApiProfileDraft())}>
+        <button ref={addButtonRef} className="primary-button api-add-button" type="button" disabled={locked || Boolean(editor)} onClick={() => setEditor(createApiProfileDraft())}>
           <Plus size={18} aria-hidden="true" />
           {t("settings.apiManagement.addProfile")}
         </button>
@@ -107,18 +212,8 @@ export function ApiManagementSettingsSection({
       </div>
 
       <div className="api-profile-list" aria-busy={profiles.loading || undefined}>
-        {editor && !editor.id && (
-          <ApiProfileEditor
-            draft={editor}
-            saving={profiles.busy === "create"}
-            providerDefinitions={profiles.providerDefinitions}
-            onChange={setEditor}
-            onSave={() => void saveEditor()}
-            onCancel={() => setEditor(null)}
-          />
-        )}
         {profiles.loading && <p className="api-profile-empty">{t("settings.apiManagement.checking")}</p>}
-        {!profiles.loading && !profiles.profiles.length && !editor && (
+        {!profiles.loading && !profiles.profiles.length && (
           <div className="api-profile-empty">
             <Cloud size={20} aria-hidden="true" />
             <strong>{t("settings.apiManagement.emptyTitle")}</strong>
@@ -225,6 +320,17 @@ export function ApiManagementSettingsSection({
           );
         })}
       </div>
+      {editor && !editor.id && (
+        <ApiProfileEditorDialog
+          draft={editor}
+          saving={profiles.busy === "create"}
+          providerDefinitions={profiles.providerDefinitions}
+          returnFocusRef={addButtonRef}
+          onChange={setEditor}
+          onSave={() => void saveEditor()}
+          onClose={() => setEditor(null)}
+        />
+      )}
       {disabled && <small className="api-credential-message">{t("settings.recognition.stopToModify")}</small>}
       {profiles.message && <small className="api-credential-message" role="status">{profiles.message}</small>}
     </div>

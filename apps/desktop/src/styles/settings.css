@@ -417,6 +417,64 @@
   border-bottom: 1px solid var(--border);
   background: var(--canvas);
 }
+.api-profile-dialog-backdrop {
+  position: fixed;
+  z-index: 1600;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(21, 31, 42, 0.34);
+  animation: api-dialog-backdrop-in 180ms ease-out both;
+}
+.api-profile-dialog {
+  position: relative;
+  width: min(700px, calc(100vw - 48px));
+  max-height: calc(100vh - 48px);
+  overflow: auto;
+  overscroll-behavior: contain;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  box-shadow: var(--overlay-shadow), 0 4px 12px rgba(20, 31, 43, 0.08);
+  animation: api-dialog-card-in 220ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+.api-profile-dialog .api-profile-editor {
+  padding: 24px;
+  border: 0;
+  background: transparent;
+}
+.api-profile-dialog .api-profile-editor-heading { padding-right: 44px; }
+.api-profile-dialog .api-profile-editor-heading strong { font-size: 16px; font-weight: 680; }
+.api-profile-dialog-close {
+  position: absolute;
+  z-index: 1;
+  top: 16px;
+  right: 16px;
+  display: grid;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  place-items: center;
+  border: 0;
+  border-radius: var(--radius-sm);
+  color: var(--text-quiet);
+  background: transparent;
+  cursor: pointer;
+  transition: color 140ms ease-out, background-color 140ms ease-out, transform 120ms ease-out;
+}
+.api-profile-dialog-close:hover:not(:disabled) { color: var(--text); background: var(--surface-subtle); }
+.api-profile-dialog-close:focus-visible { outline: 3px solid rgba(116, 214, 255, 0.18); outline-offset: -3px; }
+.api-profile-dialog-close:active:not(:disabled) { transform: scale(0.96); }
+.api-profile-dialog-close:disabled { opacity: 0.42; cursor: not-allowed; }
+@keyframes api-dialog-backdrop-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes api-dialog-card-in {
+  from { opacity: 0; transform: translateY(10px) scale(0.96); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
 .api-profile-editor-heading { display: grid; gap: 4px; }
 .api-profile-editor-heading strong { color: var(--text); font-size: 13px; }
 .api-profile-editor-heading small { color: var(--text-quiet); font-size: 11px; line-height: 1.5; }
