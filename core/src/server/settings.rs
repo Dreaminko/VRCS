@@ -8,7 +8,7 @@ use serde_json::{json, Value};
 
 use crate::config::{save_config, AppConfig, ALIBABA_PROVIDER, OPENAI_PROVIDER};
 use crate::models::SettingsUpdate;
-use crate::{asr, audio};
+use crate::{asr, audio, credentials};
 
 use super::{api_error, ApiResult, AppState, CONFIG_REVISION_HEADER};
 
@@ -44,6 +44,7 @@ pub(super) async fn update_settings(
         osc: update.osc,
         dictionary: update.dictionary,
         anki: update.anki,
+        external_api: update.external_api,
     };
 
     let expected_revision = headers
@@ -142,6 +143,22 @@ pub(super) async fn update_settings(
         ));
     }
     candidate.validate_settings().map_err(unprocessable)?;
+    if candidate.external_api.enabled && candidate.external_api.require_token {
+        let token = credentials::read_external_api_token().map_err(|error| {
+            api_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "external_api.token_status_failed",
+                error,
+            )
+        })?;
+        if token.is_none() {
+            return Err(api_error(
+                StatusCode::CONFLICT,
+                "external_api.token_required",
+                "Save an External API token before enabling token authentication",
+            ));
+        }
+    }
     asr::validate_config(&mut candidate.asr).map_err(unprocessable)?;
     // WASAPI 枚举可能阻塞，不能占用 Tokio worker。
     let audio_config = candidate.audio.clone();

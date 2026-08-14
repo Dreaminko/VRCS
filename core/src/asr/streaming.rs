@@ -757,6 +757,7 @@ mod tests {
             workspace_id: Some("ws-example".into()),
             base_url: None,
             purpose: None,
+            ..ApiProfile::default()
         };
         let request = build_request(&config, &profile, "sk-test").unwrap();
         assert_eq!(request.uri().to_string(), "wss://ws-example.cn-beijing.maas.aliyuncs.com/api-ws/v1/realtime?model=qwen3-asr-flash-realtime");
@@ -778,6 +779,7 @@ mod tests {
             workspace_id: Some(String::new()),
             base_url: None,
             purpose: None,
+            ..ApiProfile::default()
         };
         assert_eq!(
             build_request(&config, &profile, "sk-test").unwrap_err(),
@@ -799,6 +801,7 @@ mod tests {
             workspace_id: Some("ws-example".into()),
             base_url: None,
             purpose: None,
+            ..ApiProfile::default()
         };
         let request = build_request(&config, &profile, "sk-test").unwrap();
         assert_eq!(

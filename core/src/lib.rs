@@ -7,12 +7,15 @@ mod chatbox;
 mod config;
 mod credentials;
 mod db;
+mod domain_events;
 mod error;
+mod external_api;
 mod llm;
 mod microphone_monitor;
 mod models;
 mod osc;
 mod pipeline;
+mod providers;
 mod server;
 mod subtitle_output;
 mod translation;
@@ -61,9 +64,11 @@ impl CoreOptions {
 
 pub struct CoreHandle {
     address: SocketAddr,
+    external_api_address: Option<SocketAddr>,
     session_token: String,
     shutdown: watch::Sender<bool>,
     task: JoinHandle<Result<(), String>>,
+    external_api_task: Option<JoinHandle<Result<(), String>>>,
     state: Arc<AppState>,
     model_manager: Arc<asr::ModelManager>,
     vad_runtime: vad::VadRuntimeState,
@@ -77,6 +82,10 @@ impl CoreHandle {
 
     pub fn session_token(&self) -> &str {
         &self.session_token
+    }
+
+    pub fn external_api_address(&self) -> Option<SocketAddr> {
+        self.external_api_address
     }
 
     pub fn vad_backend(&self) -> &'static str {
@@ -105,6 +114,10 @@ impl CoreHandle {
             .await
             .map_err(|error| format!("Core task failed: {error}"))?;
         let _ = self.shutdown.send(true);
+        if let Some(task) = self.external_api_task.take() {
+            task.await
+                .map_err(|error| format!("External API task failed: {error}"))??;
+        }
         let _control = self.state.capture_control.lock().await;
         self.state.speaker_pipeline.lock().await.stop().await;
         self.state.microphone_pipeline.lock().await.stop().await;
@@ -263,12 +276,18 @@ async fn start_inner(options: CoreOptions, defer_managed_vad: bool) -> Result<Co
     let (subtitles_tx, _) = broadcast::channel(50);
     let (live_tx, _) = broadcast::channel(100);
     let (translation_tx, _) = broadcast::channel(100);
+    let domain_events = domain_events::DomainEventHub::new();
     let db = Arc::new(Mutex::new(database));
-    let osc = osc::OscChatboxDispatcher::new_with_db(config.osc.clone(), Arc::clone(&db));
-    let subtitle_output = subtitle_output::SubtitleLifecyclePublisher::new(
+    let osc = osc::OscChatboxDispatcher::new_with_db_and_events(
+        config.osc.clone(),
+        Arc::clone(&db),
+        domain_events.clone(),
+    );
+    let subtitle_output = subtitle_output::SubtitleLifecyclePublisher::with_domain_events(
         subtitles_tx.clone(),
         translation_tx.clone(),
         osc.clone(),
+        domain_events.clone(),
     );
     let translation_service = Arc::new(translation::TranslationService::new()?);
     let translation_dispatcher = translation::TranslationDispatcher::new(
@@ -281,6 +300,33 @@ async fn start_inner(options: CoreOptions, defer_managed_vad: bool) -> Result<Co
     let asr = Arc::new(Mutex::new(asr_service));
     let handle_vad_runtime = vad_runtime.clone();
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
+    let external_api_result = if config.external_api.enabled {
+        match credentials::read_external_api_token() {
+            Ok(token) => {
+                external_api::start(
+                    &config.external_api,
+                    domain_events.clone(),
+                    token,
+                    shutdown_rx.clone(),
+                )
+                .await
+            }
+            Err(error) => Err(format!("Failed to read the External API token: {error}")),
+        }
+    } else {
+        Ok(None)
+    };
+    let (external_api_server, external_api_status) = match external_api_result {
+        Ok(Some(server)) => {
+            let status = external_api::ExternalApiRuntimeStatus::running(server.address);
+            (Some(server), status)
+        }
+        Ok(None) => (None, external_api::ExternalApiRuntimeStatus::disabled()),
+        Err(error) => {
+            tracing::error!(%error, "External API listener could not start");
+            (None, external_api::ExternalApiRuntimeStatus::failed(error))
+        }
+    };
     let vrchat_mute_sync =
         vrchat_mute_sync::VrchatMuteSync::new(config.osc.mute_sync_enabled, shutdown_rx.clone());
     let state = Arc::new(AppState {
@@ -295,6 +341,7 @@ async fn start_inner(options: CoreOptions, defer_managed_vad: bool) -> Result<Co
         osc,
         http: anki::client(),
         session_token: session_token.clone(),
+        external_api_status,
         shutdown: shutdown_rx.clone(),
         vad_runtime: vad_runtime.clone(),
         asr,
@@ -375,9 +422,11 @@ async fn start_inner(options: CoreOptions, defer_managed_vad: bool) -> Result<Co
     });
     Ok(CoreHandle {
         address,
+        external_api_address: external_api_server.as_ref().map(|server| server.address),
         session_token,
         shutdown: shutdown_tx,
         task,
+        external_api_task: external_api_server.map(|server| server.task),
         state,
         model_manager,
         vad_runtime: handle_vad_runtime,
@@ -403,6 +452,98 @@ mod tests {
         .await
         .unwrap();
         assert!(handle.address().port() > 0);
+        assert!(handle.external_api_address().is_none());
+        handle.shutdown().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn external_api_uses_a_separate_listener_and_route_surface() {
+        let directory = tempfile::tempdir().unwrap();
+        let config_path = directory.path().join("config.json");
+        let external_port = std::net::TcpListener::bind(("127.0.0.1", 0))
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port();
+        let mut config = config::AppConfig::default();
+        config.external_api.enabled = true;
+        config.external_api.port = external_port;
+        config::save_config(&config_path, &config).unwrap();
+        let handle = start(CoreOptions {
+            config_path,
+            host: Some("127.0.0.1".into()),
+            port: Some(0),
+            session_token: Some("internal-token".into()),
+            vad_model_path: Some(directory.path().join("missing-silero.onnx")),
+            asr_model_dir: None,
+        })
+        .await
+        .unwrap();
+        let external = handle.external_api_address().unwrap();
+        assert_ne!(external, handle.address());
+
+        let client = reqwest::Client::new();
+        let health: serde_json::Value = client
+            .get(format!("http://{external}/v1/health"))
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert_eq!(health["api_version"], "1.0");
+        assert_eq!(
+            client
+                .get(format!("http://{external}/api/settings"))
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            reqwest::StatusCode::NOT_FOUND
+        );
+        handle.shutdown().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn external_api_startup_failure_does_not_stop_the_core() {
+        let directory = tempfile::tempdir().unwrap();
+        let config_path = directory.path().join("config.json");
+        let occupied = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let mut config = config::AppConfig::default();
+        config.external_api.enabled = true;
+        config.external_api.port = occupied.local_addr().unwrap().port();
+        config::save_config(&config_path, &config).unwrap();
+
+        let handle = start(CoreOptions {
+            config_path,
+            host: Some("127.0.0.1".into()),
+            port: Some(0),
+            session_token: Some("internal-token".into()),
+            vad_model_path: Some(directory.path().join("missing-silero.onnx")),
+            asr_model_dir: None,
+        })
+        .await
+        .unwrap();
+
+        assert!(handle.external_api_address().is_none());
+        let status: serde_json::Value = reqwest::Client::new()
+            .get(format!(
+                "http://{}/api/external-api/status",
+                handle.address()
+            ))
+            .bearer_auth("internal-token")
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert_eq!(status["state"], "failed");
+        assert!(status["error"]
+            .as_str()
+            .unwrap()
+            .contains("Failed to listen for External API"));
+
         handle.shutdown().await.unwrap();
     }
 

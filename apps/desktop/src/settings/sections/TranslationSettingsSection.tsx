@@ -1,51 +1,45 @@
 import { Cloud, Languages, Mic2, RefreshCw, Workflow } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
-import { coreApi } from "../../api";
-import { supportsLlmModels, supportsTranslation } from "../../api-profile-purpose";
-import { localizedError } from "../../app-utils";
+import { supportsContext, supportsLlmModels, supportsTranslation } from "../../api-profile-purpose";
 import { EditableDropdownField } from "../../components/DropdownField";
-import type { ApiProfile, Settings, TranslationSettings } from "../../types";
+import type { ApiProfileView, Settings, TranslationSettings } from "../../types";
+import { useTranslationProfileModels } from "../hooks/useTranslationProfileModels";
 import type { ApplySettings, SaveState } from "../settings-types";
 import { PreferenceToggle, Select } from "../SettingsControls";
+import { TranslationEnhancementSettings } from "../translation/TranslationEnhancementSettings";
 
 const targetLanguages: TranslationSettings["target_language"][] = [
   "zh-Hans", "zh-Hant", "en", "ja", "ko", "es", "fr", "de", "ru",
 ];
 
-function modelForProfile(profile: ApiProfile | undefined, current: string): string {
+function modelForProfile(profile: ApiProfileView | undefined, current: string): string {
   if (profile?.provider === "alibaba_cloud") return "qwen-plus";
   if (profile?.provider === "openai") return "gpt-5-mini";
   return current;
 }
 
-function profileProviderLabel(profile: ApiProfile): string {
-  if (profile.provider === "alibaba_cloud") return "Alibaba Cloud";
-  if (profile.provider === "microsoft_translator") return "Microsoft Translator";
-  if (profile.provider === "deepl") return "DeepL";
-  return profile.provider === "openai_compatible" ? "OpenAI Compatible" : "OpenAI";
-}
-
-function profileOptionLabel(profile: ApiProfile): string {
-  const provider = profileProviderLabel(profile);
+function profileOptionLabel(profile: ApiProfileView): string {
+  const provider = profile.provider_display_name;
   return profile.name.localeCompare(provider, undefined, { sensitivity: "base" }) === 0
     ? profile.name
     : `${profile.name} · ${provider}`;
 }
 
-export function TranslationSettingsSection({ draft, disabled, saveState, applySettings }: {
+export function TranslationSettingsSection({ draft, apiProfiles, disabled, saveState, applySettings }: {
   draft: Settings;
+  apiProfiles: ApiProfileView[];
   disabled: boolean;
   saveState: SaveState;
   applySettings: ApplySettings;
 }) {
   const { t } = useTranslation();
-  const translationProfiles = draft.asr.api_profiles.filter(supportsTranslation);
+  const translationProfiles = apiProfiles.filter(supportsTranslation);
   const selectedProfile = translationProfiles.find(
     (profile) => profile.id === draft.translation.profile_id,
   );
   const usesLlmProfile = Boolean(selectedProfile && supportsLlmModels(selectedProfile));
+  const usesContextProfile = Boolean(selectedProfile && supportsContext(selectedProfile));
   const supportsThinkingToggle = Boolean(
     selectedProfile?.provider === "openai_compatible"
       && (
@@ -53,35 +47,12 @@ export function TranslationSettingsSection({ draft, disabled, saveState, applySe
         || draft.translation.model.toLowerCase().startsWith("deepseek-")
       ),
   );
-  const [availableModels, setAvailableModels] = useState<string[]>([]);
-  const [modelsLoading, setModelsLoading] = useState(false);
-  const [modelsError, setModelsError] = useState("");
-  const modelRequest = useRef(0);
-  const refreshModels = useCallback(async () => {
-    if (!selectedProfile || !usesLlmProfile) {
-      setAvailableModels([]);
-      setModelsError("");
-      return;
-    }
-    const request = ++modelRequest.current;
-    setModelsLoading(true);
-    setModelsError("");
-    try {
-      const response = await coreApi.apiProfileModels(selectedProfile.id);
-      if (request === modelRequest.current) setAvailableModels(response.models);
-    } catch (reason) {
-      if (request === modelRequest.current) {
-        setAvailableModels([]);
-        setModelsError(localizedError(reason, t, "errors.apiProfiles.models"));
-      }
-    } finally {
-      if (request === modelRequest.current) setModelsLoading(false);
-    }
-  }, [selectedProfile?.id, t, usesLlmProfile]);
-  useEffect(() => {
-    void refreshModels();
-    return () => { modelRequest.current += 1; };
-  }, [refreshModels]);
+  const {
+    models: availableModels,
+    loading: modelsLoading,
+    error: modelsError,
+    refresh: refreshModels,
+  } = useTranslationProfileModels(selectedProfile, usesLlmProfile);
   const update = (translation: TranslationSettings) => applySettings((current) => ({
     ...current,
     translation,
@@ -299,6 +270,18 @@ export function TranslationSettingsSection({ draft, disabled, saveState, applySe
             )}
           </div>
         </div>
+
+        {usesContextProfile && selectedProfile && (
+          <TranslationEnhancementSettings
+            translation={draft.translation}
+            profile={selectedProfile}
+            disabled={controlsDisabled}
+            onChange={(patch) => update({
+              ...draft.translation,
+              prompt: { ...draft.translation.prompt, ...patch },
+            })}
+          />
+        )}
       </div>
     </div>
   );

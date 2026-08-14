@@ -1,8 +1,8 @@
 use serde::Serialize;
 
 use crate::config::{
-    ALIBABA_PROVIDER, DEEPL_PROVIDER, MICROSOFT_PROVIDER, OPENAI_COMPATIBLE_PROVIDER,
-    OPENAI_PROVIDER,
+    ALIBABA_PROVIDER, DEEPL_PROVIDER, GEMINI_PROVIDER, MICROSOFT_PROVIDER,
+    OPENAI_COMPATIBLE_PROVIDER, OPENAI_PROVIDER,
 };
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -13,11 +13,52 @@ pub struct CredentialStatus {
     pub source: Option<&'static str>,
 }
 
+const EXTERNAL_API_TARGET: &str = "VRCS/ExternalAPI/token";
+const EXTERNAL_API_ENV: &str = "VRCS_EXTERNAL_API_TOKEN";
+
+pub fn external_api_token_status() -> Result<CredentialStatus, String> {
+    let environment_override =
+        std::env::var(EXTERNAL_API_ENV).is_ok_and(|value| !value.trim().is_empty());
+    let stored_configured = read_stored(EXTERNAL_API_TARGET)?.is_some();
+    Ok(CredentialStatus {
+        configured: environment_override || stored_configured,
+        stored_configured,
+        environment_override,
+        source: if environment_override {
+            Some("environment")
+        } else {
+            stored_configured.then_some("credential_manager")
+        },
+    })
+}
+
+pub fn read_external_api_token() -> Result<Option<String>, String> {
+    if let Ok(value) = std::env::var(EXTERNAL_API_ENV) {
+        if !value.trim().is_empty() {
+            return Ok(Some(value));
+        }
+    }
+    read_stored(EXTERNAL_API_TARGET)
+}
+
+pub fn write_external_api_token(value: &str) -> Result<(), String> {
+    let value = value.trim();
+    if value.is_empty() || value.len() > 4096 {
+        return Err("External API token length is invalid".into());
+    }
+    write_stored(EXTERNAL_API_TARGET, value)
+}
+
+pub fn delete_external_api_token() -> Result<(), String> {
+    delete_stored(EXTERNAL_API_TARGET)
+}
+
 fn env_names(provider: &str) -> Result<&'static [&'static str], String> {
     match provider {
         ALIBABA_PROVIDER => Ok(&["VRCS_QWEN_API_KEY", "DASHSCOPE_API_KEY"]),
         OPENAI_PROVIDER => Ok(&["VRCS_OPENAI_API_KEY", "OPENAI_API_KEY"]),
         OPENAI_COMPATIBLE_PROVIDER => Ok(&["VRCS_OPENAI_COMPATIBLE_API_KEY"]),
+        GEMINI_PROVIDER => Ok(&["VRCS_GEMINI_API_KEY", "GEMINI_API_KEY"]),
         DEEPL_PROVIDER => Ok(&["VRCS_DEEPL_API_KEY", "DEEPL_API_KEY"]),
         MICROSOFT_PROVIDER => Ok(&["VRCS_MICROSOFT_TRANSLATOR_KEY"]),
         _ => Err(format!("Unsupported API provider: {provider}")),
@@ -208,6 +249,7 @@ mod tests {
             ALIBABA_PROVIDER,
             OPENAI_PROVIDER,
             OPENAI_COMPATIBLE_PROVIDER,
+            GEMINI_PROVIDER,
             DEEPL_PROVIDER,
             MICROSOFT_PROVIDER,
         ] {
@@ -224,5 +266,12 @@ mod tests {
             Some("VRCS/ASR/qwen")
         );
         assert!(legacy_target("new-profile", ALIBABA_PROVIDER).is_none());
+    }
+
+    #[test]
+    fn external_api_uses_an_independent_credential_target() {
+        assert_eq!(EXTERNAL_API_TARGET, "VRCS/ExternalAPI/token");
+        assert_ne!(EXTERNAL_API_TARGET, target("profile"));
+        assert!(write_external_api_token(" ").is_err());
     }
 }

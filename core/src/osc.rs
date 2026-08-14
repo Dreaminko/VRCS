@@ -12,6 +12,7 @@ use tokio::sync::{mpsc, oneshot, watch};
 use crate::chatbox::NewChatboxMessage;
 use crate::config::OscConfig;
 use crate::db::Database;
+use crate::domain_events::DomainEventHub;
 use crate::models::{now_iso8601, Subtitle, SubtitleTranslation};
 
 mod message;
@@ -57,6 +58,7 @@ pub struct OscChatboxDispatcher {
 enum OscEvent {
     Subtitle {
         generation: u64,
+        message_id: String,
         subtitle: Subtitle,
         wait_for_translation: bool,
     },
@@ -124,6 +126,7 @@ impl SendGate {
 }
 
 struct PendingMessage {
+    message_id: String,
     subtitle_id: Option<i64>,
     original: String,
     translation: Option<String>,
@@ -133,6 +136,7 @@ struct PendingMessage {
 }
 
 struct SentMessage {
+    message_id: String,
     subtitle_id: i64,
     original: String,
     translation: Option<String>,
@@ -142,14 +146,18 @@ struct SentMessage {
 impl OscChatboxDispatcher {
     #[cfg(test)]
     pub fn new(config: OscConfig) -> Self {
-        Self::create(config, None)
+        Self::create(config, None, DomainEventHub::new())
     }
 
-    pub fn new_with_db(config: OscConfig, db: Arc<Mutex<Database>>) -> Self {
-        Self::create(config, Some(db))
+    pub fn new_with_db_and_events(
+        config: OscConfig,
+        db: Arc<Mutex<Database>>,
+        events: DomainEventHub,
+    ) -> Self {
+        Self::create(config, Some(db), events)
     }
 
-    fn create(config: OscConfig, db: Option<Arc<Mutex<Database>>>) -> Self {
+    fn create(config: OscConfig, db: Option<Arc<Mutex<Database>>>, events: DomainEventHub) -> Self {
         let (sender, receiver) = mpsc::channel(EVENT_QUEUE_CAPACITY);
         let status = Arc::new(Mutex::new(runtime_status(&config)));
         let (config, config_rx) = watch::channel(OscConfigState {
@@ -157,7 +165,13 @@ impl OscChatboxDispatcher {
             config,
             generation: 0,
         });
-        tokio::spawn(run_worker(receiver, config_rx, Arc::clone(&status), db));
+        tokio::spawn(run_worker(
+            receiver,
+            config_rx,
+            Arc::clone(&status),
+            db,
+            events,
+        ));
         Self {
             sender,
             config,
@@ -165,7 +179,21 @@ impl OscChatboxDispatcher {
         }
     }
 
+    #[cfg(test)]
     pub fn publish_subtitle(&self, subtitle: Subtitle, wait_for_translation: bool) {
+        self.publish_subtitle_with_message_id(
+            subtitle,
+            wait_for_translation,
+            format!("utterance-{}", uuid::Uuid::new_v4()),
+        );
+    }
+
+    pub fn publish_subtitle_with_message_id(
+        &self,
+        subtitle: Subtitle,
+        wait_for_translation: bool,
+        message_id: String,
+    ) {
         let Ok(generation) = self.active_generation() else {
             return;
         };
@@ -174,6 +202,7 @@ impl OscChatboxDispatcher {
         }
         self.try_send(OscEvent::Subtitle {
             generation,
+            message_id,
             subtitle,
             wait_for_translation,
         });
@@ -309,6 +338,7 @@ async fn run_worker(
     mut config_rx: watch::Receiver<OscConfigState>,
     status: Arc<Mutex<OscRuntimeStatus>>,
     db: Option<Arc<Mutex<Database>>>,
+    events: DomainEventHub,
 ) {
     let socket = UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).await;
     let mut config = config_rx.borrow().clone();
@@ -340,6 +370,7 @@ async fn run_worker(
                     OscEvent::Test { .. } => push_bounded(
                         &mut queue,
                         PendingMessage {
+                            message_id: format!("chatbox-{}", uuid::Uuid::new_v4()),
                             subtitle_id: None,
                             original: "VRCS OSC test".into(),
                             translation: None,
@@ -353,6 +384,7 @@ async fn run_worker(
                     OscEvent::Manual { text, responder, .. } => push_bounded(
                         &mut queue,
                         PendingMessage {
+                            message_id: format!("chatbox-{}", uuid::Uuid::new_v4()),
                             subtitle_id: None,
                             original: String::new(),
                             translation: None,
@@ -363,13 +395,14 @@ async fn run_worker(
                         &status,
                         true,
                     ),
-                    OscEvent::Subtitle { subtitle, wait_for_translation, .. } => {
+                    OscEvent::Subtitle { message_id, subtitle, wait_for_translation, .. } => {
                         let Some(subtitle_id) = subtitle.id else { continue };
                         latest_subtitle_id = Some(subtitle_id);
                         current_sent = None;
                         push_bounded(
                             &mut queue,
                             PendingMessage {
+                                message_id,
                                 subtitle_id: Some(subtitle_id),
                                 original: subtitle.text,
                                 translation: None,
@@ -403,6 +436,7 @@ async fn run_worker(
                                 push_bounded(
                                     &mut queue,
                                     PendingMessage {
+                                        message_id: sent.message_id.clone(),
                                         subtitle_id: Some(subtitle_id),
                                         original: sent.original.clone(),
                                         translation: Some(translation.text),
@@ -462,6 +496,7 @@ async fn run_worker(
                         last_send = Some(Instant::now());
                         record_automatic_message(
                             db.as_ref(),
+                            &events,
                             &message,
                             &text,
                             "sent",
@@ -470,6 +505,7 @@ async fn run_worker(
                         );
                         if let Some(subtitle_id) = message.subtitle_id {
                             current_sent = Some(SentMessage {
+                                message_id: message.message_id.clone(),
                                 subtitle_id,
                                 original: message.original,
                                 translation: message.translation,
@@ -485,6 +521,7 @@ async fn run_worker(
                         runtime.last_error = Some(error.clone());
                         record_automatic_message(
                             db.as_ref(),
+                            &events,
                             &message,
                             &text,
                             "failed",
@@ -506,6 +543,7 @@ async fn run_worker(
 
 fn record_automatic_message(
     db: Option<&Arc<Mutex<Database>>>,
+    events: &DomainEventHub,
     message: &PendingMessage,
     rendered_text: &str,
     status: &str,
@@ -552,8 +590,10 @@ fn record_automatic_message(
         sent_at,
     };
     if let Ok(database) = db.lock() {
-        if let Err(error) = database.add_chatbox_message(&record) {
-            tracing::warn!("Failed to store automatic Chatbox history: {error}");
+        match database.add_chatbox_message(&record) {
+            Ok(saved) if status == "sent" => events.chatbox_sent(&message.message_id, &saved),
+            Ok(_) => {}
+            Err(error) => tracing::warn!("Failed to store automatic Chatbox history: {error}"),
         }
     }
 }

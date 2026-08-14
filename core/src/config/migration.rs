@@ -244,6 +244,15 @@ fn migrate_v6_to_v10(raw: &serde_json::Value) -> Result<AppConfig, String> {
     serde_json::from_value(value).map_err(|error| error.to_string())
 }
 
+fn migrate_v11_to_v13(raw: &serde_json::Value) -> Result<AppConfig, String> {
+    let mut value = raw.clone();
+    value
+        .as_object_mut()
+        .ok_or_else(|| "Configuration root must be an object".to_string())?
+        .insert("schema_version".into(), serde_json::json!(SCHEMA_VERSION));
+    serde_json::from_value(value).map_err(|error| error.to_string())
+}
+
 /// v1/v2 迁移共用：避免 Core 端口与 AnkiConnect 默认端口冲突。
 fn fix_colliding_ports(config: &mut AppConfig) {
     if config.server.port == 8765 {
@@ -272,6 +281,7 @@ pub fn config_from_value(raw: &serde_json::Value) -> Result<AppConfig, String> {
         version if version == SCHEMA_VERSION as u64 => {
             serde_json::from_value(raw.clone()).map_err(|error| error.to_string())?
         }
+        11..=13 => migrate_v11_to_v13(raw)?,
         6..=10 => migrate_v6_to_v10(raw)?,
         4 | 5 => migrate_v4_or_v5(raw)?,
         2 | 3 => migrate_v2_or_v3(raw)?,

@@ -1,4 +1,12 @@
-import type { ApiProfile, ApiProfilePurpose, ApiProfileView, ApiProvider } from "../../types";
+import type {
+  ApiAuthMode,
+  ApiProfile,
+  ApiProfilePurpose,
+  ApiProfileView,
+  ApiProvider,
+  HttpHeaderConfig,
+  ProviderDefinition,
+} from "../../types";
 import { Select } from "../SettingsControls";
 import { useTranslation } from "react-i18next";
 
@@ -11,6 +19,11 @@ export interface ApiProfileEditorDraft {
   workspace_id: string;
   base_url: string;
   api_key: string;
+  preset_id: string;
+  auth_mode: ApiAuthMode;
+  is_local: boolean;
+  timeout_ms: number;
+  headers: HttpHeaderConfig[];
 }
 
 export function createApiProfileDraft(provider: ApiProvider = "alibaba_cloud"): ApiProfileEditorDraft {
@@ -22,6 +35,11 @@ export function createApiProfileDraft(provider: ApiProvider = "alibaba_cloud"): 
     workspace_id: "",
     base_url: "",
     api_key: "",
+    preset_id: "custom",
+    auth_mode: "bearer",
+    is_local: false,
+    timeout_ms: 8000,
+    headers: [],
   };
 }
 
@@ -56,6 +74,13 @@ export function apiProfileFromEditorDraft(draft: ApiProfileEditorDraft): Omit<Ap
       provider: draft.provider,
       base_url: draft.base_url.trim(),
       purpose: "llm",
+      preset_id: draft.preset_id,
+      auth_mode: draft.auth_mode,
+      is_local: draft.is_local,
+      timeout_ms: draft.timeout_ms,
+      headers: draft.headers
+        .map((header) => ({ name: header.name.trim(), value: header.value }))
+        .filter((header) => header.name),
     };
   }
   return { name: draft.name.trim(), provider: draft.provider, purpose: "llm" };
@@ -65,7 +90,8 @@ export function ApiProfileEditor({
   draft,
   saving,
   credential,
-  providers = ["alibaba_cloud", "openai", "openai_compatible", "deepl", "microsoft_translator"],
+  providers = ["alibaba_cloud", "openai", "gemini", "openai_compatible", "deepl", "microsoft_translator"],
+  providerDefinitions = [],
   purposes = ["asr", "llm", "shared"],
   requireCredential = false,
   onChange,
@@ -77,6 +103,7 @@ export function ApiProfileEditor({
   saving: boolean;
   credential?: ApiProfileView["credential"];
   providers?: ApiProvider[];
+  providerDefinitions?: ProviderDefinition[];
   purposes?: ApiProfilePurpose[];
   requireCredential?: boolean;
   onChange: (draft: ApiProfileEditorDraft) => void;
@@ -87,25 +114,32 @@ export function ApiProfileEditor({
   const { t } = useTranslation();
   const editing = Boolean(draft.id);
   const credentialAvailable = credential?.configured || Boolean(draft.api_key.trim());
+  const compatibleDefinition = providerDefinitions.find(
+    (definition) => definition.id === "openai_compatible",
+  );
   const workspaceRequired = draft.provider === "alibaba_cloud" && draft.purpose !== "llm";
   const canSave = Boolean(draft.name.trim())
     && (draft.provider !== "openai_compatible" || Boolean(draft.base_url.trim()))
     && (draft.provider !== "microsoft_translator" || Boolean(draft.region.trim()))
     && (!workspaceRequired || Boolean(draft.workspace_id.trim()))
-    && (!requireCredential || credentialAvailable)
+    && (!requireCredential || draft.auth_mode === "none" || credentialAvailable)
+    && draft.timeout_ms >= 1000
+    && draft.timeout_ms <= 120000
     && !saving;
 
   const providerOptions = providers.map((provider) => ({
     value: provider,
-    label: provider === "alibaba_cloud"
+    label: providerDefinitions.find((definition) => definition.id === provider)?.display_name ?? (provider === "alibaba_cloud"
       ? "Alibaba Cloud"
       : provider === "openai"
         ? t("settings.apiManagement.openaiProvider")
         : provider === "openai_compatible"
           ? t("settings.apiManagement.openaiCompatibleProvider")
+        : provider === "gemini"
+          ? "Gemini"
         : provider === "deepl"
           ? "DeepL"
-          : "Microsoft Translator",
+          : "Microsoft Translator"),
   }));
 
   return (
@@ -188,7 +222,26 @@ export function ApiProfileEditor({
             />
           </label>
         )}
-        {draft.provider === "openai_compatible" && (
+        {draft.provider === "openai_compatible" && <>
+          <Select
+            label={t("settings.apiManagement.preset")}
+            value={draft.preset_id}
+            options={(compatibleDefinition?.presets ?? []).map((preset) => ({
+              value: preset.id,
+              label: preset.display_name,
+            }))}
+            disabled={saving}
+            onChange={(presetId) => {
+              const preset = compatibleDefinition?.presets.find((item) => item.id === presetId);
+              onChange({
+                ...draft,
+                preset_id: presetId,
+                base_url: preset?.base_url || draft.base_url,
+                auth_mode: preset?.auth_mode ?? draft.auth_mode,
+                is_local: preset?.is_local ?? draft.is_local,
+              });
+            }}
+          />
           <label className="field cloud-text-field">
             <span>{t("settings.apiManagement.baseUrl")}</span>
             <input
@@ -201,8 +254,77 @@ export function ApiProfileEditor({
             />
             <small>{t("settings.apiManagement.baseUrlHint")}</small>
           </label>
-        )}
-        <label className="field cloud-text-field api-profile-key-field">
+          <Select
+            label={t("settings.apiManagement.authentication")}
+            value={draft.auth_mode}
+            options={[
+              { value: "bearer", label: t("settings.apiManagement.authBearer") },
+              { value: "none", label: t("settings.apiManagement.authNone") },
+            ]}
+            disabled={saving || draft.preset_id !== "custom"}
+            onChange={(value) => onChange({ ...draft, auth_mode: value as ApiAuthMode })}
+          />
+          <label className="field cloud-text-field">
+            <span>{t("settings.apiManagement.timeout")}</span>
+            <input
+              type="number"
+              min={1000}
+              max={120000}
+              step={1000}
+              value={draft.timeout_ms}
+              disabled={saving}
+              onChange={(event) => onChange({ ...draft, timeout_ms: Number(event.target.value) })}
+            />
+          </label>
+          <label className="field api-profile-local-field">
+            <input
+              type="checkbox"
+              checked={draft.is_local}
+              disabled={saving || draft.preset_id !== "custom"}
+              onChange={(event) => onChange({ ...draft, is_local: event.target.checked })}
+            />
+            <span>{t("settings.apiManagement.localService")}</span>
+          </label>
+          <div className="field cloud-text-field api-profile-headers-field">
+            <span>{t("settings.apiManagement.customHeaders")}</span>
+            {draft.headers.map((header, index) => (
+              <div className="settings-inline-actions" key={index}>
+                <input
+                  value={header.name}
+                  disabled={saving}
+                  placeholder="HTTP-Referer"
+                  onChange={(event) => onChange({
+                    ...draft,
+                    headers: draft.headers.map((item, itemIndex) => itemIndex === index
+                      ? { ...item, name: event.target.value }
+                      : item),
+                  })}
+                />
+                <input
+                  value={header.value}
+                  disabled={saving}
+                  placeholder="https://example.com"
+                  onChange={(event) => onChange({
+                    ...draft,
+                    headers: draft.headers.map((item, itemIndex) => itemIndex === index
+                      ? { ...item, value: event.target.value }
+                      : item),
+                  })}
+                />
+                <button className="secondary-button" type="button" disabled={saving} onClick={() => onChange({
+                  ...draft,
+                  headers: draft.headers.filter((_, itemIndex) => itemIndex !== index),
+                })}>{t("common.delete")}</button>
+              </div>
+            ))}
+            <button className="secondary-button" type="button" disabled={saving || draft.headers.length >= 16} onClick={() => onChange({
+              ...draft,
+              headers: [...draft.headers, { name: "", value: "" }],
+            })}>{t("settings.apiManagement.addHeader")}</button>
+            <small>{t("settings.apiManagement.customHeadersWarning")}</small>
+          </div>
+        </>}
+        {draft.auth_mode !== "none" && <label className="field cloud-text-field api-profile-key-field">
           <span>{t("settings.apiManagement.apiKey")}</span>
           <input
             type="password"
@@ -217,9 +339,9 @@ export function ApiProfileEditor({
                 : t("settings.apiManagement.apiKeyOptional")}
             onChange={(event) => onChange({ ...draft, api_key: event.target.value })}
           />
-        </label>
+        </label>}
       </div>
-      {credential?.environment_override && (
+      {draft.auth_mode !== "none" && credential?.environment_override && (
         <small className="api-environment-note">{t("settings.apiManagement.environmentManaged")}</small>
       )}
       <div className="api-profile-editor-actions">

@@ -6,8 +6,10 @@ pub(crate) mod capture;
 mod chatbox;
 mod cloud;
 mod dictionary;
+mod external;
 mod models;
 mod osc;
+mod provider_diagnostics;
 mod settings;
 mod translation;
 mod ws;
@@ -58,6 +60,7 @@ pub struct AppState {
     pub osc: OscChatboxDispatcher,
     pub http: reqwest::Client,
     pub session_token: String,
+    pub external_api_status: crate::external_api::ExternalApiRuntimeStatus,
     pub shutdown: watch::Receiver<bool>,
     pub vad_runtime: vad::VadRuntimeState,
     pub asr: Arc<Mutex<asr::AsrService>>,
@@ -214,6 +217,10 @@ pub fn router(state: Arc<AppState>) -> Router {
             post(translation::translation_preview),
         )
         .route(
+            "/api/translations/prompt-preview",
+            post(translation::prompt_preview),
+        )
+        .route(
             "/api/subtitles/{subtitle_id}/translation",
             post(translation::subtitle_translate),
         )
@@ -221,7 +228,15 @@ pub fn router(state: Arc<AppState>) -> Router {
             "/api/settings",
             get(settings::get_settings).put(settings::update_settings),
         )
+        .route(
+            "/api/external-api/token",
+            get(external::token_status)
+                .put(external::token_write)
+                .delete(external::token_delete),
+        )
+        .route("/api/external-api/status", get(external::runtime_status))
         .route("/api/asr/capabilities", get(models::asr_capabilities))
+        .route("/api/providers", get(cloud::provider_list))
         .route(
             "/api/asr/profiles",
             get(cloud::profile_list).post(cloud::profile_create),
@@ -240,7 +255,7 @@ pub fn router(state: Arc<AppState>) -> Router {
         )
         .route(
             "/api/asr/profiles/{profile_id}/test",
-            post(cloud::credential_test),
+            post(provider_diagnostics::credential_test),
         )
         .route(
             "/api/asr/profiles/{profile_id}/models",

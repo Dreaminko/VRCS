@@ -10,6 +10,7 @@ use crate::error::AppResult;
 mod chatbox;
 mod dictionary;
 mod subtitles;
+mod translation_context;
 mod translations;
 
 const SEED_ENTRIES: [(&str, &str, &str); 4] = [

@@ -33,6 +33,7 @@ async fn send_input(state: &Arc<AppState>, input: ChatboxComposeInput) -> ApiRes
             "Chatbox message exceeds the character limit",
         ));
     }
+    let message_id = format!("chatbox-{}", uuid::Uuid::new_v4());
     let sent = state.osc.send_manual(preview.text.clone()).await;
     let record = NewChatboxMessage {
         source: "manual".into(),
@@ -55,7 +56,7 @@ async fn send_input(state: &Arc<AppState>, input: ChatboxComposeInput) -> ApiRes
     };
     let saved = record_delivery(state, record).await;
     match sent {
-        Ok(_) => finish_delivery(state, saved).await,
+        Ok(_) => finish_delivery(state, saved, &message_id).await,
         Err(error) => {
             let _ = saved;
             Err(osc_error(error))
@@ -76,12 +77,14 @@ async fn record_delivery(
 async fn finish_delivery(
     state: &Arc<AppState>,
     saved: crate::error::AppResult<ChatboxMessage>,
+    message_id: &str,
 ) -> ApiResult<Json<Value>> {
     let message = saved.map_err(|error| api_domain_error(error, "chatbox.history_store_failed"))?;
     let subtitle = record_conversation_message(state, &message)
         .await
         .map_err(|error| api_domain_error(error, "chatbox.conversation_store_failed"))?;
     state.subtitle_output.subtitle_recorded(subtitle);
+    state.subtitle_output.chatbox_sent(message_id, &message);
     Ok(Json(json!(message)))
 }
 

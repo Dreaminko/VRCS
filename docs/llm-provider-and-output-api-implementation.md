@@ -2,7 +2,7 @@
 
 本文基于 VRCS 当前 `main` 分支的实现状态，规划以下能力：Gemini 原生 API、增强的 OpenAI Compatible、Provider 能力注册表、Provider 无关的翻译上下文与可编辑 Prompt，以及正式的第三方输出 API。
 
-本文是实现交接文档，不表示相关功能已经完成。各阶段必须可独立合并；后续阶段未实施时，已发布阶段仍应保持完整可用。
+本文是实现交接文档。阶段一至四已完成。各阶段可以独立回退；关闭第三方输出 API 不影响内部桌面协议和已发布的 Provider、翻译上下文能力。
 
 ## 1. 目标与结论
 
@@ -46,15 +46,15 @@ Provider 能力注册表是第一阶段的内部基础，并与 Gemini 一起交
 
 | 领域 | 当前状态 | 缺口 |
 |---|---|---|
-| API Profile | `ApiProfile` 已支持命名配置、供应商、用途、Base URL 和凭据状态 | 能力判断分散在 Rust 与 TypeScript；没有 Gemini、预设、Header、可选鉴权和 Profile 超时 |
-| 通用 LLM | `core/src/llm/mod.rs` 已支持 OpenAI Responses、OpenAI Chat Completions、Alibaba 兼容接口、模型列表和 SSE 增量文本 | 仍以品牌字符串分派；DeepSeek 通过 URL/模型名匹配；不支持 Gemini 原生协议 |
+| API Profile | `ApiProfile` 已支持命名配置、供应商、用途、Base URL、预设、可选鉴权、本地标记、超时、非敏感 Header 和凭据状态 | 已完成 |
+| 通用 LLM | 已支持 OpenAI Responses、OpenAI Chat Completions、Alibaba 兼容接口、Gemini 原生协议，以及 Provider 无关的可编辑 Prompt、术语表和最近原文上下文 | 已完成 |
 | 连接测试 | `/api/asr/profiles/{id}/test` 已能执行一次真实翻译；`/{id}/models` 已能获取模型列表 | 结果只有成功或统一错误；模型查询要求凭据；没有端点级诊断和耗时信息 |
 | 模型选择 | 设置页会自动请求模型列表，`EditableDropdownField` 已允许失败后手动输入 | 无需重新实现手动回退；只需为无 Key、本地服务和诊断补齐后端行为与提示 |
-| 翻译 Prompt | LLM 翻译使用编译期常量 `TRANSLATION_INSTRUCTIONS` | 用户不可编辑；没有上下文和术语表 |
+| 翻译 Prompt | LLM 翻译使用 Provider 无关的 `TranslationPromptBuilder`，支持可编辑模板、四个只读变量、术语表和最近原文 | 已完成；DeepL/Microsoft 保持原请求体 |
 | 对话原文 | `subtitles` 已保存 `speaker`、`microphone`、`chatbox`；`chatbox_messages` 单独保存手动消息原文 | Chatbox 在 `translation` 发送模式下的 conversation subtitle 可能是译文，不能只读取 `subtitles` 作为原文上下文 |
 | 翻译事件 | 已有 started、partial、completed、failed 广播 | 事件只服务内部 UI；没有版本信封、事件 ID、稳定消息 ID 和订阅 |
-| ASR 事件 | 已有 partial、failed、audio level；最终文本通过 `subtitle` 事件发布 | partial 与 final 的关联标识没有贯穿到最终字幕；事件模型不适合作为稳定第三方契约 |
-| 网络安全 | Core 默认监听 `127.0.0.1`，内部 HTTP 使用 Bearer token，内部 WebSocket 使用 query token；非回环监听要求 token | 第三方消费者不应依赖桌面端每次启动生成的内部 session token，也不应因此获得全部内部 REST API 权限 |
+| ASR 事件 | 内部 `/ws` 保留原协议；第三方 v1 通过领域事件信封输出 partial/final/failed，并让同一 `message_id` 贯穿自动翻译 | 已完成 |
+| 网络安全 | 内部端口和第三方端口独立；第三方服务默认关闭、默认回环、使用独立可选 Token，非回环强制鉴权 | 已完成 |
 
 现有 `SubtitleLifecyclePublisher` 已将字幕生命周期与具体输出协议解耦，是新增第三方事件出口的主要复用点。现有 SQLite 原文、Chatbox 原文记录和广播通道也足以支持上下文与第三方输出，无需重新设计主数据流。
 
@@ -200,7 +200,7 @@ Gemini 错误转换为现有稳定错误命名空间：
 - 现有 v11 配置无需迁移，读取和保存后结构不变。
 - OpenAI、Alibaba Cloud、DeepL、Microsoft Translator 和现有 OpenAI Compatible 回归通过。
 
-## 6. 阶段二：完善 OpenAI Compatible
+## 6. 阶段二：完善 OpenAI Compatible（已完成）
 
 ### 6.1 Profile 配置与迁移
 
@@ -251,6 +251,7 @@ DeepSeek 的 `thinking`、`temperature` 和 `stream_options` 请求差异改由�
 
 - `auth_mode = bearer` 时沿用凭据管理器；缺少 Key 时连接测试和实际调用返回 `translation.credential_missing`。
 - `auth_mode = none` 时不读取凭据，也不发送空的 `Authorization: Bearer` Header。
+- 使用 Bearer 鉴权时，明文 HTTP 只允许连接 `localhost` 或回环 IP；远程服务必须使用 HTTPS。
 - 模型列表接口接受无 Key Profile。失败时返回结构化诊断，但设置页继续保留现有可编辑模型输入框。
 - 自动模型加载失败不阻止保存 Profile，也不清除用户已填写的模型。
 
@@ -287,7 +288,7 @@ Profile 超时允许 1,000 至 120,000 ms，默认 8,000 ms。连接诊断不得
 - 超时、认证失败、路径错误和 SSE 不兼容在 UI 中显示不同的可行动建议。
 - 配置文件和日志中没有 API Key 或被禁止的敏感 Header。
 
-## 7. 阶段三：翻译上下文、术语表与可编辑 Prompt
+## 7. 阶段三：翻译上下文、术语表与可编辑 Prompt（已完成）
 
 ### 7.1 配置
 
@@ -379,7 +380,7 @@ DeepL 和 Microsoft Translator 不消费 Prompt、上下文或术语；设置页
 - 默认迁移不增加向云端发送的数据。
 - Prompt 恢复默认后与当前固定 Prompt 的行为等价。
 
-## 8. 阶段四：正式的第三方输出 API
+## 8. 阶段四：正式的第三方输出 API（已完成）
 
 ### 8.1 独立服务边界
 
@@ -394,7 +395,7 @@ pub struct ExternalApiConfig {
 }
 ```
 
-默认值为：`enabled = false`、`host = 127.0.0.1`、`port = 8767`、`require_token = false`。如果 `host` 不是回环地址，`require_token` 必须为 `true` 且必须已在凭据管理器中保存第三方 API token，否则拒绝启动该监听器。监听器在 Core 启动时创建，修改启用状态、地址或端口后需要重启应用；设置页必须明确标记这一点。
+默认值为：`enabled = false`、`host = 127.0.0.1`、`port = 8767`、`require_token = false`。如果 `host` 不是回环地址，`require_token` 必须为 `true` 且必须已在凭据管理器中保存第三方 API token，否则拒绝启动该监听器。浏览器握手包含 `Origin`，因此浏览器连接即使来自回环地址也必须使用 Token。监听器启动失败只使第三方 API 降级，不中止 Core；内部状态接口和设置页显示失败原因。监听器在 Core 启动时创建，修改启用状态、地址或端口后需要重启应用；设置页必须明确标记这一点。
 
 第三方 token 使用独立凭据目标 `VRCS/ExternalAPI/token`，不得复用内部 `session_token`。独立监听器只提供以下路由：
 

@@ -256,8 +256,14 @@ async fn run(
                             language,
                         });
                     }
-                    CloudEvent::Final { text, language, .. } => {
-                        dependencies.publish_text(text, language, source).await?;
+                    CloudEvent::Final {
+                        utterance_id,
+                        text,
+                        language,
+                    } => {
+                        dependencies
+                            .publish_text(text, language, source, utterance_id)
+                            .await?;
                     }
                     CloudEvent::Failed { code, detail } => {
                         dependencies.publish_live(LiveTranscription::Failed {
@@ -337,8 +343,15 @@ async fn run(
         }
         for event in session.stop_and_drain().await {
             match event {
-                CloudEvent::Final { text, language, .. } => {
-                    if let Err(error) = dependencies.publish_text(text, language, source).await {
+                CloudEvent::Final {
+                    utterance_id,
+                    text,
+                    language,
+                } => {
+                    if let Err(error) = dependencies
+                        .publish_text(text, language, source, utterance_id)
+                        .await
+                    {
                         result = Err(error);
                         break;
                     }

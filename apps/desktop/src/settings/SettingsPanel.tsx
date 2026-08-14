@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import {
@@ -18,7 +18,9 @@ import {
   audioSelectionErrors,
   validComputeTypes,
 } from "../settings-validation";
+import { coreApi } from "../api";
 import type {
+  ApiProfileView,
   AudioLevel,
   AsrCapabilities,
   AudioDevice,
@@ -94,6 +96,19 @@ export function SettingsPanel({
   const { t, i18n } = useTranslation();
   const locale = i18n.resolvedLanguage ?? "en-US";
   const [activeCategory, setActiveCategory] = useState<SettingsCategory>("system");
+  const [apiProfileViews, setApiProfileViews] = useState<ApiProfileView[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    void coreApi.apiProfiles().then(
+      ({ profiles }) => {
+        if (!cancelled) setApiProfileViews(profiles);
+      },
+      () => {
+        if (!cancelled) setApiProfileViews([]);
+      },
+    );
+    return () => { cancelled = true; };
+  }, [settings.asr.api_profiles]);
 
   const draftController = useSettingsDraft(settings, onSave);
   const desktop = useDesktopPreferences();
@@ -228,6 +243,9 @@ export function SettingsPanel({
 
       {activeCategory === "system" && (
         <SystemSettingsSection
+          draft={draft}
+          coreSaveState={saveState}
+          applySettings={applySettings}
           desktopPreferences={desktopPreferences}
           desktopPreferencesReady={desktopPreferencesReady}
           desktopSaveState={desktopSaveState}
@@ -245,6 +263,7 @@ export function SettingsPanel({
         <RecognitionSettingsSection
           locale={locale}
           draft={draft}
+          apiProfiles={apiProfileViews}
           disabled={disabled}
           modelStatus={modelStatus}
           status={{
@@ -301,6 +320,7 @@ export function SettingsPanel({
       {activeCategory === "translation" && (
         <TranslationSettingsSection
           draft={draft}
+          apiProfiles={apiProfileViews}
           disabled={disabled}
           saveState={saveState}
           applySettings={applySettings}

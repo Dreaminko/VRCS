@@ -105,8 +105,48 @@ export interface AsrSettings {
 }
 
 export type AsrApiProvider = "alibaba_cloud" | "openai";
-export type ApiProvider = AsrApiProvider | "openai_compatible" | "deepl" | "microsoft_translator";
+export type ApiProvider = AsrApiProvider | "gemini" | "openai_compatible" | "deepl" | "microsoft_translator";
 export type ApiProfilePurpose = "asr" | "llm" | "shared";
+export type ProviderSupportLevel = "native" | "protocol_compatible";
+export type ApiAuthMode = "bearer" | "none";
+
+export interface HttpHeaderConfig {
+  name: string;
+  value: string;
+}
+
+export interface ProviderPreset {
+  id: string;
+  display_name: string;
+  base_url: string;
+  auth_mode: ApiAuthMode;
+  is_local: boolean;
+}
+
+export interface ProviderCapabilities {
+  supports_streaming: boolean;
+  supports_model_listing: boolean;
+  requires_api_key: boolean;
+  is_local: boolean;
+  supports_context: boolean;
+  supports_translation: boolean;
+  supports_asr: boolean;
+  supported_languages: string[];
+}
+
+export interface ProviderSupportLevels {
+  asr: ProviderSupportLevel | null;
+  translation: ProviderSupportLevel | null;
+}
+
+export interface ProviderDefinition {
+  id: ApiProvider;
+  display_name: string;
+  purposes: ApiProfilePurpose[];
+  support_levels: ProviderSupportLevels;
+  capabilities: ProviderCapabilities;
+  presets: ProviderPreset[];
+}
 
 export interface ApiProfile {
   id: string;
@@ -116,16 +156,37 @@ export interface ApiProfile {
   workspace_id?: string;
   base_url?: string;
   purpose?: ApiProfilePurpose;
+  preset_id?: string;
+  auth_mode?: ApiAuthMode;
+  is_local?: boolean;
+  timeout_ms?: number;
+  headers?: HttpHeaderConfig[];
 }
 
 export interface ApiProfileView extends ApiProfile {
+  provider_display_name: string;
   active: boolean;
   translation_active: boolean;
   credential: CredentialStatus;
+  capabilities: ProviderCapabilities;
+  support_levels: ProviderSupportLevels;
 }
 
 export interface ApiModelCatalog {
   models: string[];
+}
+
+export interface ConnectionDiagnosticCheck {
+  name: "configuration" | "endpoint" | "authentication" | "models" | "completion" | "streaming";
+  status: "passed" | "warning" | "failed" | "skipped";
+  code?: string;
+  detail?: string;
+}
+
+export interface ConnectionDiagnostic {
+  ok: boolean;
+  latency_ms?: number;
+  checks?: ConnectionDiagnosticCheck[];
 }
 
 export interface LiveTranscription {
@@ -149,6 +210,12 @@ export interface CredentialStatus {
   stored_configured: boolean;
   environment_override: boolean;
   source: "environment" | "credential_manager" | null;
+}
+
+export interface ExternalApiRuntimeStatus {
+  state: "disabled" | "running" | "failed";
+  address: string | null;
+  error: string | null;
 }
 
 export interface AudioOutputSettings {
@@ -177,7 +244,7 @@ export interface AnkiSettings {
 }
 
 export interface Settings {
-  schema_version: 11;
+  schema_version: 14;
   server: {
     host: string;
     port: number;
@@ -205,6 +272,14 @@ export interface Settings {
     selection_lookup_enabled: boolean;
   };
   anki: AnkiSettings;
+  external_api: ExternalApiSettings;
+}
+
+export interface ExternalApiSettings {
+  enabled: boolean;
+  host: string;
+  port: number;
+  require_token: boolean;
 }
 
 export interface TranslationSettings {
@@ -215,6 +290,33 @@ export interface TranslationSettings {
   thinking_enabled: boolean;
   translate_microphone: boolean;
   microphone_target_language: "zh-Hans" | "zh-Hant" | "en" | "ja" | "ko" | "es" | "fr" | "de" | "ru";
+  prompt: TranslationPromptSettings;
+}
+
+export type GlossaryCategory = "person" | "world" | "game" | "custom";
+
+export interface GlossaryEntry {
+  source: string;
+  target: string | null;
+  category: GlossaryCategory;
+  case_sensitive: boolean;
+}
+
+export interface TranslationPromptSettings {
+  system_prompt: string;
+  context_enabled: boolean;
+  include_speaker: boolean;
+  include_microphone: boolean;
+  include_chatbox: boolean;
+  max_messages: number;
+  max_chars: number;
+  glossary: GlossaryEntry[];
+}
+
+export interface TranslationPromptPreview {
+  instructions: string;
+  context_message_count: number;
+  context_char_count: number;
 }
 
 export interface TranslationEvent {

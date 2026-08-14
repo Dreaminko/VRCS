@@ -3,6 +3,8 @@ import type {
   AnkiStatus,
   ApiProfile,
   ApiProfileView,
+  ConnectionDiagnostic,
+  ProviderDefinition,
   ApiModelCatalog,
   AsrApiProvider,
   AsrCapabilities,
@@ -11,13 +13,17 @@ import type {
   ChatboxComposeInput,
   ChatboxMessage,
   ChatboxPreview,
+  CredentialStatus,
   DictionaryEntry,
   DictionaryImportProgress,
   DictionarySource,
+  ExternalApiRuntimeStatus,
   Health,
   Settings,
   Subtitle,
   SubtitleTranslation,
+  TranslationPromptPreview,
+  TranslationPromptSettings,
 } from "./types";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { apiErrorFromResponse } from "./api-error";
@@ -154,6 +160,17 @@ export const coreApi = {
       method: "PUT",
       body: JSON.stringify(settings),
     }),
+  externalApiTokenStatus: () =>
+    request<CredentialStatus>("/api/external-api/token"),
+  externalApiRuntimeStatus: () =>
+    request<ExternalApiRuntimeStatus>("/api/external-api/status"),
+  saveExternalApiToken: (token: string) =>
+    request<CredentialStatus>("/api/external-api/token", {
+      method: "PUT",
+      body: JSON.stringify({ token }),
+    }),
+  deleteExternalApiToken: () =>
+    request<CredentialStatus>("/api/external-api/token", { method: "DELETE" }),
   start: () =>
     request<{ running: boolean; device: AudioDevice | null; microphone_device: AudioDevice | null }>("/api/capture/start", {
       method: "POST",
@@ -182,6 +199,7 @@ export const coreApi = {
   asrCapabilities: () => request<AsrCapabilities>("/api/asr/capabilities"),
   asrModels: () => request<AsrModelRecord[]>("/api/asr/models"),
   apiProfiles: () => request<{ profiles: ApiProfileView[] }>("/api/asr/profiles"),
+  providers: () => request<{ providers: ProviderDefinition[] }>("/api/providers"),
   createApiProfile: (profile: Omit<ApiProfile, "id"> & { api_key?: string }) =>
     request<ApiProfileView>("/api/asr/profiles", {
       method: "POST",
@@ -196,6 +214,11 @@ export const coreApi = {
         workspace_id: profile.workspace_id,
         base_url: profile.base_url,
         purpose: profile.purpose,
+        preset_id: profile.preset_id,
+        auth_mode: profile.auth_mode,
+        is_local: profile.is_local,
+        timeout_ms: profile.timeout_ms,
+        headers: profile.headers,
       }),
     }),
   deleteApiProfile: (profileId: string) =>
@@ -216,10 +239,12 @@ export const coreApi = {
     profileId: string,
     capability: "asr" | "llm",
     backend?: Exclude<Settings["asr"]["backend"], "local_whisper">,
+    model?: string,
   ) => {
     const query = new URLSearchParams({ capability });
     if (backend) query.set("backend", backend);
-    return request<{ ok: boolean }>(
+    if (model?.trim()) query.set("model", model.trim());
+    return request<ConnectionDiagnostic>(
       `/api/asr/profiles/${profileId}/test?${query.toString()}`,
       { method: "POST" },
     );
@@ -240,6 +265,21 @@ export const coreApi = {
         target_language: targetLanguage,
       }),
     }),
+  previewTranslationPrompt: (
+    prompt: TranslationPromptSettings,
+    sourceLanguage?: string | null,
+    targetLanguage?: string,
+  ) => request<TranslationPromptPreview>(
+    "/api/translations/prompt-preview",
+    {
+      method: "POST",
+      body: JSON.stringify({
+        prompt,
+        source_language: sourceLanguage,
+        target_language: targetLanguage,
+      }),
+    },
+  ),
   downloadAsrModel: (model: AsrModelRecord["id"]) =>
     request<AsrModelRecord>(`/api/asr/models/${model}/download`, {
       method: "POST",

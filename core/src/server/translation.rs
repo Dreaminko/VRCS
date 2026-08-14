@@ -7,6 +7,10 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::translation::TranslationError;
+use crate::{
+    config::{validate_translation_prompt, TranslationPromptConfig},
+    translation::TranslationPromptBuilder,
+};
 
 use super::{api_error, api_error_with_params, db_call, ApiResult, AppState};
 
@@ -20,11 +24,70 @@ pub(super) struct PreviewInput {
     target_language: Option<String>,
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct PromptPreviewInput {
+    prompt: TranslationPromptConfig,
+    #[serde(default)]
+    source_language: Option<String>,
+    #[serde(default)]
+    target_language: Option<String>,
+}
+
+pub(super) async fn prompt_preview(
+    State(state): State<Arc<AppState>>,
+    Json(input): Json<PromptPreviewInput>,
+) -> ApiResult<Json<Value>> {
+    validate_translation_prompt(&input.prompt).map_err(|detail| {
+        api_error(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "translation.prompt_invalid",
+            detail,
+        )
+    })?;
+    let prompt_config = input.prompt.clone();
+    let context = db_call(Arc::clone(&state.db), move |db| {
+        db.recent_translation_context(&prompt_config, None)
+    })
+    .await
+    .map_err(|error| {
+        api_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "translation.context_load_failed",
+            error.to_string(),
+        )
+    })?;
+    let target = input.target_language.as_deref().unwrap_or("zh-Hans");
+    let preview = TranslationPromptBuilder::new(&input.prompt).build(
+        input.source_language.as_deref(),
+        target,
+        &context,
+        "",
+    );
+    Ok(Json(json!({
+        "instructions": preview.instructions,
+        "context_message_count": preview.context_message_count,
+        "context_char_count": preview.context_char_count,
+    })))
+}
+
 pub(super) async fn translation_preview(
     State(state): State<Arc<AppState>>,
     Json(input): Json<PreviewInput>,
 ) -> ApiResult<Json<Value>> {
     let config = state.config.read().expect("config lock").clone();
+    let prompt_config = config.translation.prompt.clone();
+    let context = db_call(Arc::clone(&state.db), move |db| {
+        db.recent_translation_context(&prompt_config, None)
+    })
+    .await
+    .map_err(|error| {
+        api_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "translation.context_load_failed",
+            error.to_string(),
+        )
+    })?;
     let result = state
         .translation_service
         .translate(
@@ -33,6 +96,7 @@ pub(super) async fn translation_preview(
             &input.text,
             input.source_language.as_deref(),
             input.target_language.as_deref(),
+            &context,
         )
         .await
         .map_err(translation_error)?;
@@ -68,7 +132,23 @@ pub(super) async fn subtitle_translate(
             "Translation is disabled",
         ));
     }
-    state.subtitle_output.translation_started(subtitle_id);
+    let message_id = format!("translation-{}", uuid::Uuid::new_v4());
+    let source = subtitle.source.clone();
+    let prompt_config = config.translation.prompt.clone();
+    let context = db_call(Arc::clone(&state.db), move |db| {
+        db.recent_translation_context(&prompt_config, Some(subtitle_id))
+    })
+    .await
+    .map_err(|error| {
+        api_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "translation.context_load_failed",
+            error.to_string(),
+        )
+    })?;
+    state
+        .subtitle_output
+        .translation_started_with_message(subtitle_id, &message_id, &source);
     let result = state
         .translation_service
         .translate(
@@ -77,15 +157,18 @@ pub(super) async fn subtitle_translate(
             &subtitle.text,
             subtitle.language.as_deref(),
             None,
+            &context,
         )
         .await;
     let record = match result {
         Ok(result) => result.into_record(),
         Err(error) => {
-            state.subtitle_output.translation_failed(
+            state.subtitle_output.translation_failed_with_message(
                 subtitle_id,
                 error.code.into(),
                 error.detail.clone(),
+                &message_id,
+                &source,
             );
             return Err(translation_error(error));
         }
@@ -96,10 +179,12 @@ pub(super) async fn subtitle_translate(
     })
     .await
     {
-        state.subtitle_output.translation_failed(
+        state.subtitle_output.translation_failed_with_message(
             subtitle_id,
             "translation.storage_failed".into(),
             error.to_string(),
+            &message_id,
+            &source,
         );
         return Err(api_error(
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -107,9 +192,12 @@ pub(super) async fn subtitle_translate(
             error.to_string(),
         ));
     }
-    state
-        .subtitle_output
-        .translation_completed(subtitle_id, record.clone());
+    state.subtitle_output.translation_completed_with_message(
+        subtitle_id,
+        record.clone(),
+        &message_id,
+        &source,
+    );
     Ok(Json(json!(record)))
 }
 

@@ -46,6 +46,27 @@ impl PipelineDependencies {
     }
 
     pub(crate) fn publish_live(&self, event: LiveTranscription) {
+        match &event {
+            LiveTranscription::Partial {
+                utterance_id,
+                source,
+                text,
+                language,
+            } => self
+                .output
+                .asr_partial(utterance_id, source, text, language.as_deref()),
+            LiveTranscription::Failed {
+                source,
+                code,
+                detail,
+            } => self.output.asr_failed(
+                &format!("utterance-{}", uuid::Uuid::new_v4()),
+                source,
+                code,
+                detail,
+            ),
+            LiveTranscription::AudioLevel { .. } => {}
+        }
         let _ = self.live.send(event);
     }
 
@@ -54,6 +75,7 @@ impl PipelineDependencies {
         segment: Vec<f32>,
         source: &'static str,
     ) -> Result<(), String> {
+        let message_id = format!("utterance-{}", uuid::Uuid::new_v4());
         let rms = (segment.iter().map(|sample| sample * sample).sum::<f32>()
             / segment.len().max(1) as f32)
             .sqrt();
@@ -67,19 +89,37 @@ impl PipelineDependencies {
             "sending speech segment to ASR"
         );
         let transcriber = Arc::clone(&self.asr);
-        let transcription = tokio::task::spawn_blocking(move || {
+        let transcription = match tokio::task::spawn_blocking(move || {
             transcriber.lock().expect("asr lock").transcribe(&segment)
         })
         .await
-        .map_err(|error| format!("Recognition task exited unexpectedly: {error}"))??;
+        {
+            Ok(Ok(transcription)) => transcription,
+            Ok(Err(detail)) => {
+                self.output
+                    .asr_failed(&message_id, source, "asr.transcription_failed", &detail);
+                return Err(detail);
+            }
+            Err(error) => {
+                let detail = format!("Recognition task exited unexpectedly: {error}");
+                self.output
+                    .asr_failed(&message_id, source, "asr.task_failed", &detail);
+                return Err(detail);
+            }
+        };
         tracing::debug!(
             source,
             text_length = transcription.text.chars().count(),
             language = transcription.language.as_deref().unwrap_or("unknown"),
             "ASR transcription completed"
         );
-        self.publish_text(transcription.text, transcription.language, source)
-            .await
+        self.publish_text(
+            transcription.text,
+            transcription.language,
+            source,
+            message_id,
+        )
+        .await
     }
 
     pub(crate) async fn publish_text(
@@ -87,6 +127,7 @@ impl PipelineDependencies {
         text: String,
         language: Option<String>,
         source: &'static str,
+        message_id: String,
     ) -> Result<(), String> {
         let text = text.trim().to_string();
         if text.is_empty() {
@@ -104,7 +145,7 @@ impl PipelineDependencies {
         };
         let database = Arc::clone(&self.database);
         let history_limit = self.history_limit;
-        let saved = tokio::task::spawn_blocking(move || {
+        let saved = match tokio::task::spawn_blocking(move || {
             database
                 .lock()
                 .map_err(|_| "Database lock is unavailable".to_string())?
@@ -112,17 +153,41 @@ impl PipelineDependencies {
                 .map_err(|error| error.to_string())
         })
         .await
-        .map_err(|error| format!("Subtitle storage task exited unexpectedly: {error}"))??;
+        {
+            Ok(Ok(saved)) => saved,
+            Ok(Err(detail)) => {
+                self.output
+                    .asr_failed(&message_id, source, "asr.storage_failed", &detail);
+                return Err(detail);
+            }
+            Err(error) => {
+                let detail = format!("Subtitle storage task exited unexpectedly: {error}");
+                self.output
+                    .asr_failed(&message_id, source, "asr.storage_failed", &detail);
+                return Err(detail);
+            }
+        };
         let translation_settings = automatic_translation_settings(&self.translation_config, source);
-        self.output
-            .subtitle_stored(saved.clone(), translation_settings.is_some());
+        self.output.subtitle_stored_with_message(
+            saved.clone(),
+            translation_settings.is_some(),
+            &message_id,
+        );
         if let Some(settings) = translation_settings {
-            if let Err(detail) =
-                self.translation
-                    .enqueue(saved.clone(), settings, self.api_profiles.clone())
-            {
+            if let Err(detail) = self.translation.enqueue(
+                saved.clone(),
+                settings,
+                self.api_profiles.clone(),
+                message_id.clone(),
+            ) {
                 if let Some(subtitle_id) = saved.id {
-                    self.output.translation_queue_failed(subtitle_id);
+                    self.output.translation_failed_with_message(
+                        subtitle_id,
+                        "translation.queue_full".into(),
+                        detail.clone(),
+                        &message_id,
+                        source,
+                    );
                 }
                 tracing::warn!(%detail, "automatic translation was not queued");
             }

@@ -8,7 +8,7 @@ import {
   supportsRecognition,
   supportsTranslation,
 } from "../../api-profile-purpose";
-import type { ApiProfileView, ApiProvider, Settings } from "../../types";
+import type { ApiProfileView, ApiProvider, ProviderDefinition, Settings } from "../../types";
 import {
   ApiProfileEditor,
   apiProfileFromEditorDraft,
@@ -27,15 +27,29 @@ function draftFromProfile(profile: ApiProfileView): ApiProfileEditorDraft {
     workspace_id: profile.workspace_id ?? "",
     base_url: profile.base_url ?? "",
     api_key: "",
+    preset_id: profile.preset_id ?? "custom",
+    auth_mode: profile.auth_mode ?? "bearer",
+    is_local: profile.is_local ?? false,
+    timeout_ms: profile.timeout_ms ?? 8000,
+    headers: profile.headers ?? [],
   };
 }
 
-function providerLabel(provider: ApiProvider) {
+function providerLabel(provider: ApiProvider, definitions: ProviderDefinition[]) {
+  const definition = definitions.find((item) => item.id === provider);
+  if (definition) return definition.display_name;
   if (provider === "alibaba_cloud") return "Alibaba Cloud";
   if (provider === "microsoft_translator") return "Microsoft Translator";
   if (provider === "deepl") return "DeepL";
   if (provider === "openai_compatible") return "OpenAI Compatible";
+  if (provider === "gemini") return "Gemini";
   return "OpenAI";
+}
+
+function supportLevel(profile: ApiProfileView) {
+  const levels = [profile.support_levels.asr, profile.support_levels.translation].filter(Boolean);
+  if (new Set(levels).size > 1) return "mixed";
+  return levels[0] ?? null;
 }
 
 export function ApiManagementSettingsSection({
@@ -97,6 +111,7 @@ export function ApiManagementSettingsSection({
           <ApiProfileEditor
             draft={editor}
             saving={profiles.busy === "create"}
+            providerDefinitions={profiles.providerDefinitions}
             onChange={setEditor}
             onSave={() => void saveEditor()}
             onCancel={() => setEditor(null)}
@@ -119,7 +134,11 @@ export function ApiManagementSettingsSection({
           const translationCapable = supportsTranslation(profile);
           const supportsModels = supportsLlmModels(profile);
           const purpose = apiProfilePurpose(profile);
+          const profileSupportLevel = supportLevel(profile);
           const modelCatalog = profiles.modelCatalogs[profile.id];
+          const diagnostic = profiles.diagnostics[profile.id];
+          const credentialReady = !profile.capabilities.requires_api_key
+            || profile.credential.configured;
           const transcriptionActive = profile.active && (
             (profile.provider === "alibaba_cloud" && ["qwen_realtime", "fun_asr_realtime"].includes(settings.asr.backend))
             || (profile.provider === "openai" && settings.asr.backend === "openai_realtime")
@@ -134,6 +153,8 @@ export function ApiManagementSettingsSection({
               ? profile.region
               : profile.provider === "openai_compatible"
                 ? profile.base_url
+                : profile.provider === "gemini"
+                  ? t("settings.apiManagement.geminiDescription")
                 : t(`settings.apiManagement.${profile.provider === "deepl" ? "deeplDescription" : "openaiDescription"}`);
           return (
             <Fragment key={profile.id}>
@@ -142,7 +163,7 @@ export function ApiManagementSettingsSection({
                   <span className="api-profile-icon"><Cloud size={16} aria-hidden="true" /></span>
                   <span>
                     <strong>{profile.name}</strong>
-                    <small>{providerLabel(profile.provider)} · {t(`settings.apiManagement.purposes.${purpose}`)} · {detail}</small>
+                    <small>{providerLabel(profile.provider, profiles.providerDefinitions)} · {t(`settings.apiManagement.purposes.${purpose}`)} · {profileSupportLevel ? t(`settings.apiManagement.supportLevels.${profileSupportLevel}`) : ""} · {detail}</small>
                     {supportsModels && modelCatalog && (
                       <small className={modelCatalog.error ? "api-model-catalog-error" : ""}>
                         {modelCatalog.loading
@@ -154,6 +175,12 @@ export function ApiManagementSettingsSection({
                               : t("settings.apiManagement.modelsUnavailable")}
                       </small>
                     )}
+                    {diagnostic?.checks?.map((check) => (
+                      <small className={check.status === "failed" ? "api-model-catalog-error" : ""} key={check.name}>
+                        {t(`settings.apiManagement.diagnostics.checks.${check.name}`)}: {t(`settings.apiManagement.diagnostics.status.${check.status}`)}
+                        {check.code ? ` · ${t(`settings.apiManagement.diagnostics.codes.${check.code.replaceAll(".", "_")}`, { defaultValue: check.detail ?? check.code })}` : ""}
+                      </small>
+                    ))}
                   </span>
                 </div>
                 <div className="api-profile-actions">
@@ -169,15 +196,15 @@ export function ApiManagementSettingsSection({
                     <button
                       className="secondary-button"
                       type="button"
-                      disabled={locked || !profile.credential.configured || modelCatalog?.loading}
+                      disabled={locked || !credentialReady || modelCatalog?.loading}
                       onClick={() => void profiles.refreshModels(profile.id)}
                     >
                       <RefreshCw className={modelCatalog?.loading ? "spin" : ""} size={14} />
                       {t("settings.apiManagement.refreshModels")}
                     </button>
                   )}
-                  {recognitionCapable && <button className="secondary-button" type="button" disabled={profiles.busy !== null || !profile.credential.configured || !recognitionReady} onClick={() => void profiles.test(profile.id, "asr")}>{t("settings.apiManagement.testAsr")}</button>}
-                  {translationCapable && <button className="secondary-button" type="button" disabled={profiles.busy !== null || !profile.credential.configured} onClick={() => void profiles.test(profile.id, "llm")}>{t("settings.apiManagement.testTranslation")}</button>}
+                  {recognitionCapable && <button className="secondary-button" type="button" disabled={profiles.busy !== null || !credentialReady || !recognitionReady} onClick={() => void profiles.test(profile.id, "asr")}>{t("settings.apiManagement.testAsr")}</button>}
+                  {translationCapable && <button className="secondary-button" type="button" disabled={profiles.busy !== null || !credentialReady} onClick={() => void profiles.test(profile.id, "llm", undefined, settings.translation.profile_id === profile.id ? settings.translation.model : undefined)}>{t("settings.apiManagement.testTranslation")}</button>}
                   <button className="api-row-icon-button" type="button" aria-label={t("common.edit")} disabled={locked || Boolean(editor)} onClick={() => setEditor(draftFromProfile(profile))}><Pencil size={15} /></button>
                   <button className="api-row-icon-button danger" type="button" aria-label={t("common.delete")} disabled={locked} onClick={() => void removeProfile(profile)}><Trash2 size={15} /></button>
                 </div>
@@ -187,6 +214,7 @@ export function ApiManagementSettingsSection({
                   draft={editor}
                   saving={profiles.busy === profile.id}
                   credential={profile.credential}
+                  providerDefinitions={profiles.providerDefinitions}
                   onChange={setEditor}
                   onSave={() => void saveEditor()}
                   onCancel={() => setEditor(null)}

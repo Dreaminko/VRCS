@@ -9,12 +9,13 @@ VRCS 是一个本地优先的 VRChat 字幕学习工具。它捕获 Windows 系�
 ## 当前功能
 
 - Windows WASAPI 系统回环、VRChat 进程专用回环与麦克风双路捕获
-- 手动或自动字幕翻译，支持 DeepL、Microsoft Translator、OpenAI 与 Alibaba Cloud LLM
+- 手动或自动字幕翻译，支持 DeepL、Microsoft Translator、OpenAI、Gemini 与 Alibaba Cloud LLM
 - 将自己的麦克风最终识别结果和译文通过 OSC 发送到 VRChat Chatbox，并同步 VRChat 麦克风静音状态作为发送安全门
 - Silero ONNX VAD，首次启动自动下载并校验固定版本，模型不可用时使用能量检测回退
 - whisper.cpp 本地 CPU/CUDA 转写、自动 GPU 回退与 GGML 模型管理
 - Qwen3 ASR、Fun-ASR 与 OpenAI 实时流式转写，支持增量字幕、断线重连和本地回退
 - Axum HTTP 接口和 WebSocket 字幕推送
+- 默认关闭、独立监听且版本化的第三方事件 WebSocket API
 - SQLite 字幕历史、Yomitan 词典导入和内置英日测试词典
 - React + Tauri 桌面端，包括实时字幕、历史、识别设置和音频设备页面
 - 可跟随系统或手动切换的简体中文、日语、英语界面
@@ -62,7 +63,7 @@ npm run dev:core:cuda
 npm run dev:core
 ```
 
-独立 Core 默认使用 `core/config.json`，也支持 `VRCS_CONFIG`、`VRCS_HOST`、`VRCS_PORT`、`VRCS_SESSION_TOKEN`、`VRCS_SILERO_MODEL`、`VRCS_ASR_MODEL_DIR`、`VRCS_QWEN_API_KEY`、`VRCS_OPENAI_API_KEY`、`VRCS_OPENAI_COMPATIBLE_API_KEY`、`VRCS_DEEPL_API_KEY` 和 `VRCS_MICROSOFT_TRANSLATOR_KEY`。同时兼容 `DASHSCOPE_API_KEY`、`OPENAI_API_KEY` 与 `DEEPL_API_KEY`；VRCS 专用变量优先。设置页可以为同一供应商保存多个命名 API 配置，API Key 分别写入 Windows 凭据管理器。环境变量会覆盖该供应商当前配置的已保存密钥，但区域和 Workspace 仍取自当前配置。未设置 `VRCS_SESSION_TOKEN` 时会为回环监听生成临时 token 并输出到终端；监听非回环地址时必须显式设置非空 token。
+独立 Core 默认使用 `core/config.json`，也支持 `VRCS_CONFIG`、`VRCS_HOST`、`VRCS_PORT`、`VRCS_SESSION_TOKEN`、`VRCS_EXTERNAL_API_TOKEN`、`VRCS_SILERO_MODEL`、`VRCS_ASR_MODEL_DIR`、`VRCS_QWEN_API_KEY`、`VRCS_OPENAI_API_KEY`、`VRCS_GEMINI_API_KEY`、`VRCS_OPENAI_COMPATIBLE_API_KEY`、`VRCS_DEEPL_API_KEY` 和 `VRCS_MICROSOFT_TRANSLATOR_KEY`。同时兼容 `DASHSCOPE_API_KEY`、`OPENAI_API_KEY`、`GEMINI_API_KEY` 与 `DEEPL_API_KEY`；VRCS 专用变量优先。设置页可以为同一供应商保存多个命名 API 配置，API Key 分别写入 Windows 凭据管理器。环境变量会覆盖该供应商当前配置的已保存密钥，但区域和 Workspace 仍取自当前配置。未设置 `VRCS_SESSION_TOKEN` 时会为回环监听生成临时 token 并输出到终端；监听非回环地址时必须显式设置非空 token。
 
 如果绕过 Tauri、单独运行 Vite 前端，请把同一个 token 同时设置为 `VRCS_SESSION_TOKEN` 和 `VITE_VRCS_SESSION_TOKEN`。
 
@@ -99,11 +100,23 @@ npm run build
 
 ## OpenAI 兼容 LLM
 
-字幕翻译支持 OpenAI 兼容的 Chat Completions API。前往“设置 → API 管理”，新增“OpenAI 兼容（仅 LLM）”配置并填写 Base URL；例如 DeepSeek 可使用 `https://api.deepseek.com/v1`。保存 API Key 后，再到“字幕翻译”中选择该配置并填写服务商支持的模型名（例如 `deepseek-chat`）。
+字幕翻译支持 OpenAI 兼容的 Chat Completions API。前往“设置 → API 管理”，新增“OpenAI 兼容（仅 LLM）”配置，可选择 DeepSeek、Groq、OpenRouter、LM Studio 或 Ollama 预设，也可以使用 Custom 手动配置。预设会填入稳定保存的 Base URL、鉴权方式和本地服务标记。
 
-OpenAI 官方连接可按需设为“仅语音识别”“仅 LLM / 翻译”或共享，并通过 OpenAI Responses API 提供 LLM 翻译。OpenAI 兼容连接是独立供应商类型，只支持 LLM，且必须填写 Base URL；请求发送到 `{Base URL}/chat/completions`，也可以直接填写完整的 `/chat/completions` 地址。
+OpenAI 官方连接可按需设为“仅语音识别”“仅 LLM / 翻译”或共享，并通过 OpenAI Responses API 提供 LLM 翻译。OpenAI 兼容连接只支持 LLM；请求发送到 `{Base URL}/chat/completions`，也可以直接填写完整的 `/chat/completions` 地址。LM Studio 和 Ollama 预设默认不要求 API Key；云端服务默认使用 Bearer API Key，使用 Bearer 时远程地址必须采用 HTTPS。
 
-配置了 API Key 后，VRCS 会自动请求对应的 `/models` 接口获取可用模型；可在“API 管理”中手动刷新，字幕翻译的模型输入框也会提供获取到的模型建议。如果服务商未实现模型列表接口，仍可直接手动填写模型名。
+满足所选鉴权方式后，VRCS 会自动请求对应的 `/models` 接口获取可用模型；可在“API 管理”中手动刷新，字幕翻译的模型输入框也会提供获取到的模型建议。如果服务商未实现模型列表接口，仍可直接手动填写模型名。连接诊断会分别检查网络、鉴权、模型列表、普通生成和 SSE 流式生成。Custom Profile 可设置 1–120 秒超时及非敏感自定义 Header；Header 会以明文写入本地配置，不能用于保存密钥或令牌。
+
+## Gemini 原生 API
+
+前往“设置 → API 管理”新增 Gemini 配置并保存 Google AI Studio API Key。VRCS 使用 Gemini 原生 `generateContent`、`streamGenerateContent` 和模型列表接口，不经 OpenAI 兼容层；模型列表只显示支持文本生成的模型。也可以通过 `VRCS_GEMINI_API_KEY` 或 `GEMINI_API_KEY` 提供密钥。
+
+## LLM 翻译增强
+
+使用 OpenAI、Gemini、Alibaba Cloud 或 OpenAI Compatible 翻译时，“设置 → 翻译”可编辑系统 Prompt、维护术语表，并选择是否附带最近的扬声器、麦克风和 Chatbox 原文。上下文默认关闭，可分别控制三个来源，并受消息数和字符数双重限制；本地预览会显示实际附带的条数、字符数和最终系统指令。DeepL 与 Microsoft Translator 不会接收这些增强内容。
+
+## 第三方输出 API
+
+“设置 → 系统”可启用独立的只读事件 WebSocket。该 API 默认关闭并监听 `127.0.0.1:8767`，通过订阅输出 ASR partial/final、翻译生命周期和 Chatbox 发送结果；不会暴露内部设置或控制端点。非回环监听必须开启独立 Token 鉴权，监听配置修改后需重启应用。协议与客户端示例见[第三方输出 API v1](docs/external-api-v1.md)。
 
 ## AnkiConnect
 
@@ -129,6 +142,7 @@ VRCS 默认使用 Qwen3 ASR 云端流式识别，也可切换到 Fun-ASR、OpenA
 - [开发说明](docs/development.md)
 - [本地化贡献指南](LOCALIZATION.md)
 - [隐私说明](docs/privacy.md)
+- [第三方输出 API v1](docs/external-api-v1.md)
 - [路线图](docs/roadmap.md)
 
 ## License

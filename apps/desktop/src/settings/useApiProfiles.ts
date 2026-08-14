@@ -8,6 +8,8 @@ import type {
   ApiProfile,
   ApiProfilePurpose,
   ApiProfileView,
+  ConnectionDiagnostic,
+  ProviderDefinition,
   AsrApiProvider,
   AsrSettings,
 } from "../types";
@@ -21,15 +23,21 @@ export interface ApiModelCatalogState {
 export function useApiProfiles(onRefreshSettings: () => Promise<void>) {
   const { t } = useTranslation();
   const [profiles, setProfiles] = useState<ApiProfileView[]>([]);
+  const [providerDefinitions, setProviderDefinitions] = useState<ProviderDefinition[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState("");
   const [modelCatalogs, setModelCatalogs] = useState<Record<string, ApiModelCatalogState>>({});
+  const [diagnostics, setDiagnostics] = useState<Record<string, ConnectionDiagnostic>>({});
   const requestedModels = useRef(new Set<string>());
 
   const load = useCallback(async () => {
-    const response = await coreApi.apiProfiles();
-    setProfiles(response.profiles);
+    const [profileResponse, providerResponse] = await Promise.all([
+      coreApi.apiProfiles(),
+      coreApi.providers(),
+    ]);
+    setProfiles(profileResponse.profiles);
+    setProviderDefinitions(providerResponse.providers);
   }, []);
 
   useEffect(() => {
@@ -73,7 +81,7 @@ export function useApiProfiles(onRefreshSettings: () => Promise<void>) {
     for (const profile of profiles) {
       if (
         supportsLlmModels(profile)
-        && profile.credential.configured
+        && (!profile.capabilities.requires_api_key || profile.credential.configured)
       ) {
         void refreshModels(profile.id, false);
       }
@@ -119,10 +127,12 @@ export function useApiProfiles(onRefreshSettings: () => Promise<void>) {
 
   return {
     profiles,
+    providerDefinitions,
     loading,
     busy,
     message,
     modelCatalogs,
+    diagnostics,
     refreshModels: (profileId: string) => refreshModels(profileId, true),
     create: (profile: Omit<ApiProfile, "id">, apiKey: string) => run(
       "create",
@@ -152,16 +162,24 @@ export function useApiProfiles(onRefreshSettings: () => Promise<void>) {
       "settings.apiManagement.profileActivated",
       true,
     ),
-    test: (
+    test: async (
       profileId: string,
       capability: Extract<ApiProfilePurpose, "asr" | "llm">,
       backend?: Exclude<AsrSettings["backend"], "local_whisper">,
-    ) => run(
-      profileId,
-      () => coreApi.testApiProfile(profileId, capability, backend),
-      "settings.apiManagement.connectionSucceeded",
-      false,
-    ),
+      model?: string,
+    ) => {
+      const result = await run(
+        profileId,
+        () => coreApi.testApiProfile(profileId, capability, backend, model),
+        "settings.apiManagement.connectionSucceeded",
+        false,
+      );
+      if (result) {
+        setDiagnostics((current) => ({ ...current, [profileId]: result }));
+        if (!result.ok) setMessage(t("settings.apiManagement.connectionFailed"));
+      }
+      return result;
+    },
     removeCredential: (profileId: string) => run(
       profileId,
       () => coreApi.deleteApiProfileCredential(profileId),

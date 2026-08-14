@@ -23,8 +23,13 @@
   .history-filters .dropdown-field-compact { min-width: 0; }
   .form-grid { grid-template-columns: 1fr; }
   .system-select-setting { grid-template-columns: 1fr; gap: 10px; }
+  .external-api-address-grid { grid-template-columns: 1fr; }
+  .external-api-token-row { align-items: stretch; flex-direction: column; }
+  .external-api-token-row > div { flex-wrap: wrap; }
   .recognition-config-fields,
   .translation-config-fields { grid-template-columns: 1fr; }
+  .translation-context-limits,
+  .translation-glossary-entry { grid-template-columns: 1fr; }
   .translation-section-subtitle { margin-left: 0; }
   .api-profile-row { grid-template-columns: 1fr; align-items: start; }
   .api-profile-actions { grid-column: 1; flex-wrap: wrap; }

@@ -2,7 +2,7 @@ import { Languages } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { supportsRecognition } from "../../api-profile-purpose";
-import type { AsrCapabilities, AsrModelRecord, Settings } from "../../types";
+import type { ApiProfileView, AsrCapabilities, AsrModelRecord, Settings } from "../../types";
 import { CloudProviderSettings } from "../recognition/CloudProviderSettings";
 import { LocalRecognitionSettings, LocalRuntimeStatus } from "../recognition/LocalRecognitionSettings";
 import { ModelManagerPanel } from "../recognition/ModelManagerPanel";
@@ -48,6 +48,7 @@ type RecognitionActions = {
 export function RecognitionSettingsSection({
   locale,
   draft,
+  apiProfiles,
   disabled,
   modelStatus,
   status,
@@ -57,6 +58,7 @@ export function RecognitionSettingsSection({
 }: {
   locale: string;
   draft: Settings;
+  apiProfiles: ApiProfileView[];
   disabled: boolean;
   modelStatus: string;
   status: RecognitionStatus;
@@ -69,10 +71,10 @@ export function RecognitionSettingsSection({
   const recognitionSource = recognitionSourceValue(draft.asr);
   const sourceOptions = [
     { value: LOCAL_RECOGNITION_SOURCE, label: t("settings.recognition.localSource") },
-    ...draft.asr.api_profiles
+    ...apiProfiles
       .filter(supportsRecognition)
       .map((profile) => {
-        const providerLabel = profile.provider === "alibaba_cloud" ? "Alibaba Cloud" : "OpenAI";
+        const providerLabel = profile.provider_display_name;
         return {
           value: profile.id,
           label: profile.name.toLocaleLowerCase() === providerLabel.toLocaleLowerCase()
