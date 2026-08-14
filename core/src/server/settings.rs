@@ -6,8 +6,9 @@ use axum::http::{HeaderMap, HeaderValue, StatusCode};
 use axum::Json;
 use serde_json::{json, Value};
 
-use crate::config::{save_config, AppConfig, ALIBABA_PROVIDER, OPENAI_PROVIDER};
+use crate::config::{save_config, AppConfig};
 use crate::models::SettingsUpdate;
+use crate::providers::{ALIBABA_PROVIDER, OPENAI_PROVIDER};
 use crate::{asr, audio, credentials};
 
 use super::{api_error, ApiResult, AppState, CONFIG_REVISION_HEADER};

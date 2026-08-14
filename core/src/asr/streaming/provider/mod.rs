@@ -10,7 +10,8 @@ use tokio_tungstenite::tungstenite::http::HeaderValue;
 use tokio_tungstenite::tungstenite::http::Request;
 use tokio_tungstenite::tungstenite::Message;
 
-use crate::config::{ApiProfile, AsrConfig, ALIBABA_PROVIDER, OPENAI_PROVIDER};
+use crate::config::{ApiProfile, AsrConfig};
+use crate::providers::{ALIBABA_PROVIDER, OPENAI_PROVIDER};
 
 use super::CloudEvent;
 

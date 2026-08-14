@@ -4,13 +4,14 @@ use std::time::Duration;
 
 use serde_json::Value;
 
-use crate::config::{
-    ApiProfile, TranslationConfig, ALIBABA_PROVIDER, DEEPL_PROVIDER, GEMINI_PROVIDER,
-    MICROSOFT_PROVIDER, OPENAI_COMPATIBLE_PROVIDER, OPENAI_PROVIDER,
-};
+use crate::config::{ApiProfile, TranslationConfig};
 use crate::credentials;
 use crate::llm::{LlmClient, LlmProgress, LlmRequest};
 use crate::models::{now_iso8601, SubtitleTranslation};
+use crate::providers::{
+    ALIBABA_PROVIDER, DEEPL_PROVIDER, GEMINI_PROVIDER, MICROSOFT_PROVIDER,
+    OPENAI_COMPATIBLE_PROVIDER, OPENAI_PROVIDER,
+};
 
 mod deepl;
 mod dispatcher;

@@ -52,7 +52,7 @@ fn base_url(profile: &ApiProfile) -> Result<&'static str, LlmError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::ALIBABA_PROVIDER;
+    use crate::providers::ALIBABA_PROVIDER;
 
     #[test]
     fn builds_region_specific_endpoint() {

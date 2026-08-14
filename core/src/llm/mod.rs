@@ -2,8 +2,9 @@
 
 use std::time::Instant;
 
-use crate::config::{
-    ApiProfile, ALIBABA_PROVIDER, GEMINI_PROVIDER, OPENAI_COMPATIBLE_PROVIDER, OPENAI_PROVIDER,
+use crate::config::ApiProfile;
+use crate::providers::{
+    ALIBABA_PROVIDER, GEMINI_PROVIDER, OPENAI_COMPATIBLE_PROVIDER, OPENAI_PROVIDER,
 };
 
 mod alibaba;

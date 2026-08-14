@@ -1,6 +1,6 @@
 use serde::Serialize;
 
-use crate::config::{
+use crate::providers::{
     ALIBABA_PROVIDER, DEEPL_PROVIDER, GEMINI_PROVIDER, MICROSOFT_PROVIDER,
     OPENAI_COMPATIBLE_PROVIDER, OPENAI_PROVIDER,
 };

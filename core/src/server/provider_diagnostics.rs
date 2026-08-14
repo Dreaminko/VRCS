@@ -7,9 +7,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use crate::asr;
-use crate::config::{
-    ApiProfile, TranslationConfig, ALIBABA_PROVIDER, API_PURPOSE_ASR, API_PURPOSE_LLM,
-    API_PURPOSE_SHARED, GEMINI_PROVIDER, OPENAI_COMPATIBLE_PROVIDER,
+use crate::config::{ApiProfile, TranslationConfig};
+use crate::providers::{
+    self, ALIBABA_PROVIDER, API_PURPOSE_ASR, API_PURPOSE_LLM, API_PURPOSE_SHARED, GEMINI_PROVIDER,
+    OPENAI_COMPATIBLE_PROVIDER,
 };
 
 use super::cloud::{ensure_asr_profile_ready, profile_api_key, profile_not_found};
@@ -45,9 +46,9 @@ pub(super) async fn credential_test(
         .find(|profile| profile.id == profile_id)
         .ok_or_else(profile_not_found)?;
     let capability = query.capability.as_deref().unwrap_or_else(|| {
-        if profile.effective_purpose() == API_PURPOSE_ASR
-            || (profile.effective_purpose() == API_PURPOSE_SHARED
-                && profile.supports_realtime_asr()
+        if providers::effective_purpose(profile) == API_PURPOSE_ASR
+            || (providers::effective_purpose(profile) == API_PURPOSE_SHARED
+                && providers::supports_realtime_asr(profile)
                 && (profile.provider != ALIBABA_PROVIDER
                     || profile
                         .workspace_id
@@ -63,7 +64,7 @@ pub(super) async fn credential_test(
         return compatible_diagnostic(&state, profile, query.model.as_deref()).await;
     }
     if capability == API_PURPOSE_LLM {
-        if !profile.supports_translation() {
+        if !providers::supports_translation(profile) {
             return Err(api_error(
                 StatusCode::UNPROCESSABLE_ENTITY,
                 "translation.profile_invalid",
@@ -93,7 +94,7 @@ pub(super) async fn credential_test(
                 api_error(StatusCode::SERVICE_UNAVAILABLE, error.code, error.detail)
             })?;
     } else if capability == API_PURPOSE_ASR {
-        if !profile.supports_realtime_asr() {
+        if !providers::supports_realtime_asr(profile) {
             return Err(api_error(
                 StatusCode::UNPROCESSABLE_ENTITY,
                 "asr.profile_invalid",

@@ -1,9 +1,11 @@
 use serde::Deserialize;
 
+use super::recognition::{
+    default_asr_model, default_compute_type, default_device, default_language,
+};
 use super::{
-    default_asr_model, default_compute_type, default_device, default_language, AppConfig,
-    AsrConfig, AudioConfig, LocalAsrConfig, MicrophoneConfig, OutputConfig, ServerConfig,
-    StorageConfig, SCHEMA_VERSION,
+    AppConfig, AsrConfig, AudioConfig, LocalAsrConfig, MicrophoneConfig, OutputConfig,
+    ServerConfig, StorageConfig, SCHEMA_VERSION,
 };
 
 #[derive(Debug, Clone, Deserialize)]

@@ -1,10 +1,20 @@
 use serde::Serialize;
 
-use crate::config::{
-    ApiAuthMode, ApiProfile, ALIBABA_PROVIDER, API_PURPOSE_ASR, API_PURPOSE_LLM,
-    API_PURPOSE_SHARED, DEEPL_PROVIDER, GEMINI_PROVIDER, MICROSOFT_PROVIDER,
-    OPENAI_COMPATIBLE_PROVIDER, OPENAI_PROVIDER,
-};
+use crate::config::{ApiAuthMode, ApiProfile};
+
+mod validation;
+
+pub(crate) use validation::validate_profile;
+
+pub const ALIBABA_PROVIDER: &str = "alibaba_cloud";
+pub const OPENAI_PROVIDER: &str = "openai";
+pub const OPENAI_COMPATIBLE_PROVIDER: &str = "openai_compatible";
+pub const GEMINI_PROVIDER: &str = "gemini";
+pub const DEEPL_PROVIDER: &str = "deepl";
+pub const MICROSOFT_PROVIDER: &str = "microsoft_translator";
+pub const API_PURPOSE_ASR: &str = "asr";
+pub const API_PURPOSE_LLM: &str = "llm";
+pub const API_PURPOSE_SHARED: &str = "shared";
 
 const TRANSLATION_LANGUAGES: &[&str] = &[
     "zh-Hans", "zh-Hant", "en", "ja", "ko", "es", "fr", "de", "ru",
@@ -199,7 +209,7 @@ pub fn profile_capabilities(profile: &ApiProfile) -> Option<ProviderCapabilities
         result.requires_api_key = profile.requires_api_key();
         result.is_local = profile.is_local;
     }
-    let purpose = profile.effective_purpose();
+    let purpose = effective_purpose(profile);
     result.supports_asr &= matches!(purpose, API_PURPOSE_ASR | API_PURPOSE_SHARED);
     result.supports_translation &= matches!(purpose, API_PURPOSE_LLM | API_PURPOSE_SHARED);
     result.supports_context &= result.supports_translation;
@@ -210,7 +220,7 @@ pub fn profile_capabilities(profile: &ApiProfile) -> Option<ProviderCapabilities
 
 pub fn profile_support_levels(profile: &ApiProfile) -> Option<CapabilitySupportLevels> {
     let mut levels = definition(&profile.provider)?.support_levels;
-    let purpose = profile.effective_purpose();
+    let purpose = effective_purpose(profile);
     if !matches!(purpose, API_PURPOSE_ASR | API_PURPOSE_SHARED) {
         levels.asr = None;
     }
@@ -218,6 +228,34 @@ pub fn profile_support_levels(profile: &ApiProfile) -> Option<CapabilitySupportL
         levels.translation = None;
     }
     Some(levels)
+}
+
+pub fn effective_purpose(profile: &ApiProfile) -> &str {
+    profile.purpose.as_deref().unwrap_or_else(|| {
+        if profile.provider == OPENAI_COMPATIBLE_PROVIDER
+            || profile.provider == GEMINI_PROVIDER
+            || matches!(
+                profile.provider.as_str(),
+                DEEPL_PROVIDER | MICROSOFT_PROVIDER
+            )
+        {
+            API_PURPOSE_LLM
+        } else {
+            API_PURPOSE_SHARED
+        }
+    })
+}
+
+pub fn supports_realtime_asr(profile: &ApiProfile) -> bool {
+    profile_capabilities(profile).is_some_and(|value| value.supports_asr)
+}
+
+pub fn supports_translation(profile: &ApiProfile) -> bool {
+    profile_capabilities(profile).is_some_and(|value| value.supports_translation)
+}
+
+pub fn supports_llm_models(profile: &ApiProfile) -> bool {
+    profile_capabilities(profile).is_some_and(|value| value.supports_model_listing)
 }
 
 fn capabilities(

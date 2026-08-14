@@ -1,0 +1,340 @@
+use super::*;
+use crate::providers::{self, ALIBABA_PROVIDER, OPENAI_PROVIDER};
+
+impl VadConfig {
+    pub fn validate(&self) -> Result<(), String> {
+        if !(0.1..=2.0).contains(&self.silence_seconds) {
+            return Err("VAD silence_seconds must be between 0.1 and 2.0".into());
+        }
+        if !(1.0..=30.0).contains(&self.max_speech_seconds) {
+            return Err("VAD max_speech_seconds must be between 1.0 and 30.0".into());
+        }
+        Ok(())
+    }
+}
+
+const ASR_LANGUAGES: [&str; 8] = ["auto", "en", "ja", "zh", "ko", "es", "fr", "de"];
+const ASR_BACKENDS: [&str; 4] = [
+    "local_whisper",
+    "qwen_realtime",
+    "fun_asr_realtime",
+    "openai_realtime",
+];
+const ASR_DEVICES: [&str; 3] = ["auto", "cpu", "cuda"];
+const ASR_COMPUTE_TYPES: [&str; 1] = ["int8"];
+const CLOUD_FAILURE_POLICIES: [&str; 2] = ["reconnect", "local"];
+
+impl AppConfig {
+    /// 配置文件与 PUT /api/settings 共用的完整结构校验。
+    pub fn validate_settings(&self) -> Result<(), String> {
+        validate_runtime(&self.server, &self.storage, &self.external_api)?;
+        validate_audio(&self.audio, &self.vad)?;
+        validate_recognition_options(&self.asr)?;
+        validate_api_profiles(&self.asr)?;
+        validate_translation(&self.translation, &self.asr.api_profiles)?;
+        validate_osc(&self.osc)?;
+        validate_recognition_models(&self.asr, &self.vad)?;
+        validate_anki(&self.anki)?;
+        Ok(())
+    }
+}
+
+fn validate_runtime(
+    server: &ServerConfig,
+    storage: &StorageConfig,
+    external_api: &ExternalApiConfig,
+) -> Result<(), String> {
+    if server.port == 0 {
+        return Err("Port must be between 1 and 65535".into());
+    }
+    let external_host = external_api
+        .host
+        .parse::<std::net::IpAddr>()
+        .map_err(|_| "External API host must be an IP address".to_string())?;
+    if external_api.port == 0 {
+        return Err("External API port must be between 1 and 65535".into());
+    }
+    if !external_host.is_loopback() && !external_api.require_token {
+        return Err("External API token authentication is required outside loopback".into());
+    }
+    if !(1..=10_000).contains(&storage.subtitle_history_limit) {
+        return Err("subtitle_history_limit must be between 1 and 10000".into());
+    }
+    if storage.model_directory.trim().is_empty() {
+        return Err("Model storage path cannot be empty".into());
+    }
+    Ok(())
+}
+
+fn validate_audio(audio: &AudioConfig, vad: &VadConfig) -> Result<(), String> {
+    if !(8_000..=96_000).contains(&audio.sample_rate) {
+        return Err("Sample rate must be between 8000 and 96000".into());
+    }
+    match audio.output.mode.as_str() {
+        "system" => {}
+        "vrchat" | "disabled" if audio.output.device_id.is_some() => {
+            return Err(
+                "VRChat or disabled output mode cannot specify a system output device".into(),
+            );
+        }
+        "vrchat" | "disabled" => {}
+        other => return Err(format!("Unsupported output mode: {other}")),
+    }
+    match audio.microphone.mode.as_str() {
+        "device" if audio.microphone.device_id.is_none() => {
+            return Err("A device must be selected in microphone device mode".into());
+        }
+        "device" => {}
+        "default" | "disabled" if audio.microphone.device_id.is_some() => {
+            return Err("Default or disabled microphone mode cannot specify a device".into());
+        }
+        "default" | "disabled" => {}
+        other => return Err(format!("Unsupported microphone mode: {other}")),
+    }
+    if !(-80.0..=-10.0).contains(&audio.microphone.trigger_threshold_dbfs) {
+        return Err("Microphone trigger_threshold_dbfs must be between -80 and -10".into());
+    }
+    vad.validate()
+}
+
+fn validate_recognition_options(asr: &AsrConfig) -> Result<(), String> {
+    if !ASR_BACKENDS.contains(&asr.backend.as_str()) {
+        return Err(format!("Unsupported recognition backend: {}", asr.backend));
+    }
+    if !ASR_LANGUAGES.contains(&asr.language.as_str()) {
+        return Err(format!(
+            "Unsupported recognition language: {}",
+            asr.language
+        ));
+    }
+    if !ASR_DEVICES.contains(&asr.local.device.as_str()) {
+        return Err(format!(
+            "Unsupported recognition device: {}",
+            asr.local.device
+        ));
+    }
+    if !ASR_COMPUTE_TYPES.contains(&asr.local.compute_type.as_str()) {
+        return Err(format!(
+            "Unsupported compute type: {}",
+            asr.local.compute_type
+        ));
+    }
+    if !CLOUD_FAILURE_POLICIES.contains(&asr.cloud_failure_policy.as_str()) {
+        return Err(format!(
+            "Unsupported cloud failure policy: {}",
+            asr.cloud_failure_policy
+        ));
+    }
+    Ok(())
+}
+
+fn validate_osc(osc: &OscConfig) -> Result<(), String> {
+    if osc.port == 0 {
+        return Err("OSC port must be between 1 and 65535".into());
+    }
+    Ok(())
+}
+
+fn validate_recognition_models(asr: &AsrConfig, vad: &VadConfig) -> Result<(), String> {
+    if asr.qwen.model != "qwen3-asr-flash-realtime" {
+        return Err(format!("Unsupported Qwen ASR model: {}", asr.qwen.model));
+    }
+    if asr.fun_asr.model != "fun-asr-realtime" {
+        return Err(format!("Unsupported Fun-ASR model: {}", asr.fun_asr.model));
+    }
+    if asr.fun_asr.context.chars().count() > 400 {
+        return Err("Fun-ASR context cannot exceed 400 characters".into());
+    }
+    if !["gpt-4o-mini-transcribe", "gpt-4o-transcribe"].contains(&asr.openai.model.as_str()) {
+        return Err(format!(
+            "Unsupported OpenAI ASR model: {}",
+            asr.openai.model
+        ));
+    }
+    if asr.backend == "fun_asr_realtime" && vad.silence_seconds < 0.2 {
+        return Err("Fun-ASR realtime recognition requires at least 0.2 seconds of silence".into());
+    }
+    Ok(())
+}
+
+fn validate_anki(anki: &AnkiConfig) -> Result<(), String> {
+    if anki.port == 0 {
+        return Err("AnkiConnect port must be between 1 and 65535".into());
+    }
+    for (label, value) in [
+        ("deck", &anki.deck),
+        ("note type", &anki.model),
+        ("front field", &anki.front_field),
+        ("back field", &anki.back_field),
+    ] {
+        if value.is_empty() || value.chars().count() > 100 {
+            return Err(format!(
+                "Anki {label} name must contain 1 to 100 characters"
+            ));
+        }
+    }
+    if anki.front_field == anki.back_field {
+        return Err("Anki front and back fields cannot map to the same field".into());
+    }
+    Ok(())
+}
+
+fn validate_api_profiles(asr: &AsrConfig) -> Result<(), String> {
+    use std::collections::HashSet;
+
+    let mut ids = HashSet::new();
+    let mut names = HashSet::new();
+    for profile in &asr.api_profiles {
+        let valid_id = !profile.id.is_empty()
+            && profile.id.len() <= 64
+            && profile
+                .id
+                .bytes()
+                .all(|value| value.is_ascii_alphanumeric() || matches!(value, b'-' | b'_'));
+        if !valid_id || !ids.insert(profile.id.as_str()) {
+            return Err("An API profile ID is invalid or duplicated".into());
+        }
+        let name = profile.name.trim();
+        if name.is_empty() || name.chars().count() > 50 {
+            return Err("An API profile name must contain 1 to 50 characters".into());
+        }
+        if !names.insert((profile.provider.as_str(), name.to_lowercase())) {
+            return Err(format!(
+                "API profile names must be unique per provider: {name}"
+            ));
+        }
+        providers::validate_profile(profile)?;
+    }
+
+    for (provider, active_id) in [
+        (
+            ALIBABA_PROVIDER,
+            asr.active_api_profiles.alibaba_cloud.as_deref(),
+        ),
+        (OPENAI_PROVIDER, asr.active_api_profiles.openai.as_deref()),
+    ] {
+        if let Some(active_id) = active_id {
+            let active_profile = asr
+                .api_profiles
+                .iter()
+                .find(|profile| profile.id == active_id && profile.provider == provider);
+            if active_profile.is_none() {
+                return Err(format!(
+                    "The active API profile does not match provider {provider}"
+                ));
+            }
+            if active_profile.is_some_and(|profile| !providers::supports_realtime_asr(profile)) {
+                return Err(
+                    "The active API profile does not support realtime speech recognition".into(),
+                );
+            }
+        }
+    }
+    Ok(())
+}
+
+fn validate_translation(
+    translation: &TranslationConfig,
+    profiles: &[ApiProfile],
+) -> Result<(), String> {
+    validate_translation_prompt(&translation.prompt)?;
+    if !["disabled", "manual", "automatic"].contains(&translation.mode.as_str()) {
+        return Err(format!(
+            "Unsupported translation mode: {}",
+            translation.mode
+        ));
+    }
+    const LANGUAGES: [&str; 9] = [
+        "zh-Hans", "zh-Hant", "en", "ja", "ko", "es", "fr", "de", "ru",
+    ];
+    if !LANGUAGES.contains(&translation.target_language.as_str()) {
+        return Err(format!(
+            "Unsupported translation target language: {}",
+            translation.target_language
+        ));
+    }
+    if !LANGUAGES.contains(&translation.microphone_target_language.as_str()) {
+        return Err(format!(
+            "Unsupported microphone translation target language: {}",
+            translation.microphone_target_language
+        ));
+    }
+    if translation.mode == "disabled" && !translation.translate_microphone {
+        return Ok(());
+    }
+    let profile_id = translation
+        .profile_id
+        .as_deref()
+        .ok_or_else(|| "A translation API profile must be selected".to_string())?;
+    let profile = profiles
+        .iter()
+        .find(|profile| profile.id == profile_id)
+        .ok_or_else(|| "The selected translation API profile does not exist".to_string())?;
+    if !providers::supports_translation(profile) {
+        return Err("The selected API profile does not support translation".into());
+    }
+    if providers::supports_llm_models(profile) && translation.model.trim().is_empty() {
+        return Err("The LLM translation model cannot be empty".into());
+    }
+    Ok(())
+}
+
+pub fn validate_translation_prompt(prompt: &TranslationPromptConfig) -> Result<(), String> {
+    if prompt.system_prompt.chars().count() > 8_000 {
+        return Err("Translation system prompt cannot exceed 8000 characters".into());
+    }
+    validate_prompt_variables(&prompt.system_prompt)?;
+    if !(1..=50).contains(&prompt.max_messages) {
+        return Err("Translation context max_messages must be between 1 and 50".into());
+    }
+    if !(200..=12_000).contains(&prompt.max_chars) {
+        return Err("Translation context max_chars must be between 200 and 12000".into());
+    }
+    if prompt.glossary.len() > 500 {
+        return Err("Translation glossary cannot exceed 500 entries".into());
+    }
+    for entry in &prompt.glossary {
+        if entry.source.chars().count() > 200 {
+            return Err("Translation glossary source cannot exceed 200 characters".into());
+        }
+        if entry
+            .target
+            .as_ref()
+            .is_some_and(|target| target.chars().count() > 200)
+        {
+            return Err("Translation glossary target cannot exceed 200 characters".into());
+        }
+    }
+    Ok(())
+}
+
+fn validate_prompt_variables(template: &str) -> Result<(), String> {
+    let mut start = None;
+    for (index, character) in template.char_indices() {
+        match (character, start) {
+            ('{', None) => start = Some(index + 1),
+            ('{', Some(_)) => {
+                return Err("Translation system prompt contains a nested variable".into())
+            }
+            ('}', Some(variable_start)) => {
+                let variable = &template[variable_start..index];
+                if !["source_language", "target_language", "glossary", "context"]
+                    .contains(&variable)
+                {
+                    return Err(format!(
+                        "Unsupported translation prompt variable: {{{variable}}}"
+                    ));
+                }
+                start = None;
+            }
+            ('}', None) => {
+                return Err("Translation system prompt contains an unmatched closing brace".into())
+            }
+            _ => {}
+        }
+    }
+    if start.is_some() {
+        return Err("Translation system prompt contains an unclosed variable".into());
+    }
+    Ok(())
+}

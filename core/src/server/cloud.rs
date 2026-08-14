@@ -8,8 +8,10 @@ use serde_json::{json, Value};
 
 use crate::asr;
 use crate::config::{
-    save_config, ApiAuthMode, ApiProfile, HttpHeaderConfig, ALIBABA_PROVIDER, API_PURPOSE_LLM,
-    DEEPL_PROVIDER, DEFAULT_PROFILE_TIMEOUT_MS, GEMINI_PROVIDER, MICROSOFT_PROVIDER,
+    save_config, ApiAuthMode, ApiProfile, HttpHeaderConfig, DEFAULT_PROFILE_TIMEOUT_MS,
+};
+use crate::providers::{
+    self, ALIBABA_PROVIDER, API_PURPOSE_LLM, DEEPL_PROVIDER, GEMINI_PROVIDER, MICROSOFT_PROVIDER,
     OPENAI_COMPATIBLE_PROVIDER, OPENAI_PROVIDER,
 };
 
@@ -100,7 +102,7 @@ fn profile_value(profile: &ApiProfile, config: &crate::config::AppConfig) -> Res
         "region": profile.region,
         "workspace_id": profile.workspace_id,
         "base_url": profile.base_url,
-        "purpose": profile.effective_purpose(),
+        "purpose": providers::effective_purpose(profile),
         "preset_id": profile.preset_id,
         "auth_mode": profile.auth_mode,
         "is_local": profile.is_local,
@@ -228,8 +230,8 @@ pub(super) async fn profile_update(
         profile.purpose = input.purpose;
     }
     normalize_profile_fields(profile);
-    let disable_realtime = !profile.supports_realtime_asr();
-    let disable_translation = !profile.supports_translation();
+    let disable_realtime = !providers::supports_realtime_asr(profile);
+    let disable_translation = !providers::supports_translation(profile);
     let updated = profile.clone();
     if disable_realtime {
         if candidate.asr.active_api_profiles.openai.as_deref() == Some(profile_id.as_str()) {
@@ -377,7 +379,7 @@ pub(super) async fn profile_activate(
                 "Configure an API key before activating this profile",
             ));
         }
-        if !profile.supports_realtime_asr() {
+        if !providers::supports_realtime_asr(profile) {
             return Err(api_error(
                 StatusCode::UNPROCESSABLE_ENTITY,
                 "asr.profile_invalid",
@@ -406,7 +408,7 @@ pub(super) async fn profile_models(
         .iter()
         .find(|profile| profile.id == profile_id)
         .ok_or_else(profile_not_found)?;
-    if !profile.supports_llm_models() {
+    if !providers::supports_llm_models(profile) {
         return Err(api_error(
             StatusCode::UNPROCESSABLE_ENTITY,
             "llm.models_unsupported",
@@ -560,7 +562,7 @@ fn normalize_profile_fields(profile: &mut ApiProfile) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::API_PURPOSE_SHARED;
+    use crate::providers::API_PURPOSE_SHARED;
 
     #[test]
     fn alibaba_asr_requires_a_workspace() {

@@ -9,7 +9,8 @@ use tokio::task::JoinHandle;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
 
-use crate::config::{ApiProfile, AsrConfig, ALIBABA_PROVIDER, OPENAI_PROVIDER};
+use crate::config::{ApiProfile, AsrConfig};
+use crate::providers::{ALIBABA_PROVIDER, OPENAI_PROVIDER};
 
 use super::read_credential;
 

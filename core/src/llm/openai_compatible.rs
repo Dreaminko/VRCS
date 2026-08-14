@@ -381,7 +381,8 @@ mod tests {
     use std::sync::{Arc, Mutex};
 
     use super::*;
-    use crate::config::{ApiAuthMode, HttpHeaderConfig, OPENAI_COMPATIBLE_PROVIDER};
+    use crate::config::{ApiAuthMode, HttpHeaderConfig};
+    use crate::providers::OPENAI_COMPATIBLE_PROVIDER;
 
     #[test]
     fn extracts_chat_completions_text() {
