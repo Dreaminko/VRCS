@@ -292,6 +292,7 @@
           "requireToken": "Require token authentication",
           "requireTokenDescription": "Required outside loopback. The token is not stored in the settings file.",
           "token": "Access token",
+          "tokenChecking": "Checking the token status.",
           "tokenConfigured": "Stored securely. You can regenerate or delete it.",
           "tokenMissing": "No token is configured. This is valid only on loopback when authentication is off.",
           "tokenEnvironment": "Managed by the VRCS_EXTERNAL_API_TOKEN environment variable.",
@@ -308,9 +309,10 @@
           "restartRequired": "The enabled state, listen address, port, and authentication mode take effect after VRCS restarts.",
           "statusLoadFailed": "Could not read the current External API status.",
           "runtime": {
+            "checking": "Checking the current runtime status.",
             "disabled": "Current runtime status: disabled.",
             "running": "Current runtime status: listening on {{address}}.",
-            "failed": "Current runtime status: unavailable — {{error}}"
+            "failed": "Current runtime status: unavailable, {{error}}"
           }
         }
       },

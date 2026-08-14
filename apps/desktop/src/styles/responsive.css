@@ -25,7 +25,11 @@
   .system-select-setting { grid-template-columns: 1fr; gap: 10px; }
   .external-api-address-grid { grid-template-columns: 1fr; }
   .external-api-token-row { align-items: stretch; flex-direction: column; }
-  .external-api-token-row > div { flex-wrap: wrap; }
+  .external-api-token-actions { justify-content: flex-start; }
+  .external-api-token-input,
+  .external-api-generated-token { align-items: stretch; flex-direction: column; }
+  .external-api-token-input .secondary-button,
+  .external-api-generated-token .secondary-button { align-self: flex-start; }
   .recognition-config-fields,
   .translation-config-fields { grid-template-columns: 1fr; }
   .translation-context-limits,

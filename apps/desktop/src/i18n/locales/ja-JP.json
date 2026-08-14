@@ -292,6 +292,7 @@
           "requireToken": "Token 認証を要求する",
           "requireTokenDescription": "ループバック以外では必須です。Token は設定ファイルに保存されません。",
           "token": "アクセス Token",
+          "tokenChecking": "Token の状態を確認しています。",
           "tokenConfigured": "安全に保存されています。再生成または削除できます。",
           "tokenMissing": "Token は未設定です。認証を無効にしたループバック接続でのみ使用できます。",
           "tokenEnvironment": "VRCS_EXTERNAL_API_TOKEN 環境変数で管理されています。",
@@ -308,9 +309,10 @@
           "restartRequired": "有効状態、リッスンアドレス、ポート、認証方式は VRCS の再起動後に反映されます。",
           "statusLoadFailed": "外部出力 API の現在の状態を取得できませんでした。",
           "runtime": {
+            "checking": "現在の実行状態を確認しています。",
             "disabled": "現在の実行状態：無効。",
             "running": "現在の実行状態：{{address}} で待機中。",
-            "failed": "現在の実行状態：利用不可 — {{error}}"
+            "failed": "現在の実行状態：利用不可、{{error}}"
           }
         }
       },
