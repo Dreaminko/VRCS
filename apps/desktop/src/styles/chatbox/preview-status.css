@@ -1,0 +1,81 @@
+.chatbox-preview {
+  display: grid;
+  gap: 7px;
+  padding: 11px 12px;
+  border-radius: var(--radius-md);
+  background: var(--primary-softer);
+}
+
+.chatbox-preview.over-limit {
+  background: var(--error-soft);
+}
+
+.chatbox-preview-heading {
+  justify-content: space-between;
+  color: var(--text-secondary);
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.chatbox-preview-heading output {
+  color: var(--primary-ink);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.chatbox-preview.over-limit .chatbox-preview-heading output {
+  color: var(--error);
+}
+
+.chatbox-preview p {
+  min-height: 20px;
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+}
+
+.chatbox-overflow-choice {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 11px;
+}
+
+.chatbox-overflow-choice input {
+  accent-color: var(--primary-hover);
+}
+
+.chatbox-inline-message {
+  margin: -2px 4px 2px 52px;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.chatbox-inline-message.success {
+  color: var(--primary-ink);
+}
+
+.chatbox-inline-message.error {
+  color: var(--error);
+}
+
+.chatbox-spinner {
+  animation: chatbox-spinner 900ms linear infinite;
+}
+
+.chatbox-composer .sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+

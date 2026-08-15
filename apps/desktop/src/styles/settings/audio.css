@@ -1,0 +1,129 @@
+.device-group-title { display: flex; align-items: center; gap: 9px; margin-bottom: 12px; color: var(--primary-ink); }
+.device-group-icon { display: grid; flex: 0 0 20px; place-items: center; }
+.device-group-title > div { min-width: 0; }
+.device-group-title h3 { margin: 0; font-size: 14px; font-weight: 650; }
+.device-group-title span { display: block; margin-top: 2px; color: var(--text-quiet); font-size: 11px; }
+.microphone-level-setting {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 14px;
+  padding: 14px 15px 15px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface-elevated);
+}
+.microphone-level-status { min-width: 0; color: var(--text-quiet); font-size: 10px; white-space: nowrap; }
+.microphone-level-setting.triggered .microphone-level-status { color: var(--primary-ink); }
+.range-input-wrap { position: relative; display: grid; }
+.range-input-wrap > .range-input { position: relative; z-index: 1; grid-area: 1 / 1; min-width: 0; margin: 0; }
+.range-input-wrap-meter > .range-input::-webkit-slider-runnable-track { border-color: transparent; background: transparent; }
+.range-input-wrap-meter > .range-input::-moz-range-track { background: transparent; }
+.range-input-wrap-meter > .range-input::-moz-range-progress { background: transparent; }
+.microphone-live-track {
+  position: relative;
+  grid-area: 1 / 1;
+  align-self: center;
+  height: 6px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  background: var(--surface-subtle);
+  pointer-events: none;
+}
+.microphone-live-fill {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--primary);
+  transform: scaleX(var(--microphone-level-scale));
+  transform-origin: left center;
+  transition: transform 80ms linear, background-color 120ms ease-out;
+}
+.microphone-level-setting.triggered .microphone-live-fill { background: var(--primary-hover); }
+.microphone-live-peak { position: absolute; z-index: 1; top: 1px; bottom: 1px; left: var(--microphone-peak); width: 2px; border-radius: var(--radius-pill); background: var(--surface); box-shadow: 0 0 0 1px rgb(29 40 52 / 22%); transform: translateX(-1px); }
+.microphone-test-control { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 16px; padding: 0 0 2px; }
+.microphone-test-note { display: block; color: var(--text-quiet); font-size: 10px; line-height: 1.5; }
+.microphone-test-button { flex: 0 0 auto; min-width: 128px; }
+.microphone-test-button[aria-pressed="true"] { border-color: var(--primary); color: var(--primary-ink); background: var(--primary-softer); }
+.microphone-test-button:active:not(:disabled) { transform: scale(0.96); }
+.microphone-level-setting .range-field { margin-top: 7px; padding-top: 12px; border-top: 1px solid var(--border); }
+.microphone-calibration-card {
+  display: grid;
+  gap: 14px;
+  margin-bottom: 14px;
+  padding: 14px 15px 15px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface-elevated);
+}
+.microphone-calibration-heading { display: flex; align-items: flex-start; gap: 10px; }
+.microphone-calibration-heading > svg { flex: none; margin-top: 1px; color: var(--primary-ink); }
+.microphone-calibration-heading > div { display: grid; gap: 4px; }
+.microphone-calibration-heading strong { color: var(--text); font-size: 13px; }
+.microphone-calibration-heading small { color: var(--text-quiet); font-size: 10px; line-height: 1.55; }
+.microphone-calibration-status {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
+  border-radius: 10px;
+  background: var(--surface);
+}
+.microphone-calibration-status > span { display: grid; width: 30px; height: 30px; place-items: center; border-radius: 50%; background: var(--surface-subtle); }
+.microphone-calibration-status i { width: 8px; height: 8px; border-radius: 50%; background: var(--text-quiet); }
+.microphone-calibration-status.phase-quiet i,
+.microphone-calibration-status.phase-speech i { background: var(--primary); box-shadow: 0 0 0 5px rgba(116, 214, 255, 0.18); animation: microphone-calibration-pulse 1s ease-in-out infinite; }
+.microphone-calibration-status.phase-ready i { background: var(--primary-hover); box-shadow: 0 0 0 5px rgba(116, 214, 255, 0.16); }
+.microphone-calibration-status.phase-failed i { background: var(--error); }
+.microphone-calibration-status > div { display: grid; gap: 4px; }
+.microphone-calibration-status strong { color: var(--text); font-size: 12px; }
+.microphone-calibration-status small { color: var(--text-quiet); font-size: 10px; line-height: 1.5; }
+.microphone-calibration-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+@keyframes microphone-calibration-pulse {
+  0%, 100% { transform: scale(0.85); opacity: 0.72; }
+  50% { transform: scale(1.08); opacity: 1; }
+}
+.device-list { display: grid; gap: 10px; }
+.device-row {
+  display: flex;
+  min-height: 62px;
+  align-items: center;
+  gap: 13px;
+  padding: 12px 15px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  cursor: pointer;
+}
+.device-row.chosen { border: 2px solid var(--primary); padding: 11px 14px; background: var(--primary-softer); }
+.device-row input {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+  margin: 0;
+  border: 2px solid var(--border);
+  border-radius: 50%;
+  background: var(--surface);
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  transition: border-color 140ms ease-out, background-color 140ms ease-out, box-shadow 140ms ease-out;
+}
+.device-row input:checked {
+  border-color: var(--primary);
+  background: var(--primary);
+  box-shadow: inset 0 0 0 4px var(--surface);
+}
+.device-row.disabled,
+.device-row.disabled input { cursor: not-allowed; }
+.device-row > span { display: grid; gap: 3px; }
+.device-row strong { font-size: 13px; font-weight: 650; }
+.device-row small { color: var(--text-secondary); font-size: 11px; }
+.device-row.disabled { opacity: 0.62; }
+.device-empty { margin: 0; padding: 16px; border: 1px dashed var(--border); border-radius: 10px; color: var(--text-quiet); font-size: 12px; }
+@keyframes settings-panel-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+

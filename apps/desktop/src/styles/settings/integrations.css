@@ -1,0 +1,131 @@
+.dictionary-file-input { display: none; }
+.dictionary-section .section-heading { margin-bottom: 16px; }
+.system-section .section-heading > div > svg,
+.audio-section .section-heading > div > svg,
+.recognition-section .section-heading > div > svg,
+.translation-section .section-heading > div > svg,
+.api-section .section-heading > div > svg,
+.model-section .section-heading > div > svg,
+.dictionary-section .section-heading > div > svg,
+.anki-section .section-heading > div > svg,
+.osc-section .section-heading > div > svg,
+.debug-section .section-heading > div > svg { color: var(--primary-ink); }
+.anki-connection,
+.osc-connection {
+  display: grid;
+  grid-template-columns: 10px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  min-height: 72px;
+  margin-bottom: 18px;
+  padding: 14px 16px;
+  border-radius: var(--radius-md);
+  background: var(--surface-subtle);
+}
+.anki-connection-dot,
+.osc-connection-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--text-quiet);
+  box-shadow: 0 0 0 4px rgba(139, 152, 167, 0.10);
+}
+.anki-connection.ready .anki-connection-dot,
+.osc-connection.ready .osc-connection-dot {
+  background: var(--primary);
+  box-shadow: 0 0 0 4px rgba(116, 214, 255, 0.13);
+}
+.anki-connection.needs-setup .anki-connection-dot {
+  background: #d4942c;
+  box-shadow: 0 0 0 4px rgba(212, 148, 44, 0.13);
+}
+.anki-connection.offline .anki-connection-dot,
+.osc-connection.error .osc-connection-dot {
+  background: var(--error);
+  box-shadow: 0 0 0 4px rgba(168, 70, 61, 0.12);
+}
+.anki-connection > div,
+.osc-connection > div { display: grid; min-width: 0; gap: 4px; }
+.anki-connection strong,
+.osc-connection strong { font-size: 13px; font-weight: 650; }
+.anki-connection p,
+.osc-connection p { margin: 0; color: var(--text-secondary); font-size: 11px; line-height: 1.55; text-wrap: pretty; }
+.anki-connection code,
+.osc-connection code {
+  color: var(--text-quiet);
+  font: 10px/1.5 var(--font-mono);
+  white-space: nowrap;
+}
+.anki-section .spin,
+.translation-model-input-row .spin,
+.api-profile-actions .spin { animation: model-spin 900ms linear infinite; }
+.anki-endpoint-row,
+.osc-endpoint-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 130px;
+  gap: 14px;
+  align-items: end;
+}
+.osc-endpoint-row {
+  grid-template-columns: minmax(0, 1fr) minmax(180px, 0.42fr);
+  align-items: start;
+  margin-bottom: 14px;
+}
+.osc-endpoint-row > .osc-endpoint-field {
+  display: grid;
+  min-width: 0;
+  grid-template-rows: auto 40px auto;
+  gap: 7px;
+}
+.osc-endpoint-field > span { color: var(--text-secondary); font-size: 13px; font-weight: 600; }
+.osc-address-value {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  background: var(--surface-subtle);
+  font: 13px var(--font-mono);
+}
+.osc-endpoint-field > small { color: var(--text-quiet); font-size: 11px; line-height: 1.55; }
+.osc-endpoint-field > small.error { color: var(--error); }
+.anki-endpoint-row > div,
+.osc-endpoint-row > div { display: grid; gap: 4px; }
+.anki-endpoint-row > div > span,
+.osc-endpoint-row > div > span,
+.anki-port-field > span,
+.osc-port-field > span { color: var(--text-secondary); font-size: 13px; font-weight: 600; }
+.anki-endpoint-row > div > strong,
+.osc-endpoint-row > div > strong {
+  min-height: 40px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  background: var(--surface-subtle);
+  font: 13px/18px var(--font-mono);
+}
+.anki-endpoint-row > div > small,
+.osc-endpoint-row > div > small { color: var(--text-quiet); font-size: 11px; }
+.anki-port-field,
+.osc-port-field { display: grid; gap: 7px; }
+.anki-port-field input,
+.osc-port-field input {
+  padding: 0 12px;
+  font: 13px var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  transition: border-color 140ms ease-out, box-shadow 140ms ease-out;
+}
+.anki-port-field input[aria-invalid="true"],
+.osc-port-field input[aria-invalid="true"] { border-color: var(--error); }
+.translation-model-field input:disabled,
+.anki-port-field input:disabled,
+.osc-port-field input:disabled,
+.model-directory-setting input:disabled { color: var(--text-quiet); background: var(--surface-subtle); }
+.anki-port-help { margin: 8px 0 14px; color: var(--text-quiet); font-size: 11px; line-height: 1.55; }
+.anki-port-help { margin-bottom: 22px; }
+.anki-port-help.error { color: var(--error); }
+.osc-vrchat-hint { margin: 0; padding: 12px 14px; border-radius: var(--radius-sm); color: var(--text-secondary); background: var(--primary-softer); font-size: 11px; line-height: 1.6; text-wrap: pretty; }
+.anki-mapping-grid { padding-top: 22px; border-top: 1px solid var(--border); }

@@ -1,0 +1,11 @@
+.history-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 20px 22px;
+  border-bottom: 1px solid var(--border);
+}
+.history-toolbar h2, .section-heading h2 { margin: 0; font-size: 15px; font-weight: 650; }
+.history-toolbar > div > span, .section-heading span, .section-heading p { color: var(--text-quiet); font-size: 11px; }
+.history-filters { display: flex; gap: 8px; }

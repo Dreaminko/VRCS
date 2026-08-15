@@ -1,0 +1,70 @@
+.chatbox-controls {
+  display: grid;
+  grid-template-columns: max-content max-content;
+  justify-content: start;
+  gap: 14px;
+}
+
+.chatbox-language-control {
+  display: grid;
+  grid-template-columns: 148px max-content;
+  gap: 8px;
+}
+
+.chatbox-secondary-button {
+  display: flex;
+  min-height: 36px;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 0 13px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  background: var(--surface);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  transition: color 120ms ease-out, border-color 120ms ease-out, background-color 120ms ease-out, transform 120ms ease-out;
+}
+
+.chatbox-secondary-button:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.chatbox-secondary-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+}
+
+.chatbox-segmented {
+  display: flex;
+  min-width: 0;
+  padding: 3px;
+  border-radius: 10px;
+  background: var(--surface-subtle);
+}
+
+.chatbox-segmented button {
+  min-height: 32px;
+  padding: 0 11px;
+  border: 0;
+  border-radius: 8px;
+  color: var(--text-secondary);
+  background: transparent;
+  cursor: pointer;
+  font-size: 11px;
+  transition: color 120ms ease-out, background-color 120ms ease-out, transform 120ms ease-out;
+}
+
+.chatbox-segmented button:active {
+  transform: scale(0.96);
+}
+
+.chatbox-segmented button.active {
+  color: var(--primary-ink);
+  background: var(--surface);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.09);
+  font-weight: 650;
+}
+

@@ -1,0 +1,4 @@
+@media (max-width: 860px) {
+  .workspace { padding-inline: 20px; }
+  .message-group { max-width: 82%; }
+}

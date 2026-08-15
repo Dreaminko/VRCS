@@ -1,0 +1,7 @@
+.history-surface, .settings-surface {
+  overflow: visible;
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  background: var(--surface);
+  box-shadow: 0 10px 36px rgba(0, 0, 0, 0.04);
+}

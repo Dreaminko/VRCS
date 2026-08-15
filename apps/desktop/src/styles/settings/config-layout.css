@@ -1,0 +1,59 @@
+.recognition-runtime {
+  display: grid;
+  grid-template-columns: 10px minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 20px;
+  padding: 10px 14px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-subtle);
+}
+.recognition-runtime-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--error);
+}
+.recognition-runtime.available .recognition-runtime-dot { background: var(--primary); }
+.recognition-runtime > div { display: grid; min-width: 0; gap: 2px; }
+.recognition-runtime strong { color: var(--text); font-size: 12px; font-weight: 650; }
+.recognition-runtime span { color: var(--text-secondary); font-size: 11px; line-height: 1.5; }
+.recognition-config,
+.translation-config {
+  display: grid;
+  overflow: visible;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+.recognition-config-row,
+.translation-config-row {
+  display: grid;
+  grid-template-columns: minmax(180px, 0.42fr) minmax(0, 1fr);
+  gap: 22px;
+  padding: 18px 16px;
+  border-bottom: 1px solid var(--border);
+}
+.recognition-config-row:last-child,
+.translation-config-row:last-child { border-bottom: 0; }
+.recognition-config-title,
+.translation-config-title {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  gap: 10px;
+  color: var(--primary-ink);
+}
+.recognition-config-title span,
+.translation-config-title span { display: grid; min-width: 0; gap: 3px; }
+.recognition-config-title strong,
+.translation-config-title strong { color: var(--text); font-size: 13px; font-weight: 650; }
+.recognition-config-title small,
+.translation-config-title small { color: var(--text-quiet); font-size: 11px; line-height: 1.5; }
+.recognition-config-fields,
+.translation-config-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+  gap: 16px;
+}

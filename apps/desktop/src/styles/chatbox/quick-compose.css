@@ -1,0 +1,106 @@
+.chatbox-quick-row {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr) 44px;
+  align-items: end;
+  gap: 8px;
+}
+
+.chatbox-expand-button,
+.chatbox-send-button {
+  display: grid;
+  width: 44px;
+  height: 44px;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  cursor: pointer;
+  transition: color 120ms ease-out, background-color 120ms ease-out, transform 120ms ease-out;
+}
+
+.chatbox-expand-button {
+  color: var(--text-secondary);
+  background: var(--surface-subtle);
+}
+
+.chatbox-expand-button[aria-expanded="true"] {
+  color: var(--primary-ink);
+  background: var(--primary-softer);
+}
+
+.chatbox-expand-button:active,
+.chatbox-send-button:active:not(:disabled) {
+  transform: scale(0.95);
+}
+
+.chatbox-send-button {
+  color: var(--on-primary);
+  background: var(--primary);
+}
+
+.chatbox-send-button:disabled {
+  cursor: not-allowed;
+  color: var(--text-quiet);
+  background: var(--surface-subtle);
+}
+
+.chatbox-quick-input {
+  position: relative;
+  display: grid;
+  min-width: 0;
+  min-height: 44px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-elevated);
+  box-shadow: var(--control-shadow);
+  transition: border-color 140ms ease-out, background-color 140ms ease-out, box-shadow 140ms ease-out;
+}
+
+.chatbox-quick-input:focus-within {
+  border-color: var(--primary);
+  background: var(--surface);
+  box-shadow: var(--control-focus-shadow);
+}
+
+.chatbox-quick-input textarea {
+  field-sizing: content;
+  width: 100%;
+  min-height: 42px;
+  max-height: 88px;
+  resize: none;
+  padding: 10px 52px 9px 12px;
+  overflow-y: auto;
+  border: 0;
+  outline: 0;
+  color: var(--text);
+  background: transparent;
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.chatbox-quick-input textarea::placeholder {
+  color: var(--text-quiet);
+}
+
+.chatbox-quick-input textarea:disabled {
+  cursor: wait;
+  opacity: 0.7;
+}
+
+.chatbox-quick-input output {
+  position: absolute;
+  right: 10px;
+  bottom: 8px;
+  color: var(--text-quiet);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+
+.chatbox-quick-input.over-limit output {
+  color: var(--error);
+}
+

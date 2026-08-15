@@ -105,7 +105,7 @@ export function LocalGlossaryDialog({
           <strong>{t(draft.id ? "settings.translation.editGlossary" : "settings.translation.addGlossary")}</strong>
           <small>{t("settings.translation.localGlossaryDialogHint")}</small>
         </div>
-        <div className="api-profile-editor-content">
+        <div className="api-profile-editor-content" data-floating-boundary>
           <label className="field cloud-text-field">
             <span>{t("settings.translation.glossaryName")}</span>
             <input
@@ -184,28 +184,40 @@ export function LocalGlossaryDialog({
                   })}
                 />
                 <div className="glossary-dialog-entry-options">
-                  <label className="translation-glossary-check">
-                    <input
-                      type="checkbox"
-                      checked={entry.target === null}
-                      disabled={saving}
-                      onChange={(event) => updateEntry(index, {
-                        target: event.target.checked ? null : "",
-                      })}
-                    />
-                    {t("settings.translation.keepOriginal")}
-                  </label>
-                  <label className="translation-glossary-check">
-                    <input
-                      type="checkbox"
-                      checked={entry.case_sensitive}
-                      disabled={saving}
-                      onChange={(event) => updateEntry(index, {
-                        case_sensitive: event.target.checked,
-                      })}
-                    />
-                    {t("settings.translation.caseSensitive")}
-                  </label>
+                  <div className="glossary-dialog-option-toggles">
+                    <div className="glossary-dialog-option-toggle">
+                      <span>{t("settings.translation.keepOriginal")}</span>
+                      <button
+                        className="settings-switch-button"
+                        type="button"
+                        role="switch"
+                        aria-checked={entry.target === null}
+                        aria-label={t("settings.translation.keepOriginal")}
+                        disabled={saving}
+                        onClick={() => updateEntry(index, {
+                          target: entry.target === null ? "" : null,
+                        })}
+                      >
+                        <span className="switch-track" aria-hidden="true"><span /></span>
+                      </button>
+                    </div>
+                    <div className="glossary-dialog-option-toggle">
+                      <span>{t("settings.translation.caseSensitive")}</span>
+                      <button
+                        className="settings-switch-button"
+                        type="button"
+                        role="switch"
+                        aria-checked={entry.case_sensitive}
+                        aria-label={t("settings.translation.caseSensitive")}
+                        disabled={saving}
+                        onClick={() => updateEntry(index, {
+                          case_sensitive: !entry.case_sensitive,
+                        })}
+                      >
+                        <span className="switch-track" aria-hidden="true"><span /></span>
+                      </button>
+                    </div>
+                  </div>
                   <button
                     className="api-profile-header-delete"
                     type="button"

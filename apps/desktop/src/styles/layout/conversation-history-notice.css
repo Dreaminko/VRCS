@@ -1,0 +1,17 @@
+.conversation-history-notice {
+  display: flex;
+  min-height: 40px;
+  align-items: center;
+  gap: 8px;
+  margin: -14px 0 24px;
+  padding: 7px 8px 7px 13px;
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  background: var(--primary-softer);
+  font-size: 12px;
+}
+.conversation-history-notice svg { flex: 0 0 auto; color: var(--primary-ink); }
+.conversation-history-notice span { flex: 1; }
+.conversation-history-notice button { min-height: 32px; padding: 0 11px; border: 0; border-radius: var(--radius-sm); color: var(--primary-ink); background: var(--surface); font-size: 12px; font-weight: 600; cursor: pointer; }
+.conversation-history-notice button:active { transform: scale(0.96); }
+

@@ -1,0 +1,24 @@
+.secondary-button,
+.primary-button,
+.anki-button,
+.model-download-button,
+.model-delete-button {
+  display: inline-flex;
+  min-height: 40px;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.secondary-button, .primary-button, .anki-button {
+  gap: 7px;
+  padding: 0 16px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.secondary-button, .model-delete-button { border: 1px solid var(--border); color: var(--text-secondary); background: var(--surface); }
+.secondary-button:hover { border-color: var(--border-strong); background: var(--canvas); }
+.secondary-button:disabled { opacity: 0.5; cursor: wait; }
+.primary-button, .anki-button, .model-download-button { border: 1px solid var(--primary); color: var(--on-primary); background: var(--primary); }
+.primary-button:hover, .anki-button:hover, .model-download-button:hover { background: var(--primary-hover); }
+.primary-button:disabled, .anki-button:disabled { opacity: 0.45; cursor: not-allowed; }

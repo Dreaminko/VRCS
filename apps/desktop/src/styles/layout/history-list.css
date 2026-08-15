@@ -1,0 +1,16 @@
+.history-list article {
+  display: grid;
+  grid-template-columns: 62px minmax(0, 1fr) 34px auto;
+  gap: 16px;
+  align-items: start;
+  padding: 17px 22px;
+  border-bottom: 1px solid #edf2f6;
+  content-visibility: auto;
+  contain-intrinsic-size: auto 78px;
+}
+.history-list article:last-child { border-bottom: 0; }
+.history-list article:hover { background: #fafcfe; }
+.history-list time, .history-list article > span { padding-top: 3px; color: var(--text-quiet); font: 11px/1.4 var(--font-mono); }
+.history-list p { margin: 0; font-size: 14px; line-height: 1.65; user-select: text; }
+.history-list .history-translation { grid-column: 2; color: var(--text-secondary); font-size: 13px; }
+.history-list .translation-action { grid-column: 4; grid-row: 1 / span 2; align-self: center; }

@@ -95,7 +95,7 @@ export function AudioSettingsSection({
   return (
         <div className="settings-section settings-section-active audio-section" id="settings-panel-audio" role="tabpanel" aria-labelledby="settings-tab-audio">
           <div className="section-heading">
-            <div><h2>{t("settings.audio.title")}</h2><span>{devices.length ? t("settings.audio.devicesFound", { count: devices.length }) : t("settings.audio.waitingScan")}</span></div>
+            <div><Volume2 size={18} /><h2>{t("settings.audio.title")}</h2><span>{devices.length ? t("settings.audio.devicesFound", { count: devices.length }) : t("settings.audio.waitingScan")}</span></div>
             <button className="secondary-button" type="button" onClick={() => void onRefresh()}><RefreshCw size={15} />{t("settings.audio.rescan")}</button>
           </div>
 
@@ -219,7 +219,6 @@ export function AudioSettingsSection({
                       disabled={microphoneOperationBusy || calibrationDisabled}
                       onClick={() => void startCalibration()}
                     >
-                      {microphoneOperationBusy ? <RefreshCw className="spin" size={15} /> : <Sparkles size={15} />}
                       {calibration.phase === "idle"
                         ? t("onboarding.microphone.startCalibration")
                         : t("onboarding.microphone.retryCalibration")}

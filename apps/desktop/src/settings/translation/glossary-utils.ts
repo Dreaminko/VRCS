@@ -29,7 +29,7 @@ export interface PublicGlossaryFile {
 export function emptyGlossaryEntry(): GlossaryEntry {
   return {
     source: "",
-    target: null,
+    target: "",
     category: "custom",
     case_sensitive: false,
   };

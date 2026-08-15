@@ -1,0 +1,81 @@
+.chatbox-text-field {
+  display: grid;
+  min-width: 0;
+  gap: 6px;
+}
+
+.chatbox-text-field > span {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.chatbox-text-field > span small {
+  color: var(--warning);
+  font-size: 10px;
+  font-weight: 500;
+}
+
+.chatbox-text-field textarea {
+  width: 100%;
+  min-height: 70px;
+  resize: vertical;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  color: var(--text);
+  background: var(--surface-elevated);
+  box-shadow: var(--control-shadow);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.65;
+  transition: border-color 140ms ease-out, background-color 140ms ease-out, box-shadow 140ms ease-out;
+}
+
+.chatbox-text-field textarea::placeholder {
+  color: var(--text-quiet);
+}
+
+.chatbox-text-field textarea:focus {
+  border-color: var(--primary);
+  outline: 0;
+  background: var(--surface);
+  box-shadow: var(--control-focus-shadow);
+}
+
+.chatbox-text-field.stale textarea {
+  border-color: color-mix(in srgb, var(--warning) 46%, var(--border));
+}
+
+.chatbox-format-row {
+  display: grid;
+  grid-template-columns: minmax(170px, 260px);
+  gap: 10px;
+}
+
+.chatbox-format-row.custom {
+  grid-template-columns: minmax(170px, 0.45fr) minmax(0, 1fr);
+}
+
+.chatbox-custom-format {
+  min-width: 0;
+  height: 36px;
+  padding: 0 11px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  background: var(--surface-elevated);
+  font: inherit;
+  font-size: 12px;
+}
+
+.chatbox-custom-format:focus {
+  border-color: var(--primary);
+  outline: 0;
+  box-shadow: var(--control-focus-shadow);
+}
+

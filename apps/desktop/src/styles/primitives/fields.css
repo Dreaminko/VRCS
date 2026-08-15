@@ -1,0 +1,3 @@
+.field { display: grid; gap: 7px; }
+.field > span { color: var(--text-secondary); font-size: 13px; font-weight: 600; }
+.field > small { margin-top: -1px; color: var(--text-quiet); font-size: 11px; }

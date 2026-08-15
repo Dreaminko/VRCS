@@ -1,0 +1,32 @@
+@media (max-width: 680px) {
+  .chatbox-composer {
+    width: calc(100vw - 24px);
+  }
+
+  .chatbox-controls {
+    grid-template-columns: 1fr;
+  }
+
+  .chatbox-language-control {
+    grid-template-columns: minmax(0, 1fr) max-content;
+  }
+
+  .chatbox-segmented {
+    align-self: stretch;
+  }
+
+  .chatbox-segmented button {
+    flex: 1;
+  }
+
+  .chatbox-format-row {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chatbox-composer,
+  .chatbox-spinner {
+    animation: none;
+  }
+}

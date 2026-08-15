@@ -4,12 +4,17 @@ import type { TFunction } from "i18next";
 
 import type { GlossaryEntry } from "../src/types.ts";
 import {
+  emptyGlossaryEntry,
   parsePublicGlossaryFile,
   validateEntries,
   validateSubscriptionDraft,
 } from "../src/settings/translation/glossary-utils.ts";
 
 const t = ((key: string) => key) as TFunction;
+
+test("creates glossary entries with keep-original disabled", () => {
+  assert.equal(emptyGlossaryEntry().target, "");
+});
 
 function entry(source: string, caseSensitive = false): GlossaryEntry {
   return {

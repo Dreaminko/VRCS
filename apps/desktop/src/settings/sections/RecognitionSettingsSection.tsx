@@ -1,4 +1,4 @@
-import { Languages } from "lucide-react";
+import { AudioLines, Languages } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { supportsRecognition } from "../../api-profile-purpose";
@@ -90,7 +90,7 @@ export function RecognitionSettingsSection({
   return (
     <div className="settings-section settings-section-active recognition-section" id="settings-panel-recognition" role="tabpanel" aria-labelledby="settings-tab-recognition">
       <div className="section-heading">
-        <div><Languages size={18} /><h2>{t("settings.recognition.title")}</h2>{usesLocalAsr && <span className="status-chip">{t("settings.recognition.status", { status: modelStatus })}</span>}</div>
+        <div><AudioLines size={18} /><h2>{t("settings.recognition.title")}</h2>{usesLocalAsr && <span className="status-chip">{t("settings.recognition.status", { status: modelStatus })}</span>}</div>
         <p>{disabled ? t("settings.recognition.stopToModify") : t("settings.recognition.applyImmediately")}</p>
       </div>
       {usesLocalAsr && <LocalRuntimeStatus capabilities={status.capabilities} />}

@@ -1,0 +1,80 @@
+.settings-surface { width: 100%; min-width: 0; max-width: 932px; margin: 0 auto; }
+.settings-tabbar-wrap {
+  display: flex;
+  justify-content: safe center;
+  padding: 18px 30px 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.settings-tabbar-wrap::-webkit-scrollbar { display: none; }
+.settings-tabbar {
+  display: inline-flex;
+  min-width: max-content;
+  gap: 4px;
+  margin: 0 auto;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface-subtle);
+}
+.settings-tabbar button {
+  display: inline-flex;
+  width: 40px;
+  min-width: 40px;
+  min-height: 36px;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  padding: 0 10px;
+  overflow: hidden;
+  border: 0;
+  border-radius: 999px;
+  color: var(--text-secondary);
+  background: transparent;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 650;
+  letter-spacing: 0;
+  white-space: nowrap;
+  transition: background-color 140ms ease-out, box-shadow 140ms ease-out, color 140ms ease-out, gap 150ms ease-out, transform 140ms ease-out, width 150ms ease-out;
+}
+.settings-tabbar button:hover { color: var(--text); background: rgba(255, 255, 255, 0.58); }
+.settings-tabbar button:focus-visible { outline: 3px solid rgba(116, 214, 255, 0.18); outline-offset: 2px; }
+.settings-tabbar button:active { transform: scale(0.985); }
+.settings-tabbar button.active {
+  width: auto;
+  min-width: 126px;
+  gap: 8px;
+  padding-inline: 13px 15px;
+  color: var(--primary-ink);
+  background: var(--surface);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.065);
+}
+.settings-tab-icon {
+  display: grid;
+  width: 20px;
+  height: 20px;
+  flex: 0 0 20px;
+  place-items: center;
+}
+.settings-tab-icon svg { width: 18px; height: 18px; stroke-width: 1.9; }
+.settings-tab-label {
+  display: inline-block;
+  max-width: 0;
+  overflow: hidden;
+  opacity: 0;
+  transform: translateX(-4px);
+  transition: max-width 150ms ease-out, opacity 120ms ease-out, transform 150ms ease-out;
+}
+.settings-tabbar button.active .settings-tab-label {
+  max-width: 128px;
+  opacity: 1;
+  transform: translateX(0);
+}
+.settings-section { padding: 28px 30px; }
+.settings-section-active { animation: settings-panel-in 150ms ease-out; }
+.section-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 24px; }
+.section-heading > div { display: flex; align-items: center; gap: 10px; }
+.section-heading p { margin: 0; }
+.section-heading .status-chip { color: var(--primary-ink); background: var(--primary-softer); }
+.form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px 28px; }

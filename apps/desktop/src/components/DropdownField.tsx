@@ -99,13 +99,16 @@ export function DropdownField({ label, value, options, disabled = false, compact
       Math.max(FLOATING_MENU_MARGIN, triggerLeft),
       viewportWidth - FLOATING_MENU_MARGIN - width,
     );
+    const menuHeight = menuRef.current
+      ? Math.min(menuRef.current.scrollHeight, FLOATING_MENU_MAX_HEIGHT)
+      : FLOATING_MENU_MAX_HEIGHT;
     const placement = placeLookupPopover({
       anchor: {
         top: interfaceLayoutPixels(rect.top, scale),
         bottom: interfaceLayoutPixels(rect.bottom, scale),
         centerX: triggerLeft + width / 2,
       },
-      popoverHeight: FLOATING_MENU_MAX_HEIGHT,
+      popoverHeight: menuHeight,
       viewportHeight,
       gap: FLOATING_MENU_GAP,
       margin: FLOATING_MENU_MARGIN,
@@ -135,6 +138,12 @@ export function DropdownField({ label, value, options, disabled = false, compact
       document.removeEventListener("scroll", updateFloatingPosition, true);
     };
   }, [floating, open, updateFloatingPosition]);
+
+  const floatingMenuMounted = floatingPosition !== null;
+  useLayoutEffect(() => {
+    if (!floating || !open || !floatingMenuMounted || !menuRef.current) return;
+    updateFloatingPosition();
+  }, [floating, floatingMenuMounted, open, updateFloatingPosition]);
 
   useLayoutEffect(() => {
     if (!open || !focusMenuOnOpenRef.current || !menuRef.current) return;
