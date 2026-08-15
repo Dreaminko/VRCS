@@ -33,6 +33,11 @@
       "action": "翻译",
       "retry": "重新翻译",
       "translating": "翻译中…",
+      "languagePicker": {
+        "search": "搜索语言名称或代码",
+        "empty": "没有匹配的语言",
+        "useCustom": "使用自定义语言代码 {{code}}"
+      },
       "languages": {
         "zh-Hans": "简体中文",
         "zh-Hant": "繁体中文",
@@ -397,7 +402,7 @@
         "authBearer": "Bearer API Key",
         "authNone": "无需鉴权",
         "timeout": "请求超时（毫秒）",
-        "localService": "这是本地服务",
+        "localService": "本地服务",
         "localServiceHint": "服务运行在本机或局域网内。",
         "customHeaders": "自定义 HTTP Header",
         "addHeader": "添加 Header",

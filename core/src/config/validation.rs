@@ -244,18 +244,15 @@ fn validate_translation(
             translation.mode
         ));
     }
-    const LANGUAGES: [&str; 9] = [
-        "zh-Hans", "zh-Hant", "en", "ja", "ko", "es", "fr", "de", "ru",
-    ];
-    if !LANGUAGES.contains(&translation.target_language.as_str()) {
+    if !providers::is_valid_translation_language(&translation.target_language) {
         return Err(format!(
-            "Unsupported translation target language: {}",
+            "Invalid translation target language: {}",
             translation.target_language
         ));
     }
-    if !LANGUAGES.contains(&translation.microphone_target_language.as_str()) {
+    if !providers::is_valid_translation_language(&translation.microphone_target_language) {
         return Err(format!(
-            "Unsupported microphone translation target language: {}",
+            "Invalid microphone translation target language: {}",
             translation.microphone_target_language
         ));
     }
@@ -272,6 +269,25 @@ fn validate_translation(
         .ok_or_else(|| "The selected translation API profile does not exist".to_string())?;
     if !providers::supports_translation(profile) {
         return Err("The selected API profile does not support translation".into());
+    }
+    if translation.mode != "disabled"
+        && !providers::supports_translation_language(profile, &translation.target_language)
+    {
+        return Err(format!(
+            "The selected API profile does not support target language: {}",
+            translation.target_language
+        ));
+    }
+    if translation.translate_microphone
+        && !providers::supports_translation_language(
+            profile,
+            &translation.microphone_target_language,
+        )
+    {
+        return Err(format!(
+            "The selected API profile does not support microphone target language: {}",
+            translation.microphone_target_language
+        ));
     }
     if providers::supports_llm_models(profile) && translation.model.trim().is_empty() {
         return Err("The LLM translation model cannot be empty".into());

@@ -16,8 +16,16 @@ pub const API_PURPOSE_ASR: &str = "asr";
 pub const API_PURPOSE_LLM: &str = "llm";
 pub const API_PURPOSE_SHARED: &str = "shared";
 
-const TRANSLATION_LANGUAGES: &[&str] = &[
-    "zh-Hans", "zh-Hant", "en", "ja", "ko", "es", "fr", "de", "ru",
+pub const LLM_TRANSLATION_LANGUAGES: &[&str] = &[
+    "zh-Hans", "zh-Hant", "yue-Hant", "en", "ja", "ko", "es", "fr", "de", "ru", "ar", "bg", "cs",
+    "da", "el", "he", "hi", "id", "it", "ms", "nb", "nl", "pl", "pt-BR", "pt-PT", "ro", "sv", "th",
+    "tr", "uk", "vi", "fil", "hu", "fi",
+];
+
+const DEEPL_TRANSLATION_LANGUAGES: &[&str] = &[
+    "zh-Hans", "zh-Hant", "en", "ja", "ko", "es", "fr", "de", "ru", "ar", "bg", "cs", "da", "el",
+    "he", "id", "it", "nb", "nl", "pl", "pt-BR", "pt-PT", "ro", "sv", "th", "tr", "uk", "vi", "hu",
+    "fi",
 ];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -42,6 +50,7 @@ pub struct ProviderCapabilities {
     pub supports_context: bool,
     pub supports_translation: bool,
     pub supports_asr: bool,
+    pub supports_custom_translation_language: bool,
     pub supported_languages: &'static [&'static str],
 }
 
@@ -135,7 +144,7 @@ pub fn definition(provider: &str) -> Option<ProviderDefinition> {
                 asr: Some(SupportLevel::Native),
                 translation: Some(SupportLevel::ProtocolCompatible),
             },
-            capabilities(true, true, true, true),
+            capabilities(true, true, true, true, LLM_TRANSLATION_LANGUAGES, true),
         ),
         OPENAI_PROVIDER => (
             OPENAI_PROVIDER,
@@ -145,7 +154,7 @@ pub fn definition(provider: &str) -> Option<ProviderDefinition> {
                 asr: Some(SupportLevel::Native),
                 translation: Some(SupportLevel::Native),
             },
-            capabilities(false, true, true, true),
+            capabilities(false, true, true, true, LLM_TRANSLATION_LANGUAGES, true),
         ),
         GEMINI_PROVIDER => (
             GEMINI_PROVIDER,
@@ -155,7 +164,7 @@ pub fn definition(provider: &str) -> Option<ProviderDefinition> {
                 asr: None,
                 translation: Some(SupportLevel::Native),
             },
-            capabilities(true, true, true, false),
+            capabilities(true, true, true, false, LLM_TRANSLATION_LANGUAGES, true),
         ),
         OPENAI_COMPATIBLE_PROVIDER => (
             OPENAI_COMPATIBLE_PROVIDER,
@@ -165,7 +174,7 @@ pub fn definition(provider: &str) -> Option<ProviderDefinition> {
                 asr: None,
                 translation: Some(SupportLevel::ProtocolCompatible),
             },
-            capabilities(true, true, true, false),
+            capabilities(true, true, true, false, LLM_TRANSLATION_LANGUAGES, true),
         ),
         DEEPL_PROVIDER => (
             DEEPL_PROVIDER,
@@ -175,7 +184,14 @@ pub fn definition(provider: &str) -> Option<ProviderDefinition> {
                 asr: None,
                 translation: Some(SupportLevel::Native),
             },
-            capabilities(false, false, false, false),
+            capabilities(
+                false,
+                false,
+                false,
+                false,
+                DEEPL_TRANSLATION_LANGUAGES,
+                false,
+            ),
         ),
         MICROSOFT_PROVIDER => (
             MICROSOFT_PROVIDER,
@@ -185,7 +201,7 @@ pub fn definition(provider: &str) -> Option<ProviderDefinition> {
                 asr: None,
                 translation: Some(SupportLevel::Native),
             },
-            capabilities(false, false, false, false),
+            capabilities(false, false, false, false, LLM_TRANSLATION_LANGUAGES, false),
         ),
         _ => return None,
     };
@@ -258,11 +274,78 @@ pub fn supports_llm_models(profile: &ApiProfile) -> bool {
     profile_capabilities(profile).is_some_and(|value| value.supports_model_listing)
 }
 
+pub fn supports_translation_language(profile: &ApiProfile, language: &str) -> bool {
+    profile_capabilities(profile).is_some_and(|capabilities| {
+        capabilities.supports_translation
+            && (capabilities.supports_custom_translation_language
+                || capabilities.supported_languages.contains(&language))
+    })
+}
+
+pub fn is_valid_translation_language(language: &str) -> bool {
+    if !(2..=35).contains(&language.len()) {
+        return false;
+    }
+    let mut subtags = language.split('-');
+    let Some(primary) = subtags.next() else {
+        return false;
+    };
+    primary.len() >= 2
+        && primary.len() <= 8
+        && primary.bytes().all(|value| value.is_ascii_alphabetic())
+        && subtags.all(|subtag| {
+            (2..=8).contains(&subtag.len())
+                && subtag.bytes().all(|value| value.is_ascii_alphanumeric())
+        })
+}
+
+pub fn translation_language_name(language: &str) -> Option<&'static str> {
+    Some(match language {
+        "zh-Hans" => "Chinese (Simplified)",
+        "zh-Hant" => "Chinese (Traditional)",
+        "yue-Hant" => "Cantonese (Traditional)",
+        "en" => "English",
+        "ja" => "Japanese",
+        "ko" => "Korean",
+        "es" => "Spanish",
+        "fr" => "French",
+        "de" => "German",
+        "ru" => "Russian",
+        "ar" => "Arabic",
+        "bg" => "Bulgarian",
+        "cs" => "Czech",
+        "da" => "Danish",
+        "el" => "Greek",
+        "he" => "Hebrew",
+        "hi" => "Hindi",
+        "id" => "Indonesian",
+        "it" => "Italian",
+        "ms" => "Malay",
+        "nb" => "Norwegian Bokmål",
+        "nl" => "Dutch",
+        "pl" => "Polish",
+        "pt-BR" => "Portuguese (Brazil)",
+        "pt-PT" => "Portuguese (Portugal)",
+        "ro" => "Romanian",
+        "sv" => "Swedish",
+        "th" => "Thai",
+        "tr" => "Turkish",
+        "uk" => "Ukrainian",
+        "vi" => "Vietnamese",
+        "fil" => "Filipino",
+        "hu" => "Hungarian",
+        "fi" => "Finnish",
+        _ => return None,
+    })
+}
+
 fn capabilities(
     supports_streaming: bool,
     supports_model_listing: bool,
     supports_context: bool,
     supports_asr: bool,
+    supported_languages: &'static [&'static str],
+    supports_custom_translation_language: bool,
 ) -> ProviderCapabilities {
     ProviderCapabilities {
         supports_streaming,
@@ -272,7 +355,8 @@ fn capabilities(
         supports_context,
         supports_translation: true,
         supports_asr,
-        supported_languages: TRANSLATION_LANGUAGES,
+        supports_custom_translation_language,
+        supported_languages,
     }
 }
 
@@ -329,5 +413,18 @@ mod tests {
         let capabilities = profile_capabilities(&local).unwrap();
         assert!(!capabilities.requires_api_key);
         assert!(capabilities.is_local);
+    }
+
+    #[test]
+    fn translation_language_capabilities_are_provider_specific() {
+        let llm = profile(OPENAI_PROVIDER, API_PURPOSE_LLM);
+        let deepl = profile(DEEPL_PROVIDER, API_PURPOSE_LLM);
+
+        assert!(supports_translation_language(&llm, "tlh-Latn"));
+        assert!(supports_translation_language(&deepl, "pt-BR"));
+        assert!(!supports_translation_language(&deepl, "hi"));
+        assert!(is_valid_translation_language("yue-Hant"));
+        assert!(!is_valid_translation_language("en-u-ca-gregory"));
+        assert!(!is_valid_translation_language("not a language"));
     }
 }

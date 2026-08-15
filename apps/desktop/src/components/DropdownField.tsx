@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import type { CSSProperties, KeyboardEvent as ReactKeyboardEvent, ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { Check, ChevronDown } from "lucide-react";
+import { Check, ChevronDown, Search } from "lucide-react";
 
 import {
   INTERFACE_LAYOUT_CHANGE_EVENT,
@@ -13,29 +13,54 @@ import { useDismissibleLayer } from "../use-dismissible-layer";
 
 type FloatingMenuPosition = Pick<CSSProperties, "bottom" | "left" | "maxHeight" | "right" | "top" | "width">;
 
+export interface DropdownOption {
+  value: string;
+  label: string;
+  description?: string;
+  searchText?: string;
+}
+
 const FLOATING_MENU_GAP = 6;
 const FLOATING_MENU_MARGIN = 12;
 const FLOATING_MENU_MAX_HEIGHT = 216;
 
-export function DropdownField({ label, value, options, disabled = false, compact = false, floating = false, floatingLayer = "page", icon, onChange }: {
+export function DropdownField({ label, value, options, disabled = false, compact = false, floating = false, floatingLayer = "page", floatingWidth, searchable = false, searchPlaceholder, emptyLabel, createOption, icon, onChange }: {
   label: string;
   value: string;
-  options: Array<{ value: string; label: string }>;
+  options: DropdownOption[];
   disabled?: boolean;
   compact?: boolean;
   floating?: boolean;
   floatingLayer?: "page" | "dialog";
+  floatingWidth?: number;
+  searchable?: boolean;
+  searchPlaceholder?: string;
+  emptyLabel?: string;
+  createOption?: (query: string) => DropdownOption | null;
   icon?: ReactNode;
   onChange: (value: string) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
   const [floatingPosition, setFloatingPosition] = useState<FloatingMenuPosition | null>(null);
   const rootRef = useRef<HTMLDivElement | null>(null);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
+  const searchRef = useRef<HTMLInputElement | null>(null);
   const focusMenuOnOpenRef = useRef(false);
   const menuId = useId();
   const selected = options.find((option) => option.value === value) ?? options[0];
+  const normalizedQuery = normalizeSearch(query);
+  const filteredOptions = normalizedQuery
+    ? options.filter((option) => normalizeSearch(
+        `${option.label} ${option.description ?? ""} ${option.searchText ?? ""} ${option.value}`,
+      ).includes(normalizedQuery))
+    : options;
+  const createdOption = createOption?.(query) ?? null;
+  const visibleOptions = createdOption
+    && !filteredOptions.some((option) => option.value === createdOption.value)
+    ? [...filteredOptions, createdOption]
+    : filteredOptions;
 
   useDismissibleLayer(open, rootRef, () => setOpen(false), menuRef);
 
@@ -45,6 +70,7 @@ export function DropdownField({ label, value, options, disabled = false, compact
 
   const choose = (next: string) => {
     onChange(next);
+    setQuery("");
     setOpen(false);
     requestAnimationFrame(() => triggerRef.current?.focus({ preventScroll: true }));
   };
@@ -65,7 +91,7 @@ export function DropdownField({ label, value, options, disabled = false, compact
     const viewportWidth = interfaceLayoutPixels(window.innerWidth, scale);
     const viewportHeight = interfaceLayoutPixels(window.innerHeight, scale);
     const width = Math.min(
-      interfaceLayoutPixels(rect.width, scale),
+      Math.max(interfaceLayoutPixels(rect.width, scale), floatingWidth ?? 0),
       viewportWidth - FLOATING_MENU_MARGIN * 2,
     );
     const triggerLeft = interfaceLayoutPixels(rect.left, scale);
@@ -93,7 +119,7 @@ export function DropdownField({ label, value, options, disabled = false, compact
       top: placement.top,
       width,
     });
-  }, [floating, open]);
+  }, [floating, floatingWidth, open]);
 
   useLayoutEffect(() => {
     if (!floating || !open) {
@@ -113,11 +139,16 @@ export function DropdownField({ label, value, options, disabled = false, compact
   useLayoutEffect(() => {
     if (!open || !focusMenuOnOpenRef.current || !menuRef.current) return;
     focusMenuOnOpenRef.current = false;
+    if (searchable && searchRef.current) {
+      searchRef.current.focus({ preventScroll: true });
+      return;
+    }
     const current = menuRef.current.querySelector<HTMLElement>('[aria-selected="true"]');
     (current ?? menuRef.current.querySelector<HTMLElement>("button"))?.focus({ preventScroll: true });
-  }, [floatingPosition, open]);
+  }, [floatingPosition, open, searchable]);
 
   const closeMenu = () => {
+    setQuery("");
     setOpen(false);
     requestAnimationFrame(() => triggerRef.current?.focus({ preventScroll: true }));
   };
@@ -162,17 +193,9 @@ export function DropdownField({ label, value, options, disabled = false, compact
     items[nextIndex]?.focus({ preventScroll: true });
   };
 
-  const menu = (
-    <div
-      className={`dropdown-menu ${floating ? "dropdown-menu-floating" : ""} ${floating && floatingLayer === "dialog" ? "dropdown-menu-floating-dialog" : ""} ${compact ? "dropdown-menu-compact" : ""}`}
-      id={menuId}
-      ref={menuRef}
-      role="listbox"
-      aria-label={label}
-      style={floating ? floatingPosition ?? undefined : undefined}
-      onKeyDown={handleMenuKeyDown}
-    >
-      {options.map((option) => {
+  const optionList = (
+    <>
+      {visibleOptions.map((option) => {
         const current = option.value === value;
         return (
           <button
@@ -183,11 +206,52 @@ export function DropdownField({ label, value, options, disabled = false, compact
             aria-selected={current}
             onClick={() => choose(option.value)}
           >
-            <span>{option.label}</span>
+            <span className="dropdown-option-copy">
+              <span>{option.label}</span>
+              {option.description && <small>{option.description}</small>}
+            </span>
             {current && <Check size={15} />}
           </button>
         );
       })}
+      {!visibleOptions.length && <p className="dropdown-empty">{emptyLabel}</p>}
+    </>
+  );
+
+  const menu = (
+    <div
+      className={`dropdown-menu ${searchable ? "dropdown-menu-searchable" : ""} ${floating ? "dropdown-menu-floating" : ""} ${floating && floatingLayer === "dialog" ? "dropdown-menu-floating-dialog" : ""} ${compact ? "dropdown-menu-compact" : ""}`}
+      id={searchable ? undefined : menuId}
+      ref={menuRef}
+      role={searchable ? undefined : "listbox"}
+      aria-label={searchable ? undefined : label}
+      style={floating ? floatingPosition ?? undefined : undefined}
+      onKeyDown={handleMenuKeyDown}
+    >
+      {searchable && (
+        <div className="dropdown-search-wrap">
+          <Search className="dropdown-search-icon" size={14} aria-hidden="true" />
+          <input
+            ref={searchRef}
+            className="dropdown-search"
+            type="search"
+            value={query}
+            aria-label={searchPlaceholder ?? label}
+            placeholder={searchPlaceholder}
+            autoComplete="off"
+            onChange={(event) => setQuery(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && visibleOptions[0]) {
+                event.preventDefault();
+                choose(visibleOptions[0].value);
+              }
+            }}
+          />
+        </div>
+      )}
+      {searchable
+        ? <div className="dropdown-options" id={menuId} role="listbox" aria-label={label}>{optionList}</div>
+        : optionList}
     </div>
   );
 
@@ -217,7 +281,12 @@ export function DropdownField({ label, value, options, disabled = false, compact
         aria-expanded={open}
         aria-controls={open ? menuId : undefined}
         aria-label={compact ? label : undefined}
-        onClick={() => setOpen((current) => !current)}
+        onClick={() => setOpen((current) => {
+          const next = !current;
+          if (next && searchable) focusMenuOnOpenRef.current = true;
+          if (!next) setQuery("");
+          return next;
+        })}
         onKeyDown={(event) => {
           if (event.key === "ArrowDown" || event.key === "ArrowUp" || event.key === "Enter" || event.key === " ") {
             event.preventDefault();
@@ -235,6 +304,14 @@ export function DropdownField({ label, value, options, disabled = false, compact
       )}
     </div>
   );
+}
+
+function normalizeSearch(value: string): string {
+  return value
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLocaleLowerCase()
+    .trim();
 }
 
 export function EditableDropdownField({

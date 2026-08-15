@@ -42,6 +42,10 @@ import {
   readTranscriptionStartBehavior,
   shouldCreateConversationOnCaptureToggle,
 } from "./transcription-start";
+import {
+  supportsCustomTranslationLanguage,
+  translationLanguageCodesForProvider,
+} from "./translation-languages";
 
 function App() {
   const { t, i18n } = useTranslation();
@@ -93,6 +97,10 @@ function App() {
   const muteToastSettingsReady = settings !== null;
   const muteToastEnabled = settings?.osc.mute_status_toast_enabled ?? false;
   const currentVrchatMute = vrchatMuteStatus?.muted ?? null;
+  const translationProvider = settings?.asr.api_profiles.find(
+    (profile) => profile.id === settings.translation.profile_id,
+  )?.provider;
+  const translationLanguageCodes = translationLanguageCodesForProvider(translationProvider);
   const vrchatMuteSyncEnabled = vrchatMuteStatus?.enabled ?? false;
 
   useEffect(() => {
@@ -573,6 +581,8 @@ function App() {
           feedback={chatbox.feedback}
           translationStale={chatbox.translationStale}
           oscEnabled={settings?.osc.enabled ?? false}
+          languageCodes={translationLanguageCodes}
+          allowCustomLanguage={supportsCustomTranslationLanguage(translationProvider)}
           onDraftChange={chatbox.setDraft}
           onTranslate={chatbox.translate}
           onSend={chatbox.send}

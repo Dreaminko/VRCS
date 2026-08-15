@@ -514,16 +514,19 @@
 }
 .api-compatible-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
 .api-compatible-url-field { grid-column: 1 / -1; }
-.api-profile-local-field { align-self: end; }
-.api-profile-local-field .settings-toggle-row {
-  min-height: 64px;
-  padding: 10px 12px;
+.api-profile-local-field { align-self: start; }
+.api-profile-local-control {
+  display: flex;
+  min-height: 40px;
+  align-items: center;
+  gap: 12px;
+  padding: 0 12px;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   background: var(--surface);
 }
-.api-profile-local-field .settings-toggle-copy { gap: 2px; }
-.api-profile-local-field .settings-toggle-copy small { color: var(--text-quiet); }
+.api-profile-local-control > small { min-width: 0; flex: 1; color: var(--text-quiet); font-size: 11px; line-height: 1.35; }
+.api-profile-local-field.disabled { opacity: 0.62; }
 .api-profile-headers-field { display: grid; gap: 10px; padding-top: 16px; border-top: 1px solid var(--border); }
 .api-profile-headers-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .api-profile-headers-heading > span { color: var(--text-secondary); font-size: 13px; font-weight: 600; }

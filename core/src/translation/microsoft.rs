@@ -14,16 +14,23 @@ pub(super) async fn translate(
     source: Option<&str>,
     target: &str,
 ) -> Result<TranslationResult, TranslationError> {
+    let target_code = language_code(target).ok_or_else(|| {
+        invalid(format!(
+            "Microsoft Translator does not support target language: {target}"
+        ))
+    })?;
     let mut request = http
         .post("https://api.cognitive.microsofttranslator.com/translate")
-        .query(&[("api-version", "3.0"), ("to", language_code(target))])
+        .query(&[("api-version", "3.0"), ("to", target_code)])
         .header("Ocp-Apim-Subscription-Key", api_key)
         .header(
             "Ocp-Apim-Subscription-Region",
             profile.region.as_deref().unwrap_or(""),
         );
     if let Some(source) = source.filter(|value| *value != "auto") {
-        request = request.query(&[("from", language_code(source))]);
+        if let Some(source_code) = language_code(source) {
+            request = request.query(&[("from", source_code)]);
+        }
     }
     let response = request
         .json(&json!([{ "Text": text }]))
@@ -54,18 +61,11 @@ pub(super) async fn translate(
     })
 }
 
-fn language_code(language: &str) -> &'static str {
+fn language_code(language: &str) -> Option<&str> {
     match language {
-        "zh-Hans" | "zh" => "zh-Hans",
-        "zh-Hant" => "zh-Hant",
-        "en" => "en",
-        "ja" => "ja",
-        "ko" => "ko",
-        "es" => "es",
-        "fr" => "fr",
-        "de" => "de",
-        "ru" => "ru",
-        _ => "en",
+        "zh" => Some("zh-Hans"),
+        value if crate::providers::LLM_TRANSLATION_LANGUAGES.contains(&value) => Some(value),
+        _ => None,
     }
 }
 
@@ -75,7 +75,8 @@ mod tests {
 
     #[test]
     fn maps_supported_language_codes() {
-        assert_eq!(language_code("zh-Hant"), "zh-Hant");
-        assert_eq!(language_code("zh"), "zh-Hans");
+        assert_eq!(language_code("zh-Hant"), Some("zh-Hant"));
+        assert_eq!(language_code("zh"), Some("zh-Hans"));
+        assert_eq!(language_code("tlh"), None);
     }
 }

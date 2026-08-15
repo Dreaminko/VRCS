@@ -70,10 +70,17 @@ test("Chatbox send settings round-trip without retaining message text", () => {
 
 test("invalid persisted Chatbox settings fall back to current defaults", () => {
   assert.deepEqual(normalizeChatboxPreferences({
-    target_language: "invalid",
+    target_language: "$invalid",
     send_mode: "invalid",
     message_format: "invalid",
     custom_format: 42,
     overflow_policy: "invalid",
   }, "zh-Hant"), chatboxPreferencesFromDraft(createChatboxDraft("zh-Hant")));
+});
+
+test("custom BCP 47 Chatbox languages survive preference round-trips", () => {
+  const preferences = normalizeChatboxPreferences({
+    target_language: "tlh-latn",
+  }, "ja");
+  assert.equal(preferences.target_language, "tlh-Latn");
 });

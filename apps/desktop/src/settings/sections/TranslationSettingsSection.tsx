@@ -3,15 +3,13 @@ import { useTranslation } from "react-i18next";
 
 import { supportsContext, supportsLlmModels, supportsTranslation } from "../../api-profile-purpose";
 import { EditableDropdownField } from "../../components/DropdownField";
+import { LanguagePicker } from "../../components/LanguagePicker";
+import { TRANSLATION_LANGUAGE_CODES } from "../../translation-languages";
 import type { ApiProfileView, Settings, TranslationSettings } from "../../types";
 import { useTranslationProfileModels } from "../hooks/useTranslationProfileModels";
 import type { ApplySettings, SaveState } from "../settings-types";
 import { PreferenceToggle, Select } from "../SettingsControls";
 import { TranslationEnhancementSettings } from "../translation/TranslationEnhancementSettings";
-
-const targetLanguages: TranslationSettings["target_language"][] = [
-  "zh-Hans", "zh-Hant", "en", "ja", "ko", "es", "fr", "de", "ru",
-];
 
 function modelForProfile(profile: ApiProfileView | undefined, current: string): string {
   if (profile?.provider === "alibaba_cloud") return "qwen-plus";
@@ -40,6 +38,10 @@ export function TranslationSettingsSection({ draft, apiProfiles, disabled, saveS
   );
   const usesLlmProfile = Boolean(selectedProfile && supportsLlmModels(selectedProfile));
   const usesContextProfile = Boolean(selectedProfile && supportsContext(selectedProfile));
+  const languageCodes = selectedProfile?.capabilities.supported_languages
+    ?? TRANSLATION_LANGUAGE_CODES;
+  const allowCustomLanguage = selectedProfile?.capabilities.supports_custom_translation_language
+    ?? false;
   const supportsThinkingToggle = Boolean(
     selectedProfile?.provider === "openai_compatible"
       && selectedProfile.preset_id === "deepseek",
@@ -134,20 +136,18 @@ export function TranslationSettingsSection({ draft, apiProfiles, disabled, saveS
                 });
               }}
             />
-            <Select
+            <LanguagePicker
               label={t("settings.translation.ownVoiceTargetLanguage")}
               helper={translationProfiles.length
                 ? t("settings.translation.ownVoiceTargetLanguageDescription")
                 : t("settings.translation.noProfiles")}
               value={draft.translation.microphone_target_language}
               disabled={controlsDisabled || !draft.translation.translate_microphone}
-              options={targetLanguages.map((value) => ({
-                value,
-                label: t(`translation.languages.${value}`),
-              }))}
+              languageCodes={languageCodes}
+              allowCustom={allowCustomLanguage}
               onChange={(microphone_target_language) => update({
                 ...draft.translation,
-                microphone_target_language: microphone_target_language as TranslationSettings["microphone_target_language"],
+                microphone_target_language,
               })}
             />
           </div>
@@ -162,17 +162,15 @@ export function TranslationSettingsSection({ draft, apiProfiles, disabled, saveS
             </span>
           </div>
           <div className="translation-config-fields translation-config-fields-single">
-            <Select
+            <LanguagePicker
               label={t("settings.translation.targetLanguage")}
               value={draft.translation.target_language}
               disabled={controlsDisabled}
-              options={targetLanguages.map((value) => ({
-                value,
-                label: t(`translation.languages.${value}`),
-              }))}
+              languageCodes={languageCodes}
+              allowCustom={allowCustomLanguage}
               onChange={(target_language) => update({
                 ...draft.translation,
-                target_language: target_language as TranslationSettings["target_language"],
+                target_language,
               })}
             />
           </div>

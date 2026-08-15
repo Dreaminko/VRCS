@@ -8,9 +8,6 @@ import type {
 } from "./types";
 
 export const CHATBOX_LIMIT = 144;
-export const CHATBOX_TARGET_LANGUAGES = [
-  "zh-Hans", "zh-Hant", "en", "ja", "ko", "es", "fr", "de", "ru",
-] as const;
 const SEND_MODES = new Set<ChatboxSendMode>(["original", "translation", "bilingual"]);
 const MESSAGE_FORMATS = new Set<ChatboxMessageFormat>([
   "original_newline_translation",
@@ -145,10 +142,15 @@ function normalizeTargetLanguage(
   value: unknown,
   fallback: TranslationSettings["target_language"],
 ): TranslationSettings["target_language"] {
-  return typeof value === "string"
-    && CHATBOX_TARGET_LANGUAGES.includes(value as TranslationSettings["target_language"])
-    ? value as TranslationSettings["target_language"]
-    : fallback;
+  if (typeof value !== "string") return fallback;
+  const input = value.trim();
+  if (input.length < 2 || input.length > 35) return fallback;
+  if (!/^[A-Za-z]{2,8}(?:-[A-Za-z0-9]{2,8})*$/.test(input)) return fallback;
+  try {
+    return Intl.getCanonicalLocales(input)[0] ?? fallback;
+  } catch {
+    return fallback;
+  }
 }
 
 function isSetValue<T extends string>(value: unknown, values: Set<T>): value is T {

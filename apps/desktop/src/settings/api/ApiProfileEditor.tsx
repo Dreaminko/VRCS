@@ -8,7 +8,7 @@ import type {
   ProviderDefinition,
 } from "../../types";
 import { Plus, Trash2 } from "lucide-react";
-import { PreferenceToggle, Select } from "../SettingsControls";
+import { Select } from "../SettingsControls";
 import { useTranslation } from "react-i18next";
 
 export interface ApiProfileEditorDraft {
@@ -122,6 +122,7 @@ export function ApiProfileEditor({
     (definition) => definition.id === "openai_compatible",
   );
   const workspaceRequired = draft.provider === "alibaba_cloud" && draft.purpose !== "llm";
+  const localServiceDisabled = saving || draft.preset_id !== "custom";
   const canSave = (nameOptional || Boolean(draft.name.trim()))
     && (draft.provider !== "openai_compatible" || Boolean(draft.base_url.trim()))
     && (draft.provider !== "microsoft_translator" || Boolean(draft.region.trim()))
@@ -308,14 +309,22 @@ export function ApiProfileEditor({
                     onChange={(event) => onChange({ ...draft, timeout_ms: Number(event.target.value) })}
                   />
                 </label>
-                <div className="api-profile-local-field">
-                  <PreferenceToggle
-                    title={t("settings.apiManagement.localService")}
-                    description={t("settings.apiManagement.localServiceHint")}
-                    checked={draft.is_local}
-                    disabled={saving || draft.preset_id !== "custom"}
-                    onChange={(checked) => onChange({ ...draft, is_local: checked })}
-                  />
+                <div className={`field api-profile-local-field ${localServiceDisabled ? "disabled" : ""}`}>
+                  <span>{t("settings.apiManagement.localService")}</span>
+                  <div className="api-profile-local-control">
+                    <small>{t("settings.apiManagement.localServiceHint")}</small>
+                    <button
+                      className="settings-switch-button"
+                      type="button"
+                      role="switch"
+                      aria-checked={draft.is_local}
+                      aria-label={t("settings.apiManagement.localService")}
+                      disabled={localServiceDisabled}
+                      onClick={() => onChange({ ...draft, is_local: !draft.is_local })}
+                    >
+                      <span className="switch-track" aria-hidden="true"><span /></span>
+                    </button>
+                  </div>
                 </div>
               </div>
               <div className="api-profile-headers-field">

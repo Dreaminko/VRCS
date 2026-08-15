@@ -131,6 +131,7 @@ export interface ProviderCapabilities {
   supports_context: boolean;
   supports_translation: boolean;
   supports_asr: boolean;
+  supports_custom_translation_language: boolean;
   supported_languages: string[];
 }
 
@@ -284,12 +285,12 @@ export interface ExternalApiSettings {
 
 export interface TranslationSettings {
   mode: "disabled" | "manual" | "automatic";
-  target_language: "zh-Hans" | "zh-Hant" | "en" | "ja" | "ko" | "es" | "fr" | "de" | "ru";
+  target_language: string;
   profile_id: string | null;
   model: string;
   thinking_enabled: boolean;
   translate_microphone: boolean;
-  microphone_target_language: "zh-Hans" | "zh-Hant" | "en" | "ja" | "ko" | "es" | "fr" | "de" | "ru";
+  microphone_target_language: string;
   prompt: TranslationPromptSettings;
 }
 

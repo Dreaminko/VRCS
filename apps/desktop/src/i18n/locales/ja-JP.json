@@ -33,6 +33,11 @@
       "action": "翻訳",
       "retry": "再翻訳",
       "translating": "翻訳中…",
+      "languagePicker": {
+        "search": "言語名またはコードを検索",
+        "empty": "一致する言語はありません",
+        "useCustom": "{{code}} をカスタム言語コードとして使用"
+      },
       "languages": {
         "zh-Hans": "中国語（簡体字）",
         "zh-Hant": "中国語（繁体字）",
@@ -397,7 +402,7 @@
         "authBearer": "Bearer API Key",
         "authNone": "認証なし",
         "timeout": "リクエストタイムアウト（ミリ秒）",
-        "localService": "ローカルサービスとして使用",
+        "localService": "ローカルサービス",
         "localServiceHint": "このコンピューターまたはローカルネットワークで動作します。",
         "customHeaders": "カスタム HTTP ヘッダー",
         "addHeader": "ヘッダーを追加",

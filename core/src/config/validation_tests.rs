@@ -81,6 +81,42 @@ fn translation_accepts_direct_and_llm_profiles() {
 }
 
 #[test]
+fn translation_languages_follow_the_selected_provider() {
+    let mut config = AppConfig::default();
+    config.asr.api_profiles = vec![
+        ApiProfile {
+            id: "deepl-one".into(),
+            name: "DeepL".into(),
+            provider: DEEPL_PROVIDER.into(),
+            ..ApiProfile::default()
+        },
+        ApiProfile {
+            id: "openai-one".into(),
+            name: "OpenAI".into(),
+            provider: OPENAI_PROVIDER.into(),
+            ..ApiProfile::default()
+        },
+    ];
+    config.translation.mode = "manual".into();
+    config.translation.target_language = "hi".into();
+    config.translation.profile_id = Some("deepl-one".into());
+    assert_eq!(
+        config.validate_settings().unwrap_err(),
+        "The selected API profile does not support target language: hi"
+    );
+
+    config.translation.profile_id = Some("openai-one".into());
+    config.translation.target_language = "tlh-Latn".into();
+    assert!(config.validate_settings().is_ok());
+
+    config.translation.target_language = "not a language".into();
+    assert_eq!(
+        config.validate_settings().unwrap_err(),
+        "Invalid translation target language: not a language"
+    );
+}
+
+#[test]
 fn gemini_profiles_are_llm_only_and_require_a_model() {
     let mut config = AppConfig::default();
     config.asr.api_profiles.push(ApiProfile {

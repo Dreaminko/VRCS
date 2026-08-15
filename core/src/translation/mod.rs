@@ -9,7 +9,7 @@ use crate::credentials;
 use crate::llm::{LlmClient, LlmProgress, LlmRequest};
 use crate::models::{now_iso8601, SubtitleTranslation};
 use crate::providers::{
-    ALIBABA_PROVIDER, DEEPL_PROVIDER, GEMINI_PROVIDER, MICROSOFT_PROVIDER,
+    self, ALIBABA_PROVIDER, DEEPL_PROVIDER, GEMINI_PROVIDER, MICROSOFT_PROVIDER,
     OPENAI_COMPATIBLE_PROVIDER, OPENAI_PROVIDER,
 };
 
@@ -108,25 +108,12 @@ impl TranslationService {
             ));
         }
         let target = target_override.unwrap_or(&settings.target_language);
-        if ![
-            "zh-Hans", "zh-Hant", "en", "ja", "ko", "es", "fr", "de", "ru",
-        ]
-        .contains(&target)
-        {
+        if !providers::is_valid_translation_language(target) {
             return Err(error(
                 "translation.invalid_target_language",
-                format!("Unsupported translation target language: {target}"),
+                format!("Invalid translation target language: {target}"),
                 false,
             ));
-        }
-        if source_language.is_some_and(|source| same_language(source, target)) {
-            return Ok(TranslationResult {
-                text: text.to_owned(),
-                source_language: source_language.map(str::to_owned),
-                target_language: target.to_owned(),
-                provider: "local".into(),
-                model: None,
-            });
         }
         let profile_id = settings.profile_id.as_deref().ok_or_else(|| {
             error(
@@ -145,6 +132,24 @@ impl TranslationService {
                     false,
                 )
             })?;
+        if !providers::supports_translation_language(profile, target) {
+            return Err(error(
+                "translation.invalid_target_language",
+                format!(
+                    "The selected translation provider does not support target language: {target}"
+                ),
+                false,
+            ));
+        }
+        if source_language.is_some_and(|source| same_language(source, target)) {
+            return Ok(TranslationResult {
+                text: text.to_owned(),
+                source_language: source_language.map(str::to_owned),
+                target_language: target.to_owned(),
+                provider: "local".into(),
+                model: None,
+            });
+        }
         let api_key = if profile.requires_api_key() {
             credentials::read_credential(&profile.id, &profile.provider)
                 .map_err(|detail| error("translation.credential_failed", detail, false))?
@@ -253,7 +258,10 @@ fn same_language(source: &str, target: &str) -> bool {
             ("zh-cn" | "zh-hans", "zh-hans") | ("zh-tw" | "zh-hant", "zh-hant")
         );
     }
-    source.split('-').next() == target.split('-').next()
+    if !target.contains('-') {
+        return source.split('-').next() == Some(target.as_str());
+    }
+    false
 }
 
 pub(super) fn error(
@@ -314,6 +322,9 @@ mod tests {
         assert!(!same_language("zh", "zh-Hant"));
         assert!(same_language("zh-CN", "zh-Hans"));
         assert!(!same_language("ja", "en"));
+        assert!(same_language("en-US", "en"));
+        assert!(!same_language("en-US", "en-GB"));
+        assert!(!same_language("pt-BR", "pt-PT"));
     }
 
     #[test]

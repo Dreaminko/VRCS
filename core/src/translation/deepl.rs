@@ -14,6 +14,8 @@ pub(super) async fn translate(
     source: Option<&str>,
     target: &str,
 ) -> Result<TranslationResult, TranslationError> {
+    let target_code = language_code(target)
+        .ok_or_else(|| invalid(format!("DeepL does not support target language: {target}")))?;
     let endpoint = if api_key.ends_with(":fx") {
         "https://api-free.deepl.com/v2/translate"
     } else {
@@ -21,11 +23,13 @@ pub(super) async fn translate(
     };
     let mut body = json!({
         "text": [text],
-        "target_lang": language_code(target),
+        "target_lang": target_code,
         "preserve_formatting": true
     });
     if let Some(source) = source.filter(|value| *value != "auto") {
-        body["source_lang"] = json!(language_code(source));
+        if let Some(source_code) = language_code(source) {
+            body["source_lang"] = json!(source_code);
+        }
     }
     let response = http
         .post(endpoint)
@@ -58,9 +62,9 @@ pub(super) async fn translate(
     })
 }
 
-fn language_code(language: &str) -> &'static str {
-    match language {
-        "zh-Hans" => "ZH-HANS",
+fn language_code(language: &str) -> Option<&'static str> {
+    Some(match language {
+        "zh-Hans" | "zh" => "ZH-HANS",
         "zh-Hant" => "ZH-HANT",
         "en" => "EN",
         "ja" => "JA",
@@ -69,8 +73,29 @@ fn language_code(language: &str) -> &'static str {
         "fr" => "FR",
         "de" => "DE",
         "ru" => "RU",
-        _ => "EN",
-    }
+        "ar" => "AR",
+        "bg" => "BG",
+        "cs" => "CS",
+        "da" => "DA",
+        "el" => "EL",
+        "he" => "HE",
+        "id" => "ID",
+        "it" => "IT",
+        "nb" => "NB",
+        "nl" => "NL",
+        "pl" => "PL",
+        "pt-BR" => "PT-BR",
+        "pt-PT" => "PT-PT",
+        "ro" => "RO",
+        "sv" => "SV",
+        "th" => "TH",
+        "tr" => "TR",
+        "uk" => "UK",
+        "vi" => "VI",
+        "hu" => "HU",
+        "fi" => "FI",
+        _ => return None,
+    })
 }
 
 #[cfg(test)]
@@ -79,7 +104,8 @@ mod tests {
 
     #[test]
     fn maps_supported_language_codes() {
-        assert_eq!(language_code("zh-Hans"), "ZH-HANS");
-        assert_eq!(language_code("ja"), "JA");
+        assert_eq!(language_code("zh-Hans"), Some("ZH-HANS"));
+        assert_eq!(language_code("pt-BR"), Some("PT-BR"));
+        assert_eq!(language_code("yue-Hant"), None);
     }
 }

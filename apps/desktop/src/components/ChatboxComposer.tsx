@@ -12,8 +12,8 @@ import type {
   ChatboxComposeInput,
   ChatboxPreview,
 } from "../types";
-import { CHATBOX_TARGET_LANGUAGES } from "../chatbox";
 import { DropdownField } from "./DropdownField";
+import { LanguagePicker } from "./LanguagePicker";
 
 export function ChatboxComposer({
   draft,
@@ -22,6 +22,8 @@ export function ChatboxComposer({
   feedback,
   translationStale,
   oscEnabled,
+  languageCodes,
+  allowCustomLanguage,
   onDraftChange,
   onTranslate,
   onSend,
@@ -32,6 +34,8 @@ export function ChatboxComposer({
   feedback: { tone: "success" | "error"; text: string } | null;
   translationStale: boolean;
   oscEnabled: boolean;
+  languageCodes: readonly string[];
+  allowCustomLanguage: boolean;
   onDraftChange: (draft: ChatboxComposeInput) => void;
   onTranslate: () => Promise<void>;
   onSend: () => Promise<boolean>;
@@ -61,11 +65,6 @@ export function ChatboxComposer({
     : busy === "send"
       ? t("chatbox.sending")
       : t("chatbox.send");
-  const languageOptions = CHATBOX_TARGET_LANGUAGES.map((value) => ({
-    value,
-    label: t(`translation.languages.${value}`),
-  }));
-
   const submit = () => {
     if (!canSend) return;
     void onSend().then((sent) => {
@@ -103,12 +102,13 @@ export function ChatboxComposer({
 
           <div className="chatbox-controls">
             <div className="chatbox-language-control">
-              <DropdownField
+              <LanguagePicker
                 compact
                 floating
                 label={t("chatbox.targetLanguage")}
                 value={draft.target_language ?? "ja"}
-                options={languageOptions}
+                languageCodes={languageCodes}
+                allowCustom={allowCustomLanguage}
                 onChange={(target_language) => update({ target_language })}
               />
               <button

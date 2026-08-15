@@ -33,6 +33,11 @@
       "action": "Translate",
       "retry": "Translate again",
       "translating": "Translating…",
+      "languagePicker": {
+        "search": "Search by language or code",
+        "empty": "No matching languages",
+        "useCustom": "Use {{code}} as a custom language code"
+      },
       "languages": {
         "zh-Hans": "Simplified Chinese",
         "zh-Hant": "Traditional Chinese",
@@ -397,7 +402,7 @@
         "authBearer": "Bearer API Key",
         "authNone": "No authentication",
         "timeout": "Request timeout (ms)",
-        "localService": "This is a local service",
+        "localService": "Local service",
         "localServiceHint": "The service runs on this computer or local network.",
         "customHeaders": "Custom HTTP headers",
         "addHeader": "Add header",
