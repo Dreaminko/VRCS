@@ -245,7 +245,7 @@ export interface AnkiSettings {
 }
 
 export interface Settings {
-  schema_version: 16;
+  schema_version: 18;
   server: {
     host: string;
     port: number;
@@ -303,6 +303,24 @@ export interface GlossaryEntry {
   case_sensitive: boolean;
 }
 
+export interface GlossaryLocalSource {
+  id: string;
+  type: "local";
+  name: string;
+  enabled: boolean;
+  entries: GlossaryEntry[];
+}
+
+export interface GlossarySubscriptionSource {
+  id: string;
+  type: "subscription";
+  url: string;
+  display_name: string | null;
+  enabled: boolean;
+}
+
+export type GlossarySource = GlossaryLocalSource | GlossarySubscriptionSource;
+
 export interface TranslationPromptSettings {
   system_prompt: string;
   context_enabled: boolean;
@@ -311,7 +329,23 @@ export interface TranslationPromptSettings {
   include_chatbox: boolean;
   max_messages: number;
   max_chars: number;
-  glossary: GlossaryEntry[];
+  glossary_sources: GlossarySource[];
+}
+
+export interface GlossarySourceStatus {
+  id: string;
+  type: GlossarySource["type"];
+  name: string;
+  enabled: boolean;
+  url: string | null;
+  state: string;
+  entry_count: number;
+  effective_entry_count: number;
+  omitted_entry_count: number;
+  last_attempt_at: string | null;
+  last_success_at: string | null;
+  error_code: string | null;
+  detail: string | null;
 }
 
 export interface TranslationPromptPreview {

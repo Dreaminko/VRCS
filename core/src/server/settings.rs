@@ -219,12 +219,25 @@ pub(super) async fn update_settings(
         }
         return Err(unprocessable(error));
     }
+    let glossary_refresh_ids = state
+        .glossary_subscription
+        .set_sources(candidate.translation.prompt.glossary_sources.clone());
     *state.config.write().expect("config lock") = candidate.clone();
     let revision = state.config_revision.fetch_add(1, Ordering::SeqCst) + 1;
     state.osc.update_config(candidate.osc.clone());
     state
         .vrchat_mute_sync
         .update_enabled(candidate.osc.mute_sync_enabled);
+    if !glossary_refresh_ids.is_empty() {
+        let glossary_subscription = Arc::clone(&state.glossary_subscription);
+        tokio::spawn(async move {
+            for id in glossary_refresh_ids {
+                if let Err(error) = glossary_subscription.refresh(&id).await {
+                    tracing::warn!(subscription_id = %id, code = error.code, detail = %error.detail, "glossary subscription refresh failed");
+                }
+            }
+        });
+    }
     let asr = Arc::clone(&state.asr);
     let asr_config = candidate.asr.clone();
     tokio::task::spawn_blocking(move || {

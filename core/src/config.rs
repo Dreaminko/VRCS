@@ -31,7 +31,7 @@ pub use runtime::{ExternalApiConfig, ServerConfig, StorageConfig};
 pub use schema::{AppConfig, SCHEMA_VERSION};
 #[allow(unused_imports)]
 pub use translation::{
-    GlossaryCategory, GlossaryEntry, TranslationConfig, TranslationPromptConfig,
+    GlossaryCategory, GlossaryEntry, GlossarySource, TranslationConfig, TranslationPromptConfig,
     DEFAULT_TRANSLATION_SYSTEM_PROMPT,
 };
-pub use validation::validate_translation_prompt;
+pub use validation::{validate_glossary_source_url, validate_translation_prompt};

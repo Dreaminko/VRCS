@@ -141,6 +141,68 @@ fn migrates_v15_official_compatible_profiles_to_their_presets() {
 }
 
 #[test]
+fn migrates_v17_glossary_fields_to_ordered_sources() {
+    let mut raw = serde_json::to_value(AppConfig::default()).unwrap();
+    raw["schema_version"] = serde_json::json!(17);
+    raw["translation"]["prompt"]["glossary"] = serde_json::json!([{
+        "source": "VRChat",
+        "target": "VRChat",
+        "category": "game",
+        "case_sensitive": false
+    }]);
+    raw["translation"]["prompt"]["glossary_source_url"] =
+        serde_json::json!("https://example.com/glossary.json");
+
+    let config = config_from_value(&raw).unwrap();
+
+    assert_eq!(config.schema_version, SCHEMA_VERSION);
+    assert!(config.translation.prompt.glossary.is_empty());
+    assert_eq!(config.translation.prompt.glossary_sources.len(), 2);
+    assert!(matches!(
+        &config.translation.prompt.glossary_sources[0],
+        GlossarySource::Local { id, name, enabled: true, entries }
+            if id == "legacy-local" && name == "Local glossary" && entries.len() == 1
+    ));
+    assert!(matches!(
+        &config.translation.prompt.glossary_sources[1],
+        GlossarySource::Subscription {
+            id,
+            url,
+            display_name: None,
+            enabled: true
+        } if id == "legacy-subscription" && url == "https://example.com/glossary.json"
+    ));
+    let migrated = serde_json::to_value(config).unwrap();
+    let prompt = &migrated["translation"]["prompt"];
+    assert!(prompt.get("glossary").is_none());
+    assert!(prompt.get("glossary_source_url").is_none());
+}
+
+#[test]
+fn older_migrations_apply_the_glossary_source_backfill() {
+    let config = config_from_value(&serde_json::json!({
+        "schema_version": 12,
+        "translation": {
+            "prompt": {
+                "glossary": [{"source": "Udon"}],
+                "glossary_source_url": "https://example.com/remote.json"
+            }
+        }
+    }))
+    .unwrap();
+
+    assert_eq!(config.translation.prompt.glossary_sources.len(), 2);
+    assert!(matches!(
+        &config.translation.prompt.glossary_sources[0],
+        GlossarySource::Local { id, .. } if id == "legacy-local"
+    ));
+    assert!(matches!(
+        &config.translation.prompt.glossary_sources[1],
+        GlossarySource::Subscription { id, .. } if id == "legacy-subscription"
+    ));
+}
+
+#[test]
 fn migrates_v10_openai_base_urls_to_llm_only_compatible_profiles() {
     let config = config_from_value(&serde_json::json!({
         "schema_version": 10,
@@ -278,6 +340,7 @@ fn migrates_v12_with_translation_context_disabled() {
     assert_eq!(config.translation.prompt.max_messages, 5);
     assert_eq!(config.translation.prompt.max_chars, 4_000);
     assert!(config.translation.prompt.glossary.is_empty());
+    assert!(config.translation.prompt.glossary_sources.is_empty());
 }
 
 #[test]

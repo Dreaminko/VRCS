@@ -18,6 +18,7 @@
     "autostart:allow-disable",
     "autostart:allow-is-enabled",
     "dialog:allow-open",
+    "dialog:allow-save",
     "store:default"
   ]
 }

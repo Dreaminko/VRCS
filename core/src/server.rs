@@ -57,6 +57,7 @@ pub struct AppState {
     pub subtitle_output: SubtitleLifecyclePublisher,
     pub translation_service: Arc<TranslationService>,
     pub translation_dispatcher: TranslationDispatcher,
+    pub glossary_subscription: Arc<crate::translation::GlossarySubscriptionStore>,
     pub osc: OscChatboxDispatcher,
     pub http: reqwest::Client,
     pub session_token: String,
@@ -219,6 +220,22 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route(
             "/api/translations/prompt-preview",
             post(translation::prompt_preview),
+        )
+        .route(
+            "/api/translations/glossaries/status",
+            get(translation::glossary_statuses),
+        )
+        .route(
+            "/api/translations/glossaries/{id}/refresh",
+            post(translation::glossary_refresh),
+        )
+        .route(
+            "/api/translations/glossary-subscription/status",
+            get(translation::glossary_subscription_status),
+        )
+        .route(
+            "/api/translations/glossary-subscription/refresh",
+            post(translation::glossary_subscription_refresh),
         )
         .route(
             "/api/subtitles/{subtitle_id}/translation",

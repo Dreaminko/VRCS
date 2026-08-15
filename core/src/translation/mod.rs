@@ -1,5 +1,6 @@
 //! 字幕翻译编排。专业翻译 API 在这里适配；通用 LLM 调用委托给 `llm` 模块。
 
+use std::sync::Arc;
 use std::time::Duration;
 
 use serde_json::Value;
@@ -15,10 +16,12 @@ use crate::providers::{
 
 mod deepl;
 mod dispatcher;
+mod glossary_subscription;
 mod microsoft;
 mod prompt;
 
 pub use dispatcher::TranslationDispatcher;
+pub use glossary_subscription::{GlossarySubscriptionError, GlossarySubscriptionStore};
 pub use prompt::{TranslationContextEntry, TranslationPromptBuilder};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -54,10 +57,24 @@ impl TranslationResult {
 pub struct TranslationService {
     http: reqwest::Client,
     llm: LlmClient,
+    glossary_subscription: Option<Arc<GlossarySubscriptionStore>>,
 }
 
 impl TranslationService {
+    #[cfg(test)]
     pub fn new() -> Result<Self, String> {
+        Self::build(None)
+    }
+
+    pub fn with_glossary_subscription(
+        glossary_subscription: Arc<GlossarySubscriptionStore>,
+    ) -> Result<Self, String> {
+        Self::build(Some(glossary_subscription))
+    }
+
+    fn build(
+        glossary_subscription: Option<Arc<GlossarySubscriptionStore>>,
+    ) -> Result<Self, String> {
         let http = reqwest::Client::builder()
             .timeout(Duration::from_secs(8))
             .build()
@@ -65,6 +82,7 @@ impl TranslationService {
         Ok(Self {
             llm: LlmClient::new(http.clone()),
             http,
+            glossary_subscription,
         })
     }
 
@@ -209,6 +227,13 @@ impl TranslationService {
         context: &[TranslationContextEntry],
         on_progress: Option<&LlmProgress>,
     ) -> Result<TranslationResult, TranslationError> {
+        let resolved_prompt;
+        let prompt_config = if let Some(subscription) = &self.glossary_subscription {
+            resolved_prompt = subscription.merged_prompt(prompt_config);
+            &resolved_prompt
+        } else {
+            prompt_config
+        };
         let prompt =
             TranslationPromptBuilder::new(prompt_config).build(source, target, context, text);
         let translated = self

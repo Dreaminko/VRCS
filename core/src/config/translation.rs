@@ -42,7 +42,26 @@ pub struct TranslationPromptConfig {
     #[serde(default = "default_translation_context_chars")]
     pub max_chars: u32,
     #[serde(default)]
+    pub glossary_sources: Vec<GlossarySource>,
+    #[serde(skip)]
     pub glossary: Vec<GlossaryEntry>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum GlossarySource {
+    Local {
+        id: String,
+        name: String,
+        enabled: bool,
+        entries: Vec<GlossaryEntry>,
+    },
+    Subscription {
+        id: String,
+        url: String,
+        display_name: Option<String>,
+        enabled: bool,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -123,6 +142,7 @@ impl Default for TranslationPromptConfig {
             include_chatbox: default_enabled(),
             max_messages: default_translation_context_messages(),
             max_chars: default_translation_context_chars(),
+            glossary_sources: Vec::new(),
             glossary: Vec::new(),
         }
     }

@@ -16,6 +16,7 @@ export type SaveState = "idle" | "saving" | "saved" | "error";
 export type ApplySettings = (
   update: (current: Settings) => Settings,
   afterSave?: () => void,
+  afterError?: () => void,
 ) => void;
 
 export type SettingOption = {

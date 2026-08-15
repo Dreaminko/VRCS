@@ -333,7 +333,75 @@ fn validates_translation_prompt_variables_and_limits() {
     });
     assert_eq!(
         validate_translation_prompt(&prompt).unwrap_err(),
-        "Translation glossary source cannot exceed 200 characters"
+        "Translation glossary source must contain 1 to 200 single-line characters"
+    );
+}
+
+#[test]
+fn validates_glossary_sources_and_subscription_urls() {
+    let entry = |source: &str, case_sensitive| GlossaryEntry {
+        source: source.into(),
+        target: None,
+        category: GlossaryCategory::Custom,
+        case_sensitive,
+    };
+    let mut prompt = TranslationPromptConfig::default();
+    prompt.glossary_sources = vec![
+        GlossarySource::Local {
+            id: "local".into(),
+            name: "Local glossary".into(),
+            enabled: true,
+            entries: vec![entry("VRChat", false)],
+        },
+        GlossarySource::Subscription {
+            id: "remote".into(),
+            url: "https://example.com/glossary.json".into(),
+            display_name: None,
+            enabled: true,
+        },
+    ];
+    assert!(validate_translation_prompt(&prompt).is_ok());
+
+    if let GlossarySource::Subscription { url, .. } = &mut prompt.glossary_sources[1] {
+        *url = "http://127.0.0.1:8080/glossary.json".into();
+    }
+    assert!(validate_translation_prompt(&prompt).is_ok());
+    if let GlossarySource::Subscription { url, .. } = &mut prompt.glossary_sources[1] {
+        *url = "http://example.com/glossary.json".into();
+    }
+    assert_eq!(
+        validate_translation_prompt(&prompt).unwrap_err(),
+        "Glossary source URL must use HTTPS, except for loopback HTTP addresses"
+    );
+
+    if let GlossarySource::Subscription { id, url, .. } = &mut prompt.glossary_sources[1] {
+        *id = " local ".into();
+        *url = "https://example.com/glossary.json".into();
+    }
+    assert_eq!(
+        validate_translation_prompt(&prompt).unwrap_err(),
+        "Glossary source id must be unique: local"
+    );
+
+    if let GlossarySource::Local { entries, .. } = &mut prompt.glossary_sources[0] {
+        entries.push(entry("vrchat", false));
+    }
+    prompt.glossary_sources.pop();
+    assert_eq!(
+        validate_translation_prompt(&prompt).unwrap_err(),
+        "Local glossary contains a duplicate source term: vrchat"
+    );
+
+    if let GlossarySource::Local { entries, .. } = &mut prompt.glossary_sources[0] {
+        entries[1].case_sensitive = true;
+    }
+    assert!(validate_translation_prompt(&prompt).is_ok());
+    if let GlossarySource::Local { entries, .. } = &mut prompt.glossary_sources[0] {
+        entries[1].source = "line\nbreak".into();
+    }
+    assert_eq!(
+        validate_translation_prompt(&prompt).unwrap_err(),
+        "Local glossary source must contain 1 to 200 single-line characters"
     );
 }
 

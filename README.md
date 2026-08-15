@@ -112,7 +112,7 @@ OpenAI 官方连接可按需设为“仅语音识别”“仅 LLM / 翻译”或
 
 ## LLM 翻译增强
 
-使用 OpenAI、Gemini、Alibaba Cloud 或 OpenAI Compatible 翻译时，“设置 → 翻译”可编辑系统 Prompt、维护术语表，并选择是否附带最近的扬声器、麦克风和 Chatbox 原文。上下文默认关闭，可分别控制三个来源，并受消息数和字符数双重限制；本地预览会显示实际附带的条数、字符数和最终系统指令。DeepL 与 Microsoft Translator 不会接收这些增强内容。
+使用 OpenAI、Gemini、Alibaba Cloud 或 OpenAI Compatible 翻译时，“设置 → 翻译”可编辑系统 Prompt，并在同一有序列表中管理多个本地术语表和在线订阅。本地术语表支持 JSON 导入导出；在线订阅每天自动刷新，并分别保留最后一次成功缓存。列表顺序决定术语匹配优先级，所有已启用来源合计最多使用 500 条；JSON 格式见[术语表 JSON 与在线订阅](docs/glossary-subscription.md)。还可选择是否附带最近的扬声器、麦克风和 Chatbox 原文。上下文默认关闭，可分别控制三个来源，并受消息数和字符数双重限制；本地预览会显示实际附带的条数、字符数和最终系统指令。DeepL 与 Microsoft Translator 不会接收这些增强内容。
 
 ## 第三方输出 API
 
@@ -142,6 +142,7 @@ VRCS 默认使用 Qwen3 ASR 云端流式识别，也可切换到 Fun-ASR、OpenA
 - [开发说明](docs/development.md)
 - [本地化贡献指南](LOCALIZATION.md)
 - [隐私说明](docs/privacy.md)
+- [错误报告与本地 errorlog 功能计划](docs/error-reporting-plan.md)
 - [第三方输出 API v1](docs/external-api-v1.md)
 - [路线图](docs/roadmap.md)
 

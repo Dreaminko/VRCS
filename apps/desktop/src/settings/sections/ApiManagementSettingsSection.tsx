@@ -1,6 +1,5 @@
-import { Check, Cloud, KeyRound, Pencil, Plus, RefreshCw, ShieldCheck, Trash2, X } from "lucide-react";
-import { useEffect, useRef, useState, type RefObject } from "react";
-import { createPortal } from "react-dom";
+import { Check, Cloud, KeyRound, Pencil, Plus, RefreshCw, ShieldCheck, Trash2 } from "lucide-react";
+import { useRef, useState, type RefObject } from "react";
 import { useTranslation } from "react-i18next";
 
 import {
@@ -16,6 +15,7 @@ import {
   createApiProfileDraft,
   type ApiProfileEditorDraft,
 } from "../api/ApiProfileEditor";
+import { SettingsDialog } from "../components/SettingsDialog";
 import { useApiProfiles } from "../useApiProfiles";
 
 function draftFromProfile(profile: ApiProfileView): ApiProfileEditorDraft {
@@ -75,91 +75,25 @@ function ApiProfileEditorDialog({
   onRemoveCredential?: () => void;
 }) {
   const { t } = useTranslation();
-  const dialogRef = useRef<HTMLElement>(null);
-  const onCloseRef = useRef(onClose);
-  const savingRef = useRef(saving);
-
-  useEffect(() => {
-    onCloseRef.current = onClose;
-  }, [onClose]);
-
-  useEffect(() => {
-    savingRef.current = saving;
-  }, [saving]);
-
-  useEffect(() => {
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        if (!savingRef.current) onCloseRef.current();
-        return;
-      }
-      if (event.key !== "Tab" || !dialogRef.current) return;
-
-      const focusable = Array.from(dialogRef.current.querySelectorAll<HTMLElement>(
-        'button:not(:disabled), input:not(:disabled), [tabindex]:not([tabindex="-1"])',
-      )).filter((element) => element.getClientRects().length > 0);
-      if (!focusable.length) return;
-
-      const first = focusable[0];
-      const last = focusable[focusable.length - 1];
-      if (event.shiftKey && (document.activeElement === first || !dialogRef.current.contains(document.activeElement))) {
-        event.preventDefault();
-        last.focus();
-      } else if (!event.shiftKey && (document.activeElement === last || !dialogRef.current.contains(document.activeElement))) {
-        event.preventDefault();
-        first.focus();
-      }
-    };
-
-    document.addEventListener("keydown", handleKeyDown);
-    return () => {
-      document.removeEventListener("keydown", handleKeyDown);
-      document.body.style.overflow = previousOverflow;
-      returnFocusRef.current?.focus();
-    };
-  }, [returnFocusRef]);
-
-  return createPortal(
-    <div
-      className="api-profile-dialog-backdrop"
-      onMouseDown={(event) => {
-        if (!saving && event.target === event.currentTarget) onClose();
-      }}
+  return (
+    <SettingsDialog
+      label={t(draft.id ? "settings.apiManagement.editProfile" : "settings.apiManagement.addProfile")}
+      saving={saving}
+      returnFocusRef={returnFocusRef}
+      onClose={onClose}
     >
-      <section
-        className="api-profile-dialog"
-        ref={dialogRef}
-        role="dialog"
-        aria-modal="true"
-        aria-label={t(draft.id ? "settings.apiManagement.editProfile" : "settings.apiManagement.addProfile")}
-      >
-        <button
-          className="api-profile-dialog-close"
-          type="button"
-          aria-label={t("common.close")}
-          disabled={saving}
-          onClick={onClose}
-        >
-          <X size={18} aria-hidden="true" />
-        </button>
-        <ApiProfileEditor
-          draft={draft}
-          saving={saving}
-          credential={credential}
-          providerDefinitions={providerDefinitions}
-          floatingSelects
-          onChange={onChange}
-          onSave={onSave}
-          onCancel={onClose}
-          onRemoveCredential={onRemoveCredential}
-        />
-      </section>
-    </div>,
-    document.body,
+      <ApiProfileEditor
+        draft={draft}
+        saving={saving}
+        credential={credential}
+        providerDefinitions={providerDefinitions}
+        floatingSelects
+        onChange={onChange}
+        onSave={onSave}
+        onCancel={onClose}
+        onRemoveCredential={onRemoveCredential}
+      />
+    </SettingsDialog>
   );
 }
 

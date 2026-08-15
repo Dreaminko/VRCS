@@ -23,7 +23,7 @@ export function useSettingsDraft(
     setDraft(settings);
   }, [settings]);
 
-  const applySettings: ApplySettings = useCallback((update, afterSave) => {
+  const applySettings: ApplySettings = useCallback((update, afterSave, afterError) => {
     const next = update(draftRef.current);
     const version = ++saveVersionRef.current;
     savingRef.current = true;
@@ -45,6 +45,7 @@ export function useSettingsDraft(
         savingRef.current = false;
         setSaveMessage(localizedError(reason, t, "errors.settings.apply"));
         setSaveState("error");
+        afterError?.();
       },
     );
   }, [onSave, t]);

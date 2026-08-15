@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use super::*;
 use crate::providers::{self, ALIBABA_PROVIDER, OPENAI_PROVIDER};
 
@@ -306,22 +308,121 @@ pub fn validate_translation_prompt(prompt: &TranslationPromptConfig) -> Result<(
     if !(200..=12_000).contains(&prompt.max_chars) {
         return Err("Translation context max_chars must be between 200 and 12000".into());
     }
-    if prompt.glossary.len() > 500 {
-        return Err("Translation glossary cannot exceed 500 entries".into());
-    }
-    for entry in &prompt.glossary {
-        if entry.source.chars().count() > 200 {
-            return Err("Translation glossary source cannot exceed 200 characters".into());
+    validate_glossary_entries(&prompt.glossary, "Translation glossary")?;
+    let mut source_ids = HashSet::new();
+    for source in &prompt.glossary_sources {
+        let id = match source {
+            GlossarySource::Local {
+                id,
+                name,
+                enabled: _,
+                entries,
+            } => {
+                let name_length = name.chars().count();
+                if name.trim().is_empty() || !(1..=100).contains(&name_length) {
+                    return Err("Local glossary name must contain 1 to 100 characters".into());
+                }
+                validate_glossary_entries(entries, "Local glossary")?;
+                id
+            }
+            GlossarySource::Subscription {
+                id,
+                url,
+                display_name,
+                enabled: _,
+            } => {
+                validate_glossary_source_url(url)?;
+                if display_name
+                    .as_ref()
+                    .is_some_and(|name| name.chars().count() > 100)
+                {
+                    return Err(
+                        "Glossary subscription display_name cannot exceed 100 characters".into(),
+                    );
+                }
+                id
+            }
+        };
+        let id = id.trim();
+        if id.is_empty() {
+            return Err("Glossary source id cannot be empty".into());
         }
-        if entry
-            .target
-            .as_ref()
-            .is_some_and(|target| target.chars().count() > 200)
-        {
-            return Err("Translation glossary target cannot exceed 200 characters".into());
+        if !source_ids.insert(id) {
+            return Err(format!("Glossary source id must be unique: {id}"));
         }
     }
     Ok(())
+}
+
+fn validate_glossary_entries(entries: &[GlossaryEntry], label: &str) -> Result<(), String> {
+    if entries.len() > 500 {
+        return Err(format!("{label} cannot exceed 500 entries"));
+    }
+    let mut keys = HashSet::new();
+    for entry in entries {
+        let source = entry.source.trim();
+        if source.is_empty() || source.chars().count() > 200 || contains_control(source) {
+            return Err(format!(
+                "{label} source must contain 1 to 200 single-line characters"
+            ));
+        }
+        if entry
+            .target
+            .as_deref()
+            .is_some_and(|target| target.chars().count() > 200 || contains_control(target))
+        {
+            return Err(format!(
+                "{label} target must contain at most 200 single-line characters"
+            ));
+        }
+        let key = (
+            if entry.case_sensitive {
+                source.to_owned()
+            } else {
+                source.to_lowercase()
+            },
+            entry.case_sensitive,
+        );
+        if !keys.insert(key) {
+            return Err(format!(
+                "{label} contains a duplicate source term: {source}"
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn contains_control(value: &str) -> bool {
+    value.chars().any(char::is_control)
+}
+
+pub fn validate_glossary_source_url(value: &str) -> Result<(), String> {
+    let value = value.trim();
+    if value.is_empty() || value.len() > 2_048 {
+        return Err("Glossary source URL must contain 1 to 2048 characters".into());
+    }
+    let url =
+        reqwest::Url::parse(value).map_err(|_| "Glossary source URL is invalid".to_string())?;
+    if url.host_str().is_none()
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.fragment().is_some()
+    {
+        return Err("Glossary source URL cannot contain credentials or a fragment".into());
+    }
+    if url.scheme() == "https" {
+        return Ok(());
+    }
+    let loopback = url.host_str().is_some_and(|host| {
+        host.eq_ignore_ascii_case("localhost")
+            || host
+                .parse::<std::net::IpAddr>()
+                .is_ok_and(|address| address.is_loopback())
+    });
+    if url.scheme() == "http" && loopback {
+        return Ok(());
+    }
+    Err("Glossary source URL must use HTTPS, except for loopback HTTP addresses".into())
 }
 
 fn validate_prompt_variables(template: &str) -> Result<(), String> {

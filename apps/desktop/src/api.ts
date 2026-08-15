@@ -19,6 +19,7 @@ import type {
   DictionarySource,
   ExternalApiRuntimeStatus,
   Health,
+  GlossarySourceStatus,
   Settings,
   Subtitle,
   SubtitleTranslation,
@@ -279,6 +280,13 @@ export const coreApi = {
         target_language: targetLanguage,
       }),
     },
+  ),
+  glossaryStatuses: () => request<GlossarySourceStatus[]>(
+    "/api/translations/glossaries/status",
+  ),
+  refreshGlossary: (id: string) => request<unknown>(
+    `/api/translations/glossaries/${encodeURIComponent(id)}/refresh`,
+    { method: "POST" },
   ),
   downloadAsrModel: (model: AsrModelRecord["id"]) =>
     request<AsrModelRecord>(`/api/asr/models/${model}/download`, {

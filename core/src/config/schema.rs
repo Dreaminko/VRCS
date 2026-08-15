@@ -5,7 +5,7 @@ use super::{
     ServerConfig, StorageConfig, TranslationConfig, VadConfig,
 };
 
-pub const SCHEMA_VERSION: u32 = 16;
+pub const SCHEMA_VERSION: u32 = 18;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AppConfig {
@@ -58,6 +58,7 @@ impl Default for AppConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::{GlossaryCategory, GlossaryEntry, GlossarySource, TranslationPromptConfig};
 
     #[test]
     fn default_config_json_contract_is_stable() {
@@ -130,7 +131,7 @@ mod tests {
             &value["translation"]["prompt"],
             [
                 "context_enabled",
-                "glossary",
+                "glossary_sources",
                 "include_chatbox",
                 "include_microphone",
                 "include_speaker",
@@ -167,6 +168,71 @@ mod tests {
 
         let round_trip: AppConfig = serde_json::from_value(value).unwrap();
         assert_eq!(round_trip, AppConfig::default());
+    }
+
+    #[test]
+    fn glossary_sources_use_the_tagged_json_contract() {
+        let mut prompt = TranslationPromptConfig::default();
+        prompt.glossary_sources = vec![
+            GlossarySource::Local {
+                id: "local-one".into(),
+                name: "Names".into(),
+                enabled: true,
+                entries: vec![GlossaryEntry {
+                    source: "VRChat".into(),
+                    target: None,
+                    category: GlossaryCategory::Game,
+                    case_sensitive: false,
+                }],
+            },
+            GlossarySource::Subscription {
+                id: "remote-one".into(),
+                url: "https://example.com/glossary.json".into(),
+                display_name: None,
+                enabled: false,
+            },
+        ];
+        prompt.glossary = vec![GlossaryEntry {
+            source: "runtime-only".into(),
+            target: None,
+            category: GlossaryCategory::Custom,
+            case_sensitive: false,
+        }];
+
+        let value = serde_json::to_value(&prompt).unwrap();
+
+        assert!(value.get("glossary").is_none());
+        assert_eq!(
+            value["glossary_sources"],
+            serde_json::json!([
+                {
+                    "id": "local-one",
+                    "type": "local",
+                    "name": "Names",
+                    "enabled": true,
+                    "entries": [{
+                        "source": "VRChat",
+                        "target": null,
+                        "category": "game",
+                        "case_sensitive": false
+                    }]
+                },
+                {
+                    "id": "remote-one",
+                    "type": "subscription",
+                    "url": "https://example.com/glossary.json",
+                    "display_name": null,
+                    "enabled": false
+                }
+            ])
+        );
+        let deserialized: TranslationPromptConfig = serde_json::from_value(serde_json::json!({
+            "glossary": [{"source": "ignored"}],
+            "glossary_sources": value["glossary_sources"].clone()
+        }))
+        .unwrap();
+        assert!(deserialized.glossary.is_empty());
+        assert_eq!(deserialized.glossary_sources, prompt.glossary_sources);
     }
 
     fn assert_keys<const N: usize>(value: &serde_json::Value, expected: [&str; N]) {

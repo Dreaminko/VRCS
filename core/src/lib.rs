@@ -289,7 +289,17 @@ async fn start_inner(options: CoreOptions, defer_managed_vad: bool) -> Result<Co
         osc.clone(),
         domain_events.clone(),
     );
-    let translation_service = Arc::new(translation::TranslationService::new()?);
+    let glossary_cache_path = options
+        .config_path
+        .with_file_name("glossary-subscription-cache.json");
+    let glossary_subscription = Arc::new(translation::GlossarySubscriptionStore::new(
+        glossary_cache_path,
+        config.translation.prompt.glossary_sources.clone(),
+    )?);
+    let translation_service =
+        Arc::new(translation::TranslationService::with_glossary_subscription(
+            Arc::clone(&glossary_subscription),
+        )?);
     let translation_dispatcher = translation::TranslationDispatcher::new(
         Arc::clone(&translation_service),
         Arc::clone(&db),
@@ -338,6 +348,7 @@ async fn start_inner(options: CoreOptions, defer_managed_vad: bool) -> Result<Co
         subtitle_output,
         translation_service,
         translation_dispatcher,
+        glossary_subscription: Arc::clone(&glossary_subscription),
         osc,
         http: anki::client(),
         session_token: session_token.clone(),
@@ -368,6 +379,25 @@ async fn start_inner(options: CoreOptions, defer_managed_vad: bool) -> Result<Co
         )),
         microphone_monitor: tokio::sync::Mutex::new(microphone_monitor::MicrophoneMonitor::new()),
         vrchat_mute_sync,
+    });
+
+    let glossary_refresh = Arc::clone(&glossary_subscription);
+    let mut glossary_shutdown = shutdown_rx.clone();
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(24 * 60 * 60));
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        loop {
+            tokio::select! {
+                _ = interval.tick() => {
+                    glossary_refresh.refresh_all().await;
+                }
+                changed = glossary_shutdown.changed() => {
+                    if changed.is_err() || *glossary_shutdown.borrow() {
+                        break;
+                    }
+                }
+            }
+        }
     });
 
     let mute_state = Arc::clone(&state);

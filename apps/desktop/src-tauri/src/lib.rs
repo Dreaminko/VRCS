@@ -101,6 +101,11 @@ fn retry_core(app: tauri::AppHandle) -> Result<(), String> {
     launch_core(&app)
 }
 
+#[tauri::command]
+fn write_glossary_file(path: PathBuf, contents: String) -> Result<(), String> {
+    std::fs::write(path, contents.as_bytes()).map_err(|error| error.to_string())
+}
+
 fn launch_core(app: &tauri::AppHandle) -> Result<(), String> {
     let runtime = app.state::<CoreRuntime>();
     {
@@ -365,6 +370,7 @@ pub fn run() {
             core_connection,
             core_startup,
             retry_core,
+            write_glossary_file,
             update_native_labels,
             set_compact_window_topmost
         ])
@@ -508,6 +514,7 @@ mod tests {
             "autostart:allow-disable",
             "autostart:allow-is-enabled",
             "dialog:allow-open",
+            "dialog:allow-save",
             "store:default",
         ] {
             assert!(CAPABILITIES.contains(permission), "missing {permission}");

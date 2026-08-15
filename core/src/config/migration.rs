@@ -141,6 +141,7 @@ fn migrate_v2_or_v3(raw: &serde_json::Value) -> Result<AppConfig, String> {
         "asr".into(),
         serde_json::to_value(asr_from_legacy(legacy)).map_err(|error| error.to_string())?,
     );
+    backfill_glossary_sources(object)?;
     let mut config: AppConfig = serde_json::from_value(value).map_err(|error| error.to_string())?;
     if raw.get("schema_version").and_then(|value| value.as_u64()) == Some(2) {
         fix_colliding_ports(&mut config);
@@ -194,6 +195,7 @@ fn migrate_v4_or_v5(raw: &serde_json::Value) -> Result<AppConfig, String> {
             "openai": "legacy-openai"
         }),
     );
+    backfill_glossary_sources(object)?;
     serde_json::from_value(value).map_err(|error| error.to_string())
 }
 
@@ -243,18 +245,60 @@ fn migrate_v6_to_v10(raw: &serde_json::Value) -> Result<AppConfig, String> {
         }
     }
     backfill_compatible_preset(object);
+    backfill_glossary_sources(object)?;
     object.insert("schema_version".into(), serde_json::json!(SCHEMA_VERSION));
     serde_json::from_value(value).map_err(|error| error.to_string())
 }
 
-fn migrate_v11_to_v15(raw: &serde_json::Value) -> Result<AppConfig, String> {
+fn migrate_v11_to_v17(raw: &serde_json::Value) -> Result<AppConfig, String> {
     let mut value = raw.clone();
     let object = value
         .as_object_mut()
         .ok_or_else(|| "Configuration root must be an object".to_string())?;
     backfill_compatible_preset(object);
+    backfill_glossary_sources(object)?;
     object.insert("schema_version".into(), serde_json::json!(SCHEMA_VERSION));
     serde_json::from_value(value).map_err(|error| error.to_string())
+}
+
+fn backfill_glossary_sources(
+    object: &mut serde_json::Map<String, serde_json::Value>,
+) -> Result<(), String> {
+    let translation = object
+        .entry("translation")
+        .or_insert_with(|| serde_json::json!({}))
+        .as_object_mut()
+        .ok_or_else(|| "Configuration translation must be an object".to_string())?;
+    let prompt = translation
+        .entry("prompt")
+        .or_insert_with(|| serde_json::json!({}))
+        .as_object_mut()
+        .ok_or_else(|| "Configuration translation.prompt must be an object".to_string())?;
+    let glossary = prompt.remove("glossary");
+    let subscription_url = prompt.remove("glossary_source_url");
+    let mut sources = Vec::new();
+    if let Some(entries) = glossary {
+        if !entries.as_array().is_some_and(Vec::is_empty) {
+            sources.push(serde_json::json!({
+                "id": "legacy-local",
+                "type": "local",
+                "name": "Local glossary",
+                "enabled": true,
+                "entries": entries
+            }));
+        }
+    }
+    if let Some(url) = subscription_url.filter(|value| !value.is_null()) {
+        sources.push(serde_json::json!({
+            "id": "legacy-subscription",
+            "type": "subscription",
+            "url": url,
+            "display_name": null,
+            "enabled": true
+        }));
+    }
+    prompt.insert("glossary_sources".into(), serde_json::Value::Array(sources));
+    Ok(())
 }
 
 fn backfill_compatible_preset(object: &mut serde_json::Map<String, serde_json::Value>) {
@@ -359,7 +403,7 @@ pub fn config_from_value(raw: &serde_json::Value) -> Result<AppConfig, String> {
         version if version == SCHEMA_VERSION as u64 => {
             serde_json::from_value(raw.clone()).map_err(|error| error.to_string())?
         }
-        11..=15 => migrate_v11_to_v15(raw)?,
+        11..=17 => migrate_v11_to_v17(raw)?,
         6..=10 => migrate_v6_to_v10(raw)?,
         4 | 5 => migrate_v4_or_v5(raw)?,
         2 | 3 => migrate_v2_or_v3(raw)?,

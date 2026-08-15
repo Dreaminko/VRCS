@@ -15,11 +15,17 @@ export function TranslationEnhancementSettings({
   profile,
   disabled,
   onChange,
+  onGlossarySourcesChange,
 }: {
   translation: TranslationSettings;
   profile: ApiProfileView;
   disabled: boolean;
   onChange: (patch: Partial<TranslationSettings["prompt"]>) => void;
+  onGlossarySourcesChange: (
+    sources: TranslationSettings["prompt"]["glossary_sources"],
+    afterSave?: () => void,
+    afterError?: () => void,
+  ) => void;
 }) {
   const { t } = useTranslation();
   const [preview, setPreview] = useState<TranslationPromptPreview | null>(null);
@@ -160,9 +166,9 @@ export function TranslationEnhancementSettings({
         )}
 
         <GlossaryEditor
-          glossary={translation.prompt.glossary}
+          sources={translation.prompt.glossary_sources}
           disabled={disabled}
-          onChange={(glossary) => update({ glossary })}
+          onChange={onGlossarySourcesChange}
         />
       </div>
     </div>

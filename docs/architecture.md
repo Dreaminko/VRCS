@@ -10,7 +10,7 @@ Core 负责音频采集、语音识别、字幕存储和词典查询：
 
 - **音频采集**：WASAPI 系统回环、VRChat 进程专用回环与麦克风输入
 - **Provider 注册表**：集中声明各 API Provider 的用途、能力、原生/协议兼容支持级别及 OpenAI Compatible 品牌预设，通过 `/api/providers` 提供给桌面端
-- **翻译**：独立翻译 Provider 层负责 DeepL、Microsoft Translator 与 LLM 翻译；Provider 无关的 Prompt Builder 为所有 LLM 统一装配可编辑系统指令、术语表和受双重上限约束的最近原文。上下文从 SQLite 的 final 原文即时读取，兼容协议按 Profile 应用可选 Bearer 鉴权、非敏感 Header 和超时
+- **翻译**：独立翻译 Provider 层负责 DeepL、Microsoft Translator 与 LLM 翻译；Provider 无关的 Prompt Builder 为所有 LLM 统一装配可编辑系统指令、有序的本地和订阅术语表来源，以及受双重上限约束的最近原文。多个在线订阅由 Core 异步刷新并在配置目录分别保留最后成功状态和缓存，不阻塞翻译请求；来源列表顺序决定术语匹配优先级。上下文从 SQLite 的 final 原文即时读取，兼容协议按 Profile 应用可选 Bearer 鉴权、非敏感 Header 和超时
 - **人声切分**：Silero VAD（ONNX），模型不可用时回退到能量检测
 - **转写**：Qwen、Fun-ASR、OpenAI 云端流式识别，以及 whisper.cpp CPU/CUDA 本地推理；GGML 模型按需下载
 - **存储**：SQLite 保存字幕历史与词典，JSON 文件保存服务配置
