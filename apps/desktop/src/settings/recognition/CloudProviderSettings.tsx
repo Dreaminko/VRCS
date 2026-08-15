@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 
 import type { Settings } from "../../types";
 import { Select } from "../SettingsControls";
+import { RecognitionLanguageSelect } from "./RecognitionLanguageSelect";
 
 export function CloudProviderSettings({
   draft,
@@ -46,6 +47,11 @@ export function CloudProviderSettings({
             : <label className="field cloud-text-field cloud-context-field"><span>{t("settings.recognition.context")}</span><textarea maxLength={400} value={draft.asr.fun_asr.context} disabled={disabled} placeholder={t("settings.recognition.contextDescription")} onChange={(event) => onUpdateAsr("fun_asr", { ...draft.asr.fun_asr, context: event.target.value })} /><small>{draft.asr.fun_asr.context.length}/400</small></label>}
         </>}
         {provider === "openai" && <Select label={t("settings.recognition.model")} value={draft.asr.openai.model} options={[{ value: "gpt-4o-mini-transcribe", label: "GPT-4o mini Transcribe" }, { value: "gpt-4o-transcribe", label: "GPT-4o Transcribe" }]} disabled={disabled} onChange={(value) => onUpdateAsr("openai", { model: value as Settings["asr"]["openai"]["model"] })} />}
+        <RecognitionLanguageSelect
+          value={draft.asr.language}
+          disabled={disabled}
+          onChange={(value) => onUpdateAsr("language", value)}
+        />
         <small className="cloud-api-hint">{t("settings.recognition.selectedApiHint", { name: cloudTitle })}</small>
       </div>
     </div>

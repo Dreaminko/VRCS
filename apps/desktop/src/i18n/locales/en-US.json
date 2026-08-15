@@ -509,7 +509,7 @@
         "contentDescription": "Select the local model and spoken language.",
         "model": "Model",
         "language": "Spoken language",
-        "languageDescription": "Auto detection works well for multilingual conversations.",
+        "languageDescription": "Choose a fixed language for more consistent single-language recognition, or use auto detection for multilingual conversations.",
         "execution": "Execution",
         "executionDescription": "Choose a runtime and numeric precision.",
         "device": "Runtime device",

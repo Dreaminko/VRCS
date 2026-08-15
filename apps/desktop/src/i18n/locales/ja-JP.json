@@ -509,7 +509,7 @@
         "contentDescription": "ローカルモデルと音声言語を選択します。",
         "model": "モデル",
         "language": "音声言語",
-        "languageDescription": "多言語の会話には自動検出がおすすめです。",
+        "languageDescription": "単一言語の音声では言語を固定すると認識が安定します。多言語の会話には自動検出がおすすめです。",
         "execution": "実行方法",
         "executionDescription": "実行デバイスと計算精度を選択します。",
         "device": "実行デバイス",

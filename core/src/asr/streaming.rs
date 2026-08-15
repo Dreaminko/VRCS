@@ -719,6 +719,39 @@ mod tests {
     }
 
     #[test]
+    fn fixed_language_is_forwarded_to_cloud_providers() {
+        let qwen = AsrConfig {
+            backend: "qwen_realtime".into(),
+            language: "ja".into(),
+            ..AsrConfig::default()
+        };
+        assert_eq!(
+            session_update(&qwen, 0.7)["session"]["input_audio_transcription"]["language"],
+            "ja"
+        );
+
+        let openai = AsrConfig {
+            backend: "openai_realtime".into(),
+            language: "ja".into(),
+            ..AsrConfig::default()
+        };
+        assert_eq!(
+            session_update(&openai, 0.4)["session"]["audio"]["input"]["transcription"]["language"],
+            "ja"
+        );
+
+        let fun_asr = AsrConfig {
+            backend: "fun_asr_realtime".into(),
+            language: "ja".into(),
+            ..AsrConfig::default()
+        };
+        assert_eq!(
+            fun_run_task(&fun_asr, 0.4, "task-id")["payload"]["parameters"]["language_hints"][0],
+            "ja"
+        );
+    }
+
+    #[test]
     fn providers_expose_their_segmentation_capabilities() {
         assert_eq!(
             Provider::Qwen.segmentation_mode(),

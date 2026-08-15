@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 
 import type { AsrCapabilities, Settings } from "../../types";
 import { Select } from "../SettingsControls";
+import { RecognitionLanguageSelect } from "./RecognitionLanguageSelect";
 
 export function LocalRuntimeStatus({ capabilities }: { capabilities: AsrCapabilities | null }) {
   const { t } = useTranslation();
@@ -73,22 +74,10 @@ export function LocalRecognitionSettings({
           disabled={disabled}
           onChange={(value) => onUpdateLocalAsr("model", value as Settings["asr"]["local"]["model"])}
         />
-        <Select
-          label={t("settings.recognition.language")}
-          helper={t("settings.recognition.languageDescription")}
+        <RecognitionLanguageSelect
           value={draft.asr.language}
-          options={[
-            { value: "auto", label: t("languages.auto") },
-            { value: "en", label: t("languages.english") },
-            { value: "ja", label: t("languages.japanese") },
-            { value: "zh", label: t("languages.chinese") },
-            { value: "ko", label: t("languages.korean") },
-            { value: "es", label: t("languages.spanish") },
-            { value: "fr", label: t("languages.french") },
-            { value: "de", label: t("languages.german") },
-          ]}
           disabled={disabled}
-          onChange={(value) => onUpdateAsr("language", value as Settings["asr"]["language"])}
+          onChange={(value) => onUpdateAsr("language", value)}
         />
       </div>
     </div>

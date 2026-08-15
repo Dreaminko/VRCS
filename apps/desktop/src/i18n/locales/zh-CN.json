@@ -509,7 +509,7 @@
         "contentDescription": "选择本地模型和语音语言。",
         "model": "模型",
         "language": "语音语言",
-        "languageDescription": "多语言对话建议使用自动检测。",
+        "languageDescription": "选择固定语言可提高单语音频的识别稳定性；多语言对话建议使用自动检测。",
         "execution": "运行方式",
         "executionDescription": "选择运行设备和计算精度。",
         "device": "运行设备",
