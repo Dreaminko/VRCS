@@ -7,6 +7,8 @@ import type {
 } from "./types";
 
 const DEFAULT_HISTORY_LIMIT = 10_000;
+export const SUBTITLE_HISTORY_PAGE_SIZE = 100;
+export const SUBTITLE_HISTORY_REQUEST_LIMIT = SUBTITLE_HISTORY_PAGE_SIZE + 1;
 const MAX_STREAM_TEXT_LENGTH = 100_000;
 
 export type SubtitleStreamMessage =
@@ -180,6 +182,16 @@ export function parseSubtitleStreamMessage(
     default:
       return null;
   }
+}
+
+export function subtitleHistoryPage(items: Subtitle[]): {
+  items: Subtitle[];
+  hasOlder: boolean;
+} {
+  return {
+    items: items.slice(0, SUBTITLE_HISTORY_PAGE_SIZE),
+    hasOlder: items.length > SUBTITLE_HISTORY_PAGE_SIZE,
+  };
 }
 
 function subtitleKey(subtitle: Subtitle): string {

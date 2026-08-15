@@ -30,6 +30,14 @@ impl Database {
 
     /// 历史按 id 倒序返回（最新的在前）。
     pub fn subtitle_history(&self, limit: u32) -> AppResult<Vec<Subtitle>> {
+        self.subtitle_history_before(limit, None)
+    }
+
+    pub fn subtitle_history_before(
+        &self,
+        limit: u32,
+        before_id: Option<i64>,
+    ) -> AppResult<Vec<Subtitle>> {
         let mut statement = self.conn.prepare(
             "SELECT recent.id, recent.text, recent.language, recent.started_at,
                     recent.ended_at, recent.source, recent.created_at,
@@ -38,13 +46,15 @@ impl Database {
                     translation.model, translation.created_at
              FROM (
                  SELECT id, text, language, started_at, ended_at, source, created_at
-                 FROM subtitles ORDER BY id DESC LIMIT ?
+                 FROM subtitles
+                 WHERE (?1 IS NULL OR id < ?1)
+                 ORDER BY id DESC LIMIT ?2
              ) AS recent
              LEFT JOIN subtitle_translations AS translation
                ON translation.subtitle_id = recent.id
              ORDER BY recent.id DESC, translation.id",
         )?;
-        let rows = statement.query_map(params![limit], |row| {
+        let rows = statement.query_map(params![before_id, limit], |row| {
             let subtitle = subtitle_from_row(row)?;
             let translation = if row.get::<_, Option<i64>>(7)?.is_some() {
                 Some(SubtitleTranslation {

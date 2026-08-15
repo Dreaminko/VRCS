@@ -219,6 +219,8 @@
       "dateRange": "Date range",
       "allTime": "All time",
       "lastSevenDays": "Last 7 days",
+      "loadEarlier": "View earlier records",
+      "loadingEarlier": "Loading…",
       "empty": "No subtitles match these filters."
     },
     "dictionary": {

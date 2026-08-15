@@ -207,6 +207,36 @@ mod tests {
     }
 
     #[test]
+    fn subtitle_history_can_load_older_pages() {
+        let (_path, database) = open_temp_db("history-pages");
+        for index in 0..5 {
+            database
+                .add_subtitle(&subtitle(&format!("line {index}")))
+                .unwrap();
+        }
+
+        let latest = database.subtitle_history_before(2, None).unwrap();
+        assert_eq!(
+            latest
+                .iter()
+                .map(|item| item.text.as_str())
+                .collect::<Vec<_>>(),
+            ["line 4", "line 3"]
+        );
+
+        let older = database
+            .subtitle_history_before(2, latest.last().and_then(|item| item.id))
+            .unwrap();
+        assert_eq!(
+            older
+                .iter()
+                .map(|item| item.text.as_str())
+                .collect::<Vec<_>>(),
+            ["line 2", "line 1"]
+        );
+    }
+
+    #[test]
     fn subtitle_history_clear_reclaims_database_pages() {
         let (_path, database) = open_temp_db("history-clear");
         for index in 0..4 {

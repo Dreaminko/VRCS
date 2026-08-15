@@ -1,6 +1,7 @@
 import { useTranslation } from "react-i18next";
 import { Maximize2, Mic, Square, X } from "lucide-react";
 
+import { useTranslationPartial } from "../realtime-state";
 import type { LiveTranscription, Subtitle } from "../types";
 import { contentLanguageTag } from "../ui-language";
 
@@ -16,6 +17,10 @@ export function CompactView({ subtitle, partial, running, vrchatMuted, captureDi
   onClose: () => void;
 }) {
   const { t } = useTranslation();
+  const translationPartial = useTranslationPartial(subtitle?.id ?? null);
+  const visibleTranslation = translationPartial
+    ?? subtitle?.translation_partial
+    ?? subtitle?.translations.at(-1);
   const captureLabel = t(running ? "capture.pause" : "capture.start");
   return (
     <div className="compact-shell">
@@ -28,10 +33,10 @@ export function CompactView({ subtitle, partial, running, vrchatMuted, captureDi
         <p className="compact-original" lang={contentLanguageTag(partial?.language ?? subtitle?.language)} onMouseUp={() => (partial?.text || subtitle?.text) && void onSelect(partial?.text ?? subtitle!.text)}>
           {partial?.text ?? subtitle?.text ?? t("live.waiting")}
         </p>
-        {!partial && (subtitle?.translation_partial ?? subtitle?.translations.at(-1)) && (
-          <p className="compact-translation" lang={contentLanguageTag((subtitle?.translation_partial ?? subtitle?.translations.at(-1))?.target_language)}>
-            {(subtitle?.translation_partial ?? subtitle?.translations.at(-1))?.text}
-            {subtitle?.translation_partial && <span className="streaming-ellipsis" aria-hidden="true">…</span>}
+        {!partial && visibleTranslation && (
+          <p className="compact-translation" lang={contentLanguageTag(visibleTranslation.target_language)}>
+            {visibleTranslation.text}
+            {(translationPartial || subtitle?.translation_partial) && <span className="streaming-ellipsis" aria-hidden="true">…</span>}
           </p>
         )}
       </div>

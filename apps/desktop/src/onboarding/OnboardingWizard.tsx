@@ -23,11 +23,11 @@ import { changeUiLanguage, currentUiLanguagePreference } from "../i18n";
 import { useMicrophoneCalibration } from "../hooks/useMicrophoneCalibration";
 import { localeCatalog } from "../i18n/catalog";
 import { DEFAULT_MICROPHONE_THRESHOLD_DBFS } from "../microphone-calibration";
+import { useAudioLevel } from "../realtime-state";
 import type {
   ApiProvider,
   AsrCapabilities,
   AudioDevice,
-  AudioLevel,
   Health,
   Settings,
 } from "../types";
@@ -76,7 +76,6 @@ export function OnboardingWizard({
   health,
   devices,
   devicesReady,
-  microphoneLevel,
   asrCapabilities,
   modelStatus,
   onRefreshDevices,
@@ -94,7 +93,6 @@ export function OnboardingWizard({
   health: Health | null;
   devices: AudioDevice[];
   devicesReady: boolean;
-  microphoneLevel: AudioLevel | null;
   asrCapabilities: AsrCapabilities | null;
   modelStatus: string;
   onRefreshDevices: () => Promise<void>;
@@ -109,6 +107,7 @@ export function OnboardingWizard({
 }) {
   const { t, i18n } = useTranslation();
   const locale = i18n.resolvedLanguage ?? "en-US";
+  const microphoneLevel = useAudioLevel("microphone");
   const [step, setStep] = useState(Math.min(STEP_COUNT - 1, Math.max(0, initialStep)));
   const [message, setMessage] = useState("");
   const [messageTone, setMessageTone] = useState<"info" | "error">("error");

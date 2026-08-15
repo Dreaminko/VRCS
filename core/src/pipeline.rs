@@ -4,6 +4,7 @@ use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
@@ -15,6 +16,8 @@ use crate::models::{AudioDevice, LiveTranscription};
 use crate::vad::{SpeechSegmenter, VadRuntimeState, VoiceDetector};
 
 mod dependencies;
+
+const AUDIO_LEVEL_PUBLISH_INTERVAL: Duration = Duration::from_millis(80);
 
 pub(crate) use dependencies::PipelineDependencies;
 
@@ -208,6 +211,7 @@ async fn run(
     let pre_roll_limit = (sample_rate as f64 * 0.2) as usize;
     let mut streaming = false;
     let mut trigger_chunks = 0usize;
+    let mut last_audio_level_published_at = None;
     let mut result = loop {
         if *shutdown.borrow() || *stop.borrow() {
             break Ok(());
@@ -284,7 +288,9 @@ async fn run(
         let (rms_dbfs, peak_dbfs) = audio_level_dbfs(&chunk);
         let vad_speech = detector.is_speech(&chunk);
         let trigger_speech = thresholded_speech(vad_speech, rms_dbfs, trigger_threshold_dbfs);
-        if trigger_threshold_dbfs.is_some() {
+        if trigger_threshold_dbfs.is_some()
+            && should_publish_audio_level(&mut last_audio_level_published_at, Instant::now())
+        {
             dependencies.publish_live(LiveTranscription::AudioLevel {
                 source: source.into(),
                 rms_dbfs,
@@ -435,6 +441,15 @@ fn thresholded_speech(
     trigger_threshold_dbfs.map_or(vad_speech, |threshold| vad_speech && rms_dbfs >= threshold)
 }
 
+fn should_publish_audio_level(last_published_at: &mut Option<Instant>, now: Instant) -> bool {
+    if last_published_at.is_some_and(|last| now.duration_since(last) < AUDIO_LEVEL_PUBLISH_INTERVAL)
+    {
+        return false;
+    }
+    *last_published_at = Some(now);
+    true
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -459,6 +474,21 @@ mod tests {
         assert!(!thresholded_speech(false, -30.0, Some(-45.0)));
         assert!(thresholded_speech(true, -45.0, Some(-45.0)));
         assert!(thresholded_speech(true, -80.0, None));
+    }
+
+    #[test]
+    fn audio_level_publication_is_rate_limited() {
+        let start = Instant::now();
+        let mut last_published_at = None;
+        assert!(should_publish_audio_level(&mut last_published_at, start));
+        assert!(!should_publish_audio_level(
+            &mut last_published_at,
+            start + AUDIO_LEVEL_PUBLISH_INTERVAL - Duration::from_millis(1),
+        ));
+        assert!(should_publish_audio_level(
+            &mut last_published_at,
+            start + AUDIO_LEVEL_PUBLISH_INTERVAL,
+        ));
     }
 
     #[test]

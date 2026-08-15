@@ -46,7 +46,7 @@ pub(super) async fn subtitle_history(
     Query(params): Query<HashMap<String, String>>,
 ) -> ApiResult<Json<Value>> {
     let limit = match params.get("limit") {
-        None => 10_000,
+        None => 100,
         Some(raw) => raw
             .parse::<u32>()
             .ok()
@@ -59,15 +59,33 @@ pub(super) async fn subtitle_history(
                 )
             })?,
     };
-    let subtitles = db_call(Arc::clone(&state.db), move |db| db.subtitle_history(limit))
-        .await
-        .map_err(|error| {
-            api_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "subtitles.history_failed",
-                error.to_string(),
-            )
-        })?;
+    let before_id = match params.get("before_id") {
+        None => None,
+        Some(raw) => Some(
+            raw.parse::<i64>()
+                .ok()
+                .filter(|value| *value > 0)
+                .ok_or_else(|| {
+                    api_error(
+                        StatusCode::UNPROCESSABLE_ENTITY,
+                        "subtitles.invalid_before_id",
+                        "before_id must be a positive integer",
+                    )
+                })?,
+        ),
+    };
+    let subtitles = db_call(Arc::clone(&state.db), move |db| match before_id {
+        Some(before_id) => db.subtitle_history_before(limit, Some(before_id)),
+        None => db.subtitle_history(limit),
+    })
+    .await
+    .map_err(|error| {
+        api_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "subtitles.history_failed",
+            error.to_string(),
+        )
+    })?;
     Ok(Json(json!(subtitles)))
 }
 

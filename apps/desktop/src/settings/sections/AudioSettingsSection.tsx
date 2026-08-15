@@ -4,7 +4,8 @@ import { Mic, RefreshCw, Sparkles, TriangleAlert, Volume2 } from "lucide-react";
 
 import { useMicrophoneCalibration } from "../../hooks/useMicrophoneCalibration";
 import { DEFAULT_MICROPHONE_THRESHOLD_DBFS } from "../../microphone-calibration";
-import type { AudioDevice, AudioLevel, Settings } from "../../types";
+import { useAudioLevel } from "../../realtime-state";
+import type { AudioDevice, Settings } from "../../types";
 import type { ApplySettings, SaveState } from "../settings-types";
 import { DeviceGroup } from "../SettingsControls";
 import { MicrophoneLevelSetting } from "./MicrophoneLevelSetting";
@@ -16,7 +17,6 @@ export function AudioSettingsSection({
   deviceErrors,
   outputDevices,
   microphoneDevices,
-  microphoneLevel,
   microphoneRunning,
   transcriptionRunning,
   microphoneTestRunning,
@@ -32,7 +32,6 @@ export function AudioSettingsSection({
   deviceErrors: string[];
   outputDevices: AudioDevice[];
   microphoneDevices: AudioDevice[];
-  microphoneLevel: AudioLevel | null;
   microphoneRunning: boolean;
   transcriptionRunning: boolean;
   microphoneTestRunning: boolean;
@@ -43,6 +42,7 @@ export function AudioSettingsSection({
   onStopMicrophoneTest: () => Promise<void>;
 }) {
   const { t } = useTranslation();
+  const microphoneLevel = useAudioLevel("microphone");
   const [microphoneTestBusy, setMicrophoneTestBusy] = useState(false);
   const calibration = useMicrophoneCalibration({
     level: microphoneLevel,

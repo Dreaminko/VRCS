@@ -155,7 +155,11 @@ function delay(milliseconds: number): Promise<void> {
 
 export const coreApi = {
   health: () => request<Health>("/health"),
-  subtitles: () => request<Subtitle[]>("/api/subtitles"),
+  subtitles: ({ limit = 100, beforeId }: { limit?: number; beforeId?: number } = {}) => {
+    const params = new URLSearchParams({ limit: String(limit) });
+    if (beforeId !== undefined) params.set("before_id", String(beforeId));
+    return request<Subtitle[]>(`/api/subtitles?${params}`);
+  },
   storageStats: () => request<DatabaseStorageStats>("/api/storage/stats"),
   clearSubtitleHistory: () => request<DatabaseStorageStats>("/api/subtitles", {
     method: "DELETE",

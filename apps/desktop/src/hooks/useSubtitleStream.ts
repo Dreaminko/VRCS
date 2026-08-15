@@ -1,12 +1,20 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { coreApi, coreWebSocketUrl } from "../api";
 import {
   mergeSubtitleHistory,
   parseSubtitleStreamMessage,
+  subtitleHistoryPage,
+  SUBTITLE_HISTORY_REQUEST_LIMIT,
 } from "../subtitle-stream";
+import {
+  clearAudioLevels,
+  clearTranslationPartial,
+  clearTranslationPartials,
+  publishAudioLevel,
+  publishTranslationPartial,
+} from "../realtime-state";
 import type {
-  AudioLevel,
   ConnectionState,
   LiveTranscription,
   Subtitle,
@@ -33,19 +41,12 @@ function withTranslation(
     : subtitle);
 }
 
-function withTranslationPartial(
+function withoutTranslationPartial(
   subtitles: Subtitle[],
   subtitleId: number,
-  text?: string,
-  targetLanguage?: string,
 ): Subtitle[] {
   return subtitles.map((subtitle) => subtitle.id === subtitleId
-    ? {
-        ...subtitle,
-        translation_partial: text && targetLanguage
-          ? { text, target_language: targetLanguage }
-          : undefined,
-      }
+    ? { ...subtitle, translation_partial: undefined }
     : subtitle);
 }
 
@@ -67,34 +68,57 @@ export function useSubtitleStream({
   const [partials, setPartials] = useState<
     Partial<Record<LiveTranscription["source"], LiveTranscription>>
   >({});
-  const [audioLevels, setAudioLevels] = useState<
-    Partial<Record<AudioLevel["source"], AudioLevel>>
-  >({});
+  const [hasOlderSubtitles, setHasOlderSubtitles] = useState(false);
+  const [loadingOlderSubtitles, setLoadingOlderSubtitles] = useState(false);
+  const oldestHistoryIdRef = useRef<number | null>(null);
+  const historyInitializedRef = useRef(false);
+  const loadingOlderSubtitlesRef = useRef(false);
   const [translatingSubtitleIds, setTranslatingSubtitleIds] = useState<number[]>([]);
   const [vrchatMuteStatus, setVrchatMuteStatus] = useState<VrchatMuteStatus | null>(null);
 
-  const mergeSnapshot = useCallback((historyItems: Subtitle[]) => {
-    setSubtitles((current) => mergeSubtitleHistory(current, historyItems));
+  const updateHistoryCursor = useCallback((items: Subtitle[], hasOlder: boolean) => {
+    oldestHistoryIdRef.current = items.at(-1)?.id ?? null;
+    historyInitializedRef.current = true;
+    setHasOlderSubtitles(hasOlder);
   }, []);
+
+  const mergeSnapshot = useCallback((historyItems: Subtitle[]) => {
+    const page = subtitleHistoryPage(historyItems);
+    if (!historyInitializedRef.current) updateHistoryCursor(page.items, page.hasOlder);
+    setSubtitles((current) => mergeSubtitleHistory(current, page.items));
+  }, [updateHistoryCursor]);
+
+  const replaceSnapshot = useCallback((historyItems: Subtitle[]) => {
+    const page = subtitleHistoryPage(historyItems);
+    updateHistoryCursor(page.items, page.hasOlder);
+    setSubtitles(page.items);
+  }, [updateHistoryCursor]);
 
   const clearPartials = useCallback(() => {
     setPartials({});
-    setAudioLevels({});
+    clearAudioLevels();
+    clearTranslationPartials();
   }, []);
 
   useEffect(() => {
     if (!coreConfigured) return;
     const refreshHistory = () => {
-      void coreApi.subtitles().then(setSubtitles).catch(() => undefined);
+      void coreApi.subtitles({ limit: SUBTITLE_HISTORY_REQUEST_LIMIT })
+        .then(replaceSnapshot)
+        .catch(() => undefined);
     };
     window.addEventListener("vrcs:subtitle-history-refresh", refreshHistory);
     return () => window.removeEventListener("vrcs:subtitle-history-refresh", refreshHistory);
-  }, [coreConfigured]);
+  }, [coreConfigured, replaceSnapshot]);
 
   useEffect(() => {
     if (!coreConfigured) {
       setConnection("connecting");
-      setAudioLevels({});
+      historyInitializedRef.current = false;
+      oldestHistoryIdRef.current = null;
+      setHasOlderSubtitles(false);
+      clearAudioLevels();
+      clearTranslationPartials();
       setVrchatMuteStatus(null);
       return;
     }
@@ -106,7 +130,9 @@ export function useSubtitleStream({
       socket = new WebSocket(coreWebSocketUrl());
       socket.onopen = () => {
         setConnection("connected");
-        void coreApi.subtitles().then(mergeSnapshot).catch(() => undefined);
+        void coreApi.subtitles({ limit: SUBTITLE_HISTORY_REQUEST_LIMIT })
+          .then(mergeSnapshot)
+          .catch(() => undefined);
       };
       socket.onmessage = (event) => {
         const message = parseSubtitleStreamMessage(event.data);
@@ -125,7 +151,7 @@ export function useSubtitleStream({
             clearErrorFrom(`stream:${message.source}`);
             break;
           case "audio_level":
-            setAudioLevels((current) => ({ ...current, [message.source]: message }));
+            publishAudioLevel(message);
             break;
           case "vrchat_mute_status":
             setVrchatMuteStatus(message.status);
@@ -141,20 +167,20 @@ export function useSubtitleStream({
             );
             break;
           case "translation_started":
-            setSubtitles((current) => withTranslationPartial(current, message.subtitle_id));
+            clearTranslationPartial(message.subtitle_id);
+            setSubtitles((current) => withoutTranslationPartial(current, message.subtitle_id));
             setTranslatingSubtitleIds((current) => current.includes(message.subtitle_id)
               ? current
               : [...current, message.subtitle_id]);
             break;
           case "translation_partial":
-            setSubtitles((current) => withTranslationPartial(
-              current,
-              message.subtitle_id,
-              message.text,
-              message.target_language,
-            ));
+            publishTranslationPartial(message.subtitle_id, {
+              text: message.text,
+              target_language: message.target_language,
+            });
             break;
           case "translation_completed":
+            clearTranslationPartial(message.subtitle_id);
             setSubtitles((current) => withTranslation(
               current,
               message.subtitle_id,
@@ -166,7 +192,8 @@ export function useSubtitleStream({
             clearErrorFrom(`translation:${message.subtitle_id}`);
             break;
           case "translation_failed":
-            setSubtitles((current) => withTranslationPartial(current, message.subtitle_id));
+            clearTranslationPartial(message.subtitle_id);
+            setSubtitles((current) => withoutTranslationPartial(current, message.subtitle_id));
             setTranslatingSubtitleIds((current) => (
               current.filter((id) => id !== message.subtitle_id)
             ));
@@ -180,7 +207,8 @@ export function useSubtitleStream({
       };
       socket.onclose = () => {
         setConnection("disconnected");
-        setAudioLevels({});
+        clearAudioLevels();
+        clearTranslationPartials();
         setVrchatMuteStatus(null);
         if (!closed) retry = window.setTimeout(connect, 1500);
       };
@@ -193,16 +221,42 @@ export function useSubtitleStream({
     };
   }, [clearErrorFrom, coreConfigured, mergeSnapshot, reportError]);
 
+  const loadOlderSubtitles = useCallback(async () => {
+    const beforeId = oldestHistoryIdRef.current;
+    if (!hasOlderSubtitles || beforeId === null || loadingOlderSubtitlesRef.current) return;
+    loadingOlderSubtitlesRef.current = true;
+    setLoadingOlderSubtitles(true);
+    try {
+      const historyItems = await coreApi.subtitles({
+        limit: SUBTITLE_HISTORY_REQUEST_LIMIT,
+        beforeId,
+      });
+      const page = subtitleHistoryPage(historyItems);
+      if (page.items.length) {
+        oldestHistoryIdRef.current = page.items.at(-1)?.id ?? beforeId;
+        setSubtitles((current) => mergeSubtitleHistory(current, page.items));
+      }
+      setHasOlderSubtitles(page.hasOlder);
+    } catch (reason) {
+      reportError(reason, "errors.core.connect", "subtitle-history");
+    } finally {
+      loadingOlderSubtitlesRef.current = false;
+      setLoadingOlderSubtitles(false);
+    }
+  }, [hasOlderSubtitles, reportError]);
+
   const translateSubtitle = useCallback(async (subtitleId: number) => {
     setTranslatingSubtitleIds((current) => current.includes(subtitleId)
       ? current
       : [...current, subtitleId]);
     try {
       const translation = await coreApi.translateSubtitle(subtitleId);
+      clearTranslationPartial(subtitleId);
       setSubtitles((current) => withTranslation(current, subtitleId, translation));
       clearErrorFrom(`translation:${subtitleId}`);
     } catch (reason) {
-      setSubtitles((current) => withTranslationPartial(current, subtitleId));
+      clearTranslationPartial(subtitleId);
+      setSubtitles((current) => withoutTranslationPartial(current, subtitleId));
       reportError(
         reason,
         "errors.translation.failed",
@@ -217,7 +271,9 @@ export function useSubtitleStream({
     connection,
     subtitles,
     partials,
-    audioLevels,
+    hasOlderSubtitles,
+    loadingOlderSubtitles,
+    loadOlderSubtitles,
     vrchatMuteStatus,
     translatingSubtitleIds,
     mergeSnapshot,

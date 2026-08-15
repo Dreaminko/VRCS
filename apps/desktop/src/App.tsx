@@ -64,7 +64,9 @@ function App() {
     capturePending,
     subtitles,
     partials,
-    audioLevels,
+    hasOlderSubtitles,
+    loadingOlderSubtitles,
+    loadOlderSubtitles,
     vrchatMuteStatus,
     settings,
     devices,
@@ -328,7 +330,6 @@ function App() {
             health={health}
             devices={devices}
             devicesReady={devicesReady}
-            microphoneLevel={audioLevels.microphone ?? null}
             asrCapabilities={asrCapabilities}
             modelStatus={health?.asr_status ?? "unknown"}
             onRefreshDevices={loadDevices}
@@ -510,6 +511,9 @@ function App() {
                 onSelect={selectWord}
                 onTranslate={subtitleTranslationHandler}
                 translatingSubtitleIds={translatingSubtitleIds}
+                hasOlder={hasOlderSubtitles}
+                loadingOlder={loadingOlderSubtitles}
+                onLoadOlder={loadOlderSubtitles}
               />
             )}
 
@@ -519,7 +523,6 @@ function App() {
                 interfaceScale={interfaceScale}
                 devices={devices}
                 devicesReady={devicesReady}
-                microphoneLevel={audioLevels.microphone ?? null}
                 onStartMicrophoneTest={startMicrophoneTest}
                 onStopMicrophoneTest={stopMicrophoneTest}
                 dictionaries={dictionarySources}

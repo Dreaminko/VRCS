@@ -219,6 +219,8 @@
       "dateRange": "日期范围",
       "allTime": "全部时间",
       "lastSevenDays": "最近 7 天",
+      "loadEarlier": "查看更早的记录",
+      "loadingEarlier": "正在加载…",
       "empty": "没有符合筛选条件的字幕。"
     },
     "dictionary": {

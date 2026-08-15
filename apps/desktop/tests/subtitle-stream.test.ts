@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   mergeSubtitleHistory,
   parseSubtitleStreamMessage,
+  subtitleHistoryPage,
 } from "../src/subtitle-stream.ts";
 import type { Subtitle } from "../src/types.ts";
 
@@ -19,6 +20,17 @@ function subtitle(id: number, text: string): Subtitle {
     translations: [],
   };
 }
+
+test("history pages expose 100 records and detect an older page", () => {
+  const page = subtitleHistoryPage(
+    Array.from({ length: 101 }, (_, index) => subtitle(101 - index, `line ${index}`)),
+  );
+  assert.equal(page.items.length, 100);
+  assert.equal(page.hasOlder, true);
+  assert.equal(page.items.at(-1)?.id, 2);
+
+  assert.equal(subtitleHistoryPage(page.items).hasOlder, false);
+});
 
 test("a late history snapshot cannot erase a streamed subtitle", () => {
   assert.deepEqual(

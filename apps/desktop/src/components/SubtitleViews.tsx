@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { CalendarDays, History, Languages, MessageSquare, Mic, Volume2 } from "lucide-react";
 
 import { timestamp } from "../app-utils";
+import { useTranslationPartial } from "../realtime-state";
 import { contentLanguageTag } from "../ui-language";
 import type { ConnectionState, Health, LiveTranscription, Settings, Subtitle } from "../types";
 import { DropdownField } from "./DropdownField";
@@ -105,8 +106,9 @@ const ChatBubble = memo(function ChatBubble({ subtitle, onSelect, onTranslate, t
   const locale = i18n.resolvedLanguage ?? "en-US";
   const source: SubtitleSource = subtitle.source ?? "speaker";
   const mine = source !== "speaker";
+  const translationPartial = useTranslationPartial(subtitle.id);
   const completedTranslation = subtitle.translations.at(-1);
-  const visibleTranslation = subtitle.translation_partial ?? completedTranslation;
+  const visibleTranslation = translationPartial ?? subtitle.translation_partial ?? completedTranslation;
   return (
     <article className={`message-group source-${source}`}>
       <div className="message-meta">
@@ -122,9 +124,9 @@ const ChatBubble = memo(function ChatBubble({ subtitle, onSelect, onTranslate, t
         {visibleTranslation && (
           <>
             <div className="bubble-translation-divider" aria-hidden="true" />
-            <p className={`bubble-translation ${subtitle.translation_partial ? "streaming-translation" : ""}`} lang={contentLanguageTag(visibleTranslation.target_language)}>
+            <p className={`bubble-translation ${translationPartial || subtitle.translation_partial ? "streaming-translation" : ""}`} lang={contentLanguageTag(visibleTranslation.target_language)}>
               {visibleTranslation.text}
-              {subtitle.translation_partial && <span className="streaming-ellipsis" aria-hidden="true">…</span>}
+              {(translationPartial || subtitle.translation_partial) && <span className="streaming-ellipsis" aria-hidden="true">…</span>}
             </p>
           </>
         )}
@@ -146,15 +148,16 @@ const HistoryRow = memo(function HistoryRow({ subtitle, locale, onSelect, onTran
   translating: boolean;
 }) {
   const { t } = useTranslation();
-  const visibleTranslation = subtitle.translation_partial ?? subtitle.translations.at(-1);
+  const translationPartial = useTranslationPartial(subtitle.id);
+  const visibleTranslation = translationPartial ?? subtitle.translation_partial ?? subtitle.translations.at(-1);
   return (
     <article onMouseUp={() => void onSelect(subtitle.text)}>
       <time>{timestamp(subtitle.created_at, locale)}</time>
       <p lang={contentLanguageTag(subtitle.language)}>{subtitle.text}</p>
       {visibleTranslation && (
-        <p className={subtitle.translation_partial ? "history-translation streaming-translation" : "history-translation"}>
+        <p className={translationPartial || subtitle.translation_partial ? "history-translation streaming-translation" : "history-translation"}>
           {visibleTranslation.text}
-          {subtitle.translation_partial && <span className="streaming-ellipsis" aria-hidden="true">…</span>}
+          {(translationPartial || subtitle.translation_partial) && <span className="streaming-ellipsis" aria-hidden="true">…</span>}
         </p>
       )}
       <span>{subtitle.language?.toUpperCase() ?? "—"}</span>
@@ -167,11 +170,14 @@ const HistoryRow = memo(function HistoryRow({ subtitle, locale, onSelect, onTran
   );
 });
 
-export const HistoryView = memo(function HistoryView({ subtitles, onSelect, onTranslate, translatingSubtitleIds = [] }: {
+export const HistoryView = memo(function HistoryView({ subtitles, onSelect, onTranslate, translatingSubtitleIds = [], hasOlder, loadingOlder, onLoadOlder }: {
   subtitles: Subtitle[];
   onSelect: (context: string) => Promise<void>;
   onTranslate?: (subtitleId: number) => void;
   translatingSubtitleIds?: number[];
+  hasOlder: boolean;
+  loadingOlder: boolean;
+  onLoadOlder: () => Promise<void>;
 }) {
   const { t, i18n } = useTranslation();
   const locale = i18n.resolvedLanguage ?? "en-US";
@@ -232,6 +238,13 @@ export const HistoryView = memo(function HistoryView({ subtitles, onSelect, onTr
           />
         ))}</div>
       ) : <div className="empty-state"><History size={22} /><p>{t("history.empty")}</p></div>}
+      {hasOlder && (
+        <div className="history-load-older">
+          <button className="secondary-button" type="button" disabled={loadingOlder} onClick={() => void onLoadOlder()}>
+            {t(loadingOlder ? "history.loadingEarlier" : "history.loadEarlier")}
+          </button>
+        </div>
+      )}
     </section>
   );
 });

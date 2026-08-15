@@ -219,6 +219,8 @@
       "dateRange": "期間",
       "allTime": "すべて",
       "lastSevenDays": "過去 7 日間",
+      "loadEarlier": "以前の履歴を表示",
+      "loadingEarlier": "読み込み中…",
       "empty": "条件に一致する字幕はありません。"
     },
     "dictionary": {
