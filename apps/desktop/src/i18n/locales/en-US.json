@@ -855,7 +855,7 @@
       },
       "complete": {
         "title": "Setup is complete",
-        "description": "Recognition and audio are ready. Start transcription now or enter the main interface first.",
+        "description": "Recognition and audio are ready. You can start transcription from the main interface when needed.",
         "recognition": "Speech recognition",
         "localReady": "The local Whisper model is ready",
         "cloudReady": "The cloud API passed its connection test",
@@ -866,8 +866,7 @@
         "microphoneSkipped": "Your microphone will not be captured",
         "microphoneReady": "The microphone and trigger threshold are confirmed",
         "nextHint": "Translation, dictionaries, OSC, and Anki can be configured later under Settings.",
-        "finish": "Enter VRCS",
-        "finishAndStart": "Finish and start transcription"
+        "finish": "Open main interface"
       },
       "errors": {
         "finish": "The first-use setup could not be completed.",

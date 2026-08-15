@@ -23,10 +23,16 @@ import {
   normalizeConversationTitle,
   saveConversationState,
 } from "../conversation-state";
+import { normalizeConversationSidebarWidth } from "../conversation-sidebar-width";
 import { shouldFollowLiveScroll } from "../live-scroll";
 import type { Subtitle } from "../types";
 
 const SIDEBAR_OPEN_KEY = "vrcs.conversation-sidebar-open";
+const SIDEBAR_WIDTH_KEY = "vrcs.conversation-sidebar-width";
+
+function initialSidebarWidth(): number {
+  return normalizeConversationSidebarWidth(localStorage.getItem(SIDEBAR_WIDTH_KEY));
+}
 
 export function useConversationWorkspace({
   subtitles,
@@ -42,6 +48,7 @@ export function useConversationWorkspace({
   const [sidebarOpen, setSidebarOpen] = useState(
     () => localStorage.getItem(SIDEBAR_OPEN_KEY) !== "false",
   );
+  const [sidebarWidth, setSidebarWidth] = useState(initialSidebarWidth);
   const initialConversationState = useRef(conversationStateSnapshot()).current;
   const [conversationStarts, setConversationStarts] = useState(
     initialConversationState.starts,
@@ -118,6 +125,13 @@ export function useConversationWorkspace({
   useEffect(() => {
     localStorage.setItem(SIDEBAR_OPEN_KEY, String(sidebarOpen));
   }, [sidebarOpen]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      localStorage.setItem(SIDEBAR_WIDTH_KEY, String(sidebarWidth));
+    }, 120);
+    return () => window.clearTimeout(timer);
+  }, [sidebarWidth]);
 
   useEffect(() => {
     let active = true;
@@ -233,6 +247,8 @@ export function useConversationWorkspace({
     selectedConversation,
     sidebarOpen,
     setSidebarOpen,
+    sidebarWidth,
+    setSidebarWidth,
     selectConversation: setSelectedConversationId,
     createConversation,
     renameConversation,

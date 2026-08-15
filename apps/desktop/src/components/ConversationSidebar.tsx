@@ -1,5 +1,9 @@
 import { memo, useEffect, useRef, useState } from "react";
-import type { CSSProperties, KeyboardEvent as ReactKeyboardEvent } from "react";
+import type {
+  CSSProperties,
+  KeyboardEvent as ReactKeyboardEvent,
+  PointerEvent as ReactPointerEvent,
+} from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import {
@@ -34,6 +38,12 @@ import {
   type ConversationIcon,
   type SubtitleConversation,
 } from "../conversations";
+import {
+  DEFAULT_CONVERSATION_SIDEBAR_WIDTH,
+  MAX_CONVERSATION_SIDEBAR_WIDTH,
+  MIN_CONVERSATION_SIDEBAR_WIDTH,
+  normalizeConversationSidebarWidth,
+} from "../conversation-sidebar-width";
 import {
   interfaceLayoutPixels,
   readAppliedInterfaceScaleFactor,
@@ -86,6 +96,9 @@ type SidebarProps = {
   conversations: SubtitleConversation[];
   activeId?: string;
   selectedId?: string;
+  width: number;
+  onWidthChange: (width: number) => void;
+  onResizeStateChange: (resizing: boolean) => void;
   onToggle: () => void;
   onNew: () => void;
   onSelect: (id: string) => void;
@@ -129,6 +142,9 @@ export const ConversationSidebar = memo(function ConversationSidebar({
   conversations,
   activeId,
   selectedId,
+  width,
+  onWidthChange,
+  onResizeStateChange,
   onToggle,
   onNew,
   onSelect,
@@ -154,11 +170,17 @@ export const ConversationSidebar = memo(function ConversationSidebar({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState("");
   const [sidebarTooltip, setSidebarTooltip] = useState<SidebarTooltip | null>(null);
+  const [resizing, setResizing] = useState(false);
   const actionsLayerRef = useRef<HTMLDivElement>(null);
   const actionsTriggerRef = useRef<HTMLButtonElement>(null);
   const tooltipTimerRef = useRef<number | null>(null);
   const tooltipHideTimerRef = useRef<number | null>(null);
   const tooltipFrameRef = useRef<number | null>(null);
+  const resizeStartRef = useRef<{
+    pointerId: number;
+    pointerX: number;
+    width: number;
+  } | null>(null);
 
   const clearTooltipTimer = () => {
     if (tooltipTimerRef.current === null) return;
@@ -256,7 +278,65 @@ export const ConversationSidebar = memo(function ConversationSidebar({
     if (open) hideSidebarTooltip();
   }, [open]);
 
+  useEffect(() => () => onResizeStateChange(false), [onResizeStateChange]);
+
+  const finishSidebarResize = () => {
+    resizeStartRef.current = null;
+    setResizing(false);
+    onResizeStateChange(false);
+  };
+
+  const startSidebarResize = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (!event.isPrimary || event.button !== 0) return;
+    event.preventDefault();
+    closeActions();
+    hideSidebarTooltip();
+    const scale = readAppliedInterfaceScaleFactor();
+    resizeStartRef.current = {
+      pointerId: event.pointerId,
+      pointerX: interfaceLayoutPixels(event.clientX, scale),
+      width,
+    };
+    event.currentTarget.setPointerCapture(event.pointerId);
+    setResizing(true);
+    onResizeStateChange(true);
+  };
+
+  const resizeSidebar = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const start = resizeStartRef.current;
+    if (!start || start.pointerId !== event.pointerId) return;
+    event.preventDefault();
+    const pointerX = interfaceLayoutPixels(
+      event.clientX,
+      readAppliedInterfaceScaleFactor(),
+    );
+    onWidthChange(normalizeConversationSidebarWidth(
+      start.width + pointerX - start.pointerX,
+    ));
+  };
+
+  const stopSidebarResize = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (resizeStartRef.current?.pointerId !== event.pointerId) return;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    finishSidebarResize();
+  };
+
+  const resizeSidebarWithKeyboard = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    const step = event.shiftKey ? 32 : 8;
+    let nextWidth = width;
+    if (event.key === "ArrowLeft") nextWidth -= step;
+    else if (event.key === "ArrowRight") nextWidth += step;
+    else if (event.key === "Home") nextWidth = MIN_CONVERSATION_SIDEBAR_WIDTH;
+    else if (event.key === "End") nextWidth = MAX_CONVERSATION_SIDEBAR_WIDTH;
+    else return;
+    event.preventDefault();
+    onWidthChange(normalizeConversationSidebarWidth(nextWidth));
+  };
+
   const handleToggle = () => {
+    if (resizing) finishSidebarResize();
     closeActions();
     hideSidebarTooltip();
     setEditingId(null);
@@ -356,12 +436,35 @@ export const ConversationSidebar = memo(function ConversationSidebar({
   const menuConversation = renderedConversations.find((conversation) => conversation.id === actionsId);
 
   return (
-    <aside className="conversation-sidebar" aria-label={t("conversations.sidebar")}>
+    <aside
+      className={`conversation-sidebar ${resizing ? "conversation-sidebar-resizing" : ""}`}
+      aria-label={t("conversations.sidebar")}
+    >
+      <div
+        className="conversation-sidebar-resize-handle"
+        role="separator"
+        aria-label={t("conversations.sidebar")}
+        aria-orientation="vertical"
+        aria-valuemin={MIN_CONVERSATION_SIDEBAR_WIDTH}
+        aria-valuemax={MAX_CONVERSATION_SIDEBAR_WIDTH}
+        aria-valuenow={width}
+        aria-valuetext={`${width}px`}
+        tabIndex={0}
+        onPointerDown={startSidebarResize}
+        onPointerMove={resizeSidebar}
+        onPointerUp={stopSidebarResize}
+        onPointerCancel={stopSidebarResize}
+        onLostPointerCapture={finishSidebarResize}
+        onDoubleClick={() => onWidthChange(normalizeConversationSidebarWidth(
+          DEFAULT_CONVERSATION_SIDEBAR_WIDTH,
+        ))}
+        onKeyDown={resizeSidebarWithKeyboard}
+      />
       <div className="conversation-sidebar-header">
         <span>{t("conversations.title")}</span>
         <button className="sidebar-icon-button" type="button" aria-label={t("conversations.collapseSidebar")} aria-expanded="true" onClick={handleToggle}><PanelLeftClose size={19} /></button>
       </div>
-      <button className="new-conversation-button" type="button" onClick={onNew}><Plus size={18} />{t("conversations.create")}</button>
+      <button className="new-conversation-button" type="button" onClick={onNew}><Plus size={18} /><span>{t("conversations.create")}</span></button>
       <div className="conversation-sidebar-list" onScroll={() => closeActions()}>
         {active && (
           <section className="conversation-group" aria-labelledby="current-conversation-heading">

@@ -19,6 +19,8 @@
 }
 
 .bottom-dock.chatbox-open { z-index: 320; }
+.app-shell.sidebar-resizing .bottom-dock,
+.app-shell.sidebar-resizing .live-scroll-to-bottom { transition: none; }
 
 .live-scroll-to-bottom {
   position: fixed;

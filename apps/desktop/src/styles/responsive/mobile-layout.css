@@ -1,6 +1,7 @@
 @media (max-width: 680px) {
   .app-shell.live-shell.sidebar-open { --dock-sidebar-offset: 0px; }
-  .conversation-sidebar:not(.conversation-sidebar-collapsed) { position: absolute; inset: 12px auto 12px 12px; width: min(300px, calc(100vw - 72px)); min-width: 0; margin: 0; box-shadow: 0 18px 46px rgba(0, 0, 0, 0.10), 0 1px 3px rgba(0, 0, 0, 0.065); }
+  .conversation-sidebar:not(.conversation-sidebar-collapsed) { position: absolute; inset: 12px auto 12px 12px; width: min(var(--conversation-sidebar-width, 268px), calc(100vw - 72px)); min-width: 0; margin: 0; box-shadow: 0 18px 46px rgba(0, 0, 0, 0.10), 0 1px 3px rgba(0, 0, 0, 0.065); }
+  .conversation-sidebar-resize-handle { display: none; }
   .sidebar-scrim { position: absolute; z-index: 50; inset: 0; display: block; padding: 0; border: 0; background: rgba(0, 0, 0, 0.12); }
   .status-summary { display: none; }
   .top-status-row { margin-bottom: 8px; }

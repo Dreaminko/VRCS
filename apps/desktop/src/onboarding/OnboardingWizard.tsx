@@ -364,7 +364,7 @@ export function OnboardingWizard({
     setMicrophoneReviewed(true);
   };
 
-  const leaveWizard = async (startCapture: boolean) => {
+  const leaveWizard = async () => {
     setBusy(true);
     setMessage("");
     try {
@@ -373,7 +373,7 @@ export function OnboardingWizard({
         await onStopMicrophoneTest();
         microphoneStartedByWizardRef.current = false;
       }
-      await onComplete(startCapture);
+      await onComplete(false);
     } catch (reason) {
       showError(reason, "onboarding.errors.finish");
       setBusy(false);
@@ -691,10 +691,7 @@ export function OnboardingWizard({
               {step < STEP_COUNT - 1 ? (
                 <button className="primary-button" type="button" disabled={!canContinue} onClick={() => step === 1 ? void finishRecognition() : void goToStep(step + 1)}>{t("onboarding.next")}<ChevronRight size={16} /></button>
               ) : (
-                <>
-                  <button className="secondary-button" type="button" disabled={operationBusy || !audioReady} onClick={() => void leaveWizard(false)}>{t("onboarding.complete.finish")}</button>
-                  <button className="primary-button" type="button" disabled={operationBusy || !audioReady} onClick={() => void leaveWizard(true)}><Mic size={16} />{t("onboarding.complete.finishAndStart")}</button>
-                </>
+                <button className="primary-button" type="button" disabled={operationBusy || !audioReady} onClick={() => void leaveWizard()}>{t("onboarding.complete.finish")}<ChevronRight size={16} /></button>
               )}
             </div>
           </footer>

@@ -10,8 +10,10 @@ body { zoom: var(--interface-scale, 1); }
   grid-template-rows: 40px minmax(0, 1fr);
   overflow: hidden;
 }
-.app-shell.live-shell.sidebar-open { --dock-sidebar-offset: 148px; }
+.app-shell.live-shell.sidebar-open { --dock-sidebar-offset: calc(var(--conversation-sidebar-width, 268px) * 0.5 + 14px); }
 .app-shell.live-shell.sidebar-collapsed { --dock-sidebar-offset: 42px; }
+.app-shell.sidebar-resizing,
+.app-shell.sidebar-resizing * { cursor: col-resize; user-select: none; }
 
 .window-chrome {
   position: relative;

@@ -855,7 +855,7 @@
       },
       "complete": {
         "title": "セットアップが完了しました",
-        "description": "音声認識と音声入力の準備ができました。今すぐ文字起こしを開始するか、先にメイン画面へ進めます。",
+        "description": "音声認識と音声入力の準備ができました。メイン画面から必要なときに文字起こしを開始できます。",
         "recognition": "音声認識",
         "localReady": "ローカル Whisper モデルの準備完了",
         "cloudReady": "クラウド API の接続テストに成功",
@@ -866,8 +866,7 @@
         "microphoneSkipped": "自分のマイク音声は取得しません",
         "microphoneReady": "マイクとトリガーしきい値を確認済み",
         "nextHint": "翻訳、辞書、OSC、Anki は設定画面で後から設定できます。",
-        "finish": "VRCS を開く",
-        "finishAndStart": "完了して文字起こしを開始"
+        "finish": "メイン画面へ進む"
       },
       "errors": {
         "finish": "初回セットアップを完了できませんでした。",

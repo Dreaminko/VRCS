@@ -855,7 +855,7 @@
       },
       "complete": {
         "title": "设置完成",
-        "description": "基础识别和音频配置已经准备好。你可以直接开始转写，也可以先进入主界面。",
+        "description": "基础识别和音频配置已经准备好。进入主界面后可按需开始转写。",
         "recognition": "语音识别",
         "localReady": "本地 Whisper 模型已准备",
         "cloudReady": "云端 API 已通过连接测试",
@@ -866,8 +866,7 @@
         "microphoneSkipped": "已选择不采集自己的声音",
         "microphoneReady": "麦克风和触发阈值已确认",
         "nextHint": "翻译、词典、OSC 和 Anki 可在设置中继续配置。",
-        "finish": "进入主界面",
-        "finishAndStart": "完成并开始转写"
+        "finish": "进入主界面"
       },
       "errors": {
         "finish": "无法完成首次设置。",

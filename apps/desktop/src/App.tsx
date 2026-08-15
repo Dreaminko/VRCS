@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { CSSProperties } from "react";
 import { useTranslation } from "react-i18next";
 import { ChevronDown, Clock3, X } from "lucide-react";
 
@@ -161,6 +162,8 @@ function App() {
     selectedConversation,
     sidebarOpen,
     setSidebarOpen,
+    sidebarWidth,
+    setSidebarWidth,
     selectConversation,
     createConversation,
     renameConversation,
@@ -171,6 +174,7 @@ function App() {
     scrollLiveViewToBottom,
     onLiveScroll,
   } = conversation;
+  const [sidebarResizing, setSidebarResizing] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -395,7 +399,11 @@ function App() {
         "app-shell",
         page === "live" ? "live-shell" : "",
         sidebarOpen ? "sidebar-open" : "sidebar-collapsed",
+        sidebarResizing ? "sidebar-resizing" : "",
       ].join(" ")}
+      style={{
+        "--conversation-sidebar-width": `${sidebarWidth}px`,
+      } as CSSProperties}
     >
       <WindowChrome />
       <div className="app-body">
@@ -405,6 +413,9 @@ function App() {
             conversations={conversations}
             activeId={activeConversation?.id}
             selectedId={selectedConversation?.id}
+            width={sidebarWidth}
+            onWidthChange={setSidebarWidth}
+            onResizeStateChange={setSidebarResizing}
             onToggle={toggleConversationSidebar}
             onNew={createConversationAndCloseLookup}
             onSelect={selectConversationAndCloseLookup}
