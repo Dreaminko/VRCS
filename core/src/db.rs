@@ -221,6 +221,55 @@ mod tests {
     }
 
     #[test]
+    fn subtitle_history_keeps_batched_translations_with_their_subtitles() {
+        let (_path, database) = open_temp_db("history-translations");
+        let older = database.add_subtitle(&subtitle("older"), 10).unwrap();
+        let older_translation = SubtitleTranslation {
+            text: "旧".into(),
+            source_language: Some("en".into()),
+            target_language: "zh-Hans".into(),
+            provider: "deepl".into(),
+            model: None,
+            created_at: now_iso8601(),
+        };
+        database
+            .save_translation(older.id.unwrap(), &older_translation)
+            .unwrap();
+
+        let newer = database.add_subtitle(&subtitle("newer"), 10).unwrap();
+        let newer_translations = [
+            SubtitleTranslation {
+                text: "新".into(),
+                source_language: Some("en".into()),
+                target_language: "zh-Hans".into(),
+                provider: "deepl".into(),
+                model: None,
+                created_at: now_iso8601(),
+            },
+            SubtitleTranslation {
+                text: "nouveau".into(),
+                source_language: Some("en".into()),
+                target_language: "fr".into(),
+                provider: "openai".into(),
+                model: Some("test-model".into()),
+                created_at: now_iso8601(),
+            },
+        ];
+        for translation in &newer_translations {
+            database
+                .save_translation(newer.id.unwrap(), translation)
+                .unwrap();
+        }
+
+        let history = database.subtitle_history(10).unwrap();
+        assert_eq!(history.len(), 2);
+        assert_eq!(history[0].text, "newer");
+        assert_eq!(history[0].translations, newer_translations);
+        assert_eq!(history[1].text, "older");
+        assert_eq!(history[1].translations, vec![older_translation]);
+    }
+
+    #[test]
     fn seed_dictionary_lookup_works() {
         let (_path, database) = open_temp_db("seed");
         let entries = database.lookup("こんにちは", 10).unwrap();

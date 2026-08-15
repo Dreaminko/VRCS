@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ChevronDown, Clock3, X } from "lucide-react";
 
@@ -263,15 +263,26 @@ function App() {
     if (compact) collapseCompactOverlay();
   };
 
-  const selectConversationAndCloseLookup = (id: string) => {
+  const selectConversationAndCloseLookup = useCallback((id: string) => {
     selectConversation(id);
     clearLookup();
-  };
+  }, [clearLookup, selectConversation]);
 
-  const createConversationAndCloseLookup = () => {
+  const createConversationAndCloseLookup = useCallback(() => {
     createConversation();
     clearLookup();
-  };
+  }, [clearLookup, createConversation]);
+
+  const toggleConversationSidebar = useCallback(() => {
+    setSidebarOpen((current) => !current);
+  }, [setSidebarOpen]);
+
+  const translateVisibleSubtitle = useCallback((id: number) => {
+    void translateSubtitle(id);
+  }, [translateSubtitle]);
+  const subtitleTranslationHandler = settings?.translation.mode === "disabled"
+    ? undefined
+    : translateVisibleSubtitle;
 
   const openChatbox = () => {
     clearLookup();
@@ -386,7 +397,7 @@ function App() {
             conversations={conversations}
             activeId={activeConversation?.id}
             selectedId={selectedConversation?.id}
-            onToggle={() => setSidebarOpen((current) => !current)}
+            onToggle={toggleConversationSidebar}
             onNew={createConversationAndCloseLookup}
             onSelect={selectConversationAndCloseLookup}
             onRename={renameConversation}
@@ -468,7 +479,7 @@ function App() {
                     && selectedConversation?.id === activeConversation?.id
                   }
                   onSelect={selectWord}
-                  onTranslate={settings?.translation.mode === "disabled" ? undefined : (id) => void translateSubtitle(id)}
+                  onTranslate={subtitleTranslationHandler}
                   translatingSubtitleIds={translatingSubtitleIds}
                 />
               </>
@@ -478,7 +489,7 @@ function App() {
               <HistoryView
                 subtitles={subtitles}
                 onSelect={selectWord}
-                onTranslate={settings?.translation.mode === "disabled" ? undefined : (id) => void translateSubtitle(id)}
+                onTranslate={subtitleTranslationHandler}
                 translatingSubtitleIds={translatingSubtitleIds}
               />
             )}

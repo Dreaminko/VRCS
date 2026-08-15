@@ -75,7 +75,6 @@ export function useCoreSession(settingsPageActive: boolean) {
     audioLevels,
     vrchatMuteStatus,
     translatingSubtitleIds,
-    mergeSnapshot,
     clearPartials,
     translateSubtitle,
   } = useSubtitleStream({
@@ -141,22 +140,20 @@ export function useCoreSession(settingsPageActive: boolean) {
   const refresh = useCallback(async () => {
     if (!coreConfigured) return;
     try {
-      const [nextHealth, nextSettings, historyItems, nextAsrCapabilities] = await Promise.all([
+      const [nextHealth, nextSettings, nextAsrCapabilities] = await Promise.all([
         coreApi.health(),
         coreApi.settings(),
-        coreApi.subtitles(),
         coreApi.asrCapabilities(),
       ]);
       setHealth(nextHealth);
       persistedSettingsRef.current = nextSettings;
       setSettings(nextSettings);
-      mergeSnapshot(historyItems);
       setAsrCapabilities(nextAsrCapabilities);
       clearErrorFrom("core");
     } catch (reason) {
       reportError(reason, "errors.core.connect", "core");
     }
-  }, [clearErrorFrom, coreConfigured, mergeSnapshot, reportError]);
+  }, [clearErrorFrom, coreConfigured, reportError]);
 
   const loadSettings = useCallback(async () => {
     if (!coreConfigured) return;

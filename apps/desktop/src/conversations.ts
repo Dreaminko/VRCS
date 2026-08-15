@@ -81,13 +81,22 @@ export function groupConversations(
   const starts = [...new Set([...boundaries, ...naturalStarts])].sort((left, right) => left - right);
   if (!starts.length) starts.push(emptyStart);
 
+  const grouped = starts.map(() => [] as Subtitle[]);
+  let groupIndex = 0;
+  ordered.forEach((subtitle) => {
+    const createdAt = Date.parse(subtitle.created_at);
+    while (
+      groupIndex + 1 < starts.length
+      && createdAt >= starts[groupIndex + 1]
+    ) {
+      groupIndex += 1;
+    }
+    if (createdAt >= starts[groupIndex]) grouped[groupIndex].push(subtitle);
+  });
+
   return starts
     .map((startedAt, index) => {
-      const nextStart = starts[index + 1] ?? Number.POSITIVE_INFINITY;
-      const items = ordered.filter((subtitle) => {
-        const createdAt = Date.parse(subtitle.created_at);
-        return createdAt >= startedAt && createdAt < nextStart;
-      });
+      const items = grouped[index];
       const first = items[0];
       const last = items[items.length - 1];
       const id = conversationId(startedAt);

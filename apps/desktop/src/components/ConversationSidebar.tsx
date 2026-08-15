@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import type { CSSProperties, KeyboardEvent as ReactKeyboardEvent } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
@@ -79,6 +79,7 @@ type SidebarTooltip = {
 const TOOLTIP_HOVER_DELAY_MS = 180;
 const TOOLTIP_SWITCH_DELAY_MS = 70;
 const TOOLTIP_EXIT_MS = 110;
+const MAX_RENDERED_CONVERSATIONS = 50;
 
 type SidebarProps = {
   open: boolean;
@@ -123,7 +124,7 @@ function movePopoverFocus(event: ReactKeyboardEvent<HTMLDivElement>) {
   buttons[nextIndex]?.focus();
 }
 
-export function ConversationSidebar({
+export const ConversationSidebar = memo(function ConversationSidebar({
   open,
   conversations,
   activeId,
@@ -137,8 +138,16 @@ export function ConversationSidebar({
 }: SidebarProps) {
   const { t, i18n } = useTranslation();
   const locale = i18n.resolvedLanguage ?? "en-US";
-  const active = conversations.find((conversation) => conversation.id === activeId);
-  const history = conversations.filter((conversation) => conversation.id !== activeId);
+  const recentConversations = conversations.slice(0, MAX_RENDERED_CONVERSATIONS);
+  const selectedOutsideRecent = conversations.find(
+    (conversation) => conversation.id === selectedId
+      && !recentConversations.some((recent) => recent.id === conversation.id),
+  );
+  const renderedConversations = selectedOutsideRecent
+    ? [...recentConversations, selectedOutsideRecent]
+    : recentConversations;
+  const active = renderedConversations.find((conversation) => conversation.id === activeId);
+  const history = renderedConversations.filter((conversation) => conversation.id !== activeId);
   const [actionsId, setActionsId] = useState<string | null>(null);
   const [actionsPopoverPosition, setActionsPopoverPosition] = useState<FloatingPosition | null>(null);
   const [choosingIcon, setChoosingIcon] = useState(false);
@@ -308,7 +317,7 @@ export function ConversationSidebar({
           ><Plus size={20} /></button>
           <div className="sidebar-rail-divider" />
           <div className="sidebar-conversation-rail" aria-label={t("conversations.recent")} onScroll={hideSidebarTooltip}>
-            {conversations.map((conversation) => (
+            {renderedConversations.map((conversation) => (
               <RailConversationButton
                 key={conversation.id}
                 conversation={conversation}
@@ -344,7 +353,7 @@ export function ConversationSidebar({
     );
   }
 
-  const menuConversation = conversations.find((conversation) => conversation.id === actionsId);
+  const menuConversation = renderedConversations.find((conversation) => conversation.id === actionsId);
 
   return (
     <aside className="conversation-sidebar" aria-label={t("conversations.sidebar")}>
@@ -459,7 +468,7 @@ export function ConversationSidebar({
       )}
     </aside>
   );
-}
+});
 
 function ConversationRow({
   conversation,

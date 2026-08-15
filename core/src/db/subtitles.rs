@@ -2,7 +2,7 @@ use rusqlite::params;
 
 use super::Database;
 use crate::error::AppResult;
-use crate::models::Subtitle;
+use crate::models::{Subtitle, SubtitleTranslation};
 
 impl Database {
     /// 写入字幕并把历史裁剪到 limit 条，返回带 id 的记录。
@@ -34,17 +34,53 @@ impl Database {
 
     /// 历史按 id 倒序返回（最新的在前）。
     pub fn subtitle_history(&self, limit: u32) -> AppResult<Vec<Subtitle>> {
-        let mut subtitles = {
-            let mut statement = self.conn.prepare(
-                "SELECT id, text, language, started_at, ended_at, source, created_at
-                          FROM subtitles ORDER BY id DESC LIMIT ?",
-            )?;
-            let rows = statement.query_map(params![limit], subtitle_from_row)?;
-            rows.collect::<Result<Vec<_>, _>>()?
-        };
-        for subtitle in &mut subtitles {
-            subtitle.translations =
-                self.translations_for_subtitle(subtitle.id.unwrap_or_default())?;
+        let mut statement = self.conn.prepare(
+            "SELECT recent.id, recent.text, recent.language, recent.started_at,
+                    recent.ended_at, recent.source, recent.created_at,
+                    translation.id, translation.text, translation.source_language,
+                    translation.target_language, translation.provider,
+                    translation.model, translation.created_at
+             FROM (
+                 SELECT id, text, language, started_at, ended_at, source, created_at
+                 FROM subtitles ORDER BY id DESC LIMIT ?
+             ) AS recent
+             LEFT JOIN subtitle_translations AS translation
+               ON translation.subtitle_id = recent.id
+             ORDER BY recent.id DESC, translation.id",
+        )?;
+        let rows = statement.query_map(params![limit], |row| {
+            let subtitle = subtitle_from_row(row)?;
+            let translation = if row.get::<_, Option<i64>>(7)?.is_some() {
+                Some(SubtitleTranslation {
+                    text: row.get(8)?,
+                    source_language: row.get(9)?,
+                    target_language: row.get(10)?,
+                    provider: row.get(11)?,
+                    model: row.get(12)?,
+                    created_at: row.get(13)?,
+                })
+            } else {
+                None
+            };
+            Ok((subtitle, translation))
+        })?;
+
+        let mut subtitles: Vec<Subtitle> = Vec::new();
+        for row in rows {
+            let (mut subtitle, translation) = row?;
+            if let Some(current) = subtitles
+                .last_mut()
+                .filter(|current| current.id == subtitle.id)
+            {
+                if let Some(translation) = translation {
+                    current.translations.push(translation);
+                }
+            } else {
+                if let Some(translation) = translation {
+                    subtitle.translations.push(translation);
+                }
+                subtitles.push(subtitle);
+            }
         }
         Ok(subtitles)
     }
