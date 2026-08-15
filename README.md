@@ -14,6 +14,7 @@ VRCS 是一个本地优先的 VRChat 字幕学习工具。它捕获 Windows 系�
 - Silero ONNX VAD，首次启动自动下载并校验固定版本，模型不可用时使用能量检测回退
 - whisper.cpp 本地 CPU/CUDA 转写、自动 GPU 回退与 GGML 模型管理
 - Qwen3 ASR、Fun-ASR 与 OpenAI 实时流式转写，支持增量字幕、断线重连和本地回退
+- 可选读取本机 VRCX-0 的当前世界名和成员显示名，作为 LLM 翻译或 Qwen/Fun-ASR 上下文
 - Axum HTTP 接口和 WebSocket 字幕推送
 - 默认关闭、独立监听且版本化的第三方事件 WebSocket API
 - SQLite 字幕历史、Yomitan 词典导入和内置英日测试词典
@@ -63,7 +64,7 @@ npm run dev:core:cuda
 npm run dev:core
 ```
 
-独立 Core 默认使用 `core/config.json`，也支持 `VRCS_CONFIG`、`VRCS_HOST`、`VRCS_PORT`、`VRCS_SESSION_TOKEN`、`VRCS_EXTERNAL_API_TOKEN`、`VRCS_SILERO_MODEL`、`VRCS_ASR_MODEL_DIR`、`VRCS_QWEN_API_KEY`、`VRCS_OPENAI_API_KEY`、`VRCS_GEMINI_API_KEY`、`VRCS_OPENAI_COMPATIBLE_API_KEY`、`VRCS_DEEPL_API_KEY` 和 `VRCS_MICROSOFT_TRANSLATOR_KEY`。同时兼容 `DASHSCOPE_API_KEY`、`OPENAI_API_KEY`、`GEMINI_API_KEY` 与 `DEEPL_API_KEY`；VRCS 专用变量优先。设置页可以为同一供应商保存多个命名 API 配置，API Key 分别写入 Windows 凭据管理器。环境变量会覆盖该供应商当前配置的已保存密钥，但区域和 Workspace 仍取自当前配置。未设置 `VRCS_SESSION_TOKEN` 时会为回环监听生成临时 token 并输出到终端；监听非回环地址时必须显式设置非空 token。
+独立 Core 默认使用 `core/config.json`，也支持 `VRCS_CONFIG`、`VRCS_HOST`、`VRCS_PORT`、`VRCS_SESSION_TOKEN`、`VRCS_EXTERNAL_API_TOKEN`、`VRCS_VRCX_INTEGRATION_TOKEN`、`VRCS_SILERO_MODEL`、`VRCS_ASR_MODEL_DIR`、`VRCS_QWEN_API_KEY`、`VRCS_OPENAI_API_KEY`、`VRCS_GEMINI_API_KEY`、`VRCS_OPENAI_COMPATIBLE_API_KEY`、`VRCS_DEEPL_API_KEY` 和 `VRCS_MICROSOFT_TRANSLATOR_KEY`。同时兼容 `DASHSCOPE_API_KEY`、`OPENAI_API_KEY`、`GEMINI_API_KEY` 与 `DEEPL_API_KEY`；VRCS 专用变量优先。设置页可以为同一供应商保存多个命名 API 配置，API Key 分别写入 Windows 凭据管理器。环境变量会覆盖该供应商当前配置的已保存密钥，但区域和 Workspace 仍取自当前配置。未设置 `VRCS_SESSION_TOKEN` 时会为回环监听生成临时 token 并输出到终端；监听非回环地址时必须显式设置非空 token。
 
 如果绕过 Tauri、单独运行 Vite 前端，请把同一个 token 同时设置为 `VRCS_SESSION_TOKEN` 和 `VITE_VRCS_SESSION_TOKEN`。
 
@@ -112,7 +113,13 @@ OpenAI 官方连接可按需设为“仅语音识别”“仅 LLM / 翻译”或
 
 ## LLM 翻译增强
 
-使用 OpenAI、Gemini、Alibaba Cloud 或 OpenAI Compatible 翻译时，“设置 → 翻译”可编辑系统 Prompt，并在同一有序列表中管理多个本地术语表和在线订阅。本地术语表支持 JSON 导入导出；在线订阅每天自动刷新，并分别保留最后一次成功缓存。列表顺序决定术语匹配优先级，所有已启用来源合计最多使用 500 条；JSON 格式见[术语表 JSON 与在线订阅](docs/glossary-subscription.md)。还可选择是否附带最近的扬声器、麦克风和 Chatbox 原文。上下文默认关闭，可分别控制三个来源，并受消息数和字符数双重限制；本地预览会显示实际附带的条数、字符数和最终系统指令。DeepL 与 Microsoft Translator 不会接收这些增强内容。
+使用 OpenAI、Gemini、Alibaba Cloud 或 OpenAI Compatible 翻译时，“设置 → 翻译”可编辑系统 Prompt，并在同一有序列表中管理多个本地术语表和在线订阅。本地术语表支持 JSON 导入导出；在线订阅每天自动刷新，并分别保留最后一次成功缓存。列表顺序决定术语匹配优先级，所有已启用来源合计最多使用 500 条；JSON 格式见[术语表 JSON 与在线订阅](docs/glossary-subscription.md)。还可选择是否附带最近的扬声器、麦克风和 Chatbox 原文。最近原文默认关闭，可分别控制三个来源，并受消息数和字符数双重限制；本地预览会显示实际附带的条数、字符数和最终系统指令。启用 VRCX-0 集成及其 LLM 开关后，当前世界名、成员显示名和成员语言也会加入上下文，此功能独立于“附带最近原文”。DeepL 与 Microsoft Translator 不会接收这些增强内容。
+
+## VRCX-0 上下文集成
+
+“设置 → 连接”可启用本机 VRCX-0 集成，默认连接 `127.0.0.1:8799`。Token 保存在 Windows 凭据管理器，也可通过 `VRCS_VRCX_INTEGRATION_TOKEN` 提供，不写入 `config.json`。设置页支持检查连接状态和测试当前配置。
+
+VRCS 只读取当前世界名、成员显示名、是否为自己及成员语言；不会把 VRCX-0 的用户 ID、房间 location、备注等字段发送给模型。LLM 上下文会即时使用最新房间快照。Qwen3 ASR 与 Fun-ASR 会在下一次开始转写时合并房间上下文，手动填写的 ASR context 优先；OpenAI Realtime 和本地 Whisper 不使用该数据。VRCX-0 不可用时，字幕和翻译会继续运行，只是不附带房间上下文。
 
 ## 第三方输出 API
 

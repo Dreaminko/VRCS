@@ -733,6 +733,43 @@
       "connections": {
         "title": "Connection settings"
       },
+      "vrcx": {
+        "title": "VRCX-0",
+        "enabled": "Enable VRCX-0 integration",
+        "port": "Port",
+        "portHint": "Use the port configured in VRCX-0.",
+        "invalidPort": "Enter a valid port from 1 to 65535.",
+        "includeInLlmContext": "Include VRCX world data in LLM context",
+        "includeInAsrContext": "Include VRCX world data in ASR context",
+        "test": "Test connection",
+        "testing": "Testing…",
+        "testFailed": "The VRCX-0 connection test failed.",
+        "token": "VRCX-0 token",
+        "tokenChecking": "Checking the token status.",
+        "tokenConfigured": "Stored securely.",
+        "tokenMissing": "No token is configured.",
+        "tokenEnvironment": "Managed by an environment variable.",
+        "tokenManagedHint": "Create and manage the token in VRCX-0. VRCS does not generate one.",
+        "tokenInput": "Paste the token from VRCX-0",
+        "saveToken": "Save token",
+        "deleteToken": "Delete token",
+        "tokenSaved": "The VRCX-0 token was stored securely.",
+        "tokenDeleted": "The stored VRCX-0 token was deleted.",
+        "tokenLoadFailed": "Could not load the VRCX-0 token status.",
+        "tokenSaveFailed": "Could not save the VRCX-0 token.",
+        "tokenDeleteFailed": "Could not delete the VRCX-0 token.",
+        "worldSummary": "World: {{world}} · Members: {{count}}",
+        "noWorldSummary": "No active world · Members: {{count}}",
+        "runtime": {
+          "checking": "Checking the VRCX-0 status.",
+          "load_failed": "Could not read the VRCX-0 status.",
+          "disabled": "VRCX-0 integration is off.",
+          "missing_token": "A VRCX-0 token is required.",
+          "connecting": "Connecting to VRCX-0…",
+          "connected": "Connected to VRCX-0.",
+          "error": "VRCX-0 connection error."
+        }
+      },
       "osc": {
         "title": "OSC",
 

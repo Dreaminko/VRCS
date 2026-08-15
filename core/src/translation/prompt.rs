@@ -33,11 +33,8 @@ impl<'a> TranslationPromptBuilder<'a> {
         text: &str,
     ) -> BuiltTranslationPrompt {
         let glossary = format_glossary(&self.config.glossary);
-        let (context, context_message_count) = if self.config.context_enabled {
-            format_context(context, self.config.max_chars as usize)
-        } else {
-            (String::new(), 0)
-        };
+        let (context, context_message_count) =
+            format_context(context, self.config.max_chars as usize);
         let context_char_count = context.chars().count();
         let instructions = render_template(
             &self.config.system_prompt,
@@ -180,7 +177,7 @@ mod tests {
         let prompt = TranslationPromptBuilder::new(&TranslationPromptConfig::default()).build(
             Some("ja"),
             "en",
-            &[entry("speaker", "history")],
+            &[],
             "こんにちは",
         );
 
@@ -194,7 +191,7 @@ mod tests {
 
     #[test]
     fn context_keeps_the_newest_messages_in_oldest_to_newest_order() {
-        let mut config = TranslationPromptConfig {
+        let config = TranslationPromptConfig {
             context_enabled: true,
             max_chars: 200,
             ..TranslationPromptConfig::default()
@@ -213,10 +210,23 @@ mod tests {
                 < prompt.instructions.find("\"new\"").unwrap()
         );
         assert!(prompt.context_char_count <= config.max_chars as usize);
+    }
 
-        config.context_enabled = false;
-        let disabled = TranslationPromptBuilder::new(&config).build(None, "ja", &entries, "now");
-        assert!(!disabled.instructions.contains("RECENT ORIGINAL TEXT"));
+    #[test]
+    fn explicit_context_is_independent_of_recent_history_switch() {
+        let config = TranslationPromptConfig::default();
+        assert!(!config.context_enabled);
+
+        let prompt = TranslationPromptBuilder::new(&config).build(
+            None,
+            "ja",
+            &[entry("vrcx_room", "World: Example")],
+            "now",
+        );
+
+        assert_eq!(prompt.context_message_count, 1);
+        assert!(prompt.instructions.contains("[vrcx_room]"));
+        assert!(prompt.instructions.contains("World: Example"));
     }
 
     #[test]

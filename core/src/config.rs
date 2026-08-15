@@ -27,7 +27,7 @@ pub use profile::{
 };
 #[allow(unused_imports)]
 pub use recognition::{AsrConfig, FunAsrConfig, LocalAsrConfig, OpenAiAsrConfig, QwenAsrConfig};
-pub use runtime::{ExternalApiConfig, ServerConfig, StorageConfig};
+pub use runtime::{ExternalApiConfig, ServerConfig, StorageConfig, VrcxConfig};
 pub use schema::{AppConfig, SCHEMA_VERSION};
 #[allow(unused_imports)]
 pub use translation::{

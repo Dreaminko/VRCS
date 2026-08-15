@@ -15,6 +15,8 @@ pub struct CredentialStatus {
 
 const EXTERNAL_API_TARGET: &str = "VRCS/ExternalAPI/token";
 const EXTERNAL_API_ENV: &str = "VRCS_EXTERNAL_API_TOKEN";
+const VRCX_TARGET: &str = "VRCS/VRCXIntegration/token";
+const VRCX_ENV: &str = "VRCS_VRCX_INTEGRATION_TOKEN";
 
 pub fn external_api_token_status() -> Result<CredentialStatus, String> {
     let environment_override =
@@ -55,6 +57,46 @@ pub fn write_external_api_token(value: &str) -> Result<(), String> {
 
 pub fn delete_external_api_token() -> Result<(), String> {
     delete_stored(EXTERNAL_API_TARGET)
+}
+
+pub fn vrcx_token_status() -> Result<CredentialStatus, String> {
+    let environment_override = std::env::var(VRCX_ENV).is_ok_and(|value| !value.trim().is_empty());
+    let stored_configured = read_stored(VRCX_TARGET)?.is_some();
+    Ok(CredentialStatus {
+        configured: environment_override || stored_configured,
+        stored_configured,
+        environment_override,
+        source: if environment_override {
+            Some("environment")
+        } else {
+            stored_configured.then_some("credential_manager")
+        },
+    })
+}
+
+pub fn read_vrcx_token() -> Result<Option<String>, String> {
+    if let Ok(value) = std::env::var(VRCX_ENV) {
+        if !value.trim().is_empty() {
+            return Ok(Some(value));
+        }
+    }
+    read_stored_vrcx_token()
+}
+
+pub(crate) fn read_stored_vrcx_token() -> Result<Option<String>, String> {
+    read_stored(VRCX_TARGET)
+}
+
+pub fn write_vrcx_token(value: &str) -> Result<(), String> {
+    let value = value.trim();
+    if value.is_empty() || value.len() > 4096 {
+        return Err("VRCX-0 token length is invalid".into());
+    }
+    write_stored(VRCX_TARGET, value)
+}
+
+pub fn delete_vrcx_token() -> Result<(), String> {
+    delete_stored(VRCX_TARGET)
 }
 
 fn env_names(provider: &str) -> Result<&'static [&'static str], String> {
@@ -281,9 +323,12 @@ mod tests {
     }
 
     #[test]
-    fn external_api_uses_an_independent_credential_target() {
+    fn integration_tokens_use_independent_credential_targets() {
         assert_eq!(EXTERNAL_API_TARGET, "VRCS/ExternalAPI/token");
-        assert_ne!(EXTERNAL_API_TARGET, target("profile"));
+        assert_eq!(VRCX_TARGET, "VRCS/VRCXIntegration/token");
+        assert_ne!(EXTERNAL_API_TARGET, VRCX_TARGET);
+        assert_ne!(VRCX_TARGET, target("profile"));
         assert!(write_external_api_token(" ").is_err());
+        assert!(write_vrcx_token(" ").is_err());
     }
 }

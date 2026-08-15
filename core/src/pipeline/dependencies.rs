@@ -160,11 +160,12 @@ impl PipelineDependencies {
                 return Err(detail);
             }
         };
-        let (translation_settings, api_profiles) = {
+        let (translation_settings, api_profiles, include_vrcx_context) = {
             let config = self.config.read().expect("config lock");
             (
                 automatic_translation_settings(&config.translation, source),
                 config.asr.api_profiles.clone(),
+                config.vrcx.enabled && config.vrcx.include_in_llm_context,
             )
         };
         self.output.subtitle_stored_with_message(
@@ -173,10 +174,13 @@ impl PipelineDependencies {
             &message_id,
         );
         if let Some(settings) = translation_settings {
-            if let Err(detail) =
-                self.translation
-                    .enqueue(saved.clone(), settings, api_profiles, message_id.clone())
-            {
+            if let Err(detail) = self.translation.enqueue(
+                saved.clone(),
+                settings,
+                api_profiles,
+                message_id.clone(),
+                include_vrcx_context,
+            ) {
                 if let Some(subtitle_id) = saved.id {
                     self.output.translation_failed_with_message(
                         subtitle_id,

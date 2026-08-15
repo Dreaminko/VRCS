@@ -733,6 +733,43 @@
       "connections": {
         "title": "接続設定"
       },
+      "vrcx": {
+        "title": "VRCX-0",
+        "enabled": "VRCX-0 連携を有効にする",
+        "port": "ポート",
+        "portHint": "VRCX-0 で設定したポートを入力してください。",
+        "invalidPort": "1～65535 の有効なポートを入力してください。",
+        "includeInLlmContext": "VRCX のワールド情報を LLM コンテキストに含める",
+        "includeInAsrContext": "VRCX のワールド情報を音声認識コンテキストに含める",
+        "test": "接続をテスト",
+        "testing": "テスト中…",
+        "testFailed": "VRCX-0 の接続テストに失敗しました。",
+        "token": "VRCX-0 Token",
+        "tokenChecking": "Token の状態を確認しています。",
+        "tokenConfigured": "安全に保存されています。",
+        "tokenMissing": "Token は未設定です。",
+        "tokenEnvironment": "Token は環境変数で管理されています。",
+        "tokenManagedHint": "Token は VRCX-0 で作成・管理します。VRCS では生成できません。",
+        "tokenInput": "VRCX-0 の Token を貼り付け",
+        "saveToken": "Token を保存",
+        "deleteToken": "Token を削除",
+        "tokenSaved": "VRCX-0 Token を安全に保存しました。",
+        "tokenDeleted": "保存済みの VRCX-0 Token を削除しました。",
+        "tokenLoadFailed": "VRCX-0 Token の状態を読み込めませんでした。",
+        "tokenSaveFailed": "VRCX-0 Token を保存できませんでした。",
+        "tokenDeleteFailed": "VRCX-0 Token を削除できませんでした。",
+        "worldSummary": "ワールド：{{world}} · {{count}} 人",
+        "noWorldSummary": "参加中のワールドなし · {{count}} 人",
+        "runtime": {
+          "checking": "VRCX-0 の状態を確認しています。",
+          "load_failed": "VRCX-0 の状態を取得できませんでした。",
+          "disabled": "VRCX-0 連携はオフです。",
+          "missing_token": "VRCX-0 Token の設定が必要です。",
+          "connecting": "VRCX-0 に接続中…",
+          "connected": "VRCX-0 に接続しました。",
+          "error": "VRCX-0 接続エラー。"
+        }
+      },
       "osc": {
         "title": "OSC",
 

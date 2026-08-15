@@ -26,6 +26,7 @@ import type {
   SubtitleTranslation,
   TranslationPromptPreview,
   TranslationPromptSettings,
+  VrcxRuntimeStatus,
 } from "./types";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { apiErrorFromResponse } from "./api-error";
@@ -177,6 +178,17 @@ export const coreApi = {
     }),
   deleteExternalApiToken: () =>
     request<CredentialStatus>("/api/external-api/token", { method: "DELETE" }),
+  vrcxTokenStatus: () => request<CredentialStatus>("/api/vrcx/token"),
+  vrcxRuntimeStatus: () => request<VrcxRuntimeStatus>("/api/vrcx/status"),
+  saveVrcxToken: (token: string) =>
+    request<CredentialStatus>("/api/vrcx/token", {
+      method: "PUT",
+      body: JSON.stringify({ token }),
+    }),
+  deleteVrcxToken: () =>
+    request<CredentialStatus>("/api/vrcx/token", { method: "DELETE" }),
+  testVrcx: () =>
+    request<VrcxRuntimeStatus>("/api/vrcx/test", { method: "POST" }),
   start: () =>
     request<{ running: boolean; device: AudioDevice | null; microphone_device: AudioDevice | null }>("/api/capture/start", {
       method: "POST",

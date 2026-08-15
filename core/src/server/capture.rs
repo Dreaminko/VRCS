@@ -223,6 +223,14 @@ pub(crate) async fn validate_capture_config(
     Ok(())
 }
 
+fn effective_asr_config(state: &Arc<AppState>, config: &AppConfig) -> AsrConfig {
+    let mut asr = config.asr.clone();
+    if config.vrcx.enabled && config.vrcx.include_in_asr_context {
+        state.vrcx.apply_asr_context(&mut asr);
+    }
+    asr
+}
+
 fn pipeline_dependencies(state: &Arc<AppState>) -> PipelineDependencies {
     PipelineDependencies::new(
         Arc::clone(&state.asr),
@@ -256,7 +264,7 @@ async fn start_speaker_pipeline(
             process_name,
             None,
             &config.vad,
-            config.asr.clone(),
+            effective_asr_config(state, config),
             pipeline_dependencies(state),
         )
         .await
@@ -292,7 +300,7 @@ async fn start_microphone_pipeline(
             None,
             Some(config.audio.microphone.trigger_threshold_dbfs),
             &config.vad,
-            config.asr.clone(),
+            effective_asr_config(state, config),
             pipeline_dependencies(state),
         )
         .await

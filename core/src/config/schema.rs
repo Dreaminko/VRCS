@@ -2,10 +2,10 @@ use serde::{Deserialize, Serialize};
 
 use super::{
     AnkiConfig, AsrConfig, AudioConfig, DictionaryConfig, ExternalApiConfig, OscConfig,
-    ServerConfig, StorageConfig, TranslationConfig, VadConfig,
+    ServerConfig, StorageConfig, TranslationConfig, VadConfig, VrcxConfig,
 };
 
-pub const SCHEMA_VERSION: u32 = 19;
+pub const SCHEMA_VERSION: u32 = 20;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AppConfig {
@@ -31,6 +31,8 @@ pub struct AppConfig {
     pub anki: AnkiConfig,
     #[serde(default)]
     pub external_api: ExternalApiConfig,
+    #[serde(default)]
+    pub vrcx: VrcxConfig,
 }
 
 fn schema_version() -> u32 {
@@ -51,6 +53,7 @@ impl Default for AppConfig {
             osc: OscConfig::default(),
             anki: AnkiConfig::default(),
             external_api: ExternalApiConfig::default(),
+            vrcx: VrcxConfig::default(),
         }
     }
 }
@@ -77,6 +80,7 @@ mod tests {
                 "storage",
                 "translation",
                 "vad",
+                "vrcx",
             ],
         );
         assert_keys(&value["server"], ["host", "port"]);
@@ -167,6 +171,15 @@ mod tests {
         assert_keys(
             &value["external_api"],
             ["enabled", "host", "port", "require_token"],
+        );
+        assert_keys(
+            &value["vrcx"],
+            [
+                "enabled",
+                "include_in_asr_context",
+                "include_in_llm_context",
+                "port",
+            ],
         );
         assert_eq!(value["schema_version"], SCHEMA_VERSION);
 

@@ -77,5 +77,12 @@
   line-height: 1.55;
 }
 .external-api-restart svg { flex: 0 0 auto; margin-top: 1px; color: var(--primary-ink); }
+.vrcx-runtime-copy { display: grid; min-width: 0; gap: 2px; }
+.vrcx-runtime-copy strong { color: var(--text); font-size: 12px; font-weight: 650; }
+.vrcx-runtime-copy small { color: var(--text-quiet); font-size: 10px; line-height: 1.5; }
+.vrcx-port-grid { grid-template-columns: minmax(180px, 240px); }
+.vrcx-port-grid input[aria-invalid="true"] { border-color: var(--error); }
+.vrcx-port-grid .field > small.error { color: var(--error); }
+.vrcx-settings .spin { animation: model-spin 900ms linear infinite; }
 @keyframes external-api-pulse { 50% { opacity: 0.35; transform: scale(0.82); } }
 @keyframes model-spin { to { transform: rotate(360deg); } }

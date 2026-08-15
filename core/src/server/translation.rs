@@ -46,7 +46,7 @@ pub(super) async fn prompt_preview(
         )
     })?;
     let prompt_config = input.prompt.clone();
-    let context = db_call(Arc::clone(&state.db), move |db| {
+    let mut context = db_call(Arc::clone(&state.db), move |db| {
         db.recent_translation_context(&prompt_config, None)
     })
     .await
@@ -57,6 +57,7 @@ pub(super) async fn prompt_preview(
             error.to_string(),
         )
     })?;
+    append_vrcx_context(&state, &mut context);
     let target = input.target_language.as_deref().unwrap_or("zh-Hans");
     let prompt = state.glossary_subscription.merged_prompt(&input.prompt);
     let preview = TranslationPromptBuilder::new(&prompt).build(
@@ -132,13 +133,28 @@ fn current_prompt(state: &AppState) -> TranslationPromptConfig {
         .clone()
 }
 
+fn append_vrcx_context(
+    state: &AppState,
+    context: &mut Vec<crate::translation::TranslationContextEntry>,
+) {
+    let enabled = {
+        let config = state.config.read().expect("config lock");
+        config.vrcx.enabled && config.vrcx.include_in_llm_context
+    };
+    if enabled {
+        if let Some(entry) = state.vrcx.translation_context_entry() {
+            context.push(entry);
+        }
+    }
+}
+
 pub(super) async fn translation_preview(
     State(state): State<Arc<AppState>>,
     Json(input): Json<PreviewInput>,
 ) -> ApiResult<Json<Value>> {
     let config = state.config.read().expect("config lock").clone();
     let prompt_config = config.translation.prompt.clone();
-    let context = db_call(Arc::clone(&state.db), move |db| {
+    let mut context = db_call(Arc::clone(&state.db), move |db| {
         db.recent_translation_context(&prompt_config, None)
     })
     .await
@@ -149,6 +165,7 @@ pub(super) async fn translation_preview(
             error.to_string(),
         )
     })?;
+    append_vrcx_context(&state, &mut context);
     let result = state
         .translation_service
         .translate(
@@ -196,7 +213,7 @@ pub(super) async fn subtitle_translate(
     let message_id = format!("translation-{}", uuid::Uuid::new_v4());
     let source = subtitle.source.clone();
     let prompt_config = config.translation.prompt.clone();
-    let context = db_call(Arc::clone(&state.db), move |db| {
+    let mut context = db_call(Arc::clone(&state.db), move |db| {
         db.recent_translation_context(&prompt_config, Some(subtitle_id))
     })
     .await
@@ -207,6 +224,7 @@ pub(super) async fn subtitle_translate(
             error.to_string(),
         )
     })?;
+    append_vrcx_context(&state, &mut context);
     state
         .subtitle_output
         .translation_started_with_message(subtitle_id, &message_id, &source);

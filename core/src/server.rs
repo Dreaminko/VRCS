@@ -13,6 +13,7 @@ mod provider_diagnostics;
 mod settings;
 mod storage;
 mod translation;
+mod vrcx;
 mod ws;
 
 use std::path::PathBuf;
@@ -79,6 +80,7 @@ pub struct AppState {
     pub microphone_pipeline: AsyncMutex<TranscriptionPipeline>,
     pub microphone_monitor: AsyncMutex<MicrophoneMonitor>,
     pub vrchat_mute_sync: crate::vrchat_mute_sync::VrchatMuteSync,
+    pub vrcx: crate::vrcx::VrcxIntegration,
 }
 
 type ApiResult<T> = Result<T, (StatusCode, Json<Value>)>;
@@ -259,6 +261,14 @@ pub fn router(state: Arc<AppState>) -> Router {
                 .delete(external::token_delete),
         )
         .route("/api/external-api/status", get(external::runtime_status))
+        .route(
+            "/api/vrcx/token",
+            get(vrcx::token_status)
+                .put(vrcx::token_write)
+                .delete(vrcx::token_delete),
+        )
+        .route("/api/vrcx/status", get(vrcx::runtime_status))
+        .route("/api/vrcx/test", post(vrcx::test_connection))
         .route("/api/asr/capabilities", get(models::asr_capabilities))
         .route("/api/providers", get(cloud::provider_list))
         .route(

@@ -733,6 +733,43 @@
       "connections": {
         "title": "连接设置"
       },
+      "vrcx": {
+        "title": "VRCX-0",
+        "enabled": "启用 VRCX-0 集成",
+        "port": "端口",
+        "portHint": "请填写 VRCX-0 中配置的端口。",
+        "invalidPort": "请输入 1 到 65535 之间的有效端口。",
+        "includeInLlmContext": "将 VRCX 世界信息加入 LLM 上下文",
+        "includeInAsrContext": "将 VRCX 世界信息加入语音识别上下文",
+        "test": "测试连接",
+        "testing": "正在测试…",
+        "testFailed": "VRCX-0 连接测试失败。",
+        "token": "VRCX-0 Token",
+        "tokenChecking": "正在读取 Token 状态。",
+        "tokenConfigured": "已安全保存。",
+        "tokenMissing": "尚未配置 Token。",
+        "tokenEnvironment": "Token 由环境变量管理。",
+        "tokenManagedHint": "Token 由 VRCX-0 创建和管理，VRCS 不会生成 Token。",
+        "tokenInput": "粘贴 VRCX-0 提供的 Token",
+        "saveToken": "保存 Token",
+        "deleteToken": "删除 Token",
+        "tokenSaved": "VRCX-0 Token 已安全保存。",
+        "tokenDeleted": "已删除保存的 VRCX-0 Token。",
+        "tokenLoadFailed": "无法读取 VRCX-0 Token 状态。",
+        "tokenSaveFailed": "无法保存 VRCX-0 Token。",
+        "tokenDeleteFailed": "无法删除 VRCX-0 Token。",
+        "worldSummary": "世界：{{world}} · {{count}} 人",
+        "noWorldSummary": "当前不在世界中 · {{count}} 人",
+        "runtime": {
+          "checking": "正在读取 VRCX-0 状态。",
+          "load_failed": "无法读取 VRCX-0 状态。",
+          "disabled": "VRCX-0 集成已关闭。",
+          "missing_token": "需要配置 VRCX-0 Token。",
+          "connecting": "正在连接 VRCX-0…",
+          "connected": "已连接到 VRCX-0。",
+          "error": "VRCX-0 连接异常。"
+        }
+      },
       "osc": {
         "title": "OSC",
 

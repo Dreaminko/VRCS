@@ -268,6 +268,15 @@ fn migrate_v18(raw: &serde_json::Value) -> Result<AppConfig, String> {
     serde_json::from_value(value).map_err(|error| error.to_string())
 }
 
+fn migrate_v19(raw: &serde_json::Value) -> Result<AppConfig, String> {
+    let mut value = raw.clone();
+    let object = value
+        .as_object_mut()
+        .ok_or_else(|| "Configuration root must be an object".to_string())?;
+    object.insert("schema_version".into(), serde_json::json!(SCHEMA_VERSION));
+    serde_json::from_value(value).map_err(|error| error.to_string())
+}
+
 fn migrate_storage_quota(
     object: &mut serde_json::Map<String, serde_json::Value>,
 ) -> Result<(), String> {
@@ -279,7 +288,7 @@ fn migrate_storage_quota(
     storage.remove("subtitle_history_limit");
     storage
         .entry("subtitle_history_max_bytes")
-        .or_insert_with(|| serde_json::json!(100_u64 * 1024 * 1024));
+        .or_insert_with(|| serde_json::json!(super::runtime::DEFAULT_HISTORY_MAX_BYTES));
     Ok(())
 }
 
@@ -425,6 +434,7 @@ pub fn config_from_value(raw: &serde_json::Value) -> Result<AppConfig, String> {
         version if version == SCHEMA_VERSION as u64 => {
             serde_json::from_value(raw.clone()).map_err(|error| error.to_string())?
         }
+        19 => migrate_v19(raw)?,
         18 => migrate_v18(raw)?,
         11..=17 => migrate_v11_to_v17(raw)?,
         6..=10 => migrate_v6_to_v10(raw)?,

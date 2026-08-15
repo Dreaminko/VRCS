@@ -21,6 +21,7 @@ struct TranslationJob {
     message_id: String,
     settings: TranslationConfig,
     profiles: Vec<ApiProfile>,
+    include_vrcx_context: bool,
     queued_at: Instant,
 }
 
@@ -29,6 +30,7 @@ impl TranslationDispatcher {
         service: Arc<TranslationService>,
         database: Arc<Mutex<Database>>,
         output: SubtitleLifecyclePublisher,
+        vrcx: crate::vrcx::VrcxIntegration,
     ) -> Self {
         let (sender, mut receiver) = mpsc::channel::<TranslationJob>(64);
         tokio::spawn(async move {
@@ -39,9 +41,10 @@ impl TranslationDispatcher {
                 let service = Arc::clone(&service);
                 let database = Arc::clone(&database);
                 let output = output.clone();
+                let vrcx = vrcx.clone();
                 tokio::spawn(async move {
                     let _permit = permit;
-                    process_job(service, database, output, job).await;
+                    process_job(service, database, output, vrcx, job).await;
                 });
             }
         });
@@ -54,6 +57,7 @@ impl TranslationDispatcher {
         settings: TranslationConfig,
         profiles: Vec<ApiProfile>,
         message_id: String,
+        include_vrcx_context: bool,
     ) -> Result<(), String> {
         self.sender
             .try_send(TranslationJob {
@@ -61,6 +65,7 @@ impl TranslationDispatcher {
                 message_id,
                 settings,
                 profiles,
+                include_vrcx_context,
                 queued_at: Instant::now(),
             })
             .map_err(|_| "Translation queue is full".to_string())
@@ -71,6 +76,7 @@ async fn process_job(
     service: Arc<TranslationService>,
     database: Arc<Mutex<Database>>,
     output: SubtitleLifecyclePublisher,
+    vrcx: crate::vrcx::VrcxIntegration,
     job: TranslationJob,
 ) {
     let Some(subtitle_id) = job.subtitle.id else {
@@ -101,7 +107,7 @@ async fn process_job(
             &progress_source,
         );
     };
-    let context = match database.lock() {
+    let mut context = match database.lock() {
         Ok(database) => database
             .recent_translation_context(&job.settings.prompt, Some(subtitle_id))
             .unwrap_or_else(|error| {
@@ -113,6 +119,11 @@ async fn process_job(
             Vec::new()
         }
     };
+    if job.include_vrcx_context {
+        if let Some(entry) = vrcx.translation_context_entry() {
+            context.push(entry);
+        }
+    }
     let first = service
         .translate_with_progress(
             &job.settings,

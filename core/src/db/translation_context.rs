@@ -111,6 +111,30 @@ mod tests {
     }
 
     #[test]
+    fn disabled_recent_context_returns_no_history() {
+        let directory = tempfile::tempdir().unwrap();
+        let database = Database::open(&directory.path().join("disabled-context.db")).unwrap();
+        database
+            .add_subtitle(&Subtitle {
+                id: None,
+                text: "history".into(),
+                language: None,
+                started_at: None,
+                ended_at: None,
+                source: "speaker".into(),
+                created_at: "2026-08-14T00:00:01Z".into(),
+                translations: Vec::new(),
+            })
+            .unwrap();
+
+        let entries = database
+            .recent_translation_context(&TranslationPromptConfig::default(), None)
+            .unwrap();
+
+        assert!(entries.is_empty());
+    }
+
+    #[test]
     fn context_respects_independent_source_switches_and_message_limit() {
         let directory = tempfile::tempdir().unwrap();
         let database = Database::open(&directory.path().join("sources.db")).unwrap();

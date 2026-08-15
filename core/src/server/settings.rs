@@ -46,6 +46,7 @@ pub(super) async fn update_settings(
         dictionary: update.dictionary,
         anki: update.anki,
         external_api: update.external_api,
+        vrcx: update.vrcx,
     };
 
     let expected_revision = headers
@@ -401,6 +402,13 @@ pub(super) async fn commit_candidate(
     state
         .vrchat_mute_sync
         .update_enabled(candidate.osc.mute_sync_enabled);
+    if candidate.vrcx != current.vrcx {
+        let token = credentials::read_vrcx_token().unwrap_or_else(|error| {
+            tracing::warn!(%error, "VRCX-0 token could not be read after settings update");
+            None
+        });
+        state.vrcx.reconfigure(candidate.vrcx.clone(), token).await;
+    }
     if !glossary_refresh_ids.is_empty() {
         let glossary_subscription = Arc::clone(&state.glossary_subscription);
         tokio::spawn(async move {

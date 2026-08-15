@@ -43,7 +43,7 @@ fn migrates_v1_layout() {
     assert_eq!(config.server.port, 9000);
     assert_eq!(config.storage.database_path, "data/custom.db");
     assert_eq!(config.storage.model_directory, "models/whisper");
-    assert_eq!(config.storage.subtitle_history_max_bytes, 100 * 1024 * 1024);
+    assert_eq!(config.storage.subtitle_history_max_bytes, 512 * 1024 * 1024);
     assert_eq!(config.audio.output.device_id, Some(3));
     assert_eq!(config.audio.microphone.mode, "device");
     assert_eq!(config.audio.microphone.device_id, Some(7));
@@ -160,7 +160,7 @@ fn migrates_v18_history_count_to_storage_quota() {
     );
     assert_eq!(
         migrated["storage"]["subtitle_history_max_bytes"],
-        serde_json::json!(100_u64 * 1024 * 1024)
+        serde_json::json!(512_u64 * 1024 * 1024)
     );
     assert!(migrated["storage"].get("subtitle_history_limit").is_none());
 }
@@ -380,6 +380,20 @@ fn migrates_v13_with_external_api_disabled_on_loopback() {
     assert_eq!(config.external_api.host, "127.0.0.1");
     assert_eq!(config.external_api.port, 8767);
     assert!(!config.external_api.require_token);
+}
+
+#[test]
+fn migrates_v19_with_vrcx_disabled() {
+    let config = config_from_value(&serde_json::json!({
+        "schema_version": 19
+    }))
+    .unwrap();
+
+    assert_eq!(config.schema_version, SCHEMA_VERSION);
+    assert!(!config.vrcx.enabled);
+    assert_eq!(config.vrcx.port, 8799);
+    assert!(!config.vrcx.include_in_llm_context);
+    assert!(!config.vrcx.include_in_asr_context);
 }
 
 #[test]

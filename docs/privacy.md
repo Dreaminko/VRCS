@@ -21,6 +21,7 @@ VRCS 只在以下功能需要时访问外部网络或本机网络服务：
 - **OSC Chatbox**：用户启用该功能后，自己的麦克风识别文本、译文以及在 Chatbox 工作台中手动提交的内容会通过本机 UDP 发送给 VRChat，并可能作为聊天框内容显示给附近玩家。关闭 OSC 输出时不会发送。手动发送的内容会作为本机对话记录保存。
 - **VRChat 静音同步**：启用后只通过本机 mDNS/OSCQuery 读取 VRChat 的 `MuteSelf` 布尔状态，用于暂停麦克风转写和阻止 Chatbox 输出；该状态不会写入字幕数据库或发送到外部服务。
 - **第三方输出 API**：默认关闭。启用后会把用户订阅的识别原文、翻译结果和已发送 Chatbox 内容通过独立 WebSocket 输出。默认只监听本机回环地址；浏览器连接以及所有非回环监听都必须使用独立 Token 鉴权。订阅者收到的数据不会额外写入数据库。
+- **VRCX-0 集成**：默认关闭。启用后只连接本机回环地址上的 VRCX-0 Integration API，读取当前世界名、成员显示名、是否为自己及成员语言。VRCS 不使用 VRCX-0 提供的用户 ID、房间 location 或成员备注作为模型上下文。
 
 除上述情况外，查词和历史记录均不产生网络请求。
 
@@ -30,6 +31,7 @@ VRCS 只在以下功能需要时访问外部网络或本机网络服务：
 - 设置与桌面偏好保存在本机配置文件与应用数据目录中。
 - OpenAI Compatible 的自定义 HTTP Header 会以明文写入配置文件。VRCS 会拒绝 Authorization、Cookie、API Key 等敏感 Header；该功能只应用于 HTTP-Referer、客户端标题等非敏感元数据。
 - 第三方输出 API Token 保存在系统凭据管理器的 `VRCS/ExternalAPI/token`，也可由 `VRCS_EXTERNAL_API_TOKEN` 环境变量提供，不写入配置文件或字幕数据库。
+- VRCX-0 Token 保存在系统凭据管理器的 `VRCS/VRCXIntegration/token`，也可由 `VRCS_VRCX_INTEGRATION_TOKEN` 环境变量提供，不写入配置文件或字幕数据库。当前房间快照只保存在内存中，不创建历史记录。
 - 卸载应用不会自动删除 `%LOCALAPPDATA%\.vrcs` 中的数据，需要时可手动删除。
 
 ## Anki
@@ -41,6 +43,8 @@ VRCS 只在以下功能需要时访问外部网络或本机网络服务：
 启用字幕翻译后，当前字幕文本会发送到用户选择的 DeepL、Microsoft Translator、OpenAI、Gemini、Alibaba Cloud 或 OpenAI 兼容 API。关闭翻译时不会发送；API Key 保存在系统凭据管理器或由环境变量提供，不写入配置文件或字幕数据库。
 
 LLM 翻译的“附带最近原文”功能默认关闭。开启后，VRCS 会按用户选择读取最近的扬声器 final 字幕、麦克风 final 字幕和 Chatbox 原文，并与当前文本一起发送给所选 LLM Provider；DeepL 和 Microsoft Translator 不接收这些内容。本地 Profile 只会把请求发送到用户配置的本机地址。用户可分别关闭三个来源，设置 1–50 条消息和 200–12000 字符的上限，或关闭总开关停止附带历史原文。上下文在请求时从现有 SQLite 历史即时构造，不创建新的上下文存储。
+
+启用 VRCX-0 集成及其 LLM 上下文开关后，当前世界名、成员显示名、是否为自己及成员语言会与字幕一起发送给所选 LLM Provider。该开关独立于“附带最近原文”；关闭最近原文不会阻止 VRCX-0 上下文。启用 VRCX-0 的 ASR 上下文开关后，当前世界名和成员显示名会在下一次开始转写时发送给 Qwen3 ASR 或 Fun-ASR；OpenAI Realtime 与本地 Whisper 不接收这些字段。关闭相应 VRCX-0 开关后不会发送。
 
 ## 录制他人语音
 

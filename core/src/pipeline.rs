@@ -524,6 +524,7 @@ mod tests {
             Arc::new(crate::translation::TranslationService::new().unwrap()),
             Arc::clone(&db),
             output.clone(),
+            crate::vrcx::VrcxIntegration::new(tokio::sync::watch::channel(false).1),
         );
         let dependencies = PipelineDependencies::new(
             asr,

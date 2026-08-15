@@ -30,6 +30,18 @@ pub struct ExternalApiConfig {
     pub require_token: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct VrcxConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default = "default_vrcx_port")]
+    pub port: u16,
+    #[serde(default)]
+    pub include_in_llm_context: bool,
+    #[serde(default)]
+    pub include_in_asr_context: bool,
+}
+
 fn default_host() -> String {
     "127.0.0.1".into()
 }
@@ -46,6 +58,10 @@ fn default_external_api_port() -> u16 {
     8767
 }
 
+fn default_vrcx_port() -> u16 {
+    8799
+}
+
 fn default_database_path() -> String {
     "data/vrcs.db".into()
 }
@@ -54,8 +70,10 @@ fn default_model_directory() -> String {
     "models/whisper".into()
 }
 
+pub(super) const DEFAULT_HISTORY_MAX_BYTES: u64 = 512 * 1024 * 1024;
+
 fn default_history_max_bytes() -> u64 {
-    100 * 1024 * 1024
+    DEFAULT_HISTORY_MAX_BYTES
 }
 
 impl Default for ServerConfig {
@@ -84,6 +102,17 @@ impl Default for ExternalApiConfig {
             host: default_external_api_host(),
             port: default_external_api_port(),
             require_token: false,
+        }
+    }
+}
+
+impl Default for VrcxConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            port: default_vrcx_port(),
+            include_in_llm_context: false,
+            include_in_asr_context: false,
         }
     }
 }

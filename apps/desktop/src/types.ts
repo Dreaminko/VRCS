@@ -219,6 +219,16 @@ export interface ExternalApiRuntimeStatus {
   error: string | null;
 }
 
+export interface VrcxRuntimeStatus {
+  state: "disabled" | "missing_token" | "connecting" | "connected" | "error";
+  app_version: string | null;
+  protocol: number | null;
+  world_name: string | null;
+  member_count: number;
+  last_updated_at: string | null;
+  error: string | null;
+}
+
 export interface AudioOutputSettings {
   mode: "system" | "vrchat" | "disabled";
   device_id: number | null;
@@ -253,7 +263,7 @@ export interface DatabaseStorageStats {
 }
 
 export interface Settings {
-  schema_version: 19;
+  schema_version: 20;
   server: {
     host: string;
     port: number;
@@ -282,6 +292,7 @@ export interface Settings {
   };
   anki: AnkiSettings;
   external_api: ExternalApiSettings;
+  vrcx: VrcxSettings;
 }
 
 export interface ExternalApiSettings {
@@ -289,6 +300,13 @@ export interface ExternalApiSettings {
   host: string;
   port: number;
   require_token: boolean;
+}
+
+export interface VrcxSettings {
+  enabled: boolean;
+  port: number;
+  include_in_llm_context: boolean;
+  include_in_asr_context: boolean;
 }
 
 export interface TranslationSettings {

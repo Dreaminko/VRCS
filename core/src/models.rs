@@ -95,6 +95,8 @@ pub struct SettingsUpdate {
     pub anki: AnkiConfig,
     #[serde(default)]
     pub external_api: ExternalApiConfig,
+    #[serde(default)]
+    pub vrcx: crate::config::VrcxConfig,
 }
 
 #[derive(Debug, Clone, Deserialize)]

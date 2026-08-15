@@ -9,7 +9,7 @@ import {
 import type { AsrCapabilities, AudioDevice, Settings } from "../src/types.ts";
 
 const settings: Settings = {
-  schema_version: 19,
+  schema_version: 20,
   server: { host: "127.0.0.1", port: 8766 },
   storage: {
     database_path: "data/vrcs.db",
@@ -28,6 +28,7 @@ const settings: Settings = {
   dictionary: { selection_lookup_enabled: true },
   anki: { enabled: true, port: 8765, deck: "VRCS", model: "Basic", front_field: "Front", back_field: "Back" },
   external_api: { enabled: false, host: "127.0.0.1", port: 8767, require_token: false },
+  vrcx: { enabled: false, port: 22500, include_in_llm_context: false, include_in_asr_context: false },
 };
 
 const devices: AudioDevice[] = [

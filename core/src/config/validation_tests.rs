@@ -12,6 +12,16 @@ fn rejects_zero_osc_port() {
 }
 
 #[test]
+fn rejects_zero_vrcx_port() {
+    let mut config = AppConfig::default();
+    config.vrcx.port = 0;
+    assert_eq!(
+        config.validate_settings().unwrap_err(),
+        "VRCX-0 Integration API port must be between 1 and 65535"
+    );
+}
+
+#[test]
 fn qwen_is_the_default_backend() {
     let config = AppConfig::default();
     assert_eq!(config.asr.backend, "qwen_realtime");

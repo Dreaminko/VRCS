@@ -21,6 +21,7 @@ mod subtitle_output;
 mod translation;
 mod vad;
 mod vrchat_mute_sync;
+mod vrcx;
 mod yomitan;
 
 use std::net::SocketAddr;
@@ -306,16 +307,26 @@ async fn start_inner(options: CoreOptions, defer_managed_vad: bool) -> Result<Co
         Arc::new(translation::TranslationService::with_glossary_subscription(
             Arc::clone(&glossary_subscription),
         )?);
+    let (shutdown_tx, shutdown_rx) = watch::channel(false);
+    let vrcx = vrcx::VrcxIntegration::new(shutdown_rx.clone());
+    let vrcx_token = match credentials::read_vrcx_token() {
+        Ok(token) => token,
+        Err(error) => {
+            tracing::warn!(%error, "VRCX-0 token could not be read");
+            None
+        }
+    };
+    vrcx.reconfigure(config.vrcx.clone(), vrcx_token).await;
     let translation_dispatcher = translation::TranslationDispatcher::new(
         Arc::clone(&translation_service),
         Arc::clone(&db),
         subtitle_output.clone(),
+        vrcx.clone(),
     );
     let asr_service = asr::AsrService::new(asr_config, asr_model_dir);
     let asr_runtime = asr_service.runtime_state();
     let asr = Arc::new(Mutex::new(asr_service));
     let handle_vad_runtime = vad_runtime.clone();
-    let (shutdown_tx, shutdown_rx) = watch::channel(false);
     let external_api_result = if config.external_api.enabled {
         match credentials::read_external_api_token() {
             Ok(token) => {
@@ -387,6 +398,7 @@ async fn start_inner(options: CoreOptions, defer_managed_vad: bool) -> Result<Co
         )),
         microphone_monitor: tokio::sync::Mutex::new(microphone_monitor::MicrophoneMonitor::new()),
         vrchat_mute_sync,
+        vrcx,
     });
 
     let glossary_refresh = Arc::clone(&glossary_subscription);

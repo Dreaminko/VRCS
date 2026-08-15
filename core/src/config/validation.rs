@@ -29,7 +29,7 @@ const CLOUD_FAILURE_POLICIES: [&str; 2] = ["reconnect", "local"];
 impl AppConfig {
     /// 配置文件与 PUT /api/settings 共用的完整结构校验。
     pub fn validate_settings(&self) -> Result<(), String> {
-        validate_runtime(&self.server, &self.storage, &self.external_api)?;
+        validate_runtime(&self.server, &self.storage, &self.external_api, &self.vrcx)?;
         validate_audio(&self.audio, &self.vad)?;
         validate_recognition_options(&self.asr)?;
         validate_api_profiles(&self.asr)?;
@@ -45,6 +45,7 @@ fn validate_runtime(
     server: &ServerConfig,
     storage: &StorageConfig,
     external_api: &ExternalApiConfig,
+    vrcx: &VrcxConfig,
 ) -> Result<(), String> {
     if server.port == 0 {
         return Err("Port must be between 1 and 65535".into());
@@ -58,6 +59,9 @@ fn validate_runtime(
     }
     if !external_host.is_loopback() && !external_api.require_token {
         return Err("External API token authentication is required outside loopback".into());
+    }
+    if vrcx.port == 0 {
+        return Err("VRCX-0 Integration API port must be between 1 and 65535".into());
     }
     const MIN_HISTORY_BYTES: u64 = 10 * 1024 * 1024;
     const MAX_HISTORY_BYTES: u64 = 10 * 1024 * 1024 * 1024;

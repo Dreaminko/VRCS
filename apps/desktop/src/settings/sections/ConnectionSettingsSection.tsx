@@ -6,6 +6,7 @@ import type { Health, Settings } from "../../types";
 import type { ApplySettings, SaveState } from "../settings-types";
 import { PreferenceToggle } from "../SettingsControls";
 import { ExternalApiSettingsCard } from "../system/ExternalApiSettingsCard";
+import { VrcxIntegrationSettingsCard } from "../system/VrcxIntegrationSettingsCard";
 
 export function ConnectionSettingsSection({
   draft,
@@ -75,6 +76,12 @@ export function ConnectionSettingsSection({
     applySettings((current) => ({
       ...current,
       external_api: { ...current.external_api, ...patch },
+    }));
+  };
+  const updateVrcx = (patch: Partial<Settings["vrcx"]>) => {
+    applySettings((current) => ({
+      ...current,
+      vrcx: { ...current.vrcx, ...patch },
     }));
   };
 
@@ -173,6 +180,11 @@ export function ConnectionSettingsSection({
             )}
           </div>
         </section>
+        <VrcxIntegrationSettingsCard
+          config={draft.vrcx}
+          saveState={saveState}
+          onChange={updateVrcx}
+        />
         <ExternalApiSettingsCard
           config={draft.external_api}
           saveState={saveState}
