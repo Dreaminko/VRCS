@@ -17,6 +17,7 @@ import type {
   DictionaryEntry,
   DictionaryImportProgress,
   DictionarySource,
+  DatabaseStorageStats,
   ExternalApiRuntimeStatus,
   Health,
   GlossarySourceStatus,
@@ -154,6 +155,10 @@ function delay(milliseconds: number): Promise<void> {
 export const coreApi = {
   health: () => request<Health>("/health"),
   subtitles: () => request<Subtitle[]>("/api/subtitles"),
+  storageStats: () => request<DatabaseStorageStats>("/api/storage/stats"),
+  clearSubtitleHistory: () => request<DatabaseStorageStats>("/api/subtitles", {
+    method: "DELETE",
+  }),
   devices: () => request<AudioDevice[]>("/api/audio/devices"),
   settings: () => settingsRequest(),
   saveSettings: (settings: Settings) =>

@@ -14,8 +14,8 @@ pub struct StorageConfig {
     pub database_path: String,
     #[serde(default = "default_model_directory")]
     pub model_directory: String,
-    #[serde(default = "default_history_limit")]
-    pub subtitle_history_limit: u32,
+    #[serde(default = "default_history_max_bytes")]
+    pub subtitle_history_max_bytes: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -54,8 +54,8 @@ fn default_model_directory() -> String {
     "models/whisper".into()
 }
 
-fn default_history_limit() -> u32 {
-    500
+fn default_history_max_bytes() -> u64 {
+    100 * 1024 * 1024
 }
 
 impl Default for ServerConfig {
@@ -72,7 +72,7 @@ impl Default for StorageConfig {
         Self {
             database_path: default_database_path(),
             model_directory: default_model_directory(),
-            subtitle_history_limit: default_history_limit(),
+            subtitle_history_max_bytes: default_history_max_bytes(),
         }
     }
 }

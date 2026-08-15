@@ -5,7 +5,7 @@ use super::{
     ServerConfig, StorageConfig, TranslationConfig, VadConfig,
 };
 
-pub const SCHEMA_VERSION: u32 = 18;
+pub const SCHEMA_VERSION: u32 = 19;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AppConfig {
@@ -82,7 +82,11 @@ mod tests {
         assert_keys(&value["server"], ["host", "port"]);
         assert_keys(
             &value["storage"],
-            ["database_path", "model_directory", "subtitle_history_limit"],
+            [
+                "database_path",
+                "model_directory",
+                "subtitle_history_max_bytes",
+            ],
         );
         assert_keys(&value["audio"], ["microphone", "output", "sample_rate"]);
         assert_keys(&value["audio"]["output"], ["device_id", "mode"]);

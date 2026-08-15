@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import {
   AudioLines,
   BookOpen,
+  HardDrive,
   KeyRound,
   Languages,
   PlusCircle,
@@ -41,6 +42,7 @@ import { DebugSettingsSection } from "./sections/DebugSettingsSection";
 import { DictionarySettingsSection } from "./sections/DictionarySettingsSection";
 import { RecognitionSettingsSection } from "./sections/RecognitionSettingsSection";
 import { OscSettingsSection } from "./sections/OscSettingsSection";
+import { StorageSettingsSection } from "./sections/StorageSettingsSection";
 import { SystemSettingsSection } from "./sections/SystemSettingsSection";
 import { TranslationSettingsSection } from "./sections/TranslationSettingsSection";
 import type { SettingsCategory } from "./settings-types";
@@ -193,6 +195,7 @@ export function SettingsPanel({
     icon: ReactNode;
   }> = [
     { id: "system", label: t("settings.categories.system"), icon: <SlidersHorizontal size={18} /> },
+    { id: "storage", label: t("settings.categories.storage"), icon: <HardDrive size={18} /> },
     { id: "audio", label: t("settings.categories.audio"), icon: <Volume2 size={18} /> },
     { id: "recognition", label: t("settings.categories.recognition"), icon: <AudioLines size={18} /> },
     { id: "translation", label: t("settings.categories.translation"), icon: <Languages size={18} /> },
@@ -256,6 +259,15 @@ export function SettingsPanel({
           onUpdateUiLanguage={updateUiLanguage}
           onboardingDisabled={health?.capture_requested ?? false}
           onStartOnboarding={onStartOnboarding}
+        />
+      )}
+
+      {activeCategory === "storage" && (
+        <StorageSettingsSection
+          locale={locale}
+          draft={draft}
+          saveState={saveState}
+          applySettings={applySettings}
         />
       )}
 

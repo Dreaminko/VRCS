@@ -5,10 +5,9 @@ use crate::error::AppResult;
 use crate::models::{Subtitle, SubtitleTranslation};
 
 impl Database {
-    /// 写入字幕并把历史裁剪到 limit 条，返回带 id 的记录。
-    /// 当前由后续阶段的识别管线调用。
+    /// 写入字幕，并在数据库有效占用超过空间配额时清理最旧历史。
     #[allow(dead_code)]
-    pub fn add_subtitle(&self, subtitle: &Subtitle, limit: u32) -> AppResult<Subtitle> {
+    pub fn add_subtitle(&self, subtitle: &Subtitle) -> AppResult<Subtitle> {
         self.conn.execute(
             "INSERT INTO subtitles(text, language, started_at, ended_at, source, created_at)
                  VALUES (?, ?, ?, ?, ?, ?)",
@@ -22,10 +21,7 @@ impl Database {
             ],
         )?;
         let id = self.conn.last_insert_rowid();
-        self.conn.execute(
-            "DELETE FROM subtitles WHERE id NOT IN (SELECT id FROM subtitles ORDER BY id DESC LIMIT ?)",
-            params![limit],
-        )?;
+        self.trim_subtitle_history_to_size()?;
         let mut saved = subtitle.clone();
         saved.id = Some(id);
         saved.translations.clear();

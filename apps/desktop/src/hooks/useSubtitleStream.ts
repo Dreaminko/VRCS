@@ -83,6 +83,15 @@ export function useSubtitleStream({
   }, []);
 
   useEffect(() => {
+    if (!coreConfigured) return;
+    const refreshHistory = () => {
+      void coreApi.subtitles().then(setSubtitles).catch(() => undefined);
+    };
+    window.addEventListener("vrcs:subtitle-history-refresh", refreshHistory);
+    return () => window.removeEventListener("vrcs:subtitle-history-refresh", refreshHistory);
+  }, [coreConfigured]);
+
+  useEffect(() => {
     if (!coreConfigured) {
       setConnection("connecting");
       setAudioLevels({});

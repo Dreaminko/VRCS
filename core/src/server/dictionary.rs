@@ -46,36 +46,28 @@ pub(super) async fn subtitle_history(
     Query(params): Query<HashMap<String, String>>,
 ) -> ApiResult<Json<Value>> {
     let limit = match params.get("limit") {
-        None => 500,
+        None => 10_000,
         Some(raw) => raw
             .parse::<u32>()
             .ok()
-            .filter(|value| (1..=500).contains(value))
+            .filter(|value| (1..=10_000).contains(value))
             .ok_or_else(|| {
                 api_error(
                     StatusCode::UNPROCESSABLE_ENTITY,
                     "subtitles.invalid_limit",
-                    "limit must be between 1 and 500",
+                    "limit must be between 1 and 10000",
                 )
             })?,
     };
-    let history_limit = state
-        .config
-        .read()
-        .expect("config lock")
-        .storage
-        .subtitle_history_limit;
-    let subtitles = db_call(Arc::clone(&state.db), move |db| {
-        db.subtitle_history(limit.min(history_limit))
-    })
-    .await
-    .map_err(|error| {
-        api_error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "subtitles.history_failed",
-            error.to_string(),
-        )
-    })?;
+    let subtitles = db_call(Arc::clone(&state.db), move |db| db.subtitle_history(limit))
+        .await
+        .map_err(|error| {
+            api_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "subtitles.history_failed",
+                error.to_string(),
+            )
+        })?;
     Ok(Json(json!(subtitles)))
 }
 

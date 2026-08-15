@@ -9,6 +9,7 @@ use crate::error::AppResult;
 
 mod chatbox;
 mod dictionary;
+mod storage;
 mod subtitles;
 mod translation_context;
 mod translations;
@@ -100,6 +101,7 @@ CREATE INDEX IF NOT EXISTS dictionary_entries_reading_idx
 
 pub struct Database {
     conn: Connection,
+    subtitle_history_max_bytes: u64,
 }
 
 impl Database {
@@ -109,7 +111,10 @@ impl Database {
         }
         let conn = Connection::open(path)?;
         conn.pragma_update(None, "foreign_keys", "ON")?;
-        let database = Self { conn };
+        let database = Self {
+            conn,
+            subtitle_history_max_bytes: u64::MAX,
+        };
         database.initialize()?;
         Ok(database)
     }
@@ -186,24 +191,40 @@ mod tests {
     }
 
     #[test]
-    fn subtitles_are_trimmed_and_returned_newest_first() {
-        let (_path, database) = open_temp_db("history");
+    fn subtitles_are_trimmed_by_database_usage_and_returned_newest_first() {
+        let (_path, mut database) = open_temp_db("history");
+        let baseline = database.storage_stats().unwrap().used_bytes;
+        database
+            .set_subtitle_history_max_bytes(baseline + 4 * 1024)
+            .unwrap();
         for index in 0..5 {
-            database
-                .add_subtitle(&subtitle(&format!("line {index}")), 3)
-                .unwrap();
+            let text = format!("line {index} {}", "x".repeat(20_000));
+            database.add_subtitle(&subtitle(&text)).unwrap();
         }
         let history = database.subtitle_history(500).unwrap();
-        assert_eq!(history.len(), 3);
-        assert_eq!(history[0].text, "line 4");
-        assert_eq!(history[2].text, "line 2");
-        assert!(history[0].id.unwrap() > history[1].id.unwrap());
+        assert_eq!(history.len(), 1);
+        assert!(history[0].text.starts_with("line 4 "));
+    }
+
+    #[test]
+    fn subtitle_history_clear_reclaims_database_pages() {
+        let (_path, database) = open_temp_db("history-clear");
+        for index in 0..4 {
+            let text = format!("line {index} {}", "x".repeat(20_000));
+            database.add_subtitle(&subtitle(&text)).unwrap();
+        }
+        let before = database.storage_stats().unwrap();
+        let after = database.clear_subtitle_history().unwrap();
+
+        assert!(database.subtitle_history(10).unwrap().is_empty());
+        assert!(after.allocated_bytes < before.allocated_bytes);
+        assert!(after.used_bytes <= after.allocated_bytes);
     }
 
     #[test]
     fn subtitle_translation_is_saved_and_loaded() {
         let (_path, database) = open_temp_db("translation");
-        let saved = database.add_subtitle(&subtitle("hello"), 10).unwrap();
+        let saved = database.add_subtitle(&subtitle("hello")).unwrap();
         let translation = SubtitleTranslation {
             text: "你好".into(),
             source_language: Some("en".into()),
@@ -223,7 +244,7 @@ mod tests {
     #[test]
     fn subtitle_history_keeps_batched_translations_with_their_subtitles() {
         let (_path, database) = open_temp_db("history-translations");
-        let older = database.add_subtitle(&subtitle("older"), 10).unwrap();
+        let older = database.add_subtitle(&subtitle("older")).unwrap();
         let older_translation = SubtitleTranslation {
             text: "旧".into(),
             source_language: Some("en".into()),
@@ -236,7 +257,7 @@ mod tests {
             .save_translation(older.id.unwrap(), &older_translation)
             .unwrap();
 
-        let newer = database.add_subtitle(&subtitle("newer"), 10).unwrap();
+        let newer = database.add_subtitle(&subtitle("newer")).unwrap();
         let newer_translations = [
             SubtitleTranslation {
                 text: "新".into(),

@@ -14,7 +14,6 @@ pub(crate) struct PipelineDependencies {
     asr: Arc<Mutex<AsrService>>,
     database: Arc<Mutex<Database>>,
     live: broadcast::Sender<LiveTranscription>,
-    history_limit: u32,
     translation: TranslationDispatcher,
     translation_config: TranslationConfig,
     api_profiles: Vec<ApiProfile>,
@@ -27,7 +26,6 @@ impl PipelineDependencies {
         asr: Arc<Mutex<AsrService>>,
         database: Arc<Mutex<Database>>,
         live: broadcast::Sender<LiveTranscription>,
-        history_limit: u32,
         translation: TranslationDispatcher,
         translation_config: TranslationConfig,
         api_profiles: Vec<ApiProfile>,
@@ -37,7 +35,6 @@ impl PipelineDependencies {
             asr,
             database,
             live,
-            history_limit,
             translation,
             translation_config,
             api_profiles,
@@ -144,12 +141,11 @@ impl PipelineDependencies {
             translations: Vec::new(),
         };
         let database = Arc::clone(&self.database);
-        let history_limit = self.history_limit;
         let saved = match tokio::task::spawn_blocking(move || {
             database
                 .lock()
                 .map_err(|_| "Database lock is unavailable".to_string())?
-                .add_subtitle(&subtitle, history_limit)
+                .add_subtitle(&subtitle)
                 .map_err(|error| error.to_string())
         })
         .await

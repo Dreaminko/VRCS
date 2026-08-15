@@ -92,16 +92,10 @@ async fn record_conversation_message(
     state: &Arc<AppState>,
     message: &ChatboxMessage,
 ) -> crate::error::AppResult<Subtitle> {
-    let history_limit = state
-        .config
-        .read()
-        .expect("config lock")
-        .storage
-        .subtitle_history_limit;
     let subtitle = conversation_subtitle(message);
     db_call(Arc::clone(&state.db), move |db| {
         let translations = subtitle.translations.clone();
-        let mut saved = db.add_subtitle(&subtitle, history_limit)?;
+        let mut saved = db.add_subtitle(&subtitle)?;
         if let Some(subtitle_id) = saved.id {
             for translation in translations {
                 db.save_translation(subtitle_id, &translation)?;

@@ -16,12 +16,12 @@ import type {
 } from "../src/types.ts";
 
 const settings: Settings = {
-  schema_version: 18,
+  schema_version: 19,
   server: { host: "127.0.0.1", port: 8766 },
   storage: {
     database_path: "data/vrcs.db",
     model_directory: "models/whisper",
-    subtitle_history_limit: 500,
+    subtitle_history_max_bytes: 100 * 1024 * 1024,
   },
   audio: {
     sample_rate: 16_000,

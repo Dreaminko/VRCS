@@ -59,8 +59,10 @@ fn validate_runtime(
     if !external_host.is_loopback() && !external_api.require_token {
         return Err("External API token authentication is required outside loopback".into());
     }
-    if !(1..=10_000).contains(&storage.subtitle_history_limit) {
-        return Err("subtitle_history_limit must be between 1 and 10000".into());
+    const MIN_HISTORY_BYTES: u64 = 10 * 1024 * 1024;
+    const MAX_HISTORY_BYTES: u64 = 10 * 1024 * 1024 * 1024;
+    if !(MIN_HISTORY_BYTES..=MAX_HISTORY_BYTES).contains(&storage.subtitle_history_max_bytes) {
+        return Err("subtitle_history_max_bytes must be between 10 MiB and 10 GiB".into());
     }
     if storage.model_directory.trim().is_empty() {
         return Err("Model storage path cannot be empty".into());

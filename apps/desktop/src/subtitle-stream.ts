@@ -6,7 +6,7 @@ import type {
   VrchatMuteStatus,
 } from "./types";
 
-const DEFAULT_HISTORY_LIMIT = 500;
+const DEFAULT_HISTORY_LIMIT = 10_000;
 const MAX_STREAM_TEXT_LENGTH = 100_000;
 
 export type SubtitleStreamMessage =

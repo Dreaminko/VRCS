@@ -106,6 +106,8 @@ pub(super) async fn update_settings(
     }
     let model_directory_changed =
         candidate.storage.model_directory != current.storage.model_directory;
+    let storage_quota_changed =
+        candidate.storage.subtitle_history_max_bytes != current.storage.subtitle_history_max_bytes;
     let capture_running = state.speaker_pipeline.lock().await.running()
         || state.microphone_pipeline.lock().await.running();
     if capture_running
@@ -126,11 +128,9 @@ pub(super) async fn update_settings(
             "The Core address is a startup setting and cannot be changed at runtime".into(),
         ));
     }
-    if candidate.storage.database_path != current.storage.database_path
-        || candidate.storage.subtitle_history_limit != current.storage.subtitle_history_limit
-    {
+    if candidate.storage.database_path != current.storage.database_path {
         return Err(unprocessable(
-            "The database path and subtitle history limit cannot be changed at runtime".into(),
+            "The database path cannot be changed at runtime".into(),
         ));
     }
     if model_directory_changed && state.asr_model_dir_override.is_some() {
@@ -223,6 +223,16 @@ pub(super) async fn update_settings(
         .glossary_subscription
         .set_sources(candidate.translation.prompt.glossary_sources.clone());
     *state.config.write().expect("config lock") = candidate.clone();
+    if storage_quota_changed {
+        let max_bytes = candidate.storage.subtitle_history_max_bytes;
+        if let Err(error) = super::db_call(Arc::clone(&state.db), move |db| {
+            db.set_subtitle_history_max_bytes(max_bytes)
+        })
+        .await
+        {
+            tracing::warn!(%error, "subtitle history storage quota could not be enforced immediately");
+        }
+    }
     let revision = state.config_revision.fetch_add(1, Ordering::SeqCst) + 1;
     state.osc.update_config(candidate.osc.clone());
     state

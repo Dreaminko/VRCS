@@ -11,4 +11,5 @@
 @import "./settings/integrations.css";
 @import "./settings/models.css";
 @import "./settings/system-api.css";
+@import "./settings/storage.css";
 @import "./settings/dictionary-debug.css";

@@ -259,6 +259,7 @@
       "categories": {
         "label": "設定カテゴリー",
         "system": "システム",
+        "storage": "ストレージ",
         "audio": "音声",
         "recognition": "音声認識",
         "translation": "翻訳",
@@ -320,6 +321,26 @@
             "failed": "現在の実行状態：利用不可、{{error}}"
           }
         }
+      },
+      "storage": {
+        "title": "ストレージ",
+        "subtitle": "字幕履歴の容量上限とデータベース使用量",
+        "description": "記録件数ではなく、データベースの実効使用量で字幕履歴を管理します。",
+        "databaseUsage": "データベース使用量",
+        "databaseUsageDescription": "実効使用量には再利用可能な空きページを含みません。割り当て済み容量はデータベースファイルが現在確保しているディスク容量です。",
+        "ofQuota": "/ 上限 {{quota}}",
+        "allocated": "割り当て済み容量",
+        "reclaimable": "再利用可能な容量",
+        "overLimit": "データベースの実効使用量が上限を超えています。Core は字幕の書き込み時に古い記録から削除します。他のデータだけで上限を超えている場合、字幕の削除だけでは上限以下になりません。",
+        "quota": "字幕履歴の容量上限",
+        "quotaDescription": "上限に達すると古い字幕から自動削除し、最新の1件は常に保持します。10 MiB～10 GiB の範囲で設定できます。",
+        "quotaInvalid": "{{min}}～{{max}} MiB の範囲で容量上限を入力してください。",
+        "clearHistory": "字幕履歴を消去",
+        "clearHistoryDescription": "すべての字幕と翻訳を完全に削除し、データベースファイルの空き容量を回収します。辞書や他の設定データは削除されません。",
+        "clearAction": "記録を消去",
+        "clearing": "消去中…",
+        "clearConfirm": "字幕履歴をすべて完全に削除しますか？この操作は元に戻せません。",
+        "clearComplete": "字幕履歴を消去し、データベース容量を回収しました。"
       },
       "translation": {
         "title": "字幕翻訳",
@@ -746,8 +767,7 @@
         "sampleRate": "サンプルレート",
         "silence": "無音しきい値",
         "maxSegment": "区間の最大長",
-        "historyLimit": "履歴の上限",
-        "subtitleLimitValue": "字幕 {{formatted}} 件",
+        "historyStorageLimit": "字幕履歴の容量上限",
         "modelStatus": "モデルの状態",
         "cuda": "CUDA",
         "availableDevices": "{{count}} 台",
@@ -1014,6 +1034,10 @@
       "subtitles": {
         "invalid_limit": "履歴の上限が無効です。",
         "history_failed": "字幕履歴を読み込めませんでした。"
+      },
+      "storage": {
+        "stats_failed": "データベースの使用量を取得できませんでした。",
+        "clear_failed": "字幕履歴を消去できませんでした。"
       },
       "auth": {
         "unauthorized": "ローカルセッションが認証されていません。"

@@ -62,19 +62,16 @@ mod tests {
         let database = Database::open(&directory.path().join("context.db")).unwrap();
         let add = |text: &str, source: &str, created_at: &str| {
             database
-                .add_subtitle(
-                    &Subtitle {
-                        id: None,
-                        text: text.into(),
-                        language: None,
-                        started_at: None,
-                        ended_at: None,
-                        source: source.into(),
-                        created_at: created_at.into(),
-                        translations: Vec::new(),
-                    },
-                    50,
-                )
+                .add_subtitle(&Subtitle {
+                    id: None,
+                    text: text.into(),
+                    language: None,
+                    started_at: None,
+                    ended_at: None,
+                    source: source.into(),
+                    created_at: created_at.into(),
+                    translations: Vec::new(),
+                })
                 .unwrap()
         };
         add("speaker old", "speaker", "2026-08-14T00:00:01Z");
@@ -119,19 +116,16 @@ mod tests {
         let database = Database::open(&directory.path().join("sources.db")).unwrap();
         for index in 0..3 {
             database
-                .add_subtitle(
-                    &Subtitle {
-                        id: None,
-                        text: format!("speaker {index}"),
-                        language: None,
-                        started_at: None,
-                        ended_at: None,
-                        source: "speaker".into(),
-                        created_at: format!("2026-08-14T00:00:0{index}Z"),
-                        translations: Vec::new(),
-                    },
-                    50,
-                )
+                .add_subtitle(&Subtitle {
+                    id: None,
+                    text: format!("speaker {index}"),
+                    language: None,
+                    started_at: None,
+                    ended_at: None,
+                    source: "speaker".into(),
+                    created_at: format!("2026-08-14T00:00:0{index}Z"),
+                    translations: Vec::new(),
+                })
                 .unwrap();
         }
         let config = TranslationPromptConfig {

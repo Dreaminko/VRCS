@@ -167,11 +167,8 @@ export function createDebugRows({
     { label: t("settings.debug.silence"), value: t("units.seconds", { value: draft.vad.silence_seconds.toFixed(1) }) },
     { label: t("settings.debug.maxSegment"), value: t("units.seconds", { value: draft.vad.max_speech_seconds }) },
     {
-      label: t("settings.debug.historyLimit"),
-      value: t("settings.debug.subtitleLimitValue", {
-        count: draft.storage.subtitle_history_limit,
-        formatted: new Intl.NumberFormat(locale).format(draft.storage.subtitle_history_limit),
-      }),
+      label: t("settings.debug.historyStorageLimit"),
+      value: formatBytes(draft.storage.subtitle_history_max_bytes, locale),
     },
     { label: t("settings.debug.modelStatus"), value: modelStatus },
     {

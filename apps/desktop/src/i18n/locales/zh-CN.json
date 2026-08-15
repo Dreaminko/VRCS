@@ -259,6 +259,7 @@
       "categories": {
         "label": "设置分类",
         "system": "系统",
+        "storage": "存储",
         "audio": "音频",
         "recognition": "识别",
         "translation": "翻译",
@@ -320,6 +321,26 @@
             "failed": "当前运行状态：不可用，{{error}}"
           }
         }
+      },
+      "storage": {
+        "title": "存储",
+        "subtitle": "字幕历史的空间配额与数据库占用",
+        "description": "按数据库有效占用自动管理字幕历史，而不是按记录条数截断。",
+        "databaseUsage": "数据库空间占用",
+        "databaseUsageDescription": "有效占用不包含库内可复用的空闲页；已分配空间是数据库文件当前保留的磁盘空间。",
+        "ofQuota": "/ {{quota}} 配额",
+        "allocated": "已分配空间",
+        "reclaimable": "库内可复用空间",
+        "overLimit": "数据库有效占用已超过配额。Core 会在写入字幕时删除最旧记录；如果其他数据本身超过配额，仅清理字幕也无法降到上限以下。",
+        "quota": "字幕历史空间上限",
+        "quotaDescription": "达到上限后自动删除最旧字幕，始终保留最新一条。可设置 10 MiB 至 10 GiB。",
+        "quotaInvalid": "请输入 {{min}} 至 {{max}} MiB 之间的空间上限。",
+        "clearHistory": "清理字幕历史",
+        "clearHistoryDescription": "永久删除所有字幕及其翻译，并回收数据库文件中的空闲空间。词典和其他设置数据不会被删除。",
+        "clearAction": "清理记录",
+        "clearing": "正在清理…",
+        "clearConfirm": "确定要永久删除全部字幕历史吗？此操作无法撤销。",
+        "clearComplete": "字幕历史已清理，数据库空间已回收。"
       },
       "translation": {
         "title": "字幕翻译",
@@ -746,8 +767,7 @@
         "sampleRate": "采样率",
         "silence": "静音阈值",
         "maxSegment": "最长片段",
-        "historyLimit": "历史上限",
-        "subtitleLimitValue": "{{formatted}} 条字幕",
+        "historyStorageLimit": "字幕历史空间上限",
         "modelStatus": "模型状态",
         "cuda": "CUDA",
         "availableDevices": "{{count}} 个设备",
@@ -1014,6 +1034,10 @@
       "subtitles": {
         "invalid_limit": "历史记录上限无效。",
         "history_failed": "无法加载字幕历史。"
+      },
+      "storage": {
+        "stats_failed": "无法读取数据库空间占用。",
+        "clear_failed": "无法清理字幕历史。"
       },
       "auth": {
         "unauthorized": "本地会话未获授权。"

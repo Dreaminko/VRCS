@@ -259,6 +259,7 @@
       "categories": {
         "label": "Settings categories",
         "system": "System",
+        "storage": "Storage",
         "audio": "Audio",
         "recognition": "Recognition",
         "translation": "Translation",
@@ -320,6 +321,26 @@
             "failed": "Current runtime status: unavailable, {{error}}"
           }
         }
+      },
+      "storage": {
+        "title": "Storage",
+        "subtitle": "Space quota and database usage for subtitle history",
+        "description": "Manage subtitle history by effective database usage instead of record count.",
+        "databaseUsage": "Database usage",
+        "databaseUsageDescription": "Effective usage excludes reusable free pages. Allocated space is the disk space currently reserved by the database file.",
+        "ofQuota": "of {{quota}} quota",
+        "allocated": "Allocated space",
+        "reclaimable": "Reusable space",
+        "overLimit": "Effective database usage is above the quota. Core deletes the oldest subtitles when writing new records. If other data already exceeds the quota, clearing subtitles alone cannot bring usage below it.",
+        "quota": "Subtitle history space limit",
+        "quotaDescription": "Delete the oldest subtitles automatically at the limit while always retaining the latest record. Range: 10 MiB to 10 GiB.",
+        "quotaInvalid": "Enter a space limit between {{min}} and {{max}} MiB.",
+        "clearHistory": "Clear subtitle history",
+        "clearHistoryDescription": "Permanently delete all subtitles and translations, then reclaim free database space. Dictionaries and other settings data are not deleted.",
+        "clearAction": "Clear records",
+        "clearing": "Clearing…",
+        "clearConfirm": "Permanently delete all subtitle history? This action cannot be undone.",
+        "clearComplete": "Subtitle history was cleared and database space was reclaimed."
       },
       "translation": {
         "title": "Subtitle translation",
@@ -746,8 +767,7 @@
         "sampleRate": "Sample rate",
         "silence": "Silence threshold",
         "maxSegment": "Maximum segment",
-        "historyLimit": "History limit",
-        "subtitleLimitValue": "{{formatted}} subtitles",
+        "historyStorageLimit": "Subtitle history space limit",
         "modelStatus": "Model status",
         "cuda": "CUDA",
         "availableDevices": "{{count}} device(s)",
@@ -1014,6 +1034,10 @@
       "subtitles": {
         "invalid_limit": "The history limit is invalid.",
         "history_failed": "Could not load subtitle history."
+      },
+      "storage": {
+        "stats_failed": "Could not read database storage usage.",
+        "clear_failed": "Could not clear subtitle history."
       },
       "auth": {
         "unauthorized": "The local session is not authorized."

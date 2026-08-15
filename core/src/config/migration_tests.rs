@@ -43,6 +43,7 @@ fn migrates_v1_layout() {
     assert_eq!(config.server.port, 9000);
     assert_eq!(config.storage.database_path, "data/custom.db");
     assert_eq!(config.storage.model_directory, "models/whisper");
+    assert_eq!(config.storage.subtitle_history_max_bytes, 100 * 1024 * 1024);
     assert_eq!(config.audio.output.device_id, Some(3));
     assert_eq!(config.audio.microphone.mode, "device");
     assert_eq!(config.audio.microphone.device_id, Some(7));
@@ -138,6 +139,30 @@ fn migrates_v15_official_compatible_profiles_to_their_presets() {
         assert_eq!(profile.auth_mode, ApiAuthMode::None);
         assert!(profile.is_local);
     }
+}
+
+#[test]
+fn migrates_v18_history_count_to_storage_quota() {
+    let mut raw = serde_json::to_value(AppConfig::default()).unwrap();
+    raw["schema_version"] = serde_json::json!(18);
+    raw["storage"]
+        .as_object_mut()
+        .unwrap()
+        .remove("subtitle_history_max_bytes");
+    raw["storage"]["subtitle_history_limit"] = serde_json::json!(500);
+
+    let config = config_from_value(&raw).unwrap();
+    let migrated = serde_json::to_value(config).unwrap();
+
+    assert_eq!(
+        migrated["schema_version"],
+        serde_json::json!(SCHEMA_VERSION)
+    );
+    assert_eq!(
+        migrated["storage"]["subtitle_history_max_bytes"],
+        serde_json::json!(100_u64 * 1024 * 1024)
+    );
+    assert!(migrated["storage"].get("subtitle_history_limit").is_none());
 }
 
 #[test]

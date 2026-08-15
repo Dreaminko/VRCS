@@ -71,11 +71,7 @@ fn migrate_v1(raw: &serde_json::Value) -> AppConfig {
                 .and_then(|value| value.as_str())
                 .map(str::to_owned)
                 .unwrap_or_else(|| defaults.storage.model_directory.clone()),
-            subtitle_history_limit: raw
-                .get("subtitle_history_limit")
-                .and_then(|value| value.as_u64())
-                .map(|value| value as u32)
-                .unwrap_or(defaults.storage.subtitle_history_limit),
+            subtitle_history_max_bytes: defaults.storage.subtitle_history_max_bytes,
         },
         audio: AudioConfig {
             sample_rate: raw
@@ -257,8 +253,34 @@ fn migrate_v11_to_v17(raw: &serde_json::Value) -> Result<AppConfig, String> {
         .ok_or_else(|| "Configuration root must be an object".to_string())?;
     backfill_compatible_preset(object);
     backfill_glossary_sources(object)?;
+    migrate_storage_quota(object)?;
     object.insert("schema_version".into(), serde_json::json!(SCHEMA_VERSION));
     serde_json::from_value(value).map_err(|error| error.to_string())
+}
+
+fn migrate_v18(raw: &serde_json::Value) -> Result<AppConfig, String> {
+    let mut value = raw.clone();
+    let object = value
+        .as_object_mut()
+        .ok_or_else(|| "Configuration root must be an object".to_string())?;
+    migrate_storage_quota(object)?;
+    object.insert("schema_version".into(), serde_json::json!(SCHEMA_VERSION));
+    serde_json::from_value(value).map_err(|error| error.to_string())
+}
+
+fn migrate_storage_quota(
+    object: &mut serde_json::Map<String, serde_json::Value>,
+) -> Result<(), String> {
+    let storage = object
+        .entry("storage")
+        .or_insert_with(|| serde_json::json!({}))
+        .as_object_mut()
+        .ok_or_else(|| "Configuration storage must be an object".to_string())?;
+    storage.remove("subtitle_history_limit");
+    storage
+        .entry("subtitle_history_max_bytes")
+        .or_insert_with(|| serde_json::json!(100_u64 * 1024 * 1024));
+    Ok(())
 }
 
 fn backfill_glossary_sources(
@@ -403,6 +425,7 @@ pub fn config_from_value(raw: &serde_json::Value) -> Result<AppConfig, String> {
         version if version == SCHEMA_VERSION as u64 => {
             serde_json::from_value(raw.clone()).map_err(|error| error.to_string())?
         }
+        18 => migrate_v18(raw)?,
         11..=17 => migrate_v11_to_v17(raw)?,
         6..=10 => migrate_v6_to_v10(raw)?,
         4 | 5 => migrate_v4_or_v5(raw)?,

@@ -244,8 +244,16 @@ export interface AnkiSettings {
   back_field: string;
 }
 
+export interface DatabaseStorageStats {
+  used_bytes: number;
+  allocated_bytes: number;
+  reclaimable_bytes: number;
+  max_bytes: number;
+  over_limit: boolean;
+}
+
 export interface Settings {
-  schema_version: 18;
+  schema_version: 19;
   server: {
     host: string;
     port: number;
@@ -253,7 +261,7 @@ export interface Settings {
   storage: {
     database_path: string;
     model_directory: string;
-    subtitle_history_limit: number;
+    subtitle_history_max_bytes: number;
   };
   audio: {
     sample_rate: number;

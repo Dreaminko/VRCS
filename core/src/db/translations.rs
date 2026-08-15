@@ -30,6 +30,7 @@ impl Database {
                 translation.created_at,
             ],
         )?;
+        self.trim_subtitle_history_to_size()?;
         Ok(())
     }
 

@@ -229,12 +229,15 @@ async fn start_inner(options: CoreOptions, defer_managed_vad: bool) -> Result<Co
         .parent()
         .unwrap_or_else(|| Path::new("."));
     let database_path = resolve_config_path(&options.config_path, &config.storage.database_path);
-    let database = Database::open(&database_path).map_err(|error| {
+    let mut database = Database::open(&database_path).map_err(|error| {
         format!(
             "Failed to open database {}: {error}",
             database_path.display()
         )
     })?;
+    database
+        .set_subtitle_history_max_bytes(config.storage.subtitle_history_max_bytes)
+        .map_err(|error| format!("Failed to apply subtitle history storage quota: {error}"))?;
     let managed_vad_model = options.vad_model_path.is_none();
     let vad_model_path = options
         .vad_model_path
@@ -483,6 +486,95 @@ mod tests {
         .unwrap();
         assert!(handle.address().port() > 0);
         assert!(handle.external_api_address().is_none());
+        handle.shutdown().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn storage_stats_quota_update_and_history_clear_are_available_over_http() {
+        let directory = tempfile::tempdir().unwrap();
+        let port = std::net::TcpListener::bind(("127.0.0.1", 0))
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port();
+        let handle = start(CoreOptions {
+            config_path: directory.path().join("config.json"),
+            host: Some("127.0.0.1".into()),
+            port: Some(port),
+            session_token: Some("storage-token".into()),
+            vad_model_path: Some(directory.path().join("missing-silero.onnx")),
+            asr_model_dir: None,
+        })
+        .await
+        .unwrap();
+        let client = reqwest::Client::new();
+        let base_url = format!("http://{}", handle.address());
+        let mut settings: serde_json::Value = client
+            .get(format!("{base_url}/api/settings"))
+            .bearer_auth("storage-token")
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        settings["storage"]["subtitle_history_max_bytes"] =
+            serde_json::json!(128_u64 * 1024 * 1024);
+        let saved = client
+            .put(format!("{base_url}/api/settings"))
+            .bearer_auth("storage-token")
+            .json(&settings)
+            .send()
+            .await
+            .unwrap();
+        let saved_status = saved.status();
+        let saved_body = saved.text().await.unwrap();
+        assert!(saved_status.is_success(), "{saved_status}: {saved_body}");
+
+        let stats: serde_json::Value = client
+            .get(format!("{base_url}/api/storage/stats"))
+            .bearer_auth("storage-token")
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert_eq!(stats["max_bytes"], serde_json::json!(128_u64 * 1024 * 1024));
+        assert!(stats["used_bytes"].as_u64().unwrap() > 0);
+
+        handle
+            .state
+            .db
+            .lock()
+            .unwrap()
+            .add_subtitle(&crate::models::Subtitle {
+                id: None,
+                text: "temporary history".into(),
+                language: Some("en".into()),
+                started_at: None,
+                ended_at: None,
+                source: "speaker".into(),
+                created_at: crate::models::now_iso8601(),
+                translations: Vec::new(),
+            })
+            .unwrap();
+        let cleared = client
+            .delete(format!("{base_url}/api/subtitles"))
+            .bearer_auth("storage-token")
+            .send()
+            .await
+            .unwrap();
+        assert!(cleared.status().is_success());
+        assert!(handle
+            .state
+            .db
+            .lock()
+            .unwrap()
+            .subtitle_history(10)
+            .unwrap()
+            .is_empty());
+
         handle.shutdown().await.unwrap();
     }
 
@@ -993,7 +1085,7 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let config_path = directory.path().join("config.json");
         let mut config = crate::config::AppConfig::default();
-        config.storage.subtitle_history_limit = 0;
+        config.storage.subtitle_history_max_bytes = 0;
         std::fs::write(&config_path, serde_json::to_vec(&config).unwrap()).unwrap();
 
         let error = start(CoreOptions {
@@ -1008,7 +1100,7 @@ mod tests {
         .err()
         .expect("invalid config must fail");
 
-        assert!(error.contains("subtitle_history_limit"));
+        assert!(error.contains("subtitle_history_max_bytes"));
     }
 
     #[tokio::test]

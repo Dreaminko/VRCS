@@ -11,6 +11,7 @@ mod models;
 mod osc;
 mod provider_diagnostics;
 mod settings;
+mod storage;
 mod translation;
 mod ws;
 
@@ -212,7 +213,11 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/api/osc/test", post(osc::test_message))
         .route("/api/chatbox/preview", post(chatbox::preview))
         .route("/api/chatbox/messages", post(chatbox::send))
-        .route("/api/subtitles", get(dictionary::subtitle_history))
+        .route(
+            "/api/subtitles",
+            get(dictionary::subtitle_history).delete(storage::clear_subtitle_history),
+        )
+        .route("/api/storage/stats", get(storage::database_stats))
         .route(
             "/api/translations/preview",
             post(translation::translation_preview),

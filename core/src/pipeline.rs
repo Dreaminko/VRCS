@@ -529,7 +529,6 @@ mod tests {
             asr,
             Arc::clone(&db),
             live_tx,
-            10,
             translation,
             crate::config::TranslationConfig::default(),
             Vec::new(),
