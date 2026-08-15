@@ -116,12 +116,13 @@ export function ApiProfileEditor({
 }) {
   const { t } = useTranslation();
   const editing = Boolean(draft.id);
+  const nameOptional = !editing && draft.purpose === "llm";
   const credentialAvailable = credential?.configured || Boolean(draft.api_key.trim());
   const compatibleDefinition = providerDefinitions.find(
     (definition) => definition.id === "openai_compatible",
   );
   const workspaceRequired = draft.provider === "alibaba_cloud" && draft.purpose !== "llm";
-  const canSave = Boolean(draft.name.trim())
+  const canSave = (nameOptional || Boolean(draft.name.trim()))
     && (draft.provider !== "openai_compatible" || Boolean(draft.base_url.trim()))
     && (draft.provider !== "microsoft_translator" || Boolean(draft.region.trim()))
     && (!workspaceRequired || Boolean(draft.workspace_id.trim()))
@@ -182,6 +183,7 @@ export function ApiProfileEditor({
               placeholder={t("settings.apiManagement.profileNamePlaceholder")}
               onChange={(event) => onChange({ ...draft, name: event.target.value })}
             />
+            {nameOptional && <small>{t("settings.apiManagement.profileNameOptionalHint")}</small>}
           </label>
           <Select
             label={t("settings.apiManagement.provider")}

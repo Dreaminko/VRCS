@@ -89,6 +89,58 @@ fn migrates_v11_profile_transport_defaults() {
 }
 
 #[test]
+fn migrates_v15_official_compatible_profiles_to_their_presets() {
+    let mut raw = serde_json::to_value(AppConfig::default()).unwrap();
+    raw["schema_version"] = serde_json::json!(15);
+    raw["asr"]["api_profiles"] = serde_json::json!([
+        {
+            "id": "deepseek",
+            "name": "DeepSeek",
+            "provider": "openai_compatible",
+            "base_url": "https://api.deepseek.com/v1/",
+            "purpose": "llm"
+        },
+        {
+            "id": "custom",
+            "name": "Custom",
+            "provider": "openai_compatible",
+            "base_url": "https://example.com/v1",
+            "purpose": "llm"
+        },
+        {
+            "id": "lm-studio",
+            "name": "LM Studio",
+            "provider": "openai_compatible",
+            "base_url": "http://localhost:1234/v1/",
+            "purpose": "llm"
+        },
+        {
+            "id": "ollama",
+            "name": "Ollama",
+            "provider": "openai_compatible",
+            "base_url": "http://127.0.0.1:11434/v1",
+            "purpose": "llm"
+        }
+    ]);
+
+    let config = config_from_value(&raw).unwrap();
+
+    assert_eq!(
+        config.asr.api_profiles[0].preset_id.as_deref(),
+        Some("deepseek")
+    );
+    assert!(config.asr.api_profiles[1].preset_id.is_none());
+    for (profile, preset) in config.asr.api_profiles[2..]
+        .iter()
+        .zip(["lm_studio", "ollama"])
+    {
+        assert_eq!(profile.preset_id.as_deref(), Some(preset));
+        assert_eq!(profile.auth_mode, ApiAuthMode::None);
+        assert!(profile.is_local);
+    }
+}
+
+#[test]
 fn migrates_v10_openai_base_urls_to_llm_only_compatible_profiles() {
     let config = config_from_value(&serde_json::json!({
         "schema_version": 10,
@@ -106,6 +158,7 @@ fn migrates_v10_openai_base_urls_to_llm_only_compatible_profiles() {
 
     let profile = &config.asr.api_profiles[0];
     assert_eq!(profile.provider, OPENAI_COMPATIBLE_PROVIDER);
+    assert_eq!(profile.preset_id.as_deref(), Some("deepseek"));
     assert_eq!(providers::effective_purpose(profile), API_PURPOSE_LLM);
     assert!(!providers::supports_realtime_asr(profile));
     assert!(providers::supports_translation(profile));

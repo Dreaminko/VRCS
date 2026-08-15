@@ -5,7 +5,7 @@ use super::{
     ServerConfig, StorageConfig, TranslationConfig, VadConfig,
 };
 
-pub const SCHEMA_VERSION: u32 = 14;
+pub const SCHEMA_VERSION: u32 = 16;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AppConfig {

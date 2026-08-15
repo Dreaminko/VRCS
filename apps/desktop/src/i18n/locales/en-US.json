@@ -382,6 +382,7 @@
         "profileFormHint": "Names and connection details are saved in settings. API keys stay in the system credential store.",
         "profileName": "Name",
         "profileNamePlaceholder": "For example: Personal account",
+        "profileNameOptionalHint": "Optional. If blank, the API name is used, for example DeepSeek.",
         "provider": "Provider",
         "purpose": "Service purpose",
         "purposes": {

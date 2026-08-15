@@ -29,7 +29,22 @@ pub(super) async fn generate(
     if !status.is_success() {
         return Err(status_error(status, &value));
     }
-    extract_text(&value).ok_or_else(|| LlmError {
+    parse_response(&value)
+}
+
+fn parse_response(value: &Value) -> Result<String, LlmError> {
+    if value.get("status").and_then(Value::as_str) == Some("incomplete") {
+        let reason = value
+            .pointer("/incomplete_details/reason")
+            .and_then(Value::as_str)
+            .unwrap_or("unknown reason");
+        return Err(LlmError {
+            code: "llm.request_failed",
+            detail: format!("OpenAI response was incomplete: {reason}"),
+            retryable: false,
+        });
+    }
+    extract_text(value).ok_or_else(|| LlmError {
         code: "llm.invalid_response",
         detail: "OpenAI response did not contain text".into(),
         retryable: false,
@@ -79,5 +94,23 @@ mod tests {
             "output": [{"content": [{"type": "output_text", "text": " hello "}]}]
         });
         assert_eq!(extract_text(&value).as_deref(), Some("hello"));
+    }
+
+    #[test]
+    fn reports_incomplete_responses_without_accepting_partial_text() {
+        let value = json!({
+            "status": "incomplete",
+            "incomplete_details": {"reason": "max_output_tokens"},
+            "output_text": "partial"
+        });
+
+        let error = parse_response(&value).unwrap_err();
+
+        assert_eq!(error.code, "llm.request_failed");
+        assert_eq!(
+            error.detail,
+            "OpenAI response was incomplete: max_output_tokens"
+        );
+        assert!(!error.retryable);
     }
 }

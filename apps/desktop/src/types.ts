@@ -244,7 +244,7 @@ export interface AnkiSettings {
 }
 
 export interface Settings {
-  schema_version: 14;
+  schema_version: 16;
   server: {
     host: string;
     port: number;

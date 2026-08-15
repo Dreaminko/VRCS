@@ -382,6 +382,7 @@
         "profileFormHint": "名前と接続設定は設定ファイルに保存されます。API キーはシステム資格情報にのみ保存されます。",
         "profileName": "名前",
         "profileNamePlaceholder": "例：個人アカウント",
+        "profileNameOptionalHint": "省略できます。空欄の場合は DeepSeek などの API 名が使用されます。",
         "provider": "プロバイダー",
         "purpose": "サービス用途",
         "purposes": {

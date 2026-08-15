@@ -1,5 +1,5 @@
 import { Check, Cloud, KeyRound, Pencil, Plus, RefreshCw, ShieldCheck, Trash2, X } from "lucide-react";
-import { Fragment, useEffect, useRef, useState, type RefObject } from "react";
+import { useEffect, useRef, useState, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 
@@ -56,19 +56,23 @@ function supportLevel(profile: ApiProfileView) {
 function ApiProfileEditorDialog({
   draft,
   saving,
+  credential,
   providerDefinitions,
   returnFocusRef,
   onChange,
   onSave,
   onClose,
+  onRemoveCredential,
 }: {
   draft: ApiProfileEditorDraft;
   saving: boolean;
+  credential?: ApiProfileView["credential"];
   providerDefinitions: ProviderDefinition[];
   returnFocusRef: RefObject<HTMLButtonElement | null>;
   onChange: (draft: ApiProfileEditorDraft) => void;
   onSave: () => void;
   onClose: () => void;
+  onRemoveCredential?: () => void;
 }) {
   const { t } = useTranslation();
   const dialogRef = useRef<HTMLElement>(null);
@@ -131,7 +135,7 @@ function ApiProfileEditorDialog({
         ref={dialogRef}
         role="dialog"
         aria-modal="true"
-        aria-label={t("settings.apiManagement.addProfile")}
+        aria-label={t(draft.id ? "settings.apiManagement.editProfile" : "settings.apiManagement.addProfile")}
       >
         <button
           className="api-profile-dialog-close"
@@ -145,11 +149,13 @@ function ApiProfileEditorDialog({
         <ApiProfileEditor
           draft={draft}
           saving={saving}
+          credential={credential}
           providerDefinitions={providerDefinitions}
           floatingSelects
           onChange={onChange}
           onSave={onSave}
           onCancel={onClose}
+          onRemoveCredential={onRemoveCredential}
         />
       </section>
     </div>,
@@ -169,11 +175,14 @@ export function ApiManagementSettingsSection({
   const { t } = useTranslation();
   const profiles = useApiProfiles(onRefreshSettings);
   const [editor, setEditor] = useState<ApiProfileEditorDraft | null>(null);
-  const addButtonRef = useRef<HTMLButtonElement>(null);
+  const editorTriggerRef = useRef<HTMLButtonElement>(null);
   const locked = disabled || profiles.busy !== null;
+  const editingProfile = editor?.id
+    ? profiles.profiles.find((profile) => profile.id === editor.id)
+    : undefined;
 
   const saveEditor = async () => {
-    if (!editor?.name.trim()) return;
+    if (!editor || (!editor.name.trim() && (editor.id || editor.purpose !== "llm"))) return;
     const profile = apiProfileFromEditorDraft(editor);
     const saved = editor.id
       ? await profiles.update({ id: editor.id, ...profile }, editor.api_key)
@@ -201,7 +210,15 @@ export function ApiManagementSettingsSection({
     <div className="settings-section settings-section-active api-section" id="settings-panel-api" role="tabpanel" aria-labelledby="settings-tab-api">
       <div className="section-heading api-section-heading">
         <div><KeyRound size={18} /><h2>{t("settings.apiManagement.title")}</h2></div>
-        <button ref={addButtonRef} className="primary-button api-add-button" type="button" disabled={locked || Boolean(editor)} onClick={() => setEditor(createApiProfileDraft())}>
+        <button
+          className="primary-button api-add-button"
+          type="button"
+          disabled={locked || Boolean(editor)}
+          onClick={(event) => {
+            editorTriggerRef.current = event.currentTarget;
+            setEditor(createApiProfileDraft());
+          }}
+        >
           <Plus size={18} aria-hidden="true" />
           {t("settings.apiManagement.addProfile")}
         </button>
@@ -222,7 +239,6 @@ export function ApiManagementSettingsSection({
           </div>
         )}
         {profiles.profiles.map((profile) => {
-          const editing = editor?.id === profile.id;
           const recognitionCapable = supportsRecognition(profile);
           const recognitionReady = recognitionCapable && !(
             profile.provider === "alibaba_cloud" && !profile.workspace_id?.trim()
@@ -253,8 +269,7 @@ export function ApiManagementSettingsSection({
                   ? t("settings.apiManagement.geminiDescription")
                 : t(`settings.apiManagement.${profile.provider === "deepl" ? "deeplDescription" : "openaiDescription"}`);
           return (
-            <Fragment key={profile.id}>
-              <section className={`api-profile-row ${profile.active ? "active" : ""}`} aria-label={profile.name}>
+            <section className={`api-profile-row ${profile.active ? "active" : ""}`} aria-label={profile.name} key={profile.id}>
                 <div className="api-profile-identity">
                   <span className="api-profile-icon"><Cloud size={16} aria-hidden="true" /></span>
                   <span>
@@ -301,35 +316,37 @@ export function ApiManagementSettingsSection({
                   )}
                   {recognitionCapable && <button className="secondary-button" type="button" disabled={profiles.busy !== null || !credentialReady || !recognitionReady} onClick={() => void profiles.test(profile.id, "asr")}>{t("settings.apiManagement.testAsr")}</button>}
                   {translationCapable && <button className="secondary-button" type="button" disabled={profiles.busy !== null || !credentialReady} onClick={() => void profiles.test(profile.id, "llm", undefined, settings.translation.profile_id === profile.id ? settings.translation.model : undefined)}>{t("settings.apiManagement.testTranslation")}</button>}
-                  <button className="api-row-icon-button" type="button" aria-label={t("common.edit")} disabled={locked || Boolean(editor)} onClick={() => setEditor(draftFromProfile(profile))}><Pencil size={15} /></button>
+                  <button
+                    className="api-row-icon-button"
+                    type="button"
+                    aria-label={t("common.edit")}
+                    disabled={locked || Boolean(editor)}
+                    onClick={(event) => {
+                      editorTriggerRef.current = event.currentTarget;
+                      setEditor(draftFromProfile(profile));
+                    }}
+                  >
+                    <Pencil size={15} />
+                  </button>
                   <button className="api-row-icon-button danger" type="button" aria-label={t("common.delete")} disabled={locked} onClick={() => void removeProfile(profile)}><Trash2 size={15} /></button>
                 </div>
-              </section>
-              {editing && editor && (
-                <ApiProfileEditor
-                  draft={editor}
-                  saving={profiles.busy === profile.id}
-                  credential={profile.credential}
-                  providerDefinitions={profiles.providerDefinitions}
-                  onChange={setEditor}
-                  onSave={() => void saveEditor()}
-                  onCancel={() => setEditor(null)}
-                  onRemoveCredential={() => void profiles.removeCredential(profile.id)}
-                />
-              )}
-            </Fragment>
+            </section>
           );
         })}
       </div>
-      {editor && !editor.id && (
+      {editor && (
         <ApiProfileEditorDialog
           draft={editor}
-          saving={profiles.busy === "create"}
+          saving={profiles.busy === (editor.id ?? "create")}
+          credential={editingProfile?.credential}
           providerDefinitions={profiles.providerDefinitions}
-          returnFocusRef={addButtonRef}
+          returnFocusRef={editorTriggerRef}
           onChange={setEditor}
           onSave={() => void saveEditor()}
           onClose={() => setEditor(null)}
+          onRemoveCredential={editingProfile
+            ? () => void profiles.removeCredential(editingProfile.id)
+            : undefined}
         />
       )}
       {disabled && <small className="api-credential-message">{t("settings.recognition.stopToModify")}</small>}

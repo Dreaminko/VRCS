@@ -382,6 +382,7 @@
         "profileFormHint": "名称和连接参数会写入配置文件，API Key 只保存在系统凭据中。",
         "profileName": "名称",
         "profileNamePlaceholder": "例如：个人账号",
+        "profileNameOptionalHint": "可留空；保存时将使用 API 名称，例如 DeepSeek。",
         "provider": "供应商",
         "purpose": "服务用途",
         "purposes": {

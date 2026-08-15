@@ -165,6 +165,7 @@ pub(super) async fn profile_create(
         headers: input.headers.unwrap_or_default(),
     };
     normalize_profile_fields(&mut profile);
+    apply_default_name_for_new_llm_profile(&mut profile);
     let mut candidate = state.config.read().expect("config lock").clone();
     candidate.asr.api_profiles.push(profile.clone());
     commit_profile_config(&state, candidate).await?;
@@ -559,10 +560,63 @@ fn normalize_profile_fields(profile: &mut ApiProfile) {
     }
 }
 
+fn apply_default_name_for_new_llm_profile(profile: &mut ApiProfile) {
+    if !profile.name.trim().is_empty() || providers::effective_purpose(profile) != API_PURPOSE_LLM {
+        return;
+    }
+    profile.name = if profile.provider == OPENAI_COMPATIBLE_PROVIDER {
+        profile
+            .preset_id
+            .as_deref()
+            .and_then(|id| {
+                providers::OPENAI_COMPATIBLE_PRESETS
+                    .iter()
+                    .find(|preset| preset.id == id)
+            })
+            .map(|preset| preset.display_name)
+            .or_else(|| {
+                providers::definition(&profile.provider).map(|provider| provider.display_name)
+            })
+    } else {
+        providers::definition(&profile.provider).map(|provider| provider.display_name)
+    }
+    .unwrap_or("LLM API")
+    .to_string();
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::providers::API_PURPOSE_SHARED;
+
+    #[test]
+    fn new_llm_profile_uses_its_preset_name_when_name_is_blank() {
+        let mut profile = ApiProfile {
+            name: "  ".into(),
+            provider: OPENAI_COMPATIBLE_PROVIDER.into(),
+            purpose: Some(API_PURPOSE_LLM.into()),
+            preset_id: Some("deepseek".into()),
+            ..ApiProfile::default()
+        };
+
+        apply_default_name_for_new_llm_profile(&mut profile);
+
+        assert_eq!(profile.name, "DeepSeek");
+    }
+
+    #[test]
+    fn new_non_llm_profile_still_requires_an_explicit_name() {
+        let mut profile = ApiProfile {
+            name: String::new(),
+            provider: OPENAI_PROVIDER.into(),
+            purpose: Some("asr".into()),
+            ..ApiProfile::default()
+        };
+
+        apply_default_name_for_new_llm_profile(&mut profile);
+
+        assert!(profile.name.is_empty());
+    }
 
     #[test]
     fn alibaba_asr_requires_a_workspace() {

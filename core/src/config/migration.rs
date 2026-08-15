@@ -242,17 +242,93 @@ fn migrate_v6_to_v10(raw: &serde_json::Value) -> Result<AppConfig, String> {
             }
         }
     }
+    backfill_compatible_preset(object);
     object.insert("schema_version".into(), serde_json::json!(SCHEMA_VERSION));
     serde_json::from_value(value).map_err(|error| error.to_string())
 }
 
-fn migrate_v11_to_v13(raw: &serde_json::Value) -> Result<AppConfig, String> {
+fn migrate_v11_to_v15(raw: &serde_json::Value) -> Result<AppConfig, String> {
     let mut value = raw.clone();
-    value
+    let object = value
         .as_object_mut()
-        .ok_or_else(|| "Configuration root must be an object".to_string())?
-        .insert("schema_version".into(), serde_json::json!(SCHEMA_VERSION));
+        .ok_or_else(|| "Configuration root must be an object".to_string())?;
+    backfill_compatible_preset(object);
+    object.insert("schema_version".into(), serde_json::json!(SCHEMA_VERSION));
     serde_json::from_value(value).map_err(|error| error.to_string())
+}
+
+fn backfill_compatible_preset(object: &mut serde_json::Map<String, serde_json::Value>) {
+    let Some(profiles) = object
+        .get_mut("asr")
+        .and_then(|asr| asr.get_mut("api_profiles"))
+        .and_then(|profiles| profiles.as_array_mut())
+    else {
+        return;
+    };
+    for profile in profiles {
+        let Some(profile) = profile.as_object_mut() else {
+            continue;
+        };
+        let is_compatible =
+            profile.get("provider").and_then(|value| value.as_str()) == Some("openai_compatible");
+        let has_preset = profile
+            .get("preset_id")
+            .and_then(|value| value.as_str())
+            .is_some_and(|value| !value.trim().is_empty());
+        if !is_compatible || has_preset {
+            continue;
+        }
+        let Some(preset) = profile
+            .get("base_url")
+            .and_then(|value| value.as_str())
+            .and_then(infer_compatible_preset)
+        else {
+            continue;
+        };
+        profile.insert("preset_id".into(), serde_json::json!(preset));
+        if matches!(preset, "lm_studio" | "ollama") {
+            profile.insert("auth_mode".into(), serde_json::json!("none"));
+            profile.insert("is_local".into(), serde_json::json!(true));
+        }
+    }
+}
+
+fn infer_compatible_preset(value: &str) -> Option<&'static str> {
+    if is_official_deepseek_base_url(value) {
+        return Some("deepseek");
+    }
+    let url = reqwest::Url::parse(value.trim()).ok()?;
+    let host = url.host_str()?;
+    let is_loopback = host.eq_ignore_ascii_case("localhost")
+        || host
+            .parse::<std::net::IpAddr>()
+            .is_ok_and(|address| address.is_loopback());
+    let path = url.path().trim_end_matches('/');
+    if url.scheme() != "http"
+        || !is_loopback
+        || url.query().is_some()
+        || url.fragment().is_some()
+        || !matches!(path, "" | "/v1" | "/v1/chat/completions")
+    {
+        return None;
+    }
+    match url.port() {
+        Some(1234) => Some("lm_studio"),
+        Some(11434) => Some("ollama"),
+        _ => None,
+    }
+}
+
+fn is_official_deepseek_base_url(value: &str) -> bool {
+    let Ok(url) = reqwest::Url::parse(value.trim()) else {
+        return false;
+    };
+    let path = url.path().trim_end_matches('/');
+    url.scheme() == "https"
+        && url.host_str() == Some("api.deepseek.com")
+        && url.query().is_none()
+        && url.fragment().is_none()
+        && matches!(path, "" | "/v1" | "/v1/chat/completions")
 }
 
 /// v1/v2 迁移共用：避免 Core 端口与 AnkiConnect 默认端口冲突。
@@ -283,7 +359,7 @@ pub fn config_from_value(raw: &serde_json::Value) -> Result<AppConfig, String> {
         version if version == SCHEMA_VERSION as u64 => {
             serde_json::from_value(raw.clone()).map_err(|error| error.to_string())?
         }
-        11..=13 => migrate_v11_to_v13(raw)?,
+        11..=15 => migrate_v11_to_v15(raw)?,
         6..=10 => migrate_v6_to_v10(raw)?,
         4 | 5 => migrate_v4_or_v5(raw)?,
         2 | 3 => migrate_v2_or_v3(raw)?,

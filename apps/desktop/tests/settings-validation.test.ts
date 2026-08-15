@@ -10,7 +10,7 @@ import {
 import type { AsrCapabilities, AudioDevice, Settings } from "../src/types.ts";
 
 const settings: Settings = {
-  schema_version: 14,
+  schema_version: 16,
   server: { host: "127.0.0.1", port: 8766 },
   storage: {
     database_path: "data/vrcs.db",

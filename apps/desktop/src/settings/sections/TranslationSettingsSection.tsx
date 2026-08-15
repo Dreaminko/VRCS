@@ -42,10 +42,7 @@ export function TranslationSettingsSection({ draft, apiProfiles, disabled, saveS
   const usesContextProfile = Boolean(selectedProfile && supportsContext(selectedProfile));
   const supportsThinkingToggle = Boolean(
     selectedProfile?.provider === "openai_compatible"
-      && (
-        selectedProfile.base_url?.toLowerCase().includes("deepseek")
-        || draft.translation.model.toLowerCase().startsWith("deepseek-")
-      ),
+      && selectedProfile.preset_id === "deepseek",
   );
   const {
     models: availableModels,

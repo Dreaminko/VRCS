@@ -140,12 +140,18 @@ fn is_loopback_url(url: &reqwest::Url) -> bool {
 }
 
 fn validate_compatible_profile(profile: &ApiProfile) -> Result<(), String> {
-    if profile.preset_id.as_deref().is_some_and(|preset| {
-        !OPENAI_COMPATIBLE_PRESETS
+    if let Some(preset_id) = profile.preset_id.as_deref() {
+        let Some(preset) = OPENAI_COMPATIBLE_PRESETS
             .iter()
-            .any(|candidate| candidate.id == preset)
-    }) {
-        return Err("Unsupported OpenAI-compatible preset".into());
+            .find(|candidate| candidate.id == preset_id)
+        else {
+            return Err("Unsupported OpenAI-compatible preset".into());
+        };
+        if preset_id != "custom"
+            && (profile.auth_mode != preset.auth_mode || profile.is_local != preset.is_local)
+        {
+            return Err("OpenAI-compatible preset metadata is inconsistent".into());
+        }
     }
     if profile.headers.len() > 16 {
         return Err("OpenAI-compatible profiles can contain at most 16 custom headers".into());
@@ -247,6 +253,20 @@ mod tests {
         assert_eq!(
             validate_profile(&invalid).unwrap_err(),
             "Unsupported OpenAI-compatible preset"
+        );
+
+        let mismatched = ApiProfile {
+            provider: OPENAI_COMPATIBLE_PROVIDER.into(),
+            base_url: Some("http://127.0.0.1:11434/v1".into()),
+            purpose: Some(API_PURPOSE_LLM.into()),
+            preset_id: Some("ollama".into()),
+            auth_mode: ApiAuthMode::Bearer,
+            is_local: false,
+            ..ApiProfile::default()
+        };
+        assert_eq!(
+            validate_profile(&mismatched).unwrap_err(),
+            "OpenAI-compatible preset metadata is inconsistent"
         );
     }
 }
