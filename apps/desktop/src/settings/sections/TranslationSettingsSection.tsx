@@ -24,10 +24,9 @@ function profileOptionLabel(profile: ApiProfileView): string {
     : `${profile.name} · ${provider}`;
 }
 
-export function TranslationSettingsSection({ draft, apiProfiles, disabled, saveState, applySettings }: {
+export function TranslationSettingsSection({ draft, apiProfiles, saveState, applySettings }: {
   draft: Settings;
   apiProfiles: ApiProfileView[];
-  disabled: boolean;
   saveState: SaveState;
   applySettings: ApplySettings;
 }) {
@@ -56,23 +55,16 @@ export function TranslationSettingsSection({ draft, apiProfiles, disabled, saveS
     ...current,
     translation,
   }));
-  const controlsDisabled = disabled || saveState === "saving";
-  const statusMode = draft.translation.mode === "disabled" && draft.translation.translate_microphone
-    ? "microphone"
-    : draft.translation.mode;
+  const controlsDisabled = saveState === "saving";
 
   return (
     <div className="settings-section settings-section-active translation-section" id="settings-panel-translation" role="tabpanel" aria-labelledby="settings-tab-translation">
-      <div className="section-heading translation-section-heading">
+      <div className="section-heading">
         <div>
           <Languages size={18} />
           <h2>{t("settings.translation.title")}</h2>
-          <span className={`status-chip ${statusMode}`}>
-            {t(`settings.translation.modes.${statusMode}`)}
-          </span>
         </div>
       </div>
-      <p className="translation-section-subtitle">{t("settings.translation.description")}</p>
 
       <div className="translation-config">
         <div className="translation-config-row">
@@ -80,7 +72,6 @@ export function TranslationSettingsSection({ draft, apiProfiles, disabled, saveS
             <Workflow size={17} />
             <span>
               <strong>{t("settings.translation.mode")}</strong>
-              <small>{t("settings.translation.modeDescription")}</small>
             </span>
           </div>
           <div className="translation-config-fields translation-config-fields-single">
@@ -114,13 +105,11 @@ export function TranslationSettingsSection({ draft, apiProfiles, disabled, saveS
             <Mic2 size={17} />
             <span>
               <strong>{t("settings.translation.ownVoice")}</strong>
-              <small>{t("settings.translation.ownVoiceDescription")}</small>
             </span>
           </div>
           <div className="translation-own-voice-fields">
             <PreferenceToggle
               title={t("settings.translation.translateOwnVoice")}
-              description={t("settings.translation.translateOwnVoiceDescription")}
               checked={draft.translation.translate_microphone}
               disabled={controlsDisabled || !translationProfiles.length}
               onChange={(translate_microphone) => {
@@ -138,9 +127,7 @@ export function TranslationSettingsSection({ draft, apiProfiles, disabled, saveS
             />
             <LanguagePicker
               label={t("settings.translation.ownVoiceTargetLanguage")}
-              helper={translationProfiles.length
-                ? t("settings.translation.ownVoiceTargetLanguageDescription")
-                : t("settings.translation.noProfiles")}
+              helper={translationProfiles.length ? undefined : t("settings.translation.noProfiles")}
               value={draft.translation.microphone_target_language}
               disabled={controlsDisabled || !draft.translation.translate_microphone}
               languageCodes={languageCodes}
@@ -158,7 +145,6 @@ export function TranslationSettingsSection({ draft, apiProfiles, disabled, saveS
             <Languages size={17} />
             <span>
               <strong>{t("settings.translation.targetLanguage")}</strong>
-              <small>{t("settings.translation.targetLanguageDescription")}</small>
             </span>
           </div>
           <div className="translation-config-fields translation-config-fields-single">
@@ -181,7 +167,6 @@ export function TranslationSettingsSection({ draft, apiProfiles, disabled, saveS
             <Cloud size={17} />
             <span>
               <strong>{t("settings.translation.profile")}</strong>
-              <small>{t("settings.translation.profileDescription")}</small>
             </span>
           </div>
           <div className={`translation-config-fields ${usesLlmProfile ? "" : "translation-config-fields-single"}`}>
@@ -231,19 +216,17 @@ export function TranslationSettingsSection({ draft, apiProfiles, disabled, saveS
                     {t("common.refresh")}
                   </button>
                 </div>
-                <small className={modelsError ? "api-model-catalog-error" : ""}>
-                  {modelsLoading
-                    ? t("settings.apiManagement.loadingModels")
-                    : modelsError
-                      || (availableModels.length
-                        ? t("settings.apiManagement.modelsAvailable", { count: availableModels.length })
-                        : t("settings.translation.modelHint"))}
-                </small>
+                {(modelsLoading || modelsError || availableModels.length > 0) && (
+                  <small className={modelsError ? "api-model-catalog-error" : ""}>
+                    {modelsLoading
+                      ? t("settings.apiManagement.loadingModels")
+                      : modelsError || t("settings.apiManagement.modelsAvailable", { count: availableModels.length })}
+                  </small>
+                )}
                 {supportsThinkingToggle && (
                   <div className="translation-thinking-toggle">
                     <span>
                       <strong>{t("settings.translation.thinkingMode")}</strong>
-                      <small>{t("settings.translation.thinkingModeDescription")}</small>
                     </span>
                     <button
                       className="settings-switch-button"

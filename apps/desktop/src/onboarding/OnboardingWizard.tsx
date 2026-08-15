@@ -415,8 +415,7 @@ export function OnboardingWizard({
       <section className="onboarding-surface" aria-label={t("onboarding.title")}>
         <aside className="onboarding-sidebar">
           <div className="onboarding-brand">
-            <span><Sparkles size={18} /></span>
-            <div><strong>VRCS</strong><small>{t("onboarding.setup")}</small></div>
+            <img src="/logos/VRCS_Logo.svg" alt="VRCS" />
           </div>
           <ol className="onboarding-progress">
             {stepItems.map((item, index) => (
@@ -445,7 +444,6 @@ export function OnboardingWizard({
           <div className="onboarding-content" key={step}>
             {step === 0 && (
               <div className="onboarding-welcome">
-                <div className="onboarding-hero-icon"><Sparkles size={34} /></div>
                 <h2>{t("onboarding.welcome.title")}</h2>
                 <p>{t("onboarding.welcome.description")}</p>
                 <div className="onboarding-info-grid">
@@ -453,7 +451,7 @@ export function OnboardingWizard({
                   <article><AudioLines size={19} /><strong>{t("onboarding.welcome.realtimeTitle")}</strong><span>{t("onboarding.welcome.realtimeDescription")}</span></article>
                 </div>
                 <div className="onboarding-language-setting">
-                  <div><Languages size={18} /><span><strong>{t("settings.system.language")}</strong><small>{t("settings.system.languageDescription")}</small></span></div>
+                  <div className="onboarding-language-copy"><Languages size={18} /><span><strong>{t("settings.system.language")}</strong><small>{t("settings.system.languageDescription")}</small></span></div>
                   <Select
                     label={t("settings.system.language")}
                     value={languagePreference}
@@ -462,6 +460,7 @@ export function OnboardingWizard({
                       ...localeCatalog.map(({ _meta }) => ({ value: _meta.locale, label: _meta.name })),
                     ]}
                     disabled={busy}
+                    hideLabel
                     onChange={(value) => void updateLanguage(value as UiLanguagePreference)}
                   />
                 </div>
@@ -676,7 +675,7 @@ export function OnboardingWizard({
                   <article>{audioReady ? <Check size={16} /> : <Volume2 size={16} />}<span><strong>{t("onboarding.complete.audio")}</strong><small>{t(audioReady ? "onboarding.complete.audioReady" : "onboarding.complete.audioNotReady")}</small></span></article>
                   <article><Check size={16} /><span><strong>{t("onboarding.complete.microphone")}</strong><small>{settings.audio.microphone.mode === "disabled" ? t("onboarding.complete.microphoneSkipped") : t("onboarding.complete.microphoneReady")}</small></span></article>
                 </div>
-                <div className="onboarding-next-hints"><span>{t("onboarding.complete.nextHint")}</span><div><span>{t("settings.categories.translation")}</span><span>{t("settings.categories.dictionary")}</span><span>OSC</span><span>Anki</span></div></div>
+                <div className="onboarding-next-hints"><span>{t("onboarding.complete.nextHint")}</span><div><span>{t("settings.categories.translation")}</span><span>{t("settings.categories.learning")}</span><span>{t("settings.categories.connections")}</span></div></div>
               </div>
             )}
           </div>

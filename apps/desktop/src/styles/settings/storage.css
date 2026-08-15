@@ -1,8 +1,8 @@
 .storage-section { display: grid; align-content: start; }
 .storage-usage-card {
   display: grid;
-  gap: 14px;
-  padding: 18px;
+  gap: 12px;
+  padding: 14px;
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   background: var(--surface);
@@ -20,7 +20,7 @@
 }
 .storage-usage-heading > div { display: grid; min-width: 0; flex: 1; gap: 3px; }
 .storage-usage-heading strong { color: var(--text); font-size: 14px; font-weight: 680; }
-.storage-usage-heading small { color: var(--text-quiet); font-size: 11px; line-height: 1.5; }
+
 .storage-refresh-button { flex: none; }
 .storage-refresh-button .spinning { animation: storage-spin 800ms linear infinite; }
 .storage-meter { height: 8px; overflow: hidden; border-radius: var(--radius-pill); background: var(--surface-subtle); }
@@ -44,17 +44,16 @@
 .storage-over-limit { padding: 9px 11px; border-radius: var(--radius-sm); color: var(--error); background: var(--error-soft); }
 .storage-setting-row, .storage-clear-row {
   display: grid;
-  grid-template-columns: minmax(180px, 1fr) minmax(180px, 280px);
+  grid-template-columns: minmax(140px, 1fr) minmax(180px, 280px);
   align-items: center;
-  gap: 24px;
-  min-height: 82px;
-  padding: 14px 4px;
-  border-bottom: 1px solid var(--border);
+  gap: 16px;
+  min-height: 52px;
+  padding: 6px 4px;
 }
 .storage-setting-row > div, .storage-clear-row > div { display: grid; gap: 4px; }
 .storage-setting-row strong, .storage-clear-row strong { color: var(--text); font-size: 13px; font-weight: 650; }
-.storage-setting-row small, .storage-clear-row small { color: var(--text-secondary); font-size: 11px; line-height: 1.5; }
-.storage-quota-input { display: grid; gap: 6px; }
+
+.storage-quota-input { display: grid; width: 148px; justify-self: end; gap: 6px; }
 .storage-quota-input > span:first-child { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); }
 .storage-quota-input > span:last-child { display: flex; align-items: center; overflow: hidden; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); box-shadow: var(--control-shadow); }
 .storage-quota-input input { width: 100%; min-width: 0; height: 40px; padding: 0 11px; border: 0; outline: 0; color: var(--text); background: transparent; font: 12px var(--font-mono); }
@@ -66,5 +65,6 @@
 @keyframes storage-spin { to { transform: rotate(360deg); } }
 @media (max-width: 720px) {
   .storage-setting-row, .storage-clear-row { grid-template-columns: 1fr; gap: 12px; }
+  .storage-quota-input,
   .storage-clear-button { justify-self: start; }
 }

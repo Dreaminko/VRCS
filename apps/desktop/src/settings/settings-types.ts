@@ -2,14 +2,12 @@ import type { Settings } from "../types";
 
 export type SettingsCategory =
   | "system"
-  | "storage"
   | "recognition"
   | "translation"
   | "api"
   | "audio"
-  | "dictionary"
-  | "anki"
-  | "osc"
+  | "learning"
+  | "connections"
   | "debug";
 
 export type SaveState = "idle" | "saving" | "saved" | "error";

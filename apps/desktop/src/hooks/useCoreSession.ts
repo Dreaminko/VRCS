@@ -9,7 +9,6 @@ import {
 } from "../api";
 import { localizedError } from "../app-utils";
 import { createSettingsAutosave } from "../settings-autosave";
-import { audioSettingsChanged } from "../settings-validation";
 import type {
   AsrCapabilities,
   AudioDevice,
@@ -288,11 +287,6 @@ export function useCoreSession(settingsPageActive: boolean) {
 
   const persistSettings = useCallback(async (next: Settings): Promise<Settings> => {
     const previous = persistedSettingsRef.current;
-    const restartCapture = (
-      Boolean(healthRef.current?.capture_requested)
-      && previous !== null
-      && audioSettingsChanged(previous, next)
-    );
     const stopMicrophoneTestForSettings = Boolean(
       healthRef.current?.microphone_test_running
       && previous !== null
@@ -301,64 +295,15 @@ export function useCoreSession(settingsPageActive: boolean) {
         || previous.audio.microphone.device_id !== next.audio.microphone.device_id
       )
     );
-    let captureStopped = false;
-    let saved: Settings | null = null;
-
-    try {
-      if (stopMicrophoneTestForSettings) {
-        await coreApi.stopMicrophoneTest();
-        clearPartials();
-        setHealth(await coreApi.health());
-      }
-      if (restartCapture) {
-        await coreApi.stop();
-        captureStopped = true;
-      }
-      saved = await coreApi.saveSettings(next);
-      if (restartCapture) {
-        await coreApi.start();
-        void coreApi.health().then(setHealth).catch(() => undefined);
-      }
-      persistedSettingsRef.current = saved;
-      return saved;
-    } catch (reason) {
-      if (restartCapture && captureStopped) {
-        let recoveryError: unknown = null;
-        if (saved !== null && previous !== null) {
-          try {
-            await coreApi.saveSettings(previous);
-          } catch (rollbackReason) {
-            recoveryError = rollbackReason;
-          }
-        }
-        try {
-          await coreApi.start();
-          void coreApi.health().then(setHealth).catch(() => undefined);
-        } catch (restartReason) {
-          recoveryError ??= restartReason;
-        }
-        if (recoveryError) {
-          const applyMessage = localizedError(
-            reason,
-            tRef.current,
-            "errors.settings.apply",
-          );
-          const recoveryMessage = localizedError(
-            recoveryError,
-            tRef.current,
-            "errors.unknown",
-          );
-          throw new Error(
-            tRef.current("errors.settings.recovery", {
-              applyMessage,
-              recoveryMessage,
-            }),
-            { cause: reason },
-          );
-        }
-      }
-      throw reason;
+    if (stopMicrophoneTestForSettings) {
+      await coreApi.stopMicrophoneTest();
+      clearPartials();
+      setHealth(await coreApi.health());
     }
+    const saved = await coreApi.saveSettings(next);
+    persistedSettingsRef.current = saved;
+    void coreApi.health().then(setHealth).catch(() => undefined);
+    return saved;
   }, [clearPartials]);
   const persistSettingsRef = useRef(persistSettings);
   persistSettingsRef.current = persistSettings;

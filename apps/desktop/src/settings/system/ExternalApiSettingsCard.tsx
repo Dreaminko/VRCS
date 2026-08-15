@@ -1,4 +1,4 @@
-import { Copy, Info, KeyRound, RadioTower, RefreshCw, Save, Trash2 } from "lucide-react";
+import { Copy, KeyRound, RadioTower, RefreshCw, Save, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -49,12 +49,36 @@ export function ExternalApiSettingsCard({ config, saveState, onChange }: {
     return () => { cancelled = true; };
   }, [t]);
 
+  useEffect(() => {
+    if (saveState !== "saved") return;
+    let cancelled = false;
+    void coreApi.externalApiRuntimeStatus().then(
+      (status) => {
+        if (!cancelled) {
+          setRuntimeStatus(status);
+          setRuntimeStatusError(false);
+        }
+      },
+      () => {
+        if (!cancelled) setRuntimeStatusError(true);
+      },
+    );
+    return () => { cancelled = true; };
+  }, [saveState]);
+
   const storeToken = async (token: string, reveal: boolean) => {
     if (!token.trim()) return;
     setTokenBusy(true);
     setTokenMessage("");
     try {
       setTokenStatus(await coreApi.saveExternalApiToken(token));
+      void coreApi.externalApiRuntimeStatus().then(
+        (status) => {
+          setRuntimeStatus(status);
+          setRuntimeStatusError(false);
+        },
+        () => setRuntimeStatusError(true),
+      );
       setGeneratedToken(reveal ? token : "");
       setTokenInput("");
       setTokenMessage(t("settings.system.externalApi.tokenSaved"));
@@ -109,13 +133,12 @@ export function ExternalApiSettingsCard({ config, saveState, onChange }: {
           : t("settings.system.externalApi.tokenMissing");
 
   return (
-    <div className="external-api-settings">
-      <div className="external-api-heading">
-        <span className="external-api-heading-icon" aria-hidden="true"><RadioTower size={18} /></span>
-        <span className="external-api-heading-copy">
-          <strong>{t("settings.system.externalApi.title")}</strong>
-          <small>{t("settings.system.externalApi.description")}</small>
-        </span>
+    <section className="connections-settings-group external-api-settings" aria-labelledby="connections-external-api-title">
+      <div className="section-heading">
+        <div>
+          <RadioTower size={18} />
+          <h3 id="connections-external-api-title">{t("settings.system.externalApi.title")}</h3>
+        </div>
       </div>
       <p className={`external-api-runtime-status ${runtimeState}`} role="status" aria-live="polite">
         <span className="external-api-status-dot" aria-hidden="true" />
@@ -124,7 +147,6 @@ export function ExternalApiSettingsCard({ config, saveState, onChange }: {
       <div className="external-api-panel">
         <PreferenceToggle
           title={t("settings.system.externalApi.enabled")}
-          description={t("settings.system.externalApi.enabledDescription")}
           checked={config.enabled}
           disabled={saveState === "saving"}
           onChange={(enabled) => onChange({ enabled })}
@@ -164,7 +186,6 @@ export function ExternalApiSettingsCard({ config, saveState, onChange }: {
         </div>
         <PreferenceToggle
           title={t("settings.system.externalApi.requireToken")}
-          description={t("settings.system.externalApi.requireTokenDescription")}
           checked={config.require_token}
           disabled={saveState === "saving" || !["127.0.0.1", "::1"].includes(config.host)}
           onChange={(require_token) => onChange({ require_token })}
@@ -213,8 +234,7 @@ export function ExternalApiSettingsCard({ config, saveState, onChange }: {
           )}
           {tokenMessage && <p className="external-api-feedback" role="status" aria-live="polite">{tokenMessage}</p>}
         </div>
-        <p className="external-api-restart"><Info size={14} aria-hidden="true" /><span>{t("settings.system.externalApi.restartRequired")}</span></p>
       </div>
-    </div>
+    </section>
   );
 }

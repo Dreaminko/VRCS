@@ -69,16 +69,3 @@ export function asrSelectionError(
   }
   return null;
 }
-
-export function audioSettingsChanged(
-  previous: Settings,
-  next: Settings,
-): boolean {
-  return previous.audio.sample_rate !== next.audio.sample_rate
-    || previous.audio.output.mode !== next.audio.output.mode
-    || previous.audio.output.device_id !== next.audio.output.device_id
-    || previous.audio.microphone.mode !== next.audio.microphone.mode
-    || previous.audio.microphone.device_id !== next.audio.microphone.device_id
-    || previous.audio.microphone.trigger_threshold_dbfs !== next.audio.microphone.trigger_threshold_dbfs
-    || JSON.stringify(previous.asr) !== JSON.stringify(next.asr);
-}

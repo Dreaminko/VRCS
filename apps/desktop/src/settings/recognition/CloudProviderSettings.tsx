@@ -27,13 +27,12 @@ export function CloudProviderSettings({
     <div className="recognition-config-row">
       <div className="recognition-config-title">
         <HardDrive size={17} />
-        <span><strong>{cloudTitle}</strong><small>{t("settings.recognition.cloudDescription")}</small></span>
+        <span><strong>{cloudTitle}</strong></span>
       </div>
       <div className="recognition-config-fields">
         {usesAlibabaCloud && <>
           <Select
             label={t("settings.recognition.cloudService")}
-            helper={t("settings.recognition.cloudServiceDescription")}
             value={draft.asr.backend}
             options={[
               { value: "qwen_realtime", label: "Qwen3 ASR · Streaming" },

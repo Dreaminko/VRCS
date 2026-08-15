@@ -45,7 +45,7 @@ export function ModelManagerPanel({
       <div className="section-heading">
         <div>
           <HardDrive size={18} />
-          <h2 id="local-models-heading">{t("settings.recognition.localModels")}</h2>
+          <h3 id="local-models-heading">{t("settings.recognition.localModels")}</h3>
           <span>
             {downloadingModels.length
               ? t("settings.recognition.downloadingCount", { count: downloadingModels.length })
@@ -60,7 +60,6 @@ export function ModelManagerPanel({
       <div className="model-directory-setting">
         <label htmlFor="model-directory">
           <span>{t("settings.recognition.modelDirectory")}</span>
-          <small>{t("settings.recognition.modelDirectoryDescription")}</small>
         </label>
         <div>
           <input

@@ -1,16 +1,13 @@
-import { useTranslation } from "react-i18next";
 import { Wrench } from "lucide-react";
 
 import type { DebugRow } from "../settings-types";
 
 export function DebugSettingsSection({ rows }: { rows: DebugRow[] }) {
-  const { t } = useTranslation();
   const debugRows = rows;
   return (
         <div className="settings-section settings-section-active debug-section" id="settings-panel-debug" role="tabpanel" aria-labelledby="settings-tab-debug">
           <div className="section-heading">
-            <div><Wrench size={18} /><h2>Debug</h2><span>{t("settings.debug.subtitle")}</span></div>
-            <p>{t("settings.debug.readOnly")}</p>
+            <div><Wrench size={18} /><h2>Debug</h2></div>
           </div>
           <div className="debug-list">
             {debugRows.map((row) => (

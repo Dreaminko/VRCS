@@ -29,12 +29,20 @@ pub(super) async fn token_status() -> ApiResult<Json<credentials::CredentialStat
 pub(super) async fn runtime_status(
     State(state): State<Arc<AppState>>,
 ) -> Json<crate::external_api::ExternalApiRuntimeStatus> {
-    Json(state.external_api_status.clone())
+    Json(
+        state
+            .external_api_status
+            .read()
+            .expect("External API status lock")
+            .clone(),
+    )
 }
 
 pub(super) async fn token_write(
+    State(state): State<Arc<AppState>>,
     Json(input): Json<TokenInput>,
 ) -> ApiResult<Json<credentials::CredentialStatus>> {
+    let _config_control = state.config_control.lock().await;
     let current = credentials::external_api_token_status().map_err(|error| {
         api_error(
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -49,19 +57,53 @@ pub(super) async fn token_write(
             "VRCS_EXTERNAL_API_TOKEN overrides stored credentials",
         ));
     }
-    credentials::write_external_api_token(&input.token).map_err(|error| {
+    let previous = credentials::read_stored_external_api_token().map_err(|error| {
+        api_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "external_api.token_status_failed",
+            error,
+        )
+    })?;
+    let token = input.token.trim().to_string();
+    credentials::write_external_api_token(&token).map_err(|error| {
         api_error(
             StatusCode::UNPROCESSABLE_ENTITY,
             "external_api.token_invalid",
             error,
         )
     })?;
+
+    let config = state
+        .config
+        .read()
+        .expect("config lock")
+        .external_api
+        .clone();
+    if config.enabled && config.require_token {
+        if let Err(error) =
+            super::settings::reload_external_api_runtime(&state, &config, Some(token)).await
+        {
+            if let Err(recovery) = restore_token(previous) {
+                return Err(api_error(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "settings.rollback_failed",
+                    format!("{error}; token rollback failed: {recovery}"),
+                ));
+            }
+            return Err(api_error(
+                StatusCode::CONFLICT,
+                "external_api.token_reload_failed",
+                error,
+            ));
+        }
+    }
     token_status().await
 }
 
 pub(super) async fn token_delete(
     State(state): State<Arc<AppState>>,
 ) -> ApiResult<Json<credentials::CredentialStatus>> {
+    let _config_control = state.config_control.lock().await;
     let token_required = {
         let config = state.config.read().expect("config lock");
         config.external_api.enabled && config.external_api.require_token
@@ -95,4 +137,11 @@ pub(super) async fn token_delete(
         )
     })?;
     token_status().await
+}
+
+fn restore_token(previous: Option<String>) -> Result<(), String> {
+    match previous {
+        Some(token) => credentials::write_external_api_token(&token),
+        None => credentials::delete_external_api_token(),
+    }
 }

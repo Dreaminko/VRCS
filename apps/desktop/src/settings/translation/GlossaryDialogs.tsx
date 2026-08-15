@@ -103,7 +103,6 @@ export function LocalGlossaryDialog({
       >
         <div className="api-profile-editor-heading">
           <strong>{t(draft.id ? "settings.translation.editGlossary" : "settings.translation.addGlossary")}</strong>
-          <small>{t("settings.translation.localGlossaryDialogHint")}</small>
         </div>
         <div className="api-profile-editor-content" data-floating-boundary>
           <label className="field cloud-text-field">
@@ -288,7 +287,6 @@ export function SubscriptionGlossaryDialog({
       >
         <div className="api-profile-editor-heading">
           <strong>{t(draft.id ? "settings.translation.editSubscription" : "settings.translation.addSubscription")}</strong>
-          <small>{t("settings.translation.subscriptionDialogHint")}</small>
         </div>
         <div className="api-profile-editor-content">
           <label className="field cloud-text-field">
@@ -302,7 +300,6 @@ export function SubscriptionGlossaryDialog({
               placeholder="https://example.com/glossary.json"
               onChange={(event) => onChange({ ...draft, url: event.target.value })}
             />
-            <small>{t("settings.translation.glossaryUrlHint")}</small>
           </label>
           <label className="field cloud-text-field">
             <span>{t("settings.translation.glossaryDisplayName")}</span>

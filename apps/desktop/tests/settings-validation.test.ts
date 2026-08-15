@@ -2,7 +2,6 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   asrSelectionError,
-  audioSettingsChanged,
   audioSelectionErrors,
   hasEnabledAudioSource,
   validComputeTypes,
@@ -74,48 +73,5 @@ test("filters compute types and rejects unavailable CUDA", () => {
       capabilities,
     ),
     "CUDA preflight failed; use automatic selection or CPU",
-  );
-});
-
-test("audio and recognition changes require a running capture restart", () => {
-  assert.equal(
-    audioSettingsChanged(
-      settings,
-      {
-        ...settings,
-        audio: {
-          ...settings.audio,
-          output: { mode: "vrchat", device_id: null },
-        },
-      },
-    ),
-    true,
-  );
-  assert.equal(
-    audioSettingsChanged(
-      settings,
-      {
-        ...settings,
-        audio: {
-          ...settings.audio,
-          microphone: { ...settings.audio.microphone, trigger_threshold_dbfs: -36 },
-        },
-      },
-    ),
-    true,
-  );
-  assert.equal(
-    audioSettingsChanged(
-      settings,
-      { ...settings, asr: { ...settings.asr, local: { ...settings.asr.local, model: "base" } } },
-    ),
-    true,
-  );
-  assert.equal(
-    audioSettingsChanged(
-      settings,
-      { ...settings, osc: { enabled: true, port: 9000, mute_sync_enabled: true, mute_status_toast_enabled: false } },
-    ),
-    false,
   );
 });

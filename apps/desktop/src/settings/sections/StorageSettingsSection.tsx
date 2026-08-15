@@ -97,10 +97,9 @@ export function StorageSettingsSection({
     : 0;
 
   return (
-    <div className="settings-section settings-section-active storage-section" id="settings-panel-storage" role="tabpanel" aria-labelledby="settings-tab-storage">
+    <section className="system-settings-group storage-section" aria-labelledby="system-storage-title">
       <div className="section-heading">
-        <div><HardDrive size={18} /><h2>{t("settings.storage.title")}</h2><span>{t("settings.storage.subtitle")}</span></div>
-        <p>{t("settings.storage.description")}</p>
+        <div><HardDrive size={18} /><h3 id="system-storage-title">{t("settings.storage.title")}</h3></div>
       </div>
 
       <div className="storage-usage-card">
@@ -108,7 +107,6 @@ export function StorageSettingsSection({
           <span className="storage-heading-icon" aria-hidden="true"><Database size={18} /></span>
           <div>
             <strong>{t("settings.storage.databaseUsage")}</strong>
-            <small>{t("settings.storage.databaseUsageDescription")}</small>
           </div>
           <button className="secondary-button storage-refresh-button" type="button" disabled={busy !== null} onClick={() => void loadStats(true)}>
             <RefreshCw size={15} className={busy === "refresh" ? "spinning" : ""} />
@@ -134,7 +132,6 @@ export function StorageSettingsSection({
       <div className="storage-setting-row">
         <div>
           <strong>{t("settings.storage.quota")}</strong>
-          <small>{t("settings.storage.quotaDescription")}</small>
         </div>
         <label className="storage-quota-input">
           <span>{t("settings.storage.quota")}</span>
@@ -160,7 +157,6 @@ export function StorageSettingsSection({
       <div className="storage-clear-row">
         <div>
           <strong>{t("settings.storage.clearHistory")}</strong>
-          <small>{t("settings.storage.clearHistoryDescription")}</small>
         </div>
         <button className="secondary-button storage-clear-button" type="button" disabled={busy !== null} onClick={() => void clearHistory()}>
           <Trash2 size={15} />
@@ -169,6 +165,6 @@ export function StorageSettingsSection({
       </div>
 
       {message && <p className="storage-feedback" role="status">{message}</p>}
-    </div>
+    </section>
   );
 }

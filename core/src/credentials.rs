@@ -38,6 +38,10 @@ pub fn read_external_api_token() -> Result<Option<String>, String> {
             return Ok(Some(value));
         }
     }
+    read_stored_external_api_token()
+}
+
+pub(crate) fn read_stored_external_api_token() -> Result<Option<String>, String> {
     read_stored(EXTERNAL_API_TARGET)
 }
 
@@ -95,6 +99,14 @@ pub fn read_credential(profile_id: &str, provider: &str) -> Result<Option<String
             }
         }
     }
+    read_stored_credential(profile_id, provider)
+}
+
+pub(crate) fn read_stored_credential(
+    profile_id: &str,
+    provider: &str,
+) -> Result<Option<String>, String> {
+    validate_provider(provider)?;
     read_profile_stored(profile_id, provider)
 }
 

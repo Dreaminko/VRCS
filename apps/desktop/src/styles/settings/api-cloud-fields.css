@@ -9,7 +9,7 @@
 }
 .cloud-text-field textarea { min-height: 72px; resize: vertical; font: inherit; }
 .cloud-context-field { grid-column: 1 / -1; }
-.cloud-api-hint { grid-column: 1 / -1; color: var(--text-quiet); font-size: 11px; line-height: 1.5; }
+.cloud-api-hint { grid-column: 1 / -1; margin: 0; overflow-wrap: anywhere; color: var(--text-quiet); font-size: 11px; line-height: 1.5; }
 .cloud-text-field input:focus,
 .cloud-text-field textarea:focus { outline: 2px solid var(--primary-softer); border-color: var(--primary); }
 .settings-inline-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }

@@ -3,12 +3,10 @@ import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import {
   AudioLines,
-  BookOpen,
-  HardDrive,
+  GraduationCap,
   KeyRound,
   Languages,
-  PlusCircle,
-  RadioTower,
+  Link,
   SlidersHorizontal,
   Volume2,
   Wrench,
@@ -41,8 +39,7 @@ import { AudioSettingsSection } from "./sections/AudioSettingsSection";
 import { DebugSettingsSection } from "./sections/DebugSettingsSection";
 import { DictionarySettingsSection } from "./sections/DictionarySettingsSection";
 import { RecognitionSettingsSection } from "./sections/RecognitionSettingsSection";
-import { OscSettingsSection } from "./sections/OscSettingsSection";
-import { StorageSettingsSection } from "./sections/StorageSettingsSection";
+import { ConnectionSettingsSection } from "./sections/ConnectionSettingsSection";
 import { SystemSettingsSection } from "./sections/SystemSettingsSection";
 import { TranslationSettingsSection } from "./sections/TranslationSettingsSection";
 import type { SettingsCategory } from "./settings-types";
@@ -123,7 +120,7 @@ export function SettingsPanel({
     draftController,
   });
   const anki = useAnkiSettings({
-    active: activeCategory === "anki",
+    active: activeCategory === "learning",
     settings,
     draftController,
   });
@@ -195,14 +192,12 @@ export function SettingsPanel({
     icon: ReactNode;
   }> = [
     { id: "system", label: t("settings.categories.system"), icon: <SlidersHorizontal size={18} /> },
-    { id: "storage", label: t("settings.categories.storage"), icon: <HardDrive size={18} /> },
     { id: "audio", label: t("settings.categories.audio"), icon: <Volume2 size={18} /> },
     { id: "recognition", label: t("settings.categories.recognition"), icon: <AudioLines size={18} /> },
     { id: "translation", label: t("settings.categories.translation"), icon: <Languages size={18} /> },
     { id: "api", label: t("settings.categories.api"), icon: <KeyRound size={18} /> },
-    { id: "dictionary", label: t("settings.categories.dictionary"), icon: <BookOpen size={18} /> },
-    { id: "anki", label: "Anki", icon: <PlusCircle size={18} /> },
-    { id: "osc", label: t("settings.categories.osc"), icon: <RadioTower size={18} /> },
+    { id: "learning", label: t("settings.categories.learning"), icon: <GraduationCap size={18} /> },
+    { id: "connections", label: t("settings.categories.connections"), icon: <Link size={18} /> },
     { id: "debug", label: "Debug", icon: <Wrench size={18} /> },
   ];
 
@@ -246,9 +241,6 @@ export function SettingsPanel({
 
       {activeCategory === "system" && (
         <SystemSettingsSection
-          draft={draft}
-          coreSaveState={saveState}
-          applySettings={applySettings}
           desktopPreferences={desktopPreferences}
           desktopPreferencesReady={desktopPreferencesReady}
           desktopSaveState={desktopSaveState}
@@ -259,11 +251,6 @@ export function SettingsPanel({
           onUpdateUiLanguage={updateUiLanguage}
           onboardingDisabled={health?.capture_requested ?? false}
           onStartOnboarding={onStartOnboarding}
-        />
-      )}
-
-      {activeCategory === "storage" && (
-        <StorageSettingsSection
           locale={locale}
           draft={draft}
           saveState={saveState}
@@ -276,7 +263,6 @@ export function SettingsPanel({
           locale={locale}
           draft={draft}
           apiProfiles={apiProfileViews}
-          disabled={disabled}
           modelStatus={modelStatus}
           status={{
             capabilities: asrCapabilities,
@@ -333,7 +319,6 @@ export function SettingsPanel({
         <TranslationSettingsSection
           draft={draft}
           apiProfiles={apiProfileViews}
-          disabled={disabled}
           saveState={saveState}
           applySettings={applySettings}
         />
@@ -342,55 +327,61 @@ export function SettingsPanel({
       {activeCategory === "api" && (
         <ApiManagementSettingsSection
           settings={draft}
-          disabled={disabled}
           onRefreshSettings={onRefreshSettings}
         />
       )}
 
-      {activeCategory === "dictionary" && (
-        <DictionarySettingsSection
-          locale={locale}
-          selectionLookupEnabled={draft.dictionary.selection_lookup_enabled}
-          dictionaries={dictionaries}
-          busy={dictionaryBusy}
-          message={dictionaryMessage}
-          progress={dictionaryProgress}
-          fileInputRef={dictionaryFileRef}
-          saveState={saveState}
-          onSelectionLookupChange={(enabled) => applySettings((current) => ({
-            ...current,
-            dictionary: {
-              ...current.dictionary,
-              selection_lookup_enabled: enabled,
-            },
-          }))}
-          onChoose={chooseDictionary}
-          onRemove={removeDictionary}
-        />
+      {activeCategory === "learning" && (
+        <div className="settings-section settings-section-active learning-section" id="settings-panel-learning" role="tabpanel" aria-labelledby="settings-tab-learning">
+          <div className="section-heading learning-page-heading">
+            <div>
+              <GraduationCap size={18} />
+              <h2>{t("settings.learning.title")}</h2>
+            </div>
+          </div>
+          <div className="learning-settings-list">
+            <DictionarySettingsSection
+              locale={locale}
+              selectionLookupEnabled={draft.dictionary.selection_lookup_enabled}
+              dictionaries={dictionaries}
+              busy={dictionaryBusy}
+              message={dictionaryMessage}
+              progress={dictionaryProgress}
+              fileInputRef={dictionaryFileRef}
+              saveState={saveState}
+              onSelectionLookupChange={(enabled) => applySettings((current) => ({
+                ...current,
+                dictionary: {
+                  ...current.dictionary,
+                  selection_lookup_enabled: enabled,
+                },
+              }))}
+              onChoose={chooseDictionary}
+              onRemove={removeDictionary}
+            />
+            <AnkiSettingsSection
+              draft={draft}
+              status={ankiStatus}
+              busy={ankiBusy}
+              message={ankiMessage}
+              portText={ankiPortText}
+              portError={ankiPortError}
+              saveState={saveState}
+              deckNames={ankiDeckNames}
+              modelOptions={ankiModelOptions}
+              frontFieldOptions={ankiFieldOptions}
+              backFieldOptions={ankiBackFieldOptions}
+              onLoadStatus={loadAnkiStatus}
+              onSetPortText={setAnkiPortText}
+              onCommitPort={commitAnkiPort}
+              onUpdate={updateAnki}
+            />
+          </div>
+        </div>
       )}
 
-      {activeCategory === "anki" && (
-        <AnkiSettingsSection
-          draft={draft}
-          status={ankiStatus}
-          busy={ankiBusy}
-          message={ankiMessage}
-          portText={ankiPortText}
-          portError={ankiPortError}
-          saveState={saveState}
-          deckNames={ankiDeckNames}
-          modelOptions={ankiModelOptions}
-          frontFieldOptions={ankiFieldOptions}
-          backFieldOptions={ankiBackFieldOptions}
-          onLoadStatus={loadAnkiStatus}
-          onSetPortText={setAnkiPortText}
-          onCommitPort={commitAnkiPort}
-          onUpdate={updateAnki}
-        />
-      )}
-
-      {activeCategory === "osc" && (
-        <OscSettingsSection
+      {activeCategory === "connections" && (
+        <ConnectionSettingsSection
           draft={draft}
           health={health}
           saveState={saveState}

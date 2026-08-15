@@ -264,12 +264,13 @@
         "recognition": "识别",
         "translation": "翻译",
         "api": "API 管理",
-        "dictionary": "词典",
-        "osc": "OSC"
+        "learning": "学习",
+        "connections": "连接"
       },
       "system": {
         "title": "系统",
-        "subtitle": "语言、界面大小、开机启动与窗口行为",
+        "general": "一般设置",
+
         "saveImmediately": "更改会立即保存。",
         "language": "界面语言",
         "languageDescription": "跟随系统语言，或单独指定 VRCS 使用的语言。",
@@ -290,7 +291,7 @@
         "runOnboardingStopFirst": "请先停止转写",
         "externalApi": {
           "title": "第三方输出 API",
-          "description": "通过独立、版本化的 WebSocket 向本机工具输出识别、翻译和 Chatbox 事件。",
+
           "enabled": "启用第三方输出 API",
           "enabledDescription": "默认关闭；仅开放健康检查、能力信息和事件订阅。",
           "host": "监听地址",
@@ -312,7 +313,7 @@
           "tokenLoadFailed": "无法读取 Token 状态。",
           "tokenSaveFailed": "无法保存 Token。",
           "tokenDeleteFailed": "无法删除 Token。",
-          "restartRequired": "监听地址、端口、启用状态和鉴权方式会在下次启动 VRCS 时生效。",
+
           "statusLoadFailed": "无法读取第三方输出 API 的当前状态。",
           "runtime": {
             "checking": "正在读取当前运行状态。",
@@ -324,15 +325,14 @@
       },
       "storage": {
         "title": "存储",
-        "subtitle": "字幕历史的空间配额与数据库占用",
-        "description": "按数据库有效占用自动管理字幕历史，而不是按记录条数截断。",
+
         "databaseUsage": "数据库空间占用",
         "databaseUsageDescription": "有效占用不包含库内可复用的空闲页；已分配空间是数据库文件当前保留的磁盘空间。",
         "ofQuota": "/ {{quota}} 配额",
         "allocated": "已分配空间",
         "reclaimable": "库内可复用空间",
         "overLimit": "数据库有效占用已超过配额。Core 会在写入字幕时删除最旧记录；如果其他数据本身超过配额，仅清理字幕也无法降到上限以下。",
-        "quota": "字幕历史空间上限",
+        "quota": "占用空间上限",
         "quotaDescription": "达到上限后自动删除最旧字幕，始终保留最新一条。可设置 10 MiB 至 10 GiB。",
         "quotaInvalid": "请输入 {{min}} 至 {{max}} MiB 之间的空间上限。",
         "clearHistory": "清理字幕历史",
@@ -344,7 +344,7 @@
       },
       "translation": {
         "title": "字幕翻译",
-        "description": "使用翻译服务或大语言模型生成双语字幕。",
+
         "mode": "翻译方式",
         "modeDescription": "控制其他人的声音和手动请求；自己的麦克风使用下方独立设置。",
         "modes": {
@@ -455,7 +455,7 @@
       },
       "apiManagement": {
         "title": "API 管理",
-        "subtitle": "管理各供应商的默认转写 API，以及当前使用的翻译配置",
+
         "securityNotice": "API Key 保存在 Windows 凭据管理器中，不会写入配置文件。环境变量中的密钥会优先使用。",
         "alibabaDescription": "Qwen3 ASR 与 Fun-ASR 共用此连接",
         "openaiDescription": "OpenAI 官方 API，可用于 Realtime 云端识别和 LLM 翻译",
@@ -682,6 +682,9 @@
         "scanning": "正在扫描设备…",
         "noDevices": "未发现其他可用设备。"
       },
+      "learning": {
+        "title": "学习设置"
+      },
       "dictionary": {
         "title": "词典",
         "selectionLookup": "启用划词查询",
@@ -703,7 +706,7 @@
       },
       "anki": {
         "title": "Anki 集成",
-        "subtitle": "通过 AnkiConnect 从词典查询结果创建卡片",
+
         "enable": "启用 AnkiConnect",
         "enableDescription": "允许检查本地 Anki 连接，并在词典查询中创建卡片。",
         "invalidPort": "请输入 1 到 65535 之间的有效端口。",
@@ -727,9 +730,12 @@
         "backField": "背面字段",
         "backFieldDescription": "释义和语境会写入此字段。"
       },
+      "connections": {
+        "title": "连接设置"
+      },
       "osc": {
         "title": "OSC",
-        "subtitle": "将自己的麦克风字幕和译文发送到 VRChat 聊天框",
+
         "enable": "启用聊天框输出",
         "enableDescription": "仅发送自己的麦克风最终字幕，不发送其他声音或临时结果。",
         "muteSync": "同步 VRChat 麦克风静音",
@@ -758,7 +764,7 @@
         }
       },
       "debug": {
-        "subtitle": "运行状态与配置详情",
+
         "readOnly": "只读",
         "schema": "配置版本",
         "coreAddress": "Core 地址",
@@ -767,7 +773,7 @@
         "sampleRate": "采样率",
         "silence": "静音阈值",
         "maxSegment": "最长片段",
-        "historyStorageLimit": "字幕历史空间上限",
+        "historyStorageLimit": "占用空间上限",
         "modelStatus": "模型状态",
         "cuda": "CUDA",
         "availableDevices": "{{count}} 个设备",
@@ -825,21 +831,21 @@
         "disabledDescription": "VRCS 只会转写其他人的声音。之后可以在音频设置中启用麦克风。",
         "description": "测试只测量输入音量，不会识别、生成字幕或保存录音。调整阈值，使安静时不触发、正常说话时稳定触发。",
         "autoTitle": "引导校准",
-        "autoDescription": "先保持安静 2 秒，再以正常音量说话 3 秒，VRCS 会计算建议阈值。",
+        "autoDescription": "开始后先保持安静；提示切换后再以正常音量连续说一整句话，VRCS 会计算建议阈值。",
         "result": "环境 {{noise}} dBFS · 说话 {{speech}} dBFS · 建议 {{threshold}} dBFS",
         "phase": {
           "idle": "准备校准",
           "quiet": "请保持安静",
-          "speech": "请以正常音量说话",
+          "speech": "请持续说话",
           "ready": "建议值已生成",
           "failed": "无法可靠区分环境音和说话声"
         },
         "phaseDescription": {
-          "idle": "开始后请按提示完成两段短采样。",
-          "quiet": "正在测量环境噪声…",
-          "speech": "持续说一句完整的话…",
+          "idle": "开始后请等待提示变化，再开始说话。",
+          "quiet": "请勿说话，正在测量环境噪声…",
+          "speech": "看到提示后，以正常音量连续说一整句话…",
           "ready": "可以应用建议值，或继续手动调整。",
-          "failed": "请调整麦克风距离、降低环境噪声或手动设置阈值。"
+          "failed": "请靠近麦克风后重试；校准时先完全安静，提示变化后再连续说话。"
         },
         "restoreDefault": "恢复默认值",
         "applySuggestion": "应用建议值",

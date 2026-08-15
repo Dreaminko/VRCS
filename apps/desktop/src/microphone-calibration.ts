@@ -23,16 +23,12 @@ export function suggestMicrophoneThreshold(
   quietSamples: number[],
   speechSamples: number[],
 ): MicrophoneCalibrationResult | null {
-  const noiseLevel = percentile(quietSamples, 0.9);
-  const speechLevel = percentile(speechSamples, 0.25);
-  if (noiseLevel === null || speechLevel === null || speechLevel - noiseLevel < 6) return null;
-
-  const lower = noiseLevel + 3;
-  const upper = speechLevel - 3;
-  if (lower > upper) return null;
+  const noiseLevel = percentile(quietSamples, 0.85);
+  const speechLevel = percentile(speechSamples, 0.6);
+  if (noiseLevel === null || speechLevel === null || speechLevel - noiseLevel < 5) return null;
 
   return {
-    threshold: Math.round(clamp((lower + upper) / 2, MIN_MICROPHONE_LEVEL_DBFS, MAX_MICROPHONE_THRESHOLD_DBFS)),
+    threshold: Math.round(clamp((noiseLevel + speechLevel) / 2, MIN_MICROPHONE_LEVEL_DBFS, MAX_MICROPHONE_THRESHOLD_DBFS)),
     noiseLevel: Math.round(noiseLevel),
     speechLevel: Math.round(speechLevel),
   };

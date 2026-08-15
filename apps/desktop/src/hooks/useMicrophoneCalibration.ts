@@ -6,8 +6,12 @@ import {
 } from "../microphone-calibration";
 import type { AudioLevel } from "../types";
 
+const QUIET_PROMPT_LEAD_MS = 500;
 const QUIET_SAMPLE_MS = 2_000;
-const SPEECH_SAMPLE_MS = 3_000;
+const SPEECH_PROMPT_LEAD_MS = 800;
+const SPEECH_SAMPLE_MS = 4_000;
+
+type MicrophoneCalibrationCollectionPhase = "quiet" | "speech";
 
 export type MicrophoneCalibrationPhase = "idle" | "quiet" | "speech" | "ready" | "failed";
 
@@ -29,23 +33,26 @@ export function useMicrophoneCalibration({
   const [calibrating, setCalibrating] = useState(false);
   const quietSamplesRef = useRef<number[]>([]);
   const speechSamplesRef = useRef<number[]>([]);
+  const collectionPhaseRef = useRef<MicrophoneCalibrationCollectionPhase | null>(null);
   const runRef = useRef(0);
   const calibratingRef = useRef(false);
 
   useEffect(() => {
     if (!level || !testing) return;
-    if (phase === "quiet") quietSamplesRef.current.push(level.rms_dbfs);
-    if (phase === "speech") speechSamplesRef.current.push(level.rms_dbfs);
-  }, [level, phase, testing]);
+    if (collectionPhaseRef.current === "quiet") quietSamplesRef.current.push(level.rms_dbfs);
+    if (collectionPhaseRef.current === "speech") speechSamplesRef.current.push(level.rms_dbfs);
+  }, [level, testing]);
 
   useEffect(() => () => {
     runRef.current += 1;
     calibratingRef.current = false;
+    collectionPhaseRef.current = null;
   }, []);
 
   const reset = useCallback(() => {
     runRef.current += 1;
     calibratingRef.current = false;
+    collectionPhaseRef.current = null;
     setCalibrating(false);
     setPhase("idle");
     setResult(null);
@@ -66,11 +73,19 @@ export function useMicrophoneCalibration({
       if (run !== runRef.current) return null;
 
       setPhase("quiet");
+      await wait(QUIET_PROMPT_LEAD_MS);
+      if (run !== runRef.current) return null;
+      collectionPhaseRef.current = "quiet";
       await wait(QUIET_SAMPLE_MS);
+      collectionPhaseRef.current = null;
       if (run !== runRef.current) return null;
 
       setPhase("speech");
+      await wait(SPEECH_PROMPT_LEAD_MS);
+      if (run !== runRef.current) return null;
+      collectionPhaseRef.current = "speech";
       await wait(SPEECH_SAMPLE_MS);
+      collectionPhaseRef.current = null;
       if (run !== runRef.current) return null;
 
       const suggestion = suggestMicrophoneThreshold(
@@ -86,6 +101,7 @@ export function useMicrophoneCalibration({
     } finally {
       if (run === runRef.current) {
         calibratingRef.current = false;
+        collectionPhaseRef.current = null;
         setCalibrating(false);
       }
     }

@@ -68,7 +68,6 @@ pub(super) async fn update_settings(
             "Settings changed since they were loaded; reload and try again",
         ));
     }
-    let _control = state.capture_control.lock().await;
     let current = state.config.read().expect("config lock").clone();
     // The profile catalog has its own mutation endpoints. A full settings payload can
     // be stale, so it must not recreate profiles changed or deleted elsewhere.
@@ -106,23 +105,7 @@ pub(super) async fn update_settings(
     }
     let model_directory_changed =
         candidate.storage.model_directory != current.storage.model_directory;
-    let storage_quota_changed =
-        candidate.storage.subtitle_history_max_bytes != current.storage.subtitle_history_max_bytes;
-    let capture_running = state.speaker_pipeline.lock().await.running()
-        || state.microphone_pipeline.lock().await.running();
-    if capture_running
-        && (candidate.audio != current.audio
-            || candidate.vad != current.vad
-            || candidate.asr != current.asr
-            || candidate.translation != current.translation
-            || model_directory_changed)
-    {
-        return Err(api_error(
-            StatusCode::CONFLICT,
-            "settings.capture_must_be_stopped",
-            "Stop transcription before changing audio, segmentation, recognition, translation, or model storage settings",
-        ));
-    }
+
     if candidate.server != current.server {
         return Err(unprocessable(
             "The Core address is a startup setting and cannot be changed at runtime".into(),
@@ -185,40 +168,221 @@ pub(super) async fn update_settings(
         )
     })?
     .map_err(|error| unprocessable(error.to_string()))?;
+    let revision = commit_candidate(&state, candidate.clone()).await?;
+    Ok((revision_headers(&state, revision), Json(json!(candidate))))
+}
+
+pub(super) async fn commit_candidate(
+    state: &Arc<AppState>,
+    candidate: AppConfig,
+) -> ApiResult<u64> {
+    let _capture_control = state.capture_control.lock().await;
+    let current = state.config.read().expect("config lock").clone();
+    let plan = super::capture::CaptureReloadPlan::between(&current, &candidate);
+    let reload_capture = state.capture_requested.load(Ordering::SeqCst) && !plan.is_empty();
+    let reload_external_api = current.external_api != candidate.external_api;
+    if reload_capture {
+        super::capture::validate_capture_config(state, &candidate).await?;
+        super::capture::stop_pipelines(state, plan).await;
+    }
+
+    let model_directory_changed =
+        candidate.storage.model_directory != current.storage.model_directory;
     let candidate_model_dir = state.asr_model_dir_override.clone().unwrap_or_else(|| {
         crate::resolve_config_path(&state.config_path, &candidate.storage.model_directory)
     });
     let previous_model_dir = state.model_manager.model_dir();
     if model_directory_changed {
-        let manager = Arc::clone(&state.model_manager);
-        let model_dir = candidate_model_dir.clone();
-        tokio::task::spawn_blocking(move || manager.move_model_dir(model_dir))
+        if let Err(error) = move_model_directory(state, candidate_model_dir.clone()).await {
+            if let Err(recovery) = restore_previous(
+                state,
+                &current,
+                &previous_model_dir,
+                false,
+                false,
+                false,
+                None,
+                plan,
+            )
             .await
-            .map_err(|error| {
-                api_error(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "settings.model_directory_migration_failed",
-                    format!("Model directory migration task failed: {error}"),
-                )
-            })?
-            .map_err(unprocessable)?;
+            {
+                return Err(rollback_error(error, recovery));
+            }
+            return Err(api_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "settings.model_directory_migration_failed",
+                error,
+            ));
+        }
     }
-    if let Err(error) = save_config(&state.config_path, &candidate) {
-        if model_directory_changed {
-            let manager = Arc::clone(&state.model_manager);
-            let rollback =
-                tokio::task::spawn_blocking(move || manager.move_model_dir(previous_model_dir))
-                    .await;
-            if !matches!(rollback, Ok(Ok(()))) {
+
+    let asr_changed =
+        super::capture::asr_runtime_changed(&current, &candidate) || model_directory_changed;
+    let current_local_required = local_asr_required(&current);
+    let local_required = local_asr_required(&candidate);
+    let local_runtime_changed = model_directory_changed
+        || current.asr.local != candidate.asr.local
+        || (!current_local_required && local_required);
+    let prepared_engine = if reload_capture && local_runtime_changed && local_required {
+        match prepare_asr_runtime(&candidate, candidate_model_dir.clone()).await {
+            Ok(engine) => Some(engine),
+            Err(error) => {
+                if let Err(recovery) = restore_previous(
+                    state,
+                    &current,
+                    &previous_model_dir,
+                    model_directory_changed,
+                    false,
+                    false,
+                    None,
+                    plan,
+                )
+                .await
+                {
+                    return Err(rollback_error(error, recovery));
+                }
                 return Err(api_error(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "settings.rollback_failed",
-                    format!("Settings could not be saved and the previous model directory could not be restored: {error}"),
+                    StatusCode::UNPROCESSABLE_ENTITY,
+                    "settings.asr_preload_failed",
+                    error,
                 ));
             }
         }
-        return Err(unprocessable(error));
+    } else {
+        None
+    };
+
+    if let Err(error) = save_config(&state.config_path, &candidate) {
+        if let Err(recovery) = restore_previous(
+            state,
+            &current,
+            &previous_model_dir,
+            model_directory_changed,
+            false,
+            false,
+            None,
+            plan,
+        )
+        .await
+        {
+            return Err(rollback_error(error, recovery));
+        }
+        return Err(api_error(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "settings.invalid",
+            error,
+        ));
     }
+
+    let previous_engine = if asr_changed {
+        match update_asr_runtime(state, &candidate, candidate_model_dir, prepared_engine).await {
+            Ok(engine) => engine,
+            Err(error) => {
+                if let Err(recovery) = restore_previous(
+                    state,
+                    &current,
+                    &previous_model_dir,
+                    model_directory_changed,
+                    true,
+                    true,
+                    None,
+                    plan,
+                )
+                .await
+                {
+                    return Err(rollback_error(error, recovery));
+                }
+                return Err(api_error(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "settings.asr_update_failed",
+                    error,
+                ));
+            }
+        }
+    } else {
+        None
+    };
+
+    if reload_capture {
+        if let Err(error) = super::capture::start_pipelines(state, &candidate, plan).await {
+            let detail = api_detail(&error);
+            if let Err(recovery) = restore_previous(
+                state,
+                &current,
+                &previous_model_dir,
+                model_directory_changed,
+                true,
+                asr_changed,
+                previous_engine,
+                plan,
+            )
+            .await
+            {
+                return Err(rollback_error(detail, recovery));
+            }
+            return Err(error);
+        }
+    }
+
+    if reload_external_api {
+        let token = if candidate.external_api.enabled && candidate.external_api.require_token {
+            match credentials::read_external_api_token() {
+                Ok(token) => token,
+                Err(error) => {
+                    let error = api_error(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        "external_api.token_status_failed",
+                        error,
+                    );
+                    let detail = api_detail(&error);
+                    if let Err(recovery) = restore_previous(
+                        state,
+                        &current,
+                        &previous_model_dir,
+                        model_directory_changed,
+                        true,
+                        asr_changed,
+                        previous_engine,
+                        plan,
+                    )
+                    .await
+                    {
+                        return Err(rollback_error(detail, recovery));
+                    }
+                    return Err(error);
+                }
+            }
+        } else {
+            None
+        };
+        if let Err(error) = reload_external_api_runtime(state, &candidate.external_api, token).await
+        {
+            let api_error = api_error(
+                StatusCode::CONFLICT,
+                "settings.external_api_reload_failed",
+                error,
+            );
+            let detail = api_detail(&api_error);
+            if let Err(recovery) = restore_previous(
+                state,
+                &current,
+                &previous_model_dir,
+                model_directory_changed,
+                true,
+                asr_changed,
+                previous_engine,
+                plan,
+            )
+            .await
+            {
+                return Err(rollback_error(detail, recovery));
+            }
+            return Err(api_error);
+        }
+    }
+
+    let storage_quota_changed =
+        candidate.storage.subtitle_history_max_bytes != current.storage.subtitle_history_max_bytes;
     let glossary_refresh_ids = state
         .glossary_subscription
         .set_sources(candidate.translation.prompt.glossary_sources.clone());
@@ -233,7 +397,6 @@ pub(super) async fn update_settings(
             tracing::warn!(%error, "subtitle history storage quota could not be enforced immediately");
         }
     }
-    let revision = state.config_revision.fetch_add(1, Ordering::SeqCst) + 1;
     state.osc.update_config(candidate.osc.clone());
     state
         .vrchat_mute_sync
@@ -248,30 +411,148 @@ pub(super) async fn update_settings(
             }
         });
     }
-    let asr = Arc::clone(&state.asr);
-    let asr_config = candidate.asr.clone();
+    Ok(state.config_revision.fetch_add(1, Ordering::SeqCst) + 1)
+}
+
+pub(super) async fn reload_external_api_runtime(
+    state: &Arc<AppState>,
+    config: &crate::config::ExternalApiConfig,
+    token: Option<String>,
+) -> Result<(), String> {
+    let mut server = state.external_api_server.lock().await;
+    let result = crate::external_api::reconfigure(
+        &mut server,
+        config,
+        state.domain_events.clone(),
+        token,
+        state.shutdown.clone(),
+    )
+    .await;
+    let status = match server.as_ref() {
+        Some(server) => crate::external_api::ExternalApiRuntimeStatus::running(server.address),
+        None if config.enabled => crate::external_api::ExternalApiRuntimeStatus::failed(
+            result
+                .as_ref()
+                .err()
+                .cloned()
+                .unwrap_or_else(|| "External API listener is unavailable".into()),
+        ),
+        None => crate::external_api::ExternalApiRuntimeStatus::disabled(),
+    };
+    *state
+        .external_api_status
+        .write()
+        .expect("External API status lock") = status;
+    result
+}
+
+async fn move_model_directory(
+    state: &Arc<AppState>,
+    path: std::path::PathBuf,
+) -> Result<(), String> {
+    let manager = Arc::clone(&state.model_manager);
+    tokio::task::spawn_blocking(move || manager.move_model_dir(path))
+        .await
+        .map_err(|error| format!("Model directory migration task failed: {error}"))?
+}
+
+fn local_asr_required(config: &AppConfig) -> bool {
+    config.asr.backend == "local_whisper" || config.asr.cloud_failure_policy == "local"
+}
+
+async fn prepare_asr_runtime(
+    config: &AppConfig,
+    model_directory: std::path::PathBuf,
+) -> Result<Box<dyn crate::asr::AsrEngine>, String> {
+    let asr_config = config.asr.clone();
     tokio::task::spawn_blocking(move || {
-        asr.lock()
-            .map_err(|_| "The ASR inference lock is unavailable".to_string())?
-            .update(asr_config, candidate_model_dir);
-        Ok::<_, String>(())
+        crate::asr::prepare_local_engine(&asr_config, &model_directory)
     })
     .await
-    .map_err(|error| {
-        api_error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "settings.asr_update_task_failed",
-            format!("ASR configuration update task failed: {error}"),
-        )
-    })?
-    .map_err(|error| {
-        api_error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "settings.asr_update_failed",
-            error,
-        )
-    })?;
-    Ok((revision_headers(&state, revision), Json(json!(candidate))))
+    .map_err(|error| format!("ASR model preload task failed: {error}"))?
+}
+
+async fn update_asr_runtime(
+    state: &Arc<AppState>,
+    config: &AppConfig,
+    model_directory: std::path::PathBuf,
+    prepared_engine: Option<Box<dyn crate::asr::AsrEngine>>,
+) -> Result<Option<Box<dyn crate::asr::AsrEngine>>, String> {
+    let asr = Arc::clone(&state.asr);
+    let asr_config = config.asr.clone();
+    tokio::task::spawn_blocking(move || {
+        let previous_engine = asr
+            .lock()
+            .map_err(|_| "The ASR inference lock is unavailable".to_string())?
+            .update(asr_config, model_directory, prepared_engine);
+        Ok::<_, String>(previous_engine)
+    })
+    .await
+    .map_err(|error| format!("ASR configuration update task failed: {error}"))?
+}
+
+async fn restore_previous(
+    state: &Arc<AppState>,
+    previous: &AppConfig,
+    previous_model_dir: &std::path::Path,
+    restore_model_directory: bool,
+    restore_persisted_config: bool,
+    restore_asr_runtime: bool,
+    prepared_engine: Option<Box<dyn crate::asr::AsrEngine>>,
+    plan: super::capture::CaptureReloadPlan,
+) -> Result<(), String> {
+    let mut errors = Vec::new();
+    super::capture::stop_pipelines(state, plan).await;
+    if restore_model_directory {
+        if let Err(error) = move_model_directory(state, previous_model_dir.to_path_buf()).await {
+            errors.push(error);
+        }
+    }
+    if restore_persisted_config {
+        if let Err(error) = save_config(&state.config_path, previous) {
+            errors.push(format!("Previous settings could not be restored: {error}"));
+        }
+    }
+    if restore_asr_runtime {
+        let model_directory = state.asr_model_dir_override.clone().unwrap_or_else(|| {
+            crate::resolve_config_path(&state.config_path, &previous.storage.model_directory)
+        });
+        if let Err(error) =
+            update_asr_runtime(state, previous, model_directory, prepared_engine).await
+        {
+            errors.push(error);
+        }
+    }
+    if state.capture_requested.load(Ordering::SeqCst) {
+        if let Err(error) = super::capture::start_pipelines(state, previous, plan).await {
+            errors.push(api_detail(&error));
+        }
+    }
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors.join("; "))
+    }
+}
+
+fn api_detail(error: &(StatusCode, Json<Value>)) -> String {
+    error
+        .1
+        .get("detail")
+        .and_then(Value::as_str)
+        .unwrap_or("Capture reconfiguration failed")
+        .to_string()
+}
+
+fn rollback_error(
+    error: impl std::fmt::Display,
+    recovery: impl std::fmt::Display,
+) -> (StatusCode, Json<Value>) {
+    api_error(
+        StatusCode::INTERNAL_SERVER_ERROR,
+        "settings.rollback_failed",
+        format!("{error}; rollback failed: {recovery}"),
+    )
 }
 
 fn revision_token(state: &AppState, revision: u64) -> String {

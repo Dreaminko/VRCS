@@ -17,7 +17,6 @@ export function RecognitionLanguageSelect({
   return (
     <Select
       label={t("settings.recognition.language")}
-      helper={t("settings.recognition.languageDescription")}
       value={value}
       options={[
         { value: "auto", label: t("languages.auto") },

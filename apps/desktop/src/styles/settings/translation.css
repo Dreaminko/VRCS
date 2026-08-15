@@ -1,17 +1,10 @@
-.translation-section-heading { margin-bottom: 0; }
-.translation-section-subtitle {
-  margin: 5px 0 18px 28px;
-  color: var(--text-quiet);
-  font-size: 12px;
-  line-height: 1.6;
-  text-wrap: pretty;
-}
+
 .translation-section .status-chip.disabled {
   color: var(--text-quiet);
   background: var(--surface-subtle);
 }
 .translation-config-title > svg { flex: 0 0 auto; margin-top: 1px; }
-.translation-config-title small { text-wrap: pretty; }
+
 .translation-config-fields-single > .field { grid-column: 1; }
 .translation-own-voice-fields { display: grid; gap: 12px; }
 .translation-own-voice-fields .settings-toggle-row {
@@ -74,7 +67,6 @@
   align-items: center;
   gap: 12px;
   padding-top: 8px;
-  border-top: 1px solid var(--border);
 }
 .translation-thinking-toggle > span { display: grid; min-width: 0; flex: 1; gap: 2px; }
 .translation-thinking-toggle strong { color: var(--text); font-size: 12px; font-weight: 650; }
@@ -133,11 +125,9 @@
   box-shadow: var(--control-shadow);
 }
 .translation-context-setting > .settings-toggle-row {
-  min-height: 68px;
-  padding: 13px 14px;
-  border-bottom: 0;
+  min-height: 48px;
+  padding: 8px 12px;
 }
-.translation-context-setting.enabled > .settings-toggle-row { border-bottom: 1px solid var(--border); }
 .translation-context-panel { display: grid; gap: 16px; padding: 14px; }
 .translation-context-group { display: grid; min-width: 0; gap: 9px; }
 .translation-context-group-title {
@@ -279,8 +269,7 @@
 .translation-glossary-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .translation-glossary-heading > span { display: grid; min-width: 0; gap: 2px; }
 .translation-glossary-heading strong { font-size: 12px; }
-.translation-glossary-heading small,
-.translation-glossary-priority-hint { color: var(--text-quiet); font-size: 10px; line-height: 1.5; }
+
 .translation-glossary-heading-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
 .translation-glossary-list { display: grid; min-width: 0; gap: 8px; }
 .translation-glossary-card {

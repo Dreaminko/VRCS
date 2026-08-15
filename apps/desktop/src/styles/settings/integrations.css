@@ -1,11 +1,27 @@
 .dictionary-file-input { display: none; }
-.dictionary-section .section-heading { margin-bottom: 16px; }
+
+.system-settings-list,
+.learning-settings-list,
+.connections-settings-list { display: grid; gap: 0; }
+.connections-page-heading { margin-bottom: 14px; }
+.system-settings-group + .system-settings-group,
+.learning-settings-group + .learning-settings-group,
+.connections-settings-group + .connections-settings-group { padding-top: var(--settings-group-gap); }
+.system-settings-group > .section-heading,
+.learning-settings-group > .section-heading,
+.connections-settings-group > .section-heading { margin-bottom: 14px; }
+
+.anki-section > .settings-feature-toggle,
+.dictionary-section > .settings-feature-toggle { margin-top: 0; }
+.anki-section .section-heading h3 { white-space: nowrap; }
 .system-section .section-heading > div > svg,
 .audio-section .section-heading > div > svg,
 .recognition-section .section-heading > div > svg,
 .translation-section .section-heading > div > svg,
 .api-section .section-heading > div > svg,
 .model-section .section-heading > div > svg,
+.learning-section .section-heading > div > svg,
+.connections-section .section-heading > div > svg,
 .dictionary-section .section-heading > div > svg,
 .anki-section .section-heading > div > svg,
 .osc-section .section-heading > div > svg,
@@ -50,6 +66,15 @@
 .osc-connection strong { font-size: 13px; font-weight: 650; }
 .anki-connection p,
 .osc-connection p { margin: 0; color: var(--text-secondary); font-size: 11px; line-height: 1.55; text-wrap: pretty; }
+.osc-section .osc-connection { min-height: 0; margin-bottom: 12px; padding: 10px 14px; border-radius: var(--radius-sm); }
+.osc-panel {
+  display: grid;
+  overflow: hidden;
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+.osc-panel > .settings-feature-toggle { margin: 0; }
+.osc-panel .settings-toggle-row { min-height: 50px; padding: 8px 15px; }
 .anki-connection code,
 .osc-connection code {
   color: var(--text-quiet);
@@ -69,18 +94,19 @@
 .osc-endpoint-row {
   grid-template-columns: minmax(0, 1fr) minmax(180px, 0.42fr);
   align-items: start;
-  margin-bottom: 14px;
+  margin: 0;
+  padding: 14px;
 }
 .osc-endpoint-row > .osc-endpoint-field {
   display: grid;
   min-width: 0;
-  grid-template-rows: auto 40px auto;
   gap: 7px;
 }
 .osc-endpoint-field > span { color: var(--text-secondary); font-size: 13px; font-weight: 600; }
 .osc-address-value {
   display: flex;
   min-width: 0;
+  min-height: 40px;
   align-items: center;
   padding: 0 12px;
   border: 1px solid var(--border);
@@ -107,8 +133,7 @@
   background: var(--surface-subtle);
   font: 13px/18px var(--font-mono);
 }
-.anki-endpoint-row > div > small,
-.osc-endpoint-row > div > small { color: var(--text-quiet); font-size: 11px; }
+
 .anki-port-field,
 .osc-port-field { display: grid; gap: 7px; }
 .anki-port-field input,
@@ -124,8 +149,7 @@
 .anki-port-field input:disabled,
 .osc-port-field input:disabled,
 .model-directory-setting input:disabled { color: var(--text-quiet); background: var(--surface-subtle); }
-.anki-port-help { margin: 8px 0 14px; color: var(--text-quiet); font-size: 11px; line-height: 1.55; }
-.anki-port-help { margin-bottom: 22px; }
+.anki-port-help { margin: 6px 0 0; color: var(--text-quiet); font-size: 11px; line-height: 1.55; }
 .anki-port-help.error { color: var(--error); }
-.osc-vrchat-hint { margin: 0; padding: 12px 14px; border-radius: var(--radius-sm); color: var(--text-secondary); background: var(--primary-softer); font-size: 11px; line-height: 1.6; text-wrap: pretty; }
-.anki-mapping-grid { padding-top: 22px; border-top: 1px solid var(--border); }
+
+.anki-mapping-grid { margin-top: 14px; padding-top: 14px; }

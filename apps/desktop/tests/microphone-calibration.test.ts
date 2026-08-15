@@ -13,6 +13,24 @@ test("suggests a threshold between background noise and normal speech", () => {
   assert.ok(result.threshold < result.speechLevel);
 });
 
+test("ignores reaction-time silence and normal pauses in the speech sample", () => {
+  const result = suggestMicrophoneThreshold(
+    [-62, -61, -60, -60, -59, -58],
+    [-61, -60, -59, -42, -40, -39, -38, -37, -36, -35],
+  );
+  assert.ok(result);
+  assert.ok(result.speechLevel - result.noiseLevel >= 5);
+});
+
+test("ignores an isolated transient in the quiet sample", () => {
+  const result = suggestMicrophoneThreshold(
+    [-62, -61, -60, -60, -59, -28],
+    [-41, -40, -39, -38, -37, -36],
+  );
+  assert.ok(result);
+  assert.ok(result.noiseLevel <= -59);
+});
+
 test("rejects calibration when speech is not distinct from noise", () => {
   assert.equal(suggestMicrophoneThreshold(
     [-47, -46, -45, -44],

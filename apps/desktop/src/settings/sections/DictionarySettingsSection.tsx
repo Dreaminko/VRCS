@@ -40,9 +40,9 @@ export function DictionarySettingsSection({
   const chooseDictionary = onChoose;
   const removeDictionary = onRemove;
   return (
-        <div className="settings-section settings-section-active dictionary-section" id="settings-panel-dictionary" role="tabpanel" aria-labelledby="settings-tab-dictionary">
+        <section className="learning-settings-group dictionary-section" aria-labelledby="learning-dictionary-title">
           <div className="section-heading">
-            <div><BookOpen size={18} /><h2>{t("settings.dictionary.title")}</h2><span>{dictionaries.length ? t("settings.dictionary.importedCount", { count: dictionaries.length }) : t("settings.dictionary.noneImported")}</span></div>
+            <div><BookOpen size={18} /><h3 id="learning-dictionary-title">{t("settings.dictionary.title")}</h3><span>{dictionaries.length ? t("settings.dictionary.importedCount", { count: dictionaries.length }) : t("settings.dictionary.noneImported")}</span></div>
             <button className="secondary-button" type="button" disabled={dictionaryBusy} onClick={() => dictionaryFileRef.current?.click()}><Upload size={15} />{t("settings.dictionary.importYomitan")}</button>
             <input
               ref={dictionaryFileRef}
@@ -55,7 +55,6 @@ export function DictionarySettingsSection({
           <div className="settings-toggle-list settings-feature-toggle">
             <PreferenceToggle
               title={t("settings.dictionary.selectionLookup")}
-              description={t("settings.dictionary.selectionLookupDescription")}
               checked={selectionLookupEnabled}
               disabled={saveState === "saving"}
               onChange={onSelectionLookupChange}
@@ -91,6 +90,6 @@ export function DictionarySettingsSection({
               <span aria-hidden="true">{progressPercentage}%</span>
             </div>
           )}
-        </div>
+        </section>
   );
 }

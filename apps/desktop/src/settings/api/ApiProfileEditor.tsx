@@ -170,7 +170,6 @@ export function ApiProfileEditor({
     <form className="api-profile-editor" onSubmit={(event) => { event.preventDefault(); onSave(); }}>
       <div className="api-profile-editor-heading">
         <strong>{t(editing ? "settings.apiManagement.editProfile" : "settings.apiManagement.addProfile")}</strong>
-        <small>{t("settings.apiManagement.profileFormHint")}</small>
       </div>
       <div className="api-profile-editor-content" data-floating-boundary>
         <div className="api-profile-form-grid">
@@ -184,7 +183,7 @@ export function ApiProfileEditor({
               placeholder={t("settings.apiManagement.profileNamePlaceholder")}
               onChange={(event) => onChange({ ...draft, name: event.target.value })}
             />
-            {nameOptional && <small>{t("settings.apiManagement.profileNameOptionalHint")}</small>}
+
           </label>
           <Select
             label={t("settings.apiManagement.provider")}
@@ -232,12 +231,10 @@ export function ApiProfileEditor({
                 value={draft.workspace_id}
                 disabled={saving}
                 spellCheck={false}
+                required={workspaceRequired}
                 aria-invalid={workspaceRequired && !draft.workspace_id.trim()}
                 onChange={(event) => onChange({ ...draft, workspace_id: event.target.value })}
               />
-              <small>{t(workspaceRequired
-                ? "settings.apiManagement.workspaceIdRequired"
-                : "settings.apiManagement.workspaceIdOptional")}</small>
             </label>
           </>}
           {draft.provider === "microsoft_translator" && (
@@ -295,7 +292,6 @@ export function ApiProfileEditor({
                     placeholder="https://api.deepseek.com/v1"
                     onChange={(event) => onChange({ ...draft, base_url: event.target.value })}
                   />
-                  <small>{t("settings.apiManagement.baseUrlHint")}</small>
                 </label>
                 <label className="field cloud-text-field">
                   <span>{t("settings.apiManagement.timeout")}</span>
@@ -312,7 +308,6 @@ export function ApiProfileEditor({
                 <div className={`field api-profile-local-field ${localServiceDisabled ? "disabled" : ""}`}>
                   <span>{t("settings.apiManagement.localService")}</span>
                   <div className="api-profile-local-control">
-                    <small>{t("settings.apiManagement.localServiceHint")}</small>
                     <button
                       className="settings-switch-button"
                       type="button"

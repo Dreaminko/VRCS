@@ -80,7 +80,6 @@ export function TranslationEnhancementSettings({
         <Sparkles size={17} />
         <span>
           <strong>{t("settings.translation.enhancement")}</strong>
-          <small>{t("settings.translation.enhancementDescription")}</small>
         </span>
       </div>
       <div className="translation-enhancement-fields">
@@ -92,7 +91,7 @@ export function TranslationEnhancementSettings({
             disabled={disabled}
             onChange={(event) => update({ system_prompt: event.target.value })}
           />
-          <small>{translation.prompt.system_prompt.length}/8000 · {t("settings.translation.promptVariables")}</small>
+          <small>{translation.prompt.system_prompt.length}/8000</small>
         </label>
         <div className="translation-prompt-actions">
           <button
@@ -131,7 +130,6 @@ export function TranslationEnhancementSettings({
         <div className={`translation-context-setting ${translation.prompt.context_enabled ? "enabled" : ""}`}>
           <PreferenceToggle
             title={t("settings.translation.contextEnabled")}
-            description={t("settings.translation.contextEnabledDescription")}
             checked={translation.prompt.context_enabled}
             disabled={disabled}
             onChange={(context_enabled) => update({ context_enabled })}

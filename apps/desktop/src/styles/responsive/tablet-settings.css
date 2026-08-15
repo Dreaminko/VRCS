@@ -1,6 +1,7 @@
 @media (max-width: 860px) {
-  .settings-tabbar-wrap { padding: 16px 24px 0; }
-  .settings-section { padding: 24px; }
+  .settings-surface { --settings-page-gutter: 24px; }
+  .settings-tabbar-wrap { padding-top: 14px; }
+  .settings-section { padding-block: 22px; }
   .recognition-config-row,
   .translation-config-row { grid-template-columns: 1fr; gap: 14px; }
   .api-profile-row { grid-template-columns: minmax(0, 1fr); gap: 10px 16px; }

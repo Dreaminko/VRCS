@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex};
 use tokio::sync::broadcast;
 
 use crate::asr::AsrService;
-use crate::config::{ApiProfile, TranslationConfig};
+use crate::config::{AppConfig, TranslationConfig};
 use crate::db::Database;
 use crate::models::{now_iso8601, LiveTranscription, Subtitle};
 use crate::subtitle_output::SubtitleLifecyclePublisher;
@@ -15,8 +15,7 @@ pub(crate) struct PipelineDependencies {
     database: Arc<Mutex<Database>>,
     live: broadcast::Sender<LiveTranscription>,
     translation: TranslationDispatcher,
-    translation_config: TranslationConfig,
-    api_profiles: Vec<ApiProfile>,
+    config: Arc<std::sync::RwLock<AppConfig>>,
     output: SubtitleLifecyclePublisher,
 }
 
@@ -27,8 +26,7 @@ impl PipelineDependencies {
         database: Arc<Mutex<Database>>,
         live: broadcast::Sender<LiveTranscription>,
         translation: TranslationDispatcher,
-        translation_config: TranslationConfig,
-        api_profiles: Vec<ApiProfile>,
+        config: Arc<std::sync::RwLock<AppConfig>>,
         output: SubtitleLifecyclePublisher,
     ) -> Self {
         Self {
@@ -36,8 +34,7 @@ impl PipelineDependencies {
             database,
             live,
             translation,
-            translation_config,
-            api_profiles,
+            config,
             output,
         }
     }
@@ -163,19 +160,23 @@ impl PipelineDependencies {
                 return Err(detail);
             }
         };
-        let translation_settings = automatic_translation_settings(&self.translation_config, source);
+        let (translation_settings, api_profiles) = {
+            let config = self.config.read().expect("config lock");
+            (
+                automatic_translation_settings(&config.translation, source),
+                config.asr.api_profiles.clone(),
+            )
+        };
         self.output.subtitle_stored_with_message(
             saved.clone(),
             translation_settings.is_some(),
             &message_id,
         );
         if let Some(settings) = translation_settings {
-            if let Err(detail) = self.translation.enqueue(
-                saved.clone(),
-                settings,
-                self.api_profiles.clone(),
-                message_id.clone(),
-            ) {
+            if let Err(detail) =
+                self.translation
+                    .enqueue(saved.clone(), settings, api_profiles, message_id.clone())
+            {
                 if let Some(subtitle_id) = saved.id {
                     self.output.translation_failed_with_message(
                         subtitle_id,

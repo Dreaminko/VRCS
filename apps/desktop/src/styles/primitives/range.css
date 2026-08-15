@@ -1,6 +1,7 @@
-.range-field { display: grid; min-width: 0; gap: 7px; cursor: pointer; }
+.range-field { display: grid; min-width: 0; gap: 6px; cursor: pointer; }
 .range-field.disabled { cursor: not-allowed; }
-.range-field-header { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 12px; }
+.range-field-header { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 10px; }
+.range-field-header.value-only { justify-content: flex-end; }
 .range-field-header > span { color: var(--text-secondary); font-size: 13px; font-weight: 600; }
 .range-field-header output {
   min-width: 54px;
@@ -72,5 +73,4 @@
 .range-input:disabled::-webkit-slider-thumb { background: var(--text-quiet); box-shadow: 0 0 0 1px var(--text-quiet); }
 .range-input:disabled::-moz-range-thumb { background: var(--text-quiet); box-shadow: 0 0 0 1px var(--text-quiet); }
 .range-field.disabled .range-field-header output { color: var(--text-quiet); background: var(--surface-subtle); }
-.range-bounds { display: flex; justify-content: space-between; margin-top: -5px; color: var(--text-quiet); font-size: 9px; font-variant-numeric: tabular-nums; }
-.range-field > small { color: var(--text-quiet); font-size: 11px; line-height: 1.4; }
+.range-bounds { display: flex; justify-content: space-between; margin-top: -4px; color: var(--text-quiet); font-size: 9px; font-variant-numeric: tabular-nums; }

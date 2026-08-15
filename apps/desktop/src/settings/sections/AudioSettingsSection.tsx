@@ -107,7 +107,6 @@ export function AudioSettingsSection({
           <DeviceGroup
             icon={<Volume2 size={18} />}
             title={t("settings.audio.otherVoice")}
-            note={t("settings.audio.otherVoiceDescription")}
             devices={outputDevices}
             devicesReady={devicesReady}
             selectedDeviceId={draft.audio.output.mode === "system" ? draft.audio.output.device_id : null}
@@ -115,7 +114,6 @@ export function AudioSettingsSection({
               {
                 key: "system",
                 name: t("settings.audio.systemOutput"),
-                description: t("settings.audio.systemOutputDescription"),
                 chosen: draft.audio.output.mode === "system" && draft.audio.output.device_id === null,
                 onSelect: () => applySettings((current) => ({
                   ...current,
@@ -125,7 +123,6 @@ export function AudioSettingsSection({
               {
                 key: "vrchat",
                 name: "VRChat",
-                description: t("settings.audio.vrchatDescription"),
                 chosen: draft.audio.output.mode === "vrchat",
                 onSelect: () => applySettings((current) => ({
                   ...current,
@@ -135,7 +132,6 @@ export function AudioSettingsSection({
               {
                 key: "disabled",
                 name: t("settings.audio.disableOtherVoices"),
-                description: t("settings.audio.disableOtherVoicesDescription"),
                 chosen: draft.audio.output.mode === "disabled",
                 onSelect: () => applySettings((current) => ({
                   ...current,
@@ -152,7 +148,6 @@ export function AudioSettingsSection({
           <DeviceGroup
             icon={<Mic size={18} />}
             title={t("settings.audio.ownVoice")}
-            note={t("settings.audio.ownVoiceDescription")}
             beforeList={(
               <>
                 <MicrophoneLevelSetting
@@ -175,7 +170,6 @@ export function AudioSettingsSection({
                     <Sparkles size={18} />
                     <div>
                       <strong>{t("onboarding.microphone.autoTitle")}</strong>
-                      <small>{t("onboarding.microphone.autoDescription")}</small>
                     </div>
                   </div>
                   <div className={`microphone-calibration-status phase-${calibration.phase}`} role="status" aria-live="polite">
@@ -234,7 +228,6 @@ export function AudioSettingsSection({
               {
                 key: "default",
                 name: t("settings.audio.defaultMicrophone"),
-                description: t("settings.audio.defaultMicrophoneDescription"),
                 chosen: draft.audio.microphone.mode === "default",
                 onSelect: () => {
                   calibration.reset();
@@ -250,7 +243,6 @@ export function AudioSettingsSection({
               {
                 key: "disabled",
                 name: t("settings.audio.disableMicrophone"),
-                description: t("settings.audio.disableMicrophoneDescription"),
                 chosen: draft.audio.microphone.mode === "disabled",
                 onSelect: () => {
                   calibration.reset();

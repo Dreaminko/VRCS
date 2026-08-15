@@ -52,7 +52,7 @@ export function LocalRecognitionSettings({
     <div className="recognition-config-row">
       <div className="recognition-config-title">
         <Languages size={17} />
-        <span><strong>{t("settings.recognition.content")}</strong><small>{t("settings.recognition.contentDescription")}</small></span>
+        <span><strong>{t("settings.recognition.content")}</strong></span>
       </div>
       <div className="recognition-config-fields">
         <Select
@@ -84,12 +84,12 @@ export function LocalRecognitionSettings({
     <div className="recognition-config-row">
       <div className="recognition-config-title">
         <HardDrive size={17} />
-        <span><strong>{t("settings.recognition.execution")}</strong><small>{t("settings.recognition.executionDescription")}</small></span>
+        <span><strong>{t("settings.recognition.execution")}</strong></span>
       </div>
       <div className="recognition-config-fields">
         <Select
           label={t("settings.recognition.device")}
-          helper={asrError ?? t("settings.recognition.deviceDescription")}
+          helper={asrError ?? undefined}
           value={draft.asr.local.device}
           options={[
             { value: "auto", label: t("common.autoSelect") },
@@ -104,7 +104,6 @@ export function LocalRecognitionSettings({
         />
         <Select
           label={t("settings.recognition.computeType")}
-          helper={t("settings.recognition.computeTypeDescription")}
           value={draft.asr.local.compute_type}
           values={computeTypes}
           disabled={disabled}

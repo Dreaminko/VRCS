@@ -14,9 +14,8 @@ import type { AudioDevice } from "../types";
 import { useDismissibleLayer } from "../use-dismissible-layer";
 import { DropdownField } from "../components/DropdownField";
 
-export function PreferenceToggle({ title, description, checked, disabled, onChange }: {
+export function PreferenceToggle({ title, checked, disabled, onChange }: {
   title: string;
-  description: string;
   checked: boolean;
   disabled: boolean;
   onChange: (checked: boolean) => void;
@@ -25,7 +24,6 @@ export function PreferenceToggle({ title, description, checked, disabled, onChan
     <div className={`settings-toggle-row ${disabled ? "disabled" : ""}`}>
       <span className="settings-toggle-copy">
         <strong>{title}</strong>
-        <small>{description}</small>
       </span>
       <button
         className="settings-switch-button"
@@ -42,7 +40,7 @@ export function PreferenceToggle({ title, description, checked, disabled, onChan
   );
 }
 
-export function Select({ label, helper, value, values = [], options, disabled, floating, onChange }: {
+export function Select({ label, helper, value, values = [], options, disabled, floating, hideLabel = false, onChange }: {
   label: string;
   helper?: string;
   value: string;
@@ -50,11 +48,12 @@ export function Select({ label, helper, value, values = [], options, disabled, f
   options?: Array<{ value: string; label: string }>;
   disabled: boolean;
   floating?: "page" | "dialog";
+  hideLabel?: boolean;
   onChange: (value: string) => void;
 }) {
   return (
     <div className="field">
-      <span>{label}</span>
+      {!hideLabel && <span>{label}</span>}
       <DropdownField
         label={label}
         value={value}
@@ -69,9 +68,8 @@ export function Select({ label, helper, value, values = [], options, disabled, f
   );
 }
 
-export function RangeField({ label, helper, value, min, max, step, disabled, formatValue, onCommit, hideValue, hideBounds, trackSlot }: {
+export function RangeField({ label, value, min, max, step, disabled, formatValue, onCommit, hideLabel = false, hideValue, hideBounds, trackSlot }: {
   label: string;
-  helper: string;
   value: number;
   min: number;
   max: number;
@@ -79,6 +77,7 @@ export function RangeField({ label, helper, value, min, max, step, disabled, for
   disabled: boolean;
   formatValue: (value: number) => string;
   onCommit: (value: number) => void;
+  hideLabel?: boolean;
   hideValue?: boolean;
   hideBounds?: boolean;
   trackSlot?: ReactNode;
@@ -104,8 +103,8 @@ export function RangeField({ label, helper, value, min, max, step, disabled, for
 
   return (
     <label className={`range-field ${disabled ? "disabled" : ""}`}>
-      <span className="range-field-header">
-        <span>{label}</span>
+      <span className={`range-field-header ${hideLabel ? "value-only" : ""}`}>
+        {!hideLabel && <span>{label}</span>}
         {!hideValue && <output aria-label={t("common.currentValue", { label })}>{formatValue(draftValue)}</output>}
       </span>
       <span className={`range-input-wrap${trackSlot ? " range-input-wrap-meter" : ""}`}>
@@ -138,7 +137,6 @@ export function RangeField({ label, helper, value, min, max, step, disabled, for
           <span>{formatValue(max)}</span>
         </span>
       )}
-      <small>{helper}</small>
     </label>
   );
 }
@@ -340,7 +338,7 @@ export function DeviceGroup({ icon, title, note, beforeList, devices, devicesRea
   specialRows: Array<{
     key: string;
     name: string;
-    description: string;
+    description?: string;
     chosen: boolean;
     onSelect: () => void;
   }>;
@@ -391,7 +389,7 @@ export function DeviceGroup({ icon, title, note, beforeList, devices, devicesRea
 
 function DeviceRow({ name, description, chosen, disabled, onSelect }: {
   name: string;
-  description: string;
+  description?: string;
   chosen: boolean;
   disabled: boolean;
   onSelect: () => void;
@@ -399,7 +397,7 @@ function DeviceRow({ name, description, chosen, disabled, onSelect }: {
   return (
     <label className={`device-row ${chosen ? "chosen" : ""} ${disabled ? "disabled" : ""}`}>
       <input type="radio" aria-label={name} checked={chosen} disabled={disabled} onChange={onSelect} />
-      <span><strong>{name}</strong><small>{description}</small></span>
+      <span><strong>{name}</strong>{description && <small>{description}</small>}</span>
     </label>
   );
 }

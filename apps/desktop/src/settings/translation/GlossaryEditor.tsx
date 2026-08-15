@@ -268,7 +268,6 @@ export function GlossaryEditor({
       <div className="translation-glossary-heading">
         <span>
           <strong>{t("settings.translation.glossary")}</strong>
-          <small>{t("settings.translation.glossaryDescription")}</small>
         </span>
         <div className="translation-glossary-heading-actions">
           <button
@@ -291,7 +290,7 @@ export function GlossaryEditor({
           </button>
         </div>
       </div>
-      <small className="translation-glossary-priority-hint">{t("settings.translation.glossaryPriorityHint")}</small>
+
       {statusError && <small className="api-model-catalog-error" aria-live="polite">{statusError}</small>}
       <div className="translation-glossary-list">
         {sources.length === 0 && (

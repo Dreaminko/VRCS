@@ -99,18 +99,16 @@ function ApiProfileEditorDialog({
 
 export function ApiManagementSettingsSection({
   settings,
-  disabled,
   onRefreshSettings,
 }: {
   settings: Settings;
-  disabled: boolean;
   onRefreshSettings: () => Promise<void>;
 }) {
   const { t } = useTranslation();
   const profiles = useApiProfiles(onRefreshSettings);
   const [editor, setEditor] = useState<ApiProfileEditorDraft | null>(null);
   const editorTriggerRef = useRef<HTMLButtonElement>(null);
-  const locked = disabled || profiles.busy !== null;
+  const locked = profiles.busy !== null;
   const editingProfile = editor?.id
     ? profiles.profiles.find((profile) => profile.id === editor.id)
     : undefined;
@@ -142,7 +140,7 @@ export function ApiManagementSettingsSection({
 
   return (
     <div className="settings-section settings-section-active api-section" id="settings-panel-api" role="tabpanel" aria-labelledby="settings-tab-api">
-      <div className="section-heading api-section-heading">
+      <div className="section-heading">
         <div><KeyRound size={18} /><h2>{t("settings.apiManagement.title")}</h2></div>
         <button
           className="primary-button api-add-button"
@@ -157,7 +155,6 @@ export function ApiManagementSettingsSection({
           {t("settings.apiManagement.addProfile")}
         </button>
       </div>
-      <p className="api-section-subtitle">{t("settings.apiManagement.subtitle")}</p>
       <div className="api-security-note">
         <ShieldCheck size={18} aria-hidden="true" />
         <p>{t("settings.apiManagement.securityNotice")}</p>
@@ -283,7 +280,6 @@ export function ApiManagementSettingsSection({
             : undefined}
         />
       )}
-      {disabled && <small className="api-credential-message">{t("settings.recognition.stopToModify")}</small>}
       {profiles.message && <small className="api-credential-message" role="status">{profiles.message}</small>}
     </div>
   );

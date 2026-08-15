@@ -8,10 +8,12 @@ mod migration;
 mod model;
 mod streaming;
 
+pub(crate) use crate::credentials::read_stored_credential;
 pub use crate::credentials::{
     credential_status, delete_credential, read_credential, write_credential,
 };
 pub use cuda::cuda_capability;
+pub(crate) use engine::{prepare_local_engine, AsrEngine};
 pub use engine::{AsrRuntimeState, AsrService};
 pub use manager::ModelManager;
 pub use model::is_supported_model;
@@ -66,9 +68,9 @@ pub fn validate_config(config: &mut AsrConfig) -> Result<(), String> {
 }
 
 #[cfg(test)]
-use engine::WhisperEngine;
+pub(crate) use engine::Transcription;
 #[cfg(test)]
-pub(crate) use engine::{AsrEngine, Transcription};
+use engine::WhisperEngine;
 #[cfg(test)]
 use manager::DownloadJob;
 #[cfg(test)]
@@ -188,9 +190,37 @@ mod tests {
 
         let mut changed = config;
         changed.local.model = "tiny".into();
-        service.update(changed, PathBuf::new());
+        service.update(changed, PathBuf::new(), None);
         assert_eq!(service.runtime.snapshot(), ("not_loaded", None));
         assert!(service.engine.is_none());
+    }
+
+    #[test]
+    fn service_keeps_loaded_engine_when_only_language_changes() {
+        let mut config = AsrConfig {
+            backend: "local_whisper".into(),
+            ..AsrConfig::default()
+        };
+        let mut service = AsrService::with_engine(config.clone(), Box::new(FakeEngine));
+        config.language = "ja".into();
+
+        service.update(config, PathBuf::new(), None);
+
+        assert_eq!(service.runtime.snapshot(), ("ready", None));
+        assert!(service.engine.is_some());
+    }
+
+    #[test]
+    fn service_installs_prepared_engine_when_local_asr_becomes_required() {
+        let current = AsrConfig::default();
+        let mut service = AsrService::new(current.clone(), PathBuf::new());
+        let mut changed = current;
+        changed.backend = "local_whisper".into();
+
+        service.update(changed, PathBuf::new(), Some(Box::new(FakeEngine)));
+
+        assert_eq!(service.runtime.snapshot(), ("ready", None));
+        assert!(service.engine.is_some());
     }
 
     #[test]
@@ -198,7 +228,7 @@ mod tests {
         let config = AsrConfig::default();
         let mut service = AsrService::with_engine(config.clone(), Box::new(FakeEngine));
 
-        service.update(config, PathBuf::from("custom-models"));
+        service.update(config, PathBuf::from("custom-models"), None);
 
         assert_eq!(service.runtime.snapshot(), ("not_loaded", None));
         assert!(service.engine.is_none());

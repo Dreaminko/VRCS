@@ -49,7 +49,6 @@ export function RecognitionSettingsSection({
   locale,
   draft,
   apiProfiles,
-  disabled,
   modelStatus,
   status,
   models,
@@ -59,7 +58,6 @@ export function RecognitionSettingsSection({
   locale: string;
   draft: Settings;
   apiProfiles: ApiProfileView[];
-  disabled: boolean;
   modelStatus: string;
   status: RecognitionStatus;
   models: RecognitionModels;
@@ -91,22 +89,20 @@ export function RecognitionSettingsSection({
     <div className="settings-section settings-section-active recognition-section" id="settings-panel-recognition" role="tabpanel" aria-labelledby="settings-tab-recognition">
       <div className="section-heading">
         <div><AudioLines size={18} /><h2>{t("settings.recognition.title")}</h2>{usesLocalAsr && <span className="status-chip">{t("settings.recognition.status", { status: modelStatus })}</span>}</div>
-        <p>{disabled ? t("settings.recognition.stopToModify") : t("settings.recognition.applyImmediately")}</p>
       </div>
       {usesLocalAsr && <LocalRuntimeStatus capabilities={status.capabilities} />}
       <div className="recognition-config">
         <div className="recognition-config-row">
           <div className="recognition-config-title">
             <Languages size={17} />
-            <span><strong>{t("settings.recognition.source")}</strong><small>{t("settings.recognition.sourceDescription")}</small></span>
+            <span><strong>{t("settings.recognition.source")}</strong></span>
           </div>
           <div className="recognition-config-fields">
             <Select
               label={t("settings.recognition.source")}
-              helper={t("settings.recognition.manageApiHint")}
               value={recognitionSource}
               options={sourceOptions}
-              disabled={disabled}
+              disabled={false}
               onChange={(value) => { if (value) actions.updateRecognitionSource(value); }}
             />
             <Select
@@ -116,16 +112,16 @@ export function RecognitionSettingsSection({
                 { value: "reconnect", label: t("settings.recognition.reconnect") },
                 { value: "local", label: t("settings.recognition.fallbackLocal") },
               ]}
-              disabled={disabled || draft.asr.backend === "local_whisper"}
+              disabled={draft.asr.backend === "local_whisper"}
               onChange={(value) => actions.updateAsr("cloud_failure_policy", value as Settings["asr"]["cloud_failure_policy"])}
             />
           </div>
         </div>
-        {!usesLocalAsr && <CloudProviderSettings draft={draft} disabled={disabled} onUpdateAsr={actions.updateAsr} />}
+        {!usesLocalAsr && <CloudProviderSettings draft={draft} disabled={false} onUpdateAsr={actions.updateAsr} />}
         {usesLocalAsr && (
           <LocalRecognitionSettings
             draft={draft}
-            disabled={disabled}
+            disabled={false}
             capabilities={status.capabilities}
             asrError={status.error}
             modelStatusLabel={status.modelStatusLabel}
@@ -135,12 +131,12 @@ export function RecognitionSettingsSection({
             onUpdateLocalAsr={actions.updateLocalAsr}
           />
         )}
-        <VadSettings vad={draft.vad} disabled={disabled} onUpdate={actions.updateVad} />
+        <VadSettings vad={draft.vad} disabled={false} onUpdate={actions.updateVad} />
       </div>
       {usesLocalAsr && (
         <ModelManagerPanel
           locale={locale}
-          disabled={disabled}
+          disabled={false}
           installedModels={models.installed}
           downloadingModels={models.downloading}
           managedModels={models.managed}

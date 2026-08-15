@@ -264,12 +264,13 @@
         "recognition": "音声認識",
         "translation": "翻訳",
         "api": "API 管理",
-        "dictionary": "辞書",
-        "osc": "OSC"
+        "learning": "学習",
+        "connections": "接続"
       },
       "system": {
         "title": "システム",
-        "subtitle": "言語、表示サイズ、起動、ウィンドウの動作",
+        "general": "一般設定",
+
         "saveImmediately": "変更はすぐに保存されます。",
         "language": "表示言語",
         "languageDescription": "システム言語に従うか、VRCS 用の言語を選びます。",
@@ -290,7 +291,7 @@
         "runOnboardingStopFirst": "先に文字起こしを停止してください",
         "externalApi": {
           "title": "サードパーティ出力 API",
-          "description": "独立したバージョン付き WebSocket で、認識・翻訳・Chatbox イベントをローカルツールへ送信します。",
+
           "enabled": "サードパーティ出力 API を有効にする",
           "enabledDescription": "初期状態では無効です。ヘルス、機能情報、イベント購読のみを公開します。",
           "host": "リッスンアドレス",
@@ -312,7 +313,7 @@
           "tokenLoadFailed": "Token の状態を読み込めませんでした。",
           "tokenSaveFailed": "Token を保存できませんでした。",
           "tokenDeleteFailed": "Token を削除できませんでした。",
-          "restartRequired": "有効状態、リッスンアドレス、ポート、認証方式は VRCS の再起動後に反映されます。",
+
           "statusLoadFailed": "外部出力 API の現在の状態を取得できませんでした。",
           "runtime": {
             "checking": "現在の実行状態を確認しています。",
@@ -324,8 +325,7 @@
       },
       "storage": {
         "title": "ストレージ",
-        "subtitle": "字幕履歴の容量上限とデータベース使用量",
-        "description": "記録件数ではなく、データベースの実効使用量で字幕履歴を管理します。",
+
         "databaseUsage": "データベース使用量",
         "databaseUsageDescription": "実効使用量には再利用可能な空きページを含みません。割り当て済み容量はデータベースファイルが現在確保しているディスク容量です。",
         "ofQuota": "/ 上限 {{quota}}",
@@ -344,7 +344,7 @@
       },
       "translation": {
         "title": "字幕翻訳",
-        "description": "翻訳サービスまたは言語モデルで二言語字幕を生成します。",
+
         "mode": "翻訳モード",
         "modeDescription": "他人の音声と手動翻訳を制御します。自分のマイクは下の個別設定を使用します。",
         "modes": {
@@ -455,7 +455,7 @@
       },
       "apiManagement": {
         "title": "API 管理",
-        "subtitle": "各プロバイダーの既定の文字起こし API と、現在使用中の翻訳接続を管理します",
+
         "securityNotice": "API キーは Windows 資格情報マネージャーに保存され、設定ファイルには書き込まれません。環境変数のキーが優先されます。",
         "alibabaDescription": "Qwen3 ASR と Fun-ASR で共有します",
         "openaiDescription": "OpenAI 公式 API。Realtime 音声認識と LLM 翻訳で使用できます",
@@ -682,6 +682,9 @@
         "scanning": "デバイスをスキャン中…",
         "noDevices": "ほかに利用可能なデバイスはありません。"
       },
+      "learning": {
+        "title": "学習設定"
+      },
       "dictionary": {
         "title": "辞書",
         "selectionLookup": "選択範囲の辞書検索を有効にする",
@@ -703,7 +706,7 @@
       },
       "anki": {
         "title": "Anki 連携",
-        "subtitle": "AnkiConnect を使って辞書検索からカードを作成",
+
         "enable": "AnkiConnect を有効にする",
         "enableDescription": "ローカルの Anki 接続確認と辞書検索結果からのカード作成を許可します。",
         "invalidPort": "1～65535 の有効なポートを入力してください。",
@@ -727,9 +730,12 @@
         "backField": "裏面フィールド",
         "backFieldDescription": "意味と文脈をこのフィールドに書き込みます。"
       },
+      "connections": {
+        "title": "接続設定"
+      },
       "osc": {
         "title": "OSC",
-        "subtitle": "自分のマイク字幕と翻訳を VRChat のチャットボックスへ送信",
+
         "enable": "チャットボックス出力を有効にする",
         "enableDescription": "自分のマイクの確定字幕だけを送信し、他の音声や途中結果は送りません。",
         "muteSync": "VRChat のマイクミュートと同期",
@@ -758,7 +764,7 @@
         }
       },
       "debug": {
-        "subtitle": "ランタイムと設定の詳細",
+
         "readOnly": "読み取り専用",
         "schema": "スキーマ",
         "coreAddress": "Core アドレス",
@@ -825,21 +831,21 @@
         "disabledDescription": "VRCS は他の人の音声だけを文字起こしします。後で音声設定からマイクを有効にできます。",
         "description": "テストは入力レベルだけを測定し、音声認識、字幕生成、録音保存は行いません。静かなときは反応せず、通常の声で安定して反応するようにしきい値を調整してください。",
         "autoTitle": "ガイド付き調整",
-        "autoDescription": "2 秒間静かにした後、3 秒間通常の声で話すと、推奨しきい値を計算します。",
+        "autoDescription": "開始後は静かに待ち、案内が切り替わったら通常の声で一文を続けて話してください。推奨しきい値を計算します。",
         "result": "環境音 {{noise}} dBFS · 発話 {{speech}} dBFS · 推奨 {{threshold}} dBFS",
         "phase": {
           "idle": "調整の準備完了",
           "quiet": "静かにしてください",
-          "speech": "通常の声で話してください",
+          "speech": "続けて話してください",
           "ready": "推奨値を作成しました",
           "failed": "環境音と発話を安定して区別できませんでした"
         },
         "phaseDescription": {
-          "idle": "開始後、案内に従って短い測定を 2 回行います。",
-          "quiet": "環境ノイズを測定しています…",
-          "speech": "一文を続けて話してください…",
+          "idle": "話し始める前に、案内が切り替わるまで待ってください。",
+          "quiet": "話さずに、環境ノイズの測定が終わるまでお待ちください…",
+          "speech": "この案内が表示されたら、通常の声で一文を続けて話してください…",
           "ready": "推奨値を適用するか、手動で調整できます。",
-          "failed": "マイクに近づく、周囲のノイズを減らす、または手動で設定してください。"
+          "failed": "マイクに近づいて再試行してください。最初は完全に静かにし、案内が切り替わってから続けて話してください。"
         },
         "restoreDefault": "既定値に戻す",
         "applySuggestion": "推奨値を適用",

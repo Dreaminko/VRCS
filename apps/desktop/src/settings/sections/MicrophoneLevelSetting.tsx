@@ -85,10 +85,8 @@ export function MicrophoneLevelSetting({
               : t("settings.audio.startMicrophoneTest")}
         </button>
       </div>
-      <span className="microphone-test-note">{t("settings.audio.microphoneTestDescription")}</span>
       <RangeField
         label={t("settings.audio.triggerThreshold")}
-        helper={t("settings.audio.triggerThresholdDescription")}
         value={threshold}
         min={MIN_MICROPHONE_LEVEL_DBFS}
         max={MAX_MICROPHONE_THRESHOLD_DBFS}

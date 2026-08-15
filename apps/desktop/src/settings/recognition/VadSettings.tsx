@@ -18,12 +18,11 @@ export function VadSettings({
     <div className="recognition-config-row">
       <div className="recognition-config-title">
         <Clock3 size={17} />
-        <span><strong>{t("settings.recognition.segmentation")}</strong><small>{t("settings.recognition.segmentationDescription")}</small></span>
+        <span><strong>{t("settings.recognition.segmentation")}</strong></span>
       </div>
       <div className="recognition-config-fields">
         <RangeField
           label={t("settings.recognition.silence")}
-          helper={t("settings.recognition.silenceDescription")}
           value={vad.silence_seconds}
           min={0.1}
           max={2}
@@ -34,7 +33,6 @@ export function VadSettings({
         />
         <RangeField
           label={t("settings.recognition.maxSegment")}
-          helper={t("settings.recognition.maxSegmentDescription")}
           value={vad.max_speech_seconds}
           min={1}
           max={30}

@@ -31,6 +31,20 @@ struct ExternalApiState {
 pub struct ExternalApiServer {
     pub address: SocketAddr,
     pub task: JoinHandle<Result<(), String>>,
+    config: ExternalApiConfig,
+    token: Option<String>,
+    stop: watch::Sender<bool>,
+}
+
+impl ExternalApiServer {
+    pub(crate) async fn stop(self) {
+        let _ = self.stop.send(true);
+        match self.task.await {
+            Ok(Ok(())) => {}
+            Ok(Err(error)) => tracing::warn!(%error, "External API listener stopped with an error"),
+            Err(error) => tracing::warn!(%error, "External API listener task exited unexpectedly"),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -89,29 +103,94 @@ pub async fn start(
     let address = listener
         .local_addr()
         .map_err(|error| format!("Failed to read the External API listen address: {error}"))?;
+    let active_token = config.require_token.then_some(token.clone()).flatten();
+    let (stop, stop_rx) = watch::channel(false);
     let state = ExternalApiState {
         events,
-        token: config.require_token.then_some(token).flatten(),
-        shutdown: shutdown.clone(),
+        token: active_token,
+        shutdown: stop_rx.clone(),
     };
     let router = Router::new()
         .route("/v1/health", get(health))
         .route("/v1/capabilities", get(capabilities))
         .route("/v1/events", get(events_handler))
         .with_state(state);
-    let mut server_shutdown = shutdown;
+    let mut core_shutdown = shutdown;
+    let mut server_stop = stop_rx;
+    let connection_stop = stop.clone();
     let task = tokio::spawn(async move {
-        axum::serve(listener, router)
+        let result = axum::serve(listener, router)
             .with_graceful_shutdown(async move {
-                if !*server_shutdown.borrow() {
-                    let _ = server_shutdown.changed().await;
+                if !*core_shutdown.borrow() && !*server_stop.borrow() {
+                    tokio::select! {
+                        _ = core_shutdown.changed() => {}
+                        _ = server_stop.changed() => {}
+                    }
                 }
+                let _ = connection_stop.send(true);
             })
             .await
-            .map_err(|error| format!("External API server failed: {error}"))
+            .map_err(|error| format!("External API server failed: {error}"));
+        result
     });
     tracing::info!(%address, api_version = API_VERSION, "External API listening");
-    Ok(Some(ExternalApiServer { address, task }))
+    Ok(Some(ExternalApiServer {
+        address,
+        task,
+        config: config.clone(),
+        token,
+        stop,
+    }))
+}
+
+pub async fn reconfigure(
+    server: &mut Option<ExternalApiServer>,
+    config: &ExternalApiConfig,
+    events: DomainEventHub,
+    token: Option<String>,
+    shutdown: watch::Receiver<bool>,
+) -> Result<(), String> {
+    if !config.enabled {
+        if let Some(previous) = server.take() {
+            previous.stop().await;
+        }
+        return Ok(());
+    }
+
+    let stop_first = server
+        .as_ref()
+        .is_some_and(|current| current.config.port == config.port);
+    if !stop_first {
+        let candidate = start(config, events, token, shutdown)
+            .await?
+            .expect("enabled External API returns a server");
+        if let Some(previous) = server.replace(candidate) {
+            previous.stop().await;
+        }
+        return Ok(());
+    }
+
+    let previous = server.take().expect("stop-first requires a server");
+    let previous_config = previous.config.clone();
+    let previous_token = previous.token.clone();
+    previous.stop().await;
+    match start(config, events.clone(), token, shutdown.clone()).await {
+        Ok(Some(candidate)) => {
+            *server = Some(candidate);
+            Ok(())
+        }
+        Ok(None) => unreachable!("enabled External API returns a server"),
+        Err(error) => match start(&previous_config, events, previous_token, shutdown).await {
+            Ok(Some(restored)) => {
+                *server = Some(restored);
+                Err(error)
+            }
+            Ok(None) => unreachable!("previous External API configuration was enabled"),
+            Err(recovery) => Err(format!(
+                "{error}; previous listener could not be restored: {recovery}"
+            )),
+        },
+    }
 }
 
 async fn health() -> Json<Value> {
@@ -529,6 +608,62 @@ mod tests {
 
         let _ = shutdown_tx.send(true);
         server.task.await.unwrap().unwrap();
+    }
+
+    #[tokio::test]
+    async fn token_changes_reload_the_existing_listener() {
+        let port = std::net::TcpListener::bind(("127.0.0.1", 0))
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port();
+        let config = ExternalApiConfig {
+            enabled: true,
+            require_token: true,
+            port,
+            ..ExternalApiConfig::default()
+        };
+        let hub = DomainEventHub::new();
+        let (shutdown_tx, shutdown_rx) = watch::channel(false);
+        let mut server = start(
+            &config,
+            hub.clone(),
+            Some("old-secret".into()),
+            shutdown_rx.clone(),
+        )
+        .await
+        .unwrap();
+
+        reconfigure(
+            &mut server,
+            &config,
+            hub,
+            Some("new-secret".into()),
+            shutdown_rx,
+        )
+        .await
+        .unwrap();
+        let url = format!(
+            "ws://{}/v1/events",
+            server.as_ref().expect("server running").address
+        );
+        let mut old_request = url.clone().into_client_request().unwrap();
+        old_request
+            .headers_mut()
+            .insert(header::AUTHORIZATION, "Bearer old-secret".parse().unwrap());
+        assert!(tokio_tungstenite::connect_async(old_request).await.is_err());
+
+        let mut new_request = url.into_client_request().unwrap();
+        new_request
+            .headers_mut()
+            .insert(header::AUTHORIZATION, "Bearer new-secret".parse().unwrap());
+        let (mut socket, _) = tokio_tungstenite::connect_async(new_request).await.unwrap();
+        let connected: Value =
+            serde_json::from_str(socket.next().await.unwrap().unwrap().to_text().unwrap()).unwrap();
+        assert_eq!(connected["type"], "system.connected");
+
+        let _ = shutdown_tx.send(true);
+        server.take().expect("server running").stop().await;
     }
 
     #[tokio::test]

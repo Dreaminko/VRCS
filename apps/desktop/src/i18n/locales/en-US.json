@@ -264,12 +264,13 @@
         "recognition": "Recognition",
         "translation": "Translation",
         "api": "API access",
-        "dictionary": "Dictionary",
-        "osc": "OSC"
+        "learning": "Learning",
+        "connections": "Connections"
       },
       "system": {
         "title": "System",
-        "subtitle": "Language, interface size, startup, and window behavior",
+        "general": "General settings",
+
         "saveImmediately": "Changes are saved immediately.",
         "language": "Interface language",
         "languageDescription": "Use the system language or choose one for VRCS.",
@@ -290,7 +291,7 @@
         "runOnboardingStopFirst": "Stop transcription first",
         "externalApi": {
           "title": "Third-party output API",
-          "description": "Send recognition, translation, and Chatbox events to local tools through a separate versioned WebSocket.",
+
           "enabled": "Enable third-party output API",
           "enabledDescription": "Off by default. It exposes only health, capabilities, and event subscription routes.",
           "host": "Listen address",
@@ -312,7 +313,7 @@
           "tokenLoadFailed": "Could not load the token status.",
           "tokenSaveFailed": "Could not save the token.",
           "tokenDeleteFailed": "Could not delete the token.",
-          "restartRequired": "The enabled state, listen address, port, and authentication mode take effect after VRCS restarts.",
+
           "statusLoadFailed": "Could not read the current External API status.",
           "runtime": {
             "checking": "Checking the current runtime status.",
@@ -324,8 +325,7 @@
       },
       "storage": {
         "title": "Storage",
-        "subtitle": "Space quota and database usage for subtitle history",
-        "description": "Manage subtitle history by effective database usage instead of record count.",
+
         "databaseUsage": "Database usage",
         "databaseUsageDescription": "Effective usage excludes reusable free pages. Allocated space is the disk space currently reserved by the database file.",
         "ofQuota": "of {{quota}} quota",
@@ -344,7 +344,7 @@
       },
       "translation": {
         "title": "Subtitle translation",
-        "description": "Generate bilingual subtitles with translation services or language models.",
+
         "mode": "Translation mode",
         "modeDescription": "Control translation for other voices and manual requests. Your microphone uses the separate setting below.",
         "modes": {
@@ -455,7 +455,7 @@
       },
       "apiManagement": {
         "title": "API access",
-        "subtitle": "Manage each provider's default transcription API and the translation connection currently in use",
+
         "securityNotice": "API keys are stored in Windows Credential Manager and are never written to the settings file. Keys from environment variables take priority.",
         "alibabaDescription": "Shared by Qwen3 ASR and Fun-ASR",
         "openaiDescription": "Official OpenAI API for Realtime transcription and LLM translation",
@@ -682,6 +682,9 @@
         "scanning": "Scanning devices…",
         "noDevices": "No other available devices were found."
       },
+      "learning": {
+        "title": "Learning settings"
+      },
       "dictionary": {
         "title": "Dictionaries",
         "selectionLookup": "Enable selection lookup",
@@ -703,7 +706,7 @@
       },
       "anki": {
         "title": "Anki integration",
-        "subtitle": "Create cards from dictionary lookups through AnkiConnect",
+
         "enable": "Enable AnkiConnect",
         "enableDescription": "Allow local Anki connection checks and card creation from dictionary results.",
         "invalidPort": "Enter a valid port from 1 to 65535.",
@@ -727,9 +730,12 @@
         "backField": "Back field",
         "backFieldDescription": "Definitions and context are written to this field."
       },
+      "connections": {
+        "title": "Connection settings"
+      },
       "osc": {
         "title": "OSC",
-        "subtitle": "Send your microphone subtitles and translations to the VRChat chatbox",
+
         "enable": "Enable chatbox output",
         "enableDescription": "Send only your final microphone subtitles, never other voices or partial results.",
         "muteSync": "Sync VRChat microphone mute",
@@ -758,7 +764,7 @@
         }
       },
       "debug": {
-        "subtitle": "Runtime and configuration details",
+
         "readOnly": "Read only",
         "schema": "Schema",
         "coreAddress": "Core address",
@@ -825,21 +831,21 @@
         "disabledDescription": "VRCS will transcribe only other voices. You can enable the microphone later under Audio settings.",
         "description": "The test measures input level only. It does not recognize speech, create subtitles, or save recordings. Set the threshold so quiet input stays inactive and normal speech triggers reliably.",
         "autoTitle": "Guided calibration",
-        "autoDescription": "Stay quiet for 2 seconds, then speak normally for 3 seconds. VRCS will calculate a suggested threshold.",
+        "autoDescription": "Stay quiet after starting. When the prompt changes, speak one complete sentence at a normal volume. VRCS will calculate a suggested threshold.",
         "result": "Noise {{noise}} dBFS · Speech {{speech}} dBFS · Suggested {{threshold}} dBFS",
         "phase": {
           "idle": "Ready to calibrate",
           "quiet": "Stay quiet",
-          "speech": "Speak at a normal volume",
+          "speech": "Keep speaking",
           "ready": "A suggestion is ready",
           "failed": "Speech could not be separated reliably from background noise"
         },
         "phaseDescription": {
-          "idle": "Start when you are ready to complete two short samples.",
-          "quiet": "Measuring background noise…",
-          "speech": "Keep speaking for a complete sentence…",
+          "idle": "Wait for the prompt to change before you start speaking.",
+          "quiet": "Do not speak while background noise is measured…",
+          "speech": "When this prompt appears, speak one complete sentence at a normal volume…",
           "ready": "Apply the suggestion or continue adjusting manually.",
-          "failed": "Move closer to the microphone, reduce noise, or set the threshold manually."
+          "failed": "Move closer to the microphone and retry. Stay completely quiet first, then keep speaking after the prompt changes."
         },
         "restoreDefault": "Restore default",
         "applySuggestion": "Apply suggestion",

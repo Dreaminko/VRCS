@@ -2,12 +2,14 @@
 .device-group-icon { display: grid; flex: 0 0 20px; place-items: center; }
 .device-group-title > div { min-width: 0; }
 .device-group-title h3 { margin: 0; font-size: 14px; font-weight: 650; }
-.device-group-title span { display: block; margin-top: 2px; color: var(--text-quiet); font-size: 11px; }
+.device-group-title > div > span { display: block; margin-top: 2px; color: var(--text-quiet); font-size: 11px; }
+.device-group + .device-group { margin-top: 24px; }
+
 .microphone-level-setting {
   display: grid;
-  gap: 8px;
-  margin-bottom: 14px;
-  padding: 14px 15px 15px;
+  gap: 12px;
+  margin-bottom: 12px;
+  padding: 12px;
   border: 1px solid var(--border);
   border-radius: 12px;
   background: var(--surface-elevated);
@@ -41,17 +43,17 @@
 }
 .microphone-level-setting.triggered .microphone-live-fill { background: var(--primary-hover); }
 .microphone-live-peak { position: absolute; z-index: 1; top: 1px; bottom: 1px; left: var(--microphone-peak); width: 2px; border-radius: var(--radius-pill); background: var(--surface); box-shadow: 0 0 0 1px rgb(29 40 52 / 22%); transform: translateX(-1px); }
-.microphone-test-control { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 16px; padding: 0 0 2px; }
-.microphone-test-note { display: block; color: var(--text-quiet); font-size: 10px; line-height: 1.5; }
+.microphone-test-control { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 12px; }
+
 .microphone-test-button { flex: 0 0 auto; min-width: 128px; }
 .microphone-test-button[aria-pressed="true"] { border-color: var(--primary); color: var(--primary-ink); background: var(--primary-softer); }
 .microphone-test-button:active:not(:disabled) { transform: scale(0.96); }
-.microphone-level-setting .range-field { margin-top: 7px; padding-top: 12px; border-top: 1px solid var(--border); }
+.microphone-level-setting .range-field { padding-top: 12px; }
 .microphone-calibration-card {
   display: grid;
-  gap: 14px;
-  margin-bottom: 14px;
-  padding: 14px 15px 15px;
+  gap: 12px;
+  margin-bottom: 12px;
+  padding: 12px;
   border: 1px solid var(--border);
   border-radius: 12px;
   background: var(--surface-elevated);
@@ -60,7 +62,7 @@
 .microphone-calibration-heading > svg { flex: none; margin-top: 1px; color: var(--primary-ink); }
 .microphone-calibration-heading > div { display: grid; gap: 4px; }
 .microphone-calibration-heading strong { color: var(--text); font-size: 13px; }
-.microphone-calibration-heading small { color: var(--text-quiet); font-size: 10px; line-height: 1.55; }
+
 .microphone-calibration-status {
   display: grid;
   grid-template-columns: 34px minmax(0, 1fr);
@@ -87,16 +89,16 @@
 .device-list { display: grid; gap: 10px; }
 .device-row {
   display: flex;
-  min-height: 62px;
+  min-height: 52px;
   align-items: center;
-  gap: 13px;
-  padding: 12px 15px;
+  gap: 12px;
+  padding: 9px 13px;
   border: 1px solid var(--border);
   border-radius: 12px;
   background: var(--surface);
   cursor: pointer;
 }
-.device-row.chosen { border: 2px solid var(--primary); padding: 11px 14px; background: var(--primary-softer); }
+.device-row.chosen { border: 2px solid var(--primary); padding: 8px 12px; background: var(--primary-softer); }
 .device-row input {
   width: 18px;
   height: 18px;
@@ -117,9 +119,9 @@
 }
 .device-row.disabled,
 .device-row.disabled input { cursor: not-allowed; }
-.device-row > span { display: grid; gap: 3px; }
-.device-row strong { font-size: 13px; font-weight: 650; }
-.device-row small { color: var(--text-secondary); font-size: 11px; }
+.device-row > span { display: grid; min-width: 0; gap: 3px; }
+.device-row strong { font-size: 13px; font-weight: 650; line-height: 1.3; }
+.device-row small { color: var(--text-secondary); font-size: 11px; line-height: 1.35; }
 .device-row.disabled { opacity: 0.62; }
 .device-empty { margin: 0; padding: 16px; border: 1px dashed var(--border); border-radius: 10px; color: var(--text-quiet); font-size: 12px; }
 @keyframes settings-panel-in {

@@ -64,11 +64,9 @@ impl CoreOptions {
 
 pub struct CoreHandle {
     address: SocketAddr,
-    external_api_address: Option<SocketAddr>,
     session_token: String,
     shutdown: watch::Sender<bool>,
     task: JoinHandle<Result<(), String>>,
-    external_api_task: Option<JoinHandle<Result<(), String>>>,
     state: Arc<AppState>,
     model_manager: Arc<asr::ModelManager>,
     vad_runtime: vad::VadRuntimeState,
@@ -85,7 +83,13 @@ impl CoreHandle {
     }
 
     pub fn external_api_address(&self) -> Option<SocketAddr> {
-        self.external_api_address
+        self.state
+            .external_api_status
+            .read()
+            .expect("External API status lock")
+            .address
+            .as_deref()
+            .and_then(|address| address.parse().ok())
     }
 
     pub fn vad_backend(&self) -> &'static str {
@@ -114,9 +118,8 @@ impl CoreHandle {
             .await
             .map_err(|error| format!("Core task failed: {error}"))?;
         let _ = self.shutdown.send(true);
-        if let Some(task) = self.external_api_task.take() {
-            task.await
-                .map_err(|error| format!("External API task failed: {error}"))??;
+        if let Some(server) = self.state.external_api_server.lock().await.take() {
+            server.stop().await;
         }
         let _control = self.state.capture_control.lock().await;
         self.state.speaker_pipeline.lock().await.stop().await;
@@ -345,7 +348,7 @@ async fn start_inner(options: CoreOptions, defer_managed_vad: bool) -> Result<Co
     let state = Arc::new(AppState {
         config_path: options.config_path,
         asr_model_dir_override,
-        config: RwLock::new(config),
+        config: Arc::new(RwLock::new(config)),
         db,
         live_tx,
         subtitle_output,
@@ -355,7 +358,9 @@ async fn start_inner(options: CoreOptions, defer_managed_vad: bool) -> Result<Co
         osc,
         http: anki::client(),
         session_token: session_token.clone(),
-        external_api_status,
+        domain_events,
+        external_api_server: tokio::sync::Mutex::new(external_api_server),
+        external_api_status: RwLock::new(external_api_status),
         shutdown: shutdown_rx.clone(),
         vad_runtime: vad_runtime.clone(),
         asr,
@@ -455,11 +460,9 @@ async fn start_inner(options: CoreOptions, defer_managed_vad: bool) -> Result<Co
     });
     Ok(CoreHandle {
         address,
-        external_api_address: external_api_server.as_ref().map(|server| server.address),
         session_token,
         shutdown: shutdown_tx,
         task,
-        external_api_task: external_api_server.map(|server| server.task),
         state,
         model_manager,
         vad_runtime: handle_vad_runtime,
@@ -623,6 +626,132 @@ mod tests {
                 .status(),
             reqwest::StatusCode::NOT_FOUND
         );
+        handle.shutdown().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn external_api_settings_reload_without_restarting_core() {
+        let directory = tempfile::tempdir().unwrap();
+        let core_port = std::net::TcpListener::bind(("127.0.0.1", 0))
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port();
+        let first_external_port = std::net::TcpListener::bind(("127.0.0.1", 0))
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port();
+        let second_external_port = std::net::TcpListener::bind(("127.0.0.1", 0))
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port();
+        let occupied = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let occupied_port = occupied.local_addr().unwrap().port();
+        let handle = start(CoreOptions {
+            config_path: directory.path().join("config.json"),
+            host: Some("127.0.0.1".into()),
+            port: Some(core_port),
+            session_token: Some("internal-token".into()),
+            vad_model_path: Some(directory.path().join("missing-silero.onnx")),
+            asr_model_dir: None,
+        })
+        .await
+        .unwrap();
+        let client = reqwest::Client::new();
+        let base_url = format!("http://{}", handle.address());
+        let mut settings: serde_json::Value = client
+            .get(format!("{base_url}/api/settings"))
+            .bearer_auth("internal-token")
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+
+        settings["external_api"]["enabled"] = serde_json::json!(true);
+        settings["external_api"]["port"] = serde_json::json!(first_external_port);
+        let response = client
+            .put(format!("{base_url}/api/settings"))
+            .bearer_auth("internal-token")
+            .json(&settings)
+            .send()
+            .await
+            .unwrap();
+        assert!(response.status().is_success());
+        settings = response.json().await.unwrap();
+        assert_eq!(
+            client
+                .get(format!("http://127.0.0.1:{first_external_port}/v1/health"))
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            reqwest::StatusCode::OK
+        );
+
+        settings["external_api"]["port"] = serde_json::json!(second_external_port);
+        let response = client
+            .put(format!("{base_url}/api/settings"))
+            .bearer_auth("internal-token")
+            .json(&settings)
+            .send()
+            .await
+            .unwrap();
+        assert!(response.status().is_success());
+        settings = response.json().await.unwrap();
+        assert_eq!(
+            client
+                .get(format!("http://127.0.0.1:{second_external_port}/v1/health"))
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            reqwest::StatusCode::OK
+        );
+
+        settings["external_api"]["port"] = serde_json::json!(occupied_port);
+        let response = client
+            .put(format!("{base_url}/api/settings"))
+            .bearer_auth("internal-token")
+            .json(&settings)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), reqwest::StatusCode::CONFLICT);
+        assert_eq!(
+            client
+                .get(format!("http://127.0.0.1:{second_external_port}/v1/health"))
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            reqwest::StatusCode::OK
+        );
+
+        settings["external_api"]["port"] = serde_json::json!(second_external_port);
+        settings["external_api"]["enabled"] = serde_json::json!(false);
+        let response = client
+            .put(format!("{base_url}/api/settings"))
+            .bearer_auth("internal-token")
+            .json(&settings)
+            .send()
+            .await
+            .unwrap();
+        assert!(response.status().is_success());
+        let status: serde_json::Value = client
+            .get(format!("{base_url}/api/external-api/status"))
+            .bearer_auth("internal-token")
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert_eq!(status["state"], "disabled");
+
         handle.shutdown().await.unwrap();
     }
 

@@ -53,12 +53,11 @@ export function AnkiSettingsSection({
   const commitAnkiPort = onCommitPort;
   const updateAnki = onUpdate;
   return (
-        <div className="settings-section settings-section-active anki-section" id="settings-panel-anki" role="tabpanel" aria-labelledby="settings-tab-anki">
+        <section className="learning-settings-group anki-section" aria-labelledby="learning-anki-title">
           <div className="section-heading">
             <div>
               <PlusCircle size={18} />
-              <h2>{t("settings.anki.title")}</h2>
-              <span>{t("settings.anki.subtitle")}</span>
+              <h3 id="learning-anki-title">{t("settings.anki.title")}</h3>
             </div>
             {draft.anki.enabled && (
               <button className="secondary-button" type="button" disabled={ankiBusy} onClick={() => void loadAnkiStatus()}>
@@ -71,7 +70,6 @@ export function AnkiSettingsSection({
           <div className="settings-toggle-list settings-feature-toggle">
             <PreferenceToggle
               title={t("settings.anki.enable")}
-              description={t("settings.anki.enableDescription")}
               checked={draft.anki.enabled}
               disabled={saveState === "saving"}
               onChange={(enabled) => updateAnki("enabled", enabled)}
@@ -102,7 +100,6 @@ export function AnkiSettingsSection({
             <div>
               <span>{t("settings.anki.address")}</span>
               <strong>127.0.0.1</strong>
-              <small>{t("settings.anki.addressDescription")}</small>
             </div>
             <label className="anki-port-field">
               <span>{t("settings.anki.port")}</span>
@@ -112,7 +109,7 @@ export function AnkiSettingsSection({
                 value={ankiPortText}
                 disabled={saveState === "saving"}
                 aria-invalid={Boolean(ankiPortError)}
-                aria-describedby="anki-port-help"
+                aria-describedby={ankiPortError ? "anki-port-help" : undefined}
                 onChange={(event) => setAnkiPortText(event.target.value.replace(/\D/g, "").slice(0, 5))}
                 onBlur={commitAnkiPort}
                 onKeyDown={(event) => {
@@ -124,14 +121,12 @@ export function AnkiSettingsSection({
               />
             </label>
           </div>
-          <p id="anki-port-help" className={`anki-port-help ${ankiPortError ? "error" : ""}`}>
-            {ankiPortError || t("settings.anki.portHint")}
-          </p>
+          {ankiPortError && <p id="anki-port-help" className="anki-port-help error">{ankiPortError}</p>}
 
           <div className="form-grid anki-mapping-grid">
             <DeckTreeSelect
               label={t("settings.anki.deck")}
-              helper={ankiStatus?.connected ? t("settings.anki.deckDescription") : t("settings.anki.deckOffline")}
+              helper={ankiStatus?.connected ? undefined : t("settings.anki.deckOffline")}
               value={draft.anki.deck}
               decks={ankiDeckNames}
               disabled={!ankiStatus?.connected || ankiBusy || saveState === "saving"}
@@ -139,7 +134,7 @@ export function AnkiSettingsSection({
             />
             <Select
               label={t("settings.anki.noteType")}
-              helper={ankiStatus?.connected ? t("settings.anki.noteTypeDescription") : t("settings.anki.noteTypeOffline")}
+              helper={ankiStatus?.connected ? undefined : t("settings.anki.noteTypeOffline")}
               value={draft.anki.model}
               options={ankiModelOptions}
               disabled={!ankiStatus?.connected || ankiBusy || saveState === "saving"}
@@ -147,7 +142,6 @@ export function AnkiSettingsSection({
             />
             <Select
               label={t("settings.anki.frontField")}
-              helper={t("settings.anki.frontFieldDescription")}
               value={draft.anki.front_field}
               options={ankiFieldOptions}
               disabled={!ankiStatus?.connected || !ankiStatus.fields.length || ankiBusy || saveState === "saving"}
@@ -155,7 +149,6 @@ export function AnkiSettingsSection({
             />
             <Select
               label={t("settings.anki.backField")}
-              helper={t("settings.anki.backFieldDescription")}
               value={draft.anki.back_field}
               options={ankiBackFieldOptions}
               disabled={!ankiStatus?.connected || !ankiStatus.fields.length || ankiBusy || saveState === "saving"}
@@ -163,6 +156,6 @@ export function AnkiSettingsSection({
             />
           </div>
           </>}
-        </div>
+        </section>
   );
 }

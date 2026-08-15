@@ -530,8 +530,7 @@ mod tests {
             Arc::clone(&db),
             live_tx,
             translation,
-            crate::config::TranslationConfig::default(),
-            Vec::new(),
+            Arc::new(std::sync::RwLock::new(crate::config::AppConfig::default())),
             output,
         );
 

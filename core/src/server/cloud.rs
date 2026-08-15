@@ -7,9 +7,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::asr;
-use crate::config::{
-    save_config, ApiAuthMode, ApiProfile, HttpHeaderConfig, DEFAULT_PROFILE_TIMEOUT_MS,
-};
+use crate::config::{ApiAuthMode, ApiProfile, HttpHeaderConfig, DEFAULT_PROFILE_TIMEOUT_MS};
 use crate::providers::{
     self, ALIBABA_PROVIDER, API_PURPOSE_LLM, DEEPL_PROVIDER, GEMINI_PROVIDER, MICROSOFT_PROVIDER,
     OPENAI_COMPATIBLE_PROVIDER, OPENAI_PROVIDER,
@@ -270,7 +268,8 @@ pub(super) async fn profile_delete(
     Path(profile_id): Path<String>,
 ) -> ApiResult<Json<Value>> {
     let _config_control = state.config_control.lock().await;
-    let mut candidate = state.config.read().expect("config lock").clone();
+    let current = state.config.read().expect("config lock").clone();
+    let mut candidate = current.clone();
     let profile = candidate
         .asr
         .api_profiles
@@ -284,18 +283,44 @@ pub(super) async fn profile_delete(
         .retain(|item| item.id != profile_id);
     if candidate.asr.active_api_profiles.alibaba_cloud.as_deref() == Some(profile_id.as_str()) {
         candidate.asr.active_api_profiles.alibaba_cloud = None;
+        if matches!(
+            candidate.asr.backend.as_str(),
+            "qwen_realtime" | "fun_asr_realtime"
+        ) {
+            candidate.asr.backend = "local_whisper".into();
+        }
     }
     if candidate.asr.active_api_profiles.openai.as_deref() == Some(profile_id.as_str()) {
         candidate.asr.active_api_profiles.openai = None;
+        if candidate.asr.backend == "openai_realtime" {
+            candidate.asr.backend = "local_whisper".into();
+        }
     }
     if candidate.translation.profile_id.as_deref() == Some(profile_id.as_str()) {
         candidate.translation.profile_id = None;
         candidate.translation.mode = "disabled".into();
         candidate.translation.translate_microphone = false;
     }
-    commit_profile_config(&state, candidate).await?;
-    asr::delete_credential(&profile.id, &profile.provider)
+    let previous_credential = asr::read_stored_credential(&profile.id, &profile.provider)
         .map_err(|error| credential_error(&profile_id, error))?;
+    commit_profile_config(&state, candidate).await?;
+    if let Err(error) = asr::delete_credential(&profile.id, &profile.provider) {
+        let mut recovery_errors = Vec::new();
+        if let Err(recovery) = restore_credential(&profile, previous_credential) {
+            recovery_errors.push(format!("credential rollback failed: {recovery}"));
+        }
+        if let Err(recovery) = commit_profile_config(&state, current).await {
+            recovery_errors.push(api_detail(&recovery));
+        }
+        if !recovery_errors.is_empty() {
+            return Err(api_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "settings.rollback_failed",
+                format!("{error}; {}", recovery_errors.join("; ")),
+            ));
+        }
+        return Err(credential_error(&profile_id, error));
+    }
     Ok(Json(json!({ "deleted": true })))
 }
 
@@ -305,18 +330,21 @@ pub(super) async fn credential_write(
     Json(input): Json<CredentialInput>,
 ) -> ApiResult<Json<Value>> {
     let _config_control = state.config_control.lock().await;
-    ensure_capture_stopped(&state).await?;
     let config = state.config.read().expect("config lock").clone();
     let profile = config
         .asr
         .api_profiles
         .iter()
         .find(|profile| profile.id == profile_id)
+        .cloned()
         .ok_or_else(profile_not_found)?;
+    let previous = asr::read_stored_credential(&profile.id, &profile.provider)
+        .map_err(|error| credential_error(&profile_id, error))?;
     asr::write_credential(&profile.id, &profile.provider, &input.api_key)
         .map_err(|error| credential_error(&profile_id, error))?;
+    reload_after_credential_change(&state, &config, &profile, previous).await?;
     Ok(Json(
-        profile_value(profile, &config).map_err(|error| credential_error(&profile_id, error))?,
+        profile_value(&profile, &config).map_err(|error| credential_error(&profile_id, error))?,
     ))
 }
 
@@ -325,13 +353,13 @@ pub(super) async fn credential_delete(
     Path(profile_id): Path<String>,
 ) -> ApiResult<Json<Value>> {
     let _config_control = state.config_control.lock().await;
-    ensure_capture_stopped(&state).await?;
     let config = state.config.read().expect("config lock").clone();
     let profile = config
         .asr
         .api_profiles
         .iter()
         .find(|profile| profile.id == profile_id)
+        .cloned()
         .ok_or_else(profile_not_found)?;
     if asr::credential_status(&profile.id, &profile.provider)
         .map_err(|error| credential_error(&profile_id, error))?
@@ -343,10 +371,13 @@ pub(super) async fn credential_delete(
             "This API key is managed by an environment variable",
         ));
     }
+    let previous = asr::read_stored_credential(&profile.id, &profile.provider)
+        .map_err(|error| credential_error(&profile_id, error))?;
     asr::delete_credential(&profile.id, &profile.provider)
         .map_err(|error| credential_error(&profile_id, error))?;
+    reload_after_credential_change(&state, &config, &profile, previous).await?;
     Ok(Json(
-        profile_value(profile, &config).map_err(|error| credential_error(&profile_id, error))?,
+        profile_value(&profile, &config).map_err(|error| credential_error(&profile_id, error))?,
     ))
 }
 
@@ -443,7 +474,6 @@ async fn commit_profile_config(
     state: &Arc<AppState>,
     candidate: crate::config::AppConfig,
 ) -> ApiResult<()> {
-    ensure_capture_stopped(state).await?;
     candidate.validate_settings().map_err(|error| {
         api_error(
             StatusCode::UNPROCESSABLE_ENTITY,
@@ -451,32 +481,82 @@ async fn commit_profile_config(
             error,
         )
     })?;
-    save_config(&state.config_path, &candidate).map_err(|error| {
-        api_error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "asr.profile_save_failed",
-            error,
-        )
-    })?;
-    *state.config.write().expect("config lock") = candidate;
-    state
-        .config_revision
-        .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    super::settings::commit_candidate(state, candidate).await?;
     Ok(())
 }
 
-async fn ensure_capture_stopped(state: &Arc<AppState>) -> ApiResult<()> {
-    let _control = state.capture_control.lock().await;
-    if state.speaker_pipeline.lock().await.running()
-        || state.microphone_pipeline.lock().await.running()
+async fn reload_after_credential_change(
+    state: &Arc<AppState>,
+    config: &crate::config::AppConfig,
+    profile: &ApiProfile,
+    previous: Option<String>,
+) -> ApiResult<()> {
+    if !state
+        .capture_requested
+        .load(std::sync::atomic::Ordering::SeqCst)
+        || !super::capture::uses_asr_profile(config, &profile.id)
     {
-        return Err(api_error(
-            StatusCode::CONFLICT,
-            "settings.capture_must_be_stopped",
-            "Stop transcription before changing API profiles",
-        ));
+        return Ok(());
+    }
+    let _capture_control = state.capture_control.lock().await;
+    if !state
+        .capture_requested
+        .load(std::sync::atomic::Ordering::SeqCst)
+    {
+        return Ok(());
+    }
+    if let Err(error) = super::capture::validate_capture_config(state, config).await {
+        restore_credential(profile, previous).map_err(|recovery| {
+            api_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "settings.rollback_failed",
+                format!(
+                    "{}; credential rollback failed: {recovery}",
+                    api_detail(&error)
+                ),
+            )
+        })?;
+        return Err(error);
+    }
+
+    let plan = super::capture::CaptureReloadPlan::all();
+    super::capture::stop_pipelines(state, plan).await;
+    if let Err(error) = super::capture::start_pipelines(state, config, plan).await {
+        let mut recovery_errors = Vec::new();
+        if let Err(recovery) = restore_credential(profile, previous) {
+            recovery_errors.push(format!("credential rollback failed: {recovery}"));
+        } else {
+            super::capture::stop_pipelines(state, plan).await;
+            if let Err(recovery) = super::capture::start_pipelines(state, config, plan).await {
+                recovery_errors.push(api_detail(&recovery));
+            }
+        }
+        if !recovery_errors.is_empty() {
+            return Err(api_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "settings.rollback_failed",
+                format!("{}; {}", api_detail(&error), recovery_errors.join("; ")),
+            ));
+        }
+        return Err(error);
     }
     Ok(())
+}
+
+fn restore_credential(profile: &ApiProfile, previous: Option<String>) -> Result<(), String> {
+    match previous {
+        Some(api_key) => asr::write_credential(&profile.id, &profile.provider, &api_key),
+        None => asr::delete_credential(&profile.id, &profile.provider),
+    }
+}
+
+fn api_detail(error: &(StatusCode, Json<Value>)) -> String {
+    error
+        .1
+        .get("detail")
+        .and_then(Value::as_str)
+        .unwrap_or("Capture reconfiguration failed")
+        .to_string()
 }
 
 pub(super) fn profile_not_found() -> (StatusCode, Json<Value>) {

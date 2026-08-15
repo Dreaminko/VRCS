@@ -108,6 +108,41 @@ impl WhisperEngine {
     }
 }
 
+pub(crate) fn prepare_local_engine(
+    config: &AsrConfig,
+    model_dir: &Path,
+) -> Result<Box<dyn AsrEngine>, String> {
+    let spec = model_spec(&config.local.model)?;
+    let path = model_dir.join(spec.filename);
+    if !verify_model_file(&path, spec, false)? {
+        return Err(format!(
+            "Model file {} failed integrity verification; download it again",
+            path.display()
+        ));
+    }
+    WhisperEngine::load(&path, &config.local.device)
+        .map(|engine| Box::new(engine) as Box<dyn AsrEngine>)
+        .map_err(|mut error| {
+            match verify_model_file(&path, spec, true) {
+                Ok(false) => {
+                    error = format!(
+                        "Model file {} failed integrity verification; download it again",
+                        path.display()
+                    );
+                }
+                Err(verify_error) => {
+                    error = format!("{error}; model re-verification failed: {verify_error}");
+                }
+                Ok(true) => {}
+            }
+            error
+        })
+}
+
+fn local_required(config: &AsrConfig) -> bool {
+    config.backend == "local_whisper" || config.cloud_failure_policy == "local"
+}
+
 impl AsrEngine for WhisperEngine {
     fn transcribe(
         &mut self,
@@ -185,12 +220,34 @@ impl AsrService {
         self.runtime.clone()
     }
 
-    pub fn update(&mut self, config: AsrConfig, model_dir: PathBuf) {
-        if config != self.config || model_dir != self.model_dir {
-            self.config = config;
-            self.model_dir = model_dir;
-            self.engine = None;
-            self.runtime.set("not_loaded", None);
+    pub fn update(
+        &mut self,
+        config: AsrConfig,
+        model_dir: PathBuf,
+        prepared_engine: Option<Box<dyn AsrEngine>>,
+    ) -> Option<Box<dyn AsrEngine>> {
+        if config == self.config && model_dir == self.model_dir {
+            return None;
+        }
+
+        let local_runtime_changed = config.local != self.config.local
+            || model_dir != self.model_dir
+            || local_required(&config) != local_required(&self.config);
+        self.config = config;
+        self.model_dir = model_dir;
+        if local_runtime_changed || prepared_engine.is_some() {
+            let previous_engine = std::mem::replace(&mut self.engine, prepared_engine);
+            self.runtime.set(
+                if self.engine.is_some() {
+                    "ready"
+                } else {
+                    "not_loaded"
+                },
+                None,
+            );
+            previous_engine
+        } else {
+            None
         }
     }
 
@@ -198,35 +255,12 @@ impl AsrService {
     pub fn transcribe(&mut self, samples: &[f32]) -> Result<Transcription, String> {
         if self.engine.is_none() {
             self.runtime.set("loading", None);
-            let spec = model_spec(&self.config.local.model)?;
-            let path = self.model_dir.join(spec.filename);
-            if !verify_model_file(&path, spec, false)? {
-                let error = format!(
-                    "Model file {} failed integrity verification; download it again",
-                    path.display()
-                );
-                self.runtime.set("error", Some(error.clone()));
-                return Err(error);
-            }
-            match WhisperEngine::load(&path, &self.config.local.device) {
+            match prepare_local_engine(&self.config, &self.model_dir) {
                 Ok(engine) => {
-                    self.engine = Some(Box::new(engine));
+                    self.engine = Some(engine);
                     self.runtime.set("ready", None);
                 }
-                Err(mut error) => {
-                    match verify_model_file(&path, spec, true) {
-                        Ok(false) => {
-                            error = format!(
-                                "Model file {} failed integrity verification; download it again",
-                                path.display()
-                            );
-                        }
-                        Err(verify_error) => {
-                            error =
-                                format!("{error}; model re-verification failed: {verify_error}");
-                        }
-                        Ok(true) => {}
-                    }
+                Err(error) => {
                     self.runtime.set("error", Some(error.clone()));
                     return Err(error);
                 }
