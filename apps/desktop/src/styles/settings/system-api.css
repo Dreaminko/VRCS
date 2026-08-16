@@ -77,6 +77,11 @@
   line-height: 1.55;
 }
 .external-api-restart svg { flex: 0 0 auto; margin-top: 1px; color: var(--primary-ink); }
+.vrcx-title-link { display: inline-flex; align-items: center; gap: 5px; color: inherit; text-decoration: none; }
+.vrcx-title-link:hover { color: var(--primary-ink); text-decoration: underline; text-underline-offset: 3px; }
+.vrcx-title-link:focus-visible { border-radius: 3px; outline: 2px solid var(--primary); outline-offset: 3px; }
+.vrcx-title-link svg { flex: 0 0 auto; color: var(--text-quiet); }
+.vrcx-title-link:hover svg { color: currentColor; }
 .vrcx-runtime-copy { display: grid; min-width: 0; gap: 2px; }
 .vrcx-runtime-copy strong { color: var(--text); font-size: 12px; font-weight: 650; }
 .vrcx-runtime-copy small { color: var(--text-quiet); font-size: 10px; line-height: 1.5; }

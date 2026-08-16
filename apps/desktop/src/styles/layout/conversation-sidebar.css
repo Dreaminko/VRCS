@@ -20,7 +20,7 @@
   transition-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
 }
 .conversation-sidebar:not(.conversation-sidebar-collapsed) { animation: sidebar-pop 180ms cubic-bezier(0.16, 1, 0.3, 1); }
-.conversation-sidebar-resizing { animation: none !important; transition: none; }
+.conversation-sidebar-resizing { transition: none; }
 .conversation-sidebar-collapsed {
   width: 56px;
   min-width: 56px;

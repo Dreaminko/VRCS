@@ -1,4 +1,4 @@
-import { KeyRound, RadioTower, RefreshCw, Save, Trash2 } from "lucide-react";
+import { ExternalLink, KeyRound, RadioTower, RefreshCw, Save, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -190,7 +190,17 @@ export function VrcxIntegrationSettingsCard({ config, saveState, onChange }: {
       <div className="section-heading">
         <div>
           <RadioTower size={18} />
-          <h3 id="connections-vrcx-title">{t("settings.vrcx.title")}</h3>
+          <h3 id="connections-vrcx-title">
+            <a
+              className="vrcx-title-link"
+              href="https://github.com/Map1en/VRCX-0"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              {t("settings.vrcx.title")}
+              <ExternalLink size={12} aria-hidden="true" />
+            </a>
+          </h3>
         </div>
         {config.enabled && (
           <button className="secondary-button" type="button" disabled={testing || tokenBusy || saveState === "saving"} onClick={() => void testConnection()}>
