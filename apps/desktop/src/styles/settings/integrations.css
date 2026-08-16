@@ -70,6 +70,7 @@
 .osc-panel {
   display: grid;
   overflow: hidden;
+  border: 1px solid var(--border);
   border-radius: var(--radius-md);
   background: var(--surface);
 }

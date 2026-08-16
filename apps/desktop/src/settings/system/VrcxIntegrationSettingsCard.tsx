@@ -1,5 +1,6 @@
+import { invoke, isTauri } from "@tauri-apps/api/core";
 import { ExternalLink, KeyRound, RadioTower, RefreshCw, Save, Trash2 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type MouseEvent } from "react";
 import { useTranslation } from "react-i18next";
 
 import { coreApi } from "../../api";
@@ -93,6 +94,14 @@ export function VrcxIntegrationSettingsCard({ config, saveState, onChange }: {
       },
       () => setRuntimeStatusError(true),
     );
+  };
+
+  const openRepository = (event: MouseEvent<HTMLAnchorElement>) => {
+    if (!isTauri()) return;
+    event.preventDefault();
+    void invoke("open_vrcx_repository").catch((error) => {
+      console.error("Failed to open VRCX-0 repository", error);
+    });
   };
 
   const commitPort = () => {
@@ -196,6 +205,7 @@ export function VrcxIntegrationSettingsCard({ config, saveState, onChange }: {
               href="https://github.com/Map1en/VRCX-0"
               target="_blank"
               rel="noopener noreferrer"
+              onClick={openRepository}
             >
               {t("settings.vrcx.title")}
               <ExternalLink size={12} aria-hidden="true" />

@@ -6,12 +6,6 @@
 .translation-config-title > svg { flex: 0 0 auto; margin-top: 1px; }
 
 .translation-config-fields-single > .field { grid-column: 1; }
-.translation-own-voice-fields { display: grid; gap: 12px; }
-.translation-own-voice-fields .settings-toggle-row {
-  min-height: 0;
-  padding: 0 0 12px;
-}
-.translation-own-voice-fields > .field { max-width: 280px; }
 .translation-model-input-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;

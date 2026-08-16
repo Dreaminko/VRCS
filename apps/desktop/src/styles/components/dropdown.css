@@ -230,7 +230,9 @@
   color: var(--text);
   background: var(--surface);
   box-shadow: var(--control-shadow);
-  font: 13px/18px var(--font-ui);
+  font: inherit;
+  font-size: 13px;
+  line-height: 18px;
 }
 .dropdown-search::placeholder { color: var(--text-quiet); }
 .dropdown-search:focus {

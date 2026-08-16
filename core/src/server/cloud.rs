@@ -254,7 +254,6 @@ pub(super) async fn profile_update(
     {
         candidate.translation.profile_id = None;
         candidate.translation.mode = "disabled".into();
-        candidate.translation.translate_microphone = false;
     }
     commit_profile_config(&state, candidate).await?;
     let config = state.config.read().expect("config lock").clone();
@@ -299,7 +298,6 @@ pub(super) async fn profile_delete(
     if candidate.translation.profile_id.as_deref() == Some(profile_id.as_str()) {
         candidate.translation.profile_id = None;
         candidate.translation.mode = "disabled".into();
-        candidate.translation.translate_microphone = false;
     }
     let previous_credential = asr::read_stored_credential(&profile.id, &profile.provider)
         .map_err(|error| credential_error(&profile_id, error))?;

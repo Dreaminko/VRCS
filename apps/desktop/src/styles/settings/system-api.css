@@ -35,7 +35,7 @@
   color: var(--text);
   background: var(--surface);
   box-shadow: var(--control-shadow);
-  font: 12px var(--font-mono);
+  font: 13px var(--font-mono);
   transition: border-color 140ms ease-out, box-shadow 140ms ease-out;
 }
 .external-api-address-grid input { padding: 0 12px; }

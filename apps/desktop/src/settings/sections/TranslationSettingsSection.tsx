@@ -1,4 +1,4 @@
-import { Cloud, Languages, Mic2, RefreshCw, Workflow } from "lucide-react";
+import { Cloud, Languages, RefreshCw, Workflow } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { supportsContext, supportsLlmModels, supportsTranslation } from "../../api-profile-purpose";
@@ -8,7 +8,7 @@ import { TRANSLATION_LANGUAGE_CODES } from "../../translation-languages";
 import type { ApiProfileView, Settings, TranslationSettings } from "../../types";
 import { useTranslationProfileModels } from "../hooks/useTranslationProfileModels";
 import type { ApplySettings, SaveState } from "../settings-types";
-import { PreferenceToggle, Select } from "../SettingsControls";
+import { Select } from "../SettingsControls";
 import { TranslationEnhancementSettings } from "../translation/TranslationEnhancementSettings";
 
 function modelForProfile(profile: ApiProfileView | undefined, current: string): string {
@@ -102,34 +102,17 @@ export function TranslationSettingsSection({ draft, apiProfiles, saveState, appl
 
         <div className="translation-config-row">
           <div className="translation-config-title">
-            <Mic2 size={17} />
+            <Languages size={17} />
             <span>
-              <strong>{t("settings.translation.ownVoice")}</strong>
+              <strong>{t("settings.translation.targetLanguageSettings")}</strong>
             </span>
           </div>
-          <div className="translation-own-voice-fields">
-            <PreferenceToggle
-              title={t("settings.translation.translateOwnVoice")}
-              checked={draft.translation.translate_microphone}
-              disabled={controlsDisabled || !translationProfiles.length}
-              onChange={(translate_microphone) => {
-                const profileId = translate_microphone
-                  ? selectedProfile?.id ?? translationProfiles[0]?.id ?? null
-                  : draft.translation.profile_id;
-                const profile = translationProfiles.find((item) => item.id === profileId);
-                update({
-                  ...draft.translation,
-                  translate_microphone,
-                  profile_id: profileId,
-                  model: modelForProfile(profile, draft.translation.model),
-                });
-              }}
-            />
+          <div className="translation-config-fields">
             <LanguagePicker
-              label={t("settings.translation.ownVoiceTargetLanguage")}
+              label={t("settings.translation.targetLanguageForSelf")}
               helper={translationProfiles.length ? undefined : t("settings.translation.noProfiles")}
               value={draft.translation.microphone_target_language}
-              disabled={controlsDisabled || !draft.translation.translate_microphone}
+              disabled={controlsDisabled || draft.translation.mode !== "automatic" || !translationProfiles.length}
               languageCodes={languageCodes}
               allowCustom={allowCustomLanguage}
               onChange={(microphone_target_language) => update({
@@ -137,19 +120,8 @@ export function TranslationSettingsSection({ draft, apiProfiles, saveState, appl
                 microphone_target_language,
               })}
             />
-          </div>
-        </div>
-
-        <div className="translation-config-row">
-          <div className="translation-config-title">
-            <Languages size={17} />
-            <span>
-              <strong>{t("settings.translation.targetLanguage")}</strong>
-            </span>
-          </div>
-          <div className="translation-config-fields translation-config-fields-single">
             <LanguagePicker
-              label={t("settings.translation.targetLanguage")}
+              label={t("settings.translation.targetLanguageForOtherParty")}
               value={draft.translation.target_language}
               disabled={controlsDisabled}
               languageCodes={languageCodes}
@@ -227,6 +199,7 @@ export function TranslationSettingsSection({ draft, apiProfiles, saveState, appl
                   <div className="translation-thinking-toggle">
                     <span>
                       <strong>{t("settings.translation.thinkingMode")}</strong>
+                      <small>{t("settings.translation.thinkingModeDescription")}</small>
                     </span>
                     <button
                       className="settings-switch-button"

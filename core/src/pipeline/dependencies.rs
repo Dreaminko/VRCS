@@ -201,15 +201,14 @@ fn automatic_translation_settings(
     config: &TranslationConfig,
     source: &str,
 ) -> Option<TranslationConfig> {
-    if source == "microphone" {
-        if !config.translate_microphone {
-            return None;
-        }
-        let mut settings = config.clone();
-        settings.target_language = settings.microphone_target_language.clone();
-        return Some(settings);
+    if config.mode != "automatic" {
+        return None;
     }
-    (config.mode == "automatic").then(|| config.clone())
+    let mut settings = config.clone();
+    if source == "microphone" {
+        settings.target_language = settings.microphone_target_language.clone();
+    }
+    Some(settings)
 }
 
 #[cfg(test)]
@@ -218,31 +217,30 @@ mod tests {
     use crate::config::TranslationConfig;
 
     #[test]
-    fn microphone_translation_has_an_independent_switch_and_target() {
-        let mut config = TranslationConfig {
-            mode: "disabled".into(),
+    fn automatic_mode_translates_microphone_with_its_own_target() {
+        let config = TranslationConfig {
+            mode: "automatic".into(),
             target_language: "zh-Hans".into(),
             microphone_target_language: "ja".into(),
             ..TranslationConfig::default()
         };
 
-        assert!(automatic_translation_settings(&config, "microphone").is_none());
-        config.translate_microphone = true;
-        let settings = automatic_translation_settings(&config, "microphone").unwrap();
-        assert_eq!(settings.target_language, "ja");
-        assert!(automatic_translation_settings(&config, "speaker").is_none());
+        let microphone = automatic_translation_settings(&config, "microphone").unwrap();
+        assert_eq!(microphone.target_language, "ja");
+        let speaker = automatic_translation_settings(&config, "speaker").unwrap();
+        assert_eq!(speaker.target_language, "zh-Hans");
     }
 
     #[test]
-    fn automatic_mode_still_translates_other_voices() {
-        let config = TranslationConfig {
-            mode: "automatic".into(),
-            target_language: "zh-Hans".into(),
-            ..TranslationConfig::default()
-        };
+    fn non_automatic_modes_do_not_translate_any_voice_automatically() {
+        for mode in ["disabled", "manual"] {
+            let config = TranslationConfig {
+                mode: mode.into(),
+                ..TranslationConfig::default()
+            };
 
-        let settings = automatic_translation_settings(&config, "speaker").unwrap();
-        assert_eq!(settings.target_language, "zh-Hans");
-        assert!(automatic_translation_settings(&config, "microphone").is_none());
+            assert!(automatic_translation_settings(&config, "microphone").is_none());
+            assert!(automatic_translation_settings(&config, "speaker").is_none());
+        }
     }
 }

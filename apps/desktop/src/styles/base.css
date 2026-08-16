@@ -86,7 +86,7 @@ body {
   background: var(--canvas);
 }
 
-button, select { font: inherit; }
+button, input, select, textarea { font: inherit; }
 button { color: inherit; }
 select { color-scheme: light; }
 button, label, select { -webkit-tap-highlight-color: transparent; }

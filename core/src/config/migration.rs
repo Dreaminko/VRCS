@@ -205,17 +205,10 @@ fn migrate_v6_to_v10(raw: &serde_json::Value) -> Result<AppConfig, String> {
         .or_insert_with(|| serde_json::json!({}))
         .as_object_mut()
         .ok_or_else(|| "Configuration translation must be an object".to_string())?;
-    let translated_microphone = translation
-        .get("mode")
-        .and_then(|value| value.as_str())
-        .is_some_and(|mode| mode == "automatic");
     let microphone_target = translation
         .get("target_language")
         .cloned()
         .unwrap_or_else(|| serde_json::json!("zh-Hans"));
-    translation
-        .entry("translate_microphone")
-        .or_insert_with(|| serde_json::json!(translated_microphone));
     translation
         .entry("microphone_target_language")
         .or_insert(microphone_target);
@@ -273,6 +266,21 @@ fn migrate_v19(raw: &serde_json::Value) -> Result<AppConfig, String> {
     let object = value
         .as_object_mut()
         .ok_or_else(|| "Configuration root must be an object".to_string())?;
+    object.insert("schema_version".into(), serde_json::json!(SCHEMA_VERSION));
+    serde_json::from_value(value).map_err(|error| error.to_string())
+}
+
+fn migrate_v20(raw: &serde_json::Value) -> Result<AppConfig, String> {
+    let mut value = raw.clone();
+    let object = value
+        .as_object_mut()
+        .ok_or_else(|| "Configuration root must be an object".to_string())?;
+    if let Some(translation) = object
+        .get_mut("translation")
+        .and_then(serde_json::Value::as_object_mut)
+    {
+        translation.remove("translate_microphone");
+    }
     object.insert("schema_version".into(), serde_json::json!(SCHEMA_VERSION));
     serde_json::from_value(value).map_err(|error| error.to_string())
 }
@@ -434,6 +442,7 @@ pub fn config_from_value(raw: &serde_json::Value) -> Result<AppConfig, String> {
         version if version == SCHEMA_VERSION as u64 => {
             serde_json::from_value(raw.clone()).map_err(|error| error.to_string())?
         }
+        20 => migrate_v20(raw)?,
         19 => migrate_v19(raw)?,
         18 => migrate_v18(raw)?,
         11..=17 => migrate_v11_to_v17(raw)?,

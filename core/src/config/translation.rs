@@ -17,8 +17,6 @@ pub struct TranslationConfig {
     pub model: String,
     #[serde(default)]
     pub thinking_enabled: bool,
-    #[serde(default)]
-    pub translate_microphone: bool,
     #[serde(default = "default_microphone_translation_target")]
     pub microphone_target_language: String,
     #[serde(default)]
@@ -125,7 +123,6 @@ impl Default for TranslationConfig {
             profile_id: None,
             model: default_translation_model(),
             thinking_enabled: false,
-            translate_microphone: false,
             microphone_target_language: default_microphone_translation_target(),
             prompt: TranslationPromptConfig::default(),
         }

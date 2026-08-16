@@ -264,7 +264,7 @@ fn validate_translation(
             translation.microphone_target_language
         ));
     }
-    if translation.mode == "disabled" && !translation.translate_microphone {
+    if translation.mode == "disabled" {
         return Ok(());
     }
     let profile_id = translation
@@ -286,7 +286,7 @@ fn validate_translation(
             translation.target_language
         ));
     }
-    if translation.translate_microphone
+    if translation.mode == "automatic"
         && !providers::supports_translation_language(
             profile,
             &translation.microphone_target_language,

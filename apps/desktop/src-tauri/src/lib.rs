@@ -58,6 +58,7 @@ struct NativeUiState {
 }
 
 const DEFAULT_CORE_PORT: u16 = 8766;
+const VRCX_REPOSITORY_URL: &str = "https://github.com/Map1en/VRCX-0";
 
 fn available_port() -> u16 {
     TcpListener::bind(("127.0.0.1", 0))
@@ -106,6 +107,22 @@ fn retry_core(app: tauri::AppHandle) -> Result<(), String> {
 #[tauri::command]
 fn write_glossary_file(path: PathBuf, contents: String) -> Result<(), String> {
     std::fs::write(path, contents.as_bytes()).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn open_vrcx_repository() -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    let mut command = std::process::Command::new("explorer.exe");
+    #[cfg(target_os = "macos")]
+    let mut command = std::process::Command::new("open");
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let mut command = std::process::Command::new("xdg-open");
+
+    command
+        .arg(VRCX_REPOSITORY_URL)
+        .spawn()
+        .map(|_| ())
+        .map_err(|error| format!("Failed to open VRCX-0 repository: {error}"))
 }
 
 fn launch_core(app: &tauri::AppHandle) -> Result<(), String> {
@@ -410,6 +427,7 @@ pub fn run() {
             core_startup,
             retry_core,
             write_glossary_file,
+            open_vrcx_repository,
             diagnostics::diagnostic_status,
             diagnostics::report_frontend_error,
             diagnostics::open_log_directory,

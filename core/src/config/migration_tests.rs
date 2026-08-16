@@ -142,6 +142,29 @@ fn migrates_v15_official_compatible_profiles_to_their_presets() {
 }
 
 #[test]
+fn migrates_v20_without_independent_microphone_translation_switch() {
+    let mut raw = serde_json::to_value(AppConfig::default()).unwrap();
+    raw["schema_version"] = serde_json::json!(20);
+    raw["translation"]["mode"] = serde_json::json!("disabled");
+    raw["translation"]["translate_microphone"] = serde_json::json!(true);
+
+    let config = config_from_value(&raw).unwrap();
+    let migrated = serde_json::to_value(config).unwrap();
+
+    assert_eq!(
+        migrated["schema_version"],
+        serde_json::json!(SCHEMA_VERSION)
+    );
+    assert_eq!(
+        migrated["translation"]["mode"],
+        serde_json::json!("disabled")
+    );
+    assert!(migrated["translation"]
+        .get("translate_microphone")
+        .is_none());
+}
+
+#[test]
 fn migrates_v18_history_count_to_storage_quota() {
     let mut raw = serde_json::to_value(AppConfig::default()).unwrap();
     raw["schema_version"] = serde_json::json!(18);
@@ -286,7 +309,6 @@ fn migrates_v6_with_translation_disabled_by_default() {
     assert_eq!(config.translation.mode, "disabled");
     assert_eq!(config.translation.target_language, "zh-Hans");
     assert!(!config.translation.thinking_enabled);
-    assert!(!config.translation.translate_microphone);
     assert_eq!(config.translation.microphone_target_language, "zh-Hans");
 }
 
@@ -323,7 +345,7 @@ fn migrates_v9_with_mute_sync_enabled_by_default() {
 }
 
 #[test]
-fn migrates_v8_automatic_translation_without_changing_behavior() {
+fn migrates_v8_automatic_translation_target_for_microphone() {
     let config = config_from_value(&serde_json::json!({
         "schema_version": 8,
         "asr": {
@@ -341,7 +363,7 @@ fn migrates_v8_automatic_translation_without_changing_behavior() {
     }))
     .unwrap();
 
-    assert!(config.translation.translate_microphone);
+    assert_eq!(config.translation.mode, "automatic");
     assert_eq!(config.translation.microphone_target_language, "ja");
 }
 

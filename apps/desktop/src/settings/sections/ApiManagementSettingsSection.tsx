@@ -186,10 +186,8 @@ export function ApiManagementSettingsSection({
             (profile.provider === "alibaba_cloud" && ["qwen_realtime", "fun_asr_realtime"].includes(settings.asr.backend))
             || (profile.provider === "openai" && settings.asr.backend === "openai_realtime")
           );
-          const translationActive = profile.translation_active && (
-            settings.translation.mode !== "disabled"
-            || settings.translation.translate_microphone
-          );
+          const translationActive = profile.translation_active
+            && settings.translation.mode !== "disabled";
           const detail = profile.provider === "alibaba_cloud"
             ? `${profile.region === "singapore" ? "Singapore" : "China (Beijing)"} · ${profile.workspace_id || t("settings.apiManagement.workspaceMissing")}`
             : profile.provider === "microsoft_translator"

@@ -263,7 +263,7 @@ export interface DatabaseStorageStats {
 }
 
 export interface Settings {
-  schema_version: 20;
+  schema_version: 21;
   server: {
     host: string;
     port: number;
@@ -315,7 +315,6 @@ export interface TranslationSettings {
   profile_id: string | null;
   model: string;
   thinking_enabled: boolean;
-  translate_microphone: boolean;
   microphone_target_language: string;
   prompt: TranslationPromptSettings;
 }

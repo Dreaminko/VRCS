@@ -5,7 +5,7 @@ use super::{
     ServerConfig, StorageConfig, TranslationConfig, VadConfig, VrcxConfig,
 };
 
-pub const SCHEMA_VERSION: u32 = 20;
+pub const SCHEMA_VERSION: u32 = 21;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AppConfig {
@@ -132,7 +132,6 @@ mod tests {
                 "prompt",
                 "target_language",
                 "thinking_enabled",
-                "translate_microphone",
             ],
         );
         assert_keys(

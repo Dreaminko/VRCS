@@ -115,6 +115,17 @@ fn translation_languages_follow_the_selected_provider() {
         "The selected API profile does not support target language: hi"
     );
 
+    config.translation.target_language = "ja".into();
+    config.translation.microphone_target_language = "hi".into();
+    assert!(config.validate_settings().is_ok());
+
+    config.translation.mode = "automatic".into();
+    assert_eq!(
+        config.validate_settings().unwrap_err(),
+        "The selected API profile does not support microphone target language: hi"
+    );
+
+    config.translation.mode = "manual".into();
     config.translation.profile_id = Some("openai-one".into());
     config.translation.target_language = "tlh-Latn".into();
     assert!(config.validate_settings().is_ok());
@@ -208,9 +219,9 @@ fn legacy_api_profile_purposes_are_inferred() {
 }
 
 #[test]
-fn microphone_translation_requires_a_profile_when_enabled() {
+fn automatic_translation_requires_a_profile() {
     let mut config = AppConfig::default();
-    config.translation.translate_microphone = true;
+    config.translation.mode = "automatic".into();
     assert_eq!(
         config.validate_settings().unwrap_err(),
         "A translation API profile must be selected"
