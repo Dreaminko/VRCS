@@ -29,6 +29,13 @@
       "unavailable": "不可用",
       "understood": "知道了"
     },
+    "diagnostics": {
+      "fatalTitle": "VRCS 遇到意外错误",
+      "fatalDescription": "错误信息已保存在本机。你可以重新加载界面，或打开日志目录查看详情。",
+      "reportId": "报告 ID：{{id}}",
+      "openLogs": "打开日志目录",
+      "reload": "重新加载"
+    },
     "translation": {
       "action": "翻译",
       "retry": "重新翻译",
@@ -803,7 +810,7 @@
         }
       },
       "debug": {
-
+        "subtitle": "运行信息与本地错误报告",
         "readOnly": "只读",
         "schema": "配置版本",
         "coreAddress": "Core 地址",
@@ -819,7 +826,15 @@
         "transcription": "转写",
         "audioDevices": "音频设备",
         "audioDeviceCounts": "{{outputs}} 个输出 · {{microphones}} 个麦克风",
-        "dictionaries": "词典"
+        "dictionaries": "词典",
+        "errorReports": "错误报告",
+        "errorReportsDescription": "日志只保存在本机，不会自动上传。提交问题前可以自行查看内容。",
+        "sessionId": "当前会话：{{id}}",
+        "export": "导出错误报告",
+        "exporting": "正在导出…",
+        "exported": "错误报告已导出。",
+        "exportFailed": "无法导出错误报告。",
+        "openFailed": "无法打开日志目录。"
       }
     },
     "onboarding": {

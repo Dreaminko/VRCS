@@ -29,6 +29,13 @@
       "unavailable": "利用不可",
       "understood": "了解"
     },
+    "diagnostics": {
+      "fatalTitle": "VRCS で予期しないエラーが発生しました",
+      "fatalDescription": "エラー情報はローカルに保存されました。画面を再読み込みするか、ログフォルダーを開いて詳細を確認してください。",
+      "reportId": "レポート ID：{{id}}",
+      "openLogs": "ログフォルダーを開く",
+      "reload": "再読み込み"
+    },
     "translation": {
       "action": "翻訳",
       "retry": "再翻訳",
@@ -803,7 +810,7 @@
         }
       },
       "debug": {
-
+        "subtitle": "実行情報とローカルエラーレポート",
         "readOnly": "読み取り専用",
         "schema": "スキーマ",
         "coreAddress": "Core アドレス",
@@ -819,7 +826,15 @@
         "transcription": "文字起こし",
         "audioDevices": "音声デバイス",
         "audioDeviceCounts": "出力 {{outputs}} · マイク {{microphones}}",
-        "dictionaries": "辞書"
+        "dictionaries": "辞書",
+        "errorReports": "エラーレポート",
+        "errorReportsDescription": "ログはこの端末だけに保存され、自動でアップロードされません。共有前に内容を確認できます。",
+        "sessionId": "現在のセッション：{{id}}",
+        "export": "エラーレポートを出力",
+        "exporting": "出力中…",
+        "exported": "エラーレポートを出力しました。",
+        "exportFailed": "エラーレポートを出力できませんでした。",
+        "openFailed": "ログフォルダーを開けませんでした。"
       }
     },
     "onboarding": {

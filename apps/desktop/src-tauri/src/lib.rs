@@ -1,3 +1,5 @@
+mod diagnostics;
+
 use std::net::TcpListener;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -155,10 +157,18 @@ fn launch_core(app: &tauri::AppHandle) -> Result<(), String> {
                 );
             }
             Err(error) => {
-                tracing::error!(
-                    %error,
+                let report_id = diagnostics::record_error(
+                    app.state::<diagnostics::DiagnosticState>().inner(),
+                    "core",
+                    "core_startup",
+                    "core.startup_failed",
+                    &error,
+                    None,
+                );
+                tracing::info!(
+                    %report_id,
                     elapsed_ms = started.elapsed().as_millis(),
-                    "desktop Core startup failed"
+                    "desktop Core startup failure recorded"
                 );
                 *runtime.startup.lock().expect("core startup lock poisoned") = CoreStartup {
                     state: CoreStartupState::Failed,
@@ -313,13 +323,13 @@ fn stop_core(app: &tauri::AppHandle) {
         .lock()
         .expect("core launch task lock poisoned")
         .take();
-    let app = app.clone();
+    let app_handle = app.clone();
     let (done_tx, done_rx) = std::sync::mpsc::sync_channel(1);
     tauri::async_runtime::spawn(async move {
         if let Some(task) = launch_task {
             let _ = task.await;
         }
-        let core = app
+        let core = app_handle
             .state::<CoreRuntime>()
             .handle
             .lock()
@@ -334,19 +344,47 @@ fn stop_core(app: &tauri::AppHandle) {
 
     match done_rx.recv_timeout(Duration::from_secs(10)) {
         Ok(Ok(())) => {}
-        Ok(Err(error)) => eprintln!("VRCS Core shutdown failed: {error}"),
-        Err(_) => eprintln!("VRCS Core shutdown timed out"),
+        Ok(Err(error)) => {
+            diagnostics::record_error(
+                app.state::<diagnostics::DiagnosticState>().inner(),
+                "core",
+                "core_shutdown",
+                "core.shutdown_failed",
+                &error,
+                None,
+            );
+        }
+        Err(error) => {
+            diagnostics::record_error(
+                app.state::<diagnostics::DiagnosticState>().inner(),
+                "core",
+                "core_shutdown",
+                "core.shutdown_timeout",
+                &error.to_string(),
+                None,
+            );
+        }
     }
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let log_dir = std::env::var("LOCALAPPDATA")
-        .map(PathBuf::from)
-        .ok()
-        .map(|path| path.join(".vrcs").join("logs"));
-    let _logging_guard =
-        vrcs_core::init_tracing(log_dir.as_deref()).unwrap_or_else(|error| panic!("{error}"));
+    let log_dir = diagnostics::desktop_log_dir();
+    let _logging_guard = match vrcs_core::init_tracing(Some(&log_dir)) {
+        Ok(guard) => Some(guard),
+        Err(error) => {
+            eprintln!("VRCS file logging is unavailable: {error}");
+            vrcs_core::init_tracing(None).ok()
+        }
+    };
+    let diagnostic_state = diagnostics::DiagnosticState::new(log_dir.clone());
+    diagnostics::install_panic_hook(diagnostic_state.clone());
+    tracing::info!(
+        session_id = %diagnostic_state.session_id(),
+        version = env!("CARGO_PKG_VERSION"),
+        "VRCS desktop starting"
+    );
+
     let connection = core_connection_config();
     let setup_connection = connection.clone();
 
@@ -361,6 +399,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_store::Builder::default().build())
         .manage(connection)
+        .manage(diagnostic_state)
         .manage(NativeUiState {
             show_item: Mutex::new(None),
             quit_item: Mutex::new(None),
@@ -371,6 +410,10 @@ pub fn run() {
             core_startup,
             retry_core,
             write_glossary_file,
+            diagnostics::diagnostic_status,
+            diagnostics::report_frontend_error,
+            diagnostics::open_log_directory,
+            diagnostics::export_error_report,
             update_native_labels,
             set_compact_window_topmost
         ])

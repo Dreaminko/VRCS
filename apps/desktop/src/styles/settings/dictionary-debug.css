@@ -20,6 +20,31 @@
 .dictionary-empty { margin: 0; padding: 16px; border: 1px dashed var(--border); border-radius: 12px; color: var(--text-quiet); font-size: 12px; line-height: 1.6; text-align: center; }
 .dictionary-feedback { margin: 12px 2px 0; color: var(--text-secondary); font-size: 11px; }
 .dictionary-import-progress { margin: 7px 2px 0; }
+.diagnostic-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px 18px;
+  align-items: center;
+  margin-bottom: 14px;
+  padding: 15px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface-elevated);
+}
+.diagnostic-card-copy { display: grid; min-width: 0; gap: 4px; }
+.diagnostic-card-copy > strong { color: var(--text); font-size: 13px; font-weight: 650; }
+.diagnostic-card-copy > span,
+.diagnostic-card-copy > small,
+.diagnostic-feedback { color: var(--text-quiet); font-size: 11px; line-height: 1.5; }
+.diagnostic-card-copy > code {
+  overflow: hidden;
+  color: var(--text-secondary);
+  font: 11px/1.5 var(--font-mono);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.diagnostic-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.diagnostic-feedback { grid-column: 1 / -1; }
 .debug-list {
   display: grid;
   overflow: hidden;
@@ -41,4 +66,8 @@
   color: var(--text);
   font: 12px/1.5 var(--font-mono);
   font-weight: 500;
+}
+@media (max-width: 720px) {
+  .diagnostic-card { grid-template-columns: 1fr; }
+  .diagnostic-actions { justify-content: flex-start; }
 }

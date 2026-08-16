@@ -1,16 +1,35 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import App from "./App";
+import { AppErrorBoundary, FatalErrorScreen } from "./components/AppErrorBoundary";
+import {
+  installGlobalErrorReporting,
+  normalizeFrontendError,
+  reportFrontendError,
+} from "./diagnostics";
 import { initializeI18n } from "./i18n";
 import "./styles.css";
 
+const rootElement = document.getElementById("root")!;
+
 async function render() {
   await initializeI18n();
-  createRoot(document.getElementById("root")!).render(
+  createRoot(rootElement).render(
     <StrictMode>
-      <App />
+      <AppErrorBoundary>
+        <App />
+      </AppErrorBoundary>
     </StrictMode>,
   );
 }
 
-void render();
+installGlobalErrorReporting();
+void render().catch(async (reason) => {
+  const error = normalizeFrontendError(reason);
+  const reportId = await reportFrontendError({
+    kind: "startup",
+    operation: "frontend_startup",
+    ...error,
+  });
+  createRoot(rootElement).render(<FatalErrorScreen reportId={reportId} />);
+});

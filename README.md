@@ -49,7 +49,7 @@ npm install
 npm run dev
 ```
 
-Tauri 会在同一进程内启动 Rust Core，退出桌面端时一并停止。开发模式 Core 默认监听 `http://127.0.0.1:8766`，WebSocket 为 `ws://127.0.0.1:8766/ws`；配置、数据库和模型保存在 `%LOCALAPPDATA%\.vrcs`。
+Tauri 会在同一进程内启动 Rust Core，退出桌面端时一并停止。开发模式 Core 默认监听 `http://127.0.0.1:8766`，WebSocket 为 `ws://127.0.0.1:8766/ws`；配置、数据库和模型保存在 `%LOCALAPPDATA%\.vrcs`。诊断日志按天保存在 `%LOCALAPPDATA%\.vrcs\logs\errorlog.YYYY-MM-DD.log`，最多保留最近 7 份，也可以从“设置 → Debug”打开目录或导出错误报告。
 
 `npm run dev` 和 `npm run dev:core` 默认不启用 CUDA。需要 CUDA 加速时显式使用：
 

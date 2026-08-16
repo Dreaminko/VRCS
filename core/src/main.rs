@@ -20,6 +20,7 @@ async fn main() {
         eprintln!("{error}");
         std::process::exit(1);
     });
+    tracing::info!(version = env!("CARGO_PKG_VERSION"), "VRCS Core starting");
     let handle = vrcs_core::start(options).await.unwrap_or_else(|error| {
         eprintln!("{error}");
         std::process::exit(1);

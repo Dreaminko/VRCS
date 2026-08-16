@@ -144,7 +144,7 @@ pub fn init_tracing(log_dir: Option<&Path>) -> Result<LoggingGuard, String> {
     use tracing_subscriber::fmt::writer::MakeWriterExt;
 
     let filter = tracing_subscriber::EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| "vrcs_core=info,tower_http=info".into());
+        .unwrap_or_else(|_| "vrcs_core=info,vrcs_desktop_lib=info,tower_http=info".into());
     if let Some(log_dir) = log_dir {
         std::fs::create_dir_all(log_dir).map_err(|error| {
             format!(
@@ -154,13 +154,14 @@ pub fn init_tracing(log_dir: Option<&Path>) -> Result<LoggingGuard, String> {
         })?;
         let appender = tracing_appender::rolling::RollingFileAppender::builder()
             .rotation(tracing_appender::rolling::Rotation::DAILY)
-            .filename_prefix("vrcs-core")
+            .filename_prefix("errorlog")
             .filename_suffix("log")
-            .max_log_files(4)
+            .max_log_files(7)
             .build(log_dir)
             .map_err(|error| format!("Failed to create log file: {error}"))?;
         let (file_writer, guard) = tracing_appender::non_blocking(appender);
         tracing_subscriber::fmt()
+            .with_ansi(false)
             .with_env_filter(filter)
             .with_writer(file_writer.and(std::io::stderr))
             .try_init()

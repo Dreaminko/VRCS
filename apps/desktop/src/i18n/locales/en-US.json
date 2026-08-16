@@ -29,6 +29,13 @@
       "unavailable": "Unavailable",
       "understood": "Got it"
     },
+    "diagnostics": {
+      "fatalTitle": "VRCS encountered an unexpected error",
+      "fatalDescription": "The error was saved locally. Reload the interface or open the log folder for details.",
+      "reportId": "Report ID: {{id}}",
+      "openLogs": "Open log folder",
+      "reload": "Reload"
+    },
     "translation": {
       "action": "Translate",
       "retry": "Translate again",
@@ -803,7 +810,7 @@
         }
       },
       "debug": {
-
+        "subtitle": "Runtime details and local error reports",
         "readOnly": "Read only",
         "schema": "Schema",
         "coreAddress": "Core address",
@@ -819,7 +826,15 @@
         "transcription": "Transcription",
         "audioDevices": "Audio devices",
         "audioDeviceCounts": "{{outputs}} outputs · {{microphones}} microphones",
-        "dictionaries": "Dictionaries"
+        "dictionaries": "Dictionaries",
+        "errorReports": "Error reports",
+        "errorReportsDescription": "Logs stay on this device and are never uploaded automatically. You can review them before sharing.",
+        "sessionId": "Current session: {{id}}",
+        "export": "Export error report",
+        "exporting": "Exporting…",
+        "exported": "The error report was exported.",
+        "exportFailed": "Could not export the error report.",
+        "openFailed": "Could not open the log folder."
       }
     },
     "onboarding": {
