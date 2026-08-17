@@ -261,14 +261,20 @@ mod tests {
     async fn presentation_final_and_translation_updates_are_published() {
         let (subtitles, _) = broadcast::channel(4);
         let (translations, _) = broadcast::channel(4);
-        let output = SubtitleLifecyclePublisher::new(
+        let events = DomainEventHub::new();
+        let mut domain_receiver = events.subscribe();
+        let output = SubtitleLifecyclePublisher::with_domain_events(
             subtitles,
             translations,
             OscChatboxDispatcher::new(OscConfig::default()),
+            events,
         );
         let mut receiver = output.subscribe_presentation_events();
 
         output.asr_partial("utterance-7", "speaker", "hel", Some("en"));
+        let partial = domain_receiver.recv().await.unwrap();
+        assert_eq!(partial.event_type, "asr.partial");
+        assert_eq!(partial.message_id, "utterance-7");
         assert!(matches!(
             receiver.try_recv(),
             Err(broadcast::error::TryRecvError::Empty)

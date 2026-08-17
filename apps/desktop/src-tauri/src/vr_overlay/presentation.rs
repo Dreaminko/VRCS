@@ -71,9 +71,9 @@ impl HeadsetPresentation {
                     expiry(now, config.display_seconds),
                 ));
             }
-            PresentationEvent::TranslationPartial {
-                subtitle_id, text, ..
-            } if config.show_translation_partials => {
+            PresentationEvent::TranslationPartial { subtitle_id, text }
+                if config.show_translation_partials =>
+            {
                 if let Some(item) = self
                     .current
                     .as_mut()
@@ -85,7 +85,6 @@ impl HeadsetPresentation {
             PresentationEvent::TranslationCompleted {
                 subtitle_id,
                 translation,
-                ..
             } => {
                 if let Some(item) = self
                     .current
@@ -131,9 +130,9 @@ impl WristPresentation {
                 self.trim(config.max_entries);
                 self.last_activity = Some(now);
             }
-            PresentationEvent::TranslationPartial {
-                subtitle_id, text, ..
-            } if config.show_translation_partials => {
+            PresentationEvent::TranslationPartial { subtitle_id, text }
+                if config.show_translation_partials =>
+            {
                 if let Some(item) = self
                     .entries
                     .iter_mut()
@@ -145,7 +144,6 @@ impl WristPresentation {
             PresentationEvent::TranslationCompleted {
                 subtitle_id,
                 translation,
-                ..
             } => {
                 if let Some(item) = self
                     .entries
