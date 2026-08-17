@@ -2,10 +2,13 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, LazyLock, Mutex};
 
-use axum::extract::{Query, State};
-use axum::http::{HeaderMap, StatusCode};
+use axum::extract::{Extension, Query, State};
+use axum::http::{HeaderMap, Request, StatusCode};
+use axum::middleware::Next;
+use axum::response::{IntoResponse, Response};
 use axum::Json;
 use serde_json::{json, Value};
+use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
 use super::{
     api_error, api_error_with_params, db_call, dictionary_import_error, ApiResult, AppState,
@@ -13,8 +16,17 @@ use super::{
 
 const IMPORT_ID_HEADER: &str = "x-vrcs-import-id";
 const IMPORT_PROGRESS_SCALE: u32 = 10_000;
+const MAX_IMPORT_PROGRESS_ENTRIES: usize = 32;
+static DICTIONARY_IMPORT_PERMITS: LazyLock<Arc<Semaphore>> =
+    LazyLock::new(|| Arc::new(Semaphore::new(1)));
 static DICTIONARY_IMPORTS: LazyLock<Mutex<HashMap<String, Arc<AtomicU32>>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
+
+#[derive(Debug, PartialEq, Eq)]
+enum RegisterImportError {
+    Conflict,
+    Capacity,
+}
 
 fn valid_import_id(value: &str) -> bool {
     !value.is_empty()
@@ -24,14 +36,42 @@ fn valid_import_id(value: &str) -> bool {
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
 }
 
-fn register_import(import_id: &str) -> Arc<AtomicU32> {
-    let progress = Arc::new(AtomicU32::new(0));
-    let mut imports = DICTIONARY_IMPORTS.lock().expect("dictionary imports lock");
-    if imports.len() >= 32 {
-        imports.retain(|_, value| value.load(Ordering::Relaxed) < IMPORT_PROGRESS_SCALE);
+fn register_import_in(
+    imports: &mut HashMap<String, Arc<AtomicU32>>,
+    import_id: &str,
+) -> Result<Arc<AtomicU32>, RegisterImportError> {
+    imports.retain(|_, value| value.load(Ordering::Relaxed) < IMPORT_PROGRESS_SCALE);
+    if imports.contains_key(import_id) {
+        return Err(RegisterImportError::Conflict);
     }
+    if imports.len() >= MAX_IMPORT_PROGRESS_ENTRIES {
+        return Err(RegisterImportError::Capacity);
+    }
+
+    let progress = Arc::new(AtomicU32::new(0));
     imports.insert(import_id.to_owned(), Arc::clone(&progress));
-    progress
+    Ok(progress)
+}
+
+fn register_import(import_id: &str) -> Result<Arc<AtomicU32>, RegisterImportError> {
+    let mut imports = DICTIONARY_IMPORTS.lock().expect("dictionary imports lock");
+    register_import_in(&mut imports, import_id)
+}
+
+pub(super) async fn limit_dictionary_import(
+    mut request: Request<axum::body::Body>,
+    next: Next,
+) -> Response {
+    let Ok(permit) = Arc::clone(&DICTIONARY_IMPORT_PERMITS).try_acquire_owned() else {
+        return api_error(
+            StatusCode::TOO_MANY_REQUESTS,
+            "dictionary.import_busy",
+            "Another dictionary import is already running",
+        )
+        .into_response();
+    };
+    request.extensions_mut().insert(Arc::new(permit));
+    next.run(request).await
 }
 
 fn remove_import(import_id: &str) {
@@ -131,6 +171,7 @@ pub(super) async fn dictionary_list(State(state): State<Arc<AppState>>) -> ApiRe
 
 pub(super) async fn dictionary_import(
     State(state): State<Arc<AppState>>,
+    Extension(import_permit): Extension<Arc<OwnedSemaphorePermit>>,
     headers: HeaderMap,
     body: axum::body::Bytes,
 ) -> ApiResult<Json<Value>> {
@@ -148,9 +189,26 @@ pub(super) async fn dictionary_import(
             "Dictionary import identifier is invalid",
         ));
     }
-    let progress = import_id.as_deref().map(register_import);
+    let progress = match import_id.as_deref().map(register_import).transpose() {
+        Ok(progress) => progress,
+        Err(RegisterImportError::Conflict) => {
+            return Err(api_error(
+                StatusCode::CONFLICT,
+                "dictionary.import_id_conflict",
+                "Dictionary import identifier is already running",
+            ));
+        }
+        Err(RegisterImportError::Capacity) => {
+            return Err(api_error(
+                StatusCode::TOO_MANY_REQUESTS,
+                "dictionary.import_progress_capacity",
+                "Too many dictionary import tasks are being tracked",
+            ));
+        }
+    };
     let worker_progress = progress.clone();
     let result = db_call(Arc::clone(&state.db), move |db| {
+        let _import_permit = import_permit;
         db.import_yomitan_with_progress(&body, |value| {
             if let Some(progress) = &worker_progress {
                 let scaled = (value.clamp(0.0, 1.0) * IMPORT_PROGRESS_SCALE as f64).round() as u32;
@@ -224,7 +282,14 @@ pub(super) async fn dictionary_delete(
 
 #[cfg(test)]
 mod tests {
-    use super::valid_import_id;
+    use std::collections::HashMap;
+    use std::sync::atomic::{AtomicU32, Ordering};
+    use std::sync::Arc;
+
+    use super::{
+        register_import_in, valid_import_id, RegisterImportError, IMPORT_PROGRESS_SCALE,
+        MAX_IMPORT_PROGRESS_ENTRIES,
+    };
 
     #[test]
     fn import_ids_are_bounded_and_header_safe() {
@@ -232,5 +297,44 @@ mod tests {
         assert!(!valid_import_id(""));
         assert!(!valid_import_id("contains spaces"));
         assert!(!valid_import_id(&"x".repeat(65)));
+    }
+
+    #[test]
+    fn active_import_progress_entries_have_a_hard_limit() {
+        let mut imports = HashMap::new();
+        for index in 0..MAX_IMPORT_PROGRESS_ENTRIES {
+            register_import_in(&mut imports, &format!("import-{index}")).unwrap();
+        }
+
+        assert!(matches!(
+            register_import_in(&mut imports, "overflow"),
+            Err(RegisterImportError::Capacity)
+        ));
+        assert_eq!(imports.len(), MAX_IMPORT_PROGRESS_ENTRIES);
+    }
+
+    #[test]
+    fn completed_imports_are_removed_before_registering() {
+        let mut imports = HashMap::new();
+        let completed = Arc::new(AtomicU32::new(IMPORT_PROGRESS_SCALE));
+        imports.insert("completed".to_owned(), completed);
+
+        register_import_in(&mut imports, "next").unwrap();
+
+        assert_eq!(imports.len(), 1);
+        assert!(imports.contains_key("next"));
+    }
+
+    #[test]
+    fn active_import_ids_cannot_be_replaced() {
+        let mut imports = HashMap::new();
+        let progress = register_import_in(&mut imports, "same-id").unwrap();
+        progress.store(1, Ordering::Relaxed);
+
+        assert!(matches!(
+            register_import_in(&mut imports, "same-id"),
+            Err(RegisterImportError::Conflict)
+        ));
+        assert!(Arc::ptr_eq(imports.get("same-id").unwrap(), &progress));
     }
 }

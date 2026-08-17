@@ -11,6 +11,7 @@ mod runtime;
 mod schema;
 mod translation;
 mod validation;
+mod vr_overlay;
 
 #[cfg(test)]
 mod io_tests;
@@ -35,3 +36,4 @@ pub use translation::{
     DEFAULT_TRANSLATION_SYSTEM_PROMPT,
 };
 pub use validation::{validate_glossary_source_url, validate_translation_prompt};
+pub use vr_overlay::{VrOverlayConfig, VrOverlayHeadsetConfig, VrOverlayWristConfig};

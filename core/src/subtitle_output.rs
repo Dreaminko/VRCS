@@ -5,6 +5,22 @@ use crate::domain_events::DomainEventHub;
 use crate::models::{Subtitle, SubtitleTranslation};
 use crate::osc::OscChatboxDispatcher;
 
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum PresentationEvent {
+    Final {
+        subtitle: Subtitle,
+    },
+    TranslationPartial {
+        subtitle_id: i64,
+        text: String,
+    },
+    TranslationCompleted {
+        subtitle_id: i64,
+        translation: SubtitleTranslation,
+    },
+}
+
 #[allow(clippy::enum_variant_names)]
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -35,6 +51,7 @@ pub enum TranslationEvent {
 pub struct SubtitleLifecyclePublisher {
     subtitles: broadcast::Sender<Subtitle>,
     translations: broadcast::Sender<TranslationEvent>,
+    presentation: broadcast::Sender<PresentationEvent>,
     osc: OscChatboxDispatcher,
     events: DomainEventHub,
 }
@@ -55,9 +72,11 @@ impl SubtitleLifecyclePublisher {
         osc: OscChatboxDispatcher,
         events: DomainEventHub,
     ) -> Self {
+        let (presentation, _) = broadcast::channel(256);
         Self {
             subtitles,
             translations,
+            presentation,
             osc,
             events,
         }
@@ -71,6 +90,10 @@ impl SubtitleLifecyclePublisher {
         self.translations.subscribe()
     }
 
+    pub fn subscribe_presentation_events(&self) -> broadcast::Receiver<PresentationEvent> {
+        self.presentation.subscribe()
+    }
+
     pub fn subtitle_stored_with_message(
         &self,
         subtitle: Subtitle,
@@ -78,7 +101,7 @@ impl SubtitleLifecyclePublisher {
         message_id: &str,
     ) {
         self.events.asr_final(message_id, &subtitle);
-        self.subtitle_recorded(subtitle.clone());
+        self.publish_subtitle(subtitle.clone());
         self.osc.publish_subtitle_with_message_id(
             subtitle,
             wait_for_translation,
@@ -87,7 +110,14 @@ impl SubtitleLifecyclePublisher {
     }
 
     pub fn subtitle_recorded(&self, subtitle: Subtitle) {
-        let _ = self.subtitles.send(subtitle);
+        self.publish_subtitle(subtitle);
+    }
+
+    fn publish_subtitle(&self, subtitle: Subtitle) {
+        let _ = self.subtitles.send(subtitle.clone());
+        let _ = self
+            .presentation
+            .send(PresentationEvent::Final { subtitle });
     }
 
     pub fn asr_partial(&self, message_id: &str, source: &str, text: &str, language: Option<&str>) {
@@ -122,6 +152,12 @@ impl SubtitleLifecyclePublisher {
         self.events
             .translation_partial(message_id, source, subtitle_id, &text, &target_language);
         let _ = self
+            .presentation
+            .send(PresentationEvent::TranslationPartial {
+                subtitle_id,
+                text: text.clone(),
+            });
+        let _ = self
             .translations
             .send(TranslationEvent::TranslationPartial {
                 subtitle_id,
@@ -141,6 +177,12 @@ impl SubtitleLifecyclePublisher {
             .translation_completed(message_id, source, subtitle_id, &translation);
         self.osc
             .translation_completed(subtitle_id, translation.clone());
+        let _ = self
+            .presentation
+            .send(PresentationEvent::TranslationCompleted {
+                subtitle_id,
+                translation: translation.clone(),
+            });
         let _ = self
             .translations
             .send(TranslationEvent::TranslationCompleted {
@@ -178,6 +220,20 @@ mod tests {
     use crate::config::OscConfig;
     use crate::models::now_iso8601;
 
+    fn subtitle(id: i64) -> Subtitle {
+        Subtitle {
+            id: Some(id),
+            conversation_id: Some("conversation-test".into()),
+            text: "hello".into(),
+            language: Some("en".into()),
+            started_at: None,
+            ended_at: None,
+            source: "speaker".into(),
+            created_at: now_iso8601(),
+            translations: Vec::new(),
+        }
+    }
+
     #[tokio::test]
     async fn recognition_and_automatic_translation_share_the_message_id() {
         let (subtitles, _) = broadcast::channel(4);
@@ -190,19 +246,7 @@ mod tests {
             OscChatboxDispatcher::new(OscConfig::default()),
             events,
         );
-        let subtitle = Subtitle {
-            id: Some(7),
-            conversation_id: Some("conversation-test".into()),
-            text: "hello".into(),
-            language: Some("en".into()),
-            started_at: None,
-            ended_at: None,
-            source: "speaker".into(),
-            created_at: now_iso8601(),
-            translations: Vec::new(),
-        };
-
-        output.subtitle_stored_with_message(subtitle, true, "utterance-7");
+        output.subtitle_stored_with_message(subtitle(7), true, "utterance-7");
         output.translation_started_with_message(7, "utterance-7", "speaker");
 
         let final_event = receiver.recv().await.unwrap();
@@ -211,5 +255,75 @@ mod tests {
         assert_eq!(translation_event.event_type, "translation.started");
         assert_eq!(final_event.message_id, "utterance-7");
         assert_eq!(translation_event.message_id, final_event.message_id);
+    }
+
+    #[tokio::test]
+    async fn presentation_final_and_translation_updates_are_published() {
+        let (subtitles, _) = broadcast::channel(4);
+        let (translations, _) = broadcast::channel(4);
+        let output = SubtitleLifecyclePublisher::new(
+            subtitles,
+            translations,
+            OscChatboxDispatcher::new(OscConfig::default()),
+        );
+        let mut receiver = output.subscribe_presentation_events();
+
+        output.asr_partial("utterance-7", "speaker", "hel", Some("en"));
+        assert!(matches!(
+            receiver.try_recv(),
+            Err(broadcast::error::TryRecvError::Empty)
+        ));
+
+        output.subtitle_stored_with_message(subtitle(7), true, "utterance-7");
+        output.translation_partial_with_message(
+            7,
+            "你".into(),
+            "zh-Hans".into(),
+            "utterance-7",
+            "speaker",
+        );
+        let translation = SubtitleTranslation {
+            text: "你好".into(),
+            source_language: Some("en".into()),
+            target_language: "zh-Hans".into(),
+            provider: "test".into(),
+            model: None,
+            created_at: now_iso8601(),
+        };
+        output.translation_completed_with_message(7, translation, "utterance-7", "speaker");
+
+        assert!(matches!(
+            receiver.recv().await.unwrap(),
+            PresentationEvent::Final { subtitle } if subtitle.id == Some(7)
+        ));
+        assert!(matches!(
+            receiver.recv().await.unwrap(),
+            PresentationEvent::TranslationPartial { subtitle_id: 7, .. }
+        ));
+        assert!(matches!(
+            receiver.recv().await.unwrap(),
+            PresentationEvent::TranslationCompleted { subtitle_id: 7, .. }
+        ));
+    }
+
+    #[tokio::test]
+    async fn lagged_presentation_receivers_do_not_block_publishers() {
+        let (subtitles, _) = broadcast::channel(4);
+        let (translations, _) = broadcast::channel(4);
+        let output = SubtitleLifecyclePublisher::new(
+            subtitles,
+            translations,
+            OscChatboxDispatcher::new(OscConfig::default()),
+        );
+        let mut receiver = output.subscribe_presentation_events();
+
+        for index in 0..300 {
+            output.subtitle_recorded(subtitle(index));
+        }
+
+        assert!(matches!(
+            receiver.recv().await,
+            Err(broadcast::error::RecvError::Lagged(_))
+        ));
     }
 }

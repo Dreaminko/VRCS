@@ -5,6 +5,7 @@ import {
   conversationSubtitlePage,
   isAbortError,
   isConversationRequestCurrent,
+  MAX_SUBTITLE_HISTORY_ITEMS,
   mergeSubtitleHistory,
   SUBTITLE_HISTORY_PAGE_SIZE,
   upsertSubtitleHistory,
@@ -178,12 +179,15 @@ export function useConversationHistory({
     }
   }, [clearErrorFrom, coreConfigured, requestIsCurrent]);
 
+  const canLoadOlderSubtitles = hasOlderSubtitles
+    && subtitles.length < MAX_SUBTITLE_HISTORY_ITEMS;
+
   const loadOlderSubtitles = useCallback(async () => {
     const conversationId = currentConversationIdRef.current;
     const beforeId = nextBeforeIdRef.current;
     if (
       conversationId === null
-      || !hasOlderSubtitles
+      || !canLoadOlderSubtitles
       || beforeId === null
       || loadingOlderSubtitlesRef.current
     ) return;
@@ -221,7 +225,7 @@ export function useConversationHistory({
         setLoadingOlderSubtitles(false);
       }
     }
-  }, [clearErrorFrom, hasOlderSubtitles, reportError, requestIsCurrent]);
+  }, [canLoadOlderSubtitles, clearErrorFrom, reportError, requestIsCurrent]);
 
   const receiveSubtitle = useCallback((subtitle: Subtitle) => {
     if (subtitle.conversation_id !== currentConversationIdRef.current) return;
@@ -288,7 +292,7 @@ export function useConversationHistory({
   return {
     openedConversationId,
     subtitles,
-    hasOlderSubtitles,
+    hasOlderSubtitles: canLoadOlderSubtitles,
     loadingConversationSubtitles,
     loadingOlderSubtitles,
     translatingSubtitleIds,

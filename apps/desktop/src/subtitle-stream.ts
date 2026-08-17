@@ -8,6 +8,8 @@ import type {
 } from "./types";
 
 export const SUBTITLE_HISTORY_PAGE_SIZE = 100;
+export const MAX_SUBTITLE_HISTORY_ITEMS = 2_000;
+export const MAX_SUBTITLE_HISTORY_TEXT_CHARS = 4_000_000;
 const MAX_STREAM_TEXT_LENGTH = 100_000;
 
 export interface ConversationSubtitlePage {
@@ -291,6 +293,25 @@ function mergeTranslations(
   return [...merged.values()];
 }
 
+function subtitleTextLength(subtitle: Subtitle): number {
+  return subtitle.text.length
+    + (subtitle.translation_partial?.text.length ?? 0)
+    + subtitle.translations.reduce((total, translation) => total + translation.text.length, 0);
+}
+
+function limitSubtitleHistory(subtitles: Subtitle[]): Subtitle[] {
+  let totalTextLength = 0;
+  let count = 0;
+  for (const subtitle of subtitles) {
+    const nextTextLength = totalTextLength + subtitleTextLength(subtitle);
+    if (count > 0 && nextTextLength > MAX_SUBTITLE_HISTORY_TEXT_CHARS) break;
+    totalTextLength = nextTextLength;
+    count += 1;
+    if (count >= MAX_SUBTITLE_HISTORY_ITEMS) break;
+  }
+  return count === subtitles.length ? subtitles : subtitles.slice(0, count);
+}
+
 function mergeSubtitle(preferred: Subtitle, fallback: Subtitle): Subtitle {
   const translations = mergeTranslations(
     preferred.translations,
@@ -318,12 +339,14 @@ export function mergeSubtitleHistory(
   fallback: Subtitle[],
 ): Subtitle[] {
   const merged = new Map<string, Subtitle>();
-  for (const subtitle of [...preferred, ...fallback]) {
-    const key = subtitleKey(subtitle);
-    const current = merged.get(key);
-    merged.set(key, current ? mergeSubtitle(current, subtitle) : subtitle);
+  for (const subtitles of [preferred, fallback]) {
+    for (const subtitle of subtitles) {
+      const key = subtitleKey(subtitle);
+      const current = merged.get(key);
+      merged.set(key, current ? mergeSubtitle(current, subtitle) : subtitle);
+    }
   }
-  return [...merged.values()].sort(newestFirst);
+  return limitSubtitleHistory([...merged.values()].sort(newestFirst));
 }
 
 export function upsertSubtitleHistory(
@@ -335,11 +358,11 @@ export function upsertSubtitleHistory(
   if (existingIndex >= 0) {
     const next = [...current];
     next[existingIndex] = mergeSubtitle(subtitle, current[existingIndex]);
-    return next;
+    return limitSubtitleHistory(next);
   }
 
   const insertAt = current.findIndex((item) => newestFirst(subtitle, item) < 0);
   const next = [...current];
   next.splice(insertAt < 0 ? next.length : insertAt, 0, subtitle);
-  return next;
+  return limitSubtitleHistory(next);
 }

@@ -35,22 +35,35 @@ export function StorageSettingsSection({
     setQuotaText(String(Math.round(draft.storage.subtitle_history_max_bytes / MEBIBYTE)));
   }, [draft.storage.subtitle_history_max_bytes]);
 
-  const loadStats = useCallback(async (showBusy = false) => {
+  const loadStats = useCallback(async (
+    showBusy = false,
+    isCancelled: () => boolean = () => false,
+  ) => {
     if (showBusy) setBusy("refresh");
     try {
-      setStats(await coreApi.storageStats());
+      const next = await coreApi.storageStats();
+      if (isCancelled()) return;
+      setStats(next);
       setMessage("");
     } catch (reason) {
-      setMessage(localizedError(reason, t, "errors.storage.stats_failed"));
+      if (!isCancelled()) setMessage(localizedError(reason, t, "errors.storage.stats_failed"));
     } finally {
-      if (showBusy) setBusy(null);
+      if (showBusy && !isCancelled()) setBusy(null);
     }
   }, [t]);
 
   useEffect(() => {
-    void loadStats();
-    const timer = window.setInterval(() => void loadStats(), 5_000);
-    return () => window.clearInterval(timer);
+    let cancelled = false;
+    let timer: number | null = null;
+    const poll = async () => {
+      await loadStats(false, () => cancelled);
+      if (!cancelled) timer = window.setTimeout(() => void poll(), 5_000);
+    };
+    void poll();
+    return () => {
+      cancelled = true;
+      if (timer !== null) window.clearTimeout(timer);
+    };
   }, [loadStats]);
 
   const commitQuota = () => {

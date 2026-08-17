@@ -461,7 +461,91 @@
         "translation": "翻訳",
         "api": "API 管理",
         "learning": "学習",
-        "connections": "接続"
+        "connections": "接続",
+        "vrOverlay": "VR Overlay"
+      },
+      "vrOverlay": {
+        "title": "VR Overlay",
+        "runtimeTitle": "SteamVR ランタイム",
+        "runtimeDescription": "SteamVR に字幕を表示します。ランタイムを利用できない場合も文字起こしには影響しません。",
+        "statusLoadFailed": "VR Overlay の状態を取得できませんでした。",
+        "nativeActionFailed": "VR Overlay の実行状態を更新できませんでした。",
+        "enable": "VR Overlay を有効にする",
+        "enableHeadset": "ヘッドセット字幕を有効にする",
+        "enableWrist": "手首の会話表示を有効にする",
+        "runtimeInstalled": "SteamVR のインストール",
+        "hmdPresent": "ヘッドセットの検出",
+        "reconnectAttempt": "再接続 {{count}} 回目",
+        "runtimeStates": {
+          "unsupported": "未対応",
+          "disabled": "無効",
+          "waiting_runtime": "SteamVR を待機中",
+          "initializing": "初期化中",
+          "ready": "準備完了",
+          "reconnecting": "再接続中",
+          "error": "エラー",
+          "shutting_down": "終了中"
+        },
+        "resourceStates": {
+          "disabled": "無効",
+          "creating": "作成中",
+          "ready_hidden": "準備完了、非表示",
+          "visible": "表示中",
+          "fading": "フェード中",
+          "device_unavailable": "デバイスを利用不可",
+          "recreating": "再作成中",
+          "error": "エラー"
+        },
+        "headset": {
+          "title": "ヘッドセット字幕",
+          "description": "ヘッドセットの前方に固定する単一字幕です。"
+        },
+        "wrist": {
+          "title": "手首の会話表示",
+          "description": "コントローラーに固定して最近の会話を表示します。"
+        },
+        "contentMode": "表示内容",
+        "contentModes": {
+          "original": "原文",
+          "translation": "翻訳",
+          "bilingual": "二言語"
+        },
+        "hand": "コントローラー",
+        "dominantHand": "利き手",
+        "hands": {
+          "left": "左手",
+          "right": "右手",
+          "dominant": "利き手"
+        },
+        "sources": "字幕ソース",
+        "sourceSpeaker": "システム音声",
+        "sourceMicrophone": "マイク",
+        "sourceChatbox": "Chatbox",
+        "liveUpdates": "リアルタイム更新",
+        "showTranslationPartials": "翻訳途中のテキストを表示",
+        "displaySeconds": "表示時間",
+        "fadeSeconds": "フェード時間",
+        "maxEntries": "会話の件数",
+        "idleHideSeconds": "未操作時に非表示（0 は常時表示）",
+        "position": "位置",
+        "horizontal": "左右",
+        "vertical": "上下",
+        "distance": "距離",
+        "depth": "前後",
+        "rotation": "回転",
+        "pitch": "ピッチ",
+        "yaw": "ヨー",
+        "roll": "ロール",
+        "appearance": "外観",
+        "width": "物理幅",
+        "opacity": "不透明度",
+        "backgroundOpacity": "背景の不透明度",
+        "fontSize": "文字サイズ",
+        "boundRole": "割り当てたコントローラー",
+        "trackedDevice": "トラッキングデバイス",
+        "showSample": "サンプルを表示",
+        "hideSample": "サンプルを非表示",
+        "restoreDefaults": "既定値に戻す"
       },
       "system": {
         "title": "システム",

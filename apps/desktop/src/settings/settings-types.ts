@@ -8,6 +8,7 @@ export type SettingsCategory =
   | "audio"
   | "learning"
   | "connections"
+  | "vr_overlay"
   | "debug";
 
 export type SaveState = "idle" | "saving" | "saved" | "error";

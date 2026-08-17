@@ -2,10 +2,10 @@ use serde::{Deserialize, Serialize};
 
 use super::{
     AnkiConfig, AsrConfig, AudioConfig, DictionaryConfig, ExternalApiConfig, OscConfig,
-    ServerConfig, StorageConfig, TranslationConfig, VadConfig, VrcxConfig,
+    ServerConfig, StorageConfig, TranslationConfig, VadConfig, VrOverlayConfig, VrcxConfig,
 };
 
-pub const SCHEMA_VERSION: u32 = 21;
+pub const SCHEMA_VERSION: u32 = 22;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AppConfig {
@@ -33,6 +33,8 @@ pub struct AppConfig {
     pub external_api: ExternalApiConfig,
     #[serde(default)]
     pub vrcx: VrcxConfig,
+    #[serde(default)]
+    pub vr_overlay: VrOverlayConfig,
 }
 
 fn schema_version() -> u32 {
@@ -54,6 +56,7 @@ impl Default for AppConfig {
             anki: AnkiConfig::default(),
             external_api: ExternalApiConfig::default(),
             vrcx: VrcxConfig::default(),
+            vr_overlay: VrOverlayConfig::default(),
         }
     }
 }
@@ -80,6 +83,7 @@ mod tests {
                 "storage",
                 "translation",
                 "vad",
+                "vr_overlay",
                 "vrcx",
             ],
         );
@@ -171,6 +175,58 @@ mod tests {
             &value["external_api"],
             ["enabled", "host", "port", "require_token"],
         );
+        assert_keys(&value["vr_overlay"], ["enabled", "headset", "wrist"]);
+        assert_keys(
+            &value["vr_overlay"]["headset"],
+            [
+                "background_opacity",
+                "content_mode",
+                "display_seconds",
+                "distance_m",
+                "enabled",
+                "fade_seconds",
+                "font_size_px",
+                "include_chatbox",
+                "include_microphone",
+                "include_speaker",
+                "offset_x_m",
+                "offset_y_m",
+                "opacity",
+                "pitch_deg",
+                "roll_deg",
+                "show_partials",
+                "show_translation_partials",
+                "vr_drag_edit_enabled",
+                "width_m",
+                "yaw_deg",
+            ],
+        );
+        assert_keys(
+            &value["vr_overlay"]["wrist"],
+            [
+                "background_opacity",
+                "content_mode",
+                "dominant_hand",
+                "enabled",
+                "font_size_px",
+                "hand",
+                "idle_hide_seconds",
+                "include_chatbox",
+                "include_microphone",
+                "include_speaker",
+                "max_entries",
+                "offset_x_m",
+                "offset_y_m",
+                "offset_z_m",
+                "opacity",
+                "pitch_deg",
+                "roll_deg",
+                "show_partials",
+                "show_translation_partials",
+                "width_m",
+                "yaw_deg",
+            ],
+        );
         assert_keys(
             &value["vrcx"],
             [
@@ -184,6 +240,29 @@ mod tests {
 
         let round_trip: AppConfig = serde_json::from_value(value).unwrap();
         assert_eq!(round_trip, AppConfig::default());
+    }
+
+    #[test]
+    fn vr_overlay_nested_defaults_are_complete_and_unknown_fields_are_rejected() {
+        let config: VrOverlayConfig = serde_json::from_value(serde_json::json!({
+            "enabled": true,
+            "headset": {"enabled": false},
+            "wrist": {"hand": "right"}
+        }))
+        .unwrap();
+
+        assert!(config.enabled);
+        assert!(!config.headset.enabled);
+        assert_eq!(config.headset.distance_m, 1.2);
+        assert_eq!(config.wrist.hand, "right");
+        assert_eq!(config.wrist.max_entries, 5);
+
+        assert!(
+            serde_json::from_value::<VrOverlayConfig>(serde_json::json!({
+                "headset": {"unknown": true}
+            }))
+            .is_err()
+        );
     }
 
     #[test]

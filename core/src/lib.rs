@@ -38,6 +38,10 @@ use crate::db::Database;
 use crate::pipeline::TranscriptionPipeline;
 use crate::server::{AppState, CORE_VERSION};
 
+pub use crate::config::{VrOverlayConfig, VrOverlayHeadsetConfig, VrOverlayWristConfig};
+pub use crate::models::{Subtitle, SubtitleTranslation};
+pub use crate::subtitle_output::PresentationEvent;
+
 pub struct CoreOptions {
     pub config_path: PathBuf,
     pub host: Option<String>,
@@ -92,6 +96,14 @@ impl CoreHandle {
             .address
             .as_deref()
             .and_then(|address| address.parse().ok())
+    }
+
+    pub fn subscribe_presentation_events(&self) -> broadcast::Receiver<PresentationEvent> {
+        self.state.subtitle_output.subscribe_presentation_events()
+    }
+
+    pub fn subscribe_vr_overlay_config(&self) -> watch::Receiver<VrOverlayConfig> {
+        self.state.vr_overlay_config_tx.subscribe()
     }
 
     pub fn vad_backend(&self) -> &'static str {
@@ -361,10 +373,12 @@ async fn start_inner(options: CoreOptions, defer_managed_vad: bool) -> Result<Co
     };
     let vrchat_mute_sync =
         vrchat_mute_sync::VrchatMuteSync::new(config.osc.mute_sync_enabled, shutdown_rx.clone());
+    let (vr_overlay_config_tx, _) = watch::channel(config.vr_overlay.clone());
     let state = Arc::new(AppState {
         config_path: options.config_path,
         asr_model_dir_override,
         config: Arc::new(RwLock::new(config)),
+        vr_overlay_config_tx,
         db,
         live_tx,
         conversation_catalog_tx,
@@ -508,6 +522,76 @@ mod tests {
         .unwrap();
         assert!(handle.address().port() > 0);
         assert!(handle.external_api_address().is_none());
+        handle.shutdown().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn vr_overlay_watch_starts_with_current_config_and_updates_after_commit() {
+        let directory = tempfile::tempdir().unwrap();
+        let port = std::net::TcpListener::bind(("127.0.0.1", 0))
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port();
+        let handle = start(CoreOptions {
+            config_path: directory.path().join("config.json"),
+            host: Some("127.0.0.1".into()),
+            port: Some(port),
+            session_token: Some("vr-overlay-token".into()),
+            vad_model_path: Some(directory.path().join("missing-silero.onnx")),
+            asr_model_dir: None,
+        })
+        .await
+        .unwrap();
+        let mut updates = handle.subscribe_vr_overlay_config();
+        assert_eq!(*updates.borrow(), VrOverlayConfig::default());
+
+        let client = reqwest::Client::new();
+        let settings_url = format!("http://{}/api/settings", handle.address());
+        let mut settings: serde_json::Value = client
+            .get(&settings_url)
+            .bearer_auth("vr-overlay-token")
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        settings["vr_overlay"]["wrist"]["max_entries"] = serde_json::json!(2);
+        let rejected = client
+            .put(&settings_url)
+            .bearer_auth("vr-overlay-token")
+            .json(&settings)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(rejected.status(), reqwest::StatusCode::UNPROCESSABLE_ENTITY);
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_millis(50), updates.changed())
+                .await
+                .is_err()
+        );
+
+        settings["vr_overlay"]["enabled"] = serde_json::json!(true);
+        settings["vr_overlay"]["headset"]["content_mode"] = serde_json::json!("translation");
+        settings["vr_overlay"]["wrist"]["max_entries"] = serde_json::json!(5);
+        let response = client
+            .put(&settings_url)
+            .bearer_auth("vr-overlay-token")
+            .json(&settings)
+            .send()
+            .await
+            .unwrap();
+        let status = response.status();
+        let body = response.text().await.unwrap();
+        assert!(status.is_success(), "{status}: {body}");
+
+        tokio::time::timeout(std::time::Duration::from_secs(1), updates.changed())
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(updates.borrow().enabled);
+        assert_eq!(updates.borrow().headset.content_mode, "translation");
         handle.shutdown().await.unwrap();
     }
 

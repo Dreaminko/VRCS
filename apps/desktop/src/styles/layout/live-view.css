@@ -1,6 +1,13 @@
 .conversation { display: flex; flex-direction: column; gap: 22px; }
 .workspace-live > .conversation { flex: 1; }
-.message-group { display: flex; max-width: 72%; flex-direction: column; align-items: flex-start; }
+.message-group {
+  display: flex;
+  max-width: 72%;
+  flex-direction: column;
+  align-items: flex-start;
+  content-visibility: auto;
+  contain-intrinsic-size: auto 110px;
+}
 .conversation-load-older { display: flex; min-height: 36px; align-items: center; justify-content: center; }
 .conversation-load-older .secondary-button { min-height: 34px; padding-inline: 13px; border-radius: var(--radius-pill); font-size: 12px; }
 .conversation.box-selecting { cursor: crosshair; }

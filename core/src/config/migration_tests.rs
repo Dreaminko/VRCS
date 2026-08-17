@@ -142,6 +142,20 @@ fn migrates_v15_official_compatible_profiles_to_their_presets() {
 }
 
 #[test]
+fn migrates_v21_with_complete_vr_overlay_defaults() {
+    let mut raw = serde_json::to_value(AppConfig::default()).unwrap();
+    raw["schema_version"] = serde_json::json!(21);
+    raw.as_object_mut().unwrap().remove("vr_overlay");
+
+    let config = config_from_value(&raw).unwrap();
+
+    assert_eq!(config.schema_version, SCHEMA_VERSION);
+    assert_eq!(config.vr_overlay, VrOverlayConfig::default());
+    assert!(config.vr_overlay.headset.enabled);
+    assert!(config.vr_overlay.wrist.enabled);
+}
+
+#[test]
 fn migrates_v20_without_independent_microphone_translation_switch() {
     let mut raw = serde_json::to_value(AppConfig::default()).unwrap();
     raw["schema_version"] = serde_json::json!(20);

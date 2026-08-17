@@ -9,6 +9,7 @@ import {
   normalizeChatboxPreferences,
   previewChatboxLocally,
 } from "../src/chatbox.ts";
+import { LatestWriteQueue } from "../src/latest-write-queue.ts";
 
 test("local Chatbox preview mirrors the common message formats", () => {
   const draft = {
@@ -83,4 +84,26 @@ test("custom BCP 47 Chatbox languages survive preference round-trips", () => {
     target_language: "tlh-latn",
   }, "ja");
   assert.equal(preferences.target_language, "tlh-Latn");
+});
+
+test("Chatbox preference writes keep only the latest pending value", async () => {
+  const writes: number[] = [];
+  let releaseFirstWrite: (() => void) | undefined;
+  const firstWrite = new Promise<void>((resolve) => {
+    releaseFirstWrite = resolve;
+  });
+  const queue = new LatestWriteQueue<number>(async (value) => {
+    writes.push(value);
+    if (value === 1) await firstWrite;
+  });
+
+  const task = queue.enqueue(1);
+  assert.equal(queue.enqueue(2), task);
+  assert.equal(queue.enqueue(3), task);
+  assert.deepEqual(writes, [1]);
+
+  releaseFirstWrite?.();
+  await task;
+
+  assert.deepEqual(writes, [1, 3]);
 });

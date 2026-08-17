@@ -59,6 +59,67 @@ fn microphone_trigger_threshold_is_bounded() {
 }
 
 #[test]
+fn validates_vr_overlay_boundaries_and_cross_fields() {
+    let mut config = AppConfig::default();
+    config.vr_overlay.headset.offset_x_m = -2.0;
+    config.vr_overlay.headset.offset_y_m = 2.0;
+    config.vr_overlay.headset.distance_m = 0.25;
+    config.vr_overlay.headset.pitch_deg = 90.0;
+    config.vr_overlay.headset.yaw_deg = -180.0;
+    config.vr_overlay.headset.roll_deg = 180.0;
+    config.vr_overlay.headset.width_m = 3.0;
+    config.vr_overlay.headset.opacity = 0.10;
+    config.vr_overlay.headset.display_seconds = 5.0;
+    config.vr_overlay.headset.fade_seconds = 5.0;
+    config.vr_overlay.headset.font_size_px = 96;
+    config.vr_overlay.headset.background_opacity = 0.0;
+    config.vr_overlay.wrist.max_entries = 10;
+    config.vr_overlay.wrist.idle_hide_seconds = 120;
+    config.vr_overlay.wrist.offset_x_m = -0.5;
+    config.vr_overlay.wrist.offset_y_m = 0.5;
+    config.vr_overlay.wrist.offset_z_m = -0.5;
+    config.vr_overlay.wrist.pitch_deg = -180.0;
+    config.vr_overlay.wrist.yaw_deg = 180.0;
+    config.vr_overlay.wrist.roll_deg = -180.0;
+    config.vr_overlay.wrist.width_m = 1.0;
+    config.vr_overlay.wrist.opacity = 1.0;
+    config.vr_overlay.wrist.font_size_px = 72;
+    config.vr_overlay.wrist.background_opacity = 1.0;
+    assert!(config.validate_settings().is_ok());
+
+    config.vr_overlay.headset.fade_seconds = 5.1;
+    assert!(config.validate_settings().is_err());
+    config.vr_overlay.headset.fade_seconds = 1.0;
+    config.vr_overlay.wrist.max_entries = 2;
+    assert_eq!(
+        config.validate_settings().unwrap_err(),
+        "VR Overlay wrist max_entries must be between 3 and 10"
+    );
+    config.vr_overlay.wrist.max_entries = 5;
+    config.vr_overlay.wrist.idle_hide_seconds = 4;
+    assert_eq!(
+        config.validate_settings().unwrap_err(),
+        "VR Overlay wrist idle_hide_seconds must be 0 or between 5 and 120"
+    );
+}
+
+#[test]
+fn rejects_invalid_vr_overlay_enums_and_non_finite_values() {
+    let mut config = AppConfig::default();
+    config.vr_overlay.headset.content_mode = "unknown".into();
+    assert!(config.validate_settings().is_err());
+    config.vr_overlay.headset.content_mode = "bilingual".into();
+    config.vr_overlay.wrist.hand = "either".into();
+    assert!(config.validate_settings().is_err());
+    config.vr_overlay.wrist.hand = "dominant".into();
+    config.vr_overlay.wrist.dominant_hand = "either".into();
+    assert!(config.validate_settings().is_err());
+    config.vr_overlay.wrist.dominant_hand = "right".into();
+    config.vr_overlay.headset.opacity = f32::NAN;
+    assert!(config.validate_settings().is_err());
+}
+
+#[test]
 fn translation_accepts_direct_and_llm_profiles() {
     let mut config = AppConfig::default();
     config.asr.api_profiles.push(ApiProfile {

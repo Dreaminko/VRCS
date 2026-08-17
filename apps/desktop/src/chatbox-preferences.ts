@@ -5,10 +5,31 @@ import {
   normalizeChatboxPreferences,
 } from "./chatbox";
 import type { ChatboxPreferences } from "./chatbox";
+import { LatestWriteQueue } from "./latest-write-queue";
 
 const STORE_KEY = "chatboxSendSettings";
 const WEB_STORAGE_KEY = "vrcs.chatbox-send-settings.v1";
-let writeQueue: Promise<void> = Promise.resolve();
+
+async function persistChatboxPreferences(preferences: ChatboxPreferences): Promise<void> {
+  try {
+    if (isTauri()) {
+      const { load } = await import("@tauri-apps/plugin-store");
+      const store = await load("preferences.json", { autoSave: false });
+      await store.set(STORE_KEY, preferences);
+      await store.save();
+      return;
+    }
+  } catch {
+    // Keep the browser-backed copy below as a fallback if the native store fails.
+  }
+  try {
+    globalThis.localStorage?.setItem(WEB_STORAGE_KEY, JSON.stringify(preferences));
+  } catch {
+    // Persistence is best-effort when neither storage backend is writable.
+  }
+}
+
+const writeQueue = new LatestWriteQueue(persistChatboxPreferences);
 
 export function chatboxPreferencesSnapshot(
   fallbackTarget: ChatboxPreferences["target_language"] = "ja",
@@ -39,26 +60,7 @@ export async function loadChatboxPreferences(
 }
 
 export function saveChatboxPreferences(preferences: ChatboxPreferences): Promise<void> {
-  const normalized = normalizeChatboxPreferences(preferences, preferences.target_language);
-  writeQueue = writeQueue
-    .catch(() => undefined)
-    .then(async () => {
-      try {
-        if (isTauri()) {
-          const { load } = await import("@tauri-apps/plugin-store");
-          const store = await load("preferences.json", { autoSave: false });
-          await store.set(STORE_KEY, normalized);
-          await store.save();
-          return;
-        }
-      } catch {
-        // Keep the browser-backed copy below as a fallback if the native store fails.
-      }
-      try {
-        globalThis.localStorage?.setItem(WEB_STORAGE_KEY, JSON.stringify(normalized));
-      } catch {
-        // Persistence is best-effort when neither storage backend is writable.
-      }
-    });
-  return writeQueue;
+  return writeQueue.enqueue(
+    normalizeChatboxPreferences(preferences, preferences.target_language),
+  );
 }

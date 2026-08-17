@@ -48,6 +48,7 @@ pub(super) async fn update_settings(
         anki: update.anki,
         external_api: update.external_api,
         vrcx: update.vrcx,
+        vr_overlay: update.vr_overlay,
     };
 
     let expected_revision = headers
@@ -423,6 +424,11 @@ pub(super) async fn commit_candidate(
                 }
             }
         });
+    }
+    if candidate.vr_overlay != current.vr_overlay {
+        state
+            .vr_overlay_config_tx
+            .send_replace(candidate.vr_overlay.clone());
     }
     Ok(state.config_revision.fetch_add(1, Ordering::SeqCst) + 1)
 }

@@ -41,10 +41,11 @@ export function useAsrModels({
     setModelDirectoryText(settings.storage.model_directory);
   }, [settings.storage.model_directory]);
 
-  const loadModels = useCallback(async () => {
+  const fetchModels = useCallback(async (isCancelled: () => boolean) => {
     try {
       const previous = managedModelsRef.current;
       const next = await coreApi.asrModels();
+      if (isCancelled()) return;
       managedModelsRef.current = next;
       setManagedModels(next);
       setModelsReady(true);
@@ -55,20 +56,30 @@ export function useAsrModels({
         void onModelsChanged();
       }
     } catch (reason) {
+      if (isCancelled()) return;
       setModelsReady(false);
       setMessage(localizedError(reason, t, "errors.asr.models"));
     }
   }, [onModelsChanged]);
 
-  useEffect(() => {
-    void loadModels();
-  }, [loadModels]);
+  const loadModels = useCallback(
+    () => fetchModels(() => false),
+    [fetchModels],
+  );
 
   useEffect(() => {
-    if (!active) return;
-    const timer = window.setInterval(() => void loadModels(), 750);
-    return () => window.clearInterval(timer);
-  }, [active, loadModels]);
+    let cancelled = false;
+    let timer: number | null = null;
+    const poll = async () => {
+      await fetchModels(() => cancelled);
+      if (!cancelled && active) timer = window.setTimeout(() => void poll(), 750);
+    };
+    void poll();
+    return () => {
+      cancelled = true;
+      if (timer !== null) window.clearTimeout(timer);
+    };
+  }, [active, fetchModels]);
 
   const updateAsr = <K extends keyof Settings["asr"]>(
     key: K,

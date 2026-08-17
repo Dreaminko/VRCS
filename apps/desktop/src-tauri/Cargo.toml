@@ -26,8 +26,15 @@ tauri-plugin-autostart = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-single-instance = "2"
 tauri-plugin-store = "2"
+tokio = { version = "1", features = ["sync"] }
 uuid = { version = "1", features = ["v4"] }
 vrcs-core = { path = "../../../core" }
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61", features = ["Win32_UI_WindowsAndMessaging"] }
+openvr = "0.9.0"
+openvr_sys = "2.1.4"
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Gdi",
+    "Win32_UI_WindowsAndMessaging",
+] }

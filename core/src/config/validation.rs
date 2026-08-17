@@ -37,6 +37,7 @@ impl AppConfig {
         validate_osc(&self.osc)?;
         validate_recognition_models(&self.asr, &self.vad)?;
         validate_anki(&self.anki)?;
+        validate_vr_overlay(&self.vr_overlay)?;
         Ok(())
     }
 }
@@ -161,6 +162,142 @@ fn validate_recognition_models(asr: &AsrConfig, vad: &VadConfig) -> Result<(), S
     }
     if asr.backend == "fun_asr_realtime" && vad.silence_seconds < 0.2 {
         return Err("Fun-ASR realtime recognition requires at least 0.2 seconds of silence".into());
+    }
+    Ok(())
+}
+
+fn validate_vr_overlay(config: &VrOverlayConfig) -> Result<(), String> {
+    validate_content_mode("VR Overlay headset", &config.headset.content_mode)?;
+    validate_range(
+        "VR Overlay headset offset_x_m",
+        config.headset.offset_x_m,
+        -2.0,
+        2.0,
+    )?;
+    validate_range(
+        "VR Overlay headset offset_y_m",
+        config.headset.offset_y_m,
+        -2.0,
+        2.0,
+    )?;
+    validate_range(
+        "VR Overlay headset distance_m",
+        config.headset.distance_m,
+        0.25,
+        5.0,
+    )?;
+    validate_range(
+        "VR Overlay headset pitch_deg",
+        config.headset.pitch_deg,
+        -90.0,
+        90.0,
+    )?;
+    validate_range(
+        "VR Overlay headset yaw_deg",
+        config.headset.yaw_deg,
+        -180.0,
+        180.0,
+    )?;
+    validate_range(
+        "VR Overlay headset roll_deg",
+        config.headset.roll_deg,
+        -180.0,
+        180.0,
+    )?;
+    validate_range(
+        "VR Overlay headset width_m",
+        config.headset.width_m,
+        0.25,
+        3.0,
+    )?;
+    validate_range(
+        "VR Overlay headset opacity",
+        config.headset.opacity,
+        0.10,
+        1.0,
+    )?;
+    validate_range(
+        "VR Overlay headset display_seconds",
+        config.headset.display_seconds,
+        1.0,
+        30.0,
+    )?;
+    validate_range(
+        "VR Overlay headset fade_seconds",
+        config.headset.fade_seconds,
+        0.0,
+        5.0,
+    )?;
+    if config.headset.fade_seconds > config.headset.display_seconds {
+        return Err("VR Overlay headset fade_seconds cannot exceed display_seconds".into());
+    }
+    if !(24..=96).contains(&config.headset.font_size_px) {
+        return Err("VR Overlay headset font_size_px must be between 24 and 96".into());
+    }
+    validate_range(
+        "VR Overlay headset background_opacity",
+        config.headset.background_opacity,
+        0.0,
+        1.0,
+    )?;
+
+    if !["left", "right", "dominant"].contains(&config.wrist.hand.as_str()) {
+        return Err(format!(
+            "Unsupported VR Overlay wrist hand: {}",
+            config.wrist.hand
+        ));
+    }
+    if !["left", "right"].contains(&config.wrist.dominant_hand.as_str()) {
+        return Err(format!(
+            "Unsupported VR Overlay wrist dominant_hand: {}",
+            config.wrist.dominant_hand
+        ));
+    }
+    validate_content_mode("VR Overlay wrist", &config.wrist.content_mode)?;
+    if !(3..=10).contains(&config.wrist.max_entries) {
+        return Err("VR Overlay wrist max_entries must be between 3 and 10".into());
+    }
+    if config.wrist.idle_hide_seconds != 0 && !(5..=120).contains(&config.wrist.idle_hide_seconds) {
+        return Err("VR Overlay wrist idle_hide_seconds must be 0 or between 5 and 120".into());
+    }
+    for (field, value) in [
+        ("offset_x_m", config.wrist.offset_x_m),
+        ("offset_y_m", config.wrist.offset_y_m),
+        ("offset_z_m", config.wrist.offset_z_m),
+    ] {
+        validate_range(&format!("VR Overlay wrist {field}"), value, -0.5, 0.5)?;
+    }
+    for (field, value) in [
+        ("pitch_deg", config.wrist.pitch_deg),
+        ("yaw_deg", config.wrist.yaw_deg),
+        ("roll_deg", config.wrist.roll_deg),
+    ] {
+        validate_range(&format!("VR Overlay wrist {field}"), value, -180.0, 180.0)?;
+    }
+    validate_range("VR Overlay wrist width_m", config.wrist.width_m, 0.10, 1.0)?;
+    validate_range("VR Overlay wrist opacity", config.wrist.opacity, 0.10, 1.0)?;
+    if !(18..=72).contains(&config.wrist.font_size_px) {
+        return Err("VR Overlay wrist font_size_px must be between 18 and 72".into());
+    }
+    validate_range(
+        "VR Overlay wrist background_opacity",
+        config.wrist.background_opacity,
+        0.0,
+        1.0,
+    )?;
+    Ok(())
+}
+
+fn validate_content_mode(label: &str, value: &str) -> Result<(), String> {
+    if !["original", "translation", "bilingual"].contains(&value) {
+        return Err(format!("Unsupported {label} content_mode: {value}"));
+    }
+    Ok(())
+}
+
+fn validate_range(label: &str, value: f32, minimum: f32, maximum: f32) -> Result<(), String> {
+    if !(minimum..=maximum).contains(&value) {
+        return Err(format!("{label} must be between {minimum} and {maximum}"));
     }
     Ok(())
 }

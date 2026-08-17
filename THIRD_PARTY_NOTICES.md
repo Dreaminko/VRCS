@@ -12,5 +12,8 @@ notices and license terms remain applicable.
 - Silero VAD — MIT
 - ONNX Runtime — MIT
 - rosc — MIT OR Apache-2.0
+- rust-openvr and openvr-sys — MIT
+- Valve OpenVR SDK — BSD-3-Clause
+
 The standard installer does not redistribute a Whisper model. The selected
 model is downloaded on first use and remains subject to its upstream license.

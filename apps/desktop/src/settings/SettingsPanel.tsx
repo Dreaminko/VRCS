@@ -10,6 +10,7 @@ import {
   SlidersHorizontal,
   Volume2,
   Wrench,
+  Glasses,
 } from "lucide-react";
 
 import {
@@ -41,6 +42,7 @@ import { RecognitionSettingsSection } from "./sections/RecognitionSettingsSectio
 import { ConnectionSettingsSection } from "./sections/ConnectionSettingsSection";
 import { SystemSettingsSection } from "./sections/SystemSettingsSection";
 import { TranslationSettingsSection } from "./sections/TranslationSettingsSection";
+import { VrOverlaySettingsSection } from "./sections/VrOverlaySettingsSection";
 import type { SettingsCategory } from "./settings-types";
 
 export function SettingsPanel({
@@ -195,6 +197,7 @@ export function SettingsPanel({
     { id: "api", label: t("settings.categories.api"), icon: <KeyRound size={18} /> },
     { id: "learning", label: t("settings.categories.learning"), icon: <GraduationCap size={18} /> },
     { id: "connections", label: t("settings.categories.connections"), icon: <Link size={18} /> },
+    { id: "vr_overlay", label: t("settings.categories.vrOverlay"), icon: <Glasses size={18} /> },
     { id: "debug", label: "Debug", icon: <Wrench size={18} /> },
   ];
 
@@ -382,6 +385,14 @@ export function SettingsPanel({
             onCommitPort: commitAnkiPort,
             onUpdate: updateAnki,
           }}
+        />
+      )}
+
+      {activeCategory === "vr_overlay" && (
+        <VrOverlaySettingsSection
+          draft={draft}
+          saveState={saveState}
+          applySettings={applySettings}
         />
       )}
 

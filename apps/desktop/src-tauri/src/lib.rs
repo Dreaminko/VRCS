@@ -1,4 +1,5 @@
 mod diagnostics;
+mod vr_overlay;
 
 use std::net::TcpListener;
 use std::path::PathBuf;
@@ -163,6 +164,14 @@ fn launch_core(app: &tauri::AppHandle) -> Result<(), String> {
                 }
             }
             Ok(core) => {
+                let presentation_events = core.subscribe_presentation_events();
+                let vr_overlay_config = core.subscribe_vr_overlay_config();
+                if let Err(error) = app
+                    .state::<vr_overlay::Manager>()
+                    .start(presentation_events, vr_overlay_config)
+                {
+                    tracing::warn!(%error, "VR Overlay startup failed");
+                }
                 *runtime.handle.lock().expect("core runtime lock poisoned") = Some(core);
                 *runtime.startup.lock().expect("core startup lock poisoned") = CoreStartup {
                     state: CoreStartupState::Ready,
@@ -433,7 +442,11 @@ pub fn run() {
             diagnostics::open_log_directory,
             diagnostics::export_error_report,
             update_native_labels,
-            set_compact_window_topmost
+            set_compact_window_topmost,
+            vr_overlay::vr_overlay_status,
+            vr_overlay::vr_overlay_retry,
+            vr_overlay::vr_overlay_show_sample,
+            vr_overlay::vr_overlay_hide_sample
         ])
         .setup(move |app| {
             app.store("preferences.json")?;
@@ -483,6 +496,7 @@ pub fn run() {
                 .next()
                 .and_then(|value| value.parse().ok())
                 .ok_or_else(|| std::io::Error::other("core URL is missing a valid port"))?;
+            app.manage(vr_overlay::Manager::new(app.handle().clone()));
             app.manage(CoreRuntime {
                 handle: Mutex::new(None),
                 launch_task: Mutex::new(None),
@@ -520,6 +534,7 @@ pub fn run() {
 
     app.run(|app_handle, event| {
         if matches!(event, RunEvent::Exit | RunEvent::ExitRequested { .. }) {
+            app_handle.state::<vr_overlay::Manager>().stop();
             stop_core(app_handle);
         }
     });

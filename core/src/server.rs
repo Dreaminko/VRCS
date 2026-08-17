@@ -57,6 +57,7 @@ pub struct AppState {
     pub config_path: PathBuf,
     pub asr_model_dir_override: Option<PathBuf>,
     pub config: Arc<RwLock<AppConfig>>,
+    pub vr_overlay_config_tx: watch::Sender<crate::config::VrOverlayConfig>,
     pub db: Arc<Mutex<Database>>,
     pub live_tx: broadcast::Sender<LiveTranscription>,
     pub conversation_catalog_tx: broadcast::Sender<ConversationCatalog>,
@@ -327,7 +328,8 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route(
             "/api/dictionaries/import",
             post(dictionary::dictionary_import)
-                .layer(DefaultBodyLimit::max(yomitan::MAX_ARCHIVE_BYTES)),
+                .layer(DefaultBodyLimit::max(yomitan::MAX_ARCHIVE_BYTES))
+                .layer(middleware::from_fn(dictionary::limit_dictionary_import)),
         )
         .route(
             "/api/dictionaries/import/{import_id}",

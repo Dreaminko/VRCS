@@ -1,6 +1,6 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { ExternalLink, KeyRound, RadioTower, RefreshCw, Save, Trash2 } from "lucide-react";
-import { useEffect, useState, type MouseEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type MouseEvent } from "react";
 import { useTranslation } from "react-i18next";
 
 import { coreApi } from "../../api";
@@ -25,6 +25,16 @@ export function VrcxIntegrationSettingsCard({ config, saveState, onChange }: {
   const [testMessage, setTestMessage] = useState("");
   const [portText, setPortText] = useState(String(config.port));
   const [portError, setPortError] = useState("");
+  const runtimeStatusRequestRef = useRef<Promise<VrcxRuntimeStatus> | null>(null);
+
+  const loadRuntimeStatus = useCallback(() => {
+    if (runtimeStatusRequestRef.current === null) {
+      runtimeStatusRequestRef.current = coreApi.vrcxRuntimeStatus().finally(() => {
+        runtimeStatusRequestRef.current = null;
+      });
+    }
+    return runtimeStatusRequestRef.current;
+  }, []);
 
   useEffect(() => setPortText(String(config.port)), [config.port]);
 
@@ -41,7 +51,7 @@ export function VrcxIntegrationSettingsCard({ config, saveState, onChange }: {
         if (!cancelled) setTokenStatusError(true);
       },
     );
-    void coreApi.vrcxRuntimeStatus().then(
+    void loadRuntimeStatus().then(
       (status) => {
         if (!cancelled) {
           setRuntimeStatus(status);
@@ -53,12 +63,12 @@ export function VrcxIntegrationSettingsCard({ config, saveState, onChange }: {
       },
     );
     return () => { cancelled = true; };
-  }, []);
+  }, [loadRuntimeStatus]);
 
   useEffect(() => {
     if (saveState !== "saved") return;
     let cancelled = false;
-    void coreApi.vrcxRuntimeStatus().then(
+    void loadRuntimeStatus().then(
       (status) => {
         if (!cancelled) {
           setRuntimeStatus(status);
@@ -70,24 +80,33 @@ export function VrcxIntegrationSettingsCard({ config, saveState, onChange }: {
       },
     );
     return () => { cancelled = true; };
-  }, [saveState]);
+  }, [loadRuntimeStatus, saveState]);
 
   useEffect(() => {
     if (!config.enabled) return;
-    const timer = window.setInterval(() => {
-      void coreApi.vrcxRuntimeStatus().then(
-        (status) => {
-          setRuntimeStatus(status);
-          setRuntimeStatusError(false);
-        },
-        () => setRuntimeStatusError(true),
-      );
-    }, 3_000);
-    return () => window.clearInterval(timer);
-  }, [config.enabled]);
+    let cancelled = false;
+    let timer: number | null = null;
+    const poll = async () => {
+      try {
+        const status = await loadRuntimeStatus();
+        if (cancelled) return;
+        setRuntimeStatus(status);
+        setRuntimeStatusError(false);
+      } catch {
+        if (cancelled) return;
+        setRuntimeStatusError(true);
+      }
+      timer = window.setTimeout(() => void poll(), 3_000);
+    };
+    timer = window.setTimeout(() => void poll(), 3_000);
+    return () => {
+      cancelled = true;
+      if (timer !== null) window.clearTimeout(timer);
+    };
+  }, [config.enabled, loadRuntimeStatus]);
 
   const refreshRuntimeStatus = () => {
-    void coreApi.vrcxRuntimeStatus().then(
+    void loadRuntimeStatus().then(
       (status) => {
         setRuntimeStatus(status);
         setRuntimeStatusError(false);

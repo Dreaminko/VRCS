@@ -5,6 +5,8 @@ import {
   conversationSubtitlePage,
   isAbortError,
   isConversationRequestCurrent,
+  MAX_SUBTITLE_HISTORY_ITEMS,
+  MAX_SUBTITLE_HISTORY_TEXT_CHARS,
   mergeSubtitleHistory,
   parseSubtitleStreamMessage,
   upsertSubtitleHistory,
@@ -71,13 +73,44 @@ test("a late history snapshot cannot erase a streamed subtitle", () => {
   );
 });
 
-test("expanded conversation pools are not truncated at ten thousand subtitles", () => {
+test("conversation pools keep a bounded window of the newest subtitles", () => {
   const expanded = mergeSubtitleHistory(
     [],
-    Array.from({ length: 10_001 }, (_, index) => subtitle(10_001 - index, `line ${index}`)),
+    Array.from(
+      { length: MAX_SUBTITLE_HISTORY_ITEMS + 1 },
+      (_, index) => subtitle(MAX_SUBTITLE_HISTORY_ITEMS + 1 - index, `line ${index}`),
+    ),
   );
-  assert.equal(expanded.length, 10_001);
-  assert.equal(expanded.at(-1)?.id, 1);
+  assert.equal(expanded.length, MAX_SUBTITLE_HISTORY_ITEMS);
+  assert.equal(expanded[0]?.id, MAX_SUBTITLE_HISTORY_ITEMS + 1);
+  assert.equal(expanded.at(-1)?.id, 2);
+});
+
+test("conversation pools enforce a text budget", () => {
+  const text = "x".repeat(100_000);
+  const expanded = mergeSubtitleHistory(
+    [],
+    Array.from({ length: 100 }, (_, index) => subtitle(100 - index, text)),
+  );
+  assert.ok(expanded.length < 100);
+  assert.ok(
+    expanded.reduce((total, item) => total + item.text.length, 0)
+      <= MAX_SUBTITLE_HISTORY_TEXT_CHARS,
+  );
+});
+
+test("stream updates evict the oldest subtitle when the pool is full", () => {
+  const current = Array.from(
+    { length: MAX_SUBTITLE_HISTORY_ITEMS },
+    (_, index) => subtitle(MAX_SUBTITLE_HISTORY_ITEMS - index, `line ${index}`),
+  );
+  const updated = upsertSubtitleHistory(
+    current,
+    subtitle(MAX_SUBTITLE_HISTORY_ITEMS + 1, "newest"),
+  );
+  assert.equal(updated.length, MAX_SUBTITLE_HISTORY_ITEMS);
+  assert.equal(updated[0]?.id, MAX_SUBTITLE_HISTORY_ITEMS + 1);
+  assert.equal(updated.at(-1)?.id, 2);
 });
 
 test("overlapping snapshots are deduplicated and keep the preferred version", () => {

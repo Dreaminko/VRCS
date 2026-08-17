@@ -141,24 +141,6 @@ export function useCoreSession(settingsPageActive: boolean) {
     }
   }, [clearError, reportError]);
 
-  const refresh = useCallback(async () => {
-    if (!coreConfigured) return;
-    try {
-      const [nextHealth, nextSettings, nextAsrCapabilities] = await Promise.all([
-        coreApi.health(),
-        coreApi.settings(),
-        coreApi.asrCapabilities(),
-      ]);
-      setHealth(nextHealth);
-      persistedSettingsRef.current = nextSettings;
-      setSettings(nextSettings);
-      setAsrCapabilities(nextAsrCapabilities);
-      clearErrorFrom("core");
-    } catch (reason) {
-      reportError(reason, "errors.core.connect", "core");
-    }
-  }, [clearErrorFrom, coreConfigured, reportError]);
-
   const loadSettings = useCallback(async () => {
     if (!coreConfigured) return;
     const nextSettings = await coreApi.settings();
@@ -170,16 +152,42 @@ export function useCoreSession(settingsPageActive: boolean) {
 
   useEffect(() => {
     if (!coreConfigured) return;
-    void refresh();
-    const timer = window.setInterval(
-      () => {
-        if (settings === null) void refresh();
-        else void coreApi.health().then(setHealth).catch(() => setHealth(null));
-      },
-      2500,
-    );
-    return () => window.clearInterval(timer);
-  }, [coreConfigured, refresh, settings]);
+    let cancelled = false;
+    let timer: number | null = null;
+    const poll = async () => {
+      if (settings === null) {
+        try {
+          const [nextHealth, nextSettings, nextAsrCapabilities] = await Promise.all([
+            coreApi.health(),
+            coreApi.settings(),
+            coreApi.asrCapabilities(),
+          ]);
+          if (cancelled) return;
+          setHealth(nextHealth);
+          persistedSettingsRef.current = nextSettings;
+          setSettings(nextSettings);
+          setAsrCapabilities(nextAsrCapabilities);
+          clearErrorFrom("core");
+        } catch (reason) {
+          if (cancelled) return;
+          reportError(reason, "errors.core.connect", "core");
+        }
+      } else {
+        try {
+          const nextHealth = await coreApi.health();
+          if (!cancelled) setHealth(nextHealth);
+        } catch {
+          if (!cancelled) setHealth(null);
+        }
+      }
+      if (!cancelled) timer = window.setTimeout(() => void poll(), 2500);
+    };
+    void poll();
+    return () => {
+      cancelled = true;
+      if (timer !== null) window.clearTimeout(timer);
+    };
+  }, [clearErrorFrom, coreConfigured, reportError, settings]);
 
   const loadDevices = useCallback(async () => {
     if (!coreConfigured) return;

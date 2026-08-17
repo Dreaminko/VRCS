@@ -628,6 +628,55 @@ mod tests {
         assert!(matches!(first, Some(CloudEvent::Partial { text, .. }) if text == "hel"));
         assert!(matches!(second, Some(CloudEvent::Partial { text, .. }) if text == "hello"));
         assert!(matches!(final_event, Some(CloudEvent::Final { text, .. }) if text == "hello"));
+        assert!(transcripts.is_empty());
+    }
+
+    #[test]
+    fn cloud_transcripts_reject_too_many_active_ids() {
+        let config = AsrConfig {
+            backend: "openai_realtime".into(),
+            ..AsrConfig::default()
+        };
+        let mut transcripts = HashMap::new();
+        for index in 0..provider::MAX_ACTIVE_TRANSCRIPTS {
+            let message = serde_json::json!({
+                "type": "conversation.item.input_audio_transcription.delta",
+                "item_id": format!("item-{index}"),
+                "delta": "a",
+            })
+            .to_string();
+            normalize(&config, &message, &mut transcripts).unwrap();
+        }
+        let overflow = serde_json::json!({
+            "type": "conversation.item.input_audio_transcription.delta",
+            "item_id": "overflow",
+            "delta": "a",
+        })
+        .to_string();
+        assert_eq!(
+            normalize(&config, &overflow, &mut transcripts).unwrap_err(),
+            "Cloud recognition exceeded the active transcript limit"
+        );
+    }
+
+    #[test]
+    fn cloud_transcripts_reject_oversized_delta() {
+        let config = AsrConfig {
+            backend: "qwen_realtime".into(),
+            ..AsrConfig::default()
+        };
+        let mut transcripts = HashMap::new();
+        let message = serde_json::json!({
+            "type": "conversation.item.input_audio_transcription.delta",
+            "item_id": "a",
+            "delta": "a".repeat(provider::MAX_TRANSCRIPT_BYTES + 1),
+        })
+        .to_string();
+        assert_eq!(
+            normalize(&config, &message, &mut transcripts).unwrap_err(),
+            "Cloud recognition transcript exceeded 65536 bytes"
+        );
+        assert!(!transcripts.contains_key("a"));
     }
 
     #[test]

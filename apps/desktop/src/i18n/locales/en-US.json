@@ -461,7 +461,91 @@
         "translation": "Translation",
         "api": "API access",
         "learning": "Learning",
-        "connections": "Connections"
+        "connections": "Connections",
+        "vrOverlay": "VR Overlay"
+      },
+      "vrOverlay": {
+        "title": "VR Overlay",
+        "runtimeTitle": "SteamVR runtime",
+        "runtimeDescription": "Shows subtitles in SteamVR without affecting transcription when the runtime is unavailable.",
+        "statusLoadFailed": "Could not read the VR Overlay status.",
+        "nativeActionFailed": "Could not update the VR Overlay runtime.",
+        "enable": "Enable VR Overlay",
+        "enableHeadset": "Enable headset subtitles",
+        "enableWrist": "Enable wrist conversation",
+        "runtimeInstalled": "SteamVR installed",
+        "hmdPresent": "Headset detected",
+        "reconnectAttempt": "Reconnect attempt {{count}}",
+        "runtimeStates": {
+          "unsupported": "Unsupported",
+          "disabled": "Disabled",
+          "waiting_runtime": "Waiting for SteamVR",
+          "initializing": "Initializing",
+          "ready": "Ready",
+          "reconnecting": "Reconnecting",
+          "error": "Error",
+          "shutting_down": "Shutting down"
+        },
+        "resourceStates": {
+          "disabled": "Disabled",
+          "creating": "Creating",
+          "ready_hidden": "Ready, hidden",
+          "visible": "Visible",
+          "fading": "Fading",
+          "device_unavailable": "Device unavailable",
+          "recreating": "Recreating",
+          "error": "Error"
+        },
+        "headset": {
+          "title": "Headset subtitles",
+          "description": "A single subtitle strip fixed in front of the headset."
+        },
+        "wrist": {
+          "title": "Wrist conversation",
+          "description": "Recent conversation lines attached to a controller."
+        },
+        "contentMode": "Content",
+        "contentModes": {
+          "original": "Original",
+          "translation": "Translation",
+          "bilingual": "Bilingual"
+        },
+        "hand": "Controller",
+        "dominantHand": "Dominant hand",
+        "hands": {
+          "left": "Left hand",
+          "right": "Right hand",
+          "dominant": "Dominant hand"
+        },
+        "sources": "Subtitle sources",
+        "sourceSpeaker": "System audio",
+        "sourceMicrophone": "Microphone",
+        "sourceChatbox": "Chatbox",
+        "liveUpdates": "Live updates",
+        "showTranslationPartials": "Show partial translations",
+        "displaySeconds": "Display duration",
+        "fadeSeconds": "Fade duration",
+        "maxEntries": "Conversation lines",
+        "idleHideSeconds": "Hide after idle (0 = never)",
+        "position": "Position",
+        "horizontal": "Horizontal",
+        "vertical": "Vertical",
+        "distance": "Distance",
+        "depth": "Forward / back",
+        "rotation": "Rotation",
+        "pitch": "Pitch",
+        "yaw": "Yaw",
+        "roll": "Roll",
+        "appearance": "Appearance",
+        "width": "Physical width",
+        "opacity": "Opacity",
+        "backgroundOpacity": "Background opacity",
+        "fontSize": "Font size",
+        "boundRole": "Bound controller",
+        "trackedDevice": "Tracked device",
+        "showSample": "Show sample",
+        "hideSample": "Hide sample",
+        "restoreDefaults": "Restore defaults"
       },
       "system": {
         "title": "System",

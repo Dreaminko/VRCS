@@ -14,7 +14,40 @@ export interface FrontendErrorDetails {
   componentStack?: string;
 }
 
-const recentReports = new Map<string, number>();
+const RECENT_REPORT_TTL_MS = 2_000;
+export const MAX_RECENT_REPORTS = 256;
+
+export class RecentReportTracker {
+  private readonly reports = new Map<string, number>();
+  private readonly ttlMs: number;
+  private readonly maxReports: number;
+
+  constructor(ttlMs = RECENT_REPORT_TTL_MS, maxReports = MAX_RECENT_REPORTS) {
+    this.ttlMs = ttlMs;
+    this.maxReports = maxReports;
+  }
+
+  accept(key: string, now: number): boolean {
+    for (const [candidate, reportedAt] of this.reports) {
+      if (now - reportedAt >= this.ttlMs) this.reports.delete(candidate);
+    }
+
+    const previous = this.reports.get(key);
+    if (previous !== undefined && now - previous < this.ttlMs) return false;
+    if (this.reports.size >= this.maxReports) {
+      const oldest = this.reports.keys().next().value;
+      if (oldest !== undefined) this.reports.delete(oldest);
+    }
+    this.reports.set(key, now);
+    return true;
+  }
+
+  get size(): number {
+    return this.reports.size;
+  }
+}
+
+const recentReports = new RecentReportTracker();
 let installed = false;
 
 export function normalizeFrontendError(reason: unknown): { message: string; stack?: string } {
@@ -30,9 +63,7 @@ export async function reportFrontendError(
 ): Promise<string | null> {
   const key = `${details.kind}:${details.operation}:${details.message}`;
   const now = Date.now();
-  const previous = recentReports.get(key);
-  if (previous !== undefined && now - previous < 2_000) return null;
-  recentReports.set(key, now);
+  if (!recentReports.accept(key, now)) return null;
 
   if (!isTauri()) {
     console.error("VRCS frontend error", details);

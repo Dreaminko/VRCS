@@ -91,6 +91,25 @@ function requestHeaders(initial?: HeadersInit): Headers {
   return headers;
 }
 
+const DEFAULT_REQUEST_TIMEOUT_MS = 15_000;
+
+async function timedFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+  const controller = new AbortController();
+  const abortFromCaller = () => controller.abort(init?.signal?.reason);
+  if (init?.signal?.aborted) abortFromCaller();
+  else init?.signal?.addEventListener("abort", abortFromCaller, { once: true });
+  const timer = window.setTimeout(
+    () => controller.abort(new DOMException("Request timed out", "TimeoutError")),
+    DEFAULT_REQUEST_TIMEOUT_MS,
+  );
+  try {
+    return await fetch(input, { ...init, signal: controller.signal });
+  } finally {
+    window.clearTimeout(timer);
+    init?.signal?.removeEventListener("abort", abortFromCaller);
+  }
+}
+
 export function coreWebSocketUrl(): string {
   const url = new URL(connection.wsUrl);
   if (connection.token) url.searchParams.set("token", connection.token);
@@ -98,7 +117,7 @@ export function coreWebSocketUrl(): string {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${connection.httpUrl}${path}`, {
+  const response = await timedFetch(`${connection.httpUrl}${path}`, {
     ...init,
     headers: requestHeaders(init?.headers),
   });
@@ -126,7 +145,7 @@ async function settingsRequest(
   if (init?.method === "PUT" && configRevision !== null) {
     headers.set("X-VRCS-Config-Revision", configRevision.token);
   }
-  const response = await fetch(`${connection.httpUrl}/api/settings`, {
+  const response = await timedFetch(`${connection.httpUrl}/api/settings`, {
     ...init,
     headers,
   });
@@ -142,7 +161,9 @@ async function settingsRequest(
     && responseRevision.epoch === configRevision.epoch
     && responseRevision.counter < configRevision.counter
   ) {
-    if (retryStaleResponse) return settingsRequest(undefined, false);
+    if (retryStaleResponse) {
+      return settingsRequest(init?.signal ? { signal: init.signal } : undefined, false);
+    }
     throw new Error("The Core returned an outdated settings revision");
   }
   if (responseRevision !== null && (

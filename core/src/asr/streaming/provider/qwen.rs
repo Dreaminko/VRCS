@@ -6,7 +6,9 @@ use tokio_tungstenite::tungstenite::Message;
 
 use crate::config::{ApiProfile, AsrConfig};
 
-use super::{authenticated_request, event_id, event_language, pcm16_base64, CloudEvent};
+use super::{
+    append_transcript, authenticated_request, event_id, event_language, pcm16_base64, CloudEvent,
+};
 
 pub(super) fn build_request(
     config: &AsrConfig,
@@ -78,11 +80,10 @@ pub(super) fn normalize_event(
             .get("delta")
             .and_then(Value::as_str)
             .unwrap_or_default();
-        let text = transcripts.entry(id.clone()).or_default();
-        text.push_str(delta);
+        let text = append_transcript(transcripts, &id, delta)?;
         return Ok((!text.is_empty()).then(|| CloudEvent::Partial {
             utterance_id: id,
-            text: text.clone(),
+            text: text.to_owned(),
             language,
         }));
     }

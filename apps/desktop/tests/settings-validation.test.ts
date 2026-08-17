@@ -6,10 +6,11 @@ import {
   hasEnabledAudioSource,
   validComputeTypes,
 } from "../src/settings-validation.ts";
+import { DEFAULT_VR_OVERLAY_SETTINGS } from "../src/settings/vr-overlay-settings.ts";
 import type { AsrCapabilities, AudioDevice, Settings } from "../src/types.ts";
 
 const settings: Settings = {
-  schema_version: 21,
+  schema_version: 22,
   server: { host: "127.0.0.1", port: 8766 },
   storage: {
     database_path: "data/vrcs.db",
@@ -29,6 +30,7 @@ const settings: Settings = {
   anki: { enabled: true, port: 8765, deck: "VRCS", model: "Basic", front_field: "Front", back_field: "Back" },
   external_api: { enabled: false, host: "127.0.0.1", port: 8767, require_token: false },
   vrcx: { enabled: false, port: 22500, include_in_llm_context: false, include_in_asr_context: false },
+  vr_overlay: DEFAULT_VR_OVERLAY_SETTINGS,
 };
 
 const devices: AudioDevice[] = [

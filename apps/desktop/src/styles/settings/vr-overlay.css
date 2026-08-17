@@ -1,0 +1,127 @@
+.vr-overlay-section { display: grid; gap: 18px; }
+.vr-overlay-section > .section-heading { margin-bottom: 0; }
+.vr-overlay-runtime-card,
+.vr-overlay-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+.vr-overlay-runtime-card { display: grid; gap: 12px; padding: 16px; }
+.vr-overlay-runtime-main,
+.vr-overlay-runtime-actions,
+.vr-overlay-card-heading,
+.vr-overlay-card-actions {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+.vr-overlay-runtime-main > div { display: grid; min-width: 0; gap: 4px; }
+.vr-overlay-runtime-main strong,
+.vr-overlay-card-heading strong { color: var(--text); font-size: 14px; font-weight: 650; }
+.vr-overlay-runtime-main span,
+.vr-overlay-card-heading small { color: var(--text-secondary); font-size: 11px; line-height: 1.5; }
+.vr-overlay-status-badge {
+  flex: 0 0 auto;
+  padding: 4px 9px;
+  border-radius: var(--radius-pill);
+  font-size: 10px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+.vr-overlay-status-badge.ready { color: var(--primary-ink); background: var(--primary-softer); }
+.vr-overlay-status-badge.pending { color: var(--warning); background: #fff7e8; }
+.vr-overlay-status-badge.error { color: var(--error); background: var(--error-soft); }
+.vr-overlay-status-badge.muted { color: var(--text-quiet); background: var(--surface-subtle); }
+.vr-overlay-runtime-facts {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+.vr-overlay-runtime-facts strong { color: var(--text); font-weight: 600; }
+.vr-overlay-runtime-actions .settings-toggle-list { flex: 1; }
+.vr-overlay-runtime-actions .settings-toggle-row { padding-block: 2px; }
+.vr-overlay-native-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  color: var(--error);
+  background: var(--error-soft);
+  font-size: 11px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.vr-overlay-native-error svg { flex: 0 0 auto; margin-top: 1px; }
+.vr-overlay-card-list { display: grid; gap: 18px; }
+.vr-overlay-card { display: grid; gap: 18px; padding: 18px; }
+.vr-overlay-card-heading > div {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  gap: 10px;
+  color: var(--primary-ink);
+}
+.vr-overlay-card-heading > div > svg { flex: 0 0 auto; margin-top: 1px; }
+.vr-overlay-card-heading span { display: grid; min-width: 0; gap: 3px; }
+.vr-overlay-card-toggles { padding-bottom: 4px; border-bottom: 1px solid var(--border); }
+.vr-overlay-field-grid,
+.vr-overlay-range-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px 18px;
+}
+.vr-overlay-field-grid > *,
+.vr-overlay-range-grid > * { min-width: 0; }
+.vr-overlay-toggle-group {
+  display: grid;
+  margin: 0;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-elevated);
+}
+.vr-overlay-toggle-group legend {
+  padding: 0 6px;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 650;
+}
+.vr-overlay-toggle-group .settings-toggle-row { min-height: 42px; padding-block: 5px; }
+.vr-overlay-toggle-group .settings-toggle-row + .settings-toggle-row { border-top: 1px solid var(--border); }
+.vr-overlay-range-group { display: grid; gap: 12px; }
+.vr-overlay-range-group h3 { margin: 0; color: var(--text); font-size: 12px; font-weight: 650; }
+.vr-overlay-device-summary {
+  display: grid;
+  grid-template-columns: minmax(120px, 1fr) auto;
+  gap: 7px 16px;
+  padding: 12px 14px;
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  background: var(--surface-subtle);
+  font-size: 11px;
+}
+.vr-overlay-device-summary strong { color: var(--text); font-weight: 650; text-align: right; }
+.vr-overlay-card-actions { justify-content: flex-end; padding-top: 2px; }
+
+@media (max-width: 860px) {
+  .vr-overlay-field-grid,
+  .vr-overlay-range-grid { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 680px) {
+  .vr-overlay-runtime-main,
+  .vr-overlay-runtime-actions,
+  .vr-overlay-card-heading { align-items: flex-start; flex-direction: column; }
+  .vr-overlay-runtime-actions .settings-toggle-list { width: 100%; }
+  .vr-overlay-runtime-actions .secondary-button { align-self: flex-start; }
+  .vr-overlay-card { padding: 15px; }
+  .vr-overlay-card-actions { align-items: stretch; flex-direction: column; }
+  .vr-overlay-card-actions .secondary-button { width: 100%; }
+}

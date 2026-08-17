@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::config::{
     AnkiConfig, AsrConfig, AudioConfig, DictionaryConfig, ExternalApiConfig, OscConfig,
-    ServerConfig, StorageConfig, TranslationConfig, VadConfig,
+    ServerConfig, StorageConfig, TranslationConfig, VadConfig, VrOverlayConfig,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -100,6 +100,8 @@ pub struct SettingsUpdate {
     pub external_api: ExternalApiConfig,
     #[serde(default)]
     pub vrcx: crate::config::VrcxConfig,
+    #[serde(default)]
+    pub vr_overlay: VrOverlayConfig,
 }
 
 #[derive(Debug, Clone, Deserialize)]

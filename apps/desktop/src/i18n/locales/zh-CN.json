@@ -461,7 +461,91 @@
         "translation": "翻译",
         "api": "API 管理",
         "learning": "学习",
-        "connections": "连接"
+        "connections": "连接",
+        "vrOverlay": "VR Overlay"
+      },
+      "vrOverlay": {
+        "title": "VR Overlay",
+        "runtimeTitle": "SteamVR 运行环境",
+        "runtimeDescription": "在 SteamVR 中显示字幕；运行环境不可用时不会影响转写功能。",
+        "statusLoadFailed": "无法读取 VR Overlay 状态。",
+        "nativeActionFailed": "无法更新 VR Overlay 运行状态。",
+        "enable": "启用 VR Overlay",
+        "enableHeadset": "启用头显字幕",
+        "enableWrist": "启用手腕对话",
+        "runtimeInstalled": "已安装 SteamVR",
+        "hmdPresent": "已检测到头显",
+        "reconnectAttempt": "第 {{count}} 次重新连接",
+        "runtimeStates": {
+          "unsupported": "不受支持",
+          "disabled": "已停用",
+          "waiting_runtime": "正在等待 SteamVR",
+          "initializing": "正在初始化",
+          "ready": "就绪",
+          "reconnecting": "正在重新连接",
+          "error": "错误",
+          "shutting_down": "正在关闭"
+        },
+        "resourceStates": {
+          "disabled": "已停用",
+          "creating": "正在创建",
+          "ready_hidden": "就绪，已隐藏",
+          "visible": "正在显示",
+          "fading": "正在淡出",
+          "device_unavailable": "设备不可用",
+          "recreating": "正在重建",
+          "error": "错误"
+        },
+        "headset": {
+          "title": "头显字幕",
+          "description": "固定在头显视野前方的单条字幕。"
+        },
+        "wrist": {
+          "title": "手腕对话",
+          "description": "绑定到控制器并显示最近多条对话。"
+        },
+        "contentMode": "显示内容",
+        "contentModes": {
+          "original": "原文",
+          "translation": "译文",
+          "bilingual": "双语"
+        },
+        "hand": "控制器",
+        "dominantHand": "主手",
+        "hands": {
+          "left": "左手",
+          "right": "右手",
+          "dominant": "主手"
+        },
+        "sources": "字幕来源",
+        "sourceSpeaker": "系统音频",
+        "sourceMicrophone": "麦克风",
+        "sourceChatbox": "Chatbox",
+        "liveUpdates": "实时更新",
+        "showTranslationPartials": "显示翻译中的文本",
+        "displaySeconds": "停留时间",
+        "fadeSeconds": "淡出时间",
+        "maxEntries": "对话条数",
+        "idleHideSeconds": "空闲后隐藏（0 表示不隐藏）",
+        "position": "位置",
+        "horizontal": "左右",
+        "vertical": "上下",
+        "distance": "距离",
+        "depth": "前后",
+        "rotation": "旋转",
+        "pitch": "俯仰",
+        "yaw": "偏航",
+        "roll": "翻滚",
+        "appearance": "外观",
+        "width": "物理宽度",
+        "opacity": "透明度",
+        "backgroundOpacity": "背景透明度",
+        "fontSize": "字号",
+        "boundRole": "绑定控制器",
+        "trackedDevice": "跟踪设备",
+        "showSample": "显示样本",
+        "hideSample": "隐藏样本",
+        "restoreDefaults": "恢复默认"
       },
       "system": {
         "title": "系统",

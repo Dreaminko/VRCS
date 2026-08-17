@@ -15,6 +15,9 @@ use crate::providers::{ALIBABA_PROVIDER, OPENAI_PROVIDER};
 
 use super::CloudEvent;
 
+pub(super) const MAX_ACTIVE_TRANSCRIPTS: usize = 32;
+pub(super) const MAX_TRANSCRIPT_BYTES: usize = 64 * 1024;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Provider {
     Qwen,
@@ -219,6 +222,26 @@ pub(super) fn authenticated_request(
             .insert("OpenAI-Beta", HeaderValue::from_static("realtime=v1"));
     }
     Ok(request)
+}
+
+pub(super) fn append_transcript<'a>(
+    transcripts: &'a mut HashMap<String, String>,
+    id: &str,
+    delta: &str,
+) -> Result<&'a str, String> {
+    if delta.is_empty() {
+        return Ok(transcripts.get(id).map(String::as_str).unwrap_or_default());
+    }
+    let current_len = transcripts.get(id).map_or(0, String::len);
+    if current_len.saturating_add(delta.len()) > MAX_TRANSCRIPT_BYTES {
+        return Err("Cloud recognition transcript exceeded 65536 bytes".into());
+    }
+    if !transcripts.contains_key(id) && transcripts.len() >= MAX_ACTIVE_TRANSCRIPTS {
+        return Err("Cloud recognition exceeded the active transcript limit".into());
+    }
+    let text = transcripts.entry(id.to_owned()).or_default();
+    text.push_str(delta);
+    Ok(text)
 }
 
 pub(super) fn event_id(value: &Value) -> String {
