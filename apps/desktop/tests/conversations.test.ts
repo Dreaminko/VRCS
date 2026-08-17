@@ -1,69 +1,65 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { conversationId, groupConversations } from "../src/conversations.ts";
-import type { Subtitle } from "../src/types.ts";
 
-function subtitle(id: number, createdAt: number, text: string): Subtitle {
+import {
+  conversationsFromCatalog,
+  type ConversationCatalog,
+} from "../src/conversations.ts";
+
+function catalog(): ConversationCatalog {
   return {
-    id,
-    text,
-    language: "zh",
-    started_at: null,
-    ended_at: null,
-    created_at: new Date(createdAt).toISOString(),
-    translations: [],
+    conversations: [
+      {
+        id: "conversation-1",
+        started_at: "2026-08-16T00:00:00Z",
+        ended_at: null,
+        automatic_title: "Core automatic title",
+        custom_title: null,
+        icon: null,
+        subtitle_count: 42,
+        updated_at: "2026-08-16T00:00:01Z",
+        active: true,
+      },
+      {
+        id: "conversation-0",
+        started_at: "2026-08-15T00:00:00Z",
+        ended_at: "2026-08-15T01:00:00Z",
+        automatic_title: null,
+        custom_title: "Custom title",
+        icon: "study",
+        subtitle_count: 7,
+        updated_at: "2026-08-15T01:00:00Z",
+        active: false,
+      },
+    ],
   };
 }
 
-test("groups subtitles separated by thirty minutes into conversations", () => {
-  const start = Date.parse("2026-07-21T08:00:00Z");
-  const conversations = groupConversations([
-    subtitle(3, start + 3_600_000, "第二次交流"),
-    subtitle(2, start + 60_000, "继续第一次交流"),
-    subtitle(1, start, "第一次交流"),
-  ], [], start);
+test("catalog summaries use only Core-owned metadata", () => {
+  const conversations = conversationsFromCatalog(catalog());
 
-  assert.equal(conversations.length, 2);
-  assert.equal(conversations[0].title, "第二次交流");
-  assert.equal(conversations[1].subtitles.length, 2);
+  assert.equal(conversations[0]?.title, "Core automatic title");
+  assert.equal(conversations[1]?.title, "Custom title");
+  assert.equal("subtitles" in conversations[0], false);
 });
 
-test("a manual start splits nearby subtitles", () => {
-  const start = Date.parse("2026-07-21T08:00:00Z");
-  const boundary = start + 120_000;
-  const conversations = groupConversations([
-    subtitle(2, start + 180_000, "新的对话"),
-    subtitle(1, start, "之前的对话"),
-  ], [boundary], start);
+test("empty catalog titles use localized active and historical labels", () => {
+  const source = catalog();
+  source.conversations[0].automatic_title = null;
+  source.conversations[0].subtitle_count = 0;
+  source.conversations[1].custom_title = null;
+  const conversations = conversationsFromCatalog(source, {
+    untitled: "Untitled",
+    newConversation: "New conversation",
+  });
 
-  assert.equal(conversations.length, 2);
-  assert.equal(conversations[0].id, conversationId(boundary));
-  assert.equal(conversations[0].subtitles[0].text, "新的对话");
+  assert.equal(conversations[0]?.title, "New conversation");
+  assert.equal(conversations[1]?.title, "Untitled");
 });
 
-test("keeps an empty latest conversation available", () => {
-  const start = Date.parse("2026-07-21T08:00:00Z");
-  const boundary = start + 120_000;
-  const conversations = groupConversations([subtitle(1, start, "之前的对话")], [boundary], start);
+test("sidebar counts come from catalog subtitle_count", () => {
+  const conversations = conversationsFromCatalog(catalog());
 
-  assert.equal(conversations[0].id, conversationId(boundary));
-  assert.equal(conversations[0].title, "新对话");
-  assert.equal(conversations[0].subtitles.length, 0);
-});
-
-test("applies a custom title and icon without changing the conversation id", () => {
-  const start = Date.parse("2026-07-21T08:00:00Z");
-  const id = conversationId(start);
-  const conversations = groupConversations(
-    [subtitle(1, start, "自动生成的标题")],
-    [],
-    start,
-    undefined,
-    { [id]: { title: "VRChat 好友聚会", icon: "game" } },
-  );
-
-  assert.equal(conversations[0].id, id);
-  assert.equal(conversations[0].title, "VRChat 好友聚会");
-  assert.equal(conversations[0].icon, "game");
-  assert.equal(conversations[0].customized, true);
+  assert.equal(conversations[0]?.subtitleCount, 42);
+  assert.equal(conversations[1]?.subtitleCount, 7);
 });

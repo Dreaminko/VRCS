@@ -18,6 +18,7 @@ use crate::vad::{SpeechSegmenter, VadRuntimeState, VoiceDetector};
 mod dependencies;
 
 const AUDIO_LEVEL_PUBLISH_INTERVAL: Duration = Duration::from_millis(80);
+const PARTIAL_PUBLISH_INTERVAL: Duration = Duration::from_millis(80);
 
 pub(crate) use dependencies::PipelineDependencies;
 
@@ -212,6 +213,7 @@ async fn run(
     let mut streaming = false;
     let mut trigger_chunks = 0usize;
     let mut last_audio_level_published_at = None;
+    let mut last_partial_published_at = None;
     let mut result = loop {
         if *shutdown.borrow() || *stop.borrow() {
             break Ok(());
@@ -253,12 +255,14 @@ async fn run(
                         text,
                         language,
                     } => {
-                        dependencies.publish_live(LiveTranscription::Partial {
-                            utterance_id,
-                            source: source.into(),
-                            text,
-                            language,
-                        });
+                        if should_publish_partial(&mut last_partial_published_at, Instant::now()) {
+                            dependencies.publish_live(LiveTranscription::Partial {
+                                utterance_id,
+                                source: source.into(),
+                                text,
+                                language,
+                            });
+                        }
                     }
                     CloudEvent::Final {
                         utterance_id,
@@ -442,8 +446,19 @@ fn thresholded_speech(
 }
 
 fn should_publish_audio_level(last_published_at: &mut Option<Instant>, now: Instant) -> bool {
-    if last_published_at.is_some_and(|last| now.duration_since(last) < AUDIO_LEVEL_PUBLISH_INTERVAL)
-    {
+    should_publish_at_interval(last_published_at, now, AUDIO_LEVEL_PUBLISH_INTERVAL)
+}
+
+fn should_publish_partial(last_published_at: &mut Option<Instant>, now: Instant) -> bool {
+    should_publish_at_interval(last_published_at, now, PARTIAL_PUBLISH_INTERVAL)
+}
+
+fn should_publish_at_interval(
+    last_published_at: &mut Option<Instant>,
+    now: Instant,
+    interval: Duration,
+) -> bool {
+    if last_published_at.is_some_and(|last| now.duration_since(last) < interval) {
         return false;
     }
     *last_published_at = Some(now);
@@ -488,6 +503,21 @@ mod tests {
         assert!(should_publish_audio_level(
             &mut last_published_at,
             start + AUDIO_LEVEL_PUBLISH_INTERVAL,
+        ));
+    }
+
+    #[test]
+    fn partial_publication_is_rate_limited() {
+        let start = Instant::now();
+        let mut last_published_at = None;
+        assert!(should_publish_partial(&mut last_published_at, start));
+        assert!(!should_publish_partial(
+            &mut last_published_at,
+            start + PARTIAL_PUBLISH_INTERVAL - Duration::from_millis(1),
+        ));
+        assert!(should_publish_partial(
+            &mut last_published_at,
+            start + PARTIAL_PUBLISH_INTERVAL,
         ));
     }
 
@@ -544,6 +574,7 @@ mod tests {
         )));
         let (tx, mut rx) = broadcast::channel(4);
         let (live_tx, _) = broadcast::channel(4);
+        let (catalog_tx, mut catalog_rx) = broadcast::channel(4);
         let (translation_tx, _) = broadcast::channel(4);
         let output = crate::subtitle_output::SubtitleLifecyclePublisher::new(
             tx,
@@ -553,6 +584,7 @@ mod tests {
         let translation = crate::translation::TranslationDispatcher::new(
             Arc::new(crate::translation::TranslationService::new().unwrap()),
             Arc::clone(&db),
+            catalog_tx.clone(),
             output.clone(),
             crate::vrcx::VrcxIntegration::new(tokio::sync::watch::channel(false).1),
         );
@@ -560,6 +592,7 @@ mod tests {
             asr,
             Arc::clone(&db),
             live_tx,
+            catalog_tx,
             translation,
             Arc::new(std::sync::RwLock::new(crate::config::AppConfig::default())),
             output,
@@ -573,6 +606,13 @@ mod tests {
         let published = rx.recv().await.unwrap();
         assert_eq!(published.text, "こんにちは");
         assert_eq!(published.source, "microphone");
+        let catalog = catalog_rx.recv().await.unwrap();
+        assert_eq!(catalog.conversations.len(), 1);
+        assert_eq!(catalog.conversations[0].subtitle_count, 1);
+        assert_eq!(
+            catalog.conversations[0].automatic_title.as_deref(),
+            Some("こんにちは")
+        );
         let history = db.lock().unwrap().subtitle_history(10).unwrap();
         assert_eq!(history.len(), 1);
         assert_eq!(history[0].language.as_deref(), Some("ja"));

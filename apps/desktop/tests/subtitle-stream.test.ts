@@ -2,9 +2,12 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  conversationSubtitlePage,
+  isAbortError,
+  isConversationRequestCurrent,
   mergeSubtitleHistory,
   parseSubtitleStreamMessage,
-  subtitleHistoryPage,
+  upsertSubtitleHistory,
 } from "../src/subtitle-stream.ts";
 import type { Subtitle } from "../src/types.ts";
 
@@ -21,15 +24,43 @@ function subtitle(id: number, text: string): Subtitle {
   };
 }
 
-test("history pages expose 100 records and detect an older page", () => {
-  const page = subtitleHistoryPage(
-    Array.from({ length: 101 }, (_, index) => subtitle(101 - index, `line ${index}`)),
-  );
+test("conversation pages preserve the Core pagination cursor", () => {
+  const page = conversationSubtitlePage({
+    items: Array.from({ length: 100 }, (_, index) => subtitle(100 - index, `line ${index}`)),
+    has_more: true,
+    next_before_id: 1,
+  });
   assert.equal(page.items.length, 100);
   assert.equal(page.hasOlder, true);
-  assert.equal(page.items.at(-1)?.id, 2);
+  assert.equal(page.nextBeforeId, 1);
 
-  assert.equal(subtitleHistoryPage(page.items).hasOlder, false);
+  assert.deepEqual(conversationSubtitlePage({
+    items: [subtitle(1, "last")],
+    has_more: false,
+    next_before_id: 1,
+  }), {
+    items: [subtitle(1, "last")],
+    hasOlder: false,
+    nextBeforeId: null,
+  });
+});
+
+test("rapid switches invalidate requests from the previous conversation", () => {
+  const request = { conversationId: "first", version: 4 };
+  assert.equal(isConversationRequestCurrent(request, "first", 4), true);
+  assert.equal(isConversationRequestCurrent(request, "second", 5), false);
+  assert.equal(isConversationRequestCurrent(request, "first", 5), false);
+});
+
+test("streamed subtitles are inserted without rebuilding history", () => {
+  const current = [subtitle(3, "three"), subtitle(1, "one")];
+  assert.deepEqual(
+    upsertSubtitleHistory(current, subtitle(2, "two")).map((item) => item.id),
+    [3, 2, 1],
+  );
+  const replaced = upsertSubtitleHistory(current, subtitle(3, "updated"));
+  assert.equal(replaced[0]?.text, "updated");
+  assert.equal(replaced[1], current[1]);
 });
 
 test("a late history snapshot cannot erase a streamed subtitle", () => {
@@ -38,6 +69,15 @@ test("a late history snapshot cannot erase a streamed subtitle", () => {
       .map((item) => item.id),
     [2, 1],
   );
+});
+
+test("expanded conversation pools are not truncated at ten thousand subtitles", () => {
+  const expanded = mergeSubtitleHistory(
+    [],
+    Array.from({ length: 10_001 }, (_, index) => subtitle(10_001 - index, `line ${index}`)),
+  );
+  assert.equal(expanded.length, 10_001);
+  assert.equal(expanded.at(-1)?.id, 1);
 });
 
 test("overlapping snapshots are deduplicated and keep the preferred version", () => {
@@ -112,6 +152,45 @@ test("translation reconciliation follows the database target-language identity",
   assert.equal(merged?.translations[0]?.text, "new provider value");
 });
 
+test("complete conversation catalogs pass protocol validation", () => {
+  const catalog = {
+    conversations: [{
+      id: "conversation-1",
+      started_at: "2026-08-11T00:00:00Z",
+      ended_at: null,
+      automatic_title: "Authoritative title",
+      custom_title: null,
+      icon: null,
+      subtitle_count: 101,
+      updated_at: "2026-08-11T00:01:00Z",
+      active: true,
+    }],
+  };
+  assert.deepEqual(
+    parseSubtitleStreamMessage(JSON.stringify({
+      type: "conversation_catalog",
+      catalog,
+    })),
+    { type: "conversation_catalog", catalog },
+  );
+});
+
+test("malformed conversation catalogs are rejected", () => {
+  assert.equal(parseSubtitleStreamMessage(JSON.stringify({
+    type: "conversation_catalog",
+    catalog: {
+      conversations: [{ id: "conversation-1", subtitle_count: -1 }],
+    },
+  })), null);
+});
+
+test("aborted history requests are recognized without reporting an error", () => {
+  const controller = new AbortController();
+  controller.abort();
+  assert.equal(isAbortError(controller.signal.reason), true);
+  assert.equal(isAbortError(new Error("network failed")), false);
+});
+
 test("malformed stream payloads are ignored at the protocol boundary", () => {
   assert.equal(parseSubtitleStreamMessage("{"), null);
   assert.equal(
@@ -147,11 +226,12 @@ test("malformed stream payloads are ignored at the protocol boundary", () => {
 });
 
 test("valid stream payloads pass protocol validation", () => {
+  const streamed = { ...subtitle(3, "valid"), conversation_id: "conversation-1" };
   const message = parseSubtitleStreamMessage(JSON.stringify({
     type: "subtitle",
-    subtitle: subtitle(3, "valid"),
+    subtitle: streamed,
   }));
-  assert.equal(message?.type, "subtitle");
+  assert.deepEqual(message, { type: "subtitle", subtitle: streamed });
 });
 
 test("OpenAI-compatible translation payloads pass protocol validation", () => {

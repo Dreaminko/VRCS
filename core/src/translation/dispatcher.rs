@@ -1,9 +1,10 @@
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use tokio::sync::{mpsc, Semaphore};
+use tokio::sync::{broadcast, mpsc, Semaphore};
 
 use crate::config::{ApiProfile, TranslationConfig};
+use crate::db::conversations::{publish_latest_catalog, ConversationCatalog};
 use crate::db::Database;
 use crate::models::Subtitle;
 use crate::subtitle_output::SubtitleLifecyclePublisher;
@@ -29,6 +30,7 @@ impl TranslationDispatcher {
     pub fn new(
         service: Arc<TranslationService>,
         database: Arc<Mutex<Database>>,
+        conversation_catalog: broadcast::Sender<ConversationCatalog>,
         output: SubtitleLifecyclePublisher,
         vrcx: crate::vrcx::VrcxIntegration,
     ) -> Self {
@@ -40,11 +42,12 @@ impl TranslationDispatcher {
                 let Ok(permit) = permit else { break };
                 let service = Arc::clone(&service);
                 let database = Arc::clone(&database);
+                let conversation_catalog = conversation_catalog.clone();
                 let output = output.clone();
                 let vrcx = vrcx.clone();
                 tokio::spawn(async move {
                     let _permit = permit;
-                    process_job(service, database, output, vrcx, job).await;
+                    process_job(service, database, conversation_catalog, output, vrcx, job).await;
                 });
             }
         });
@@ -75,6 +78,7 @@ impl TranslationDispatcher {
 async fn process_job(
     service: Arc<TranslationService>,
     database: Arc<Mutex<Database>>,
+    conversation_catalog: broadcast::Sender<ConversationCatalog>,
     output: SubtitleLifecyclePublisher,
     vrcx: crate::vrcx::VrcxIntegration,
     job: TranslationJob,
@@ -90,12 +94,12 @@ async fn process_job(
     let progress_message_id = job.message_id.clone();
     let progress_source = source.clone();
     let target_language = job.settings.target_language.clone();
-    let last_progress = Mutex::new(Instant::now() - Duration::from_millis(50));
+    let last_progress = Mutex::new(Instant::now() - Duration::from_millis(80));
     let progress = move |text: &str| {
         let Ok(mut last) = last_progress.lock() else {
             return;
         };
-        if last.elapsed() < Duration::from_millis(40) {
+        if last.elapsed() < Duration::from_millis(80) {
             return;
         }
         *last = Instant::now();
@@ -166,11 +170,16 @@ async fn process_job(
                 let database = Arc::clone(&database);
                 let record = record.clone();
                 move || {
-                    database
+                    let database = database
                         .lock()
-                        .map_err(|_| "Database lock is unavailable".to_string())?
+                        .map_err(|_| "Database lock is unavailable".to_string())?;
+                    let catalog_changed = database
                         .save_translation(subtitle_id, &record)
-                        .map_err(|error| error.to_string())
+                        .map_err(|error| error.to_string())?;
+                    if catalog_changed {
+                        publish_latest_catalog(&database, &conversation_catalog);
+                    }
+                    Ok::<_, String>(())
                 }
             })
             .await;

@@ -11,6 +11,8 @@ use crate::config::{
 pub struct Subtitle {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub id: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub conversation_id: Option<String>,
     pub text: String,
     #[serde(default)]
     pub language: Option<String>,
@@ -53,6 +55,7 @@ pub struct AudioDevice {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct DictionaryEntry {
     pub term: String,
     pub language: String,

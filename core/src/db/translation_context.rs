@@ -64,6 +64,7 @@ mod tests {
             database
                 .add_subtitle(&Subtitle {
                     id: None,
+                    conversation_id: None,
                     text: text.into(),
                     language: None,
                     started_at: None,
@@ -117,6 +118,7 @@ mod tests {
         database
             .add_subtitle(&Subtitle {
                 id: None,
+                conversation_id: None,
                 text: "history".into(),
                 language: None,
                 started_at: None,
@@ -142,6 +144,7 @@ mod tests {
             database
                 .add_subtitle(&Subtitle {
                     id: None,
+                    conversation_id: None,
                     text: format!("speaker {index}"),
                     language: None,
                     started_at: None,

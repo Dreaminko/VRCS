@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import { useTranslation } from "react-i18next";
-import { Check, PlusCircle, TriangleAlert, X } from "lucide-react";
+import { BookOpenText, Check, PlusCircle, TriangleAlert, X } from "lucide-react";
 
 import { coreApi } from "../api";
 import { ankiButtonLabel } from "../anki";
@@ -19,11 +19,13 @@ import {
   placeLookupPopover,
 } from "../popover-placement";
 
-export function DictionaryPopover({ lookup, ankiEnabled, compact = false, onClose }: { lookup: Lookup; ankiEnabled: boolean; compact?: boolean; onClose: () => void }) {
+export function DictionaryPopover({ lookup, ankiEnabled, compact = false, onAddLearning, onClose }: { lookup: Lookup; ankiEnabled: boolean; compact?: boolean; onAddLearning?: (lookup: Lookup) => Promise<unknown>; onClose: () => void }) {
   const { t } = useTranslation();
   const ref = useRef<HTMLDivElement>(null);
   const [ankiState, setAnkiState] = useState<AnkiAddState>("idle");
   const [ankiFeedback, setAnkiFeedback] = useState("");
+  const [learningState, setLearningState] = useState<"idle" | "adding" | "success" | "error">("idle");
+  const [learningFeedback, setLearningFeedback] = useState("");
   const [anchor, setAnchor] = useState(lookup.anchor);
   const groupedEntries = groupDictionaryEntries(lookup.entries);
   const entry = groupedEntries[0];
@@ -55,6 +57,8 @@ export function DictionaryPopover({ lookup, ankiEnabled, compact = false, onClos
   useEffect(() => {
     setAnkiState("idle");
     setAnkiFeedback("");
+    setLearningState("idle");
+    setLearningFeedback("");
   }, [lookup.term, lookup.context]);
 
   useEffect(() => {
@@ -125,6 +129,25 @@ export function DictionaryPopover({ lookup, ankiEnabled, compact = false, onClos
     }
   };
 
+  const addLearning = async () => {
+    if (!onAddLearning || learningState === "adding" || learningState === "success") return;
+    setLearningState("adding");
+    setLearningFeedback("");
+    try {
+      const result = await onAddLearning(lookup);
+      if (!result) {
+        setLearningState("error");
+        setLearningFeedback(t("dictionary.learning.failed"));
+        return;
+      }
+      setLearningState("success");
+      setLearningFeedback(t("dictionary.learning.saved"));
+    } catch {
+      setLearningState("error");
+      setLearningFeedback(t("dictionary.learning.failed"));
+    }
+  };
+
   return (
     <div ref={ref} className={`dictionary-popover ${compact ? "compact-inline-dictionary" : `popover-${placement.side}`}`} style={style as CSSProperties} role="dialog" aria-label={t("dictionary.dialogLabel", { term: lookup.term })}>
       <div className="dictionary-header">
@@ -154,22 +177,33 @@ export function DictionaryPopover({ lookup, ankiEnabled, compact = false, onClos
         ) : <p className="definition muted">{t("dictionary.noDefinitions")}</p>}
         <div className="lookup-context"><span>{t("dictionary.context")}</span><q>{contextExcerpt(lookup.context, lookup.term)}</q></div>
       </div>
-      {ankiEnabled && (
-        <>
-          <button className={`anki-button anki-state-${ankiState}`} type="button" disabled={!entry || ankiState === "adding" || ankiState === "success"} onClick={() => void add()}>
-            {ankiState === "success"
-              ? <Check size={16} />
-              : ankiState === "error"
-                ? <TriangleAlert size={16} />
-                : <PlusCircle size={16} />}
-            {ankiButtonLabel(ankiState, (key) => t(key))}
-          </button>
+      {(ankiEnabled || onAddLearning) && (
+        <div className="dictionary-action-area">
+          <div className="dictionary-action-row">
+            {onAddLearning && (
+              <button className={`dictionary-learning-button learning-state-${learningState}`} type="button" disabled={learningState === "adding" || learningState === "success"} onClick={() => void addLearning()}>
+                {learningState === "success" ? <Check size={15} /> : learningState === "error" ? <TriangleAlert size={15} /> : <BookOpenText size={15} />}
+                {t(learningState === "success" ? "dictionary.learning.savedAction" : learningState === "adding" ? "dictionary.learning.saving" : learningState === "error" ? "dictionary.learning.retry" : "dictionary.learning.add")}
+              </button>
+            )}
+            {ankiEnabled && (
+              <button className={`anki-button anki-state-${ankiState}`} type="button" disabled={!entry || ankiState === "adding" || ankiState === "success"} onClick={() => void add()}>
+                {ankiState === "success"
+                  ? <Check size={16} />
+                  : ankiState === "error"
+                    ? <TriangleAlert size={16} />
+                    : <PlusCircle size={16} />}
+                {ankiButtonLabel(ankiState, (key) => t(key))}
+              </button>
+            )}
+          </div>
+          {learningFeedback && <p className={`dictionary-anki-feedback ${learningState}`} role={learningState === "error" ? "alert" : "status"}>{learningFeedback}</p>}
           {ankiFeedback && (
             <p className={`dictionary-anki-feedback ${ankiState}`} role={ankiState === "error" ? "alert" : "status"}>
               {ankiFeedback}
             </p>
           )}
-        </>
+        </div>
       )}
       {!compact && <i className="popover-arrow" aria-hidden="true" />}
     </div>

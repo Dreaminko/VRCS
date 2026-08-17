@@ -1,6 +1,24 @@
 .conversation { display: flex; flex-direction: column; gap: 22px; }
 .workspace-live > .conversation { flex: 1; }
-.message-group { display: flex; max-width: 72%; flex-direction: column; align-items: flex-start; content-visibility: auto; contain-intrinsic-size: auto 96px; }
+.message-group { display: flex; max-width: 72%; flex-direction: column; align-items: flex-start; }
+.conversation-load-older { display: flex; min-height: 36px; align-items: center; justify-content: center; }
+.conversation-load-older .secondary-button { min-height: 34px; padding-inline: 13px; border-radius: var(--radius-pill); font-size: 12px; }
+.conversation.box-selecting { cursor: crosshair; }
+.conversation.box-selecting .bubble,
+.conversation.multi-selection-active .bubble { user-select: none; }
+.subtitle-selection-rect {
+  position: fixed;
+  z-index: 80;
+  border-radius: var(--radius-sm);
+  background: rgba(116, 214, 255, 0.12);
+  pointer-events: none;
+}
+.message-group .bubble { transition: background-color 140ms ease-out; }
+.message-group.subtitle-selected .bubble { background: var(--primary-softer); }
+.message-group.source-microphone.subtitle-selected .bubble,
+.message-group.source-chatbox.subtitle-selected .bubble {
+  background: color-mix(in srgb, var(--primary-soft) 90%, var(--primary) 10%);
+}
 .message-group.source-microphone,
 .message-group.source-chatbox { align-self: flex-end; align-items: flex-end; }
 .message-meta { display: flex; align-items: center; gap: 7px; margin: 0 8px 5px; color: var(--text-secondary); font-size: 11px; }
@@ -31,6 +49,56 @@
 .translation-action { display: inline-flex; align-items: center; gap: 5px; margin: 6px 8px 0; padding: 3px 7px; border: 0; color: var(--text-secondary); background: transparent; font-size: 11px; cursor: pointer; }
 .translation-action:hover { color: var(--primary-ink); }
 .translation-action:disabled { opacity: 0.55; cursor: wait; }
+.subtitle-analysis-feedback {
+  display: inline-flex;
+  min-height: 24px;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 7px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  background: transparent;
+  cursor: pointer;
+  font-size: 11px;
+  transition: color 120ms ease-out, border-color 120ms ease-out, background-color 120ms ease-out, transform 120ms ease-out;
+}
+.subtitle-analysis-feedback.success { color: var(--primary-ink); }
+.subtitle-analysis-feedback.error { color: var(--error); }
+.subtitle-analysis-feedback.analyzing { color: var(--text-quiet); cursor: default; }
+.subtitle-analysis-feedback .spinning { animation: subtitle-context-menu-spin 850ms linear infinite; }
+.subtitle-copy-toast {
+  position: fixed;
+  z-index: 90;
+  top: 52px;
+  left: 50%;
+  max-width: calc(100vw - 32px);
+  padding: 7px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  color: var(--text);
+  background: var(--surface);
+  box-shadow: var(--overlay-shadow);
+  font-size: 12px;
+  font-weight: 600;
+  pointer-events: none;
+  transform: translateX(-50%);
+  will-change: opacity, transform;
+  animation: subtitle-copy-toast-lifecycle 2.2s ease both;
+}
+.subtitle-copy-toast.error { color: var(--error); }
+@keyframes subtitle-copy-toast-lifecycle {
+  0% { opacity: 0; transform: translate(-50%, -7px) scale(0.98); }
+  8% { opacity: 1; transform: translate(-50%, 0) scale(1); }
+  82% { opacity: 1; transform: translate(-50%, 0) scale(1); }
+  100% { opacity: 0; transform: translate(-50%, -4px) scale(0.99); }
+}
+.subtitle-analysis-feedback:focus-visible { outline: 3px solid rgba(116, 214, 255, 0.18); outline-offset: -1px; }
+button.subtitle-analysis-feedback:active { transform: scale(0.96); }
+@media (hover: hover) {
+  button.subtitle-analysis-feedback:hover { border-color: var(--primary-soft); color: var(--primary-ink); background: var(--primary-softer); }
+  button.subtitle-analysis-feedback.error:hover { border-color: var(--error); color: var(--error); background: var(--error-soft); }
+}
 .streaming-message { margin-top: 2px; }
 .streaming-message .bubble { color: var(--text-secondary); }
 .streaming-ellipsis { color: var(--primary-ink); }

@@ -1,27 +1,37 @@
 import { useTranslation } from "react-i18next";
 import { Maximize2, Mic, Square, X } from "lucide-react";
 
-import { useTranslationPartial } from "../realtime-state";
-import type { LiveTranscription, Subtitle } from "../types";
+import type { LookupOrigin } from "../app-types";
+import { useLivePartial, useTranslationPartial } from "../realtime-state";
+import type { Subtitle } from "../types";
 import { contentLanguageTag } from "../ui-language";
 
-export function CompactView({ subtitle, partial, running, vrchatMuted, captureDisabled, onSelect, onCapture, onRestore, onClose }: {
+export function CompactView({ subtitle, running, vrchatMuted, captureDisabled, onSelect, onCapture, onRestore, onClose }: {
   subtitle?: Subtitle;
-  partial?: LiveTranscription;
   running: boolean;
   vrchatMuted: boolean;
   captureDisabled: boolean;
-  onSelect: (context: string) => Promise<void>;
+  onSelect: (context: string, origin?: LookupOrigin) => Promise<void>;
   onCapture: () => void;
   onRestore: () => void;
   onClose: () => void;
 }) {
   const { t } = useTranslation();
+  const microphonePartial = useLivePartial("microphone");
+  const speakerPartial = useLivePartial("speaker");
+  const partial = microphonePartial ?? speakerPartial;
   const translationPartial = useTranslationPartial(subtitle?.id ?? null);
   const visibleTranslation = translationPartial
     ?? subtitle?.translation_partial
     ?? subtitle?.translations.at(-1);
   const captureLabel = t(running ? "capture.pause" : "capture.start");
+  const origin: LookupOrigin | undefined = subtitle ? {
+    id: subtitle.id,
+    language: subtitle.language,
+    source: subtitle.source ?? null,
+    createdAt: subtitle.created_at,
+    translation: visibleTranslation?.text ?? null,
+  } : undefined;
   return (
     <div className="compact-shell">
       <div className="compact-drag-region" data-tauri-drag-region />
@@ -30,7 +40,7 @@ export function CompactView({ subtitle, partial, running, vrchatMuted, captureDi
         <span>{vrchatMuted ? t("status.pausedVrchatMuted") : partial?.language?.toUpperCase() ?? subtitle?.language?.toUpperCase() ?? "AUTO"}</span>
       </div>
       <div className="compact-content">
-        <p className="compact-original" lang={contentLanguageTag(partial?.language ?? subtitle?.language)} onMouseUp={() => (partial?.text || subtitle?.text) && void onSelect(partial?.text ?? subtitle!.text)}>
+        <p className="compact-original" lang={contentLanguageTag(partial?.language ?? subtitle?.language)} onMouseUp={() => (partial?.text || subtitle?.text) && void onSelect(partial?.text ?? subtitle!.text, partial ? undefined : origin)}>
           {partial?.text ?? subtitle?.text ?? t("live.waiting")}
         </p>
         {!partial && visibleTranslation && (

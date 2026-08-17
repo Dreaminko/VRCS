@@ -6,6 +6,7 @@ use axum::Json;
 use serde_json::{json, Value};
 
 use crate::chatbox::{preview_chatbox, ChatboxComposeInput, ChatboxMessage, NewChatboxMessage};
+use crate::db::conversations::publish_latest_catalog;
 use crate::models::{now_iso8601, Subtitle, SubtitleTranslation};
 use crate::osc::ManualSendError;
 
@@ -93,6 +94,7 @@ async fn record_conversation_message(
     message: &ChatboxMessage,
 ) -> crate::error::AppResult<Subtitle> {
     let subtitle = conversation_subtitle(message);
+    let conversation_catalog = state.conversation_catalog_tx.clone();
     db_call(Arc::clone(&state.db), move |db| {
         let translations = subtitle.translations.clone();
         let mut saved = db.add_subtitle(&subtitle)?;
@@ -102,6 +104,7 @@ async fn record_conversation_message(
                 saved.translations.push(translation);
             }
         }
+        publish_latest_catalog(db, &conversation_catalog);
         Ok(saved)
     })
     .await
@@ -139,6 +142,7 @@ fn conversation_subtitle(message: &ChatboxMessage) -> Subtitle {
 
     Subtitle {
         id: None,
+        conversation_id: None,
         text,
         language,
         started_at: None,

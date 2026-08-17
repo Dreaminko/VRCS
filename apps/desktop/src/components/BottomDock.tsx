@@ -1,6 +1,6 @@
 import type { ReactNode, Ref } from "react";
 import { useTranslation } from "react-i18next";
-import { History, MessageSquare, MessageSquarePlus, Mic, Shrink, SlidersHorizontal, Square } from "lucide-react";
+import { GraduationCap, MessageSquare, MessageSquarePlus, Mic, Shrink, SlidersHorizontal, Square } from "lucide-react";
 
 import type { Page } from "../app-types";
 
@@ -20,7 +20,7 @@ export function BottomDock({ page, running, chatboxOpen, captureDisabled, chatbo
   return (
     <nav className={`bottom-dock ${chatboxOpen ? "chatbox-open" : ""}`} aria-label={t("navigation.main")}>
       <DockButton label={t("navigation.live")} active={page === "live"} onClick={() => onPageChange("live")}><MessageSquare /></DockButton>
-      <DockButton label={t("navigation.history")} active={page === "history"} onClick={() => onPageChange("history")}><History /></DockButton>
+      <DockButton label={t("navigation.learning")} active={page === "learning"} onClick={() => onPageChange("learning")}><GraduationCap /></DockButton>
       <DockButton label={t("navigation.settings")} active={page === "settings"} onClick={() => onPageChange("settings")}><SlidersHorizontal /></DockButton>
       <i className="dock-divider" aria-hidden="true" />
       <DockButton label={t("navigation.compact")} tonal onClick={onCompact}><Shrink /></DockButton>

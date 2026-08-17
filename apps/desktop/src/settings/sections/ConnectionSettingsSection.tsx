@@ -2,11 +2,12 @@ import { useEffect, useState } from "react";
 import { Link, RadioTower, Send } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
-import type { Health, Settings } from "../../types";
-import type { ApplySettings, SaveState } from "../settings-types";
+import type { AnkiStatus, Health, Settings } from "../../types";
+import type { ApplySettings, SaveState, SettingOption } from "../settings-types";
 import { PreferenceToggle } from "../SettingsControls";
 import { ExternalApiSettingsCard } from "../system/ExternalApiSettingsCard";
 import { VrcxIntegrationSettingsCard } from "../system/VrcxIntegrationSettingsCard";
+import { AnkiSettingsSection } from "./AnkiSettingsSection";
 
 export function ConnectionSettingsSection({
   draft,
@@ -14,12 +15,28 @@ export function ConnectionSettingsSection({
   saveState,
   applySettings,
   onTest,
+  anki,
 }: {
   draft: Settings;
   health: Health | null;
   saveState: SaveState;
   applySettings: ApplySettings;
   onTest: () => Promise<void>;
+  anki: {
+    status: AnkiStatus | null;
+    busy: boolean;
+    message: string;
+    portText: string;
+    portError: string;
+    deckNames: string[];
+    modelOptions: SettingOption[];
+    frontFieldOptions: SettingOption[];
+    backFieldOptions: SettingOption[];
+    onLoadStatus: () => Promise<void>;
+    onSetPortText: (value: string) => void;
+    onCommitPort: () => void;
+    onUpdate: <K extends keyof Settings["anki"]>(key: K, value: Settings["anki"][K]) => void;
+  };
 }) {
   const { t } = useTranslation();
   const [portText, setPortText] = useState(String(draft.osc.port));
@@ -180,6 +197,23 @@ export function ConnectionSettingsSection({
             )}
           </div>
         </section>
+        <AnkiSettingsSection
+          draft={draft}
+          status={anki.status}
+          busy={anki.busy}
+          message={anki.message}
+          portText={anki.portText}
+          portError={anki.portError}
+          saveState={saveState}
+          deckNames={anki.deckNames}
+          modelOptions={anki.modelOptions}
+          frontFieldOptions={anki.frontFieldOptions}
+          backFieldOptions={anki.backFieldOptions}
+          onLoadStatus={anki.onLoadStatus}
+          onSetPortText={anki.onSetPortText}
+          onCommitPort={anki.onCommitPort}
+          onUpdate={anki.onUpdate}
+        />
         <VrcxIntegrationSettingsCard
           config={draft.vrcx}
           saveState={saveState}

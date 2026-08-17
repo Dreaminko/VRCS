@@ -6,6 +6,7 @@ use axum::Json;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
+use crate::db::conversations::publish_latest_catalog;
 use crate::translation::{GlossarySubscriptionError, TranslationError};
 use crate::{
     config::{validate_translation_prompt, TranslationPromptConfig},
@@ -253,8 +254,12 @@ pub(super) async fn subtitle_translate(
         }
     };
     let saved = record.clone();
+    let conversation_catalog = state.conversation_catalog_tx.clone();
     if let Err(error) = db_call(Arc::clone(&state.db), move |db| {
-        db.save_translation(subtitle_id, &saved)
+        if db.save_translation(subtitle_id, &saved)? {
+            publish_latest_catalog(db, &conversation_catalog);
+        }
+        Ok(())
     })
     .await
     {

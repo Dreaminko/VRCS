@@ -4,8 +4,11 @@
 @import "./primitives/chips.css";
 @import "./layout/feedback.css";
 @import "./layout/live-view.css";
+@import "./components/subtitle-context-menu.css";
+@import "./components/subtitle-analysis-popover.css";
 @import "./layout/bottom-dock.css";
 @import "./layout/surfaces.css";
 @import "./layout/history-toolbar.css";
 @import "./components/dropdown.css";
 @import "./layout/history-list.css";
+@import "./layout/learning-workspace.css";

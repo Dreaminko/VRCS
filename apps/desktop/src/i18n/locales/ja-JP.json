@@ -60,7 +60,7 @@
     "navigation": {
       "main": "メインナビゲーション",
       "live": "リアルタイム字幕",
-      "history": "字幕履歴",
+      "learning": "学習ワークスペース",
       "settings": "設定",
       "compact": "字幕モード",
       "chatbox": "Chatbox メッセージ"
@@ -178,6 +178,9 @@
       "previous": "過去の会話",
       "empty": "過去の会話はありません",
       "subtitleCount": "字幕 {{count}} 件",
+      "loadOnOpen": "開いたときに読み込む",
+      "loadOlderMessages": "以前のメッセージを読み込む",
+      "loadingOlderMessages": "以前のメッセージを読み込み中…",
       "viewingPast": "{{time}} の会話を表示中",
       "returnCurrent": "現在の会話に戻る",
       "recent": "最近の会話",
@@ -186,6 +189,8 @@
       "rename": "名前を変更",
       "changeIcon": "アイコンを変更",
       "resetCustomization": "デフォルトに戻す",
+      "delete": "会話を削除",
+      "deleteConfirm": "「{{title}}」とその字幕をすべて完全に削除しますか？この操作は取り消せません。",
       "chooseIcon": "会話アイコンを選択",
       "editTitle": "会話タイトルを編集",
       "viewNamed": "会話「{{title}}」を表示、{{time}}",
@@ -217,18 +222,192 @@
       "microphoneMe": "自分 · マイク",
       "speakerOther": "相手 · システム音声",
       "returnToBottom": "最新の字幕に戻る",
-      "returnToBottomShort": "最新の字幕"
+      "returnToBottomShort": "最新の字幕",
+      "contextMenu": {
+        "label": "字幕の操作",
+        "more": "その他の字幕操作",
+        "copySelection": "選択部分をコピー",
+        "copyOriginal": "原文をコピー",
+        "copyTranslation": "訳文をコピー",
+        "copyBilingual": "原文と訳文をコピー",
+        "selectedSubtitles": "{{count}} 件の字幕を選択中",
+        "copySelectedOriginal": "選択した原文をコピー",
+        "copySelectedTranslation": "選択した訳文をコピー",
+        "copySelectedBilingual": "選択した原文と訳文をコピー",
+        "copySuccess": "コピーしました",
+        "copyFailed": "コピーできませんでした",
+        "analyze": "AI で文型を解析",
+        "reanalyze": "AI で文型を再解析",
+        "analyzeSelected": "選択内容を AI で解析",
+        "reanalyzeSelected": "選択内容を再解析",
+        "analyzing": "AI で解析中…",
+        "analysisComplete": "解析完了 · 表示",
+        "analysisRetry": "解析失敗 · 再試行",
+        "openLearning": "学習項目を開く",
+        "addSelectedLearning": "選択内容を学習に追加",
+        "clearSelection": "選択を解除",
+        "quickAnalysisTitle": "AI 文型解析",
+        "closeAnalysis": "解析結果を閉じる",
+        "openFullAnalysis": "学習ワークスペースで完全な解析を表示"
+      }
     },
-    "history": {
-      "title": "字幕履歴",
-      "recordCount": "{{count}} 件",
+    "learning": {
+      "title": "学習ワークスペース",
+      "description": "字幕を収集し、必要なときだけ分析して、編集可能な Anki カードを準備します。",
+      "materialCount": "会話素材 · 字幕 {{count}} 件",
       "language": "言語",
       "dateRange": "期間",
       "allTime": "すべて",
       "lastSevenDays": "過去 7 日間",
-      "loadEarlier": "以前の履歴を表示",
+      "loadEarlier": "以前の素材を表示",
       "loadingEarlier": "読み込み中…",
-      "empty": "条件に一致する字幕はありません。"
+      "empty": "条件に一致する会話素材はありません。",
+      "tabs": {
+        "label": "学習ワークスペースのセクション",
+        "inbox": "収集箱",
+        "materials": "会話素材"
+      },
+      "inbox": {
+        "title": "収集箱",
+        "count": "{{count}} 件",
+        "statusFilter": "項目の状態",
+        "empty": "この状態の学習項目はありません。",
+        "selectHint": "項目を選択して作業を続けてください。",
+        "loadMore": "さらに読み込む",
+        "loadingMore": "読み込み中…"
+      },
+      "materials": {
+        "title": "会話素材",
+        "search": "会話素材を検索",
+        "searchPlaceholder": "原文または翻訳を検索",
+        "source": "ソース",
+        "sources": {
+          "all": "すべてのソース",
+          "speaker": "システム音声",
+          "microphone": "マイク",
+          "chatbox": "Chatbox"
+        },
+        "selectionHint": "任意に複数選択できます。Shift キーで連続選択できます。",
+        "conversationCount": "字幕 {{count}} 件",
+        "selected": "字幕を {{count}} 件選択中",
+        "selectAll": "表示中を選択",
+        "clearSelection": "クリア",
+        "selectSubtitle": "字幕を選択"
+      },
+      "filters": {
+        "all": "すべて",
+        "collected": "未処理",
+        "analyzed": "分析済み",
+        "cardDraft": "下書き",
+        "exported": "エクスポート済み",
+        "archived": "アーカイブ済み"
+      },
+      "kinds": {
+        "word": "単語",
+        "sentence": "文",
+        "excerpt": "会話抜粋"
+      },
+      "statuses": {
+        "collected": "未処理",
+        "analyzed": "分析済み",
+        "card_draft": "カード下書き",
+        "exported": "エクスポート済み",
+        "archived": "アーカイブ済み"
+      },
+      "actions": {
+        "add": "学習に追加",
+        "adding": "追加中…",
+        "added": "追加済み",
+        "addSelected": "学習に追加",
+        "archive": "アーカイブ",
+        "restore": "復元",
+        "delete": "削除",
+        "deleteConfirm": "この学習項目と分析・下書きを削除しますか？元の字幕は削除されません。"
+      },
+      "detail": {
+        "sourceText": "原文 · 読み取り専用",
+        "workingText": "作業用テキスト",
+        "saveWorkingText": "変更を保存",
+        "sourceTranslation": "保存済み翻訳",
+        "dictionarySnapshot": "辞書スナップショット"
+      },
+      "ai": {
+        "title": "AI 分析",
+        "description": "操作を選んだときだけリクエストします。",
+        "configureHint": "先に 設定 → 学習設定 で AI プロファイルとモデルを設定してください。",
+        "profile": "AI プロファイル",
+        "model": "モデル",
+        "modelPlaceholder": "モデルを選択または入力",
+        "modelUnset": "モデル未設定",
+        "explanationLanguage": "説明言語",
+        "explanationLevel": "説明の詳しさ",
+        "profileMissing": "テキスト生成に対応する AI プロファイルを選択し、モデルを入力してください。",
+        "cloudNoticeTitle": "外部クラウドサービス",
+        "cloudNotice": "作業用テキストと保存済み辞書コンテキストを {{provider}} に送信し、{{model}} を使用します。",
+        "localNoticeTitle": "設定済みローカルサービス",
+        "localNotice": "作業用テキストをローカルサービス {{provider}} に送信し、{{model}} を使用します。このサービス独自の転送設定が適用される場合があります。",
+        "quickFocus": "クイック追加分析",
+        "focus": {
+          "simpler": "もっと簡単に説明",
+          "examples": "例文を追加",
+          "compare": "似た表現と比較"
+        },
+        "tasks": {
+          "contextual_word_explanation": "文脈に沿って単語を説明",
+          "sentence_analysis": "文型を解析",
+          "session_review": "会話を振り返る"
+        },
+        "languages": {
+          "zhCN": "簡体字中国語",
+          "enUS": "英語",
+          "jaJP": "日本語"
+        },
+        "levels": {
+          "beginner": "初級",
+          "intermediate": "中級",
+          "advanced": "上級"
+        }
+      },
+      "analysis": {
+        "title": "分析結果",
+        "summary": "要約",
+        "currentMeaning": "文脈上の意味",
+        "baseForm": "基本形",
+        "partOfSpeech": "品詞",
+        "register": "使用域",
+        "segments": "分割",
+        "grammarPoints": "文法ポイント",
+        "uncertainties": "不確実な点",
+        "memoryTip": "記憶のヒント",
+        "examples": "例文",
+        "confidence": "信頼度 · {{value}}",
+        "metadata": "タスク {{task}} · プロンプト {{prompt}}"
+      },
+      "card": {
+        "title": "カード下書き",
+        "description": "候補を生成して項目を編集・保存し、既存の Anki 設定でエクスポートします。",
+        "type": "カード種類",
+        "types": {
+          "vocabulary": "単語カード",
+          "sentence": "文型カード",
+          "fillBlank": "穴埋めカード"
+        },
+        "generate": "下書きを生成",
+        "regenerate": "再生成",
+        "term": "語句",
+        "reading": "読み",
+        "definition": "定義",
+        "context": "文脈",
+        "dictionary": "辞書",
+        "language": "言語",
+        "save": "下書きを保存",
+        "export": "Anki に追加",
+        "exported": "Anki に追加済み",
+        "noteId": "Anki ノート #{{id}}",
+        "saveBeforeExport": "Anki に追加する前に下書きの変更を保存してください。",
+        "ankiDisabled": "エクスポートする前に設定で AnkiConnect を有効にしてください。",
+        "empty": "作業用テキストと分析を確認したら、カード下書きを生成できます。"
+      }
     },
     "dictionary": {
       "builtIn": "内蔵辞書",
@@ -236,6 +415,14 @@
       "close": "辞書を閉じる",
       "noDefinitions": "インポート済みの辞書に定義がありません。",
       "context": "元の文脈",
+      "learning": {
+        "add": "学習に追加",
+        "saving": "追加中…",
+        "savedAction": "追加済み",
+        "retry": "再試行",
+        "saved": "単語、文脈、辞書スナップショットを学習ワークスペースに保存しました。",
+        "failed": "この単語を学習ワークスペースに追加できませんでした。"
+      },
       "anki": {
         "add": "Anki に追加",
         "adding": "追加中…",
@@ -687,12 +874,14 @@
         "noDevices": "ほかに利用可能なデバイスはありません。"
       },
       "learning": {
-        "title": "学習設定"
+        "title": "学習設定",
+        "aiDescription": "学習ワークスペースの分析に使用する AI サービスと既定の説明方法を設定します。",
+        "noAiProfiles": "テキスト生成に対応する AI プロファイルがありません"
       },
       "dictionary": {
         "title": "辞書",
         "selectionLookup": "選択範囲の辞書検索を有効にする",
-        "selectionLookupDescription": "ライブ字幕または履歴でテキストを選択したときに辞書の意味を表示します。",
+        "selectionLookupDescription": "ライブ字幕または学習ワークスペースの会話素材でテキストを選択したときに辞書の意味を表示します。",
         "count": "{{count}} 件の辞書",
         "importedCount": "{{count}} 件をインポート済み",
         "noneImported": "未インポート",
@@ -709,7 +898,7 @@
         "emptyHint": "Yomitan 形式の ZIP 辞書をインポートすると単語検索を利用できます。"
       },
       "anki": {
-        "title": "Anki 連携",
+        "title": "AnkiConnect",
 
         "enable": "AnkiConnect を有効にする",
         "enableDescription": "ローカルの Anki 接続確認と辞書検索結果からのカード作成を許可します。",
@@ -976,6 +1165,39 @@
         "prompt_invalid": "翻訳プロンプトの設定が無効です。",
         "context_load_failed": "最近の原文コンテキストを読み込めませんでした。"
       },
+      "learning": {
+        "load": "学習項目を読み込めませんでした。",
+        "collect": "この素材を学習ワークスペースに追加できませんでした。",
+        "save": "作業用テキストを保存できませんでした。",
+        "saveDraft": "カード下書きを保存できませんでした。",
+        "analysis": "この学習項目を分析できませんでした。",
+        "draft": "カード下書きを生成できませんでした。",
+        "export": "カードを Anki にエクスポートできませんでした。",
+        "status": "学習項目の状態を更新できませんでした。",
+        "delete": "学習項目を削除できませんでした。",
+        "profiles": "学習用 AI プロファイルを読み込めませんでした。",
+        "models": "この AI プロファイルのモデルを読み込めませんでした。モデル名は手動で入力できます。",
+        "invalid_limit": "学習項目の取得件数が無効です。",
+        "invalid_before_id": "学習項目のページ位置が無効です。",
+        "invalid_id": "学習項目 ID が無効です。",
+        "invalid_request": "学習リクエストが無効です。",
+        "storage_failed": "学習データを保存できませんでした。",
+        "not_found": "この学習項目は存在しません。",
+        "not_configured": "選択した AI プロファイルは利用できません。",
+        "unsupported_provider": "選択したプロバイダーは学習分析に対応していません。",
+        "credential_failed": "AI プロファイルの認証情報を読み取れませんでした。",
+        "credential_missing": "選択した AI プロファイルに API キーがありません。",
+        "invalid_configuration": "選択した AI プロファイルまたはモデルが無効です。",
+        "authentication_failed": "AI サービスが API 認証情報を拒否しました。",
+        "rate_limited": "学習リクエストが多すぎます。後でもう一度お試しください。",
+        "timeout": "学習リクエストがタイムアウトしました。",
+        "provider_unavailable": "AI サービスは一時的に利用できません。",
+        "invalid_response": "AI サービスから無効な分析結果が返されました。",
+        "request_failed": "学習リクエストに失敗しました。",
+        "draft_invalid": "生成されたカード下書きが無効です。",
+        "draft_unavailable": "現在の素材からこのカード種類を生成できません。",
+        "draft_missing": "エクスポートする前にカード下書きを作成して保存してください。"
+      },
       "llm": {
         "authentication_failed": "LLM サービスが API 認証情報を拒否しました。",
         "rate_limited": "LLM リクエストが多すぎます。後でもう一度お試しください。",
@@ -1078,6 +1300,7 @@
         "missing_deck": "デッキ「{{deck}}」が見つかりません。",
         "missing_model": "ノートタイプ「{{model}}」が見つかりません。",
         "missing_field": "選択したノートタイプに必要なフィールドがありません。",
+        "duplicate_field_mapping": "Anki の表面と裏面には別のフィールドを指定してください。",
         "invalid_configuration": "Anki のカード設定が無効です。"
       },
       "capture": {
@@ -1087,7 +1310,9 @@
       },
       "subtitles": {
         "invalid_limit": "履歴の上限が無効です。",
-        "history_failed": "字幕履歴を読み込めませんでした。"
+        "invalid_range": "会話の時間範囲が無効です。",
+        "history_failed": "字幕履歴を読み込めませんでした。",
+        "delete_failed": "この会話を削除できませんでした。"
       },
       "storage": {
         "stats_failed": "データベースの使用量を取得できませんでした。",

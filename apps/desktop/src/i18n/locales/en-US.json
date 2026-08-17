@@ -60,7 +60,7 @@
     "navigation": {
       "main": "Main navigation",
       "live": "Live subtitles",
-      "history": "Subtitle history",
+      "learning": "Learning workspace",
       "settings": "Settings",
       "compact": "Subtitle mode",
       "chatbox": "Chatbox message"
@@ -178,6 +178,9 @@
       "previous": "Previous",
       "empty": "No previous conversations",
       "subtitleCount": "{{count}} subtitles",
+      "loadOnOpen": "Load when opened",
+      "loadOlderMessages": "Load earlier messages",
+      "loadingOlderMessages": "Loading earlier messages…",
       "viewingPast": "Viewing a conversation from {{time}}",
       "returnCurrent": "Return to current conversation",
       "recent": "Recent conversations",
@@ -186,6 +189,8 @@
       "rename": "Rename",
       "changeIcon": "Change icon",
       "resetCustomization": "Restore defaults",
+      "delete": "Delete conversation",
+      "deleteConfirm": "Permanently delete “{{title}}” and all of its subtitles? This action cannot be undone.",
       "chooseIcon": "Choose a conversation icon",
       "editTitle": "Edit conversation title",
       "viewNamed": "View {{title}}, {{time}}",
@@ -217,18 +222,192 @@
       "microphoneMe": "You · microphone",
       "speakerOther": "Others · system audio",
       "returnToBottom": "Return to the latest subtitle",
-      "returnToBottomShort": "Latest subtitle"
+      "returnToBottomShort": "Latest subtitle",
+      "contextMenu": {
+        "label": "Subtitle actions",
+        "more": "More subtitle actions",
+        "copySelection": "Copy selected text",
+        "copyOriginal": "Copy original",
+        "copyTranslation": "Copy translation",
+        "copyBilingual": "Copy original and translation",
+        "selectedSubtitles": "{{count}} subtitles selected",
+        "copySelectedOriginal": "Copy selected originals",
+        "copySelectedTranslation": "Copy selected translations",
+        "copySelectedBilingual": "Copy selected bilingual text",
+        "copySuccess": "Copied",
+        "copyFailed": "Could not copy",
+        "analyze": "Analyze sentence with AI",
+        "reanalyze": "Analyze sentence again",
+        "analyzeSelected": "Analyze selected text with AI",
+        "reanalyzeSelected": "Analyze selected text again",
+        "analyzing": "Analyzing with AI…",
+        "analysisComplete": "Analysis complete · View",
+        "analysisRetry": "Analysis failed · Retry",
+        "openLearning": "Open learning item",
+        "addSelectedLearning": "Add selected text to learning",
+        "clearSelection": "Clear selection",
+        "quickAnalysisTitle": "AI sentence analysis",
+        "closeAnalysis": "Close analysis result",
+        "openFullAnalysis": "View full analysis in learning workspace"
+      }
     },
-    "history": {
-      "title": "Subtitle history",
-      "recordCount": "{{count}} records",
+    "learning": {
+      "title": "Learning workspace",
+      "description": "Collect subtitles, request focused analysis, and prepare editable Anki cards.",
+      "materialCount": "Conversation material · {{count}} subtitles",
       "language": "Language",
       "dateRange": "Date range",
       "allTime": "All time",
       "lastSevenDays": "Last 7 days",
-      "loadEarlier": "View earlier records",
+      "loadEarlier": "View earlier material",
       "loadingEarlier": "Loading…",
-      "empty": "No subtitles match these filters."
+      "empty": "No conversation material matches these filters.",
+      "tabs": {
+        "label": "Learning workspace sections",
+        "inbox": "Inbox",
+        "materials": "Conversation material"
+      },
+      "inbox": {
+        "title": "Inbox",
+        "count": "{{count}} items",
+        "statusFilter": "Item status",
+        "empty": "No learning items match this status.",
+        "selectHint": "Select an item to continue working.",
+        "loadMore": "Load more items",
+        "loadingMore": "Loading…"
+      },
+      "materials": {
+        "title": "Conversation material",
+        "search": "Search conversation material",
+        "searchPlaceholder": "Search original text or translations",
+        "source": "Source",
+        "sources": {
+          "all": "All sources",
+          "speaker": "System audio",
+          "microphone": "Microphone",
+          "chatbox": "Chatbox"
+        },
+        "selectionHint": "Select any subtitles. Hold Shift to select a continuous range.",
+        "conversationCount": "{{count}} subtitles",
+        "selected": "{{count}} subtitles selected",
+        "selectAll": "Select visible",
+        "clearSelection": "Clear",
+        "selectSubtitle": "Select subtitle"
+      },
+      "filters": {
+        "all": "All",
+        "collected": "To process",
+        "analyzed": "Analyzed",
+        "cardDraft": "Drafts",
+        "exported": "Exported",
+        "archived": "Archived"
+      },
+      "kinds": {
+        "word": "Word",
+        "sentence": "Sentence",
+        "excerpt": "Excerpt"
+      },
+      "statuses": {
+        "collected": "To process",
+        "analyzed": "Analyzed",
+        "card_draft": "Card draft",
+        "exported": "Exported",
+        "archived": "Archived"
+      },
+      "actions": {
+        "add": "Add to learning",
+        "adding": "Adding…",
+        "added": "Added",
+        "addSelected": "Add to learning",
+        "archive": "Archive",
+        "restore": "Restore",
+        "delete": "Delete",
+        "deleteConfirm": "Delete this learning item and its analysis and draft? Source subtitles are not deleted."
+      },
+      "detail": {
+        "sourceText": "Original text · read only",
+        "workingText": "Working text",
+        "saveWorkingText": "Save changes",
+        "sourceTranslation": "Saved translation",
+        "dictionarySnapshot": "Dictionary snapshot"
+      },
+      "ai": {
+        "title": "AI analysis",
+        "description": "Requests run only when you choose an action.",
+        "configureHint": "Configure an AI profile and model in Settings → Learning settings first.",
+        "profile": "AI profile",
+        "model": "Model",
+        "modelPlaceholder": "Select or enter a model",
+        "modelUnset": "model not set",
+        "explanationLanguage": "Explanation language",
+        "explanationLevel": "Explanation detail",
+        "profileMissing": "Choose an AI profile that supports text generation and enter a model before sending content.",
+        "cloudNoticeTitle": "Third-party service",
+        "cloudNotice": "Working text and saved dictionary context will be sent to {{provider}} using {{model}}.",
+        "localNoticeTitle": "Configured local service",
+        "localNotice": "Working text will be sent to the configured local service {{provider}} using {{model}}. That service may have its own forwarding rules.",
+        "quickFocus": "Quick focus",
+        "focus": {
+          "simpler": "Explain more simply",
+          "examples": "More examples",
+          "compare": "Compare similar forms"
+        },
+        "tasks": {
+          "contextual_word_explanation": "Explain word in context",
+          "sentence_analysis": "Analyze sentence",
+          "session_review": "Review conversation"
+        },
+        "languages": {
+          "zhCN": "Simplified Chinese",
+          "enUS": "English",
+          "jaJP": "Japanese"
+        },
+        "levels": {
+          "beginner": "Beginner",
+          "intermediate": "Intermediate",
+          "advanced": "Advanced"
+        }
+      },
+      "analysis": {
+        "title": "Analysis result",
+        "summary": "Summary",
+        "currentMeaning": "Meaning in context",
+        "baseForm": "Base form",
+        "partOfSpeech": "Part of speech",
+        "register": "Register",
+        "segments": "Segments",
+        "grammarPoints": "Grammar points",
+        "uncertainties": "Uncertainties",
+        "memoryTip": "Memory tip",
+        "examples": "Examples",
+        "confidence": "Confidence · {{value}}",
+        "metadata": "Task {{task}} · prompt {{prompt}}"
+      },
+      "card": {
+        "title": "Card draft",
+        "description": "Generate a suggestion, edit the fields, save it, then export through the existing Anki settings.",
+        "type": "Card type",
+        "types": {
+          "vocabulary": "Vocabulary",
+          "sentence": "Sentence",
+          "fillBlank": "Fill in the blank"
+        },
+        "generate": "Generate draft",
+        "regenerate": "Regenerate",
+        "term": "Term",
+        "reading": "Reading",
+        "definition": "Definition",
+        "context": "Context",
+        "dictionary": "Dictionary",
+        "language": "Language",
+        "save": "Save draft",
+        "export": "Add to Anki",
+        "exported": "Added to Anki",
+        "noteId": "Anki note #{{id}}",
+        "saveBeforeExport": "Save draft changes before adding the card to Anki.",
+        "ankiDisabled": "Enable AnkiConnect in Settings before exporting.",
+        "empty": "Generate a draft when the analysis and working text are ready."
+      }
     },
     "dictionary": {
       "builtIn": "Built-in dictionary",
@@ -236,6 +415,14 @@
       "close": "Close dictionary",
       "noDefinitions": "No definition was found in imported dictionaries.",
       "context": "Original context",
+      "learning": {
+        "add": "Add to learning",
+        "saving": "Adding…",
+        "savedAction": "Added",
+        "retry": "Retry",
+        "saved": "Saved this word, context, and dictionary snapshot to the learning workspace.",
+        "failed": "Could not add this word to the learning workspace."
+      },
       "anki": {
         "add": "Add to Anki",
         "adding": "Adding…",
@@ -687,12 +874,14 @@
         "noDevices": "No other available devices were found."
       },
       "learning": {
-        "title": "Learning settings"
+        "title": "Learning settings",
+        "aiDescription": "Choose the AI service and default explanation style used by the learning workspace.",
+        "noAiProfiles": "No AI profiles support text generation"
       },
       "dictionary": {
         "title": "Dictionaries",
         "selectionLookup": "Enable selection lookup",
-        "selectionLookupDescription": "Show dictionary definitions after selecting text in live subtitles or history.",
+        "selectionLookupDescription": "Show dictionary definitions after selecting text in live subtitles or conversation material in the learning workspace.",
         "count": "{{count}} dictionaries",
         "importedCount": "{{count}} imported",
         "noneImported": "None imported",
@@ -709,7 +898,7 @@
         "emptyHint": "Import a Yomitan-format ZIP dictionary to enable word lookup."
       },
       "anki": {
-        "title": "Anki integration",
+        "title": "AnkiConnect",
 
         "enable": "Enable AnkiConnect",
         "enableDescription": "Allow local Anki connection checks and card creation from dictionary results.",
@@ -976,6 +1165,39 @@
         "prompt_invalid": "The translation prompt configuration is invalid.",
         "context_load_failed": "Could not load recent source-text context."
       },
+      "learning": {
+        "load": "Could not load learning items.",
+        "collect": "Could not add this material to the learning workspace.",
+        "save": "Could not save the working text.",
+        "saveDraft": "Could not save the card draft.",
+        "analysis": "Could not analyze this learning item.",
+        "draft": "Could not generate the card draft.",
+        "export": "Could not export the card to Anki.",
+        "status": "Could not update the learning item status.",
+        "delete": "Could not delete the learning item.",
+        "profiles": "Could not load AI profiles for learning.",
+        "models": "Could not load models for this AI profile. You can enter a model name manually.",
+        "invalid_limit": "The learning item limit is invalid.",
+        "invalid_before_id": "The learning page cursor is invalid.",
+        "invalid_id": "The learning item ID is invalid.",
+        "invalid_request": "The learning request is invalid.",
+        "storage_failed": "The learning data could not be saved.",
+        "not_found": "This learning item no longer exists.",
+        "not_configured": "The selected AI profile is no longer available.",
+        "unsupported_provider": "The selected provider does not support learning analysis.",
+        "credential_failed": "The AI profile credential could not be read.",
+        "credential_missing": "The selected AI profile has no API key.",
+        "invalid_configuration": "The selected AI profile or model is invalid.",
+        "authentication_failed": "The AI service rejected the API credentials.",
+        "rate_limited": "Too many learning requests. Try again later.",
+        "timeout": "The learning request timed out.",
+        "provider_unavailable": "The AI service is temporarily unavailable.",
+        "invalid_response": "The AI service returned an invalid analysis response.",
+        "request_failed": "The learning request failed.",
+        "draft_invalid": "The generated card draft is invalid.",
+        "draft_unavailable": "This card type cannot be generated from the current material.",
+        "draft_missing": "Create and save a card draft before exporting."
+      },
       "llm": {
         "authentication_failed": "The LLM service rejected the API credentials.",
         "rate_limited": "Too many LLM requests. Try again later.",
@@ -1078,6 +1300,7 @@
         "missing_deck": "Deck “{{deck}}” was not found.",
         "missing_model": "Note type “{{model}}” was not found.",
         "missing_field": "The selected note type is missing required fields.",
+        "duplicate_field_mapping": "The Anki front and back fields must be different.",
         "invalid_configuration": "The Anki card configuration is invalid."
       },
       "capture": {
@@ -1087,7 +1310,9 @@
       },
       "subtitles": {
         "invalid_limit": "The history limit is invalid.",
-        "history_failed": "Could not load subtitle history."
+        "invalid_range": "The conversation time range is invalid.",
+        "history_failed": "Could not load subtitle history.",
+        "delete_failed": "Could not delete this conversation."
       },
       "storage": {
         "stats_failed": "Could not read database storage usage.",

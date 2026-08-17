@@ -19,7 +19,8 @@
   .external-api-token-input .secondary-button,
   .external-api-generated-token .secondary-button { align-self: flex-start; }
   .recognition-config-fields,
-  .translation-config-fields { grid-template-columns: 1fr; }
+  .translation-config-fields,
+  .learning-ai-settings-grid { grid-template-columns: 1fr; }
   .translation-context-sources,
   .translation-context-limits,
   .glossary-dialog-entry { grid-template-columns: 1fr; }

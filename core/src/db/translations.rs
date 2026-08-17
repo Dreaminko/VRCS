@@ -9,7 +9,7 @@ impl Database {
         &self,
         subtitle_id: i64,
         translation: &SubtitleTranslation,
-    ) -> AppResult<()> {
+    ) -> AppResult<bool> {
         self.conn.execute(
             "INSERT INTO subtitle_translations(
                 subtitle_id, text, source_language, target_language, provider, model, created_at
@@ -30,8 +30,13 @@ impl Database {
                 translation.created_at,
             ],
         )?;
-        self.trim_subtitle_history_to_size()?;
-        Ok(())
+        match self.trim_subtitle_history_to_size() {
+            Ok(catalog_changed) => Ok(catalog_changed),
+            Err(error) => {
+                tracing::warn!(%error, subtitle_id, "translation saved but history quota maintenance failed");
+                Ok(true)
+            }
+        }
     }
 
     pub fn translations_for_subtitle(

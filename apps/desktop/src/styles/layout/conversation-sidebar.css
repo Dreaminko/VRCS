@@ -284,6 +284,8 @@
 }
 .conversation-actions-popover > button:active,
 .conversation-icon-picker button:active { transform: scale(0.97); }
+.conversation-actions-popover > .conversation-action-delete { margin-top: 3px; border-top: 1px solid var(--border); border-radius: 0 0 var(--radius-sm) var(--radius-sm); color: var(--error); }
+.conversation-actions-popover > .conversation-action-delete:hover { background: var(--error-soft); }
 .conversation-icon-picker-label { padding: 6px 8px 4px; color: var(--text-quiet); font-size: 10px; font-weight: 650; letter-spacing: 0.04em; }
 .conversation-icon-picker { display: grid; grid-template-columns: repeat(4, 40px); gap: 4px; }
 .conversation-icon-picker button {

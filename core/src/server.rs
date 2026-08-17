@@ -5,8 +5,10 @@ mod anki;
 pub(crate) mod capture;
 mod chatbox;
 mod cloud;
+mod conversations;
 mod dictionary;
 mod external;
+mod learning;
 mod models;
 mod osc;
 mod provider_diagnostics;
@@ -24,13 +26,14 @@ use axum::extract::{DefaultBodyLimit, State};
 use axum::http::{header, Method, Request, StatusCode};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
-use axum::routing::{delete, get, post};
+use axum::routing::{delete, get, patch, post};
 use axum::{Json, Router};
 use serde_json::{json, Value};
 use tokio::sync::{broadcast, watch, Mutex as AsyncMutex};
 use tower_http::cors::CorsLayer;
 
 use crate::config::AppConfig;
+use crate::db::conversations::ConversationCatalog;
 use crate::db::Database;
 use crate::error::{AppError, AppResult};
 use crate::microphone_monitor::MicrophoneMonitor;
@@ -56,8 +59,10 @@ pub struct AppState {
     pub config: Arc<RwLock<AppConfig>>,
     pub db: Arc<Mutex<Database>>,
     pub live_tx: broadcast::Sender<LiveTranscription>,
+    pub conversation_catalog_tx: broadcast::Sender<ConversationCatalog>,
     pub subtitle_output: SubtitleLifecyclePublisher,
     pub translation_service: Arc<TranslationService>,
+    pub learning_service: Arc<crate::learning::LearningService>,
     pub translation_dispatcher: TranslationDispatcher,
     pub glossary_subscription: Arc<crate::translation::GlossarySubscriptionStore>,
     pub osc: OscChatboxDispatcher,
@@ -221,6 +226,22 @@ pub fn router(state: Arc<AppState>) -> Router {
             "/api/subtitles",
             get(dictionary::subtitle_history).delete(storage::clear_subtitle_history),
         )
+        .route(
+            "/api/subtitles/range",
+            delete(storage::delete_subtitle_range),
+        )
+        .route(
+            "/api/conversations",
+            get(conversations::catalog).post(conversations::create),
+        )
+        .route(
+            "/api/conversations/{id}",
+            patch(conversations::update).delete(conversations::delete_conversation),
+        )
+        .route(
+            "/api/conversations/{id}/subtitles",
+            get(conversations::subtitles),
+        )
         .route("/api/storage/stats", get(storage::database_stats))
         .route(
             "/api/translations/preview",
@@ -318,6 +339,38 @@ pub fn router(state: Arc<AppState>) -> Router {
         )
         .route("/api/anki/status", get(anki::anki_status))
         .route("/api/anki/cards", post(anki::anki_add_card))
+        .route(
+            "/api/learning/items",
+            get(learning::learning_items).post(learning::learning_item_create),
+        )
+        .route(
+            "/api/learning/capture-keys",
+            get(learning::learning_capture_keys),
+        )
+        .route(
+            "/api/learning/items/{id}",
+            patch(learning::learning_item_patch).delete(learning::learning_item_delete),
+        )
+        .route(
+            "/api/learning/items/{id}/archive",
+            post(learning::learning_item_archive),
+        )
+        .route(
+            "/api/learning/items/{id}/restore",
+            post(learning::learning_item_restore),
+        )
+        .route(
+            "/api/learning/items/{id}/analysis",
+            post(learning::learning_item_analyze),
+        )
+        .route(
+            "/api/learning/items/{id}/draft",
+            post(learning::learning_item_draft),
+        )
+        .route(
+            "/api/learning/items/{id}/export",
+            post(learning::learning_item_export),
+        )
         .route("/ws", get(ws::ws_handler))
         .layer(middleware::from_fn_with_state(state.clone(), authenticate))
         .layer(cors)

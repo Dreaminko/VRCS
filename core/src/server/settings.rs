@@ -7,6 +7,7 @@ use axum::Json;
 use serde_json::{json, Value};
 
 use crate::config::{save_config, AppConfig};
+use crate::db::conversations::publish_latest_catalog;
 use crate::models::SettingsUpdate;
 use crate::providers::{ALIBABA_PROVIDER, OPENAI_PROVIDER};
 use crate::{asr, audio, credentials};
@@ -390,8 +391,12 @@ pub(super) async fn commit_candidate(
     *state.config.write().expect("config lock") = candidate.clone();
     if storage_quota_changed {
         let max_bytes = candidate.storage.subtitle_history_max_bytes;
+        let conversation_catalog = state.conversation_catalog_tx.clone();
         if let Err(error) = super::db_call(Arc::clone(&state.db), move |db| {
-            db.set_subtitle_history_max_bytes(max_bytes)
+            if db.set_subtitle_history_max_bytes(max_bytes)? {
+                publish_latest_catalog(db, &conversation_catalog);
+            }
+            Ok(())
         })
         .await
         {

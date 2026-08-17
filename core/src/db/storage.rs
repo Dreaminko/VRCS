@@ -15,7 +15,7 @@ pub struct DatabaseStorageStats {
 }
 
 impl Database {
-    pub fn set_subtitle_history_max_bytes(&mut self, max_bytes: u64) -> AppResult<()> {
+    pub fn set_subtitle_history_max_bytes(&mut self, max_bytes: u64) -> AppResult<bool> {
         self.subtitle_history_max_bytes = max_bytes;
         self.trim_subtitle_history_to_size()
     }
@@ -37,13 +37,17 @@ impl Database {
     }
 
     pub fn clear_subtitle_history(&self) -> AppResult<DatabaseStorageStats> {
-        self.conn.execute("DELETE FROM subtitles", [])?;
+        let transaction = self.conn.unchecked_transaction()?;
+        transaction.execute("DELETE FROM subtitles", [])?;
+        super::conversations::reset_after_history_clear(&transaction)?;
+        transaction.commit()?;
         self.conn.execute_batch("VACUUM")?;
         self.storage_stats()
     }
 
-    pub(super) fn trim_subtitle_history_to_size(&self) -> AppResult<()> {
+    pub(super) fn trim_subtitle_history_to_size(&self) -> AppResult<bool> {
         let mut stats = self.storage_stats()?;
+        let mut catalog_changed = false;
         while stats.over_limit {
             let subtitle_count =
                 self.conn
@@ -62,9 +66,11 @@ impl Database {
             if deleted == 0 {
                 break;
             }
+            catalog_changed = true;
+            super::conversations::cleanup_empty_ended(&self.conn)?;
             stats = self.storage_stats()?;
         }
-        Ok(())
+        Ok(catalog_changed)
     }
 
     fn pragma_u64(&self, name: &str) -> AppResult<u64> {

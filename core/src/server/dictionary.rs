@@ -75,7 +75,7 @@ pub(super) async fn subtitle_history(
         ),
     };
     let subtitles = db_call(Arc::clone(&state.db), move |db| match before_id {
-        Some(before_id) => db.subtitle_history_before(limit, Some(before_id)),
+        Some(before_id) => db.subtitle_history_before(limit, before_id),
         None => db.subtitle_history(limit),
     })
     .await

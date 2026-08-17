@@ -1,3 +1,4 @@
+import type { ConversationCatalog, CoreConversation } from "./conversations";
 import type {
   AudioLevel,
   LiveTranscription,
@@ -6,13 +7,34 @@ import type {
   VrchatMuteStatus,
 } from "./types";
 
-const DEFAULT_HISTORY_LIMIT = 10_000;
 export const SUBTITLE_HISTORY_PAGE_SIZE = 100;
-export const SUBTITLE_HISTORY_REQUEST_LIMIT = SUBTITLE_HISTORY_PAGE_SIZE + 1;
 const MAX_STREAM_TEXT_LENGTH = 100_000;
+
+export interface ConversationSubtitlePage {
+  items: Subtitle[];
+  has_more: boolean;
+  next_before_id: number | null;
+}
+
+export interface ParsedConversationSubtitlePage {
+  items: Subtitle[];
+  hasOlder: boolean;
+  nextBeforeId: number | null;
+}
+
+export interface ConversationRequestToken {
+  conversationId: string;
+  version: number;
+}
+
+export interface ConversationCatalogEvent {
+  sequence: number;
+  catalog: ConversationCatalog;
+}
 
 export type SubtitleStreamMessage =
   | { type: "subtitle"; subtitle: Subtitle }
+  | { type: "conversation_catalog"; catalog: ConversationCatalog }
   | LiveTranscription
   | AudioLevel
   | { type: "vrchat_mute_status"; status: VrchatMuteStatus }
@@ -84,6 +106,26 @@ function isVrchatMuteStatus(value: unknown): value is VrchatMuteStatus {
     && isNullableText(value.last_error);
 }
 
+function isCoreConversation(value: unknown): value is CoreConversation {
+  return isObject(value)
+    && isText(value.id)
+    && isText(value.started_at)
+    && isNullableText(value.ended_at)
+    && isNullableText(value.automatic_title)
+    && isNullableText(value.custom_title)
+    && isNullableText(value.icon)
+    && Number.isSafeInteger(value.subtitle_count)
+    && Number(value.subtitle_count) >= 0
+    && isText(value.updated_at)
+    && typeof value.active === "boolean";
+}
+
+function isConversationCatalog(value: unknown): value is ConversationCatalog {
+  return isObject(value)
+    && Array.isArray(value.conversations)
+    && value.conversations.every(isCoreConversation);
+}
+
 function isTranslation(value: unknown): value is SubtitleTranslation {
   return isObject(value)
     && isText(value.text)
@@ -104,6 +146,11 @@ function isSubtitle(value: unknown): value is Subtitle {
     && isNullableFiniteNumber(value.started_at)
     && isNullableFiniteNumber(value.ended_at)
     && isText(value.created_at)
+    && (
+      value.conversation_id === undefined
+      || value.conversation_id === null
+      || isText(value.conversation_id)
+    )
     && (value.source === undefined || isSubtitleSource(value.source))
     && Array.isArray(value.translations)
     && value.translations.every(isTranslation)
@@ -131,6 +178,10 @@ export function parseSubtitleStreamMessage(
     case "subtitle":
       return isSubtitle(value.subtitle)
         ? { type: "subtitle", subtitle: value.subtitle }
+        : null;
+    case "conversation_catalog":
+      return isConversationCatalog(value.catalog)
+        ? { type: "conversation_catalog", catalog: value.catalog }
         : null;
     case "partial":
       return isSource(value.source)
@@ -184,14 +235,27 @@ export function parseSubtitleStreamMessage(
   }
 }
 
-export function subtitleHistoryPage(items: Subtitle[]): {
-  items: Subtitle[];
-  hasOlder: boolean;
-} {
+export function conversationSubtitlePage(
+  page: ConversationSubtitlePage,
+): ParsedConversationSubtitlePage {
   return {
-    items: items.slice(0, SUBTITLE_HISTORY_PAGE_SIZE),
-    hasOlder: items.length > SUBTITLE_HISTORY_PAGE_SIZE,
+    items: page.items.slice(0, SUBTITLE_HISTORY_PAGE_SIZE),
+    hasOlder: page.has_more,
+    nextBeforeId: page.has_more ? page.next_before_id : null,
   };
+}
+
+export function isAbortError(reason: unknown): boolean {
+  return isObject(reason) && reason.name === "AbortError";
+}
+
+export function isConversationRequestCurrent(
+  request: ConversationRequestToken,
+  currentConversationId: string | null,
+  currentVersion: number,
+): boolean {
+  return request.conversationId === currentConversationId
+    && request.version === currentVersion;
 }
 
 function subtitleKey(subtitle: Subtitle): string {
@@ -249,15 +313,9 @@ function mergeSubtitle(preferred: Subtitle, fallback: Subtitle): Subtitle {
   };
 }
 
-/**
- * Reconciles a preferred live view with an older or overlapping snapshot.
- * Live fields win, while persisted translations fill gaps that may have been
- * created while the WebSocket was disconnected.
- */
 export function mergeSubtitleHistory(
   preferred: Subtitle[],
   fallback: Subtitle[],
-  limit = DEFAULT_HISTORY_LIMIT,
 ): Subtitle[] {
   const merged = new Map<string, Subtitle>();
   for (const subtitle of [...preferred, ...fallback]) {
@@ -265,5 +323,23 @@ export function mergeSubtitleHistory(
     const current = merged.get(key);
     merged.set(key, current ? mergeSubtitle(current, subtitle) : subtitle);
   }
-  return [...merged.values()].sort(newestFirst).slice(0, limit);
+  return [...merged.values()].sort(newestFirst);
+}
+
+export function upsertSubtitleHistory(
+  current: Subtitle[],
+  subtitle: Subtitle,
+): Subtitle[] {
+  const key = subtitleKey(subtitle);
+  const existingIndex = current.findIndex((item) => subtitleKey(item) === key);
+  if (existingIndex >= 0) {
+    const next = [...current];
+    next[existingIndex] = mergeSubtitle(subtitle, current[existingIndex]);
+    return next;
+  }
+
+  const insertAt = current.findIndex((item) => newestFirst(subtitle, item) < 0);
+  const next = [...current];
+  next.splice(insertAt < 0 ? next.length : insertAt, 0, subtitle);
+  return next;
 }

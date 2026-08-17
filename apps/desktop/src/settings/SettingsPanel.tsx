@@ -32,11 +32,11 @@ import { useDesktopPreferences } from "./hooks/useDesktopPreferences";
 import { useDictionaryActions } from "./hooks/useDictionaryActions";
 import { useSettingsDraft } from "./hooks/useSettingsDraft";
 import { createDebugRows } from "./settings-derived";
-import { AnkiSettingsSection } from "./sections/AnkiSettingsSection";
 import { ApiManagementSettingsSection } from "./sections/ApiManagementSettingsSection";
 import { AudioSettingsSection } from "./sections/AudioSettingsSection";
 import { DebugSettingsSection } from "./sections/DebugSettingsSection";
 import { DictionarySettingsSection } from "./sections/DictionarySettingsSection";
+import { LearningAiSettingsSection } from "./sections/LearningAiSettingsSection";
 import { RecognitionSettingsSection } from "./sections/RecognitionSettingsSection";
 import { ConnectionSettingsSection } from "./sections/ConnectionSettingsSection";
 import { SystemSettingsSection } from "./sections/SystemSettingsSection";
@@ -117,7 +117,7 @@ export function SettingsPanel({
     draftController,
   });
   const anki = useAnkiSettings({
-    active: activeCategory === "learning",
+    active: activeCategory === "connections",
     settings,
     draftController,
   });
@@ -336,6 +336,7 @@ export function SettingsPanel({
             </div>
           </div>
           <div className="learning-settings-list">
+            <LearningAiSettingsSection />
             <DictionarySettingsSection
               locale={locale}
               selectionLookupEnabled={draft.dictionary.selection_lookup_enabled}
@@ -355,23 +356,6 @@ export function SettingsPanel({
               onChoose={chooseDictionary}
               onRemove={removeDictionary}
             />
-            <AnkiSettingsSection
-              draft={draft}
-              status={ankiStatus}
-              busy={ankiBusy}
-              message={ankiMessage}
-              portText={ankiPortText}
-              portError={ankiPortError}
-              saveState={saveState}
-              deckNames={ankiDeckNames}
-              modelOptions={ankiModelOptions}
-              frontFieldOptions={ankiFieldOptions}
-              backFieldOptions={ankiBackFieldOptions}
-              onLoadStatus={loadAnkiStatus}
-              onSetPortText={setAnkiPortText}
-              onCommitPort={commitAnkiPort}
-              onUpdate={updateAnki}
-            />
           </div>
         </div>
       )}
@@ -383,6 +367,21 @@ export function SettingsPanel({
           saveState={saveState}
           applySettings={applySettings}
           onTest={onTestOsc}
+          anki={{
+            status: ankiStatus,
+            busy: ankiBusy,
+            message: ankiMessage,
+            portText: ankiPortText,
+            portError: ankiPortError,
+            deckNames: ankiDeckNames,
+            modelOptions: ankiModelOptions,
+            frontFieldOptions: ankiFieldOptions,
+            backFieldOptions: ankiBackFieldOptions,
+            onLoadStatus: loadAnkiStatus,
+            onSetPortText: setAnkiPortText,
+            onCommitPort: commitAnkiPort,
+            onUpdate: updateAnki,
+          }}
         />
       )}
 

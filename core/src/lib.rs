@@ -10,6 +10,7 @@ mod db;
 mod domain_events;
 mod error;
 mod external_api;
+mod learning;
 mod llm;
 mod microphone_monitor;
 mod models;
@@ -283,6 +284,7 @@ async fn start_inner(options: CoreOptions, defer_managed_vad: bool) -> Result<Co
     let asr_config = config.asr.clone();
     let (subtitles_tx, _) = broadcast::channel(50);
     let (live_tx, _) = broadcast::channel(100);
+    let (conversation_catalog_tx, _) = broadcast::channel(50);
     let (translation_tx, _) = broadcast::channel(100);
     let domain_events = domain_events::DomainEventHub::new();
     let db = Arc::new(Mutex::new(database));
@@ -308,6 +310,7 @@ async fn start_inner(options: CoreOptions, defer_managed_vad: bool) -> Result<Co
         Arc::new(translation::TranslationService::with_glossary_subscription(
             Arc::clone(&glossary_subscription),
         )?);
+    let learning_service = Arc::new(learning::LearningService::new()?);
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
     let vrcx = vrcx::VrcxIntegration::new(shutdown_rx.clone());
     let vrcx_token = match credentials::read_vrcx_token() {
@@ -321,6 +324,7 @@ async fn start_inner(options: CoreOptions, defer_managed_vad: bool) -> Result<Co
     let translation_dispatcher = translation::TranslationDispatcher::new(
         Arc::clone(&translation_service),
         Arc::clone(&db),
+        conversation_catalog_tx.clone(),
         subtitle_output.clone(),
         vrcx.clone(),
     );
@@ -363,8 +367,10 @@ async fn start_inner(options: CoreOptions, defer_managed_vad: bool) -> Result<Co
         config: Arc::new(RwLock::new(config)),
         db,
         live_tx,
+        conversation_catalog_tx,
         subtitle_output,
         translation_service,
+        learning_service,
         translation_dispatcher,
         glossary_subscription: Arc::clone(&glossary_subscription),
         osc,
@@ -566,6 +572,7 @@ mod tests {
             .unwrap()
             .add_subtitle(&crate::models::Subtitle {
                 id: None,
+                conversation_id: None,
                 text: "temporary history".into(),
                 language: Some("en".into()),
                 started_at: None,
@@ -590,6 +597,234 @@ mod tests {
             .subtitle_history(10)
             .unwrap()
             .is_empty());
+
+        handle.shutdown().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn subtitle_range_deletion_validates_and_deletes_only_the_requested_messages() {
+        let directory = tempfile::tempdir().unwrap();
+        let handle = start(CoreOptions {
+            config_path: directory.path().join("config.json"),
+            host: Some("127.0.0.1".into()),
+            port: Some(0),
+            session_token: Some("subtitle-delete-token".into()),
+            vad_model_path: Some(directory.path().join("missing-silero.onnx")),
+            asr_model_dir: None,
+        })
+        .await
+        .unwrap();
+        let client = reqwest::Client::new();
+        let endpoint = format!("http://{}/api/subtitles/range", handle.address());
+
+        {
+            let db = handle.state.db.lock().unwrap();
+            for (text, created_at) in [
+                ("older", "2026-01-01T00:00:00.000000Z"),
+                ("target", "2026-01-02T00:00:00.000000Z"),
+                ("newer", "2026-01-03T00:00:00.000000Z"),
+            ] {
+                db.add_subtitle(&crate::models::Subtitle {
+                    id: None,
+                    conversation_id: None,
+                    text: text.into(),
+                    language: Some("en".into()),
+                    started_at: None,
+                    ended_at: None,
+                    source: "speaker".into(),
+                    created_at: created_at.into(),
+                    translations: Vec::new(),
+                })
+                .unwrap();
+            }
+        }
+
+        let deleted = client
+            .delete(&endpoint)
+            .bearer_auth("subtitle-delete-token")
+            .json(&serde_json::json!({
+                "started_at": "2026-01-02T08:00:00+08:00",
+                "ended_at": "2026-01-03T08:00:00+08:00"
+            }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(deleted.status(), reqwest::StatusCode::OK);
+        assert_eq!(
+            deleted.json::<serde_json::Value>().await.unwrap()["deleted"],
+            1
+        );
+        let remaining = handle
+            .state
+            .db
+            .lock()
+            .unwrap()
+            .subtitle_history(10)
+            .unwrap()
+            .into_iter()
+            .map(|subtitle| subtitle.text)
+            .collect::<Vec<_>>();
+        assert_eq!(remaining, vec!["newer", "older"]);
+
+        for input in [
+            serde_json::json!({
+                "started_at": "not-a-timestamp",
+                "ended_at": null
+            }),
+            serde_json::json!({
+                "started_at": "2026-01-03T00:00:00Z",
+                "ended_at": "2026-01-02T00:00:00Z"
+            }),
+        ] {
+            let rejected = client
+                .delete(&endpoint)
+                .bearer_auth("subtitle-delete-token")
+                .json(&input)
+                .send()
+                .await
+                .unwrap();
+            assert_eq!(rejected.status(), reqwest::StatusCode::UNPROCESSABLE_ENTITY);
+            assert_eq!(
+                rejected.json::<serde_json::Value>().await.unwrap()["code"],
+                "subtitles.invalid_range"
+            );
+        }
+
+        handle.shutdown().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn conversation_http_catalog_and_pagination_are_stable() {
+        let directory = tempfile::tempdir().unwrap();
+        let handle = start(CoreOptions {
+            config_path: directory.path().join("config.json"),
+            host: Some("127.0.0.1".into()),
+            port: Some(0),
+            session_token: Some("conversation-token".into()),
+            vad_model_path: Some(directory.path().join("missing-silero.onnx")),
+            asr_model_dir: None,
+        })
+        .await
+        .unwrap();
+        {
+            let database = handle.state.db.lock().unwrap();
+            for (text, created_at) in [
+                ("before", "2026-01-01T00:00:00.000000Z"),
+                ("middle", "2026-01-01T01:30:00.000000Z"),
+                ("latest", "2026-01-01T03:00:00.000000Z"),
+            ] {
+                database
+                    .add_subtitle(&crate::models::Subtitle {
+                        id: None,
+                        conversation_id: None,
+                        text: text.into(),
+                        language: Some("en".into()),
+                        started_at: None,
+                        ended_at: None,
+                        source: "speaker".into(),
+                        created_at: created_at.into(),
+                        translations: Vec::new(),
+                    })
+                    .unwrap();
+            }
+        }
+
+        let client = reqwest::Client::new();
+        let base_url = format!("http://{}", handle.address());
+        let catalog: serde_json::Value = client
+            .get(format!("{base_url}/api/conversations"))
+            .bearer_auth("conversation-token")
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert!(catalog.get("legacy_imported").is_none());
+        assert_eq!(catalog["conversations"].as_array().unwrap().len(), 1);
+        let active = &catalog["conversations"][0];
+        assert_eq!(active["subtitle_count"], 3);
+        assert_eq!(active["automatic_title"], "before");
+        let conversation_id = active["id"].as_str().unwrap();
+
+        let page: serde_json::Value = client
+            .get(format!(
+                "{base_url}/api/conversations/{conversation_id}/subtitles?limit=2"
+            ))
+            .bearer_auth("conversation-token")
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert_eq!(page["items"].as_array().unwrap().len(), 2);
+        assert_eq!(page["items"][0]["text"], "latest");
+        assert_eq!(page["items"][1]["text"], "middle");
+        assert_eq!(page["items"][0]["conversation_id"], conversation_id);
+        assert_eq!(page["has_more"], true);
+        let before_id = page["next_before_id"].as_i64().unwrap();
+
+        let older_page: serde_json::Value = client
+            .get(format!(
+                "{base_url}/api/conversations/{conversation_id}/subtitles?limit=2&before_id={before_id}"
+            ))
+            .bearer_auth("conversation-token")
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert_eq!(older_page["items"].as_array().unwrap().len(), 1);
+        assert_eq!(older_page["items"][0]["text"], "before");
+        assert_eq!(older_page["has_more"], false);
+        assert!(older_page["next_before_id"].is_null());
+
+        let patched: serde_json::Value = client
+            .patch(format!("{base_url}/api/conversations/{conversation_id}"))
+            .bearer_auth("conversation-token")
+            .json(&serde_json::json!({
+                "custom_title": "Renamed",
+                "icon": "music"
+            }))
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        let active = &patched["conversations"][0];
+        assert_eq!(active["custom_title"], "Renamed");
+        assert_eq!(active["icon"], "music");
+
+        let patched_without_icon: serde_json::Value = client
+            .patch(format!("{base_url}/api/conversations/{conversation_id}"))
+            .bearer_auth("conversation-token")
+            .json(&serde_json::json!({ "custom_title": "Renamed again" }))
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        let active = &patched_without_icon["conversations"][0];
+        assert_eq!(active["custom_title"], "Renamed again");
+        assert_eq!(active["icon"], "music");
+
+        let cleared_icon: serde_json::Value = client
+            .patch(format!("{base_url}/api/conversations/{conversation_id}"))
+            .bearer_auth("conversation-token")
+            .json(&serde_json::json!({ "icon": null }))
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        let active = &cleared_icon["conversations"][0];
+        assert_eq!(active["custom_title"], "Renamed again");
+        assert!(active["icon"].is_null());
 
         handle.shutdown().await.unwrap();
     }

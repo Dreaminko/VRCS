@@ -48,6 +48,7 @@ pub struct ProviderCapabilities {
     pub requires_api_key: bool,
     pub is_local: bool,
     pub supports_context: bool,
+    pub supports_text_generation: bool,
     pub supports_translation: bool,
     pub supports_asr: bool,
     pub supports_custom_translation_language: bool,
@@ -228,6 +229,7 @@ pub fn profile_capabilities(profile: &ApiProfile) -> Option<ProviderCapabilities
     let purpose = effective_purpose(profile);
     result.supports_asr &= matches!(purpose, API_PURPOSE_ASR | API_PURPOSE_SHARED);
     result.supports_translation &= matches!(purpose, API_PURPOSE_LLM | API_PURPOSE_SHARED);
+    result.supports_text_generation &= matches!(purpose, API_PURPOSE_LLM | API_PURPOSE_SHARED);
     result.supports_context &= result.supports_translation;
     result.supports_model_listing &= result.supports_translation;
     result.supports_streaming &= result.supports_translation;
@@ -268,6 +270,10 @@ pub fn supports_realtime_asr(profile: &ApiProfile) -> bool {
 
 pub fn supports_translation(profile: &ApiProfile) -> bool {
     profile_capabilities(profile).is_some_and(|value| value.supports_translation)
+}
+
+pub fn supports_text_generation(profile: &ApiProfile) -> bool {
+    profile_capabilities(profile).is_some_and(|value| value.supports_text_generation)
 }
 
 pub fn supports_llm_models(profile: &ApiProfile) -> bool {
@@ -353,6 +359,7 @@ fn capabilities(
         requires_api_key: true,
         is_local: false,
         supports_context,
+        supports_text_generation: supports_context,
         supports_translation: true,
         supports_asr,
         supports_custom_translation_language,
@@ -387,6 +394,7 @@ mod tests {
         );
         assert!(definition.capabilities.supports_streaming);
         assert!(definition.capabilities.supports_model_listing);
+        assert!(definition.capabilities.supports_text_generation);
         assert!(!definition.capabilities.supports_asr);
     }
 
@@ -396,6 +404,7 @@ mod tests {
             profile_capabilities(&profile(ALIBABA_PROVIDER, API_PURPOSE_ASR)).unwrap();
         assert!(capabilities.supports_asr);
         assert!(!capabilities.supports_translation);
+        assert!(!capabilities.supports_text_generation);
         assert!(!capabilities.supports_model_listing);
     }
 
@@ -420,6 +429,8 @@ mod tests {
         let llm = profile(OPENAI_PROVIDER, API_PURPOSE_LLM);
         let deepl = profile(DEEPL_PROVIDER, API_PURPOSE_LLM);
 
+        assert!(supports_text_generation(&llm));
+        assert!(!supports_text_generation(&deepl));
         assert!(supports_translation_language(&llm, "tlh-Latn"));
         assert!(supports_translation_language(&deepl, "pt-BR"));
         assert!(!supports_translation_language(&deepl, "hi"));

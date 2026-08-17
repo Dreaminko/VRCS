@@ -1,6 +1,3 @@
-import type { Subtitle } from "./types";
-
-const CONVERSATION_GAP_MS = 30 * 60 * 1000;
 
 export const CONVERSATION_ICON_KEYS = [
   "message",
@@ -28,19 +25,34 @@ export type ConversationCustomization = {
   icon?: ConversationIcon;
 };
 
-export type SubtitleConversation = {
+export interface CoreConversation {
+  id: string;
+  started_at: string;
+  ended_at: string | null;
+  automatic_title: string | null;
+  custom_title: string | null;
+  icon: string | null;
+  subtitle_count: number;
+  updated_at: string;
+  active: boolean;
+}
+
+export interface ConversationCatalog {
+  conversations: CoreConversation[];
+}
+
+export type ConversationSummary = {
   id: string;
   title: string;
   icon: ConversationIcon;
   customized: boolean;
   startedAt: string;
+  endedAt: string | null;
   updatedAt: string;
-  subtitles: Subtitle[];
+  subtitleCount: number;
+  active: boolean;
 };
 
-export function conversationId(startedAt: number) {
-  return `conversation-${startedAt}`;
-}
 
 interface ConversationLabels {
   untitled: string;
@@ -52,66 +64,39 @@ const DEFAULT_LABELS: ConversationLabels = {
   newConversation: "新对话",
 };
 
-function titleFrom(text: string, untitled: string) {
-  return Array.from(text.replace(/\s+/g, " ").trim()).slice(0, 14).join("") || untitled;
+const VALID_ICONS = new Set<string>(CONVERSATION_ICON_KEYS);
+
+export function isConversationIcon(value: unknown): value is ConversationIcon {
+  return typeof value === "string" && VALID_ICONS.has(value);
 }
 
-export function groupConversations(
-  subtitles: Subtitle[],
-  manualStarts: number[],
-  emptyStart: number,
+function catalogTitle(
+  conversation: CoreConversation,
+  labels: ConversationLabels,
+): string {
+  const customTitle = conversation.custom_title?.trim();
+  if (customTitle) return customTitle;
+  const automaticTitle = conversation.automatic_title?.trim();
+  if (automaticTitle) return automaticTitle;
+  return conversation.active && conversation.subtitle_count === 0
+    ? labels.newConversation
+    : labels.untitled;
+}
+
+export function conversationsFromCatalog(
+  catalog: ConversationCatalog | null,
   labels: ConversationLabels = DEFAULT_LABELS,
-  customizations: Record<string, ConversationCustomization> = {},
-): SubtitleConversation[] {
-  const ordered = subtitles
-    .filter((subtitle) => Number.isFinite(Date.parse(subtitle.created_at)))
-    .sort((left, right) => Date.parse(left.created_at) - Date.parse(right.created_at));
-  const boundaries = [...new Set(manualStarts.filter(Number.isFinite))].sort((left, right) => left - right);
-  const naturalStarts: number[] = [];
-
-  ordered.forEach((subtitle, index) => {
-    const createdAt = Date.parse(subtitle.created_at);
-    const previousAt = index ? Date.parse(ordered[index - 1].created_at) : Number.NEGATIVE_INFINITY;
-    const hasManualBoundary = boundaries.some((boundary) => boundary > previousAt && boundary <= createdAt);
-    if ((!index || createdAt - previousAt > CONVERSATION_GAP_MS) && !hasManualBoundary) {
-      naturalStarts.push(createdAt);
-    }
-  });
-
-  const starts = [...new Set([...boundaries, ...naturalStarts])].sort((left, right) => left - right);
-  if (!starts.length) starts.push(emptyStart);
-
-  const grouped = starts.map(() => [] as Subtitle[]);
-  let groupIndex = 0;
-  ordered.forEach((subtitle) => {
-    const createdAt = Date.parse(subtitle.created_at);
-    while (
-      groupIndex + 1 < starts.length
-      && createdAt >= starts[groupIndex + 1]
-    ) {
-      groupIndex += 1;
-    }
-    if (createdAt >= starts[groupIndex]) grouped[groupIndex].push(subtitle);
-  });
-
-  return starts
-    .map((startedAt, index) => {
-      const items = grouped[index];
-      const first = items[0];
-      const last = items[items.length - 1];
-      const id = conversationId(startedAt);
-      const customization = customizations[id];
-      return {
-        id,
-        title: customization?.title
-          ?? (first ? titleFrom(first.text, labels.untitled) : labels.newConversation),
-        icon: customization?.icon ?? "message",
-        customized: Boolean(customization?.title || customization?.icon),
-        startedAt: new Date(startedAt).toISOString(),
-        updatedAt: last?.created_at ?? new Date(startedAt).toISOString(),
-        subtitles: [...items].reverse(),
-      };
-    })
-    .filter((conversation, index, conversations) => conversation.subtitles.length || index === conversations.length - 1)
-    .reverse();
+): ConversationSummary[] {
+  if (catalog === null) return [];
+  return catalog.conversations.map((conversation) => ({
+    id: conversation.id,
+    title: catalogTitle(conversation, labels),
+    icon: isConversationIcon(conversation.icon) ? conversation.icon : "message",
+    customized: Boolean(conversation.custom_title?.trim() || conversation.icon),
+    startedAt: conversation.started_at,
+    endedAt: conversation.ended_at,
+    updatedAt: conversation.updated_at,
+    subtitleCount: conversation.subtitle_count,
+    active: conversation.active,
+  }));
 }

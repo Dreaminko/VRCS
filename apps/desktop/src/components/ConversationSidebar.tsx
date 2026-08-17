@@ -26,6 +26,7 @@ import {
   Shapes,
   Sparkles,
   Star,
+  Trash2,
   Trophy,
   Users,
   Video,
@@ -36,7 +37,7 @@ import { conversationTime } from "../app-utils";
 import {
   CONVERSATION_ICON_KEYS,
   type ConversationIcon,
-  type SubtitleConversation,
+  type ConversationSummary,
 } from "../conversations";
 import {
   DEFAULT_CONVERSATION_SIDEBAR_WIDTH,
@@ -89,11 +90,10 @@ type SidebarTooltip = {
 const TOOLTIP_HOVER_DELAY_MS = 180;
 const TOOLTIP_SWITCH_DELAY_MS = 70;
 const TOOLTIP_EXIT_MS = 110;
-const MAX_RENDERED_CONVERSATIONS = 50;
 
 type SidebarProps = {
   open: boolean;
-  conversations: SubtitleConversation[];
+  conversations: ConversationSummary[];
   activeId?: string;
   selectedId?: string;
   width: number;
@@ -105,6 +105,7 @@ type SidebarProps = {
   onRename: (id: string, title: string) => void;
   onIconChange: (id: string, icon: ConversationIcon | null) => void;
   onResetCustomization: (id: string) => void;
+  onDelete: (id: string) => Promise<void>;
 };
 
 function actionsPosition(clientX: number, clientY: number): FloatingPosition {
@@ -114,7 +115,7 @@ function actionsPosition(clientX: number, clientY: number): FloatingPosition {
   const viewportWidth = interfaceLayoutPixels(window.innerWidth, scale);
   const viewportHeight = interfaceLayoutPixels(window.innerHeight, scale);
   const width = 186;
-  const expectedHeight = 220;
+  const expectedHeight = 260;
   const gap = 4;
   const side = viewportHeight - y >= expectedHeight ? "below" : "above";
   return {
@@ -151,19 +152,12 @@ export const ConversationSidebar = memo(function ConversationSidebar({
   onRename,
   onIconChange,
   onResetCustomization,
+  onDelete,
 }: SidebarProps) {
   const { t, i18n } = useTranslation();
   const locale = i18n.resolvedLanguage ?? "en-US";
-  const recentConversations = conversations.slice(0, MAX_RENDERED_CONVERSATIONS);
-  const selectedOutsideRecent = conversations.find(
-    (conversation) => conversation.id === selectedId
-      && !recentConversations.some((recent) => recent.id === conversation.id),
-  );
-  const renderedConversations = selectedOutsideRecent
-    ? [...recentConversations, selectedOutsideRecent]
-    : recentConversations;
-  const active = renderedConversations.find((conversation) => conversation.id === activeId);
-  const history = renderedConversations.filter((conversation) => conversation.id !== activeId);
+  const active = conversations.find((conversation) => conversation.id === activeId);
+  const history = conversations.filter((conversation) => conversation.id !== activeId);
   const [actionsId, setActionsId] = useState<string | null>(null);
   const [actionsPopoverPosition, setActionsPopoverPosition] = useState<FloatingPosition | null>(null);
   const [choosingIcon, setChoosingIcon] = useState(false);
@@ -350,7 +344,7 @@ export const ConversationSidebar = memo(function ConversationSidebar({
   };
 
   const openActions = (
-    conversation: SubtitleConversation,
+    conversation: ConversationSummary,
     target: HTMLButtonElement,
     clientX: number,
     clientY: number,
@@ -361,7 +355,7 @@ export const ConversationSidebar = memo(function ConversationSidebar({
     setActionsId(conversation.id);
   };
 
-  const startRename = (conversation: SubtitleConversation) => {
+  const startRename = (conversation: ConversationSummary) => {
     setEditDraft(conversation.title);
     setEditingId(conversation.id);
     closeActions();
@@ -397,7 +391,7 @@ export const ConversationSidebar = memo(function ConversationSidebar({
           ><Plus size={20} /></button>
           <div className="sidebar-rail-divider" />
           <div className="sidebar-conversation-rail" aria-label={t("conversations.recent")} onScroll={hideSidebarTooltip}>
-            {renderedConversations.map((conversation) => (
+            {conversations.map((conversation) => (
               <RailConversationButton
                 key={conversation.id}
                 conversation={conversation}
@@ -433,7 +427,7 @@ export const ConversationSidebar = memo(function ConversationSidebar({
     );
   }
 
-  const menuConversation = renderedConversations.find((conversation) => conversation.id === actionsId);
+  const menuConversation = conversations.find((conversation) => conversation.id === actionsId);
 
   return (
     <aside
@@ -564,6 +558,18 @@ export const ConversationSidebar = memo(function ConversationSidebar({
                   closeActions();
                 }}><RotateCcw size={16} />{t("conversations.resetCustomization")}</button>
               )}
+              <button
+                className="conversation-action-delete"
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  if (!window.confirm(t("conversations.deleteConfirm", {
+                    title: menuConversation.title,
+                  }))) return;
+                  closeActions();
+                  void onDelete(menuConversation.id);
+                }}
+              ><Trash2 size={16} />{t("conversations.delete")}</button>
             </>
           )}
         </div>,
@@ -586,7 +592,7 @@ function ConversationRow({
   onSelect,
   onOpenActions,
 }: {
-  conversation: SubtitleConversation;
+  conversation: ConversationSummary;
   active?: boolean;
   selected: boolean;
   editing: boolean;
@@ -597,7 +603,7 @@ function ConversationRow({
   onCancelRename: () => void;
   onSelect: (id: string) => void;
   onOpenActions: (
-    conversation: SubtitleConversation,
+    conversation: ConversationSummary,
     target: HTMLButtonElement,
     clientX: number,
     clientY: number,
@@ -675,7 +681,9 @@ function ConversationRow({
           <span className="conversation-button-title"><ConversationIconView icon={conversation.icon} size={16} /><strong>{conversation.title}</strong>{active && <i aria-label={t("conversations.current")} />}</span>
           <span className="conversation-button-meta">
             <time>{conversationTime(conversation.startedAt, locale, t("date.today"), t("date.yesterday"))}</time>
-            <span>{t("conversations.subtitleCount", { count: conversation.subtitles.length })}</span>
+            <span>{t("conversations.subtitleCount", {
+              count: conversation.subtitleCount,
+            })}</span>
           </span>
         </button>
       )}
@@ -692,7 +700,7 @@ function RailConversationButton({
   onShowTooltip,
   onHideTooltip,
 }: {
-  conversation: SubtitleConversation;
+  conversation: ConversationSummary;
   active: boolean;
   selected: boolean;
   locale: string;

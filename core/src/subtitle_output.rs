@@ -192,6 +192,7 @@ mod tests {
         );
         let subtitle = Subtitle {
             id: Some(7),
+            conversation_id: Some("conversation-test".into()),
             text: "hello".into(),
             language: Some("en".into()),
             started_at: None,

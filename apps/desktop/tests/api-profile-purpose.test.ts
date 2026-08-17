@@ -51,6 +51,7 @@ const profileView = (
     supports_context: false,
     supports_translation: false,
     supports_asr: false,
+    supports_text_generation: false,
     supports_custom_translation_language: false,
     supported_languages: [],
     ...capabilities,

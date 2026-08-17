@@ -1,31 +1,17 @@
-import {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
-import type { UIEvent } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import type { Page } from "../app-types";
+import { normalizeConversationTitle } from "../conversation-state";
+import { normalizeConversationSidebarWidth } from "../conversation-sidebar-width";
 import {
-  conversationId,
-  groupConversations,
-  type ConversationCustomization,
+  conversationsFromCatalog,
   type ConversationIcon,
 } from "../conversations";
-import {
-  conversationStateSnapshot,
-  loadConversationState,
-  mergeConversationStarts,
-  normalizeConversationTitle,
-  saveConversationState,
-} from "../conversation-state";
-import { normalizeConversationSidebarWidth } from "../conversation-sidebar-width";
-import { shouldFollowLiveScroll } from "../live-scroll";
+import type { ConversationCatalogEvent } from "../subtitle-stream";
 import type { Subtitle } from "../types";
+import { useConversationCatalog } from "./useConversationCatalog";
+import { useLiveConversationScroll } from "./useLiveConversationScroll";
 
 const SIDEBAR_OPEN_KEY = "vrcs.conversation-sidebar-open";
 const SIDEBAR_WIDTH_KEY = "vrcs.conversation-sidebar-width";
@@ -35,92 +21,71 @@ function initialSidebarWidth(): number {
 }
 
 export function useConversationWorkspace({
+  coreReady,
+  openedConversationId,
   subtitles,
+  conversationCatalogEvent,
+  openConversation,
   page,
   running,
+  hasOlderSubtitles,
+  loadingConversationSubtitles,
+  reportError,
+  clearErrorFrom,
 }: {
+  coreReady: boolean;
+  openedConversationId: string | null;
   subtitles: Subtitle[];
+  conversationCatalogEvent: ConversationCatalogEvent | null;
+  openConversation: (conversationId: string | null) => Promise<void>;
   page: Page;
   running: boolean;
+  hasOlderSubtitles: boolean;
+  loadingConversationSubtitles: boolean;
+  reportError: (reason: unknown, fallbackKey: string, source?: string) => void;
+  clearErrorFrom: (source: string) => void;
 }) {
   const { t, i18n } = useTranslation();
-  const openedAt = useRef(Date.now()).current;
   const [sidebarOpen, setSidebarOpen] = useState(
     () => localStorage.getItem(SIDEBAR_OPEN_KEY) !== "false",
   );
   const [sidebarWidth, setSidebarWidth] = useState(initialSidebarWidth);
-  const initialConversationState = useRef(conversationStateSnapshot()).current;
-  const [conversationStarts, setConversationStarts] = useState(
-    initialConversationState.starts,
-  );
-  const [customizations, setCustomizations] = useState<
-    Record<string, ConversationCustomization>
-  >(initialConversationState.customizations);
-  const [conversationStateReady, setConversationStateReady] = useState(false);
-  const [selectedConversationId, setSelectedConversationId] = useState<
-    string | null
-  >(null);
+  const catalogState = useConversationCatalog({
+    coreReady,
+    conversationCatalogEvent,
+    openConversation,
+    reportError,
+    clearErrorFrom,
+  });
   const conversations = useMemo(
-    () => groupConversations(subtitles, conversationStarts, openedAt, {
+    () => conversationsFromCatalog(catalogState.catalog, {
       untitled: t("conversations.untitled"),
       newConversation: t("conversations.new"),
-    }, customizations),
-    [conversationStarts, customizations, i18n.resolvedLanguage, openedAt, subtitles, t],
+    }),
+    [catalogState.catalog, i18n.resolvedLanguage, t],
   );
-  const activeConversation = conversations[0];
+  const activeConversation = conversations.find((conversation) => conversation.active)
+    ?? conversations[0];
   const selectedConversation = conversations.find(
-    (conversation) => conversation.id === selectedConversationId,
+    (conversation) => conversation.id === catalogState.selectedConversationId,
   ) ?? activeConversation;
-  const liveScrollRef = useRef<HTMLDivElement>(null);
-  const previousLiveScrollTopRef = useRef(0);
-  const [followingLiveSubtitles, setFollowingLiveSubtitles] = useState(true);
-  const showingActiveConversation = (
-    selectedConversation?.id === activeConversation?.id
+  const selectedSubtitles = selectedConversation?.id === openedConversationId
+    ? subtitles
+    : [];
+  const selectedConversationHasOlder = Boolean(
+    selectedConversation
+    && selectedConversation.id === openedConversationId
+    && hasOlderSubtitles,
   );
-  const liveAutoScrollActive = (
-    page === "live" && running && showingActiveConversation
-  );
-
-  const scrollLiveViewToBottom = useCallback(
-    (behavior: ScrollBehavior = "smooth") => {
-      const scrollRegion = liveScrollRef.current;
-      if (!scrollRegion) return;
-      setFollowingLiveSubtitles(true);
-      previousLiveScrollTopRef.current = scrollRegion.scrollTop;
-      scrollRegion.scrollTo({ top: scrollRegion.scrollHeight, behavior });
-    },
-    [],
-  );
-
-  useLayoutEffect(() => {
-    if (page === "live") return;
-    const scrollRegion = liveScrollRef.current;
-    if (!scrollRegion) return;
-    scrollRegion.scrollTop = 0;
-    previousLiveScrollTopRef.current = 0;
-  }, [page]);
-
-  useEffect(() => {
-    if (page !== "live") return;
-    setFollowingLiveSubtitles(true);
-    const frame = window.requestAnimationFrame(
-      () => scrollLiveViewToBottom("auto"),
-    );
-    return () => window.cancelAnimationFrame(frame);
-  }, [page, scrollLiveViewToBottom, selectedConversation?.id]);
-
-  useEffect(() => {
-    if (!liveAutoScrollActive || !followingLiveSubtitles) return;
-    const frame = window.requestAnimationFrame(
-      () => scrollLiveViewToBottom(),
-    );
-    return () => window.cancelAnimationFrame(frame);
-  }, [
-    followingLiveSubtitles,
-    liveAutoScrollActive,
-    scrollLiveViewToBottom,
-    selectedConversation?.updatedAt,
-  ]);
+  const liveScroll = useLiveConversationScroll({
+    page,
+    running,
+    activeConversationId: activeConversation?.id ?? null,
+    selectedConversationId: selectedConversation?.id ?? null,
+    openedConversationId,
+    loadingConversationSubtitles,
+    selectedConversationUpdatedAt: selectedConversation?.updatedAt ?? null,
+  });
 
   useEffect(() => {
     localStorage.setItem(SIDEBAR_OPEN_KEY, String(sidebarOpen));
@@ -133,130 +98,41 @@ export function useConversationWorkspace({
     return () => window.clearTimeout(timer);
   }, [sidebarWidth]);
 
-  useEffect(() => {
-    let active = true;
-    void loadConversationState().then((state) => {
-      if (!active) return;
-      setConversationStarts(state.starts);
-      setCustomizations(state.customizations);
-      setConversationStateReady(true);
-    });
-    return () => {
-      active = false;
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!conversationStateReady) return;
-    const timer = window.setTimeout(() => {
-      void saveConversationState({
-        starts: conversationStarts,
-        customizations,
-      });
-    }, 120);
-    return () => window.clearTimeout(timer);
-  }, [conversationStarts, conversationStateReady, customizations]);
-
-  useEffect(() => {
-    const discovered = conversations
-      .map((conversation) => Date.parse(conversation.startedAt))
-      .filter(Number.isFinite);
-    setConversationStarts((current) => mergeConversationStarts(current, discovered));
-  }, [conversations]);
-
-  useEffect(() => {
-    if (
-      activeConversation
-      && !conversations.some(
-        (conversation) => conversation.id === selectedConversationId,
-      )
-    ) {
-      setSelectedConversationId(activeConversation.id);
-    }
-  }, [activeConversation, conversations, selectedConversationId]);
-
-  const createConversation = useCallback(() => {
-    if (activeConversation && !activeConversation.subtitles.length) {
-      setSelectedConversationId(activeConversation.id);
-      return;
-    }
-    const latestSubtitleAt = subtitles.reduce(
-      (latest, subtitle) => (
-        Math.max(latest, Date.parse(subtitle.created_at) || 0)
-      ),
-      0,
-    );
-    const latestBoundary = (
-      conversationStarts[conversationStarts.length - 1] ?? 0
-    );
-    const startedAt = Math.max(
-      Date.now(),
-      latestSubtitleAt + 1,
-      latestBoundary + 1,
-    );
-    setConversationStarts((current) => (
-      [...current, startedAt]
-        .sort((left, right) => left - right)
-        .slice(-50)
-    ));
-    setSelectedConversationId(conversationId(startedAt));
-  }, [activeConversation, conversationStarts, subtitles]);
-
-  const renameConversation = useCallback((id: string, value: string) => {
+  const renameConversation = (id: string, value: string) => {
     const title = normalizeConversationTitle(value);
-    if (!title) return;
-    setCustomizations((current) => ({
-      ...current,
-      [id]: { ...current[id], title },
-    }));
-  }, []);
+    if (title) void catalogState.updateConversation(id, { custom_title: title });
+  };
 
-  const setConversationIcon = useCallback((id: string, icon: ConversationIcon | null) => {
-    setCustomizations((current) => {
-      const next = { ...current[id], icon: icon ?? undefined };
-      if (!next.title && !next.icon) {
-        const { [id]: _removed, ...rest } = current;
-        return rest;
-      }
-      return { ...current, [id]: next };
+  const setConversationIcon = (id: string, icon: ConversationIcon | null) => {
+    void catalogState.updateConversation(id, { icon });
+  };
+
+  const resetConversationCustomization = (id: string) => {
+    void catalogState.updateConversation(id, {
+      custom_title: null,
+      icon: null,
     });
-  }, []);
-
-  const resetConversationCustomization = useCallback((id: string) => {
-    setCustomizations((current) => {
-      const { [id]: _removed, ...rest } = current;
-      return rest;
-    });
-  }, []);
-
-  const onLiveScroll = useCallback((event: UIEvent<HTMLDivElement>) => {
-    if (page !== "live") return;
-    const scrollRegion = event.currentTarget;
-    setFollowingLiveSubtitles((current) => shouldFollowLiveScroll(current, {
-      scrollTop: scrollRegion.scrollTop,
-      previousScrollTop: previousLiveScrollTopRef.current,
-      scrollHeight: scrollRegion.scrollHeight,
-      clientHeight: scrollRegion.clientHeight,
-    }));
-    previousLiveScrollTopRef.current = scrollRegion.scrollTop;
-  }, [page]);
+  };
 
   return {
     conversations,
     activeConversation,
     selectedConversation,
+    selectedSubtitles,
     sidebarOpen,
     setSidebarOpen,
     sidebarWidth,
     setSidebarWidth,
-    selectConversation: setSelectedConversationId,
-    createConversation,
+    selectConversation: catalogState.selectConversation,
+    createConversation: catalogState.createConversation,
     renameConversation,
     setConversationIcon,
     resetConversationCustomization,
-    liveScrollRef,
-    followingLiveSubtitles,
-    scrollLiveViewToBottom,
-    onLiveScroll,
+    deleteConversation: catalogState.deleteConversation,
+    liveScrollRef: liveScroll.liveScrollRef,
+    followingLiveSubtitles: liveScroll.followingLiveSubtitles,
+    selectedConversationHasOlder,
+    scrollLiveViewToBottom: liveScroll.scrollLiveViewToBottom,
+    onLiveScroll: liveScroll.onLiveScroll,
   };
 }

@@ -1,0 +1,101 @@
+.subtitle-analysis-popover {
+  position: fixed;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  overflow: visible;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  box-shadow: var(--overlay-shadow), 0 1px 3px rgba(0, 0, 0, 0.055);
+  animation: popover-in 160ms ease-out both;
+}
+.subtitle-analysis-popover-header {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.subtitle-analysis-popover-title { display: flex; min-width: 0; align-items: flex-start; gap: 9px; }
+.subtitle-analysis-popover-title > span {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 10px;
+  color: var(--primary-ink);
+  background: var(--primary-softer);
+}
+.subtitle-analysis-popover-title > div { min-width: 0; }
+.subtitle-analysis-popover-title h2 { margin: 0; font-size: 15px; line-height: 1.35; }
+.subtitle-analysis-popover-title p {
+  margin: 3px 0 0;
+  overflow: hidden;
+  color: var(--text-quiet);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.subtitle-analysis-popover-header > button {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  flex: 0 0 auto;
+  place-items: center;
+  margin-top: -5px;
+  padding: 0;
+  border: 0;
+  border-radius: 10px;
+  color: var(--text-quiet);
+  background: transparent;
+  cursor: pointer;
+  transition: color 120ms ease-out, background-color 120ms ease-out, transform 120ms ease-out;
+}
+.subtitle-analysis-popover-header > button:hover { color: var(--text); background: var(--surface-subtle); }
+.subtitle-analysis-popover-header > button:active { transform: scale(0.94); }
+.subtitle-analysis-popover-scroll {
+  min-height: 0;
+  flex: 1 1 auto;
+  padding-right: 4px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.subtitle-analysis-popover .learning-analysis {
+  gap: 11px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+.subtitle-analysis-popover .learning-analysis-summary {
+  padding: 10px 12px;
+  border: 1px solid var(--primary-soft);
+  border-radius: var(--radius-md);
+  background: var(--primary-softer);
+}
+.subtitle-analysis-popover .learning-analysis-facts div { border: 1px solid var(--border); background: var(--surface-elevated); }
+.subtitle-analysis-popover-actions { flex: 0 0 auto; padding-top: 12px; }
+.subtitle-analysis-popover-actions button {
+  display: inline-flex;
+  width: 100%;
+  min-height: 38px;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 0 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  color: var(--primary-ink);
+  background: var(--surface-elevated);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 600;
+  transition: border-color 120ms ease-out, background-color 120ms ease-out, transform 120ms ease-out;
+}
+.subtitle-analysis-popover-actions button:hover { border-color: var(--primary); background: var(--primary-softer); }
+.subtitle-analysis-popover-actions button:active { transform: scale(0.985); }

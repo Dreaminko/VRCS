@@ -40,6 +40,7 @@ pub(super) async fn ws_handler(
 pub(super) async fn handle_socket(state: Arc<AppState>, socket: WebSocket) {
     let mut receiver = state.subtitle_output.subscribe_subtitles();
     let mut live_receiver = state.live_tx.subscribe();
+    let mut catalog_receiver = state.conversation_catalog_tx.subscribe();
     let mut translation_receiver = state.subtitle_output.subscribe_translations();
     let mut mute_receiver = state.vrchat_mute_sync.subscribe();
     let mut shutdown = state.shutdown.clone();
@@ -50,6 +51,19 @@ pub(super) async fn handle_socket(state: Arc<AppState>, socket: WebSocket) {
         .is_err()
     {
         return;
+    }
+    match super::db_call(Arc::clone(&state.db), |db| db.conversation_catalog()).await {
+        Ok(catalog) => {
+            let payload = json!({
+                "type": "conversation_catalog",
+                "catalog": catalog,
+            })
+            .to_string();
+            if sender.send(Message::Text(payload.into())).await.is_err() {
+                return;
+            }
+        }
+        Err(error) => tracing::warn!(%error, "initial conversation catalog could not be sent"),
     }
     loop {
         tokio::select! {
@@ -79,6 +93,21 @@ pub(super) async fn handle_socket(state: Arc<AppState>, socket: WebSocket) {
                 match event {
                     Ok(event) => {
                         let payload = serde_json::to_string(&event).expect("live event serialization");
+                        if sender.send(Message::Text(payload.into())).await.is_err() {
+                            break;
+                        }
+                    }
+                    Err(broadcast::error::RecvError::Lagged(_)) => continue,
+                    Err(broadcast::error::RecvError::Closed) => break,
+                }
+            }
+            catalog = catalog_receiver.recv() => {
+                match catalog {
+                    Ok(catalog) => {
+                        let payload = json!({
+                            "type": "conversation_catalog",
+                            "catalog": catalog,
+                        }).to_string();
                         if sender.send(Message::Text(payload.into())).await.is_err() {
                             break;
                         }

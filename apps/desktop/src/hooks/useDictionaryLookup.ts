@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { coreApi } from "../api";
-import type { Lookup } from "../app-types";
+import type { Lookup, LookupOrigin } from "../app-types";
 
 const TERM_BOUNDARY_PUNCTUATION = (
   /^[\s.,!?;:，。！？；：“”'"「」『』（）()]+|[\s.,!?;:，。！？；：“”'"「」『』（）()]+$/g
@@ -41,7 +41,7 @@ export function useDictionaryLookup({
     }
   }, [compact, enabled, lookup, reportError, resizeCompactWindow]);
 
-  const selectWord = useCallback(async (context: string) => {
+  const selectWord = useCallback(async (context: string, origin?: LookupOrigin) => {
     if (!enabled) return;
     const selection = window.getSelection();
     const term = selection
@@ -58,6 +58,7 @@ export function useDictionaryLookup({
         term,
         context,
         entries,
+        origin,
         anchor: {
           top: rect.top,
           bottom: rect.bottom,

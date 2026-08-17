@@ -12,7 +12,8 @@ import { ChatboxComposer } from "./components/ChatboxComposer";
 import { CompactView } from "./components/CompactView";
 import { ConversationSidebar } from "./components/ConversationSidebar";
 import { DictionaryPopover } from "./components/DictionaryPopover";
-import { HistoryView, LiveView, TopStatus } from "./components/SubtitleViews";
+import { LearningWorkspace } from "./components/learning/LearningWorkspace";
+import { LiveView, TopStatus } from "./components/SubtitleViews";
 import {
   CudaRuntimeDialog,
   VrchatNotRunningDialog,
@@ -24,6 +25,7 @@ import { useChatboxWorkspace } from "./hooks/useChatboxWorkspace";
 import { useConversationWorkspace } from "./hooks/useConversationWorkspace";
 import { useCoreSession } from "./hooks/useCoreSession";
 import { useDictionaryLookup } from "./hooks/useDictionaryLookup";
+import { useLearningWorkspace } from "./hooks/useLearningWorkspace";
 import {
   applyInterfaceScale,
   interfaceScaleShortcutStep,
@@ -43,10 +45,13 @@ import {
   readTranscriptionStartBehavior,
   shouldCreateConversationOnCaptureToggle,
 } from "./transcription-start";
+import { subtitleLearningKey, subtitleSelectionLearningKey } from "./learning";
+import type { SubtitleAnalysisOutcome } from "./subtitle-actions";
 import {
   supportsCustomTranslationLanguage,
   translationLanguageCodesForProvider,
 } from "./translation-languages";
+import type { Subtitle } from "./types";
 
 function App() {
   const { t, i18n } = useTranslation();
@@ -62,10 +67,13 @@ function App() {
     startupFailed,
     health,
     capturePending,
+    openedConversationId,
     subtitles,
-    partials,
     hasOlderSubtitles,
+    loadingConversationSubtitles,
     loadingOlderSubtitles,
+    conversationCatalogEvent,
+    openConversation,
     loadOlderSubtitles,
     vrchatMuteStatus,
     settings,
@@ -75,6 +83,7 @@ function App() {
     dictionarySources,
     error,
     clearError,
+    clearErrorFrom,
     reportError,
     retryCore,
     loadSettings,
@@ -152,16 +161,120 @@ function App() {
     closeCompactLookup,
     selectWord,
   } = dictionaryLookup;
+  const learningWorkspace = useLearningWorkspace(page === "learning" && coreReady, coreReady);
+  const openLearningItem = useCallback((itemId: number) => {
+    clearLookup();
+    learningWorkspace.setStatusFilter("all");
+    learningWorkspace.setSelectedId(itemId);
+    setPage("learning");
+  }, [clearLookup, learningWorkspace.setSelectedId, learningWorkspace.setStatusFilter]);
+  const openSubtitleLearning = useCallback(async (subtitle: Subtitle) => {
+    const item = await learningWorkspace.collectSubtitle(subtitle);
+    if (!item) return null;
+    openLearningItem(item.id);
+    return item;
+  }, [learningWorkspace.collectSubtitle, openLearningItem]);
+  const analyzeSubtitleSentence = useCallback(async (
+    subtitle: Subtitle,
+  ): Promise<SubtitleAnalysisOutcome | null> => {
+    clearLookup();
+    const item = await learningWorkspace.collectSubtitle(subtitle);
+    if (!item) return null;
+    if (
+      item.status === "archived"
+      || !learningWorkspace.preferences.profileId
+      || !learningWorkspace.preferences.model.trim()
+    ) {
+      openLearningItem(item.id);
+      return { status: "opened", itemId: item.id };
+    }
+    const analyzed = await learningWorkspace.analyze(item.id, "sentence_analysis");
+    return analyzed?.analysis
+      ? { status: "completed", itemId: analyzed.id, analysis: analyzed.analysis }
+      : null;
+  }, [
+    clearLookup,
+    learningWorkspace.analyze,
+    learningWorkspace.collectSubtitle,
+    learningWorkspace.preferences.model,
+    learningWorkspace.preferences.profileId,
+    openLearningItem,
+  ]);
+  const collectSubtitleSelection = useCallback((selection: Subtitle[]) => {
+    const ids = subtitleIds(selection);
+    return learningWorkspace.collectSubtitles(selection, ids, { mergeFragments: true });
+  }, [learningWorkspace.collectSubtitles]);
+  const openSubtitleSelectionLearning = useCallback(async (selection: Subtitle[]) => {
+    const item = await collectSubtitleSelection(selection);
+    if (!item) return null;
+    openLearningItem(item.id);
+    return item;
+  }, [collectSubtitleSelection, openLearningItem]);
+  const analyzeSubtitleSelection = useCallback(async (
+    selection: Subtitle[],
+  ): Promise<SubtitleAnalysisOutcome | null> => {
+    clearLookup();
+    const item = await collectSubtitleSelection(selection);
+    if (!item) return null;
+    if (
+      item.status === "archived"
+      || !learningWorkspace.preferences.profileId
+      || !learningWorkspace.preferences.model.trim()
+    ) {
+      openLearningItem(item.id);
+      return { status: "opened", itemId: item.id };
+    }
+    const analyzed = await learningWorkspace.analyze(item.id, "sentence_analysis");
+    return analyzed?.analysis
+      ? { status: "completed", itemId: analyzed.id, analysis: analyzed.analysis }
+      : null;
+  }, [
+    clearLookup,
+    collectSubtitleSelection,
+    learningWorkspace.analyze,
+    learningWorkspace.preferences.model,
+    learningWorkspace.preferences.profileId,
+    openLearningItem,
+  ]);
+  const isSubtitleLearningBusy = useCallback(
+    (subtitle: Subtitle) => learningWorkspace.isCollecting(subtitleLearningKey(subtitle)),
+    [learningWorkspace.isCollecting],
+  );
+  const isSubtitleLearningCaptured = useCallback(
+    (subtitle: Subtitle) => learningWorkspace.isCaptured(subtitleLearningKey(subtitle)),
+    [learningWorkspace.isCaptured],
+  );
+  const isSubtitleSelectionLearningBusy = useCallback(
+    (selection: Subtitle[]) => learningWorkspace.isCollecting(
+      subtitleSelectionLearningKey(subtitleIds(selection)),
+    ),
+    [learningWorkspace.isCollecting],
+  );
+  const isSubtitleSelectionLearningCaptured = useCallback(
+    (selection: Subtitle[]) => learningWorkspace.isCaptured(
+      subtitleSelectionLearningKey(subtitleIds(selection)),
+    ),
+    [learningWorkspace.isCaptured],
+  );
   const chatbox = useChatboxWorkspace(settings);
   const conversation = useConversationWorkspace({
+    coreReady,
+    openedConversationId,
     subtitles,
+    conversationCatalogEvent,
+    openConversation,
     page,
     running: health?.capture_requested ?? false,
+    hasOlderSubtitles,
+    loadingConversationSubtitles,
+    reportError,
+    clearErrorFrom,
   });
   const {
     conversations,
     activeConversation,
     selectedConversation,
+    selectedSubtitles,
     sidebarOpen,
     setSidebarOpen,
     sidebarWidth,
@@ -171,11 +284,17 @@ function App() {
     renameConversation,
     setConversationIcon,
     resetConversationCustomization,
+    deleteConversation,
     liveScrollRef,
     followingLiveSubtitles,
+    selectedConversationHasOlder,
     scrollLiveViewToBottom,
     onLiveScroll,
   } = conversation;
+  const selectedConversationLoading = Boolean(
+    loadingConversationSubtitles
+    && selectedConversation?.id === openedConversationId,
+  );
   const [sidebarResizing, setSidebarResizing] = useState(false);
 
   useEffect(() => {
@@ -245,7 +364,7 @@ function App() {
         health?.capture_requested ?? false,
         readTranscriptionStartBehavior(),
       )) {
-        createConversation();
+        if (!await createConversation()) return false;
         clearLookup();
       }
       await toggleCoreCapture();
@@ -282,9 +401,8 @@ function App() {
     clearLookup();
   }, [clearLookup, selectConversation]);
 
-  const createConversationAndCloseLookup = useCallback(() => {
-    createConversation();
-    clearLookup();
+  const createConversationAndCloseLookup = useCallback(async () => {
+    if (await createConversation()) clearLookup();
   }, [clearLookup, createConversation]);
 
   const toggleConversationSidebar = useCallback(() => {
@@ -365,7 +483,6 @@ function App() {
       <div className={`compact-root ${lookup ? "compact-root-lookup" : ""}`}>
         <CompactView
           subtitle={compactSubtitle}
-          partial={partials.microphone ?? partials.speaker}
           running={health?.capture_requested ?? false}
           vrchatMuted={vrchatMuteStatus?.muted === true}
           captureDisabled={!coreReady || capturePending}
@@ -379,6 +496,7 @@ function App() {
             lookup={lookup}
             ankiEnabled={settings?.anki.enabled ?? true}
             compact
+            onAddLearning={learningWorkspace.collectLookup}
             onClose={closeCompactLookup}
           />
         )}
@@ -423,6 +541,7 @@ function App() {
             onRename={renameConversation}
             onIconChange={setConversationIcon}
             onResetCustomization={resetConversationCustomization}
+            onDelete={deleteConversation}
           />
         )}
         {page === "live" && sidebarOpen && (
@@ -492,26 +611,45 @@ function App() {
                     </div>
                   )}
                 <LiveView
-                  subtitles={selectedConversation?.subtitles ?? []}
-                  partials={selectedConversation?.id === activeConversation?.id ? partials : {}}
+                  subtitles={selectedSubtitles}
+                  scrollContainerRef={liveScrollRef}
                   running={
                     (health?.capture_requested ?? false)
                     && selectedConversation?.id === activeConversation?.id
                   }
+                  hasOlder={selectedConversationHasOlder}
+                  loading={selectedConversationLoading}
+                  loadingOlder={loadingOlderSubtitles}
+                  onLoadOlder={loadOlderSubtitles}
                   onSelect={selectWord}
                   onTranslate={subtitleTranslationHandler}
+                  onAddLearning={learningWorkspace.collectSubtitle}
+                  onOpenLearning={openSubtitleLearning}
+                  onAnalyzeSentence={analyzeSubtitleSentence}
+                  onAddLearningSelection={collectSubtitleSelection}
+                  onOpenLearningSelection={openSubtitleSelectionLearning}
+                  onAnalyzeSelection={analyzeSubtitleSelection}
+                  onOpenLearningItem={openLearningItem}
+                  isLearningBusy={isSubtitleLearningBusy}
+                  isLearningCaptured={isSubtitleLearningCaptured}
+                  isLearningSelectionBusy={isSubtitleSelectionLearningBusy}
+                  isLearningSelectionCaptured={isSubtitleSelectionLearningCaptured}
                   translatingSubtitleIds={translatingSubtitleIds}
                 />
               </>
             )}
 
-            {page === "history" && (
-              <HistoryView
-                subtitles={subtitles}
+            {page === "learning" && (
+              <LearningWorkspace
+                conversation={selectedConversation}
+                subtitles={selectedSubtitles}
+                workspace={learningWorkspace}
+                ankiEnabled={settings?.anki.enabled ?? true}
                 onSelect={selectWord}
                 onTranslate={subtitleTranslationHandler}
                 translatingSubtitleIds={translatingSubtitleIds}
-                hasOlder={hasOlderSubtitles}
+                hasOlder={selectedConversationHasOlder}
+                loading={selectedConversationLoading}
                 loadingOlder={loadingOlderSubtitles}
                 onLoadOlder={loadOlderSubtitles}
               />
@@ -607,6 +745,7 @@ function App() {
         <DictionaryPopover
           lookup={lookup}
           ankiEnabled={settings?.anki.enabled ?? true}
+          onAddLearning={learningWorkspace.collectLookup}
           onClose={clearLookup}
         />
       )}
@@ -629,6 +768,10 @@ function App() {
       )}
     </div>
   );
+}
+
+function subtitleIds(subtitles: Subtitle[]): number[] {
+  return subtitles.flatMap((subtitle) => subtitle.id === null ? [] : [subtitle.id]);
 }
 
 export default App;

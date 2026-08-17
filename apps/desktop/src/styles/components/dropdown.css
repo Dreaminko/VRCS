@@ -45,6 +45,50 @@
   transition: transform 140ms ease-out;
 }
 .dropdown-field.open .dropdown-chevron { transform: rotate(180deg); }
+.editable-dropdown-control { position: relative; min-width: 0; }
+.editable-dropdown-control input {
+  width: 100%;
+  height: 40px;
+  min-width: 0;
+  padding: 0 42px 0 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  outline: 0;
+  appearance: none;
+  color: var(--text);
+  background: var(--surface);
+  box-shadow: var(--control-shadow);
+  font: 13px/18px var(--font-mono);
+  transition: border-color 140ms ease-out, background-color 140ms ease-out, box-shadow 140ms ease-out;
+}
+.editable-dropdown-control input::placeholder { color: var(--text-quiet); }
+.editable-dropdown-control input:hover:not(:disabled) { border-color: var(--border-strong); background: var(--surface-elevated); }
+.editable-dropdown-control input:focus,
+.editable-dropdown-field.open input { border-color: var(--primary); background: var(--surface); box-shadow: var(--control-focus-shadow); }
+.editable-dropdown-control input:disabled { color: var(--text-quiet); background: var(--surface-subtle); box-shadow: none; cursor: not-allowed; }
+.editable-dropdown-toggle {
+  position: absolute;
+  top: 1px;
+  right: 1px;
+  display: grid;
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  border: 0;
+  border-left: 1px solid var(--border);
+  border-radius: 0 calc(var(--radius-sm) - 1px) calc(var(--radius-sm) - 1px) 0;
+  place-items: center;
+  color: var(--text-secondary);
+  background: transparent;
+  cursor: pointer;
+  transition: color 140ms ease-out, background-color 140ms ease-out, transform 140ms ease-out;
+}
+.editable-dropdown-toggle:hover:not(:disabled) { color: var(--text); background: var(--surface-elevated); }
+.editable-dropdown-toggle:focus-visible { outline: 3px solid rgba(116, 214, 255, 0.18); outline-offset: -3px; }
+.editable-dropdown-toggle:active:not(:disabled) { transform: scale(0.96); }
+.editable-dropdown-toggle:disabled { color: var(--text-quiet); cursor: not-allowed; }
+.editable-dropdown-field .dropdown-menu { max-height: min(216px, 40vh); overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; }
+.editable-dropdown-field .dropdown-option > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .deck-tree-field {
   position: relative;
   min-width: 0;

@@ -236,6 +236,7 @@ fn pipeline_dependencies(state: &Arc<AppState>) -> PipelineDependencies {
         Arc::clone(&state.asr),
         Arc::clone(&state.db),
         state.live_tx.clone(),
+        state.conversation_catalog_tx.clone(),
         state.translation_dispatcher.clone(),
         Arc::clone(&state.config),
         state.subtitle_output.clone(),

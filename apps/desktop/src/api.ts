@@ -21,6 +21,12 @@ import type {
   ExternalApiRuntimeStatus,
   Health,
   GlossarySourceStatus,
+  LearningAnalysisInput,
+  LearningDraftInput,
+  LearningItem,
+  LearningItemCreateInput,
+  LearningItemPatchInput,
+  LearningItemStatus,
   Settings,
   Subtitle,
   SubtitleTranslation,
@@ -30,6 +36,11 @@ import type {
 } from "./types";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { apiErrorFromResponse } from "./api-error";
+import type {
+  ConversationCatalog,
+  ConversationIcon,
+} from "./conversations";
+import type { ConversationSubtitlePage } from "./subtitle-stream";
 
 interface CoreConnection {
   httpUrl: string;
@@ -160,10 +171,52 @@ export const coreApi = {
     if (beforeId !== undefined) params.set("before_id", String(beforeId));
     return request<Subtitle[]>(`/api/subtitles?${params}`);
   },
+  conversations: () => request<ConversationCatalog>("/api/conversations"),
+  createConversation: () => request<ConversationCatalog>("/api/conversations", {
+    method: "POST",
+    body: JSON.stringify({}),
+  }),
+  updateConversation: (
+    conversationId: string,
+    input: { custom_title?: string | null; icon?: ConversationIcon | null },
+  ) => request<ConversationCatalog>(
+    `/api/conversations/${encodeURIComponent(conversationId)}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify(input),
+    },
+  ),
+  deleteConversation: (conversationId: string) => request<ConversationCatalog>(
+    `/api/conversations/${encodeURIComponent(conversationId)}`,
+    { method: "DELETE" },
+  ),
+  conversationSubtitles: (
+    conversationId: string,
+    {
+      limit = 100,
+      beforeId,
+      signal,
+    }: { limit?: number; beforeId?: number; signal?: AbortSignal } = {},
+  ) => {
+    const params = new URLSearchParams({ limit: String(limit) });
+    if (beforeId !== undefined) params.set("before_id", String(beforeId));
+    return request<ConversationSubtitlePage>(
+      `/api/conversations/${encodeURIComponent(conversationId)}/subtitles?${params}`,
+      { signal },
+    );
+  },
   storageStats: () => request<DatabaseStorageStats>("/api/storage/stats"),
   clearSubtitleHistory: () => request<DatabaseStorageStats>("/api/subtitles", {
     method: "DELETE",
   }),
+  deleteSubtitleRange: (startedAt: string, endedAt?: string) =>
+    request<{ deleted: number }>("/api/subtitles/range", {
+      method: "DELETE",
+      body: JSON.stringify({
+        started_at: startedAt,
+        ended_at: endedAt,
+      }),
+    }),
   devices: () => request<AudioDevice[]>("/api/audio/devices"),
   settings: () => settingsRequest(),
   saveSettings: (settings: Settings) =>
@@ -316,6 +369,52 @@ export const coreApi = {
     }),
   deleteAsrModel: (model: AsrModelRecord["id"]) =>
     request<{ deleted: boolean }>(`/api/asr/models/${model}`, { method: "DELETE" }),
+  learningItems: ({
+    status,
+    limit = 50,
+    beforeId,
+  }: {
+    status?: LearningItemStatus;
+    limit?: number;
+    beforeId?: number;
+  } = {}) => {
+    const params = new URLSearchParams({ limit: String(limit) });
+    if (status) params.set("status", status);
+    if (beforeId !== undefined) params.set("before_id", String(beforeId));
+    return request<LearningItem[]>(`/api/learning/items?${params}`);
+  },
+  learningCaptureKeys: () =>
+    request<{ keys: string[] }>("/api/learning/capture-keys"),
+  createLearningItem: (input: LearningItemCreateInput) =>
+    request<LearningItem>("/api/learning/items", {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  updateLearningItem: (itemId: number, input: LearningItemPatchInput) =>
+    request<LearningItem>(`/api/learning/items/${itemId}`, {
+      method: "PATCH",
+      body: JSON.stringify(input),
+    }),
+  archiveLearningItem: (itemId: number) =>
+    request<LearningItem>(`/api/learning/items/${itemId}/archive`, { method: "POST" }),
+  restoreLearningItem: (itemId: number) =>
+    request<LearningItem>(`/api/learning/items/${itemId}/restore`, { method: "POST" }),
+  deleteLearningItem: (itemId: number) =>
+    request<{ deleted: boolean }>(`/api/learning/items/${itemId}`, { method: "DELETE" }),
+  analyzeLearningItem: (itemId: number, input: LearningAnalysisInput) =>
+    request<LearningItem>(`/api/learning/items/${itemId}/analysis`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  generateLearningDraft: (itemId: number, input: LearningDraftInput) =>
+    request<LearningItem>(`/api/learning/items/${itemId}/draft`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  exportLearningItem: (itemId: number) =>
+    request<LearningItem>(`/api/learning/items/${itemId}/export`, {
+      method: "POST",
+    }),
   lookup: (term: string) =>
     request<DictionaryEntry[]>(`/api/dictionary?q=${encodeURIComponent(term)}`),
   dictionaries: () => request<DictionarySource[]>("/api/dictionaries"),

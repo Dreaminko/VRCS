@@ -57,6 +57,7 @@ body { zoom: var(--interface-scale, 1); }
   flex: 1;
   overflow-x: hidden;
   overflow-y: auto;
+  overflow-anchor: none;
   scrollbar-gutter: stable;
 }
 

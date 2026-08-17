@@ -4,6 +4,7 @@ use tokio::sync::broadcast;
 
 use crate::asr::AsrService;
 use crate::config::{AppConfig, TranslationConfig};
+use crate::db::conversations::{publish_latest_catalog, ConversationCatalog};
 use crate::db::Database;
 use crate::models::{now_iso8601, LiveTranscription, Subtitle};
 use crate::subtitle_output::SubtitleLifecyclePublisher;
@@ -14,6 +15,7 @@ pub(crate) struct PipelineDependencies {
     asr: Arc<Mutex<AsrService>>,
     database: Arc<Mutex<Database>>,
     live: broadcast::Sender<LiveTranscription>,
+    conversation_catalog: broadcast::Sender<ConversationCatalog>,
     translation: TranslationDispatcher,
     config: Arc<std::sync::RwLock<AppConfig>>,
     output: SubtitleLifecyclePublisher,
@@ -25,6 +27,7 @@ impl PipelineDependencies {
         asr: Arc<Mutex<AsrService>>,
         database: Arc<Mutex<Database>>,
         live: broadcast::Sender<LiveTranscription>,
+        conversation_catalog: broadcast::Sender<ConversationCatalog>,
         translation: TranslationDispatcher,
         config: Arc<std::sync::RwLock<AppConfig>>,
         output: SubtitleLifecyclePublisher,
@@ -33,6 +36,7 @@ impl PipelineDependencies {
             asr,
             database,
             live,
+            conversation_catalog,
             translation,
             config,
             output,
@@ -129,6 +133,7 @@ impl PipelineDependencies {
         }
         let subtitle = Subtitle {
             id: None,
+            conversation_id: None,
             text,
             language,
             started_at: None,
@@ -138,12 +143,16 @@ impl PipelineDependencies {
             translations: Vec::new(),
         };
         let database = Arc::clone(&self.database);
+        let conversation_catalog = self.conversation_catalog.clone();
         let saved = match tokio::task::spawn_blocking(move || {
-            database
+            let database = database
                 .lock()
-                .map_err(|_| "Database lock is unavailable".to_string())?
+                .map_err(|_| "Database lock is unavailable".to_string())?;
+            let saved = database
                 .add_subtitle(&subtitle)
-                .map_err(|error| error.to_string())
+                .map_err(|error| error.to_string())?;
+            publish_latest_catalog(&database, &conversation_catalog);
+            Ok::<_, String>(saved)
         })
         .await
         {

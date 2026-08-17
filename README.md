@@ -18,7 +18,7 @@ VRCS 是一个本地优先的 VRChat 字幕学习工具。它捕获 Windows 系�
 - Axum HTTP 接口和 WebSocket 字幕推送
 - 默认关闭、独立监听且版本化的第三方事件 WebSocket API
 - SQLite 字幕历史、Yomitan 词典导入和内置英日测试词典
-- React + Tauri 桌面端，包括实时字幕、历史、识别设置和音频设备页面
+- React + Tauri 桌面端，包括实时字幕、学习工作台、识别设置和音频设备页面
 - 可跟随系统或手动切换的简体中文、日语、英语界面
 - AnkiConnect 连接、牌组/笔记类型/字段映射与一键制卡
 
@@ -111,6 +111,12 @@ OpenAI 官方连接可按需设为“仅语音识别”“仅 LLM / 翻译”或
 
 前往“设置 → API 管理”新增 Gemini 配置并保存 Google AI Studio API Key。VRCS 使用 Gemini 原生 `generateContent`、`streamGenerateContent` 和模型列表接口，不经 OpenAI 兼容层；模型列表只显示支持文本生成的模型。也可以通过 `VRCS_GEMINI_API_KEY` 或 `GEMINI_API_KEY` 提供密钥。
 
+## 学习工作台与 LLM 学习
+
+底栏“学习”入口提供从字幕素材到 Anki 的完整整理流程：可以从实时字幕、划词查询或按会话组织的历史素材中加入学习项目，保留只读来源快照并编辑工作副本，再按需执行上下文词义解释、句型解析或会话回顾。分析结果经过 Core 的严格结构校验后保存到本机 SQLite；用户可以生成词汇卡、句型卡或普通正反面的完形填空卡，编辑并保存草稿后再通过现有 AnkiConnect 配置导出。
+
+学习分析不会自动触发。用户需要选择支持文本生成的 API Profile 和模型，并明确点击分析操作；云端 Profile 会接收当前学习项目的工作副本、所选词语、保存的译文和有限词典快照，不会自动附带整段字幕历史或 VRCX 房间信息。本地 Profile 只连接用户配置的本机服务，但该服务是否继续转发请求取决于其自身配置。AI 分析可能出错，应结合原始字幕和词典内容判断。
+
 ## LLM 翻译增强
 
 使用 OpenAI、Gemini、Alibaba Cloud 或 OpenAI Compatible 翻译时，“设置 → 翻译”可编辑系统 Prompt，并在同一有序列表中管理多个本地术语表和在线订阅。本地术语表支持 JSON 导入导出；在线订阅每天自动刷新，并分别保留最后一次成功缓存。列表顺序决定术语匹配优先级，所有已启用来源合计最多使用 500 条；JSON 格式见[术语表 JSON 与在线订阅](docs/glossary-subscription.md)。还可选择是否附带最近的扬声器、麦克风和 Chatbox 原文。最近原文默认关闭，可分别控制三个来源，并受消息数和字符数双重限制；本地预览会显示实际附带的条数、字符数和最终系统指令。启用 VRCX-0 集成及其 LLM 开关后，当前世界名、成员显示名和成员语言也会加入上下文，此功能独立于“附带最近原文”。DeepL 与 Microsoft Translator 不会接收这些增强内容。
@@ -150,6 +156,7 @@ VRCS 默认使用 Qwen3 ASR 云端流式识别，也可切换到 Fun-ASR、OpenA
 - [本地化贡献指南](LOCALIZATION.md)
 - [隐私说明](docs/privacy.md)
 - [错误报告与本地 errorlog 功能计划](docs/error-reporting-plan.md)
+- [LLM 学习功能增强计划](docs/llm-learning-enhancement-plan.md)
 - [第三方输出 API v1](docs/external-api-v1.md)
 - [路线图](docs/roadmap.md)
 
