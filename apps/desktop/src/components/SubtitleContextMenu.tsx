@@ -113,7 +113,7 @@ export function SubtitleContextMenu({
         </button>
       )}
       {onAnalyze && (
-        <button className="emphasis" type="button" role="menuitem" disabled={analyzing} onClick={() => choose(onAnalyze)}>
+        <button type="button" role="menuitem" disabled={analyzing} onClick={() => choose(onAnalyze)}>
           {analyzing ? <LoaderCircle className="spinning" size={15} /> : analysisComplete ? <Check size={15} /> : <Sparkles size={15} />}
           {t(analyzing
             ? "live.contextMenu.analyzing"

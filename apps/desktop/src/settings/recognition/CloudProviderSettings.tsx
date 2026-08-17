@@ -1,9 +1,44 @@
+import { useEffect, useState } from "react";
 import { HardDrive } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import type { Settings } from "../../types";
 import { Select } from "../SettingsControls";
 import { RecognitionLanguageSelect } from "./RecognitionLanguageSelect";
+
+function AsrContextField({
+  value,
+  maxLength,
+  disabled,
+  onCommit,
+}: {
+  value: string;
+  maxLength?: number;
+  disabled: boolean;
+  onCommit: (value: string) => void;
+}) {
+  const { t } = useTranslation();
+  const [draft, setDraft] = useState(value);
+
+  useEffect(() => setDraft(value), [value]);
+
+  return (
+    <label className="field cloud-text-field cloud-context-field">
+      <span>{t("settings.recognition.context")}</span>
+      <textarea
+        maxLength={maxLength}
+        value={draft}
+        disabled={disabled}
+        placeholder={t("settings.recognition.contextDescription")}
+        onChange={(event) => setDraft(event.target.value)}
+        onBlur={() => {
+          if (draft !== value) onCommit(draft);
+        }}
+      />
+      {maxLength !== undefined && <small>{draft.length}/{maxLength}</small>}
+    </label>
+  );
+}
 
 export function CloudProviderSettings({
   draft,
@@ -42,8 +77,8 @@ export function CloudProviderSettings({
             onChange={(value) => onUpdateAsr("backend", value as Settings["asr"]["backend"])}
           />
           {draft.asr.backend === "qwen_realtime"
-            ? <label className="field cloud-text-field cloud-context-field"><span>{t("settings.recognition.context")}</span><textarea value={draft.asr.qwen.context} disabled={disabled} placeholder={t("settings.recognition.contextDescription")} onChange={(event) => onUpdateAsr("qwen", { ...draft.asr.qwen, context: event.target.value })} /></label>
-            : <label className="field cloud-text-field cloud-context-field"><span>{t("settings.recognition.context")}</span><textarea maxLength={400} value={draft.asr.fun_asr.context} disabled={disabled} placeholder={t("settings.recognition.contextDescription")} onChange={(event) => onUpdateAsr("fun_asr", { ...draft.asr.fun_asr, context: event.target.value })} /><small>{draft.asr.fun_asr.context.length}/400</small></label>}
+            ? <AsrContextField value={draft.asr.qwen.context} disabled={disabled} onCommit={(context) => onUpdateAsr("qwen", { ...draft.asr.qwen, context })} />
+            : <AsrContextField value={draft.asr.fun_asr.context} maxLength={400} disabled={disabled} onCommit={(context) => onUpdateAsr("fun_asr", { ...draft.asr.fun_asr, context })} />}
         </>}
         {provider === "openai" && <Select label={t("settings.recognition.model")} value={draft.asr.openai.model} options={[{ value: "gpt-4o-mini-transcribe", label: "GPT-4o mini Transcribe" }, { value: "gpt-4o-transcribe", label: "GPT-4o Transcribe" }]} disabled={disabled} onChange={(value) => onUpdateAsr("openai", { model: value as Settings["asr"]["openai"]["model"] })} />}
         <RecognitionLanguageSelect

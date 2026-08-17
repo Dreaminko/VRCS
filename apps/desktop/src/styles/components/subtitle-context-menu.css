@@ -36,7 +36,6 @@
   transition: color 120ms ease-out, background-color 120ms ease-out, transform 120ms ease-out;
 }
 .subtitle-context-menu > button svg { flex: 0 0 auto; }
-.subtitle-context-menu > button.emphasis { color: var(--primary-ink); }
 .subtitle-context-menu > button:disabled { color: var(--text-quiet); opacity: 0.65; cursor: wait; }
 .subtitle-context-menu > button:focus-visible {
   outline: 3px solid rgba(116, 214, 255, 0.18);
