@@ -6,6 +6,12 @@
   justify-items: center;
   gap: 12px;
   color: var(--text-quiet);
+  user-select: none;
+  -webkit-user-select: none;
+}
+.onboarding-loading-mark,
+.onboarding-loading p {
+  -webkit-user-drag: none;
 }
 .onboarding-loading-mark {
   display: grid;

@@ -245,9 +245,9 @@ function App() {
       <div className="app-shell onboarding-shell">
         <WindowChrome />
         {onboarding.status === "loading" || !settings ? (
-          <div className="onboarding-loading" role="status">
-            <span className="onboarding-loading-mark">VRCS</span>
-            <p>{startupFailed ? t("errors.core.initialize") : t("common.loading")}</p>
+          <div className="onboarding-loading" role="status" data-tauri-drag-region>
+            <span className="onboarding-loading-mark" data-tauri-drag-region>VRCS</span>
+            <p data-tauri-drag-region>{startupFailed ? t("errors.core.initialize") : t("common.loading")}</p>
             {startupFailed && <button className="primary-button" type="button" onClick={() => void retryCore()}>{t("common.retry")}</button>}
           </div>
         ) : (
