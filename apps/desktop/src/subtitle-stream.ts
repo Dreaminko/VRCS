@@ -35,7 +35,7 @@ export interface ConversationCatalogEvent {
 }
 
 export type SubtitleStreamMessage =
-  | { type: "subtitle"; subtitle: Subtitle }
+  | { type: "subtitle"; subtitle: Subtitle; utterance_id?: string }
   | { type: "conversation_catalog"; catalog: ConversationCatalog }
   | LiveTranscription
   | AudioLevel
@@ -179,7 +179,14 @@ export function parseSubtitleStreamMessage(
   switch (value.type) {
     case "subtitle":
       return isSubtitle(value.subtitle)
-        ? { type: "subtitle", subtitle: value.subtitle }
+        && (value.utterance_id === undefined || isText(value.utterance_id))
+        ? {
+            type: "subtitle",
+            subtitle: value.subtitle,
+            ...(typeof value.utterance_id === "string"
+              ? { utterance_id: value.utterance_id }
+              : {}),
+          }
         : null;
     case "conversation_catalog":
       return isConversationCatalog(value.catalog)

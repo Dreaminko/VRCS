@@ -252,6 +252,7 @@ mod tests {
         let final_event = receiver.recv().await.unwrap();
         let translation_event = receiver.recv().await.unwrap();
         assert_eq!(final_event.event_type, "asr.final");
+        assert_eq!(final_event.payload["subtitle"]["id"], 7);
         assert_eq!(translation_event.event_type, "translation.started");
         assert_eq!(final_event.message_id, "utterance-7");
         assert_eq!(translation_event.message_id, final_event.message_id);

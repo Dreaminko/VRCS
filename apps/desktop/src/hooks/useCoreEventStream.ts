@@ -4,6 +4,7 @@ import { coreWebSocketUrl } from "../api";
 import {
   clearAudioLevels,
   clearLivePartial,
+  completeLivePartial,
   clearLivePartials,
   clearTranslationPartial,
   clearTranslationPartials,
@@ -87,9 +88,15 @@ export function useCoreEventStream({
         if (message === null) return;
         switch (message.type) {
           case "subtitle": {
-            handlersRef.current.onSubtitle(message.subtitle);
             const source = message.subtitle.source ?? "speaker";
-            if (source !== "chatbox") clearLivePartial(source);
+            if (source !== "chatbox") {
+              if (message.utterance_id) {
+                completeLivePartial(source, message.utterance_id);
+              } else {
+                clearLivePartial(source);
+              }
+            }
+            handlersRef.current.onSubtitle(message.subtitle);
             clearErrorFromRef.current(`stream:${source}`);
             break;
           }

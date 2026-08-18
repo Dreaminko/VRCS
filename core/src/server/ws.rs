@@ -6,8 +6,11 @@ use axum::extract::{Query, State, WebSocketUpgrade};
 use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use futures_util::{SinkExt, StreamExt};
-use serde_json::json;
+use serde_json::{json, Value};
 use tokio::sync::broadcast;
+
+use crate::domain_events::DomainEvent;
+use crate::models::LiveTranscription;
 
 use super::{api_error, token_eq, AppState, ALLOWED_ORIGINS};
 
@@ -39,6 +42,7 @@ pub(super) async fn ws_handler(
 
 pub(super) async fn handle_socket(state: Arc<AppState>, socket: WebSocket) {
     let mut receiver = state.subtitle_output.subscribe_subtitles();
+    let mut recognition_receiver = state.domain_events.subscribe();
     let mut live_receiver = state.live_tx.subscribe();
     let mut catalog_receiver = state.conversation_catalog_tx.subscribe();
     let mut translation_receiver = state.subtitle_output.subscribe_translations();
@@ -80,6 +84,9 @@ pub(super) async fn handle_socket(state: Arc<AppState>, socket: WebSocket) {
             subtitle = receiver.recv() => {
                 match subtitle {
                     Ok(subtitle) => {
+                        if matches!(subtitle.source.as_str(), "speaker" | "microphone") {
+                            continue;
+                        }
                         let payload = json!({ "type": "subtitle", "subtitle": subtitle }).to_string();
                         if sender.send(Message::Text(payload.into())).await.is_err() {
                             break;
@@ -89,14 +96,35 @@ pub(super) async fn handle_socket(state: Arc<AppState>, socket: WebSocket) {
                     Err(broadcast::error::RecvError::Closed) => break,
                 }
             }
-            event = live_receiver.recv() => {
+            event = recognition_receiver.recv() => {
                 match event {
                     Ok(event) => {
-                        let payload = serde_json::to_string(&event).expect("live event serialization");
-                        if sender.send(Message::Text(payload.into())).await.is_err() {
+                        let Some(payload) = recognition_payload(event) else {
+                            continue;
+                        };
+                        if sender.send(Message::Text(payload.to_string().into())).await.is_err() {
                             break;
                         }
                     }
+                    Err(broadcast::error::RecvError::Lagged(_)) => continue,
+                    Err(broadcast::error::RecvError::Closed) => break,
+                }
+            }
+            event = live_receiver.recv() => {
+                match event {
+                    Ok(LiveTranscription::AudioLevel { source, rms_dbfs, peak_dbfs, speech }) => {
+                        let payload = json!({
+                            "type": "audio_level",
+                            "source": source,
+                            "rms_dbfs": rms_dbfs,
+                            "peak_dbfs": peak_dbfs,
+                            "speech": speech,
+                        });
+                        if sender.send(Message::Text(payload.to_string().into())).await.is_err() {
+                            break;
+                        }
+                    }
+                    Ok(LiveTranscription::Partial { .. } | LiveTranscription::Failed { .. }) => continue,
                     Err(broadcast::error::RecvError::Lagged(_)) => continue,
                     Err(broadcast::error::RecvError::Closed) => break,
                 }
@@ -143,4 +171,67 @@ pub(super) async fn handle_socket(state: Arc<AppState>, socket: WebSocket) {
         }
     }
     let _ = sender.send(Message::Close(None)).await;
+}
+
+fn recognition_payload(event: DomainEvent) -> Option<Value> {
+    match event.event_type.as_str() {
+        "asr.partial" => Some(json!({
+            "type": "partial",
+            "utterance_id": event.message_id,
+            "source": event.source,
+            "text": event.payload.get("text")?,
+            "language": event.payload.get("language"),
+        })),
+        "asr.final" => Some(json!({
+            "type": "subtitle",
+            "utterance_id": event.message_id,
+            "subtitle": event.payload.get("subtitle")?,
+        })),
+        "asr.failed" => Some(json!({
+            "type": "failed",
+            "source": event.source,
+            "code": event.payload.get("code"),
+            "detail": event.payload.get("detail"),
+        })),
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::domain_events::DomainEventHub;
+    use crate::models::{now_iso8601, Subtitle};
+
+    fn subtitle() -> Subtitle {
+        Subtitle {
+            id: Some(7),
+            conversation_id: Some("conversation-test".into()),
+            text: "hello world".into(),
+            language: Some("en".into()),
+            started_at: None,
+            ended_at: None,
+            source: "speaker".into(),
+            created_at: now_iso8601(),
+            translations: Vec::new(),
+        }
+    }
+
+    #[tokio::test]
+    async fn recognition_events_preserve_utterance_order_and_identity() {
+        let events = DomainEventHub::new();
+        let mut receiver = events.subscribe();
+        events.asr_partial("utterance-7", "speaker", "hello", Some("en"));
+        events.asr_final("utterance-7", &subtitle());
+
+        let partial = recognition_payload(receiver.recv().await.unwrap()).unwrap();
+        let final_event = recognition_payload(receiver.recv().await.unwrap()).unwrap();
+
+        assert_eq!(partial["type"], "partial");
+        assert_eq!(partial["utterance_id"], "utterance-7");
+        assert_eq!(partial["text"], "hello");
+        assert_eq!(final_event["type"], "subtitle");
+        assert_eq!(final_event["utterance_id"], "utterance-7");
+        assert_eq!(final_event["subtitle"]["id"], 7);
+    }
 }

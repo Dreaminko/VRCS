@@ -262,9 +262,14 @@ test("valid stream payloads pass protocol validation", () => {
   const streamed = { ...subtitle(3, "valid"), conversation_id: "conversation-1" };
   const message = parseSubtitleStreamMessage(JSON.stringify({
     type: "subtitle",
+    utterance_id: "utterance-3",
     subtitle: streamed,
   }));
-  assert.deepEqual(message, { type: "subtitle", subtitle: streamed });
+  assert.deepEqual(message, {
+    type: "subtitle",
+    utterance_id: "utterance-3",
+    subtitle: streamed,
+  });
 });
 
 test("OpenAI-compatible translation payloads pass protocol validation", () => {

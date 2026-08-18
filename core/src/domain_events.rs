@@ -86,6 +86,7 @@ impl DomainEventHub {
                 "subtitle_id": subtitle.id,
                 "text": subtitle.text,
                 "language": subtitle.language,
+                "subtitle": subtitle,
             }),
         ));
     }

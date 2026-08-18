@@ -64,6 +64,15 @@ export function publishLivePartial(partial: LiveTranscription) {
   notifyKey(livePartialListeners, partial.source);
 }
 
+export function completeLivePartial(
+  source: LiveTranscription["source"],
+  utteranceId: string,
+) {
+  if (livePartials.get(source)?.utterance_id !== utteranceId) return;
+  livePartials.delete(source);
+  notifyKey(livePartialListeners, source);
+}
+
 export function clearLivePartial(source: LiveTranscription["source"]) {
   if (!livePartials.delete(source)) return;
   notifyKey(livePartialListeners, source);
@@ -76,12 +85,18 @@ export function clearLivePartials() {
   sources.forEach((source) => notifyKey(livePartialListeners, source));
 }
 
+export function getLivePartial(
+  source: LiveTranscription["source"],
+): LiveTranscription | null {
+  return livePartials.get(source) ?? null;
+}
+
 export function useLivePartial(
   source: LiveTranscription["source"],
 ): LiveTranscription | null {
   return useSyncExternalStore(
     (listener) => subscribeKey(livePartialListeners, source, listener),
-    () => livePartials.get(source) ?? null,
+    () => getLivePartial(source),
     () => null,
   );
 }
