@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import {
   Glasses,
   Hand,
+  Layers3,
   RefreshCw,
   RotateCcw,
   TriangleAlert,
@@ -210,7 +211,7 @@ export function VrOverlaySettingsSection({
       aria-labelledby="settings-tab-vr_overlay"
     >
       <div className="section-heading">
-        <div><Glasses size={18} /><h2>{t("settings.vrOverlay.title")}</h2></div>
+        <div><Layers3 size={18} /><h2>{t("settings.vrOverlay.title")}</h2></div>
       </div>
 
       <div className="vr-overlay-runtime-card">

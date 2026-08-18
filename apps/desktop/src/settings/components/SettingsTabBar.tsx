@@ -1,8 +1,8 @@
 import type { ReactNode } from "react";
 import {
   AudioLines,
-  Glasses,
   GraduationCap,
+  Layers3,
   KeyRound,
   Languages,
   Link,
@@ -30,7 +30,7 @@ export function SettingsTabBar({
     { id: "api", label: t("settings.categories.api"), icon: <KeyRound size={18} /> },
     { id: "learning", label: t("settings.categories.learning"), icon: <GraduationCap size={18} /> },
     { id: "connections", label: t("settings.categories.connections"), icon: <Link size={18} /> },
-    { id: "vr_overlay", label: t("settings.categories.vrOverlay"), icon: <Glasses size={18} /> },
+    { id: "vr_overlay", label: t("settings.categories.vrOverlay"), icon: <Layers3 size={18} /> },
     { id: "debug", label: "Debug", icon: <Wrench size={18} /> },
   ] satisfies Array<{ id: SettingsCategory; label: string; icon: ReactNode }>;
 
