@@ -46,6 +46,7 @@ pnpm-debug.log*
 # Rust and Tauri generated output
 target/
 apps/desktop/src-tauri/gen/
+apps/desktop/src-tauri/tauri.release.generated.conf.json
 core/build-release/
 core/dist-release/
 apps/desktop/src-tauri/binaries/
