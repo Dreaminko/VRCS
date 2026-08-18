@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct VrOverlayConfig {
     #[serde(default)]
@@ -196,16 +196,6 @@ fn default_wrist_font_size_px() -> u32 {
 
 fn default_wrist_background_opacity() -> f32 {
     0.65
-}
-
-impl Default for VrOverlayConfig {
-    fn default() -> Self {
-        Self {
-            enabled: false,
-            headset: VrOverlayHeadsetConfig::default(),
-            wrist: VrOverlayWristConfig::default(),
-        }
-    }
 }
 
 impl Default for VrOverlayHeadsetConfig {

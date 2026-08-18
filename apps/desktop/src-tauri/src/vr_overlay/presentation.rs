@@ -333,9 +333,11 @@ mod tests {
     #[test]
     fn headset_final_fades() {
         let now = Instant::now();
-        let mut config = VrOverlayHeadsetConfig::default();
-        config.display_seconds = 2.0;
-        config.fade_seconds = 1.0;
+        let config = VrOverlayHeadsetConfig {
+            display_seconds: 2.0,
+            fade_seconds: 1.0,
+            ..Default::default()
+        };
         let mut state = HeadsetPresentation::default();
         state.apply(
             PresentationEvent::Final {
@@ -355,8 +357,10 @@ mod tests {
     #[test]
     fn translation_completion_updates_matching_headset_item() {
         let now = Instant::now();
-        let mut config = VrOverlayHeadsetConfig::default();
-        config.content_mode = "bilingual".into();
+        let config = VrOverlayHeadsetConfig {
+            content_mode: "bilingual".into(),
+            ..Default::default()
+        };
         let mut state = HeadsetPresentation::default();
         state.apply(
             PresentationEvent::Final {
@@ -386,8 +390,10 @@ mod tests {
         translation.source_language = None;
         translation.target_language = "en".into();
 
-        let mut headset_config = VrOverlayHeadsetConfig::default();
-        headset_config.content_mode = "bilingual".into();
+        let headset_config = VrOverlayHeadsetConfig {
+            content_mode: "bilingual".into(),
+            ..Default::default()
+        };
         let mut headset = HeadsetPresentation::default();
         headset.apply(
             PresentationEvent::Final {
@@ -409,8 +415,10 @@ mod tests {
             PresentationContent::Headset("hello".into())
         );
 
-        let mut wrist_config = VrOverlayWristConfig::default();
-        wrist_config.content_mode = "bilingual".into();
+        let wrist_config = VrOverlayWristConfig {
+            content_mode: "bilingual".into(),
+            ..Default::default()
+        };
         let mut item = subtitle(7, "hello");
         item.translations.push(translation);
         let mut wrist = WristPresentation::default();
@@ -431,8 +439,10 @@ mod tests {
     #[test]
     fn wrist_keeps_only_configured_recent_finals() {
         let now = Instant::now();
-        let mut config = VrOverlayWristConfig::default();
-        config.max_entries = 3;
+        let config = VrOverlayWristConfig {
+            max_entries: 3,
+            ..Default::default()
+        };
         let mut state = WristPresentation::default();
         for id in 1..=5 {
             state.apply(
@@ -465,8 +475,10 @@ mod tests {
     #[test]
     fn wrist_trims_existing_history_when_limit_changes() {
         let now = Instant::now();
-        let mut config = VrOverlayWristConfig::default();
-        config.max_entries = 5;
+        let mut config = VrOverlayWristConfig {
+            max_entries: 5,
+            ..Default::default()
+        };
         let mut state = WristPresentation::default();
         for id in 1..=5 {
             state.apply(
@@ -497,9 +509,11 @@ mod tests {
     #[test]
     fn wrist_places_remote_left_and_local_sources_right() {
         let now = Instant::now();
-        let mut config = VrOverlayWristConfig::default();
-        config.include_microphone = true;
-        config.include_chatbox = true;
+        let config = VrOverlayWristConfig {
+            include_microphone: true,
+            include_chatbox: true,
+            ..Default::default()
+        };
         let mut state = WristPresentation::default();
 
         for (id, source) in [(1, "speaker"), (2, "microphone"), (3, "chatbox")] {

@@ -207,9 +207,9 @@ impl Manager {
                         Ok(()) => {}
                         Err(TrySendError::Full(_)) => {
                             dropped = dropped.saturating_add(1);
-                            if last_warning.map_or(true, |last: Instant| {
-                                last.elapsed() >= DROP_WARNING_INTERVAL
-                            }) {
+                            if last_warning
+                                .is_none_or(|last: Instant| last.elapsed() >= DROP_WARNING_INTERVAL)
+                            {
                                 tracing::warn!(
                                     dropped,
                                     "VR Overlay dropped stale presentation events"

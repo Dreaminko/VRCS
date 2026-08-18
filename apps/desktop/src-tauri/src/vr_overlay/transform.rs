@@ -74,10 +74,12 @@ mod tests {
 
     #[test]
     fn headset_uses_negative_forward_distance() {
-        let mut config = VrOverlayHeadsetConfig::default();
-        config.offset_x_m = 0.1;
-        config.offset_y_m = -0.2;
-        config.distance_m = 1.4;
+        let config = VrOverlayHeadsetConfig {
+            offset_x_m: 0.1,
+            offset_y_m: -0.2,
+            distance_m: 1.4,
+            ..Default::default()
+        };
         let value = headset(&config);
         assert_close(value[0][3], 0.1);
         assert_close(value[1][3], -0.2);

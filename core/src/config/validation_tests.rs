@@ -443,21 +443,23 @@ fn validates_glossary_sources_and_subscription_urls() {
         category: GlossaryCategory::Custom,
         case_sensitive,
     };
-    let mut prompt = TranslationPromptConfig::default();
-    prompt.glossary_sources = vec![
-        GlossarySource::Local {
-            id: "local".into(),
-            name: "Local glossary".into(),
-            enabled: true,
-            entries: vec![entry("VRChat", false)],
-        },
-        GlossarySource::Subscription {
-            id: "remote".into(),
-            url: "https://example.com/glossary.json".into(),
-            display_name: None,
-            enabled: true,
-        },
-    ];
+    let mut prompt = TranslationPromptConfig {
+        glossary_sources: vec![
+            GlossarySource::Local {
+                id: "local".into(),
+                name: "Local glossary".into(),
+                enabled: true,
+                entries: vec![entry("VRChat", false)],
+            },
+            GlossarySource::Subscription {
+                id: "remote".into(),
+                url: "https://example.com/glossary.json".into(),
+                display_name: None,
+                enabled: true,
+            },
+        ],
+        ..Default::default()
+    };
     assert!(validate_translation_prompt(&prompt).is_ok());
 
     if let GlossarySource::Subscription { url, .. } = &mut prompt.glossary_sources[1] {

@@ -640,8 +640,10 @@ mod tests {
         let integration = VrcxIntegration::new(shutdown_rx);
         *integration.shared.room.write().unwrap() = Some(room());
 
-        let mut qwen = AsrConfig::default();
-        qwen.backend = "qwen_realtime".into();
+        let mut qwen = AsrConfig {
+            backend: "qwen_realtime".into(),
+            ..Default::default()
+        };
         qwen.qwen.context = "Manual terms".into();
         let qwen_signatures = integration.apply_asr_context(&mut qwen);
         assert_eq!(
@@ -651,14 +653,18 @@ mod tests {
         assert!(qwen_signatures.contains(&"World: Test \"World\"".to_string()));
         assert!(qwen_signatures.contains(&"Names: Alice, Bob".to_string()));
 
-        let mut fun_asr = AsrConfig::default();
-        fun_asr.backend = "fun_asr_realtime".into();
+        let mut fun_asr = AsrConfig {
+            backend: "fun_asr_realtime".into(),
+            ..Default::default()
+        };
         let fun_signatures = integration.apply_asr_context(&mut fun_asr);
         assert_eq!(fun_asr.fun_asr.context, "Test \"World\"\nAlice\nBob");
         assert_eq!(fun_signatures, qwen_signatures);
 
-        let mut openai = AsrConfig::default();
-        openai.backend = "openai_realtime".into();
+        let mut openai = AsrConfig {
+            backend: "openai_realtime".into(),
+            ..Default::default()
+        };
         assert!(integration.apply_asr_context(&mut openai).is_empty());
         assert!(openai.qwen.context.is_empty());
         assert!(openai.fun_asr.context.is_empty());

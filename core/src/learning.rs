@@ -119,19 +119,14 @@ impl LearningLevel {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AnalysisFocus {
+    #[default]
     Default,
     Simpler,
     Examples,
     Compare,
-}
-
-impl Default for AnalysisFocus {
-    fn default() -> Self {
-        Self::Default
-    }
 }
 
 impl AnalysisFocus {

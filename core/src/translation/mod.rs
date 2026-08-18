@@ -107,6 +107,7 @@ impl TranslationService {
         .await
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn translate_with_progress(
         &self,
         settings: &TranslationConfig,

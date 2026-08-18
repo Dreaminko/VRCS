@@ -567,10 +567,10 @@ pub(super) fn profile_not_found() -> (StatusCode, Json<Value>) {
 
 pub(super) fn ensure_asr_profile_ready(profile: &ApiProfile) -> ApiResult<()> {
     if profile.provider == ALIBABA_PROVIDER
-        && !profile
+        && profile
             .workspace_id
             .as_deref()
-            .is_some_and(|workspace| !workspace.trim().is_empty())
+            .is_none_or(|workspace| workspace.trim().is_empty())
     {
         return Err(api_error(
             StatusCode::UNPROCESSABLE_ENTITY,

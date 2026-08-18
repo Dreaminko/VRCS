@@ -270,32 +270,34 @@ mod tests {
 
     #[test]
     fn glossary_sources_use_the_tagged_json_contract() {
-        let mut prompt = TranslationPromptConfig::default();
-        prompt.glossary_sources = vec![
-            GlossarySource::Local {
-                id: "local-one".into(),
-                name: "Names".into(),
-                enabled: true,
-                entries: vec![GlossaryEntry {
-                    source: "VRChat".into(),
-                    target: None,
-                    category: GlossaryCategory::Game,
-                    case_sensitive: false,
-                }],
-            },
-            GlossarySource::Subscription {
-                id: "remote-one".into(),
-                url: "https://example.com/glossary.json".into(),
-                display_name: None,
-                enabled: false,
-            },
-        ];
-        prompt.glossary = vec![GlossaryEntry {
-            source: "runtime-only".into(),
-            target: None,
-            category: GlossaryCategory::Custom,
-            case_sensitive: false,
-        }];
+        let prompt = TranslationPromptConfig {
+            glossary_sources: vec![
+                GlossarySource::Local {
+                    id: "local-one".into(),
+                    name: "Names".into(),
+                    enabled: true,
+                    entries: vec![GlossaryEntry {
+                        source: "VRChat".into(),
+                        target: None,
+                        category: GlossaryCategory::Game,
+                        case_sensitive: false,
+                    }],
+                },
+                GlossarySource::Subscription {
+                    id: "remote-one".into(),
+                    url: "https://example.com/glossary.json".into(),
+                    display_name: None,
+                    enabled: false,
+                },
+            ],
+            glossary: vec![GlossaryEntry {
+                source: "runtime-only".into(),
+                target: None,
+                category: GlossaryCategory::Custom,
+                case_sensitive: false,
+            }],
+            ..Default::default()
+        };
 
         let value = serde_json::to_value(&prompt).unwrap();
 

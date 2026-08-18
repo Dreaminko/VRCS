@@ -201,10 +201,7 @@ pub(super) async fn commit_candidate(
                 state,
                 &current,
                 &previous_model_dir,
-                false,
-                false,
-                false,
-                None,
+                RestorePreviousOptions::default(),
                 plan,
             )
             .await
@@ -234,10 +231,10 @@ pub(super) async fn commit_candidate(
                     state,
                     &current,
                     &previous_model_dir,
-                    model_directory_changed,
-                    false,
-                    false,
-                    None,
+                    RestorePreviousOptions {
+                        model_directory: model_directory_changed,
+                        ..Default::default()
+                    },
                     plan,
                 )
                 .await
@@ -260,10 +257,10 @@ pub(super) async fn commit_candidate(
             state,
             &current,
             &previous_model_dir,
-            model_directory_changed,
-            false,
-            false,
-            None,
+            RestorePreviousOptions {
+                model_directory: model_directory_changed,
+                ..Default::default()
+            },
             plan,
         )
         .await
@@ -285,10 +282,12 @@ pub(super) async fn commit_candidate(
                     state,
                     &current,
                     &previous_model_dir,
-                    model_directory_changed,
-                    true,
-                    true,
-                    None,
+                    RestorePreviousOptions {
+                        model_directory: model_directory_changed,
+                        persisted_config: true,
+                        asr_runtime: true,
+                        ..Default::default()
+                    },
                     plan,
                 )
                 .await
@@ -313,10 +312,12 @@ pub(super) async fn commit_candidate(
                 state,
                 &current,
                 &previous_model_dir,
-                model_directory_changed,
-                true,
-                asr_changed,
-                previous_engine,
+                RestorePreviousOptions {
+                    model_directory: model_directory_changed,
+                    persisted_config: true,
+                    asr_runtime: asr_changed,
+                    prepared_engine: previous_engine,
+                },
                 plan,
             )
             .await
@@ -342,10 +343,12 @@ pub(super) async fn commit_candidate(
                         state,
                         &current,
                         &previous_model_dir,
-                        model_directory_changed,
-                        true,
-                        asr_changed,
-                        previous_engine,
+                        RestorePreviousOptions {
+                            model_directory: model_directory_changed,
+                            persisted_config: true,
+                            asr_runtime: asr_changed,
+                            prepared_engine: previous_engine,
+                        },
                         plan,
                     )
                     .await
@@ -370,10 +373,12 @@ pub(super) async fn commit_candidate(
                 state,
                 &current,
                 &previous_model_dir,
-                model_directory_changed,
-                true,
-                asr_changed,
-                previous_engine,
+                RestorePreviousOptions {
+                    model_directory: model_directory_changed,
+                    persisted_config: true,
+                    asr_runtime: asr_changed,
+                    prepared_engine: previous_engine,
+                },
                 plan,
             )
             .await
@@ -510,34 +515,39 @@ async fn update_asr_runtime(
     .map_err(|error| format!("ASR configuration update task failed: {error}"))?
 }
 
+#[derive(Default)]
+struct RestorePreviousOptions {
+    model_directory: bool,
+    persisted_config: bool,
+    asr_runtime: bool,
+    prepared_engine: Option<Box<dyn crate::asr::AsrEngine>>,
+}
+
 async fn restore_previous(
     state: &Arc<AppState>,
     previous: &AppConfig,
     previous_model_dir: &std::path::Path,
-    restore_model_directory: bool,
-    restore_persisted_config: bool,
-    restore_asr_runtime: bool,
-    prepared_engine: Option<Box<dyn crate::asr::AsrEngine>>,
+    options: RestorePreviousOptions,
     plan: super::capture::CaptureReloadPlan,
 ) -> Result<(), String> {
     let mut errors = Vec::new();
     super::capture::stop_pipelines(state, plan).await;
-    if restore_model_directory {
+    if options.model_directory {
         if let Err(error) = move_model_directory(state, previous_model_dir.to_path_buf()).await {
             errors.push(error);
         }
     }
-    if restore_persisted_config {
+    if options.persisted_config {
         if let Err(error) = save_config(&state.config_path, previous) {
             errors.push(format!("Previous settings could not be restored: {error}"));
         }
     }
-    if restore_asr_runtime {
+    if options.asr_runtime {
         let model_directory = state.asr_model_dir_override.clone().unwrap_or_else(|| {
             crate::resolve_config_path(&state.config_path, &previous.storage.model_directory)
         });
         if let Err(error) =
-            update_asr_runtime(state, previous, model_directory, prepared_engine).await
+            update_asr_runtime(state, previous, model_directory, options.prepared_engine).await
         {
             errors.push(error);
         }
