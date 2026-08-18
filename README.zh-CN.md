@@ -1,4 +1,6 @@
-<img src="apps/desktop/public/logos/VRCS_Logo.svg" width="50%" alt="logo" />
+<p align="center">
+    <img src="apps/desktop/public/logos/VRCS_Logo.svg" width="50%" alt="logo" />
+</p>
 
 # VRCS
 
