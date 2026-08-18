@@ -254,7 +254,7 @@
     "learning": {
       "title": "Learning workspace",
       "description": "Collect subtitles, request focused analysis, and prepare editable Anki cards.",
-      "materialCount": "Conversation material · {{count}} subtitles",
+
       "language": "Language",
       "dateRange": "Date range",
       "allTime": "All time",

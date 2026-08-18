@@ -22,6 +22,46 @@ const PARTIAL_PUBLISH_INTERVAL: Duration = Duration::from_millis(80);
 
 pub(crate) use dependencies::PipelineDependencies;
 
+#[derive(Clone, Default)]
+pub(crate) struct AsrEchoGuard {
+    signatures: Vec<String>,
+}
+
+impl AsrEchoGuard {
+    pub(crate) fn new(signatures: Vec<String>) -> Self {
+        let mut signatures = signatures
+            .into_iter()
+            .map(|text| normalize_echo_text(&text))
+            .filter(|text| !text.is_empty())
+            .collect::<Vec<_>>();
+        signatures.sort_unstable();
+        signatures.dedup();
+        Self { signatures }
+    }
+
+    fn is_echo(&self, text: &str) -> bool {
+        let text = normalize_echo_text(text);
+        !text.is_empty() && self.signatures.iter().any(|signature| signature == &text)
+    }
+
+    fn suppresses_partial(&self, text: &str) -> bool {
+        let text = normalize_echo_text(text);
+        text.contains(':')
+            && self
+                .signatures
+                .iter()
+                .any(|signature| signature.starts_with(&text))
+    }
+}
+
+fn normalize_echo_text(text: &str) -> String {
+    text.split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .trim_end_matches(['.', '。', '!', '！', '?', '？'])
+        .to_lowercase()
+}
+
 pub struct TranscriptionPipeline {
     source: CaptureSource,
     source_name: &'static str,
@@ -82,6 +122,7 @@ impl TranscriptionPipeline {
         trigger_threshold_dbfs: Option<f32>,
         vad_config: &VadConfig,
         asr_config: AsrConfig,
+        asr_echo_guard: AsrEchoGuard,
         dependencies: PipelineDependencies,
     ) -> Result<AudioDevice, AudioError> {
         if self.running() {
@@ -152,6 +193,7 @@ impl TranscriptionPipeline {
                 source,
                 cloud,
                 asr_config.cloud_failure_policy == "local",
+                asr_echo_guard,
                 sample_rate,
                 trigger_threshold_dbfs,
                 &mut shutdown,
@@ -201,6 +243,7 @@ async fn run(
     source: &'static str,
     mut cloud: Option<StreamingSession>,
     local_fallback: bool,
+    asr_echo_guard: AsrEchoGuard,
     sample_rate: u32,
     trigger_threshold_dbfs: Option<f32>,
     shutdown: &mut watch::Receiver<bool>,
@@ -255,7 +298,12 @@ async fn run(
                         text,
                         language,
                     } => {
-                        if should_publish_partial(&mut last_partial_published_at, Instant::now()) {
+                        if !asr_echo_guard.suppresses_partial(&text)
+                            && should_publish_partial(
+                                &mut last_partial_published_at,
+                                Instant::now(),
+                            )
+                        {
                             dependencies.publish_live(LiveTranscription::Partial {
                                 utterance_id,
                                 source: source.into(),
@@ -269,9 +317,15 @@ async fn run(
                         text,
                         language,
                     } => {
-                        dependencies
-                            .publish_text(text, language, source, utterance_id)
-                            .await?;
+                        publish_cloud_final(
+                            &dependencies,
+                            source,
+                            &asr_echo_guard,
+                            utterance_id,
+                            text,
+                            language,
+                        )
+                        .await?;
                     }
                     CloudEvent::Failed { code, detail } => {
                         dependencies.publish_live(LiveTranscription::Failed {
@@ -358,9 +412,15 @@ async fn run(
                     text,
                     language,
                 } => {
-                    if let Err(error) = dependencies
-                        .publish_text(text, language, source, utterance_id)
-                        .await
+                    if let Err(error) = publish_cloud_final(
+                        &dependencies,
+                        source,
+                        &asr_echo_guard,
+                        utterance_id,
+                        text,
+                        language,
+                    )
+                    .await
                     {
                         result = Err(error);
                         break;
@@ -371,12 +431,14 @@ async fn run(
                     text,
                     language,
                 } => {
-                    dependencies.publish_live(LiveTranscription::Partial {
-                        utterance_id,
-                        source: source.into(),
-                        text,
-                        language,
-                    });
+                    if !asr_echo_guard.suppresses_partial(&text) {
+                        dependencies.publish_live(LiveTranscription::Partial {
+                            utterance_id,
+                            source: source.into(),
+                            text,
+                            language,
+                        });
+                    }
                 }
                 CloudEvent::Failed { code, detail } => {
                     dependencies.publish_live(LiveTranscription::Failed {
@@ -390,6 +452,23 @@ async fn run(
     }
     capture.shutdown().await;
     result
+}
+
+async fn publish_cloud_final(
+    dependencies: &PipelineDependencies,
+    source: &'static str,
+    echo_guard: &AsrEchoGuard,
+    utterance_id: String,
+    text: String,
+    language: Option<String>,
+) -> Result<(), String> {
+    if echo_guard.is_echo(&text) {
+        tracing::debug!(source, "discarded echoed ASR context");
+        return Ok(());
+    }
+    dependencies
+        .publish_text(text, language, source, utterance_id)
+        .await
 }
 
 enum PipelineInput {
@@ -504,6 +583,23 @@ mod tests {
             &mut last_published_at,
             start + AUDIO_LEVEL_PUBLISH_INTERVAL,
         ));
+    }
+
+    #[test]
+    fn vrcx_echo_guard_blocks_generated_context_without_blocking_real_mentions() {
+        let guard = AsrEchoGuard::new(vec![
+            "World: Club_GoH2.0".into(),
+            "World: Club_GoH2.0; Names: Alice, Bob".into(),
+            "Club_GoH2.0\nAlice\nBob".into(),
+        ]);
+
+        assert!(guard.is_echo("World: Club_GoH2.0."));
+        assert!(guard.is_echo("world: club_goh2.0; names: alice, bob"));
+        assert!(guard.is_echo("Club_GoH2.0\nAlice\nBob"));
+        assert!(guard.suppresses_partial("World: Club_"));
+        assert!(!guard.is_echo("Club_GoH2.0"));
+        assert!(!guard.is_echo("We are in Club_GoH2.0"));
+        assert!(!guard.suppresses_partial("Club_GoH2.0"));
     }
 
     #[test]

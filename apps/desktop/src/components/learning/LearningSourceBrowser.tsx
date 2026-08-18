@@ -103,7 +103,7 @@ export function LearningSourceBrowser({
   return (
     <section className="history-surface learning-material-surface">
       <div className="history-toolbar learning-material-toolbar">
-        <div><h2>{t("learning.materials.title")}</h2><span>{t("learning.materialCount", { count: filtered.length })}</span></div>
+        <div><h2>{t("learning.materials.title")}</h2></div>
         <div className="learning-material-search">
           <Search size={15} />
           <input value={query} type="search" placeholder={t("learning.materials.searchPlaceholder")} aria-label={t("learning.materials.search")} onChange={(event) => setQuery(event.target.value)} />

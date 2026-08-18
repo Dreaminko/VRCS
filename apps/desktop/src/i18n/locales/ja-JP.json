@@ -254,7 +254,7 @@
     "learning": {
       "title": "学習ワークスペース",
       "description": "字幕を収集し、必要なときだけ分析して、編集可能な Anki カードを準備します。",
-      "materialCount": "会話素材 · 字幕 {{count}} 件",
+
       "language": "言語",
       "dateRange": "期間",
       "allTime": "すべて",

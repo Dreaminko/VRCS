@@ -153,23 +153,25 @@ impl VrcxIntegration {
         })
     }
 
-    pub fn apply_asr_context(&self, config: &mut AsrConfig) {
+    pub fn apply_asr_context(&self, config: &mut AsrConfig) -> Vec<String> {
         let Some(room) = self.shared.room.read().expect("VRCX room lock").clone() else {
-            return;
+            return Vec::new();
         };
         let generated = format_room_for_asr(&room);
         if generated.is_empty() {
-            return;
+            return Vec::new();
         }
-        match config.backend.as_str() {
-            "qwen_realtime" => {
-                config.qwen.context = append_context(&config.qwen.context, &generated);
-            }
-            "fun_asr_realtime" => {
-                config.fun_asr.context = append_context(&config.fun_asr.context, &generated);
-            }
-            _ => {}
+        let context = match config.backend.as_str() {
+            "qwen_realtime" => &mut config.qwen.context,
+            "fun_asr_realtime" => &mut config.fun_asr.context,
+            _ => return Vec::new(),
+        };
+        let (merged, appended) = append_context(context, &generated);
+        *context = merged;
+        if appended.is_empty() {
+            return Vec::new();
         }
+        asr_echo_signatures(&room, &appended)
     }
 
     pub async fn test_connection(
@@ -489,32 +491,65 @@ fn format_room_for_llm(room: &VrcxRoomContext) -> String {
 }
 
 fn format_room_for_asr(room: &VrcxRoomContext) -> String {
-    let mut parts = Vec::new();
-    if !room.world_name.trim().is_empty() {
-        parts.push(format!("World: {}", room.world_name.trim()));
-    }
+    let mut seen = HashSet::new();
+    std::iter::once(room.world_name.trim())
+        .chain(room.members.iter().map(|member| member.display_name.trim()))
+        .filter(|term| !term.is_empty() && seen.insert(term.to_lowercase()))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn asr_echo_signatures(room: &VrcxRoomContext, generated: &str) -> Vec<String> {
+    let included = generated.lines().collect::<HashSet<_>>();
+    let world = room.world_name.trim();
     let mut seen = HashSet::new();
     let names = room
         .members
         .iter()
         .map(|member| member.display_name.trim())
-        .filter(|name| !name.is_empty() && seen.insert(name.to_lowercase()))
+        .filter(|name| {
+            !name.is_empty() && included.contains(name) && seen.insert(name.to_lowercase())
+        })
         .collect::<Vec<_>>();
-    if !names.is_empty() {
-        parts.push(format!("Names: {}", names.join(", ")));
+    let mut labeled = Vec::new();
+    if !world.is_empty() && included.contains(world) {
+        labeled.push(format!("World: {world}"));
     }
-    parts.join("; ")
+    if !names.is_empty() {
+        labeled.push(format!("Names: {}", names.join(", ")));
+    }
+
+    let mut signatures = labeled.clone();
+    if labeled.len() > 1 {
+        signatures.push(labeled.join("; "));
+        signatures.push(labeled.join("\n"));
+    }
+    if generated.lines().count() > 1 {
+        signatures.push(generated.to_string());
+    }
+    signatures
 }
 
-fn append_context(manual: &str, generated: &str) -> String {
+fn append_context(manual: &str, generated: &str) -> (String, String) {
     let manual = manual.trim();
     if manual.chars().count() >= MAX_ASR_CONTEXT_CHARS {
-        return manual.to_string();
+        return (manual.to_string(), String::new());
     }
     let separator = if manual.is_empty() { "" } else { "\n" };
     let remaining = MAX_ASR_CONTEXT_CHARS - manual.chars().count() - separator.chars().count();
-    let generated = generated.chars().take(remaining).collect::<String>();
-    format!("{manual}{separator}{generated}")
+    let mut appended = String::new();
+    for term in generated.lines() {
+        let extra = term.chars().count() + usize::from(!appended.is_empty());
+        if appended.chars().count() + extra > remaining {
+            break;
+        }
+        if !appended.is_empty() {
+            appended.push('\n');
+        }
+        appended.push_str(term);
+    }
+    let separator = if appended.is_empty() { "" } else { separator };
+    (format!("{manual}{separator}{appended}"), appended)
 }
 
 fn message_type(value: &Value) -> Option<&str> {
@@ -587,15 +622,16 @@ mod tests {
     }
 
     #[test]
-    fn asr_context_preserves_manual_text_and_limit() {
+    fn asr_context_uses_terms_and_preserves_manual_text_and_limit() {
         let generated = format_room_for_asr(&room());
-        let merged = append_context("VRChat terms", &generated);
+        assert_eq!(generated, "Test \"World\"\nAlice\nBob");
+        let (merged, appended) = append_context("VRChat terms", &generated);
         assert!(merged.starts_with("VRChat terms\n"));
-        assert!(merged.contains("Alice"));
+        assert_eq!(appended, generated);
         assert!(merged.chars().count() <= MAX_ASR_CONTEXT_CHARS);
 
         let full = "x".repeat(MAX_ASR_CONTEXT_CHARS);
-        assert_eq!(append_context(&full, &generated), full);
+        assert_eq!(append_context(&full, &generated), (full, String::new()));
     }
 
     #[test]
@@ -607,19 +643,23 @@ mod tests {
         let mut qwen = AsrConfig::default();
         qwen.backend = "qwen_realtime".into();
         qwen.qwen.context = "Manual terms".into();
-        integration.apply_asr_context(&mut qwen);
-        assert!(qwen.qwen.context.starts_with("Manual terms\n"));
-        assert!(qwen.qwen.context.contains("Alice"));
+        let qwen_signatures = integration.apply_asr_context(&mut qwen);
+        assert_eq!(
+            qwen.qwen.context,
+            "Manual terms\nTest \"World\"\nAlice\nBob"
+        );
+        assert!(qwen_signatures.contains(&"World: Test \"World\"".to_string()));
+        assert!(qwen_signatures.contains(&"Names: Alice, Bob".to_string()));
 
         let mut fun_asr = AsrConfig::default();
         fun_asr.backend = "fun_asr_realtime".into();
-        integration.apply_asr_context(&mut fun_asr);
-        assert!(fun_asr.fun_asr.context.contains("Test \"World\""));
-        assert!(fun_asr.fun_asr.context.contains("Bob"));
+        let fun_signatures = integration.apply_asr_context(&mut fun_asr);
+        assert_eq!(fun_asr.fun_asr.context, "Test \"World\"\nAlice\nBob");
+        assert_eq!(fun_signatures, qwen_signatures);
 
         let mut openai = AsrConfig::default();
         openai.backend = "openai_realtime".into();
-        integration.apply_asr_context(&mut openai);
+        assert!(integration.apply_asr_context(&mut openai).is_empty());
         assert!(openai.qwen.context.is_empty());
         assert!(openai.fun_asr.context.is_empty());
     }

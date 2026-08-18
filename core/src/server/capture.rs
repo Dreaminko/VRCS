@@ -9,7 +9,7 @@ use serde_json::{json, Value};
 use crate::audio;
 use crate::config::{AppConfig, AsrConfig};
 use crate::error::AppError;
-use crate::pipeline::PipelineDependencies;
+use crate::pipeline::{AsrEchoGuard, PipelineDependencies};
 
 use super::{api_domain_error, api_error, api_error_with_params, ApiResult, AppState};
 
@@ -223,12 +223,14 @@ pub(crate) async fn validate_capture_config(
     Ok(())
 }
 
-fn effective_asr_config(state: &Arc<AppState>, config: &AppConfig) -> AsrConfig {
+fn effective_asr_config(state: &Arc<AppState>, config: &AppConfig) -> (AsrConfig, AsrEchoGuard) {
     let mut asr = config.asr.clone();
-    if config.vrcx.enabled && config.vrcx.include_in_asr_context {
-        state.vrcx.apply_asr_context(&mut asr);
-    }
-    asr
+    let signatures = if config.vrcx.enabled && config.vrcx.include_in_asr_context {
+        state.vrcx.apply_asr_context(&mut asr)
+    } else {
+        Vec::new()
+    };
+    (asr, AsrEchoGuard::new(signatures))
 }
 
 fn pipeline_dependencies(state: &Arc<AppState>) -> PipelineDependencies {
@@ -255,6 +257,7 @@ async fn start_speaker_pipeline(
         .then_some(output.device_id)
         .flatten();
     let process_name = (output.mode == "vrchat").then_some("VRChat.exe");
+    let (asr, echo_guard) = effective_asr_config(state, config);
     state
         .speaker_pipeline
         .lock()
@@ -265,7 +268,8 @@ async fn start_speaker_pipeline(
             process_name,
             Some(output.trigger_threshold_dbfs),
             &config.vad,
-            effective_asr_config(state, config),
+            asr,
+            echo_guard,
             pipeline_dependencies(state),
         )
         .await
@@ -291,6 +295,7 @@ async fn start_microphone_pipeline(
     let microphone_id = (config.audio.microphone.mode == "device")
         .then_some(config.audio.microphone.device_id)
         .flatten();
+    let (asr, echo_guard) = effective_asr_config(state, config);
     state
         .microphone_pipeline
         .lock()
@@ -301,7 +306,8 @@ async fn start_microphone_pipeline(
             None,
             Some(config.audio.microphone.trigger_threshold_dbfs),
             &config.vad,
-            effective_asr_config(state, config),
+            asr,
+            echo_guard,
             pipeline_dependencies(state),
         )
         .await
@@ -404,6 +410,7 @@ pub(crate) async fn resume_microphone(state: &Arc<AppState>) -> Result<(), Strin
         .then_some(config.audio.microphone.device_id)
         .flatten();
     let dependencies = pipeline_dependencies(state);
+    let (asr, echo_guard) = effective_asr_config(state, &config);
     state
         .microphone_pipeline
         .lock()
@@ -414,7 +421,8 @@ pub(crate) async fn resume_microphone(state: &Arc<AppState>) -> Result<(), Strin
             None,
             Some(config.audio.microphone.trigger_threshold_dbfs),
             &config.vad,
-            config.asr,
+            asr,
+            echo_guard,
             dependencies,
         )
         .await

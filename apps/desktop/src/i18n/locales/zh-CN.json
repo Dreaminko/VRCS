@@ -254,7 +254,7 @@
     "learning": {
       "title": "学习工作台",
       "description": "收集字幕、按需分析，并整理可编辑的 Anki 卡片。",
-      "materialCount": "会话素材 · {{count}} 条字幕",
+
       "language": "语言",
       "dateRange": "日期范围",
       "allTime": "全部时间",
