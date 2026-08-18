@@ -271,6 +271,7 @@
   background: var(--surface);
 }
 .onboarding-connection.ready { border-color: rgba(116, 214, 255, 0.58); background: var(--primary-softer); }
+.onboarding-connection.ready .recognition-runtime-dot { background: var(--primary); }
 .onboarding-connection > div { display: grid; gap: 3px; }
 .onboarding-connection strong { font-size: 12px; }
 .onboarding-connection small { color: var(--text-quiet); font-size: 10px; }
