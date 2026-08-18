@@ -5558,6 +5558,7 @@ dependencies = [
  "openvr",
  "openvr_sys",
  "serde",
+ "serde_json",
  "tauri",
  "tauri-build",
  "tauri-plugin-autostart",
