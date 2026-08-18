@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { ApiError, apiErrorFromResponse } from "../src/api-error.ts";
+import { ApiError, apiErrorFromResponse, formatApiErrorMessage } from "../src/api-error.ts";
 
 test("preserves the structured Core error contract", async () => {
   const error = await apiErrorFromResponse(new Response(JSON.stringify({
@@ -19,6 +19,19 @@ test("preserves the structured Core error contract", async () => {
   assert.equal(error.detail, "识别模型 small 尚未下载");
   assert.equal(error.message, error.detail);
   assert.equal(error.status, 409);
+});
+
+test("localized audio errors retain the diagnostic detail", () => {
+  const error = new ApiError({
+    code: "audio.device_in_use",
+    detail: "microphone_capture: initialize: AUDCLNT_E_DEVICE_IN_USE",
+    status: 503,
+  });
+
+  assert.equal(
+    formatApiErrorMessage(error, "音频设备正被占用。", (detail) => `诊断详情：${detail}`),
+    "音频设备正被占用。\n诊断详情：microphone_capture: initialize: AUDCLNT_E_DEVICE_IN_USE",
+  );
 });
 
 test("uses a stable fallback for malformed error responses", async () => {

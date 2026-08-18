@@ -58,9 +58,12 @@ impl NativeFormat {
             SampleType::Float if bits == 32 => SampleEncoding::Float32,
             SampleType::Float if bits == 64 => SampleEncoding::Float64,
             sample_type => {
-                return Err(AudioError::new(format!(
-                    "Unsupported device format ({sample_type:?}, {bits} bit); select another output device"
-                )));
+                return Err(AudioError::with_code(
+                    "audio.unsupported_format",
+                    format!(
+                        "Unsupported device format ({sample_type:?}, {bits} bit); select another audio device"
+                    ),
+                ));
             }
         };
         Ok(Self {

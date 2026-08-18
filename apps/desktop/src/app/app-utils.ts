@@ -1,6 +1,6 @@
 import type { TFunction } from "i18next";
 
-import { ApiError } from "../api-error";
+import { ApiError, formatApiErrorMessage } from "../api-error";
 
 export function timestamp(value: string, locale: string): string {
   return new Intl.DateTimeFormat(locale, {
@@ -20,7 +20,12 @@ export function localizedError(
       ...reason.params,
       defaultValue: missing,
     });
-    return localized === missing ? reason.detail || t(fallbackKey) : localized;
+    if (localized === missing) return reason.detail || t(fallbackKey);
+    return formatApiErrorMessage(
+      reason,
+      localized,
+      (detail) => t("errors.audio.diagnostic_detail", { detail }),
+    );
   }
   if (
     reason

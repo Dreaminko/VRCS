@@ -45,9 +45,9 @@ impl AudioError {
         }
     }
 
-    pub(crate) fn retryable(message: impl Into<String>) -> Self {
+    pub(crate) fn retryable_with_code(code: &'static str, message: impl Into<String>) -> Self {
         Self {
-            code: "audio.unavailable",
+            code,
             message: message.into(),
             retryable: true,
         }
@@ -55,6 +55,13 @@ impl AudioError {
 
     pub fn code(&self) -> &'static str {
         self.code
+    }
+
+    pub(crate) fn with_default_code(mut self, code: &'static str) -> Self {
+        if self.code == "audio.unavailable" {
+            self.code = code;
+        }
+        self
     }
 
     fn is_retryable(&self) -> bool {
@@ -153,7 +160,13 @@ impl AudioCapture {
         target: platform::CaptureTarget,
     ) -> Result<AudioDevice, AudioError> {
         let source = self.source;
-        start_with_retry(source, || self.start_session_once(target.clone()))
+        start_with_retry(source, || self.start_session_once(target.clone())).map_err(|error| {
+            let stage = match source {
+                CaptureSource::Speaker => "speaker_capture",
+                CaptureSource::Microphone => "microphone_capture",
+            };
+            error.at_stage(stage)
+        })
     }
 
     fn start_session_once(
@@ -171,7 +184,10 @@ impl AudioCapture {
                 platform::capture_main(target, output_rate, thread_stop, tx, ready_tx);
             })
             .map_err(|error| {
-                AudioError::new(format!("Failed to start audio capture thread: {error}"))
+                AudioError::with_code(
+                    "audio.start_thread_failed",
+                    format!("Failed to start audio capture thread: {error}"),
+                )
             })?;
 
         let device = match ready_rx.recv_timeout(START_TIMEOUT) {
@@ -184,7 +200,10 @@ impl AudioCapture {
             Err(_) => {
                 stop.store(true, Ordering::Relaxed);
                 let _ = join.join();
-                return Err(AudioError::new("Timed out while starting audio capture"));
+                return Err(AudioError::with_code(
+                    "audio.start_timeout",
+                    "Timed out while starting audio capture",
+                ));
             }
         };
         self.session = Some(CaptureSession {
@@ -306,7 +325,10 @@ mod tests {
         let result = start_with_retry(CaptureSource::Speaker, || {
             attempts += 1;
             if attempts == 1 {
-                Err(AudioError::retryable("device is switching"))
+                Err(AudioError::retryable_with_code(
+                    "audio.device_unavailable",
+                    "device is switching",
+                ))
             } else {
                 Ok(())
             }
@@ -314,6 +336,17 @@ mod tests {
 
         assert!(result.is_ok());
         assert_eq!(attempts, 2);
+    }
+
+    #[test]
+    fn fallback_codes_preserve_more_specific_audio_errors() {
+        let generic = AudioError::new("activation failed")
+            .with_default_code("audio.process_loopback_unavailable");
+        let specific = AudioError::with_code("audio.permission_denied", "access denied")
+            .with_default_code("audio.process_loopback_unavailable");
+
+        assert_eq!(generic.code(), "audio.process_loopback_unavailable");
+        assert_eq!(specific.code(), "audio.permission_denied");
     }
 
     #[test]

@@ -64,6 +64,8 @@ export function AudioSettingsSection({
     try {
       if (microphoneTestRunning) await onStopMicrophoneTest();
       else await onStartMicrophoneTest();
+    } catch {
+      // The shared core session reports the microphone-test error.
     } finally {
       setMicrophoneTestBusy(false);
     }

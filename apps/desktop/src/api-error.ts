@@ -1,5 +1,20 @@
 export type ApiErrorParams = Record<string, unknown>;
 
+const audioErrorsWithDiagnosticDetail = new Set([
+  "audio.com_initialization_failed",
+  "audio.device_in_use",
+  "audio.device_unavailable",
+  "audio.permission_denied",
+  "audio.process_loopback_unavailable",
+  "audio.service_not_running",
+  "audio.start_task_failed",
+  "audio.start_thread_failed",
+  "audio.start_timeout",
+  "audio.unavailable",
+  "audio.unsupported_format",
+  "audio.unsupported_platform",
+]);
+
 export interface ApiErrorPayload {
   code?: unknown;
   params?: unknown;
@@ -29,6 +44,22 @@ export class ApiError extends Error {
     this.detail = options.detail;
     this.status = options.status;
   }
+}
+
+export function formatApiErrorMessage(
+  error: ApiError,
+  localized: string,
+  formatDiagnosticDetail: (detail: string) => string,
+): string {
+  const detail = error.detail.trim();
+  if (
+    !audioErrorsWithDiagnosticDetail.has(error.code)
+    || !detail
+    || detail === localized.trim()
+  ) {
+    return localized;
+  }
+  return `${localized}\n${formatDiagnosticDetail(detail)}`;
 }
 
 export async function apiErrorFromResponse(response: Response): Promise<ApiError> {

@@ -5,32 +5,46 @@ use crate::models::AudioDevice;
 use super::super::{AudioError, CaptureSource};
 
 pub(super) fn err(error: ::wasapi::WasapiError) -> AudioError {
-    use windows::Win32::Foundation::ERROR_FILE_NOT_FOUND;
+    use windows::Win32::Foundation::{ERROR_ACCESS_DENIED, ERROR_FILE_NOT_FOUND};
     use windows::Win32::Media::Audio::{
         AUDCLNT_E_DEVICE_INVALIDATED, AUDCLNT_E_DEVICE_IN_USE, AUDCLNT_E_ENDPOINT_CREATE_FAILED,
         AUDCLNT_E_RESOURCES_INVALIDATED, AUDCLNT_E_SERVICE_NOT_RUNNING,
+        AUDCLNT_E_UNSUPPORTED_FORMAT,
     };
 
-    let retryable = match &error {
-        ::wasapi::WasapiError::DeviceNotFound(_) => true,
+    let detail = error.to_string();
+    match &error {
+        ::wasapi::WasapiError::DeviceNotFound(_) => {
+            AudioError::retryable_with_code("audio.device_unavailable", detail)
+        }
+        ::wasapi::WasapiError::UnsupportedFormat
+        | ::wasapi::WasapiError::UnsupportedSubformat(_) => {
+            AudioError::with_code("audio.unsupported_format", detail)
+        }
         ::wasapi::WasapiError::Windows(error) => {
             let code = error.code();
-            code == windows::core::HRESULT::from_win32(ERROR_FILE_NOT_FOUND.0)
+            if code == windows::core::HRESULT::from_win32(ERROR_ACCESS_DENIED.0) {
+                AudioError::with_code("audio.permission_denied", detail)
+            } else if code == windows::core::HRESULT::from_win32(ERROR_FILE_NOT_FOUND.0)
                 || matches!(
                     code,
                     AUDCLNT_E_DEVICE_INVALIDATED
-                        | AUDCLNT_E_DEVICE_IN_USE
                         | AUDCLNT_E_ENDPOINT_CREATE_FAILED
                         | AUDCLNT_E_RESOURCES_INVALIDATED
-                        | AUDCLNT_E_SERVICE_NOT_RUNNING
                 )
+            {
+                AudioError::retryable_with_code("audio.device_unavailable", detail)
+            } else if code == AUDCLNT_E_DEVICE_IN_USE {
+                AudioError::retryable_with_code("audio.device_in_use", detail)
+            } else if code == AUDCLNT_E_SERVICE_NOT_RUNNING {
+                AudioError::retryable_with_code("audio.service_not_running", detail)
+            } else if code == AUDCLNT_E_UNSUPPORTED_FORMAT {
+                AudioError::with_code("audio.unsupported_format", detail)
+            } else {
+                AudioError::new(detail)
+            }
         }
-        _ => false,
-    };
-    if retryable {
-        AudioError::retryable(error.to_string())
-    } else {
-        AudioError::new(error.to_string())
+        _ => AudioError::new(detail),
     }
 }
 
@@ -39,9 +53,10 @@ pub(super) fn init_com() -> Result<(), AudioError> {
     if result.is_ok() {
         Ok(())
     } else {
-        Err(AudioError::new(format!(
-            "COM initialization failed: {result:?}"
-        )))
+        Err(AudioError::with_code(
+            "audio.com_initialization_failed",
+            format!("COM initialization failed: {result:?}"),
+        ))
     }
 }
 
@@ -190,7 +205,10 @@ pub(super) fn find_device_by_wasapi_id(
 #[cfg(test)]
 mod tests {
     use super::{device_key, err};
-    use windows::Win32::Foundation::ERROR_FILE_NOT_FOUND;
+    use windows::Win32::Foundation::{ERROR_ACCESS_DENIED, ERROR_FILE_NOT_FOUND};
+    use windows::Win32::Media::Audio::{
+        AUDCLNT_E_DEVICE_IN_USE, AUDCLNT_E_SERVICE_NOT_RUNNING, AUDCLNT_E_UNSUPPORTED_FORMAT,
+    };
 
     #[test]
     fn file_not_found_is_retryable_during_audio_startup() {
@@ -200,6 +218,34 @@ mod tests {
         let error = err(::wasapi::WasapiError::Windows(windows_error));
 
         assert!(error.is_retryable());
+        assert_eq!(error.code(), "audio.device_unavailable");
+    }
+
+    #[test]
+    fn classifies_common_windows_audio_failures() {
+        for (hresult, expected_code, retryable) in [
+            (
+                windows::core::HRESULT::from_win32(ERROR_ACCESS_DENIED.0),
+                "audio.permission_denied",
+                false,
+            ),
+            (AUDCLNT_E_DEVICE_IN_USE, "audio.device_in_use", true),
+            (
+                AUDCLNT_E_SERVICE_NOT_RUNNING,
+                "audio.service_not_running",
+                true,
+            ),
+            (
+                AUDCLNT_E_UNSUPPORTED_FORMAT,
+                "audio.unsupported_format",
+                false,
+            ),
+        ] {
+            let windows_error = windows::core::Error::from_hresult(hresult);
+            let error = err(::wasapi::WasapiError::Windows(windows_error));
+            assert_eq!(error.code(), expected_code);
+            assert_eq!(error.is_retryable(), retryable);
+        }
     }
 
     #[test]

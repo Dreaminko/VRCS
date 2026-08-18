@@ -16,7 +16,8 @@ pub(crate) enum DeviceDirection {
 }
 
 pub(crate) fn list_devices() -> Result<Vec<AudioDevice>, AudioError> {
-    Err(AudioError::new(
+    Err(AudioError::with_code(
+        "audio.unsupported_platform",
         "Audio capture is supported only on Windows",
     ))
 }
@@ -25,13 +26,15 @@ pub(crate) fn resolve_device_id(
     _id: i64,
     _source: super::CaptureSource,
 ) -> Result<String, AudioError> {
-    Err(AudioError::new(
+    Err(AudioError::with_code(
+        "audio.unsupported_platform",
         "Audio capture is supported only on Windows",
     ))
 }
 
 pub(crate) fn find_process_id(_name: &str) -> Result<Option<u32>, AudioError> {
-    Err(AudioError::new(
+    Err(AudioError::with_code(
+        "audio.unsupported_platform",
         "Audio capture is supported only on Windows",
     ))
 }
@@ -43,7 +46,8 @@ pub(crate) fn capture_main(
     _tx: tokio::sync::mpsc::Sender<Vec<f32>>,
     ready: std::sync::mpsc::Sender<Result<AudioDevice, AudioError>>,
 ) {
-    let _ = ready.send(Err(AudioError::new(
+    let _ = ready.send(Err(AudioError::with_code(
+        "audio.unsupported_platform",
         "Audio capture is supported only on Windows",
     )));
 }
