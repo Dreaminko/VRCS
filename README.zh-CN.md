@@ -19,7 +19,7 @@ VRCS 是面向 VRChat 场景的 Windows 实时字幕与语言学习工具。它�
 | 安装包 | 适用场景 | 额外要求 |
 |---|---|---|
 | `VRCS-<version>-windows-x64.exe` | 推荐给大多数用户；支持云端识别和本地 CPU Whisper | 无需 CUDA |
-| `VRCS-<version>-windows-x64-CUDA.exe` | 使用 NVIDIA GPU 加速本地 Whisper | CUDA 12.x Runtime、cuBLAS、兼容的 NVIDIA GPU 与驱动 |
+| `VRCS-<version>-windows-x64-CUDA.exe` | 使用 NVIDIA GPU 加速本地 Whisper | [CUDA 12.x Runtime](https://developer.nvidia.com/cuda-downloads?target_os=Windows)、cuBLAS、兼容的 NVIDIA GPU 与驱动 |
 
 标准版和 CUDA 版共用同一套配置、数据库和模型目录，可以直接互换安装。
 
