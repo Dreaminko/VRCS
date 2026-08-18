@@ -10,14 +10,17 @@ param(
 $ErrorActionPreference = "Stop"
 $repoRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot ".."))
 $tauriConfigPath = Join-Path $repoRoot "apps\desktop\src-tauri\tauri.conf.json"
+$tauriReleaseConfigTemplatePath = Join-Path $repoRoot "apps\desktop\src-tauri\tauri.release.conf.json"
+$generatedTauriConfigPath = Join-Path $repoRoot "apps\desktop\src-tauri\tauri.release.generated.conf.json"
+$generatedTauriConfigArgument = "src-tauri/tauri.release.generated.conf.json"
 $cargoManifestPath = Join-Path $repoRoot "apps\desktop\src-tauri\Cargo.toml"
 $desktopPackagePath = Join-Path $repoRoot "apps\desktop\package.json"
 $coreManifestPath = Join-Path $repoRoot "core\Cargo.toml"
 $bundleRoot = Join-Path $repoRoot "apps\desktop\src-tauri\target\release\bundle\nsis"
 $artifactRoot = Join-Path $repoRoot "release-artifacts"
 $tauriConfig = Get-Content -LiteralPath $tauriConfigPath -Raw | ConvertFrom-Json
-if (-not $env:TAURI_SIGNING_PRIVATE_KEY) { throw "TAURI_SIGNING_PRIVATE_KEY is required for release builds" }
-if (-not $env:TAURI_UPDATER_PUBLIC_KEY) { throw "TAURI_UPDATER_PUBLIC_KEY is required for release builds" }
+if ([string]::IsNullOrWhiteSpace($env:TAURI_SIGNING_PRIVATE_KEY)) { throw "TAURI_SIGNING_PRIVATE_KEY is required for release builds" }
+if ([string]::IsNullOrWhiteSpace($env:TAURI_UPDATER_PUBLIC_KEY)) { throw "TAURI_UPDATER_PUBLIC_KEY is required for release builds" }
 if (-not $Version) { $Version = $tauriConfig.version }
 $cargoVersion = (Select-String -LiteralPath $cargoManifestPath -Pattern '^version = "(.+)"$').Matches[0].Groups[1].Value
 $desktopPackageVersion = (Get-Content -LiteralPath $desktopPackagePath -Raw | ConvertFrom-Json).version
@@ -38,6 +41,25 @@ function Assert-NonEmptyFile {
     }
 }
 
+function Write-ReleaseTauriConfig {
+    param(
+        [Parameter(Mandatory)][string]$TemplatePath,
+        [Parameter(Mandatory)][string]$DestinationPath,
+        [Parameter(Mandatory)][string]$PublicKey
+    )
+
+    $releaseConfig = Get-Content -LiteralPath $TemplatePath -Raw | ConvertFrom-Json
+    $releaseConfig | Add-Member -Force -NotePropertyName "plugins" -NotePropertyValue ([PSCustomObject]@{
+        updater = [PSCustomObject]@{
+            pubkey = $PublicKey
+            endpoints = @("https://github.com/Dreaminko/VRCS/releases/latest/download/latest.json")
+        }
+    })
+    $releaseConfigJson = $releaseConfig | ConvertTo-Json -Depth 10
+    $utf8WithoutBom = New-Object System.Text.UTF8Encoding($false)
+    [System.IO.File]::WriteAllText($DestinationPath, $releaseConfigJson, $utf8WithoutBom)
+}
+
 function Invoke-ReleaseBuild {
     param(
         [Parameter(Mandatory)]
@@ -55,7 +77,7 @@ function Invoke-ReleaseBuild {
         $arguments += @("--features", ($Features -join ","))
     }
     $arguments += @(
-        "--config", "src-tauri/tauri.release.conf.json",
+        "--config", $generatedTauriConfigArgument,
         "--bundles", "nsis"
     )
 
@@ -109,6 +131,11 @@ function Invoke-ReleaseBuild {
 
 Push-Location $repoRoot
 try {
+    Write-ReleaseTauriConfig `
+        -TemplatePath $tauriReleaseConfigTemplatePath `
+        -DestinationPath $generatedTauriConfigPath `
+        -PublicKey $env:TAURI_UPDATER_PUBLIC_KEY
+
     if (-not $SkipInstall) {
         & npm ci
         if ($LASTEXITCODE -ne 0) { throw "npm ci failed" }
@@ -155,6 +182,9 @@ try {
     }) + $latestPath
 }
 finally {
+    if (Test-Path -LiteralPath $generatedTauriConfigPath) {
+        Remove-Item -LiteralPath $generatedTauriConfigPath -Force
+    }
     Pop-Location
 }
 
