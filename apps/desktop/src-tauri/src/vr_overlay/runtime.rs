@@ -346,6 +346,10 @@ fn worker_loop(
         if let Ok(mut pending) = latest_config.lock() {
             if let Some(config) = pending.take() {
                 state.wrist.set_max_entries(config.wrist.max_entries);
+                state
+                    .headset
+                    .set_show_partials(config.headset.show_partials);
+                state.wrist.set_show_partials(config.wrist.show_partials);
                 if !config.enabled || !config.headset.enabled {
                     state.headset_sample = false;
                 }

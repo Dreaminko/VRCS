@@ -18,7 +18,7 @@ pub struct VrOverlayHeadsetConfig {
     pub enabled: bool,
     #[serde(default = "default_content_mode")]
     pub content_mode: String,
-    #[serde(default, deserialize_with = "deserialize_disabled_flag")]
+    #[serde(default)]
     pub show_partials: bool,
     #[serde(default)]
     pub show_translation_partials: bool,
@@ -67,7 +67,7 @@ pub struct VrOverlayWristConfig {
     pub dominant_hand: String,
     #[serde(default = "default_content_mode")]
     pub content_mode: String,
-    #[serde(default, deserialize_with = "deserialize_disabled_flag")]
+    #[serde(default)]
     pub show_partials: bool,
     #[serde(default)]
     pub show_translation_partials: bool,
@@ -105,13 +105,6 @@ pub struct VrOverlayWristConfig {
 
 fn default_true() -> bool {
     true
-}
-
-fn deserialize_disabled_flag<'de, D>(deserializer: D) -> Result<bool, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    bool::deserialize(deserializer).map(|_| false)
 }
 
 fn default_content_mode() -> String {
@@ -258,14 +251,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn recognition_partials_remain_disabled_for_existing_configs() {
+    fn recognition_partials_can_be_enabled_explicitly() {
         let mut value = serde_json::to_value(VrOverlayConfig::default()).unwrap();
         value["headset"]["show_partials"] = serde_json::json!(true);
         value["wrist"]["show_partials"] = serde_json::json!(true);
 
         let config: VrOverlayConfig = serde_json::from_value(value).unwrap();
 
-        assert!(!config.headset.show_partials);
-        assert!(!config.wrist.show_partials);
+        assert!(config.headset.show_partials);
+        assert!(config.wrist.show_partials);
     }
 }

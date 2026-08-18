@@ -522,6 +522,7 @@
         "sourceMicrophone": "麦克风",
         "sourceChatbox": "Chatbox",
         "liveUpdates": "实时更新",
+        "showRecognitionPartials": "显示识别中的文本",
         "showTranslationPartials": "显示翻译中的文本",
         "displaySeconds": "停留时间",
         "fadeSeconds": "淡出时间",

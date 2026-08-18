@@ -305,6 +305,7 @@ export function VrOverlaySettingsSection({
 
           <fieldset className="vr-overlay-toggle-group" disabled={headsetDisabled}>
             <legend>{t("settings.vrOverlay.liveUpdates")}</legend>
+            <PreferenceToggle title={t("settings.vrOverlay.showRecognitionPartials")} checked={draft.vr_overlay.headset.show_partials} disabled={headsetDisabled} onChange={(value) => updateHeadset("show_partials", value)} />
             <PreferenceToggle title={t("settings.vrOverlay.showTranslationPartials")} checked={draft.vr_overlay.headset.show_translation_partials} disabled={headsetDisabled} onChange={(value) => updateHeadset("show_translation_partials", value)} />
           </fieldset>
 
@@ -416,6 +417,7 @@ export function VrOverlaySettingsSection({
 
           <fieldset className="vr-overlay-toggle-group" disabled={wristDisabled}>
             <legend>{t("settings.vrOverlay.liveUpdates")}</legend>
+            <PreferenceToggle title={t("settings.vrOverlay.showRecognitionPartials")} checked={draft.vr_overlay.wrist.show_partials} disabled={wristDisabled} onChange={(value) => updateWrist("show_partials", value)} />
             <PreferenceToggle title={t("settings.vrOverlay.showTranslationPartials")} checked={draft.vr_overlay.wrist.show_translation_partials} disabled={wristDisabled} onChange={(value) => updateWrist("show_translation_partials", value)} />
           </fieldset>
 

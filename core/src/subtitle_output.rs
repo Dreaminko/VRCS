@@ -8,7 +8,21 @@ use crate::osc::OscChatboxDispatcher;
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum PresentationEvent {
+    RecognitionPartial {
+        utterance_id: String,
+        source: String,
+        text: String,
+        language: Option<String>,
+    },
+    RecognitionCancelled {
+        utterance_id: String,
+        source: String,
+    },
+    RecognitionReset {
+        source: String,
+    },
     Final {
+        utterance_id: Option<String>,
         subtitle: Subtitle,
     },
     TranslationPartial {
@@ -101,7 +115,7 @@ impl SubtitleLifecyclePublisher {
         message_id: &str,
     ) {
         self.events.asr_final(message_id, &subtitle);
-        self.publish_subtitle(subtitle.clone());
+        self.publish_subtitle(subtitle.clone(), Some(message_id));
         self.osc.publish_subtitle_with_message_id(
             subtitle,
             wait_for_translation,
@@ -110,30 +124,58 @@ impl SubtitleLifecyclePublisher {
     }
 
     pub fn subtitle_recorded(&self, subtitle: Subtitle) {
-        self.publish_subtitle(subtitle);
+        self.publish_subtitle(subtitle, None);
     }
 
-    fn publish_subtitle(&self, subtitle: Subtitle) {
+    fn publish_subtitle(&self, subtitle: Subtitle, utterance_id: Option<&str>) {
         let _ = self.subtitles.send(subtitle.clone());
-        let _ = self
-            .presentation
-            .send(PresentationEvent::Final { subtitle });
+        let _ = self.presentation.send(PresentationEvent::Final {
+            utterance_id: utterance_id.map(str::to_owned),
+            subtitle,
+        });
     }
 
     pub fn asr_partial(&self, message_id: &str, source: &str, text: &str, language: Option<&str>) {
         self.events.asr_partial(message_id, source, text, language);
+        let _ = self
+            .presentation
+            .send(PresentationEvent::RecognitionPartial {
+                utterance_id: message_id.into(),
+                source: source.into(),
+                text: text.into(),
+                language: language.map(str::to_owned),
+            });
     }
 
     pub fn asr_cancelled(&self, message_id: &str, source: &str, reason: &str) {
         self.events.asr_cancelled(message_id, source, reason);
+        let _ = self
+            .presentation
+            .send(PresentationEvent::RecognitionCancelled {
+                utterance_id: message_id.into(),
+                source: source.into(),
+            });
     }
 
     pub fn asr_reset(&self, source: &str) {
         self.events.asr_reset(source);
+        let _ = self.presentation.send(PresentationEvent::RecognitionReset {
+            source: source.into(),
+        });
     }
 
     pub fn asr_failed(&self, message_id: Option<&str>, source: &str, code: &str, detail: &str) {
         self.events.asr_failed(message_id, source, code, detail);
+        let event = match message_id {
+            Some(utterance_id) => PresentationEvent::RecognitionCancelled {
+                utterance_id: utterance_id.into(),
+                source: source.into(),
+            },
+            None => PresentationEvent::RecognitionReset {
+                source: source.into(),
+            },
+        };
+        let _ = self.presentation.send(event);
     }
 
     pub fn translation_started_with_message(
@@ -285,8 +327,16 @@ mod tests {
         assert_eq!(partial.event_type, "asr.partial");
         assert_eq!(partial.message_id, "utterance-7");
         assert!(matches!(
-            receiver.try_recv(),
-            Err(broadcast::error::TryRecvError::Empty)
+            receiver.recv().await.unwrap(),
+            PresentationEvent::RecognitionPartial {
+                utterance_id,
+                source,
+                text,
+                language,
+            } if utterance_id == "utterance-7"
+                && source == "speaker"
+                && text == "hel"
+                && language.as_deref() == Some("en")
         ));
 
         output.subtitle_stored_with_message(subtitle(7), true, "utterance-7");
@@ -309,7 +359,8 @@ mod tests {
 
         assert!(matches!(
             receiver.recv().await.unwrap(),
-            PresentationEvent::Final { subtitle } if subtitle.id == Some(7)
+            PresentationEvent::Final { utterance_id, subtitle }
+                if utterance_id.as_deref() == Some("utterance-7") && subtitle.id == Some(7)
         ));
         assert!(matches!(
             receiver.recv().await.unwrap(),
@@ -318,6 +369,42 @@ mod tests {
         assert!(matches!(
             receiver.recv().await.unwrap(),
             PresentationEvent::TranslationCompleted { subtitle_id: 7, .. }
+        ));
+    }
+
+    #[tokio::test]
+    async fn recognition_termination_is_published_for_overlay_cleanup() {
+        let (subtitles, _) = broadcast::channel(4);
+        let (translations, _) = broadcast::channel(4);
+        let output = SubtitleLifecyclePublisher::new(
+            subtitles,
+            translations,
+            OscChatboxDispatcher::new(OscConfig::default()),
+        );
+        let mut receiver = output.subscribe_presentation_events();
+
+        output.asr_cancelled("utterance-7", "speaker", "filtered");
+        output.asr_failed(Some("utterance-8"), "speaker", "asr.failed", "failed");
+        output.asr_reset("microphone");
+        output.asr_failed(None, "speaker", "asr.disconnected", "disconnected");
+
+        assert!(matches!(
+            receiver.recv().await.unwrap(),
+            PresentationEvent::RecognitionCancelled { utterance_id, source }
+                if utterance_id == "utterance-7" && source == "speaker"
+        ));
+        assert!(matches!(
+            receiver.recv().await.unwrap(),
+            PresentationEvent::RecognitionCancelled { utterance_id, source }
+                if utterance_id == "utterance-8" && source == "speaker"
+        ));
+        assert!(matches!(
+            receiver.recv().await.unwrap(),
+            PresentationEvent::RecognitionReset { source } if source == "microphone"
+        ));
+        assert!(matches!(
+            receiver.recv().await.unwrap(),
+            PresentationEvent::RecognitionReset { source } if source == "speaker"
         ));
     }
 

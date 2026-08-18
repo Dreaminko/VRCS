@@ -522,6 +522,7 @@
         "sourceMicrophone": "マイク",
         "sourceChatbox": "Chatbox",
         "liveUpdates": "リアルタイム更新",
+        "showRecognitionPartials": "認識途中のテキストを表示",
         "showTranslationPartials": "翻訳途中のテキストを表示",
         "displaySeconds": "表示時間",
         "fadeSeconds": "フェード時間",

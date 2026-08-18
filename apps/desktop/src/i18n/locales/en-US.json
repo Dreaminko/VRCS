@@ -522,6 +522,7 @@
         "sourceMicrophone": "Microphone",
         "sourceChatbox": "Chatbox",
         "liveUpdates": "Live updates",
+        "showRecognitionPartials": "Show partial recognition",
         "showTranslationPartials": "Show partial translations",
         "displaySeconds": "Display duration",
         "fadeSeconds": "Fade duration",
