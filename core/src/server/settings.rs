@@ -147,30 +147,32 @@ pub(super) async fn update_settings(
         }
     }
     asr::validate_config(&mut candidate.asr).map_err(unprocessable)?;
-    // WASAPI 枚举可能阻塞，不能占用 Tokio worker。
-    let audio_config = candidate.audio.clone();
-    tokio::task::spawn_blocking(move || {
-        if audio_config.output.mode == "system" {
-            if let Some(device_id) = audio_config.output.device_id {
-                audio::validate_device_id(device_id, audio::CaptureSource::Speaker)?;
+    if candidate.audio != current.audio {
+        // WASAPI 枚举可能阻塞，不能占用 Tokio worker。
+        let audio_config = candidate.audio.clone();
+        tokio::task::spawn_blocking(move || {
+            if audio_config.output.mode == "system" {
+                if let Some(device_id) = audio_config.output.device_id {
+                    audio::validate_device_id(device_id, audio::CaptureSource::Speaker)?;
+                }
             }
-        }
-        if audio_config.microphone.mode == "device" {
-            if let Some(device_id) = audio_config.microphone.device_id {
-                audio::validate_device_id(device_id, audio::CaptureSource::Microphone)?;
+            if audio_config.microphone.mode == "device" {
+                if let Some(device_id) = audio_config.microphone.device_id {
+                    audio::validate_device_id(device_id, audio::CaptureSource::Microphone)?;
+                }
             }
-        }
-        Ok::<_, audio::AudioError>(())
-    })
-    .await
-    .map_err(|error| {
-        api_error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "audio.device_validation_task_failed",
-            format!("Audio device validation task failed: {error}"),
-        )
-    })?
-    .map_err(|error| unprocessable(error.to_string()))?;
+            Ok::<_, audio::AudioError>(())
+        })
+        .await
+        .map_err(|error| {
+            api_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "audio.device_validation_task_failed",
+                format!("Audio device validation task failed: {error}"),
+            )
+        })?
+        .map_err(|error| unprocessable(error.to_string()))?;
+    }
     let revision = commit_candidate(&state, candidate.clone()).await?;
     Ok((revision_headers(&state, revision), Json(json!(candidate))))
 }

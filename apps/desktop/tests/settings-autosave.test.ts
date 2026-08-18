@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createSettingsAutosave } from "../src/settings/settings-autosave.ts";
 
-test("updates the interface immediately and persists rapid changes in order", async () => {
+test("updates immediately and keeps only the latest queued change", async () => {
   const events: string[] = [];
   let releaseFirst: (() => void) | undefined;
   const firstBlocked = new Promise<void>((resolve) => {
@@ -21,19 +21,19 @@ test("updates the interface immediately and persists rapid changes in order", as
 
   const first = save(1);
   const second = save(2);
+  const third = save(3);
 
-  assert.deepEqual(events, ["optimistic:1", "optimistic:2"]);
-  await Promise.resolve();
-  assert.deepEqual(events, ["optimistic:1", "optimistic:2", "persist:1"]);
+  assert.deepEqual(events, ["optimistic:1", "persist:1", "optimistic:2", "optimistic:3"]);
 
   releaseFirst?.();
-  await Promise.all([first, second]);
+  assert.deepEqual(await Promise.all([first, second, third]), [1, 3, 3]);
   assert.deepEqual(events, [
     "optimistic:1",
-    "optimistic:2",
     "persist:1",
-    "persist:2",
-    "commit:2",
+    "optimistic:2",
+    "optimistic:3",
+    "persist:3",
+    "commit:3",
   ]);
 });
 
