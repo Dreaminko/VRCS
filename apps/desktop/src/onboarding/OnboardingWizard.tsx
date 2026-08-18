@@ -598,12 +598,12 @@ export function OnboardingWizard({
                   devicesReady={devicesReady}
                   selectedDeviceId={settings.audio.output.mode === "system" ? settings.audio.output.device_id : null}
                   specialRows={[
-                    { key: "system", name: t("settings.audio.systemOutput"), description: t("settings.audio.systemOutputDescription"), chosen: settings.audio.output.mode === "system" && settings.audio.output.device_id === null, onSelect: () => void updateSettings((current) => ({ ...current, audio: { ...current.audio, output: { mode: "system", device_id: null } } })) },
-                    { key: "vrchat", name: "VRChat", description: t("settings.audio.vrchatDescription"), chosen: settings.audio.output.mode === "vrchat", onSelect: () => void updateSettings((current) => ({ ...current, audio: { ...current.audio, output: { mode: "vrchat", device_id: null } } })) },
-                    { key: "disabled", name: t("settings.audio.disableOtherVoices"), description: t("settings.audio.disableOtherVoicesDescription"), chosen: settings.audio.output.mode === "disabled", onSelect: () => void updateSettings((current) => ({ ...current, audio: { ...current.audio, output: { mode: "disabled", device_id: null } } })) },
+                    { key: "system", name: t("settings.audio.systemOutput"), description: t("settings.audio.systemOutputDescription"), chosen: settings.audio.output.mode === "system" && settings.audio.output.device_id === null, onSelect: () => void updateSettings((current) => ({ ...current, audio: { ...current.audio, output: { ...current.audio.output, mode: "system", device_id: null } } })) },
+                    { key: "vrchat", name: "VRChat", description: t("settings.audio.vrchatDescription"), chosen: settings.audio.output.mode === "vrchat", onSelect: () => void updateSettings((current) => ({ ...current, audio: { ...current.audio, output: { ...current.audio.output, mode: "vrchat", device_id: null } } })) },
+                    { key: "disabled", name: t("settings.audio.disableOtherVoices"), description: t("settings.audio.disableOtherVoicesDescription"), chosen: settings.audio.output.mode === "disabled", onSelect: () => void updateSettings((current) => ({ ...current, audio: { ...current.audio, output: { ...current.audio.output, mode: "disabled", device_id: null } } })) },
                   ]}
                   disabled={audioBusy}
-                  onSelectDevice={(id) => void updateSettings((current) => ({ ...current, audio: { ...current.audio, output: { mode: "system", device_id: id } } }))}
+                  onSelectDevice={(id) => void updateSettings((current) => ({ ...current, audio: { ...current.audio, output: { ...current.audio.output, mode: "system", device_id: id } } }))}
                 />
                 <DeviceGroup
                   icon={<Mic size={18} />}

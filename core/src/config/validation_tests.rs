@@ -43,6 +43,22 @@ fn disabled_output_mode_cannot_select_a_device() {
 }
 
 #[test]
+fn output_trigger_threshold_is_bounded() {
+    let mut config = AppConfig::default();
+    config.audio.output.trigger_threshold_dbfs = -80.0;
+    assert!(config.validate_settings().is_ok());
+
+    config.audio.output.trigger_threshold_dbfs = -10.0;
+    assert!(config.validate_settings().is_ok());
+
+    config.audio.output.trigger_threshold_dbfs = -81.0;
+    assert_eq!(
+        config.validate_settings().unwrap_err(),
+        "Output trigger_threshold_dbfs must be between -80 and -10"
+    );
+}
+
+#[test]
 fn microphone_trigger_threshold_is_bounded() {
     let mut config = AppConfig::default();
     config.audio.microphone.trigger_threshold_dbfs = -80.0;

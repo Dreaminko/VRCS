@@ -263,7 +263,7 @@ async fn start_speaker_pipeline(
             config.audio.sample_rate,
             device_id,
             process_name,
-            None,
+            Some(output.trigger_threshold_dbfs),
             &config.vad,
             effective_asr_config(state, config),
             pipeline_dependencies(state),
@@ -468,6 +468,21 @@ mod tests {
         let current = AppConfig::default();
         let mut candidate = current.clone();
         candidate.audio.output.mode = "disabled".into();
+
+        assert_eq!(
+            CaptureReloadPlan::between(&current, &candidate),
+            CaptureReloadPlan {
+                speaker: true,
+                microphone: false,
+            }
+        );
+    }
+
+    #[test]
+    fn output_threshold_changes_only_reload_the_speaker_pipeline() {
+        let current = AppConfig::default();
+        let mut candidate = current.clone();
+        candidate.audio.output.trigger_threshold_dbfs -= 1.0;
 
         assert_eq!(
             CaptureReloadPlan::between(&current, &candidate),

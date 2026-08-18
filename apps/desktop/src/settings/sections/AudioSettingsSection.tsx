@@ -9,6 +9,7 @@ import type { AudioDevice, Settings } from "../../types";
 import type { ApplySettings, SaveState } from "../settings-types";
 import { DeviceGroup } from "../SettingsControls";
 import { MicrophoneLevelSetting } from "./MicrophoneLevelSetting";
+import { OtherVoiceLevelSetting } from "./OtherVoiceLevelSetting";
 
 export function AudioSettingsSection({
   draft,
@@ -43,6 +44,7 @@ export function AudioSettingsSection({
 }) {
   const { t } = useTranslation();
   const microphoneLevel = useAudioLevel("microphone");
+  const speakerLevel = useAudioLevel("speaker");
   const [microphoneTestBusy, setMicrophoneTestBusy] = useState(false);
   const calibration = useMicrophoneCalibration({
     level: microphoneLevel,
@@ -76,6 +78,17 @@ export function AudioSettingsSection({
     }
   };
 
+  const updateOutputThreshold = (threshold: number) => applySettings((current) => ({
+    ...current,
+    audio: {
+      ...current.audio,
+      output: {
+        ...current.audio.output,
+        trigger_threshold_dbfs: threshold,
+      },
+    },
+  }));
+
   const updateMicrophoneThreshold = (threshold: number) => applySettings((current) => ({
     ...current,
     audio: {
@@ -107,6 +120,16 @@ export function AudioSettingsSection({
           <DeviceGroup
             icon={<Volume2 size={18} />}
             title={t("settings.audio.otherVoice")}
+            beforeList={(
+              <OtherVoiceLevelSetting
+                level={speakerLevel}
+                enabled={draft.audio.output.mode !== "disabled"}
+                captureRunning={transcriptionRunning}
+                threshold={draft.audio.output.trigger_threshold_dbfs}
+                disabled={saveState === "saving" || draft.audio.output.mode === "disabled"}
+                onCommit={updateOutputThreshold}
+              />
+            )}
             devices={outputDevices}
             devicesReady={devicesReady}
             selectedDeviceId={draft.audio.output.mode === "system" ? draft.audio.output.device_id : null}
@@ -117,7 +140,7 @@ export function AudioSettingsSection({
                 chosen: draft.audio.output.mode === "system" && draft.audio.output.device_id === null,
                 onSelect: () => applySettings((current) => ({
                   ...current,
-                  audio: { ...current.audio, output: { mode: "system", device_id: null } },
+                  audio: { ...current.audio, output: { ...current.audio.output, mode: "system", device_id: null } },
                 })),
               },
               {
@@ -126,7 +149,7 @@ export function AudioSettingsSection({
                 chosen: draft.audio.output.mode === "vrchat",
                 onSelect: () => applySettings((current) => ({
                   ...current,
-                  audio: { ...current.audio, output: { mode: "vrchat", device_id: null } },
+                  audio: { ...current.audio, output: { ...current.audio.output, mode: "vrchat", device_id: null } },
                 })),
               },
               {
@@ -135,14 +158,14 @@ export function AudioSettingsSection({
                 chosen: draft.audio.output.mode === "disabled",
                 onSelect: () => applySettings((current) => ({
                   ...current,
-                  audio: { ...current.audio, output: { mode: "disabled", device_id: null } },
+                  audio: { ...current.audio, output: { ...current.audio.output, mode: "disabled", device_id: null } },
                 })),
               },
             ]}
             disabled={saveState === "saving"}
             onSelectDevice={(id) => applySettings((current) => ({
               ...current,
-              audio: { ...current.audio, output: { mode: "system", device_id: id } },
+              audio: { ...current.audio, output: { ...current.audio.output, mode: "system", device_id: id } },
             }))}
           />
           <DeviceGroup

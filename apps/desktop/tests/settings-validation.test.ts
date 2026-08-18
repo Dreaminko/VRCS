@@ -10,7 +10,7 @@ import { DEFAULT_VR_OVERLAY_SETTINGS } from "../src/settings/vr-overlay-settings
 import type { AsrCapabilities, AudioDevice, Settings } from "../src/types.ts";
 
 const settings: Settings = {
-  schema_version: 22,
+  schema_version: 23,
   server: { host: "127.0.0.1", port: 8766 },
   storage: {
     database_path: "data/vrcs.db",
@@ -19,7 +19,7 @@ const settings: Settings = {
   },
   audio: {
     sample_rate: 16_000,
-    output: { mode: "system", device_id: 10 },
+    output: { mode: "system", device_id: 10, trigger_threshold_dbfs: -45 },
     microphone: { mode: "device", device_id: 20, trigger_threshold_dbfs: -45 },
   },
   vad: { silence_seconds: 0.4, max_speech_seconds: 6 },
@@ -62,7 +62,7 @@ test("requires at least one enabled audio source", () => {
     ...settings,
     audio: {
       ...settings.audio,
-      output: { mode: "disabled", device_id: null },
+      output: { ...settings.audio.output, mode: "disabled", device_id: null },
       microphone: { ...settings.audio.microphone, mode: "disabled", device_id: null },
     },
   }), false);

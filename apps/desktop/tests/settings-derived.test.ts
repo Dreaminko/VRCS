@@ -17,7 +17,7 @@ import type {
 } from "../src/types.ts";
 
 const settings: Settings = {
-  schema_version: 22,
+  schema_version: 23,
   server: { host: "127.0.0.1", port: 8766 },
   storage: {
     database_path: "data/vrcs.db",
@@ -26,7 +26,7 @@ const settings: Settings = {
   },
   audio: {
     sample_rate: 16_000,
-    output: { mode: "system", device_id: null },
+    output: { mode: "system", device_id: null, trigger_threshold_dbfs: -45 },
     microphone: { mode: "default", device_id: null, trigger_threshold_dbfs: -45 },
   },
   vad: { silence_seconds: 0.4, max_speech_seconds: 6 },

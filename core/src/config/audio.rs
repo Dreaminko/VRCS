@@ -6,6 +6,8 @@ pub struct OutputConfig {
     pub mode: String,
     #[serde(default)]
     pub device_id: Option<i64>,
+    #[serde(default = "default_output_trigger_threshold_dbfs")]
+    pub trigger_threshold_dbfs: f32,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -44,6 +46,10 @@ fn default_microphone_mode() -> String {
     "disabled".into()
 }
 
+fn default_output_trigger_threshold_dbfs() -> f32 {
+    -45.0
+}
+
 fn default_microphone_trigger_threshold_dbfs() -> f32 {
     -45.0
 }
@@ -65,6 +71,7 @@ impl Default for OutputConfig {
         Self {
             mode: default_output_mode(),
             device_id: None,
+            trigger_threshold_dbfs: default_output_trigger_threshold_dbfs(),
         }
     }
 }

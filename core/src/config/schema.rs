@@ -5,7 +5,7 @@ use super::{
     ServerConfig, StorageConfig, TranslationConfig, VadConfig, VrOverlayConfig, VrcxConfig,
 };
 
-pub const SCHEMA_VERSION: u32 = 22;
+pub const SCHEMA_VERSION: u32 = 23;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AppConfig {
@@ -97,7 +97,10 @@ mod tests {
             ],
         );
         assert_keys(&value["audio"], ["microphone", "output", "sample_rate"]);
-        assert_keys(&value["audio"]["output"], ["device_id", "mode"]);
+        assert_keys(
+            &value["audio"]["output"],
+            ["device_id", "mode", "trigger_threshold_dbfs"],
+        );
         assert_keys(
             &value["audio"]["microphone"],
             ["device_id", "mode", "trigger_threshold_dbfs"],

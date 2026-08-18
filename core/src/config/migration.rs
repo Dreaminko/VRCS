@@ -90,6 +90,7 @@ fn migrate_v1(raw: &serde_json::Value) -> AppConfig {
                 } else {
                     raw.get("audio_device_id").and_then(|value| value.as_i64())
                 },
+                ..OutputConfig::default()
             },
             microphone: MicrophoneConfig {
                 mode: if microphone_device_id.is_some() {
@@ -299,6 +300,15 @@ fn migrate_v21(raw: &serde_json::Value) -> Result<AppConfig, String> {
     serde_json::from_value(value).map_err(|error| error.to_string())
 }
 
+fn migrate_v22(raw: &serde_json::Value) -> Result<AppConfig, String> {
+    let mut value = raw.clone();
+    let object = value
+        .as_object_mut()
+        .ok_or_else(|| "Configuration root must be an object".to_string())?;
+    object.insert("schema_version".into(), serde_json::json!(SCHEMA_VERSION));
+    serde_json::from_value(value).map_err(|error| error.to_string())
+}
+
 fn migrate_storage_quota(
     object: &mut serde_json::Map<String, serde_json::Value>,
 ) -> Result<(), String> {
@@ -456,6 +466,7 @@ pub fn config_from_value(raw: &serde_json::Value) -> Result<AppConfig, String> {
         version if version == SCHEMA_VERSION as u64 => {
             serde_json::from_value(raw.clone()).map_err(|error| error.to_string())?
         }
+        22 => migrate_v22(raw)?,
         21 => migrate_v21(raw)?,
         20 => migrate_v20(raw)?,
         19 => migrate_v19(raw)?,

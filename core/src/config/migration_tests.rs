@@ -433,6 +433,17 @@ fn migrates_v19_with_vrcx_disabled() {
 }
 
 #[test]
+fn migrates_v22_with_the_default_output_trigger_threshold() {
+    let config = config_from_value(&serde_json::json!({
+        "schema_version": 22
+    }))
+    .unwrap();
+
+    assert_eq!(config.schema_version, SCHEMA_VERSION);
+    assert_eq!(config.audio.output.trigger_threshold_dbfs, -45.0);
+}
+
+#[test]
 fn rejects_non_object_and_invalid_schema_version() {
     assert!(config_from_value(&serde_json::json!([])).is_err());
     assert!(config_from_value(&serde_json::json!({"schema_version": "3"})).is_err());

@@ -89,6 +89,9 @@ fn validate_audio(audio: &AudioConfig, vad: &VadConfig) -> Result<(), String> {
         "vrchat" | "disabled" => {}
         other => return Err(format!("Unsupported output mode: {other}")),
     }
+    if !(-80.0..=-10.0).contains(&audio.output.trigger_threshold_dbfs) {
+        return Err("Output trigger_threshold_dbfs must be between -80 and -10".into());
+    }
     match audio.microphone.mode.as_str() {
         "device" if audio.microphone.device_id.is_none() => {
             return Err("A device must be selected in microphone device mode".into());

@@ -49,6 +49,7 @@
 .microphone-test-button[aria-pressed="true"] { border-color: var(--primary); color: var(--primary-ink); background: var(--primary-softer); }
 .microphone-test-button:active:not(:disabled) { transform: scale(0.96); }
 .microphone-level-setting .range-field { padding-top: 12px; }
+.microphone-level-setting > small { color: var(--text-quiet); font-size: 11px; line-height: 1.5; }
 .microphone-calibration-card {
   display: grid;
   gap: 12px;

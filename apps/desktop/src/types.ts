@@ -334,6 +334,7 @@ export interface VrcxRuntimeStatus {
 export interface AudioOutputSettings {
   mode: "system" | "vrchat" | "disabled";
   device_id: number | null;
+  trigger_threshold_dbfs: number;
 }
 
 export interface MicrophoneSettings {
@@ -464,7 +465,7 @@ export interface VrOverlayStatus {
 }
 
 export interface Settings {
-  schema_version: 22;
+  schema_version: 23;
   server: {
     host: string;
     port: number;
