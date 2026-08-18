@@ -1,0 +1,19 @@
+.software-update-summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 16px;
+  padding: 8px 4px;
+}
+.software-update-summary > div { display: grid; min-width: 0; gap: 3px; }
+.software-update-summary strong { color: var(--text); font-size: 13px; font-weight: 650; }
+.software-update-summary small { color: var(--text-quiet); font-size: 11px; }
+.software-update-summary p { margin: 2px 0 0; color: var(--text-secondary); font-size: 11px; line-height: 1.55; }
+.software-update-summary p.error { color: var(--error); }
+.software-update-summary .secondary-button { justify-self: end; }
+.software-update-settings .spin { animation: model-spin 900ms linear infinite; }
+
+@media (max-width: 680px) {
+  .software-update-summary { grid-template-columns: 1fr; }
+  .software-update-summary .secondary-button { justify-self: start; }
+}

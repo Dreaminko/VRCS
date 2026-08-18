@@ -9,7 +9,9 @@ use std::time::{Duration, Instant};
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
 
-use crate::asr::{spawn_streaming_session, CloudEvent, SegmentationMode, StreamingSession};
+use crate::asr::{
+    spawn_cloud_recognition_session, CloudEvent, CloudRecognitionSession, SegmentationMode,
+};
 use crate::audio::{AudioCapture, AudioError, CaptureSource};
 use crate::config::{AsrConfig, VadConfig};
 use crate::models::{AudioDevice, LiveTranscription};
@@ -156,7 +158,9 @@ impl TranscriptionPipeline {
         let cloud = if asr_config.backend == "local_whisper" {
             None
         } else {
-            match spawn_streaming_session(asr_config.clone(), vad_config.silence_seconds).await {
+            match spawn_cloud_recognition_session(asr_config.clone(), vad_config.silence_seconds)
+                .await
+            {
                 Ok(session) => Some(session),
                 Err(error) if asr_config.cloud_failure_policy == "local" => {
                     dependencies.publish_live(LiveTranscription::Failed {
@@ -244,7 +248,7 @@ async fn run(
     mut segmenter: SpeechSegmenter,
     dependencies: PipelineDependencies,
     source: &'static str,
-    mut cloud: Option<StreamingSession>,
+    mut cloud: Option<CloudRecognitionSession>,
     local_fallback: bool,
     asr_echo_guard: AsrEchoGuard,
     sample_rate: u32,
@@ -420,8 +424,12 @@ async fn run(
         streaming = false;
         if let Some(session) = cloud.as_ref() {
             if session.segmentation_mode() == SegmentationMode::LocalCommit {
-                if let Err(error) = session.commit().await {
-                    break Err(error);
+                match session.commit(segment.is_some()).await {
+                    Ok(Some(utterance_id)) => {
+                        lifecycle.begin(&utterance_id);
+                    }
+                    Ok(None) => {}
+                    Err(error) => break Err(error),
                 }
             }
         } else if let Some(segment) = segment {

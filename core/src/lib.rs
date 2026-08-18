@@ -1613,7 +1613,8 @@ mod tests {
                     .bearer_auth("test-token")
                     .json(&serde_json::json!({
                         "name": format!("DeepL {index}"),
-                        "provider": "deepl"
+                        "provider": "deepl",
+                        "enabled_capabilities": ["text_translation"]
                     }))
                     .send()
                     .await
@@ -1709,6 +1710,7 @@ mod tests {
             .json(&serde_json::json!({
                 "name": "Temporary Alibaba",
                 "provider": "alibaba_cloud",
+                "enabled_capabilities": ["speech_to_text"],
                 "region": "china_beijing",
                 "workspace_id": "test-workspace"
             }))
@@ -1732,20 +1734,26 @@ mod tests {
         let rejected_body: serde_json::Value = rejected.json().await.unwrap();
         assert_eq!(rejected_body["code"], "settings.stale");
 
-        let mut stale_settings: serde_json::Value = client
+        let settings_response = client
             .get(format!("{base_url}/api/settings"))
             .bearer_auth("test-token")
             .send()
             .await
-            .unwrap()
-            .json()
-            .await
             .unwrap();
-        stale_settings["asr"]["active_api_profiles"]["alibaba_cloud"] =
-            serde_json::json!(profile_id);
+        let profile_revision = settings_response
+            .headers()
+            .get("x-vrcs-config-revision")
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .to_owned();
+        let mut stale_settings: serde_json::Value = settings_response.json().await.unwrap();
+        stale_settings["asr"]["backend"] = serde_json::json!("qwen_realtime");
+        stale_settings["asr"]["active_profile_id"] = serde_json::json!(profile_id);
         stale_settings = client
             .put(format!("{base_url}/api/settings"))
             .bearer_auth("test-token")
+            .header("x-vrcs-config-revision", profile_revision)
             .json(&stale_settings)
             .send()
             .await
@@ -1753,8 +1761,9 @@ mod tests {
             .json()
             .await
             .unwrap();
+        assert_eq!(stale_settings["asr"]["backend"], "qwen_realtime");
         assert_eq!(
-            stale_settings["asr"]["active_api_profiles"]["alibaba_cloud"],
+            stale_settings["asr"]["active_profile_id"],
             serde_json::json!(profile_id)
         );
 
@@ -1778,7 +1787,8 @@ mod tests {
             .await
             .unwrap();
         assert!(saved["asr"]["api_profiles"].as_array().unwrap().is_empty());
-        assert!(saved["asr"]["active_api_profiles"]["alibaba_cloud"].is_null());
+        assert_eq!(saved["asr"]["backend"], "local_whisper");
+        assert!(saved["asr"]["active_profile_id"].is_null());
         handle.shutdown().await.unwrap();
     }
 }

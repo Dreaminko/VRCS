@@ -1,8 +1,10 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
+  "identifier": "app.vrcs.desktop",
   "bundle": {
     "active": true,
     "targets": ["nsis"],
+    "createUpdaterArtifacts": true,
     "resources": {
       "../../../LICENSE": "LICENSE",
       "../../../THIRD_PARTY_NOTICES.md": "THIRD_PARTY_NOTICES.md"

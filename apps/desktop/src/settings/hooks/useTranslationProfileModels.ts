@@ -15,6 +15,11 @@ export function useTranslationProfileModels(
   const [error, setError] = useState("");
   const request = useRef(0);
 
+  const load = useCallback(async (profileId: string) => {
+    const response = await coreApi.apiProfileModels(profileId);
+    return response.models;
+  }, []);
+
   const refresh = useCallback(async () => {
     if (!profile || !enabled) {
       setModels([]);
@@ -26,8 +31,8 @@ export function useTranslationProfileModels(
     setLoading(true);
     setError("");
     try {
-      const response = await coreApi.apiProfileModels(profile.id);
-      if (currentRequest === request.current) setModels(response.models);
+      const nextModels = await load(profile.id);
+      if (currentRequest === request.current) setModels(nextModels);
     } catch (reason) {
       if (currentRequest === request.current) {
         setModels([]);
@@ -36,12 +41,12 @@ export function useTranslationProfileModels(
     } finally {
       if (currentRequest === request.current) setLoading(false);
     }
-  }, [enabled, profile?.id, t]);
+  }, [enabled, load, profile?.id, t]);
 
   useEffect(() => {
     void refresh();
     return () => { request.current += 1; };
   }, [refresh]);
 
-  return { models, loading, error, refresh };
+  return { models, loading, error, refresh, load };
 }

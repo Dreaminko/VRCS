@@ -227,6 +227,16 @@
   overflow: hidden;
 }
 .dropdown-menu-floating.dropdown-menu-compact .dropdown-option { font-size: 12px; }
+.dropdown-option-entry { display: grid; gap: 2px; }
+.dropdown-option-group {
+  padding: 8px 10px 3px;
+  color: var(--text-quiet);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.dropdown-option-entry:first-child .dropdown-option-group { padding-top: 3px; }
 .dropdown-option {
   display: flex;
   width: 100%;

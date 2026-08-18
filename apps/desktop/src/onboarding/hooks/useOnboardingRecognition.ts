@@ -2,31 +2,24 @@ import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { coreApi } from "../../api";
-import { supportsRecognition } from "../../api-profile-purpose";
 import {
   apiProfileFromEditorDraft,
   createApiProfileDraft,
   type ApiProfileEditorDraft,
-} from "../../settings/api/ApiProfileEditor";
+} from "../../api-profile-draft";
+import { providerServicesWithCapability } from "../../provider-catalog";
+import {
+  recognitionProfiles as filterRecognitionProfiles,
+  recognitionServicesForProfile,
+  selectRecognitionProfile,
+  selectRecognitionService,
+} from "../../recognition-services";
 import { useAsrModels } from "../../settings/hooks/useAsrModels";
 import { useSettingsDraft } from "../../settings/hooks/useSettingsDraft";
-import { selectRecognitionSource } from "../../settings/settings-derived";
 import { asrSelectionError } from "../../settings/settings-validation";
 import { useApiProfiles } from "../../settings/useApiProfiles";
-import type { ApiProvider, AsrCapabilities, Settings } from "../../types";
-import type { CloudBackend, RecognitionMode } from "../onboarding-types";
-
-function backendProvider(backend: CloudBackend): ApiProvider {
-  return backend === "openai_realtime" ? "openai" : "alibaba_cloud";
-}
-
-function initialCloudBackend(settings: Settings): CloudBackend {
-  return settings.asr.backend === "openai_realtime"
-    ? "openai_realtime"
-    : settings.asr.backend === "fun_asr_realtime"
-      ? "fun_asr_realtime"
-      : "qwen_realtime";
-}
+import type { AsrCapabilities, Settings } from "../../types";
+import type { RecognitionMode } from "../onboarding-types";
 
 export function useOnboardingRecognition({
   active,
@@ -57,13 +50,33 @@ export function useOnboardingRecognition({
   const [recognitionMode, setRecognitionMode] = useState<RecognitionMode>(
     settings.asr.backend === "local_whisper" ? "local" : "cloud",
   );
-  const [cloudBackend, setCloudBackend] = useState<CloudBackend>(initialCloudBackend(settings));
-  const [selectedProfileId, setSelectedProfileId] = useState("");
-  const [testedProfileId, setTestedProfileId] = useState("");
+  const [selectedProfileId, setSelectedProfileId] = useState(
+    settings.asr.active_profile_id ?? "",
+  );
+  const [selectedServiceId, setSelectedServiceId] = useState(
+    settings.asr.backend === "local_whisper" ? "" : settings.asr.backend,
+  );
+  const [testedSelectionId, setTestedSelectionId] = useState("");
   const [apiEditor, setApiEditor] = useState<ApiProfileEditorDraft | null>(null);
   const [busy, setBusy] = useState(false);
 
   const draftController = useSettingsDraft(settings, onSave);
+  const apiProfiles = useApiProfiles(onRefreshSettings);
+  const recognitionProfiles = useMemo(
+    () => filterRecognitionProfiles(apiProfiles.profiles),
+    [apiProfiles.profiles],
+  );
+  const selectedProfile = recognitionProfiles.find((profile) => profile.id === selectedProfileId);
+  const recognitionServices = useMemo(
+    () => recognitionServicesForProfile(selectedProfile, apiProfiles.providerDefinitions),
+    [apiProfiles.providerDefinitions, selectedProfile],
+  );
+  const selectedService = recognitionServices.find((service) => service.id === selectedServiceId);
+  const selectionId = selectedProfile && selectedService
+    ? `${selectedProfile.id}:${selectedService.id}`
+    : "";
+  const cloudReady = Boolean(selectionId && testedSelectionId === selectionId);
+
   const asr = useAsrModels({
     active: active && recognitionMode === "local",
     settings,
@@ -71,16 +84,9 @@ export function useOnboardingRecognition({
     asrCapabilities,
     onModelsChanged,
     draftController,
+    apiProfiles: apiProfiles.profiles,
+    providerDefinitions: apiProfiles.providerDefinitions,
   });
-  const apiProfiles = useApiProfiles(onRefreshSettings);
-  const provider = backendProvider(cloudBackend);
-  const recognitionProfiles = useMemo(
-    () => apiProfiles.profiles.filter(
-      (profile) => profile.provider === provider && supportsRecognition(profile),
-    ),
-    [apiProfiles.profiles, provider],
-  );
-  const selectedProfile = recognitionProfiles.find((profile) => profile.id === selectedProfileId);
   const selectedModel = asr.managedModels.find(
     (model) => model.id === draftController.draft.asr.local.model,
   );
@@ -98,29 +104,38 @@ export function useOnboardingRecognition({
   const saveBusy = draftController.saveState === "saving";
 
   useEffect(() => {
-    if (recognitionProfiles.some((profile) => profile.id === selectedProfileId)) return;
-    const activeId = provider === "openai"
-      ? settings.asr.active_api_profiles.openai
-      : settings.asr.active_api_profiles.alibaba_cloud;
-    const next = recognitionProfiles.find((profile) => profile.id === activeId)
+    if (selectedProfile) return;
+    const next = recognitionProfiles.find((profile) => profile.id === settings.asr.active_profile_id)
       ?? recognitionProfiles[0];
     setSelectedProfileId(next?.id ?? "");
-    setTestedProfileId("");
-  }, [provider, recognitionProfiles, selectedProfileId, settings.asr.active_api_profiles]);
+    setTestedSelectionId("");
+  }, [recognitionProfiles, selectedProfile, settings.asr.active_profile_id]);
 
-  const setCloudRecognitionBackend = (backend: CloudBackend) => {
-    setCloudBackend(backend);
-    setSelectedProfileId("");
-    setTestedProfileId("");
-    setApiEditor(null);
-  };
+  useEffect(() => {
+    if (selectedService) return;
+    const next = recognitionServices.find((service) => service.id === settings.asr.backend)
+      ?? recognitionServices[0];
+    setSelectedServiceId(next?.id ?? "");
+    setTestedSelectionId("");
+  }, [recognitionServices, selectedService, settings.asr.backend]);
 
   const selectProfile = (profileId: string) => {
     setSelectedProfileId(profileId);
-    setTestedProfileId("");
+    setSelectedServiceId("");
+    setTestedSelectionId("");
   };
 
-  const addApiProfile = () => setApiEditor(createApiProfileDraft(provider));
+  const selectService = (serviceId: string) => {
+    setSelectedServiceId(serviceId);
+    setTestedSelectionId("");
+  };
+
+  const addApiProfile = () => {
+    const recognitionDefinitions = apiProfiles.providerDefinitions.filter(
+      (definition) => providerServicesWithCapability(definition, "speech_to_text").length > 0,
+    );
+    setApiEditor(createApiProfileDraft(recognitionDefinitions));
+  };
 
   const saveApiEditor = async () => {
     if (!apiEditor) return;
@@ -130,25 +145,38 @@ export function useOnboardingRecognition({
       apiEditor.api_key,
     );
     if (!saved) return;
+    const service = recognitionServicesForProfile(saved, apiProfiles.providerDefinitions)[0];
     setSelectedProfileId(saved.id);
-    setTestedProfileId("");
+    setSelectedServiceId(service?.id ?? "");
+    setTestedSelectionId("");
     setApiEditor(null);
   };
 
   const testAndApplyCloud = async () => {
-    if (!selectedProfile) return;
+    if (!selectedProfile || !selectedService) return;
     setBusy(true);
     clearMessage();
     try {
-      const tested = await apiProfiles.test(selectedProfile.id, "asr", cloudBackend);
-      if (!tested) return;
+      const tested = await apiProfiles.test(
+        selectedProfile.id,
+        "speech_to_text",
+        selectedService.id,
+      );
+      if (!tested?.ok) return;
+      const activated = await apiProfiles.activate(selectedProfile.id, selectedService.id);
+      if (!activated) return;
       const latest = await coreApi.settings();
-      const selectedAsr = selectRecognitionSource(latest.asr, selectedProfile.id);
+      const selectedAsr = selectRecognitionProfile(
+        latest.asr,
+        selectedProfile.id,
+        apiProfiles.profiles,
+        apiProfiles.providerDefinitions,
+      );
       await onSave({
         ...latest,
-        asr: { ...selectedAsr, backend: cloudBackend },
+        asr: selectRecognitionService(selectedAsr, selectedService),
       });
-      setTestedProfileId(selectedProfile.id);
+      setTestedSelectionId(`${selectedProfile.id}:${selectedService.id}`);
       showInfo(t("onboarding.recognition.connectionReady"));
     } catch (reason) {
       showError(reason, "errors.apiProfiles.operation");
@@ -159,7 +187,7 @@ export function useOnboardingRecognition({
 
   const finishRecognition = async () => {
     if (recognitionMode === "cloud") {
-      if (!selectedProfile || testedProfileId !== selectedProfile.id) return;
+      if (!cloudReady) return;
       await onFinish();
       return;
     }
@@ -173,6 +201,7 @@ export function useOnboardingRecognition({
         asr: {
           ...latest.asr,
           backend: "local_whisper",
+          active_profile_id: null,
           language: draft.asr.language,
           local: draft.asr.local,
         },
@@ -188,12 +217,15 @@ export function useOnboardingRecognition({
   return {
     recognitionMode,
     setRecognitionMode,
-    cloudBackend,
-    setCloudBackend: setCloudRecognitionBackend,
     selectedProfileId,
-    testedProfileId,
+    selectedServiceId,
+    testedSelectionId,
+    cloudReady,
     selectProfile,
+    selectService,
     selectedProfile,
+    selectedService,
+    recognitionServices,
     apiEditor,
     setApiEditor,
     addApiProfile,
@@ -201,7 +233,6 @@ export function useOnboardingRecognition({
     cancelApiEditor: () => setApiEditor(null),
     testAndApplyCloud,
     finishRecognition,
-    provider,
     recognitionProfiles,
     apiProfiles,
     draftController,

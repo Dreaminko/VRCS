@@ -1,11 +1,18 @@
 import type { TFunction } from "i18next";
 
 import type {
+  ApiProfileView,
   AsrCapabilities,
   AsrModelRecord,
   AnkiStatus,
+  ProviderDefinition,
   Settings,
 } from "../types";
+import {
+  LOCAL_RECOGNITION_SOURCE,
+  recognitionSourceValue as dynamicRecognitionSourceValue,
+  selectRecognitionProfile,
+} from "../recognition-services.ts";
 import type {
   DebugRow,
   SettingOption,
@@ -28,43 +35,19 @@ export function showsLocalRecognitionSettings(
   return backend === "local_whisper";
 }
 
-export const LOCAL_RECOGNITION_SOURCE = "local";
+export { LOCAL_RECOGNITION_SOURCE };
 
 export function recognitionSourceValue(asr: Settings["asr"]): string {
-  if (asr.backend === "local_whisper") return LOCAL_RECOGNITION_SOURCE;
-  const provider = asr.backend === "openai_realtime" ? "openai" : "alibaba_cloud";
-  return asr.active_api_profiles[provider] ?? "";
+  return dynamicRecognitionSourceValue(asr);
 }
 
 export function selectRecognitionSource(
   asr: Settings["asr"],
   source: string,
+  profiles: ApiProfileView[],
+  definitions: ProviderDefinition[],
 ): Settings["asr"] {
-  if (source === LOCAL_RECOGNITION_SOURCE) {
-    return { ...asr, backend: "local_whisper" };
-  }
-
-  const profile = asr.api_profiles.find((item) => item.id === source);
-  const purpose = profile?.purpose
-    ?? (profile?.provider === "openai_compatible" ? "llm" : "shared");
-  if (!profile || purpose === "llm") return asr;
-
-  if (profile.provider === "openai") {
-    return {
-      ...asr,
-      backend: "openai_realtime",
-      active_api_profiles: { ...asr.active_api_profiles, openai: profile.id },
-    };
-  }
-
-  const backend = asr.backend === "qwen_realtime" || asr.backend === "fun_asr_realtime"
-    ? asr.backend
-    : "qwen_realtime";
-  return {
-    ...asr,
-    backend,
-    active_api_profiles: { ...asr.active_api_profiles, alibaba_cloud: profile.id },
-  };
+  return selectRecognitionProfile(asr, source, profiles, definitions);
 }
 
 export function formatBytes(bytes: number, locale: string): string {

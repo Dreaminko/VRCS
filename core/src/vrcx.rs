@@ -12,6 +12,7 @@ use tokio_tungstenite::tungstenite::http::{header::AUTHORIZATION, HeaderValue};
 use tokio_tungstenite::tungstenite::Message;
 
 use crate::config::{AsrConfig, VrcxConfig};
+use crate::providers;
 use crate::translation::TranslationContextEntry;
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
@@ -161,11 +162,16 @@ impl VrcxIntegration {
         if generated.is_empty() {
             return Vec::new();
         }
-        let context = match config.backend.as_str() {
-            "qwen_realtime" => &mut config.qwen.context,
-            "fun_asr_realtime" => &mut config.fun_asr.context,
-            _ => return Vec::new(),
+        let Some((_, service)) = providers::recognition_service(&config.backend) else {
+            return Vec::new();
         };
+        if !service.supports_context {
+            return Vec::new();
+        }
+        let Some(settings) = config.service_settings.get_mut(&config.backend) else {
+            return Vec::new();
+        };
+        let context = &mut settings.context;
         let (merged, appended) = append_context(context, &generated);
         *context = merged;
         if appended.is_empty() {
@@ -644,10 +650,13 @@ mod tests {
             backend: "qwen_realtime".into(),
             ..Default::default()
         };
-        qwen.qwen.context = "Manual terms".into();
+        qwen.service_settings
+            .get_mut(providers::SERVICE_QWEN_REALTIME)
+            .unwrap()
+            .context = "Manual terms".into();
         let qwen_signatures = integration.apply_asr_context(&mut qwen);
         assert_eq!(
-            qwen.qwen.context,
+            qwen.service_settings[providers::SERVICE_QWEN_REALTIME].context,
             "Manual terms\nTest \"World\"\nAlice\nBob"
         );
         assert!(qwen_signatures.contains(&"World: Test \"World\"".to_string()));
@@ -658,7 +667,10 @@ mod tests {
             ..Default::default()
         };
         let fun_signatures = integration.apply_asr_context(&mut fun_asr);
-        assert_eq!(fun_asr.fun_asr.context, "Test \"World\"\nAlice\nBob");
+        assert_eq!(
+            fun_asr.service_settings[providers::SERVICE_FUN_ASR_REALTIME].context,
+            "Test \"World\"\nAlice\nBob"
+        );
         assert_eq!(fun_signatures, qwen_signatures);
 
         let mut openai = AsrConfig {
@@ -666,8 +678,18 @@ mod tests {
             ..Default::default()
         };
         assert!(integration.apply_asr_context(&mut openai).is_empty());
-        assert!(openai.qwen.context.is_empty());
-        assert!(openai.fun_asr.context.is_empty());
+        assert!(openai.service_settings[providers::SERVICE_QWEN_REALTIME]
+            .context
+            .is_empty());
+        assert!(openai.service_settings[providers::SERVICE_FUN_ASR_REALTIME]
+            .context
+            .is_empty());
+
+        let mut local = AsrConfig {
+            backend: "local_whisper".into(),
+            ..Default::default()
+        };
+        assert!(integration.apply_asr_context(&mut local).is_empty());
     }
 
     #[test]

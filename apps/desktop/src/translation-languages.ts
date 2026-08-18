@@ -1,4 +1,4 @@
-import type { ApiProvider } from "./types";
+import type { ApiProfileView } from "./types";
 
 export interface TranslationLanguage {
   code: string;
@@ -45,21 +45,18 @@ export const TRANSLATION_LANGUAGES: readonly TranslationLanguage[] = [
 
 export const TRANSLATION_LANGUAGE_CODES = TRANSLATION_LANGUAGES.map(({ code }) => code);
 
-const DEEPL_LANGUAGE_CODES = new Set([
-  "zh-Hans", "zh-Hant", "en", "ja", "ko", "es", "fr", "de", "ru", "ar", "bg",
-  "cs", "da", "el", "he", "id", "it", "nb", "nl", "pl", "pt-BR", "pt-PT",
-  "ro", "sv", "th", "tr", "uk", "vi", "hu", "fi",
-]);
-
-export function translationLanguageCodesForProvider(provider?: ApiProvider): string[] {
-  if (provider === "deepl") {
-    return TRANSLATION_LANGUAGE_CODES.filter((code) => DEEPL_LANGUAGE_CODES.has(code));
-  }
-  return [...TRANSLATION_LANGUAGE_CODES];
+export function translationLanguageCodesForProfile(
+  profile?: Pick<ApiProfileView, "capabilities">,
+): string[] {
+  return profile?.capabilities.supported_languages.length
+    ? [...profile.capabilities.supported_languages]
+    : [...TRANSLATION_LANGUAGE_CODES];
 }
 
-export function supportsCustomTranslationLanguage(provider?: ApiProvider): boolean {
-  return Boolean(provider && provider !== "deepl" && provider !== "microsoft_translator");
+export function supportsCustomTranslationLanguage(
+  profile?: Pick<ApiProfileView, "capabilities">,
+): boolean {
+  return profile?.capabilities.supports_custom_translation_language ?? false;
 }
 
 export function canonicalLanguageTag(value: string): string | null {

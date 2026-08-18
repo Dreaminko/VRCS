@@ -3,8 +3,9 @@ use tokio_tungstenite::tungstenite::http::Request;
 use tokio_tungstenite::tungstenite::Message;
 
 use crate::config::{ApiProfile, AsrConfig};
+use crate::providers::SERVICE_FUN_ASR_REALTIME;
 
-use super::{authenticated_request, pcm16_bytes, CloudEvent, NormalizationState};
+use super::{authenticated_request, pcm16_bytes, service_settings, CloudEvent, NormalizationState};
 
 pub(super) fn build_request(profile: &ApiProfile, key: &str) -> Result<Request<()>, String> {
     let workspace = profile.workspace_id.as_deref().unwrap_or("").trim();
@@ -23,7 +24,12 @@ pub(super) fn build_request(profile: &ApiProfile, key: &str) -> Result<Request<(
     )
 }
 
-pub(super) fn run_task(config: &AsrConfig, silence_seconds: f64, task_id: &str) -> Value {
+pub(super) fn run_task(
+    config: &AsrConfig,
+    silence_seconds: f64,
+    task_id: &str,
+) -> Result<Value, String> {
+    let settings = service_settings(config, SERVICE_FUN_ASR_REALTIME)?;
     let mut parameters = json!({
         "format": "pcm",
         "sample_rate": 16000,
@@ -33,7 +39,7 @@ pub(super) fn run_task(config: &AsrConfig, silence_seconds: f64, task_id: &str) 
     if config.language != "auto" {
         parameters["language_hints"] = json!([config.language]);
     }
-    let context = config.fun_asr.context.trim();
+    let context = settings.context.trim();
     let input = if context.is_empty() {
         json!({})
     } else {
@@ -44,7 +50,7 @@ pub(super) fn run_task(config: &AsrConfig, silence_seconds: f64, task_id: &str) 
             }]
         })
     };
-    json!({
+    Ok(json!({
         "header": {
             "action": "run-task",
             "task_id": task_id,
@@ -54,11 +60,11 @@ pub(super) fn run_task(config: &AsrConfig, silence_seconds: f64, task_id: &str) 
             "task_group": "audio",
             "task": "asr",
             "function": "recognition",
-            "model": config.fun_asr.model,
+            "model": settings.model,
             "parameters": parameters,
             "input": input
         }
-    })
+    }))
 }
 
 pub(super) fn normalize_event(

@@ -5,8 +5,29 @@ import {
   canonicalLanguageTag,
   localizedLanguageName,
   supportsCustomTranslationLanguage,
-  translationLanguageCodesForProvider,
+  translationLanguageCodesForProfile,
 } from "../src/translation-languages.ts";
+import type { ProviderCapabilities } from "../src/types.ts";
+
+function profileCapabilities(
+  supportedLanguages: string[],
+  supportsCustom: boolean,
+): { capabilities: ProviderCapabilities } {
+  return {
+    capabilities: {
+      supports_streaming: false,
+      supports_model_listing: false,
+      requires_api_key: true,
+      is_local: false,
+      supports_context: false,
+      supports_translation: true,
+      supports_asr: false,
+      supports_text_generation: false,
+      supports_custom_translation_language: supportsCustom,
+      supported_languages: supportedLanguages,
+    },
+  };
+}
 
 test("translation language tags are canonicalized conservatively", () => {
   assert.equal(canonicalLanguageTag(" pt-br "), "pt-BR");
@@ -15,11 +36,14 @@ test("translation language tags are canonicalized conservatively", () => {
   assert.equal(canonicalLanguageTag("en-u-ca-gregory"), null);
 });
 
-test("provider language choices distinguish LLM and DeepL capabilities", () => {
-  assert.equal(supportsCustomTranslationLanguage("openai"), true);
-  assert.equal(supportsCustomTranslationLanguage("deepl"), false);
-  assert.equal(translationLanguageCodesForProvider("openai").includes("hi"), true);
-  assert.equal(translationLanguageCodesForProvider("deepl").includes("hi"), false);
+test("language choices come from profile capability data", () => {
+  const unrestricted = profileCapabilities([], true);
+  const restricted = profileCapabilities(["en", "ja"], false);
+
+  assert.equal(supportsCustomTranslationLanguage(unrestricted), true);
+  assert.equal(supportsCustomTranslationLanguage(restricted), false);
+  assert.equal(translationLanguageCodesForProfile(unrestricted).includes("hi"), true);
+  assert.deepEqual(translationLanguageCodesForProfile(restricted), ["en", "ja"]);
 });
 
 test("language labels have a stable fallback", () => {

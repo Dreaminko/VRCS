@@ -1,0 +1,64 @@
+.update-notice {
+  position: fixed;
+  z-index: 45;
+  top: 160px;
+  right: 24px;
+  display: grid;
+  width: min(420px, calc(100vw - 48px));
+  grid-template-columns: 36px minmax(0, 1fr) 28px;
+  gap: 11px;
+  padding: 15px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  color: var(--text);
+  background: var(--surface);
+  box-shadow: var(--overlay-shadow);
+}
+.update-notice-icon {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  place-items: center;
+  border-radius: 11px;
+  color: var(--primary-ink);
+  background: var(--primary-softer);
+}
+.update-notice-copy { display: grid; min-width: 0; gap: 7px; }
+.update-notice-copy > strong { font-size: 14px; font-weight: 650; }
+.update-notice-copy > p {
+  display: -webkit-box;
+  max-height: 5.1em;
+  margin: 0;
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.7;
+  white-space: pre-line;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+}
+.update-notice-copy > small { color: var(--warning); font-size: 11px; line-height: 1.5; }
+.update-notice-copy > small.error { color: var(--error); }
+.update-notice-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 2px; }
+.update-notice-actions :is(.primary-button, .secondary-button) { min-height: 34px; padding-inline: 12px; font-size: 12px; }
+.update-notice-close {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  color: var(--text-quiet);
+  background: transparent;
+  cursor: pointer;
+}
+.update-notice-close:hover { color: var(--text); background: var(--surface-subtle); }
+.update-download-status { display: grid; grid-template-columns: 1fr auto; gap: 5px 8px; color: var(--text-secondary); font-size: 11px; }
+.update-download-status > div { height: 5px; grid-column: 1 / -1; overflow: hidden; border-radius: var(--radius-pill); background: var(--surface-subtle); }
+.update-download-status i { display: block; height: 100%; border-radius: inherit; background: var(--primary); transition: width 140ms ease-out; }
+
+@media (max-width: 680px) {
+  .update-notice { top: 142px; right: 14px; width: calc(100vw - 28px); }
+}

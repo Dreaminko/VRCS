@@ -1,3 +1,4 @@
+mod app_updates;
 mod diagnostics;
 mod vr_overlay;
 
@@ -341,6 +342,11 @@ fn minimize_to_tray_enabled(app: &tauri::AppHandle) -> bool {
         .unwrap_or(false)
 }
 
+pub(crate) fn prepare_for_exit(app: &tauri::AppHandle) {
+    app.state::<vr_overlay::Manager>().stop();
+    stop_core(app);
+}
+
 fn stop_core(app: &tauri::AppHandle) {
     let runtime = app.state::<CoreRuntime>();
     runtime.stop_requested.store(true, Ordering::Release);
@@ -426,6 +432,7 @@ pub fn run() {
         .plugin(tauri_plugin_store::Builder::default().build())
         .manage(connection)
         .manage(diagnostic_state)
+        .manage(app_updates::UpdateState::new())
         .manage(NativeUiState {
             show_item: Mutex::new(None),
             quit_item: Mutex::new(None),
@@ -441,6 +448,9 @@ pub fn run() {
             diagnostics::report_frontend_error,
             diagnostics::open_log_directory,
             diagnostics::export_error_report,
+            app_updates::app_build_info,
+            app_updates::check_for_update,
+            app_updates::download_and_install_update,
             update_native_labels,
             set_compact_window_topmost,
             vr_overlay::vr_overlay_status,
@@ -449,6 +459,7 @@ pub fn run() {
             vr_overlay::vr_overlay_hide_sample
         ])
         .setup(move |app| {
+            app_updates::register_plugin(app)?;
             app.store("preferences.json")?;
 
             let show_item = MenuItem::with_id(app, "show", "Show VRCS", true, None::<&str>)?;
@@ -534,8 +545,7 @@ pub fn run() {
 
     app.run(|app_handle, event| {
         if matches!(event, RunEvent::Exit | RunEvent::ExitRequested { .. }) {
-            app_handle.state::<vr_overlay::Manager>().stop();
-            stop_core(app_handle);
+            prepare_for_exit(app_handle);
         }
     });
 }

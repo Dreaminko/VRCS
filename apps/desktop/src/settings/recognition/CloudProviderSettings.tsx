@@ -1,19 +1,25 @@
 import { useEffect, useState } from "react";
-import { HardDrive } from "lucide-react";
+import { HardDrive, RefreshCw } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
-import type { Settings } from "../../types";
+import { coreApi } from "../../api";
+import { localizedError } from "../../app/app-utils";
+import {
+  currentRecognitionProfile,
+  currentRecognitionService,
+  recognitionServicesForProfile,
+  updateRecognitionServiceSettings,
+} from "../../recognition-services";
+import type { ApiProfileView, ProviderDefinition, Settings } from "../../types";
 import { Select } from "../SettingsControls";
 import { RecognitionLanguageSelect } from "./RecognitionLanguageSelect";
 
 function AsrContextField({
   value,
-  maxLength,
   disabled,
   onCommit,
 }: {
   value: string;
-  maxLength?: number;
   disabled: boolean;
   onCommit: (value: string) => void;
 }) {
@@ -26,7 +32,6 @@ function AsrContextField({
     <label className="field cloud-text-field cloud-context-field">
       <span>{t("settings.recognition.context")}</span>
       <textarea
-        maxLength={maxLength}
         value={draft}
         disabled={disabled}
         placeholder={t("settings.recognition.contextDescription")}
@@ -35,58 +40,125 @@ function AsrContextField({
           if (draft !== value) onCommit(draft);
         }}
       />
-      {maxLength !== undefined && <small>{draft.length}/{maxLength}</small>}
     </label>
   );
 }
 
 export function CloudProviderSettings({
   draft,
+  apiProfiles,
+  providerDefinitions,
   disabled,
   onUpdateAsr,
+  onSelectService,
 }: {
   draft: Settings;
+  apiProfiles: ApiProfileView[];
+  providerDefinitions: ProviderDefinition[];
   disabled: boolean;
   onUpdateAsr: <K extends keyof Settings["asr"]>(key: K, value: Settings["asr"][K]) => void;
+  onSelectService: (serviceId: string) => void;
 }) {
   const { t } = useTranslation();
-  const usesAlibabaCloud = draft.asr.backend === "qwen_realtime" || draft.asr.backend === "fun_asr_realtime";
-  const provider = usesAlibabaCloud ? "qwen" : "openai";
-  const providerId = usesAlibabaCloud ? "alibaba_cloud" : "openai";
-  const selectedProfile = draft.asr.api_profiles.find(
-    (profile) => profile.id === draft.asr.active_api_profiles[providerId],
-  );
-  const cloudTitle = selectedProfile?.name ?? (usesAlibabaCloud ? "Alibaba Cloud" : "OpenAI");
+  const selectedProfile = currentRecognitionProfile(draft.asr, apiProfiles);
+  const services = recognitionServicesForProfile(selectedProfile, providerDefinitions);
+  const service = currentRecognitionService(draft.asr, selectedProfile, providerDefinitions)
+    ?? services[0];
+  const settings = service
+    ? draft.asr.service_settings[service.id] ?? { model: service.models[0] ?? "", context: "" }
+    : { model: "", context: "" };
+  const [discoveredModels, setDiscoveredModels] = useState<string[]>([]);
+  const [modelsLoading, setModelsLoading] = useState(false);
+  const [modelsError, setModelsError] = useState("");
+
+  useEffect(() => {
+    if (!selectedProfile || !service?.model_listing) {
+      setDiscoveredModels([]);
+      setModelsError("");
+      return;
+    }
+    let cancelled = false;
+    setModelsLoading(true);
+    setModelsError("");
+    void coreApi.recognitionServiceModels(selectedProfile.id, service.id).then(
+      (response) => {
+        if (!cancelled) setDiscoveredModels(response.models);
+      },
+      (reason) => {
+        if (!cancelled) setModelsError(localizedError(reason, t, "errors.apiProfiles.models"));
+      },
+    ).finally(() => {
+      if (!cancelled) setModelsLoading(false);
+    });
+    return () => { cancelled = true; };
+  }, [selectedProfile?.id, service?.id, service?.model_listing, t]);
+
+  const models = discoveredModels.length ? discoveredModels : service?.models ?? [];
+  const updateServiceSettings = (update: Partial<{ model: string; context: string }>) => {
+    if (!service) return;
+    const next = updateRecognitionServiceSettings(draft.asr, service.id, update);
+    onUpdateAsr("service_settings", next.service_settings);
+  };
 
   return (
     <div className="recognition-config-row">
       <div className="recognition-config-title">
         <HardDrive size={17} />
-        <span><strong>{cloudTitle}</strong></span>
+        <span><strong>{selectedProfile?.name ?? t("settings.recognition.selectApiProfile")}</strong></span>
       </div>
       <div className="recognition-config-fields">
-        {usesAlibabaCloud && <>
+        {services.length > 0 && (
           <Select
             label={t("settings.recognition.cloudService")}
-            value={draft.asr.backend}
-            options={[
-              { value: "qwen_realtime", label: "Qwen3 ASR · Streaming" },
-              { value: "fun_asr_realtime", label: "Fun-ASR · Streaming" },
-            ]}
+            value={service?.id ?? ""}
+            options={services.map((item) => ({
+              value: item.id,
+              label: item.display_name,
+              description: item.recognition_transport
+                ? t(`settings.recognition.transports.${item.recognition_transport}`)
+                : undefined,
+            }))}
             disabled={disabled}
-            onChange={(value) => onUpdateAsr("backend", value as Settings["asr"]["backend"])}
+            onChange={onSelectService}
           />
-          {draft.asr.backend === "qwen_realtime"
-            ? <AsrContextField value={draft.asr.qwen.context} disabled={disabled} onCommit={(context) => onUpdateAsr("qwen", { ...draft.asr.qwen, context })} />
-            : <AsrContextField value={draft.asr.fun_asr.context} maxLength={400} disabled={disabled} onCommit={(context) => onUpdateAsr("fun_asr", { ...draft.asr.fun_asr, context })} />}
-        </>}
-        {provider === "openai" && <Select label={t("settings.recognition.model")} value={draft.asr.openai.model} options={[{ value: "gpt-4o-mini-transcribe", label: "GPT-4o mini Transcribe" }, { value: "gpt-4o-transcribe", label: "GPT-4o Transcribe" }]} disabled={disabled} onChange={(value) => onUpdateAsr("openai", { model: value as Settings["asr"]["openai"]["model"] })} />}
+        )}
+        {service && models.length > 0 && (
+          <Select
+            label={t("settings.recognition.model")}
+            value={settings.model || models[0]}
+            options={models.map((model) => ({ value: model, label: model }))}
+            disabled={disabled || modelsLoading}
+            helper={modelsError || undefined}
+            onChange={(model) => updateServiceSettings({ model })}
+          />
+        )}
+        {service?.model_listing && (
+          <small className={modelsError ? "api-model-catalog-error" : "cloud-api-hint"}>
+            {modelsLoading && <RefreshCw className="spin" size={12} />} {modelsLoading
+              ? t("settings.apiManagement.loadingModels")
+              : modelsError || t("settings.apiManagement.modelsAvailable", { count: models.length })}
+          </small>
+        )}
+        {service?.supports_context && (
+          <AsrContextField
+            value={settings.context}
+            disabled={disabled}
+            onCommit={(context) => updateServiceSettings({ context })}
+          />
+        )}
         <RecognitionLanguageSelect
           value={draft.asr.language}
           disabled={disabled}
           onChange={(value) => onUpdateAsr("language", value)}
         />
-        <small className="cloud-api-hint">{t("settings.recognition.selectedApiHint", { name: cloudTitle })}</small>
+        {service?.recognition_transport === "segmented_upload" && (
+          <div className="cloud-transport-hint" role="note">
+            <strong>{t("settings.recognition.segmentedUpload.title")}</strong>
+            <small>{t("settings.recognition.segmentedUpload.description")}</small>
+            {!service.partial_results && <small>{t("settings.recognition.segmentedUpload.noPartial")}</small>}
+          </div>
+        )}
+        {selectedProfile && <small className="cloud-api-hint">{t("settings.recognition.selectedApiHint", { name: selectedProfile.name })}</small>}
       </div>
     </div>
   );

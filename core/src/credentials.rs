@@ -1,9 +1,6 @@
 use serde::Serialize;
 
-use crate::providers::{
-    ALIBABA_PROVIDER, DEEPL_PROVIDER, GEMINI_PROVIDER, MICROSOFT_PROVIDER,
-    OPENAI_COMPATIBLE_PROVIDER, OPENAI_PROVIDER,
-};
+use crate::providers::{self, ALIBABA_PROVIDER, OPENAI_PROVIDER};
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
 pub struct CredentialStatus {
@@ -99,26 +96,27 @@ pub fn delete_vrcx_token() -> Result<(), String> {
     delete_stored(VRCX_TARGET)
 }
 
-fn env_names(provider: &str) -> Result<&'static [&'static str], String> {
-    match provider {
-        ALIBABA_PROVIDER => Ok(&["VRCS_QWEN_API_KEY", "DASHSCOPE_API_KEY"]),
-        OPENAI_PROVIDER => Ok(&["VRCS_OPENAI_API_KEY", "OPENAI_API_KEY"]),
-        OPENAI_COMPATIBLE_PROVIDER => Ok(&["VRCS_OPENAI_COMPATIBLE_API_KEY"]),
-        GEMINI_PROVIDER => Ok(&["VRCS_GEMINI_API_KEY", "GEMINI_API_KEY"]),
-        DEEPL_PROVIDER => Ok(&["VRCS_DEEPL_API_KEY", "DEEPL_API_KEY"]),
-        MICROSOFT_PROVIDER => Ok(&["VRCS_MICROSOFT_TRANSLATOR_KEY"]),
-        _ => Err(format!("Unsupported API provider: {provider}")),
-    }
+fn environment_variables(
+    provider: &str,
+) -> Result<(&'static [&'static str], &'static [&'static str]), String> {
+    let definition = providers::definition(provider)
+        .ok_or_else(|| format!("Unsupported API provider: {provider}"))?;
+    Ok((
+        definition.connection.environment_variables,
+        definition.connection.legacy_environment_variables,
+    ))
 }
 
 fn validate_provider(provider: &str) -> Result<(), String> {
-    env_names(provider).map(|_| ())
+    environment_variables(provider).map(|_| ())
 }
 
 pub fn credential_status(profile_id: &str, provider: &str) -> Result<CredentialStatus, String> {
     validate_provider(provider)?;
-    let environment_override = env_names(provider)?
+    let (primary, legacy) = environment_variables(provider)?;
+    let environment_override = primary
         .iter()
+        .chain(legacy)
         .any(|name| std::env::var(name).is_ok_and(|value| !value.trim().is_empty()));
     let stored_configured = read_profile_stored(profile_id, provider)?.is_some();
     Ok(CredentialStatus {
@@ -134,7 +132,8 @@ pub fn credential_status(profile_id: &str, provider: &str) -> Result<CredentialS
 }
 
 pub fn read_credential(profile_id: &str, provider: &str) -> Result<Option<String>, String> {
-    for name in env_names(provider)? {
+    let (primary, legacy) = environment_variables(provider)?;
+    for name in primary.iter().chain(legacy) {
         if let Ok(value) = std::env::var(name) {
             if !value.trim().is_empty() {
                 return Ok(Some(value));
@@ -299,18 +298,18 @@ mod tests {
 
     #[test]
     fn accepts_all_supported_providers() {
-        for provider in [
-            ALIBABA_PROVIDER,
-            OPENAI_PROVIDER,
-            OPENAI_COMPATIBLE_PROVIDER,
-            GEMINI_PROVIDER,
-            DEEPL_PROVIDER,
-            MICROSOFT_PROVIDER,
-        ] {
-            assert!(credential_status("profile", provider).is_ok());
+        for provider in providers::catalog() {
+            assert!(credential_status("profile", provider.id).is_ok());
         }
         assert!(credential_status("profile", "unknown").is_err());
         assert!(write_credential("profile", ALIBABA_PROVIDER, " ").is_err());
+    }
+
+    #[test]
+    fn brand_environment_variables_keep_the_compatible_fallback() {
+        let (primary, legacy) = environment_variables(providers::GROQ_PROVIDER).unwrap();
+        assert_eq!(primary, ["VRCS_GROQ_API_KEY", "GROQ_API_KEY"]);
+        assert_eq!(legacy, ["VRCS_OPENAI_COMPATIBLE_API_KEY"]);
     }
 
     #[test]

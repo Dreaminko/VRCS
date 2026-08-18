@@ -1,67 +1,101 @@
+use std::collections::HashSet;
+
 use crate::config::{ApiAuthMode, ApiProfile};
 
 use super::{
-    effective_purpose, ALIBABA_PROVIDER, API_PURPOSE_ASR, API_PURPOSE_LLM, API_PURPOSE_SHARED,
-    DEEPL_PROVIDER, GEMINI_PROVIDER, MICROSOFT_PROVIDER, OPENAI_COMPATIBLE_PRESETS,
-    OPENAI_COMPATIBLE_PROVIDER, OPENAI_PROVIDER,
+    definition, provider_capability_ids, BaseUrlPolicy, ProviderCategory, ALIBABA_PROVIDER,
+    MICROSOFT_PROVIDER,
 };
 
 pub(crate) fn validate_profile(profile: &ApiProfile) -> Result<(), String> {
-    if !matches!(
-        effective_purpose(profile),
-        API_PURPOSE_ASR | API_PURPOSE_LLM | API_PURPOSE_SHARED
-    ) {
-        return Err(format!(
-            "Unsupported API profile purpose: {}",
-            effective_purpose(profile)
-        ));
-    }
+    let provider = definition(&profile.provider)
+        .ok_or_else(|| format!("Unsupported API provider: {}", profile.provider))?;
+
+    validate_capabilities(profile)?;
     match profile.provider.as_str() {
         ALIBABA_PROVIDER => validate_alibaba_profile(profile)?,
         MICROSOFT_PROVIDER => validate_microsoft_profile(profile)?,
-        OPENAI_PROVIDER
-            if profile.region.is_none()
-                && profile.workspace_id.is_none()
-                && profile.base_url.is_none() => {}
-        OPENAI_COMPATIBLE_PROVIDER
-            if profile.region.is_none() && profile.workspace_id.is_none() =>
-        {
-            let base_url = profile.base_url.as_deref().unwrap_or("");
-            validate_openai_base_url(base_url, profile.requires_api_key())?;
-            if effective_purpose(profile) != API_PURPOSE_LLM {
-                return Err("OpenAI-compatible APIs can only be used by LLM profiles".into());
-            }
-            validate_compatible_profile(profile)?;
-        }
-        GEMINI_PROVIDER
-            if profile.region.is_none()
-                && profile.workspace_id.is_none()
-                && profile.base_url.is_none()
-                && effective_purpose(profile) == API_PURPOSE_LLM => {}
-        DEEPL_PROVIDER
-            if profile.region.is_none()
-                && profile.workspace_id.is_none()
-                && profile.base_url.is_none()
-                && effective_purpose(profile) == API_PURPOSE_LLM => {}
-        OPENAI_PROVIDER | OPENAI_COMPATIBLE_PROVIDER | GEMINI_PROVIDER | DEEPL_PROVIDER => {
-            return Err(format!(
-                "API profile {} contains unsupported connection fields",
-                profile.provider
-            ));
-        }
-        other => return Err(format!("Unsupported API provider: {other}")),
+        _ => validate_connection_fields(profile)?,
     }
+
     if profile.timeout_ms < 1_000 || profile.timeout_ms > 120_000 {
         return Err("API profile timeout_ms must be between 1000 and 120000".into());
     }
-    if profile.provider != OPENAI_COMPATIBLE_PROVIDER
-        && (profile.preset_id.is_some()
-            || profile.auth_mode != ApiAuthMode::Bearer
-            || profile.is_local
-            || !profile.headers.is_empty())
-    {
+    if !provider.connection.allow_custom_headers && !profile.headers.is_empty() {
         return Err(format!(
-            "API profile {} contains OpenAI-compatible-only settings",
+            "API profile {} does not support custom HTTP headers",
+            profile.provider
+        ));
+    }
+    if provider.connection.allow_custom_headers {
+        validate_custom_headers(profile)?;
+    }
+    Ok(())
+}
+
+fn validate_capabilities(profile: &ApiProfile) -> Result<(), String> {
+    if profile.enabled_capabilities.is_empty() {
+        return Err("An API profile must enable at least one capability".into());
+    }
+    let supported = provider_capability_ids(&profile.provider)
+        .ok_or_else(|| format!("Unsupported API provider: {}", profile.provider))?;
+    let mut enabled = HashSet::new();
+    for capability in &profile.enabled_capabilities {
+        if capability.trim().is_empty() || !supported.contains(&capability.as_str()) {
+            return Err(format!(
+                "Unsupported capability for provider {}: {capability}",
+                profile.provider
+            ));
+        }
+        if !enabled.insert(capability.as_str()) {
+            return Err(format!(
+                "API profile capability is duplicated: {capability}"
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn validate_connection_fields(profile: &ApiProfile) -> Result<(), String> {
+    let provider = definition(&profile.provider).expect("provider validated before connection");
+    if profile.region.is_some() || profile.workspace_id.is_some() {
+        return Err(format!(
+            "API profile {} contains unsupported connection fields",
+            profile.provider
+        ));
+    }
+    match provider.connection.base_url {
+        BaseUrlPolicy::Fixed(_) => {
+            if profile.base_url.is_some() {
+                return Err(format!(
+                    "API profile {} cannot override its Base URL",
+                    profile.provider
+                ));
+            }
+        }
+        BaseUrlPolicy::Regional => {
+            return Err(format!(
+                "API profile {} requires provider-specific regional validation",
+                profile.provider
+            ));
+        }
+        BaseUrlPolicy::Editable(default) => {
+            let base_url = profile.base_url.as_deref().unwrap_or(default);
+            validate_editable_base_url(base_url, profile.requires_api_key())?;
+        }
+    }
+
+    let expected_local = provider.category == ProviderCategory::LocalService;
+    let auth_is_valid = if provider.category == ProviderCategory::CustomProtocol {
+        matches!(profile.auth_mode, ApiAuthMode::Bearer | ApiAuthMode::None)
+    } else {
+        profile.auth_mode == provider.connection.auth_mode
+    };
+    let local_is_valid =
+        provider.category == ProviderCategory::CustomProtocol || profile.is_local == expected_local;
+    if !auth_is_valid || !local_is_valid {
+        return Err(format!(
+            "API profile {} connection metadata is inconsistent",
             profile.provider
         ));
     }
@@ -70,7 +104,7 @@ pub(crate) fn validate_profile(profile: &ApiProfile) -> Result<(), String> {
 
 fn validate_alibaba_profile(profile: &ApiProfile) -> Result<(), String> {
     if profile.base_url.is_some() {
-        return Err("Alibaba Cloud profiles cannot contain an OpenAI-compatible Base URL".into());
+        return Err("Alibaba Cloud profiles cannot contain a Base URL".into());
     }
     let region = profile.region.as_deref().unwrap_or("");
     if !["singapore", "china_beijing"].contains(&region) {
@@ -83,6 +117,9 @@ fn validate_alibaba_profile(profile: &ApiProfile) -> Result<(), String> {
     if !workspace.is_empty() && (workspace.len() > 128 || !valid_workspace) {
         return Err("The Alibaba Cloud Workspace ID is invalid".into());
     }
+    if profile.auth_mode != ApiAuthMode::Bearer || profile.is_local {
+        return Err("Alibaba Cloud profile connection metadata is inconsistent".into());
+    }
     Ok(())
 }
 
@@ -91,26 +128,24 @@ fn validate_microsoft_profile(profile: &ApiProfile) -> Result<(), String> {
     if region.is_empty() || region.len() > 64 {
         return Err("Microsoft Translator region must contain 1 to 64 characters".into());
     }
-    if profile.workspace_id.is_some() {
-        return Err("Microsoft Translator profiles cannot contain a Workspace ID".into());
+    if profile.workspace_id.is_some() || profile.base_url.is_some() {
+        return Err("Microsoft Translator profiles contain unsupported connection fields".into());
     }
-    if profile.base_url.is_some() {
-        return Err(
-            "Microsoft Translator profiles cannot contain an OpenAI-compatible Base URL".into(),
-        );
+    if profile.auth_mode != ApiAuthMode::Bearer || profile.is_local {
+        return Err("Microsoft Translator profile connection metadata is inconsistent".into());
     }
     Ok(())
 }
 
-fn validate_openai_base_url(base_url: &str, sends_bearer_token: bool) -> Result<(), String> {
+fn validate_editable_base_url(base_url: &str, sends_bearer_token: bool) -> Result<(), String> {
     let base_url = base_url.trim();
     if base_url.is_empty() || base_url.len() > 2048 {
-        return Err("The OpenAI-compatible Base URL must contain 1 to 2048 characters".into());
+        return Err("The API profile Base URL must contain 1 to 2048 characters".into());
     }
     let url = reqwest::Url::parse(base_url)
-        .map_err(|_| "The OpenAI-compatible Base URL is invalid".to_string())?;
+        .map_err(|_| "The API profile Base URL is invalid".to_string())?;
     if !matches!(url.scheme(), "http" | "https") || url.host_str().is_none() {
-        return Err("The OpenAI-compatible Base URL must use HTTP or HTTPS".into());
+        return Err("The API profile Base URL must use HTTP or HTTPS".into());
     }
     if !url.username().is_empty()
         || url.password().is_some()
@@ -118,14 +153,11 @@ fn validate_openai_base_url(base_url: &str, sends_bearer_token: bool) -> Result<
         || url.fragment().is_some()
     {
         return Err(
-            "The OpenAI-compatible Base URL cannot contain credentials, a query, or a fragment"
-                .into(),
+            "The API profile Base URL cannot contain credentials, a query, or a fragment".into(),
         );
     }
     if sends_bearer_token && url.scheme() == "http" && !is_loopback_url(&url) {
-        return Err(
-            "OpenAI-compatible profiles cannot send Bearer credentials over remote HTTP".into(),
-        );
+        return Err("API profiles cannot send Bearer credentials over remote HTTP".into());
     }
     Ok(())
 }
@@ -139,22 +171,9 @@ fn is_loopback_url(url: &reqwest::Url) -> bool {
     })
 }
 
-fn validate_compatible_profile(profile: &ApiProfile) -> Result<(), String> {
-    if let Some(preset_id) = profile.preset_id.as_deref() {
-        let Some(preset) = OPENAI_COMPATIBLE_PRESETS
-            .iter()
-            .find(|candidate| candidate.id == preset_id)
-        else {
-            return Err("Unsupported OpenAI-compatible preset".into());
-        };
-        if preset_id != "custom"
-            && (profile.auth_mode != preset.auth_mode || profile.is_local != preset.is_local)
-        {
-            return Err("OpenAI-compatible preset metadata is inconsistent".into());
-        }
-    }
+fn validate_custom_headers(profile: &ApiProfile) -> Result<(), String> {
     if profile.headers.len() > 16 {
-        return Err("OpenAI-compatible profiles can contain at most 16 custom headers".into());
+        return Err("API profiles can contain at most 16 custom headers".into());
     }
     const BLOCKED_HEADERS: [&str; 11] = [
         "authorization",
@@ -169,7 +188,7 @@ fn validate_compatible_profile(profile: &ApiProfile) -> Result<(), String> {
         "host",
         "content-length",
     ];
-    let mut names = std::collections::HashSet::new();
+    let mut names = HashSet::new();
     for header in &profile.headers {
         let name = header.name.trim();
         if name.is_empty()
@@ -181,9 +200,6 @@ fn validate_compatible_profile(profile: &ApiProfile) -> Result<(), String> {
         }
         if !names.insert(name.to_ascii_lowercase()) {
             return Err(format!("Custom HTTP header is duplicated: {name}"));
-        }
-        if reqwest::header::HeaderValue::from_str(&header.value).is_err() {
-            return Err(format!("Custom HTTP header value is invalid: {name}"));
         }
         if header.value.len() > 2048
             || header.value.contains('\r')
@@ -220,53 +236,38 @@ fn is_http_token_byte(value: u8) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::providers::{
+        CAPABILITY_TEXT_GENERATION, DEEPSEEK_PROVIDER, OLLAMA_PROVIDER, OPENAI_COMPATIBLE_PROVIDER,
+    };
+
+    fn profile(provider: &str) -> ApiProfile {
+        ApiProfile {
+            id: "profile".into(),
+            name: "Profile".into(),
+            provider: provider.into(),
+            enabled_capabilities: vec![CAPABILITY_TEXT_GENERATION.into()],
+            ..ApiProfile::default()
+        }
+    }
 
     #[test]
-    fn compatible_preset_catalog_is_the_validation_source() {
-        for preset in OPENAI_COMPATIBLE_PRESETS {
-            let profile = ApiProfile {
-                id: preset.id.into(),
-                name: preset.display_name.into(),
-                provider: OPENAI_COMPATIBLE_PROVIDER.into(),
-                base_url: Some(if preset.base_url.is_empty() {
-                    "https://example.com/v1".into()
-                } else {
-                    preset.base_url.into()
-                }),
-                purpose: Some(API_PURPOSE_LLM.into()),
-                preset_id: Some(preset.id.into()),
-                auth_mode: preset.auth_mode,
-                is_local: preset.is_local,
-                ..ApiProfile::default()
-            };
+    fn legacy_preset_does_not_control_brand_validation() {
+        let mut profile = profile(DEEPSEEK_PROVIDER);
+        profile.preset_id = Some("custom-legacy-value".into());
+        assert!(validate_profile(&profile).is_ok());
+    }
 
-            assert!(validate_profile(&profile).is_ok(), "{}", preset.id);
-        }
+    #[test]
+    fn editable_profiles_apply_transport_safety_rules() {
+        let mut custom = profile(OPENAI_COMPATIBLE_PROVIDER);
+        custom.base_url = Some("http://192.0.2.1/v1".into());
+        assert!(validate_profile(&custom).is_err());
+        custom.auth_mode = ApiAuthMode::None;
+        assert!(validate_profile(&custom).is_ok());
 
-        let invalid = ApiProfile {
-            provider: OPENAI_COMPATIBLE_PROVIDER.into(),
-            base_url: Some("https://example.com/v1".into()),
-            purpose: Some(API_PURPOSE_LLM.into()),
-            preset_id: Some("missing-preset".into()),
-            ..ApiProfile::default()
-        };
-        assert_eq!(
-            validate_profile(&invalid).unwrap_err(),
-            "Unsupported OpenAI-compatible preset"
-        );
-
-        let mismatched = ApiProfile {
-            provider: OPENAI_COMPATIBLE_PROVIDER.into(),
-            base_url: Some("http://127.0.0.1:11434/v1".into()),
-            purpose: Some(API_PURPOSE_LLM.into()),
-            preset_id: Some("ollama".into()),
-            auth_mode: ApiAuthMode::Bearer,
-            is_local: false,
-            ..ApiProfile::default()
-        };
-        assert_eq!(
-            validate_profile(&mismatched).unwrap_err(),
-            "OpenAI-compatible preset metadata is inconsistent"
-        );
+        let mut ollama = profile(OLLAMA_PROVIDER);
+        ollama.auth_mode = ApiAuthMode::None;
+        ollama.is_local = true;
+        assert!(validate_profile(&ollama).is_ok());
     }
 }

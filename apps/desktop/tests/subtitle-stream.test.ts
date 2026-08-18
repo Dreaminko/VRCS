@@ -329,14 +329,14 @@ test("malformed recognition lifecycle payloads are rejected", () => {
   })), null);
 });
 
-test("OpenAI-compatible translation payloads pass protocol validation", () => {
+test("arbitrary translation provider IDs pass protocol validation", () => {
   const translated = {
     ...subtitle(3, "valid"),
     translations: [{
       text: "translated",
       source_language: "ja",
       target_language: "en",
-      provider: "openai_compatible" as const,
+      provider: "groq",
       model: "deepseek-chat",
       created_at: "2026-08-11T00:02:00Z",
     }],

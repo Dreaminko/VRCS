@@ -3,8 +3,12 @@ use tokio_tungstenite::tungstenite::http::Request;
 use tokio_tungstenite::tungstenite::Message;
 
 use crate::config::{ApiProfile, AsrConfig};
+use crate::providers::SERVICE_QWEN_REALTIME;
 
-use super::{authenticated_request, event_language, pcm16_base64, CloudEvent, NormalizationState};
+use super::{
+    authenticated_request, event_language, pcm16_base64, service_settings, CloudEvent,
+    NormalizationState,
+};
 
 pub(super) fn build_request(
     config: &AsrConfig,
@@ -20,23 +24,25 @@ pub(super) fn build_request(
         "china_beijing" => "cn-beijing",
         other => return Err(format!("Unsupported Alibaba Cloud region: {other}")),
     };
+    let settings = service_settings(config, SERVICE_QWEN_REALTIME)?;
     let url = format!(
         "wss://{}.{}.maas.aliyuncs.com/api-ws/v1/realtime?model={}",
-        workspace, region, config.qwen.model
+        workspace, region, settings.model
     );
     authenticated_request(url, key, true)
 }
 
-pub(super) fn session_update(config: &AsrConfig) -> Value {
+pub(super) fn session_update(config: &AsrConfig) -> Result<Value, String> {
+    let settings = service_settings(config, SERVICE_QWEN_REALTIME)?;
     let mut transcription = if config.language != "auto" {
         json!({ "language": config.language })
     } else {
         json!({})
     };
-    if !config.qwen.context.trim().is_empty() {
-        transcription["corpus"] = json!({ "text": config.qwen.context.trim() });
+    if !settings.context.trim().is_empty() {
+        transcription["corpus"] = json!({ "text": settings.context.trim() });
     }
-    json!({
+    Ok(json!({
         "event_id": uuid::Uuid::new_v4().to_string(),
         "type": "session.update",
         "session": {
@@ -45,7 +51,7 @@ pub(super) fn session_update(config: &AsrConfig) -> Value {
             "input_audio_transcription": transcription,
             "turn_detection": null
         }
-    })
+    }))
 }
 
 pub(super) fn normalize_event(

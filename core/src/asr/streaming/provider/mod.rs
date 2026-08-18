@@ -10,8 +10,8 @@ use tokio_tungstenite::tungstenite::http::HeaderValue;
 use tokio_tungstenite::tungstenite::http::Request;
 use tokio_tungstenite::tungstenite::Message;
 
-use crate::config::{ApiProfile, AsrConfig};
-use crate::providers::{ALIBABA_PROVIDER, OPENAI_PROVIDER};
+use crate::config::{ApiProfile, AsrConfig, RecognitionServiceSettings};
+use crate::providers::{self, RecognitionTransport, ServiceAdapter};
 
 use super::CloudEvent;
 
@@ -134,20 +134,24 @@ pub(super) enum InitializationEvent {
 
 impl Provider {
     pub(super) fn from_config(config: &AsrConfig) -> Result<Self, String> {
-        match config.backend.as_str() {
-            "qwen_realtime" => Ok(Self::Qwen),
-            "fun_asr_realtime" => Ok(Self::FunAsr),
-            "openai_realtime" => Ok(Self::OpenAi),
-            other => Err(format!(
-                "Backend {other} is not a realtime cloud recognition backend"
-            )),
-        }
+        Self::from_service(&config.backend)
     }
 
-    pub(super) fn api_provider(self) -> &'static str {
-        match self {
-            Self::Qwen | Self::FunAsr => ALIBABA_PROVIDER,
-            Self::OpenAi => OPENAI_PROVIDER,
+    pub(super) fn from_service(service_id: &str) -> Result<Self, String> {
+        let (_, service) = providers::recognition_service(service_id)
+            .ok_or_else(|| format!("Service {service_id} is not a recognition service"))?;
+        if service.recognition_transport != Some(RecognitionTransport::RealtimeStream) {
+            return Err(format!(
+                "Service {service_id} is not a realtime cloud recognition service"
+            ));
+        }
+        match service.adapter {
+            ServiceAdapter::QwenRealtime => Ok(Self::Qwen),
+            ServiceAdapter::FunAsrRealtime => Ok(Self::FunAsr),
+            ServiceAdapter::OpenAiRealtime => Ok(Self::OpenAi),
+            _ => Err(format!(
+                "Service {service_id} does not have a realtime recognition adapter"
+            )),
         }
     }
 
@@ -180,7 +184,7 @@ impl Provider {
         config: &AsrConfig,
         silence_seconds: f64,
         task_id: Option<&str>,
-    ) -> Value {
+    ) -> Result<Value, String> {
         match self {
             Self::Qwen => qwen::session_update(config),
             Self::FunAsr => fun_asr::run_task(
@@ -267,6 +271,16 @@ impl Provider {
             Self::OpenAi => false,
         }
     }
+}
+
+pub(super) fn service_settings<'a>(
+    config: &'a AsrConfig,
+    service_id: &str,
+) -> Result<&'a RecognitionServiceSettings, String> {
+    config
+        .service_settings
+        .get(service_id)
+        .ok_or_else(|| format!("Recognition settings are missing for service {service_id}"))
 }
 
 pub(super) fn pcm16_bytes(samples: &[f32]) -> Vec<u8> {

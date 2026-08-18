@@ -13,8 +13,8 @@ pub struct ApiProfile {
     pub workspace_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub base_url: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub purpose: Option<String>,
+    #[serde(default)]
+    pub enabled_capabilities: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub preset_id: Option<String>,
     #[serde(default)]
@@ -36,7 +36,7 @@ impl Default for ApiProfile {
             region: None,
             workspace_id: None,
             base_url: None,
-            purpose: None,
+            enabled_capabilities: Vec::new(),
             preset_id: None,
             auth_mode: ApiAuthMode::Bearer,
             is_local: false,
@@ -68,12 +68,4 @@ impl ApiProfile {
     pub fn requires_api_key(&self) -> bool {
         self.auth_mode == ApiAuthMode::Bearer
     }
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
-pub struct ActiveApiProfiles {
-    #[serde(default)]
-    pub alibaba_cloud: Option<String>,
-    #[serde(default)]
-    pub openai: Option<String>,
 }

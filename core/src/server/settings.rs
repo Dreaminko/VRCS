@@ -9,7 +9,7 @@ use serde_json::{json, Value};
 use crate::config::{save_config, AppConfig};
 use crate::db::conversations::publish_latest_catalog;
 use crate::models::SettingsUpdate;
-use crate::providers::{ALIBABA_PROVIDER, OPENAI_PROVIDER};
+use crate::providers;
 use crate::{asr, audio, credentials};
 
 use super::{api_error, ApiResult, AppState, CONFIG_REVISION_HEADER};
@@ -64,7 +64,10 @@ pub(super) async fn update_settings(
     let _config_control = state.config_control.lock().await;
     let current_revision = state.config_revision.load(Ordering::SeqCst);
     let current_revision_token = revision_token(&state, current_revision);
-    if expected_revision.is_some_and(|revision| revision != current_revision_token) {
+    if expected_revision
+        .as_deref()
+        .is_some_and(|revision| revision != current_revision_token)
+    {
         return Err(api_error(
             StatusCode::CONFLICT,
             "settings.stale",
@@ -72,40 +75,7 @@ pub(super) async fn update_settings(
         ));
     }
     let current = state.config.read().expect("config lock").clone();
-    // The profile catalog has its own mutation endpoints. A full settings payload can
-    // be stale, so it must not recreate profiles changed or deleted elsewhere.
-    candidate.asr.api_profiles = current.asr.api_profiles.clone();
-    if candidate
-        .asr
-        .active_api_profiles
-        .alibaba_cloud
-        .as_deref()
-        .is_some_and(|profile_id| {
-            !current
-                .asr
-                .api_profiles
-                .iter()
-                .any(|profile| profile.id == profile_id && profile.provider == ALIBABA_PROVIDER)
-        })
-    {
-        candidate.asr.active_api_profiles.alibaba_cloud =
-            current.asr.active_api_profiles.alibaba_cloud.clone();
-    }
-    if candidate
-        .asr
-        .active_api_profiles
-        .openai
-        .as_deref()
-        .is_some_and(|profile_id| {
-            !current
-                .asr
-                .api_profiles
-                .iter()
-                .any(|profile| profile.id == profile_id && profile.provider == OPENAI_PROVIDER)
-        })
-    {
-        candidate.asr.active_api_profiles.openai = current.asr.active_api_profiles.openai.clone();
-    }
+    protect_profile_owned_settings(&mut candidate, &current, expected_revision.is_some());
     let model_directory_changed =
         candidate.storage.model_directory != current.storage.model_directory;
 
@@ -599,6 +569,60 @@ fn revision_headers(state: &AppState, revision: u64) -> HeaderMap {
     headers
 }
 
+fn protect_profile_owned_settings(
+    candidate: &mut AppConfig,
+    current: &AppConfig,
+    has_current_revision: bool,
+) {
+    candidate.asr.api_profiles = current.asr.api_profiles.clone();
+
+    if !has_current_revision {
+        candidate.asr.backend = current.asr.backend.clone();
+        candidate.asr.active_profile_id = current.asr.active_profile_id.clone();
+        candidate.asr.service_settings = current.asr.service_settings.clone();
+    } else {
+        for (service_id, settings) in &current.asr.service_settings {
+            candidate
+                .asr
+                .service_settings
+                .entry(service_id.clone())
+                .or_insert_with(|| settings.clone());
+        }
+        if candidate.asr.backend == "local_whisper" {
+            candidate.asr.active_profile_id = None;
+        } else if !valid_active_selection(&candidate.asr) {
+            candidate.asr.backend = current.asr.backend.clone();
+            candidate.asr.active_profile_id = current.asr.active_profile_id.clone();
+        }
+    }
+
+    if candidate
+        .translation
+        .profile_id
+        .as_deref()
+        .is_some_and(|profile_id| {
+            !current
+                .asr
+                .api_profiles
+                .iter()
+                .any(|profile| profile.id == profile_id)
+        })
+    {
+        candidate.translation.profile_id = current.translation.profile_id.clone();
+        candidate.translation.mode = current.translation.mode.clone();
+    }
+}
+
+fn valid_active_selection(asr: &crate::config::AsrConfig) -> bool {
+    let Some(profile_id) = asr.active_profile_id.as_deref() else {
+        return false;
+    };
+    asr.api_profiles
+        .iter()
+        .find(|profile| profile.id == profile_id)
+        .is_some_and(|profile| providers::resolve_profile_service(profile, &asr.backend).is_ok())
+}
+
 pub(super) fn parse_settings_update(body: &[u8]) -> Result<SettingsUpdate, String> {
     let mut ignored = Vec::new();
     let mut deserializer = serde_json::Deserializer::from_slice(body);
@@ -612,4 +636,82 @@ pub(super) fn parse_settings_update(body: &[u8]) -> Result<SettingsUpdate, Strin
         ));
     }
     Ok(update)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::{ApiProfile, RecognitionServiceSettings};
+    use crate::providers::{CAPABILITY_SPEECH_TO_TEXT, GROQ_PROVIDER, SERVICE_GROQ_TRANSCRIPTION};
+
+    fn groq_profile() -> ApiProfile {
+        ApiProfile {
+            id: "groq-profile".into(),
+            name: "Groq".into(),
+            provider: GROQ_PROVIDER.into(),
+            enabled_capabilities: vec![CAPABILITY_SPEECH_TO_TEXT.into()],
+            ..ApiProfile::default()
+        }
+    }
+
+    #[test]
+    fn unversioned_payload_cannot_restore_deleted_active_profile_or_service_settings() {
+        let mut current = AppConfig::default();
+        current.asr.backend = "local_whisper".into();
+        current.asr.active_profile_id = None;
+        current.asr.service_settings.insert(
+            SERVICE_GROQ_TRANSCRIPTION.into(),
+            RecognitionServiceSettings {
+                model: "whisper-large-v3".into(),
+                context: "current".into(),
+            },
+        );
+        let mut candidate = current.clone();
+        candidate.asr.api_profiles.push(groq_profile());
+        candidate.asr.backend = SERVICE_GROQ_TRANSCRIPTION.into();
+        candidate.asr.active_profile_id = Some("groq-profile".into());
+        candidate
+            .asr
+            .service_settings
+            .get_mut(SERVICE_GROQ_TRANSCRIPTION)
+            .unwrap()
+            .context = "stale".into();
+
+        protect_profile_owned_settings(&mut candidate, &current, false);
+
+        assert!(candidate.asr.api_profiles.is_empty());
+        assert_eq!(candidate.asr.backend, "local_whisper");
+        assert_eq!(candidate.asr.active_profile_id, None);
+        assert_eq!(
+            candidate.asr.service_settings[SERVICE_GROQ_TRANSCRIPTION].context,
+            "current"
+        );
+    }
+
+    #[test]
+    fn versioned_payload_can_update_service_settings_but_keeps_missing_entries() {
+        let current = AppConfig::default();
+        let mut candidate = current.clone();
+        candidate
+            .asr
+            .service_settings
+            .remove(SERVICE_GROQ_TRANSCRIPTION);
+        candidate
+            .asr
+            .service_settings
+            .get_mut(crate::providers::SERVICE_QWEN_REALTIME)
+            .unwrap()
+            .context = "updated".into();
+
+        protect_profile_owned_settings(&mut candidate, &current, true);
+
+        assert_eq!(
+            candidate.asr.service_settings[crate::providers::SERVICE_QWEN_REALTIME].context,
+            "updated"
+        );
+        assert!(candidate
+            .asr
+            .service_settings
+            .contains_key(SERVICE_GROQ_TRANSCRIPTION));
+    }
 }

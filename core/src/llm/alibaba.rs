@@ -1,6 +1,7 @@
 use std::time::Duration;
 
 use crate::config::ApiProfile;
+use crate::providers::OpenAiProtocolBehavior;
 
 use super::http::list_models as parse_models;
 use super::openai_compatible;
@@ -19,6 +20,7 @@ pub(super) async fn generate(
         api_key,
         request,
         "Alibaba Cloud",
+        OpenAiProtocolBehavior::Alibaba,
         on_progress,
     )
     .await
@@ -37,10 +39,21 @@ pub(super) async fn list_models(
     .await
 }
 
-fn base_url(profile: &ApiProfile) -> Result<&'static str, LlmError> {
-    match profile.region.as_deref() {
-        Some("china_beijing") => Ok("https://dashscope.aliyuncs.com/compatible-mode/v1"),
-        Some("singapore") => Ok("https://dashscope-intl.aliyuncs.com/compatible-mode/v1"),
+fn base_url(profile: &ApiProfile) -> Result<String, LlmError> {
+    let workspace = profile.workspace_id.as_deref().unwrap_or("").trim();
+    match (profile.region.as_deref(), workspace.is_empty()) {
+        (Some("china_beijing"), false) => Ok(format!(
+            "https://{workspace}.cn-beijing.maas.aliyuncs.com/compatible-mode/v1"
+        )),
+        (Some("singapore"), false) => Ok(format!(
+            "https://{workspace}.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1"
+        )),
+        (Some("china_beijing"), true) => {
+            Ok("https://dashscope.aliyuncs.com/compatible-mode/v1".into())
+        }
+        (Some("singapore"), true) => {
+            Ok("https://dashscope-intl.aliyuncs.com/compatible-mode/v1".into())
+        }
         _ => Err(LlmError {
             code: "llm.invalid_profile",
             detail: "Alibaba Cloud region is invalid".into(),
@@ -55,17 +68,36 @@ mod tests {
     use crate::providers::ALIBABA_PROVIDER;
 
     #[test]
-    fn builds_region_specific_endpoint() {
-        let profile = ApiProfile {
+    fn builds_workspace_endpoints_for_supported_regions() {
+        let mut profile = ApiProfile {
             id: "one".into(),
             name: "One".into(),
             provider: ALIBABA_PROVIDER.into(),
             region: Some("singapore".into()),
             workspace_id: Some("ws-example".into()),
             base_url: None,
-            purpose: None,
             ..ApiProfile::default()
         };
+        assert_eq!(
+            base_url(&profile).unwrap(),
+            "https://ws-example.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1"
+        );
+
+        profile.region = Some("china_beijing".into());
+        assert_eq!(
+            base_url(&profile).unwrap(),
+            "https://ws-example.cn-beijing.maas.aliyuncs.com/compatible-mode/v1"
+        );
+    }
+
+    #[test]
+    fn keeps_legacy_global_endpoint_without_a_workspace() {
+        let profile = ApiProfile {
+            provider: ALIBABA_PROVIDER.into(),
+            region: Some("singapore".into()),
+            ..ApiProfile::default()
+        };
+
         assert_eq!(
             base_url(&profile).unwrap(),
             "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"

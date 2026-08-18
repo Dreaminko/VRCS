@@ -25,16 +25,7 @@
   background: var(--surface);
   box-shadow: var(--control-shadow);
 }
-.translation-thinking-toggle {
-  display: flex;
-  min-height: 46px;
-  align-items: center;
-  gap: 12px;
-  padding-top: 8px;
-}
-.translation-thinking-toggle > span { display: grid; min-width: 0; flex: 1; gap: 2px; }
-.translation-thinking-toggle strong { color: var(--text); font-size: 12px; font-weight: 650; }
-.translation-thinking-toggle small { color: var(--text-quiet); font-size: 10px; line-height: 1.45; }
+.translation-thinking-status .status-chip { flex: 0 0 auto; }
 .translation-enhancement-fields { display: grid; min-width: 0; gap: 14px; }
 .translation-prompt-field textarea {
   min-height: 128px;

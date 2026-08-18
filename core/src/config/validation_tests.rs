@@ -1,7 +1,9 @@
 use super::*;
 use crate::providers::{
-    self, ALIBABA_PROVIDER, API_PURPOSE_ASR, API_PURPOSE_LLM, API_PURPOSE_SHARED, DEEPL_PROVIDER,
-    GEMINI_PROVIDER, OPENAI_COMPATIBLE_PROVIDER, OPENAI_PROVIDER,
+    self, ALIBABA_PROVIDER, CAPABILITY_SPEECH_TO_TEXT, CAPABILITY_TEXT_GENERATION,
+    CAPABILITY_TEXT_TRANSLATION, DEEPL_PROVIDER, GEMINI_PROVIDER, GROQ_PROVIDER, OLLAMA_PROVIDER,
+    OPENAI_COMPATIBLE_PROVIDER, OPENAI_PROVIDER, SERVICE_FUN_ASR_REALTIME,
+    SERVICE_GROQ_TRANSCRIPTION, SERVICE_OPENAI_REALTIME,
 };
 
 #[test]
@@ -135,6 +137,13 @@ fn rejects_invalid_vr_overlay_enums_and_non_finite_values() {
     assert!(config.validate_settings().is_err());
 }
 
+fn text_capabilities() -> Vec<String> {
+    vec![
+        CAPABILITY_TEXT_GENERATION.into(),
+        CAPABILITY_TEXT_TRANSLATION.into(),
+    ]
+}
+
 #[test]
 fn translation_accepts_direct_and_llm_profiles() {
     let mut config = AppConfig::default();
@@ -145,7 +154,7 @@ fn translation_accepts_direct_and_llm_profiles() {
         region: None,
         workspace_id: None,
         base_url: None,
-        purpose: None,
+        enabled_capabilities: vec![CAPABILITY_TEXT_TRANSLATION.into()],
         ..ApiProfile::default()
     });
     config.translation.mode = "manual".into();
@@ -159,7 +168,7 @@ fn translation_accepts_direct_and_llm_profiles() {
         region: None,
         workspace_id: None,
         base_url: None,
-        purpose: None,
+        enabled_capabilities: text_capabilities(),
         ..ApiProfile::default()
     });
     config.translation.profile_id = Some("openai-one".into());
@@ -175,12 +184,14 @@ fn translation_languages_follow_the_selected_provider() {
             id: "deepl-one".into(),
             name: "DeepL".into(),
             provider: DEEPL_PROVIDER.into(),
+            enabled_capabilities: vec![CAPABILITY_TEXT_TRANSLATION.into()],
             ..ApiProfile::default()
         },
         ApiProfile {
             id: "openai-one".into(),
             name: "OpenAI".into(),
             provider: OPENAI_PROVIDER.into(),
+            enabled_capabilities: text_capabilities(),
             ..ApiProfile::default()
         },
     ];
@@ -224,7 +235,7 @@ fn gemini_profiles_are_llm_only_and_require_a_model() {
         region: None,
         workspace_id: None,
         base_url: None,
-        purpose: Some(API_PURPOSE_LLM.into()),
+        enabled_capabilities: text_capabilities(),
         ..ApiProfile::default()
     });
     config.translation.mode = "manual".into();
@@ -238,24 +249,24 @@ fn gemini_profiles_are_llm_only_and_require_a_model() {
         "The LLM translation model cannot be empty"
     );
     config.translation.model = "gemini-2.5-flash".into();
-    config.asr.api_profiles[0].purpose = Some(API_PURPOSE_SHARED.into());
+    config.asr.api_profiles[0]
+        .enabled_capabilities
+        .push(CAPABILITY_SPEECH_TO_TEXT.into());
     assert!(config.validate_settings().is_err());
 }
 
 #[test]
-fn api_profile_purposes_separate_asr_and_translation() {
+fn api_profile_capabilities_separate_asr_and_translation() {
     let mut config = AppConfig::default();
     config.asr.api_profiles.push(ApiProfile {
         id: "openai-asr".into(),
         name: "OpenAI ASR".into(),
         provider: OPENAI_PROVIDER.into(),
-        region: None,
-        workspace_id: None,
-        base_url: None,
-        purpose: Some(API_PURPOSE_ASR.into()),
+        enabled_capabilities: vec![CAPABILITY_SPEECH_TO_TEXT.into()],
         ..ApiProfile::default()
     });
-    config.asr.active_api_profiles.openai = Some("openai-asr".into());
+    config.asr.backend = SERVICE_OPENAI_REALTIME.into();
+    config.asr.active_profile_id = Some("openai-asr".into());
     assert!(config.validate_settings().is_ok());
 
     config.translation.mode = "manual".into();
@@ -267,32 +278,27 @@ fn api_profile_purposes_separate_asr_and_translation() {
 
     config.translation.mode = "disabled".into();
     config.translation.profile_id = None;
-    config.asr.api_profiles[0].purpose = Some(API_PURPOSE_LLM.into());
+    config.asr.api_profiles[0].enabled_capabilities = text_capabilities();
     assert_eq!(
         config.validate_settings().unwrap_err(),
-        "The active API profile does not support realtime speech recognition"
+        "The active API profile has not enabled speech recognition"
     );
 }
 
 #[test]
-fn legacy_api_profile_purposes_are_inferred() {
-    let official = ApiProfile {
-        id: "openai".into(),
-        name: "OpenAI".into(),
+fn effective_purpose_is_derived_from_capabilities() {
+    let mut profile = ApiProfile {
         provider: OPENAI_PROVIDER.into(),
-        region: None,
-        workspace_id: None,
-        base_url: None,
-        purpose: None,
+        enabled_capabilities: vec![CAPABILITY_SPEECH_TO_TEXT.into()],
         ..ApiProfile::default()
     };
-    let compatible = ApiProfile {
-        provider: OPENAI_COMPATIBLE_PROVIDER.into(),
-        base_url: Some("https://api.deepseek.com/v1".into()),
-        ..official.clone()
-    };
-    assert_eq!(providers::effective_purpose(&official), API_PURPOSE_SHARED);
-    assert_eq!(providers::effective_purpose(&compatible), API_PURPOSE_LLM);
+    assert_eq!(providers::effective_purpose(&profile), "asr");
+    profile.enabled_capabilities = text_capabilities();
+    assert_eq!(providers::effective_purpose(&profile), "llm");
+    profile
+        .enabled_capabilities
+        .push(CAPABILITY_SPEECH_TO_TEXT.into());
+    assert_eq!(providers::effective_purpose(&profile), "shared");
 }
 
 #[test]
@@ -314,8 +320,8 @@ fn validates_openai_compatible_profiles_and_keeps_them_out_of_realtime_asr() {
         provider: OPENAI_COMPATIBLE_PROVIDER.into(),
         region: None,
         workspace_id: None,
-        base_url: Some("https://api.deepseek.com/v1".into()),
-        purpose: None,
+        base_url: Some("https://example.com/v1".into()),
+        enabled_capabilities: text_capabilities(),
         ..ApiProfile::default()
     });
     config.translation.mode = "manual".into();
@@ -323,17 +329,15 @@ fn validates_openai_compatible_profiles_and_keeps_them_out_of_realtime_asr() {
     config.translation.model = "deepseek-chat".into();
     assert!(config.validate_settings().is_ok());
 
-    config.asr.active_api_profiles.openai = Some("deepseek".into());
-    assert_eq!(
-        config.validate_settings().unwrap_err(),
-        "The active API profile does not match provider openai"
-    );
+    config.asr.backend = SERVICE_OPENAI_REALTIME.into();
+    config.asr.active_profile_id = Some("deepseek".into());
+    assert!(config.validate_settings().is_err());
 
-    config.asr.active_api_profiles.openai = None;
-    config.asr.api_profiles[0].base_url = Some("https://api.deepseek.com/v1?token=secret".into());
+    config.asr.active_profile_id = None;
+    config.asr.api_profiles[0].base_url = Some("https://example.com/v1?token=secret".into());
     assert_eq!(
         config.validate_settings().unwrap_err(),
-        "The OpenAI-compatible Base URL cannot contain credentials, a query, or a fragment"
+        "The API profile Base URL cannot contain credentials, a query, or a fragment"
     );
 }
 
@@ -343,9 +347,9 @@ fn validates_compatible_timeout_and_safe_headers() {
     config.asr.api_profiles.push(ApiProfile {
         id: "local".into(),
         name: "Local".into(),
-        provider: OPENAI_COMPATIBLE_PROVIDER.into(),
-        base_url: Some("http://127.0.0.1:11434/v1".into()),
-        purpose: Some(API_PURPOSE_LLM.into()),
+        provider: OLLAMA_PROVIDER.into(),
+        base_url: None,
+        enabled_capabilities: text_capabilities(),
         preset_id: Some("ollama".into()),
         auth_mode: ApiAuthMode::None,
         is_local: true,
@@ -372,14 +376,14 @@ fn bearer_credentials_require_https_outside_loopback() {
         name: "Remote HTTP".into(),
         provider: OPENAI_COMPATIBLE_PROVIDER.into(),
         base_url: Some("http://192.0.2.1/v1".into()),
-        purpose: Some(API_PURPOSE_LLM.into()),
+        enabled_capabilities: text_capabilities(),
         auth_mode: ApiAuthMode::Bearer,
         ..ApiProfile::default()
     });
 
     assert_eq!(
         config.validate_settings().unwrap_err(),
-        "OpenAI-compatible profiles cannot send Bearer credentials over remote HTTP"
+        "API profiles cannot send Bearer credentials over remote HTTP"
     );
     config.asr.api_profiles[0].base_url = Some("http://localhost:1234/v1".into());
     assert!(config.validate_settings().is_ok());
@@ -516,7 +520,7 @@ fn api_profiles_require_unique_names_and_matching_active_provider() {
             region: Some("china_beijing".into()),
             workspace_id: Some("workspace-one".into()),
             base_url: None,
-            purpose: None,
+            enabled_capabilities: vec![CAPABILITY_SPEECH_TO_TEXT.into()],
             ..ApiProfile::default()
         },
         ApiProfile {
@@ -526,32 +530,64 @@ fn api_profiles_require_unique_names_and_matching_active_provider() {
             region: Some("singapore".into()),
             workspace_id: Some("workspace-two".into()),
             base_url: None,
-            purpose: None,
+            enabled_capabilities: vec![CAPABILITY_SPEECH_TO_TEXT.into()],
             ..ApiProfile::default()
         },
     ];
     assert!(config.validate_settings().is_err());
 
     config.asr.api_profiles[1].name = "Work".into();
-    config.asr.active_api_profiles.openai = Some("alibaba-two".into());
+    config.asr.backend = SERVICE_OPENAI_REALTIME.into();
+    config.asr.active_profile_id = Some("alibaba-two".into());
     assert!(config.validate_settings().is_err());
 
-    config.asr.active_api_profiles.openai = None;
-    config.asr.active_api_profiles.alibaba_cloud = Some("alibaba-two".into());
+    config.asr.backend = "qwen_realtime".into();
     assert!(config.validate_settings().is_ok());
+}
+
+#[test]
+fn groq_transcription_requires_a_speech_enabled_groq_profile() {
+    let mut config = AppConfig::default();
+    config.asr.backend = SERVICE_GROQ_TRANSCRIPTION.into();
+    config.asr.active_profile_id = Some("groq".into());
+    config.asr.api_profiles.push(ApiProfile {
+        id: "groq".into(),
+        name: "Groq".into(),
+        provider: GROQ_PROVIDER.into(),
+        enabled_capabilities: vec![CAPABILITY_SPEECH_TO_TEXT.into()],
+        ..ApiProfile::default()
+    });
+    assert!(config.validate_settings().is_ok());
+
+    config.asr.api_profiles[0].enabled_capabilities = text_capabilities();
+    assert_eq!(
+        config.validate_settings().unwrap_err(),
+        "The active API profile has not enabled speech recognition"
+    );
 }
 
 #[test]
 fn validates_fun_asr_specific_limits() {
     let mut config = AppConfig::default();
-    config.asr.backend = "fun_asr_realtime".into();
-    config.asr.fun_asr.context = "字".repeat(400);
+    config.asr.backend = SERVICE_FUN_ASR_REALTIME.into();
+    config
+        .asr
+        .service_settings
+        .get_mut(SERVICE_FUN_ASR_REALTIME)
+        .unwrap()
+        .context = "字".repeat(400);
     assert!(config.validate_settings().is_ok());
 
-    config.asr.fun_asr.context.push('字');
+    config
+        .asr
+        .service_settings
+        .get_mut(SERVICE_FUN_ASR_REALTIME)
+        .unwrap()
+        .context
+        .push('字');
     assert_eq!(
         config.validate_settings().unwrap_err(),
-        "Fun-ASR context cannot exceed 400 characters"
+        "Recognition service fun_asr_realtime context cannot exceed 400 characters"
     );
 }
 

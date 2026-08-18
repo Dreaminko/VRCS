@@ -180,34 +180,66 @@ pub(crate) fn find_process_id(process_name: &str) -> Result<Option<u32>, AudioEr
     }
 }
 
-pub(super) fn find_device_by_wasapi_id(
-    wasapi_id: &str,
+pub(super) fn resolve_device(
+    wasapi_id: Option<&str>,
     direction: &Direction,
 ) -> Result<Device, AudioError> {
     init_com()?;
     let enumerator = DeviceEnumerator::new().map_err(err)?;
-    if let Ok(device) = enumerator.get_device(wasapi_id) {
-        return Ok(device);
-    }
+    let follows_default = wasapi_id.is_none();
+    let endpoint_id = match wasapi_id {
+        Some(id) => id.to_owned(),
+        None => enumerator
+            .get_default_device(direction)
+            .and_then(|device| device.get_id())
+            .map_err(err)?,
+    };
+
     let collection = enumerator.get_device_collection(direction).map_err(err)?;
     for index in 0..collection.get_nbr_devices().map_err(err)? {
         let device = collection.get_device_at_index(index).map_err(err)?;
-        if device.get_id().map_err(err)? == wasapi_id {
+        if device.get_id().map_err(err)? == endpoint_id {
             return Ok(device);
         }
     }
-    Err(AudioError::with_code(
-        "audio.device_unavailable",
-        "The selected audio device is no longer available",
-    ))
+    Err(device_unavailable(follows_default))
+}
+
+fn device_unavailable(follows_default: bool) -> AudioError {
+    let message = if follows_default {
+        "The default audio device is changing or no longer available"
+    } else {
+        "The selected audio device is no longer available"
+    };
+    if follows_default {
+        AudioError::retryable_with_code("audio.device_unavailable", message)
+    } else {
+        AudioError::with_code("audio.device_unavailable", message)
+    }
+}
+
+pub(super) fn is_endpoint_invalidation(error: &::wasapi::WasapiError) -> bool {
+    use windows::Win32::Media::Audio::{
+        AUDCLNT_E_DEVICE_INVALIDATED, AUDCLNT_E_RESOURCES_INVALIDATED,
+    };
+
+    matches!(
+        error,
+        ::wasapi::WasapiError::Windows(error)
+            if matches!(
+                error.code(),
+                AUDCLNT_E_DEVICE_INVALIDATED | AUDCLNT_E_RESOURCES_INVALIDATED
+            )
+    )
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{device_key, err};
+    use super::{device_key, device_unavailable, err, is_endpoint_invalidation};
     use windows::Win32::Foundation::{ERROR_ACCESS_DENIED, ERROR_FILE_NOT_FOUND};
     use windows::Win32::Media::Audio::{
-        AUDCLNT_E_DEVICE_IN_USE, AUDCLNT_E_SERVICE_NOT_RUNNING, AUDCLNT_E_UNSUPPORTED_FORMAT,
+        AUDCLNT_E_DEVICE_INVALIDATED, AUDCLNT_E_DEVICE_IN_USE, AUDCLNT_E_RESOURCES_INVALIDATED,
+        AUDCLNT_E_SERVICE_NOT_RUNNING, AUDCLNT_E_UNSUPPORTED_FORMAT,
     };
 
     #[test]
@@ -246,6 +278,28 @@ mod tests {
             assert_eq!(error.code(), expected_code);
             assert_eq!(error.is_retryable(), retryable);
         }
+    }
+
+    #[test]
+    fn default_device_transition_is_retryable_but_explicit_loss_is_not() {
+        assert!(device_unavailable(true).is_retryable());
+        assert!(!device_unavailable(false).is_retryable());
+    }
+
+    #[test]
+    fn runtime_recovery_is_limited_to_endpoint_invalidation() {
+        for hresult in [
+            AUDCLNT_E_DEVICE_INVALIDATED,
+            AUDCLNT_E_RESOURCES_INVALIDATED,
+        ] {
+            let error = ::wasapi::WasapiError::Windows(windows::core::Error::from_hresult(hresult));
+            assert!(is_endpoint_invalidation(&error));
+        }
+
+        let other = ::wasapi::WasapiError::Windows(windows::core::Error::from_hresult(
+            AUDCLNT_E_DEVICE_IN_USE,
+        ));
+        assert!(!is_endpoint_invalidation(&other));
     }
 
     #[test]

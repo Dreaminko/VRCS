@@ -1004,7 +1004,7 @@ mod tests {
             id: "profile".into(),
             name: "Profile".into(),
             provider: OPENAI_PROVIDER.into(),
-            purpose: Some("llm".into()),
+            enabled_capabilities: vec![providers::CAPABILITY_TEXT_GENERATION.into()],
             ..ApiProfile::default()
         }
     }

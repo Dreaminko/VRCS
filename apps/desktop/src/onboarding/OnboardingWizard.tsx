@@ -189,7 +189,7 @@ export function OnboardingWizard({
         ? recognition.localReady && !operationBusy
         : Boolean(
           recognition.selectedProfile?.credential.configured
-          && recognition.testedProfileId === recognition.selectedProfile.id,
+          && recognition.cloudReady,
         ) && !operationBusy
       : step === 2
         ? audio.ready && !operationBusy
@@ -242,13 +242,14 @@ export function OnboardingWizard({
             {step === 1 && (
               <RecognitionStep
                 recognitionMode={recognition.recognitionMode}
-                cloudBackend={recognition.cloudBackend}
                 operationBusy={operationBusy}
-                provider={recognition.provider}
                 recognitionProfiles={recognition.recognitionProfiles}
+                recognitionServices={recognition.recognitionServices}
                 selectedProfileId={recognition.selectedProfileId}
-                testedProfileId={recognition.testedProfileId}
+                selectedServiceId={recognition.selectedServiceId}
+                testedSelectionId={recognition.testedSelectionId}
                 selectedProfile={recognition.selectedProfile}
+                selectedService={recognition.selectedService}
                 apiEditor={recognition.apiEditor}
                 apiProfiles={recognition.apiProfiles}
                 draftController={recognition.draftController}
@@ -259,8 +260,8 @@ export function OnboardingWizard({
                 locale={locale}
                 busy={recognition.busy}
                 onSetRecognitionMode={recognition.setRecognitionMode}
-                onSetCloudBackend={recognition.setCloudBackend}
                 onSelectProfile={recognition.selectProfile}
+                onSelectService={recognition.selectService}
                 onAddApiProfile={recognition.addApiProfile}
                 onChangeApiEditor={recognition.setApiEditor}
                 onSaveApiEditor={() => void recognition.saveApiEditor()}

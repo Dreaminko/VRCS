@@ -183,31 +183,28 @@ export interface AudioDevice {
   channels: number;
 }
 
+export interface RecognitionServiceSettings {
+  model: string;
+  context: string;
+}
+
 export interface AsrSettings {
-  backend: "local_whisper" | "qwen_realtime" | "fun_asr_realtime" | "openai_realtime";
+  backend: string;
   language: "auto" | "en" | "ja" | "zh" | "ko" | "es" | "fr" | "de";
   local: {
     model: "tiny" | "base" | "small" | "medium" | "large-v3";
     device: "auto" | "cpu" | "cuda";
     compute_type: "int8";
   };
-  qwen: {
-    context: string;
-    model: "qwen3-asr-flash-realtime";
-  };
-  fun_asr: {
-    context: string;
-    model: "fun-asr-realtime";
-  };
-  openai: { model: "gpt-4o-mini-transcribe" | "gpt-4o-transcribe" };
-  api_profiles: ApiProfile[];
-  active_api_profiles: Record<AsrApiProvider, string | null>;
+  active_profile_id: string | null;
+  service_settings: Record<string, RecognitionServiceSettings>;
   cloud_failure_policy: "reconnect" | "local";
 }
 
-export type AsrApiProvider = "alibaba_cloud" | "openai";
-export type ApiProvider = AsrApiProvider | "gemini" | "openai_compatible" | "deepl" | "microsoft_translator";
-export type ApiProfilePurpose = "asr" | "llm" | "shared";
+export type ApiProvider = string;
+export type ApiCapability = "speech_to_text" | "text_generation" | "text_translation";
+export type ProviderCategory = "cloud_provider" | "local_service" | "custom_protocol";
+export type RecognitionTransport = "realtime_stream" | "segmented_upload";
 export type ProviderSupportLevel = "native" | "protocol_compatible";
 export type ApiAuthMode = "bearer" | "none";
 
@@ -242,28 +239,70 @@ export interface ProviderSupportLevels {
   translation: ProviderSupportLevel | null;
 }
 
+export interface ProviderConnectionField {
+  id: string;
+  label?: string;
+  label_key?: string;
+  type?: "text" | "select" | "boolean" | "number";
+  required?: boolean;
+  default?: string | number | boolean | null;
+  placeholder?: string;
+  options?: Array<{ value: string; label: string }>;
+  min?: number;
+  max?: number;
+  step?: number;
+}
+
+export interface ProviderConnectionDefinition {
+  base_url: {
+    mode: "fixed" | "editable";
+    default?: string | null;
+  };
+  auth_modes: ApiAuthMode[];
+  default_auth_mode: ApiAuthMode;
+  fields: ProviderConnectionField[];
+}
+
+export interface ProviderServiceDefinition {
+  id: string;
+  display_name: string;
+  capabilities: ApiCapability[];
+  adapter: string;
+  recognition_transport: RecognitionTransport | null;
+  partial_results: boolean;
+  models: string[];
+  model_listing: boolean;
+  supports_context: boolean;
+}
+
 export interface ProviderDefinition {
   id: ApiProvider;
   display_name: string;
-  purposes: ApiProfilePurpose[];
+  category: ProviderCategory;
+  connection: ProviderConnectionDefinition;
+  services: ProviderServiceDefinition[];
   support_levels: ProviderSupportLevels;
   capabilities: ProviderCapabilities;
-  presets: ProviderPreset[];
+  presets?: ProviderPreset[];
 }
 
-export interface ApiProfile {
-  id: string;
+export interface ApiProfileInput {
   name: string;
   provider: ApiProvider;
+  enabled_capabilities: ApiCapability[];
   region?: string;
   workspace_id?: string;
   base_url?: string;
-  purpose?: ApiProfilePurpose;
   preset_id?: string;
   auth_mode?: ApiAuthMode;
   is_local?: boolean;
   timeout_ms?: number;
   headers?: HttpHeaderConfig[];
+  [field: string]: unknown;
+}
+
+export interface ApiProfile extends ApiProfileInput {
+  id: string;
 }
 
 export interface ApiProfileView extends ApiProfile {
@@ -465,7 +504,7 @@ export interface VrOverlayStatus {
 }
 
 export interface Settings {
-  schema_version: 23;
+  schema_version: 24;
   server: {
     host: string;
     port: number;

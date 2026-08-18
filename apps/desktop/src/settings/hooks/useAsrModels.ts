@@ -5,7 +5,17 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { coreApi } from "../../api";
 import { localizedError } from "../../app/app-utils";
 import { validComputeTypes } from "../settings-validation";
-import type { AsrCapabilities, AsrModelRecord, Settings } from "../../types";
+import type {
+  ApiProfileView,
+  AsrCapabilities,
+  AsrModelRecord,
+  ProviderDefinition,
+  Settings,
+} from "../../types";
+import {
+  recognitionServicesForProfile,
+  selectRecognitionService,
+} from "../../recognition-services";
 import {
   classifyModels,
   MODEL_PRESENTATION,
@@ -21,6 +31,8 @@ export function useAsrModels({
   asrCapabilities,
   onModelsChanged,
   draftController,
+  apiProfiles,
+  providerDefinitions,
 }: {
   active: boolean;
   settings: Settings;
@@ -28,6 +40,8 @@ export function useAsrModels({
   asrCapabilities: AsrCapabilities | null;
   onModelsChanged: () => Promise<void>;
   draftController: SettingsDraftController;
+  apiProfiles: ApiProfileView[];
+  providerDefinitions: ProviderDefinition[];
 }) {
   const { t } = useTranslation();
   const [managedModels, setManagedModels] = useState<AsrModelRecord[]>([]);
@@ -94,8 +108,19 @@ export function useAsrModels({
   const updateRecognitionSource = (source: string) => {
     draftController.applySettings((current) => ({
       ...current,
-      asr: selectRecognitionSource(current.asr, source),
+      asr: selectRecognitionSource(current.asr, source, apiProfiles, providerDefinitions),
     }));
+  };
+
+  const updateRecognitionService = (serviceId: string) => {
+    draftController.applySettings((current) => {
+      const profile = apiProfiles.find((item) => item.id === current.asr.active_profile_id);
+      const service = recognitionServicesForProfile(profile, providerDefinitions)
+        .find((item) => item.id === serviceId);
+      return service
+        ? { ...current, asr: selectRecognitionService(current.asr, service) }
+        : current;
+    });
   };
 
   const updateLocalAsr = <K extends keyof Settings["asr"]["local"]>(
@@ -209,6 +234,7 @@ export function useAsrModels({
     loadModels,
     updateAsr,
     updateRecognitionSource,
+    updateRecognitionService,
     updateLocalAsr,
     updateVad,
     updateModelDirectory,

@@ -10,14 +10,16 @@ import {
 } from "../src/settings/settings-derived.ts";
 import { DEFAULT_VR_OVERLAY_SETTINGS } from "../src/settings/vr-overlay-settings.ts";
 import type {
+  ApiProfileView,
   AsrCapabilities,
   AsrModelRecord,
   AnkiStatus,
+  ProviderDefinition,
   Settings,
 } from "../src/types.ts";
 
 const settings: Settings = {
-  schema_version: 23,
+  schema_version: 24,
   server: { host: "127.0.0.1", port: 8766 },
   storage: {
     database_path: "data/vrcs.db",
@@ -30,7 +32,7 @@ const settings: Settings = {
     microphone: { mode: "default", device_id: null, trigger_threshold_dbfs: -45 },
   },
   vad: { silence_seconds: 0.4, max_speech_seconds: 6 },
-  asr: { backend: "local_whisper", language: "auto", local: { model: "small", device: "auto", compute_type: "int8" }, qwen: { context: "", model: "qwen3-asr-flash-realtime" }, fun_asr: { context: "", model: "fun-asr-realtime" }, openai: { model: "gpt-4o-mini-transcribe" }, api_profiles: [], active_api_profiles: { alibaba_cloud: null, openai: null }, cloud_failure_policy: "reconnect" },
+  asr: { backend: "local_whisper", language: "auto", local: { model: "small", device: "auto", compute_type: "int8" }, active_profile_id: null, service_settings: {}, cloud_failure_policy: "reconnect" },
   translation: { mode: "disabled", target_language: "zh-Hans", profile_id: null, model: "gpt-5-mini", thinking_enabled: false, microphone_target_language: "en", prompt: { system_prompt: "", context_enabled: false, include_speaker: true, include_microphone: true, include_chatbox: true, max_messages: 5, max_chars: 4000, glossary_sources: [] } },
   osc: { enabled: false, port: 9000, mute_sync_enabled: true, mute_status_toast_enabled: false },
   dictionary: { selection_lookup_enabled: true },
@@ -61,39 +63,72 @@ const ankiStatus: AnkiStatus = {
   message: "",
 };
 
+function profile(id: string, provider: string, enabled: ApiProfileView["enabled_capabilities"]): ApiProfileView {
+  return {
+    id,
+    name: id,
+    provider,
+    enabled_capabilities: enabled,
+    provider_display_name: provider,
+    active: false,
+    translation_active: false,
+    credential: { configured: true, stored_configured: true, environment_override: false, source: "credential_manager" },
+    capabilities: {
+      supports_streaming: false,
+      supports_model_listing: false,
+      requires_api_key: true,
+      is_local: false,
+      supports_context: false,
+      supports_translation: enabled.includes("text_translation"),
+      supports_asr: enabled.includes("speech_to_text"),
+      supports_text_generation: enabled.includes("text_generation"),
+      supports_custom_translation_language: false,
+      supported_languages: [],
+    },
+    support_levels: { asr: null, translation: null },
+  };
+}
+
+const definitions: ProviderDefinition[] = [
+  {
+    id: "alpha",
+    display_name: "Alpha",
+    category: "cloud_provider",
+    connection: { base_url: { mode: "fixed", default: "https://alpha.example" }, auth_modes: ["bearer"], default_auth_mode: "bearer", fields: [] },
+    services: [
+      { id: "alpha-live", display_name: "Alpha Live", capabilities: ["speech_to_text"], adapter: "alpha", recognition_transport: "realtime_stream", partial_results: true, models: ["alpha-1"], model_listing: false, supports_context: true },
+      { id: "alpha-batch", display_name: "Alpha Batch", capabilities: ["speech_to_text"], adapter: "alpha", recognition_transport: "segmented_upload", partial_results: false, models: ["alpha-2"], model_listing: false, supports_context: false },
+    ],
+    support_levels: { asr: "native", translation: null },
+    capabilities: { supports_streaming: true, supports_model_listing: false, requires_api_key: true, is_local: false, supports_context: true, supports_translation: false, supports_asr: true, supports_text_generation: false, supports_custom_translation_language: false, supported_languages: [] },
+  },
+];
+
+const profiles = [
+  profile("alpha-profile", "alpha", ["speech_to_text"]),
+  profile("translation-profile", "alpha", ["text_translation"]),
+];
+
 test("only local ASR shows local recognition settings", () => {
   assert.equal(showsLocalRecognitionSettings("local_whisper"), true);
-  assert.equal(showsLocalRecognitionSettings("qwen_realtime"), false);
-  assert.equal(showsLocalRecognitionSettings("fun_asr_realtime"), false);
-  assert.equal(showsLocalRecognitionSettings("openai_realtime"), false);
+  assert.equal(showsLocalRecognitionSettings("alpha-live"), false);
 });
 
-test("recognition source selects a named API profile and compatible backend atomically", () => {
-  const withProfiles: Settings["asr"] = {
-    ...settings.asr,
-    api_profiles: [
-      { id: "ali-work", name: "Work", provider: "alibaba_cloud", region: "singapore" },
-      { id: "openai-personal", name: "Personal", provider: "openai", purpose: "asr" },
-      { id: "openai-llm", name: "OpenAI LLM", provider: "openai", purpose: "llm" },
-      { id: "deepseek", name: "DeepSeek", provider: "openai_compatible", base_url: "https://api.deepseek.com/v1" },
-    ],
-  };
+test("recognition source selects a profile and service atomically", () => {
+  const selected = selectRecognitionSource(settings.asr, "alpha-profile", profiles, definitions);
+  assert.equal(selected.active_profile_id, "alpha-profile");
+  assert.equal(selected.backend, "alpha-live");
+  assert.equal(selected.service_settings["alpha-live"]?.model, "alpha-1");
+  assert.equal(recognitionSourceValue(selected), "alpha-profile");
 
-  const openai = selectRecognitionSource(withProfiles, "openai-personal");
-  assert.equal(openai.backend, "openai_realtime");
-  assert.equal(openai.active_api_profiles.openai, "openai-personal");
-  assert.equal(recognitionSourceValue(openai), "openai-personal");
+  assert.deepEqual(
+    selectRecognitionSource(selected, "translation-profile", profiles, definitions),
+    selected,
+  );
 
-  assert.deepEqual(selectRecognitionSource(openai, "openai-llm"), openai);
-  assert.deepEqual(selectRecognitionSource(openai, "deepseek"), openai);
-
-  const alibaba = selectRecognitionSource({ ...openai, backend: "fun_asr_realtime" }, "ali-work");
-  assert.equal(alibaba.backend, "fun_asr_realtime");
-  assert.equal(alibaba.active_api_profiles.alibaba_cloud, "ali-work");
-  assert.equal(recognitionSourceValue(alibaba), "ali-work");
-
-  const local = selectRecognitionSource(alibaba, "local");
+  const local = selectRecognitionSource(selected, "local", profiles, definitions);
   assert.equal(local.backend, "local_whisper");
+  assert.equal(local.active_profile_id, null);
   assert.equal(recognitionSourceValue(local), "local");
 });
 

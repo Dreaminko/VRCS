@@ -5,7 +5,7 @@ use super::{
     ServerConfig, StorageConfig, TranslationConfig, VadConfig, VrOverlayConfig, VrcxConfig,
 };
 
-pub const SCHEMA_VERSION: u32 = 23;
+pub const SCHEMA_VERSION: u32 = 24;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AppConfig {
@@ -109,25 +109,32 @@ mod tests {
         assert_keys(
             &value["asr"],
             [
-                "active_api_profiles",
+                "active_profile_id",
                 "api_profiles",
                 "backend",
                 "cloud_failure_policy",
-                "fun_asr",
                 "language",
                 "local",
-                "openai",
-                "qwen",
+                "service_settings",
             ],
         );
-        assert_keys(
-            &value["asr"]["active_api_profiles"],
-            ["alibaba_cloud", "openai"],
-        );
         assert_keys(&value["asr"]["local"], ["compute_type", "device", "model"]);
-        assert_keys(&value["asr"]["qwen"], ["context", "model"]);
-        assert_keys(&value["asr"]["fun_asr"], ["context", "model"]);
-        assert_keys(&value["asr"]["openai"], ["model"]);
+        assert_keys(
+            &value["asr"]["service_settings"]["qwen_realtime"],
+            ["context", "model"],
+        );
+        assert_keys(
+            &value["asr"]["service_settings"]["fun_asr_realtime"],
+            ["context", "model"],
+        );
+        assert_keys(
+            &value["asr"]["service_settings"]["openai_realtime"],
+            ["context", "model"],
+        );
+        assert_keys(
+            &value["asr"]["service_settings"]["groq_transcription"],
+            ["context", "model"],
+        );
         assert_keys(&value["dictionary"], ["selection_lookup_enabled"]);
         assert_keys(
             &value["translation"],

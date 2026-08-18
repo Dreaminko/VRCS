@@ -451,6 +451,33 @@
         "invalidComputeType": "当前运行设备与计算类型组合无效。"
       }
     },
+    "updates": {
+      "title": "软件更新",
+      "currentVersion": "当前版本 {{version}}",
+      "variant": { "standard": "标准版", "cuda": "CUDA 版" },
+      "automaticChecks": "自动检查更新",
+      "checkNow": "立即检查",
+      "availableTitle": "VRCS {{version}} 已发布",
+      "availableDescription": "新版本已可下载并安装。",
+      "downloadAndInstall": "下载并安装",
+      "later": "稍后",
+      "stopTranscriptionFirst": "请先停止转写，再安装更新。",
+      "status": {
+        "ready": "可从 GitHub Releases 检查更新。",
+        "unavailable": "当前开发构建未启用更新功能。",
+        "checking": "正在检查 GitHub Releases…",
+        "upToDate": "当前已是最新版本。",
+        "available": "版本 {{version}} 已可下载。",
+        "downloading": "正在下载更新…",
+        "installing": "正在安装更新…"
+      },
+      "errors": {
+        "unavailable": "当前构建未配置更新功能。",
+        "busy": "已有更新操作正在进行。",
+        "no_pending": "请重新检查更新后再安装。",
+        "failed": "更新操作未能完成，请检查网络连接后重试。"
+      }
+    },
     "settings": {
       "categories": {
         "label": "设置分类",
@@ -644,7 +671,9 @@
         "model": "LLM 模型",
         "manualModel": "选择或输入模型名",
         "thinkingMode": "思考模式",
-        "thinkingModeDescription": "关闭后翻译速度更快，开启后准确率更高。",
+        "thinkingModeDescription": "控制模型是否进行推理；推理内容不会写入翻译结果。",
+        "thinkingModeAlwaysOn": "始终启用",
+        "thinkingModeAlwaysOnDescription": "此模型始终在内部推理。VRCS 会隐藏推理内容，仅返回最终翻译。",
         "modelHint": "用于 OpenAI、OpenAI 兼容 API 或 Alibaba Cloud 的 LLM 翻译，例如 DeepSeek 可选择 deepseek-v4-flash。",
         "enhancement": "LLM 翻译增强",
         "enhancementDescription": "为所有 LLM Provider 统一配置 Prompt、最近原文和术语保护。",
@@ -744,6 +773,31 @@
         "profileNamePlaceholder": "例如：个人账号",
         "profileNameOptionalHint": "可留空；保存时将使用 API 名称，例如 DeepSeek。",
         "provider": "供应商",
+        "providerCategories": {
+          "cloudProvider": "云服务供应商",
+          "localService": "本地服务",
+          "customProtocol": "自定义协议"
+        },
+        "capabilities": {
+          "label": "启用能力",
+          "description": "选择这个 API 配置可用于哪些功能。",
+          "required": "当前流程必需",
+          "speech_to_text": "语音转文字",
+          "speech_to_text_description": "将麦克风语音识别为字幕文本。",
+          "text_generation": "文本生成",
+          "text_generation_description": "用于学习分析等通用 AI 功能。",
+          "text_translation": "文本翻译",
+          "text_translation_description": "用于字幕和聊天文本的语言翻译。"
+        },
+        "authModes": {
+          "bearer": "Bearer API Key",
+          "none": "无需鉴权"
+        },
+        "connectionFields": {
+          "region": "服务区域",
+          "workspace_id": "Workspace ID",
+          "is_local": "本地服务"
+        },
         "purpose": "服务用途",
         "purposes": {
           "asr": "仅语音识别",
@@ -843,7 +897,16 @@
         "selectApiProfile": "请选择 API 配置",
         "manageApiHint": "可在“API 管理”中添加和维护 API 配置。",
         "cloudService": "识别服务",
-        "cloudServiceDescription": "此 API 配置用于哪一种流式识别服务。",
+        "cloudServiceDescription": "选择此 API 配置使用的语音识别服务。",
+        "transports": {
+          "realtime_stream": "实时流式传输",
+          "segmented_upload": "分段上传"
+        },
+        "segmentedUpload": {
+          "title": "语句结束后返回结果",
+          "description": "音频会在检测到语句结束后上传，而不是持续流式传输。",
+          "noPartial": "此服务不提供 Partial 中间结果。"
+        },
         "selectedApiHint": "当前使用 API 配置“{{name}}”；连接详情和密钥请在“API 管理”中维护。",
         "failurePolicy": "云端失败时",
         "reconnect": "重新连接",

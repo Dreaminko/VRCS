@@ -56,8 +56,17 @@ pub(super) fn status_error(status: StatusCode, value: &Value) -> LlmError {
         .and_then(Value::as_str)
         .unwrap_or("LLM request failed")
         .to_owned();
+    let error_type = value
+        .pointer("/error/type")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
     let (code, retryable) = match status.as_u16() {
         401 | 403 => ("llm.authentication_failed", false),
+        404 if detail.to_ascii_lowercase().contains("model")
+            || error_type.to_ascii_lowercase().contains("model") =>
+        {
+            ("llm.model_not_found", false)
+        }
         404 => ("llm.path_not_found", false),
         408 => ("llm.timeout", true),
         429 => ("llm.rate_limited", true),
@@ -132,5 +141,25 @@ mod tests {
             extract_model_ids(&value),
             vec!["deepseek-chat", "deepseek-reasoner"]
         );
+    }
+
+    #[test]
+    fn classifies_model_related_not_found_errors() {
+        let error = status_error(
+            StatusCode::NOT_FOUND,
+            &json!({"error": {"message": "The model does not exist"}}),
+        );
+
+        assert_eq!(error.code, "llm.model_not_found");
+    }
+
+    #[test]
+    fn preserves_path_not_found_for_missing_routes() {
+        let error = status_error(
+            StatusCode::NOT_FOUND,
+            &json!({"error": {"message": "Route not found"}}),
+        );
+
+        assert_eq!(error.code, "llm.path_not_found");
     }
 }

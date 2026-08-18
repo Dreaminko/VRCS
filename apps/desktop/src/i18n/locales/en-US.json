@@ -451,6 +451,33 @@
         "invalidComputeType": "This runtime device and compute type combination is invalid."
       }
     },
+    "updates": {
+      "title": "Software updates",
+      "currentVersion": "Current version {{version}}",
+      "variant": { "standard": "Standard build", "cuda": "CUDA build" },
+      "automaticChecks": "Check for updates automatically",
+      "checkNow": "Check now",
+      "availableTitle": "VRCS {{version}} is available",
+      "availableDescription": "A new version of VRCS is ready to install.",
+      "downloadAndInstall": "Download and install",
+      "later": "Later",
+      "stopTranscriptionFirst": "Stop transcription before installing the update.",
+      "status": {
+        "ready": "Ready to check GitHub Releases.",
+        "unavailable": "Updates are unavailable in this development build.",
+        "checking": "Checking GitHub Releases…",
+        "upToDate": "VRCS is up to date.",
+        "available": "Version {{version}} is ready to download.",
+        "downloading": "Downloading update…",
+        "installing": "Installing update…"
+      },
+      "errors": {
+        "unavailable": "Updates are not configured for this build.",
+        "busy": "An update operation is already running.",
+        "no_pending": "Check for updates again before installing.",
+        "failed": "Could not complete the update operation. Check your connection and try again."
+      }
+    },
     "settings": {
       "categories": {
         "label": "Settings categories",
@@ -644,7 +671,9 @@
         "model": "LLM model",
         "manualModel": "Select or enter a model name",
         "thinkingMode": "Thinking mode",
-        "thinkingModeDescription": "Turn it off for faster translation, or on for higher accuracy.",
+        "thinkingModeDescription": "Control whether the model reasons; reasoning content is never added to translations.",
+        "thinkingModeAlwaysOn": "Always on",
+        "thinkingModeAlwaysOnDescription": "This model always reasons internally. VRCS hides the reasoning and returns only the final translation.",
         "modelHint": "Used for LLM translation through OpenAI, OpenAI-compatible APIs, or Alibaba Cloud; for example, choose deepseek-v4-flash with DeepSeek.",
         "enhancement": "LLM translation enhancements",
         "enhancementDescription": "Configure the prompt, recent source text, and terminology rules for every LLM provider.",
@@ -744,6 +773,31 @@
         "profileNamePlaceholder": "For example: Personal account",
         "profileNameOptionalHint": "Optional. If blank, the API name is used, for example DeepSeek.",
         "provider": "Provider",
+        "providerCategories": {
+          "cloudProvider": "Cloud providers",
+          "localService": "Local services",
+          "customProtocol": "Custom protocols"
+        },
+        "capabilities": {
+          "label": "Enabled capabilities",
+          "description": "Choose which features can use this API profile.",
+          "required": "Required here",
+          "speech_to_text": "Speech to text",
+          "speech_to_text_description": "Transcribe microphone audio into subtitle text.",
+          "text_generation": "Text generation",
+          "text_generation_description": "Power general AI features such as learning analysis.",
+          "text_translation": "Text translation",
+          "text_translation_description": "Translate subtitle and chat text between languages."
+        },
+        "authModes": {
+          "bearer": "Bearer API Key",
+          "none": "No authentication"
+        },
+        "connectionFields": {
+          "region": "Service region",
+          "workspace_id": "Workspace ID",
+          "is_local": "Local service"
+        },
         "purpose": "Service purpose",
         "purposes": {
           "asr": "Speech recognition only",
@@ -843,7 +897,16 @@
         "selectApiProfile": "Select an API connection",
         "manageApiHint": "Add and maintain API connections under API access.",
         "cloudService": "Recognition service",
-        "cloudServiceDescription": "Choose which streaming service uses this API connection.",
+        "cloudServiceDescription": "Choose which recognition service uses this API connection.",
+        "transports": {
+          "realtime_stream": "Real-time stream",
+          "segmented_upload": "Segmented upload"
+        },
+        "segmentedUpload": {
+          "title": "Returns after each utterance",
+          "description": "Audio is uploaded after speech ends instead of being streamed continuously.",
+          "noPartial": "Partial results are not available for this service."
+        },
         "selectedApiHint": "Using the “{{name}}” API connection. Manage its details and key under API access.",
         "failurePolicy": "If cloud fails",
         "reconnect": "Reconnect",

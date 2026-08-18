@@ -1,11 +1,14 @@
 import { useTranslation } from "react-i18next";
 
-import type { ConnectionState, Health, Settings } from "../../types";
+import { recognitionEngineLabel } from "../../recognition-services";
+import type { ApiProfileView, ConnectionState, Health, ProviderDefinition, Settings } from "../../types";
 
-export function TopStatus({ connection, health, settings }: {
+export function TopStatus({ connection, health, settings, apiProfiles = [], providerDefinitions = [] }: {
   connection: ConnectionState;
   health: Health | null;
   settings: Settings | null;
+  apiProfiles?: ApiProfileView[];
+  providerDefinitions?: ProviderDefinition[];
 }) {
   const { t } = useTranslation();
   const connectionLabel = t(`status.connection.${connection}`);
@@ -21,7 +24,7 @@ export function TopStatus({ connection, health, settings }: {
           <strong>{vrchatSendStatusLabel(health, settings, t)}</strong>
         </div>
         <i aria-hidden="true" />
-        <div><span>{t("status.engine")}</span><strong>{engineLabel(settings)}</strong></div>
+        <div><span>{t("status.engine")}</span><strong>{engineLabel(settings, apiProfiles, providerDefinitions)}</strong></div>
       </div>
     </div>
   );
@@ -48,13 +51,12 @@ function vrchatSendStatusLabel(
   return t("status.sendReady");
 }
 
-function engineLabel(settings: Settings | null): string {
-  if (settings?.asr.backend === "qwen_realtime") return "Qwen3 ASR";
-  if (settings?.asr.backend === "fun_asr_realtime") return "Fun-ASR";
-  if (settings?.asr.backend === "openai_realtime") return "OpenAI Realtime";
-  return `Whisper ${capitalize(settings?.asr.local.model ?? "small")}`;
-}
-
-function capitalize(value: string): string {
-  return value.charAt(0).toUpperCase() + value.slice(1);
+function engineLabel(
+  settings: Settings | null,
+  apiProfiles: ApiProfileView[],
+  providerDefinitions: ProviderDefinition[],
+): string {
+  return settings
+    ? recognitionEngineLabel(settings.asr, apiProfiles, providerDefinitions)
+    : "Whisper Small";
 }

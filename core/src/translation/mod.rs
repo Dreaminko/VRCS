@@ -9,10 +9,7 @@ use crate::config::{ApiProfile, TranslationConfig};
 use crate::credentials;
 use crate::llm::{LlmClient, LlmProgress, LlmRequest};
 use crate::models::{now_iso8601, SubtitleTranslation};
-use crate::providers::{
-    self, ALIBABA_PROVIDER, DEEPL_PROVIDER, GEMINI_PROVIDER, MICROSOFT_PROVIDER,
-    OPENAI_COMPATIBLE_PROVIDER, OPENAI_PROVIDER,
-};
+use crate::providers::{self, ServiceAdapter, CAPABILITY_TEXT_TRANSLATION};
 
 mod deepl;
 mod dispatcher;
@@ -183,15 +180,20 @@ impl TranslationService {
             String::new()
         };
 
-        match profile.provider.as_str() {
-            DEEPL_PROVIDER => {
+        let resolved = providers::resolve_profile_capability(profile, CAPABILITY_TEXT_TRANSLATION)
+            .map_err(|detail| error("translation.unsupported_provider", detail, false))?;
+        match resolved.service.adapter {
+            ServiceAdapter::DeepLTextTranslation => {
                 deepl::translate(&self.http, profile, &api_key, text, source_language, target).await
             }
-            MICROSOFT_PROVIDER => {
+            ServiceAdapter::MicrosoftTextTranslation => {
                 microsoft::translate(&self.http, profile, &api_key, text, source_language, target)
                     .await
             }
-            OPENAI_PROVIDER | OPENAI_COMPATIBLE_PROVIDER | ALIBABA_PROVIDER | GEMINI_PROVIDER => {
+            ServiceAdapter::OpenAiResponses
+            | ServiceAdapter::OpenAiChatCompletions { .. }
+            | ServiceAdapter::AlibabaChatCompletions
+            | ServiceAdapter::GeminiGenerateContent => {
                 self.llm(
                     profile,
                     &api_key,
@@ -206,9 +208,9 @@ impl TranslationService {
                 )
                 .await
             }
-            provider => Err(error(
+            adapter => Err(error(
                 "translation.unsupported_provider",
-                format!("Unsupported translation provider: {provider}"),
+                format!("Unsupported translation service adapter: {adapter:?}"),
                 false,
             )),
         }
@@ -239,9 +241,10 @@ impl TranslationService {
             TranslationPromptBuilder::new(prompt_config).build(source, target, context, text);
         let translated = self
             .llm
-            .generate(
+            .generate_for_capability(
                 profile,
                 api_key,
+                CAPABILITY_TEXT_TRANSLATION,
                 LlmRequest {
                     model,
                     instructions: &prompt.instructions,

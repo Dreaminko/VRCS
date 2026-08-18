@@ -172,6 +172,69 @@
 
 .api-profile-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
 .api-profile-key-field { grid-column: 1 / -1; }
+.api-profile-capabilities {
+  display: grid;
+  min-width: 0;
+  grid-column: 1 / -1;
+  gap: 5px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.api-profile-capabilities legend {
+  padding: 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+}
+.api-profile-capabilities > p {
+  margin: 0 0 4px;
+  color: var(--text-quiet);
+  font-size: 11px;
+  line-height: 1.5;
+}
+.api-profile-capability-list {
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  box-shadow: var(--control-shadow);
+}
+.api-profile-capability-row {
+  display: grid;
+  min-height: 58px;
+  grid-template-columns: 34px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 11px;
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.api-profile-capability-row:last-child { border-bottom: 0; }
+.api-profile-capability-row.required { background: var(--primary-softer); }
+.api-profile-capability-icon {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border-radius: var(--radius-sm);
+  color: var(--primary-ink);
+  background: var(--canvas);
+}
+.api-profile-capability-row.required .api-profile-capability-icon { background: var(--primary-soft); }
+.api-profile-capability-copy { display: grid; min-width: 0; gap: 3px; }
+.api-profile-capability-copy > span { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; }
+.api-profile-capability-copy strong { color: var(--text); font-size: 12px; font-weight: 650; }
+.api-profile-capability-copy > small { color: var(--text-quiet); font-size: 10px; line-height: 1.45; text-wrap: pretty; }
+.api-profile-capability-required {
+  padding: 2px 6px;
+  border-radius: var(--radius-pill);
+  color: var(--primary-ink);
+  background: var(--primary-soft);
+  font-size: 9px;
+  font-weight: 650;
+}
+.api-profile-capability-switch { margin: 0 2px; }
+.api-profile-capability-row.required .api-profile-capability-switch:disabled { opacity: 0.78; cursor: default; }
 .api-compatible-settings {
   display: grid;
   grid-column: 1 / -1;

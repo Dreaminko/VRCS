@@ -1,21 +1,20 @@
 import { Cloud, Languages, RefreshCw, Workflow } from "lucide-react";
+import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { supportsContext, supportsLlmModels, supportsTranslation } from "../../api-profile-purpose";
+import { localizedError } from "../../app/app-utils";
 import { EditableDropdownField } from "../../shared/ui/DropdownField";
 import { LanguagePicker } from "../../shared/ui/LanguagePicker";
 import { TRANSLATION_LANGUAGE_CODES } from "../../translation-languages";
+import { selectTranslationModel } from "../../translation-model-selection";
+import { thinkingControlForModel } from "../../translation-thinking";
 import type { ApiProfileView, Settings, TranslationSettings } from "../../types";
 import { useTranslationProfileModels } from "../hooks/useTranslationProfileModels";
 import type { ApplySettings, SaveState } from "../settings-types";
-import { Select } from "../SettingsControls";
+import { PreferenceToggle, Select } from "../SettingsControls";
 import { TranslationEnhancementSettings } from "../translation/TranslationEnhancementSettings";
 
-function modelForProfile(profile: ApiProfileView | undefined, current: string): string {
-  if (profile?.provider === "alibaba_cloud") return "qwen-plus";
-  if (profile?.provider === "openai") return "gpt-5-mini";
-  return current;
-}
 
 function profileOptionLabel(profile: ApiProfileView): string {
   const provider = profile.provider_display_name;
@@ -31,6 +30,9 @@ export function TranslationSettingsSection({ draft, apiProfiles, saveState, appl
   applySettings: ApplySettings;
 }) {
   const { t } = useTranslation();
+  const [profileSwitching, setProfileSwitching] = useState(false);
+  const [profileSwitchError, setProfileSwitchError] = useState("");
+  const profileRequest = useRef(0);
   const translationProfiles = apiProfiles.filter(supportsTranslation);
   const selectedProfile = translationProfiles.find(
     (profile) => profile.id === draft.translation.profile_id,
@@ -41,21 +43,52 @@ export function TranslationSettingsSection({ draft, apiProfiles, saveState, appl
     ?? TRANSLATION_LANGUAGE_CODES;
   const allowCustomLanguage = selectedProfile?.capabilities.supports_custom_translation_language
     ?? false;
-  const supportsThinkingToggle = Boolean(
-    selectedProfile?.provider === "openai_compatible"
-      && selectedProfile.preset_id === "deepseek",
+  const thinkingControl = thinkingControlForModel(
+    selectedProfile?.provider,
+    draft.translation.model,
   );
   const {
     models: availableModels,
     loading: modelsLoading,
     error: modelsError,
     refresh: refreshModels,
+    load: loadModels,
   } = useTranslationProfileModels(selectedProfile, usesLlmProfile);
   const update = (translation: TranslationSettings) => applySettings((current) => ({
     ...current,
     translation,
   }));
-  const controlsDisabled = saveState === "saving";
+  const controlsDisabled = saveState === "saving" || profileSwitching;
+  const selectProfile = async (
+    profileId: string,
+    mode = draft.translation.mode,
+  ) => {
+    const profile = translationProfiles.find((item) => item.id === profileId);
+    if (!profile) return;
+    const currentRequest = ++profileRequest.current;
+    setProfileSwitching(true);
+    setProfileSwitchError("");
+    try {
+      let model = draft.translation.model;
+      if (supportsLlmModels(profile)) {
+        if (profile.provider === "openai_compatible") {
+          model = draft.translation.model.trim();
+        } else {
+          const models = await loadModels(profile.id);
+          model = selectTranslationModel(profile.provider, models, draft.translation.model) ?? "";
+        }
+        if (!model) throw { code: "llm.model_required" };
+      }
+      if (currentRequest !== profileRequest.current) return;
+      update({ ...draft.translation, mode, profile_id: profile.id, model });
+    } catch (reason) {
+      if (currentRequest === profileRequest.current) {
+        setProfileSwitchError(localizedError(reason, t, "errors.apiProfiles.models"));
+      }
+    } finally {
+      if (currentRequest === profileRequest.current) setProfileSwitching(false);
+    }
+  };
 
   return (
     <div className="settings-section settings-section-active translation-section" id="settings-panel-translation" role="tabpanel" aria-labelledby="settings-tab-translation">
@@ -85,16 +118,13 @@ export function TranslationSettingsSection({ draft, apiProfiles, saveState, appl
                 label: t(`settings.translation.modes.${value}`),
               }))}
               onChange={(mode) => {
-                const profileId = mode === "disabled"
-                  ? draft.translation.profile_id
-                  : selectedProfile?.id ?? translationProfiles[0]?.id ?? null;
-                const profile = translationProfiles.find((item) => item.id === profileId);
-                update({
-                  ...draft.translation,
-                  mode: mode as TranslationSettings["mode"],
-                  profile_id: profileId,
-                  model: modelForProfile(profile, draft.translation.model),
-                });
+                const nextMode = mode as TranslationSettings["mode"];
+                if (nextMode === "disabled") {
+                  update({ ...draft.translation, mode: nextMode });
+                  return;
+                }
+                const profile = selectedProfile ?? translationProfiles[0];
+                if (profile) void selectProfile(profile.id, nextMode);
               }}
             />
           </div>
@@ -144,7 +174,7 @@ export function TranslationSettingsSection({ draft, apiProfiles, saveState, appl
           <div className={`translation-config-fields ${usesLlmProfile ? "" : "translation-config-fields-single"}`}>
             <Select
               label={t("settings.translation.profile")}
-              helper={translationProfiles.length ? undefined : t("settings.translation.noProfiles")}
+              helper={profileSwitchError || (translationProfiles.length ? undefined : t("settings.translation.noProfiles"))}
               value={selectedProfile?.id ?? ""}
               disabled={controlsDisabled || !translationProfiles.length}
               options={[
@@ -156,14 +186,7 @@ export function TranslationSettingsSection({ draft, apiProfiles, saveState, appl
                   label: profileOptionLabel(profile),
                 })),
               ]}
-              onChange={(profile_id) => {
-                const profile = translationProfiles.find((item) => item.id === profile_id);
-                update({
-                  ...draft.translation,
-                  profile_id,
-                  model: modelForProfile(profile, draft.translation.model),
-                });
-              }}
+              onChange={(profile_id) => void selectProfile(profile_id)}
             />
             {usesLlmProfile && (
               <div className="field translation-model-field">
@@ -188,33 +211,34 @@ export function TranslationSettingsSection({ draft, apiProfiles, saveState, appl
                     {t("common.refresh")}
                   </button>
                 </div>
-                {(modelsLoading || modelsError || availableModels.length > 0) && (
-                  <small className={modelsError ? "api-model-catalog-error" : ""}>
-                    {modelsLoading
+                {(profileSwitching || modelsLoading || profileSwitchError || modelsError || availableModels.length > 0) && (
+                  <small className={profileSwitchError || modelsError ? "api-model-catalog-error" : ""}>
+                    {profileSwitching || modelsLoading
                       ? t("settings.apiManagement.loadingModels")
-                      : modelsError || t("settings.apiManagement.modelsAvailable", { count: availableModels.length })}
+                      : profileSwitchError || modelsError || t("settings.apiManagement.modelsAvailable", { count: availableModels.length })}
                   </small>
                 )}
-                {supportsThinkingToggle && (
-                  <div className="translation-thinking-toggle">
-                    <span>
+                {thinkingControl === "disable_supported" && (
+                  <PreferenceToggle
+                    title={t("settings.translation.thinkingMode")}
+                    description={t("settings.translation.thinkingModeDescription")}
+                    checked={draft.translation.thinking_enabled}
+                    disabled={controlsDisabled}
+                    onChange={(thinking_enabled) => update({
+                      ...draft.translation,
+                      thinking_enabled,
+                    })}
+                  />
+                )}
+                {thinkingControl === "hide_only" && (
+                  <div className="settings-toggle-row translation-thinking-status">
+                    <span className="settings-toggle-copy">
                       <strong>{t("settings.translation.thinkingMode")}</strong>
-                      <small>{t("settings.translation.thinkingModeDescription")}</small>
+                      <small>{t("settings.translation.thinkingModeAlwaysOnDescription")}</small>
                     </span>
-                    <button
-                      className="settings-switch-button"
-                      type="button"
-                      role="switch"
-                      aria-checked={draft.translation.thinking_enabled}
-                      aria-label={t("settings.translation.thinkingMode")}
-                      disabled={controlsDisabled}
-                      onClick={() => update({
-                        ...draft.translation,
-                        thinking_enabled: !draft.translation.thinking_enabled,
-                      })}
-                    >
-                      <span className="switch-track" aria-hidden="true"><span /></span>
-                    </button>
+                    <span className="status-chip active">
+                      {t("settings.translation.thinkingModeAlwaysOn")}
+                    </span>
                   </div>
                 )}
               </div>

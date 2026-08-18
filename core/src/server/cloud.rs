@@ -9,8 +9,9 @@ use serde_json::{json, Value};
 use crate::asr;
 use crate::config::{ApiAuthMode, ApiProfile, HttpHeaderConfig, DEFAULT_PROFILE_TIMEOUT_MS};
 use crate::providers::{
-    self, ALIBABA_PROVIDER, API_PURPOSE_LLM, DEEPL_PROVIDER, GEMINI_PROVIDER, MICROSOFT_PROVIDER,
-    OPENAI_COMPATIBLE_PROVIDER, OPENAI_PROVIDER,
+    self, BaseUrlPolicy, ProviderCategory, ProviderDefinition, ProviderServiceDefinition,
+    ServiceAdapter, ALIBABA_PROVIDER, CAPABILITY_SPEECH_TO_TEXT, CAPABILITY_TEXT_GENERATION,
+    CAPABILITY_TEXT_TRANSLATION, MICROSOFT_PROVIDER,
 };
 
 use super::{api_error, ApiResult, AppState};
@@ -21,13 +22,13 @@ pub(super) struct CreateProfileInput {
     name: String,
     provider: String,
     #[serde(default)]
+    enabled_capabilities: Option<Vec<String>>,
+    #[serde(default)]
     region: Option<String>,
     #[serde(default)]
     workspace_id: Option<String>,
     #[serde(default)]
     base_url: Option<String>,
-    #[serde(default)]
-    purpose: Option<String>,
     #[serde(default)]
     preset_id: Option<String>,
     #[serde(default)]
@@ -47,13 +48,13 @@ pub(super) struct CreateProfileInput {
 pub(super) struct UpdateProfileInput {
     name: String,
     #[serde(default)]
+    enabled_capabilities: Option<Vec<String>>,
+    #[serde(default)]
     region: Option<String>,
     #[serde(default)]
     workspace_id: Option<String>,
     #[serde(default)]
     base_url: Option<String>,
-    #[serde(default)]
-    purpose: Option<String>,
     #[serde(default)]
     preset_id: Option<String>,
     #[serde(default)]
@@ -75,23 +76,134 @@ pub(super) struct CredentialInput {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct ActiveProfileInput {
-    profile_id: Option<String>,
+    profile_id: String,
+    service_id: String,
 }
 
 pub(super) async fn provider_list() -> Json<Value> {
-    Json(json!({ "providers": crate::providers::catalog() }))
+    let providers = providers::catalog()
+        .into_iter()
+        .map(provider_value)
+        .collect::<Vec<_>>();
+    Json(json!({ "providers": providers }))
+}
+
+fn provider_value(provider: ProviderDefinition) -> Value {
+    let (base_url_mode, base_url_default) = match provider.connection.base_url {
+        BaseUrlPolicy::Fixed(value) => ("fixed", Some(value)),
+        BaseUrlPolicy::Regional => ("fixed", None),
+        BaseUrlPolicy::Editable(value) => ("editable", (!value.is_empty()).then_some(value)),
+    };
+    let auth_modes = if provider.category == ProviderCategory::CustomProtocol {
+        vec![ApiAuthMode::Bearer, ApiAuthMode::None]
+    } else {
+        vec![provider.connection.auth_mode]
+    };
+    let fields = match provider.id {
+        ALIBABA_PROVIDER => vec![
+            json!({
+                "id": "region",
+                "label": "Region",
+                "type": "select",
+                "required": true,
+                "default": "singapore",
+                "options": [
+                    { "value": "singapore", "label": "Singapore" },
+                    { "value": "china_beijing", "label": "China (Beijing)" }
+                ]
+            }),
+            json!({
+                "id": "workspace_id",
+                "label": "Workspace ID",
+                "type": "text",
+                "required": false,
+                "default": null
+            }),
+        ],
+        MICROSOFT_PROVIDER => vec![json!({
+            "id": "region",
+            "label": "Region",
+            "type": "text",
+            "required": true,
+            "default": null
+        })],
+        _ => Vec::new(),
+    };
+    let services = provider
+        .services
+        .iter()
+        .map(service_value)
+        .collect::<Vec<_>>();
+    json!({
+        "id": provider.id,
+        "display_name": provider.display_name,
+        "category": provider.category,
+        "connection": {
+            "base_url": {
+                "mode": base_url_mode,
+                "default": base_url_default,
+            },
+            "auth_modes": auth_modes,
+            "default_auth_mode": provider.connection.auth_mode,
+            "fields": fields,
+        },
+        "services": services,
+        "support_levels": provider.support_levels,
+        "capabilities": provider.capabilities,
+        "presets": provider.presets,
+    })
+}
+
+fn service_value(service: &ProviderServiceDefinition) -> Value {
+    json!({
+        "id": service.id,
+        "display_name": service.display_name,
+        "capabilities": service.capabilities,
+        "adapter": adapter_id(service.adapter),
+        "recognition_transport": service.recognition_transport,
+        "partial_results": service.partial_results,
+        "models": service.models,
+        "model_listing": service.supports_model_listing,
+        "supports_context": service.supports_context,
+    })
+}
+
+fn adapter_id(adapter: ServiceAdapter) -> &'static str {
+    match adapter {
+        ServiceAdapter::AlibabaChatCompletions => "alibaba_chat_completions",
+        ServiceAdapter::OpenAiResponses => "openai_responses",
+        ServiceAdapter::OpenAiChatCompletions { .. } => "openai_chat_completions",
+        ServiceAdapter::GeminiGenerateContent => "gemini_generate_content",
+        ServiceAdapter::DeepLTextTranslation => "deepl_text_translation",
+        ServiceAdapter::MicrosoftTextTranslation => "microsoft_text_translation",
+        ServiceAdapter::QwenRealtime => "qwen_realtime",
+        ServiceAdapter::FunAsrRealtime => "fun_asr_realtime",
+        ServiceAdapter::OpenAiRealtime => "openai_realtime",
+        ServiceAdapter::OpenAiAudioTranscriptions => "openai_audio_transcriptions",
+    }
 }
 
 fn profile_value(profile: &ApiProfile, config: &crate::config::AppConfig) -> Result<Value, String> {
     let status = asr::credential_status(&profile.id, &profile.provider)?;
-    let provider = crate::providers::definition(&profile.provider)
+    let provider = providers::definition(&profile.provider)
         .ok_or_else(|| format!("Unsupported API provider: {}", profile.provider))?;
-    let active = match profile.provider.as_str() {
-        ALIBABA_PROVIDER => config.asr.active_api_profiles.alibaba_cloud.as_deref(),
-        OPENAI_PROVIDER => config.asr.active_api_profiles.openai.as_deref(),
-        _ => None,
-    } == Some(profile.id.as_str());
+    let active = config.asr.backend != "local_whisper"
+        && config.asr.active_profile_id.as_deref() == Some(profile.id.as_str())
+        && providers::resolve_profile_service(profile, &config.asr.backend).is_ok();
     let translation_active = config.translation.profile_id.as_deref() == Some(profile.id.as_str());
+    let services = provider
+        .services
+        .iter()
+        .filter(|service| {
+            service.capabilities.iter().any(|capability| {
+                profile
+                    .enabled_capabilities
+                    .iter()
+                    .any(|enabled| enabled == capability)
+            })
+        })
+        .map(service_value)
+        .collect::<Vec<_>>();
     Ok(json!({
         "id": profile.id,
         "name": profile.name,
@@ -100,7 +212,7 @@ fn profile_value(profile: &ApiProfile, config: &crate::config::AppConfig) -> Res
         "region": profile.region,
         "workspace_id": profile.workspace_id,
         "base_url": profile.base_url,
-        "purpose": providers::effective_purpose(profile),
+        "enabled_capabilities": profile.enabled_capabilities,
         "preset_id": profile.preset_id,
         "auth_mode": profile.auth_mode,
         "is_local": profile.is_local,
@@ -109,8 +221,9 @@ fn profile_value(profile: &ApiProfile, config: &crate::config::AppConfig) -> Res
         "active": active,
         "translation_active": translation_active,
         "credential": status,
-        "capabilities": crate::providers::profile_capabilities(profile),
-        "support_levels": crate::providers::profile_support_levels(profile),
+        "capabilities": providers::profile_capabilities(profile),
+        "support_levels": providers::profile_support_levels(profile),
+        "services": services,
     }))
 }
 
@@ -131,39 +244,31 @@ pub(super) async fn profile_create(
     Json(input): Json<CreateProfileInput>,
 ) -> ApiResult<Json<Value>> {
     let _config_control = state.config_control.lock().await;
-    let preset = input.preset_id.as_deref().and_then(|id| {
-        crate::providers::OPENAI_COMPATIBLE_PRESETS
-            .iter()
-            .find(|item| item.id == id)
-    });
+    let enabled_capabilities = match input.enabled_capabilities {
+        Some(capabilities) => capabilities,
+        None => providers::provider_capability_ids(&input.provider)
+            .ok_or_else(|| {
+                profile_invalid(format!("Unsupported API provider: {}", input.provider))
+            })?
+            .into_iter()
+            .map(str::to_owned)
+            .collect(),
+    };
     let mut profile = ApiProfile {
         id: uuid::Uuid::new_v4().to_string(),
-        name: input.name.trim().to_string(),
+        name: input.name,
         provider: input.provider,
         region: input.region,
-        workspace_id: input.workspace_id.map(|value| value.trim().to_string()),
-        base_url: input
-            .base_url
-            .map(|value| value.trim().to_string())
-            .filter(|value| !value.is_empty())
-            .or_else(|| {
-                preset
-                    .filter(|item| !item.base_url.is_empty())
-                    .map(|item| item.base_url.into())
-            }),
-        purpose: input.purpose,
+        workspace_id: input.workspace_id,
+        base_url: input.base_url,
+        enabled_capabilities,
         preset_id: input.preset_id,
-        auth_mode: input
-            .auth_mode
-            .unwrap_or_else(|| preset.map(|item| item.auth_mode).unwrap_or_default()),
-        is_local: input
-            .is_local
-            .unwrap_or_else(|| preset.is_some_and(|item| item.is_local)),
+        auth_mode: input.auth_mode.unwrap_or_default(),
+        is_local: input.is_local.unwrap_or(false),
         timeout_ms: input.timeout_ms.unwrap_or(DEFAULT_PROFILE_TIMEOUT_MS),
         headers: input.headers.unwrap_or_default(),
     };
-    normalize_profile_fields(&mut profile);
-    apply_default_name_for_new_llm_profile(&mut profile);
+    normalize_profile_fields(&mut profile).map_err(profile_invalid)?;
     let mut candidate = state.config.read().expect("config lock").clone();
     candidate.asr.api_profiles.push(profile.clone());
     commit_profile_config(&state, candidate).await?;
@@ -191,26 +296,20 @@ pub(super) async fn profile_update(
 ) -> ApiResult<Json<Value>> {
     let _config_control = state.config_control.lock().await;
     let mut candidate = state.config.read().expect("config lock").clone();
-    let profile = candidate
-        .asr
-        .api_profiles
-        .iter_mut()
-        .find(|profile| profile.id == profile_id)
-        .ok_or_else(profile_not_found)?;
-    profile.name = input.name.trim().to_string();
-    if profile.provider == ALIBABA_PROVIDER || profile.provider == MICROSOFT_PROVIDER {
+    let updated = {
+        let profile = candidate
+            .asr
+            .api_profiles
+            .iter_mut()
+            .find(|profile| profile.id == profile_id)
+            .ok_or_else(profile_not_found)?;
+        profile.name = input.name;
+        if let Some(enabled_capabilities) = input.enabled_capabilities {
+            profile.enabled_capabilities = enabled_capabilities;
+        }
         profile.region = input.region;
-    }
-    if profile.provider == ALIBABA_PROVIDER {
-        profile.workspace_id = input.workspace_id.map(|value| value.trim().to_string());
-    }
-    if matches!(
-        profile.provider.as_str(),
-        OPENAI_PROVIDER | OPENAI_COMPATIBLE_PROVIDER
-    ) {
-        profile.base_url = input.base_url.map(|value| value.trim().to_string());
-    }
-    if profile.provider == OPENAI_COMPATIBLE_PROVIDER {
+        profile.workspace_id = input.workspace_id;
+        profile.base_url = input.base_url;
         profile.preset_id = input.preset_id;
         if let Some(auth_mode) = input.auth_mode {
             profile.auth_mode = auth_mode;
@@ -224,37 +323,10 @@ pub(super) async fn profile_update(
         if let Some(headers) = input.headers {
             profile.headers = headers;
         }
-    }
-    if input.purpose.is_some() {
-        profile.purpose = input.purpose;
-    }
-    normalize_profile_fields(profile);
-    let disable_realtime = !providers::supports_realtime_asr(profile);
-    let disable_translation = !providers::supports_translation(profile);
-    let updated = profile.clone();
-    if disable_realtime {
-        if candidate.asr.active_api_profiles.openai.as_deref() == Some(profile_id.as_str()) {
-            candidate.asr.active_api_profiles.openai = None;
-            if candidate.asr.backend == "openai_realtime" {
-                candidate.asr.backend = "local_whisper".into();
-            }
-        }
-        if candidate.asr.active_api_profiles.alibaba_cloud.as_deref() == Some(profile_id.as_str()) {
-            candidate.asr.active_api_profiles.alibaba_cloud = None;
-            if matches!(
-                candidate.asr.backend.as_str(),
-                "qwen_realtime" | "fun_asr_realtime"
-            ) {
-                candidate.asr.backend = "local_whisper".into();
-            }
-        }
-    }
-    if disable_translation
-        && candidate.translation.profile_id.as_deref() == Some(profile_id.as_str())
-    {
-        candidate.translation.profile_id = None;
-        candidate.translation.mode = "disabled".into();
-    }
+        normalize_profile_fields(profile).map_err(profile_invalid)?;
+        profile.clone()
+    };
+    apply_profile_compatibility_fallbacks(&mut candidate, &updated);
     commit_profile_config(&state, candidate).await?;
     let config = state.config.read().expect("config lock").clone();
     Ok(Json(
@@ -280,24 +352,11 @@ pub(super) async fn profile_delete(
         .asr
         .api_profiles
         .retain(|item| item.id != profile_id);
-    if candidate.asr.active_api_profiles.alibaba_cloud.as_deref() == Some(profile_id.as_str()) {
-        candidate.asr.active_api_profiles.alibaba_cloud = None;
-        if matches!(
-            candidate.asr.backend.as_str(),
-            "qwen_realtime" | "fun_asr_realtime"
-        ) {
-            candidate.asr.backend = "local_whisper".into();
-        }
-    }
-    if candidate.asr.active_api_profiles.openai.as_deref() == Some(profile_id.as_str()) {
-        candidate.asr.active_api_profiles.openai = None;
-        if candidate.asr.backend == "openai_realtime" {
-            candidate.asr.backend = "local_whisper".into();
-        }
+    if candidate.asr.active_profile_id.as_deref() == Some(profile_id.as_str()) {
+        disable_cloud_recognition(&mut candidate);
     }
     if candidate.translation.profile_id.as_deref() == Some(profile_id.as_str()) {
-        candidate.translation.profile_id = None;
-        candidate.translation.mode = "disabled".into();
+        disable_translation(&mut candidate);
     }
     let previous_credential = asr::read_stored_credential(&profile.id, &profile.provider)
         .map_err(|error| credential_error(&profile_id, error))?;
@@ -381,48 +440,58 @@ pub(super) async fn credential_delete(
 
 pub(super) async fn profile_activate(
     State(state): State<Arc<AppState>>,
-    Path(provider): Path<String>,
     Json(input): Json<ActiveProfileInput>,
 ) -> ApiResult<Json<Value>> {
     let _config_control = state.config_control.lock().await;
-    if ![ALIBABA_PROVIDER, OPENAI_PROVIDER].contains(&provider.as_str()) {
-        return Err(api_error(
-            StatusCode::UNPROCESSABLE_ENTITY,
-            "asr.profile_invalid",
-            "This API provider does not support speech recognition",
+    let mut candidate = state.config.read().expect("config lock").clone();
+    let profile = candidate
+        .asr
+        .api_profiles
+        .iter()
+        .find(|profile| profile.id == input.profile_id)
+        .ok_or_else(profile_not_found)?;
+    let resolved =
+        providers::resolve_profile_service(profile, &input.service_id).map_err(profile_invalid)?;
+    if !resolved
+        .service
+        .capabilities
+        .contains(&CAPABILITY_SPEECH_TO_TEXT)
+        || resolved.service.recognition_transport.is_none()
+    {
+        return Err(profile_invalid(
+            "The selected service does not support speech recognition".into(),
         ));
     }
-    let mut candidate = state.config.read().expect("config lock").clone();
-    if let Some(profile_id) = input.profile_id.as_deref() {
-        let profile = candidate
-            .asr
-            .api_profiles
-            .iter()
-            .find(|profile| profile.id == profile_id && profile.provider == provider)
-            .ok_or_else(profile_not_found)?;
-        let status = asr::credential_status(&profile.id, &profile.provider)
-            .map_err(|error| credential_error(profile_id, error))?;
-        if !status.configured {
-            return Err(api_error(
-                StatusCode::CONFLICT,
-                "asr.credential_missing",
-                "Configure an API key before activating this profile",
-            ));
-        }
-        if !providers::supports_realtime_asr(profile) {
-            return Err(api_error(
-                StatusCode::UNPROCESSABLE_ENTITY,
-                "asr.profile_invalid",
-                "This API profile does not support realtime speech recognition",
-            ));
-        }
-        ensure_asr_profile_ready(profile)?;
+    let status = asr::credential_status(&profile.id, &profile.provider)
+        .map_err(|error| credential_error(&profile.id, error))?;
+    if profile.requires_api_key() && !status.configured {
+        return Err(api_error(
+            StatusCode::CONFLICT,
+            "asr.credential_missing",
+            "Configure an API key before activating this profile",
+        ));
     }
-    match provider.as_str() {
-        ALIBABA_PROVIDER => candidate.asr.active_api_profiles.alibaba_cloud = input.profile_id,
-        OPENAI_PROVIDER => candidate.asr.active_api_profiles.openai = input.profile_id,
-        _ => unreachable!(),
+    ensure_asr_profile_ready(profile)?;
+    let settings = candidate
+        .asr
+        .service_settings
+        .get(&input.service_id)
+        .ok_or_else(|| {
+            profile_invalid(format!(
+                "Recognition service settings are missing for {}",
+                input.service_id
+            ))
+        })?;
+    if !resolved.service.models.is_empty()
+        && !resolved.service.models.contains(&settings.model.as_str())
+    {
+        return Err(profile_invalid(format!(
+            "Unsupported model for recognition service {}: {}",
+            input.service_id, settings.model
+        )));
     }
+    candidate.asr.active_profile_id = Some(input.profile_id);
+    candidate.asr.backend = input.service_id;
     commit_profile_config(&state, candidate).await?;
     profile_list(State(Arc::clone(&state))).await
 }
@@ -438,11 +507,56 @@ pub(super) async fn profile_models(
         .iter()
         .find(|profile| profile.id == profile_id)
         .ok_or_else(profile_not_found)?;
-    if !providers::supports_llm_models(profile) {
+    let resolved = [CAPABILITY_TEXT_GENERATION, CAPABILITY_TEXT_TRANSLATION]
+        .into_iter()
+        .find_map(|capability| providers::resolve_profile_capability(profile, capability).ok())
+        .ok_or_else(|| {
+            api_error(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "llm.models_unsupported",
+                "This API profile does not expose LLM models",
+            )
+        })?;
+    service_models(&state, profile, resolved.service).await
+}
+
+pub(super) async fn profile_service_models(
+    State(state): State<Arc<AppState>>,
+    Path((profile_id, service_id)): Path<(String, String)>,
+) -> ApiResult<Json<Value>> {
+    let config = state.config.read().expect("config lock").clone();
+    let profile = config
+        .asr
+        .api_profiles
+        .iter()
+        .find(|profile| profile.id == profile_id)
+        .ok_or_else(profile_not_found)?;
+    let resolved =
+        providers::resolve_profile_service(profile, &service_id).map_err(profile_invalid)?;
+    service_models(&state, profile, resolved.service).await
+}
+
+async fn service_models(
+    state: &Arc<AppState>,
+    profile: &ApiProfile,
+    service: &ProviderServiceDefinition,
+) -> ApiResult<Json<Value>> {
+    if !service.models.is_empty() {
+        return Ok(Json(json!({ "models": service.models })));
+    }
+    if !service.supports_model_listing
+        || !matches!(
+            service.adapter,
+            ServiceAdapter::AlibabaChatCompletions
+                | ServiceAdapter::OpenAiResponses
+                | ServiceAdapter::OpenAiChatCompletions { .. }
+                | ServiceAdapter::GeminiGenerateContent
+        )
+    {
         return Err(api_error(
             StatusCode::UNPROCESSABLE_ENTITY,
             "llm.models_unsupported",
-            "This API provider does not expose LLM models",
+            format!("Service {} does not expose model listing", service.id),
         ));
     }
     let api_key = profile_api_key(profile)?;
@@ -594,106 +708,198 @@ fn credential_error(profile_id: &str, detail: String) -> (StatusCode, Json<Value
     )
 }
 
-fn normalize_profile_fields(profile: &mut ApiProfile) {
-    match profile.provider.as_str() {
-        ALIBABA_PROVIDER => profile.base_url = None,
-        MICROSOFT_PROVIDER => {
-            profile.workspace_id = None;
-            profile.base_url = None;
-        }
-        OPENAI_PROVIDER => {
-            profile.region = None;
-            profile.workspace_id = None;
-            profile.base_url = None;
-        }
-        OPENAI_COMPATIBLE_PROVIDER => {
-            profile.region = None;
-            profile.workspace_id = None;
-            profile.purpose = Some(API_PURPOSE_LLM.into());
-            if profile.base_url.as_deref().is_some_and(str::is_empty) {
-                profile.base_url = None;
-            }
-            for header in &mut profile.headers {
-                header.name = header.name.trim().to_string();
-            }
-        }
-        GEMINI_PROVIDER | DEEPL_PROVIDER => {
-            profile.region = None;
-            profile.workspace_id = None;
-            profile.base_url = None;
-        }
-        _ => profile.base_url = None,
+fn profile_invalid(detail: String) -> (StatusCode, Json<Value>) {
+    api_error(
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "asr.profile_invalid",
+        detail,
+    )
+}
+
+fn normalize_profile_fields(profile: &mut ApiProfile) -> Result<(), String> {
+    let provider = providers::definition(&profile.provider)
+        .ok_or_else(|| format!("Unsupported API provider: {}", profile.provider))?;
+    profile.name = profile.name.trim().to_string();
+    if profile.name.is_empty() {
+        profile.name = provider.display_name.to_string();
     }
-    if matches!(
-        profile.provider.as_str(),
-        DEEPL_PROVIDER | GEMINI_PROVIDER | MICROSOFT_PROVIDER | OPENAI_COMPATIBLE_PROVIDER
-    ) {
-        profile.purpose = Some(API_PURPOSE_LLM.into());
+    profile.region = trimmed_option(profile.region.take());
+    profile.workspace_id = trimmed_option(profile.workspace_id.take());
+    profile.base_url = trimmed_option(profile.base_url.take());
+    for capability in &mut profile.enabled_capabilities {
+        *capability = capability.trim().to_string();
     }
-    if profile.provider != OPENAI_COMPATIBLE_PROVIDER {
-        profile.preset_id = None;
-        profile.auth_mode = ApiAuthMode::Bearer;
-        profile.is_local = false;
+
+    match provider.connection.base_url {
+        BaseUrlPolicy::Fixed(_) => {
+            profile.region = None;
+            profile.workspace_id = None;
+            profile.base_url = None;
+        }
+        BaseUrlPolicy::Regional => {
+            profile.base_url = None;
+            match profile.provider.as_str() {
+                ALIBABA_PROVIDER => {
+                    if profile.region.is_none() {
+                        profile.region = Some("singapore".into());
+                    }
+                }
+                MICROSOFT_PROVIDER => profile.workspace_id = None,
+                _ => {
+                    profile.region = None;
+                    profile.workspace_id = None;
+                }
+            }
+        }
+        BaseUrlPolicy::Editable(default) => {
+            profile.region = None;
+            profile.workspace_id = None;
+            if profile.base_url.is_none() && !default.is_empty() {
+                profile.base_url = Some(default.into());
+            }
+        }
+    }
+
+    match provider.category {
+        ProviderCategory::CloudProvider => {
+            profile.auth_mode = provider.connection.auth_mode;
+            profile.is_local = false;
+        }
+        ProviderCategory::LocalService => {
+            profile.auth_mode = provider.connection.auth_mode;
+            profile.is_local = true;
+        }
+        ProviderCategory::CustomProtocol => {}
+    }
+    profile.preset_id = profile
+        .preset_id
+        .take()
+        .filter(|preset_id| provider.presets.iter().any(|preset| preset.id == preset_id));
+    if provider.connection.allow_custom_headers {
+        for header in &mut profile.headers {
+            header.name = header.name.trim().to_string();
+        }
+        profile.headers.retain(|header| !header.name.is_empty());
+    } else {
         profile.headers.clear();
+    }
+    providers::validate_profile(profile)
+}
+
+fn trimmed_option(value: Option<String>) -> Option<String> {
+    value
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
+fn apply_profile_compatibility_fallbacks(
+    config: &mut crate::config::AppConfig,
+    profile: &ApiProfile,
+) {
+    if config.asr.active_profile_id.as_deref() == Some(profile.id.as_str())
+        && providers::resolve_profile_service(profile, &config.asr.backend).is_err()
+    {
+        disable_cloud_recognition(config);
+    }
+    if config.translation.profile_id.as_deref() == Some(profile.id.as_str())
+        && !providers::supports_translation(profile)
+    {
+        disable_translation(config);
     }
 }
 
-fn apply_default_name_for_new_llm_profile(profile: &mut ApiProfile) {
-    if !profile.name.trim().is_empty() || providers::effective_purpose(profile) != API_PURPOSE_LLM {
-        return;
-    }
-    profile.name = if profile.provider == OPENAI_COMPATIBLE_PROVIDER {
-        profile
-            .preset_id
-            .as_deref()
-            .and_then(|id| {
-                providers::OPENAI_COMPATIBLE_PRESETS
-                    .iter()
-                    .find(|preset| preset.id == id)
-            })
-            .map(|preset| preset.display_name)
-            .or_else(|| {
-                providers::definition(&profile.provider).map(|provider| provider.display_name)
-            })
-    } else {
-        providers::definition(&profile.provider).map(|provider| provider.display_name)
-    }
-    .unwrap_or("LLM API")
-    .to_string();
+fn disable_cloud_recognition(config: &mut crate::config::AppConfig) {
+    config.asr.backend = "local_whisper".into();
+    config.asr.active_profile_id = None;
+}
+
+fn disable_translation(config: &mut crate::config::AppConfig) {
+    config.translation.profile_id = None;
+    config.translation.mode = "disabled".into();
 }
 
 #[cfg(test)]
 mod tests {
+
     use super::*;
-    use crate::providers::API_PURPOSE_SHARED;
+    use crate::providers::{
+        GROQ_PROVIDER, OPENAI_COMPATIBLE_PROVIDER, OPENAI_PROVIDER, SERVICE_GROQ_TRANSCRIPTION,
+    };
 
     #[test]
-    fn new_llm_profile_uses_its_preset_name_when_name_is_blank() {
+    fn fixed_provider_ignores_client_base_url_and_uses_provider_name() {
         let mut profile = ApiProfile {
             name: "  ".into(),
-            provider: OPENAI_COMPATIBLE_PROVIDER.into(),
-            purpose: Some(API_PURPOSE_LLM.into()),
-            preset_id: Some("deepseek".into()),
+            provider: OPENAI_PROVIDER.into(),
+            base_url: Some("https://example.invalid/v1".into()),
+            enabled_capabilities: vec![CAPABILITY_TEXT_GENERATION.into()],
             ..ApiProfile::default()
         };
 
-        apply_default_name_for_new_llm_profile(&mut profile);
+        normalize_profile_fields(&mut profile).unwrap();
 
-        assert_eq!(profile.name, "DeepSeek");
+        assert_eq!(profile.name, "OpenAI");
+        assert_eq!(profile.base_url, None);
     }
 
     #[test]
-    fn new_non_llm_profile_still_requires_an_explicit_name() {
+    fn editable_provider_keeps_custom_connection_metadata() {
         let mut profile = ApiProfile {
-            name: String::new(),
-            provider: OPENAI_PROVIDER.into(),
-            purpose: Some("asr".into()),
+            name: "Custom".into(),
+            provider: OPENAI_COMPATIBLE_PROVIDER.into(),
+            base_url: Some("  http://127.0.0.1:9000/v1  ".into()),
+            enabled_capabilities: vec![CAPABILITY_TEXT_GENERATION.into()],
+            auth_mode: ApiAuthMode::None,
+            is_local: true,
+            headers: vec![HttpHeaderConfig {
+                name: "  x-client  ".into(),
+                value: "vrcs".into(),
+            }],
             ..ApiProfile::default()
         };
 
-        apply_default_name_for_new_llm_profile(&mut profile);
+        normalize_profile_fields(&mut profile).unwrap();
 
-        assert!(profile.name.is_empty());
+        assert_eq!(
+            profile.base_url.as_deref(),
+            Some("http://127.0.0.1:9000/v1")
+        );
+        assert_eq!(profile.auth_mode, ApiAuthMode::None);
+        assert!(profile.is_local);
+        assert_eq!(profile.headers[0].name, "x-client");
+    }
+
+    #[test]
+    fn losing_active_capabilities_falls_back_to_local_services() {
+        let mut config = crate::config::AppConfig::default();
+        config.asr.backend = SERVICE_GROQ_TRANSCRIPTION.into();
+        config.asr.active_profile_id = Some("groq".into());
+        config.translation.mode = "automatic".into();
+        config.translation.profile_id = Some("groq".into());
+        let profile = ApiProfile {
+            id: "groq".into(),
+            name: "Groq".into(),
+            provider: GROQ_PROVIDER.into(),
+            enabled_capabilities: vec![CAPABILITY_TEXT_GENERATION.into()],
+            ..ApiProfile::default()
+        };
+
+        apply_profile_compatibility_fallbacks(&mut config, &profile);
+
+        assert_eq!(config.asr.backend, "local_whisper");
+        assert_eq!(config.asr.active_profile_id, None);
+        assert_eq!(config.translation.mode, "disabled");
+        assert_eq!(config.translation.profile_id, None);
+    }
+
+    #[test]
+    fn provider_catalog_uses_desktop_connection_and_service_shape() {
+        let value = provider_value(providers::definition(GROQ_PROVIDER).unwrap());
+
+        assert_eq!(value["connection"]["base_url"]["mode"], "fixed");
+        assert_eq!(value["services"][1]["id"], SERVICE_GROQ_TRANSCRIPTION);
+        assert_eq!(value["services"][1]["model_listing"], false);
+        assert!(value["services"][1]["adapter"].is_string());
     }
 
     #[test]
@@ -704,8 +910,7 @@ mod tests {
             provider: ALIBABA_PROVIDER.into(),
             region: Some("china_beijing".into()),
             workspace_id: None,
-            base_url: None,
-            purpose: Some(API_PURPOSE_SHARED.into()),
+            enabled_capabilities: vec![CAPABILITY_SPEECH_TO_TEXT.into()],
             ..ApiProfile::default()
         };
 

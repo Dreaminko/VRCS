@@ -10,12 +10,16 @@ pub(super) struct RecognitionLifecycle {
 }
 
 impl RecognitionLifecycle {
-    pub(super) fn accept_partial(&mut self, utterance_id: &str) -> bool {
+    pub(super) fn begin(&mut self, utterance_id: &str) -> bool {
         if self.terminated.contains(utterance_id) {
             return false;
         }
         self.active.insert(utterance_id.to_owned());
         true
+    }
+
+    pub(super) fn accept_partial(&mut self, utterance_id: &str) -> bool {
+        self.begin(utterance_id)
     }
 
     pub(super) fn failure_id(&self, utterance_id: Option<&str>) -> Option<String> {
@@ -68,6 +72,15 @@ mod tests {
         assert!(lifecycle.accept_partial("utterance-1"));
         lifecycle.terminate("utterance-1");
         assert!(!lifecycle.accept_partial("utterance-1"));
+    }
+
+    #[test]
+    fn final_only_utterance_can_be_tracked_before_completion() {
+        let mut lifecycle = RecognitionLifecycle::default();
+        assert!(lifecycle.begin("utterance-1"));
+        assert_eq!(lifecycle.failure_id(None).as_deref(), Some("utterance-1"));
+        lifecycle.terminate("utterance-1");
+        assert!(!lifecycle.begin("utterance-1"));
     }
 
     #[test]

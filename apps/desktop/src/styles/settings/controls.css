@@ -123,8 +123,9 @@
 }
 
 .settings-toggle-row.disabled { opacity: 0.62; }
-.settings-toggle-copy { display: grid; flex: 1; }
+.settings-toggle-copy { display: grid; min-width: 0; flex: 1; gap: 3px; }
 .settings-toggle-copy strong { color: var(--text); font-size: 13px; font-weight: 650; }
+.settings-toggle-copy small { color: var(--text-quiet); font-size: 11px; line-height: 1.45; }
 
 .settings-switch-button {
   display: grid;

@@ -135,6 +135,8 @@ cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml
 
 ## 构建 Release
 
+Release 构建必须设置 `TAURI_SIGNING_PRIVATE_KEY` 和 `TAURI_UPDATER_PUBLIC_KEY`；私钥有密码时还需设置 `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`。私钥不得提交到仓库，并应安全备份。
+
 构建标准 Windows 安装包：
 
 ```powershell

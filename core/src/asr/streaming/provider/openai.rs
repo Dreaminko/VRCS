@@ -3,22 +3,24 @@ use tokio_tungstenite::tungstenite::http::Request;
 use tokio_tungstenite::tungstenite::Message;
 
 use crate::config::AsrConfig;
+use crate::providers::SERVICE_OPENAI_REALTIME;
 
 use super::{
-    authenticated_request, event_language, pcm16_base64, resample_16k_to_24k, CloudEvent,
-    NormalizationState,
+    authenticated_request, event_language, pcm16_base64, resample_16k_to_24k, service_settings,
+    CloudEvent, NormalizationState,
 };
 
 pub(super) fn build_request(key: &str) -> Result<Request<()>, String> {
     authenticated_request("wss://api.openai.com/v1/realtime".into(), key, false)
 }
 
-pub(super) fn session_update(config: &AsrConfig) -> Value {
-    let mut transcription = json!({ "model": config.openai.model });
+pub(super) fn session_update(config: &AsrConfig) -> Result<Value, String> {
+    let settings = service_settings(config, SERVICE_OPENAI_REALTIME)?;
+    let mut transcription = json!({ "model": settings.model });
     if config.language != "auto" {
         transcription["language"] = json!(config.language);
     }
-    json!({
+    Ok(json!({
         "type": "session.update",
         "session": {
             "type": "transcription",
@@ -28,7 +30,7 @@ pub(super) fn session_update(config: &AsrConfig) -> Value {
                 "turn_detection": null
             }}
         }
-    })
+    }))
 }
 
 pub(super) fn normalize_event(

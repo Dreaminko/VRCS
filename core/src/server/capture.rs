@@ -66,13 +66,9 @@ fn asr_config_runtime_changed(current: &AsrConfig, candidate: &AsrConfig) -> boo
         return true;
     }
 
-    let backend_config_changed = match current.backend.as_str() {
-        "local_whisper" => false,
-        "qwen_realtime" => current.qwen != candidate.qwen,
-        "fun_asr_realtime" => current.fun_asr != candidate.fun_asr,
-        "openai_realtime" => current.openai != candidate.openai,
-        _ => current != candidate,
-    };
+    let backend_config_changed = current.backend != "local_whisper"
+        && current.service_settings.get(&current.backend)
+            != candidate.service_settings.get(&current.backend);
     backend_config_changed
         || active_asr_profile(current).map(asr_profile_runtime_config)
             != active_asr_profile(candidate).map(asr_profile_runtime_config)
@@ -85,19 +81,22 @@ fn asr_profile_runtime_config(profile: &crate::config::ApiProfile) -> crate::con
 }
 
 fn active_asr_profile(config: &AsrConfig) -> Option<&crate::config::ApiProfile> {
-    let profile_id = match config.backend.as_str() {
-        "qwen_realtime" | "fun_asr_realtime" => config.active_api_profiles.alibaba_cloud.as_deref(),
-        "openai_realtime" => config.active_api_profiles.openai.as_deref(),
-        _ => None,
-    }?;
-    config
+    if config.backend == "local_whisper" {
+        return None;
+    }
+    let profile_id = config.active_profile_id.as_deref()?;
+    let profile = config
         .api_profiles
         .iter()
-        .find(|profile| profile.id == profile_id)
+        .find(|profile| profile.id == profile_id)?;
+    crate::providers::resolve_profile_service(profile, &config.backend)
+        .ok()
+        .map(|_| profile)
 }
 
 pub(crate) fn uses_asr_profile(config: &AppConfig, profile_id: &str) -> bool {
-    active_asr_profile(&config.asr).is_some_and(|profile| profile.id == profile_id)
+    config.asr.backend != "local_whisper"
+        && config.asr.active_profile_id.as_deref() == Some(profile_id)
 }
 
 pub(super) async fn audio_devices() -> ApiResult<Json<Value>> {
@@ -434,6 +433,9 @@ pub(crate) async fn resume_microphone(state: &Arc<AppState>) -> Result<(), Strin
 mod tests {
     use super::CaptureReloadPlan;
     use crate::config::AppConfig;
+    use crate::providers::{
+        CAPABILITY_SPEECH_TO_TEXT, SERVICE_GROQ_TRANSCRIPTION, SERVICE_QWEN_REALTIME,
+    };
 
     #[test]
     fn translation_changes_use_the_shared_runtime_snapshot() {
@@ -449,7 +451,13 @@ mod tests {
         let current = AppConfig::default();
         let mut candidate = current.clone();
         candidate.asr.local.model = "tiny".into();
-        candidate.asr.active_api_profiles.openai = Some("unused-profile".into());
+        candidate.asr.active_profile_id = Some("unused-profile".into());
+        candidate
+            .asr
+            .service_settings
+            .get_mut(SERVICE_GROQ_TRANSCRIPTION)
+            .unwrap()
+            .context = "inactive".into();
 
         assert!(CaptureReloadPlan::between(&current, &candidate).is_empty());
     }
@@ -457,18 +465,53 @@ mod tests {
     #[test]
     fn active_profile_name_changes_do_not_reload_capture() {
         let mut current = AppConfig::default();
-        current.asr.backend = "qwen_realtime".into();
-        current.asr.active_api_profiles.alibaba_cloud = Some("profile-1".into());
+        current.asr.backend = SERVICE_QWEN_REALTIME.into();
+        current.asr.active_profile_id = Some("profile-1".into());
         current.asr.api_profiles.push(crate::config::ApiProfile {
             id: "profile-1".into(),
             name: "Before".into(),
             provider: crate::providers::ALIBABA_PROVIDER.into(),
+            region: Some("singapore".into()),
+            enabled_capabilities: vec![CAPABILITY_SPEECH_TO_TEXT.into()],
             ..crate::config::ApiProfile::default()
         });
         let mut candidate = current.clone();
         candidate.asr.api_profiles[0].name = "After".into();
 
         assert!(CaptureReloadPlan::between(&current, &candidate).is_empty());
+    }
+
+    #[test]
+    fn inactive_service_settings_do_not_reload_capture() {
+        let mut current = AppConfig::default();
+        current.asr.backend = SERVICE_QWEN_REALTIME.into();
+        let mut candidate = current.clone();
+        candidate
+            .asr
+            .service_settings
+            .get_mut(SERVICE_GROQ_TRANSCRIPTION)
+            .unwrap()
+            .context = "inactive".into();
+
+        assert!(CaptureReloadPlan::between(&current, &candidate).is_empty());
+    }
+
+    #[test]
+    fn active_service_settings_reload_capture() {
+        let mut current = AppConfig::default();
+        current.asr.backend = SERVICE_QWEN_REALTIME.into();
+        let mut candidate = current.clone();
+        candidate
+            .asr
+            .service_settings
+            .get_mut(SERVICE_QWEN_REALTIME)
+            .unwrap()
+            .context = "active".into();
+
+        assert_eq!(
+            CaptureReloadPlan::between(&current, &candidate),
+            CaptureReloadPlan::all()
+        );
     }
 
     #[test]

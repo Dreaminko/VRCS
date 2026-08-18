@@ -306,7 +306,7 @@ pub fn router(state: Arc<AppState>) -> Router {
             axum::routing::put(cloud::credential_write).delete(cloud::credential_delete),
         )
         .route(
-            "/api/asr/profiles/active/{provider}",
+            "/api/asr/active",
             axum::routing::put(cloud::profile_activate),
         )
         .route(
@@ -316,6 +316,10 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route(
             "/api/asr/profiles/{profile_id}/models",
             get(cloud::profile_models),
+        )
+        .route(
+            "/api/asr/profiles/{profile_id}/services/{service_id}/models",
+            get(cloud::profile_service_models),
         )
         .route("/api/asr/models", get(models::asr_models))
         .route(

@@ -1,23 +1,35 @@
 import { useEffect, useState } from "react";
 
 import { coreApi } from "../../api";
-import type { ApiProfileView } from "../../types";
+import type { ApiProfileView, ProviderDefinition } from "../../types";
 
-export function useApiProfileViews(refreshKey: unknown): ApiProfileView[] {
-  const [profiles, setProfiles] = useState<ApiProfileView[]>([]);
+export interface ApiProfileCatalog {
+  profiles: ApiProfileView[];
+  providerDefinitions: ProviderDefinition[];
+}
+
+const EMPTY_CATALOG: ApiProfileCatalog = { profiles: [], providerDefinitions: [] };
+
+export function useApiProfileViews(refreshKey: unknown): ApiProfileCatalog {
+  const [catalog, setCatalog] = useState<ApiProfileCatalog>(EMPTY_CATALOG);
 
   useEffect(() => {
     let cancelled = false;
-    void coreApi.apiProfiles().then(
-      (response) => {
-        if (!cancelled) setProfiles(response.profiles);
+    void Promise.all([coreApi.apiProfiles(), coreApi.providers()]).then(
+      ([profileResponse, providerResponse]) => {
+        if (!cancelled) {
+          setCatalog({
+            profiles: profileResponse.profiles,
+            providerDefinitions: providerResponse.providers,
+          });
+        }
       },
       () => {
-        if (!cancelled) setProfiles([]);
+        if (!cancelled) setCatalog(EMPTY_CATALOG);
       },
     );
     return () => { cancelled = true; };
   }, [refreshKey]);
 
-  return profiles;
+  return catalog;
 }

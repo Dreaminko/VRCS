@@ -20,6 +20,8 @@ import type { UiLanguagePreference } from "../../app/ui-language";
 import type { ApplySettings, SaveState } from "../settings-types";
 import { PreferenceToggle, Select } from "../SettingsControls";
 import { StorageSettingsSection } from "./StorageSettingsSection";
+import { SoftwareUpdateSettings } from "../../updates/SoftwareUpdateSettings";
+import type { AppUpdaterState } from "../../updates/useAppUpdater";
 
 export function SystemSettingsSection({
   desktopPreferences,
@@ -36,6 +38,7 @@ export function SystemSettingsSection({
   draft,
   saveState,
   applySettings,
+  updater,
 }: {
   desktopPreferences: DesktopPreferences;
   desktopPreferencesReady: boolean;
@@ -51,6 +54,7 @@ export function SystemSettingsSection({
   draft: Settings;
   saveState: SaveState;
   applySettings: ApplySettings;
+  updater: AppUpdaterState;
 }) {
   const { t } = useTranslation();
   const [transcriptionStartBehavior, setTranscriptionStartBehavior] = useState(
@@ -216,6 +220,7 @@ export function SystemSettingsSection({
             </button>
           </div>
         </section>
+        <SoftwareUpdateSettings updater={updater} />
         <StorageSettingsSection
           locale={locale}
           draft={draft}

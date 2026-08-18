@@ -1,8 +1,8 @@
 import { AudioLines, Languages } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
-import { supportsRecognition } from "../../api-profile-purpose";
-import type { ApiProfileView, AsrCapabilities, AsrModelRecord, Settings } from "../../types";
+import { recognitionProfiles } from "../../recognition-services";
+import type { ApiProfileView, AsrCapabilities, AsrModelRecord, ProviderDefinition, Settings } from "../../types";
 import { CloudProviderSettings } from "../recognition/CloudProviderSettings";
 import { LocalRecognitionSettings, LocalRuntimeStatus } from "../recognition/LocalRecognitionSettings";
 import { ModelManagerPanel } from "../recognition/ModelManagerPanel";
@@ -35,6 +35,7 @@ type RecognitionModels = {
 type RecognitionActions = {
   updateAsr: <K extends keyof Settings["asr"]>(key: K, value: Settings["asr"][K]) => void;
   updateRecognitionSource: (source: string) => void;
+  updateRecognitionService: (serviceId: string) => void;
   updateLocalAsr: <K extends keyof Settings["asr"]["local"]>(key: K, value: Settings["asr"]["local"][K]) => void;
   updateVad: <K extends keyof Settings["vad"]>(key: K, value: Settings["vad"][K]) => void;
   loadModels: () => Promise<void>;
@@ -49,6 +50,7 @@ export function RecognitionSettingsSection({
   locale,
   draft,
   apiProfiles,
+  providerDefinitions,
   modelStatus,
   status,
   models,
@@ -58,6 +60,7 @@ export function RecognitionSettingsSection({
   locale: string;
   draft: Settings;
   apiProfiles: ApiProfileView[];
+  providerDefinitions: ProviderDefinition[];
   modelStatus: string;
   status: RecognitionStatus;
   models: RecognitionModels;
@@ -69,8 +72,7 @@ export function RecognitionSettingsSection({
   const recognitionSource = recognitionSourceValue(draft.asr);
   const sourceOptions = [
     { value: LOCAL_RECOGNITION_SOURCE, label: t("settings.recognition.localSource") },
-    ...apiProfiles
-      .filter(supportsRecognition)
+    ...recognitionProfiles(apiProfiles)
       .map((profile) => {
         const providerLabel = profile.provider_display_name;
         return {
@@ -117,7 +119,16 @@ export function RecognitionSettingsSection({
             />
           </div>
         </div>
-        {!usesLocalAsr && <CloudProviderSettings draft={draft} disabled={false} onUpdateAsr={actions.updateAsr} />}
+        {!usesLocalAsr && (
+          <CloudProviderSettings
+            draft={draft}
+            apiProfiles={apiProfiles}
+            providerDefinitions={providerDefinitions}
+            disabled={false}
+            onUpdateAsr={actions.updateAsr}
+            onSelectService={actions.updateRecognitionService}
+          />
+        )}
         {usesLocalAsr && (
           <LocalRecognitionSettings
             draft={draft}

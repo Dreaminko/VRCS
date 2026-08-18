@@ -5,13 +5,12 @@ import { coreApi } from "../api";
 import { supportsLlmModels } from "../api-profile-purpose";
 import { localizedError } from "../app/app-utils";
 import type {
+  ApiCapability,
   ApiProfile,
-  ApiProfilePurpose,
+  ApiProfileInput,
   ApiProfileView,
   ConnectionDiagnostic,
   ProviderDefinition,
-  AsrApiProvider,
-  AsrSettings,
 } from "../types";
 
 export interface ApiModelCatalogState {
@@ -134,7 +133,7 @@ export function useApiProfiles(onRefreshSettings: () => Promise<void>) {
     modelCatalogs,
     diagnostics,
     refreshModels: (profileId: string) => refreshModels(profileId, true),
-    create: (profile: Omit<ApiProfile, "id">, apiKey: string) => run(
+    create: (profile: ApiProfileInput, apiKey: string) => run(
       "create",
       () => coreApi.createApiProfile({
         ...profile,
@@ -156,21 +155,21 @@ export function useApiProfiles(onRefreshSettings: () => Promise<void>) {
         true,
       );
     },
-    activate: (provider: AsrApiProvider, profileId: string) => run(
+    activate: (profileId: string, serviceId: string) => run(
       profileId,
-      () => coreApi.activateApiProfile(provider, profileId),
+      () => coreApi.activateAsrProfile(profileId, serviceId),
       "settings.apiManagement.profileActivated",
       true,
     ),
     test: async (
       profileId: string,
-      capability: Extract<ApiProfilePurpose, "asr" | "llm">,
-      backend?: Exclude<AsrSettings["backend"], "local_whisper">,
+      capability: ApiCapability,
+      serviceId?: string,
       model?: string,
     ) => {
       const result = await run(
         profileId,
-        () => coreApi.testApiProfile(profileId, capability, backend, model),
+        () => coreApi.testApiProfile(profileId, capability, serviceId, model),
         "settings.apiManagement.connectionSucceeded",
         false,
       );

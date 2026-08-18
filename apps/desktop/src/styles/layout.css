@@ -3,6 +3,7 @@
 @import "./layout/conversation-history-notice.css";
 @import "./primitives/chips.css";
 @import "./layout/feedback.css";
+@import "./layout/update-notice.css";
 @import "./layout/live-view.css";
 @import "./components/subtitle-context-menu.css";
 @import "./components/subtitle-analysis-popover.css";

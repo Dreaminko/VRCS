@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 
 use super::*;
-use crate::providers::{self, ALIBABA_PROVIDER, OPENAI_PROVIDER};
+use crate::providers::{self, CAPABILITY_SPEECH_TO_TEXT, SERVICE_FUN_ASR_REALTIME};
 
 impl VadConfig {
     pub fn validate(&self) -> Result<(), String> {
@@ -16,12 +16,7 @@ impl VadConfig {
 }
 
 const ASR_LANGUAGES: [&str; 8] = ["auto", "en", "ja", "zh", "ko", "es", "fr", "de"];
-const ASR_BACKENDS: [&str; 4] = [
-    "local_whisper",
-    "qwen_realtime",
-    "fun_asr_realtime",
-    "openai_realtime",
-];
+
 const ASR_DEVICES: [&str; 3] = ["auto", "cpu", "cuda"];
 const ASR_COMPUTE_TYPES: [&str; 1] = ["int8"];
 const CLOUD_FAILURE_POLICIES: [&str; 2] = ["reconnect", "local"];
@@ -110,7 +105,7 @@ fn validate_audio(audio: &AudioConfig, vad: &VadConfig) -> Result<(), String> {
 }
 
 fn validate_recognition_options(asr: &AsrConfig) -> Result<(), String> {
-    if !ASR_BACKENDS.contains(&asr.backend.as_str()) {
+    if asr.backend != "local_whisper" && providers::recognition_service(&asr.backend).is_none() {
         return Err(format!("Unsupported recognition backend: {}", asr.backend));
     }
     if !ASR_LANGUAGES.contains(&asr.language.as_str()) {
@@ -137,6 +132,12 @@ fn validate_recognition_options(asr: &AsrConfig) -> Result<(), String> {
             asr.cloud_failure_policy
         ));
     }
+    if asr.backend != "local_whisper" && !asr.service_settings.contains_key(&asr.backend) {
+        return Err(format!(
+            "Recognition service settings are missing for backend: {}",
+            asr.backend
+        ));
+    }
     Ok(())
 }
 
@@ -148,22 +149,28 @@ fn validate_osc(osc: &OscConfig) -> Result<(), String> {
 }
 
 fn validate_recognition_models(asr: &AsrConfig, vad: &VadConfig) -> Result<(), String> {
-    if asr.qwen.model != "qwen3-asr-flash-realtime" {
-        return Err(format!("Unsupported Qwen ASR model: {}", asr.qwen.model));
+    for (service_id, settings) in &asr.service_settings {
+        let (_, service) = providers::recognition_service(service_id)
+            .ok_or_else(|| format!("Unsupported recognition service settings: {service_id}"))?;
+        if !service.models.contains(&settings.model.as_str()) {
+            return Err(format!(
+                "Unsupported model for recognition service {service_id}: {}",
+                settings.model
+            ));
+        }
+        if let Some(max_chars) = service.context_max_chars {
+            if settings.context.chars().count() > max_chars {
+                return Err(format!(
+                    "Recognition service {service_id} context cannot exceed {max_chars} characters"
+                ));
+            }
+        } else if !settings.context.is_empty() {
+            return Err(format!(
+                "Recognition service {service_id} does not support context"
+            ));
+        }
     }
-    if asr.fun_asr.model != "fun-asr-realtime" {
-        return Err(format!("Unsupported Fun-ASR model: {}", asr.fun_asr.model));
-    }
-    if asr.fun_asr.context.chars().count() > 400 {
-        return Err("Fun-ASR context cannot exceed 400 characters".into());
-    }
-    if !["gpt-4o-mini-transcribe", "gpt-4o-transcribe"].contains(&asr.openai.model.as_str()) {
-        return Err(format!(
-            "Unsupported OpenAI ASR model: {}",
-            asr.openai.model
-        ));
-    }
-    if asr.backend == "fun_asr_realtime" && vad.silence_seconds < 0.2 {
+    if asr.backend == SERVICE_FUN_ASR_REALTIME && vad.silence_seconds < 0.2 {
         return Err("Fun-ASR realtime recognition requires at least 0.2 seconds of silence".into());
     }
     Ok(())
@@ -354,30 +361,27 @@ fn validate_api_profiles(asr: &AsrConfig) -> Result<(), String> {
         providers::validate_profile(profile)?;
     }
 
-    for (provider, active_id) in [
-        (
-            ALIBABA_PROVIDER,
-            asr.active_api_profiles.alibaba_cloud.as_deref(),
-        ),
-        (OPENAI_PROVIDER, asr.active_api_profiles.openai.as_deref()),
-    ] {
-        if let Some(active_id) = active_id {
-            let active_profile = asr
-                .api_profiles
-                .iter()
-                .find(|profile| profile.id == active_id && profile.provider == provider);
-            if active_profile.is_none() {
-                return Err(format!(
-                    "The active API profile does not match provider {provider}"
-                ));
-            }
-            if active_profile.is_some_and(|profile| !providers::supports_realtime_asr(profile)) {
-                return Err(
-                    "The active API profile does not support realtime speech recognition".into(),
-                );
-            }
-        }
+    if asr.backend == "local_whisper" {
+        return Ok(());
     }
+    let Some(active_id) = asr.active_profile_id.as_deref() else {
+        return Ok(());
+    };
+    let active_profile = asr
+        .api_profiles
+        .iter()
+        .find(|profile| profile.id == active_id)
+        .ok_or_else(|| "The active recognition API profile does not exist".to_string())?;
+    if !active_profile
+        .enabled_capabilities
+        .iter()
+        .any(|capability| capability == CAPABILITY_SPEECH_TO_TEXT)
+    {
+        return Err("The active API profile has not enabled speech recognition".into());
+    }
+    providers::resolve_profile_service(active_profile, &asr.backend).map_err(|error| {
+        format!("The active API profile does not match the recognition service: {error}")
+    })?;
     Ok(())
 }
 

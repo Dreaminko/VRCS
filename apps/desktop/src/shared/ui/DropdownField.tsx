@@ -18,6 +18,7 @@ export interface DropdownOption {
   label: string;
   description?: string;
   searchText?: string;
+  group?: string;
 }
 
 const FLOATING_MENU_GAP = 6;
@@ -204,23 +205,26 @@ export function DropdownField({ label, value, options, disabled = false, compact
 
   const optionList = (
     <>
-      {visibleOptions.map((option) => {
+      {visibleOptions.map((option, index) => {
         const current = option.value === value;
+        const showGroup = Boolean(option.group && option.group !== visibleOptions[index - 1]?.group);
         return (
-          <button
-            className={`dropdown-option ${current ? "selected" : ""}`}
-            key={option.value}
-            type="button"
-            role="option"
-            aria-selected={current}
-            onClick={() => choose(option.value)}
-          >
-            <span className="dropdown-option-copy">
-              <span>{option.label}</span>
-              {option.description && <small>{option.description}</small>}
-            </span>
-            {current && <Check size={15} />}
-          </button>
+          <div className="dropdown-option-entry" key={option.value}>
+            {showGroup && <div className="dropdown-option-group" role="presentation">{option.group}</div>}
+            <button
+              className={`dropdown-option ${current ? "selected" : ""}`}
+              type="button"
+              role="option"
+              aria-selected={current}
+              onClick={() => choose(option.value)}
+            >
+              <span className="dropdown-option-copy">
+                <span>{option.label}</span>
+                {option.description && <small>{option.description}</small>}
+              </span>
+              {current && <Check size={15} />}
+            </button>
+          </div>
         );
       })}
       {!visibleOptions.length && <p className="dropdown-empty">{emptyLabel}</p>}

@@ -23,11 +23,11 @@ mod validation_tests;
 pub use audio::{AudioConfig, MicrophoneConfig, OutputConfig, VadConfig};
 pub use integrations::{AnkiConfig, DictionaryConfig, OscConfig};
 pub use io::{load_config, save_config};
-pub use profile::{
-    ActiveApiProfiles, ApiAuthMode, ApiProfile, HttpHeaderConfig, DEFAULT_PROFILE_TIMEOUT_MS,
-};
+pub use profile::{ApiAuthMode, ApiProfile, HttpHeaderConfig, DEFAULT_PROFILE_TIMEOUT_MS};
 #[allow(unused_imports)]
-pub use recognition::{AsrConfig, FunAsrConfig, LocalAsrConfig, OpenAiAsrConfig, QwenAsrConfig};
+pub use recognition::{
+    default_service_settings, AsrConfig, LocalAsrConfig, RecognitionServiceSettings,
+};
 pub use runtime::{ExternalApiConfig, ServerConfig, StorageConfig, VrcxConfig};
 pub use schema::{AppConfig, SCHEMA_VERSION};
 #[allow(unused_imports)]

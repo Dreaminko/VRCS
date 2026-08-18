@@ -6,6 +6,9 @@ mod engine;
 mod manager;
 mod migration;
 mod model;
+mod openai_audio_transcriptions;
+mod segmented_upload;
+mod session;
 mod streaming;
 
 pub(crate) use crate::credentials::read_stored_credential;
@@ -17,9 +20,12 @@ pub(crate) use engine::{prepare_local_engine, AsrEngine};
 pub use engine::{AsrRuntimeState, AsrService};
 pub use manager::ModelManager;
 pub use model::is_supported_model;
+pub use session::{
+    spawn_cloud_recognition_session, test_cloud_service, validate_cloud_connection,
+    CloudRecognitionSession,
+};
 pub use streaming::{
-    spawn_streaming_session, streaming_test_backend, test_streaming_connection,
-    validate_cloud_connection, CloudEvent, SegmentationMode, StreamingSession,
+    streaming_test_backend, test_streaming_connection, CloudEvent, SegmentationMode,
 };
 
 use crate::config::AsrConfig;

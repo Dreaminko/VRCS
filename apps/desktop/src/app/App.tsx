@@ -32,12 +32,15 @@ import { useLearningWorkspace } from "../learning/hooks/useLearningWorkspace";
 import { useInterfaceScale } from "./useInterfaceScale";
 import { useVrchatMuteToast } from "./useVrchatMuteToast";
 import { SettingsPanel } from "../settings/SettingsPanel";
+import { useApiProfileViews } from "../settings/hooks/useApiProfileViews";
 import { useOnboardingFlow } from "../onboarding/useOnboardingFlow";
 import { useSubtitleLearningActions } from "../learning/hooks/useSubtitleLearningActions";
 import {
   supportsCustomTranslationLanguage,
-  translationLanguageCodesForProvider,
+  translationLanguageCodesForProfile,
 } from "../translation-languages";
+import { UpdateNotice } from "../updates/UpdateNotice";
+import { useAppUpdater } from "../updates/useAppUpdater";
 
 
 function App() {
@@ -45,6 +48,7 @@ function App() {
   const locale = i18n.resolvedLanguage ?? "en-US";
   const [page, setPage] = useState<Page>("live");
   const onboarding = useOnboardingFlow();
+  const updater = useAppUpdater(onboarding.status === "complete");
   const core = useCoreSession(page === "settings" || onboarding.status !== "complete");
   const {
     connection,
@@ -96,10 +100,13 @@ function App() {
     status: vrchatMuteStatus,
   });
   const compactWindow = useCompactWindow({ clearError, reportError });
-  const translationProvider = settings?.asr.api_profiles.find(
-    (profile) => profile.id === settings.translation.profile_id,
-  )?.provider;
-  const translationLanguageCodes = translationLanguageCodesForProvider(translationProvider);
+  const apiProfileCatalog = useApiProfileViews(
+    `${settings?.asr.active_profile_id ?? "local"}:${settings?.asr.backend ?? ""}:${settings?.translation.profile_id ?? ""}`,
+  );
+  const translationProfile = apiProfileCatalog.profiles.find(
+    (profile) => profile.id === settings?.translation.profile_id,
+  );
+  const translationLanguageCodes = translationLanguageCodesForProfile(translationProfile);
 
 
   const {
@@ -364,6 +371,8 @@ function App() {
                 connection={connection}
                 health={health}
                 settings={settings}
+                apiProfiles={apiProfileCatalog.profiles}
+                providerDefinitions={apiProfileCatalog.providerDefinitions}
               />
             )}
 
@@ -458,6 +467,7 @@ function App() {
                   if (health?.capture_requested) return;
                   onboarding.restart();
                 }}
+                updater={updater}
               />
             )}
           </main>
@@ -511,7 +521,7 @@ function App() {
           translationStale={chatbox.translationStale}
           oscEnabled={settings?.osc.enabled ?? false}
           languageCodes={translationLanguageCodes}
-          allowCustomLanguage={supportsCustomTranslationLanguage(translationProvider)}
+          allowCustomLanguage={supportsCustomTranslationLanguage(translationProfile)}
           onDraftChange={chatbox.setDraft}
           onTranslate={chatbox.translate}
           onSend={chatbox.send}
@@ -531,6 +541,10 @@ function App() {
         cudaRuntimeWarningOpen={cudaRuntimeWarning.open}
         onCloseVrchatWarning={closeVrchatWarning}
         onCloseCudaRuntimeWarning={cudaRuntimeWarning.close}
+      />
+      <UpdateNotice
+        updater={updater}
+        transcriptionRunning={health?.capture_requested ?? false}
       />
       {vrchatMuteToast && (
         <VrchatMuteToast

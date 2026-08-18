@@ -1,6 +1,13 @@
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 
-use super::{ActiveApiProfiles, ApiProfile};
+use crate::providers::{
+    SERVICE_FUN_ASR_REALTIME, SERVICE_GROQ_TRANSCRIPTION, SERVICE_OPENAI_REALTIME,
+    SERVICE_QWEN_REALTIME,
+};
+
+use super::ApiProfile;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AsrConfig {
@@ -11,15 +18,11 @@ pub struct AsrConfig {
     #[serde(default)]
     pub local: LocalAsrConfig,
     #[serde(default)]
-    pub qwen: QwenAsrConfig,
-    #[serde(default)]
-    pub fun_asr: FunAsrConfig,
-    #[serde(default)]
-    pub openai: OpenAiAsrConfig,
-    #[serde(default)]
     pub api_profiles: Vec<ApiProfile>,
     #[serde(default)]
-    pub active_api_profiles: ActiveApiProfiles,
+    pub active_profile_id: Option<String>,
+    #[serde(default = "default_service_settings")]
+    pub service_settings: BTreeMap<String, RecognitionServiceSettings>,
     #[serde(default = "default_cloud_failure_policy")]
     pub cloud_failure_policy: String,
 }
@@ -34,26 +37,12 @@ pub struct LocalAsrConfig {
     pub compute_type: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct QwenAsrConfig {
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RecognitionServiceSettings {
+    #[serde(default)]
+    pub model: String,
     #[serde(default)]
     pub context: String,
-    #[serde(default = "default_qwen_model")]
-    pub model: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct FunAsrConfig {
-    #[serde(default)]
-    pub context: String,
-    #[serde(default = "default_fun_asr_model")]
-    pub model: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct OpenAiAsrConfig {
-    #[serde(default = "default_openai_model")]
-    pub model: String,
 }
 
 pub(super) fn default_asr_model() -> String {
@@ -61,7 +50,7 @@ pub(super) fn default_asr_model() -> String {
 }
 
 fn default_asr_backend() -> String {
-    "qwen_realtime".into()
+    SERVICE_QWEN_REALTIME.into()
 }
 
 pub(super) fn default_language() -> String {
@@ -76,20 +65,44 @@ pub(super) fn default_compute_type() -> String {
     "int8".into()
 }
 
-fn default_qwen_model() -> String {
-    "qwen3-asr-flash-realtime".into()
-}
-
-fn default_openai_model() -> String {
-    "gpt-4o-mini-transcribe".into()
-}
-
-fn default_fun_asr_model() -> String {
-    "fun-asr-realtime".into()
-}
-
 fn default_cloud_failure_policy() -> String {
     "reconnect".into()
+}
+
+pub fn default_service_settings() -> BTreeMap<String, RecognitionServiceSettings> {
+    [
+        (
+            SERVICE_QWEN_REALTIME,
+            RecognitionServiceSettings {
+                model: "qwen3-asr-flash-realtime".into(),
+                context: String::new(),
+            },
+        ),
+        (
+            SERVICE_FUN_ASR_REALTIME,
+            RecognitionServiceSettings {
+                model: "fun-asr-realtime".into(),
+                context: String::new(),
+            },
+        ),
+        (
+            SERVICE_OPENAI_REALTIME,
+            RecognitionServiceSettings {
+                model: "gpt-4o-mini-transcribe".into(),
+                context: String::new(),
+            },
+        ),
+        (
+            SERVICE_GROQ_TRANSCRIPTION,
+            RecognitionServiceSettings {
+                model: "whisper-large-v3-turbo".into(),
+                context: String::new(),
+            },
+        ),
+    ]
+    .into_iter()
+    .map(|(service, settings)| (service.to_string(), settings))
+    .collect()
 }
 
 impl Default for AsrConfig {
@@ -98,11 +111,9 @@ impl Default for AsrConfig {
             backend: default_asr_backend(),
             language: default_language(),
             local: LocalAsrConfig::default(),
-            qwen: QwenAsrConfig::default(),
-            fun_asr: FunAsrConfig::default(),
-            openai: OpenAiAsrConfig::default(),
             api_profiles: Vec::new(),
-            active_api_profiles: ActiveApiProfiles::default(),
+            active_profile_id: None,
+            service_settings: default_service_settings(),
             cloud_failure_policy: default_cloud_failure_policy(),
         }
     }
@@ -118,28 +129,11 @@ impl Default for LocalAsrConfig {
     }
 }
 
-impl Default for QwenAsrConfig {
+impl Default for RecognitionServiceSettings {
     fn default() -> Self {
         Self {
+            model: String::new(),
             context: String::new(),
-            model: default_qwen_model(),
-        }
-    }
-}
-
-impl Default for FunAsrConfig {
-    fn default() -> Self {
-        Self {
-            context: String::new(),
-            model: default_fun_asr_model(),
-        }
-    }
-}
-
-impl Default for OpenAiAsrConfig {
-    fn default() -> Self {
-        Self {
-            model: default_openai_model(),
         }
     }
 }

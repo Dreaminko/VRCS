@@ -162,6 +162,7 @@ fn extract_raw_text(value: &Value) -> Option<String> {
                 .into_iter()
                 .flatten()
         })
+        .filter(|part| part.get("thought").and_then(Value::as_bool) != Some(true))
         .filter_map(|part| part.get("text").and_then(Value::as_str))
         .collect::<String>();
     Some(text).filter(|text| !text.is_empty())
@@ -253,7 +254,10 @@ mod tests {
     #[test]
     fn extracts_text_and_generate_models() {
         let response = json!({
-            "candidates": [{ "content": { "parts": [{ "text": "hello" }] } }]
+            "candidates": [{ "content": { "parts": [
+                { "text": "private reasoning", "thought": true },
+                { "text": "hello" }
+            ] } }]
         });
         assert_eq!(extract_text(&response).as_deref(), Some("hello"));
 

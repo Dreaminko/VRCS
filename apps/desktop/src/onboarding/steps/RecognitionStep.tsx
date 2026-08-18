@@ -1,7 +1,7 @@
 import { Check, ChevronRight, Cloud, HardDrive, KeyRound, RefreshCw, ShieldCheck } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
-import type { ApiProfileEditorDraft } from "../../settings/api/ApiProfileEditor";
+import type { ApiProfileEditorDraft } from "../../api-profile-draft";
 import { ApiProfileEditor } from "../../settings/api/ApiProfileEditor";
 import type { useAsrModels } from "../../settings/hooks/useAsrModels";
 import type { SettingsDraftController } from "../../settings/hooks/useSettingsDraft";
@@ -10,21 +10,22 @@ import { ModelManagerPanel } from "../../settings/recognition/ModelManagerPanel"
 import { Select } from "../../settings/SettingsControls";
 import { validComputeTypes } from "../../settings/settings-validation";
 import type { useApiProfiles } from "../../settings/useApiProfiles";
-import type { ApiProfileView, ApiProvider, AsrCapabilities } from "../../types";
-import type { CloudBackend, RecognitionMode } from "../onboarding-types";
+import type { ApiProfileView, AsrCapabilities, ProviderServiceDefinition } from "../../types";
+import type { RecognitionMode } from "../onboarding-types";
 
 type AsrModelsController = ReturnType<typeof useAsrModels>;
 type ApiProfilesController = ReturnType<typeof useApiProfiles>;
 
 export function RecognitionStep({
   recognitionMode,
-  cloudBackend,
   operationBusy,
-  provider,
   recognitionProfiles,
+  recognitionServices,
   selectedProfileId,
-  testedProfileId,
+  selectedServiceId,
+  testedSelectionId,
   selectedProfile,
+  selectedService,
   apiEditor,
   apiProfiles,
   draftController,
@@ -35,8 +36,8 @@ export function RecognitionStep({
   locale,
   busy,
   onSetRecognitionMode,
-  onSetCloudBackend,
   onSelectProfile,
+  onSelectService,
   onAddApiProfile,
   onChangeApiEditor,
   onSaveApiEditor,
@@ -44,13 +45,14 @@ export function RecognitionStep({
   onTestAndApplyCloud,
 }: {
   recognitionMode: RecognitionMode;
-  cloudBackend: CloudBackend;
   operationBusy: boolean;
-  provider: ApiProvider;
   recognitionProfiles: ApiProfileView[];
+  recognitionServices: ProviderServiceDefinition[];
   selectedProfileId: string;
-  testedProfileId: string;
+  selectedServiceId: string;
+  testedSelectionId: string;
   selectedProfile: ApiProfileView | undefined;
+  selectedService: ProviderServiceDefinition | undefined;
   apiEditor: ApiProfileEditorDraft | null;
   apiProfiles: ApiProfilesController;
   draftController: SettingsDraftController;
@@ -61,8 +63,8 @@ export function RecognitionStep({
   locale: string;
   busy: boolean;
   onSetRecognitionMode: (mode: RecognitionMode) => void;
-  onSetCloudBackend: (backend: CloudBackend) => void;
   onSelectProfile: (profileId: string) => void;
+  onSelectService: (serviceId: string) => void;
   onAddApiProfile: () => void;
   onChangeApiEditor: (draft: ApiProfileEditorDraft) => void;
   onSaveApiEditor: () => void;
@@ -70,6 +72,10 @@ export function RecognitionStep({
   onTestAndApplyCloud: () => void;
 }) {
   const { t } = useTranslation();
+  const selectionId = selectedProfile && selectedService
+    ? `${selectedProfile.id}:${selectedService.id}`
+    : "";
+  const connectionReady = Boolean(selectionId && testedSelectionId === selectionId);
 
   return (
     <div className="onboarding-step-content">
@@ -86,17 +92,6 @@ export function RecognitionStep({
       {recognitionMode === "cloud" ? (
         <div className="onboarding-config-panel">
           <div className="onboarding-panel-heading"><KeyRound size={18} /><div><strong>{t("onboarding.recognition.cloudSetup")}</strong><small>{t("settings.apiManagement.securityNotice")}</small></div></div>
-          <Select
-            label={t("settings.recognition.cloudService")}
-            value={cloudBackend}
-            options={[
-              { value: "qwen_realtime", label: "Alibaba Cloud · Qwen3 ASR" },
-              { value: "fun_asr_realtime", label: "Alibaba Cloud · Fun-ASR" },
-              { value: "openai_realtime", label: "OpenAI Realtime" },
-            ]}
-            disabled={operationBusy}
-            onChange={(value) => onSetCloudBackend(value as CloudBackend)}
-          />
           {recognitionProfiles.length > 0 && !apiEditor && (
             <div className="onboarding-profile-select">
               <Select
@@ -114,8 +109,23 @@ export function RecognitionStep({
               </button>
             </div>
           )}
+          {selectedProfile && recognitionServices.length > 0 && !apiEditor && (
+            <Select
+              label={t("settings.recognition.cloudService")}
+              value={selectedServiceId}
+              options={recognitionServices.map((service) => ({
+                value: service.id,
+                label: service.display_name,
+                description: service.recognition_transport
+                  ? t(`settings.recognition.transports.${service.recognition_transport}`)
+                  : undefined,
+              }))}
+              disabled={operationBusy}
+              onChange={onSelectService}
+            />
+          )}
           {!apiEditor && recognitionProfiles.length === 0 && (
-            <button className="onboarding-empty-action" type="button" disabled={operationBusy || apiProfiles.loading} onClick={onAddApiProfile}>
+            <button className="onboarding-empty-action" type="button" disabled={operationBusy || apiProfiles.loading || apiProfiles.providerDefinitions.length === 0} onClick={onAddApiProfile}>
               <KeyRound size={19} /><span><strong>{t("onboarding.recognition.addApi")}</strong><small>{t("onboarding.recognition.addApiDescription")}</small></span><ChevronRight size={18} />
             </button>
           )}
@@ -123,23 +133,32 @@ export function RecognitionStep({
             <ApiProfileEditor
               draft={apiEditor}
               saving={apiProfiles.busy === "create"}
-              providers={[provider]}
-              purposes={["asr", "shared"]}
+              providerDefinitions={apiProfiles.providerDefinitions}
               requireCredential
+              requiredCapability="speech_to_text"
               onChange={onChangeApiEditor}
               onSave={onSaveApiEditor}
               onCancel={onCancelApiEditor}
             />
           )}
-          {selectedProfile && !apiEditor && (
-            <div className={`onboarding-connection ${testedProfileId === selectedProfile.id ? "ready" : ""}`}>
-              <span className="recognition-runtime-dot" />
-              <div><strong>{selectedProfile.name}</strong><small>{testedProfileId === selectedProfile.id ? t("onboarding.recognition.connectionReady") : t("onboarding.recognition.testRequired")}</small></div>
-              <button className="primary-button" type="button" disabled={operationBusy || !selectedProfile.credential.configured} onClick={onTestAndApplyCloud}>
-                {busy ? <RefreshCw className="spin" size={15} /> : <ShieldCheck size={15} />}
-                {t("settings.apiManagement.testAsr")}
-              </button>
-            </div>
+          {selectedProfile && selectedService && !apiEditor && (
+            <>
+              {selectedService.recognition_transport === "segmented_upload" && (
+                <div className="cloud-transport-hint" role="note">
+                  <strong>{t("settings.recognition.segmentedUpload.title")}</strong>
+                  <small>{t("settings.recognition.segmentedUpload.description")}</small>
+                  {!selectedService.partial_results && <small>{t("settings.recognition.segmentedUpload.noPartial")}</small>}
+                </div>
+              )}
+              <div className={`onboarding-connection ${connectionReady ? "ready" : ""}`}>
+                <span className="recognition-runtime-dot" />
+                <div><strong>{selectedService.display_name}</strong><small>{connectionReady ? t("onboarding.recognition.connectionReady") : t("onboarding.recognition.testRequired")}</small></div>
+                <button className="primary-button" type="button" disabled={operationBusy || !selectedProfile.credential.configured} onClick={onTestAndApplyCloud}>
+                  {busy ? <RefreshCw className="spin" size={15} /> : <ShieldCheck size={15} />}
+                  {t("settings.apiManagement.testAsr")}
+                </button>
+              </div>
+            </>
           )}
           {apiProfiles.message && <p className="onboarding-feedback" role="status">{apiProfiles.message}</p>}
         </div>

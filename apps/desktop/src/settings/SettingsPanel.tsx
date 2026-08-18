@@ -31,6 +31,7 @@ import { SystemSettingsSection } from "./sections/SystemSettingsSection";
 import { TranslationSettingsSection } from "./sections/TranslationSettingsSection";
 import { VrOverlaySettingsSection } from "./sections/VrOverlaySettingsSection";
 import type { SettingsCategory } from "./settings-types";
+import type { AppUpdaterState } from "../updates/useAppUpdater";
 
 export function SettingsPanel({
   settings,
@@ -53,6 +54,7 @@ export function SettingsPanel({
   onSave,
   onTestOsc,
   onStartOnboarding,
+  updater,
 }: {
   settings: Settings;
   health: Health | null;
@@ -77,11 +79,12 @@ export function SettingsPanel({
   onSave: (value: Settings) => Promise<Settings>;
   onTestOsc: () => Promise<void>;
   onStartOnboarding: () => void;
+  updater: AppUpdaterState;
 }) {
   const { t, i18n } = useTranslation();
   const locale = i18n.resolvedLanguage ?? "en-US";
   const [activeCategory, setActiveCategory] = useState<SettingsCategory>("system");
-  const apiProfileViews = useApiProfileViews(settings.asr.api_profiles);
+  const apiProfileCatalog = useApiProfileViews(`${settings.asr.active_profile_id ?? "local"}:${settings.asr.backend}`);
   const draftController = useSettingsDraft(settings, onSave);
   const desktop = useDesktopPreferences();
   const asr = useAsrModels({
@@ -91,6 +94,8 @@ export function SettingsPanel({
     asrCapabilities,
     onModelsChanged,
     draftController,
+    apiProfiles: apiProfileCatalog.profiles,
+    providerDefinitions: apiProfileCatalog.providerDefinitions,
   });
   const anki = useAnkiSettings({
     active: activeCategory === "connections",
@@ -146,6 +151,7 @@ export function SettingsPanel({
           draft={draft}
           saveState={saveState}
           applySettings={applySettings}
+          updater={updater}
         />
       )}
 
@@ -153,7 +159,8 @@ export function SettingsPanel({
         <RecognitionSettingsSection
           locale={locale}
           draft={draft}
-          apiProfiles={apiProfileViews}
+          apiProfiles={apiProfileCatalog.profiles}
+          providerDefinitions={apiProfileCatalog.providerDefinitions}
           modelStatus={modelStatus}
           status={{
             capabilities: asrCapabilities,
@@ -174,6 +181,7 @@ export function SettingsPanel({
           actions={{
             updateAsr: asr.updateAsr,
             updateRecognitionSource: asr.updateRecognitionSource,
+            updateRecognitionService: asr.updateRecognitionService,
             updateLocalAsr: asr.updateLocalAsr,
             updateVad: asr.updateVad,
             loadModels: asr.loadModels,
@@ -208,7 +216,7 @@ export function SettingsPanel({
       {activeCategory === "translation" && (
         <TranslationSettingsSection
           draft={draft}
-          apiProfiles={apiProfileViews}
+          apiProfiles={apiProfileCatalog.profiles}
           saveState={saveState}
           applySettings={applySettings}
         />

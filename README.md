@@ -132,6 +132,8 @@ cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml
 
 ## Build a release
 
+Release builds require `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_UPDATER_PUBLIC_KEY`; set `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` when the private key is encrypted. Keep the private key outside the repository and back it up securely.
+
 Build the standard Windows installer:
 
 ```powershell

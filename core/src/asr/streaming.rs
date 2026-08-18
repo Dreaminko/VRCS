@@ -9,7 +9,13 @@ use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
 
 use crate::config::{ApiProfile, AsrConfig};
-use crate::providers::{ALIBABA_PROVIDER, OPENAI_PROVIDER};
+use crate::providers::{self, RecognitionTransport};
+
+#[cfg(test)]
+use crate::providers::{
+    ALIBABA_PROVIDER, CAPABILITY_SPEECH_TO_TEXT, OPENAI_PROVIDER, SERVICE_FUN_ASR_REALTIME,
+    SERVICE_OPENAI_REALTIME, SERVICE_QWEN_REALTIME,
+};
 
 use super::read_credential;
 
@@ -99,23 +105,23 @@ impl StreamingSession {
     }
 }
 
-fn active_profile<'a>(config: &'a AsrConfig, provider: &str) -> Result<&'a ApiProfile, String> {
-    let active_id = match provider {
-        ALIBABA_PROVIDER => config.active_api_profiles.alibaba_cloud.as_deref(),
-        OPENAI_PROVIDER => config.active_api_profiles.openai.as_deref(),
-        other => return Err(format!("Unsupported API provider: {other}")),
-    }
-    .ok_or_else(|| format!("No API profile is selected for {provider}"))?;
-    config
+fn active_profile(config: &AsrConfig) -> Result<&ApiProfile, String> {
+    let active_id = config
+        .active_profile_id
+        .as_deref()
+        .ok_or_else(|| format!("No API profile is selected for service {}", config.backend))?;
+    let profile = config
         .api_profiles
         .iter()
-        .find(|profile| profile.id == active_id && profile.provider == provider)
-        .ok_or_else(|| format!("The active API profile for {provider} does not exist"))
+        .find(|profile| profile.id == active_id)
+        .ok_or_else(|| "The active API profile does not exist".to_string())?;
+    providers::resolve_profile_service(profile, &config.backend)?;
+    Ok(profile)
 }
 
 pub fn validate_cloud_connection(config: &AsrConfig) -> Result<(), String> {
     let provider = Provider::from_config(config)?;
-    let profile = active_profile(config, provider.api_provider())?;
+    let profile = active_profile(config)?;
     let key = read_credential(&profile.id, &profile.provider)?
         .ok_or_else(|| format!("API key is not configured for {}", profile.name))?;
     provider.build_request(config, profile, &key).map(|_| ())
@@ -126,7 +132,7 @@ pub async fn spawn_streaming_session(
     silence_seconds: f64,
 ) -> Result<StreamingSession, String> {
     let provider = Provider::from_config(&config)?;
-    let profile = active_profile(&config, provider.api_provider())?.clone();
+    let profile = active_profile(&config)?.clone();
     let key = read_credential(&profile.id, &profile.provider)?
         .ok_or_else(|| format!("API key is not configured for {}", profile.name))?;
     let (socket, task_id) =
@@ -159,48 +165,65 @@ pub async fn spawn_streaming_session(
     })
 }
 
-fn resolve_test_backend(
-    provider: &str,
-    configured_backend: &str,
-    requested_backend: Option<&str>,
+fn resolve_test_service(
+    profile: &ApiProfile,
+    configured_service: &str,
+    requested_service: Option<&str>,
 ) -> Result<String, String> {
-    match provider {
-        ALIBABA_PROVIDER => match requested_backend {
-            Some("qwen_realtime") => Ok("qwen_realtime".into()),
-            Some("fun_asr_realtime") => Ok("fun_asr_realtime".into()),
-            Some(other) => Err(format!(
-                "Backend {other} is not supported by Alibaba Cloud speech recognition"
-            )),
-            None if configured_backend == "fun_asr_realtime" => Ok("fun_asr_realtime".into()),
-            None => Ok("qwen_realtime".into()),
-        },
-        OPENAI_PROVIDER => match requested_backend {
-            Some("openai_realtime") | None => Ok("openai_realtime".into()),
-            Some(other) => Err(format!(
-                "Backend {other} is not supported by OpenAI speech recognition"
-            )),
-        },
-        other => Err(format!("Unsupported cloud recognition service: {other}")),
+    if let Some(service_id) = requested_service {
+        let resolved = providers::resolve_profile_service(profile, service_id)?;
+        if resolved.service.recognition_transport != Some(RecognitionTransport::RealtimeStream) {
+            return Err(format!(
+                "Service {service_id} is not a realtime cloud recognition service"
+            ));
+        }
+        Provider::from_service(service_id)?;
+        return Ok(service_id.to_owned());
     }
+
+    if providers::resolve_profile_service(profile, configured_service).is_ok_and(|resolved| {
+        resolved.service.recognition_transport == Some(RecognitionTransport::RealtimeStream)
+            && Provider::from_service(configured_service).is_ok()
+    }) {
+        return Ok(configured_service.to_owned());
+    }
+
+    let definition = providers::definition(&profile.provider)
+        .ok_or_else(|| format!("Unsupported API provider: {}", profile.provider))?;
+    definition
+        .services
+        .iter()
+        .find(|service| {
+            service.recognition_transport == Some(RecognitionTransport::RealtimeStream)
+                && Provider::from_service(service.id).is_ok()
+                && providers::resolve_profile_service(profile, service.id).is_ok()
+        })
+        .map(|service| service.id.to_owned())
+        .ok_or_else(|| {
+            format!(
+                "API profile {} does not support realtime speech recognition",
+                profile.id
+            )
+        })
 }
 
 pub fn streaming_test_backend(
     config: &AsrConfig,
     profile_id: &str,
-    requested_backend: Option<&str>,
+    service_id: Option<&str>,
 ) -> Result<String, String> {
     let profile = config
         .api_profiles
         .iter()
         .find(|profile| profile.id == profile_id)
         .ok_or_else(|| "API profile does not exist".to_string())?;
-    resolve_test_backend(&profile.provider, &config.backend, requested_backend)
+    resolve_test_service(profile, &config.backend, service_id)
 }
 
 pub async fn test_streaming_connection(
     config: &AsrConfig,
     profile_id: &str,
-    requested_backend: Option<&str>,
+    service_id: Option<&str>,
 ) -> Result<(), String> {
     let profile = config
         .api_profiles
@@ -210,7 +233,8 @@ pub async fn test_streaming_connection(
     let key = read_credential(&profile.id, &profile.provider)?
         .ok_or_else(|| format!("API key is not configured for {}", profile.name))?;
     let mut test_config = config.clone();
-    test_config.backend = streaming_test_backend(config, profile_id, requested_backend)?;
+    test_config.backend = streaming_test_backend(config, profile_id, service_id)?;
+    test_config.active_profile_id = Some(profile.id.clone());
     let provider = Provider::from_config(&test_config)?;
     let (mut socket, task_id) =
         connect_initialized(provider, &test_config, profile, 0.4, &key).await?;
@@ -402,7 +426,7 @@ async fn connect_initialized(
     .await
     .map_err(|_| "Timed out while connecting to cloud recognition service".to_string())??;
     let task_id = provider.task_id();
-    let update = provider.start_message(config, silence_seconds, task_id.as_deref());
+    let update = provider.start_message(config, silence_seconds, task_id.as_deref())?;
     socket
         .send(Message::Text(update.to_string().into()))
         .await
@@ -548,11 +572,14 @@ fn session_update(config: &AsrConfig, silence_seconds: f64) -> Value {
     Provider::from_config(config)
         .unwrap()
         .start_message(config, silence_seconds, None)
+        .unwrap()
 }
 
 #[cfg(test)]
 fn fun_run_task(config: &AsrConfig, silence_seconds: f64, task_id: &str) -> Value {
-    Provider::FunAsr.start_message(config, silence_seconds, Some(task_id))
+    Provider::FunAsr
+        .start_message(config, silence_seconds, Some(task_id))
+        .unwrap()
 }
 
 #[cfg(test)]
@@ -577,46 +604,88 @@ mod tests {
         normalize_event(Provider::from_config(config)?, config, message, state)
     }
 
-    #[test]
-    fn explicit_test_backend_selects_only_compatible_services() {
-        assert_eq!(
-            resolve_test_backend(ALIBABA_PROVIDER, "qwen_realtime", Some("fun_asr_realtime"))
-                .unwrap(),
-            "fun_asr_realtime"
-        );
-        assert_eq!(
-            resolve_test_backend(ALIBABA_PROVIDER, "fun_asr_realtime", Some("qwen_realtime"))
-                .unwrap(),
-            "qwen_realtime"
-        );
-        assert_eq!(
-            resolve_test_backend(OPENAI_PROVIDER, "local_whisper", Some("openai_realtime"))
-                .unwrap(),
-            "openai_realtime"
-        );
-        assert!(
-            resolve_test_backend(ALIBABA_PROVIDER, "qwen_realtime", Some("openai_realtime"))
-                .is_err()
-        );
-        assert!(
-            resolve_test_backend(OPENAI_PROVIDER, "openai_realtime", Some("fun_asr_realtime"))
-                .is_err()
-        );
+    fn asr_profile(provider: &str) -> ApiProfile {
+        ApiProfile {
+            id: "profile".into(),
+            name: "Test".into(),
+            provider: provider.into(),
+            enabled_capabilities: vec![CAPABILITY_SPEECH_TO_TEXT.into()],
+            ..ApiProfile::default()
+        }
     }
 
     #[test]
-    fn test_backend_falls_back_to_existing_provider_behavior() {
+    fn active_profile_must_own_the_selected_service() {
+        let mut config = AsrConfig {
+            backend: SERVICE_QWEN_REALTIME.into(),
+            active_profile_id: Some("profile".into()),
+            api_profiles: vec![asr_profile(ALIBABA_PROVIDER)],
+            ..AsrConfig::default()
+        };
+        assert_eq!(active_profile(&config).unwrap().id, "profile");
+
+        config.api_profiles[0].provider = OPENAI_PROVIDER.into();
+        assert!(active_profile(&config).is_err());
+    }
+
+    #[test]
+    fn explicit_test_service_selects_any_compatible_realtime_service() {
+        let alibaba = asr_profile(ALIBABA_PROVIDER);
         assert_eq!(
-            resolve_test_backend(ALIBABA_PROVIDER, "fun_asr_realtime", None).unwrap(),
-            "fun_asr_realtime"
+            resolve_test_service(
+                &alibaba,
+                SERVICE_QWEN_REALTIME,
+                Some(SERVICE_FUN_ASR_REALTIME)
+            )
+            .unwrap(),
+            SERVICE_FUN_ASR_REALTIME
         );
         assert_eq!(
-            resolve_test_backend(ALIBABA_PROVIDER, "openai_realtime", None).unwrap(),
-            "qwen_realtime"
+            resolve_test_service(
+                &alibaba,
+                SERVICE_FUN_ASR_REALTIME,
+                Some(SERVICE_QWEN_REALTIME)
+            )
+            .unwrap(),
+            SERVICE_QWEN_REALTIME
+        );
+
+        let openai = asr_profile(OPENAI_PROVIDER);
+        assert_eq!(
+            resolve_test_service(&openai, "local_whisper", Some(SERVICE_OPENAI_REALTIME)).unwrap(),
+            SERVICE_OPENAI_REALTIME
+        );
+        assert!(resolve_test_service(
+            &alibaba,
+            SERVICE_QWEN_REALTIME,
+            Some(SERVICE_OPENAI_REALTIME)
+        )
+        .is_err());
+        assert!(resolve_test_service(
+            &openai,
+            SERVICE_OPENAI_REALTIME,
+            Some(SERVICE_FUN_ASR_REALTIME)
+        )
+        .is_err());
+        assert!(Provider::from_service(providers::SERVICE_GROQ_TRANSCRIPTION).is_err());
+    }
+
+    #[test]
+    fn test_service_falls_back_to_a_realtime_service_on_the_profile() {
+        let alibaba = asr_profile(ALIBABA_PROVIDER);
+        assert_eq!(
+            resolve_test_service(&alibaba, SERVICE_FUN_ASR_REALTIME, None).unwrap(),
+            SERVICE_FUN_ASR_REALTIME
         );
         assert_eq!(
-            resolve_test_backend(OPENAI_PROVIDER, "qwen_realtime", None).unwrap(),
-            "openai_realtime"
+            resolve_test_service(&alibaba, SERVICE_OPENAI_REALTIME, None).unwrap(),
+            SERVICE_QWEN_REALTIME
+        );
+
+        let openai = asr_profile(OPENAI_PROVIDER);
+        assert_eq!(
+            resolve_test_service(&openai, SERVICE_QWEN_REALTIME, None).unwrap(),
+            SERVICE_OPENAI_REALTIME
         );
     }
 
@@ -976,7 +1045,10 @@ mod tests {
             ..AsrConfig::default()
         };
         qwen.language = "auto".into();
-        qwen.qwen.context = "VRChat, VRCX".into();
+        qwen.service_settings
+            .get_mut(SERVICE_QWEN_REALTIME)
+            .unwrap()
+            .context = "VRChat, VRCX".into();
         let qwen_update = session_update(&qwen, 0.7);
         assert_eq!(qwen_update["session"]["sample_rate"], 16_000);
         assert!(qwen_update["session"]["turn_detection"].is_null());
@@ -988,10 +1060,15 @@ mod tests {
             "VRChat, VRCX"
         );
 
-        let openai = AsrConfig {
+        let mut openai = AsrConfig {
             backend: "openai_realtime".into(),
             ..AsrConfig::default()
         };
+        openai
+            .service_settings
+            .get_mut(SERVICE_OPENAI_REALTIME)
+            .unwrap()
+            .model = "gpt-custom-transcribe".into();
         let openai_update = session_update(&openai, 0.4);
         assert_eq!(
             openai_update["session"]["audio"]["input"]["format"]["rate"],
@@ -999,7 +1076,7 @@ mod tests {
         );
         assert_eq!(
             openai_update["session"]["audio"]["input"]["transcription"]["model"],
-            "gpt-4o-mini-transcribe"
+            "gpt-custom-transcribe"
         );
         assert!(openai_update["session"]["audio"]["input"]["turn_detection"].is_null());
     }
@@ -1065,10 +1142,15 @@ mod tests {
 
     #[test]
     fn qwen_request_uses_workspace_endpoint_and_realtime_headers() {
-        let config = AsrConfig {
+        let mut config = AsrConfig {
             backend: "qwen_realtime".into(),
             ..AsrConfig::default()
         };
+        config
+            .service_settings
+            .get_mut(SERVICE_QWEN_REALTIME)
+            .unwrap()
+            .model = "qwen-custom-realtime".into();
         let profile = ApiProfile {
             id: "profile".into(),
             name: "Test".into(),
@@ -1076,11 +1158,10 @@ mod tests {
             region: Some("china_beijing".into()),
             workspace_id: Some("ws-example".into()),
             base_url: None,
-            purpose: None,
             ..ApiProfile::default()
         };
         let request = build_request(&config, &profile, "sk-test").unwrap();
-        assert_eq!(request.uri().to_string(), "wss://ws-example.cn-beijing.maas.aliyuncs.com/api-ws/v1/realtime?model=qwen3-asr-flash-realtime");
+        assert_eq!(request.uri().to_string(), "wss://ws-example.cn-beijing.maas.aliyuncs.com/api-ws/v1/realtime?model=qwen-custom-realtime");
         assert_eq!(request.headers()["Authorization"], "Bearer sk-test");
         assert_eq!(request.headers()["OpenAI-Beta"], "realtime=v1");
     }
@@ -1098,7 +1179,6 @@ mod tests {
             region: Some("china_beijing".into()),
             workspace_id: Some(String::new()),
             base_url: None,
-            purpose: None,
             ..ApiProfile::default()
         };
         assert_eq!(
@@ -1120,7 +1200,6 @@ mod tests {
             region: Some("singapore".into()),
             workspace_id: Some("ws-example".into()),
             base_url: None,
-            purpose: None,
             ..ApiProfile::default()
         };
         let request = build_request(&config, &profile, "sk-test").unwrap();
@@ -1139,11 +1218,16 @@ mod tests {
             language: "zh".into(),
             ..AsrConfig::default()
         };
-        config.fun_asr.context = "VRChat 专有名词".into();
+        let settings = config
+            .service_settings
+            .get_mut(SERVICE_FUN_ASR_REALTIME)
+            .unwrap();
+        settings.model = "fun-asr-custom".into();
+        settings.context = "VRChat 专有名词".into();
         let task = fun_run_task(&config, 0.7, "task-1");
         assert_eq!(task["header"]["action"], "run-task");
         assert_eq!(task["header"]["streaming"], "duplex");
-        assert_eq!(task["payload"]["model"], "fun-asr-realtime");
+        assert_eq!(task["payload"]["model"], "fun-asr-custom");
         assert_eq!(task["payload"]["parameters"]["format"], "pcm");
         assert_eq!(task["payload"]["parameters"]["sample_rate"], 16_000);
         assert_eq!(task["payload"]["parameters"]["max_sentence_silence"], 700);

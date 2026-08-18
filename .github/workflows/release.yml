@@ -10,7 +10,9 @@ permissions:
 
 jobs:
   windows-x64:
-    runs-on: windows-latest
+    runs-on: windows-2022
+    env:
+      CMAKE_GENERATOR: Visual Studio 17 2022
     steps:
       - uses: actions/checkout@v7
 
@@ -22,11 +24,34 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
 
       - name: Install CUDA Toolkit
-        uses: Jimver/cuda-toolkit@v0.2.35
+        uses: Jimver/cuda-toolkit@v0.2.36
         with:
           cuda: "12.4.1"
           method: network
-          sub-packages: '["nvcc", "cudart", "cublas"]'
+          sub-packages: '["nvcc", "cudart", "cublas", "visual_studio_integration"]'
+
+      - name: Verify CUDA toolchain
+        shell: pwsh
+        run: |
+          nvcc --version
+          if ($LASTEXITCODE -ne 0) {
+            throw "nvcc is unavailable"
+          }
+          if (-not $env:CUDA_PATH) {
+            throw "CUDA_PATH is not set"
+          }
+
+          Write-Host "CUDA_PATH=$env:CUDA_PATH"
+          $buildCustomizations = Get-ChildItem `
+            "C:\Program Files\Microsoft Visual Studio\2022\*\MSBuild\Microsoft\VC\v170\BuildCustomizations" `
+            -Filter "CUDA 12.4.props" `
+            -ErrorAction SilentlyContinue
+          if (-not $buildCustomizations) {
+            throw "CUDA 12.4 Visual Studio integration was not installed"
+          }
+          $buildCustomizations | ForEach-Object {
+            Write-Host "Found CUDA build customization: $($_.FullName)"
+          }
 
       - uses: Swatinem/rust-cache@v2
         with:
@@ -54,11 +79,15 @@ jobs:
 
       - name: Build standard and CUDA release packages
         shell: pwsh
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          TAURI_UPDATER_PUBLIC_KEY: ${{ secrets.TAURI_UPDATER_PUBLIC_KEY }}
         run: |
           $version = (Get-Content -LiteralPath "apps/desktop/src-tauri/tauri.conf.json" -Raw | ConvertFrom-Json).version
           .\scripts\build-release.ps1 -Version $version -SkipInstall -SkipTests -IncludeCuda
 
-      - name: Create draft GitHub release
+      - name: Ensure GitHub release exists
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -73,17 +102,19 @@ jobs:
           - Whisper models are downloaded only when local recognition is used.
           "@
 
-          gh release view $tag *> $null
+          $releaseJson = gh release view $tag --json isDraft 2> $null
           if ($LASTEXITCODE -eq 0) {
-            gh release edit $tag --draft --title "VRCS $tag" --notes $notes
+            $isDraft = ($releaseJson | ConvertFrom-Json).isDraft
+            Write-Host $(if ($isDraft) { "Updating existing draft release $tag" } else { "Updating published release $tag without changing its state" })
+            gh release edit $tag --title "VRCS $tag" --notes $notes
           } else {
             gh release create $tag --draft --title "VRCS $tag" --notes $notes
           }
           if ($LASTEXITCODE -ne 0) {
-            throw "Failed to create or update draft release $tag"
+            throw "Failed to create or update release $tag"
           }
 
-      - name: Upload release packages and SHA-256 checksums
+      - name: Upload release packages, updater signatures, and checksums
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -91,9 +122,12 @@ jobs:
           $version = "${{ github.ref_name }}"
           $assets = @(
             "release-artifacts/VRCS-$version-windows-x64.exe",
+            "release-artifacts/VRCS-$version-windows-x64.exe.sig",
             "release-artifacts/VRCS-$version-windows-x64.exe.sha256",
             "release-artifacts/VRCS-$version-windows-x64-CUDA.exe",
-            "release-artifacts/VRCS-$version-windows-x64-CUDA.exe.sha256"
+            "release-artifacts/VRCS-$version-windows-x64-CUDA.exe.sig",
+            "release-artifacts/VRCS-$version-windows-x64-CUDA.exe.sha256",
+            "release-artifacts/latest.json"
           )
           gh release upload "${{ github.ref_name }}" @assets --clobber
           if ($LASTEXITCODE -ne 0) {

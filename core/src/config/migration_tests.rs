@@ -1,6 +1,11 @@
 use super::migration::config_from_value;
 use super::*;
-use crate::providers::{self, API_PURPOSE_LLM, OPENAI_COMPATIBLE_PROVIDER};
+use crate::providers::{
+    self, CAPABILITY_SPEECH_TO_TEXT, CAPABILITY_TEXT_GENERATION, CAPABILITY_TEXT_TRANSLATION,
+    DEEPSEEK_PROVIDER, GROQ_PROVIDER, LM_STUDIO_PROVIDER, OLLAMA_PROVIDER,
+    OPENAI_COMPATIBLE_PROVIDER, OPENROUTER_PROVIDER, SERVICE_FUN_ASR_REALTIME,
+    SERVICE_GROQ_TRANSCRIPTION, SERVICE_OPENAI_REALTIME, SERVICE_QWEN_REALTIME,
+};
 
 #[test]
 fn schema_v3_without_model_directory_uses_the_default() {
@@ -90,7 +95,7 @@ fn migrates_v11_profile_transport_defaults() {
 }
 
 #[test]
-fn migrates_v15_official_compatible_profiles_to_their_presets() {
+fn migrates_v15_compatible_profiles_to_independent_brands() {
     let mut raw = serde_json::to_value(AppConfig::default()).unwrap();
     raw["schema_version"] = serde_json::json!(15);
     raw["asr"]["api_profiles"] = serde_json::json!([
@@ -99,6 +104,21 @@ fn migrates_v15_official_compatible_profiles_to_their_presets() {
             "name": "DeepSeek",
             "provider": "openai_compatible",
             "base_url": "https://api.deepseek.com/v1/",
+            "purpose": "llm"
+        },
+        {
+            "id": "groq",
+            "name": "Groq",
+            "provider": "openai_compatible",
+            "preset_id": "groq",
+            "base_url": "https://example.com/v1",
+            "purpose": "llm"
+        },
+        {
+            "id": "openrouter",
+            "name": "OpenRouter",
+            "provider": "openai_compatible",
+            "base_url": "https://openrouter.ai/api/v1",
             "purpose": "llm"
         },
         {
@@ -126,19 +146,31 @@ fn migrates_v15_official_compatible_profiles_to_their_presets() {
 
     let config = config_from_value(&raw).unwrap();
 
+    assert_eq!(config.asr.api_profiles[0].provider, DEEPSEEK_PROVIDER);
+    assert_eq!(config.asr.api_profiles[1].provider, GROQ_PROVIDER);
+    assert_eq!(config.asr.api_profiles[2].provider, OPENROUTER_PROVIDER);
     assert_eq!(
-        config.asr.api_profiles[0].preset_id.as_deref(),
-        Some("deepseek")
+        config.asr.api_profiles[3].provider,
+        OPENAI_COMPATIBLE_PROVIDER
     );
-    assert!(config.asr.api_profiles[1].preset_id.is_none());
-    for (profile, preset) in config.asr.api_profiles[2..]
+    for (profile, provider) in config.asr.api_profiles[4..]
         .iter()
-        .zip(["lm_studio", "ollama"])
+        .zip([LM_STUDIO_PROVIDER, OLLAMA_PROVIDER])
     {
-        assert_eq!(profile.preset_id.as_deref(), Some(preset));
+        assert_eq!(profile.provider, provider);
         assert_eq!(profile.auth_mode, ApiAuthMode::None);
         assert!(profile.is_local);
     }
+    let groq = &config.asr.api_profiles[1];
+    assert_eq!(groq.id, "groq");
+    assert_eq!(
+        groq.enabled_capabilities,
+        [CAPABILITY_TEXT_GENERATION, CAPABILITY_TEXT_TRANSLATION]
+    );
+    assert!(!groq
+        .enabled_capabilities
+        .iter()
+        .any(|capability| capability == CAPABILITY_SPEECH_TO_TEXT));
 }
 
 #[test]
@@ -265,7 +297,7 @@ fn older_migrations_apply_the_glossary_source_backfill() {
 }
 
 #[test]
-fn migrates_v10_openai_base_urls_to_llm_only_compatible_profiles() {
+fn migrates_v10_openai_base_urls_to_llm_only_branded_profiles() {
     let config = config_from_value(&serde_json::json!({
         "schema_version": 10,
         "asr": {
@@ -281,9 +313,8 @@ fn migrates_v10_openai_base_urls_to_llm_only_compatible_profiles() {
     .unwrap();
 
     let profile = &config.asr.api_profiles[0];
-    assert_eq!(profile.provider, OPENAI_COMPATIBLE_PROVIDER);
-    assert_eq!(profile.preset_id.as_deref(), Some("deepseek"));
-    assert_eq!(providers::effective_purpose(profile), API_PURPOSE_LLM);
+    assert_eq!(profile.provider, DEEPSEEK_PROVIDER);
+    assert_eq!(providers::effective_purpose(profile), "llm");
     assert!(!providers::supports_realtime_asr(profile));
     assert!(providers::supports_translation(profile));
 }
@@ -307,7 +338,7 @@ fn migrates_v5_provider_slots_to_named_profiles() {
     assert_eq!(alibaba.region.as_deref(), Some("singapore"));
     assert_eq!(alibaba.workspace_id.as_deref(), Some("ws-example"));
     assert_eq!(
-        config.asr.active_api_profiles.alibaba_cloud.as_deref(),
+        config.asr.active_profile_id.as_deref(),
         Some("legacy-alibaba-cloud")
     );
 }
@@ -441,6 +472,89 @@ fn migrates_v22_with_the_default_output_trigger_threshold() {
 
     assert_eq!(config.schema_version, SCHEMA_VERSION);
     assert_eq!(config.audio.output.trigger_threshold_dbfs, -45.0);
+}
+
+#[test]
+fn migrates_v23_profiles_and_recognition_settings_through_v24_normalize() {
+    let mut raw = serde_json::to_value(AppConfig::default()).unwrap();
+    raw["schema_version"] = serde_json::json!(23);
+    raw["asr"] = serde_json::json!({
+        "backend": "fun_asr_realtime",
+        "language": "ja",
+        "local": {"model": "small", "device": "auto", "compute_type": "int8"},
+        "qwen": {"model": "qwen3-asr-flash-realtime", "context": "qwen context"},
+        "fun_asr": {"model": "fun-asr-realtime", "context": "fun context"},
+        "openai": {"model": "gpt-4o-transcribe"},
+        "api_profiles": [{
+            "id": "alibaba-profile",
+            "name": "Alibaba",
+            "provider": "alibaba_cloud",
+            "region": "singapore",
+            "workspace_id": "workspace",
+            "purpose": "shared"
+        }],
+        "active_api_profiles": {
+            "alibaba_cloud": "alibaba-profile",
+            "openai": null
+        },
+        "cloud_failure_policy": "reconnect"
+    });
+
+    let config = config_from_value(&raw).unwrap();
+    let profile = &config.asr.api_profiles[0];
+
+    assert_eq!(config.schema_version, 24);
+    assert_eq!(
+        config.asr.active_profile_id.as_deref(),
+        Some("alibaba-profile")
+    );
+    assert_eq!(
+        profile.enabled_capabilities,
+        [
+            CAPABILITY_TEXT_GENERATION,
+            CAPABILITY_TEXT_TRANSLATION,
+            CAPABILITY_SPEECH_TO_TEXT,
+        ]
+    );
+    assert_eq!(
+        config.asr.service_settings[SERVICE_QWEN_REALTIME].context,
+        "qwen context"
+    );
+    assert_eq!(
+        config.asr.service_settings[SERVICE_FUN_ASR_REALTIME].context,
+        "fun context"
+    );
+    assert_eq!(
+        config.asr.service_settings[SERVICE_OPENAI_REALTIME].model,
+        "gpt-4o-transcribe"
+    );
+    assert_eq!(
+        config.asr.service_settings[SERVICE_GROQ_TRANSCRIPTION].model,
+        "whisper-large-v3-turbo"
+    );
+}
+
+#[test]
+fn strict_brand_detection_leaves_unofficial_urls_custom() {
+    let config = config_from_value(&serde_json::json!({
+        "schema_version": 23,
+        "asr": {
+            "backend": "local_whisper",
+            "api_profiles": [{
+                "id": "custom",
+                "name": "Custom",
+                "provider": "openai_compatible",
+                "base_url": "https://api.deepseek.com.evil.example/v1",
+                "purpose": "llm"
+            }]
+        }
+    }))
+    .unwrap();
+
+    assert_eq!(
+        config.asr.api_profiles[0].provider,
+        OPENAI_COMPATIBLE_PROVIDER
+    );
 }
 
 #[test]

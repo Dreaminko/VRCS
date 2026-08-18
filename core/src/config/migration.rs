@@ -4,8 +4,14 @@ use super::recognition::{
     default_asr_model, default_compute_type, default_device, default_language,
 };
 use super::{
-    AppConfig, AsrConfig, AudioConfig, LocalAsrConfig, MicrophoneConfig, OutputConfig,
-    ServerConfig, StorageConfig, SCHEMA_VERSION,
+    default_service_settings, AppConfig, AsrConfig, AudioConfig, LocalAsrConfig, MicrophoneConfig,
+    OutputConfig, ServerConfig, StorageConfig, SCHEMA_VERSION,
+};
+use crate::providers::{
+    self, CAPABILITY_SPEECH_TO_TEXT, CAPABILITY_TEXT_GENERATION, CAPABILITY_TEXT_TRANSLATION,
+    DEEPSEEK_PROVIDER, GROQ_PROVIDER, LM_STUDIO_PROVIDER, OLLAMA_PROVIDER,
+    OPENAI_COMPATIBLE_PROVIDER, OPENROUTER_PROVIDER, SERVICE_FUN_ASR_REALTIME,
+    SERVICE_OPENAI_REALTIME, SERVICE_QWEN_REALTIME,
 };
 
 #[derive(Debug, Clone, Deserialize)]
@@ -139,7 +145,7 @@ fn migrate_v2_or_v3(raw: &serde_json::Value) -> Result<AppConfig, String> {
         serde_json::to_value(asr_from_legacy(legacy)).map_err(|error| error.to_string())?,
     );
     backfill_glossary_sources(object)?;
-    let mut config: AppConfig = serde_json::from_value(value).map_err(|error| error.to_string())?;
+    let mut config = deserialize_v24(value)?;
     if raw.get("schema_version").and_then(|value| value.as_u64()) == Some(2) {
         fix_colliding_ports(&mut config);
     }
@@ -193,7 +199,7 @@ fn migrate_v4_or_v5(raw: &serde_json::Value) -> Result<AppConfig, String> {
         }),
     );
     backfill_glossary_sources(object)?;
-    serde_json::from_value(value).map_err(|error| error.to_string())
+    deserialize_v24(value)
 }
 
 fn migrate_v6_to_v10(raw: &serde_json::Value) -> Result<AppConfig, String> {
@@ -237,7 +243,7 @@ fn migrate_v6_to_v10(raw: &serde_json::Value) -> Result<AppConfig, String> {
     backfill_compatible_preset(object);
     backfill_glossary_sources(object)?;
     object.insert("schema_version".into(), serde_json::json!(SCHEMA_VERSION));
-    serde_json::from_value(value).map_err(|error| error.to_string())
+    deserialize_v24(value)
 }
 
 fn migrate_v11_to_v17(raw: &serde_json::Value) -> Result<AppConfig, String> {
@@ -249,7 +255,7 @@ fn migrate_v11_to_v17(raw: &serde_json::Value) -> Result<AppConfig, String> {
     backfill_glossary_sources(object)?;
     migrate_storage_quota(object)?;
     object.insert("schema_version".into(), serde_json::json!(SCHEMA_VERSION));
-    serde_json::from_value(value).map_err(|error| error.to_string())
+    deserialize_v24(value)
 }
 
 fn migrate_v18(raw: &serde_json::Value) -> Result<AppConfig, String> {
@@ -259,7 +265,7 @@ fn migrate_v18(raw: &serde_json::Value) -> Result<AppConfig, String> {
         .ok_or_else(|| "Configuration root must be an object".to_string())?;
     migrate_storage_quota(object)?;
     object.insert("schema_version".into(), serde_json::json!(SCHEMA_VERSION));
-    serde_json::from_value(value).map_err(|error| error.to_string())
+    deserialize_v24(value)
 }
 
 fn migrate_v19(raw: &serde_json::Value) -> Result<AppConfig, String> {
@@ -268,7 +274,7 @@ fn migrate_v19(raw: &serde_json::Value) -> Result<AppConfig, String> {
         .as_object_mut()
         .ok_or_else(|| "Configuration root must be an object".to_string())?;
     object.insert("schema_version".into(), serde_json::json!(SCHEMA_VERSION));
-    serde_json::from_value(value).map_err(|error| error.to_string())
+    deserialize_v24(value)
 }
 
 fn migrate_v20(raw: &serde_json::Value) -> Result<AppConfig, String> {
@@ -283,7 +289,7 @@ fn migrate_v20(raw: &serde_json::Value) -> Result<AppConfig, String> {
         translation.remove("translate_microphone");
     }
     object.insert("schema_version".into(), serde_json::json!(SCHEMA_VERSION));
-    serde_json::from_value(value).map_err(|error| error.to_string())
+    deserialize_v24(value)
 }
 
 fn migrate_v21(raw: &serde_json::Value) -> Result<AppConfig, String> {
@@ -297,7 +303,7 @@ fn migrate_v21(raw: &serde_json::Value) -> Result<AppConfig, String> {
             .map_err(|error| error.to_string())?,
     );
     object.insert("schema_version".into(), serde_json::json!(SCHEMA_VERSION));
-    serde_json::from_value(value).map_err(|error| error.to_string())
+    deserialize_v24(value)
 }
 
 fn migrate_v22(raw: &serde_json::Value) -> Result<AppConfig, String> {
@@ -306,7 +312,187 @@ fn migrate_v22(raw: &serde_json::Value) -> Result<AppConfig, String> {
         .as_object_mut()
         .ok_or_else(|| "Configuration root must be an object".to_string())?;
     object.insert("schema_version".into(), serde_json::json!(SCHEMA_VERSION));
+    deserialize_v24(value)
+}
+
+fn deserialize_v24(mut value: serde_json::Value) -> Result<AppConfig, String> {
+    normalize_v24(&mut value)?;
     serde_json::from_value(value).map_err(|error| error.to_string())
+}
+
+fn normalize_v24(value: &mut serde_json::Value) -> Result<(), String> {
+    let object = value
+        .as_object_mut()
+        .ok_or_else(|| "Configuration root must be an object".to_string())?;
+    let asr = object
+        .entry("asr")
+        .or_insert_with(|| serde_json::json!({}))
+        .as_object_mut()
+        .ok_or_else(|| "Configuration asr must be an object".to_string())?;
+
+    normalize_profiles(asr)?;
+    normalize_recognition_settings(asr)?;
+    object.insert("schema_version".into(), serde_json::json!(SCHEMA_VERSION));
+    Ok(())
+}
+
+fn normalize_profiles(asr: &mut serde_json::Map<String, serde_json::Value>) -> Result<(), String> {
+    let profiles = asr
+        .entry("api_profiles")
+        .or_insert_with(|| serde_json::json!([]))
+        .as_array_mut()
+        .ok_or_else(|| "Configuration asr.api_profiles must be an array".to_string())?;
+    for profile in profiles {
+        let profile = profile
+            .as_object_mut()
+            .ok_or_else(|| "Configuration API profiles must be objects".to_string())?;
+        let legacy_purpose = profile
+            .remove("purpose")
+            .and_then(|value| value.as_str().map(str::to_owned));
+        extract_branded_provider(profile);
+        normalize_profile_capabilities(profile, legacy_purpose.as_deref());
+    }
+    Ok(())
+}
+
+fn extract_branded_provider(profile: &mut serde_json::Map<String, serde_json::Value>) {
+    let provider = profile
+        .get("provider")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default();
+    let explicit_brand = match provider {
+        GROQ_PROVIDER => Some(GROQ_PROVIDER),
+        OPENROUTER_PROVIDER => Some(OPENROUTER_PROVIDER),
+        DEEPSEEK_PROVIDER => Some(DEEPSEEK_PROVIDER),
+        LM_STUDIO_PROVIDER => Some(LM_STUDIO_PROVIDER),
+        OLLAMA_PROVIDER => Some(OLLAMA_PROVIDER),
+        _ => None,
+    };
+    let preset = profile.get("preset_id").and_then(serde_json::Value::as_str);
+    let base_url = profile.get("base_url").and_then(serde_json::Value::as_str);
+    let brand = explicit_brand.or_else(|| {
+        matches!(provider, OPENAI_COMPATIBLE_PROVIDER | "openai")
+            .then(|| infer_branded_provider(preset, base_url))
+            .flatten()
+    });
+    let Some(brand) = brand else {
+        if provider == "openai" && base_url.is_some_and(|value| !value.trim().is_empty()) {
+            profile.insert(
+                "provider".into(),
+                serde_json::json!(OPENAI_COMPATIBLE_PROVIDER),
+            );
+        }
+        return;
+    };
+    profile.insert("provider".into(), serde_json::json!(brand));
+    match brand {
+        LM_STUDIO_PROVIDER | OLLAMA_PROVIDER => {
+            profile.insert("auth_mode".into(), serde_json::json!("none"));
+            profile.insert("is_local".into(), serde_json::json!(true));
+        }
+        _ => {
+            profile.remove("base_url");
+            profile.insert("auth_mode".into(), serde_json::json!("bearer"));
+            profile.insert("is_local".into(), serde_json::json!(false));
+        }
+    }
+}
+
+fn normalize_profile_capabilities(
+    profile: &mut serde_json::Map<String, serde_json::Value>,
+    legacy_purpose: Option<&str>,
+) {
+    if profile.contains_key("enabled_capabilities") {
+        return;
+    }
+    let provider = profile
+        .get("provider")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default();
+    let supported = providers::provider_capability_ids(provider).unwrap_or_default();
+    let include = |capability: &&str| match legacy_purpose {
+        Some("asr") => *capability == CAPABILITY_SPEECH_TO_TEXT,
+        Some("llm") => matches!(
+            *capability,
+            CAPABILITY_TEXT_GENERATION | CAPABILITY_TEXT_TRANSLATION
+        ),
+        Some("shared") | None => true,
+        Some(_) => false,
+    };
+    let capabilities = supported
+        .into_iter()
+        .filter(include)
+        .map(serde_json::Value::from)
+        .collect();
+    profile.insert(
+        "enabled_capabilities".into(),
+        serde_json::Value::Array(capabilities),
+    );
+}
+
+fn normalize_recognition_settings(
+    asr: &mut serde_json::Map<String, serde_json::Value>,
+) -> Result<(), String> {
+    let backend = asr
+        .get("backend")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or(SERVICE_QWEN_REALTIME)
+        .to_owned();
+    if !asr.contains_key("active_profile_id") {
+        let active_id = asr
+            .get("active_api_profiles")
+            .and_then(serde_json::Value::as_object)
+            .and_then(|active| match backend.as_str() {
+                SERVICE_QWEN_REALTIME | SERVICE_FUN_ASR_REALTIME => active.get("alibaba_cloud"),
+                SERVICE_OPENAI_REALTIME => active.get("openai"),
+                _ => None,
+            })
+            .cloned()
+            .unwrap_or(serde_json::Value::Null);
+        asr.insert("active_profile_id".into(), active_id);
+    }
+
+    let mut settings = serde_json::to_value(default_service_settings())
+        .map_err(|error| error.to_string())?
+        .as_object()
+        .cloned()
+        .expect("default recognition settings serialize as an object");
+    if let Some(existing) = asr
+        .get("service_settings")
+        .and_then(serde_json::Value::as_object)
+    {
+        for (service, value) in existing {
+            settings.insert(service.clone(), value.clone());
+        }
+    }
+    for (legacy, service) in [
+        ("qwen", SERVICE_QWEN_REALTIME),
+        ("fun_asr", SERVICE_FUN_ASR_REALTIME),
+        ("openai", SERVICE_OPENAI_REALTIME),
+    ] {
+        if let Some(legacy_value) = asr.get(legacy).and_then(serde_json::Value::as_object) {
+            let target = settings
+                .entry(service.to_string())
+                .or_insert_with(|| serde_json::json!({}))
+                .as_object_mut()
+                .expect("default recognition service settings are objects");
+            if let Some(model) = legacy_value.get("model") {
+                target.insert("model".into(), model.clone());
+            }
+            if let Some(context) = legacy_value.get("context") {
+                target.insert("context".into(), context.clone());
+            }
+        }
+    }
+    asr.insert(
+        "service_settings".into(),
+        serde_json::Value::Object(settings),
+    );
+    asr.remove("active_api_profiles");
+    asr.remove("qwen");
+    asr.remove("fun_asr");
+    asr.remove("openai");
+    Ok(())
 }
 
 fn migrate_storage_quota(
@@ -401,8 +587,41 @@ fn backfill_compatible_preset(object: &mut serde_json::Map<String, serde_json::V
 }
 
 fn infer_compatible_preset(value: &str) -> Option<&'static str> {
-    if is_official_deepseek_base_url(value) {
-        return Some("deepseek");
+    infer_branded_provider(None, Some(value))
+}
+
+fn infer_branded_provider(preset: Option<&str>, base_url: Option<&str>) -> Option<&'static str> {
+    if let Some(provider) = match preset.map(str::trim) {
+        Some("groq") => Some(GROQ_PROVIDER),
+        Some("openrouter") => Some(OPENROUTER_PROVIDER),
+        Some("deepseek") => Some(DEEPSEEK_PROVIDER),
+        Some("lm_studio") => Some(LM_STUDIO_PROVIDER),
+        Some("ollama") => Some(OLLAMA_PROVIDER),
+        _ => None,
+    } {
+        return Some(provider);
+    }
+    let value = base_url?;
+    if is_official_provider_base_url(
+        value,
+        "api.deepseek.com",
+        &["", "/v1", "/v1/chat/completions"],
+    ) {
+        return Some(DEEPSEEK_PROVIDER);
+    }
+    if is_official_provider_base_url(
+        value,
+        "api.groq.com",
+        &["", "/openai/v1", "/openai/v1/chat/completions"],
+    ) {
+        return Some(GROQ_PROVIDER);
+    }
+    if is_official_provider_base_url(
+        value,
+        "openrouter.ai",
+        &["/api/v1", "/api/v1/chat/completions"],
+    ) {
+        return Some(OPENROUTER_PROVIDER);
     }
     let url = reqwest::Url::parse(value.trim()).ok()?;
     let host = url.host_str()?;
@@ -420,22 +639,25 @@ fn infer_compatible_preset(value: &str) -> Option<&'static str> {
         return None;
     }
     match url.port() {
-        Some(1234) => Some("lm_studio"),
-        Some(11434) => Some("ollama"),
+        Some(1234) => Some(LM_STUDIO_PROVIDER),
+        Some(11434) => Some(OLLAMA_PROVIDER),
         _ => None,
     }
 }
 
-fn is_official_deepseek_base_url(value: &str) -> bool {
+fn is_official_provider_base_url(value: &str, host: &str, paths: &[&str]) -> bool {
     let Ok(url) = reqwest::Url::parse(value.trim()) else {
         return false;
     };
     let path = url.path().trim_end_matches('/');
     url.scheme() == "https"
-        && url.host_str() == Some("api.deepseek.com")
+        && url
+            .host_str()
+            .is_some_and(|value| value.eq_ignore_ascii_case(host))
+        && url.port_or_known_default() == Some(443)
         && url.query().is_none()
         && url.fragment().is_none()
-        && matches!(path, "" | "/v1" | "/v1/chat/completions")
+        && paths.contains(&path)
 }
 
 /// v1/v2 迁移共用：避免 Core 端口与 AnkiConnect 默认端口冲突。
@@ -466,6 +688,7 @@ pub fn config_from_value(raw: &serde_json::Value) -> Result<AppConfig, String> {
         version if version == SCHEMA_VERSION as u64 => {
             serde_json::from_value(raw.clone()).map_err(|error| error.to_string())?
         }
+        23 => deserialize_v24(raw.clone())?,
         22 => migrate_v22(raw)?,
         21 => migrate_v21(raw)?,
         20 => migrate_v20(raw)?,
@@ -475,7 +698,9 @@ pub fn config_from_value(raw: &serde_json::Value) -> Result<AppConfig, String> {
         6..=10 => migrate_v6_to_v10(raw)?,
         4 | 5 => migrate_v4_or_v5(raw)?,
         2 | 3 => migrate_v2_or_v3(raw)?,
-        1 => migrate_v1(raw),
+        1 => deserialize_v24(
+            serde_json::to_value(migrate_v1(raw)).map_err(|error| error.to_string())?,
+        )?,
         other => return Err(format!("Unsupported configuration schema v{other}")),
     };
     config.schema_version = SCHEMA_VERSION;

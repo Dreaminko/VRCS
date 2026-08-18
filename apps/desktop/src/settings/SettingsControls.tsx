@@ -13,9 +13,11 @@ import {
 import type { AudioDevice } from "../types";
 import { useDismissibleLayer } from "../shared/hooks/use-dismissible-layer";
 import { DropdownField } from "../shared/ui/DropdownField";
+import type { DropdownOption } from "../shared/ui/DropdownField";
 
-export function PreferenceToggle({ title, checked, disabled, onChange }: {
+export function PreferenceToggle({ title, description, checked, disabled, onChange }: {
   title: string;
+  description?: string;
   checked: boolean;
   disabled: boolean;
   onChange: (checked: boolean) => void;
@@ -24,6 +26,7 @@ export function PreferenceToggle({ title, checked, disabled, onChange }: {
     <div className={`settings-toggle-row ${disabled ? "disabled" : ""}`}>
       <span className="settings-toggle-copy">
         <strong>{title}</strong>
+        {description && <small>{description}</small>}
       </span>
       <button
         className="settings-switch-button"
@@ -45,7 +48,7 @@ export function Select({ label, helper, value, values = [], options, disabled, f
   helper?: string;
   value: string;
   values?: readonly string[];
-  options?: Array<{ value: string; label: string }>;
+  options?: DropdownOption[];
   disabled: boolean;
   floating?: "page" | "dialog";
   hideLabel?: boolean;

@@ -2,11 +2,12 @@ import type {
   AnkiCardInput,
   AnkiStatus,
   ApiProfile,
+  ApiProfileInput,
   ApiProfileView,
   ConnectionDiagnostic,
   ProviderDefinition,
   ApiModelCatalog,
-  AsrApiProvider,
+  ApiCapability,
   AsrCapabilities,
   AsrModelRecord,
   AudioDevice,
@@ -296,7 +297,7 @@ export const coreApi = {
   asrModels: () => request<AsrModelRecord[]>("/api/asr/models"),
   apiProfiles: () => request<{ profiles: ApiProfileView[] }>("/api/asr/profiles"),
   providers: () => request<{ providers: ProviderDefinition[] }>("/api/providers"),
-  createApiProfile: (profile: Omit<ApiProfile, "id"> & { api_key?: string }) =>
+  createApiProfile: (profile: ApiProfileInput & { api_key?: string }) =>
     request<ApiProfileView>("/api/asr/profiles", {
       method: "POST",
       body: JSON.stringify(profile),
@@ -309,12 +310,16 @@ export const coreApi = {
         region: profile.region,
         workspace_id: profile.workspace_id,
         base_url: profile.base_url,
-        purpose: profile.purpose,
+        enabled_capabilities: profile.enabled_capabilities,
         preset_id: profile.preset_id,
         auth_mode: profile.auth_mode,
         is_local: profile.is_local,
         timeout_ms: profile.timeout_ms,
         headers: profile.headers,
+        ...Object.fromEntries(Object.entries(profile).filter(([key]) => ![
+          "id", "name", "provider", "enabled_capabilities", "region", "workspace_id", "base_url",
+          "preset_id", "auth_mode", "is_local", "timeout_ms", "headers",
+        ].includes(key))),
       }),
     }),
   deleteApiProfile: (profileId: string) =>
@@ -326,19 +331,19 @@ export const coreApi = {
     }),
   deleteApiProfileCredential: (profileId: string) =>
     request<ApiProfileView>(`/api/asr/profiles/${profileId}/credential`, { method: "DELETE" }),
-  activateApiProfile: (provider: AsrApiProvider, profileId: string | null) =>
-    request<{ profiles: ApiProfileView[] }>(`/api/asr/profiles/active/${provider}`, {
+  activateAsrProfile: (profileId: string, serviceId: string) =>
+    request<{ profiles: ApiProfileView[] }>("/api/asr/active", {
       method: "PUT",
-      body: JSON.stringify({ profile_id: profileId }),
+      body: JSON.stringify({ profile_id: profileId, service_id: serviceId }),
     }),
   testApiProfile: (
     profileId: string,
-    capability: "asr" | "llm",
-    backend?: Exclude<Settings["asr"]["backend"], "local_whisper">,
+    capability: ApiCapability,
+    serviceId?: string,
     model?: string,
   ) => {
     const query = new URLSearchParams({ capability });
-    if (backend) query.set("backend", backend);
+    if (serviceId) query.set("service_id", serviceId);
     if (model?.trim()) query.set("model", model.trim());
     return request<ConnectionDiagnostic>(
       `/api/asr/profiles/${profileId}/test?${query.toString()}`,
@@ -347,6 +352,8 @@ export const coreApi = {
   },
   apiProfileModels: (profileId: string) =>
     request<ApiModelCatalog>(`/api/asr/profiles/${profileId}/models`),
+  recognitionServiceModels: (profileId: string, serviceId: string) =>
+    request<ApiModelCatalog>(`/api/asr/profiles/${profileId}/services/${serviceId}/models`),
   translateSubtitle: (subtitleId: number) =>
     request<SubtitleTranslation>(`/api/subtitles/${subtitleId}/translation`, {
       method: "POST",
