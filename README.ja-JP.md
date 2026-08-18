@@ -66,7 +66,7 @@ VRCS は、VRChat 向けの Windows リアルタイム字幕・言語学習ツ�
 - DeepL、Microsoft Translator、OpenAI、Gemini、Alibaba Cloud LLM
 - DeepSeek、Groq、OpenRouter、LM Studio、Ollama、カスタムエンドポイントを含む OpenAI 互換 Chat Completions サービス
 - カスタムシステムプロンプト、ローカル用語集、オンライン用語集の購読、直近の字幕コンテキスト
-- ローカルの VRCX-0 から現在のワールド名、メンバーの表示名、使用言語を任意で読み取り、対応する ASR または LLM リクエストにコンテキストを追加
+- ローカルの [VRCX-0](https://vrcx-0.dev/) から現在のワールド名、メンバーの表示名、使用言語を任意で読み取り、対応する ASR または LLM リクエストにコンテキストを追加
 
 ### VRChat と SteamVR
 

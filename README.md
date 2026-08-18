@@ -66,7 +66,7 @@ You can change the configuration at any time in the application. To run the setu
 - DeepL, Microsoft Translator, OpenAI, Gemini, and Alibaba Cloud LLM
 - OpenAI-compatible Chat Completions services, including DeepSeek, Groq, OpenRouter, LM Studio, Ollama, and custom endpoints
 - Custom system prompts, local glossaries, online glossary subscriptions, and recent subtitle context
-- Optional access to the current world name, member display names, and member languages from the local VRCX-0 instance to enrich supported ASR or LLM requests with context
+- Optional access to the current world name, member display names, and member languages from the local [VRCX-0](https://vrcx-0.dev/) instance to enrich supported ASR or LLM requests with context
 
 ### VRChat and SteamVR
 

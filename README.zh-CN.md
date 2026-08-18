@@ -69,7 +69,7 @@ VRCS 是面向 VRChat 场景的 Windows 实时字幕与语言学习工具。它�
 - DeepL、Microsoft Translator、OpenAI、Gemini、Alibaba Cloud LLM
 - OpenAI 兼容 Chat Completions 服务，包括 DeepSeek、Groq、OpenRouter、LM Studio、Ollama 和自定义端点
 - 自定义系统 Prompt、本地术语表、在线术语订阅和最近字幕上下文
-- 可选读取本机 VRCX-0 的当前世界名、成员显示名和成员语言，为支持的 ASR 或 LLM 请求补充上下文
+- 可选读取本机 [VRCX-0](https://vrcx-0.dev/) 的当前世界名、成员显示名和成员语言，为支持的 ASR 或 LLM 请求补充上下文
 
 ### VRChat 与 SteamVR
 
