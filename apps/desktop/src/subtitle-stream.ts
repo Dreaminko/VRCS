@@ -41,7 +41,15 @@ export type SubtitleStreamMessage =
   | AudioLevel
   | { type: "vrchat_mute_status"; status: VrchatMuteStatus }
   | {
+      type: "recognition_cancelled";
+      utterance_id: string;
+      source: LiveTranscription["source"];
+      reason: string;
+    }
+  | { type: "recognition_reset"; source?: LiveTranscription["source"] }
+  | {
       type: "failed";
+      utterance_id?: string | null;
       source?: LiveTranscription["source"];
       code?: string;
       detail?: string;
@@ -213,8 +221,23 @@ export function parseSubtitleStreamMessage(
       return isVrchatMuteStatus(value.status)
         ? value as SubtitleStreamMessage
         : null;
+    case "recognition_cancelled":
+      return isText(value.utterance_id)
+        && isSource(value.source)
+        && isText(value.reason)
+        ? value as SubtitleStreamMessage
+        : null;
+    case "recognition_reset":
+      return value.utterance_id === undefined
+        && (value.source === undefined || isSource(value.source))
+        ? {
+            type: "recognition_reset",
+            ...(typeof value.source === "string" ? { source: value.source } : {}),
+          } as SubtitleStreamMessage
+        : null;
     case "failed":
-      return (value.source === undefined || isSource(value.source))
+      return (value.utterance_id === undefined || isNullableText(value.utterance_id))
+        && (value.source === undefined || isSource(value.source))
         && (value.code === undefined || typeof value.code === "string")
         && (value.detail === undefined || isText(value.detail))
         ? value as SubtitleStreamMessage

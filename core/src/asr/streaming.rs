@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::time::Duration;
 
 use futures_util::{SinkExt, StreamExt};
@@ -17,7 +16,7 @@ use super::read_credential;
 mod provider;
 
 pub use provider::SegmentationMode;
-use provider::{InitializationEvent, Provider};
+use provider::{InitializationEvent, NormalizationState, Provider};
 
 #[cfg(test)]
 use tokio_tungstenite::tungstenite::http::Request;
@@ -37,6 +36,8 @@ pub enum CloudEvent {
         language: Option<String>,
     },
     Failed {
+        utterance_id: Option<String>,
+        reset_session: bool,
         code: String,
         detail: String,
     },
@@ -219,7 +220,7 @@ pub async fn test_streaming_connection(
         &mut socket,
         &test_config,
         task_id.as_deref(),
-        &mut HashMap::new(),
+        &mut NormalizationState::default(),
         &events,
     )
     .await;
@@ -260,6 +261,8 @@ async fn run_with_reconnect(
         };
         let _ = events
             .send(CloudEvent::Failed {
+                utterance_id: None,
+                reset_session: true,
                 code: "asr.cloud_disconnected".into(),
                 detail,
             })
@@ -280,6 +283,8 @@ async fn run_with_reconnect(
             Err(error) => {
                 let _ = events
                     .send(CloudEvent::Failed {
+                        utterance_id: None,
+                        reset_session: true,
                         code: "asr.cloud_reconnect_failed".into(),
                         detail: error,
                     })
@@ -299,7 +304,7 @@ async fn run_session(
     events: &mpsc::Sender<CloudEvent>,
     stop: &mut watch::Receiver<bool>,
 ) -> Result<(), String> {
-    let mut transcripts = HashMap::new();
+    let mut normalization = NormalizationState::default();
     let mut audio_buffer = Vec::with_capacity(2048);
     let mut pending_audio = false;
     loop {
@@ -309,7 +314,7 @@ async fn run_session(
                 if pending_audio {
                     let _ = commit_utterance(provider, socket).await;
                 }
-                finish(provider, socket, config, task_id, &mut transcripts, events).await;
+                finish(provider, socket, config, task_id, &mut normalization, events).await;
                 return Ok(());
             }
             input = audio.recv() => {
@@ -343,7 +348,7 @@ async fn run_session(
                         if pending_audio {
                             let _ = commit_utterance(provider, socket).await;
                         }
-                        finish(provider, socket, config, task_id, &mut transcripts, events).await;
+                        finish(provider, socket, config, task_id, &mut normalization, events).await;
                         return Ok(());
                     }
                 }
@@ -354,7 +359,7 @@ async fn run_session(
                     .map_err(|error| format!("Failed to read cloud recognition event: {error}"))?;
                 match message {
                     Message::Text(text) => {
-                        if let Some(event) = normalize_event(provider, config, &text, &mut transcripts)? {
+                        if let Some(event) = normalize_event(provider, config, &text, &mut normalization)? {
                             if events.send(event).await.is_err() {
                                 return Ok(());
                             }
@@ -447,11 +452,11 @@ fn normalize_event(
     provider: Provider,
     config: &AsrConfig,
     message: &str,
-    transcripts: &mut HashMap<String, String>,
+    state: &mut NormalizationState,
 ) -> Result<Option<CloudEvent>, String> {
     let value: Value = serde_json::from_str(message)
         .map_err(|error| format!("Cloud recognition returned invalid JSON: {error}"))?;
-    provider.normalize_event(config, &value, transcripts)
+    provider.normalize_event(config, &value, state)
 }
 
 const AUDIO_PACKET_SAMPLES: usize = 1600;
@@ -501,7 +506,7 @@ async fn finish(
     socket: &mut Socket,
     config: &AsrConfig,
     task_id: Option<&str>,
-    transcripts: &mut HashMap<String, String>,
+    state: &mut NormalizationState,
     events: &mpsc::Sender<CloudEvent>,
 ) {
     if let Some(message) = provider.finish_message(task_id) {
@@ -517,7 +522,7 @@ async fn finish(
                 let finished = serde_json::from_str::<Value>(&text)
                     .ok()
                     .is_some_and(|value| provider.is_finished(&value));
-                if let Ok(Some(event)) = normalize_event(provider, config, &text, transcripts) {
+                if let Ok(Some(event)) = normalize_event(provider, config, &text, state) {
                     let _ = events.send(event).await;
                 }
                 if finished {
@@ -567,9 +572,9 @@ mod tests {
     fn normalize(
         config: &AsrConfig,
         message: &str,
-        transcripts: &mut HashMap<String, String>,
+        state: &mut NormalizationState,
     ) -> Result<Option<CloudEvent>, String> {
-        normalize_event(Provider::from_config(config)?, config, message, transcripts)
+        normalize_event(Provider::from_config(config)?, config, message, state)
     }
 
     #[test]
@@ -621,14 +626,246 @@ mod tests {
             backend: "openai_realtime".into(),
             ..AsrConfig::default()
         };
-        let mut transcripts = HashMap::new();
-        let first = normalize(&config, r#"{"type":"conversation.item.input_audio_transcription.delta","item_id":"a","delta":"hel"}"#, &mut transcripts).unwrap();
-        let second = normalize(&config, r#"{"type":"conversation.item.input_audio_transcription.delta","item_id":"a","delta":"lo"}"#, &mut transcripts).unwrap();
-        let final_event = normalize(&config, r#"{"type":"conversation.item.input_audio_transcription.completed","item_id":"a","transcript":"hello"}"#, &mut transcripts).unwrap();
+        let mut state = NormalizationState::default();
+        let first = normalize(&config, r#"{"type":"conversation.item.input_audio_transcription.delta","item_id":"a","delta":"hel"}"#, &mut state).unwrap();
+        let second = normalize(&config, r#"{"type":"conversation.item.input_audio_transcription.delta","item_id":"a","delta":"lo"}"#, &mut state).unwrap();
+        let final_event = normalize(&config, r#"{"type":"conversation.item.input_audio_transcription.completed","item_id":"a","transcript":"hello"}"#, &mut state).unwrap();
         assert!(matches!(first, Some(CloudEvent::Partial { text, .. }) if text == "hel"));
         assert!(matches!(second, Some(CloudEvent::Partial { text, .. }) if text == "hello"));
         assert!(matches!(final_event, Some(CloudEvent::Final { text, .. }) if text == "hello"));
-        assert!(transcripts.is_empty());
+        assert!(state.transcripts.is_empty());
+    }
+
+    #[test]
+    fn protocol_event_ids_do_not_split_one_utterance() {
+        let config = AsrConfig {
+            backend: "openai_realtime".into(),
+            ..AsrConfig::default()
+        };
+        let mut state = NormalizationState::default();
+        let partial = normalize(
+            &config,
+            r#"{"type":"conversation.item.input_audio_transcription.delta","event_id":"event-1","delta":"hello"}"#,
+            &mut state,
+        )
+        .unwrap()
+        .unwrap();
+        let final_event = normalize(
+            &config,
+            r#"{"type":"conversation.item.input_audio_transcription.completed","event_id":"event-2","transcript":"hello"}"#,
+            &mut state,
+        )
+        .unwrap()
+        .unwrap();
+
+        let CloudEvent::Partial {
+            utterance_id: partial_id,
+            ..
+        } = partial
+        else {
+            panic!("expected partial");
+        };
+        let CloudEvent::Final {
+            utterance_id: final_id,
+            ..
+        } = final_event
+        else {
+            panic!("expected final");
+        };
+        assert_eq!(partial_id, final_id);
+        assert_ne!(partial_id, "event-1");
+        assert_ne!(final_id, "event-2");
+    }
+
+    #[test]
+    fn snapshot_partial_id_is_reused_when_final_omits_it() {
+        let config = AsrConfig {
+            backend: "qwen_realtime".into(),
+            ..AsrConfig::default()
+        };
+        let mut state = NormalizationState::default();
+        let partial = normalize(
+            &config,
+            r#"{"type":"conversation.item.input_audio_transcription.text","item_id":"item-1","text":"hello"}"#,
+            &mut state,
+        )
+        .unwrap()
+        .unwrap();
+        let final_event = normalize(
+            &config,
+            r#"{"type":"conversation.item.input_audio_transcription.completed","event_id":"event-2","transcript":"hello"}"#,
+            &mut state,
+        )
+        .unwrap()
+        .unwrap();
+
+        let CloudEvent::Partial {
+            utterance_id: partial_id,
+            ..
+        } = partial
+        else {
+            panic!("expected partial");
+        };
+        let CloudEvent::Final {
+            utterance_id: final_id,
+            ..
+        } = final_event
+        else {
+            panic!("expected final");
+        };
+        assert_eq!(partial_id, "item-1");
+        assert_eq!(partial_id, final_id);
+    }
+
+    #[test]
+    fn fallback_ids_rotate_after_final() {
+        let config = AsrConfig {
+            backend: "qwen_realtime".into(),
+            ..AsrConfig::default()
+        };
+        let mut state = NormalizationState::default();
+        let first = normalize(
+            &config,
+            r#"{"type":"conversation.item.input_audio_transcription.text","text":"first"}"#,
+            &mut state,
+        )
+        .unwrap()
+        .unwrap();
+        let first_final = normalize(
+            &config,
+            r#"{"type":"conversation.item.input_audio_transcription.completed","transcript":"first"}"#,
+            &mut state,
+        )
+        .unwrap()
+        .unwrap();
+        let second = normalize(
+            &config,
+            r#"{"type":"conversation.item.input_audio_transcription.text","text":"second"}"#,
+            &mut state,
+        )
+        .unwrap()
+        .unwrap();
+
+        let CloudEvent::Partial {
+            utterance_id: first_id,
+            ..
+        } = first
+        else {
+            panic!("expected first partial");
+        };
+        let CloudEvent::Final {
+            utterance_id: final_id,
+            ..
+        } = first_final
+        else {
+            panic!("expected first final");
+        };
+        let CloudEvent::Partial {
+            utterance_id: second_id,
+            ..
+        } = second
+        else {
+            panic!("expected second partial");
+        };
+        assert_eq!(first_id, final_id);
+        assert_ne!(first_id, second_id);
+    }
+
+    #[test]
+    fn explicit_final_ids_take_priority_over_an_active_fallback() {
+        let config = AsrConfig {
+            backend: "openai_realtime".into(),
+            ..AsrConfig::default()
+        };
+        let mut state = NormalizationState::default();
+        normalize(
+            &config,
+            r#"{"type":"conversation.item.input_audio_transcription.delta","delta":"first"}"#,
+            &mut state,
+        )
+        .unwrap();
+        normalize(
+            &config,
+            r#"{"type":"conversation.item.input_audio_transcription.delta","item_id":"item-2","delta":"second"}"#,
+            &mut state,
+        )
+        .unwrap();
+        let final_event = normalize(
+            &config,
+            r#"{"type":"conversation.item.input_audio_transcription.completed","item_id":"item-2","transcript":"second"}"#,
+            &mut state,
+        )
+        .unwrap()
+        .unwrap();
+
+        assert!(matches!(
+            final_event,
+            CloudEvent::Final { utterance_id, .. } if utterance_id == "item-2"
+        ));
+    }
+
+    #[test]
+    fn explicit_failure_ids_take_priority_over_an_active_fallback() {
+        let config = AsrConfig {
+            backend: "qwen_realtime".into(),
+            ..AsrConfig::default()
+        };
+        let mut state = NormalizationState::default();
+        normalize(
+            &config,
+            r#"{"type":"conversation.item.input_audio_transcription.delta","delta":"first"}"#,
+            &mut state,
+        )
+        .unwrap();
+        let failure = normalize(
+            &config,
+            r#"{"type":"conversation.item.input_audio_transcription.failed","item_id":"item-2","message":"failed"}"#,
+            &mut state,
+        )
+        .unwrap()
+        .unwrap();
+
+        assert!(matches!(
+            failure,
+            CloudEvent::Failed {
+                utterance_id: Some(utterance_id),
+                ..
+            } if utterance_id == "item-2"
+        ));
+    }
+
+    #[test]
+    fn cloud_failures_keep_the_active_fallback_id() {
+        let config = AsrConfig {
+            backend: "openai_realtime".into(),
+            ..AsrConfig::default()
+        };
+        let mut state = NormalizationState::default();
+        let partial = normalize(
+            &config,
+            r#"{"type":"conversation.item.input_audio_transcription.delta","delta":"hello"}"#,
+            &mut state,
+        )
+        .unwrap()
+        .unwrap();
+        let failure = normalize(
+            &config,
+            r#"{"type":"conversation.item.input_audio_transcription.failed","event_id":"failure-event","message":"failed"}"#,
+            &mut state,
+        )
+        .unwrap()
+        .unwrap();
+
+        let CloudEvent::Partial { utterance_id, .. } = partial else {
+            panic!("expected partial");
+        };
+        assert!(matches!(
+            failure,
+            CloudEvent::Failed {
+                utterance_id: Some(failed_id),
+                ..
+            } if failed_id == utterance_id
+        ));
     }
 
     #[test]
@@ -637,7 +874,7 @@ mod tests {
             backend: "openai_realtime".into(),
             ..AsrConfig::default()
         };
-        let mut transcripts = HashMap::new();
+        let mut state = NormalizationState::default();
         for index in 0..provider::MAX_ACTIVE_TRANSCRIPTS {
             let message = serde_json::json!({
                 "type": "conversation.item.input_audio_transcription.delta",
@@ -645,7 +882,7 @@ mod tests {
                 "delta": "a",
             })
             .to_string();
-            normalize(&config, &message, &mut transcripts).unwrap();
+            normalize(&config, &message, &mut state).unwrap();
         }
         let overflow = serde_json::json!({
             "type": "conversation.item.input_audio_transcription.delta",
@@ -654,7 +891,7 @@ mod tests {
         })
         .to_string();
         assert_eq!(
-            normalize(&config, &overflow, &mut transcripts).unwrap_err(),
+            normalize(&config, &overflow, &mut state).unwrap_err(),
             "Cloud recognition exceeded the active transcript limit"
         );
     }
@@ -665,7 +902,7 @@ mod tests {
             backend: "qwen_realtime".into(),
             ..AsrConfig::default()
         };
-        let mut transcripts = HashMap::new();
+        let mut state = NormalizationState::default();
         let message = serde_json::json!({
             "type": "conversation.item.input_audio_transcription.delta",
             "item_id": "a",
@@ -673,10 +910,10 @@ mod tests {
         })
         .to_string();
         assert_eq!(
-            normalize(&config, &message, &mut transcripts).unwrap_err(),
+            normalize(&config, &message, &mut state).unwrap_err(),
             "Cloud recognition transcript exceeded 65536 bytes"
         );
-        assert!(!transcripts.contains_key("a"));
+        assert!(!state.transcripts.contains_key("a"));
     }
 
     #[test]
@@ -715,11 +952,11 @@ mod tests {
             backend: "qwen_realtime".into(),
             ..AsrConfig::default()
         };
-        let mut transcripts = HashMap::new();
+        let mut state = NormalizationState::default();
         let event = normalize(
             &config,
             r#"{"type":"conversation.item.input_audio_transcription.text","item_id":"a","text":"hello ","stash":"world","language":"en"}"#,
-            &mut transcripts,
+            &mut state,
         )
         .unwrap();
         assert!(matches!(event, Some(CloudEvent::Partial { text, .. }) if text == "hello world"));
@@ -923,18 +1160,18 @@ mod tests {
             backend: "fun_asr_realtime".into(),
             ..AsrConfig::default()
         };
-        let mut transcripts = HashMap::new();
-        let partial = normalize(&config, r#"{"header":{"event":"result-generated"},"payload":{"output":{"sentence":{"sentence_id":1,"text":"你好","sentence_end":false}}}}"#, &mut transcripts).unwrap();
-        let final_event = normalize(&config, r#"{"header":{"event":"result-generated"},"payload":{"output":{"sentence":{"sentence_id":1,"text":"你好世界","sentence_end":true}}}}"#, &mut transcripts).unwrap();
-        let heartbeat = normalize(&config, r#"{"header":{"event":"result-generated"},"payload":{"output":{"sentence":{"heartbeat":true,"text":""}}}}"#, &mut transcripts).unwrap();
-        let failure = normalize(&config, r#"{"header":{"event":"task-failed","error_code":"InvalidParameter","error_message":"bad request"}}"#, &mut transcripts).unwrap();
+        let mut state = NormalizationState::default();
+        let partial = normalize(&config, r#"{"header":{"event":"result-generated"},"payload":{"output":{"sentence":{"sentence_id":1,"text":"你好","sentence_end":false}}}}"#, &mut state).unwrap();
+        let final_event = normalize(&config, r#"{"header":{"event":"result-generated"},"payload":{"output":{"sentence":{"sentence_id":1,"text":"你好世界","sentence_end":true}}}}"#, &mut state).unwrap();
+        let heartbeat = normalize(&config, r#"{"header":{"event":"result-generated"},"payload":{"output":{"sentence":{"heartbeat":true,"text":""}}}}"#, &mut state).unwrap();
+        let failure = normalize(&config, r#"{"header":{"event":"task-failed","error_code":"InvalidParameter","error_message":"bad request"}}"#, &mut state).unwrap();
         assert!(
             matches!(partial, Some(CloudEvent::Partial { utterance_id, text, .. }) if utterance_id == "1" && text == "你好")
         );
         assert!(matches!(final_event, Some(CloudEvent::Final { text, .. }) if text == "你好世界"));
         assert_eq!(heartbeat, None);
         assert!(
-            matches!(failure, Some(CloudEvent::Failed { code, detail }) if code == "InvalidParameter" && detail == "bad request")
+            matches!(failure, Some(CloudEvent::Failed { code, detail, .. }) if code == "InvalidParameter" && detail == "bad request")
         );
         assert_eq!(pcm16_bytes(&[0.0; 1600]).len(), 3200);
     }

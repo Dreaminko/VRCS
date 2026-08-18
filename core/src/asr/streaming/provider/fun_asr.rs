@@ -4,7 +4,7 @@ use tokio_tungstenite::tungstenite::Message;
 
 use crate::config::{ApiProfile, AsrConfig};
 
-use super::{authenticated_request, pcm16_bytes, CloudEvent};
+use super::{authenticated_request, pcm16_bytes, CloudEvent, NormalizationState};
 
 pub(super) fn build_request(profile: &ApiProfile, key: &str) -> Result<Request<()>, String> {
     let workspace = profile.workspace_id.as_deref().unwrap_or("").trim();
@@ -64,13 +64,17 @@ pub(super) fn run_task(config: &AsrConfig, silence_seconds: f64, task_id: &str) 
 pub(super) fn normalize_event(
     config: &AsrConfig,
     value: &Value,
+    state: &mut NormalizationState,
 ) -> Result<Option<CloudEvent>, String> {
     let kind = value
         .pointer("/header/event")
         .and_then(Value::as_str)
         .unwrap_or_default();
     if kind == "task-failed" {
+        let utterance_id = state.fail(value);
         return Ok(Some(CloudEvent::Failed {
+            reset_session: utterance_id.is_none(),
+            utterance_id,
             code: value
                 .pointer("/header/error_code")
                 .and_then(Value::as_str)
@@ -104,26 +108,27 @@ pub(super) fn normalize_event(
     if text.is_empty() {
         return Ok(None);
     }
-    let utterance_id = sentence
-        .get("sentence_id")
-        .map(|id| {
-            id.as_str()
-                .map(str::to_owned)
-                .unwrap_or_else(|| id.to_string())
-        })
-        .unwrap_or_else(|| "current".into());
+    let sentence_id = sentence.get("sentence_id").map(|id| {
+        id.as_str()
+            .map(str::to_owned)
+            .unwrap_or_else(|| id.to_string())
+    });
     let language = (config.language != "auto").then(|| config.language.clone());
     if sentence
         .get("sentence_end")
         .and_then(Value::as_bool)
         .unwrap_or(false)
     {
+        let utterance_id = sentence_id.unwrap_or_else(|| state.final_id(value));
+        state.complete(&utterance_id);
         Ok(Some(CloudEvent::Final {
             utterance_id,
             text,
             language,
         }))
     } else {
+        let utterance_id = sentence_id.unwrap_or_else(|| state.snapshot_id(value));
+        state.remember_snapshot(&utterance_id);
         Ok(Some(CloudEvent::Partial {
             utterance_id,
             text,

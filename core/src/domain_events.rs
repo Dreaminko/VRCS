@@ -6,9 +6,11 @@ use crate::chatbox::ChatboxMessage;
 use crate::models::{now_iso8601, Subtitle, SubtitleTranslation};
 
 pub const API_VERSION: &str = "1.0";
-pub const EVENT_TYPES: [&str; 8] = [
+pub const EVENT_TYPES: [&str; 10] = [
     "asr.partial",
     "asr.final",
+    "asr.cancelled",
+    "asr.reset",
     "asr.failed",
     "translation.started",
     "translation.partial",
@@ -91,12 +93,25 @@ impl DomainEventHub {
         ));
     }
 
-    pub fn asr_failed(&self, message_id: &str, source: &str, code: &str, detail: &str) {
+    pub fn asr_cancelled(&self, message_id: &str, source: &str, reason: &str) {
         self.publish(DomainEvent::new(
-            "asr.failed",
+            "asr.cancelled",
             message_id,
             source,
-            json!({ "code": code, "detail": detail }),
+            json!({ "reason": reason }),
+        ));
+    }
+
+    pub fn asr_reset(&self, source: &str) {
+        self.publish(DomainEvent::new("asr.reset", "session", source, json!({})));
+    }
+
+    pub fn asr_failed(&self, message_id: Option<&str>, source: &str, code: &str, detail: &str) {
+        self.publish(DomainEvent::new(
+            "asr.failed",
+            message_id.unwrap_or("session"),
+            source,
+            json!({ "utterance_id": message_id, "code": code, "detail": detail }),
         ));
     }
 

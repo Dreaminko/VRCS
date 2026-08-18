@@ -11,6 +11,7 @@ import {
   publishAudioLevel,
   publishLivePartial,
   publishTranslationPartial,
+  resetLivePartial,
 } from "../realtime-state";
 import {
   parseSubtitleStreamMessage,
@@ -118,7 +119,24 @@ export function useCoreEventStream({
             setVrchatMuteStatus(message.status);
             if (message.status.muted) clearLivePartial("microphone");
             break;
+          case "recognition_cancelled":
+            completeLivePartial(message.source, message.utterance_id);
+            break;
+          case "recognition_reset":
+            if (message.source) {
+              resetLivePartial(message.source);
+            } else {
+              clearLivePartials();
+            }
+            break;
           case "failed":
+            if (message.source) {
+              if (message.utterance_id) {
+                completeLivePartial(message.source, message.utterance_id);
+              } else {
+                resetLivePartial(message.source);
+              }
+            }
             reportErrorRef.current(
               { code: message.code ?? "asr.cloud_connect_failed" },
               "errors.core.connect",

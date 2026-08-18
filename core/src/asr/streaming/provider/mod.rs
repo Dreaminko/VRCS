@@ -18,6 +18,101 @@ use super::CloudEvent;
 pub(super) const MAX_ACTIVE_TRANSCRIPTS: usize = 32;
 pub(super) const MAX_TRANSCRIPT_BYTES: usize = 64 * 1024;
 
+#[derive(Default)]
+pub(super) struct NormalizationState {
+    pub(super) transcripts: HashMap<String, String>,
+    fallback_id: Option<String>,
+    snapshot_id: Option<String>,
+}
+
+impl NormalizationState {
+    fn delta_id(&mut self, value: &Value) -> String {
+        explicit_utterance_id(value).unwrap_or_else(|| self.fallback_id())
+    }
+
+    fn snapshot_id(&mut self, value: &Value) -> String {
+        if let Some(id) = explicit_utterance_id(value) {
+            self.snapshot_id = Some(id.clone());
+            return id;
+        }
+        if let Some(id) = &self.snapshot_id {
+            return id.clone();
+        }
+        self.fallback_id()
+    }
+
+    fn remember_snapshot(&mut self, id: &str) {
+        self.snapshot_id = Some(id.to_owned());
+    }
+
+    fn final_id(&mut self, value: &Value) -> String {
+        if let Some(id) = explicit_utterance_id(value) {
+            return id;
+        }
+        if let Some(id) = &self.fallback_id {
+            return id.clone();
+        }
+        if let Some(id) = &self.snapshot_id {
+            return id.clone();
+        }
+        if self.transcripts.len() == 1 {
+            return self
+                .transcripts
+                .keys()
+                .next()
+                .cloned()
+                .expect("one transcript");
+        }
+        self.fallback_id()
+    }
+
+    fn fail(&mut self, value: &Value) -> Option<String> {
+        let id = explicit_utterance_id(value)
+            .or_else(|| self.fallback_id.clone())
+            .or_else(|| self.snapshot_id.clone())
+            .or_else(|| {
+                (self.transcripts.len() == 1)
+                    .then(|| self.transcripts.keys().next().cloned())
+                    .flatten()
+            });
+        if let Some(id) = &id {
+            self.complete(id);
+        } else {
+            self.transcripts.clear();
+            self.fallback_id = None;
+            self.snapshot_id = None;
+        }
+        id
+    }
+
+    fn fallback_id(&mut self) -> String {
+        if let Some(id) = &self.fallback_id {
+            return id.clone();
+        }
+        let id = format!("local-utterance-{}", uuid::Uuid::new_v4());
+        self.fallback_id = Some(id.clone());
+        id
+    }
+
+    fn append_transcript(&mut self, id: &str, delta: &str) -> Result<&str, String> {
+        append_transcript(&mut self.transcripts, id, delta)
+    }
+
+    fn take_transcript(&mut self, id: &str) -> Option<String> {
+        self.transcripts.remove(id)
+    }
+
+    fn complete(&mut self, id: &str) {
+        self.transcripts.remove(id);
+        if self.fallback_id.as_deref() == Some(id) {
+            self.fallback_id = None;
+        }
+        if self.snapshot_id.as_deref() == Some(id) {
+            self.snapshot_id = None;
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Provider {
     Qwen,
@@ -128,12 +223,12 @@ impl Provider {
         self,
         config: &AsrConfig,
         value: &Value,
-        transcripts: &mut HashMap<String, String>,
+        state: &mut NormalizationState,
     ) -> Result<Option<CloudEvent>, String> {
         match self {
-            Self::Qwen => qwen::normalize_event(config, value, transcripts),
-            Self::FunAsr => fun_asr::normalize_event(config, value),
-            Self::OpenAi => openai::normalize_event(config, value, transcripts),
+            Self::Qwen => qwen::normalize_event(config, value, state),
+            Self::FunAsr => fun_asr::normalize_event(config, value, state),
+            Self::OpenAi => openai::normalize_event(config, value, state),
         }
     }
 
@@ -244,14 +339,13 @@ pub(super) fn append_transcript<'a>(
     Ok(text)
 }
 
-pub(super) fn event_id(value: &Value) -> String {
+fn explicit_utterance_id(value: &Value) -> Option<String> {
     value
         .get("item_id")
         .or_else(|| value.get("utterance_id"))
-        .or_else(|| value.get("event_id"))
         .and_then(Value::as_str)
-        .unwrap_or("current")
-        .to_string()
+        .filter(|id| !id.is_empty())
+        .map(str::to_owned)
 }
 
 pub(super) fn event_language(config: &AsrConfig, value: &Value) -> Option<String> {

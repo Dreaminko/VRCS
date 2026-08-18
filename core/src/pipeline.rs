@@ -16,11 +16,13 @@ use crate::models::{AudioDevice, LiveTranscription};
 use crate::vad::{SpeechSegmenter, VadRuntimeState, VoiceDetector};
 
 mod dependencies;
+mod recognition_lifecycle;
 
 const AUDIO_LEVEL_PUBLISH_INTERVAL: Duration = Duration::from_millis(80);
 const PARTIAL_PUBLISH_INTERVAL: Duration = Duration::from_millis(80);
 
 pub(crate) use dependencies::PipelineDependencies;
+use recognition_lifecycle::RecognitionLifecycle;
 
 #[derive(Clone, Default)]
 pub(crate) struct AsrEchoGuard {
@@ -158,6 +160,7 @@ impl TranscriptionPipeline {
                 Ok(session) => Some(session),
                 Err(error) if asr_config.cloud_failure_policy == "local" => {
                     dependencies.publish_live(LiveTranscription::Failed {
+                        utterance_id: None,
                         source: self.source_name.into(),
                         code: "asr.cloud_connect_failed".into(),
                         detail: error,
@@ -257,7 +260,8 @@ async fn run(
     let mut trigger_chunks = 0usize;
     let mut last_audio_level_published_at = None;
     let mut last_partial_published_at = None;
-    let mut result = loop {
+    let mut lifecycle = RecognitionLifecycle::default();
+    let mut result = 'running: loop {
         if *shutdown.borrow() || *stop.borrow() {
             break Ok(());
         }
@@ -303,6 +307,7 @@ async fn run(
                                 &mut last_partial_published_at,
                                 Instant::now(),
                             )
+                            && lifecycle.accept_partial(&utterance_id)
                         {
                             dependencies.publish_live(LiveTranscription::Partial {
                                 utterance_id,
@@ -317,7 +322,8 @@ async fn run(
                         text,
                         language,
                     } => {
-                        publish_cloud_final(
+                        lifecycle.terminate(&utterance_id);
+                        if let Err(error) = publish_cloud_final(
                             &dependencies,
                             source,
                             &asr_echo_guard,
@@ -325,10 +331,29 @@ async fn run(
                             text,
                             language,
                         )
-                        .await?;
+                        .await
+                        {
+                            break Err(error);
+                        }
                     }
-                    CloudEvent::Failed { code, detail } => {
+                    CloudEvent::Failed {
+                        utterance_id,
+                        reset_session,
+                        code,
+                        detail,
+                    } => {
+                        let utterance_id = if reset_session {
+                            lifecycle.reset();
+                            None
+                        } else {
+                            let utterance_id = lifecycle.failure_id(utterance_id.as_deref());
+                            if let Some(utterance_id) = &utterance_id {
+                                lifecycle.terminate(utterance_id);
+                            }
+                            utterance_id
+                        };
                         dependencies.publish_live(LiveTranscription::Failed {
+                            utterance_id,
                             source: source.into(),
                             code,
                             detail,
@@ -371,7 +396,9 @@ async fn run(
             trigger_chunks = 0;
             while let Some((buffered, speech)) = pre_roll.pop_front() {
                 if let Some(session) = cloud.as_ref() {
-                    session.send(buffered.clone()).await?;
+                    if let Err(error) = session.send(buffered.clone()).await {
+                        break 'running Err(error);
+                    }
                 }
                 segmenter.push(&buffered, speech);
             }
@@ -379,7 +406,9 @@ async fn run(
         }
 
         if let Some(session) = cloud.as_ref() {
-            session.send(chunk.clone()).await?;
+            if let Err(error) = session.send(chunk.clone()).await {
+                break Err(error);
+            }
         }
         let was_active = segmenter.is_active();
         let segment = segmenter.push(&chunk, vad_speech);
@@ -391,7 +420,9 @@ async fn run(
         streaming = false;
         if let Some(session) = cloud.as_ref() {
             if session.segmentation_mode() == SegmentationMode::LocalCommit {
-                session.commit().await?;
+                if let Err(error) = session.commit().await {
+                    break Err(error);
+                }
             }
         } else if let Some(segment) = segment {
             if let Err(error) = dependencies.transcribe_and_publish(segment, source).await {
@@ -402,6 +433,7 @@ async fn run(
     if let Some(session) = cloud {
         if discard_on_stop.load(Ordering::SeqCst) {
             session.stop().await;
+            finish_recognition_session(&dependencies, source, &mut lifecycle);
             capture.shutdown().await;
             return result;
         }
@@ -412,6 +444,7 @@ async fn run(
                     text,
                     language,
                 } => {
+                    lifecycle.terminate(&utterance_id);
                     if let Err(error) = publish_cloud_final(
                         &dependencies,
                         source,
@@ -431,7 +464,9 @@ async fn run(
                     text,
                     language,
                 } => {
-                    if !asr_echo_guard.suppresses_partial(&text) {
+                    if !asr_echo_guard.suppresses_partial(&text)
+                        && lifecycle.accept_partial(&utterance_id)
+                    {
                         dependencies.publish_live(LiveTranscription::Partial {
                             utterance_id,
                             source: source.into(),
@@ -440,8 +475,24 @@ async fn run(
                         });
                     }
                 }
-                CloudEvent::Failed { code, detail } => {
+                CloudEvent::Failed {
+                    utterance_id,
+                    reset_session,
+                    code,
+                    detail,
+                } => {
+                    let utterance_id = if reset_session {
+                        lifecycle.reset();
+                        None
+                    } else {
+                        let utterance_id = lifecycle.failure_id(utterance_id.as_deref());
+                        if let Some(utterance_id) = &utterance_id {
+                            lifecycle.terminate(utterance_id);
+                        }
+                        utterance_id
+                    };
                     dependencies.publish_live(LiveTranscription::Failed {
+                        utterance_id,
                         source: source.into(),
                         code,
                         detail,
@@ -450,6 +501,7 @@ async fn run(
             }
         }
     }
+    finish_recognition_session(&dependencies, source, &mut lifecycle);
     capture.shutdown().await;
     result
 }
@@ -464,11 +516,24 @@ async fn publish_cloud_final(
 ) -> Result<(), String> {
     if echo_guard.is_echo(&text) {
         tracing::debug!(source, "discarded echoed ASR context");
+        dependencies.cancel_recognition(&utterance_id, source, "filtered");
         return Ok(());
     }
     dependencies
         .publish_text(text, language, source, utterance_id)
         .await
+}
+
+fn finish_recognition_session(
+    dependencies: &PipelineDependencies,
+    source: &str,
+    lifecycle: &mut RecognitionLifecycle,
+) {
+    for utterance_id in lifecycle.terminate_all() {
+        dependencies.cancel_recognition(&utterance_id, source, "stopped");
+    }
+    dependencies.reset_recognition(source);
+    lifecycle.reset();
 }
 
 enum PipelineInput {
@@ -550,6 +615,7 @@ mod tests {
     use crate::asr::{AsrEngine, AsrService, Transcription};
     use crate::config::AsrConfig;
     use crate::db::Database;
+    use crate::domain_events::DomainEventHub;
     use tokio::sync::broadcast;
 
     struct FakeEngine;
@@ -635,6 +701,102 @@ mod tests {
         assert_eq!(chunks.len(), 1);
         assert_eq!(samples, 6);
         assert!(chunks.front().unwrap().1);
+    }
+
+    fn test_dependencies(events: DomainEventHub) -> PipelineDependencies {
+        let directory = tempfile::tempdir().unwrap();
+        let db = Arc::new(Mutex::new(
+            Database::open(&directory.path().join("test.db")).unwrap(),
+        ));
+        let asr = Arc::new(Mutex::new(AsrService::with_engine(
+            AsrConfig::default(),
+            Box::new(FakeEngine),
+        )));
+        let (subtitles, _) = broadcast::channel(4);
+        let (live, _) = broadcast::channel(4);
+        let (catalog, _) = broadcast::channel(4);
+        let (translations, _) = broadcast::channel(4);
+        let output = crate::subtitle_output::SubtitleLifecyclePublisher::with_domain_events(
+            subtitles,
+            translations,
+            crate::osc::OscChatboxDispatcher::new(crate::config::OscConfig::default()),
+            events,
+        );
+        let translation = crate::translation::TranslationDispatcher::new(
+            Arc::new(crate::translation::TranslationService::new().unwrap()),
+            Arc::clone(&db),
+            catalog.clone(),
+            output.clone(),
+            crate::vrcx::VrcxIntegration::new(tokio::sync::watch::channel(false).1),
+        );
+        PipelineDependencies::new(
+            asr,
+            db,
+            live,
+            catalog,
+            translation,
+            Arc::new(std::sync::RwLock::new(crate::config::AppConfig::default())),
+            output,
+        )
+    }
+
+    #[tokio::test]
+    async fn session_finish_cancels_active_utterances_then_resets_the_source() {
+        let events = DomainEventHub::new();
+        let mut receiver = events.subscribe();
+        let dependencies = test_dependencies(events);
+        let mut lifecycle = RecognitionLifecycle::default();
+        assert!(lifecycle.accept_partial("utterance-active"));
+
+        finish_recognition_session(&dependencies, "speaker", &mut lifecycle);
+
+        let cancelled = receiver.recv().await.unwrap();
+        let reset = receiver.recv().await.unwrap();
+        assert_eq!(cancelled.event_type, "asr.cancelled");
+        assert_eq!(cancelled.message_id, "utterance-active");
+        assert_eq!(reset.event_type, "asr.reset");
+        assert_eq!(reset.source, "speaker");
+    }
+
+    #[tokio::test]
+    async fn empty_cloud_finals_publish_a_cancellation() {
+        let events = DomainEventHub::new();
+        let mut receiver = events.subscribe();
+        let dependencies = test_dependencies(events);
+
+        dependencies
+            .publish_text("   ".into(), None, "speaker", "utterance-empty".into())
+            .await
+            .unwrap();
+
+        let event = receiver.recv().await.unwrap();
+        assert_eq!(event.event_type, "asr.cancelled");
+        assert_eq!(event.message_id, "utterance-empty");
+        assert_eq!(event.payload["reason"], "empty");
+    }
+
+    #[tokio::test]
+    async fn filtered_cloud_finals_publish_a_cancellation() {
+        let events = DomainEventHub::new();
+        let mut receiver = events.subscribe();
+        let dependencies = test_dependencies(events);
+        let guard = AsrEchoGuard::new(vec!["World: Example".into()]);
+
+        publish_cloud_final(
+            &dependencies,
+            "speaker",
+            &guard,
+            "utterance-filtered".into(),
+            "World: Example.".into(),
+            None,
+        )
+        .await
+        .unwrap();
+
+        let event = receiver.recv().await.unwrap();
+        assert_eq!(event.event_type, "asr.cancelled");
+        assert_eq!(event.message_id, "utterance-filtered");
+        assert_eq!(event.payload["reason"], "filtered");
     }
 
     impl AsrEngine for FakeEngine {

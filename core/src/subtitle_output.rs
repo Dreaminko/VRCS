@@ -124,7 +124,15 @@ impl SubtitleLifecyclePublisher {
         self.events.asr_partial(message_id, source, text, language);
     }
 
-    pub fn asr_failed(&self, message_id: &str, source: &str, code: &str, detail: &str) {
+    pub fn asr_cancelled(&self, message_id: &str, source: &str, reason: &str) {
+        self.events.asr_cancelled(message_id, source, reason);
+    }
+
+    pub fn asr_reset(&self, source: &str) {
+        self.events.asr_reset(source);
+    }
+
+    pub fn asr_failed(&self, message_id: Option<&str>, source: &str, code: &str, detail: &str) {
         self.events.asr_failed(message_id, source, code, detail);
     }
 

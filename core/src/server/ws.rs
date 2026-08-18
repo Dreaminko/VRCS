@@ -106,7 +106,13 @@ pub(super) async fn handle_socket(state: Arc<AppState>, socket: WebSocket) {
                             break;
                         }
                     }
-                    Err(broadcast::error::RecvError::Lagged(_)) => continue,
+                    Err(broadcast::error::RecvError::Lagged(dropped)) => {
+                        tracing::warn!(dropped, "recognition event stream lagged; resetting client state");
+                        let payload = json!({ "type": "recognition_reset" }).to_string();
+                        if sender.send(Message::Text(payload.into())).await.is_err() {
+                            break;
+                        }
+                    }
                     Err(broadcast::error::RecvError::Closed) => break,
                 }
             }
@@ -187,8 +193,19 @@ fn recognition_payload(event: DomainEvent) -> Option<Value> {
             "utterance_id": event.message_id,
             "subtitle": event.payload.get("subtitle")?,
         })),
+        "asr.cancelled" => Some(json!({
+            "type": "recognition_cancelled",
+            "utterance_id": event.message_id,
+            "source": event.source,
+            "reason": event.payload.get("reason")?,
+        })),
+        "asr.reset" => Some(json!({
+            "type": "recognition_reset",
+            "source": event.source,
+        })),
         "asr.failed" => Some(json!({
             "type": "failed",
+            "utterance_id": event.payload.get("utterance_id"),
             "source": event.source,
             "code": event.payload.get("code"),
             "detail": event.payload.get("detail"),
@@ -215,6 +232,51 @@ mod tests {
             created_at: now_iso8601(),
             translations: Vec::new(),
         }
+    }
+
+    #[tokio::test]
+    async fn cancelled_and_failed_events_preserve_utterance_identity() {
+        let events = DomainEventHub::new();
+        let mut receiver = events.subscribe();
+        events.asr_cancelled("utterance-7", "speaker", "filtered");
+        events.asr_failed(
+            Some("utterance-8"),
+            "microphone",
+            "asr.cloud_error",
+            "failed",
+        );
+
+        let cancelled = recognition_payload(receiver.recv().await.unwrap()).unwrap();
+        let failed = recognition_payload(receiver.recv().await.unwrap()).unwrap();
+
+        assert_eq!(cancelled["type"], "recognition_cancelled");
+        assert_eq!(cancelled["utterance_id"], "utterance-7");
+        assert_eq!(cancelled["reason"], "filtered");
+        assert_eq!(failed["type"], "failed");
+        assert_eq!(failed["utterance_id"], "utterance-8");
+        assert_eq!(failed["source"], "microphone");
+    }
+
+    #[tokio::test]
+    async fn recognition_resets_are_scoped_to_their_source() {
+        let events = DomainEventHub::new();
+        let mut receiver = events.subscribe();
+        events.asr_reset("speaker");
+
+        let reset = recognition_payload(receiver.recv().await.unwrap()).unwrap();
+        assert_eq!(reset["type"], "recognition_reset");
+        assert_eq!(reset["source"], "speaker");
+    }
+
+    #[tokio::test]
+    async fn session_failures_have_no_utterance_identity() {
+        let events = DomainEventHub::new();
+        let mut receiver = events.subscribe();
+        events.asr_failed(None, "speaker", "asr.cloud_disconnected", "closed");
+
+        let failed = recognition_payload(receiver.recv().await.unwrap()).unwrap();
+        assert_eq!(failed["type"], "failed");
+        assert!(failed["utterance_id"].is_null());
     }
 
     #[tokio::test]

@@ -122,6 +122,8 @@ pub enum LiveTranscription {
         language: Option<String>,
     },
     Failed {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        utterance_id: Option<String>,
         source: String,
         code: String,
         detail: String,

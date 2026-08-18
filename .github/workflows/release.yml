@@ -3,7 +3,7 @@ name: Release
 on:
   push:
     tags:
-      - "v*"
+      - "[0-9]*.[0-9]*.[0-9]*"
 
 permissions:
   contents: write
@@ -38,8 +38,8 @@ jobs:
         shell: pwsh
         run: |
           $version = (Get-Content -LiteralPath "apps/desktop/src-tauri/tauri.conf.json" -Raw | ConvertFrom-Json).version
-          if ("v$version" -ne "${{ github.ref_name }}") {
-            throw "Tag ${{ github.ref_name }} does not match application version v$version"
+          if ($version -ne "${{ github.ref_name }}") {
+            throw "Tag ${{ github.ref_name }} does not match application version $version"
           }
 
       - name: Install frontend dependencies
@@ -64,7 +64,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           $tag = "${{ github.ref_name }}"
-          $version = $tag.TrimStart("v")
+          $version = $tag
           $notes = @"
           Windows 10/11 x64 release for VRCS.
 
@@ -88,7 +88,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          $version = "${{ github.ref_name }}".TrimStart("v")
+          $version = "${{ github.ref_name }}"
           $assets = @(
             "release-artifacts/VRCS-$version-windows-x64.exe",
             "release-artifacts/VRCS-$version-windows-x64.exe.sha256",

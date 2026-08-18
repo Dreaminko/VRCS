@@ -465,6 +465,8 @@ mod tests {
                 .unwrap();
         assert!(events.contains("asr.partial"));
         assert!(events.contains("asr.final"));
+        assert!(events.contains("asr.cancelled"));
+        assert!(events.contains("asr.reset"));
         assert!(events.contains("asr.failed"));
         assert!(events.contains("chatbox.sent"));
         assert!(!events.contains("translation.completed"));
@@ -541,7 +543,13 @@ mod tests {
             serde_json::from_str(socket.next().await.unwrap().unwrap().to_text().unwrap()).unwrap();
         assert_eq!(
             subscribed["payload"]["events"],
-            json!(["asr.partial", "asr.final", "asr.failed"])
+            json!([
+                "asr.partial",
+                "asr.final",
+                "asr.cancelled",
+                "asr.reset",
+                "asr.failed"
+            ])
         );
 
         hub.translation_started("utterance-1", "speaker", 1);

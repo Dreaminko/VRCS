@@ -92,9 +92,3 @@ For RTL languages, also verify reading order, controls, icons, popovers, and mix
 ## Updating an existing translation
 
 Edit its locale file directly and run the same three checks. When English gains a key, the validator reports every locale that needs the corresponding translation.
-
----
-
-## 中文摘要
-
-新增语言只需运行 `npm run i18n:new -- <语言代码> "<语言本名>"`，翻译生成的单个 JSON 文件，不需要修改 TypeScript 注册表。提交前必须运行 `npm run check:i18n`、桌面端测试和前端构建；请完整保留所有键与 `{{插值变量}}`，并在应用内检查长文案、托盘菜单和 Anki 卡片标签。

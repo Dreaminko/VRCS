@@ -1,14 +1,10 @@
-use std::collections::HashMap;
-
 use serde_json::{json, Value};
 use tokio_tungstenite::tungstenite::http::Request;
 use tokio_tungstenite::tungstenite::Message;
 
 use crate::config::{ApiProfile, AsrConfig};
 
-use super::{
-    append_transcript, authenticated_request, event_id, event_language, pcm16_base64, CloudEvent,
-};
+use super::{authenticated_request, event_language, pcm16_base64, CloudEvent, NormalizationState};
 
 pub(super) fn build_request(
     config: &AsrConfig,
@@ -55,7 +51,7 @@ pub(super) fn session_update(config: &AsrConfig) -> Value {
 pub(super) fn normalize_event(
     config: &AsrConfig,
     value: &Value,
-    transcripts: &mut HashMap<String, String>,
+    state: &mut NormalizationState,
 ) -> Result<Option<CloudEvent>, String> {
     let kind = value
         .get("type")
@@ -67,20 +63,23 @@ pub(super) fn normalize_event(
             .or_else(|| value.get("message"))
             .and_then(Value::as_str)
             .unwrap_or("Cloud recognition request failed");
+        let utterance_id = state.fail(value);
         return Ok(Some(CloudEvent::Failed {
+            reset_session: utterance_id.is_none(),
+            utterance_id,
             code: "asr.cloud_error".into(),
             detail: detail.into(),
         }));
     }
 
-    let id = event_id(value);
     let language = event_language(config, value);
     if kind.ends_with(".delta") {
+        let id = state.delta_id(value);
         let delta = value
             .get("delta")
             .and_then(Value::as_str)
             .unwrap_or_default();
-        let text = append_transcript(transcripts, &id, delta)?;
+        let text = state.append_transcript(&id, delta)?;
         return Ok((!text.is_empty()).then(|| CloudEvent::Partial {
             utterance_id: id,
             text: text.to_owned(),
@@ -88,14 +87,15 @@ pub(super) fn normalize_event(
         }));
     }
     if kind.ends_with(".completed") {
+        let id = state.final_id(value);
         let text = value
             .get("transcript")
             .or_else(|| value.get("text"))
             .and_then(Value::as_str)
             .map(str::to_owned)
-            .or_else(|| transcripts.remove(&id))
+            .or_else(|| state.take_transcript(&id))
             .unwrap_or_default();
-        transcripts.remove(&id);
+        state.complete(&id);
         return Ok(Some(CloudEvent::Final {
             utterance_id: id,
             text,
@@ -103,6 +103,7 @@ pub(super) fn normalize_event(
         }));
     }
     if kind.ends_with(".text") {
+        let id = state.snapshot_id(value);
         let text = format!(
             "{}{}",
             value

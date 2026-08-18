@@ -272,6 +272,63 @@ test("valid stream payloads pass protocol validation", () => {
   });
 });
 
+test("recognition lifecycle payloads pass protocol validation", () => {
+  assert.deepEqual(
+    parseSubtitleStreamMessage(JSON.stringify({
+      type: "recognition_cancelled",
+      utterance_id: "utterance-3",
+      source: "speaker",
+      reason: "filtered",
+    })),
+    {
+      type: "recognition_cancelled",
+      utterance_id: "utterance-3",
+      source: "speaker",
+      reason: "filtered",
+    },
+  );
+  assert.deepEqual(
+    parseSubtitleStreamMessage(JSON.stringify({ type: "recognition_reset" })),
+    { type: "recognition_reset" },
+  );
+  assert.deepEqual(
+    parseSubtitleStreamMessage(JSON.stringify({
+      type: "recognition_reset",
+      source: "speaker",
+    })),
+    { type: "recognition_reset", source: "speaker" },
+  );
+  assert.deepEqual(
+    parseSubtitleStreamMessage(JSON.stringify({
+      type: "failed",
+      utterance_id: "utterance-4",
+      source: "microphone",
+      code: "asr.cloud_error",
+      detail: "failed",
+    })),
+    {
+      type: "failed",
+      utterance_id: "utterance-4",
+      source: "microphone",
+      code: "asr.cloud_error",
+      detail: "failed",
+    },
+  );
+});
+
+test("malformed recognition lifecycle payloads are rejected", () => {
+  assert.equal(parseSubtitleStreamMessage(JSON.stringify({
+    type: "recognition_cancelled",
+    utterance_id: "utterance-3",
+    source: "chatbox",
+    reason: "filtered",
+  })), null);
+  assert.equal(parseSubtitleStreamMessage(JSON.stringify({
+    type: "recognition_reset",
+    source: "chatbox",
+  })), null);
+});
+
 test("OpenAI-compatible translation payloads pass protocol validation", () => {
   const translated = {
     ...subtitle(3, "valid"),

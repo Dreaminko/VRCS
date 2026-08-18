@@ -9,6 +9,9 @@ const audioLevels = new Map<AudioLevel["source"], AudioLevel>();
 const audioLevelListeners = new Set<Listener>();
 const livePartials = new Map<LiveTranscription["source"], LiveTranscription>();
 const livePartialListeners = new Map<LiveTranscription["source"], Set<Listener>>();
+const terminatedLivePartialIds = new Set<string>();
+const terminatedLivePartialOrder: string[] = [];
+const MAX_TERMINATED_LIVE_PARTIALS = 32;
 const translationPartials = new Map<number, TranslationPartial>();
 const translationPartialListeners = new Map<number, Set<Listener>>();
 
@@ -59,7 +62,28 @@ export function useAudioLevel(source: AudioLevel["source"]): AudioLevel | null {
   );
 }
 
+function livePartialKey(source: LiveTranscription["source"], utteranceId: string) {
+  return `${source}:${utteranceId}`;
+}
+
+function rememberLivePartialTermination(
+  source: LiveTranscription["source"],
+  utteranceId: string,
+) {
+  const key = livePartialKey(source, utteranceId);
+  if (terminatedLivePartialIds.has(key)) return;
+  terminatedLivePartialIds.add(key);
+  terminatedLivePartialOrder.push(key);
+  if (terminatedLivePartialOrder.length > MAX_TERMINATED_LIVE_PARTIALS) {
+    const expired = terminatedLivePartialOrder.shift();
+    if (expired !== undefined) terminatedLivePartialIds.delete(expired);
+  }
+}
+
 export function publishLivePartial(partial: LiveTranscription) {
+  if (terminatedLivePartialIds.has(livePartialKey(partial.source, partial.utterance_id))) {
+    return;
+  }
   livePartials.set(partial.source, partial);
   notifyKey(livePartialListeners, partial.source);
 }
@@ -68,6 +92,7 @@ export function completeLivePartial(
   source: LiveTranscription["source"],
   utteranceId: string,
 ) {
+  rememberLivePartialTermination(source, utteranceId);
   if (livePartials.get(source)?.utterance_id !== utteranceId) return;
   livePartials.delete(source);
   notifyKey(livePartialListeners, source);
@@ -78,10 +103,24 @@ export function clearLivePartial(source: LiveTranscription["source"]) {
   notifyKey(livePartialListeners, source);
 }
 
+export function resetLivePartial(source: LiveTranscription["source"]) {
+  const deleted = livePartials.delete(source);
+  const prefix = `${source}:`;
+  for (let index = terminatedLivePartialOrder.length - 1; index >= 0; index -= 1) {
+    const key = terminatedLivePartialOrder[index];
+    if (key?.startsWith(prefix)) {
+      terminatedLivePartialOrder.splice(index, 1);
+      terminatedLivePartialIds.delete(key);
+    }
+  }
+  if (deleted) notifyKey(livePartialListeners, source);
+}
+
 export function clearLivePartials() {
-  if (!livePartials.size) return;
   const sources = [...livePartials.keys()];
   livePartials.clear();
+  terminatedLivePartialIds.clear();
+  terminatedLivePartialOrder.length = 0;
   sources.forEach((source) => notifyKey(livePartialListeners, source));
 }
 

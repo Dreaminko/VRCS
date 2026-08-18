@@ -54,18 +54,24 @@ impl PipelineDependencies {
                 .output
                 .asr_partial(utterance_id, source, text, language.as_deref()),
             LiveTranscription::Failed {
+                utterance_id,
                 source,
                 code,
                 detail,
-            } => self.output.asr_failed(
-                &format!("utterance-{}", uuid::Uuid::new_v4()),
-                source,
-                code,
-                detail,
-            ),
+            } => self
+                .output
+                .asr_failed(utterance_id.as_deref(), source, code, detail),
             LiveTranscription::AudioLevel { .. } => {}
         }
         let _ = self.live.send(event);
+    }
+
+    pub(crate) fn cancel_recognition(&self, utterance_id: &str, source: &str, reason: &str) {
+        self.output.asr_cancelled(utterance_id, source, reason);
+    }
+
+    pub(crate) fn reset_recognition(&self, source: &str) {
+        self.output.asr_reset(source);
     }
 
     pub(crate) async fn transcribe_and_publish(
@@ -94,14 +100,18 @@ impl PipelineDependencies {
         {
             Ok(Ok(transcription)) => transcription,
             Ok(Err(detail)) => {
-                self.output
-                    .asr_failed(&message_id, source, "asr.transcription_failed", &detail);
+                self.output.asr_failed(
+                    Some(&message_id),
+                    source,
+                    "asr.transcription_failed",
+                    &detail,
+                );
                 return Err(detail);
             }
             Err(error) => {
                 let detail = format!("Recognition task exited unexpectedly: {error}");
                 self.output
-                    .asr_failed(&message_id, source, "asr.task_failed", &detail);
+                    .asr_failed(Some(&message_id), source, "asr.task_failed", &detail);
                 return Err(detail);
             }
         };
@@ -129,6 +139,7 @@ impl PipelineDependencies {
     ) -> Result<(), String> {
         let text = text.trim().to_string();
         if text.is_empty() {
+            self.output.asr_cancelled(&message_id, source, "empty");
             return Ok(());
         }
         let subtitle = Subtitle {
@@ -159,13 +170,13 @@ impl PipelineDependencies {
             Ok(Ok(saved)) => saved,
             Ok(Err(detail)) => {
                 self.output
-                    .asr_failed(&message_id, source, "asr.storage_failed", &detail);
+                    .asr_failed(Some(&message_id), source, "asr.storage_failed", &detail);
                 return Err(detail);
             }
             Err(error) => {
                 let detail = format!("Subtitle storage task exited unexpectedly: {error}");
                 self.output
-                    .asr_failed(&message_id, source, "asr.storage_failed", &detail);
+                    .asr_failed(Some(&message_id), source, "asr.storage_failed", &detail);
                 return Err(detail);
             }
         };
