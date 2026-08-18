@@ -1,4 +1,4 @@
-![VRCS](apps/desktop/public/logos/VRCS_Logo.svg)
+<img src="apps/desktop/public/logos/VRCS_Logo.svg" width="50%" alt="logo" />
 
 # VRCS
 
