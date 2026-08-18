@@ -159,7 +159,7 @@ impl TranslationService {
                 false,
             ));
         }
-        if source_language.is_some_and(|source| same_language(source, target)) {
+        if source_language.is_some_and(|source| same_translation_language(source, target)) {
             return Ok(TranslationResult {
                 text: text.to_owned(),
                 source_language: source_language.map(str::to_owned),
@@ -271,7 +271,7 @@ fn translation_output_token_limit(text: &str) -> u32 {
     estimated.clamp(128, 8_192) as u32
 }
 
-fn same_language(source: &str, target: &str) -> bool {
+pub fn same_translation_language(source: &str, target: &str) -> bool {
     let source = source.to_ascii_lowercase();
     let target = target.to_ascii_lowercase();
     if source == target {
@@ -344,12 +344,12 @@ mod tests {
 
     #[test]
     fn compares_language_codes_by_script_and_base_language() {
-        assert!(!same_language("zh", "zh-Hant"));
-        assert!(same_language("zh-CN", "zh-Hans"));
-        assert!(!same_language("ja", "en"));
-        assert!(same_language("en-US", "en"));
-        assert!(!same_language("en-US", "en-GB"));
-        assert!(!same_language("pt-BR", "pt-PT"));
+        assert!(!same_translation_language("zh", "zh-Hant"));
+        assert!(same_translation_language("zh-CN", "zh-Hans"));
+        assert!(!same_translation_language("ja", "en"));
+        assert!(same_translation_language("en-US", "en"));
+        assert!(!same_translation_language("en-US", "en-GB"));
+        assert!(!same_translation_language("pt-BR", "pt-PT"));
     }
 
     #[test]

@@ -8,7 +8,7 @@ use crate::db::conversations::{publish_latest_catalog, ConversationCatalog};
 use crate::db::Database;
 use crate::models::{now_iso8601, LiveTranscription, Subtitle};
 use crate::subtitle_output::SubtitleLifecyclePublisher;
-use crate::translation::TranslationDispatcher;
+use crate::translation::{same_translation_language, TranslationDispatcher};
 
 #[derive(Clone)]
 pub(crate) struct PipelineDependencies {
@@ -172,7 +172,11 @@ impl PipelineDependencies {
         let (translation_settings, api_profiles, include_vrcx_context) = {
             let config = self.config.read().expect("config lock");
             (
-                automatic_translation_settings(&config.translation, source),
+                automatic_translation_settings(
+                    &config.translation,
+                    source,
+                    saved.language.as_deref(),
+                ),
                 config.asr.api_profiles.clone(),
                 config.vrcx.enabled && config.vrcx.include_in_llm_context,
             )
@@ -209,6 +213,7 @@ impl PipelineDependencies {
 fn automatic_translation_settings(
     config: &TranslationConfig,
     source: &str,
+    source_language: Option<&str>,
 ) -> Option<TranslationConfig> {
     if config.mode != "automatic" {
         return None;
@@ -216,6 +221,11 @@ fn automatic_translation_settings(
     let mut settings = config.clone();
     if source == "microphone" {
         settings.target_language = settings.microphone_target_language.clone();
+    }
+    if source_language
+        .is_some_and(|source| same_translation_language(source, &settings.target_language))
+    {
+        return None;
     }
     Some(settings)
 }
@@ -234,10 +244,25 @@ mod tests {
             ..TranslationConfig::default()
         };
 
-        let microphone = automatic_translation_settings(&config, "microphone").unwrap();
+        let microphone = automatic_translation_settings(&config, "microphone", None).unwrap();
         assert_eq!(microphone.target_language, "ja");
-        let speaker = automatic_translation_settings(&config, "speaker").unwrap();
+        let speaker = automatic_translation_settings(&config, "speaker", None).unwrap();
         assert_eq!(speaker.target_language, "zh-Hans");
+    }
+
+    #[test]
+    fn automatic_mode_skips_matching_source_and_target_languages() {
+        let config = TranslationConfig {
+            mode: "automatic".into(),
+            target_language: "en".into(),
+            microphone_target_language: "ja".into(),
+            ..TranslationConfig::default()
+        };
+
+        assert!(automatic_translation_settings(&config, "speaker", Some("en-US")).is_none());
+        assert!(automatic_translation_settings(&config, "microphone", Some("ja")).is_none());
+        assert!(automatic_translation_settings(&config, "speaker", Some("ja")).is_some());
+        assert!(automatic_translation_settings(&config, "speaker", None).is_some());
     }
 
     #[test]
@@ -248,8 +273,8 @@ mod tests {
                 ..TranslationConfig::default()
             };
 
-            assert!(automatic_translation_settings(&config, "microphone").is_none());
-            assert!(automatic_translation_settings(&config, "speaker").is_none());
+            assert!(automatic_translation_settings(&config, "microphone", Some("ja")).is_none());
+            assert!(automatic_translation_settings(&config, "speaker", Some("en")).is_none());
         }
     }
 }

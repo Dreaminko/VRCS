@@ -41,6 +41,7 @@ use crate::server::{AppState, CORE_VERSION};
 pub use crate::config::{VrOverlayConfig, VrOverlayHeadsetConfig, VrOverlayWristConfig};
 pub use crate::models::{Subtitle, SubtitleTranslation};
 pub use crate::subtitle_output::PresentationEvent;
+pub use crate::translation::same_translation_language;
 
 pub struct CoreOptions {
     pub config_path: PathBuf,

@@ -1,7 +1,10 @@
 use std::collections::VecDeque;
 use std::time::{Duration, Instant};
 
-use vrcs_core::{PresentationEvent, Subtitle, VrOverlayHeadsetConfig, VrOverlayWristConfig};
+use vrcs_core::{
+    same_translation_language, PresentationEvent, Subtitle, SubtitleTranslation,
+    VrOverlayHeadsetConfig, VrOverlayWristConfig,
+};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct PresentationFrame {
@@ -47,6 +50,7 @@ impl PresentationFrame {
 struct PresentationItem {
     subtitle_id: Option<i64>,
     source: String,
+    language: Option<String>,
     original: String,
     translation: Option<String>,
     expires_at: Instant,
@@ -91,8 +95,10 @@ impl HeadsetPresentation {
                     .as_mut()
                     .filter(|item| item.subtitle_id == Some(subtitle_id))
                 {
-                    item.translation = Some(translation.text);
-                    item.expires_at = expiry(now, config.display_seconds);
+                    item.translation = visible_translation(item.language.as_deref(), &translation);
+                    if item.translation.is_some() {
+                        item.expires_at = expiry(now, config.display_seconds);
+                    }
                 }
             }
             _ => {}
@@ -150,8 +156,10 @@ impl WristPresentation {
                     .iter_mut()
                     .find(|item| item.subtitle_id == Some(subtitle_id))
                 {
-                    item.translation = Some(translation.text);
-                    self.last_activity = Some(now);
+                    item.translation = visible_translation(item.language.as_deref(), &translation);
+                    if item.translation.is_some() {
+                        self.last_activity = Some(now);
+                    }
                 }
             }
             _ => {}
@@ -193,14 +201,29 @@ fn item_from_subtitle(subtitle: Subtitle, expires_at: Instant) -> PresentationIt
     let translation = subtitle
         .translations
         .last()
-        .map(|translation| translation.text.clone());
+        .and_then(|translation| visible_translation(subtitle.language.as_deref(), translation));
     PresentationItem {
         subtitle_id: subtitle.id,
         source: subtitle.source,
+        language: subtitle.language,
         original: subtitle.text,
         translation,
         expires_at,
     }
+}
+
+fn visible_translation(
+    source_language: Option<&str>,
+    translation: &SubtitleTranslation,
+) -> Option<String> {
+    let same_language = [source_language, translation.source_language.as_deref()]
+        .into_iter()
+        .flatten()
+        .any(|source| same_translation_language(source, &translation.target_language));
+    if translation.text.trim().is_empty() || same_language {
+        return None;
+    }
+    Some(translation.text.clone())
 }
 
 fn wrist_message(item: &PresentationItem, content_mode: &str) -> WristMessage {
@@ -353,6 +376,55 @@ mod tests {
         assert_eq!(
             state.frame(now, &config).unwrap().content,
             PresentationContent::Headset("hello\n你好".into())
+        );
+    }
+
+    #[test]
+    fn same_language_translation_is_hidden() {
+        let now = Instant::now();
+        let mut translation = translation("hello");
+        translation.source_language = None;
+        translation.target_language = "en".into();
+
+        let mut headset_config = VrOverlayHeadsetConfig::default();
+        headset_config.content_mode = "bilingual".into();
+        let mut headset = HeadsetPresentation::default();
+        headset.apply(
+            PresentationEvent::Final {
+                subtitle: subtitle(7, "hello"),
+            },
+            now,
+            &headset_config,
+        );
+        headset.apply(
+            PresentationEvent::TranslationCompleted {
+                subtitle_id: 7,
+                translation: translation.clone(),
+            },
+            now,
+            &headset_config,
+        );
+        assert_eq!(
+            headset.frame(now, &headset_config).unwrap().content,
+            PresentationContent::Headset("hello".into())
+        );
+
+        let mut wrist_config = VrOverlayWristConfig::default();
+        wrist_config.content_mode = "bilingual".into();
+        let mut item = subtitle(7, "hello");
+        item.translations.push(translation);
+        let mut wrist = WristPresentation::default();
+        wrist.apply(
+            PresentationEvent::Final { subtitle: item },
+            now,
+            &wrist_config,
+        );
+        assert_eq!(
+            wrist.frame(now, &wrist_config).unwrap().content,
+            PresentationContent::Wrist(vec![WristMessage {
+                text: "hello".into(),
+                side: MessageSide::Left,
+            }])
         );
     }
 
