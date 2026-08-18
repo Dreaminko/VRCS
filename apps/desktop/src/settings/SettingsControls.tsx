@@ -9,10 +9,10 @@ import {
   ankiDeckParent,
   buildAnkiDeckTree,
   visibleAnkiDeckNodes,
-} from "../anki-decks";
+} from "../anki/anki-decks";
 import type { AudioDevice } from "../types";
-import { useDismissibleLayer } from "../use-dismissible-layer";
-import { DropdownField } from "../components/DropdownField";
+import { useDismissibleLayer } from "../shared/hooks/use-dismissible-layer";
+import { DropdownField } from "../shared/ui/DropdownField";
 
 export function PreferenceToggle({ title, checked, disabled, onChange }: {
   title: string;

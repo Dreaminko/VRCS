@@ -10,7 +10,7 @@ import {
   saveOnboardingProgress,
   type OnboardingState,
   type OnboardingStorage,
-} from "../src/onboarding-state.ts";
+} from "../src/onboarding/onboarding-state.ts";
 
 function fakeStorage(initial: unknown) {
   let value = initial;

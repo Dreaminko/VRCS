@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 
-import { localizedError } from "../../app-utils";
+import { localizedError } from "../../app/app-utils";
 import {
   defaultDesktopPreferences,
   loadDesktopPreferences,
@@ -12,7 +12,7 @@ import {
   changeUiLanguage,
   currentUiLanguagePreference,
 } from "../../i18n";
-import type { UiLanguagePreference } from "../../ui-language";
+import type { UiLanguagePreference } from "../../app/ui-language";
 import type { SaveState } from "../settings-types";
 
 export function useDesktopPreferences() {

@@ -1,7 +1,7 @@
 import { Check, Download, FolderOpen, HardDrive, RefreshCw, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
-import { NATIVE_APP } from "../../app-environment";
+import { NATIVE_APP } from "../../app/app-environment";
 import type { AsrModelRecord } from "../../types";
 import { formatBytes, MODEL_PRESENTATION } from "../settings-derived";
 import type { SaveState } from "../settings-types";

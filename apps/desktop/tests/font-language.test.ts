@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
-import { contentLanguageTag } from "../src/ui-language.ts";
+import { contentLanguageTag } from "../src/app/ui-language.ts";
 
 const baseCss = readFileSync(new URL("../src/styles/base.css", import.meta.url), "utf8");
 

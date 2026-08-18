@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { coreApi } from "../../api";
-import { localizedError } from "../../app-utils";
+import { localizedError } from "../../app/app-utils";
 import type { AnkiStatus, Settings } from "../../types";
 import { createAnkiOptions } from "../settings-derived";
 import type { SettingsDraftController } from "./useSettingsDraft";

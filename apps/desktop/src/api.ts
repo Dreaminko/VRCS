@@ -39,7 +39,7 @@ import { apiErrorFromResponse } from "./api-error";
 import type {
   ConversationCatalog,
   ConversationIcon,
-} from "./conversations";
+} from "./conversations/conversations";
 import type { ConversationSubtitlePage } from "./subtitle-stream";
 
 interface CoreConnection {
@@ -451,7 +451,7 @@ export const coreApi = {
           );
           onProgress?.(Math.max(0, Math.min(1, status.progress)));
         } catch {
-          // 上传完成且 Core 注册任务前会短暂返回 404，主请求仍负责错误处理。
+          // The progress endpoint can briefly return 404 before Core registers the uploaded job.
         }
         await delay(100);
       }

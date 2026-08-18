@@ -4,7 +4,7 @@ import {
   isLookupAnchorVisible,
   LOOKUP_POPOVER_HEIGHT,
   placeLookupPopover,
-} from "../src/popover-placement.ts";
+} from "../src/shared/lib/popover-placement.ts";
 
 test("places the popover below when there is enough space", () => {
   const result = placeLookupPopover({

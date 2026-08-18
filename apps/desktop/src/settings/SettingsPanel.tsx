@@ -1,33 +1,21 @@
-import { useEffect, useState } from "react";
-import type { ReactNode } from "react";
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import {
-  AudioLines,
-  GraduationCap,
-  KeyRound,
-  Languages,
-  Link,
-  SlidersHorizontal,
-  Volume2,
-  Wrench,
-  Glasses,
-} from "lucide-react";
 
 import {
   asrSelectionError,
   audioSelectionErrors,
   validComputeTypes,
-} from "../settings-validation";
-import { coreApi } from "../api";
+} from "./settings-validation";
 import type {
-  ApiProfileView,
   AsrCapabilities,
   AudioDevice,
   DictionarySource,
   Health,
   Settings,
 } from "../types";
+import { SettingsTabBar } from "./components/SettingsTabBar";
 import { useAnkiSettings } from "./hooks/useAnkiSettings";
+import { useApiProfileViews } from "./hooks/useApiProfileViews";
 import { useAsrModels } from "./hooks/useAsrModels";
 import { useDesktopPreferences } from "./hooks/useDesktopPreferences";
 import { useDictionaryActions } from "./hooks/useDictionaryActions";
@@ -36,8 +24,7 @@ import { createDebugRows } from "./settings-derived";
 import { ApiManagementSettingsSection } from "./sections/ApiManagementSettingsSection";
 import { AudioSettingsSection } from "./sections/AudioSettingsSection";
 import { DebugSettingsSection } from "./sections/DebugSettingsSection";
-import { DictionarySettingsSection } from "./sections/DictionarySettingsSection";
-import { LearningAiSettingsSection } from "./sections/LearningAiSettingsSection";
+import { LearningSettingsSection } from "./sections/LearningSettingsSection";
 import { RecognitionSettingsSection } from "./sections/RecognitionSettingsSection";
 import { ConnectionSettingsSection } from "./sections/ConnectionSettingsSection";
 import { SystemSettingsSection } from "./sections/SystemSettingsSection";
@@ -94,20 +81,7 @@ export function SettingsPanel({
   const { t, i18n } = useTranslation();
   const locale = i18n.resolvedLanguage ?? "en-US";
   const [activeCategory, setActiveCategory] = useState<SettingsCategory>("system");
-  const [apiProfileViews, setApiProfileViews] = useState<ApiProfileView[]>([]);
-  useEffect(() => {
-    let cancelled = false;
-    void coreApi.apiProfiles().then(
-      ({ profiles }) => {
-        if (!cancelled) setApiProfileViews(profiles);
-      },
-      () => {
-        if (!cancelled) setApiProfileViews([]);
-      },
-    );
-    return () => { cancelled = true; };
-  }, [settings.asr.api_profiles]);
-
+  const apiProfileViews = useApiProfileViews(settings.asr.api_profiles);
   const draftController = useSettingsDraft(settings, onSave);
   const desktop = useDesktopPreferences();
   const asr = useAsrModels({
@@ -130,52 +104,6 @@ export function SettingsPanel({
   });
 
   const { draft, saveState, applySettings } = draftController;
-  const desktopPreferences = desktop.desktopPreferences;
-  const desktopPreferencesReady = desktop.ready;
-  const desktopSaveState = desktop.saveState;
-  const uiLanguagePreference = desktop.uiLanguagePreference;
-  const updateDesktop = desktop.updateDesktop;
-  const updateUiLanguage = desktop.updateUiLanguage;
-
-  const managedModels = asr.managedModels;
-  const modelsReady = asr.modelsReady;
-  const modelMessage = asr.message;
-  const modelDirectoryText = asr.modelDirectoryText;
-  const modelStatusLabel = asr.modelStatusLabel;
-  const installedModels = asr.installed;
-  const downloadingModels = asr.downloading;
-  const selectableModels = asr.selectable;
-  const loadModels = asr.loadModels;
-  const updateAsr = asr.updateAsr;
-  const updateRecognitionSource = asr.updateRecognitionSource;
-  const updateLocalAsr = asr.updateLocalAsr;
-  const updateVad = asr.updateVad;
-  const setModelDirectoryText = asr.setModelDirectoryText;
-  const updateModelDirectory = asr.updateModelDirectory;
-  const chooseModelDirectory = asr.chooseModelDirectory;
-  const downloadModel = asr.downloadModel;
-  const removeModel = asr.removeModel;
-
-  const ankiStatus = anki.status;
-  const ankiBusy = anki.busy;
-  const ankiMessage = anki.message;
-  const ankiPortText = anki.portText;
-  const ankiPortError = anki.portError;
-  const ankiDeckNames = anki.decks;
-  const ankiModelOptions = anki.models;
-  const ankiFieldOptions = anki.frontFields;
-  const ankiBackFieldOptions = anki.backFields;
-  const loadAnkiStatus = anki.loadStatus;
-  const setAnkiPortText = anki.setPortText;
-  const commitAnkiPort = anki.commitPort;
-  const updateAnki = anki.update;
-
-  const dictionaryBusy = dictionary.busy;
-  const dictionaryMessage = dictionary.message;
-  const dictionaryProgress = dictionary.progress;
-  const dictionaryFileRef = dictionary.fileInputRef;
-  const chooseDictionary = dictionary.choose;
-  const removeDictionary = dictionary.remove;
 
   const outputDevices = devices.filter((device) => device.is_loopback);
   const microphoneDevices = devices.filter((device) => !device.is_loopback);
@@ -185,21 +113,6 @@ export function SettingsPanel({
   const asrError = asrSelectionError(draft, asrCapabilities, (key) => t(key));
   const computeTypes = validComputeTypes(asrCapabilities, draft.asr.local.device);
 
-  const settingsCategories: Array<{
-    id: SettingsCategory;
-    label: string;
-    icon: ReactNode;
-  }> = [
-    { id: "system", label: t("settings.categories.system"), icon: <SlidersHorizontal size={18} /> },
-    { id: "audio", label: t("settings.categories.audio"), icon: <Volume2 size={18} /> },
-    { id: "recognition", label: t("settings.categories.recognition"), icon: <AudioLines size={18} /> },
-    { id: "translation", label: t("settings.categories.translation"), icon: <Languages size={18} /> },
-    { id: "api", label: t("settings.categories.api"), icon: <KeyRound size={18} /> },
-    { id: "learning", label: t("settings.categories.learning"), icon: <GraduationCap size={18} /> },
-    { id: "connections", label: t("settings.categories.connections"), icon: <Link size={18} /> },
-    { id: "vr_overlay", label: t("settings.categories.vrOverlay"), icon: <Glasses size={18} /> },
-    { id: "debug", label: "Debug", icon: <Wrench size={18} /> },
-  ];
 
   const debugRows = createDebugRows({
     draft,
@@ -215,40 +128,18 @@ export function SettingsPanel({
 
   return (
     <section className="settings-surface">
-      <div className="settings-tabbar-wrap">
-        <div className="settings-tabbar" role="tablist" aria-label={t("settings.categories.label")}>
-          {settingsCategories.map((category) => {
-            const active = activeCategory === category.id;
-            return (
-              <button
-                key={category.id}
-                id={`settings-tab-${category.id}`}
-                className={active ? "active" : ""}
-                type="button"
-                role="tab"
-                aria-selected={active}
-                aria-controls={`settings-panel-${category.id}`}
-                aria-label={category.label}
-                onClick={() => setActiveCategory(category.id)}
-              >
-                <span className="settings-tab-icon" aria-hidden="true">{category.icon}</span>
-                <span className="settings-tab-label">{category.label}</span>
-              </button>
-            );
-          })}
-        </div>
-      </div>
+      <SettingsTabBar activeCategory={activeCategory} onChange={setActiveCategory} />
 
       {activeCategory === "system" && (
         <SystemSettingsSection
-          desktopPreferences={desktopPreferences}
-          desktopPreferencesReady={desktopPreferencesReady}
-          desktopSaveState={desktopSaveState}
-          uiLanguagePreference={uiLanguagePreference}
+          desktopPreferences={desktop.desktopPreferences}
+          desktopPreferencesReady={desktop.ready}
+          desktopSaveState={desktop.saveState}
+          uiLanguagePreference={desktop.uiLanguagePreference}
           interfaceScale={interfaceScale}
-          onUpdateDesktop={updateDesktop}
+          onUpdateDesktop={desktop.updateDesktop}
           onInterfaceScaleChange={onInterfaceScaleChange}
-          onUpdateUiLanguage={updateUiLanguage}
+          onUpdateUiLanguage={desktop.updateUiLanguage}
           onboardingDisabled={health?.capture_requested ?? false}
           onStartOnboarding={onStartOnboarding}
           locale={locale}
@@ -267,30 +158,30 @@ export function SettingsPanel({
           status={{
             capabilities: asrCapabilities,
             error: asrError,
-            modelStatusLabel,
+            modelStatusLabel: asr.modelStatusLabel,
             computeTypes,
-            selectableModels,
+            selectableModels: asr.selectable,
           }}
           models={{
-            installed: installedModels,
-            downloading: downloadingModels,
-            managed: managedModels,
-            ready: modelsReady,
-            message: modelMessage,
-            directoryText: modelDirectoryText,
+            installed: asr.installed,
+            downloading: asr.downloading,
+            managed: asr.managedModels,
+            ready: asr.modelsReady,
+            message: asr.message,
+            directoryText: asr.modelDirectoryText,
           }}
           saveState={saveState}
           actions={{
-            updateAsr,
-            updateRecognitionSource,
-            updateLocalAsr,
-            updateVad,
-            loadModels,
-            setModelDirectoryText,
-            updateModelDirectory,
-            chooseModelDirectory,
-            downloadModel,
-            removeModel,
+            updateAsr: asr.updateAsr,
+            updateRecognitionSource: asr.updateRecognitionSource,
+            updateLocalAsr: asr.updateLocalAsr,
+            updateVad: asr.updateVad,
+            loadModels: asr.loadModels,
+            setModelDirectoryText: asr.setModelDirectoryText,
+            updateModelDirectory: asr.updateModelDirectory,
+            chooseModelDirectory: asr.chooseModelDirectory,
+            downloadModel: asr.downloadModel,
+            removeModel: asr.removeModel,
           }}
         />
       )}
@@ -331,36 +222,25 @@ export function SettingsPanel({
       )}
 
       {activeCategory === "learning" && (
-        <div className="settings-section settings-section-active learning-section" id="settings-panel-learning" role="tabpanel" aria-labelledby="settings-tab-learning">
-          <div className="section-heading learning-page-heading">
-            <div>
-              <GraduationCap size={18} />
-              <h2>{t("settings.learning.title")}</h2>
-            </div>
-          </div>
-          <div className="learning-settings-list">
-            <LearningAiSettingsSection />
-            <DictionarySettingsSection
-              locale={locale}
-              selectionLookupEnabled={draft.dictionary.selection_lookup_enabled}
-              dictionaries={dictionaries}
-              busy={dictionaryBusy}
-              message={dictionaryMessage}
-              progress={dictionaryProgress}
-              fileInputRef={dictionaryFileRef}
-              saveState={saveState}
-              onSelectionLookupChange={(enabled) => applySettings((current) => ({
-                ...current,
-                dictionary: {
-                  ...current.dictionary,
-                  selection_lookup_enabled: enabled,
-                },
-              }))}
-              onChoose={chooseDictionary}
-              onRemove={removeDictionary}
-            />
-          </div>
-        </div>
+        <LearningSettingsSection
+          locale={locale}
+          selectionLookupEnabled={draft.dictionary.selection_lookup_enabled}
+          dictionaries={dictionaries}
+          dictionaryBusy={dictionary.busy}
+          dictionaryMessage={dictionary.message}
+          dictionaryProgress={dictionary.progress}
+          dictionaryFileRef={dictionary.fileInputRef}
+          saveState={saveState}
+          onSelectionLookupChange={(enabled) => applySettings((current) => ({
+            ...current,
+            dictionary: {
+              ...current.dictionary,
+              selection_lookup_enabled: enabled,
+            },
+          }))}
+          onChooseDictionary={dictionary.choose}
+          onRemoveDictionary={dictionary.remove}
+        />
       )}
 
       {activeCategory === "connections" && (
@@ -371,19 +251,19 @@ export function SettingsPanel({
           applySettings={applySettings}
           onTest={onTestOsc}
           anki={{
-            status: ankiStatus,
-            busy: ankiBusy,
-            message: ankiMessage,
-            portText: ankiPortText,
-            portError: ankiPortError,
-            deckNames: ankiDeckNames,
-            modelOptions: ankiModelOptions,
-            frontFieldOptions: ankiFieldOptions,
-            backFieldOptions: ankiBackFieldOptions,
-            onLoadStatus: loadAnkiStatus,
-            onSetPortText: setAnkiPortText,
-            onCommitPort: commitAnkiPort,
-            onUpdate: updateAnki,
+            status: anki.status,
+            busy: anki.busy,
+            message: anki.message,
+            portText: anki.portText,
+            portError: anki.portError,
+            deckNames: anki.decks,
+            modelOptions: anki.models,
+            frontFieldOptions: anki.frontFields,
+            backFieldOptions: anki.backFields,
+            onLoadStatus: anki.loadStatus,
+            onSetPortText: anki.setPortText,
+            onCommitPort: anki.commitPort,
+            onUpdate: anki.update,
           }}
         />
       )}

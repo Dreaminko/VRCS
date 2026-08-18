@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Mic, RefreshCw, Sparkles, TriangleAlert, Volume2 } from "lucide-react";
 
-import { useMicrophoneCalibration } from "../../hooks/useMicrophoneCalibration";
+import { useMicrophoneCalibration } from "../hooks/useMicrophoneCalibration";
 import { DEFAULT_MICROPHONE_THRESHOLD_DBFS } from "../../microphone-calibration";
 import { useAudioLevel } from "../../realtime-state";
 import type { AudioDevice, Settings } from "../../types";

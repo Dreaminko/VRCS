@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { shouldFollowLiveScroll } from "../src/live-scroll.ts";
+import { shouldFollowLiveScroll } from "../src/shared/lib/live-scroll.ts";
 
 test("stops following as soon as the user scrolls upward", () => {
   assert.equal(shouldFollowLiveScroll(true, {

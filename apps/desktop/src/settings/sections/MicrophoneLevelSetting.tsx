@@ -13,7 +13,7 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
 
-// 与触发阈值滑动条共用同一刻度（-80..-10），使指示条上的阈值刻度线与滑块位置对齐。
+// Use the threshold slider scale so its marker aligns with the level meter.
 function levelPercent(value: number): number {
   return ((clamp(value, MIN_MICROPHONE_LEVEL_DBFS, MAX_MICROPHONE_THRESHOLD_DBFS) - MIN_MICROPHONE_LEVEL_DBFS)
     / (MAX_MICROPHONE_THRESHOLD_DBFS - MIN_MICROPHONE_LEVEL_DBFS)) * 100;

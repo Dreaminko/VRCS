@@ -4,7 +4,7 @@ import test from "node:test";
 import {
   conversationsFromCatalog,
   type ConversationCatalog,
-} from "../src/conversations.ts";
+} from "../src/conversations/conversations.ts";
 
 function catalog(): ConversationCatalog {
   return {

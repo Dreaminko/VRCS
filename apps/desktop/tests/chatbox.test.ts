@@ -8,8 +8,8 @@ import {
   createChatboxDraft,
   normalizeChatboxPreferences,
   previewChatboxLocally,
-} from "../src/chatbox.ts";
-import { LatestWriteQueue } from "../src/latest-write-queue.ts";
+} from "../src/chatbox/chatbox.ts";
+import { LatestWriteQueue } from "../src/shared/lib/latest-write-queue.ts";
 
 test("local Chatbox preview mirrors the common message formats", () => {
   const draft = {

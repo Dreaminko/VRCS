@@ -1,7 +1,7 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-import App from "./App";
-import { AppErrorBoundary, FatalErrorScreen } from "./components/AppErrorBoundary";
+import App from "./app/App";
+import { AppErrorBoundary, FatalErrorScreen } from "./shared/ui/AppErrorBoundary";
 import {
   installGlobalErrorReporting,
   normalizeFrontendError,

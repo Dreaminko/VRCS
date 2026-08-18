@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { coreApi } from "../../api";
-import { localizedError } from "../../app-utils";
+import { localizedError } from "../../app/app-utils";
 import type { ApiProfileView } from "../../types";
 
 export function useTranslationProfileModels(

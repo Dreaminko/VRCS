@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { prependScrollAdjustment } from "../src/prepend-scroll.ts";
+import { prependScrollAdjustment } from "../src/shared/lib/prepend-scroll.ts";
 
 test("prepend scroll restoration keeps the visible subtitle at the same offset", () => {
   assert.equal(prependScrollAdjustment(24, 186, 1_000, 2_500), 162);

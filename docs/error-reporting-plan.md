@@ -327,7 +327,7 @@ flowchart TD
   - 注册 `error` 和 `unhandledrejection` 监听。
   - 规范化 `Error`、字符串 rejection 和未知对象。
   - 对重复事件进行前端侧短窗口去重。
-- 建议新增 `apps/desktop/src/components/AppErrorBoundary.tsx`
+- 建议新增 `apps/desktop/src/shared/ui/AppErrorBoundary.tsx`
   - 捕获渲染错误并显示本地化兜底页。
 - `apps/desktop/src/main.tsx`
   - 初始化错误采集。

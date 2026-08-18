@@ -1,8 +1,8 @@
 import { Sparkles } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
-import { DropdownField, EditableDropdownField } from "../../components/DropdownField";
-import { useLearningAiConfiguration } from "../../hooks/useLearningAiConfiguration";
+import { DropdownField, EditableDropdownField } from "../../shared/ui/DropdownField";
+import { useLearningAiConfiguration } from "../../learning/hooks/useLearningAiConfiguration";
 
 export function LearningAiSettingsSection() {
   const { t } = useTranslation();

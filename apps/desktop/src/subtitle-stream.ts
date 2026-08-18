@@ -1,4 +1,4 @@
-import type { ConversationCatalog, CoreConversation } from "./conversations";
+import type { ConversationCatalog, CoreConversation } from "./conversations/conversations";
 import type {
   AudioLevel,
   LiveTranscription,

@@ -10,7 +10,7 @@ import {
   interfaceScaleShortcutStep,
   interfaceViewportMetrics,
   normalizeInterfaceScale,
-} from "../src/interface-scale.ts";
+} from "../src/app/interface-scale.ts";
 
 test("normalizes interface scale to 5 percent steps within its supported range", () => {
   assert.equal(normalizeInterfaceScale(73), 75);

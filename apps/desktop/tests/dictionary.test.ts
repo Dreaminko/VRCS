@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { definitionGlosses, groupDictionaryEntries } from "../src/dictionary.ts";
+import { definitionGlosses, groupDictionaryEntries } from "../src/dictionary/dictionary.ts";
 
 test("groups repeated headword entries and removes duplicate glosses", () => {
   const grouped = groupDictionaryEntries([

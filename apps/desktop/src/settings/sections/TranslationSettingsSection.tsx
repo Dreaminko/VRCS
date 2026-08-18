@@ -2,8 +2,8 @@ import { Cloud, Languages, RefreshCw, Workflow } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { supportsContext, supportsLlmModels, supportsTranslation } from "../../api-profile-purpose";
-import { EditableDropdownField } from "../../components/DropdownField";
-import { LanguagePicker } from "../../components/LanguagePicker";
+import { EditableDropdownField } from "../../shared/ui/DropdownField";
+import { LanguagePicker } from "../../shared/ui/LanguagePicker";
 import { TRANSLATION_LANGUAGE_CODES } from "../../translation-languages";
 import type { ApiProfileView, Settings, TranslationSettings } from "../../types";
 import { useTranslationProfileModels } from "../hooks/useTranslationProfileModels";

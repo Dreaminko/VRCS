@@ -6,8 +6,8 @@ import {
   catalogAfterRequest,
   normalizeConversationTitle,
   selectedConversationIdForCatalog,
-} from "../src/conversation-state.ts";
-import type { ConversationCatalog } from "../src/conversations.ts";
+} from "../src/conversations/conversation-state.ts";
+import type { ConversationCatalog } from "../src/conversations/conversations.ts";
 
 test("normalizes whitespace and limits custom titles to forty characters", () => {
   assert.equal(normalizeConversationTitle("  VRChat   study  "), "VRChat study");

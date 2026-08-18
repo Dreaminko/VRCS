@@ -3,7 +3,7 @@ import { Database, HardDrive, RefreshCw, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { coreApi } from "../../api";
-import { localizedError } from "../../app-utils";
+import { localizedError } from "../../app/app-utils";
 import type { DatabaseStorageStats, Settings } from "../../types";
 import { formatBytes } from "../settings-derived";
 import type { ApplySettings, SaveState } from "../settings-types";

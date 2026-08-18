@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { ankiButtonLabel } from "../src/anki.ts";
-import { ankiDictionaryContent } from "../src/dictionary.ts";
+import { ankiButtonLabel } from "../src/anki/anki.ts";
+import { ankiDictionaryContent } from "../src/dictionary/dictionary.ts";
 
 test("Anki action labels remain recoverable after an error", () => {
   assert.equal(ankiButtonLabel("idle"), "Add to Anki");

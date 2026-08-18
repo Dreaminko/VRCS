@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 
 import { coreApi } from "../api";
 import { supportsLlmModels } from "../api-profile-purpose";
-import { localizedError } from "../app-utils";
+import { localizedError } from "../app/app-utils";
 import type {
   ApiProfile,
   ApiProfilePurpose,
@@ -117,7 +117,7 @@ export function useApiProfiles(onRefreshSettings: () => Promise<void>) {
         await load();
         if (refreshSettings) await onRefreshSettings();
       } catch {
-        // 原始操作错误更有诊断价值。
+        // Keep the original operation error because it is more actionable.
       }
       return null;
     } finally {

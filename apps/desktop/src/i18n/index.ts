@@ -6,8 +6,8 @@ import {
   loadUiLanguagePreference,
   resolveUiLocale,
   saveUiLanguagePreference,
-} from "../ui-language";
-import type { UiLanguagePreference, UiLocale } from "../ui-language";
+} from "../app/ui-language";
+import type { UiLanguagePreference, UiLocale } from "../app/ui-language";
 
 let selectedPreference: UiLanguagePreference = "system";
 

@@ -32,7 +32,7 @@ export function writeTranscriptionStartBehavior(
       normalizeTranscriptionStartBehavior(behavior),
     );
   } catch {
-    // Keep the setting usable for this session when storage is unavailable.
+    // Ignore unavailable storage; the current session already holds the selection.
   }
 }
 

@@ -6,10 +6,10 @@ const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const defaultRepositoryRoot = join(scriptDirectory, "..");
 const requiredMetadata = ["locale", "name", "direction", "status"];
 const sourceFilesWithTranslationKeys = [
-  "apps/desktop/src/App.tsx",
-  "apps/desktop/src/anki.ts",
+  "apps/desktop/src/app/App.tsx",
+  "apps/desktop/src/anki/anki.ts",
   "apps/desktop/src/i18n/index.ts",
-  "apps/desktop/src/settings-validation.ts",
+  "apps/desktop/src/settings/settings-validation.ts",
 ];
 const requiredRuntimeKeys = [
   "capture.pause",

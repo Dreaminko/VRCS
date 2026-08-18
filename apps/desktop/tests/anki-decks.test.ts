@@ -7,7 +7,7 @@ import {
   ankiDeckParent,
   buildAnkiDeckTree,
   visibleAnkiDeckNodes,
-} from "../src/anki-decks.ts";
+} from "../src/anki/anki-decks.ts";
 
 test("builds a selectable hierarchy from Anki deck separators", () => {
   const tree = buildAnkiDeckTree([

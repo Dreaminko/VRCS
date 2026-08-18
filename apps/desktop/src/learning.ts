@@ -1,4 +1,4 @@
-import type { Lookup } from "./app-types";
+import type { Lookup } from "./app/app-types";
 import type {
   LearningCardDraft,
   LearningItem,

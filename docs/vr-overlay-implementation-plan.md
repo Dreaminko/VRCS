@@ -39,7 +39,7 @@ VRCS 已具备 Overlay 所需的大部分上游数据链路：
 - `core/src/config/schema.rs`、`core/src/config/migration.rs`、`core/src/server/settings.rs`
   - 配置已具备版本迁移、严格反序列化、验证、原子保存、并发 revision 和运行时重配置。
   - 当前 schema 为 v21；实现 Overlay 配置时需要升级 schema。
-- `apps/desktop/src/settings/hooks/useSettingsDraft.ts`、`apps/desktop/src/settings-autosave.ts`
+- `apps/desktop/src/settings/hooks/useSettingsDraft.ts`、`apps/desktop/src/settings/settings-autosave.ts`
   - 设置页已支持乐观更新和顺序保存。
 - `apps/desktop/src-tauri/src/lib.rs`
   - Tauri 负责 Core 启停、托盘、原生窗口和应用退出，是管理 OpenVR 资源生命周期的合适宿主。

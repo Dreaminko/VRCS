@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
-import { localizedError } from "../../app-utils";
+import { localizedError } from "../../app/app-utils";
 import type { Settings } from "../../types";
 import type { ApplySettings, SaveState } from "../settings-types";
 

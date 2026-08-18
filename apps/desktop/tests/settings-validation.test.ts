@@ -5,7 +5,7 @@ import {
   audioSelectionErrors,
   hasEnabledAudioSource,
   validComputeTypes,
-} from "../src/settings-validation.ts";
+} from "../src/settings/settings-validation.ts";
 import { DEFAULT_VR_OVERLAY_SETTINGS } from "../src/settings/vr-overlay-settings.ts";
 import type { AsrCapabilities, AudioDevice, Settings } from "../src/types.ts";
 

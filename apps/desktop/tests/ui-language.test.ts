@@ -4,7 +4,7 @@ import test from "node:test";
 import {
   isUiLanguagePreference,
   resolveUiLocale,
-} from "../src/ui-language.ts";
+} from "../src/app/ui-language.ts";
 
 const supportedLocales = ["zh-CN", "ja-JP", "en-US"];
 

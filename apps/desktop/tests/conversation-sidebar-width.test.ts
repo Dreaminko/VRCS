@@ -6,7 +6,7 @@ import {
   MAX_CONVERSATION_SIDEBAR_WIDTH,
   MIN_CONVERSATION_SIDEBAR_WIDTH,
   normalizeConversationSidebarWidth,
-} from "../src/conversation-sidebar-width.ts";
+} from "../src/conversations/conversation-sidebar-width.ts";
 
 test("normalizes the conversation sidebar width within its supported range", () => {
   assert.equal(

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createSettingsAutosave } from "../src/settings-autosave.ts";
+import { createSettingsAutosave } from "../src/settings/settings-autosave.ts";
 
 test("updates the interface immediately and persists rapid changes in order", async () => {
   const events: string[] = [];

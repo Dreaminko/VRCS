@@ -3,8 +3,8 @@ import { useTranslation } from "react-i18next";
 import { open } from "@tauri-apps/plugin-dialog";
 
 import { coreApi } from "../../api";
-import { localizedError } from "../../app-utils";
-import { validComputeTypes } from "../../settings-validation";
+import { localizedError } from "../../app/app-utils";
+import { validComputeTypes } from "../settings-validation";
 import type { AsrCapabilities, AsrModelRecord, Settings } from "../../types";
 import {
   classifyModels,
