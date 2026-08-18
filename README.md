@@ -10,6 +10,8 @@ VRCS is a Windows real-time subtitle and language-learning tool designed for VRC
 
 [Download the latest release](https://github.com/Dreaminko/VRCS/releases/latest) · [Report an issue](https://github.com/Dreaminko/VRCS/issues) · [Contribute](CONTRIBUTING.md)
 
+[Discord](https://discord.gg/53H872eYq) · [QQ Group](https://qm.qq.com/q/i9kOOxFn44)
+
 ## Download and installation
 
 Download the appropriate installer from [GitHub Releases](https://github.com/Dreaminko/VRCS/releases):
@@ -24,12 +26,9 @@ The standard and CUDA editions share the same configuration, database, and model
 Runtime requirements:
 
 - [Microsoft Visual C++ v14 Redistributable (x64)](https://aka.ms/vs/17/release/vc_redist.x64.exe)
-- Microsoft Edge WebView2 Evergreen Runtime; the installer includes the online bootstrapper, and it is usually preinstalled on Windows 11 and updated Windows 10 systems
 - An internet connection on first launch to download the pinned Silero VAD model
 - An initial model download when using local Whisper
 - API credentials for the selected providers when using cloud recognition, translation, or learning analysis; provider charges may apply
-
-> Dedicated VRChat process audio capture uses the Windows process loopback API. It requires Windows 10 Build 20348 or later, and VRChat must be running before transcription starts. System audio capture does not have this limitation.
 
 ## Getting started
 The setup wizard opens on first launch:

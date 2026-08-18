@@ -10,6 +10,8 @@ VRCS 是面向 VRChat 场景的 Windows 实时字幕与语言学习工具。它�
 
 [下载最新版本](https://github.com/Dreaminko/VRCS/releases/latest) · [问题反馈](https://github.com/Dreaminko/VRCS/issues) · [参与贡献](CONTRIBUTING.md)
 
+[Discord](https://discord.gg/53H872eYq) · [QQ 群](https://qm.qq.com/q/i9kOOxFn44)
+
 ## 下载与安装
 
 请从 [GitHub Releases](https://github.com/Dreaminko/VRCS/releases) 下载对应安装包：
@@ -24,12 +26,9 @@ VRCS 是面向 VRChat 场景的 Windows 实时字幕与语言学习工具。它�
 运行环境：
 
 - [Microsoft Visual C++ v14 Redistributable（x64）](https://aka.ms/vs/17/release/vc_redist.x64.exe)
-- Microsoft Edge WebView2 Evergreen Runtime；安装器已包含联网引导程序，Windows 11 和已更新的 Windows 10 通常已预装
 - 首次启动时需要联网下载固定版本的 Silero VAD 模型
 - 使用本地 Whisper 时，需要按所选模型完成首次下载
 - 使用云端识别、翻译或学习分析时，需要对应服务商的 API 凭据；服务商可能产生费用
-
-> VRChat 进程专用音频捕获依赖 Windows 进程回环 API，需要 Windows 10 Build 20348 或更高版本，并且启动转写前必须先运行 VRChat。系统音频捕获不受此限制。
 
 ## 首次使用
 
