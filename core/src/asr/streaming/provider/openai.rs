@@ -10,11 +10,7 @@ use super::{
 };
 
 pub(super) fn build_request(key: &str) -> Result<Request<()>, String> {
-    authenticated_request(
-        "wss://api.openai.com/v1/realtime?intent=transcription".into(),
-        key,
-        true,
-    )
+    authenticated_request("wss://api.openai.com/v1/realtime".into(), key, false)
 }
 
 pub(super) fn session_update(config: &AsrConfig) -> Value {
@@ -128,4 +124,21 @@ pub(super) fn commit_message() -> Message {
             .to_string()
             .into(),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn request_uses_the_realtime_ga_endpoint() {
+        let request = build_request("test-key").unwrap();
+
+        assert_eq!(request.uri(), "wss://api.openai.com/v1/realtime");
+        assert!(request.headers().get("OpenAI-Beta").is_none());
+        assert_eq!(
+            request.headers().get("Authorization").unwrap(),
+            "Bearer test-key"
+        );
+    }
 }

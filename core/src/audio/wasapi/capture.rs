@@ -14,7 +14,7 @@ use super::devices::{endpoint_info, err, find_device_by_wasapi_id, init_com};
 use super::pcm::{append_mono_f32, resample_linear, NativeFormat, SampleEncoding};
 use super::{CaptureTarget, DeviceDirection};
 
-const BUFFER_DURATION_HNS: i64 = 200_000;
+const SHARED_BUFFER_DURATION_HNS: i64 = 0;
 const EVENT_WAIT_MS: u32 = 200;
 
 fn map_initialize_error(error: ::wasapi::WasapiError) -> AudioError {
@@ -31,7 +31,23 @@ fn map_initialize_error(error: ::wasapi::WasapiError) -> AudioError {
     }
 }
 
-fn initialize_mix_format(device: &Device) -> Result<(AudioClient, NativeFormat), AudioError> {
+fn initialize_loopback_client(device: &Device) -> Result<(AudioClient, NativeFormat), AudioError> {
+    let mut client = device.get_iaudioclient().map_err(err)?;
+    let wave_format = device.get_device_format().map_err(err)?;
+    let native = NativeFormat::from_wave_format(&wave_format)?;
+    let mode = StreamMode::EventsShared {
+        autoconvert: false,
+        buffer_duration_hns: SHARED_BUFFER_DURATION_HNS,
+    };
+    client
+        .initialize_client(&wave_format, &Direction::Capture, &mode)
+        .map_err(map_initialize_error)?;
+    Ok((client, native))
+}
+
+fn initialize_capture_mix_format(
+    device: &Device,
+) -> Result<(AudioClient, NativeFormat), AudioError> {
     let mut client = device.get_iaudioclient().map_err(err)?;
     let mix_format = client.get_mixformat().map_err(err)?;
     let wave_format = client
@@ -41,7 +57,7 @@ fn initialize_mix_format(device: &Device) -> Result<(AudioClient, NativeFormat),
     let native = NativeFormat::from_wave_format(&wave_format)?;
     let mode = StreamMode::EventsShared {
         autoconvert: false,
-        buffer_duration_hns: BUFFER_DURATION_HNS,
+        buffer_duration_hns: SHARED_BUFFER_DURATION_HNS,
     };
     client
         .initialize_client(&wave_format, &Direction::Capture, &mode)
@@ -49,11 +65,11 @@ fn initialize_mix_format(device: &Device) -> Result<(AudioClient, NativeFormat),
     Ok((client, native))
 }
 
-fn initialize_device_client(
+fn initialize_capture_client(
     device: &Device,
     output_rate: u32,
 ) -> Result<(AudioClient, NativeFormat), AudioError> {
-    match initialize_mix_format(device) {
+    match initialize_capture_mix_format(device) {
         Ok(initialized) => Ok(initialized),
         Err(error) if error.code() == "audio.unsupported_format" => {
             tracing::warn!(
@@ -65,7 +81,7 @@ fn initialize_device_client(
                 WaveFormat::new(32, 32, &SampleType::Float, output_rate as usize, 1, None);
             let mode = StreamMode::EventsShared {
                 autoconvert: true,
-                buffer_duration_hns: BUFFER_DURATION_HNS,
+                buffer_duration_hns: SHARED_BUFFER_DURATION_HNS,
             };
             client
                 .initialize_client(&wave_format, &Direction::Capture, &mode)
@@ -117,7 +133,7 @@ pub(crate) fn capture_main(
                     WaveFormat::new(16, 16, &SampleType::Int, output_rate as usize, 1, None);
                 let mode = StreamMode::EventsShared {
                     autoconvert: true,
-                    buffer_duration_hns: BUFFER_DURATION_HNS,
+                    buffer_duration_hns: SHARED_BUFFER_DURATION_HNS,
                 };
                 client
                     .initialize_client(&wave_format, &Direction::Capture, &mode)
@@ -160,7 +176,10 @@ pub(crate) fn capture_main(
                     wasapi_id.is_none(),
                     *direction == DeviceDirection::Render,
                 )?;
-                let (client, native) = initialize_device_client(&device, output_rate)?;
+                let (client, native) = match direction {
+                    DeviceDirection::Render => initialize_loopback_client(&device)?,
+                    DeviceDirection::Capture => initialize_capture_client(&device, output_rate)?,
+                };
                 Ok((client, info, native))
             }
         }
