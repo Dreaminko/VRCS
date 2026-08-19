@@ -1,6 +1,6 @@
 [package]
 name = "vrcs-desktop"
-version = "0.1.0"
+version = "0.1.1"
 description = "VRCS desktop subtitle client"
 authors = ["VRCS contributors"]
 license = "AGPL-3.0-only"
