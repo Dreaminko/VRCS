@@ -6,6 +6,8 @@
 
 **English** | [简体中文](README.zh-CN.md) | [日本語](README.ja-JP.md)
 
+![](./screenshots/01.png)
+
 VRCS is a Windows real-time subtitle and language-learning tool designed for VRChat. It captures system output, VRChat process audio, and microphone input, displays subtitles on the desktop or in SteamVR, and uses those subtitles for translation, dictionary lookup, learning analysis, Anki card creation, and VRChat Chatbox output.
 
 [Download the latest release](https://github.com/Dreaminko/VRCS/releases/latest) · [Report an issue](https://github.com/Dreaminko/VRCS/issues) · [Contribute](CONTRIBUTING.md)

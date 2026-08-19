@@ -6,6 +6,8 @@
 
 [English](README.md) | **简体中文** | [日本語](README.ja-JP.md)
 
+![](./screenshots/01.png)
+
 VRCS 是面向 VRChat 场景的 Windows 实时字幕与语言学习工具。它可以采集系统输出、VRChat 进程音频和麦克风，在桌面或 SteamVR 中显示字幕，并将字幕继续用于翻译、查词、学习分析、Anki 制卡和 VRChat Chatbox 输出。
 
 [下载最新版本](https://github.com/Dreaminko/VRCS/releases/latest) · [问题反馈](https://github.com/Dreaminko/VRCS/issues) · [参与贡献](CONTRIBUTING.md)

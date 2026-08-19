@@ -6,6 +6,8 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md) | **日本語**
 
+![](./screenshots/01.png)
+
 VRCS は、VRChat 向けの Windows リアルタイム字幕・言語学習ツールです。システム出力、VRChat プロセスの音声、マイク入力を取り込み、デスクトップまたは SteamVR に字幕を表示します。さらに、その字幕を翻訳、辞書検索、学習分析、Anki カード作成、VRChat Chatbox への出力に活用できます。
 
 [最新版をダウンロード](https://github.com/Dreaminko/VRCS/releases/latest) · [問題を報告](https://github.com/Dreaminko/VRCS/issues) · [コントリビュート](CONTRIBUTING.md)
