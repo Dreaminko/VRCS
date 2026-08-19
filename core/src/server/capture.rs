@@ -224,12 +224,13 @@ pub(crate) async fn validate_capture_config(
 
 fn effective_asr_config(state: &Arc<AppState>, config: &AppConfig) -> (AsrConfig, AsrEchoGuard) {
     let mut asr = config.asr.clone();
-    let signatures = if config.vrcx.enabled && config.vrcx.include_in_asr_context {
+    let (signatures, repeated_world) = if config.vrcx.enabled && config.vrcx.include_in_asr_context
+    {
         state.vrcx.apply_asr_context(&mut asr)
     } else {
-        Vec::new()
+        (Vec::new(), None)
     };
-    (asr, AsrEchoGuard::new(signatures))
+    (asr, AsrEchoGuard::new(signatures, repeated_world))
 }
 
 fn pipeline_dependencies(state: &Arc<AppState>) -> PipelineDependencies {

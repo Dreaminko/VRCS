@@ -154,30 +154,33 @@ impl VrcxIntegration {
         })
     }
 
-    pub fn apply_asr_context(&self, config: &mut AsrConfig) -> Vec<String> {
+    pub fn apply_asr_context(&self, config: &mut AsrConfig) -> (Vec<String>, Option<String>) {
         let Some(room) = self.shared.room.read().expect("VRCX room lock").clone() else {
-            return Vec::new();
+            return (Vec::new(), None);
         };
         let generated = format_room_for_asr(&room);
         if generated.is_empty() {
-            return Vec::new();
+            return (Vec::new(), None);
         }
         let Some((_, service)) = providers::recognition_service(&config.backend) else {
-            return Vec::new();
+            return (Vec::new(), None);
         };
         if !service.supports_context {
-            return Vec::new();
+            return (Vec::new(), None);
         }
         let Some(settings) = config.service_settings.get_mut(&config.backend) else {
-            return Vec::new();
+            return (Vec::new(), None);
         };
         let context = &mut settings.context;
         let (merged, appended) = append_context(context, &generated);
         *context = merged;
         if appended.is_empty() {
-            return Vec::new();
+            return (Vec::new(), None);
         }
-        asr_echo_signatures(&room, &appended)
+        let world = room.world_name.trim();
+        let repeated_world = (!world.is_empty() && appended.lines().any(|line| line == world))
+            .then(|| world.to_string());
+        (asr_echo_signatures(&room, &appended), repeated_world)
     }
 
     pub async fn test_connection(
@@ -654,11 +657,12 @@ mod tests {
             .get_mut(providers::SERVICE_QWEN_REALTIME)
             .unwrap()
             .context = "Manual terms".into();
-        let qwen_signatures = integration.apply_asr_context(&mut qwen);
+        let (qwen_signatures, qwen_world) = integration.apply_asr_context(&mut qwen);
         assert_eq!(
             qwen.service_settings[providers::SERVICE_QWEN_REALTIME].context,
             "Manual terms\nTest \"World\"\nAlice\nBob"
         );
+        assert_eq!(qwen_world.as_deref(), Some("Test \"World\""));
         assert!(qwen_signatures.contains(&"World: Test \"World\"".to_string()));
         assert!(qwen_signatures.contains(&"Names: Alice, Bob".to_string()));
 
@@ -666,18 +670,21 @@ mod tests {
             backend: "fun_asr_realtime".into(),
             ..Default::default()
         };
-        let fun_signatures = integration.apply_asr_context(&mut fun_asr);
+        let fun_echo = integration.apply_asr_context(&mut fun_asr);
         assert_eq!(
             fun_asr.service_settings[providers::SERVICE_FUN_ASR_REALTIME].context,
             "Test \"World\"\nAlice\nBob"
         );
-        assert_eq!(fun_signatures, qwen_signatures);
+        assert_eq!(fun_echo, (qwen_signatures, qwen_world));
 
         let mut openai = AsrConfig {
             backend: "openai_realtime".into(),
             ..Default::default()
         };
-        assert!(integration.apply_asr_context(&mut openai).is_empty());
+        assert_eq!(
+            integration.apply_asr_context(&mut openai),
+            (Vec::new(), None)
+        );
         assert!(openai.service_settings[providers::SERVICE_QWEN_REALTIME]
             .context
             .is_empty());
@@ -689,7 +696,10 @@ mod tests {
             backend: "local_whisper".into(),
             ..Default::default()
         };
-        assert!(integration.apply_asr_context(&mut local).is_empty());
+        assert_eq!(
+            integration.apply_asr_context(&mut local),
+            (Vec::new(), None)
+        );
     }
 
     #[test]

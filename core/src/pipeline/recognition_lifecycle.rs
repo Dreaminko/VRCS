@@ -30,6 +30,14 @@ impl RecognitionLifecycle {
         })
     }
 
+    pub(super) fn accept_final(&mut self, utterance_id: &str) -> bool {
+        if self.terminated.contains(utterance_id) {
+            return false;
+        }
+        self.terminate(utterance_id);
+        true
+    }
+
     pub(super) fn terminate(&mut self, utterance_id: &str) {
         self.active.remove(utterance_id);
         self.remember_termination(utterance_id);
@@ -91,6 +99,13 @@ mod tests {
         lifecycle.terminate("utterance-1");
         assert!(lifecycle.accept_partial("utterance-2"));
         assert_eq!(lifecycle.failure_id(None).as_deref(), Some("utterance-2"));
+    }
+
+    #[test]
+    fn duplicate_finals_are_rejected() {
+        let mut lifecycle = RecognitionLifecycle::default();
+        assert!(lifecycle.accept_final("utterance-1"));
+        assert!(!lifecycle.accept_final("utterance-1"));
     }
 
     #[test]
