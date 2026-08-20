@@ -1171,7 +1171,7 @@ mod tests {
             .await
             .unwrap();
         settings["osc"]["enabled"] = serde_json::json!(true);
-        settings["osc"]["mute_sync_enabled"] = serde_json::json!(false);
+        settings["osc"]["mute_sync_enabled"] = serde_json::json!(true);
         settings["osc"]["port"] = serde_json::json!(udp.local_addr().unwrap().port());
         let updated = client
             .put(format!("{base_url}/api/settings"))
@@ -1187,6 +1187,7 @@ mod tests {
             reqwest::StatusCode::OK,
             "settings update failed: {updated_body}"
         );
+        handle.state.osc.update_mute_status(Some(true));
 
         let mut subtitles = handle.state.subtitle_output.subscribe_subtitles();
         let sent = client

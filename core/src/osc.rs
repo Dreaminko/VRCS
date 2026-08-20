@@ -75,23 +75,25 @@ enum OscEvent {
         target_language: String,
     },
     Test {
-        generation: u64,
+        automatic_revision: u64,
     },
     Manual {
-        generation: u64,
+        config_revision: u64,
         text: String,
         responder: oneshot::Sender<Result<String, ManualSendError>>,
     },
 }
 
 impl OscEvent {
-    fn generation(&self) -> u64 {
+    fn is_current(&self, state: &OscConfigState) -> bool {
         match self {
             Self::Subtitle { generation, .. }
             | Self::TranslationCompleted { generation, .. }
-            | Self::TranslationFailed { generation, .. }
-            | Self::Test { generation }
-            | Self::Manual { generation, .. } => *generation,
+            | Self::TranslationFailed { generation, .. } => *generation == state.automatic_revision,
+            Self::Test { automatic_revision } => *automatic_revision == state.automatic_revision,
+            Self::Manual {
+                config_revision, ..
+            } => *config_revision == state.config_revision,
         }
     }
 }
@@ -99,7 +101,8 @@ impl OscEvent {
 #[derive(Clone)]
 struct OscConfigState {
     config: OscConfig,
-    generation: u64,
+    config_revision: u64,
+    automatic_revision: u64,
     send_gate: SendGate,
 }
 
@@ -172,7 +175,8 @@ impl OscChatboxDispatcher {
         let (config, config_rx) = watch::channel(OscConfigState {
             send_gate: initial_gate(&config),
             config,
-            generation: 0,
+            config_revision: 0,
+            automatic_revision: 0,
         });
         tokio::spawn(run_worker(
             receiver,
@@ -247,9 +251,9 @@ impl OscChatboxDispatcher {
     }
 
     pub fn queue_test(&self) -> Result<(), &'static str> {
-        let generation = self.active_generation()?;
+        let automatic_revision = self.active_generation()?;
         self.sender
-            .try_send(OscEvent::Test { generation })
+            .try_send(OscEvent::Test { automatic_revision })
             .map_err(|_| {
                 self.record_drop();
                 "osc.queue_full"
@@ -257,11 +261,11 @@ impl OscChatboxDispatcher {
     }
 
     pub async fn send_manual(&self, text: String) -> Result<String, ManualSendError> {
-        let generation = self.active_generation().map_err(manual_gate_error)?;
+        let config_revision = self.active_manual_revision().map_err(manual_gate_error)?;
         let (responder, receiver) = oneshot::channel();
         self.sender
             .try_send(OscEvent::Manual {
-                generation,
+                config_revision,
                 text,
                 responder,
             })
@@ -293,13 +297,14 @@ impl OscChatboxDispatcher {
                 state.send_gate = SendGate::Open;
             }
             state.config = config;
-            state.generation = state.generation.wrapping_add(1);
+            state.config_revision = state.config_revision.wrapping_add(1);
+            state.automatic_revision = state.automatic_revision.wrapping_add(1);
         });
         self.refresh_gate_status();
     }
 
     pub fn update_mute_status(&self, muted: Option<bool>) {
-        self.config.send_modify(|state| {
+        self.config.send_if_modified(|state| {
             let next = if !state.config.mute_sync_enabled {
                 SendGate::Open
             } else {
@@ -309,10 +314,12 @@ impl OscChatboxDispatcher {
                     None => SendGate::MuteUnknown,
                 }
             };
-            if next != state.send_gate {
-                state.send_gate = next;
-                state.generation = state.generation.wrapping_add(1);
+            if next == state.send_gate {
+                return false;
             }
+            state.send_gate = next;
+            state.automatic_revision = state.automatic_revision.wrapping_add(1);
+            true
         });
         self.refresh_gate_status();
     }
@@ -329,7 +336,15 @@ impl OscChatboxDispatcher {
         if let Some(code) = state.send_gate.error_code() {
             return Err(code);
         }
-        Ok(state.generation)
+        Ok(state.automatic_revision)
+    }
+
+    fn active_manual_revision(&self) -> Result<u64, &'static str> {
+        let state = self.config.borrow();
+        if !state.config.enabled {
+            return Err("osc.disabled");
+        }
+        Ok(state.config_revision)
     }
 
     fn refresh_gate_status(&self) {
@@ -376,14 +391,22 @@ async fn run_worker(
                 if changed.is_err() {
                     break;
                 }
-                config = config_rx.borrow().clone();
-                queue.clear();
-                current_sent = None;
-                last_send = None;
+                let next = config_rx.borrow().clone();
+                if next.config_revision != config.config_revision {
+                    queue.clear();
+                    current_sent = None;
+                    latest_subtitle_id = None;
+                    last_send = None;
+                } else if next.automatic_revision != config.automatic_revision {
+                    queue.retain(|message| message.responder.is_some());
+                    current_sent = None;
+                    latest_subtitle_id = None;
+                }
+                config = next;
             }
             event = receiver.recv() => {
                 let Some(event) = event else { break };
-                if event.generation() != config.generation {
+                if !event.is_current(&config) {
                     continue;
                 }
                 match event {
@@ -523,9 +546,12 @@ async fn run_worker(
                 }
             }
             _ = tick.tick() => {
-                if !config.config.enabled || config.send_gate != SendGate::Open {
+                if !config.config.enabled {
                     queue.clear();
                     continue;
+                }
+                if config.send_gate != SendGate::Open {
+                    queue.retain(|message| message.responder.is_some());
                 }
                 let ready = queue.front().is_some_and(|message| message.ready_at <= Instant::now());
                 let rate_ready = last_send.is_none_or(|sent| sent.elapsed() >= SEND_INTERVAL);
@@ -545,7 +571,9 @@ async fn run_worker(
                     )
                 });
                 let port = config.config.port;
+                let is_manual = message.responder.is_some();
                 let result = match &socket {
+                    Ok(socket) if is_manual => send_chatbox(socket, port, &text).await,
                     Ok(socket) => {
                         tokio::select! {
                             biased;
@@ -970,20 +998,25 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn manual_send_resolves_after_udp_delivery() {
+    async fn manual_send_ignores_vrchat_mute_state() {
         let receiver = UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();
         let dispatcher = OscChatboxDispatcher::new(OscConfig {
             enabled: true,
             port: receiver.local_addr().unwrap().port(),
-            mute_sync_enabled: false,
+            mute_sync_enabled: true,
             mute_status_toast_enabled: false,
             preserve_original_text: true,
             translation_strategy: "preferred_only".into(),
         });
+        dispatcher.update_mute_status(Some(true));
         let send = tokio::spawn(async move { dispatcher.send_manual("手动消息".into()).await });
 
         let mut buffer = [0u8; 512];
-        let (length, _) = receiver.recv_from(&mut buffer).await.unwrap();
+        let (length, _) =
+            tokio::time::timeout(Duration::from_secs(2), receiver.recv_from(&mut buffer))
+                .await
+                .expect("manual Chatbox send should ignore VRChat mute state")
+                .unwrap();
         let (_, packet) = rosc::decoder::decode_udp(&buffer[..length]).unwrap();
         let OscPacket::Message(message) = packet else {
             panic!("expected OSC message")
@@ -1074,6 +1107,54 @@ mod tests {
             panic!("expected OSC message")
         };
         assert_eq!(message.args[0], OscType::String("你好".into()));
+    }
+
+    #[tokio::test]
+    async fn dispatcher_combines_all_languages_in_one_chatbox_message() {
+        let receiver = UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();
+        let dispatcher = OscChatboxDispatcher::new(OscConfig {
+            enabled: true,
+            port: receiver.local_addr().unwrap().port(),
+            mute_sync_enabled: false,
+            mute_status_toast_enabled: false,
+            preserve_original_text: true,
+            translation_strategy: "all_languages".into(),
+        });
+        dispatcher.publish_subtitle_with_targets(
+            subtitle(4, "microphone", "こんにちは"),
+            true,
+            vec!["zh-Hans".into(), "en".into()],
+            "utterance-all-languages".into(),
+        );
+        for (target_language, text) in [("en", "Hello"), ("zh-Hans", "你好")] {
+            dispatcher.translation_completed(
+                4,
+                SubtitleTranslation {
+                    text: text.into(),
+                    source_language: Some("ja".into()),
+                    target_language: target_language.into(),
+                    provider: "local".into(),
+                    model: None,
+                    created_at: now_iso8601(),
+                },
+                target_language == "zh-Hans",
+            );
+        }
+
+        let mut buffer = [0u8; 512];
+        let (length, _) =
+            tokio::time::timeout(Duration::from_secs(2), receiver.recv_from(&mut buffer))
+                .await
+                .unwrap()
+                .unwrap();
+        let (_, packet) = rosc::decoder::decode_udp(&buffer[..length]).unwrap();
+        let OscPacket::Message(message) = packet else {
+            panic!("expected OSC message")
+        };
+        assert_eq!(
+            message.args[0],
+            OscType::String("こんにちは\n你好 / Hello".into())
+        );
     }
 
     #[tokio::test]
