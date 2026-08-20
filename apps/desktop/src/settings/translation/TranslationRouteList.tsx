@@ -64,7 +64,6 @@ export function TranslationRouteList({
       <header className="translation-route-group-header">
         <div>
           <strong>{title}</strong>
-          <small>{t("settings.translation.routeHint")}</small>
         </div>
       </header>
       <div className="translation-route-list">
@@ -154,7 +153,7 @@ function TranslationRouteRow({
   return (
     <div className="translation-route-row">
       <div className="translation-route-rank">
-        {index === 0 ? t("settings.translation.preferred") : index + 1}
+        {index + 1}
       </div>
       <div className="translation-route-fields">
         <LanguagePicker

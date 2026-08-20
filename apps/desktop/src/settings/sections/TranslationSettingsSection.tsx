@@ -66,7 +66,6 @@ export function TranslationSettingsSection({ draft, apiProfiles, saveState, appl
             <Languages size={17} />
             <span>
               <strong>{t("settings.translation.targetLanguageSettings")}</strong>
-              <small>{t("settings.translation.multiTargetHint")}</small>
             </span>
           </div>
           <div className="translation-route-groups">
