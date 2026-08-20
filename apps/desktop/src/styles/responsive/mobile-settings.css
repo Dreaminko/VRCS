@@ -7,6 +7,7 @@
   .settings-section > .section-heading > button { flex: 0 0 auto; }
   .form-grid { grid-template-columns: 1fr; }
   .system-select-setting,
+  .osc-strategy-setting,
   .system-scale-setting,
   .system-onboarding-setting { grid-template-columns: 1fr; gap: 8px; padding-block: 9px; }
   .system-scale-input { justify-self: start; }

@@ -1,29 +1,19 @@
 import { useTranslation } from "react-i18next";
 
 import { recognitionEngineLabel } from "../../recognition-services";
-import type { ApiProfileView, CaptureStartInput, ConnectionState, Health, ProviderDefinition, Settings } from "../../types";
-import { LanguageSessionControl } from "./LanguageSessionControl";
+import type { ApiProfileView, ConnectionState, Health, ProviderDefinition, Settings } from "../../types";
 
-export function TopStatus({ connection, health, settings, apiProfiles = [], providerDefinitions = [], captureLanguageInput, onCaptureLanguageInputChange }: {
+export function TopStatus({ connection, health, settings, apiProfiles = [], providerDefinitions = [] }: {
   connection: ConnectionState;
   health: Health | null;
   settings: Settings | null;
   apiProfiles?: ApiProfileView[];
   providerDefinitions?: ProviderDefinition[];
-  captureLanguageInput: CaptureStartInput;
-  onCaptureLanguageInputChange: (input: CaptureStartInput) => void;
 }) {
   const { t } = useTranslation();
   const connectionLabel = t(`status.connection.${connection}`);
   return (
     <div className="top-status-row">
-      <LanguageSessionControl
-        settings={settings}
-        apiProfiles={apiProfiles}
-        running={health?.capture_requested ?? false}
-        value={captureLanguageInput}
-        onChange={onCaptureLanguageInputChange}
-      />
       <div className="status-summary" aria-label={t("status.summary")}>
         <div className={`core-summary connection-${connection}`}><span>Core</span><strong><i aria-hidden="true" />{connectionLabel}</strong></div>
         <i aria-hidden="true" />

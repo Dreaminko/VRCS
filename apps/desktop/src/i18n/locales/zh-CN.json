@@ -699,20 +699,12 @@
         "addRoute": "添加翻译路线",
         "moveUp": "上移",
         "moveDown": "下移",
-        "swapLanguages": "交换源语言与首选目标",
         "presets": "语言预设",
         "presetsHint": "最多保存 5 个识别与翻译组合。",
         "presetDefaultName": "预设 {{count}}",
         "presetName": "预设名称",
         "savePreset": "保存当前配置为预设",
-        "applyPreset": "应用预设",
-        "oscStrategy": "OSC 多语言发送",
-        "oscStrategies": { "preferredOnly": "仅首选语言", "roundRobin": "轮换发送" },
-        "session": "语言会话",
-        "globalSession": "使用全局配置",
-        "temporarySession": "临时配置",
-        "sessionOverrides": "本次会话配置",
-        "sessionOverridesHint": "仅在本次采集期间生效，不会保存到全局设置。"
+        "applyPreset": "应用预设"
       },
       "glossary": {
         "title": "术语表",
@@ -1181,6 +1173,8 @@
 
         "enable": "启用聊天框输出",
         "enableDescription": "仅发送自己的麦克风最终字幕，不发送其他声音或临时结果。",
+        "translationStrategy": "OSC 多语言发送",
+        "translationStrategies": { "preferredOnly": "仅首选语言", "roundRobin": "轮换发送" },
         "preserveOriginal": "输出中保留原文",
         "preserveOriginalDescription": "有译文时同时发送原文和译文；关闭后仅发送译文。",
         "muteSync": "同步 VRChat 麦克风静音",

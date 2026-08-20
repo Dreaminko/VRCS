@@ -4,7 +4,7 @@ import { useTranslation } from "react-i18next";
 
 import type { AnkiStatus, Health, Settings } from "../../types";
 import type { ApplySettings, SaveState, SettingOption } from "../settings-types";
-import { PreferenceToggle } from "../SettingsControls";
+import { PreferenceToggle, Select } from "../SettingsControls";
 import { ExternalApiSettingsCard } from "../system/ExternalApiSettingsCard";
 import { VrcxIntegrationSettingsCard } from "../system/VrcxIntegrationSettingsCard";
 import { AnkiSettingsSection } from "./AnkiSettingsSection";
@@ -147,6 +147,26 @@ export function ConnectionSettingsSection({
                   osc: { ...current.osc, enabled },
                 }))}
               />
+              <div className="osc-strategy-setting">
+                <strong>{t("settings.osc.translationStrategy")}</strong>
+                <Select
+                  label={t("settings.osc.translationStrategy")}
+                  hideLabel
+                  value={draft.osc.translation_strategy}
+                  disabled={saveState === "saving"}
+                  options={[
+                    { value: "preferred_only", label: t("settings.osc.translationStrategies.preferredOnly") },
+                    { value: "round_robin", label: t("settings.osc.translationStrategies.roundRobin") },
+                  ]}
+                  onChange={(translation_strategy) => applySettings((current) => ({
+                    ...current,
+                    osc: {
+                      ...current.osc,
+                      translation_strategy: translation_strategy as Settings["osc"]["translation_strategy"],
+                    },
+                  }))}
+                />
+              </div>
               <PreferenceToggle
                 title={t("settings.osc.preserveOriginal")}
                 description={t("settings.osc.preserveOriginalDescription")}

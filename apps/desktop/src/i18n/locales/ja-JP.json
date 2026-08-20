@@ -699,20 +699,12 @@
         "addRoute": "翻訳ルートを追加",
         "moveUp": "上へ移動",
         "moveDown": "下へ移動",
-        "swapLanguages": "原文言語と優先翻訳先を交換",
         "presets": "言語プリセット",
         "presetsHint": "認識と翻訳の組み合わせを最大5件保存できます。",
         "presetDefaultName": "プリセット {{count}}",
         "presetName": "プリセット名",
         "savePreset": "現在の設定を保存",
-        "applyPreset": "プリセットを適用",
-        "oscStrategy": "OSC多言語出力",
-        "oscStrategies": { "preferredOnly": "優先言語のみ", "roundRobin": "順番に送信" },
-        "session": "言語セッション",
-        "globalSession": "グローバル設定を使用",
-        "temporarySession": "一時設定",
-        "sessionOverrides": "セッション設定",
-        "sessionOverridesHint": "このキャプチャセッションにのみ適用され、グローバル設定には保存されません。"
+        "applyPreset": "プリセットを適用"
       },
       "glossary": {
         "title": "用語集",
@@ -1181,6 +1173,8 @@
 
         "enable": "チャットボックス出力を有効にする",
         "enableDescription": "自分のマイクの確定字幕だけを送信し、他の音声や途中結果は送りません。",
+        "translationStrategy": "OSC多言語出力",
+        "translationStrategies": { "preferredOnly": "優先言語のみ", "roundRobin": "順番に送信" },
         "preserveOriginal": "出力に原文を残す",
         "preserveOriginalDescription": "翻訳がある場合は原文と翻訳を一緒に送信します。オフにすると翻訳だけを送信します。",
         "muteSync": "VRChat のマイクミュートと同期",

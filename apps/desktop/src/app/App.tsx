@@ -66,8 +66,6 @@ function App() {
     loadOlderSubtitles,
     vrchatMuteStatus,
     settings,
-    captureLanguageInput,
-    setCaptureLanguageInput,
     devices,
     devicesReady,
     asrCapabilities,
@@ -376,8 +374,6 @@ function App() {
                 settings={settings}
                 apiProfiles={apiProfileCatalog.profiles}
                 providerDefinitions={apiProfileCatalog.providerDefinitions}
-                captureLanguageInput={captureLanguageInput}
-                onCaptureLanguageInputChange={setCaptureLanguageInput}
               />
             )}
 

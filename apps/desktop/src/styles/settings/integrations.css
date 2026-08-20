@@ -89,6 +89,21 @@
 .osc-panel > .settings-feature-toggle { margin: 0; }
 .anki-panel .settings-toggle-row,
 .osc-panel .settings-toggle-row { min-height: 50px; padding: 8px 15px; }
+.osc-strategy-setting {
+  display: grid;
+  min-height: 50px;
+  grid-template-columns: minmax(140px, 1fr) minmax(180px, 280px);
+  align-items: center;
+  gap: 16px;
+  padding: 8px 15px;
+}
+.osc-strategy-setting > strong {
+  color: var(--text);
+  font-size: var(--settings-text-label);
+  font-weight: var(--settings-weight-heading);
+  line-height: var(--settings-leading-label);
+}
+.osc-strategy-setting .field { min-width: 0; }
 .anki-connection code,
 .osc-connection code {
   color: var(--text-quiet);

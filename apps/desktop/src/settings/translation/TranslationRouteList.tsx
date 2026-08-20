@@ -24,14 +24,12 @@ export function TranslationRouteList({
   profiles,
   disabled,
   onChange,
-  onSwap,
 }: {
   title: string;
   targets: TranslationTargetSettings[];
   profiles: ApiProfileView[];
   disabled: boolean;
   onChange: (targets: TranslationTargetSettings[]) => void;
-  onSwap?: () => void;
 }) {
   const { t } = useTranslation();
   const translationProfiles = profiles.filter(supportsTranslation);
@@ -68,11 +66,6 @@ export function TranslationRouteList({
           <strong>{title}</strong>
           <small>{t("settings.translation.routeHint")}</small>
         </div>
-        {onSwap && (
-          <button className="secondary-button" type="button" disabled={disabled} onClick={onSwap}>
-            {t("settings.translation.swapLanguages")}
-          </button>
-        )}
       </header>
       <div className="translation-route-list">
         {targets.map((target, index) => (

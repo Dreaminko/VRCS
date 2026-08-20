@@ -699,20 +699,12 @@
         "addRoute": "Add translation route",
         "moveUp": "Move up",
         "moveDown": "Move down",
-        "swapLanguages": "Swap source and preferred target",
         "presets": "Language presets",
         "presetsHint": "Save up to five recognition and translation combinations.",
         "presetDefaultName": "Preset {{count}}",
         "presetName": "Preset name",
         "savePreset": "Save current configuration",
-        "applyPreset": "Apply preset",
-        "oscStrategy": "OSC multilingual output",
-        "oscStrategies": { "preferredOnly": "Preferred language only", "roundRobin": "Round robin" },
-        "session": "Language session",
-        "globalSession": "Use global settings",
-        "temporarySession": "Temporary settings",
-        "sessionOverrides": "Session settings",
-        "sessionOverridesHint": "Applies only to this capture session and is not saved globally."
+        "applyPreset": "Apply preset"
       },
       "glossary": {
         "title": "Glossaries",
@@ -1181,6 +1173,8 @@
 
         "enable": "Enable chatbox output",
         "enableDescription": "Send only your final microphone subtitles, never other voices or partial results.",
+        "translationStrategy": "OSC multilingual output",
+        "translationStrategies": { "preferredOnly": "Preferred language only", "roundRobin": "Round robin" },
         "preserveOriginal": "Keep original text in output",
         "preserveOriginalDescription": "When a translation is available, send the original and translation together. Turn this off to send only the translation.",
         "muteSync": "Sync VRChat microphone mute",

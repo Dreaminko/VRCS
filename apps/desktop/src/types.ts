@@ -687,19 +687,6 @@ export interface LanguageSessionSnapshot {
   osc_translation_strategy: OscTranslationStrategy;
 }
 
-export interface LanguageOverrideInput {
-  recognition_language: AsrSettings["language"];
-  translation_mode: TranslationSettings["mode"];
-  speaker_targets: TranslationTargetSettings[];
-  microphone_targets: TranslationTargetSettings[];
-  osc_translation_strategy: OscTranslationStrategy;
-}
-
-export interface CaptureStartInput {
-  language_preset_id?: string;
-  language_override?: LanguageOverrideInput;
-}
-
 export interface VrchatMuteStatus {
   enabled: boolean;
   connection: "disabled" | "discovering" | "connected" | "unavailable";

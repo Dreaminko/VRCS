@@ -8,7 +8,8 @@
 .translation-preset-settings,
 .translation-preset-list { display: grid; gap: 10px; min-width: 0; }
 .translation-route-groups { gap: 14px; }
-.translation-route-group {
+.translation-route-group,
+.translation-preset-group {
   display: grid;
   gap: 10px;
   padding: 12px;
@@ -19,7 +20,6 @@
 .translation-route-group-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 12px;
 }
 .translation-route-group-header > div { display: grid; gap: 2px; min-width: 0; }
@@ -47,6 +47,19 @@
   font-weight: var(--settings-weight-heading);
 }
 .translation-route-fields { display: grid; grid-template-columns: minmax(150px, 0.8fr) minmax(180px, 1fr); gap: 8px; min-width: 0; }
+.translation-route-fields > .dropdown-field-compact .dropdown-trigger {
+  height: 40px;
+  padding: 0 11px 0 12px;
+  color: var(--text);
+  background: var(--surface);
+  box-shadow: var(--control-shadow);
+  font-size: 13px;
+}
+.translation-route-fields > .dropdown-field-compact .dropdown-trigger:disabled {
+  color: var(--text-quiet);
+  background: var(--surface-subtle);
+  box-shadow: none;
+}
 .translation-route-fields > .settings-toggle-row,
 .translation-route-fields > small,
 .translation-route-model { grid-column: 1 / -1; }

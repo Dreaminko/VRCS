@@ -14,7 +14,6 @@ import type {
   AudioDevice,
   DictionarySource,
   Health,
-  CaptureStartInput,
   Settings,
 } from "../types";
 import { useSubtitleStream } from "../subtitles/hooks/useSubtitleStream";
@@ -33,7 +32,6 @@ export function useCoreSession(settingsPageActive: boolean) {
   const healthRef = useRef<Health | null>(null);
   healthRef.current = health;
   const [settings, setSettings] = useState<Settings | null>(null);
-  const [captureLanguageInput, setCaptureLanguageInput] = useState<CaptureStartInput>({});
   const persistedSettingsRef = useRef<Settings | null>(null);
   const [devices, setDevices] = useState<AudioDevice[]>([]);
   const [devicesReady, setDevicesReady] = useState(false);
@@ -41,13 +39,6 @@ export function useCoreSession(settingsPageActive: boolean) {
   const [dictionarySources, setDictionarySources] = useState<DictionarySource[]>([]);
   const [errors, setErrors] = useState<Map<string, string>>(() => new Map());
   const error = [...errors.values()].at(-1) ?? null;
-
-  useEffect(() => {
-    const presetId = captureLanguageInput.language_preset_id;
-    if (presetId && settings && !settings.language_presets.some((preset) => preset.id === presetId)) {
-      setCaptureLanguageInput({});
-    }
-  }, [captureLanguageInput.language_preset_id, settings]);
 
   const reportError = useCallback((
     reason: unknown,
@@ -252,7 +243,7 @@ export function useCoreSession(settingsPageActive: boolean) {
         await coreApi.stop();
         clearPartials();
       }
-      else await coreApi.start(captureLanguageInput);
+      else await coreApi.start();
       clearErrorFrom("capture");
     } finally {
       try {
@@ -264,7 +255,7 @@ export function useCoreSession(settingsPageActive: boolean) {
         setCapturePending(false);
       }
     }
-  }, [captureLanguageInput, clearErrorFrom, clearPartials]);
+  }, [clearErrorFrom, clearPartials]);
 
   const startMicrophoneTest = useCallback(async () => {
     try {
@@ -380,8 +371,6 @@ export function useCoreSession(settingsPageActive: boolean) {
     loadOlderSubtitles,
     vrchatMuteStatus: vrchatMuteStatus ?? health?.vrchat_mute_sync ?? null,
     settings,
-    captureLanguageInput,
-    setCaptureLanguageInput,
     devices,
     devicesReady,
     asrCapabilities,

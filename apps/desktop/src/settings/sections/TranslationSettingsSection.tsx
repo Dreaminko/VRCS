@@ -5,7 +5,7 @@ import { supportsContext, supportsTranslation } from "../../api-profile-purpose"
 import type { ApiProfileView, Settings, TranslationSettings } from "../../types";
 import type { ApplySettings, SaveState } from "../settings-types";
 import { Select } from "../SettingsControls";
-import { LanguagePresetSettings, swapSourceLanguages } from "../translation/LanguagePresetSettings";
+import { LanguagePresetSettings } from "../translation/LanguagePresetSettings";
 import { TranslationEnhancementSettings } from "../translation/TranslationEnhancementSettings";
 import { TranslationRouteList } from "../translation/TranslationRouteList";
 
@@ -79,7 +79,6 @@ export function TranslationSettingsSection({ draft, apiProfiles, saveState, appl
                 ...draft.translation,
                 microphone_targets,
               })}
-              onSwap={() => updateSettings(swapSourceLanguages(draft, "microphone"))}
             />
             <TranslationRouteList
               title={t("settings.translation.targetLanguageForOtherParty")}
@@ -90,12 +89,14 @@ export function TranslationSettingsSection({ draft, apiProfiles, saveState, appl
                 ...draft.translation,
                 speaker_targets,
               })}
-              onSwap={() => updateSettings(swapSourceLanguages(draft, "speaker"))}
+            />
+            <LanguagePresetSettings
+              settings={draft}
+              disabled={controlsDisabled}
+              onChange={updateSettings}
             />
           </div>
         </div>
-
-        <LanguagePresetSettings settings={draft} disabled={controlsDisabled} onChange={updateSettings} />
 
         {enhancementProfile && supportsContext(enhancementProfile) && (
           <TranslationEnhancementSettings

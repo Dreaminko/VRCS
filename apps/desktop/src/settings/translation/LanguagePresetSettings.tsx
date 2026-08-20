@@ -2,7 +2,6 @@ import { BookmarkPlus, Play, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import type { LanguagePreset, Settings } from "../../types";
-import { Select } from "../SettingsControls";
 
 export function LanguagePresetSettings({
   settings,
@@ -47,31 +46,14 @@ export function LanguagePresetSettings({
   });
 
   return (
-    <div className="translation-config-row translation-presets-row">
-      <div className="translation-config-title">
-        <BookmarkPlus size={17} />
-        <span>
+    <section className="translation-preset-group">
+      <header className="translation-route-group-header">
+        <div>
           <strong>{t("settings.translation.presets")}</strong>
           <small>{t("settings.translation.presetsHint")}</small>
-        </span>
-      </div>
+        </div>
+      </header>
       <div className="translation-preset-settings">
-        <Select
-          label={t("settings.translation.oscStrategy")}
-          value={settings.osc.translation_strategy}
-          disabled={disabled}
-          options={[
-            { value: "preferred_only", label: t("settings.translation.oscStrategies.preferredOnly") },
-            { value: "round_robin", label: t("settings.translation.oscStrategies.roundRobin") },
-          ]}
-          onChange={(translation_strategy) => onChange({
-            ...settings,
-            osc: {
-              ...settings.osc,
-              translation_strategy: translation_strategy as Settings["osc"]["translation_strategy"],
-            },
-          })}
-        />
         <div className="translation-preset-list">
           {settings.language_presets.map((preset, index) => (
             <div className="translation-preset-row" key={preset.id}>
@@ -103,34 +85,6 @@ export function LanguagePresetSettings({
           {t("settings.translation.savePreset")}
         </button>
       </div>
-    </div>
+    </section>
   );
-}
-
-export function swapSourceLanguages(settings: Settings, source: "speaker" | "microphone"): Settings {
-  if (settings.asr.language === "auto") return settings;
-  const field = source === "speaker" ? "speaker_targets" : "microphone_targets";
-  const targets = [...settings.translation[field]];
-  const preferred = targets[0];
-  if (!preferred) return settings;
-  const recognition = targetToRecognition(preferred.target_language);
-  if (!recognition) return settings;
-  targets[0] = { ...preferred, target_language: recognitionToTarget(settings.asr.language) };
-  return {
-    ...settings,
-    asr: { ...settings.asr, language: recognition },
-    translation: { ...settings.translation, [field]: targets },
-  };
-}
-
-function targetToRecognition(language: string): Settings["asr"]["language"] | null {
-  const base = language.toLowerCase().split("-")[0];
-  if (base === "zh") return "zh";
-  return ["en", "ja", "ko", "es", "fr", "de"].includes(base)
-    ? base as Settings["asr"]["language"]
-    : null;
-}
-
-function recognitionToTarget(language: Settings["asr"]["language"]): string {
-  return language === "zh" ? "zh-Hans" : language;
 }
