@@ -11,7 +11,9 @@ use tokio::sync::mpsc;
 use crate::models::AudioDevice;
 
 use super::super::{AudioError, CHUNK_FRAMES};
-use super::devices::{endpoint_info, err, init_com, is_endpoint_invalidation, resolve_device};
+use super::devices::{
+    endpoint_info, err, init_com, is_endpoint_invalidation, resolve_device, ComApartment,
+};
 use super::pcm::{append_mono_f32, resample_linear, NativeFormat, SampleEncoding};
 use super::{CaptureTarget, DeviceDirection};
 
@@ -106,9 +108,9 @@ fn initialize_capture_client(
 }
 
 struct CaptureStream {
-    client: AudioClient,
-    event: Handle,
     capture: AudioCaptureClient,
+    event: Handle,
+    client: AudioClient,
     device: AudioDevice,
     native: NativeFormat,
     endpoint_id: String,
@@ -128,11 +130,14 @@ fn map_capture_error(error: ::wasapi::WasapiError, process_loopback: bool) -> Au
     }
 }
 
-fn open_stream(target: &CaptureTarget, output_rate: u32) -> Result<CaptureStream, AudioError> {
+fn open_stream(
+    com: &ComApartment,
+    target: &CaptureTarget,
+    output_rate: u32,
+) -> Result<CaptureStream, AudioError> {
     let process_loopback = matches!(target, CaptureTarget::Process(_));
     let (client, device, native, selection, endpoint_id) = match target {
         CaptureTarget::Process(process_id) => {
-            init_com()?;
             let mut client = AudioClient::new_application_loopback_client(*process_id, true)
                 .map_err(|error| map_capture_error(error, true))?;
             let device = AudioDevice {
@@ -149,6 +154,13 @@ fn open_stream(target: &CaptureTarget, output_rate: u32) -> Result<CaptureStream
                 autoconvert: true,
                 buffer_duration_hns: SHARED_BUFFER_DURATION_HNS,
             };
+            let endpoint_id = format!("process:{process_id}");
+            tracing::info!(
+                selection = "process",
+                endpoint_id = %endpoint_id,
+                device_name = %device.name,
+                "initializing WASAPI capture"
+            );
             client
                 .initialize_client(&wave_format, &Direction::Capture, &mode)
                 .map_err(|error| {
@@ -167,7 +179,7 @@ fn open_stream(target: &CaptureTarget, output_rate: u32) -> Result<CaptureStream
                     },
                 },
                 "process",
-                format!("process:{process_id}"),
+                endpoint_id,
             )
         }
         CaptureTarget::Device {
@@ -178,22 +190,28 @@ fn open_stream(target: &CaptureTarget, output_rate: u32) -> Result<CaptureStream
                 DeviceDirection::Render => Direction::Render,
                 DeviceDirection::Capture => Direction::Capture,
             };
-            let device = resolve_device(wasapi_id.as_deref(), &wasapi_direction)?;
+            let device = resolve_device(com, wasapi_id.as_deref(), &wasapi_direction)?;
             let endpoint_id = device.get_id().map_err(err)?;
             let info = endpoint_info(
                 &device,
                 wasapi_id.is_none(),
                 *direction == DeviceDirection::Render,
             )?;
-            let (client, native) = match direction {
-                DeviceDirection::Render => initialize_loopback_client(&device)?,
-                DeviceDirection::Capture => initialize_capture_client(&device, output_rate)?,
-            };
             let selection = match (wasapi_id.is_none(), direction) {
                 (true, DeviceDirection::Render) => "default-render",
                 (true, DeviceDirection::Capture) => "default-capture",
                 (false, DeviceDirection::Render) => "explicit-render",
                 (false, DeviceDirection::Capture) => "explicit-capture",
+            };
+            tracing::info!(
+                selection,
+                endpoint_id = %endpoint_id,
+                device_name = %info.name,
+                "initializing WASAPI capture"
+            );
+            let (client, native) = match direction {
+                DeviceDirection::Render => initialize_loopback_client(&device)?,
+                DeviceDirection::Capture => initialize_capture_client(&device, output_rate)?,
             };
             (client, info, native, selection, endpoint_id)
         }
@@ -218,9 +236,9 @@ fn open_stream(target: &CaptureTarget, output_rate: u32) -> Result<CaptureStream
         "initialized WASAPI capture"
     );
     Ok(CaptureStream {
-        client,
-        event,
         capture,
+        event,
+        client,
         device,
         native,
         endpoint_id,
@@ -296,7 +314,14 @@ pub(crate) fn capture_main(
         }
     );
     let process_loopback = matches!(&target, CaptureTarget::Process(_));
-    let mut stream = match open_stream(&target, output_rate) {
+    let _com = match init_com() {
+        Ok(com) => com,
+        Err(error) => {
+            let _ = ready.send(Err(error.at_stage("initialize")));
+            return;
+        }
+    };
+    let mut stream = match open_stream(&_com, &target, output_rate) {
         Ok(stream) => stream,
         Err(error) => {
             let _ = ready.send(Err(error.at_stage("initialize")));
@@ -318,13 +343,15 @@ pub(crate) fn capture_main(
                     && !stop.load(Ordering::Relaxed) =>
             {
                 recovered = true;
+                let endpoint_id = stream.endpoint_id.clone();
                 tracing::warn!(
-                    endpoint_id = %stream.endpoint_id,
+                    endpoint_id = %endpoint_id,
                     detail = %failure.error,
                     "default audio endpoint was invalidated; rebuilding capture once"
                 );
+                drop(stream);
                 std::thread::sleep(DEFAULT_RECOVERY_DELAY);
-                match open_stream(&target, output_rate) {
+                match open_stream(&_com, &target, output_rate) {
                     Ok(replacement) => {
                         stream = replacement;
                         continue;

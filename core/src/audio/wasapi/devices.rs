@@ -1,4 +1,4 @@
-use ::wasapi::{initialize_mta, Device, DeviceEnumerator, Direction};
+use ::wasapi::{deinitialize, initialize_mta, Device, DeviceEnumerator, Direction};
 
 use crate::models::AudioDevice;
 
@@ -48,10 +48,18 @@ pub(super) fn err(error: ::wasapi::WasapiError) -> AudioError {
     }
 }
 
-pub(super) fn init_com() -> Result<(), AudioError> {
+pub(super) struct ComApartment(std::marker::PhantomData<std::rc::Rc<()>>);
+
+impl Drop for ComApartment {
+    fn drop(&mut self) {
+        deinitialize();
+    }
+}
+
+pub(super) fn init_com() -> Result<ComApartment, AudioError> {
     let result = initialize_mta();
     if result.is_ok() {
-        Ok(())
+        Ok(ComApartment(std::marker::PhantomData))
     } else {
         Err(AudioError::with_code(
             "audio.com_initialization_failed",
@@ -87,7 +95,7 @@ pub(super) fn endpoint_info(
 }
 
 pub(crate) fn list_devices() -> Result<Vec<AudioDevice>, AudioError> {
-    init_com()?;
+    let _com = init_com()?;
     let enumerator = DeviceEnumerator::new().map_err(err)?;
     let default_render_id = enumerator
         .get_default_device(&Direction::Render)
@@ -125,7 +133,7 @@ pub(crate) fn resolve_device_id(
         CaptureSource::Speaker => Direction::Render,
         CaptureSource::Microphone => Direction::Capture,
     };
-    init_com()?;
+    let _com = init_com()?;
     let enumerator = DeviceEnumerator::new().map_err(err)?;
     let collection = enumerator.get_device_collection(&direction).map_err(err)?;
     for index in 0..collection.get_nbr_devices().map_err(err)? {
@@ -181,10 +189,10 @@ pub(crate) fn find_process_id(process_name: &str) -> Result<Option<u32>, AudioEr
 }
 
 pub(super) fn resolve_device(
+    _com: &ComApartment,
     wasapi_id: Option<&str>,
     direction: &Direction,
 ) -> Result<Device, AudioError> {
-    init_com()?;
     let enumerator = DeviceEnumerator::new().map_err(err)?;
     let follows_default = wasapi_id.is_none();
     let endpoint_id = match wasapi_id {
@@ -235,12 +243,32 @@ pub(super) fn is_endpoint_invalidation(error: &::wasapi::WasapiError) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{device_key, device_unavailable, err, is_endpoint_invalidation};
+    use super::{device_key, device_unavailable, err, init_com, is_endpoint_invalidation};
     use windows::Win32::Foundation::{ERROR_ACCESS_DENIED, ERROR_FILE_NOT_FOUND};
     use windows::Win32::Media::Audio::{
         AUDCLNT_E_DEVICE_INVALIDATED, AUDCLNT_E_DEVICE_IN_USE, AUDCLNT_E_RESOURCES_INVALIDATED,
         AUDCLNT_E_SERVICE_NOT_RUNNING, AUDCLNT_E_UNSUPPORTED_FORMAT,
     };
+
+    #[test]
+    fn com_apartment_is_uninitialized_when_guard_drops() {
+        std::thread::spawn(|| {
+            let apartment = init_com().unwrap();
+            drop(apartment);
+
+            let second = ::wasapi::initialize_mta();
+            if second.is_ok() {
+                ::wasapi::deinitialize();
+            }
+            let balanced = second == windows::core::HRESULT(0);
+            if second == windows::core::HRESULT(1) {
+                ::wasapi::deinitialize();
+            }
+            assert!(balanced, "COM remained initialized after the guard dropped");
+        })
+        .join()
+        .unwrap();
+    }
 
     #[test]
     fn file_not_found_is_retryable_during_audio_startup() {
