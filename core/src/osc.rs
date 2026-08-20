@@ -462,9 +462,12 @@ async fn run_worker(
                     OscEvent::TranslationFailed { subtitle_id, target_language, .. } => {
                         if let Some(message) = queue.iter_mut().find(|item| item.subtitle_id == Some(subtitle_id)) {
                             message.failed_targets.insert(target_language);
+                            let all_languages = config.config.translation_strategy == "all_languages";
                             let all_failed = !message.expected_targets.is_empty()
                                 && message.failed_targets.len() >= message.expected_targets.len();
-                            if all_failed || selected_translation(message).is_some() {
+                            if (all_languages && all_targets_resolved(message))
+                                || (!all_languages && (all_failed || selected_translation(message).is_some()))
+                            {
                                 message.ready_at = Instant::now();
                             }
                         }
@@ -476,11 +479,13 @@ async fn run_worker(
                                 message.completed_targets.push(language.clone());
                             }
                             message.translations.insert(language.clone(), translation.text);
-                            if message.desired_target.as_deref() == Some(&language)
-                                || (preferred && message.desired_target.is_none())
-                                || message.desired_target.as_ref().is_some_and(|target| {
-                                    message.failed_targets.contains(target)
-                                })
+                            let all_languages = config.config.translation_strategy == "all_languages";
+                            if (all_languages && all_targets_resolved(message))
+                                || (!all_languages && (message.desired_target.as_deref() == Some(&language)
+                                    || (preferred && message.desired_target.is_none())
+                                    || message.desired_target.as_ref().is_some_and(|target| {
+                                        message.failed_targets.contains(target)
+                                    })))
                             {
                                 message.ready_at = Instant::now();
                             }
@@ -528,7 +533,10 @@ async fn run_worker(
                     continue;
                 }
                 let Some(message) = queue.pop_front() else { continue };
-                let translation = selected_translation(&message).cloned();
+                let translation = selected_translation_text(
+                    &message,
+                    &config.config.translation_strategy,
+                );
                 let text = message.rendered_text.clone().unwrap_or_else(|| {
                     format_chatbox(
                         &message.original,
@@ -573,6 +581,7 @@ async fn run_worker(
                             None,
                             Some(sent_at.clone()),
                             config.config.preserve_original_text,
+                            &config.config.translation_strategy,
                         );
                         if let Some(subtitle_id) = message.subtitle_id {
                             current_sent = Some(SentMessage {
@@ -600,6 +609,7 @@ async fn run_worker(
                             Some(&error),
                             None,
                             config.config.preserve_original_text,
+                            &config.config.translation_strategy,
                         );
                         if let Some(responder) = message.responder {
                             let _ = responder.send(Err(ManualSendError {
@@ -623,14 +633,14 @@ fn record_automatic_message(
     error_detail: Option<&str>,
     sent_at: Option<String>,
     preserve_original_text: bool,
+    translation_strategy: &str,
 ) {
     if message.subtitle_id.is_none() || message.rendered_text.is_some() {
         return;
     }
     let Some(db) = db else { return };
     let original = crate::chatbox::compact_text(&message.original);
-    let selected = selected_translation(message);
-    let translation = selected.map(|value| crate::chatbox::compact_text(value));
+    let translation = selected_translation_text(message, translation_strategy);
     let effective_translation = translation
         .as_deref()
         .filter(|value| !value.is_empty() && *value != original.as_str());
@@ -642,12 +652,9 @@ fn record_automatic_message(
     let record = NewChatboxMessage {
         source: "microphone".into(),
         original: message.original.clone(),
-        translation: selected.cloned(),
+        translation,
         source_language: None,
-        target_language: message
-            .desired_target
-            .clone()
-            .or_else(|| message.preferred_target.clone()),
+        target_language: selected_target_language(message, translation_strategy),
         send_mode: send_mode.into(),
         message_format: "original_newline_translation".into(),
         custom_format: None,
@@ -689,11 +696,56 @@ fn selected_translation(message: &PendingMessage) -> Option<&String> {
         })
 }
 
+fn selected_translation_text(message: &PendingMessage, strategy: &str) -> Option<String> {
+    if strategy != "all_languages" {
+        return selected_translation(message).cloned();
+    }
+    let original = crate::chatbox::compact_text(&message.original);
+    let mut translations = Vec::new();
+    for target in &message.expected_targets {
+        let Some(value) = message.translations.get(target) else {
+            continue;
+        };
+        let value = crate::chatbox::compact_text(value);
+        if value.is_empty() || value == original || translations.contains(&value) {
+            continue;
+        }
+        translations.push(value);
+    }
+    (!translations.is_empty()).then(|| translations.join(" / "))
+}
+
+fn selected_target_language(message: &PendingMessage, strategy: &str) -> Option<String> {
+    if strategy != "all_languages" {
+        return message
+            .desired_target
+            .clone()
+            .or_else(|| message.preferred_target.clone());
+    }
+    let targets = message
+        .expected_targets
+        .iter()
+        .filter(|target| message.translations.contains_key(*target))
+        .cloned()
+        .collect::<Vec<_>>();
+    (!targets.is_empty()).then(|| targets.join(","))
+}
+
+fn all_targets_resolved(message: &PendingMessage) -> bool {
+    !message.expected_targets.is_empty()
+        && message.expected_targets.iter().all(|target| {
+            message.translations.contains_key(target) || message.failed_targets.contains(target)
+        })
+}
+
 fn select_translation_target(
     strategy: &str,
     target_languages: &[String],
     round_robin_index: &mut usize,
 ) -> Option<String> {
+    if strategy == "all_languages" {
+        return None;
+    }
     if strategy != "round_robin" || target_languages.is_empty() {
         return target_languages.first().cloned();
     }
@@ -783,6 +835,23 @@ fn initial_gate(config: &OscConfig) -> SendGate {
 mod tests {
     use super::*;
 
+    fn pending_message(targets: &[&str]) -> PendingMessage {
+        PendingMessage {
+            message_id: "message-test".into(),
+            subtitle_id: Some(1),
+            original: "こんにちは".into(),
+            preferred_target: targets.first().map(|target| (*target).into()),
+            desired_target: None,
+            translations: HashMap::new(),
+            completed_targets: Vec::new(),
+            expected_targets: targets.iter().map(|target| (*target).into()).collect(),
+            failed_targets: HashSet::new(),
+            rendered_text: None,
+            ready_at: Instant::now(),
+            responder: None,
+        }
+    }
+
     #[test]
     fn round_robin_selects_targets_in_route_order() {
         let targets = vec!["en".into(), "ja".into(), "fr".into()];
@@ -803,6 +872,45 @@ mod tests {
             select_translation_target("round_robin", &targets, &mut index).as_deref(),
             Some("en")
         );
+    }
+
+    #[test]
+    fn all_languages_does_not_select_a_single_target() {
+        let targets = vec!["en".into(), "ja".into(), "fr".into()];
+        let mut index = 2;
+        assert_eq!(
+            select_translation_target("all_languages", &targets, &mut index),
+            None
+        );
+        assert_eq!(index, 2);
+    }
+
+    #[test]
+    fn all_languages_combines_translations_in_target_order() {
+        let mut message = pending_message(&["zh-Hans", "en", "fr"]);
+        message.translations.insert("en".into(), "Hello".into());
+        message.translations.insert("zh-Hans".into(), "你好".into());
+        message.translations.insert("fr".into(), "Hello".into());
+
+        assert_eq!(
+            selected_translation_text(&message, "all_languages").as_deref(),
+            Some("你好 / Hello")
+        );
+        assert_eq!(
+            selected_target_language(&message, "all_languages").as_deref(),
+            Some("zh-Hans,en,fr")
+        );
+    }
+
+    #[test]
+    fn all_languages_is_resolved_after_each_target_completes_or_fails() {
+        let mut message = pending_message(&["zh-Hans", "en", "fr"]);
+        message.translations.insert("zh-Hans".into(), "你好".into());
+        message.failed_targets.insert("en".into());
+        assert!(!all_targets_resolved(&message));
+
+        message.translations.insert("fr".into(), "Bonjour".into());
+        assert!(all_targets_resolved(&message));
     }
 
     fn subtitle(id: i64, source: &str, text: &str) -> Subtitle {

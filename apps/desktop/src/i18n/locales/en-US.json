@@ -1174,7 +1174,7 @@
         "enable": "Enable chatbox output",
         "enableDescription": "Send only your final microphone subtitles, never other voices or partial results.",
         "translationStrategy": "OSC multilingual output",
-        "translationStrategies": { "preferredOnly": "Preferred language only", "roundRobin": "Round robin" },
+        "translationStrategies": { "preferredOnly": "Preferred language only", "roundRobin": "Round robin", "allLanguages": "Show all languages together" },
         "preserveOriginal": "Keep original text in output",
         "preserveOriginalDescription": "When a translation is available, send the original and translation together. Turn this off to send only the translation.",
         "muteSync": "Sync VRChat microphone mute",

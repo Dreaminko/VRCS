@@ -157,6 +157,7 @@ export function ConnectionSettingsSection({
                   options={[
                     { value: "preferred_only", label: t("settings.osc.translationStrategies.preferredOnly") },
                     { value: "round_robin", label: t("settings.osc.translationStrategies.roundRobin") },
+                    { value: "all_languages", label: t("settings.osc.translationStrategies.allLanguages") },
                   ]}
                   onChange={(translation_strategy) => applySettings((current) => ({
                     ...current,

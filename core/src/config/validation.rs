@@ -147,7 +147,9 @@ fn validate_osc(osc: &OscConfig) -> Result<(), String> {
     if osc.port == 0 {
         return Err("OSC port must be between 1 and 65535".into());
     }
-    if !["preferred_only", "round_robin"].contains(&osc.translation_strategy.as_str()) {
+    if !["preferred_only", "round_robin", "all_languages"]
+        .contains(&osc.translation_strategy.as_str())
+    {
         return Err(format!(
             "Unsupported OSC translation strategy: {}",
             osc.translation_strategy
@@ -515,7 +517,9 @@ fn validate_language_presets(
             profiles,
             preset.translation_mode != "disabled",
         )?;
-        if !["preferred_only", "round_robin"].contains(&preset.osc_translation_strategy.as_str()) {
+        if !["preferred_only", "round_robin", "all_languages"]
+            .contains(&preset.osc_translation_strategy.as_str())
+        {
             return Err(format!(
                 "Unsupported preset OSC translation strategy: {}",
                 preset.osc_translation_strategy

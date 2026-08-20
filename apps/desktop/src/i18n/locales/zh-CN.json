@@ -1174,7 +1174,7 @@
         "enable": "启用聊天框输出",
         "enableDescription": "仅发送自己的麦克风最终字幕，不发送其他声音或临时结果。",
         "translationStrategy": "OSC 多语言发送",
-        "translationStrategies": { "preferredOnly": "仅首选语言", "roundRobin": "轮换发送" },
+        "translationStrategies": { "preferredOnly": "仅首选语言", "roundRobin": "轮换发送", "allLanguages": "同时显示多种语言" },
         "preserveOriginal": "输出中保留原文",
         "preserveOriginalDescription": "有译文时同时发送原文和译文；关闭后仅发送译文。",
         "muteSync": "同步 VRChat 麦克风静音",

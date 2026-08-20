@@ -1174,7 +1174,7 @@
         "enable": "チャットボックス出力を有効にする",
         "enableDescription": "自分のマイクの確定字幕だけを送信し、他の音声や途中結果は送りません。",
         "translationStrategy": "OSC多言語出力",
-        "translationStrategies": { "preferredOnly": "優先言語のみ", "roundRobin": "順番に送信" },
+        "translationStrategies": { "preferredOnly": "優先言語のみ", "roundRobin": "順番に送信", "allLanguages": "複数言語を同時に表示" },
         "preserveOriginal": "出力に原文を残す",
         "preserveOriginalDescription": "翻訳がある場合は原文と翻訳を一緒に送信します。オフにすると翻訳だけを送信します。",
         "muteSync": "VRChat のマイクミュートと同期",

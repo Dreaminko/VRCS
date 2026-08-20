@@ -569,7 +569,7 @@ export interface TranslationTargetSettings {
   thinking_enabled: boolean;
 }
 
-export type OscTranslationStrategy = "preferred_only" | "round_robin";
+export type OscTranslationStrategy = "preferred_only" | "round_robin" | "all_languages";
 
 export interface LanguagePreset {
   id: string;
