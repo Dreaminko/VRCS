@@ -53,8 +53,8 @@
   border-radius: var(--radius-sm);
   background: var(--surface-elevated);
 }
-.translation-prompt-preview strong { font-size: 12px; }
-.translation-prompt-preview small { color: var(--text-quiet); }
+.translation-prompt-preview strong { font-size: var(--settings-text-body); font-weight: var(--settings-weight-heading); line-height: var(--settings-leading-label); }
+.translation-prompt-preview small { color: var(--text-quiet); font-size: var(--settings-text-caption); line-height: var(--settings-leading-copy); }
 .translation-prompt-preview pre {
   max-height: 240px;
   margin: 4px 0 0;
@@ -83,9 +83,9 @@
 .translation-context-group { display: grid; min-width: 0; gap: 9px; }
 .translation-context-group-title {
   color: var(--text-secondary);
-  font-size: 11px;
-  font-weight: 650;
-  line-height: 1.4;
+  font-size: var(--settings-text-caption);
+  font-weight: var(--settings-weight-heading);
+  line-height: var(--settings-leading-label);
 }
 .translation-context-sources {
   display: grid;
@@ -105,8 +105,9 @@
   border-radius: var(--radius-sm);
   color: var(--text-secondary);
   background: var(--surface-elevated);
-  font-size: 11px;
-  font-weight: 600;
+  font-size: var(--settings-text-caption);
+  font-weight: var(--settings-weight-label);
+  line-height: var(--settings-leading-label);
   cursor: pointer;
   transition: border-color 140ms ease-out, color 140ms ease-out, background-color 140ms ease-out, box-shadow 140ms ease-out, transform 120ms ease-out;
 }
@@ -181,8 +182,9 @@
   border-radius: var(--radius-sm);
   color: var(--text-secondary);
   background: var(--surface-elevated);
-  font-size: 11px;
-  font-weight: 600;
+  font-size: var(--settings-text-caption);
+  font-weight: var(--settings-weight-label);
+  line-height: var(--settings-leading-label);
 }
 .translation-context-limit input {
   width: 100%;
@@ -212,8 +214,8 @@
   border-radius: var(--radius-sm);
   color: var(--text-secondary);
   background: var(--primary-softer);
-  font-size: 11px;
-  line-height: 1.5;
+  font-size: var(--settings-text-caption);
+  line-height: var(--settings-leading-copy);
 }
 .translation-privacy-notice svg { flex: 0 0 auto; margin-top: 1px; color: var(--primary-ink); }
 .translation-model-field input:focus-visible {

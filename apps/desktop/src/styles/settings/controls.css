@@ -8,8 +8,9 @@
   border-radius: var(--radius-md);
   color: var(--primary-ink);
   background: var(--primary-soft);
-  font-size: 13px;
-  font-weight: 600;
+  font-size: var(--settings-text-label);
+  font-weight: var(--settings-weight-label);
+  line-height: var(--settings-leading-label);
   transition: background-color 140ms ease-out, color 140ms ease-out, transform 120ms ease-out, border-color 120ms ease-out;
 }
 .api-add-button:hover:not(:disabled) { color: #ffffff; background: var(--primary); }
@@ -47,7 +48,7 @@
 .system-select-setting > div:first-child,
 .system-scale-setting > div:first-child { display: grid; gap: 4px; }
 .system-select-setting strong,
-.system-scale-setting strong { color: var(--text); font-size: 13px; font-weight: 650; }
+.system-scale-setting strong { color: var(--text); font-size: var(--settings-text-label); font-weight: var(--settings-weight-heading); line-height: var(--settings-leading-label); }
 
 .system-select-setting .field { min-width: 0; }
 .system-scale-input {
@@ -108,7 +109,7 @@
 .system-scale-stepper button:focus-visible { outline: 0; color: var(--primary-ink); background: var(--primary-softer); box-shadow: inset 0 0 0 1px rgba(116, 214, 255, 0.34); }
 .system-scale-stepper button:disabled { opacity: 0.32; cursor: not-allowed; }
 .system-onboarding-setting > div { display: grid; }
-.system-onboarding-setting strong { color: var(--text); font-size: 13px; font-weight: 650; }
+.system-onboarding-setting strong { color: var(--text); font-size: var(--settings-text-label); font-weight: var(--settings-weight-heading); line-height: var(--settings-leading-label); }
 .system-onboarding-setting .secondary-button { justify-self: end; }
 .settings-toggle-row {
   display: flex;
@@ -124,8 +125,8 @@
 
 .settings-toggle-row.disabled { opacity: 0.62; }
 .settings-toggle-copy { display: grid; min-width: 0; flex: 1; gap: 3px; }
-.settings-toggle-copy strong { color: var(--text); font-size: 13px; font-weight: 650; }
-.settings-toggle-copy small { color: var(--text-quiet); font-size: 11px; line-height: 1.45; }
+.settings-toggle-copy strong { color: var(--text); font-size: var(--settings-text-label); font-weight: var(--settings-weight-heading); line-height: var(--settings-leading-label); }
+.settings-toggle-copy small { color: var(--text-quiet); font-size: var(--settings-text-caption); line-height: var(--settings-leading-copy); }
 
 .settings-switch-button {
   display: grid;
@@ -150,5 +151,6 @@
   border-radius: 10px;
   color: var(--error);
   background: var(--error-soft);
-  font-size: 12px;
+  font-size: var(--settings-text-body);
+  line-height: var(--settings-leading-copy);
 }

@@ -9,7 +9,7 @@
   background: var(--primary-softer);
 }
 .api-security-note svg { flex: 0 0 auto; margin-top: 1px; }
-.api-security-note p { margin: 0; color: var(--text-secondary); font-size: 11px; line-height: 1.6; text-wrap: pretty; }
+.api-security-note p { margin: 0; color: var(--text-secondary); font-size: var(--settings-text-caption); line-height: var(--settings-leading-reading); text-wrap: pretty; }
 
 .api-profile-list {
   overflow: hidden;
@@ -44,12 +44,12 @@
   background: var(--canvas);
 }
 .api-profile-identity > span:last-child { display: grid; min-width: 0; gap: 3px; }
-.api-profile-identity strong { color: var(--text); font-size: 13px; font-weight: 650; }
-.api-profile-identity small { overflow-wrap: anywhere; color: var(--text-quiet); font-size: 11px; line-height: 1.5; }
+.api-profile-identity strong { color: var(--text); font-size: var(--settings-text-label); font-weight: var(--settings-weight-heading); line-height: var(--settings-leading-label); }
+.api-profile-identity small { overflow-wrap: anywhere; color: var(--text-quiet); font-size: var(--settings-text-caption); line-height: var(--settings-leading-copy); }
 .api-profile-identity .api-model-catalog-error,
 .field > .api-model-catalog-error { color: var(--error); }
 .api-profile-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 7px; }
-.api-profile-actions .secondary-button { min-height: 34px; padding: 7px 10px; font-size: 11px; white-space: nowrap; }
+.api-profile-actions .secondary-button { min-height: 34px; padding: 7px 10px; font-size: var(--settings-text-caption); white-space: nowrap; }
 .api-active-badge {
   display: inline-flex;
   min-height: 28px;
@@ -59,8 +59,9 @@
   border-radius: var(--radius-pill);
   color: var(--primary-ink);
   background: var(--surface);
-  font-size: 10px;
-  font-weight: 650;
+  font-size: var(--settings-text-micro);
+  font-weight: var(--settings-weight-heading);
+  line-height: var(--settings-leading-label);
   white-space: nowrap;
 }
 .api-row-icon-button {
@@ -123,7 +124,7 @@
   background: transparent;
 }
 .api-profile-dialog .api-profile-editor-heading { padding: 24px 68px 16px 24px; }
-.api-profile-dialog .api-profile-editor-heading strong { font-size: 16px; font-weight: 680; }
+.api-profile-dialog .api-profile-editor-heading strong { font-size: var(--settings-text-dialog-title); font-weight: var(--settings-weight-heading); line-height: var(--settings-leading-tight); }
 .api-profile-editor-content { display: grid; gap: 14px; }
 .api-profile-dialog .api-profile-editor-content {
   min-height: 0;
@@ -168,7 +169,7 @@
   to { opacity: 1; transform: translateY(0) scale(1); }
 }
 .api-profile-editor-heading { display: grid; gap: 4px; }
-.api-profile-editor-heading strong { color: var(--text); font-size: 13px; }
+.api-profile-editor-heading strong { color: var(--text); font-size: var(--settings-text-label); font-weight: var(--settings-weight-heading); line-height: var(--settings-leading-label); }
 
 .api-profile-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
 .api-profile-key-field { grid-column: 1 / -1; }
@@ -184,14 +185,15 @@
 .api-profile-capabilities legend {
   padding: 0;
   color: var(--text-secondary);
-  font-size: 12px;
-  font-weight: 600;
+  font-size: var(--settings-text-body);
+  font-weight: var(--settings-weight-label);
+  line-height: var(--settings-leading-label);
 }
 .api-profile-capabilities > p {
   margin: 0 0 4px;
   color: var(--text-quiet);
-  font-size: 11px;
-  line-height: 1.5;
+  font-size: var(--settings-text-caption);
+  line-height: var(--settings-leading-copy);
 }
 .api-profile-capability-list {
   overflow: hidden;
@@ -223,15 +225,16 @@
 .api-profile-capability-row.required .api-profile-capability-icon { background: var(--primary-soft); }
 .api-profile-capability-copy { display: grid; min-width: 0; gap: 3px; }
 .api-profile-capability-copy > span { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; }
-.api-profile-capability-copy strong { color: var(--text); font-size: 12px; font-weight: 650; }
-.api-profile-capability-copy > small { color: var(--text-quiet); font-size: 10px; line-height: 1.45; text-wrap: pretty; }
+.api-profile-capability-copy strong { color: var(--text); font-size: var(--settings-text-body); font-weight: var(--settings-weight-heading); line-height: var(--settings-leading-label); }
+.api-profile-capability-copy > small { color: var(--text-quiet); font-size: var(--settings-text-micro); line-height: var(--settings-leading-copy); text-wrap: pretty; }
 .api-profile-capability-required {
   padding: 2px 6px;
   border-radius: var(--radius-pill);
   color: var(--primary-ink);
   background: var(--primary-soft);
-  font-size: 9px;
-  font-weight: 650;
+  font-size: var(--settings-text-micro);
+  font-weight: var(--settings-weight-heading);
+  line-height: var(--settings-leading-label);
 }
 .api-profile-capability-switch { margin: 0 2px; }
 .api-profile-capability-row.required .api-profile-capability-switch:disabled { opacity: 0.78; cursor: default; }
@@ -261,9 +264,9 @@
 .api-profile-local-field.disabled { opacity: 0.62; }
 .api-profile-headers-field { display: grid; gap: 10px; padding-top: 16px; border-top: 1px solid var(--border); }
 .api-profile-headers-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.api-profile-headers-heading > span { color: var(--text-secondary); font-size: 13px; font-weight: 600; }
-.api-profile-headers-field > small { color: var(--text-quiet); font-size: 11px; line-height: 1.5; text-wrap: pretty; }
-.api-add-header-button { min-height: 34px; gap: 6px; padding: 7px 10px; font-size: 11px; }
+.api-profile-headers-heading > span { color: var(--text-secondary); font-size: var(--settings-text-label); font-weight: var(--settings-weight-label); line-height: var(--settings-leading-label); }
+.api-profile-headers-field > small { color: var(--text-quiet); font-size: var(--settings-text-caption); line-height: var(--settings-leading-copy); text-wrap: pretty; }
+.api-add-header-button { min-height: 34px; gap: 6px; padding: 7px 10px; font-size: var(--settings-text-caption); }
 .api-profile-header-list { display: grid; gap: 8px; }
 .api-profile-header-row { display: grid; grid-template-columns: minmax(0, 0.75fr) minmax(0, 1.25fr) 40px; gap: 8px; }
 .api-profile-header-row input { width: 100%; min-width: 0; }
@@ -296,10 +299,10 @@
   color: var(--text-quiet);
   text-align: center;
 }
-.api-profile-empty strong { color: var(--text-secondary); font-size: 13px; }
-.api-profile-empty small { max-width: 42ch; font-size: 11px; line-height: 1.6; text-wrap: pretty; }
+.api-profile-empty strong { color: var(--text-secondary); font-size: var(--settings-text-label); font-weight: var(--settings-weight-heading); line-height: var(--settings-leading-label); }
+.api-profile-empty small { max-width: 42ch; font-size: var(--settings-text-caption); line-height: var(--settings-leading-reading); text-wrap: pretty; }
 .api-environment-note,
-.api-credential-message { color: var(--text-quiet); font-size: 11px; line-height: 1.5; }
+.api-credential-message { color: var(--text-quiet); font-size: var(--settings-text-caption); line-height: var(--settings-leading-copy); }
 .api-credential-message { display: block; margin-top: 10px; color: var(--primary-ink); }
 .api-add-button,
 .api-profile-actions button,

@@ -13,15 +13,15 @@
 
 .anki-section > .settings-feature-toggle,
 .dictionary-section > .settings-feature-toggle { margin-top: 0; }
-.learning-ai-settings-description { margin: -4px 0 14px; color: var(--text-secondary); font-size: 12px; line-height: 1.6; }
+.learning-ai-settings-description { margin: -4px 0 14px; color: var(--text-secondary); font-size: var(--settings-text-body); line-height: var(--settings-leading-reading); }
 .learning-ai-settings-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
 .learning-ai-settings-grid .field { min-width: 0; }
-.learning-ai-settings-message { margin: 0; color: var(--text-quiet); font-size: 11px; line-height: 1.5; }
+.learning-ai-settings-message { margin: 0; color: var(--text-quiet); font-size: var(--settings-text-caption); line-height: var(--settings-leading-copy); }
 .learning-ai-settings-message.error { color: var(--error); }
 .learning-ai-privacy-note { margin-top: 14px; padding: 12px 14px; border: 1px solid #efd6a8; border-radius: var(--radius-sm); color: var(--warning); background: #fff9ee; }
 .learning-ai-privacy-note.local { border-color: var(--primary-soft); color: var(--primary-ink); background: var(--primary-softer); }
-.learning-ai-privacy-note strong { font-size: 12px; }
-.learning-ai-privacy-note p { margin: 4px 0 0; font-size: 11px; line-height: 1.55; }
+.learning-ai-privacy-note strong { font-size: var(--settings-text-body); font-weight: var(--settings-weight-heading); line-height: var(--settings-leading-label); }
+.learning-ai-privacy-note p { margin: 4px 0 0; font-size: var(--settings-text-caption); line-height: var(--settings-leading-copy); }
 .anki-section .section-heading h3 { white-space: nowrap; }
 .system-section .section-heading > div > svg,
 .audio-section .section-heading > div > svg,
@@ -72,9 +72,9 @@
 .anki-connection > div,
 .osc-connection > div { display: grid; min-width: 0; gap: 4px; }
 .anki-connection strong,
-.osc-connection strong { font-size: 13px; font-weight: 650; }
+.osc-connection strong { font-size: var(--settings-text-label); font-weight: var(--settings-weight-heading); line-height: var(--settings-leading-label); }
 .anki-connection p,
-.osc-connection p { margin: 0; color: var(--text-secondary); font-size: 11px; line-height: 1.55; text-wrap: pretty; }
+.osc-connection p { margin: 0; color: var(--text-secondary); font-size: var(--settings-text-caption); line-height: var(--settings-leading-copy); text-wrap: pretty; }
 .anki-section .anki-connection,
 .osc-section .osc-connection { min-height: 0; margin-bottom: 12px; padding: 10px 14px; border-radius: var(--radius-sm); }
 .anki-panel,
@@ -114,7 +114,7 @@
   gap: 7px;
 }
 .anki-endpoint-field > span,
-.osc-endpoint-field > span { color: var(--text-secondary); font-size: 13px; font-weight: 600; }
+.osc-endpoint-field > span { color: var(--text-secondary); font-size: var(--settings-text-label); font-weight: var(--settings-weight-label); line-height: var(--settings-leading-label); }
 .anki-address-value,
 .osc-address-value {
   display: flex;
@@ -128,10 +128,10 @@
   background: var(--surface-subtle);
   font: 13px var(--font-mono);
 }
-.osc-endpoint-field > small { color: var(--text-quiet); font-size: 11px; line-height: 1.55; }
+.osc-endpoint-field > small { color: var(--text-quiet); font-size: var(--settings-text-caption); line-height: var(--settings-leading-copy); }
 .osc-endpoint-field > small.error { color: var(--error); }
 .anki-port-field > span,
-.osc-port-field > span { color: var(--text-secondary); font-size: 13px; font-weight: 600; }
+.osc-port-field > span { color: var(--text-secondary); font-size: var(--settings-text-label); font-weight: var(--settings-weight-label); line-height: var(--settings-leading-label); }
 
 .anki-port-field,
 .osc-port-field { display: grid; gap: 7px; }
@@ -159,7 +159,7 @@
 .anki-port-field input:disabled,
 .osc-port-field input:disabled,
 .model-directory-setting input:disabled { color: var(--text-quiet); background: var(--surface-subtle); }
-.anki-port-field > small { color: var(--text-quiet); font-size: 11px; line-height: 1.55; }
+.anki-port-field > small { color: var(--text-quiet); font-size: var(--settings-text-caption); line-height: var(--settings-leading-copy); }
 .anki-port-field > small.error { color: var(--error); }
 
 .anki-mapping-grid {

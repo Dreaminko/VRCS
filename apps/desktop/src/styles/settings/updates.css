@@ -6,9 +6,9 @@
   padding: 8px 4px;
 }
 .software-update-summary > div { display: grid; min-width: 0; gap: 3px; }
-.software-update-summary strong { color: var(--text); font-size: 13px; font-weight: 650; }
-.software-update-summary small { color: var(--text-quiet); font-size: 11px; }
-.software-update-summary p { margin: 2px 0 0; color: var(--text-secondary); font-size: 11px; line-height: 1.55; }
+.software-update-summary strong { color: var(--text); font-size: var(--settings-text-label); font-weight: var(--settings-weight-heading); line-height: var(--settings-leading-label); }
+.software-update-summary small { color: var(--text-quiet); font-size: var(--settings-text-caption); line-height: var(--settings-leading-copy); }
+.software-update-summary p { margin: 2px 0 0; color: var(--text-secondary); font-size: var(--settings-text-caption); line-height: var(--settings-leading-reading); }
 .software-update-summary p.error { color: var(--error); }
 .software-update-summary .secondary-button { justify-self: end; }
 .software-update-settings .spin { animation: model-spin 900ms linear infinite; }

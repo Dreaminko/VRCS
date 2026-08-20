@@ -23,7 +23,8 @@ import type {
 } from "../../types";
 import { LocalGlossaryDialog, SubscriptionGlossaryDialog } from "./GlossaryDialogs";
 import {
-  emptyGlossaryEntry,
+  glossaryEntryDraft,
+  glossaryEntryValue,
   exportFileName,
   glossarySourceId,
   validateLocalDraft,
@@ -118,11 +119,11 @@ export function GlossaryEditor({
     setLocalDraft(source ? {
       id: source.id,
       name: source.name,
-      entries: source.entries.map((entry) => ({ ...entry })),
+      entries: source.entries.map(glossaryEntryDraft),
     } : {
       id: null,
       name: "",
-      entries: [emptyGlossaryEntry()],
+      entries: [glossaryEntryDraft()],
     });
   };
 
@@ -156,10 +157,10 @@ export function GlossaryEditor({
       enabled: localDraft.id
         ? (sources.find((source) => source.id === localDraft.id)?.enabled ?? true)
         : true,
-      entries: localDraft.entries.map((entry) => ({
-        ...entry,
-        source: entry.source.trim(),
-      })),
+      entries: localDraft.entries.map((draftEntry) => {
+        const entry = glossaryEntryValue(draftEntry);
+        return { ...entry, source: entry.source.trim() };
+      }),
     };
     const next = localDraft.id
       ? sources.map((source) => source.id === localDraft.id ? normalized : source)
@@ -323,7 +324,7 @@ export function GlossaryEditor({
                   </span>
                   <strong>{name}</strong>
                 </div>
-                <small className="glossary-card-detail">
+                <small className={`glossary-card-detail ${source.type}`}>
                   {source.type === "subscription" ? source.url : t("settings.glossary.localGlossaryDetail")}
                 </small>
                 <div className="glossary-card-meta">

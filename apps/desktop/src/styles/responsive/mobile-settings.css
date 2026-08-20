@@ -22,14 +22,18 @@
   .translation-config-fields,
   .learning-ai-settings-grid { grid-template-columns: 1fr; }
   .translation-context-sources,
-  .translation-context-limits,
-  .glossary-dialog-entry { grid-template-columns: 1fr; }
+  .translation-context-limits { grid-template-columns: 1fr; }
   .translation-context-limit { grid-template-columns: minmax(0, 1fr) 96px; }
   .glossary-card { grid-template-columns: minmax(0, 1fr); }
   .glossary-card-controls { justify-content: space-between; }
   .glossary-card-actions { grid-column: 1; justify-content: flex-start; }
-  .glossary-dialog-toolbar > small { width: 100%; margin-left: 0; }
-  .glossary-dialog-entry-options { justify-content: flex-start; }
+  .glossary-entry-toolbar { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .glossary-entry-search,
+  .glossary-entry-toolbar-actions { grid-column: 1 / -1; }
+  .glossary-entry-toolbar-actions { flex-wrap: wrap; }
+  .glossary-entry-statusbar { align-items: flex-start; flex-direction: column; }
+  .glossary-entry-bulk-actions { width: 100%; justify-content: flex-start; flex-wrap: wrap; }
+  .glossary-entry-bulk-actions .dropdown-field { width: min(210px, 100%); }
 
   .api-profile-row { grid-template-columns: 1fr; align-items: start; }
   .api-profile-actions { grid-column: 1; flex-wrap: wrap; }

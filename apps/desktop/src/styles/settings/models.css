@@ -2,8 +2,9 @@
 .model-section .section-heading h3 {
   margin: 0;
   color: var(--text);
-  font-size: 15px;
-  font-weight: 650;
+  font-size: var(--settings-text-section-title);
+  font-weight: var(--settings-weight-heading);
+  line-height: var(--settings-leading-tight);
 }
 .recognition-models { margin-top: 24px; }
 .model-directory-setting {
@@ -16,8 +17,8 @@
   background: var(--surface-subtle);
 }
 .model-directory-setting > label { display: grid; gap: 3px; }
-.model-directory-setting > label > span { color: var(--text); font-size: 13px; font-weight: 650; }
-.model-directory-setting > label > small { color: var(--text-quiet); font-size: 11px; line-height: 1.5; }
+.model-directory-setting > label > span { color: var(--text); font-size: var(--settings-text-label); font-weight: var(--settings-weight-heading); line-height: var(--settings-leading-label); }
+.model-directory-setting > label > small { color: var(--text-quiet); font-size: var(--settings-text-caption); line-height: var(--settings-leading-copy); }
 .model-directory-setting > div { display: flex; min-width: 0; gap: 9px; }
 .model-directory-setting input {
   min-width: 0;
@@ -40,7 +41,8 @@
   border: 1px dashed var(--border);
   border-radius: var(--radius-md);
   color: var(--text-quiet);
-  font-size: 12px;
+  font-size: var(--settings-text-body);
+  line-height: var(--settings-leading-reading);
 }
 .model-list-pending svg { animation: model-spin 900ms linear infinite; }
 .model-row {
@@ -54,8 +56,8 @@
 }
 .model-row-body { display: grid; min-width: 0; gap: 3px; }
 .model-row-title { display: flex; min-width: 0; align-items: center; gap: 7px; }
-.model-row-title strong { color: var(--text); font-size: 13px; font-weight: 650; }
-.model-row-title .model-size { margin-left: auto; color: var(--text-quiet); font-size: 10px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.model-row-title strong { color: var(--text); font-size: var(--settings-text-label); font-weight: var(--settings-weight-heading); line-height: var(--settings-leading-label); }
+.model-row-title .model-size { margin-left: auto; color: var(--text-quiet); font-size: var(--settings-text-micro); font-variant-numeric: tabular-nums; line-height: var(--settings-leading-label); white-space: nowrap; }
 .model-active-chip {
   display: inline-flex;
   min-height: 19px;
@@ -64,10 +66,11 @@
   border-radius: var(--radius-pill);
   color: var(--primary-ink);
   background: var(--primary-softer);
-  font-size: 10px;
-  font-weight: 650;
+  font-size: var(--settings-text-micro);
+  font-weight: var(--settings-weight-heading);
+  line-height: var(--settings-leading-label);
 }
-.model-row-body > p { margin: 0; overflow-wrap: anywhere; color: var(--text-secondary); font-size: 11px; line-height: 1.5; text-wrap: pretty; }
+.model-row-body > p { margin: 0; overflow-wrap: anywhere; color: var(--text-secondary); font-size: var(--settings-text-caption); line-height: var(--settings-leading-copy); text-wrap: pretty; }
 .model-row-body > code {
   overflow: hidden;
   color: var(--text-quiet);
@@ -99,8 +102,9 @@
   gap: 6px;
   padding: 0 12px;
   border-radius: var(--radius-sm);
-  font-size: 12px;
-  font-weight: 650;
+  font-size: var(--settings-text-body);
+  font-weight: var(--settings-weight-heading);
+  line-height: var(--settings-leading-label);
   transition: color 140ms ease-out, background-color 140ms ease-out, border-color 140ms ease-out, transform 140ms ease-out;
 }
 .model-download-button:hover { border-color: var(--primary-hover); }
@@ -114,11 +118,12 @@
   align-items: center;
   gap: 6px;
   color: var(--text-quiet);
-  font-size: 11px;
+  font-size: var(--settings-text-caption);
+  line-height: var(--settings-leading-copy);
   text-align: right;
   white-space: normal;
 }
 .model-download-state { color: var(--primary-ink); }
 .model-download-state svg { animation: model-spin 900ms linear infinite; }
 .model-ready-state svg { color: var(--primary-ink); }
-.model-manager-feedback { margin: 12px 2px 0; overflow-wrap: anywhere; color: var(--text-secondary); font-size: 11px; }
+.model-manager-feedback { margin: 12px 2px 0; overflow-wrap: anywhere; color: var(--text-secondary); font-size: var(--settings-text-caption); line-height: var(--settings-leading-copy); }

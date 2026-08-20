@@ -13,8 +13,9 @@
   gap: 7px;
   padding: 0 16px;
   border-radius: 8px;
-  font-size: 13px;
-  font-weight: 600;
+  font-size: var(--settings-text-label);
+  font-weight: var(--settings-weight-label);
+  line-height: var(--settings-leading-label);
 }
 .secondary-button, .model-delete-button { border: 1px solid var(--border); color: var(--text-secondary); background: var(--surface); }
 .secondary-button:hover { border-color: var(--border-strong); background: var(--canvas); }

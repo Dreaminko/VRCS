@@ -19,7 +19,7 @@
   background: var(--primary-softer);
 }
 .storage-usage-heading > div { display: grid; min-width: 0; flex: 1; gap: 3px; }
-.storage-usage-heading strong { color: var(--text); font-size: 14px; font-weight: 680; }
+.storage-usage-heading strong { color: var(--text); font-size: var(--settings-text-group-title); font-weight: var(--settings-weight-heading); line-height: var(--settings-leading-tight); }
 
 .storage-refresh-button { flex: none; }
 .storage-refresh-button .spinning { animation: storage-spin 800ms linear infinite; }
@@ -35,12 +35,12 @@
 }
 .storage-usage-summary { display: flex; align-items: baseline; gap: 7px; }
 .storage-usage-summary strong { color: var(--text); font: 20px/1 var(--font-mono); font-variant-numeric: tabular-nums; }
-.storage-usage-summary span { color: var(--text-secondary); font-size: 11px; }
+.storage-usage-summary span { color: var(--text-secondary); font-size: var(--settings-text-caption); line-height: var(--settings-leading-copy); }
 .storage-stat-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 .storage-stat-grid > div { display: grid; gap: 4px; padding: 11px 12px; border-radius: var(--radius-sm); background: var(--surface-subtle); }
-.storage-stat-grid span { color: var(--text-quiet); font-size: 10px; }
+.storage-stat-grid span { color: var(--text-quiet); font-size: var(--settings-text-micro); line-height: var(--settings-leading-label); }
 .storage-stat-grid strong { color: var(--text-secondary); font: 12px var(--font-mono); font-variant-numeric: tabular-nums; }
-.storage-over-limit, .storage-feedback { margin: 0; font-size: 11px; line-height: 1.55; }
+.storage-over-limit, .storage-feedback { margin: 0; font-size: var(--settings-text-caption); line-height: var(--settings-leading-copy); }
 .storage-over-limit { padding: 9px 11px; border-radius: var(--radius-sm); color: var(--error); background: var(--error-soft); }
 .storage-setting-row, .storage-clear-row {
   display: grid;
@@ -51,7 +51,7 @@
   padding: 6px 4px;
 }
 .storage-setting-row > div, .storage-clear-row > div { display: grid; gap: 4px; }
-.storage-setting-row strong, .storage-clear-row strong { color: var(--text); font-size: 13px; font-weight: 650; }
+.storage-setting-row strong, .storage-clear-row strong { color: var(--text); font-size: var(--settings-text-label); font-weight: var(--settings-weight-heading); line-height: var(--settings-leading-label); }
 
 .storage-quota-input { display: grid; width: 148px; justify-self: end; gap: 6px; }
 .storage-quota-input > span:first-child { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); }

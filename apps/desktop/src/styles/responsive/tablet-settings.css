@@ -6,4 +6,6 @@
   .translation-config-row { grid-template-columns: 1fr; gap: 14px; }
   .api-profile-row { grid-template-columns: minmax(0, 1fr); gap: 10px 16px; }
   .api-profile-actions { grid-column: 1 / -1; justify-content: flex-start; }
+  .glossary-entry-toolbar { grid-template-columns: minmax(180px, 1fr) 140px 144px; }
+  .glossary-entry-toolbar-actions { grid-column: 1 / -1; justify-content: flex-start; }
 }

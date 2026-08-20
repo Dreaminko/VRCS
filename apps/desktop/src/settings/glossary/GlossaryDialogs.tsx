@@ -1,18 +1,14 @@
-import { FileUp, Plus, Trash2 } from "lucide-react";
 import { useRef, type ChangeEvent, type RefObject } from "react";
 import { useTranslation } from "react-i18next";
 
-import type { GlossaryEntry } from "../../types";
 import { SettingsDialog } from "../components/SettingsDialog";
-import { Select } from "../SettingsControls";
+import { GlossaryEntryTable } from "./GlossaryEntryTable";
 import {
   characterCount,
-  emptyGlossaryEntry,
-  GLOSSARY_CATEGORIES,
-  MAX_GLOSSARY_ENTRIES,
   MAX_GLOSSARY_NAME_LENGTH,
-  MAX_GLOSSARY_TERM_LENGTH,
   MAX_GLOSSARY_URL_LENGTH,
+  glossaryEntryDraft,
+  glossaryEntryValue,
   parsePublicGlossaryFile,
   validateEntries,
   type LocalGlossaryDraft,
@@ -40,6 +36,20 @@ export function LocalGlossaryDialog({
 }) {
   const { t } = useTranslation();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const initialSnapshotRef = useRef(JSON.stringify({
+    name: draft.name,
+    entries: draft.entries.map(glossaryEntryValue),
+  }));
+  const dirty = initialSnapshotRef.current !== JSON.stringify({
+    name: draft.name,
+    entries: draft.entries.map(glossaryEntryValue),
+  });
+  const entryValidationError = validateEntries(draft.entries, t);
+
+  const requestClose = () => {
+    if (dirty && !window.confirm(t("settings.glossary.table.confirmDiscardChanges"))) return;
+    onClose();
+  };
 
   const importJson = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -71,28 +81,21 @@ export function LocalGlossaryDialog({
       onChange({
         ...draft,
         name: importedName || draft.name,
-        entries: parsed.entries,
+        entries: parsed.entries.map(glossaryEntryDraft),
       });
     } catch {
       onError(t("settings.glossary.glossaryValidation.importInvalid"));
     }
   };
 
-  const updateEntry = (index: number, patch: Partial<GlossaryEntry>) => onChange({
-    ...draft,
-    entries: draft.entries.map((entry, entryIndex) => entryIndex === index
-      ? { ...entry, ...patch }
-      : entry),
-  });
-
   return (
     <SettingsDialog
       label={t(draft.id ? "settings.glossary.editGlossary" : "settings.glossary.addGlossary")}
       saving={saving}
       returnFocusRef={returnFocusRef}
-      className="glossary-dialog"
+      className="glossary-dialog glossary-local-dialog"
       autoFocus
-      onClose={onClose}
+      onClose={requestClose}
     >
       <form
         className="api-profile-editor glossary-dialog-form"
@@ -115,130 +118,27 @@ export function LocalGlossaryDialog({
               onChange={(event) => onChange({ ...draft, name: event.target.value })}
             />
           </label>
-          <div className="glossary-dialog-toolbar">
-            <input
-              className="glossary-file-input"
-              ref={fileInputRef}
-              type="file"
-              accept="application/json,.json"
-              disabled={saving}
-              onChange={(event) => void importJson(event)}
-            />
-            <button
-              className="secondary-button"
-              type="button"
-              disabled={saving}
-              onClick={() => fileInputRef.current?.click()}
-            >
-              <FileUp size={14} aria-hidden="true" />
-              {t("settings.glossary.importGlossaryJson")}
-            </button>
-            <button
-              className="secondary-button"
-              type="button"
-              disabled={saving || draft.entries.length >= MAX_GLOSSARY_ENTRIES}
-              onClick={() => onChange({ ...draft, entries: [...draft.entries, emptyGlossaryEntry()] })}
-            >
-              <Plus size={14} aria-hidden="true" />
-              {t("settings.glossary.addGlossaryEntry")}
-            </button>
-            <small>{t("settings.glossary.glossaryEntryLimit", { count: MAX_GLOSSARY_ENTRIES })}</small>
-          </div>
-          <div className="glossary-dialog-entry-list">
-            {draft.entries.length === 0 && (
-              <p className="glossary-dialog-empty">{t("settings.glossary.noGlossaryEntries")}</p>
-            )}
-            {draft.entries.map((entry, index) => (
-              <div className="glossary-dialog-entry" key={index}>
-                <label className="field">
-                  <span>{t("settings.glossary.glossarySource")}</span>
-                  <input
-                    maxLength={MAX_GLOSSARY_TERM_LENGTH}
-                    value={entry.source}
-                    disabled={saving}
-                    onChange={(event) => updateEntry(index, { source: event.target.value })}
-                  />
-                </label>
-                <label className="field">
-                  <span>{t("settings.glossary.glossaryTarget")}</span>
-                  <input
-                    maxLength={MAX_GLOSSARY_TERM_LENGTH}
-                    value={entry.target ?? ""}
-                    disabled={saving || entry.target === null}
-                    placeholder={entry.target === null ? t("settings.glossary.keepOriginal") : undefined}
-                    onChange={(event) => updateEntry(index, { target: event.target.value })}
-                  />
-                </label>
-                <Select
-                  label={t("settings.glossary.glossaryCategory")}
-                  value={entry.category}
-                  disabled={saving}
-                  floating="dialog"
-                  options={GLOSSARY_CATEGORIES.map((category) => ({
-                    value: category,
-                    label: t(`settings.glossary.glossaryCategories.${category}`),
-                  }))}
-                  onChange={(category) => updateEntry(index, {
-                    category: category as GlossaryEntry["category"],
-                  })}
-                />
-                <div className="glossary-dialog-entry-options">
-                  <div className="glossary-dialog-option-toggles">
-                    <div className="glossary-dialog-option-toggle">
-                      <span>{t("settings.glossary.keepOriginal")}</span>
-                      <button
-                        className="settings-switch-button"
-                        type="button"
-                        role="switch"
-                        aria-checked={entry.target === null}
-                        aria-label={t("settings.glossary.keepOriginal")}
-                        disabled={saving}
-                        onClick={() => updateEntry(index, {
-                          target: entry.target === null ? "" : null,
-                        })}
-                      >
-                        <span className="switch-track" aria-hidden="true"><span /></span>
-                      </button>
-                    </div>
-                    <div className="glossary-dialog-option-toggle">
-                      <span>{t("settings.glossary.caseSensitive")}</span>
-                      <button
-                        className="settings-switch-button"
-                        type="button"
-                        role="switch"
-                        aria-checked={entry.case_sensitive}
-                        aria-label={t("settings.glossary.caseSensitive")}
-                        disabled={saving}
-                        onClick={() => updateEntry(index, {
-                          case_sensitive: !entry.case_sensitive,
-                        })}
-                      >
-                        <span className="switch-track" aria-hidden="true"><span /></span>
-                      </button>
-                    </div>
-                  </div>
-                  <button
-                    className="api-profile-header-delete"
-                    type="button"
-                    aria-label={t("common.delete")}
-                    disabled={saving}
-                    onClick={() => onChange({
-                      ...draft,
-                      entries: draft.entries.filter((_, entryIndex) => entryIndex !== index),
-                    })}
-                  >
-                    <Trash2 size={15} aria-hidden="true" />
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
+          <input
+            className="glossary-file-input"
+            ref={fileInputRef}
+            type="file"
+            accept="application/json,.json"
+            disabled={saving}
+            onChange={(event) => void importJson(event)}
+          />
+          <GlossaryEntryTable
+            entries={draft.entries}
+            fileInputRef={fileInputRef}
+            saving={saving}
+            showValidation={Boolean(error && error === entryValidationError)}
+            onChange={(entries) => onChange({ ...draft, entries })}
+          />
           <small className="glossary-dialog-error api-model-catalog-error" aria-live="polite">{error}</small>
         </div>
         <div className="api-profile-editor-actions">
           <div />
           <div className="settings-inline-actions">
-            <button className="secondary-button" type="button" disabled={saving} onClick={onClose}>
+            <button className="secondary-button" type="button" disabled={saving} onClick={requestClose}>
               {t("common.cancel")}
             </button>
             <button className="primary-button" type="submit" disabled={saving}>

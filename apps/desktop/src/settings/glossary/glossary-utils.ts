@@ -8,10 +8,14 @@ export const MAX_GLOSSARY_TERM_LENGTH = 200;
 export const MAX_GLOSSARY_URL_LENGTH = 2048;
 export const GLOSSARY_CATEGORIES = ["person", "world", "game", "custom"] as const;
 
+export interface GlossaryEntryDraft extends GlossaryEntry {
+  rowId: string;
+}
+
 export interface LocalGlossaryDraft {
   id: string | null;
   name: string;
-  entries: GlossaryEntry[];
+  entries: GlossaryEntryDraft[];
 }
 
 export interface SubscriptionGlossaryDraft {
@@ -32,6 +36,22 @@ export function emptyGlossaryEntry(): GlossaryEntry {
     target: "",
     category: "custom",
     case_sensitive: false,
+  };
+}
+
+export function glossaryEntryDraft(entry: GlossaryEntry = emptyGlossaryEntry()): GlossaryEntryDraft {
+  const suffix = typeof crypto.randomUUID === "function"
+    ? crypto.randomUUID()
+    : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+  return { ...entry, rowId: `entry-${suffix}` };
+}
+
+export function glossaryEntryValue(entry: GlossaryEntryDraft): GlossaryEntry {
+  return {
+    source: entry.source,
+    target: entry.target,
+    category: entry.category,
+    case_sensitive: entry.case_sensitive,
   };
 }
 
@@ -89,35 +109,47 @@ export function parsePublicGlossaryFile(value: unknown): PublicGlossaryFile | nu
   };
 }
 
-export function validateEntries(entries: GlossaryEntry[], t: TFunction): string {
-  if (entries.length > MAX_GLOSSARY_ENTRIES) {
-    return t("settings.glossary.glossaryValidation.tooMany", { count: MAX_GLOSSARY_ENTRIES });
-  }
+export interface GlossaryEntryIssue {
+  field: "source" | "target";
+  message: string;
+  row: number;
+}
 
+export function glossaryEntryIssues(entries: readonly GlossaryEntry[], t: TFunction): GlossaryEntryIssue[] {
+  const issues: GlossaryEntryIssue[] = [];
   const sources = new Set<string>();
   for (const [index, entry] of entries.entries()) {
     const row = index + 1;
     const source = entry.source.trim();
-    if (!source) return t("settings.glossary.glossaryValidation.sourceRequired", { row });
-    if (containsControl(entry.source)) {
-      return t("settings.glossary.glossaryValidation.sourceSingleLine", { row });
+    if (!source) {
+      issues.push({ field: "source", message: t("settings.glossary.glossaryValidation.sourceRequired", { row }), row });
+    } else if (containsControl(entry.source)) {
+      issues.push({ field: "source", message: t("settings.glossary.glossaryValidation.sourceSingleLine", { row }), row });
+    } else if (characterCount(source) > MAX_GLOSSARY_TERM_LENGTH) {
+      issues.push({ field: "source", message: t("settings.glossary.glossaryValidation.sourceTooLong", { row }), row });
     }
-    if (characterCount(source) > MAX_GLOSSARY_TERM_LENGTH) {
-      return t("settings.glossary.glossaryValidation.sourceTooLong", { row });
-    }
+
     if (entry.target !== null && containsControl(entry.target)) {
-      return t("settings.glossary.glossaryValidation.targetSingleLine", { row });
+      issues.push({ field: "target", message: t("settings.glossary.glossaryValidation.targetSingleLine", { row }), row });
+    } else if (entry.target !== null && characterCount(entry.target) > MAX_GLOSSARY_TERM_LENGTH) {
+      issues.push({ field: "target", message: t("settings.glossary.glossaryValidation.targetTooLong", { row }), row });
     }
-    if (entry.target !== null && characterCount(entry.target) > MAX_GLOSSARY_TERM_LENGTH) {
-      return t("settings.glossary.glossaryValidation.targetTooLong", { row });
-    }
+
+    if (!source) continue;
     const duplicateKey = `${entry.case_sensitive ? source : source.toLowerCase()}\0${entry.case_sensitive}`;
     if (sources.has(duplicateKey)) {
-      return t("settings.glossary.glossaryValidation.duplicateSource", { row, source });
+      issues.push({ field: "source", message: t("settings.glossary.glossaryValidation.duplicateSource", { row, source }), row });
     }
     sources.add(duplicateKey);
   }
-  return "";
+  return issues;
+}
+
+export function validateEntries(entries: GlossaryEntry[], t: TFunction): string {
+  if (entries.length > MAX_GLOSSARY_ENTRIES) {
+    return t("settings.glossary.glossaryValidation.tooMany", { count: MAX_GLOSSARY_ENTRIES });
+  }
+  return glossaryEntryIssues(entries, t)[0]?.message ?? "";
 }
 
 export function validateLocalDraft(draft: LocalGlossaryDraft, t: TFunction): string {

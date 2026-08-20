@@ -1,5 +1,5 @@
 .glossary-section .section-heading > div > svg { color: var(--primary-ink); }
-.glossary-description { margin: -4px 0 14px; color: var(--text-secondary); font-size: 12px; line-height: 1.6; }
+.glossary-description { margin: -4px 0 14px; color: var(--text-secondary); font-size: var(--settings-text-body); line-height: var(--settings-leading-reading); }
 .glossary-usage-toggles { margin-bottom: 20px; overflow: hidden; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface); }
 .glossary-usage-toggles .settings-toggle-row { padding: 9px 14px; }
 .glossary-usage-toggles .settings-toggle-row + .settings-toggle-row { border-top: 1px solid var(--border); }
@@ -10,8 +10,8 @@
 .glossary-manager { display: grid; min-width: 0; gap: 10px; padding-top: 4px; }
 .glossary-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .glossary-heading > span { display: grid; min-width: 0; gap: 2px; }
-.glossary-heading strong { font-size: 12px; }
-.glossary-heading small { color: var(--text-quiet); font-size: 10px; line-height: 1.5; }
+.glossary-heading strong { font-size: var(--settings-text-body); font-weight: var(--settings-weight-heading); line-height: var(--settings-leading-label); }
+.glossary-heading small { color: var(--text-quiet); font-size: var(--settings-text-micro); line-height: var(--settings-leading-copy); }
 
 .glossary-heading-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
 .glossary-list { display: grid; min-width: 0; gap: 8px; }
@@ -29,7 +29,7 @@
 .glossary-card.enabled { border-color: var(--border-strong); background: var(--surface); }
 .glossary-card-main { display: grid; min-width: 0; align-content: start; gap: 5px; }
 .glossary-card-title { display: flex; min-width: 0; align-items: center; flex-wrap: wrap; gap: 7px; }
-.glossary-card-title strong { min-width: 0; overflow-wrap: anywhere; color: var(--text); font-size: 13px; font-weight: 650; }
+.glossary-card-title strong { min-width: 0; overflow-wrap: anywhere; color: var(--text); font-size: var(--settings-text-label); font-weight: var(--settings-weight-heading); line-height: var(--settings-leading-label); }
 .glossary-type,
 .glossary-status {
   display: inline-flex;
@@ -38,22 +38,25 @@
   align-items: center;
   padding: 3px 7px;
   border-radius: var(--radius-pill);
-  font-size: 9px;
-  font-weight: 700;
-  line-height: 1;
+  font-size: var(--settings-text-micro);
+  font-weight: var(--settings-weight-heading);
+  line-height: var(--settings-leading-label);
   white-space: nowrap;
 }
 .glossary-type.local { color: var(--primary-ink); background: var(--primary-softer); }
 .glossary-type.subscription { color: var(--text-secondary); background: var(--surface-subtle); }
-.glossary-card-detail { overflow-wrap: anywhere; color: var(--text-quiet); font: 10px/1.5 var(--font-mono); }
-.glossary-card-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; color: var(--text-secondary); font-size: 10px; }
+.glossary-card-detail { overflow-wrap: anywhere; color: var(--text-quiet); font-size: var(--settings-text-micro); line-height: var(--settings-leading-copy); }
+.glossary-card-detail.subscription { font-family: var(--font-mono); }
+.glossary-card-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; color: var(--text-secondary); font-size: var(--settings-text-micro); line-height: var(--settings-leading-label); }
 .glossary-status.ready { color: var(--primary-ink); background: var(--primary-softer); }
 .glossary-status.pending { color: var(--text-secondary); background: var(--surface-subtle); }
 .glossary-status.disabled { color: var(--text-quiet); background: var(--surface-subtle); }
 .glossary-status.error { color: var(--error); background: var(--error-soft); }
-.glossary-status-detail { overflow-wrap: anywhere; color: var(--error); font-size: 10px; line-height: 1.5; }
-.glossary-card-controls { display: flex; align-items: flex-start; gap: 8px; }
-.glossary-order-actions { display: flex; gap: 2px; }
+.glossary-status-detail { overflow-wrap: anywhere; color: var(--error); font-size: var(--settings-text-micro); line-height: var(--settings-leading-copy); }
+.glossary-card-controls { display: flex; align-items: center; gap: 8px; }
+.glossary-card-controls .settings-switch-button,
+.glossary-order-actions .api-row-icon-button { width: 40px; height: 40px; }
+.glossary-order-actions { display: flex; align-items: center; gap: 2px; }
 .glossary-card-actions {
   display: flex;
   grid-column: 1 / -1;
@@ -64,7 +67,7 @@
   padding-top: 10px;
   border-top: 1px solid var(--border);
 }
-.glossary-card-actions .secondary-button { min-height: 32px; padding: 6px 9px; font-size: 10px; }
+.glossary-card-actions .secondary-button { min-height: 32px; padding: 6px 9px; font-size: var(--settings-text-micro); }
 .glossary-empty {
   display: grid;
   min-height: 110px;
@@ -77,49 +80,212 @@
   color: var(--text-quiet);
   text-align: center;
 }
-.glossary-empty strong { color: var(--text-secondary); font-size: 12px; }
-.glossary-empty small { max-width: 44ch; font-size: 10px; line-height: 1.5; }
-.glossary-dialog { width: min(760px, 100%); }
+.glossary-empty strong { color: var(--text-secondary); font-size: var(--settings-text-body); font-weight: var(--settings-weight-heading); line-height: var(--settings-leading-label); }
+.glossary-empty small { max-width: 44ch; font-size: var(--settings-text-micro); line-height: var(--settings-leading-copy); }
+.api-profile-dialog.glossary-dialog { width: min(760px, 100%); }
+.api-profile-dialog.glossary-local-dialog { width: min(1120px, 100%); }
 .glossary-dialog-form .api-profile-editor-content { gap: 14px; }
+.glossary-local-dialog .api-profile-editor-content {
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  overflow: hidden;
+}
 .glossary-subscription-dialog-form .api-profile-editor-content { align-content: start; }
-.glossary-dialog-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
-.glossary-dialog-toolbar > small { margin-left: auto; color: var(--text-quiet); font-size: 10px; }
 .glossary-file-input { display: none; }
-.glossary-dialog-entry-list { display: grid; gap: 10px; }
-.glossary-dialog-entry {
+.glossary-entry-workspace {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-  padding: 12px;
+  min-width: 0;
+  min-height: 0;
+  grid-template-rows: auto minmax(0, 1fr) auto;
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
+  overflow: hidden;
+  background: var(--surface);
+}
+.glossary-entry-toolbar {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) 144px 148px auto;
+  align-items: center;
+  gap: 8px;
+  padding: 10px;
+  border-bottom: 1px solid var(--border);
   background: var(--surface-elevated);
 }
-.glossary-dialog-entry input:not([type="checkbox"]) {
+.glossary-entry-search { position: relative; min-width: 0; }
+.glossary-entry-search > svg {
+  position: absolute;
+  z-index: 1;
+  top: 50%;
+  left: 11px;
+  color: var(--text-quiet);
+  pointer-events: none;
+  transform: translateY(-50%);
+}
+.glossary-entry-search input {
   width: 100%;
   min-width: 0;
-  height: 40px;
-  padding: 0 10px;
+  height: 36px;
+  padding: 0 10px 0 32px;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
+  outline: 0;
+  appearance: none;
   color: var(--text);
   background: var(--surface);
+  box-shadow: var(--control-shadow);
+  font: inherit;
+  font-size: var(--settings-text-body);
+  transition: border-color 140ms ease-out, background-color 140ms ease-out, box-shadow 140ms ease-out;
 }
-.glossary-dialog-entry-options { display: flex; min-width: 0; align-self: end; align-items: center; justify-content: flex-end; gap: 8px 12px; }
-.glossary-dialog-option-toggles { display: flex; min-width: 0; flex: 1; flex-wrap: wrap; gap: 8px; }
-.glossary-dialog-option-toggle {
+.glossary-entry-search input::-webkit-search-cancel-button { appearance: none; }
+.glossary-entry-search input::placeholder { color: var(--text-quiet); }
+.glossary-entry-search input:focus { border-color: var(--primary); background: var(--surface); box-shadow: var(--control-focus-shadow); }
+.glossary-entry-search input:disabled { color: var(--text-quiet); background: var(--surface-subtle); box-shadow: none; cursor: not-allowed; }
+.glossary-entry-toolbar .dropdown-trigger { height: 36px; font-size: var(--settings-text-caption); }
+.glossary-entry-toolbar-actions { display: flex; justify-content: flex-end; gap: 7px; }
+.glossary-entry-toolbar-actions .secondary-button,
+.glossary-entry-statusbar .secondary-button { display: inline-flex; min-height: 36px; align-items: center; gap: 6px; padding-inline: 10px; font-size: var(--settings-text-micro); white-space: nowrap; }
+.glossary-entry-table-scroll {
+  min-width: 0;
+  min-height: 180px;
+  overflow: auto;
+  overscroll-behavior: contain;
+  background: var(--surface);
+  scrollbar-gutter: stable;
+}
+.glossary-entry-table {
+  width: 100%;
+  min-width: 920px;
+  border-collapse: separate;
+  border-spacing: 0;
+  table-layout: fixed;
+  color: var(--text);
+  font-size: var(--settings-text-caption);
+}
+.glossary-entry-table th,
+.glossary-entry-table td { min-width: 0; border-bottom: 1px solid var(--border); }
+.glossary-entry-table thead th {
+  position: sticky;
+  z-index: 2;
+  top: 0;
+  height: 36px;
+  padding: 0 6px;
+  color: var(--text-secondary);
+  background: var(--canvas);
+  font-size: var(--settings-text-micro);
+  font-weight: var(--settings-weight-heading);
+  line-height: var(--settings-leading-label);
+  text-align: left;
+  white-space: nowrap;
+}
+.glossary-entry-table thead th > button {
   display: flex;
-  min-height: 36px;
+  width: 100%;
+  height: 36px;
   align-items: center;
-  gap: 10px;
-  padding: 6px 9px;
-  border: 1px solid var(--border);
+  justify-content: space-between;
+  gap: 4px;
+  padding: 0;
+  border: 0;
   border-radius: var(--radius-sm);
   color: var(--text-secondary);
-  background: var(--surface);
-  font-size: 11px;
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  font-weight: inherit;
+  text-align: left;
+  transition: color 120ms ease-out, background-color 120ms ease-out, transform 120ms ease-out;
 }
-.glossary-dialog-option-toggle > span:first-child { white-space: nowrap; }
-.glossary-dialog-entry-options .api-profile-header-delete { flex: 0 0 40px; }
-.glossary-dialog-empty { margin: 0; padding: 18px; color: var(--text-quiet); font-size: 11px; text-align: center; }
-.glossary-dialog-error { display: block; min-height: 16px; color: var(--error); font-size: 11px; line-height: 1.45; }
+.glossary-entry-table thead th > button:focus-visible { outline: 0; color: var(--primary-ink); box-shadow: var(--control-focus-shadow); }
+.glossary-entry-table thead th > button:active { transform: scale(0.98); }
+.glossary-entry-table tbody tr { background: var(--surface); }
+.glossary-entry-table tbody tr.selected { background: var(--primary-softer); }
+.glossary-entry-table tbody tr:last-child > * { border-bottom: 0; }
+.glossary-entry-table tbody td { height: 46px; padding: 4px 6px; }
+.glossary-entry-table tbody input:not([type="checkbox"]) {
+  width: 100%;
+  min-width: 0;
+  height: 36px;
+  padding: 0 9px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  outline: 0;
+  color: var(--text);
+  background: transparent;
+  font: 11px/1.4 var(--font-mono);
+  transition: border-color 120ms ease-out, background-color 120ms ease-out, box-shadow 120ms ease-out;
+}
+.glossary-entry-table tbody input:not([type="checkbox"]):focus { border-color: var(--primary); background: var(--surface); box-shadow: var(--control-focus-shadow); }
+.glossary-entry-table tbody input:not([type="checkbox"]):disabled { color: var(--text-quiet); background: var(--surface-subtle); cursor: not-allowed; }
+.glossary-entry-table tbody td.invalid input { border-color: var(--error); background: var(--error-soft); }
+.glossary-entry-table tbody .dropdown-trigger { height: 36px; border-color: transparent; background: transparent; box-shadow: none; font-size: var(--settings-text-caption); }
+.glossary-entry-table tbody .dropdown-trigger:focus-visible { border-color: var(--primary); background: var(--surface); box-shadow: var(--control-focus-shadow); }
+.glossary-entry-select-cell { width: 46px; padding: 0 !important; text-align: center !important; }
+.glossary-entry-position-cell { width: 48px; color: var(--text-quiet); font: 10px var(--font-mono); font-variant-numeric: tabular-nums; text-align: right !important; }
+.glossary-entry-position-cell > button { justify-content: flex-end !important; }
+.glossary-entry-category-cell { width: 138px; }
+.glossary-entry-toggle-cell { width: 98px; text-align: center !important; }
+.glossary-entry-action-cell { width: 48px; text-align: center !important; }
+.glossary-entry-toggle-cell .settings-switch-button,
+.glossary-entry-action-cell .api-row-icon-button { margin-inline: auto; }
+.glossary-entry-checkbox-wrap { display: grid; width: 40px; height: 40px; margin: auto; place-items: center; cursor: pointer; }
+.glossary-entry-checkbox-wrap:has(input:disabled) { cursor: not-allowed; }
+.glossary-entry-checkbox {
+  display: grid;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  appearance: none;
+  place-content: center;
+  border: 1px solid var(--border-strong);
+  border-radius: 5px;
+  color: var(--on-primary);
+  background: var(--surface);
+  box-shadow: var(--control-shadow);
+  cursor: inherit;
+  transition: border-color 120ms ease-out, background-color 120ms ease-out, box-shadow 120ms ease-out, transform 120ms ease-out;
+}
+.glossary-entry-checkbox::after {
+  width: 7px;
+  height: 4px;
+  border-bottom: 2px solid currentColor;
+  border-left: 2px solid currentColor;
+  content: "";
+  transform: rotate(-45deg) scale(0);
+  transition: transform 100ms ease-out;
+}
+.glossary-entry-checkbox:checked,
+.glossary-entry-checkbox:indeterminate { border-color: var(--primary); background: var(--primary); }
+.glossary-entry-checkbox:checked::after { transform: rotate(-45deg) scale(1); }
+.glossary-entry-checkbox:indeterminate::after { width: 7px; height: 0; border: 0; border-bottom: 2px solid currentColor; transform: none; }
+.glossary-entry-checkbox:active:not(:disabled) { transform: scale(0.9); }
+.glossary-entry-checkbox:focus-visible { outline: 0; box-shadow: var(--control-focus-shadow); }
+.glossary-entry-checkbox:disabled { color: var(--text-quiet); background: var(--surface-subtle); box-shadow: none; opacity: 0.68; }
+.glossary-entry-statusbar {
+  display: flex;
+  min-height: 48px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 10px;
+  border-top: 1px solid var(--border);
+  color: var(--text-secondary);
+  background: var(--surface-elevated);
+  font-size: var(--settings-text-micro);
+  font-variant-numeric: tabular-nums;
+}
+.glossary-entry-statusbar > small { color: var(--text-quiet); font-size: var(--settings-text-micro); }
+.glossary-entry-bulk-actions { display: flex; min-width: 0; align-items: center; justify-content: flex-end; gap: 7px; }
+.glossary-entry-bulk-actions > strong { color: var(--primary-ink); font-size: var(--settings-text-micro); font-weight: var(--settings-weight-heading); white-space: nowrap; }
+.glossary-entry-bulk-actions .dropdown-field { width: 210px; }
+.glossary-entry-bulk-actions .dropdown-trigger { height: 34px; font-size: var(--settings-text-micro); }
+.glossary-dialog-empty { margin: 0; padding: 24px 18px; color: var(--text-quiet); font-size: var(--settings-text-caption); line-height: var(--settings-leading-copy); text-align: center; }
+.glossary-dialog-error { display: block; min-height: 16px; color: var(--error); font-size: var(--settings-text-caption); line-height: var(--settings-leading-copy); }
+
+@media (hover: hover) {
+  .glossary-entry-search input:hover:not(:disabled) { border-color: var(--border-strong); background: var(--surface-elevated); }
+  .glossary-entry-table thead th > button:hover { color: var(--text); background: var(--surface-subtle); }
+  .glossary-entry-table tbody tr:hover { background: var(--surface-elevated); }
+  .glossary-entry-table tbody tr.selected:hover { background: var(--primary-soft); }
+  .glossary-entry-table tbody input:not([type="checkbox"]):hover:not(:disabled),
+  .glossary-entry-table tbody .dropdown-trigger:hover:not(:disabled) { border-color: var(--border); background: var(--surface); }
+}

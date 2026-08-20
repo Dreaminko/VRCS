@@ -12,13 +12,13 @@
 }
 .dictionary-source-icon { display: grid; width: 34px; height: 34px; place-items: center; border-radius: 10px; color: var(--primary-ink); background: var(--primary-softer); }
 .dictionary-source-row > div:nth-child(2) { display: grid; min-width: 0; gap: 3px; }
-.dictionary-source-row strong { overflow: hidden; font-size: 13px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
-.dictionary-source-row span { color: var(--text-quiet); font-size: 11px; }
+.dictionary-source-row strong { overflow: hidden; font-size: var(--settings-text-label); font-weight: var(--settings-weight-heading); line-height: var(--settings-leading-label); text-overflow: ellipsis; white-space: nowrap; }
+.dictionary-source-row span { color: var(--text-quiet); font-size: var(--settings-text-caption); line-height: var(--settings-leading-copy); }
 .dictionary-source-row > button { display: grid; width: 34px; height: 34px; place-items: center; padding: 0; border: 0; border-radius: 10px; color: var(--text-quiet); background: transparent; cursor: pointer; }
 .dictionary-source-row > button:hover { color: var(--error); background: var(--error-soft); }
 .dictionary-source-row > button:disabled { opacity: 0.45; cursor: wait; }
-.dictionary-empty { margin: 0; padding: 16px; border: 1px dashed var(--border); border-radius: 12px; color: var(--text-quiet); font-size: 12px; line-height: 1.6; text-align: center; }
-.dictionary-feedback { margin: 12px 2px 0; color: var(--text-secondary); font-size: 11px; }
+.dictionary-empty { margin: 0; padding: 16px; border: 1px dashed var(--border); border-radius: 12px; color: var(--text-quiet); font-size: var(--settings-text-body); line-height: var(--settings-leading-reading); text-align: center; }
+.dictionary-feedback { margin: 12px 2px 0; color: var(--text-secondary); font-size: var(--settings-text-caption); line-height: var(--settings-leading-copy); }
 .dictionary-import-progress { margin: 7px 2px 0; }
 .diagnostic-card {
   display: grid;
@@ -32,10 +32,10 @@
   background: var(--surface-elevated);
 }
 .diagnostic-card-copy { display: grid; min-width: 0; gap: 4px; }
-.diagnostic-card-copy > strong { color: var(--text); font-size: 13px; font-weight: 650; }
+.diagnostic-card-copy > strong { color: var(--text); font-size: var(--settings-text-label); font-weight: var(--settings-weight-heading); line-height: var(--settings-leading-label); }
 .diagnostic-card-copy > span,
 .diagnostic-card-copy > small,
-.diagnostic-feedback { color: var(--text-quiet); font-size: 11px; line-height: 1.5; }
+.diagnostic-feedback { color: var(--text-quiet); font-size: var(--settings-text-caption); line-height: var(--settings-leading-copy); }
 .diagnostic-card-copy > code {
   overflow: hidden;
   color: var(--text-secondary);
@@ -60,7 +60,7 @@
   min-height: 48px;
   padding: 12px 15px;
 }
-.debug-row > span { color: var(--text-quiet); font-size: 12px; }
+.debug-row > span { color: var(--text-quiet); font-size: var(--settings-text-body); line-height: var(--settings-leading-copy); }
 .debug-row > strong {
   overflow-wrap: anywhere;
   color: var(--text);

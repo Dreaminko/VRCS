@@ -16,3 +16,20 @@
 @import "./settings/storage.css";
 @import "./settings/updates.css";
 @import "./settings/dictionary-debug.css";
+
+:root {
+  --settings-text-page-title: 18px;
+  --settings-text-dialog-title: 16px;
+  --settings-text-section-title: 15px;
+  --settings-text-group-title: 14px;
+  --settings-text-label: 13px;
+  --settings-text-body: 12px;
+  --settings-text-caption: 11px;
+  --settings-text-micro: 10px;
+  --settings-weight-heading: 650;
+  --settings-weight-label: 600;
+  --settings-leading-tight: 1.3;
+  --settings-leading-label: 1.4;
+  --settings-leading-copy: 1.5;
+  --settings-leading-reading: 1.6;
+}

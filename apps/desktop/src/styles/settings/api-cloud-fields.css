@@ -9,10 +9,10 @@
 }
 .cloud-text-field textarea { min-height: 72px; resize: vertical; font: inherit; }
 .cloud-context-field { grid-column: 1 / -1; }
-.cloud-api-hint { grid-column: 1 / -1; margin: 0; overflow-wrap: anywhere; color: var(--text-quiet); font-size: 11px; line-height: 1.5; }
+.cloud-api-hint { grid-column: 1 / -1; margin: 0; overflow-wrap: anywhere; color: var(--text-quiet); font-size: var(--settings-text-caption); line-height: var(--settings-leading-copy); }
 .cloud-transport-hint { grid-column: 1 / -1; display: grid; gap: 3px; padding: 10px 12px; border: 1px solid var(--border-subtle); border-radius: 10px; background: var(--surface-soft); }
-.cloud-transport-hint strong { color: var(--text); font-size: 12px; }
-.cloud-transport-hint small { color: var(--text-quiet); line-height: 1.45; }
+.cloud-transport-hint strong { color: var(--text); font-size: var(--settings-text-body); font-weight: var(--settings-weight-heading); line-height: var(--settings-leading-label); }
+.cloud-transport-hint small { color: var(--text-quiet); font-size: var(--settings-text-caption); line-height: var(--settings-leading-copy); }
 .cloud-text-field input:focus,
 .cloud-text-field textarea:focus { outline: 2px solid var(--primary-softer); border-color: var(--primary); }
 .settings-inline-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }

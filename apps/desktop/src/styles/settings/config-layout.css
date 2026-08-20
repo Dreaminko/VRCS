@@ -16,8 +16,8 @@
 }
 .recognition-runtime.available .recognition-runtime-dot { background: var(--primary); }
 .recognition-runtime > div { display: grid; min-width: 0; gap: 2px; }
-.recognition-runtime strong { color: var(--text); font-size: 12px; font-weight: 650; }
-.recognition-runtime span { color: var(--text-secondary); font-size: 11px; line-height: 1.5; }
+.recognition-runtime strong { color: var(--text); font-size: var(--settings-text-body); font-weight: var(--settings-weight-heading); line-height: var(--settings-leading-label); }
+.recognition-runtime span { color: var(--text-secondary); font-size: var(--settings-text-caption); line-height: var(--settings-leading-copy); }
 .recognition-config,
 .translation-config {
   display: grid;
@@ -47,7 +47,7 @@
 .recognition-config-title span,
 .translation-config-title span { display: grid; min-width: 0; gap: 3px; }
 .recognition-config-title strong,
-.translation-config-title strong { color: var(--text); font-size: 13px; font-weight: 650; }
+.translation-config-title strong { color: var(--text); font-size: var(--settings-text-label); font-weight: var(--settings-weight-heading); line-height: var(--settings-leading-label); }
 
 .recognition-config-fields,
 .translation-config-fields {
