@@ -277,6 +277,7 @@ export const coreApi = {
   start: () =>
     request<{ running: boolean; device: AudioDevice | null; microphone_device: AudioDevice | null }>("/api/capture/start", {
       method: "POST",
+      body: JSON.stringify({}),
     }),
   stop: () => request<{ running: boolean }>("/api/capture/stop", { method: "POST" }),
   startMicrophoneTest: () => request<{ running: boolean; device: AudioDevice }>(
