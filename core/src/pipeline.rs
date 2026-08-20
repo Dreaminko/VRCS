@@ -172,6 +172,7 @@ impl TranscriptionPipeline {
         *self.last_error.lock().expect("pipeline error lock") = None;
         self.discard_on_stop.store(false, Ordering::SeqCst);
 
+        let startup_started = Instant::now();
         let source_kind = self.source;
         let process_name = process_name.map(str::to_owned);
         let (mut capture, device) = tokio::task::spawn_blocking(move || {
@@ -186,6 +187,8 @@ impl TranscriptionPipeline {
                 format!("Audio startup task exited unexpectedly: {error}"),
             )
         })??;
+        let audio_ms = startup_started.elapsed().as_millis();
+        let cloud_started = Instant::now();
         let cloud = if asr_config.backend == "local_whisper" {
             None
         } else {
@@ -208,8 +211,11 @@ impl TranscriptionPipeline {
                 }
             }
         };
+        let cloud_ms = cloud_started.elapsed().as_millis();
+        let vad_started = Instant::now();
         let detector =
             VoiceDetector::load_with_runtime(&self.vad_model_path, self.vad_runtime.clone());
+        let vad_ms = vad_started.elapsed().as_millis();
         let segmenter = SpeechSegmenter::new(
             sample_rate,
             vad_config.silence_seconds,
@@ -245,6 +251,14 @@ impl TranscriptionPipeline {
             }
         }));
         self.device = Some(device.clone());
+        tracing::info!(
+            source = self.source_name,
+            audio_ms,
+            cloud_ms,
+            vad_ms,
+            total_ms = startup_started.elapsed().as_millis(),
+            "transcription pipeline ready"
+        );
         Ok(device)
     }
 

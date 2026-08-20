@@ -339,6 +339,39 @@ async fn start_microphone_pipeline(
         })
 }
 
+async fn start_planned_pipelines(
+    state: &Arc<AppState>,
+    config: &AppConfig,
+    plan: CaptureReloadPlan,
+) -> ApiResult<(
+    Option<crate::models::AudioDevice>,
+    Option<crate::models::AudioDevice>,
+)> {
+    let result = tokio::try_join!(
+        async {
+            if plan.speaker {
+                start_speaker_pipeline(state, config).await
+            } else {
+                Ok(None)
+            }
+        },
+        async {
+            if plan.microphone {
+                start_microphone_pipeline(state, config).await
+            } else {
+                Ok(None)
+            }
+        }
+    );
+    match result {
+        Ok(devices) => Ok(devices),
+        Err(error) => {
+            stop_pipelines(state, plan).await;
+            Err(error)
+        }
+    }
+}
+
 pub(crate) async fn stop_pipelines(state: &Arc<AppState>, plan: CaptureReloadPlan) {
     match (plan.speaker, plan.microphone) {
         (true, true) => {
@@ -360,18 +393,9 @@ pub(crate) async fn start_pipelines(
     if !state.capture_requested.load(Ordering::SeqCst) {
         return Ok(());
     }
-    if plan.speaker {
-        start_speaker_pipeline(state, config).await?;
-    }
-    if plan.microphone {
-        if let Err(error) = start_microphone_pipeline(state, config).await {
-            if plan.speaker {
-                state.speaker_pipeline.lock().await.stop().await;
-            }
-            return Err(error);
-        }
-    }
-    Ok(())
+    start_planned_pipelines(state, config, plan)
+        .await
+        .map(|_| ())
 }
 
 pub(crate) async fn reload_glossary_asr_context(state: &Arc<AppState>) -> ApiResult<()> {
@@ -403,14 +427,8 @@ pub(super) async fn capture_start(State(state): State<Arc<AppState>>) -> ApiResu
     }
     state.microphone_monitor.lock().await.stop().await;
 
-    let device = start_speaker_pipeline(&state, &config).await?;
-    let microphone = match start_microphone_pipeline(&state, &config).await {
-        Ok(device) => device,
-        Err(error) => {
-            state.speaker_pipeline.lock().await.stop().await;
-            return Err(error);
-        }
-    };
+    let (device, microphone) =
+        start_planned_pipelines(&state, &config, CaptureReloadPlan::all()).await?;
     state.capture_requested.store(true, Ordering::SeqCst);
     Ok(Json(json!({
         "running": true,
