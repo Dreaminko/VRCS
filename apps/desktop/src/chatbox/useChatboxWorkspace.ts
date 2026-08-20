@@ -43,7 +43,8 @@ export function useChatboxWorkspace(settings: Settings | null) {
   useEffect(() => {
     if (!settings || preferencesLoaded.current) return;
     preferencesLoaded.current = true;
-    void loadChatboxPreferences(settings.translation.target_language).then((preferences) => {
+    const fallbackTarget = settings.translation.microphone_targets[0]?.target_language ?? "ja";
+    void loadChatboxPreferences(fallbackTarget).then((preferences) => {
       if (preferencesChanged.current) return;
       setDraft((current) => applyChatboxPreferences(current, preferences));
     });

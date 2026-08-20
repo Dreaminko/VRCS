@@ -30,6 +30,7 @@ impl AppConfig {
         validate_api_profiles(&self.asr)?;
         validate_glossary(&self.glossary)?;
         validate_translation(&self.translation, &self.asr.api_profiles)?;
+        validate_language_presets(&self.language_presets, &self.asr.api_profiles)?;
         validate_osc(&self.osc)?;
         validate_recognition_models(&self.asr, &self.vad)?;
         validate_anki(&self.anki)?;
@@ -145,6 +146,12 @@ fn validate_recognition_options(asr: &AsrConfig) -> Result<(), String> {
 fn validate_osc(osc: &OscConfig) -> Result<(), String> {
     if osc.port == 0 {
         return Err("OSC port must be between 1 and 65535".into());
+    }
+    if !["preferred_only", "round_robin"].contains(&osc.translation_strategy.as_str()) {
+        return Err(format!(
+            "Unsupported OSC translation strategy: {}",
+            osc.translation_strategy
+        ));
     }
     Ok(())
 }
@@ -397,53 +404,123 @@ fn validate_translation(
             translation.mode
         ));
     }
-    if !providers::is_valid_translation_language(&translation.target_language) {
+    validate_translation_targets(
+        "speaker",
+        &translation.speaker_targets,
+        profiles,
+        translation.mode != "disabled",
+    )?;
+    validate_translation_targets(
+        "microphone",
+        &translation.microphone_targets,
+        profiles,
+        translation.mode != "disabled",
+    )
+}
+
+fn validate_translation_targets(
+    source: &str,
+    targets: &[TranslationTargetConfig],
+    profiles: &[ApiProfile],
+    require_profile: bool,
+) -> Result<(), String> {
+    if !(1..=3).contains(&targets.len()) {
         return Err(format!(
-            "Invalid translation target language: {}",
-            translation.target_language
+            "Translation {source} targets must contain between 1 and 3 entries"
         ));
     }
-    if !providers::is_valid_translation_language(&translation.microphone_target_language) {
-        return Err(format!(
-            "Invalid microphone translation target language: {}",
-            translation.microphone_target_language
-        ));
+    let mut languages = HashSet::new();
+    for target in targets {
+        if !providers::is_valid_translation_language(&target.target_language) {
+            return Err(format!(
+                "Invalid {source} translation target language: {}",
+                target.target_language
+            ));
+        }
+        if !languages.insert(target.target_language.to_ascii_lowercase()) {
+            return Err(format!(
+                "Translation {source} target languages must be unique"
+            ));
+        }
+        let Some(profile_id) = target.profile_id.as_deref() else {
+            if require_profile {
+                return Err(format!(
+                    "A translation API profile must be selected for {}",
+                    target.target_language
+                ));
+            }
+            continue;
+        };
+        let profile = profiles
+            .iter()
+            .find(|profile| profile.id == profile_id)
+            .ok_or_else(|| "The selected translation API profile does not exist".to_string())?;
+        if !providers::supports_translation(profile) {
+            return Err("The selected API profile does not support translation".into());
+        }
+        if !providers::supports_translation_language(profile, &target.target_language) {
+            return Err(format!(
+                "The selected API profile does not support target language: {}",
+                target.target_language
+            ));
+        }
+        if providers::supports_llm_models(profile) && target.model.trim().is_empty() {
+            return Err("The LLM translation model cannot be empty".into());
+        }
     }
-    if translation.mode == "disabled" {
-        return Ok(());
+    Ok(())
+}
+
+fn validate_language_presets(
+    presets: &[LanguagePreset],
+    profiles: &[ApiProfile],
+) -> Result<(), String> {
+    if presets.len() > 5 {
+        return Err("Language presets cannot exceed 5 entries".into());
     }
-    let profile_id = translation
-        .profile_id
-        .as_deref()
-        .ok_or_else(|| "A translation API profile must be selected".to_string())?;
-    let profile = profiles
-        .iter()
-        .find(|profile| profile.id == profile_id)
-        .ok_or_else(|| "The selected translation API profile does not exist".to_string())?;
-    if !providers::supports_translation(profile) {
-        return Err("The selected API profile does not support translation".into());
-    }
-    if translation.mode != "disabled"
-        && !providers::supports_translation_language(profile, &translation.target_language)
-    {
-        return Err(format!(
-            "The selected API profile does not support target language: {}",
-            translation.target_language
-        ));
-    }
-    if translation.mode == "automatic"
-        && !providers::supports_translation_language(
-            profile,
-            &translation.microphone_target_language,
-        )
-    {
-        return Err(format!(
-            "The selected API profile does not support microphone target language: {}",
-            translation.microphone_target_language
-        ));
-    }
-    if providers::supports_llm_models(profile) && translation.model.trim().is_empty() {
-        return Err("The LLM translation model cannot be empty".into());
+    let mut ids = HashSet::new();
+    let mut names = HashSet::new();
+    for preset in presets {
+        if uuid::Uuid::parse_str(&preset.id).is_err() || !ids.insert(preset.id.as_str()) {
+            return Err("Language preset IDs must be unique UUIDs".into());
+        }
+        let name = preset.name.trim();
+        if name.is_empty() || name.chars().count() > 40 || !names.insert(name.to_ascii_lowercase())
+        {
+            return Err(
+                "Language preset names must be unique and contain 1 to 40 characters".into(),
+            );
+        }
+        if !ASR_LANGUAGES.contains(&preset.recognition_language.as_str()) {
+            return Err(format!(
+                "Unsupported preset recognition language: {}",
+                preset.recognition_language
+            ));
+        }
+        if !["disabled", "manual", "automatic"].contains(&preset.translation_mode.as_str()) {
+            return Err(format!(
+                "Unsupported preset translation mode: {}",
+                preset.translation_mode
+            ));
+        }
+        validate_translation_targets(
+            "preset speaker",
+            &preset.speaker_targets,
+            profiles,
+            preset.translation_mode != "disabled",
+        )?;
+        validate_translation_targets(
+            "preset microphone",
+            &preset.microphone_targets,
+            profiles,
+            preset.translation_mode != "disabled",
+        )?;
+        if !["preferred_only", "round_robin"].contains(&preset.osc_translation_strategy.as_str()) {
+            return Err(format!(
+                "Unsupported preset OSC translation strategy: {}",
+                preset.osc_translation_strategy
+            ));
+        }
     }
     Ok(())
 }

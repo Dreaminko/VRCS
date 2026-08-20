@@ -11,6 +11,7 @@ mod domain_events;
 mod error;
 mod external_api;
 mod glossary;
+mod language_session;
 mod learning;
 mod llm;
 mod microphone_monitor;
@@ -379,6 +380,9 @@ async fn start_inner(options: CoreOptions, defer_managed_vad: bool) -> Result<Co
         config_path: options.config_path,
         asr_model_dir_override,
         config: Arc::new(RwLock::new(config)),
+        language_session: Arc::new(RwLock::new(
+            crate::language_session::ActiveLanguageSession::Global,
+        )),
         vr_overlay_config_tx,
         db,
         live_tx,

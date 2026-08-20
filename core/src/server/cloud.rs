@@ -190,7 +190,7 @@ fn profile_value(profile: &ApiProfile, config: &crate::config::AppConfig) -> Res
     let active = config.asr.backend != "local_whisper"
         && config.asr.active_profile_id.as_deref() == Some(profile.id.as_str())
         && providers::resolve_profile_service(profile, &config.asr.backend).is_ok();
-    let translation_active = config.translation.profile_id.as_deref() == Some(profile.id.as_str());
+    let translation_active = uses_global_translation_profile(config, &profile.id);
     let services = provider
         .services
         .iter()
@@ -355,8 +355,8 @@ pub(super) async fn profile_delete(
     if candidate.asr.active_profile_id.as_deref() == Some(profile_id.as_str()) {
         disable_cloud_recognition(&mut candidate);
     }
-    if candidate.translation.profile_id.as_deref() == Some(profile_id.as_str()) {
-        disable_translation(&mut candidate);
+    if uses_translation_profile(&candidate, &profile_id) {
+        disable_translation_profile(&mut candidate, &profile_id);
     }
     let previous_credential = asr::read_stored_credential(&profile.id, &profile.provider)
         .map_err(|error| credential_error(&profile_id, error))?;
@@ -805,10 +805,8 @@ fn apply_profile_compatibility_fallbacks(
     {
         disable_cloud_recognition(config);
     }
-    if config.translation.profile_id.as_deref() == Some(profile.id.as_str())
-        && !providers::supports_translation(profile)
-    {
-        disable_translation(config);
+    if uses_translation_profile(config, &profile.id) && !providers::supports_translation(profile) {
+        disable_translation_profile(config, &profile.id);
     }
 }
 
@@ -817,9 +815,65 @@ fn disable_cloud_recognition(config: &mut crate::config::AppConfig) {
     config.asr.active_profile_id = None;
 }
 
-fn disable_translation(config: &mut crate::config::AppConfig) {
-    config.translation.profile_id = None;
-    config.translation.mode = "disabled".into();
+fn disable_translation_profile(config: &mut crate::config::AppConfig, profile_id: &str) {
+    let global_uses_profile = config
+        .translation
+        .speaker_targets
+        .iter()
+        .chain(&config.translation.microphone_targets)
+        .any(|target| target.profile_id.as_deref() == Some(profile_id));
+    if global_uses_profile {
+        config.translation.mode = "disabled".into();
+    }
+    for target in config
+        .translation
+        .speaker_targets
+        .iter_mut()
+        .chain(&mut config.translation.microphone_targets)
+    {
+        if target.profile_id.as_deref() == Some(profile_id) {
+            target.profile_id = None;
+        }
+    }
+    for preset in &mut config.language_presets {
+        let uses_profile = preset
+            .speaker_targets
+            .iter()
+            .chain(&preset.microphone_targets)
+            .any(|target| target.profile_id.as_deref() == Some(profile_id));
+        if uses_profile {
+            preset.translation_mode = "disabled".into();
+        }
+        for target in preset
+            .speaker_targets
+            .iter_mut()
+            .chain(&mut preset.microphone_targets)
+        {
+            if target.profile_id.as_deref() == Some(profile_id) {
+                target.profile_id = None;
+            }
+        }
+    }
+}
+
+fn uses_translation_profile(config: &crate::config::AppConfig, profile_id: &str) -> bool {
+    uses_global_translation_profile(config, profile_id)
+        || config.language_presets.iter().any(|preset| {
+            preset
+                .speaker_targets
+                .iter()
+                .chain(&preset.microphone_targets)
+                .any(|target| target.profile_id.as_deref() == Some(profile_id))
+        })
+}
+
+fn uses_global_translation_profile(config: &crate::config::AppConfig, profile_id: &str) -> bool {
+    config
+        .translation
+        .speaker_targets
+        .iter()
+        .chain(&config.translation.microphone_targets)
+        .any(|target| target.profile_id.as_deref() == Some(profile_id))
 }
 
 #[cfg(test)]
@@ -879,7 +933,8 @@ mod tests {
         config.asr.backend = SERVICE_GROQ_TRANSCRIPTION.into();
         config.asr.active_profile_id = Some("groq".into());
         config.translation.mode = "automatic".into();
-        config.translation.profile_id = Some("groq".into());
+        config.translation.speaker_targets[0].profile_id = Some("groq".into());
+        config.translation.microphone_targets[0].profile_id = Some("groq".into());
         let profile = ApiProfile {
             id: "groq".into(),
             name: "Groq".into(),
@@ -893,7 +948,8 @@ mod tests {
         assert_eq!(config.asr.backend, "local_whisper");
         assert_eq!(config.asr.active_profile_id, None);
         assert_eq!(config.translation.mode, "disabled");
-        assert_eq!(config.translation.profile_id, None);
+        assert_eq!(config.translation.speaker_targets[0].profile_id, None);
+        assert_eq!(config.translation.microphone_targets[0].profile_id, None);
     }
 
     #[test]

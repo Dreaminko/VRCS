@@ -1,4 +1,4 @@
-use std::collections::VecDeque;
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::net::Ipv4Addr;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -61,15 +61,18 @@ enum OscEvent {
         message_id: String,
         subtitle: Subtitle,
         wait_for_translation: bool,
+        target_languages: Vec<String>,
     },
     TranslationCompleted {
         generation: u64,
         subtitle_id: i64,
         translation: SubtitleTranslation,
+        preferred: bool,
     },
     TranslationFailed {
         generation: u64,
         subtitle_id: i64,
+        target_language: String,
     },
     Test {
         generation: u64,
@@ -129,7 +132,12 @@ struct PendingMessage {
     message_id: String,
     subtitle_id: Option<i64>,
     original: String,
-    translation: Option<String>,
+    preferred_target: Option<String>,
+    desired_target: Option<String>,
+    translations: HashMap<String, String>,
+    completed_targets: Vec<String>,
+    expected_targets: Vec<String>,
+    failed_targets: HashSet<String>,
     rendered_text: Option<String>,
     ready_at: Instant,
     responder: Option<oneshot::Sender<Result<String, ManualSendError>>>,
@@ -139,6 +147,7 @@ struct SentMessage {
     message_id: String,
     subtitle_id: i64,
     original: String,
+    desired_target: Option<String>,
     translation: Option<String>,
     sent_at: Instant,
 }
@@ -181,17 +190,19 @@ impl OscChatboxDispatcher {
 
     #[cfg(test)]
     pub fn publish_subtitle(&self, subtitle: Subtitle, wait_for_translation: bool) {
-        self.publish_subtitle_with_message_id(
+        self.publish_subtitle_with_targets(
             subtitle,
             wait_for_translation,
+            Vec::new(),
             format!("utterance-{}", uuid::Uuid::new_v4()),
         );
     }
 
-    pub fn publish_subtitle_with_message_id(
+    pub fn publish_subtitle_with_targets(
         &self,
         subtitle: Subtitle,
         wait_for_translation: bool,
+        target_languages: Vec<String>,
         message_id: String,
     ) {
         let Ok(generation) = self.active_generation() else {
@@ -205,24 +216,32 @@ impl OscChatboxDispatcher {
             message_id,
             subtitle,
             wait_for_translation,
+            target_languages,
         });
     }
 
-    pub fn translation_completed(&self, subtitle_id: i64, translation: SubtitleTranslation) {
+    pub fn translation_completed(
+        &self,
+        subtitle_id: i64,
+        translation: SubtitleTranslation,
+        preferred: bool,
+    ) {
         if let Ok(generation) = self.active_generation() {
             self.try_send(OscEvent::TranslationCompleted {
                 generation,
                 subtitle_id,
                 translation,
+                preferred,
             });
         }
     }
 
-    pub fn translation_failed(&self, subtitle_id: i64) {
+    pub fn translation_failed(&self, subtitle_id: i64, target_language: &str, _preferred: bool) {
         if let Ok(generation) = self.active_generation() {
             self.try_send(OscEvent::TranslationFailed {
                 generation,
                 subtitle_id,
+                target_language: target_language.into(),
             });
         }
     }
@@ -346,6 +365,7 @@ async fn run_worker(
     let mut latest_subtitle_id = None;
     let mut current_sent = None::<SentMessage>;
     let mut last_send = None::<Instant>;
+    let mut round_robin_index = 0usize;
     let mut tick = tokio::time::interval(Duration::from_millis(50));
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
@@ -373,7 +393,12 @@ async fn run_worker(
                             message_id: format!("chatbox-{}", uuid::Uuid::new_v4()),
                             subtitle_id: None,
                             original: "VRCS OSC test".into(),
-                            translation: None,
+                            preferred_target: None,
+                            desired_target: None,
+                            translations: HashMap::new(),
+                            completed_targets: Vec::new(),
+                            expected_targets: Vec::new(),
+                            failed_targets: HashSet::new(),
                             rendered_text: None,
                             ready_at: Instant::now(),
                             responder: None,
@@ -387,7 +412,12 @@ async fn run_worker(
                             message_id: format!("chatbox-{}", uuid::Uuid::new_v4()),
                             subtitle_id: None,
                             original: String::new(),
-                            translation: None,
+                            preferred_target: None,
+                            desired_target: None,
+                            translations: HashMap::new(),
+                            completed_targets: Vec::new(),
+                            expected_targets: Vec::new(),
+                            failed_targets: HashSet::new(),
                             rendered_text: Some(text),
                             ready_at: Instant::now(),
                             responder: Some(responder),
@@ -395,17 +425,28 @@ async fn run_worker(
                         &status,
                         true,
                     ),
-                    OscEvent::Subtitle { message_id, subtitle, wait_for_translation, .. } => {
+                    OscEvent::Subtitle { message_id, subtitle, wait_for_translation, target_languages, .. } => {
                         let Some(subtitle_id) = subtitle.id else { continue };
                         latest_subtitle_id = Some(subtitle_id);
                         current_sent = None;
+                        let preferred_target = target_languages.first().cloned();
+                        let desired_target = select_translation_target(
+                            &config.config.translation_strategy,
+                            &target_languages,
+                            &mut round_robin_index,
+                        );
                         push_bounded(
                             &mut queue,
                             PendingMessage {
                                 message_id,
                                 subtitle_id: Some(subtitle_id),
                                 original: subtitle.text,
-                                translation: None,
+                                preferred_target,
+                                desired_target,
+                                translations: HashMap::new(),
+                                completed_targets: Vec::new(),
+                                expected_targets: target_languages,
+                                failed_targets: HashSet::new(),
                                 rendered_text: None,
                                 ready_at: Instant::now() + if wait_for_translation {
                                     TRANSLATION_GRACE
@@ -418,19 +459,38 @@ async fn run_worker(
                             false,
                         );
                     }
-                    OscEvent::TranslationFailed { subtitle_id, .. } => {
+                    OscEvent::TranslationFailed { subtitle_id, target_language, .. } => {
                         if let Some(message) = queue.iter_mut().find(|item| item.subtitle_id == Some(subtitle_id)) {
-                            message.ready_at = Instant::now();
+                            message.failed_targets.insert(target_language);
+                            let all_failed = !message.expected_targets.is_empty()
+                                && message.failed_targets.len() >= message.expected_targets.len();
+                            if all_failed || selected_translation(message).is_some() {
+                                message.ready_at = Instant::now();
+                            }
                         }
                     }
-                    OscEvent::TranslationCompleted { subtitle_id, translation, .. } => {
+                    OscEvent::TranslationCompleted { subtitle_id, translation, preferred, .. } => {
                         if let Some(message) = queue.iter_mut().find(|item| item.subtitle_id == Some(subtitle_id)) {
-                            message.translation = Some(translation.text);
-                            message.ready_at = Instant::now();
+                            let language = translation.target_language.clone();
+                            if !message.translations.contains_key(&language) {
+                                message.completed_targets.push(language.clone());
+                            }
+                            message.translations.insert(language.clone(), translation.text);
+                            if message.desired_target.as_deref() == Some(&language)
+                                || (preferred && message.desired_target.is_none())
+                                || message.desired_target.as_ref().is_some_and(|target| {
+                                    message.failed_targets.contains(target)
+                                })
+                            {
+                                message.ready_at = Instant::now();
+                            }
                         } else if latest_subtitle_id == Some(subtitle_id) {
                             if let Some(sent) = current_sent.as_ref().filter(|sent| {
                                 sent.subtitle_id == subtitle_id
                                     && sent.translation.is_none()
+                                    && sent.desired_target.as_deref().is_none_or(|target| {
+                                        target == translation.target_language
+                                    })
                                     && sent.sent_at.elapsed() <= LATE_TRANSLATION_TTL
                             }) {
                                 push_bounded(
@@ -439,7 +499,12 @@ async fn run_worker(
                                         message_id: sent.message_id.clone(),
                                         subtitle_id: Some(subtitle_id),
                                         original: sent.original.clone(),
-                                        translation: Some(translation.text),
+                                        preferred_target: Some(translation.target_language.clone()),
+                                        desired_target: Some(translation.target_language.clone()),
+                                        translations: HashMap::from([(translation.target_language.clone(), translation.text)]),
+                                        completed_targets: vec![translation.target_language.clone()],
+                                        expected_targets: Vec::new(),
+                                        failed_targets: HashSet::new(),
                                         rendered_text: None,
                                         ready_at: Instant::now(),
                                         responder: None,
@@ -463,10 +528,11 @@ async fn run_worker(
                     continue;
                 }
                 let Some(message) = queue.pop_front() else { continue };
+                let translation = selected_translation(&message).cloned();
                 let text = message.rendered_text.clone().unwrap_or_else(|| {
                     format_chatbox(
                         &message.original,
-                        message.translation.as_deref(),
+                        translation.as_deref(),
                         config.config.preserve_original_text,
                     )
                 });
@@ -513,7 +579,8 @@ async fn run_worker(
                                 message_id: message.message_id.clone(),
                                 subtitle_id,
                                 original: message.original,
-                                translation: message.translation,
+                                desired_target: message.desired_target,
+                                translation,
                                 sent_at: Instant::now(),
                             });
                         }
@@ -562,10 +629,8 @@ fn record_automatic_message(
     }
     let Some(db) = db else { return };
     let original = crate::chatbox::compact_text(&message.original);
-    let translation = message
-        .translation
-        .as_deref()
-        .map(crate::chatbox::compact_text);
+    let selected = selected_translation(message);
+    let translation = selected.map(|value| crate::chatbox::compact_text(value));
     let effective_translation = translation
         .as_deref()
         .filter(|value| !value.is_empty() && *value != original.as_str());
@@ -577,9 +642,12 @@ fn record_automatic_message(
     let record = NewChatboxMessage {
         source: "microphone".into(),
         original: message.original.clone(),
-        translation: message.translation.clone(),
+        translation: selected.cloned(),
         source_language: None,
-        target_language: None,
+        target_language: message
+            .desired_target
+            .clone()
+            .or_else(|| message.preferred_target.clone()),
         send_mode: send_mode.into(),
         message_format: "original_newline_translation".into(),
         custom_format: None,
@@ -600,6 +668,38 @@ fn record_automatic_message(
             Err(error) => tracing::warn!("Failed to store automatic Chatbox history: {error}"),
         }
     }
+}
+
+fn selected_translation(message: &PendingMessage) -> Option<&String> {
+    message
+        .desired_target
+        .as_ref()
+        .and_then(|target| message.translations.get(target))
+        .or_else(|| {
+            message
+                .preferred_target
+                .as_ref()
+                .and_then(|target| message.translations.get(target))
+        })
+        .or_else(|| {
+            message
+                .completed_targets
+                .iter()
+                .find_map(|target| message.translations.get(target))
+        })
+}
+
+fn select_translation_target(
+    strategy: &str,
+    target_languages: &[String],
+    round_robin_index: &mut usize,
+) -> Option<String> {
+    if strategy != "round_robin" || target_languages.is_empty() {
+        return target_languages.first().cloned();
+    }
+    let selected = target_languages[*round_robin_index % target_languages.len()].clone();
+    *round_robin_index = round_robin_index.wrapping_add(1);
+    Some(selected)
 }
 
 fn push_bounded(
@@ -683,6 +783,28 @@ fn initial_gate(config: &OscConfig) -> SendGate {
 mod tests {
     use super::*;
 
+    #[test]
+    fn round_robin_selects_targets_in_route_order() {
+        let targets = vec!["en".into(), "ja".into(), "fr".into()];
+        let mut index = 0;
+        assert_eq!(
+            select_translation_target("round_robin", &targets, &mut index).as_deref(),
+            Some("en")
+        );
+        assert_eq!(
+            select_translation_target("round_robin", &targets, &mut index).as_deref(),
+            Some("ja")
+        );
+        assert_eq!(
+            select_translation_target("round_robin", &targets, &mut index).as_deref(),
+            Some("fr")
+        );
+        assert_eq!(
+            select_translation_target("round_robin", &targets, &mut index).as_deref(),
+            Some("en")
+        );
+    }
+
     fn subtitle(id: i64, source: &str, text: &str) -> Subtitle {
         Subtitle {
             id: Some(id),
@@ -748,6 +870,7 @@ mod tests {
             mute_sync_enabled: false,
             mute_status_toast_enabled: false,
             preserve_original_text: true,
+            translation_strategy: "preferred_only".into(),
         });
         let send = tokio::spawn(async move { dispatcher.send_manual("手动消息".into()).await });
 
@@ -770,6 +893,7 @@ mod tests {
             mute_sync_enabled: false,
             mute_status_toast_enabled: false,
             preserve_original_text: true,
+            translation_strategy: "preferred_only".into(),
         });
         dispatcher.publish_subtitle(subtitle(1, "speaker", "ignored"), false);
         assert!(tokio::time::timeout(Duration::from_millis(150), async {
@@ -790,6 +914,7 @@ mod tests {
                 model: None,
                 created_at: now_iso8601(),
             },
+            true,
         );
 
         let mut buffer = [0u8; 512];
@@ -814,6 +939,7 @@ mod tests {
             mute_sync_enabled: false,
             mute_status_toast_enabled: false,
             preserve_original_text: false,
+            translation_strategy: "preferred_only".into(),
         });
         dispatcher.publish_subtitle(subtitle(3, "microphone", "こんにちは"), true);
         dispatcher.translation_completed(
@@ -826,6 +952,7 @@ mod tests {
                 model: None,
                 created_at: now_iso8601(),
             },
+            true,
         );
 
         let mut buffer = [0u8; 512];
@@ -850,6 +977,7 @@ mod tests {
             mute_sync_enabled: false,
             mute_status_toast_enabled: false,
             preserve_original_text: true,
+            translation_strategy: "preferred_only".into(),
         };
         let dispatcher = OscChatboxDispatcher::new(config.clone());
 
@@ -880,6 +1008,7 @@ mod tests {
             mute_sync_enabled: true,
             mute_status_toast_enabled: false,
             preserve_original_text: true,
+            translation_strategy: "preferred_only".into(),
         });
 
         assert_eq!(dispatcher.queue_test(), Err("osc.blocked_mute_unknown"));

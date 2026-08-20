@@ -30,15 +30,23 @@ function withTranslation(
   subtitles: Subtitle[],
   subtitleId: number,
   translation: SubtitleTranslation,
+  preferred = false,
 ): Subtitle[] {
   return updateSubtitle(subtitles, subtitleId, (subtitle) => ({
     ...subtitle,
-    translations: [
-      ...subtitle.translations.filter(
-        (item) => item.target_language !== translation.target_language,
-      ),
-      translation,
-    ],
+    translations: preferred
+      ? [
+        translation,
+        ...subtitle.translations.filter(
+          (item) => item.target_language !== translation.target_language,
+        ),
+      ]
+      : [
+        ...subtitle.translations.filter(
+          (item) => item.target_language !== translation.target_language,
+        ),
+        translation,
+      ],
     translation_partial: undefined,
   }));
 }
@@ -242,8 +250,9 @@ export function useConversationHistory({
   const translationCompleted = useCallback((
     subtitleId: number,
     translation: SubtitleTranslation,
+    preferred: boolean,
   ) => {
-    setSubtitles((current) => withTranslation(current, subtitleId, translation));
+    setSubtitles((current) => withTranslation(current, subtitleId, translation, preferred));
     setTranslatingSubtitleIds((current) => current.filter((id) => id !== subtitleId));
   }, []);
 
@@ -259,7 +268,7 @@ export function useConversationHistory({
     try {
       const translation = await coreApi.translateSubtitle(subtitleId);
       clearTranslationPartial(subtitleId);
-      setSubtitles((current) => withTranslation(current, subtitleId, translation));
+      setSubtitles((current) => withTranslation(current, subtitleId, translation, true));
       clearErrorFrom(`translation:${subtitleId}`);
     } catch (reason) {
       clearTranslationPartial(subtitleId);

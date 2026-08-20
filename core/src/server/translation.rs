@@ -94,7 +94,12 @@ pub(super) async fn translation_preview(
     State(state): State<Arc<AppState>>,
     Json(input): Json<PreviewInput>,
 ) -> ApiResult<Json<Value>> {
-    let config = state.config.read().expect("config lock").clone();
+    let global = state.config.read().expect("config lock").clone();
+    let config = state
+        .language_session
+        .read()
+        .expect("language session lock")
+        .apply_to(&global);
     let prompt_config = config.translation.prompt.clone();
     let mut context = db_call(Arc::clone(&state.db), move |db| {
         db.recent_translation_context(&prompt_config, None)
@@ -108,14 +113,29 @@ pub(super) async fn translation_preview(
         )
     })?;
     append_vrcx_context(&state, &mut context);
+    let mut target = config
+        .translation
+        .microphone_targets
+        .first()
+        .cloned()
+        .ok_or_else(|| {
+            api_error(
+                StatusCode::CONFLICT,
+                "translation.not_configured",
+                "No microphone translation target is configured",
+            )
+        })?;
+    if let Some(language) = &input.target_language {
+        target.target_language = language.clone();
+    }
     let result = state
         .translation_service
         .translate(
-            &config.translation,
+            &target,
+            &config.translation.prompt,
             &config.asr.api_profiles,
             &input.text,
             input.source_language.as_deref(),
-            input.target_language.as_deref(),
             &context,
         )
         .await
@@ -144,7 +164,12 @@ pub(super) async fn subtitle_translate(
                 "Subtitle not found",
             )
         })?;
-    let config = state.config.read().expect("config lock").clone();
+    let global = state.config.read().expect("config lock").clone();
+    let config = state
+        .language_session
+        .read()
+        .expect("language session lock")
+        .apply_to(&global);
     if config.translation.mode == "disabled" {
         return Err(api_error(
             StatusCode::CONFLICT,
@@ -167,62 +192,97 @@ pub(super) async fn subtitle_translate(
         )
     })?;
     append_vrcx_context(&state, &mut context);
-    state
-        .subtitle_output
-        .translation_started_with_message(subtitle_id, &message_id, &source);
-    let result = state
-        .translation_service
-        .translate(
-            &config.translation,
-            &config.asr.api_profiles,
-            &subtitle.text,
-            subtitle.language.as_deref(),
-            None,
-            &context,
-        )
-        .await;
-    let record = match result {
-        Ok(result) => result.into_record(),
-        Err(error) => {
-            state.subtitle_output.translation_failed_with_message(
-                subtitle_id,
-                error.code.into(),
-                error.detail.clone(),
-                &message_id,
-                &source,
-            );
-            return Err(translation_error(error));
-        }
+    let targets = if subtitle.source == "microphone" {
+        &config.translation.microphone_targets
+    } else {
+        &config.translation.speaker_targets
     };
-    let saved = record.clone();
-    let conversation_catalog = state.conversation_catalog_tx.clone();
-    if let Err(error) = db_call(Arc::clone(&state.db), move |db| {
-        if db.save_translation(subtitle_id, &saved)? {
-            publish_latest_catalog(db, &conversation_catalog);
-        }
-        Ok(())
-    })
-    .await
-    {
-        state.subtitle_output.translation_failed_with_message(
+    if targets.is_empty() {
+        return Err(api_error(
+            StatusCode::CONFLICT,
+            "translation.not_configured",
+            "No translation target is configured",
+        ));
+    }
+    let mut records = Vec::with_capacity(targets.len());
+    let mut last_error = None;
+    for (index, target) in targets.iter().enumerate() {
+        let preferred = index == 0;
+        state.subtitle_output.translation_started_with_message(
             subtitle_id,
-            "translation.storage_failed".into(),
-            error.to_string(),
+            &target.target_language,
+            preferred,
             &message_id,
             &source,
         );
-        return Err(api_error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "translation.storage_failed",
-            error.to_string(),
-        ));
+        let result = state
+            .translation_service
+            .translate(
+                target,
+                &config.translation.prompt,
+                &config.asr.api_profiles,
+                &subtitle.text,
+                subtitle.language.as_deref(),
+                &context,
+            )
+            .await;
+        let record = match result {
+            Ok(result) => result.into_record(),
+            Err(error) => {
+                state.subtitle_output.translation_failed_with_message(
+                    subtitle_id,
+                    error.code.into(),
+                    error.detail.clone(),
+                    &target.target_language,
+                    preferred,
+                    &message_id,
+                    &source,
+                );
+                last_error = Some(error);
+                continue;
+            }
+        };
+        let saved = record.clone();
+        let conversation_catalog = state.conversation_catalog_tx.clone();
+        if let Err(error) = db_call(Arc::clone(&state.db), move |db| {
+            if db.save_translation(subtitle_id, &saved)? {
+                publish_latest_catalog(db, &conversation_catalog);
+            }
+            Ok(())
+        })
+        .await
+        {
+            state.subtitle_output.translation_failed_with_message(
+                subtitle_id,
+                "translation.storage_failed".into(),
+                error.to_string(),
+                &target.target_language,
+                preferred,
+                &message_id,
+                &source,
+            );
+            return Err(api_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "translation.storage_failed",
+                error.to_string(),
+            ));
+        }
+        state.subtitle_output.translation_completed_with_message(
+            subtitle_id,
+            record.clone(),
+            preferred,
+            &message_id,
+            &source,
+        );
+        records.push(record);
     }
-    state.subtitle_output.translation_completed_with_message(
-        subtitle_id,
-        record.clone(),
-        &message_id,
-        &source,
-    );
+    let record = records.into_iter().next().ok_or_else(|| {
+        translation_error(last_error.unwrap_or_else(|| TranslationError {
+            code: "translation.not_configured",
+            detail: "No translation target is configured".into(),
+            retryable: false,
+        }))
+    })?;
     Ok(Json(json!(record)))
 }
 

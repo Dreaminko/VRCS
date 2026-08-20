@@ -26,28 +26,34 @@ jobs:
       - name: Install CUDA Toolkit
         uses: Jimver/cuda-toolkit@v0.2.36
         with:
-          cuda: "12.4.1"
+          cuda: "13.2.0"
           method: network
           sub-packages: '["nvcc", "cudart", "cublas", "visual_studio_integration"]'
 
       - name: Verify CUDA toolchain
         shell: pwsh
         run: |
-          nvcc --version
+          $nvccVersion = nvcc --version | Out-String
           if ($LASTEXITCODE -ne 0) {
             throw "nvcc is unavailable"
+          }
+          Write-Host $nvccVersion
+          $versionMatch = [regex]::Match($nvccVersion, 'release\s+(13\.\d+)')
+          if (-not $versionMatch.Success) {
+            throw "CUDA 13.x is required"
           }
           if (-not $env:CUDA_PATH) {
             throw "CUDA_PATH is not set"
           }
 
           Write-Host "CUDA_PATH=$env:CUDA_PATH"
+          $cudaVisualStudioVersion = $versionMatch.Groups[1].Value
           $buildCustomizations = Get-ChildItem `
             "C:\Program Files\Microsoft Visual Studio\2022\*\MSBuild\Microsoft\VC\v170\BuildCustomizations" `
-            -Filter "CUDA 12.4.props" `
+            -Filter "CUDA $cudaVisualStudioVersion.props" `
             -ErrorAction SilentlyContinue
           if (-not $buildCustomizations) {
-            throw "CUDA 12.4 Visual Studio integration was not installed"
+            throw "CUDA $cudaVisualStudioVersion Visual Studio integration was not installed"
           }
           $buildCustomizations | ForEach-Object {
             Write-Host "Found CUDA build customization: $($_.FullName)"
@@ -98,7 +104,7 @@ jobs:
           Windows 10/11 x64 release for VRCS.
 
           - `VRCS-$version-windows-x64.exe` is the recommended unified client. It supports cloud recognition and local CPU Whisper without requiring CUDA.
-          - `VRCS-$version-windows-x64-CUDA.exe` adds NVIDIA CUDA acceleration. CUDA 12.x Runtime, cuBLAS, and a compatible NVIDIA driver must be installed separately.
+          - `VRCS-$version-windows-x64-CUDA.exe` adds NVIDIA CUDA acceleration. CUDA 13.x Runtime, cuBLAS, and a compatible NVIDIA driver must be installed separately.
           - Whisper models are downloaded only when local recognition is used.
           "@
 

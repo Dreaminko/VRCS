@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use serde_json::Value;
 
-use crate::config::{ApiProfile, TranslationConfig};
+use crate::config::{ApiProfile, TranslationPromptConfig, TranslationTargetConfig};
 use crate::credentials;
 use crate::llm::{LlmClient, LlmProgress, LlmRequest};
 use crate::models::{now_iso8601, SubtitleTranslation};
@@ -79,19 +79,19 @@ impl TranslationService {
 
     pub async fn translate(
         &self,
-        settings: &TranslationConfig,
+        target_config: &TranslationTargetConfig,
+        prompt: &TranslationPromptConfig,
         profiles: &[ApiProfile],
         text: &str,
         source_language: Option<&str>,
-        target_override: Option<&str>,
         context: &[TranslationContextEntry],
     ) -> Result<TranslationResult, TranslationError> {
         self.translate_with_progress(
-            settings,
+            target_config,
+            prompt,
             profiles,
             text,
             source_language,
-            target_override,
             context,
             None,
         )
@@ -101,11 +101,11 @@ impl TranslationService {
     #[allow(clippy::too_many_arguments)]
     pub async fn translate_with_progress(
         &self,
-        settings: &TranslationConfig,
+        target_config: &TranslationTargetConfig,
+        prompt: &TranslationPromptConfig,
         profiles: &[ApiProfile],
         text: &str,
         source_language: Option<&str>,
-        target_override: Option<&str>,
         context: &[TranslationContextEntry],
         on_progress: Option<&LlmProgress>,
     ) -> Result<TranslationResult, TranslationError> {
@@ -117,7 +117,7 @@ impl TranslationService {
                 false,
             ));
         }
-        let target = target_override.unwrap_or(&settings.target_language);
+        let target = &target_config.target_language;
         if !providers::is_valid_translation_language(target) {
             return Err(error(
                 "translation.invalid_target_language",
@@ -125,7 +125,7 @@ impl TranslationService {
                 false,
             ));
         }
-        let profile_id = settings.profile_id.as_deref().ok_or_else(|| {
+        let profile_id = target_config.profile_id.as_deref().ok_or_else(|| {
             error(
                 "translation.not_configured",
                 "No translation API profile is selected",
@@ -191,12 +191,12 @@ impl TranslationService {
                 self.llm(
                     profile,
                     &api_key,
-                    &settings.model,
-                    settings.thinking_enabled,
+                    &target_config.model,
+                    target_config.thinking_enabled,
                     text,
                     source_language,
                     target,
-                    &settings.prompt,
+                    prompt,
                     context,
                     on_progress,
                 )

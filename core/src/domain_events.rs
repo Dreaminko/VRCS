@@ -115,12 +115,18 @@ impl DomainEventHub {
         ));
     }
 
-    pub fn translation_started(&self, message_id: &str, source: &str, subtitle_id: i64) {
+    pub fn translation_started(
+        &self,
+        message_id: &str,
+        source: &str,
+        subtitle_id: i64,
+        target_language: &str,
+    ) {
         self.publish(DomainEvent::new(
             "translation.started",
             message_id,
             source,
-            json!({ "subtitle_id": subtitle_id }),
+            json!({ "subtitle_id": subtitle_id, "target_language": target_language }),
         ));
     }
 
@@ -164,6 +170,7 @@ impl DomainEventHub {
         message_id: &str,
         source: &str,
         subtitle_id: i64,
+        target_language: &str,
         code: &str,
         detail: &str,
     ) {
@@ -171,7 +178,12 @@ impl DomainEventHub {
             "translation.failed",
             message_id,
             source,
-            json!({ "subtitle_id": subtitle_id, "code": code, "detail": detail }),
+            json!({
+                "subtitle_id": subtitle_id,
+                "target_language": target_language,
+                "code": code,
+                "detail": detail,
+            }),
         ));
     }
 

@@ -2,11 +2,11 @@ use serde::{Deserialize, Serialize};
 
 use super::{
     AnkiConfig, AsrConfig, AudioConfig, DictionaryConfig, ExternalApiConfig, GlossaryConfig,
-    OscConfig, ServerConfig, StorageConfig, TranslationConfig, VadConfig, VrOverlayConfig,
-    VrcxConfig,
+    LanguagePreset, OscConfig, ServerConfig, StorageConfig, TranslationConfig, VadConfig,
+    VrOverlayConfig, VrcxConfig,
 };
 
-pub const SCHEMA_VERSION: u32 = 25;
+pub const SCHEMA_VERSION: u32 = 26;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AppConfig {
@@ -28,6 +28,8 @@ pub struct AppConfig {
     pub glossary: GlossaryConfig,
     #[serde(default)]
     pub translation: TranslationConfig,
+    #[serde(default)]
+    pub language_presets: Vec<LanguagePreset>,
     #[serde(default)]
     pub osc: OscConfig,
     #[serde(default)]
@@ -56,6 +58,7 @@ impl Default for AppConfig {
             dictionary: DictionaryConfig::default(),
             glossary: GlossaryConfig::default(),
             translation: TranslationConfig::default(),
+            language_presets: Vec::new(),
             osc: OscConfig::default(),
             anki: AnkiConfig::default(),
             external_api: ExternalApiConfig::default(),
@@ -82,6 +85,7 @@ mod tests {
                 "dictionary",
                 "external_api",
                 "glossary",
+                "language_presets",
                 "osc",
                 "schema_version",
                 "server",
@@ -147,15 +151,11 @@ mod tests {
         );
         assert_keys(
             &value["translation"],
-            [
-                "microphone_target_language",
-                "mode",
-                "model",
-                "profile_id",
-                "prompt",
-                "target_language",
-                "thinking_enabled",
-            ],
+            ["microphone_targets", "mode", "prompt", "speaker_targets"],
+        );
+        assert_keys(
+            &value["translation"]["speaker_targets"][0],
+            ["model", "profile_id", "target_language", "thinking_enabled"],
         );
         assert_keys(
             &value["translation"]["prompt"],
@@ -177,6 +177,7 @@ mod tests {
                 "mute_sync_enabled",
                 "port",
                 "preserve_original_text",
+                "translation_strategy",
             ],
         );
         assert_keys(

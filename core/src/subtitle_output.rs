@@ -41,18 +41,24 @@ pub enum PresentationEvent {
 pub enum TranslationEvent {
     TranslationStarted {
         subtitle_id: i64,
+        target_language: String,
+        preferred: bool,
     },
     TranslationPartial {
         subtitle_id: i64,
         text: String,
         target_language: String,
+        preferred: bool,
     },
     TranslationCompleted {
         subtitle_id: i64,
         translation: SubtitleTranslation,
+        preferred: bool,
     },
     TranslationFailed {
         subtitle_id: i64,
+        target_language: String,
+        preferred: bool,
         code: String,
         detail: String,
     },
@@ -112,13 +118,15 @@ impl SubtitleLifecyclePublisher {
         &self,
         subtitle: Subtitle,
         wait_for_translation: bool,
+        translation_targets: Vec<String>,
         message_id: &str,
     ) {
         self.events.asr_final(message_id, &subtitle);
         self.publish_subtitle(subtitle.clone(), Some(message_id));
-        self.osc.publish_subtitle_with_message_id(
+        self.osc.publish_subtitle_with_targets(
             subtitle,
             wait_for_translation,
+            translation_targets,
             message_id.into(),
         );
     }
@@ -181,14 +189,20 @@ impl SubtitleLifecyclePublisher {
     pub fn translation_started_with_message(
         &self,
         subtitle_id: i64,
+        target_language: &str,
+        preferred: bool,
         message_id: &str,
         source: &str,
     ) {
         self.events
-            .translation_started(message_id, source, subtitle_id);
+            .translation_started(message_id, source, subtitle_id, target_language);
         let _ = self
             .translations
-            .send(TranslationEvent::TranslationStarted { subtitle_id });
+            .send(TranslationEvent::TranslationStarted {
+                subtitle_id,
+                target_language: target_language.into(),
+                preferred,
+            });
     }
 
     pub fn translation_partial_with_message(
@@ -196,23 +210,27 @@ impl SubtitleLifecyclePublisher {
         subtitle_id: i64,
         text: String,
         target_language: String,
+        preferred: bool,
         message_id: &str,
         source: &str,
     ) {
         self.events
             .translation_partial(message_id, source, subtitle_id, &text, &target_language);
-        let _ = self
-            .presentation
-            .send(PresentationEvent::TranslationPartial {
-                subtitle_id,
-                text: text.clone(),
-            });
+        if preferred {
+            let _ = self
+                .presentation
+                .send(PresentationEvent::TranslationPartial {
+                    subtitle_id,
+                    text: text.clone(),
+                });
+        }
         let _ = self
             .translations
             .send(TranslationEvent::TranslationPartial {
                 subtitle_id,
                 text,
                 target_language,
+                preferred,
             });
     }
 
@@ -220,24 +238,28 @@ impl SubtitleLifecyclePublisher {
         &self,
         subtitle_id: i64,
         translation: SubtitleTranslation,
+        preferred: bool,
         message_id: &str,
         source: &str,
     ) {
         self.events
             .translation_completed(message_id, source, subtitle_id, &translation);
         self.osc
-            .translation_completed(subtitle_id, translation.clone());
-        let _ = self
-            .presentation
-            .send(PresentationEvent::TranslationCompleted {
-                subtitle_id,
-                translation: translation.clone(),
-            });
+            .translation_completed(subtitle_id, translation.clone(), preferred);
+        if preferred {
+            let _ = self
+                .presentation
+                .send(PresentationEvent::TranslationCompleted {
+                    subtitle_id,
+                    translation: translation.clone(),
+                });
+        }
         let _ = self
             .translations
             .send(TranslationEvent::TranslationCompleted {
                 subtitle_id,
                 translation,
+                preferred,
             });
     }
 
@@ -246,14 +268,25 @@ impl SubtitleLifecyclePublisher {
         subtitle_id: i64,
         code: String,
         detail: String,
+        target_language: &str,
+        preferred: bool,
         message_id: &str,
         source: &str,
     ) {
-        self.events
-            .translation_failed(message_id, source, subtitle_id, &code, &detail);
-        self.osc.translation_failed(subtitle_id);
+        self.events.translation_failed(
+            message_id,
+            source,
+            subtitle_id,
+            target_language,
+            &code,
+            &detail,
+        );
+        self.osc
+            .translation_failed(subtitle_id, target_language, preferred);
         let _ = self.translations.send(TranslationEvent::TranslationFailed {
             subtitle_id,
+            target_language: target_language.into(),
+            preferred,
             code,
             detail,
         });
@@ -296,8 +329,13 @@ mod tests {
             OscChatboxDispatcher::new(OscConfig::default()),
             events,
         );
-        output.subtitle_stored_with_message(subtitle(7), true, "utterance-7");
-        output.translation_started_with_message(7, "utterance-7", "speaker");
+        output.subtitle_stored_with_message(
+            subtitle(7),
+            true,
+            vec!["zh-Hans".into()],
+            "utterance-7",
+        );
+        output.translation_started_with_message(7, "zh-Hans", true, "utterance-7", "speaker");
 
         let final_event = receiver.recv().await.unwrap();
         let translation_event = receiver.recv().await.unwrap();
@@ -339,11 +377,17 @@ mod tests {
                 && language.as_deref() == Some("en")
         ));
 
-        output.subtitle_stored_with_message(subtitle(7), true, "utterance-7");
+        output.subtitle_stored_with_message(
+            subtitle(7),
+            true,
+            vec!["zh-Hans".into()],
+            "utterance-7",
+        );
         output.translation_partial_with_message(
             7,
             "你".into(),
             "zh-Hans".into(),
+            true,
             "utterance-7",
             "speaker",
         );
@@ -355,7 +399,7 @@ mod tests {
             model: None,
             created_at: now_iso8601(),
         };
-        output.translation_completed_with_message(7, translation, "utterance-7", "speaker");
+        output.translation_completed_with_message(7, translation, true, "utterance-7", "speaker");
 
         assert!(matches!(
             receiver.recv().await.unwrap(),

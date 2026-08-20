@@ -54,21 +54,25 @@ export type SubtitleStreamMessage =
       code?: string;
       detail?: string;
     }
-  | { type: "translation_started"; subtitle_id: number }
+  | { type: "translation_started"; subtitle_id: number; target_language: string; preferred?: boolean }
   | {
       type: "translation_partial";
       subtitle_id: number;
       text: string;
       target_language: string;
+      preferred?: boolean;
     }
   | {
       type: "translation_completed";
       subtitle_id: number;
       translation: SubtitleTranslation;
+      preferred?: boolean;
     }
   | {
       type: "translation_failed";
       subtitle_id: number;
+      target_language: string;
+      preferred?: boolean;
       code?: string;
       detail?: string;
     };
@@ -242,20 +246,26 @@ export function parseSubtitleStreamMessage(
         : null;
     case "translation_started":
       return isSubtitleId(value.subtitle_id)
+        && isText(value.target_language)
         ? value as SubtitleStreamMessage
         : null;
     case "translation_partial":
       return isSubtitleId(value.subtitle_id)
         && isText(value.text)
         && isText(value.target_language)
+        && (value.preferred === undefined || typeof value.preferred === "boolean")
         ? value as SubtitleStreamMessage
         : null;
     case "translation_completed":
-      return isSubtitleId(value.subtitle_id) && isTranslation(value.translation)
+      return isSubtitleId(value.subtitle_id)
+        && isTranslation(value.translation)
+        && (value.preferred === undefined || typeof value.preferred === "boolean")
         ? value as SubtitleStreamMessage
         : null;
     case "translation_failed":
       return isSubtitleId(value.subtitle_id)
+        && isText(value.target_language)
+        && (value.preferred === undefined || typeof value.preferred === "boolean")
         && (value.code === undefined || typeof value.code === "string")
         && (value.detail === undefined || isText(value.detail))
         ? value as SubtitleStreamMessage

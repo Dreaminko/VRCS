@@ -268,10 +268,10 @@ export const coreApi = {
     request<CredentialStatus>("/api/vrcx/token", { method: "DELETE" }),
   testVrcx: () =>
     request<VrcxRuntimeStatus>("/api/vrcx/test", { method: "POST" }),
-  start: () =>
+  start: (input: import("./types").CaptureStartInput = {}) =>
     request<{ running: boolean; device: AudioDevice | null; microphone_device: AudioDevice | null }>("/api/capture/start", {
       method: "POST",
-      body: JSON.stringify({}),
+      body: JSON.stringify(input),
     }),
   stop: () => request<{ running: boolean }>("/api/capture/stop", { method: "POST" }),
   startMicrophoneTest: () => request<{ running: boolean; device: AudioDevice }>(

@@ -325,6 +325,7 @@ fn normalize_v24(value: &mut serde_json::Value) -> Result<(), String> {
         .as_object_mut()
         .ok_or_else(|| "Configuration root must be an object".to_string())?;
     promote_glossary_sources(object)?;
+    normalize_translation_targets(object)?;
     let asr = object
         .entry("asr")
         .or_insert_with(|| serde_json::json!({}))
@@ -334,6 +335,52 @@ fn normalize_v24(value: &mut serde_json::Value) -> Result<(), String> {
     normalize_profiles(asr)?;
     normalize_recognition_settings(asr)?;
     object.insert("schema_version".into(), serde_json::json!(SCHEMA_VERSION));
+    Ok(())
+}
+
+fn normalize_translation_targets(
+    object: &mut serde_json::Map<String, serde_json::Value>,
+) -> Result<(), String> {
+    let translation = object
+        .entry("translation")
+        .or_insert_with(|| serde_json::json!({}))
+        .as_object_mut()
+        .ok_or_else(|| "Configuration translation must be an object".to_string())?;
+    if translation.contains_key("speaker_targets") {
+        return Ok(());
+    }
+
+    let target_language = translation
+        .remove("target_language")
+        .unwrap_or_else(|| serde_json::json!("zh-Hans"));
+    let microphone_target_language = translation
+        .remove("microphone_target_language")
+        .unwrap_or_else(|| target_language.clone());
+    let profile_id = translation
+        .remove("profile_id")
+        .unwrap_or(serde_json::Value::Null);
+    let model = translation
+        .remove("model")
+        .unwrap_or_else(|| serde_json::json!("gpt-5-mini"));
+    let thinking_enabled = translation
+        .remove("thinking_enabled")
+        .unwrap_or(serde_json::Value::Bool(false));
+    let route = |language: serde_json::Value| {
+        serde_json::json!({
+            "target_language": language,
+            "profile_id": profile_id.clone(),
+            "model": model.clone(),
+            "thinking_enabled": thinking_enabled.clone()
+        })
+    };
+    translation.insert(
+        "speaker_targets".into(),
+        serde_json::Value::Array(vec![route(target_language)]),
+    );
+    translation.insert(
+        "microphone_targets".into(),
+        serde_json::Value::Array(vec![route(microphone_target_language)]),
+    );
     Ok(())
 }
 
@@ -732,7 +779,7 @@ pub fn config_from_value(raw: &serde_json::Value) -> Result<AppConfig, String> {
         version if version == SCHEMA_VERSION as u64 => {
             serde_json::from_value(raw.clone()).map_err(|error| error.to_string())?
         }
-        24 | 23 => deserialize_v24(raw.clone())?,
+        23..=25 => deserialize_v24(raw.clone())?,
         22 => migrate_v22(raw)?,
         21 => migrate_v21(raw)?,
         20 => migrate_v20(raw)?,

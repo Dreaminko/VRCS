@@ -21,7 +21,7 @@ VRCS は、VRChat 向けの Windows リアルタイム字幕・言語学習ツ�
 | インストーラー | 用途 | 追加要件 |
 |---|---|---|
 | `VRCS-<version>-windows-x64.exe` | ほとんどのユーザーに推奨。クラウド認識とローカル CPU 版 Whisper に対応 | CUDA は不要 |
-| `VRCS-<version>-windows-x64-CUDA.exe` | NVIDIA GPU でローカル Whisper を高速化 | CUDA 12.x Runtime、cuBLAS、互換性のある NVIDIA GPU とドライバー |
+| `VRCS-<version>-windows-x64-CUDA.exe` | NVIDIA GPU でローカル Whisper を高速化 | CUDA 13.x Runtime、cuBLAS、互換性のある NVIDIA GPU とドライバー |
 
 標準版と CUDA 版は同じ設定、データベース、モデルディレクトリを共有するため、データを移行せずに切り替えられます。
 
@@ -100,7 +100,7 @@ VRCS は元の音声を保存しません。字幕履歴、セッション、学
 - Node.js 24+
 - Rust stable
 - Visual Studio Build Tools と「C++ によるデスクトップ開発」ワークロード
-- CUDA 開発の場合のみ、NVIDIA CUDA Toolkit と設定済みの `CUDA_PATH`
+- CUDA 開発の場合のみ、NVIDIA CUDA 13.x Toolkit と設定済みの `CUDA_PATH`
 
 ```powershell
 npm install

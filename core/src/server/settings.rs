@@ -44,6 +44,7 @@ pub(super) async fn update_settings(
         asr: update.asr,
         glossary: update.glossary,
         translation: update.translation,
+        language_presets: update.language_presets,
         osc: update.osc,
         dictionary: update.dictionary,
         anki: update.anki,
@@ -154,11 +155,18 @@ pub(super) async fn commit_candidate(
 ) -> ApiResult<u64> {
     let _capture_control = state.capture_control.lock().await;
     let current = state.config.read().expect("config lock").clone();
-    let plan = super::capture::CaptureReloadPlan::between(&current, &candidate);
+    let language_session = state
+        .language_session
+        .read()
+        .expect("language session lock")
+        .clone();
+    let effective_current = language_session.apply_to(&current);
+    let effective_candidate = language_session.apply_to(&candidate);
+    let plan = super::capture::CaptureReloadPlan::between(&effective_current, &effective_candidate);
     let reload_capture = state.capture_requested.load(Ordering::SeqCst) && !plan.is_empty();
     let reload_external_api = current.external_api != candidate.external_api;
     if reload_capture {
-        super::capture::validate_capture_config(state, &candidate).await?;
+        super::capture::validate_capture_config(state, &effective_candidate).await?;
         super::capture::stop_pipelines(state, plan).await;
     }
 
@@ -279,7 +287,8 @@ pub(super) async fn commit_candidate(
     };
 
     if reload_capture {
-        if let Err(error) = super::capture::start_pipelines(state, &candidate, plan).await {
+        if let Err(error) = super::capture::start_pipelines(state, &effective_candidate, plan).await
+        {
             let detail = api_detail(&error);
             if let Err(recovery) = restore_previous(
                 state,
@@ -380,7 +389,13 @@ pub(super) async fn commit_candidate(
             tracing::warn!(%error, "subtitle history storage quota could not be enforced immediately");
         }
     }
-    state.osc.update_config(candidate.osc.clone());
+    state
+        .osc
+        .update_config(if state.capture_requested.load(Ordering::SeqCst) {
+            effective_candidate.osc.clone()
+        } else {
+            candidate.osc.clone()
+        });
     state
         .vrchat_mute_sync
         .update_enabled(candidate.osc.mute_sync_enabled);
@@ -605,19 +620,22 @@ fn protect_profile_owned_settings(
         }
     }
 
+    let profile_exists = |profile_id: &str| {
+        current
+            .asr
+            .api_profiles
+            .iter()
+            .any(|profile| profile.id == profile_id)
+    };
     if candidate
         .translation
-        .profile_id
-        .as_deref()
-        .is_some_and(|profile_id| {
-            !current
-                .asr
-                .api_profiles
-                .iter()
-                .any(|profile| profile.id == profile_id)
-        })
+        .speaker_targets
+        .iter()
+        .chain(&candidate.translation.microphone_targets)
+        .filter_map(|target| target.profile_id.as_deref())
+        .any(|profile_id| !profile_exists(profile_id))
     {
-        candidate.translation.profile_id = current.translation.profile_id.clone();
+        candidate.translation = current.translation.clone();
         candidate.translation.mode = current.translation.mode.clone();
     }
 }

@@ -7,7 +7,7 @@ import type { LookupOrigin } from "../../app/app-types";
 import type { ConversationSummary } from "../../conversations/conversations";
 import type { LearningWorkspaceController } from "../hooks/useLearningWorkspace";
 import { subtitleLearningKey, subtitleSelectionLearningKey } from "../../learning";
-import { useTranslationPartial } from "../../realtime-state";
+import { useTranslationPartials } from "../../realtime-state";
 import type { Subtitle } from "../../types";
 import { contentLanguageTag } from "../../app/ui-language";
 import { DropdownField } from "../../shared/ui/DropdownField";
@@ -238,8 +238,8 @@ const LearningMaterialRow = memo(function LearningMaterialRow({
   onCollected: () => void;
 }) {
   const { t } = useTranslation();
-  const translationPartial = useTranslationPartial(subtitle.id);
-  const visibleTranslation = translationPartial ?? subtitle.translation_partial ?? subtitle.translations.at(-1);
+  const translationPartial = useTranslationPartials(subtitle.id)[0];
+  const visibleTranslation = translationPartial ?? subtitle.translation_partial ?? subtitle.translations[0];
   const key = subtitleLearningKey(subtitle);
   const collecting = workspace.isCollecting(key);
   const captured = workspace.isCaptured(key);

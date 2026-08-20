@@ -95,6 +95,8 @@ pub struct SettingsUpdate {
     #[serde(default)]
     pub translation: TranslationConfig,
     #[serde(default)]
+    pub language_presets: Vec<crate::config::LanguagePreset>,
+    #[serde(default)]
     pub osc: OscConfig,
     #[serde(default)]
     pub anki: AnkiConfig,

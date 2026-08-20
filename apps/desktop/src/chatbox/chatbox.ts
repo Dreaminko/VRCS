@@ -18,7 +18,7 @@ const MESSAGE_FORMATS = new Set<ChatboxMessageFormat>([
 const OVERFLOW_POLICIES = new Set<ChatboxOverflowPolicy>(["block", "smart_truncate"]);
 
 export interface ChatboxPreferences {
-  target_language: TranslationSettings["target_language"];
+  target_language: string;
   send_mode: ChatboxSendMode;
   message_format: ChatboxMessageFormat;
   custom_format: string | null;
@@ -84,7 +84,7 @@ export function applyChatboxPreferences(
 
 export function normalizeChatboxPreferences(
   value: unknown,
-  fallbackTarget: TranslationSettings["target_language"] = "ja",
+  fallbackTarget: string = "ja",
 ): ChatboxPreferences {
   const defaults = createChatboxDraft(fallbackTarget);
   const candidate = parseStoredValue(value);
@@ -140,8 +140,8 @@ function validCustomFormat(value: string): boolean {
 
 function normalizeTargetLanguage(
   value: unknown,
-  fallback: TranslationSettings["target_language"],
-): TranslationSettings["target_language"] {
+  fallback: string,
+): string {
   if (typeof value !== "string") return fallback;
   const input = value.trim();
   if (input.length < 2 || input.length > 35) return fallback;

@@ -66,6 +66,8 @@ function App() {
     loadOlderSubtitles,
     vrchatMuteStatus,
     settings,
+    captureLanguageInput,
+    setCaptureLanguageInput,
     devices,
     devicesReady,
     asrCapabilities,
@@ -100,11 +102,12 @@ function App() {
     status: vrchatMuteStatus,
   });
   const compactWindow = useCompactWindow({ clearError, reportError });
+  const chatboxRoute = settings?.translation.microphone_targets[0];
   const apiProfileCatalog = useApiProfileViews(
-    `${settings?.asr.active_profile_id ?? "local"}:${settings?.asr.backend ?? ""}:${settings?.translation.profile_id ?? ""}`,
+    `${settings?.asr.active_profile_id ?? "local"}:${settings?.asr.backend ?? ""}:${chatboxRoute?.profile_id ?? ""}`,
   );
   const translationProfile = apiProfileCatalog.profiles.find(
-    (profile) => profile.id === settings?.translation.profile_id,
+    (profile) => profile.id === chatboxRoute?.profile_id,
   );
   const translationLanguageCodes = translationLanguageCodesForProfile(translationProfile);
 
@@ -373,6 +376,8 @@ function App() {
                 settings={settings}
                 apiProfiles={apiProfileCatalog.profiles}
                 providerDefinitions={apiProfileCatalog.providerDefinitions}
+                captureLanguageInput={captureLanguageInput}
+                onCaptureLanguageInputChange={setCaptureLanguageInput}
               />
             )}
 

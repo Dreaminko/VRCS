@@ -1,5 +1,30 @@
 
-.top-status-row { display: flex; flex: 0 0 auto; justify-content: flex-end; margin-bottom: 20px; }
+.top-status-row { display: flex; flex: 0 0 auto; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 20px; }
+.language-session-control { display: flex; min-width: 0; }
+.language-session-control.expanded { width: 100%; flex: 1 0 100%; order: 2; display: grid; gap: 10px; }
+.language-session-select { display: flex; min-width: 0; align-items: center; gap: 8px; color: var(--text-quiet); font-size: 10px; }
+.language-session-select select {
+  max-width: 180px;
+  height: 32px;
+  padding: 0 28px 0 9px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  background: var(--surface);
+}
+.language-session-panel {
+  display: grid;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-elevated);
+}
+.language-session-panel > header { display: flex; align-items: center; gap: 7px; color: var(--text-secondary); }
+.language-session-panel > header small { margin-left: auto; color: var(--text-quiet); font-size: 10px; }
+.language-session-basics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.language-session-basics label { display: grid; gap: 5px; color: var(--text-quiet); font-size: 10px; }
+.language-session-basics select { width: 100%; height: 36px; border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--text); background: var(--surface); }
 .status-summary {
   display: flex;
   min-height: 42px;

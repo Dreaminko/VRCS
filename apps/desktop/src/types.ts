@@ -504,7 +504,7 @@ export interface VrOverlayStatus {
 }
 
 export interface Settings {
-  schema_version: 25;
+  schema_version: 26;
   server: {
     host: string;
     port: number;
@@ -522,6 +522,7 @@ export interface Settings {
   vad: VadSettings;
   asr: AsrSettings;
   translation: TranslationSettings;
+  language_presets: LanguagePreset[];
   glossary: GlossarySettings;
   osc: {
     enabled: boolean;
@@ -529,6 +530,7 @@ export interface Settings {
     mute_sync_enabled: boolean;
     mute_status_toast_enabled: boolean;
     preserve_original_text: boolean;
+    translation_strategy: OscTranslationStrategy;
   };
   dictionary: {
     selection_lookup_enabled: boolean;
@@ -555,12 +557,28 @@ export interface VrcxSettings {
 
 export interface TranslationSettings {
   mode: "disabled" | "manual" | "automatic";
+  speaker_targets: TranslationTargetSettings[];
+  microphone_targets: TranslationTargetSettings[];
+  prompt: TranslationPromptSettings;
+}
+
+export interface TranslationTargetSettings {
   target_language: string;
   profile_id: string | null;
   model: string;
   thinking_enabled: boolean;
-  microphone_target_language: string;
-  prompt: TranslationPromptSettings;
+}
+
+export type OscTranslationStrategy = "preferred_only" | "round_robin";
+
+export interface LanguagePreset {
+  id: string;
+  name: string;
+  recognition_language: AsrSettings["language"];
+  translation_mode: TranslationSettings["mode"];
+  speaker_targets: TranslationTargetSettings[];
+  microphone_targets: TranslationTargetSettings[];
+  osc_translation_strategy: OscTranslationStrategy;
 }
 
 export type GlossaryCategory = "person" | "world" | "game" | "custom";
@@ -636,6 +654,7 @@ export interface TranslationEvent {
   translation?: SubtitleTranslation;
   code?: string;
   detail?: string;
+  preferred?: boolean;
 }
 
 export interface Health {
@@ -654,6 +673,31 @@ export interface Health {
   last_error: string | null;
   osc?: OscRuntimeStatus;
   vrchat_mute_sync: VrchatMuteStatus;
+  language_session?: ActiveLanguageSession;
+}
+
+export type ActiveLanguageSession =
+  | { kind: "global" }
+  | ({ kind: "preset"; preset_id: string; preset_name: string } & LanguageSessionSnapshot)
+  | ({ kind: "override" } & LanguageSessionSnapshot);
+
+export interface LanguageSessionSnapshot {
+  recognition_language: string;
+  translation: TranslationSettings;
+  osc_translation_strategy: OscTranslationStrategy;
+}
+
+export interface LanguageOverrideInput {
+  recognition_language: AsrSettings["language"];
+  translation_mode: TranslationSettings["mode"];
+  speaker_targets: TranslationTargetSettings[];
+  microphone_targets: TranslationTargetSettings[];
+  osc_translation_strategy: OscTranslationStrategy;
+}
+
+export interface CaptureStartInput {
+  language_preset_id?: string;
+  language_override?: LanguageOverrideInput;
 }
 
 export interface VrchatMuteStatus {

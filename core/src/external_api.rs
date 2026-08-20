@@ -552,7 +552,7 @@ mod tests {
             ])
         );
 
-        hub.translation_started("utterance-1", "speaker", 1);
+        hub.translation_started("utterance-1", "speaker", 1, "zh-Hans");
         hub.asr_partial("utterance-1", "speaker", "hello", Some("en"));
         let event: Value = serde_json::from_str(
             tokio::time::timeout(Duration::from_secs(1), socket.next())

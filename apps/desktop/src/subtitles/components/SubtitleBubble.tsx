@@ -9,7 +9,7 @@ import {
   readAppliedInterfaceScaleFactor,
 } from "../../app/interface-scale";
 import { contentLanguageTag } from "../../app/ui-language";
-import { useTranslationPartial } from "../../realtime-state";
+import { useTranslationPartials } from "../../realtime-state";
 import {
   subtitleCopyText,
   subtitleSelectionCopyText,
@@ -69,9 +69,19 @@ export const SubtitleBubble = memo(function SubtitleBubble({
   const locale = i18n.resolvedLanguage ?? "en-US";
   const source: SubtitleSource = subtitle.source ?? "speaker";
   const mine = source !== "speaker";
-  const translationPartial = useTranslationPartial(subtitle.id);
-  const completedTranslation = subtitle.translations.at(-1);
-  const visibleTranslation = translationPartial ?? subtitle.translation_partial ?? completedTranslation;
+  const translationPartials = useTranslationPartials(subtitle.id);
+  const completedTranslation = subtitle.translations[0];
+  const fallbackPartial = subtitle.translation_partial
+    ? [{ ...subtitle.translation_partial, preferred: true }]
+    : [];
+  const activePartials = translationPartials.length ? translationPartials : fallbackPartial;
+  const partialLanguages = new Set(activePartials.map((partial) => partial.target_language));
+  const visibleTranslations = [
+    ...activePartials,
+    ...subtitle.translations.filter(
+      (translation) => !partialLanguages.has(translation.target_language),
+    ),
+  ];
   const selectionMode = Boolean(selection?.length);
   const actionTranslation = selectionMode
     ? subtitleSelectionCopyText(selection!, "translation") || null
@@ -95,7 +105,7 @@ export const SubtitleBubble = memo(function SubtitleBubble({
     language: subtitle.language,
     source: subtitle.source ?? null,
     createdAt: subtitle.created_at,
-    translation: visibleTranslation?.text ?? null,
+    translation: visibleTranslations[0]?.text ?? null,
   };
 
   useEffect(() => {
@@ -185,13 +195,20 @@ export const SubtitleBubble = memo(function SubtitleBubble({
             }
           }}
         >{subtitle.text}</p>
-        {visibleTranslation && (
+        {visibleTranslations.length > 0 && (
           <>
             <div className="bubble-translation-divider" aria-hidden="true" />
-            <p className={`bubble-translation ${translationPartial || subtitle.translation_partial ? "streaming-translation" : ""}`} lang={contentLanguageTag(visibleTranslation.target_language)}>
-              {visibleTranslation.text}
-              {(translationPartial || subtitle.translation_partial) && <span className="streaming-ellipsis" aria-hidden="true">…</span>}
-            </p>
+            {visibleTranslations.map((translation) => {
+              const streaming = activePartials.some(
+                (partial) => partial.target_language === translation.target_language,
+              );
+              return (
+                <p className={`bubble-translation ${streaming ? "streaming-translation" : ""}`} lang={contentLanguageTag(translation.target_language)} key={translation.target_language}>
+                  {translation.text}
+                  {streaming && <span className="streaming-ellipsis" aria-hidden="true">…</span>}
+                </p>
+              );
+            })}
           </>
         )}
       </div>

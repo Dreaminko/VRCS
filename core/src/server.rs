@@ -58,6 +58,7 @@ pub struct AppState {
     pub config_path: PathBuf,
     pub asr_model_dir_override: Option<PathBuf>,
     pub config: Arc<RwLock<AppConfig>>,
+    pub language_session: Arc<RwLock<crate::language_session::ActiveLanguageSession>>,
     pub vr_overlay_config_tx: watch::Sender<crate::config::VrOverlayConfig>,
     pub db: Arc<Mutex<Database>>,
     pub live_tx: broadcast::Sender<LiveTranscription>,
@@ -423,6 +424,11 @@ async fn health(State(state): State<Arc<AppState>>) -> Json<Value> {
         .capture_requested
         .load(std::sync::atomic::Ordering::SeqCst);
     let vrchat_mute_sync = state.vrchat_mute_sync.status();
+    let language_session = state
+        .language_session
+        .read()
+        .expect("language session lock")
+        .clone();
     Json(json!({
         "status": "ok",
         "service": "vrcs-core",
@@ -447,6 +453,7 @@ async fn health(State(state): State<Arc<AppState>>) -> Json<Value> {
         "vad_model_version": vad_model_version,
         "last_error": last_error,
         "osc": osc,
+        "language_session": language_session,
         "vrchat_mute_sync": vrchat_mute_sync,
     }))
 }

@@ -11,7 +11,16 @@ pub const DEFAULT_TRANSLATION_SYSTEM_PROMPT: &str = concat!(
 pub struct TranslationConfig {
     #[serde(default = "default_translation_mode")]
     pub mode: String,
-    #[serde(default = "default_translation_target")]
+    #[serde(default = "default_speaker_targets")]
+    pub speaker_targets: Vec<TranslationTargetConfig>,
+    #[serde(default = "default_microphone_targets")]
+    pub microphone_targets: Vec<TranslationTargetConfig>,
+    #[serde(default)]
+    pub prompt: TranslationPromptConfig,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TranslationTargetConfig {
     pub target_language: String,
     #[serde(default)]
     pub profile_id: Option<String>,
@@ -19,10 +28,6 @@ pub struct TranslationConfig {
     pub model: String,
     #[serde(default)]
     pub thinking_enabled: bool,
-    #[serde(default = "default_microphone_translation_target")]
-    pub microphone_target_language: String,
-    #[serde(default)]
-    pub prompt: TranslationPromptConfig,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -53,12 +58,12 @@ fn default_translation_mode() -> String {
     "disabled".into()
 }
 
-fn default_translation_target() -> String {
-    "zh-Hans".into()
+fn default_speaker_targets() -> Vec<TranslationTargetConfig> {
+    vec![TranslationTargetConfig::new("zh-Hans")]
 }
 
-fn default_microphone_translation_target() -> String {
-    "en".into()
+fn default_microphone_targets() -> Vec<TranslationTargetConfig> {
+    vec![TranslationTargetConfig::new("en")]
 }
 
 fn default_translation_model() -> String {
@@ -81,12 +86,20 @@ impl Default for TranslationConfig {
     fn default() -> Self {
         Self {
             mode: default_translation_mode(),
-            target_language: default_translation_target(),
+            speaker_targets: default_speaker_targets(),
+            microphone_targets: default_microphone_targets(),
+            prompt: TranslationPromptConfig::default(),
+        }
+    }
+}
+
+impl TranslationTargetConfig {
+    pub fn new(target_language: impl Into<String>) -> Self {
+        Self {
+            target_language: target_language.into(),
             profile_id: None,
             model: default_translation_model(),
             thinking_enabled: false,
-            microphone_target_language: default_microphone_translation_target(),
-            prompt: TranslationPromptConfig::default(),
         }
     }
 }

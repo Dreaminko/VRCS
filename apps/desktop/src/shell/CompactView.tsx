@@ -2,7 +2,7 @@ import { useTranslation } from "react-i18next";
 import { Maximize2, Mic, Square, X } from "lucide-react";
 
 import type { LookupOrigin } from "../app/app-types";
-import { useLivePartial, useTranslationPartial } from "../realtime-state";
+import { useLivePartial, useTranslationPartials } from "../realtime-state";
 import type { Subtitle } from "../types";
 import { contentLanguageTag } from "../app/ui-language";
 
@@ -20,10 +20,10 @@ export function CompactView({ subtitle, running, vrchatMuted, captureDisabled, o
   const microphonePartial = useLivePartial("microphone");
   const speakerPartial = useLivePartial("speaker");
   const partial = microphonePartial ?? speakerPartial;
-  const translationPartial = useTranslationPartial(subtitle?.id ?? null);
+  const translationPartial = useTranslationPartials(subtitle?.id ?? null)[0];
   const visibleTranslation = translationPartial
     ?? subtitle?.translation_partial
-    ?? subtitle?.translations.at(-1);
+    ?? subtitle?.translations[0];
   const captureLabel = t(running ? "capture.pause" : "capture.start");
   const origin: LookupOrigin | undefined = subtitle ? {
     id: subtitle.id,

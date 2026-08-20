@@ -18,6 +18,7 @@ pub(crate) struct PipelineDependencies {
     conversation_catalog: broadcast::Sender<ConversationCatalog>,
     translation: TranslationDispatcher,
     config: Arc<std::sync::RwLock<AppConfig>>,
+    language_session: Arc<std::sync::RwLock<crate::language_session::ActiveLanguageSession>>,
     output: SubtitleLifecyclePublisher,
 }
 
@@ -30,6 +31,7 @@ impl PipelineDependencies {
         conversation_catalog: broadcast::Sender<ConversationCatalog>,
         translation: TranslationDispatcher,
         config: Arc<std::sync::RwLock<AppConfig>>,
+        language_session: Arc<std::sync::RwLock<crate::language_session::ActiveLanguageSession>>,
         output: SubtitleLifecyclePublisher,
     ) -> Self {
         Self {
@@ -39,6 +41,7 @@ impl PipelineDependencies {
             conversation_catalog,
             translation,
             config,
+            language_session,
             output,
         }
     }
@@ -180,39 +183,60 @@ impl PipelineDependencies {
                 return Err(detail);
             }
         };
-        let (translation_settings, api_profiles, include_vrcx_context) = {
+        let (translation_targets, translation_prompt, api_profiles, include_vrcx_context) = {
             let config = self.config.read().expect("config lock");
+            let language = self
+                .language_session
+                .read()
+                .expect("language session lock")
+                .resolve(&config);
             (
-                automatic_translation_settings(
-                    &config.translation,
+                automatic_translation_targets(
+                    &language.translation,
                     source,
                     saved.language.as_deref(),
                 ),
+                language.translation.prompt,
                 config.asr.api_profiles.clone(),
                 config.vrcx.enabled && config.vrcx.include_in_llm_context,
             )
         };
         self.output.subtitle_stored_with_message(
             saved.clone(),
-            translation_settings.is_some(),
+            translation_targets.is_some(),
+            translation_targets
+                .as_ref()
+                .map(|targets| {
+                    targets
+                        .iter()
+                        .map(|target| target.target_language.clone())
+                        .collect()
+                })
+                .unwrap_or_default(),
             &message_id,
         );
-        if let Some(settings) = translation_settings {
+        if let Some(targets) = translation_targets {
+            let failed_targets = targets.clone();
             if let Err(detail) = self.translation.enqueue(
                 saved.clone(),
-                settings,
+                targets,
+                translation_prompt,
                 api_profiles,
                 message_id.clone(),
                 include_vrcx_context,
             ) {
                 if let Some(subtitle_id) = saved.id {
-                    self.output.translation_failed_with_message(
-                        subtitle_id,
-                        "translation.queue_full".into(),
-                        detail.clone(),
-                        &message_id,
-                        source,
-                    );
+                    for (index, target) in failed_targets.iter().enumerate() {
+                        self.output.translation_failed_with_message(
+                            subtitle_id,
+                            "translation.queue_full".into(),
+                            detail.clone(),
+                            &target.target_language,
+                            index == 0,
+                            &message_id,
+                            source,
+                        );
+                    }
                 }
                 tracing::warn!(%detail, "automatic translation was not queued");
             }
@@ -221,59 +245,63 @@ impl PipelineDependencies {
     }
 }
 
-fn automatic_translation_settings(
+fn automatic_translation_targets(
     config: &TranslationConfig,
     source: &str,
     source_language: Option<&str>,
-) -> Option<TranslationConfig> {
+) -> Option<Vec<crate::config::TranslationTargetConfig>> {
     if config.mode != "automatic" {
         return None;
     }
-    let mut settings = config.clone();
-    if source == "microphone" {
-        settings.target_language = settings.microphone_target_language.clone();
-    }
-    if source_language
-        .is_some_and(|source| same_translation_language(source, &settings.target_language))
-    {
-        return None;
-    }
-    Some(settings)
+    let targets = if source == "microphone" {
+        &config.microphone_targets
+    } else {
+        &config.speaker_targets
+    };
+    let targets = targets
+        .iter()
+        .filter(|target| {
+            !source_language
+                .is_some_and(|source| same_translation_language(source, &target.target_language))
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    (!targets.is_empty()).then_some(targets)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::automatic_translation_settings;
-    use crate::config::TranslationConfig;
+    use super::automatic_translation_targets;
+    use crate::config::{TranslationConfig, TranslationTargetConfig};
 
     #[test]
     fn automatic_mode_translates_microphone_with_its_own_target() {
         let config = TranslationConfig {
             mode: "automatic".into(),
-            target_language: "zh-Hans".into(),
-            microphone_target_language: "ja".into(),
+            speaker_targets: vec![TranslationTargetConfig::new("zh-Hans")],
+            microphone_targets: vec![TranslationTargetConfig::new("ja")],
             ..TranslationConfig::default()
         };
 
-        let microphone = automatic_translation_settings(&config, "microphone", None).unwrap();
-        assert_eq!(microphone.target_language, "ja");
-        let speaker = automatic_translation_settings(&config, "speaker", None).unwrap();
-        assert_eq!(speaker.target_language, "zh-Hans");
+        let microphone = automatic_translation_targets(&config, "microphone", None).unwrap();
+        assert_eq!(microphone[0].target_language, "ja");
+        let speaker = automatic_translation_targets(&config, "speaker", None).unwrap();
+        assert_eq!(speaker[0].target_language, "zh-Hans");
     }
 
     #[test]
     fn automatic_mode_skips_matching_source_and_target_languages() {
         let config = TranslationConfig {
             mode: "automatic".into(),
-            target_language: "en".into(),
-            microphone_target_language: "ja".into(),
+            speaker_targets: vec![TranslationTargetConfig::new("en")],
+            microphone_targets: vec![TranslationTargetConfig::new("ja")],
             ..TranslationConfig::default()
         };
 
-        assert!(automatic_translation_settings(&config, "speaker", Some("en-US")).is_none());
-        assert!(automatic_translation_settings(&config, "microphone", Some("ja")).is_none());
-        assert!(automatic_translation_settings(&config, "speaker", Some("ja")).is_some());
-        assert!(automatic_translation_settings(&config, "speaker", None).is_some());
+        assert!(automatic_translation_targets(&config, "speaker", Some("en-US")).is_none());
+        assert!(automatic_translation_targets(&config, "microphone", Some("ja")).is_none());
+        assert!(automatic_translation_targets(&config, "speaker", Some("ja")).is_some());
+        assert!(automatic_translation_targets(&config, "speaker", None).is_some());
     }
 
     #[test]
@@ -284,8 +312,8 @@ mod tests {
                 ..TranslationConfig::default()
             };
 
-            assert!(automatic_translation_settings(&config, "microphone", Some("ja")).is_none());
-            assert!(automatic_translation_settings(&config, "speaker", Some("en")).is_none());
+            assert!(automatic_translation_targets(&config, "microphone", Some("ja")).is_none());
+            assert!(automatic_translation_targets(&config, "speaker", Some("en")).is_none());
         }
     }
 }

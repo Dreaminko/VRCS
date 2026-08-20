@@ -3,7 +3,7 @@ use std::time::{Duration, Instant};
 
 use tokio::sync::{broadcast, mpsc, Semaphore};
 
-use crate::config::{ApiProfile, TranslationConfig};
+use crate::config::{ApiProfile, TranslationPromptConfig, TranslationTargetConfig};
 use crate::db::conversations::{publish_latest_catalog, ConversationCatalog};
 use crate::db::Database;
 use crate::models::Subtitle;
@@ -20,7 +20,8 @@ pub struct TranslationDispatcher {
 struct TranslationJob {
     subtitle: Subtitle,
     message_id: String,
-    settings: TranslationConfig,
+    targets: Vec<TranslationTargetConfig>,
+    prompt: TranslationPromptConfig,
     profiles: Vec<ApiProfile>,
     include_vrcx_context: bool,
     queued_at: Instant,
@@ -38,17 +39,30 @@ impl TranslationDispatcher {
         tokio::spawn(async move {
             let concurrency = Arc::new(Semaphore::new(4));
             while let Some(job) = receiver.recv().await {
-                let permit = Arc::clone(&concurrency).acquire_owned().await;
-                let Ok(permit) = permit else { break };
-                let service = Arc::clone(&service);
-                let database = Arc::clone(&database);
-                let conversation_catalog = conversation_catalog.clone();
-                let output = output.clone();
-                let vrcx = vrcx.clone();
-                tokio::spawn(async move {
-                    let _permit = permit;
-                    process_job(service, database, conversation_catalog, output, vrcx, job).await;
-                });
+                for (index, target) in job.targets.iter().cloned().enumerate() {
+                    let permit = Arc::clone(&concurrency).acquire_owned().await;
+                    let Ok(permit) = permit else { return };
+                    let service = Arc::clone(&service);
+                    let database = Arc::clone(&database);
+                    let conversation_catalog = conversation_catalog.clone();
+                    let output = output.clone();
+                    let vrcx = vrcx.clone();
+                    let job = job.clone();
+                    tokio::spawn(async move {
+                        let _permit = permit;
+                        process_job(
+                            service,
+                            database,
+                            conversation_catalog,
+                            output,
+                            vrcx,
+                            job,
+                            target,
+                            index == 0,
+                        )
+                        .await;
+                    });
+                }
             }
         });
         Self { sender }
@@ -57,7 +71,8 @@ impl TranslationDispatcher {
     pub fn enqueue(
         &self,
         subtitle: Subtitle,
-        settings: TranslationConfig,
+        targets: Vec<TranslationTargetConfig>,
+        prompt: TranslationPromptConfig,
         profiles: Vec<ApiProfile>,
         message_id: String,
         include_vrcx_context: bool,
@@ -66,7 +81,8 @@ impl TranslationDispatcher {
             .try_send(TranslationJob {
                 subtitle,
                 message_id,
-                settings,
+                targets,
+                prompt,
                 profiles,
                 include_vrcx_context,
                 queued_at: Instant::now(),
@@ -82,6 +98,8 @@ async fn process_job(
     output: SubtitleLifecyclePublisher,
     vrcx: crate::vrcx::VrcxIntegration,
     job: TranslationJob,
+    target: TranslationTargetConfig,
+    preferred: bool,
 ) {
     let Some(subtitle_id) = job.subtitle.id else {
         return;
@@ -89,11 +107,17 @@ async fn process_job(
     let queue_wait_ms = job.queued_at.elapsed().as_millis() as u64;
     let started = Instant::now();
     let source = job.subtitle.source.clone();
-    output.translation_started_with_message(subtitle_id, &job.message_id, &source);
+    output.translation_started_with_message(
+        subtitle_id,
+        &target.target_language,
+        preferred,
+        &job.message_id,
+        &source,
+    );
     let progress_output = output.clone();
     let progress_message_id = job.message_id.clone();
     let progress_source = source.clone();
-    let target_language = job.settings.target_language.clone();
+    let target_language = target.target_language.clone();
     let last_progress = Mutex::new(Instant::now() - Duration::from_millis(80));
     let progress = move |text: &str| {
         let Ok(mut last) = last_progress.lock() else {
@@ -107,13 +131,14 @@ async fn process_job(
             subtitle_id,
             text.to_owned(),
             target_language.clone(),
+            preferred,
             &progress_message_id,
             &progress_source,
         );
     };
     let mut context = match database.lock() {
         Ok(database) => database
-            .recent_translation_context(&job.settings.prompt, Some(subtitle_id))
+            .recent_translation_context(&job.prompt, Some(subtitle_id))
             .unwrap_or_else(|error| {
                 tracing::warn!(%error, "translation context could not be loaded");
                 Vec::new()
@@ -130,11 +155,11 @@ async fn process_job(
     }
     let first = service
         .translate_with_progress(
-            &job.settings,
+            &target,
+            &job.prompt,
             &job.profiles,
             &job.subtitle.text,
             job.subtitle.language.as_deref(),
-            None,
             &context,
             Some(&progress),
         )
@@ -144,11 +169,11 @@ async fn process_job(
             tokio::time::sleep(Duration::from_millis(250)).await;
             service
                 .translate_with_progress(
-                    &job.settings,
+                    &target,
+                    &job.prompt,
                     &job.profiles,
                     &job.subtitle.text,
                     job.subtitle.language.as_deref(),
-                    None,
                     &context,
                     Some(&progress),
                 )
@@ -188,6 +213,7 @@ async fn process_job(
                     output.translation_completed_with_message(
                         subtitle_id,
                         record,
+                        preferred,
                         &job.message_id,
                         &source,
                     );
@@ -197,6 +223,8 @@ async fn process_job(
                         subtitle_id,
                         "translation.storage_failed".into(),
                         detail,
+                        &target.target_language,
+                        preferred,
                         &job.message_id,
                         &source,
                     );
@@ -206,6 +234,8 @@ async fn process_job(
                         subtitle_id,
                         "translation.storage_failed".into(),
                         error.to_string(),
+                        &target.target_language,
+                        preferred,
                         &job.message_id,
                         &source,
                     );
@@ -217,6 +247,8 @@ async fn process_job(
                 subtitle_id,
                 error.code.into(),
                 error.detail,
+                &target.target_language,
+                preferred,
                 &job.message_id,
                 &source,
             );

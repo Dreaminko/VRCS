@@ -354,9 +354,15 @@ fn migrates_v6_with_translation_disabled_by_default() {
 
     assert_eq!(config.schema_version, SCHEMA_VERSION);
     assert_eq!(config.translation.mode, "disabled");
-    assert_eq!(config.translation.target_language, "zh-Hans");
-    assert!(!config.translation.thinking_enabled);
-    assert_eq!(config.translation.microphone_target_language, "zh-Hans");
+    assert_eq!(
+        config.translation.speaker_targets[0].target_language,
+        "zh-Hans"
+    );
+    assert!(!config.translation.speaker_targets[0].thinking_enabled);
+    assert_eq!(
+        config.translation.microphone_targets[0].target_language,
+        "zh-Hans"
+    );
 }
 
 #[test]
@@ -413,7 +419,10 @@ fn migrates_v8_automatic_translation_target_for_microphone() {
     .unwrap();
 
     assert_eq!(config.translation.mode, "automatic");
-    assert_eq!(config.translation.microphone_target_language, "ja");
+    assert_eq!(
+        config.translation.microphone_targets[0].target_language,
+        "ja"
+    );
 }
 
 #[test]
@@ -437,6 +446,32 @@ fn migrates_v12_with_translation_context_disabled() {
     assert_eq!(config.translation.prompt.max_chars, 4_000);
     assert!(config.translation.prompt.glossary.is_empty());
     assert!(config.glossary.sources.is_empty());
+}
+
+#[test]
+fn migrates_v25_translation_fields_into_ordered_routes() {
+    let config = config_from_value(&serde_json::json!({
+        "schema_version": 25,
+        "translation": {
+            "mode": "disabled",
+            "target_language": "ja",
+            "microphone_target_language": "en",
+            "profile_id": null,
+            "model": "legacy-model",
+            "thinking_enabled": true
+        }
+    }))
+    .unwrap();
+
+    assert_eq!(config.schema_version, SCHEMA_VERSION);
+    assert_eq!(config.translation.speaker_targets.len(), 1);
+    assert_eq!(config.translation.speaker_targets[0].target_language, "ja");
+    assert_eq!(config.translation.speaker_targets[0].model, "legacy-model");
+    assert!(config.translation.speaker_targets[0].thinking_enabled);
+    assert_eq!(
+        config.translation.microphone_targets[0].target_language,
+        "en"
+    );
 }
 
 #[test]

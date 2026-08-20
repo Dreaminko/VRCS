@@ -24,9 +24,9 @@ import {
 } from "../src/vr-overlay-native.ts";
 
 const settings = {
-  schema_version: 25,
+  schema_version: 26,
   vr_overlay: DEFAULT_VR_OVERLAY_SETTINGS,
-} as Settings;
+} as unknown as Settings;
 
 test("VR Overlay defaults match the complete schema v23 contract", () => {
   assert.deepEqual(Object.keys(DEFAULT_VR_OVERLAY_SETTINGS).sort(), ["enabled", "headset", "wrist"]);

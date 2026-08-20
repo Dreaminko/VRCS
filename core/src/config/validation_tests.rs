@@ -145,6 +145,17 @@ fn text_capabilities() -> Vec<String> {
     ]
 }
 
+fn set_translation_profile(config: &mut AppConfig, profile_id: Option<&str>) {
+    for target in config
+        .translation
+        .speaker_targets
+        .iter_mut()
+        .chain(&mut config.translation.microphone_targets)
+    {
+        target.profile_id = profile_id.map(str::to_owned);
+    }
+}
+
 #[test]
 fn translation_accepts_direct_and_llm_profiles() {
     let mut config = AppConfig::default();
@@ -159,7 +170,7 @@ fn translation_accepts_direct_and_llm_profiles() {
         ..ApiProfile::default()
     });
     config.translation.mode = "manual".into();
-    config.translation.profile_id = Some("deepl-one".into());
+    set_translation_profile(&mut config, Some("deepl-one"));
     assert!(config.validate_settings().is_ok());
 
     config.asr.api_profiles.push(ApiProfile {
@@ -172,8 +183,8 @@ fn translation_accepts_direct_and_llm_profiles() {
         enabled_capabilities: text_capabilities(),
         ..ApiProfile::default()
     });
-    config.translation.profile_id = Some("openai-one".into());
-    config.translation.model.clear();
+    set_translation_profile(&mut config, Some("openai-one"));
+    config.translation.speaker_targets[0].model.clear();
     assert!(config.validate_settings().is_err());
 }
 
@@ -197,32 +208,29 @@ fn translation_languages_follow_the_selected_provider() {
         },
     ];
     config.translation.mode = "manual".into();
-    config.translation.target_language = "hi".into();
-    config.translation.profile_id = Some("deepl-one".into());
+    config.translation.speaker_targets[0].target_language = "hi".into();
+    set_translation_profile(&mut config, Some("deepl-one"));
     assert_eq!(
         config.validate_settings().unwrap_err(),
         "The selected API profile does not support target language: hi"
     );
 
-    config.translation.target_language = "ja".into();
-    config.translation.microphone_target_language = "hi".into();
-    assert!(config.validate_settings().is_ok());
-
-    config.translation.mode = "automatic".into();
+    config.translation.speaker_targets[0].target_language = "ja".into();
+    config.translation.microphone_targets[0].target_language = "hi".into();
     assert_eq!(
         config.validate_settings().unwrap_err(),
-        "The selected API profile does not support microphone target language: hi"
+        "The selected API profile does not support target language: hi"
     );
 
     config.translation.mode = "manual".into();
-    config.translation.profile_id = Some("openai-one".into());
-    config.translation.target_language = "tlh-Latn".into();
+    set_translation_profile(&mut config, Some("openai-one"));
+    config.translation.speaker_targets[0].target_language = "tlh-Latn".into();
     assert!(config.validate_settings().is_ok());
 
-    config.translation.target_language = "not a language".into();
+    config.translation.speaker_targets[0].target_language = "not a language".into();
     assert_eq!(
         config.validate_settings().unwrap_err(),
-        "Invalid translation target language: not a language"
+        "Invalid speaker translation target language: not a language"
     );
 }
 
@@ -240,16 +248,17 @@ fn gemini_profiles_are_llm_only_and_require_a_model() {
         ..ApiProfile::default()
     });
     config.translation.mode = "manual".into();
-    config.translation.profile_id = Some("gemini-one".into());
-    config.translation.model = "gemini-2.5-flash".into();
+    set_translation_profile(&mut config, Some("gemini-one"));
+    config.translation.speaker_targets[0].model = "gemini-2.5-flash".into();
+    config.translation.microphone_targets[0].model = "gemini-2.5-flash".into();
     assert!(config.validate_settings().is_ok());
 
-    config.translation.model.clear();
+    config.translation.speaker_targets[0].model.clear();
     assert_eq!(
         config.validate_settings().unwrap_err(),
         "The LLM translation model cannot be empty"
     );
-    config.translation.model = "gemini-2.5-flash".into();
+    config.translation.speaker_targets[0].model = "gemini-2.5-flash".into();
     config.asr.api_profiles[0]
         .enabled_capabilities
         .push(CAPABILITY_SPEECH_TO_TEXT.into());
@@ -271,14 +280,14 @@ fn api_profile_capabilities_separate_asr_and_translation() {
     assert!(config.validate_settings().is_ok());
 
     config.translation.mode = "manual".into();
-    config.translation.profile_id = Some("openai-asr".into());
+    set_translation_profile(&mut config, Some("openai-asr"));
     assert_eq!(
         config.validate_settings().unwrap_err(),
         "The selected API profile does not support translation"
     );
 
     config.translation.mode = "disabled".into();
-    config.translation.profile_id = None;
+    set_translation_profile(&mut config, None);
     config.asr.api_profiles[0].enabled_capabilities = text_capabilities();
     assert_eq!(
         config.validate_settings().unwrap_err(),
@@ -308,7 +317,31 @@ fn automatic_translation_requires_a_profile() {
     config.translation.mode = "automatic".into();
     assert_eq!(
         config.validate_settings().unwrap_err(),
-        "A translation API profile must be selected"
+        "A translation API profile must be selected for zh-Hans"
+    );
+}
+
+#[test]
+fn translation_routes_are_bounded_and_unique_per_source() {
+    let mut config = AppConfig::default();
+    config
+        .translation
+        .speaker_targets
+        .push(crate::config::TranslationTargetConfig::new("zh-Hans"));
+    assert_eq!(
+        config.validate_settings().unwrap_err(),
+        "Translation speaker target languages must be unique"
+    );
+
+    config.translation.speaker_targets = vec![
+        crate::config::TranslationTargetConfig::new("en"),
+        crate::config::TranslationTargetConfig::new("ja"),
+        crate::config::TranslationTargetConfig::new("fr"),
+        crate::config::TranslationTargetConfig::new("de"),
+    ];
+    assert_eq!(
+        config.validate_settings().unwrap_err(),
+        "Translation speaker targets must contain between 1 and 3 entries"
     );
 }
 
@@ -326,8 +359,9 @@ fn validates_openai_compatible_profiles_and_keeps_them_out_of_realtime_asr() {
         ..ApiProfile::default()
     });
     config.translation.mode = "manual".into();
-    config.translation.profile_id = Some("deepseek".into());
-    config.translation.model = "deepseek-chat".into();
+    set_translation_profile(&mut config, Some("deepseek"));
+    config.translation.speaker_targets[0].model = "deepseek-chat".into();
+    config.translation.microphone_targets[0].model = "deepseek-chat".into();
     assert!(config.validate_settings().is_ok());
 
     config.asr.backend = SERVICE_OPENAI_REALTIME.into();

@@ -4,6 +4,12 @@
   .conversation-sidebar-resize-handle { display: none; }
   .sidebar-scrim { position: absolute; z-index: 50; inset: 0; display: block; padding: 0; border: 0; background: rgba(0, 0, 0, 0.12); }
   .status-summary { display: none; }
+  .language-session-select { width: 100%; }
+  .language-session-select select { flex: 1; max-width: none; }
+  .language-session-control { width: 100%; }
+  .language-session-basics { grid-template-columns: 1fr; }
+  .language-session-panel > header { align-items: flex-start; flex-wrap: wrap; }
+  .language-session-panel > header small { width: 100%; margin-left: 22px; }
   .top-status-row { margin-bottom: 8px; }
   .message-group { max-width: 92%; }
   .history-toolbar { align-items: flex-start; flex-direction: column; }

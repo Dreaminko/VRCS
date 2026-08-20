@@ -21,7 +21,7 @@ Download the appropriate installer from [GitHub Releases](https://github.com/Dre
 | Installer | Recommended use | Additional requirements |
 |---|---|---|
 | `VRCS-<version>-windows-x64.exe` | Recommended for most users; supports cloud recognition and local CPU-based Whisper | No CUDA required |
-| `VRCS-<version>-windows-x64-CUDA.exe` | Accelerates local Whisper with an NVIDIA GPU | [CUDA 12.x Runtime](https://developer.nvidia.com/cuda-downloads?target_os=Windows), cuBLAS, and a compatible NVIDIA GPU and driver |
+| `VRCS-<version>-windows-x64-CUDA.exe` | Accelerates local Whisper with an NVIDIA GPU | [CUDA 13.x Runtime](https://developer.nvidia.com/cuda-downloads?target_os=Windows), cuBLAS, and a compatible NVIDIA GPU and driver |
 
 The standard and CUDA editions share the same configuration, database, and model directories, so you can switch between them without migrating data.
 
@@ -100,7 +100,7 @@ Development requirements:
 - Node.js 24+
 - Rust stable
 - Visual Studio Build Tools with the **Desktop development with C++** workload
-- NVIDIA CUDA Toolkit with `CUDA_PATH` configured, only for CUDA development
+- NVIDIA CUDA 13.x Toolkit with `CUDA_PATH` configured, only for CUDA development
 
 ```powershell
 npm install

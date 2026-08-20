@@ -3,7 +3,7 @@ import { useSyncExternalStore } from "react";
 import type { AudioLevel, LiveTranscription, Subtitle } from "./types";
 
 type Listener = () => void;
-type TranslationPartial = NonNullable<Subtitle["translation_partial"]>;
+type TranslationPartial = NonNullable<Subtitle["translation_partial"]> & { preferred: boolean };
 
 const audioLevels = new Map<AudioLevel["source"], AudioLevel>();
 const audioLevelListeners = new Set<Listener>();
@@ -12,7 +12,7 @@ const livePartialListeners = new Map<LiveTranscription["source"], Set<Listener>>
 const terminatedLivePartialIds = new Set<string>();
 const terminatedLivePartialOrder: string[] = [];
 const MAX_TERMINATED_LIVE_PARTIALS = 32;
-const translationPartials = new Map<number, TranslationPartial>();
+const translationPartials = new Map<number, TranslationPartial[]>();
 const translationPartialListeners = new Map<number, Set<Listener>>();
 
 function notify(listeners: Set<Listener>) {
@@ -144,12 +144,25 @@ export function publishTranslationPartial(
   subtitleId: number,
   partial: TranslationPartial,
 ) {
-  translationPartials.set(subtitleId, partial);
+  const partials = translationPartials.get(subtitleId) ?? [];
+  translationPartials.set(
+    subtitleId,
+    [
+      ...partials.filter((item) => item.target_language !== partial.target_language),
+      partial,
+    ].sort((left, right) => Number(right.preferred) - Number(left.preferred)),
+  );
   notifyKey(translationPartialListeners, subtitleId);
 }
 
-export function clearTranslationPartial(subtitleId: number) {
-  if (!translationPartials.delete(subtitleId)) return;
+export function clearTranslationPartial(subtitleId: number, targetLanguage?: string) {
+  if (targetLanguage) {
+    const partials = translationPartials.get(subtitleId);
+    if (!partials?.some((partial) => partial.target_language === targetLanguage)) return;
+    const next = partials.filter((partial) => partial.target_language !== targetLanguage);
+    if (next.length) translationPartials.set(subtitleId, next);
+    else translationPartials.delete(subtitleId);
+  } else if (!translationPartials.delete(subtitleId)) return;
   notifyKey(translationPartialListeners, subtitleId);
 }
 
@@ -160,14 +173,18 @@ export function clearTranslationPartials() {
   subtitleIds.forEach((subtitleId) => notifyKey(translationPartialListeners, subtitleId));
 }
 
-export function useTranslationPartial(
+const EMPTY_TRANSLATION_PARTIALS: TranslationPartial[] = [];
+
+export function useTranslationPartials(
   subtitleId: number | null,
-): TranslationPartial | null {
+): TranslationPartial[] {
   return useSyncExternalStore(
     (listener) => subtitleId === null
       ? () => undefined
       : subscribeKey(translationPartialListeners, subtitleId, listener),
-    () => subtitleId === null ? null : translationPartials.get(subtitleId) ?? null,
-    () => null,
+    () => subtitleId === null
+      ? EMPTY_TRANSLATION_PARTIALS
+      : translationPartials.get(subtitleId) ?? EMPTY_TRANSLATION_PARTIALS,
+    () => EMPTY_TRANSLATION_PARTIALS,
   );
 }

@@ -799,6 +799,9 @@ mod tests {
             catalog,
             translation,
             Arc::new(std::sync::RwLock::new(crate::config::AppConfig::default())),
+            Arc::new(std::sync::RwLock::new(
+                crate::language_session::ActiveLanguageSession::Global,
+            )),
             output,
         )
     }
@@ -916,6 +919,9 @@ mod tests {
             catalog_tx,
             translation,
             Arc::new(std::sync::RwLock::new(crate::config::AppConfig::default())),
+            Arc::new(std::sync::RwLock::new(
+                crate::language_session::ActiveLanguageSession::Global,
+            )),
             output,
         );
 

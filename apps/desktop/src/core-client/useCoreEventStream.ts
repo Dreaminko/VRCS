@@ -31,6 +31,7 @@ type EventHandlers = {
   onTranslationCompleted: (
     subtitleId: number,
     translation: SubtitleTranslation,
+    preferred: boolean,
   ) => void;
   onTranslationFailed: (subtitleId: number) => void;
 };
@@ -144,25 +145,27 @@ export function useCoreEventStream({
             );
             break;
           case "translation_started":
-            clearTranslationPartial(message.subtitle_id);
+            clearTranslationPartial(message.subtitle_id, message.target_language);
             handlersRef.current.onTranslationStarted(message.subtitle_id);
             break;
           case "translation_partial":
             publishTranslationPartial(message.subtitle_id, {
               text: message.text,
               target_language: message.target_language,
+              preferred: message.preferred ?? false,
             });
             break;
           case "translation_completed":
-            clearTranslationPartial(message.subtitle_id);
+            clearTranslationPartial(message.subtitle_id, message.translation.target_language);
             handlersRef.current.onTranslationCompleted(
               message.subtitle_id,
               message.translation,
+              message.preferred ?? false,
             );
             clearErrorFromRef.current(`translation:${message.subtitle_id}`);
             break;
           case "translation_failed":
-            clearTranslationPartial(message.subtitle_id);
+            clearTranslationPartial(message.subtitle_id, message.target_language);
             handlersRef.current.onTranslationFailed(message.subtitle_id);
             reportErrorRef.current(
               { code: message.code ?? "translation.request_failed" },

@@ -34,6 +34,8 @@ pub struct OscConfig {
     pub mute_status_toast_enabled: bool,
     #[serde(default = "default_enabled")]
     pub preserve_original_text: bool,
+    #[serde(default = "super::language::default_translation_strategy")]
+    pub translation_strategy: String,
 }
 
 fn default_enabled() -> bool {
@@ -93,6 +95,7 @@ impl Default for OscConfig {
             mute_sync_enabled: default_enabled(),
             mute_status_toast_enabled: false,
             preserve_original_text: default_enabled(),
+            translation_strategy: super::language::default_translation_strategy(),
         }
     }
 }

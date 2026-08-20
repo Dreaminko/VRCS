@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use crate::asr;
-use crate::config::{ApiProfile, TranslationConfig};
+use crate::config::ApiProfile;
 use crate::providers::{
     self, ProviderServiceDefinition, ServiceAdapter, ALIBABA_PROVIDER, CAPABILITY_SPEECH_TO_TEXT,
     CAPABILITY_TEXT_GENERATION, CAPABILITY_TEXT_TRANSLATION, DEEPSEEK_PROVIDER, GEMINI_PROVIDER,
@@ -219,22 +219,21 @@ async fn test_translation(
     } else {
         test_model(state, profile, service, requested_model).await?
     };
-    let settings = TranslationConfig {
-        mode: "manual".into(),
+    let target = crate::config::TranslationTargetConfig {
         target_language: "en".into(),
         profile_id: Some(profile.id.clone()),
         model,
         thinking_enabled: false,
-        ..TranslationConfig::default()
     };
+    let prompt = crate::config::TranslationPromptConfig::default();
     state
         .translation_service
         .translate(
-            &settings,
+            &target,
+            &prompt,
             &config.asr.api_profiles,
             "こんにちは",
             Some("ja"),
-            None,
             &[],
         )
         .await

@@ -162,7 +162,13 @@ export function ApiManagementSettingsSection({
           const translationActive = profile.translation_active
             && settings.translation.mode !== "disabled";
           const translationTestModel = translationActive
-            ? translationDiagnosticModel(profile, modelCatalog, settings.translation.model)
+            ? translationDiagnosticModel(
+              profile,
+              modelCatalog,
+              settings.translation.speaker_targets.find(
+                (target) => target.profile_id === profile.id,
+              )?.model ?? "",
+            )
             : undefined;
           const detail = providerDetail(profile, definition);
           const capabilityLabels = profileEnabledCapabilities(profile).map(

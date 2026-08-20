@@ -259,6 +259,7 @@ fn pipeline_dependencies(state: &Arc<AppState>) -> PipelineDependencies {
         state.conversation_catalog_tx.clone(),
         state.translation_dispatcher.clone(),
         Arc::clone(&state.config),
+        Arc::clone(&state.language_session),
         state.subtitle_output.clone(),
     )
 }
@@ -412,9 +413,21 @@ pub(crate) async fn reload_glossary_asr_context(state: &Arc<AppState>) -> ApiRes
     start_pipelines(state, &config, plan).await
 }
 
-pub(super) async fn capture_start(State(state): State<Arc<AppState>>) -> ApiResult<Json<Value>> {
+pub(super) async fn capture_start(
+    State(state): State<Arc<AppState>>,
+    input: Option<Json<crate::language_session::CaptureStartInput>>,
+) -> ApiResult<Json<Value>> {
     let _control = state.capture_control.lock().await;
-    let config = state.config.read().expect("config lock").clone();
+    let global = state.config.read().expect("config lock").clone();
+    let input = input.map(|Json(input)| input).unwrap_or_default();
+    let session = crate::language_session::select_session(input, &global).map_err(|detail| {
+        api_error(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "capture.language_session_invalid",
+            detail,
+        )
+    })?;
+    let config = session.apply_to(&global);
     validate_capture_config(&state, &config).await?;
     if state.speaker_pipeline.lock().await.running()
         || state.microphone_pipeline.lock().await.running()
@@ -427,8 +440,24 @@ pub(super) async fn capture_start(State(state): State<Arc<AppState>>) -> ApiResu
     }
     state.microphone_monitor.lock().await.stop().await;
 
-    let (device, microphone) =
-        start_planned_pipelines(&state, &config, CaptureReloadPlan::all()).await?;
+    *state
+        .language_session
+        .write()
+        .expect("language session lock") = session;
+    state.osc.update_config(config.osc.clone());
+    let started = start_planned_pipelines(&state, &config, CaptureReloadPlan::all()).await;
+    let (device, microphone) = match started {
+        Ok(devices) => devices,
+        Err(error) => {
+            *state
+                .language_session
+                .write()
+                .expect("language session lock") =
+                crate::language_session::ActiveLanguageSession::Global;
+            state.osc.update_config(global.osc);
+            return Err(error);
+        }
+    };
     state.capture_requested.store(true, Ordering::SeqCst);
     Ok(Json(json!({
         "running": true,
@@ -443,6 +472,12 @@ pub(super) async fn capture_stop(State(state): State<Arc<AppState>>) -> Json<Val
     let mut speaker = state.speaker_pipeline.lock().await;
     let mut microphone = state.microphone_pipeline.lock().await;
     tokio::join!(speaker.stop(), microphone.stop());
+    *state
+        .language_session
+        .write()
+        .expect("language session lock") = crate::language_session::ActiveLanguageSession::Global;
+    let osc = state.config.read().expect("config lock").osc.clone();
+    state.osc.update_config(osc);
     Json(json!({ "running": false }))
 }
 
@@ -452,7 +487,12 @@ pub(crate) async fn resume_microphone(state: &Arc<AppState>) -> Result<(), Strin
     {
         return Ok(());
     }
-    let config = state.config.read().expect("config lock").clone();
+    let global = state.config.read().expect("config lock").clone();
+    let config = state
+        .language_session
+        .read()
+        .expect("language session lock")
+        .apply_to(&global);
     if config.audio.microphone.mode == "disabled" {
         return Ok(());
     }
@@ -493,7 +533,7 @@ mod tests {
     fn translation_changes_use_the_shared_runtime_snapshot() {
         let current = AppConfig::default();
         let mut candidate = current.clone();
-        candidate.translation.target_language = "ja".into();
+        candidate.translation.speaker_targets[0].target_language = "ja".into();
 
         assert!(CaptureReloadPlan::between(&current, &candidate).is_empty());
     }

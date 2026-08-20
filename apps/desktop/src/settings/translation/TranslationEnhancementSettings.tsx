@@ -28,11 +28,13 @@ const CONTEXT_SOURCES = [
 
 export function TranslationEnhancementSettings({
   translation,
+  preferredTarget,
   profile,
   disabled,
   onChange,
 }: {
   translation: TranslationSettings;
+  preferredTarget: string;
   profile: ApiProfileView;
   disabled: boolean;
   onChange: (patch: Partial<TranslationSettings["prompt"]>) => void;
@@ -114,7 +116,7 @@ export function TranslationEnhancementSettings({
       setPreview(await coreApi.previewTranslationPrompt(
         { ...translation.prompt, system_prompt: systemPromptDraftRef.current },
         null,
-        translation.target_language,
+        preferredTarget,
       ));
     } catch (reason) {
       setPreview(null);
