@@ -10,8 +10,10 @@ use super::{
     CloudEvent, NormalizationState,
 };
 
-pub(super) fn build_request(key: &str) -> Result<Request<()>, String> {
-    authenticated_request("wss://api.openai.com/v1/realtime".into(), key, false)
+pub(super) fn build_request(config: &AsrConfig, key: &str) -> Result<Request<()>, String> {
+    let settings = service_settings(config, SERVICE_OPENAI_REALTIME)?;
+    let url = format!("wss://api.openai.com/v1/realtime?model={}", settings.model);
+    authenticated_request(url, key, false)
 }
 
 pub(super) fn session_update(config: &AsrConfig) -> Result<Value, String> {
@@ -133,14 +135,29 @@ mod tests {
     use super::*;
 
     #[test]
-    fn request_uses_the_realtime_ga_endpoint() {
-        let request = build_request("test-key").unwrap();
+    fn request_uses_the_configured_model() {
+        let mut config = AsrConfig::default();
+        let request = build_request(&config, "test-key").unwrap();
 
-        assert_eq!(request.uri(), "wss://api.openai.com/v1/realtime");
+        assert_eq!(
+            request.uri(),
+            "wss://api.openai.com/v1/realtime?model=gpt-4o-mini-transcribe"
+        );
         assert!(request.headers().get("OpenAI-Beta").is_none());
         assert_eq!(
             request.headers().get("Authorization").unwrap(),
             "Bearer test-key"
+        );
+
+        config
+            .service_settings
+            .get_mut(SERVICE_OPENAI_REALTIME)
+            .unwrap()
+            .model = "gpt-4o-transcribe".into();
+        let request = build_request(&config, "test-key").unwrap();
+        assert_eq!(
+            request.uri(),
+            "wss://api.openai.com/v1/realtime?model=gpt-4o-transcribe"
         );
     }
 }
