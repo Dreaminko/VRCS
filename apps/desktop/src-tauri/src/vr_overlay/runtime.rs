@@ -13,6 +13,7 @@ use super::backend::{OpenVrBackend, OverlayKind};
 use super::presentation::{
     HeadsetPresentation, MessageSide, PresentationFrame, WristMessage, WristPresentation,
 };
+use super::process::steamvr_running;
 use super::renderer::{self, Layout};
 
 pub const STATUS_EVENT: &str = "vr-overlay-status-changed";
@@ -440,6 +441,13 @@ fn tick(state: &mut WorkerState, status: &mut VrOverlayStatus) {
     }
 
     if state.backend.is_none() && Instant::now() >= state.next_reconnect {
+        if !steamvr_running() {
+            status.state = RuntimeState::WaitingRuntime;
+            status.reconnect_attempt = 0;
+            status.last_error_detail = None;
+            state.next_reconnect = Instant::now() + RECONNECT_INTERVAL;
+            return;
+        }
         status.state = if status.reconnect_attempt == 0 {
             RuntimeState::Initializing
         } else {
