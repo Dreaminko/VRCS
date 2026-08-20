@@ -255,13 +255,6 @@ export function TranslationSettingsSection({ draft, apiProfiles, saveState, appl
               ...draft.translation,
               prompt: { ...draft.translation.prompt, ...patch },
             })}
-            onGlossarySourcesChange={(glossary_sources, afterSave, afterError) => applySettings((current) => ({
-              ...current,
-              translation: {
-                ...current.translation,
-                prompt: { ...current.translation.prompt, glossary_sources },
-              },
-            }), afterSave, afterError)}
           />
         )}
       </div>

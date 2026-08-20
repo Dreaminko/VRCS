@@ -25,9 +25,9 @@
   .translation-context-limits,
   .glossary-dialog-entry { grid-template-columns: 1fr; }
   .translation-context-limit { grid-template-columns: minmax(0, 1fr) 96px; }
-  .translation-glossary-card { grid-template-columns: minmax(0, 1fr); }
-  .translation-glossary-card-controls { justify-content: space-between; }
-  .translation-glossary-card-actions { grid-column: 1; justify-content: flex-start; }
+  .glossary-card { grid-template-columns: minmax(0, 1fr); }
+  .glossary-card-controls { justify-content: space-between; }
+  .glossary-card-actions { grid-column: 1; justify-content: flex-start; }
   .glossary-dialog-toolbar > small { width: 100%; margin-left: 0; }
   .glossary-dialog-entry-options { justify-content: flex-start; }
 

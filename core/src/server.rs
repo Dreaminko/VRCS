@@ -8,6 +8,7 @@ mod cloud;
 mod conversations;
 mod dictionary;
 mod external;
+mod glossaries;
 mod learning;
 mod models;
 mod osc;
@@ -65,7 +66,7 @@ pub struct AppState {
     pub translation_service: Arc<TranslationService>,
     pub learning_service: Arc<crate::learning::LearningService>,
     pub translation_dispatcher: TranslationDispatcher,
-    pub glossary_subscription: Arc<crate::translation::GlossarySubscriptionStore>,
+    pub glossary: Arc<crate::glossary::GlossaryStore>,
     pub osc: OscChatboxDispatcher,
     pub http: reqwest::Client,
     pub session_token: String,
@@ -252,21 +253,23 @@ pub fn router(state: Arc<AppState>) -> Router {
             "/api/translations/prompt-preview",
             post(translation::prompt_preview),
         )
+        .route("/api/glossaries/status", get(glossaries::statuses))
+        .route("/api/glossaries/{id}/refresh", post(glossaries::refresh))
         .route(
             "/api/translations/glossaries/status",
-            get(translation::glossary_statuses),
+            get(glossaries::statuses),
         )
         .route(
             "/api/translations/glossaries/{id}/refresh",
-            post(translation::glossary_refresh),
+            post(glossaries::refresh),
         )
         .route(
             "/api/translations/glossary-subscription/status",
-            get(translation::glossary_subscription_status),
+            get(glossaries::legacy_subscription_status),
         )
         .route(
             "/api/translations/glossary-subscription/refresh",
-            post(translation::glossary_subscription_refresh),
+            post(glossaries::legacy_subscription_refresh),
         )
         .route(
             "/api/subtitles/{subtitle_id}/translation",

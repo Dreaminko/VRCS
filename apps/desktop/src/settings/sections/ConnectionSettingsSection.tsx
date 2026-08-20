@@ -148,6 +148,16 @@ export function ConnectionSettingsSection({
                 }))}
               />
               <PreferenceToggle
+                title={t("settings.osc.preserveOriginal")}
+                description={t("settings.osc.preserveOriginalDescription")}
+                checked={draft.osc.preserve_original_text}
+                disabled={saveState === "saving"}
+                onChange={(preserve_original_text) => applySettings((current) => ({
+                  ...current,
+                  osc: { ...current.osc, preserve_original_text },
+                }))}
+              />
+              <PreferenceToggle
                 title={t("settings.osc.muteSync")}
                 checked={draft.osc.mute_sync_enabled}
                 disabled={saveState === "saving"}

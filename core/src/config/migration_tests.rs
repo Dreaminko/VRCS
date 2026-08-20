@@ -251,14 +251,14 @@ fn migrates_v17_glossary_fields_to_ordered_sources() {
 
     assert_eq!(config.schema_version, SCHEMA_VERSION);
     assert!(config.translation.prompt.glossary.is_empty());
-    assert_eq!(config.translation.prompt.glossary_sources.len(), 2);
+    assert_eq!(config.glossary.sources.len(), 2);
     assert!(matches!(
-        &config.translation.prompt.glossary_sources[0],
+        &config.glossary.sources[0],
         GlossarySource::Local { id, name, enabled: true, entries }
             if id == "legacy-local" && name == "Local glossary" && entries.len() == 1
     ));
     assert!(matches!(
-        &config.translation.prompt.glossary_sources[1],
+        &config.glossary.sources[1],
         GlossarySource::Subscription {
             id,
             url,
@@ -270,6 +270,8 @@ fn migrates_v17_glossary_fields_to_ordered_sources() {
     let prompt = &migrated["translation"]["prompt"];
     assert!(prompt.get("glossary").is_none());
     assert!(prompt.get("glossary_source_url").is_none());
+    assert!(prompt.get("glossary_sources").is_none());
+    assert_eq!(migrated["glossary"]["sources"].as_array().unwrap().len(), 2);
 }
 
 #[test]
@@ -285,13 +287,13 @@ fn older_migrations_apply_the_glossary_source_backfill() {
     }))
     .unwrap();
 
-    assert_eq!(config.translation.prompt.glossary_sources.len(), 2);
+    assert_eq!(config.glossary.sources.len(), 2);
     assert!(matches!(
-        &config.translation.prompt.glossary_sources[0],
+        &config.glossary.sources[0],
         GlossarySource::Local { id, .. } if id == "legacy-local"
     ));
     assert!(matches!(
-        &config.translation.prompt.glossary_sources[1],
+        &config.glossary.sources[1],
         GlossarySource::Subscription { id, .. } if id == "legacy-subscription"
     ));
 }
@@ -369,6 +371,7 @@ fn migrates_v7_with_osc_disabled_by_default() {
     assert_eq!(config.osc.port, 9000);
     assert!(config.osc.mute_sync_enabled);
     assert!(!config.osc.mute_status_toast_enabled);
+    assert!(config.osc.preserve_original_text);
 }
 
 #[test]
@@ -387,6 +390,7 @@ fn migrates_v9_with_mute_sync_enabled_by_default() {
     assert_eq!(config.osc.port, 9001);
     assert!(config.osc.mute_sync_enabled);
     assert!(!config.osc.mute_status_toast_enabled);
+    assert!(config.osc.preserve_original_text);
 }
 
 #[test]
@@ -432,7 +436,7 @@ fn migrates_v12_with_translation_context_disabled() {
     assert_eq!(config.translation.prompt.max_messages, 5);
     assert_eq!(config.translation.prompt.max_chars, 4_000);
     assert!(config.translation.prompt.glossary.is_empty());
-    assert!(config.translation.prompt.glossary_sources.is_empty());
+    assert!(config.glossary.sources.is_empty());
 }
 
 #[test]
@@ -475,6 +479,100 @@ fn migrates_v22_with_the_default_output_trigger_threshold() {
 }
 
 #[test]
+fn migrates_v24_glossary_sources_to_top_level_without_data_loss() {
+    let mut raw = serde_json::to_value(AppConfig::default()).unwrap();
+    raw["schema_version"] = serde_json::json!(24);
+    raw["translation"]["prompt"]["glossary_sources"] = serde_json::json!([
+        {
+            "id": "local",
+            "type": "local",
+            "name": "Local names",
+            "enabled": false,
+            "entries": [{
+                "source": "VRChat",
+                "target": "VRChat",
+                "category": "game",
+                "case_sensitive": true
+            }]
+        },
+        {
+            "id": "remote",
+            "type": "subscription",
+            "url": "https://example.com/glossary.json",
+            "display_name": "Community",
+            "enabled": true
+        }
+    ]);
+
+    let config = config_from_value(&raw).unwrap();
+
+    assert_eq!(config.schema_version, SCHEMA_VERSION);
+    assert!(config.glossary.llm_enabled);
+    assert!(config.glossary.asr_enabled);
+    assert_eq!(config.glossary.sources.len(), 2);
+    assert!(matches!(
+        &config.glossary.sources[0],
+        GlossarySource::Local { id, name, enabled: false, entries }
+            if id == "local"
+                && name == "Local names"
+                && entries.len() == 1
+                && entries[0].source == "VRChat"
+                && entries[0].target.as_deref() == Some("VRChat")
+                && entries[0].category == GlossaryCategory::Game
+                && entries[0].case_sensitive
+    ));
+    assert!(matches!(
+        &config.glossary.sources[1],
+        GlossarySource::Subscription {
+            id,
+            url,
+            display_name: Some(display_name),
+            enabled: true
+        } if id == "remote"
+            && url == "https://example.com/glossary.json"
+            && display_name == "Community"
+    ));
+    let migrated = serde_json::to_value(config).unwrap();
+    assert!(migrated["translation"]["prompt"]
+        .get("glossary_sources")
+        .is_none());
+}
+
+#[test]
+fn migrates_v24_glossary_sources_without_overwriting_existing_top_level_sources() {
+    let mut raw = serde_json::to_value(AppConfig::default()).unwrap();
+    raw["schema_version"] = serde_json::json!(24);
+    raw["glossary"]["sources"] = serde_json::json!([{
+        "id": "top-level",
+        "type": "local",
+        "name": "Top level",
+        "enabled": true,
+        "entries": [{"source": "Udon"}]
+    }]);
+    raw["translation"]["prompt"]["glossary_sources"] = serde_json::json!([{
+        "id": "nested",
+        "type": "subscription",
+        "url": "https://example.com/glossary.json",
+        "display_name": null,
+        "enabled": true
+    }]);
+
+    let config = config_from_value(&raw).unwrap();
+
+    assert!(config.glossary.llm_enabled);
+    assert!(config.glossary.asr_enabled);
+    assert_eq!(config.glossary.sources.len(), 2);
+    assert!(matches!(
+        &config.glossary.sources[0],
+        GlossarySource::Local { id, .. } if id == "top-level"
+    ));
+    assert!(matches!(
+        &config.glossary.sources[1],
+        GlossarySource::Subscription { id, .. } if id == "nested"
+    ));
+}
+
+#[test]
 fn migrates_v23_profiles_and_recognition_settings_through_v24_normalize() {
     let mut raw = serde_json::to_value(AppConfig::default()).unwrap();
     raw["schema_version"] = serde_json::json!(23);
@@ -503,7 +601,7 @@ fn migrates_v23_profiles_and_recognition_settings_through_v24_normalize() {
     let config = config_from_value(&raw).unwrap();
     let profile = &config.asr.api_profiles[0];
 
-    assert_eq!(config.schema_version, 24);
+    assert_eq!(config.schema_version, SCHEMA_VERSION);
     assert_eq!(
         config.asr.active_profile_id.as_deref(),
         Some("alibaba-profile")

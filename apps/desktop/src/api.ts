@@ -384,10 +384,10 @@ export const coreApi = {
     },
   ),
   glossaryStatuses: () => request<GlossarySourceStatus[]>(
-    "/api/translations/glossaries/status",
+    "/api/glossaries/status",
   ),
   refreshGlossary: (id: string) => request<unknown>(
-    `/api/translations/glossaries/${encodeURIComponent(id)}/refresh`,
+    `/api/glossaries/${encodeURIComponent(id)}/refresh`,
     { method: "POST" },
   ),
   downloadAsrModel: (model: AsrModelRecord["id"]) =>

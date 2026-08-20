@@ -10,15 +10,15 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
 
 use crate::config::{
-    validate_glossary_source_url, GlossaryCategory, GlossaryEntry, GlossarySource,
-    TranslationPromptConfig,
+    validate_glossary_source_url, AsrConfig, GlossaryCategory, GlossaryConfig, GlossaryEntry,
+    GlossarySource,
 };
 
 const MAX_SOURCE_BYTES: usize = 1024 * 1024;
 const MAX_GLOSSARY_ENTRIES: usize = 500;
 
 #[derive(Debug)]
-pub struct GlossarySubscriptionError {
+pub struct GlossaryRefreshError {
     pub code: &'static str,
     pub detail: String,
 }
@@ -137,15 +137,17 @@ enum FetchResult {
     },
 }
 
-pub struct GlossarySubscriptionStore {
+pub struct GlossaryStore {
     cache_path: PathBuf,
     client: reqwest::Client,
+    config: RwLock<GlossaryConfig>,
     subscriptions: RwLock<Vec<SubscriptionState>>,
     refresh_control: Mutex<()>,
 }
 
-impl GlossarySubscriptionStore {
-    pub fn new(cache_path: PathBuf, glossary_sources: Vec<GlossarySource>) -> Result<Self, String> {
+impl GlossaryStore {
+    pub fn new(cache_path: PathBuf, config: GlossaryConfig) -> Result<Self, String> {
+        let glossary_sources = &config.sources;
         let client = reqwest::Client::builder()
             .timeout(Duration::from_secs(10))
             .redirect(reqwest::redirect::Policy::custom(|attempt| {
@@ -159,8 +161,8 @@ impl GlossarySubscriptionStore {
             }))
             .build()
             .map_err(|error| format!("Failed to create glossary HTTP client: {error}"))?;
-        let cached = load_cache(&cache_path, &glossary_sources);
-        let subscriptions = subscription_configs(&glossary_sources)
+        let cached = load_cache(&cache_path, glossary_sources);
+        let subscriptions = subscription_configs(glossary_sources)
             .into_iter()
             .map(|(id, url, display_name, enabled)| {
                 if let Some(cache) = cached.get(&id).filter(|cache| cache.url == url) {
@@ -187,12 +189,14 @@ impl GlossarySubscriptionStore {
         Ok(Self {
             cache_path,
             client,
+            config: RwLock::new(config),
             subscriptions: RwLock::new(subscriptions),
             refresh_control: Mutex::new(()),
         })
     }
 
-    pub fn set_sources(&self, glossary_sources: Vec<GlossarySource>) -> Vec<String> {
+    pub fn set_config(&self, config: GlossaryConfig) -> Vec<String> {
+        let glossary_sources = &config.sources;
         let mut current = self
             .subscriptions
             .write()
@@ -203,7 +207,7 @@ impl GlossarySubscriptionStore {
             .collect::<HashMap<_, _>>();
         let mut refresh_ids = Vec::new();
         let mut next = Vec::new();
-        for (id, url, display_name, enabled) in subscription_configs(&glossary_sources) {
+        for (id, url, display_name, enabled) in subscription_configs(glossary_sources) {
             let state = match previous.remove(&id) {
                 Some(mut state) if state.url == url => {
                     let was_enabled = state.enabled;
@@ -234,6 +238,7 @@ impl GlossarySubscriptionStore {
         }
         *current = next;
         drop(current);
+        *self.config.write().expect("glossary config lock") = config;
         self.save_cache();
         refresh_ids
     }
@@ -247,27 +252,51 @@ impl GlossarySubscriptionStore {
             .collect()
     }
 
-    pub fn merged_prompt(&self, prompt: &TranslationPromptConfig) -> TranslationPromptConfig {
-        let states = self.subscription_snapshot();
-        let mut merged = prompt.clone();
-        merged.glossary.clear();
+    pub fn entries_for_llm(&self) -> Vec<GlossaryEntry> {
+        let config = self.config.read().expect("glossary config lock").clone();
+        if !config.llm_enabled {
+            return Vec::new();
+        }
+        self.effective_entries(&config.sources)
+    }
+
+    pub fn terms_for_asr(&self, config: &GlossaryConfig) -> Vec<String> {
+        if !config.asr_enabled {
+            return Vec::new();
+        }
         let mut keys = HashSet::new();
-        for source in &prompt.glossary_sources {
-            let entries = effective_source_entries(source, &states);
-            append_effective_entries(&mut merged.glossary, &mut keys, entries);
-            if merged.glossary.len() >= MAX_GLOSSARY_ENTRIES {
+        self.effective_entries(&config.sources)
+            .into_iter()
+            .filter_map(|entry| {
+                let term = entry.source.trim();
+                (!term.is_empty() && keys.insert(term.to_lowercase())).then(|| term.to_owned())
+            })
+            .collect()
+    }
+
+    fn effective_entries(&self, sources: &[GlossarySource]) -> Vec<GlossaryEntry> {
+        let states = self.subscription_snapshot();
+        let mut entries = Vec::new();
+        let mut keys = HashSet::new();
+        for source in sources {
+            append_effective_entries(
+                &mut entries,
+                &mut keys,
+                effective_source_entries(source, &states),
+            );
+            if entries.len() >= MAX_GLOSSARY_ENTRIES {
                 break;
             }
         }
-        merged
+        entries
     }
 
-    pub fn statuses(&self, prompt: &TranslationPromptConfig) -> Vec<GlossaryStatus> {
+    pub fn statuses(&self, config: &GlossaryConfig) -> Vec<GlossaryStatus> {
         let states = self.subscription_snapshot();
         let mut keys = HashSet::new();
         let mut effective_total = 0;
-        prompt
-            .glossary_sources
+        config
+            .sources
             .iter()
             .map(|source| match source {
                 GlossarySource::Local {
@@ -344,12 +373,9 @@ impl GlossarySubscriptionStore {
             .collect()
     }
 
-    pub fn legacy_status(
-        &self,
-        prompt: &TranslationPromptConfig,
-    ) -> LegacyGlossarySubscriptionStatus {
+    pub fn legacy_status(&self, config: &GlossaryConfig) -> LegacyGlossarySubscriptionStatus {
         let status = self
-            .statuses(prompt)
+            .statuses(config)
             .into_iter()
             .find(|status| status.source_type == "subscription");
         match status {
@@ -382,7 +408,7 @@ impl GlossarySubscriptionStore {
         }
     }
 
-    pub async fn refresh(&self, id: &str) -> Result<(), GlossarySubscriptionError> {
+    pub async fn refresh(&self, id: &str) -> Result<bool, GlossaryRefreshError> {
         let _refresh = self.refresh_control.lock().await;
         let (url, etag, last_modified) = {
             let mut subscriptions = self
@@ -421,13 +447,13 @@ impl GlossarySubscriptionStore {
                     .write()
                     .expect("glossary subscription lock");
                 let Some(state) = matching_state_mut(&mut subscriptions, id, &url) else {
-                    return Ok(());
+                    return Ok(false);
                 };
                 state.state = "ready".into();
                 state.last_success_at = Some(now());
                 drop(subscriptions);
                 self.save_cache();
-                Ok(())
+                Ok(false)
             }
             Ok(FetchResult::Updated {
                 source_name,
@@ -440,8 +466,9 @@ impl GlossarySubscriptionStore {
                     .write()
                     .expect("glossary subscription lock");
                 let Some(state) = matching_state_mut(&mut subscriptions, id, &url) else {
-                    return Ok(());
+                    return Ok(false);
                 };
+                let entries_changed = state.entries != entries;
                 state.source_name = source_name;
                 state.entries = entries;
                 state.etag = etag;
@@ -450,7 +477,7 @@ impl GlossarySubscriptionStore {
                 state.last_success_at = Some(now());
                 drop(subscriptions);
                 self.save_cache();
-                Ok(())
+                Ok(entries_changed)
             }
             Err(error) => {
                 let mut subscriptions = self
@@ -458,7 +485,7 @@ impl GlossarySubscriptionStore {
                     .write()
                     .expect("glossary subscription lock");
                 let Some(state) = matching_state_mut(&mut subscriptions, id, &url) else {
-                    return Ok(());
+                    return Ok(false);
                 };
                 state.state = if state.last_success_at.is_some() {
                     "stale".into()
@@ -472,7 +499,7 @@ impl GlossarySubscriptionStore {
         }
     }
 
-    pub async fn refresh_all(&self) {
+    pub async fn refresh_all(&self) -> bool {
         let ids = self
             .subscriptions
             .read()
@@ -481,11 +508,16 @@ impl GlossarySubscriptionStore {
             .filter(|state| state.enabled)
             .map(|state| state.id.clone())
             .collect::<Vec<_>>();
+        let mut changed = false;
         for id in ids {
-            if let Err(error) = self.refresh(&id).await {
-                tracing::warn!(subscription_id = %id, code = error.code, detail = %error.detail, "glossary subscription refresh failed");
+            match self.refresh(&id).await {
+                Ok(updated) => changed |= updated,
+                Err(error) => {
+                    tracing::warn!(subscription_id = %id, code = error.code, detail = %error.detail, "glossary subscription refresh failed");
+                }
             }
         }
+        changed
     }
 
     async fn fetch(
@@ -493,7 +525,7 @@ impl GlossarySubscriptionStore {
         url: &str,
         etag: Option<&str>,
         last_modified: Option<&str>,
-    ) -> Result<FetchResult, GlossarySubscriptionError> {
+    ) -> Result<FetchResult, GlossaryRefreshError> {
         validate_glossary_source_url(url)
             .map_err(|detail| subscription_error("glossary_subscription.invalid_url", detail))?;
         let mut request = self.client.get(url);
@@ -632,6 +664,48 @@ impl GlossarySubscriptionStore {
     }
 }
 
+pub(crate) fn append_asr_context(config: &mut AsrConfig, generated: &str) -> String {
+    let Some((_, service)) = crate::providers::recognition_service(&config.backend) else {
+        return String::new();
+    };
+    let Some(max_chars) = service.context_max_chars else {
+        return String::new();
+    };
+    let Some(settings) = config.service_settings.get_mut(&config.backend) else {
+        return String::new();
+    };
+    let (merged, appended) = append_context_with_limit(&settings.context, generated, max_chars);
+    settings.context = merged;
+    appended
+}
+
+fn append_context_with_limit(manual: &str, generated: &str, max_chars: usize) -> (String, String) {
+    let manual = manual.trim();
+    let manual_chars = manual.chars().count();
+    if manual_chars >= max_chars {
+        return (manual.to_owned(), String::new());
+    }
+    let separator = if manual.is_empty() { "" } else { "\n" };
+    let remaining = max_chars - manual_chars - separator.chars().count();
+    let mut appended = String::new();
+    for term in generated
+        .lines()
+        .map(str::trim)
+        .filter(|term| !term.is_empty())
+    {
+        let extra = term.chars().count() + usize::from(!appended.is_empty());
+        if appended.chars().count() + extra > remaining {
+            break;
+        }
+        if !appended.is_empty() {
+            appended.push('\n');
+        }
+        appended.push_str(term);
+    }
+    let separator = if appended.is_empty() { "" } else { separator };
+    (format!("{manual}{separator}{appended}"), appended)
+}
+
 fn subscription_configs(
     glossary_sources: &[GlossarySource],
 ) -> Vec<(String, String, Option<String>, bool)> {
@@ -704,7 +778,7 @@ fn effective_source_entries<'a>(
             ..
         } => states
             .get(id)
-            .filter(|state| state.url == url.trim() && state.enabled)
+            .filter(|state| state.url == url.trim())
             .map(|state| state.entries.as_slice())
             .unwrap_or(&[]),
         _ => &[],
@@ -793,7 +867,7 @@ fn load_cache(path: &PathBuf, glossary_sources: &[GlossarySource]) -> HashMap<St
         .collect()
 }
 
-fn validate_remote_entries(entries: &[GlossaryEntry]) -> Result<(), GlossarySubscriptionError> {
+fn validate_remote_entries(entries: &[GlossaryEntry]) -> Result<(), GlossaryRefreshError> {
     if entries.len() > MAX_GLOSSARY_ENTRIES {
         return Err(subscription_error(
             "glossary_subscription.too_many_entries",
@@ -859,8 +933,8 @@ fn now() -> String {
     chrono::Utc::now().to_rfc3339()
 }
 
-fn subscription_error(code: &'static str, detail: impl Into<String>) -> GlossarySubscriptionError {
-    GlossarySubscriptionError {
+fn subscription_error(code: &'static str, detail: impl Into<String>) -> GlossaryRefreshError {
+    GlossaryRefreshError {
         code,
         detail: detail.into(),
     }
@@ -916,25 +990,29 @@ mod tests {
             subscription("remote", "https://example.com/glossary.json".into(), true),
             local("last", vec![entry("Udon", Some("last"))]),
         ];
-        let store =
-            GlossarySubscriptionStore::new(directory.path().join("cache.json"), sources.clone())
-                .unwrap();
+        let store = GlossaryStore::new(
+            directory.path().join("cache.json"),
+            GlossaryConfig {
+                sources: sources.clone(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
         store.subscriptions.write().unwrap()[0].entries = vec![
             entry("vrchat", Some("remote")),
             entry("Udon", Some("remote")),
         ];
-        let prompt = TranslationPromptConfig {
-            glossary_sources: sources,
-            glossary: vec![entry("runtime", None)],
-            ..TranslationPromptConfig::default()
+        let config = GlossaryConfig {
+            sources,
+            ..Default::default()
         };
 
-        let merged = store.merged_prompt(&prompt);
-        let statuses = store.statuses(&prompt);
+        let entries = store.entries_for_llm();
+        let statuses = store.statuses(&config);
 
-        assert_eq!(merged.glossary.len(), 2);
-        assert_eq!(merged.glossary[0].target.as_deref(), Some("local"));
-        assert_eq!(merged.glossary[1].target.as_deref(), Some("remote"));
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].target.as_deref(), Some("local"));
+        assert_eq!(entries[1].target.as_deref(), Some("remote"));
         assert_eq!(statuses[0].effective_entry_count, 1);
         assert_eq!(statuses[1].effective_entry_count, 1);
         assert_eq!(statuses[1].omitted_entry_count, 1);
@@ -943,27 +1021,130 @@ mod tests {
     }
 
     #[test]
+    fn consumer_switches_control_shared_glossary_entries() {
+        let directory = tempfile::tempdir().unwrap();
+        let mut config = GlossaryConfig {
+            sources: vec![local(
+                "local",
+                vec![entry("VRChat", None), entry("vrchat", Some("duplicate"))],
+            )],
+            ..Default::default()
+        };
+        let store =
+            GlossaryStore::new(directory.path().join("cache.json"), config.clone()).unwrap();
+
+        assert_eq!(store.entries_for_llm().len(), 1);
+        assert_eq!(store.terms_for_asr(&config), ["VRChat"]);
+
+        config.llm_enabled = false;
+        config.asr_enabled = false;
+        store.set_config(config.clone());
+
+        assert!(store.entries_for_llm().is_empty());
+        assert!(store.terms_for_asr(&config).is_empty());
+    }
+
+    #[test]
+    fn asr_context_preserves_manual_priority_and_uses_provider_limit() {
+        let mut qwen = AsrConfig {
+            backend: crate::providers::SERVICE_QWEN_REALTIME.into(),
+            ..Default::default()
+        };
+        qwen.service_settings
+            .get_mut(crate::providers::SERVICE_QWEN_REALTIME)
+            .unwrap()
+            .context = "Manual".into();
+        let medium_term = "x".repeat(500);
+        let long_term = "y".repeat(1_990);
+
+        let appended = append_asr_context(&mut qwen, &format!("{medium_term}\n{long_term}\nUdon"));
+        let vrcx = append_asr_context(&mut qwen, "Alice");
+
+        assert_eq!(appended, medium_term);
+        assert_eq!(vrcx, "Alice");
+        assert_eq!(
+            qwen.service_settings[crate::providers::SERVICE_QWEN_REALTIME].context,
+            format!("Manual\n{medium_term}\nAlice")
+        );
+        assert!(
+            qwen.service_settings[crate::providers::SERVICE_QWEN_REALTIME]
+                .context
+                .chars()
+                .count()
+                <= 2_000
+        );
+    }
+
+    #[test]
+    fn asr_context_is_ignored_by_services_without_context_support() {
+        let mut config = AsrConfig {
+            backend: crate::providers::SERVICE_OPENAI_REALTIME.into(),
+            ..Default::default()
+        };
+
+        assert!(append_asr_context(&mut config, "VRChat").is_empty());
+        assert!(
+            config.service_settings[crate::providers::SERVICE_OPENAI_REALTIME]
+                .context
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn entries_stop_at_the_global_500_entry_limit() {
+        let directory = tempfile::tempdir().unwrap();
+        let first = (0..400)
+            .map(|index| entry(&format!("first-{index}"), None))
+            .collect();
+        let second = (0..400)
+            .map(|index| entry(&format!("second-{index}"), None))
+            .collect();
+        let config = GlossaryConfig {
+            sources: vec![local("first", first), local("second", second)],
+            ..Default::default()
+        };
+        let store =
+            GlossaryStore::new(directory.path().join("cache.json"), config.clone()).unwrap();
+
+        let entries = store.entries_for_llm();
+        let statuses = store.statuses(&config);
+
+        assert_eq!(entries.len(), 500);
+        assert_eq!(entries.first().unwrap().source, "first-0");
+        assert_eq!(entries.last().unwrap().source, "second-99");
+        assert_eq!(statuses[0].effective_entry_count, 400);
+        assert_eq!(statuses[1].effective_entry_count, 100);
+        assert_eq!(statuses[1].omitted_entry_count, 300);
+    }
+
+    #[test]
     fn set_sources_returns_enabled_new_and_changed_subscription_ids() {
         let directory = tempfile::tempdir().unwrap();
-        let store = GlossarySubscriptionStore::new(
+        let store = GlossaryStore::new(
             directory.path().join("cache.json"),
-            vec![subscription(
-                "same",
-                "https://example.com/one.json".into(),
-                true,
-            )],
+            GlossaryConfig {
+                sources: vec![subscription(
+                    "same",
+                    "https://example.com/one.json".into(),
+                    true,
+                )],
+                ..Default::default()
+            },
         )
         .unwrap();
 
-        let refresh = store.set_sources(vec![
-            subscription("same", "https://example.com/two.json".into(), true),
-            subscription(
-                "disabled",
-                "https://example.com/disabled.json".into(),
-                false,
-            ),
-            subscription("new", "https://example.com/new.json".into(), true),
-        ]);
+        let refresh = store.set_config(GlossaryConfig {
+            sources: vec![
+                subscription("same", "https://example.com/two.json".into(), true),
+                subscription(
+                    "disabled",
+                    "https://example.com/disabled.json".into(),
+                    false,
+                ),
+                subscription("new", "https://example.com/new.json".into(), true),
+            ],
+            ..Default::default()
+        });
 
         assert_eq!(refresh, ["same", "new"]);
         assert_eq!(store.configured_ids(), ["same", "disabled", "new"]);
@@ -1007,24 +1188,39 @@ mod tests {
             subscription("one", format!("http://{address}/one.json"), true),
             subscription("two", format!("http://{address}/two.json"), true),
         ];
-        let store = GlossarySubscriptionStore::new(cache_path.clone(), sources.clone()).unwrap();
+        let store = GlossaryStore::new(
+            cache_path.clone(),
+            GlossaryConfig {
+                sources: sources.clone(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
 
-        store.refresh_all().await;
+        assert!(store.refresh_all().await);
+        assert!(!store.refresh_all().await);
 
-        let prompt = TranslationPromptConfig {
-            glossary_sources: sources.clone(),
-            ..TranslationPromptConfig::default()
+        let config = GlossaryConfig {
+            sources: sources.clone(),
+            ..Default::default()
         };
-        let statuses = store.statuses(&prompt);
+        let statuses = store.statuses(&config);
         assert_eq!(statuses.len(), 2);
         assert!(statuses.iter().all(|status| status.state == "ready"));
         let cache: serde_json::Value =
             serde_json::from_slice(&fs::read(&cache_path).unwrap()).unwrap();
         assert_eq!(cache["subscriptions"].as_array().unwrap().len(), 2);
 
-        let reloaded = GlossarySubscriptionStore::new(cache_path, sources).unwrap();
+        let reloaded = GlossaryStore::new(
+            cache_path,
+            GlossaryConfig {
+                sources,
+                ..Default::default()
+            },
+        )
+        .unwrap();
         assert!(reloaded
-            .statuses(&prompt)
+            .statuses(&config)
             .iter()
             .all(|status| status.state == "ready" && status.entry_count == 1));
         server.abort();
@@ -1057,13 +1253,13 @@ mod tests {
             "https://example.com/glossary.json".into(),
             true,
         );
-        let store = GlossarySubscriptionStore::new(cache_path, vec![source.clone()]).unwrap();
-        let prompt = TranslationPromptConfig {
-            glossary_sources: vec![source],
-            ..TranslationPromptConfig::default()
+        let config = GlossaryConfig {
+            sources: vec![source],
+            ..Default::default()
         };
+        let store = GlossaryStore::new(cache_path, config.clone()).unwrap();
 
-        let status = store.statuses(&prompt).remove(0);
+        let status = store.statuses(&config).remove(0);
 
         assert_eq!(status.state, "ready");
         assert_eq!(status.name, "Legacy");

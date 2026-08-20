@@ -178,16 +178,20 @@ pub fn preview_chatbox(
     })
 }
 
-pub fn automatic_chatbox(original: &str, translation: Option<&str>) -> String {
+pub fn automatic_chatbox(
+    original: &str,
+    translation: Option<&str>,
+    preserve_original_text: bool,
+) -> String {
     let input = ChatboxComposeInput {
         original: original.into(),
         translation: translation.map(str::to_owned),
         source_language: None,
         target_language: None,
-        send_mode: if translation.is_some() {
-            ChatboxSendMode::Bilingual
-        } else {
-            ChatboxSendMode::Original
+        send_mode: match (translation.is_some(), preserve_original_text) {
+            (true, true) => ChatboxSendMode::Bilingual,
+            (true, false) => ChatboxSendMode::Translation,
+            (false, _) => ChatboxSendMode::Original,
         },
         message_format: ChatboxMessageFormat::OriginalNewlineTranslation,
         custom_format: None,

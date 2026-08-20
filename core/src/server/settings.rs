@@ -42,6 +42,7 @@ pub(super) async fn update_settings(
         audio: update.audio,
         vad: update.vad,
         asr: update.asr,
+        glossary: update.glossary,
         translation: update.translation,
         osc: update.osc,
         dictionary: update.dictionary,
@@ -363,9 +364,7 @@ pub(super) async fn commit_candidate(
 
     let storage_quota_changed =
         candidate.storage.subtitle_history_max_bytes != current.storage.subtitle_history_max_bytes;
-    let glossary_refresh_ids = state
-        .glossary_subscription
-        .set_sources(candidate.translation.prompt.glossary_sources.clone());
+    let glossary_refresh_ids = state.glossary.set_config(candidate.glossary.clone());
     *state.config.write().expect("config lock") = candidate.clone();
     if storage_quota_changed {
         let max_bytes = candidate.storage.subtitle_history_max_bytes;
@@ -393,11 +392,21 @@ pub(super) async fn commit_candidate(
         state.vrcx.reconfigure(candidate.vrcx.clone(), token).await;
     }
     if !glossary_refresh_ids.is_empty() {
-        let glossary_subscription = Arc::clone(&state.glossary_subscription);
+        let glossary = Arc::clone(&state.glossary);
+        let state = Arc::clone(state);
         tokio::spawn(async move {
+            let mut refreshed = false;
             for id in glossary_refresh_ids {
-                if let Err(error) = glossary_subscription.refresh(&id).await {
-                    tracing::warn!(subscription_id = %id, code = error.code, detail = %error.detail, "glossary subscription refresh failed");
+                match glossary.refresh(&id).await {
+                    Ok(updated) => refreshed |= updated,
+                    Err(error) => {
+                        tracing::warn!(subscription_id = %id, code = error.code, detail = %error.detail, "glossary subscription refresh failed");
+                    }
+                }
+            }
+            if refreshed {
+                if let Err((_, body)) = super::capture::reload_glossary_asr_context(&state).await {
+                    tracing::warn!(detail = ?body, "ASR glossary context could not be reloaded");
                 }
             }
         });
@@ -641,7 +650,9 @@ pub(super) fn parse_settings_update(body: &[u8]) -> Result<SettingsUpdate, Strin
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::{ApiProfile, RecognitionServiceSettings};
+    use crate::config::{
+        ApiProfile, GlossaryCategory, GlossaryEntry, GlossarySource, RecognitionServiceSettings,
+    };
     use crate::providers::{CAPABILITY_SPEECH_TO_TEXT, GROQ_PROVIDER, SERVICE_GROQ_TRANSCRIPTION};
 
     fn groq_profile() -> ApiProfile {
@@ -652,6 +663,36 @@ mod tests {
             enabled_capabilities: vec![CAPABILITY_SPEECH_TO_TEXT.into()],
             ..ApiProfile::default()
         }
+    }
+
+    #[test]
+    fn settings_payload_reads_glossary_from_the_top_level() {
+        let mut config = AppConfig::default();
+        config.glossary.sources.push(GlossarySource::Local {
+            id: "local".into(),
+            name: "Local".into(),
+            enabled: true,
+            entries: vec![GlossaryEntry {
+                source: "VRChat".into(),
+                target: None,
+                category: GlossaryCategory::Game,
+                case_sensitive: false,
+            }],
+        });
+
+        let update = parse_settings_update(&serde_json::to_vec(&config).unwrap()).unwrap();
+
+        assert_eq!(update.glossary, config.glossary);
+    }
+
+    #[test]
+    fn settings_payload_rejects_the_legacy_nested_glossary_sources() {
+        let mut value = serde_json::to_value(AppConfig::default()).unwrap();
+        value["translation"]["prompt"]["glossary_sources"] = serde_json::json!([]);
+
+        let error = parse_settings_update(&serde_json::to_vec(&value).unwrap()).unwrap_err();
+
+        assert!(error.contains("translation.prompt.glossary_sources"));
     }
 
     #[test]

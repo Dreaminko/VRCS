@@ -35,15 +35,15 @@ import {
 type Translate = ReturnType<typeof useTranslation>["t"];
 
 function statusLabel(status: GlossarySourceStatus | undefined, enabled: boolean, loaded: boolean, t: Translate): string {
-  if (!enabled) return t("settings.translation.glossaryStates.disabled");
-  if (!loaded) return t("settings.translation.glossaryStates.loading");
-  if (!status) return t("settings.translation.glossaryStates.unavailable");
+  if (!enabled) return t("settings.glossary.glossaryStates.disabled");
+  if (!loaded) return t("settings.glossary.glossaryStates.loading");
+  if (!status) return t("settings.glossary.glossaryStates.unavailable");
   const knownStates: Record<string, string> = {
-    idle: t("settings.translation.glossaryStates.idle"),
-    refreshing: t("settings.translation.glossaryStates.refreshing"),
-    ready: t("settings.translation.glossaryStates.ready"),
-    stale: t("settings.translation.glossaryStates.stale"),
-    error: t("settings.translation.glossaryStates.error"),
+    idle: t("settings.glossary.glossaryStates.idle"),
+    refreshing: t("settings.glossary.glossaryStates.refreshing"),
+    ready: t("settings.glossary.glossaryStates.ready"),
+    stale: t("settings.glossary.glossaryStates.stale"),
+    error: t("settings.glossary.glossaryStates.error"),
   };
   return knownStates[status.state] ?? status.state;
 }
@@ -169,7 +169,7 @@ export function GlossaryEditor({
       setLocalDraft(null);
     }, () => {
       setEditorSaving(false);
-      setEditorError(t("settings.translation.glossarySaveFailed"));
+      setEditorError(t("settings.glossary.glossarySaveFailed"));
     });
   };
 
@@ -199,7 +199,7 @@ export function GlossaryEditor({
       setSubscriptionDraft(null);
     }, () => {
       setEditorSaving(false);
-      setEditorError(t("settings.translation.glossarySaveFailed"));
+      setEditorError(t("settings.glossary.glossarySaveFailed"));
     });
   };
 
@@ -216,7 +216,7 @@ export function GlossaryEditor({
     const name = source.type === "local"
       ? source.name
       : source.display_name || status?.name || source.url;
-    if (!window.confirm(t("settings.translation.confirmDeleteGlossary", { name }))) return;
+    if (!window.confirm(t("settings.glossary.confirmDeleteGlossary", { name }))) return;
     persistSources(sources.filter((item) => item.id !== source.id));
   };
 
@@ -259,17 +259,18 @@ export function GlossaryEditor({
       link.remove();
       URL.revokeObjectURL(url);
     } catch (reason) {
-      setStatusError(localizedError(reason, t, "settings.translation.glossaryExportFailed"));
+      setStatusError(localizedError(reason, t, "settings.glossary.glossaryExportFailed"));
     }
   };
 
   return (
-    <div className="translation-glossary-manager">
-      <div className="translation-glossary-heading">
+    <div className="glossary-manager">
+      <div className="glossary-heading">
         <span>
-          <strong>{t("settings.translation.glossary")}</strong>
+          <strong>{t("settings.glossary.sourcesTitle")}</strong>
+          <small>{t("settings.glossary.glossaryPriorityHint")}</small>
         </span>
-        <div className="translation-glossary-heading-actions">
+        <div className="glossary-heading-actions">
           <button
             className="secondary-button"
             type="button"
@@ -277,7 +278,7 @@ export function GlossaryEditor({
             onClick={(event) => openLocalEditor(event.currentTarget)}
           >
             <Plus size={14} aria-hidden="true" />
-            {t("settings.translation.addGlossary")}
+            {t("settings.glossary.addGlossary")}
           </button>
           <button
             className="secondary-button"
@@ -286,17 +287,17 @@ export function GlossaryEditor({
             onClick={(event) => openSubscriptionEditor(event.currentTarget)}
           >
             <Link2 size={14} aria-hidden="true" />
-            {t("settings.translation.addSubscription")}
+            {t("settings.glossary.addSubscription")}
           </button>
         </div>
       </div>
 
       {statusError && <small className="api-model-catalog-error" aria-live="polite">{statusError}</small>}
-      <div className="translation-glossary-list">
+      <div className="glossary-list">
         {sources.length === 0 && (
-          <div className="translation-glossary-empty">
-            <strong>{t("settings.translation.noGlossaries")}</strong>
-            <small>{t("settings.translation.noGlossariesHint")}</small>
+          <div className="glossary-empty">
+            <strong>{t("settings.glossary.noGlossaries")}</strong>
+            <small>{t("settings.glossary.noGlossariesHint")}</small>
           </div>
         )}
         {sources.map((source, index) => {
@@ -314,35 +315,35 @@ export function GlossaryEditor({
                 ? "ready"
                 : "pending";
           return (
-            <article className={`translation-glossary-card ${source.enabled ? "enabled" : ""}`} key={source.id}>
-              <div className="translation-glossary-card-main">
-                <div className="translation-glossary-card-title">
-                  <span className={`translation-glossary-type ${source.type}`}>
-                    {t(`settings.translation.glossaryTypes.${source.type}`)}
+            <article className={`glossary-card ${source.enabled ? "enabled" : ""}`} key={source.id}>
+              <div className="glossary-card-main">
+                <div className="glossary-card-title">
+                  <span className={`glossary-type ${source.type}`}>
+                    {t(`settings.glossary.glossaryTypes.${source.type}`)}
                   </span>
                   <strong>{name}</strong>
                 </div>
-                <small className="translation-glossary-card-detail">
-                  {source.type === "subscription" ? source.url : t("settings.translation.localGlossaryDetail")}
+                <small className="glossary-card-detail">
+                  {source.type === "subscription" ? source.url : t("settings.glossary.localGlossaryDetail")}
                 </small>
-                <div className="translation-glossary-card-meta">
-                  <span>{t("settings.translation.glossaryEntryCount", { count: entryCount })}</span>
-                  <span className={`translation-glossary-status ${statusClass}`}>{state}</span>
+                <div className="glossary-card-meta">
+                  <span>{t("settings.glossary.glossaryEntryCount", { count: entryCount })}</span>
+                  <span className={`glossary-status ${statusClass}`}>{state}</span>
                   {status?.omitted_entry_count ? (
-                    <span>{t("settings.translation.glossaryEntriesOmitted", { count: status.omitted_entry_count })}</span>
+                    <span>{t("settings.glossary.glossaryEntriesOmitted", { count: status.omitted_entry_count })}</span>
                   ) : null}
                 </div>
                 {status?.detail && (status.state === "error" || status.state === "stale") && (
-                  <small className="translation-glossary-status-detail">{status.detail}</small>
+                  <small className="glossary-status-detail">{status.detail}</small>
                 )}
               </div>
-              <div className="translation-glossary-card-controls">
+              <div className="glossary-card-controls">
                 <button
                   className="settings-switch-button"
                   type="button"
                   role="switch"
                   aria-checked={source.enabled}
-                  aria-label={t("settings.translation.enableGlossary", { name })}
+                  aria-label={t("settings.glossary.enableGlossary", { name })}
                   disabled={disabled}
                   onClick={() => persistSources(sources.map((item) => item.id === source.id
                     ? { ...item, enabled: !item.enabled }
@@ -350,12 +351,12 @@ export function GlossaryEditor({
                 >
                   <span className="switch-track" aria-hidden="true"><span /></span>
                 </button>
-                <div className="translation-glossary-order-actions">
+                <div className="glossary-order-actions">
                   <button
                     className="api-row-icon-button"
                     type="button"
-                    aria-label={t("settings.translation.moveGlossaryUp", { name })}
-                    title={t("settings.translation.moveUp")}
+                    aria-label={t("settings.glossary.moveGlossaryUp", { name })}
+                    title={t("settings.glossary.moveUp")}
                     disabled={disabled || index === 0}
                     onClick={() => moveSource(index, -1)}
                   >
@@ -364,8 +365,8 @@ export function GlossaryEditor({
                   <button
                     className="api-row-icon-button"
                     type="button"
-                    aria-label={t("settings.translation.moveGlossaryDown", { name })}
-                    title={t("settings.translation.moveDown")}
+                    aria-label={t("settings.glossary.moveGlossaryDown", { name })}
+                    title={t("settings.glossary.moveDown")}
                     disabled={disabled || index === sources.length - 1}
                     onClick={() => moveSource(index, 1)}
                   >
@@ -373,7 +374,7 @@ export function GlossaryEditor({
                   </button>
                 </div>
               </div>
-              <div className="translation-glossary-card-actions">
+              <div className="glossary-card-actions">
                 {source.type === "local" ? (
                   <>
                     <button
@@ -392,7 +393,7 @@ export function GlossaryEditor({
                       onClick={() => void exportSource(source)}
                     >
                       <Download size={14} aria-hidden="true" />
-                      {t("settings.translation.exportGlossary")}
+                      {t("settings.glossary.exportGlossary")}
                     </button>
                   </>
                 ) : (

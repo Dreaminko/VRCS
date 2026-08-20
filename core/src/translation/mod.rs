@@ -13,12 +13,10 @@ use crate::providers::{self, ServiceAdapter, CAPABILITY_TEXT_TRANSLATION};
 
 mod deepl;
 mod dispatcher;
-mod glossary_subscription;
 mod microsoft;
 mod prompt;
 
 pub use dispatcher::TranslationDispatcher;
-pub use glossary_subscription::{GlossarySubscriptionError, GlossarySubscriptionStore};
 pub use prompt::{TranslationContextEntry, TranslationPromptBuilder};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -54,7 +52,7 @@ impl TranslationResult {
 pub struct TranslationService {
     http: reqwest::Client,
     llm: LlmClient,
-    glossary_subscription: Option<Arc<GlossarySubscriptionStore>>,
+    glossary: Option<Arc<crate::glossary::GlossaryStore>>,
 }
 
 impl TranslationService {
@@ -63,15 +61,11 @@ impl TranslationService {
         Self::build(None)
     }
 
-    pub fn with_glossary_subscription(
-        glossary_subscription: Arc<GlossarySubscriptionStore>,
-    ) -> Result<Self, String> {
-        Self::build(Some(glossary_subscription))
+    pub fn with_glossary(glossary: Arc<crate::glossary::GlossaryStore>) -> Result<Self, String> {
+        Self::build(Some(glossary))
     }
 
-    fn build(
-        glossary_subscription: Option<Arc<GlossarySubscriptionStore>>,
-    ) -> Result<Self, String> {
+    fn build(glossary: Option<Arc<crate::glossary::GlossaryStore>>) -> Result<Self, String> {
         let http = reqwest::Client::builder()
             .timeout(Duration::from_secs(8))
             .build()
@@ -79,7 +73,7 @@ impl TranslationService {
         Ok(Self {
             llm: LlmClient::new(http.clone()),
             http,
-            glossary_subscription,
+            glossary,
         })
     }
 
@@ -231,8 +225,12 @@ impl TranslationService {
         on_progress: Option<&LlmProgress>,
     ) -> Result<TranslationResult, TranslationError> {
         let resolved_prompt;
-        let prompt_config = if let Some(subscription) = &self.glossary_subscription {
-            resolved_prompt = subscription.merged_prompt(prompt_config);
+        let prompt_config = if let Some(glossary) = &self.glossary {
+            resolved_prompt = {
+                let mut prompt = prompt_config.clone();
+                prompt.glossary = glossary.entries_for_llm();
+                prompt
+            };
             &resolved_prompt
         } else {
             prompt_config

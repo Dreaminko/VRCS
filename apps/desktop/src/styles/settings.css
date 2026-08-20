@@ -1,6 +1,7 @@
 @import "./settings/shell.css";
 @import "./settings/config-layout.css";
 @import "./settings/translation.css";
+@import "./settings/glossary.css";
 @import "./settings/api-cloud-fields.css";
 @import "./primitives/fields.css";
 @import "./settings/api.css";

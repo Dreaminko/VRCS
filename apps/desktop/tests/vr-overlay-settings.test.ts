@@ -24,7 +24,7 @@ import {
 } from "../src/vr-overlay-native.ts";
 
 const settings = {
-  schema_version: 24,
+  schema_version: 25,
   vr_overlay: DEFAULT_VR_OVERLAY_SETTINGS,
 } as Settings;
 

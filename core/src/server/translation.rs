@@ -7,7 +7,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::db::conversations::publish_latest_catalog;
-use crate::translation::{GlossarySubscriptionError, TranslationError};
+use crate::translation::TranslationError;
 use crate::{
     config::{validate_translation_prompt, TranslationPromptConfig},
     translation::TranslationPromptBuilder,
@@ -60,7 +60,8 @@ pub(super) async fn prompt_preview(
     })?;
     append_vrcx_context(&state, &mut context);
     let target = input.target_language.as_deref().unwrap_or("zh-Hans");
-    let prompt = state.glossary_subscription.merged_prompt(&input.prompt);
+    let mut prompt = input.prompt;
+    prompt.glossary = state.glossary.entries_for_llm();
     let preview = TranslationPromptBuilder::new(&prompt).build(
         input.source_language.as_deref(),
         target,
@@ -72,66 +73,6 @@ pub(super) async fn prompt_preview(
         "context_message_count": preview.context_message_count,
         "context_char_count": preview.context_char_count,
     })))
-}
-
-pub(super) async fn glossary_statuses(State(state): State<Arc<AppState>>) -> Json<Value> {
-    let prompt = current_prompt(&state);
-    Json(json!(state.glossary_subscription.statuses(&prompt)))
-}
-
-pub(super) async fn glossary_refresh(
-    State(state): State<Arc<AppState>>,
-    Path(id): Path<String>,
-) -> ApiResult<Json<Value>> {
-    state
-        .glossary_subscription
-        .refresh(&id)
-        .await
-        .map_err(glossary_subscription_error)?;
-    let prompt = current_prompt(&state);
-    Ok(Json(json!(state.glossary_subscription.statuses(&prompt))))
-}
-
-pub(super) async fn glossary_subscription_status(
-    State(state): State<Arc<AppState>>,
-) -> Json<Value> {
-    let prompt = current_prompt(&state);
-    Json(json!(state.glossary_subscription.legacy_status(&prompt)))
-}
-
-pub(super) async fn glossary_subscription_refresh(
-    State(state): State<Arc<AppState>>,
-) -> ApiResult<Json<Value>> {
-    let id = state
-        .glossary_subscription
-        .configured_ids()
-        .into_iter()
-        .next()
-        .ok_or_else(|| {
-            glossary_subscription_error(GlossarySubscriptionError {
-                code: "glossary_subscription.not_found",
-                detail: "No glossary subscription is configured".into(),
-            })
-        })?;
-    state
-        .glossary_subscription
-        .refresh(&id)
-        .await
-        .map_err(glossary_subscription_error)?;
-    let prompt = current_prompt(&state);
-    Ok(Json(json!(state
-        .glossary_subscription
-        .legacy_status(&prompt))))
-}
-
-fn current_prompt(state: &AppState) -> TranslationPromptConfig {
-    state
-        .config
-        .read()
-        .expect("config lock")
-        .translation
-        .prompt
-        .clone()
 }
 
 fn append_vrcx_context(
@@ -300,23 +241,6 @@ fn translation_error(error: TranslationError) -> (StatusCode, Json<Value>) {
             StatusCode::TOO_MANY_REQUESTS
         }
         "translation.timeout" | "llm.timeout" => StatusCode::GATEWAY_TIMEOUT,
-        _ => StatusCode::BAD_GATEWAY,
-    };
-    api_error(status, error.code, error.detail)
-}
-
-fn glossary_subscription_error(error: GlossarySubscriptionError) -> (StatusCode, Json<Value>) {
-    let status = match error.code {
-        "glossary_subscription.not_found" => StatusCode::NOT_FOUND,
-        "glossary_subscription.disabled" => StatusCode::CONFLICT,
-        "glossary_subscription.invalid_url"
-        | "glossary_subscription.invalid_redirect"
-        | "glossary_subscription.invalid_json"
-        | "glossary_subscription.unsupported_version"
-        | "glossary_subscription.too_large"
-        | "glossary_subscription.too_many_entries"
-        | "glossary_subscription.invalid_entry"
-        | "glossary_subscription.duplicate_entry" => StatusCode::UNPROCESSABLE_ENTITY,
         _ => StatusCode::BAD_GATEWAY,
     };
     api_error(status, error.code, error.detail)

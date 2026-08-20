@@ -50,17 +50,17 @@ export function LocalGlossaryDialog({
       try {
         value = JSON.parse(await file.text()) as unknown;
       } catch {
-        onError(t("settings.translation.glossaryValidation.importInvalid"));
+        onError(t("settings.glossary.glossaryValidation.importInvalid"));
         return;
       }
       const parsed = parsePublicGlossaryFile(value);
       if (!parsed) {
-        onError(t("settings.translation.glossaryValidation.importInvalid"));
+        onError(t("settings.glossary.glossaryValidation.importInvalid"));
         return;
       }
       const importedName = parsed.name?.trim();
       if (importedName && characterCount(importedName) > MAX_GLOSSARY_NAME_LENGTH) {
-        onError(t("settings.translation.glossaryValidation.nameTooLong"));
+        onError(t("settings.glossary.glossaryValidation.nameTooLong"));
         return;
       }
       const validationError = validateEntries(parsed.entries, t);
@@ -74,7 +74,7 @@ export function LocalGlossaryDialog({
         entries: parsed.entries,
       });
     } catch {
-      onError(t("settings.translation.glossaryValidation.importInvalid"));
+      onError(t("settings.glossary.glossaryValidation.importInvalid"));
     }
   };
 
@@ -87,7 +87,7 @@ export function LocalGlossaryDialog({
 
   return (
     <SettingsDialog
-      label={t(draft.id ? "settings.translation.editGlossary" : "settings.translation.addGlossary")}
+      label={t(draft.id ? "settings.glossary.editGlossary" : "settings.glossary.addGlossary")}
       saving={saving}
       returnFocusRef={returnFocusRef}
       className="glossary-dialog"
@@ -102,16 +102,16 @@ export function LocalGlossaryDialog({
         }}
       >
         <div className="api-profile-editor-heading">
-          <strong>{t(draft.id ? "settings.translation.editGlossary" : "settings.translation.addGlossary")}</strong>
+          <strong>{t(draft.id ? "settings.glossary.editGlossary" : "settings.glossary.addGlossary")}</strong>
         </div>
         <div className="api-profile-editor-content" data-floating-boundary>
           <label className="field cloud-text-field">
-            <span>{t("settings.translation.glossaryName")}</span>
+            <span>{t("settings.glossary.glossaryName")}</span>
             <input
               maxLength={MAX_GLOSSARY_NAME_LENGTH}
               value={draft.name}
               disabled={saving}
-              placeholder={t("settings.translation.glossaryNamePlaceholder")}
+              placeholder={t("settings.glossary.glossaryNamePlaceholder")}
               onChange={(event) => onChange({ ...draft, name: event.target.value })}
             />
           </label>
@@ -131,7 +131,7 @@ export function LocalGlossaryDialog({
               onClick={() => fileInputRef.current?.click()}
             >
               <FileUp size={14} aria-hidden="true" />
-              {t("settings.translation.importGlossaryJson")}
+              {t("settings.glossary.importGlossaryJson")}
             </button>
             <button
               className="secondary-button"
@@ -140,18 +140,18 @@ export function LocalGlossaryDialog({
               onClick={() => onChange({ ...draft, entries: [...draft.entries, emptyGlossaryEntry()] })}
             >
               <Plus size={14} aria-hidden="true" />
-              {t("settings.translation.addGlossaryEntry")}
+              {t("settings.glossary.addGlossaryEntry")}
             </button>
-            <small>{t("settings.translation.glossaryEntryLimit", { count: MAX_GLOSSARY_ENTRIES })}</small>
+            <small>{t("settings.glossary.glossaryEntryLimit", { count: MAX_GLOSSARY_ENTRIES })}</small>
           </div>
           <div className="glossary-dialog-entry-list">
             {draft.entries.length === 0 && (
-              <p className="glossary-dialog-empty">{t("settings.translation.noGlossaryEntries")}</p>
+              <p className="glossary-dialog-empty">{t("settings.glossary.noGlossaryEntries")}</p>
             )}
             {draft.entries.map((entry, index) => (
               <div className="glossary-dialog-entry" key={index}>
                 <label className="field">
-                  <span>{t("settings.translation.glossarySource")}</span>
+                  <span>{t("settings.glossary.glossarySource")}</span>
                   <input
                     maxLength={MAX_GLOSSARY_TERM_LENGTH}
                     value={entry.source}
@@ -160,23 +160,23 @@ export function LocalGlossaryDialog({
                   />
                 </label>
                 <label className="field">
-                  <span>{t("settings.translation.glossaryTarget")}</span>
+                  <span>{t("settings.glossary.glossaryTarget")}</span>
                   <input
                     maxLength={MAX_GLOSSARY_TERM_LENGTH}
                     value={entry.target ?? ""}
                     disabled={saving || entry.target === null}
-                    placeholder={entry.target === null ? t("settings.translation.keepOriginal") : undefined}
+                    placeholder={entry.target === null ? t("settings.glossary.keepOriginal") : undefined}
                     onChange={(event) => updateEntry(index, { target: event.target.value })}
                   />
                 </label>
                 <Select
-                  label={t("settings.translation.glossaryCategory")}
+                  label={t("settings.glossary.glossaryCategory")}
                   value={entry.category}
                   disabled={saving}
                   floating="dialog"
                   options={GLOSSARY_CATEGORIES.map((category) => ({
                     value: category,
-                    label: t(`settings.translation.glossaryCategories.${category}`),
+                    label: t(`settings.glossary.glossaryCategories.${category}`),
                   }))}
                   onChange={(category) => updateEntry(index, {
                     category: category as GlossaryEntry["category"],
@@ -185,13 +185,13 @@ export function LocalGlossaryDialog({
                 <div className="glossary-dialog-entry-options">
                   <div className="glossary-dialog-option-toggles">
                     <div className="glossary-dialog-option-toggle">
-                      <span>{t("settings.translation.keepOriginal")}</span>
+                      <span>{t("settings.glossary.keepOriginal")}</span>
                       <button
                         className="settings-switch-button"
                         type="button"
                         role="switch"
                         aria-checked={entry.target === null}
-                        aria-label={t("settings.translation.keepOriginal")}
+                        aria-label={t("settings.glossary.keepOriginal")}
                         disabled={saving}
                         onClick={() => updateEntry(index, {
                           target: entry.target === null ? "" : null,
@@ -201,13 +201,13 @@ export function LocalGlossaryDialog({
                       </button>
                     </div>
                     <div className="glossary-dialog-option-toggle">
-                      <span>{t("settings.translation.caseSensitive")}</span>
+                      <span>{t("settings.glossary.caseSensitive")}</span>
                       <button
                         className="settings-switch-button"
                         type="button"
                         role="switch"
                         aria-checked={entry.case_sensitive}
-                        aria-label={t("settings.translation.caseSensitive")}
+                        aria-label={t("settings.glossary.caseSensitive")}
                         disabled={saving}
                         onClick={() => updateEntry(index, {
                           case_sensitive: !entry.case_sensitive,
@@ -271,7 +271,7 @@ export function SubscriptionGlossaryDialog({
   const { t } = useTranslation();
   return (
     <SettingsDialog
-      label={t(draft.id ? "settings.translation.editSubscription" : "settings.translation.addSubscription")}
+      label={t(draft.id ? "settings.glossary.editSubscription" : "settings.glossary.addSubscription")}
       saving={saving}
       returnFocusRef={returnFocusRef}
       className="glossary-dialog"
@@ -286,11 +286,11 @@ export function SubscriptionGlossaryDialog({
         }}
       >
         <div className="api-profile-editor-heading">
-          <strong>{t(draft.id ? "settings.translation.editSubscription" : "settings.translation.addSubscription")}</strong>
+          <strong>{t(draft.id ? "settings.glossary.editSubscription" : "settings.glossary.addSubscription")}</strong>
         </div>
         <div className="api-profile-editor-content">
           <label className="field cloud-text-field">
-            <span>{t("settings.translation.glossaryUrl")}</span>
+            <span>{t("settings.glossary.glossaryUrl")}</span>
             <input
               type="url"
               maxLength={MAX_GLOSSARY_URL_LENGTH}
@@ -302,12 +302,12 @@ export function SubscriptionGlossaryDialog({
             />
           </label>
           <label className="field cloud-text-field">
-            <span>{t("settings.translation.glossaryDisplayName")}</span>
+            <span>{t("settings.glossary.glossaryDisplayName")}</span>
             <input
               maxLength={MAX_GLOSSARY_NAME_LENGTH}
               value={draft.displayName}
               disabled={saving}
-              placeholder={t("settings.translation.glossaryDisplayNamePlaceholder")}
+              placeholder={t("settings.glossary.glossaryDisplayNamePlaceholder")}
               onChange={(event) => onChange({ ...draft, displayName: event.target.value })}
             />
           </label>

@@ -12,11 +12,11 @@ use tokio_tungstenite::tungstenite::http::{header::AUTHORIZATION, HeaderValue};
 use tokio_tungstenite::tungstenite::Message;
 
 use crate::config::{AsrConfig, VrcxConfig};
+#[cfg(test)]
 use crate::providers;
 use crate::translation::TranslationContextEntry;
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
-const MAX_ASR_CONTEXT_CHARS: usize = 400;
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
 pub struct VrcxRuntimeStatus {
@@ -162,18 +162,7 @@ impl VrcxIntegration {
         if generated.is_empty() {
             return (Vec::new(), None);
         }
-        let Some((_, service)) = providers::recognition_service(&config.backend) else {
-            return (Vec::new(), None);
-        };
-        if !service.supports_context {
-            return (Vec::new(), None);
-        }
-        let Some(settings) = config.service_settings.get_mut(&config.backend) else {
-            return (Vec::new(), None);
-        };
-        let context = &mut settings.context;
-        let (merged, appended) = append_context(context, &generated);
-        *context = merged;
+        let appended = crate::glossary::append_asr_context(config, &generated);
         if appended.is_empty() {
             return (Vec::new(), None);
         }
@@ -539,28 +528,6 @@ fn asr_echo_signatures(room: &VrcxRoomContext, generated: &str) -> Vec<String> {
     signatures
 }
 
-fn append_context(manual: &str, generated: &str) -> (String, String) {
-    let manual = manual.trim();
-    if manual.chars().count() >= MAX_ASR_CONTEXT_CHARS {
-        return (manual.to_string(), String::new());
-    }
-    let separator = if manual.is_empty() { "" } else { "\n" };
-    let remaining = MAX_ASR_CONTEXT_CHARS - manual.chars().count() - separator.chars().count();
-    let mut appended = String::new();
-    for term in generated.lines() {
-        let extra = term.chars().count() + usize::from(!appended.is_empty());
-        if appended.chars().count() + extra > remaining {
-            break;
-        }
-        if !appended.is_empty() {
-            appended.push('\n');
-        }
-        appended.push_str(term);
-    }
-    let separator = if appended.is_empty() { "" } else { separator };
-    (format!("{manual}{separator}{appended}"), appended)
-}
-
 fn message_type(value: &Value) -> Option<&str> {
     value.get("type").and_then(Value::as_str)
 }
@@ -631,16 +598,8 @@ mod tests {
     }
 
     #[test]
-    fn asr_context_uses_terms_and_preserves_manual_text_and_limit() {
-        let generated = format_room_for_asr(&room());
-        assert_eq!(generated, "Test \"World\"\nAlice\nBob");
-        let (merged, appended) = append_context("VRChat terms", &generated);
-        assert!(merged.starts_with("VRChat terms\n"));
-        assert_eq!(appended, generated);
-        assert!(merged.chars().count() <= MAX_ASR_CONTEXT_CHARS);
-
-        let full = "x".repeat(MAX_ASR_CONTEXT_CHARS);
-        assert_eq!(append_context(&full, &generated), (full, String::new()));
+    fn asr_context_uses_only_room_terms() {
+        assert_eq!(format_room_for_asr(&room()), "Test \"World\"\nAlice\nBob");
     }
 
     #[test]

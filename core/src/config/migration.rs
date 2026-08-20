@@ -324,6 +324,7 @@ fn normalize_v24(value: &mut serde_json::Value) -> Result<(), String> {
     let object = value
         .as_object_mut()
         .ok_or_else(|| "Configuration root must be an object".to_string())?;
+    promote_glossary_sources(object)?;
     let asr = object
         .entry("asr")
         .or_insert_with(|| serde_json::json!({}))
@@ -525,6 +526,14 @@ fn backfill_glossary_sources(
         .ok_or_else(|| "Configuration translation.prompt must be an object".to_string())?;
     let glossary = prompt.remove("glossary");
     let subscription_url = prompt.remove("glossary_source_url");
+    let existing_sources = prompt
+        .remove("glossary_sources")
+        .unwrap_or_else(|| serde_json::json!([]))
+        .as_array()
+        .cloned()
+        .ok_or_else(|| {
+            "Configuration translation.prompt.glossary_sources must be an array".to_string()
+        })?;
     let mut sources = Vec::new();
     if let Some(entries) = glossary {
         if !entries.as_array().is_some_and(Vec::is_empty) {
@@ -546,7 +555,42 @@ fn backfill_glossary_sources(
             "enabled": true
         }));
     }
+    sources.extend(existing_sources);
     prompt.insert("glossary_sources".into(), serde_json::Value::Array(sources));
+    Ok(())
+}
+
+fn promote_glossary_sources(
+    object: &mut serde_json::Map<String, serde_json::Value>,
+) -> Result<(), String> {
+    let sources = object
+        .get_mut("translation")
+        .and_then(serde_json::Value::as_object_mut)
+        .and_then(|translation| translation.get_mut("prompt"))
+        .and_then(serde_json::Value::as_object_mut)
+        .and_then(|prompt| prompt.remove("glossary_sources"));
+    if sources.as_ref().is_some_and(|sources| !sources.is_array()) {
+        return Err("Configuration translation.prompt.glossary_sources must be an array".into());
+    }
+    let glossary = object
+        .entry("glossary")
+        .or_insert_with(|| serde_json::json!({}))
+        .as_object_mut()
+        .ok_or_else(|| "Configuration glossary must be an object".to_string())?;
+    let existing_sources = glossary
+        .entry("sources")
+        .or_insert_with(|| serde_json::json!([]))
+        .as_array_mut()
+        .ok_or_else(|| "Configuration glossary.sources must be an array".to_string())?;
+    if let Some(sources) = sources {
+        existing_sources.extend(
+            sources
+                .as_array()
+                .expect("validated glossary sources")
+                .iter()
+                .cloned(),
+        );
+    }
     Ok(())
 }
 
@@ -688,7 +732,7 @@ pub fn config_from_value(raw: &serde_json::Value) -> Result<AppConfig, String> {
         version if version == SCHEMA_VERSION as u64 => {
             serde_json::from_value(raw.clone()).map_err(|error| error.to_string())?
         }
-        23 => deserialize_v24(raw.clone())?,
+        24 | 23 => deserialize_v24(raw.clone())?,
         22 => migrate_v22(raw)?,
         21 => migrate_v21(raw)?,
         20 => migrate_v20(raw)?,

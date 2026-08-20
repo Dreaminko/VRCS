@@ -10,6 +10,7 @@ mod db;
 mod domain_events;
 mod error;
 mod external_api;
+mod glossary;
 mod learning;
 mod llm;
 mod microphone_monitor;
@@ -315,14 +316,13 @@ async fn start_inner(options: CoreOptions, defer_managed_vad: bool) -> Result<Co
     let glossary_cache_path = options
         .config_path
         .with_file_name("glossary-subscription-cache.json");
-    let glossary_subscription = Arc::new(translation::GlossarySubscriptionStore::new(
+    let glossary = Arc::new(glossary::GlossaryStore::new(
         glossary_cache_path,
-        config.translation.prompt.glossary_sources.clone(),
+        config.glossary.clone(),
     )?);
-    let translation_service =
-        Arc::new(translation::TranslationService::with_glossary_subscription(
-            Arc::clone(&glossary_subscription),
-        )?);
+    let translation_service = Arc::new(translation::TranslationService::with_glossary(
+        Arc::clone(&glossary),
+    )?);
     let learning_service = Arc::new(learning::LearningService::new()?);
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
     let vrcx = vrcx::VrcxIntegration::new(shutdown_rx.clone());
@@ -387,7 +387,7 @@ async fn start_inner(options: CoreOptions, defer_managed_vad: bool) -> Result<Co
         translation_service,
         learning_service,
         translation_dispatcher,
-        glossary_subscription: Arc::clone(&glossary_subscription),
+        glossary: Arc::clone(&glossary),
         osc,
         http: anki::client(),
         session_token: session_token.clone(),
@@ -423,7 +423,8 @@ async fn start_inner(options: CoreOptions, defer_managed_vad: bool) -> Result<Co
         vrcx,
     });
 
-    let glossary_refresh = Arc::clone(&glossary_subscription);
+    let glossary_refresh = Arc::clone(&glossary);
+    let glossary_refresh_state = Arc::clone(&state);
     let mut glossary_shutdown = shutdown_rx.clone();
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(std::time::Duration::from_secs(24 * 60 * 60));
@@ -431,7 +432,11 @@ async fn start_inner(options: CoreOptions, defer_managed_vad: bool) -> Result<Co
         loop {
             tokio::select! {
                 _ = interval.tick() => {
-                    glossary_refresh.refresh_all().await;
+                    if glossary_refresh.refresh_all().await {
+                        if let Err((_, body)) = server::capture::reload_glossary_asr_context(&glossary_refresh_state).await {
+                            tracing::warn!(detail = ?body, "ASR glossary context could not be reloaded");
+                        }
+                    }
                 }
                 changed = glossary_shutdown.changed() => {
                     if changed.is_err() || *glossary_shutdown.borrow() {

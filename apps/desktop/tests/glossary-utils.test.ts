@@ -8,7 +8,7 @@ import {
   parsePublicGlossaryFile,
   validateEntries,
   validateSubscriptionDraft,
-} from "../src/settings/translation/glossary-utils.ts";
+} from "../src/settings/glossary/glossary-utils.ts";
 
 const t = ((key: string) => key) as TFunction;
 
@@ -57,7 +57,7 @@ test("rejects unknown fields in public glossary files", () => {
 test("matches Core duplicate rules for case-sensitive glossary entries", () => {
   assert.equal(
     validateEntries([entry("VRChat"), entry("vrchat")], t),
-    "settings.translation.glossaryValidation.duplicateSource",
+    "settings.glossary.glossaryValidation.duplicateSource",
   );
   assert.equal(validateEntries([entry("VRChat", true), entry("vrchat", true)], t), "");
   assert.equal(validateEntries([entry("VRChat", true), entry("VRChat")], t), "");
@@ -78,5 +78,5 @@ test("allows HTTPS and loopback HTTP subscription URLs only", () => {
     id: null,
     url: "http://example.com/glossary.json",
     displayName: "",
-  }, t), "settings.translation.glossaryValidation.urlInvalid");
+  }, t), "settings.glossary.glossaryValidation.urlInvalid");
 });

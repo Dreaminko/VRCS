@@ -4,6 +4,7 @@ export type SettingsCategory =
   | "system"
   | "recognition"
   | "translation"
+  | "glossary"
   | "api"
   | "audio"
   | "learning"

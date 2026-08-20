@@ -91,29 +91,29 @@ export function parsePublicGlossaryFile(value: unknown): PublicGlossaryFile | nu
 
 export function validateEntries(entries: GlossaryEntry[], t: TFunction): string {
   if (entries.length > MAX_GLOSSARY_ENTRIES) {
-    return t("settings.translation.glossaryValidation.tooMany", { count: MAX_GLOSSARY_ENTRIES });
+    return t("settings.glossary.glossaryValidation.tooMany", { count: MAX_GLOSSARY_ENTRIES });
   }
 
   const sources = new Set<string>();
   for (const [index, entry] of entries.entries()) {
     const row = index + 1;
     const source = entry.source.trim();
-    if (!source) return t("settings.translation.glossaryValidation.sourceRequired", { row });
+    if (!source) return t("settings.glossary.glossaryValidation.sourceRequired", { row });
     if (containsControl(entry.source)) {
-      return t("settings.translation.glossaryValidation.sourceSingleLine", { row });
+      return t("settings.glossary.glossaryValidation.sourceSingleLine", { row });
     }
     if (characterCount(source) > MAX_GLOSSARY_TERM_LENGTH) {
-      return t("settings.translation.glossaryValidation.sourceTooLong", { row });
+      return t("settings.glossary.glossaryValidation.sourceTooLong", { row });
     }
     if (entry.target !== null && containsControl(entry.target)) {
-      return t("settings.translation.glossaryValidation.targetSingleLine", { row });
+      return t("settings.glossary.glossaryValidation.targetSingleLine", { row });
     }
     if (entry.target !== null && characterCount(entry.target) > MAX_GLOSSARY_TERM_LENGTH) {
-      return t("settings.translation.glossaryValidation.targetTooLong", { row });
+      return t("settings.glossary.glossaryValidation.targetTooLong", { row });
     }
     const duplicateKey = `${entry.case_sensitive ? source : source.toLowerCase()}\0${entry.case_sensitive}`;
     if (sources.has(duplicateKey)) {
-      return t("settings.translation.glossaryValidation.duplicateSource", { row, source });
+      return t("settings.glossary.glossaryValidation.duplicateSource", { row, source });
     }
     sources.add(duplicateKey);
   }
@@ -122,9 +122,9 @@ export function validateEntries(entries: GlossaryEntry[], t: TFunction): string 
 
 export function validateLocalDraft(draft: LocalGlossaryDraft, t: TFunction): string {
   const name = draft.name.trim();
-  if (!name) return t("settings.translation.glossaryValidation.nameRequired");
+  if (!name) return t("settings.glossary.glossaryValidation.nameRequired");
   if (characterCount(name) > MAX_GLOSSARY_NAME_LENGTH) {
-    return t("settings.translation.glossaryValidation.nameTooLong");
+    return t("settings.glossary.glossaryValidation.nameTooLong");
   }
   return validateEntries(draft.entries, t);
 }
@@ -141,23 +141,23 @@ function isLoopbackHostname(hostname: string): boolean {
 
 export function validateSubscriptionDraft(draft: SubscriptionGlossaryDraft, t: TFunction): string {
   const url = draft.url.trim();
-  if (!url) return t("settings.translation.glossaryValidation.urlRequired");
+  if (!url) return t("settings.glossary.glossaryValidation.urlRequired");
   if (url.length > MAX_GLOSSARY_URL_LENGTH) {
-    return t("settings.translation.glossaryValidation.urlInvalid");
+    return t("settings.glossary.glossaryValidation.urlInvalid");
   }
   try {
     const parsed = new URL(url);
     if (!parsed.hostname || parsed.username || parsed.password || parsed.hash) {
-      return t("settings.translation.glossaryValidation.urlInvalid");
+      return t("settings.glossary.glossaryValidation.urlInvalid");
     }
     if (parsed.protocol !== "https:" && !(parsed.protocol === "http:" && isLoopbackHostname(parsed.hostname))) {
-      return t("settings.translation.glossaryValidation.urlInvalid");
+      return t("settings.glossary.glossaryValidation.urlInvalid");
     }
   } catch {
-    return t("settings.translation.glossaryValidation.urlInvalid");
+    return t("settings.glossary.glossaryValidation.urlInvalid");
   }
   if (characterCount(draft.displayName.trim()) > MAX_GLOSSARY_NAME_LENGTH) {
-    return t("settings.translation.glossaryValidation.displayNameTooLong");
+    return t("settings.glossary.glossaryValidation.displayNameTooLong");
   }
   return "";
 }

@@ -1,3 +1,4 @@
+use super::validation::validate_glossary;
 use super::*;
 use crate::providers::{
     self, ALIBABA_PROVIDER, CAPABILITY_SPEECH_TO_TEXT, CAPABILITY_TEXT_GENERATION,
@@ -447,8 +448,8 @@ fn validates_glossary_sources_and_subscription_urls() {
         category: GlossaryCategory::Custom,
         case_sensitive,
     };
-    let mut prompt = TranslationPromptConfig {
-        glossary_sources: vec![
+    let mut glossary = GlossaryConfig {
+        sources: vec![
             GlossarySource::Local {
                 id: "local".into(),
                 name: "Local glossary".into(),
@@ -464,47 +465,47 @@ fn validates_glossary_sources_and_subscription_urls() {
         ],
         ..Default::default()
     };
-    assert!(validate_translation_prompt(&prompt).is_ok());
+    assert!(validate_glossary(&glossary).is_ok());
 
-    if let GlossarySource::Subscription { url, .. } = &mut prompt.glossary_sources[1] {
+    if let GlossarySource::Subscription { url, .. } = &mut glossary.sources[1] {
         *url = "http://127.0.0.1:8080/glossary.json".into();
     }
-    assert!(validate_translation_prompt(&prompt).is_ok());
-    if let GlossarySource::Subscription { url, .. } = &mut prompt.glossary_sources[1] {
+    assert!(validate_glossary(&glossary).is_ok());
+    if let GlossarySource::Subscription { url, .. } = &mut glossary.sources[1] {
         *url = "http://example.com/glossary.json".into();
     }
     assert_eq!(
-        validate_translation_prompt(&prompt).unwrap_err(),
+        validate_glossary(&glossary).unwrap_err(),
         "Glossary source URL must use HTTPS, except for loopback HTTP addresses"
     );
 
-    if let GlossarySource::Subscription { id, url, .. } = &mut prompt.glossary_sources[1] {
+    if let GlossarySource::Subscription { id, url, .. } = &mut glossary.sources[1] {
         *id = " local ".into();
         *url = "https://example.com/glossary.json".into();
     }
     assert_eq!(
-        validate_translation_prompt(&prompt).unwrap_err(),
+        validate_glossary(&glossary).unwrap_err(),
         "Glossary source id must be unique: local"
     );
 
-    if let GlossarySource::Local { entries, .. } = &mut prompt.glossary_sources[0] {
+    if let GlossarySource::Local { entries, .. } = &mut glossary.sources[0] {
         entries.push(entry("vrchat", false));
     }
-    prompt.glossary_sources.pop();
+    glossary.sources.pop();
     assert_eq!(
-        validate_translation_prompt(&prompt).unwrap_err(),
+        validate_glossary(&glossary).unwrap_err(),
         "Local glossary contains a duplicate source term: vrchat"
     );
 
-    if let GlossarySource::Local { entries, .. } = &mut prompt.glossary_sources[0] {
+    if let GlossarySource::Local { entries, .. } = &mut glossary.sources[0] {
         entries[1].case_sensitive = true;
     }
-    assert!(validate_translation_prompt(&prompt).is_ok());
-    if let GlossarySource::Local { entries, .. } = &mut prompt.glossary_sources[0] {
+    assert!(validate_glossary(&glossary).is_ok());
+    if let GlossarySource::Local { entries, .. } = &mut glossary.sources[0] {
         entries[1].source = "line\nbreak".into();
     }
     assert_eq!(
-        validate_translation_prompt(&prompt).unwrap_err(),
+        validate_glossary(&glossary).unwrap_err(),
         "Local glossary source must contain 1 to 200 single-line characters"
     );
 }

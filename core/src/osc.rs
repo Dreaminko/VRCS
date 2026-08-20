@@ -464,7 +464,11 @@ async fn run_worker(
                 }
                 let Some(message) = queue.pop_front() else { continue };
                 let text = message.rendered_text.clone().unwrap_or_else(|| {
-                    format_chatbox(&message.original, message.translation.as_deref())
+                    format_chatbox(
+                        &message.original,
+                        message.translation.as_deref(),
+                        config.config.preserve_original_text,
+                    )
                 });
                 let port = config.config.port;
                 let result = match &socket {
@@ -502,6 +506,7 @@ async fn run_worker(
                             "sent",
                             None,
                             Some(sent_at.clone()),
+                            config.config.preserve_original_text,
                         );
                         if let Some(subtitle_id) = message.subtitle_id {
                             current_sent = Some(SentMessage {
@@ -527,6 +532,7 @@ async fn run_worker(
                             "failed",
                             Some(&error),
                             None,
+                            config.config.preserve_original_text,
                         );
                         if let Some(responder) = message.responder {
                             let _ = responder.send(Err(ManualSendError {
@@ -549,6 +555,7 @@ fn record_automatic_message(
     status: &str,
     error_detail: Option<&str>,
     sent_at: Option<String>,
+    preserve_original_text: bool,
 ) {
     if message.subtitle_id.is_none() || message.rendered_text.is_some() {
         return;
@@ -559,11 +566,13 @@ fn record_automatic_message(
         .translation
         .as_deref()
         .map(crate::chatbox::compact_text);
-    let untruncated = match translation.as_deref() {
-        Some(value) if !value.is_empty() && value != original => {
-            format!("{original}\n{value}")
-        }
-        _ => original,
+    let effective_translation = translation
+        .as_deref()
+        .filter(|value| !value.is_empty() && *value != original.as_str());
+    let (send_mode, untruncated) = match (effective_translation, preserve_original_text) {
+        (Some(value), true) => ("bilingual", format!("{original}\n{value}")),
+        (Some(value), false) => ("translation", value.to_owned()),
+        (None, _) => ("original", original),
     };
     let record = NewChatboxMessage {
         source: "microphone".into(),
@@ -571,12 +580,7 @@ fn record_automatic_message(
         translation: message.translation.clone(),
         source_language: None,
         target_language: None,
-        send_mode: if message.translation.is_some() {
-            "bilingual"
-        } else {
-            "original"
-        }
-        .into(),
+        send_mode: send_mode.into(),
         message_format: "original_newline_translation".into(),
         custom_format: None,
         rendered_text: rendered_text.into(),
@@ -695,7 +699,7 @@ mod tests {
 
     #[test]
     fn formats_bilingual_messages_within_vrchat_limit() {
-        let formatted = format_chatbox(&"原".repeat(100), Some(&"訳".repeat(100)));
+        let formatted = format_chatbox(&"原".repeat(100), Some(&"訳".repeat(100)), true);
         let mut lines = formatted.lines();
         assert_eq!(lines.next().unwrap().chars().count(), 71);
         assert_eq!(lines.next().unwrap().chars().count(), 72);
@@ -705,9 +709,15 @@ mod tests {
     #[test]
     fn removes_control_characters_and_avoids_duplicate_translation() {
         assert_eq!(
-            format_chatbox(" hello\0\nworld ", Some("hello world")),
+            format_chatbox(" hello\0\nworld ", Some("hello world"), true),
             "hello world"
         );
+    }
+
+    #[test]
+    fn omits_original_text_when_disabled_and_translation_is_available() {
+        assert_eq!(format_chatbox("こんにちは", Some("你好"), false), "你好");
+        assert_eq!(format_chatbox("こんにちは", None, false), "こんにちは");
     }
 
     #[tokio::test]
@@ -737,6 +747,7 @@ mod tests {
             port: receiver.local_addr().unwrap().port(),
             mute_sync_enabled: false,
             mute_status_toast_enabled: false,
+            preserve_original_text: true,
         });
         let send = tokio::spawn(async move { dispatcher.send_manual("手动消息".into()).await });
 
@@ -758,6 +769,7 @@ mod tests {
             port: receiver.local_addr().unwrap().port(),
             mute_sync_enabled: false,
             mute_status_toast_enabled: false,
+            preserve_original_text: true,
         });
         dispatcher.publish_subtitle(subtitle(1, "speaker", "ignored"), false);
         assert!(tokio::time::timeout(Duration::from_millis(150), async {
@@ -794,6 +806,42 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn dispatcher_can_send_translation_without_original_text() {
+        let receiver = UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();
+        let dispatcher = OscChatboxDispatcher::new(OscConfig {
+            enabled: true,
+            port: receiver.local_addr().unwrap().port(),
+            mute_sync_enabled: false,
+            mute_status_toast_enabled: false,
+            preserve_original_text: false,
+        });
+        dispatcher.publish_subtitle(subtitle(3, "microphone", "こんにちは"), true);
+        dispatcher.translation_completed(
+            3,
+            SubtitleTranslation {
+                text: "你好".into(),
+                source_language: Some("ja".into()),
+                target_language: "zh-Hans".into(),
+                provider: "local".into(),
+                model: None,
+                created_at: now_iso8601(),
+            },
+        );
+
+        let mut buffer = [0u8; 512];
+        let (length, _) =
+            tokio::time::timeout(Duration::from_secs(2), receiver.recv_from(&mut buffer))
+                .await
+                .unwrap()
+                .unwrap();
+        let (_, packet) = rosc::decoder::decode_udp(&buffer[..length]).unwrap();
+        let OscPacket::Message(message) = packet else {
+            panic!("expected OSC message")
+        };
+        assert_eq!(message.args[0], OscType::String("你好".into()));
+    }
+
+    #[tokio::test]
     async fn config_change_discards_events_from_a_saturated_previous_generation() {
         let receiver = UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();
         let config = OscConfig {
@@ -801,6 +849,7 @@ mod tests {
             port: receiver.local_addr().unwrap().port(),
             mute_sync_enabled: false,
             mute_status_toast_enabled: false,
+            preserve_original_text: true,
         };
         let dispatcher = OscChatboxDispatcher::new(config.clone());
 
@@ -830,6 +879,7 @@ mod tests {
             port: receiver.local_addr().unwrap().port(),
             mute_sync_enabled: true,
             mute_status_toast_enabled: false,
+            preserve_original_text: true,
         });
 
         assert_eq!(dispatcher.queue_test(), Err("osc.blocked_mute_unknown"));

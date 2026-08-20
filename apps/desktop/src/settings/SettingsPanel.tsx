@@ -24,6 +24,7 @@ import { createDebugRows } from "./settings-derived";
 import { ApiManagementSettingsSection } from "./sections/ApiManagementSettingsSection";
 import { AudioSettingsSection } from "./sections/AudioSettingsSection";
 import { DebugSettingsSection } from "./sections/DebugSettingsSection";
+import { GlossarySettingsSection } from "./sections/GlossarySettingsSection";
 import { LearningSettingsSection } from "./sections/LearningSettingsSection";
 import { RecognitionSettingsSection } from "./sections/RecognitionSettingsSection";
 import { ConnectionSettingsSection } from "./sections/ConnectionSettingsSection";
@@ -217,6 +218,14 @@ export function SettingsPanel({
         <TranslationSettingsSection
           draft={draft}
           apiProfiles={apiProfileCatalog.profiles}
+          saveState={saveState}
+          applySettings={applySettings}
+        />
+      )}
+
+      {activeCategory === "glossary" && (
+        <GlossarySettingsSection
+          draft={draft}
           saveState={saveState}
           applySettings={applySettings}
         />

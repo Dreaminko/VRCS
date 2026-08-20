@@ -1,11 +1,12 @@
 use serde::{Deserialize, Serialize};
 
 use super::{
-    AnkiConfig, AsrConfig, AudioConfig, DictionaryConfig, ExternalApiConfig, OscConfig,
-    ServerConfig, StorageConfig, TranslationConfig, VadConfig, VrOverlayConfig, VrcxConfig,
+    AnkiConfig, AsrConfig, AudioConfig, DictionaryConfig, ExternalApiConfig, GlossaryConfig,
+    OscConfig, ServerConfig, StorageConfig, TranslationConfig, VadConfig, VrOverlayConfig,
+    VrcxConfig,
 };
 
-pub const SCHEMA_VERSION: u32 = 24;
+pub const SCHEMA_VERSION: u32 = 25;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AppConfig {
@@ -23,6 +24,8 @@ pub struct AppConfig {
     pub asr: AsrConfig,
     #[serde(default)]
     pub dictionary: DictionaryConfig,
+    #[serde(default)]
+    pub glossary: GlossaryConfig,
     #[serde(default)]
     pub translation: TranslationConfig,
     #[serde(default)]
@@ -51,6 +54,7 @@ impl Default for AppConfig {
             vad: VadConfig::default(),
             asr: AsrConfig::default(),
             dictionary: DictionaryConfig::default(),
+            glossary: GlossaryConfig::default(),
             translation: TranslationConfig::default(),
             osc: OscConfig::default(),
             anki: AnkiConfig::default(),
@@ -77,6 +81,7 @@ mod tests {
                 "audio",
                 "dictionary",
                 "external_api",
+                "glossary",
                 "osc",
                 "schema_version",
                 "server",
@@ -137,6 +142,10 @@ mod tests {
         );
         assert_keys(&value["dictionary"], ["selection_lookup_enabled"]);
         assert_keys(
+            &value["glossary"],
+            ["asr_enabled", "llm_enabled", "sources"],
+        );
+        assert_keys(
             &value["translation"],
             [
                 "microphone_target_language",
@@ -152,7 +161,6 @@ mod tests {
             &value["translation"]["prompt"],
             [
                 "context_enabled",
-                "glossary_sources",
                 "include_chatbox",
                 "include_microphone",
                 "include_speaker",
@@ -168,6 +176,7 @@ mod tests {
                 "mute_status_toast_enabled",
                 "mute_sync_enabled",
                 "port",
+                "preserve_original_text",
             ],
         );
         assert_keys(
@@ -276,9 +285,20 @@ mod tests {
     }
 
     #[test]
+    fn glossary_consumer_switches_default_to_enabled_when_omitted() {
+        let glossary: GlossaryConfig = serde_json::from_value(serde_json::json!({
+            "sources": []
+        }))
+        .unwrap();
+
+        assert!(glossary.llm_enabled);
+        assert!(glossary.asr_enabled);
+    }
+
+    #[test]
     fn glossary_sources_use_the_tagged_json_contract() {
-        let prompt = TranslationPromptConfig {
-            glossary_sources: vec![
+        let glossary = GlossaryConfig {
+            sources: vec![
                 GlossarySource::Local {
                     id: "local-one".into(),
                     name: "Names".into(),
@@ -297,20 +317,13 @@ mod tests {
                     enabled: false,
                 },
             ],
-            glossary: vec![GlossaryEntry {
-                source: "runtime-only".into(),
-                target: None,
-                category: GlossaryCategory::Custom,
-                case_sensitive: false,
-            }],
             ..Default::default()
         };
 
-        let value = serde_json::to_value(&prompt).unwrap();
+        let value = serde_json::to_value(&glossary).unwrap();
 
-        assert!(value.get("glossary").is_none());
         assert_eq!(
-            value["glossary_sources"],
+            value["sources"],
             serde_json::json!([
                 {
                     "id": "local-one",
@@ -333,13 +346,24 @@ mod tests {
                 }
             ])
         );
-        let deserialized: TranslationPromptConfig = serde_json::from_value(serde_json::json!({
-            "glossary": [{"source": "ignored"}],
-            "glossary_sources": value["glossary_sources"].clone()
-        }))
-        .unwrap();
-        assert!(deserialized.glossary.is_empty());
-        assert_eq!(deserialized.glossary_sources, prompt.glossary_sources);
+        assert_eq!(
+            serde_json::from_value::<GlossaryConfig>(value).unwrap(),
+            glossary
+        );
+
+        let prompt = TranslationPromptConfig {
+            glossary: vec![GlossaryEntry {
+                source: "runtime-only".into(),
+                target: None,
+                category: GlossaryCategory::Custom,
+                case_sensitive: false,
+            }],
+            ..Default::default()
+        };
+        assert!(serde_json::to_value(prompt)
+            .unwrap()
+            .get("glossary")
+            .is_none());
     }
 
     fn assert_keys<const N: usize>(value: &serde_json::Value, expected: [&str; N]) {

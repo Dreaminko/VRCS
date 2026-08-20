@@ -504,7 +504,7 @@ export interface VrOverlayStatus {
 }
 
 export interface Settings {
-  schema_version: 24;
+  schema_version: 25;
   server: {
     host: string;
     port: number;
@@ -522,11 +522,13 @@ export interface Settings {
   vad: VadSettings;
   asr: AsrSettings;
   translation: TranslationSettings;
+  glossary: GlossarySettings;
   osc: {
     enabled: boolean;
     port: number;
     mute_sync_enabled: boolean;
     mute_status_toast_enabled: boolean;
+    preserve_original_text: boolean;
   };
   dictionary: {
     selection_lookup_enabled: boolean;
@@ -588,6 +590,12 @@ export interface GlossarySubscriptionSource {
 
 export type GlossarySource = GlossaryLocalSource | GlossarySubscriptionSource;
 
+export interface GlossarySettings {
+  llm_enabled: boolean;
+  asr_enabled: boolean;
+  sources: GlossarySource[];
+}
+
 export interface TranslationPromptSettings {
   system_prompt: string;
   context_enabled: boolean;
@@ -596,7 +604,6 @@ export interface TranslationPromptSettings {
   include_chatbox: boolean;
   max_messages: number;
   max_chars: number;
-  glossary_sources: GlossarySource[];
 }
 
 export interface GlossarySourceStatus {

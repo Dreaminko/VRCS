@@ -28,6 +28,7 @@ impl AppConfig {
         validate_audio(&self.audio, &self.vad)?;
         validate_recognition_options(&self.asr)?;
         validate_api_profiles(&self.asr)?;
+        validate_glossary(&self.glossary)?;
         validate_translation(&self.translation, &self.asr.api_profiles)?;
         validate_osc(&self.osc)?;
         validate_recognition_models(&self.asr, &self.vad)?;
@@ -459,8 +460,12 @@ pub fn validate_translation_prompt(prompt: &TranslationPromptConfig) -> Result<(
         return Err("Translation context max_chars must be between 200 and 12000".into());
     }
     validate_glossary_entries(&prompt.glossary, "Translation glossary")?;
+    Ok(())
+}
+
+pub fn validate_glossary(glossary: &GlossaryConfig) -> Result<(), String> {
     let mut source_ids = HashSet::new();
-    for source in &prompt.glossary_sources {
+    for source in &glossary.sources {
         let id = match source {
             GlossarySource::Local {
                 id,

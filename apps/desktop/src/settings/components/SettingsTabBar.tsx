@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import {
   AudioLines,
+  BookOpenText,
   GraduationCap,
   Layers3,
   KeyRound,
@@ -27,6 +28,7 @@ export function SettingsTabBar({
     { id: "audio", label: t("settings.categories.audio"), icon: <Volume2 size={18} /> },
     { id: "recognition", label: t("settings.categories.recognition"), icon: <AudioLines size={18} /> },
     { id: "translation", label: t("settings.categories.translation"), icon: <Languages size={18} /> },
+    { id: "glossary", label: t("settings.categories.glossary"), icon: <BookOpenText size={18} /> },
     { id: "api", label: t("settings.categories.api"), icon: <KeyRound size={18} /> },
     { id: "learning", label: t("settings.categories.learning"), icon: <GraduationCap size={18} /> },
     { id: "connections", label: t("settings.categories.connections"), icon: <Link size={18} /> },

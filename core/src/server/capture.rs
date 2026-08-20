@@ -23,6 +23,7 @@ impl CaptureReloadPlan {
     pub(crate) fn between(current: &AppConfig, candidate: &AppConfig) -> Self {
         let shared = current.vad != candidate.vad
             || asr_runtime_changed(current, candidate)
+            || glossary_asr_runtime_changed(current, candidate)
             || current.storage.model_directory != candidate.storage.model_directory;
         let sample_rate_changed = current.audio.sample_rate != candidate.audio.sample_rate;
         Self {
@@ -49,6 +50,21 @@ impl CaptureReloadPlan {
 
 pub(crate) fn asr_runtime_changed(current: &AppConfig, candidate: &AppConfig) -> bool {
     asr_config_runtime_changed(&current.asr, &candidate.asr)
+}
+
+fn glossary_asr_runtime_changed(current: &AppConfig, candidate: &AppConfig) -> bool {
+    if !supports_asr_context(&current.asr) && !supports_asr_context(&candidate.asr) {
+        return false;
+    }
+    current.glossary.asr_enabled != candidate.glossary.asr_enabled
+        || (candidate.glossary.asr_enabled
+            && current.glossary.sources != candidate.glossary.sources)
+}
+
+fn supports_asr_context(config: &AsrConfig) -> bool {
+    crate::providers::recognition_service(&config.backend)
+        .and_then(|(_, service)| service.context_max_chars)
+        .is_some()
 }
 
 fn asr_config_runtime_changed(current: &AsrConfig, candidate: &AsrConfig) -> bool {
@@ -224,6 +240,8 @@ pub(crate) async fn validate_capture_config(
 
 fn effective_asr_config(state: &Arc<AppState>, config: &AppConfig) -> (AsrConfig, AsrEchoGuard) {
     let mut asr = config.asr.clone();
+    let terms = state.glossary.terms_for_asr(&config.glossary).join("\n");
+    crate::glossary::append_asr_context(&mut asr, &terms);
     let (signatures, repeated_world) = if config.vrcx.enabled && config.vrcx.include_in_asr_context
     {
         state.vrcx.apply_asr_context(&mut asr)
@@ -356,6 +374,20 @@ pub(crate) async fn start_pipelines(
     Ok(())
 }
 
+pub(crate) async fn reload_glossary_asr_context(state: &Arc<AppState>) -> ApiResult<()> {
+    let _control = state.capture_control.lock().await;
+    let config = state.config.read().expect("config lock").clone();
+    if !state.capture_requested.load(Ordering::SeqCst)
+        || !config.glossary.asr_enabled
+        || !supports_asr_context(&config.asr)
+    {
+        return Ok(());
+    }
+    let plan = CaptureReloadPlan::all();
+    stop_pipelines(state, plan).await;
+    start_pipelines(state, &config, plan).await
+}
+
 pub(super) async fn capture_start(State(state): State<Arc<AppState>>) -> ApiResult<Json<Value>> {
     let _control = state.capture_control.lock().await;
     let config = state.config.read().expect("config lock").clone();
@@ -432,10 +464,11 @@ pub(crate) async fn resume_microphone(state: &Arc<AppState>) -> Result<(), Strin
 
 #[cfg(test)]
 mod tests {
-    use super::CaptureReloadPlan;
-    use crate::config::AppConfig;
+    use super::{asr_runtime_changed, CaptureReloadPlan};
+    use crate::config::{AppConfig, GlossarySource};
     use crate::providers::{
-        CAPABILITY_SPEECH_TO_TEXT, SERVICE_GROQ_TRANSCRIPTION, SERVICE_QWEN_REALTIME,
+        CAPABILITY_SPEECH_TO_TEXT, SERVICE_GROQ_TRANSCRIPTION, SERVICE_OPENAI_REALTIME,
+        SERVICE_QWEN_REALTIME,
     };
 
     #[test]
@@ -513,6 +546,36 @@ mod tests {
             CaptureReloadPlan::between(&current, &candidate),
             CaptureReloadPlan::all()
         );
+    }
+
+    #[test]
+    fn glossary_asr_changes_reload_supported_cloud_pipelines_without_updating_local_runtime() {
+        let mut current = AppConfig::default();
+        current.asr.backend = SERVICE_QWEN_REALTIME.into();
+        let mut candidate = current.clone();
+        candidate.glossary.sources.push(GlossarySource::Local {
+            id: "local".into(),
+            name: "Local".into(),
+            enabled: true,
+            entries: Vec::new(),
+        });
+
+        assert_eq!(
+            CaptureReloadPlan::between(&current, &candidate),
+            CaptureReloadPlan::all()
+        );
+        assert!(!asr_runtime_changed(&current, &candidate));
+    }
+
+    #[test]
+    fn glossary_changes_do_not_reload_services_without_context_support() {
+        let mut current = AppConfig::default();
+        current.asr.backend = SERVICE_OPENAI_REALTIME.into();
+        let mut candidate = current.clone();
+        candidate.glossary.asr_enabled = false;
+        candidate.glossary.llm_enabled = false;
+
+        assert!(CaptureReloadPlan::between(&current, &candidate).is_empty());
     }
 
     #[test]
