@@ -1,81 +1,54 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 
 import { coreApi } from "../api";
-import type { Lookup, LookupOrigin } from "../app/app-types";
-
-const TERM_BOUNDARY_PUNCTUATION = (
-  /^[\s.,!?;:，。！？；：“”'"「」『』（）()]+|[\s.,!?;:，。！？；：“”'"「」『』（）()]+$/g
-);
+import type { Lookup, SelectionTarget } from "../app/app-types";
 
 export function useDictionaryLookup({
-  enabled,
-  compact,
-  resizeCompactWindow,
   reportError,
 }: {
-  enabled: boolean;
-  compact: boolean;
-  resizeCompactWindow: (lookupOpen: boolean) => Promise<void>;
   reportError: (reason: unknown, fallbackKey: string) => void;
 }) {
   const [lookup, setLookup] = useState<Lookup | null>(null);
+  const [loading, setLoading] = useState(false);
+  const requestRef = useRef(0);
 
   const clearLookup = useCallback(() => {
+    requestRef.current += 1;
     setLookup(null);
+    setLoading(false);
   }, []);
 
-  const closeCompactLookup = useCallback(() => {
-    clearLookup();
-    void resizeCompactWindow(false).catch((reason) => {
-      reportError(reason, "errors.window.compactCollapse");
+  const lookupSelection = useCallback(async (target: SelectionTarget): Promise<boolean> => {
+    const requestId = ++requestRef.current;
+    setLookup({
+      ...target,
+      term: target.selectedText,
+      entries: [],
     });
-  }, [clearLookup, reportError, resizeCompactWindow]);
-
-  useEffect(() => {
-    if (enabled || !lookup) return;
-    setLookup(null);
-    if (compact) {
-      void resizeCompactWindow(false).catch((reason) => {
-        reportError(reason, "errors.window.compactCollapse");
-      });
-    }
-  }, [compact, enabled, lookup, reportError, resizeCompactWindow]);
-
-  const selectWord = useCallback(async (context: string, origin?: LookupOrigin) => {
-    if (!enabled) return;
-    const selection = window.getSelection();
-    const term = selection
-      ?.toString()
-      .trim()
-      .replace(TERM_BOUNDARY_PUNCTUATION, "");
-    if (!selection || !term || selection.rangeCount === 0) return;
-    const range = selection.getRangeAt(0).cloneRange();
-    const rect = range.getBoundingClientRect();
-    if (!rect.width && !rect.height) return;
+    setLoading(true);
     try {
-      const entries = await coreApi.lookup(term);
+      const entries = await coreApi.lookup(target.selectedText);
+      if (requestId !== requestRef.current) return false;
       setLookup({
-        term,
-        context,
+        ...target,
+        term: target.selectedText,
         entries,
-        origin,
-        anchor: {
-          top: rect.top,
-          bottom: rect.bottom,
-          centerX: rect.left + rect.width / 2,
-        },
-        range,
       });
-      if (compact) await resizeCompactWindow(true);
+      return true;
     } catch (reason) {
-      reportError(reason, "errors.dictionary.lookup");
+      if (requestId === requestRef.current) {
+        reportError(reason, "errors.dictionary.lookup");
+      }
+      return false;
+    } finally {
+      if (requestId === requestRef.current) setLoading(false);
     }
-  }, [compact, enabled, reportError, resizeCompactWindow]);
+  }, [reportError]);
 
   return {
     lookup,
+    loading,
     clearLookup,
-    closeCompactLookup,
-    selectWord,
+    lookupSelection,
   };
 }

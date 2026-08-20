@@ -374,6 +374,10 @@ pub fn router(state: Arc<AppState>) -> Router {
             post(learning::learning_item_analyze),
         )
         .route(
+            "/api/learning/selection-query",
+            post(learning::selection_query),
+        )
+        .route(
             "/api/learning/items/{id}/draft",
             post(learning::learning_item_draft),
         )

@@ -8,7 +8,7 @@
   overflow: hidden;
   background: var(--surface);
 }
-.compact-root-lookup {
+.compact-root-selection {
   grid-template-rows: 120px minmax(0, 1fr);
   background: var(--canvas);
 }
@@ -27,11 +27,11 @@
   background: var(--surface);
   box-shadow: var(--overlay-shadow);
 }
-.compact-root-lookup .compact-shell {
+.compact-root-selection .compact-shell {
   border-bottom-color: var(--border-strong);
   box-shadow: none;
 }
-.compact-inline-dictionary {
+.compact-inline-selection {
   position: relative;
   z-index: 1;
   width: 100%;
@@ -45,7 +45,7 @@
   box-shadow: var(--overlay-shadow);
   animation: compact-dictionary-in 150ms ease-out both;
 }
-.compact-inline-dictionary .dictionary-header { margin-bottom: 12px; }
+.compact-inline-selection .dictionary-header { margin-bottom: 12px; }
 .compact-drag-region { position: absolute; z-index: 0; inset: 0; }
 .compact-status {
   position: relative;

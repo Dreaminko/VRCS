@@ -4,7 +4,7 @@ import { ankiButtonLabel } from "../src/anki/anki.ts";
 import { ankiDictionaryContent } from "../src/dictionary/dictionary.ts";
 
 test("Anki action labels remain recoverable after an error", () => {
-  assert.equal(ankiButtonLabel("idle"), "Add to Anki");
+  assert.equal(ankiButtonLabel("idle"), "Create Anki Card");
   assert.equal(ankiButtonLabel("adding"), "Adding…");
   assert.equal(ankiButtonLabel("success"), "Added to Anki");
   assert.equal(ankiButtonLabel("error"), "Try adding again");

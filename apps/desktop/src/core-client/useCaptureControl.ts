@@ -1,6 +1,7 @@
 import { useCallback, useState } from "react";
 
 import { shouldShowVrchatNotRunningWarning } from "../capture-warning";
+import type { CompactPanelState } from "../compact-mode";
 import {
   readTranscriptionStartBehavior,
   shouldCreateConversationOnCaptureToggle,
@@ -33,7 +34,7 @@ export function useCaptureControl({
   clearLookup: () => void;
   toggleCoreCapture: () => Promise<unknown>;
   clearError: () => void;
-  resizeCompactWindow: (lookupOpen: boolean) => Promise<unknown>;
+  resizeCompactWindow: (panelState: CompactPanelState) => Promise<unknown>;
   collapseCompactOverlay: () => void;
   reportError: ReportError;
 }) {

@@ -35,6 +35,7 @@ import type { SettingsCategory } from "./settings-types";
 import type { AppUpdaterState } from "../updates/useAppUpdater";
 
 export function SettingsPanel({
+  initialCategory = "system",
   settings,
   health,
   interfaceScale,
@@ -57,6 +58,7 @@ export function SettingsPanel({
   onStartOnboarding,
   updater,
 }: {
+  initialCategory?: SettingsCategory;
   settings: Settings;
   health: Health | null;
   interfaceScale: number;
@@ -84,7 +86,7 @@ export function SettingsPanel({
 }) {
   const { t, i18n } = useTranslation();
   const locale = i18n.resolvedLanguage ?? "en-US";
-  const [activeCategory, setActiveCategory] = useState<SettingsCategory>("system");
+  const [activeCategory, setActiveCategory] = useState<SettingsCategory>(initialCategory);
   const apiProfileCatalog = useApiProfileViews(`${settings.asr.active_profile_id ?? "local"}:${settings.asr.backend}`);
   const draftController = useSettingsDraft(settings, onSave);
   const desktop = useDesktopPreferences();

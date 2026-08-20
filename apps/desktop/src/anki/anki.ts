@@ -6,7 +6,7 @@ const defaultLabel: TranslateAnki = (key) => ({
   "dictionary.anki.adding": "Adding…",
   "dictionary.anki.success": "Added to Anki",
   "dictionary.anki.retry": "Try adding again",
-  "dictionary.anki.add": "Add to Anki",
+  "dictionary.anki.add": "Create Anki Card",
 })[key] ?? key;
 
 export function ankiButtonLabel(state: AnkiAddState, translate: TranslateAnki = defaultLabel): string {

@@ -94,4 +94,4 @@ button:focus-visible, select:focus-visible, input:focus-visible {
   outline: 3px solid rgba(116, 214, 255, 0.58);
   outline-offset: 2px;
 }
-::selection { color: var(--text); background: var(--primary-soft); }
+::selection { color: var(--text); background: #dfe3e8; }

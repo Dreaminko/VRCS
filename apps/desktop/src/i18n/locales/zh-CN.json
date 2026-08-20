@@ -424,11 +424,41 @@
         "failed": "无法将此词语加入学习工作台。"
       },
       "anki": {
-        "add": "添加到 Anki",
+        "add": "Anki 制卡",
         "adding": "正在添加…",
         "success": "已添加到 Anki",
         "retry": "重试添加",
         "created": "已创建 Anki 笔记 #{{noteId}}，写入 {{count}} 组释义"
+      }
+    },
+    "selection": {
+      "actionsLabel": "“{{text}}”的划词操作",
+      "close": "关闭划词工具",
+      "back": "返回划词工具",
+      "dictionary": "查词",
+      "dictionaryLoading": "正在查词…",
+      "askAi": "问 AI",
+      "ai": {
+        "title": "问 AI",
+        "dialogLabel": "向 AI 询问“{{text}}”",
+        "configureTitle": "请先配置 AI",
+        "configureDescription": "请在学习设置中选择支持文本生成的 Profile 和模型，再进行提问。",
+        "openSettings": "打开学习设置",
+        "selectedText": "选中内容",
+        "answer": "回答",
+        "copy": "复制",
+        "copied": "已复制",
+        "retry": "重试",
+        "thinking": "正在思考…",
+        "quickQuestions": "快捷问题",
+        "quick": {
+          "meaning": "这段是什么意思？",
+          "grammar": "解释这里的语法",
+          "expression": "为什么这样表达？"
+        },
+        "placeholder": "针对选中内容提问",
+        "questionLabel": "关于选中内容的问题",
+        "send": "发送问题"
       }
     },
     "anki": {
@@ -1380,6 +1410,7 @@
         "save": "无法保存工作副本。",
         "saveDraft": "无法保存卡片草稿。",
         "analysis": "无法分析此学习项目。",
+        "query": "无法回答这个问题。",
         "draft": "无法生成卡片草稿。",
         "export": "无法将卡片导出到 Anki。",
         "status": "无法更新学习项目状态。",

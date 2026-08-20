@@ -3,6 +3,7 @@
 @import "./styles/settings.css";
 @import "./styles/onboarding.css";
 @import "./styles/dictionary.css";
+@import "./styles/components/selection-tools.css";
 @import "./styles/chatbox.css";
 @import "./styles/compact.css";
 @import "./styles/motion.css";

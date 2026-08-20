@@ -121,6 +121,25 @@ export interface LearningAnalysisInput {
   level: LearningLevel;
 }
 
+export interface SelectionQueryInput {
+  selected_text: string;
+  source_text: string;
+  source_translation: string | null;
+  source_language: string | null;
+  question: string;
+  profile_id: string;
+  model: string;
+  explanation_language: string;
+  level: LearningLevel;
+}
+
+export interface SelectionQueryResponse {
+  answer: string;
+  provider: string;
+  model: string;
+  prompt_version: string;
+}
+
 export interface LearningDraftInput {
   card_type: LearningCardType;
 }

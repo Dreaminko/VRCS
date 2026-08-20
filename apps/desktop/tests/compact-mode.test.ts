@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  COMPACT_LOOKUP_WINDOW_SIZE,
+  COMPACT_PANEL_WINDOW_SIZE,
   COMPACT_WINDOW_MIN_WIDTH,
   COMPACT_WINDOW_SIZE,
   compactWindowConstraints,
@@ -33,29 +33,29 @@ const subtitles: Subtitle[] = [
   },
 ];
 
-test("compact mode follows the latest subtitle when lookup is closed", () => {
+test("compact mode follows the latest subtitle when the selection panel is closed", () => {
   assert.equal(subtitleForCompactView(subtitles), subtitles[0]);
 });
 
-test("compact mode freezes the selected subtitle while lookup is open", () => {
+test("compact mode freezes the selected subtitle while the selection panel is open", () => {
   assert.equal(subtitleForCompactView(subtitles, "selected subtitle"), subtitles[1]);
 });
 
-test("compact lookup expands the current window without changing its default width", () => {
+test("compact selection panel expands the current window without changing its default width", () => {
   assert.deepEqual(compactWindowSize(false), COMPACT_WINDOW_SIZE);
-  assert.deepEqual(compactWindowSize(true), COMPACT_LOOKUP_WINDOW_SIZE);
-  assert.equal(COMPACT_WINDOW_SIZE.width, COMPACT_LOOKUP_WINDOW_SIZE.width);
-  assert.ok(COMPACT_LOOKUP_WINDOW_SIZE.height > COMPACT_WINDOW_SIZE.height);
+  assert.deepEqual(compactWindowSize(true), COMPACT_PANEL_WINDOW_SIZE);
+  assert.equal(COMPACT_WINDOW_SIZE.width, COMPACT_PANEL_WINDOW_SIZE.width);
+  assert.ok(COMPACT_PANEL_WINDOW_SIZE.height > COMPACT_WINDOW_SIZE.height);
 });
 
-test("compact lookup preserves a user-resized width", () => {
+test("compact selection panel preserves a user-resized width", () => {
   assert.deepEqual(compactWindowSize(false, 960), {
     width: 960,
     height: COMPACT_WINDOW_SIZE.height,
   });
   assert.deepEqual(compactWindowSize(true, 960), {
     width: 960,
-    height: COMPACT_LOOKUP_WINDOW_SIZE.height,
+    height: COMPACT_PANEL_WINDOW_SIZE.height,
   });
 });
 
@@ -67,8 +67,8 @@ test("compact mode constrains only the minimum width and current height", () => 
   });
   assert.deepEqual(compactWindowConstraints(true), {
     minWidth: COMPACT_WINDOW_MIN_WIDTH,
-    minHeight: COMPACT_LOOKUP_WINDOW_SIZE.height,
-    maxHeight: COMPACT_LOOKUP_WINDOW_SIZE.height,
+    minHeight: COMPACT_PANEL_WINDOW_SIZE.height,
+    maxHeight: COMPACT_PANEL_WINDOW_SIZE.height,
   });
   assert.equal("maxWidth" in compactWindowConstraints(false), false);
 });

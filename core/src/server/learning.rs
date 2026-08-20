@@ -10,7 +10,7 @@ use crate::anki as anki_service;
 use crate::error::AppError;
 use crate::learning::{
     generate_draft, AnalyzeLearningItemRequest, CreateLearningDraftRequest, CreateLearningItem,
-    LearningError, LearningItem, LearningStatus, PatchLearningItem,
+    LearningError, LearningItem, LearningStatus, PatchLearningItem, SelectionQueryRequest,
 };
 
 use super::{api_error, api_error_with_params, db_call, ApiResult, AppState};
@@ -160,6 +160,26 @@ pub(super) async fn learning_item_analyze(
     .map_err(learning_db_error)?
     .ok_or_else(|| learning_not_found(id))?;
     Ok(Json(json!(saved)))
+}
+
+pub(super) async fn selection_query(
+    State(state): State<Arc<AppState>>,
+    Json(request): Json<SelectionQueryRequest>,
+) -> ApiResult<Json<Value>> {
+    request.validate().map_err(learning_validation_error)?;
+    let profiles = state
+        .config
+        .read()
+        .expect("config lock")
+        .asr
+        .api_profiles
+        .clone();
+    let response = state
+        .learning_service
+        .ask_selection(&profiles, &request)
+        .await
+        .map_err(learning_service_error)?;
+    Ok(Json(json!(response)))
 }
 
 pub(super) async fn learning_item_draft(

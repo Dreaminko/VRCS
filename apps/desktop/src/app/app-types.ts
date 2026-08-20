@@ -11,11 +11,15 @@ export type LookupOrigin = {
   translation: string | null;
 };
 
-export type Lookup = {
-  term: string;
+export type SelectionTarget = {
+  selectedText: string;
   context: string;
-  entries: DictionaryEntry[];
   origin?: LookupOrigin;
   anchor: LookupAnchor;
-  range?: Range;
+  range: Range;
+};
+
+export type Lookup = SelectionTarget & {
+  term: string;
+  entries: DictionaryEntry[];
 };

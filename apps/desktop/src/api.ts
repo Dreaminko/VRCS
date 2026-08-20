@@ -28,6 +28,8 @@ import type {
   LearningItemCreateInput,
   LearningItemPatchInput,
   LearningItemStatus,
+  SelectionQueryInput,
+  SelectionQueryResponse,
   Settings,
   Subtitle,
   SubtitleTranslation,
@@ -93,21 +95,25 @@ function requestHeaders(initial?: HeadersInit): Headers {
 }
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 15_000;
+const AI_REQUEST_TIMEOUT_MS = 125_000;
 
-async function timedFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+type CoreRequestInit = RequestInit & { timeoutMs?: number };
+
+async function timedFetch(input: RequestInfo | URL, init?: CoreRequestInit): Promise<Response> {
+  const { timeoutMs = DEFAULT_REQUEST_TIMEOUT_MS, ...fetchInit } = init ?? {};
   const controller = new AbortController();
-  const abortFromCaller = () => controller.abort(init?.signal?.reason);
-  if (init?.signal?.aborted) abortFromCaller();
-  else init?.signal?.addEventListener("abort", abortFromCaller, { once: true });
+  const abortFromCaller = () => controller.abort(fetchInit.signal?.reason);
+  if (fetchInit.signal?.aborted) abortFromCaller();
+  else fetchInit.signal?.addEventListener("abort", abortFromCaller, { once: true });
   const timer = window.setTimeout(
     () => controller.abort(new DOMException("Request timed out", "TimeoutError")),
-    DEFAULT_REQUEST_TIMEOUT_MS,
+    timeoutMs,
   );
   try {
-    return await fetch(input, { ...init, signal: controller.signal });
+    return await fetch(input, { ...fetchInit, signal: controller.signal });
   } finally {
     window.clearTimeout(timer);
-    init?.signal?.removeEventListener("abort", abortFromCaller);
+    fetchInit.signal?.removeEventListener("abort", abortFromCaller);
   }
 }
 
@@ -117,7 +123,7 @@ export function coreWebSocketUrl(): string {
   return url.toString();
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+async function request<T>(path: string, init?: CoreRequestInit): Promise<T> {
   const response = await timedFetch(`${connection.httpUrl}${path}`, {
     ...init,
     headers: requestHeaders(init?.headers),
@@ -432,6 +438,13 @@ export const coreApi = {
     request<LearningItem>(`/api/learning/items/${itemId}/analysis`, {
       method: "POST",
       body: JSON.stringify(input),
+    }),
+  querySelection: (input: SelectionQueryInput, signal?: AbortSignal) =>
+    request<SelectionQueryResponse>("/api/learning/selection-query", {
+      method: "POST",
+      body: JSON.stringify(input),
+      signal,
+      timeoutMs: AI_REQUEST_TIMEOUT_MS,
     }),
   generateLearningDraft: (itemId: number, input: LearningDraftInput) =>
     request<LearningItem>(`/api/learning/items/${itemId}/draft`, {

@@ -424,11 +424,41 @@
         "failed": "この単語を学習ワークスペースに追加できませんでした。"
       },
       "anki": {
-        "add": "Anki に追加",
+        "add": "Anki カードを作成",
         "adding": "追加中…",
         "success": "Anki に追加しました",
         "retry": "もう一度追加",
         "created": "Anki ノート #{{noteId}} を作成し、{{count}} 組の定義を書き込みました"
+      }
+    },
+    "selection": {
+      "actionsLabel": "「{{text}}」の選択操作",
+      "close": "選択ツールを閉じる",
+      "back": "選択ツールに戻る",
+      "dictionary": "辞書",
+      "dictionaryLoading": "検索中…",
+      "askAi": "AI に質問",
+      "ai": {
+        "title": "AI に質問",
+        "dialogLabel": "「{{text}}」について AI に質問",
+        "configureTitle": "先に AI を設定してください",
+        "configureDescription": "質問する前に、学習設定でテキスト生成対応の Profile とモデルを選択してください。",
+        "openSettings": "学習設定を開く",
+        "selectedText": "選択したテキスト",
+        "answer": "回答",
+        "copy": "コピー",
+        "copied": "コピー済み",
+        "retry": "再試行",
+        "thinking": "考えています…",
+        "quickQuestions": "クイック質問",
+        "quick": {
+          "meaning": "これはどういう意味？",
+          "grammar": "文法を説明して",
+          "expression": "なぜこの表現を使うの？"
+        },
+        "placeholder": "選択したテキストについて質問",
+        "questionLabel": "選択したテキストについての質問",
+        "send": "質問を送信"
       }
     },
     "anki": {
@@ -1380,6 +1410,7 @@
         "save": "作業用テキストを保存できませんでした。",
         "saveDraft": "カード下書きを保存できませんでした。",
         "analysis": "この学習項目を分析できませんでした。",
+        "query": "この質問に回答できませんでした。",
         "draft": "カード下書きを生成できませんでした。",
         "export": "カードを Anki にエクスポートできませんでした。",
         "status": "学習項目の状態を更新できませんでした。",

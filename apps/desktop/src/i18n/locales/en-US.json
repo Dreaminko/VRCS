@@ -424,11 +424,41 @@
         "failed": "Could not add this word to the learning workspace."
       },
       "anki": {
-        "add": "Add to Anki",
+        "add": "Create Anki Card",
         "adding": "Adding…",
         "success": "Added to Anki",
         "retry": "Retry",
         "created": "Created Anki note #{{noteId}} with {{count}} definition groups"
+      }
+    },
+    "selection": {
+      "actionsLabel": "Actions for {{text}}",
+      "close": "Close selection tools",
+      "back": "Back to selection tools",
+      "dictionary": "Dictionary",
+      "dictionaryLoading": "Looking up…",
+      "askAi": "Ask AI",
+      "ai": {
+        "title": "Ask AI",
+        "dialogLabel": "Ask AI about {{text}}",
+        "configureTitle": "Configure AI first",
+        "configureDescription": "Choose a text-generation profile and model in Learning settings before asking a question.",
+        "openSettings": "Open Learning settings",
+        "selectedText": "Selected text",
+        "answer": "Answer",
+        "copy": "Copy",
+        "copied": "Copied",
+        "retry": "Retry",
+        "thinking": "Thinking…",
+        "quickQuestions": "Quick questions",
+        "quick": {
+          "meaning": "What does this mean?",
+          "grammar": "Explain the grammar",
+          "expression": "Why is it phrased this way?"
+        },
+        "placeholder": "Ask about the selected text",
+        "questionLabel": "Question about the selected text",
+        "send": "Send question"
       }
     },
     "anki": {
@@ -1380,6 +1410,7 @@
         "save": "Could not save the working text.",
         "saveDraft": "Could not save the card draft.",
         "analysis": "Could not analyze this learning item.",
+        "query": "Could not answer this question.",
         "draft": "Could not generate the card draft.",
         "export": "Could not export the card to Anki.",
         "status": "Could not update the learning item status.",

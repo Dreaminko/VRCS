@@ -1,21 +1,23 @@
 import type { Subtitle } from "./types";
 
 export const COMPACT_WINDOW_SIZE = { width: 720, height: 120 } as const;
-export const COMPACT_LOOKUP_WINDOW_SIZE = { width: 720, height: 520 } as const;
+export const COMPACT_PANEL_WINDOW_SIZE = { width: 720, height: 520 } as const;
 export const COMPACT_WINDOW_MIN_WIDTH = 480;
 
+export type CompactPanelState = boolean;
+
 export function compactWindowSize(
-  lookupOpen: boolean,
+  panelState: CompactPanelState,
   width: number = COMPACT_WINDOW_SIZE.width,
 ) {
-  const height = lookupOpen
-    ? COMPACT_LOOKUP_WINDOW_SIZE.height
+  const height = panelState
+    ? COMPACT_PANEL_WINDOW_SIZE.height
     : COMPACT_WINDOW_SIZE.height;
   return { width, height };
 }
 
-export function compactWindowConstraints(lookupOpen: boolean) {
-  const { height } = compactWindowSize(lookupOpen);
+export function compactWindowConstraints(panelState: CompactPanelState) {
+  const { height } = compactWindowSize(panelState);
   return {
     minWidth: COMPACT_WINDOW_MIN_WIDTH,
     minHeight: height,
@@ -23,7 +25,7 @@ export function compactWindowConstraints(lookupOpen: boolean) {
   };
 }
 
-export function subtitleForCompactView(subtitles: Subtitle[], lookupContext?: string) {
-  if (!lookupContext) return subtitles[0];
-  return subtitles.find((subtitle) => subtitle.text === lookupContext) ?? subtitles[0];
+export function subtitleForCompactView(subtitles: Subtitle[], selectionContext?: string) {
+  if (!selectionContext) return subtitles[0];
+  return subtitles.find((subtitle) => subtitle.text === selectionContext) ?? subtitles[0];
 }

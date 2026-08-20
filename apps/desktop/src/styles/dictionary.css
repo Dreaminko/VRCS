@@ -1,4 +1,4 @@
-.dictionary-popover {
+.selection-popover-surface {
   position: fixed;
   z-index: 1000;
   display: flex;
@@ -70,6 +70,16 @@
   background-clip: padding-box;
 }
 .dictionary-scroll::-webkit-scrollbar-thumb:hover { background-color: rgba(116, 214, 255, 0.52); }
+.dictionary-loading {
+  display: flex;
+  min-height: 120px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+.dictionary-popover .spinning { animation: subtitle-context-menu-spin 850ms linear infinite; }
 .dictionary-definitions { display: grid; gap: 7px; margin-bottom: 10px; }
 .dictionary-definition-item {
   padding: 11px 12px 12px;
@@ -155,6 +165,7 @@
 .dictionary-action-area { display: grid; flex: 0 0 auto; gap: 0; }
 .dictionary-action-row { display: flex; gap: 7px; }
 .dictionary-action-row .anki-button,
+.dictionary-ai-button,
 .dictionary-learning-button {
   min-width: 0;
   min-height: 36px;
@@ -164,41 +175,43 @@
   font-size: 11px;
   font-weight: 600;
 }
-.dictionary-action-row .anki-button { width: auto; }
+.dictionary-action-row .anki-button,
+.dictionary-ai-button,
 .dictionary-learning-button {
   display: inline-flex;
+  width: auto;
   align-items: center;
   justify-content: center;
   gap: 6px;
   border: 1px solid var(--border-strong);
   color: var(--text-secondary);
-  background: var(--surface-elevated);
+  background: transparent;
   cursor: pointer;
 }
-.dictionary-learning-button:hover:not(:disabled) { color: var(--primary-ink); border-color: var(--primary); background: var(--primary-softer); }
+.dictionary-action-row .anki-button:hover:not(:disabled),
+.dictionary-ai-button:hover,
+.dictionary-learning-button:hover:not(:disabled) {
+  color: var(--primary-ink);
+  border-color: var(--primary);
+  background: transparent;
+}
+.dictionary-action-row .anki-button:active:not(:disabled),
+.dictionary-ai-button:active,
+.dictionary-learning-button:active:not(:disabled) { transform: scale(0.985); }
+.dictionary-action-row .anki-button:disabled,
 .dictionary-learning-button:disabled { opacity: 0.55; cursor: not-allowed; }
-.dictionary-learning-button.learning-state-success { color: var(--primary-ink); border-color: var(--primary); background: var(--primary-soft); }
-.dictionary-learning-button.learning-state-error { color: var(--error); border-color: #efcbc7; background: var(--error-soft); }
-.dictionary-popover .anki-button {
-  width: 100%;
-  min-height: 38px;
-  border: 0;
-  border-radius: var(--radius-md);
-  color: var(--on-primary);
-  background: color-mix(in srgb, var(--primary) 52%, var(--surface));
+.dictionary-learning-button.learning-state-success,
+.dictionary-action-row .anki-button.anki-state-success {
+  color: var(--primary-ink);
+  border-color: var(--primary);
+  background: transparent;
 }
-.dictionary-popover .anki-button:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--primary) 64%, var(--surface));
-}
-.dictionary-popover .anki-button:active:not(:disabled) { transform: scale(0.985); }
-.dictionary-popover .anki-button.anki-state-error {
+.dictionary-learning-button.learning-state-error,
+.dictionary-action-row .anki-button.anki-state-error {
   color: var(--error);
-  background: var(--error-soft);
+  border-color: #efcbc7;
+  background: transparent;
 }
-.dictionary-popover .anki-button.anki-state-error:hover {
-  background: #f3dedb;
-}
-.dictionary-popover .dictionary-action-row .anki-button { width: auto; }
 .dictionary-anki-feedback {
   margin: 7px 2px 0;
   color: var(--text-secondary);

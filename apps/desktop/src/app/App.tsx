@@ -3,7 +3,7 @@ import type { CSSProperties } from "react";
 import { useTranslation } from "react-i18next";
 import { ChevronDown } from "lucide-react";
 
-import type { Page } from "./app-types";
+import type { LookupOrigin, Page } from "./app-types";
 import { ErrorBanner } from "./components/ErrorBanner";
 import { PastConversationNotice } from "./components/PastConversationNotice";
 import {
@@ -17,6 +17,7 @@ import { ChatboxComposer } from "../chatbox/ChatboxComposer";
 import { CompactView } from "../shell/CompactView";
 import { ConversationSidebar } from "../conversations/ConversationSidebar";
 import { DictionaryPopover } from "../dictionary/DictionaryPopover";
+import { SelectionAiPopover } from "../selection/SelectionAiPopover";
 import { LearningWorkspace } from "../learning/components/LearningWorkspace";
 import { LiveView, TopStatus } from "../subtitles/components/SubtitleViews";
 import { WindowChrome } from "../shell/WindowChrome";
@@ -28,10 +29,12 @@ import { useCaptureControl } from "../core-client/useCaptureControl";
 import { useCoreSession } from "../core-client/useCoreSession";
 import { useCudaRuntimeWarning } from "../core-client/useCudaRuntimeWarning";
 import { useDictionaryLookup } from "../dictionary/useDictionaryLookup";
+import { useTextSelection } from "../selection/useTextSelection";
 import { useLearningWorkspace } from "../learning/hooks/useLearningWorkspace";
 import { useInterfaceScale } from "./useInterfaceScale";
 import { useVrchatMuteToast } from "./useVrchatMuteToast";
 import { SettingsPanel } from "../settings/SettingsPanel";
+import type { SettingsCategory } from "../settings/settings-types";
 import { useApiProfileViews } from "../settings/hooks/useApiProfileViews";
 import { useOnboardingFlow } from "../onboarding/useOnboardingFlow";
 import { useSubtitleLearningActions } from "../learning/hooks/useSubtitleLearningActions";
@@ -47,6 +50,8 @@ function App() {
   const { t, i18n } = useTranslation();
   const locale = i18n.resolvedLanguage ?? "en-US";
   const [page, setPage] = useState<Page>("live");
+  const [settingsInitialCategory, setSettingsInitialCategory] = useState<SettingsCategory>("system");
+  const [selectionTool, setSelectionTool] = useState<"dictionary" | "ai" | null>(null);
   const onboarding = useOnboardingFlow();
   const updater = useAppUpdater(onboarding.status === "complete");
   const core = useCoreSession(page === "settings" || onboarding.status !== "complete");
@@ -118,17 +123,64 @@ function App() {
     closeWindow,
   } = compactWindow;
   const dictionaryLookup = useDictionaryLookup({
-    enabled: settings?.dictionary.selection_lookup_enabled ?? true,
-    compact,
-    resizeCompactWindow,
     reportError,
   });
   const {
     lookup,
+    loading: dictionaryLoading,
     clearLookup,
-    closeCompactLookup,
-    selectWord,
+    lookupSelection,
   } = dictionaryLookup;
+  const textSelection = useTextSelection({ compact, resizeCompactWindow, reportError });
+  const { target: selectionTarget, captureSelection, clearSelection } = textSelection;
+
+  const clearSelectionTools = useCallback(() => {
+    setSelectionTool(null);
+    clearLookup();
+    clearSelection();
+  }, [clearLookup, clearSelection]);
+
+  const closeSelectionTools = useCallback(() => {
+    clearSelectionTools();
+    if (compact) {
+      void resizeCompactWindow(false).catch((reason) => {
+        reportError(reason, "errors.window.compactCollapse");
+      });
+    }
+  }, [clearSelectionTools, compact, reportError, resizeCompactWindow]);
+
+  const selectText = useCallback(async (context: string, origin?: LookupOrigin) => {
+    setSelectionTool(null);
+    clearLookup();
+    const target = await captureSelection(context, origin);
+    if (!target) return;
+
+    if (!(settings?.dictionary.selection_lookup_enabled ?? true)) {
+      setSelectionTool("ai");
+      return;
+    }
+
+    setSelectionTool("dictionary");
+    await lookupSelection(target);
+  }, [captureSelection, clearLookup, lookupSelection, settings?.dictionary.selection_lookup_enabled]);
+
+  const expandSelectionPanel = useCallback(async () => {
+    if (!compact) return;
+    try {
+      await resizeCompactWindow(true);
+    } catch (reason) {
+      reportError(reason, "errors.window.compactToggle");
+    }
+  }, [compact, reportError, resizeCompactWindow]);
+
+  const openSelectionAi = useCallback(async () => {
+    await expandSelectionPanel();
+    setSelectionTool("ai");
+  }, [expandSelectionPanel]);
+
+  const returnToDictionary = useCallback(() => {
+    if (lookup) setSelectionTool("dictionary");
+  }, [lookup]);
   const learningWorkspace = useLearningWorkspace(page === "learning" && coreReady, coreReady);
   const openLearningPage = useCallback(() => setPage("learning"), []);
   const {
@@ -144,7 +196,7 @@ function App() {
     openSubtitleSelectionLearning,
   } = useSubtitleLearningActions({
     workspace: learningWorkspace,
-    clearLookup,
+    clearLookup: clearSelectionTools,
     openLearningPage,
   });
   const chatbox = useChatboxWorkspace(settings);
@@ -193,7 +245,7 @@ function App() {
     outputMode: settings?.audio.output.mode,
     compact,
     createConversation,
-    clearLookup,
+    clearLookup: clearSelectionTools,
     toggleCoreCapture,
     clearError,
     resizeCompactWindow,
@@ -215,12 +267,12 @@ function App() {
 
   const selectConversationAndCloseLookup = useCallback((id: string) => {
     selectConversation(id);
-    clearLookup();
-  }, [clearLookup, selectConversation]);
+    clearSelectionTools();
+  }, [clearSelectionTools, selectConversation]);
 
   const createConversationAndCloseLookup = useCallback(async () => {
-    if (await createConversation()) clearLookup();
-  }, [clearLookup, createConversation]);
+    if (await createConversation()) clearSelectionTools();
+  }, [clearSelectionTools, createConversation]);
 
   const toggleConversationSidebar = useCallback(() => {
     setSidebarOpen((current) => !current);
@@ -234,7 +286,7 @@ function App() {
     : translateVisibleSubtitle;
 
   const openChatbox = () => {
-    clearLookup();
+    clearSelectionTools();
     chatbox.show();
   };
 
@@ -245,8 +297,15 @@ function App() {
 
   const compactSubtitle = subtitleForCompactView(
     subtitles,
-    lookup?.context,
+    selectionTarget?.context,
   );
+
+  const openSelectionAiSettings = useCallback(async () => {
+    clearSelectionTools();
+    if (compact) await toggleCompact(() => {});
+    setSettingsInitialCategory("learning");
+    setPage("settings");
+  }, [clearSelectionTools, compact, toggleCompact]);
 
   if (onboarding.status !== "complete") {
     return (
@@ -290,25 +349,38 @@ function App() {
   }
 
   if (compact) {
+    const selectionPanelOpen = Boolean(selectionTarget && selectionTool);
     return (
-      <div className={`compact-root ${lookup ? "compact-root-lookup" : ""}`}>
+      <div className={`compact-root ${selectionPanelOpen ? "compact-root-selection" : ""}`}>
         <CompactView
           subtitle={compactSubtitle}
           running={health?.capture_requested ?? false}
           vrchatMuted={vrchatMuteStatus?.muted === true}
           captureDisabled={!coreReady || capturePending}
-          onSelect={selectWord}
+          onSelect={selectText}
           onCapture={() => void toggleCapture()}
-          onRestore={() => void toggleCompact(clearLookup)}
+          onRestore={() => void toggleCompact(clearSelectionTools)}
           onClose={() => void closeWindow()}
         />
-        {lookup && (
+        {lookup && selectionTool === "dictionary" && (
           <DictionaryPopover
             lookup={lookup}
+            loading={dictionaryLoading}
             ankiEnabled={settings?.anki.enabled ?? true}
             compact
+            onAskAi={() => void openSelectionAi()}
             onAddLearning={learningWorkspace.collectLookup}
-            onClose={closeCompactLookup}
+            onClose={closeSelectionTools}
+          />
+        )}
+        {selectionTarget && selectionTool === "ai" && (
+          <SelectionAiPopover
+            target={selectionTarget}
+            preferences={learningWorkspace.preferences}
+            compact
+            onBack={lookup ? returnToDictionary : undefined}
+            onConfigure={() => void openSelectionAiSettings()}
+            onClose={closeSelectionTools}
           />
         )}
         <RuntimeWarningDialogs
@@ -409,7 +481,7 @@ function App() {
                   loading={selectedConversationLoading}
                   loadingOlder={loadingOlderSubtitles}
                   onLoadOlder={loadOlderSubtitles}
-                  onSelect={selectWord}
+                  onSelect={selectText}
                   onTranslate={subtitleTranslationHandler}
                   onAddLearning={learningWorkspace.collectSubtitle}
                   onOpenLearning={openSubtitleLearning}
@@ -433,7 +505,7 @@ function App() {
                 subtitles={selectedSubtitles}
                 workspace={learningWorkspace}
                 ankiEnabled={settings?.anki.enabled ?? true}
-                onSelect={selectWord}
+                onSelect={selectText}
                 onTranslate={subtitleTranslationHandler}
                 translatingSubtitleIds={translatingSubtitleIds}
                 hasOlder={selectedConversationHasOlder}
@@ -445,6 +517,7 @@ function App() {
 
             {page === "settings" && settings && (
               <SettingsPanel
+                initialCategory={settingsInitialCategory}
                 settings={settings}
                 interfaceScale={interfaceScale}
                 devices={devices}
@@ -495,11 +568,12 @@ function App() {
         chatboxDisabled={!coreReady || settings === null}
         chatboxButtonRef={chatboxButtonRef}
         onPageChange={(next) => {
-          clearLookup();
+          clearSelectionTools();
+          if (next === "settings") setSettingsInitialCategory("system");
           setPage(next);
         }}
         onCompact={() => {
-          void toggleCompact(clearLookup);
+          void toggleCompact(clearSelectionTools);
         }}
         onChatbox={() => {
           if (page !== "live") {
@@ -529,12 +603,23 @@ function App() {
         />
       )}
 
-      {lookup && (
+      {lookup && selectionTool === "dictionary" && (
         <DictionaryPopover
           lookup={lookup}
+          loading={dictionaryLoading}
           ankiEnabled={settings?.anki.enabled ?? true}
+          onAskAi={() => void openSelectionAi()}
           onAddLearning={learningWorkspace.collectLookup}
-          onClose={clearLookup}
+          onClose={closeSelectionTools}
+        />
+      )}
+      {selectionTarget && selectionTool === "ai" && (
+        <SelectionAiPopover
+          target={selectionTarget}
+          preferences={learningWorkspace.preferences}
+          onBack={lookup ? returnToDictionary : undefined}
+          onConfigure={() => void openSelectionAiSettings()}
+          onClose={closeSelectionTools}
         />
       )}
       <RuntimeWarningDialogs

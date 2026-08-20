@@ -6,6 +6,7 @@ import {
   compactWindowConstraints,
   COMPACT_WINDOW_SIZE,
   compactWindowSize,
+  type CompactPanelState,
 } from "../compact-mode";
 
 export function useCompactWindow({
@@ -17,7 +18,7 @@ export function useCompactWindow({
 }) {
   const [compact, setCompact] = useState(false);
 
-  const resizeCompactWindow = useCallback(async (lookupOpen: boolean) => {
+  const resizeCompactWindow = useCallback(async (panelState: CompactPanelState) => {
     if (!NATIVE_APP) return;
     const { getCurrentWindow, LogicalSize } = await import(
       "@tauri-apps/api/window"
@@ -28,8 +29,8 @@ export function useCompactWindow({
       appWindow.scaleFactor(),
     ]);
     const currentWidth = innerSize.toLogical(scaleFactor).width;
-    const size = compactWindowSize(lookupOpen, currentWidth);
-    await appWindow.setSizeConstraints(compactWindowConstraints(lookupOpen));
+    const size = compactWindowSize(panelState, currentWidth);
+    await appWindow.setSizeConstraints(compactWindowConstraints(panelState));
     await appWindow.setSize(
       new LogicalSize(size.width, size.height),
     );
