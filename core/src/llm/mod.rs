@@ -140,7 +140,53 @@ impl LlmClient {
                 retryable: false,
             });
         }
-        match resolved.service.adapter {
+        self.list_models_with_adapter(profile, api_key, resolved.service.adapter)
+            .await
+    }
+
+    pub async fn list_provider_models(
+        &self,
+        profile: &ApiProfile,
+        api_key: &str,
+    ) -> Result<Vec<String>, LlmError> {
+        let provider = providers::definition(&profile.provider).ok_or_else(|| LlmError {
+            code: "llm.models_unsupported",
+            detail: format!("Unsupported API provider: {}", profile.provider),
+            retryable: false,
+        })?;
+        let adapter = provider
+            .services
+            .iter()
+            .find(|service| {
+                service.supports_model_listing
+                    && matches!(
+                        service.adapter,
+                        ServiceAdapter::AlibabaChatCompletions
+                            | ServiceAdapter::OpenAiResponses
+                            | ServiceAdapter::OpenAiChatCompletions { .. }
+                            | ServiceAdapter::GeminiGenerateContent
+                    )
+            })
+            .map(|service| service.adapter)
+            .ok_or_else(|| LlmError {
+                code: "llm.models_unsupported",
+                detail: format!(
+                    "Provider {} does not expose a model catalog",
+                    profile.provider
+                ),
+                retryable: false,
+            })?;
+        self.list_models_with_adapter(profile, api_key, adapter)
+            .await
+    }
+
+    async fn list_models_with_adapter(
+        &self,
+        profile: &ApiProfile,
+        api_key: &str,
+        adapter: ServiceAdapter,
+    ) -> Result<Vec<String>, LlmError> {
+        match adapter {
             ServiceAdapter::OpenAiResponses => {
                 openai::list_models(&self.http, profile, api_key).await
             }

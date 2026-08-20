@@ -54,7 +54,11 @@ export function selectRecognitionService(
   service: ProviderServiceDefinition,
 ): AsrSettings {
   const current = asr.service_settings[service.id];
-  const model = current?.model && (service.models.length === 0 || service.models.includes(current.model))
+  const model = current?.model && (
+    service.model_listing
+    || service.models.length === 0
+    || service.models.includes(current.model)
+  )
     ? current.model
     : service.models[0] ?? current?.model ?? "";
   return {

@@ -70,6 +70,19 @@ test("service selection initializes generic settings", () => {
   assert.equal(updated.service_settings["groq-transcribe"]?.context, "VRChat");
 });
 
+test("dynamic services preserve a discovered model outside the fallback list", () => {
+  const service = { ...definitions[0].services[0], model_listing: true };
+  const configured: AsrSettings = {
+    ...asr,
+    service_settings: {
+      [service.id]: { model: "whisper-large-v3", context: "" },
+    },
+  };
+
+  const selected = selectRecognitionService(configured, service);
+  assert.equal(selected.service_settings[service.id]?.model, "whisper-large-v3");
+});
+
 test("engine labels use catalog display names and safely fall back to service IDs", () => {
   const selected = selectRecognitionService(asr, definitions[0].services[0]);
   assert.equal(recognitionEngineLabel(selected, [profile], definitions), "Groq Transcription");

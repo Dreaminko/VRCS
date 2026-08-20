@@ -153,7 +153,7 @@ fn validate_recognition_models(asr: &AsrConfig, vad: &VadConfig) -> Result<(), S
     for (service_id, settings) in &asr.service_settings {
         let (_, service) = providers::recognition_service(service_id)
             .ok_or_else(|| format!("Unsupported recognition service settings: {service_id}"))?;
-        if !service.models.contains(&settings.model.as_str()) {
+        if !providers::recognition_model_supported(service, &settings.model) {
             return Err(format!(
                 "Unsupported model for recognition service {service_id}: {}",
                 settings.model

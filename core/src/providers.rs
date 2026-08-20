@@ -380,7 +380,10 @@ const fn recognition_service_definition(
         recognition_transport: Some(transport),
         partial_results,
         supports_streaming: matches!(transport, RecognitionTransport::RealtimeStream),
-        supports_model_listing: false,
+        supports_model_listing: matches!(
+            adapter,
+            ServiceAdapter::QwenRealtime | ServiceAdapter::FunAsrRealtime
+        ),
         supports_context: context_max_chars.is_some(),
         models,
         context_max_chars,
@@ -709,6 +712,48 @@ pub fn recognition_service(
     })
 }
 
+pub fn recognition_model_supported(service: &ProviderServiceDefinition, model: &str) -> bool {
+    let trimmed = model.trim();
+    if model != trimmed || model.is_empty() || model.chars().count() > 200 {
+        return false;
+    }
+    match service.adapter {
+        ServiceAdapter::QwenRealtime => versioned_model(model, "qwen3-asr-flash-realtime"),
+        ServiceAdapter::FunAsrRealtime => versioned_model(model, "fun-asr-realtime"),
+        _ => service.models.contains(&model),
+    }
+}
+
+pub fn compatible_service_models(
+    service: &ProviderServiceDefinition,
+    models: Vec<String>,
+) -> Vec<String> {
+    models
+        .into_iter()
+        .filter(|model| recognition_model_supported(service, model))
+        .collect()
+}
+
+fn versioned_model(model: &str, base: &str) -> bool {
+    if model == base {
+        return true;
+    }
+    let Some(version) = model
+        .strip_prefix(base)
+        .and_then(|suffix| suffix.strip_prefix('-'))
+    else {
+        return false;
+    };
+    let bytes = version.as_bytes();
+    bytes.len() == 10
+        && bytes[4] == b'-'
+        && bytes[7] == b'-'
+        && bytes
+            .iter()
+            .enumerate()
+            .all(|(index, byte)| matches!(index, 4 | 7) || byte.is_ascii_digit())
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct ResolvedService {
     pub provider: ProviderDefinition,
@@ -1012,7 +1057,39 @@ mod tests {
         assert!(capabilities.supports_asr);
         assert!(!capabilities.supports_translation);
         assert!(!capabilities.supports_text_generation);
-        assert!(!capabilities.supports_model_listing);
+        assert!(capabilities.supports_model_listing);
+    }
+
+    #[test]
+    fn alibaba_recognition_catalog_accepts_compatible_snapshots_only() {
+        let qwen = service(ALIBABA_PROVIDER, SERVICE_QWEN_REALTIME).unwrap();
+        let fun_asr = service(ALIBABA_PROVIDER, SERVICE_FUN_ASR_REALTIME).unwrap();
+
+        assert!(qwen.supports_model_listing);
+        assert!(recognition_model_supported(
+            qwen,
+            "qwen3-asr-flash-realtime-2026-02-10"
+        ));
+        assert!(recognition_model_supported(
+            fun_asr,
+            "fun-asr-realtime-2025-11-07"
+        ));
+        assert!(!recognition_model_supported(qwen, "qwen3-asr-flash"));
+        assert!(!recognition_model_supported(
+            fun_asr,
+            "qwen-audio-3.0-asr-flash-streaming"
+        ));
+
+        assert_eq!(
+            compatible_service_models(
+                qwen,
+                vec![
+                    "qwen3-asr-flash".into(),
+                    "qwen3-asr-flash-realtime-2026-02-10".into(),
+                ],
+            ),
+            ["qwen3-asr-flash-realtime-2026-02-10"]
+        );
     }
 
     #[test]

@@ -62,6 +62,10 @@ test("automatic selection skips obvious non-text models", () => {
     selectTranslationModel("gemini", ["text-embedding-004", "gemini-2.5-flash"], ""),
     "gemini-2.5-flash",
   );
+  assert.equal(
+    selectTranslationModel("alibaba_cloud", ["text-embedding-v4", "qwen3.8-max"], ""),
+    "qwen3.8-max",
+  );
 });
 
 test("custom profiles keep manual model control when a catalog is unavailable", () => {

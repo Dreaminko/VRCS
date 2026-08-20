@@ -4,7 +4,7 @@ use crate::providers::{
     self, ALIBABA_PROVIDER, CAPABILITY_SPEECH_TO_TEXT, CAPABILITY_TEXT_GENERATION,
     CAPABILITY_TEXT_TRANSLATION, DEEPL_PROVIDER, GEMINI_PROVIDER, GROQ_PROVIDER, OLLAMA_PROVIDER,
     OPENAI_COMPATIBLE_PROVIDER, OPENAI_PROVIDER, SERVICE_FUN_ASR_REALTIME,
-    SERVICE_GROQ_TRANSCRIPTION, SERVICE_OPENAI_REALTIME,
+    SERVICE_GROQ_TRANSCRIPTION, SERVICE_OPENAI_REALTIME, SERVICE_QWEN_REALTIME,
 };
 
 #[test]
@@ -589,6 +589,29 @@ fn validates_fun_asr_specific_limits() {
     assert_eq!(
         config.validate_settings().unwrap_err(),
         "Recognition service fun_asr_realtime context cannot exceed 400 characters"
+    );
+}
+
+#[test]
+fn accepts_compatible_alibaba_asr_snapshot_models() {
+    let mut config = AppConfig::default();
+    config
+        .asr
+        .service_settings
+        .get_mut(SERVICE_QWEN_REALTIME)
+        .unwrap()
+        .model = "qwen3-asr-flash-realtime-2026-02-10".into();
+    assert!(config.validate_settings().is_ok());
+
+    config
+        .asr
+        .service_settings
+        .get_mut(SERVICE_QWEN_REALTIME)
+        .unwrap()
+        .model = "qwen3-asr-flash".into();
+    assert_eq!(
+        config.validate_settings().unwrap_err(),
+        "Unsupported model for recognition service qwen_realtime: qwen3-asr-flash"
     );
 }
 

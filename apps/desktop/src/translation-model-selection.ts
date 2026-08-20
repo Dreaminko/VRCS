@@ -47,9 +47,7 @@ export function selectTranslationModel(
   if (models.includes(currentModel) && likelyTextModel(currentModel)) return currentModel;
   const preferred = preferredModel(provider, models);
   if (preferred) return preferred;
-  return ["groq", "gemini", "openrouter", "lm_studio", "ollama"].includes(provider)
-    ? models.find(likelyTextModel)
-    : undefined;
+  return models.find(likelyTextModel);
 }
 
 export function translationDiagnosticModel(

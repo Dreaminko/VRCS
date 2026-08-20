@@ -482,9 +482,7 @@ pub(super) async fn profile_activate(
                 input.service_id
             ))
         })?;
-    if !resolved.service.models.is_empty()
-        && !resolved.service.models.contains(&settings.model.as_str())
-    {
+    if !providers::recognition_model_supported(resolved.service, &settings.model) {
         return Err(profile_invalid(format!(
             "Unsupported model for recognition service {}: {}",
             input.service_id, settings.model
@@ -541,30 +539,36 @@ async fn service_models(
     profile: &ApiProfile,
     service: &ProviderServiceDefinition,
 ) -> ApiResult<Json<Value>> {
+    if service.supports_model_listing {
+        let api_key = profile_api_key(profile)?;
+        let models = crate::llm::LlmClient::new(state.http.clone())
+            .list_provider_models(profile, &api_key)
+            .await
+            .map_err(|error| api_error(StatusCode::BAD_GATEWAY, error.code, error.detail))?;
+        let models = if service.recognition_transport.is_some() {
+            providers::compatible_service_models(service, models)
+        } else {
+            models
+        };
+        if !models.is_empty() {
+            return Ok(Json(json!({ "models": models })));
+        }
+    }
     if !service.models.is_empty() {
         return Ok(Json(json!({ "models": service.models })));
     }
-    if !service.supports_model_listing
-        || !matches!(
-            service.adapter,
-            ServiceAdapter::AlibabaChatCompletions
-                | ServiceAdapter::OpenAiResponses
-                | ServiceAdapter::OpenAiChatCompletions { .. }
-                | ServiceAdapter::GeminiGenerateContent
-        )
-    {
+    if !service.supports_model_listing {
         return Err(api_error(
             StatusCode::UNPROCESSABLE_ENTITY,
             "llm.models_unsupported",
             format!("Service {} does not expose model listing", service.id),
         ));
     }
-    let api_key = profile_api_key(profile)?;
-    let models = crate::llm::LlmClient::new(state.http.clone())
-        .list_models(profile, &api_key)
-        .await
-        .map_err(|error| api_error(StatusCode::BAD_GATEWAY, error.code, error.detail))?;
-    Ok(Json(json!({ "models": models })))
+    Err(api_error(
+        StatusCode::BAD_GATEWAY,
+        "llm.invalid_response",
+        format!("Service {} did not return compatible models", service.id),
+    ))
 }
 
 pub(super) fn profile_api_key(profile: &ApiProfile) -> ApiResult<String> {

@@ -10,6 +10,7 @@ import {
   recognitionServicesForProfile,
   updateRecognitionServiceSettings,
 } from "../../recognition-services";
+import { EditableDropdownField } from "../../shared/ui/DropdownField";
 import type { ApiProfileView, ProviderDefinition, Settings } from "../../types";
 import { Select } from "../SettingsControls";
 import { RecognitionLanguageSelect } from "./RecognitionLanguageSelect";
@@ -74,10 +75,12 @@ export function CloudProviderSettings({
   useEffect(() => {
     if (!selectedProfile || !service?.model_listing) {
       setDiscoveredModels([]);
+      setModelsLoading(false);
       setModelsError("");
       return;
     }
     let cancelled = false;
+    setDiscoveredModels([]);
     setModelsLoading(true);
     setModelsError("");
     void coreApi.recognitionServiceModels(selectedProfile.id, service.id).then(
@@ -122,15 +125,18 @@ export function CloudProviderSettings({
             onChange={onSelectService}
           />
         )}
-        {service && models.length > 0 && (
-          <Select
-            label={t("settings.recognition.model")}
-            value={settings.model || models[0]}
-            options={models.map((model) => ({ value: model, label: model }))}
-            disabled={disabled || modelsLoading}
-            helper={modelsError || undefined}
-            onChange={(model) => updateServiceSettings({ model })}
-          />
+        {service && (models.length > 0 || service.model_listing) && (
+          <label className="field">
+            <span>{t("settings.recognition.model")}</span>
+            <EditableDropdownField
+              label={t("settings.recognition.model")}
+              value={settings.model}
+              options={models.map((model) => ({ value: model, label: model }))}
+              disabled={disabled}
+              optionsDisabled={modelsLoading || !models.length}
+              onChange={(model) => updateServiceSettings({ model })}
+            />
+          </label>
         )}
         {service?.model_listing && (
           <small className={modelsError ? "api-model-catalog-error" : "cloud-api-hint"}>
