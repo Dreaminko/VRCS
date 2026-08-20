@@ -81,6 +81,7 @@ You can change the configuration at any time in the application. To run the setu
 
 - Import and manage Yomitan dictionary packages
 - Select words in subtitles for lookup while preserving the original sentence and translation context
+- Ask the configured AI about selected subtitle text through an independent, explicit action
 - Collect learning material from live subtitles, subtitle history, and lookup results
 - Use the selected LLM for contextual definitions, sentence-pattern analysis, and conversation reviews
 - Edit drafts for vocabulary, sentence-pattern, and cloze cards
@@ -90,7 +91,7 @@ You can change the configuration at any time in the application. To run the setu
 
 VRCS does not store raw audio. Subtitle history, sessions, learning items, dictionaries, and configuration are stored locally by default.
 
-When using local Whisper, speech is not sent to the cloud. When using cloud recognition, detected speech segments are sent to the selected recognition provider. When using cloud translation or learning analysis, the relevant text and any context explicitly selected by the user are sent to the corresponding provider.
+When using local Whisper, speech is not sent to the cloud. When using cloud recognition, detected speech segments are sent to the selected recognition provider. When using cloud translation, learning analysis, or Ask AI, the relevant text, the context explicitly selected by the user, and any submitted question are sent to the corresponding provider.
 
 ## Run from source
 
