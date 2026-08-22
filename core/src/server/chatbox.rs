@@ -10,7 +10,9 @@ use crate::db::conversations::publish_latest_catalog;
 use crate::models::{now_iso8601, Subtitle, SubtitleTranslation};
 use crate::osc::ManualSendError;
 
-use super::{api_domain_error, api_error, api_error_with_params, db_call, ApiResult, AppState};
+use super::{
+    api_domain_error, api_error, api_error_with_params, db_call, ApiResult, OutputContext,
+};
 
 pub(super) async fn preview(Json(input): Json<ChatboxComposeInput>) -> ApiResult<Json<Value>> {
     let preview = preview_chatbox(&input).map_err(validation_error)?;
@@ -18,13 +20,13 @@ pub(super) async fn preview(Json(input): Json<ChatboxComposeInput>) -> ApiResult
 }
 
 pub(super) async fn send(
-    State(state): State<Arc<AppState>>,
+    State(state): State<OutputContext>,
     Json(input): Json<ChatboxComposeInput>,
 ) -> ApiResult<Json<Value>> {
     send_input(&state, input).await
 }
 
-async fn send_input(state: &Arc<AppState>, input: ChatboxComposeInput) -> ApiResult<Json<Value>> {
+async fn send_input(state: &OutputContext, input: ChatboxComposeInput) -> ApiResult<Json<Value>> {
     let preview = preview_chatbox(&input).map_err(validation_error)?;
     if !preview.sendable {
         return Err(api_error_with_params(
@@ -35,7 +37,11 @@ async fn send_input(state: &Arc<AppState>, input: ChatboxComposeInput) -> ApiRes
         ));
     }
     let message_id = format!("chatbox-{}", uuid::Uuid::new_v4());
-    let sent = state.osc.send_manual(preview.text.clone()).await;
+    let sent = state
+        .integrations
+        .osc
+        .send_manual(preview.text.clone())
+        .await;
     let record = NewChatboxMessage {
         source: "manual".into(),
         original: input.original,
@@ -66,17 +72,17 @@ async fn send_input(state: &Arc<AppState>, input: ChatboxComposeInput) -> ApiRes
 }
 
 async fn record_delivery(
-    state: &Arc<AppState>,
+    state: &OutputContext,
     message: NewChatboxMessage,
 ) -> crate::error::AppResult<ChatboxMessage> {
-    db_call(Arc::clone(&state.db), move |db| {
+    db_call(Arc::clone(&state.content.db), move |db| {
         db.add_chatbox_message(&message)
     })
     .await
 }
 
 async fn finish_delivery(
-    state: &Arc<AppState>,
+    state: &OutputContext,
     saved: crate::error::AppResult<ChatboxMessage>,
     message_id: &str,
 ) -> ApiResult<Json<Value>> {
@@ -84,18 +90,21 @@ async fn finish_delivery(
     let subtitle = record_conversation_message(state, &message)
         .await
         .map_err(|error| api_domain_error(error, "chatbox.conversation_store_failed"))?;
-    state.subtitle_output.subtitle_recorded(subtitle);
-    state.subtitle_output.chatbox_sent(message_id, &message);
+    state.content.subtitle_output.subtitle_recorded(subtitle);
+    state
+        .content
+        .subtitle_output
+        .chatbox_sent(message_id, &message);
     Ok(Json(json!(message)))
 }
 
 async fn record_conversation_message(
-    state: &Arc<AppState>,
+    state: &OutputContext,
     message: &ChatboxMessage,
 ) -> crate::error::AppResult<Subtitle> {
     let subtitle = conversation_subtitle(message);
-    let conversation_catalog = state.conversation_catalog_tx.clone();
-    db_call(Arc::clone(&state.db), move |db| {
+    let conversation_catalog = state.content.conversation_catalog_tx.clone();
+    db_call(Arc::clone(&state.content.db), move |db| {
         let translations = subtitle.translations.clone();
         let mut saved = db.add_subtitle(&subtitle)?;
         if let Some(subtitle_id) = saved.id {

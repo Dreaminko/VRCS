@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 
-import type { VrchatMuteStatus } from "../types";
+import type { VrchatMuteStatus } from "../integrations/types";
 
 export type VrchatMuteToastState = {
   messageKey: string;

@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
-import { coreApi } from "../api";
+import { learningApi } from "../learning/api";
 import { localizedError } from "../app/app-utils";
 import type { LearningPreferences } from "../learning/hooks/useLearningWorkspace";
 import type { SelectionTarget } from "../app/app-types";
-import type { SelectionQueryResponse } from "../types";
+import type { SelectionQueryResponse } from "../learning/types";
 import { selectionAiConfigured, selectionQueryInput } from "./selection-ai";
 
 type QueryState =
@@ -37,7 +37,7 @@ export function useSelectionAiQuery(preferences: LearningPreferences) {
     controllerRef.current = controller;
     setState({ status: "loading", response: null, error: "" });
     try {
-      const response = await coreApi.querySelection(
+      const response = await learningApi.querySelection(
         selectionQueryInput(target, question, preferences),
         controller.signal,
       );

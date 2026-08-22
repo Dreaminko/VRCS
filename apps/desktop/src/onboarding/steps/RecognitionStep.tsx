@@ -10,7 +10,11 @@ import { ModelManagerPanel } from "../../settings/recognition/ModelManagerPanel"
 import { Select } from "../../settings/SettingsControls";
 import { validComputeTypes } from "../../settings/settings-validation";
 import type { useApiProfiles } from "../../settings/useApiProfiles";
-import type { ApiProfileView, AsrCapabilities, ProviderServiceDefinition } from "../../types";
+import type {
+  ApiProfileView,
+  AsrCapabilities,
+  ProviderServiceDefinition,
+} from "../../providers/types";
 import type { RecognitionMode } from "../onboarding-types";
 
 type AsrModelsController = ReturnType<typeof useAsrModels>;

@@ -15,7 +15,7 @@ import {
   writeTranscriptionStartBehavior,
   type TranscriptionStartBehavior,
 } from "../../transcription-start";
-import type { Settings } from "../../types";
+import type { Settings } from "../types";
 import type { UiLanguagePreference } from "../../app/ui-language";
 import type { ApplySettings, SaveState } from "../settings-types";
 import { PreferenceToggle, Select } from "../SettingsControls";

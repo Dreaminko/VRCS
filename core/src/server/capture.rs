@@ -11,7 +11,7 @@ use crate::config::{AppConfig, AsrConfig};
 use crate::error::AppError;
 use crate::pipeline::{AsrEchoGuard, PipelineDependencies};
 
-use super::{api_domain_error, api_error, api_error_with_params, ApiResult, AppState};
+use super::{api_domain_error, api_error, api_error_with_params, ApiResult, CaptureContext};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct CaptureReloadPlan {
@@ -133,12 +133,12 @@ pub(super) async fn audio_devices() -> ApiResult<Json<Value>> {
 }
 
 pub(super) async fn microphone_test_start(
-    State(state): State<Arc<AppState>>,
+    State(state): State<CaptureContext>,
 ) -> ApiResult<Json<Value>> {
-    let _control = state.capture_control.lock().await;
-    if state.capture_requested.load(Ordering::SeqCst)
-        || state.speaker_pipeline.lock().await.running()
-        || state.microphone_pipeline.lock().await.running()
+    let _control = state.capture.capture_control.lock().await;
+    if state.capture.capture_requested.load(Ordering::SeqCst)
+        || state.capture.speaker_pipeline.lock().await.running()
+        || state.capture.microphone_pipeline.lock().await.running()
     {
         return Err(api_error(
             StatusCode::CONFLICT,
@@ -146,7 +146,7 @@ pub(super) async fn microphone_test_start(
             "Stop transcription before testing the microphone",
         ));
     }
-    let config = state.config.read().expect("config lock").clone();
+    let config = state.config.config.read().expect("config lock").clone();
     if config.audio.microphone.mode == "disabled" {
         return Err(api_error(
             StatusCode::UNPROCESSABLE_ENTITY,
@@ -158,10 +158,15 @@ pub(super) async fn microphone_test_start(
         .then_some(config.audio.microphone.device_id)
         .flatten();
     let device = state
+        .capture
         .microphone_monitor
         .lock()
         .await
-        .start(config.audio.sample_rate, device_id, state.live_tx.clone())
+        .start(
+            config.audio.sample_rate,
+            device_id,
+            state.capture.live_tx.clone(),
+        )
         .await
         .map_err(|error| {
             api_error(
@@ -173,14 +178,14 @@ pub(super) async fn microphone_test_start(
     Ok(Json(json!({ "running": true, "device": device })))
 }
 
-pub(super) async fn microphone_test_stop(State(state): State<Arc<AppState>>) -> Json<Value> {
-    let _control = state.capture_control.lock().await;
-    state.microphone_monitor.lock().await.stop().await;
+pub(super) async fn microphone_test_stop(State(state): State<CaptureContext>) -> Json<Value> {
+    let _control = state.capture.capture_control.lock().await;
+    state.capture.microphone_monitor.lock().await.stop().await;
     Json(json!({ "running": false }))
 }
 
 pub(crate) async fn validate_capture_config(
-    state: &Arc<AppState>,
+    state: &CaptureContext,
     config: &AppConfig,
 ) -> ApiResult<()> {
     if config.audio.sample_rate != 16_000 {
@@ -201,7 +206,7 @@ pub(crate) async fn validate_capture_config(
         crate::asr::validate_cloud_connection(&config.asr)
             .map_err(|error| api_error(StatusCode::CONFLICT, "asr.cloud_profile_invalid", error))?;
     }
-    let manager = Arc::clone(&state.model_manager);
+    let manager = Arc::clone(&state.capture.model_manager);
     let model = config.asr.local.model.clone();
     let local_required =
         config.asr.backend == "local_whisper" || config.asr.cloud_failure_policy == "local";
@@ -238,34 +243,38 @@ pub(crate) async fn validate_capture_config(
     Ok(())
 }
 
-fn effective_asr_config(state: &Arc<AppState>, config: &AppConfig) -> (AsrConfig, AsrEchoGuard) {
+fn effective_asr_config(state: &CaptureContext, config: &AppConfig) -> (AsrConfig, AsrEchoGuard) {
     let mut asr = config.asr.clone();
-    let terms = state.glossary.terms_for_asr(&config.glossary).join("\n");
+    let terms = state
+        .content
+        .glossary
+        .terms_for_asr(&config.glossary)
+        .join("\n");
     crate::glossary::append_asr_context(&mut asr, &terms);
     let (signatures, repeated_world) = if config.vrcx.enabled && config.vrcx.include_in_asr_context
     {
-        state.vrcx.apply_asr_context(&mut asr)
+        state.integrations.vrcx.apply_asr_context(&mut asr)
     } else {
         (Vec::new(), None)
     };
     (asr, AsrEchoGuard::new(signatures, repeated_world))
 }
 
-fn pipeline_dependencies(state: &Arc<AppState>) -> PipelineDependencies {
+fn pipeline_dependencies(state: &CaptureContext) -> PipelineDependencies {
     PipelineDependencies::new(
-        Arc::clone(&state.asr),
-        Arc::clone(&state.db),
-        state.live_tx.clone(),
-        state.conversation_catalog_tx.clone(),
-        state.translation_dispatcher.clone(),
-        Arc::clone(&state.config),
-        Arc::clone(&state.language_session),
-        state.subtitle_output.clone(),
+        Arc::clone(&state.capture.asr),
+        Arc::clone(&state.content.db),
+        state.capture.live_tx.clone(),
+        state.content.conversation_catalog_tx.clone(),
+        state.content.translation_dispatcher.clone(),
+        Arc::clone(&state.config.config),
+        Arc::clone(&state.config.language_session),
+        state.content.subtitle_output.clone(),
     )
 }
 
 async fn start_speaker_pipeline(
-    state: &Arc<AppState>,
+    state: &CaptureContext,
     config: &AppConfig,
 ) -> ApiResult<Option<crate::models::AudioDevice>> {
     let output = &config.audio.output;
@@ -278,6 +287,7 @@ async fn start_speaker_pipeline(
     let process_name = (output.mode == "vrchat").then_some("VRChat.exe");
     let (asr, echo_guard) = effective_asr_config(state, config);
     state
+        .capture
         .speaker_pipeline
         .lock()
         .await
@@ -303,11 +313,11 @@ async fn start_speaker_pipeline(
 }
 
 async fn start_microphone_pipeline(
-    state: &Arc<AppState>,
+    state: &CaptureContext,
     config: &AppConfig,
 ) -> ApiResult<Option<crate::models::AudioDevice>> {
     if config.audio.microphone.mode == "disabled"
-        || state.vrchat_mute_sync.status().muted == Some(true)
+        || state.integrations.vrchat_mute_sync.status().muted == Some(true)
     {
         return Ok(None);
     }
@@ -316,6 +326,7 @@ async fn start_microphone_pipeline(
         .flatten();
     let (asr, echo_guard) = effective_asr_config(state, config);
     state
+        .capture
         .microphone_pipeline
         .lock()
         .await
@@ -341,7 +352,7 @@ async fn start_microphone_pipeline(
 }
 
 async fn start_planned_pipelines(
-    state: &Arc<AppState>,
+    state: &CaptureContext,
     config: &AppConfig,
     plan: CaptureReloadPlan,
 ) -> ApiResult<(
@@ -373,25 +384,25 @@ async fn start_planned_pipelines(
     }
 }
 
-pub(crate) async fn stop_pipelines(state: &Arc<AppState>, plan: CaptureReloadPlan) {
+pub(crate) async fn stop_pipelines(state: &CaptureContext, plan: CaptureReloadPlan) {
     match (plan.speaker, plan.microphone) {
         (true, true) => {
-            let mut speaker = state.speaker_pipeline.lock().await;
-            let mut microphone = state.microphone_pipeline.lock().await;
+            let mut speaker = state.capture.speaker_pipeline.lock().await;
+            let mut microphone = state.capture.microphone_pipeline.lock().await;
             tokio::join!(speaker.stop(), microphone.stop());
         }
-        (true, false) => state.speaker_pipeline.lock().await.stop().await,
-        (false, true) => state.microphone_pipeline.lock().await.stop().await,
+        (true, false) => state.capture.speaker_pipeline.lock().await.stop().await,
+        (false, true) => state.capture.microphone_pipeline.lock().await.stop().await,
         (false, false) => {}
     }
 }
 
 pub(crate) async fn start_pipelines(
-    state: &Arc<AppState>,
+    state: &CaptureContext,
     config: &AppConfig,
     plan: CaptureReloadPlan,
 ) -> ApiResult<()> {
-    if !state.capture_requested.load(Ordering::SeqCst) {
+    if !state.capture.capture_requested.load(Ordering::SeqCst) {
         return Ok(());
     }
     start_planned_pipelines(state, config, plan)
@@ -399,10 +410,10 @@ pub(crate) async fn start_pipelines(
         .map(|_| ())
 }
 
-pub(crate) async fn reload_glossary_asr_context(state: &Arc<AppState>) -> ApiResult<()> {
-    let _control = state.capture_control.lock().await;
-    let config = state.config.read().expect("config lock").clone();
-    if !state.capture_requested.load(Ordering::SeqCst)
+pub(crate) async fn reload_glossary_asr_context(state: &CaptureContext) -> ApiResult<()> {
+    let _control = state.capture.capture_control.lock().await;
+    let config = state.config.config.read().expect("config lock").clone();
+    if !state.capture.capture_requested.load(Ordering::SeqCst)
         || !config.glossary.asr_enabled
         || !supports_asr_context(&config.asr)
     {
@@ -414,11 +425,11 @@ pub(crate) async fn reload_glossary_asr_context(state: &Arc<AppState>) -> ApiRes
 }
 
 pub(super) async fn capture_start(
-    State(state): State<Arc<AppState>>,
+    State(state): State<CaptureContext>,
     input: Option<Json<crate::language_session::CaptureStartInput>>,
 ) -> ApiResult<Json<Value>> {
-    let _control = state.capture_control.lock().await;
-    let global = state.config.read().expect("config lock").clone();
+    let _control = state.capture.capture_control.lock().await;
+    let global = state.config.config.read().expect("config lock").clone();
     let input = input.map(|Json(input)| input).unwrap_or_default();
     let session = crate::language_session::select_session(input, &global).map_err(|detail| {
         api_error(
@@ -429,8 +440,8 @@ pub(super) async fn capture_start(
     })?;
     let config = session.apply_to(&global);
     validate_capture_config(&state, &config).await?;
-    if state.speaker_pipeline.lock().await.running()
-        || state.microphone_pipeline.lock().await.running()
+    if state.capture.speaker_pipeline.lock().await.running()
+        || state.capture.microphone_pipeline.lock().await.running()
     {
         return Err(api_error(
             StatusCode::CONFLICT,
@@ -438,27 +449,32 @@ pub(super) async fn capture_start(
             "Transcription is already running",
         ));
     }
-    state.microphone_monitor.lock().await.stop().await;
+    state.capture.microphone_monitor.lock().await.stop().await;
 
     *state
+        .config
         .language_session
         .write()
         .expect("language session lock") = session;
-    state.osc.update_config(config.osc.clone());
+    state.integrations.osc.update_config(config.osc.clone());
     let started = start_planned_pipelines(&state, &config, CaptureReloadPlan::all()).await;
     let (device, microphone) = match started {
         Ok(devices) => devices,
         Err(error) => {
             *state
+                .config
                 .language_session
                 .write()
                 .expect("language session lock") =
                 crate::language_session::ActiveLanguageSession::Global;
-            state.osc.update_config(global.osc);
+            state.integrations.osc.update_config(global.osc);
             return Err(error);
         }
     };
-    state.capture_requested.store(true, Ordering::SeqCst);
+    state
+        .capture
+        .capture_requested
+        .store(true, Ordering::SeqCst);
     Ok(Json(json!({
         "running": true,
         "device": device,
@@ -466,29 +482,34 @@ pub(super) async fn capture_start(
     })))
 }
 
-pub(super) async fn capture_stop(State(state): State<Arc<AppState>>) -> Json<Value> {
-    let _control = state.capture_control.lock().await;
-    state.capture_requested.store(false, Ordering::SeqCst);
-    let mut speaker = state.speaker_pipeline.lock().await;
-    let mut microphone = state.microphone_pipeline.lock().await;
+pub(super) async fn capture_stop(State(state): State<CaptureContext>) -> Json<Value> {
+    let _control = state.capture.capture_control.lock().await;
+    state
+        .capture
+        .capture_requested
+        .store(false, Ordering::SeqCst);
+    let mut speaker = state.capture.speaker_pipeline.lock().await;
+    let mut microphone = state.capture.microphone_pipeline.lock().await;
     tokio::join!(speaker.stop(), microphone.stop());
     *state
+        .config
         .language_session
         .write()
         .expect("language session lock") = crate::language_session::ActiveLanguageSession::Global;
-    let osc = state.config.read().expect("config lock").osc.clone();
-    state.osc.update_config(osc);
+    let osc = state.config.config.read().expect("config lock").osc.clone();
+    state.integrations.osc.update_config(osc);
     Json(json!({ "running": false }))
 }
 
-pub(crate) async fn resume_microphone(state: &Arc<AppState>) -> Result<(), String> {
-    if !state.capture_requested.load(Ordering::SeqCst)
-        || state.microphone_pipeline.lock().await.running()
+pub(crate) async fn resume_microphone(state: &CaptureContext) -> Result<(), String> {
+    if !state.capture.capture_requested.load(Ordering::SeqCst)
+        || state.capture.microphone_pipeline.lock().await.running()
     {
         return Ok(());
     }
-    let global = state.config.read().expect("config lock").clone();
+    let global = state.config.config.read().expect("config lock").clone();
     let config = state
+        .config
         .language_session
         .read()
         .expect("language session lock")
@@ -502,6 +523,7 @@ pub(crate) async fn resume_microphone(state: &Arc<AppState>) -> Result<(), Strin
     let dependencies = pipeline_dependencies(state);
     let (asr, echo_guard) = effective_asr_config(state, &config);
     state
+        .capture
         .microphone_pipeline
         .lock()
         .await

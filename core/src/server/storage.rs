@@ -9,7 +9,7 @@ use serde_json::{json, Value};
 
 use crate::db::conversations::publish_latest_catalog;
 
-use super::{api_error, db_call, ApiResult, AppState};
+use super::{api_error, db_call, ApiResult, ContentState};
 
 #[derive(Deserialize)]
 pub(super) struct DeleteSubtitleRangeRequest {
@@ -29,7 +29,7 @@ fn parse_range_timestamp(value: &str) -> Result<DateTime<Utc>, (StatusCode, Json
         })
 }
 
-pub(super) async fn database_stats(State(state): State<Arc<AppState>>) -> ApiResult<Json<Value>> {
+pub(super) async fn database_stats(State(state): State<ContentState>) -> ApiResult<Json<Value>> {
     let stats = db_call(Arc::clone(&state.db), |db| db.storage_stats())
         .await
         .map_err(|error| {
@@ -43,7 +43,7 @@ pub(super) async fn database_stats(State(state): State<Arc<AppState>>) -> ApiRes
 }
 
 pub(super) async fn delete_subtitle_range(
-    State(state): State<Arc<AppState>>,
+    State(state): State<ContentState>,
     Json(input): Json<DeleteSubtitleRangeRequest>,
 ) -> ApiResult<Json<Value>> {
     let started_at = parse_range_timestamp(&input.started_at)?;
@@ -82,7 +82,7 @@ pub(super) async fn delete_subtitle_range(
 }
 
 pub(super) async fn clear_subtitle_history(
-    State(state): State<Arc<AppState>>,
+    State(state): State<ContentState>,
 ) -> ApiResult<Json<Value>> {
     let conversation_catalog = state.conversation_catalog_tx.clone();
     let stats = db_call(Arc::clone(&state.db), move |db| {

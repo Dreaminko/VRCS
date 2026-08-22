@@ -1,7 +1,7 @@
 import { Clock3 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
-import type { Settings } from "../../types";
+import type { Settings } from "../types";
 import { RangeField } from "../SettingsControls";
 
 export function VadSettings({

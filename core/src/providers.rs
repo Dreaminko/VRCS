@@ -154,6 +154,15 @@ pub struct ProviderServiceDefinition {
     pub translation_support: Option<SupportLevel>,
 }
 
+#[derive(Debug, Clone, Copy)]
+struct RecognitionServiceSpec {
+    transport: RecognitionTransport,
+    partial_results: bool,
+    models: &'static [&'static str],
+    context_max_chars: Option<usize>,
+    support: SupportLevel,
+}
+
 #[derive(Debug, Clone, Copy, Serialize)]
 pub struct ProviderDefinition {
     pub id: &'static str,
@@ -195,21 +204,25 @@ const ALIBABA_SERVICES: &[ProviderServiceDefinition] = &[
         SERVICE_QWEN_REALTIME,
         "Qwen Realtime",
         ServiceAdapter::QwenRealtime,
-        RecognitionTransport::RealtimeStream,
-        true,
-        QWEN_MODELS,
-        Some(2_000),
-        SupportLevel::Native,
+        RecognitionServiceSpec {
+            transport: RecognitionTransport::RealtimeStream,
+            partial_results: true,
+            models: QWEN_MODELS,
+            context_max_chars: Some(2_000),
+            support: SupportLevel::Native,
+        },
     ),
     recognition_service_definition(
         SERVICE_FUN_ASR_REALTIME,
         "Fun-ASR Realtime",
         ServiceAdapter::FunAsrRealtime,
-        RecognitionTransport::RealtimeStream,
-        true,
-        FUN_ASR_MODELS,
-        Some(400),
-        SupportLevel::Native,
+        RecognitionServiceSpec {
+            transport: RecognitionTransport::RealtimeStream,
+            partial_results: true,
+            models: FUN_ASR_MODELS,
+            context_max_chars: Some(400),
+            support: SupportLevel::Native,
+        },
     ),
 ];
 
@@ -224,11 +237,13 @@ const OPENAI_SERVICES: &[ProviderServiceDefinition] = &[
         SERVICE_OPENAI_REALTIME,
         "OpenAI Realtime",
         ServiceAdapter::OpenAiRealtime,
-        RecognitionTransport::RealtimeStream,
-        true,
-        OPENAI_ASR_MODELS,
-        None,
-        SupportLevel::Native,
+        RecognitionServiceSpec {
+            transport: RecognitionTransport::RealtimeStream,
+            partial_results: true,
+            models: OPENAI_ASR_MODELS,
+            context_max_chars: None,
+            support: SupportLevel::Native,
+        },
     ),
 ];
 
@@ -273,11 +288,13 @@ const GROQ_SERVICES: &[ProviderServiceDefinition] = &[
         SERVICE_GROQ_TRANSCRIPTION,
         "Groq Transcription",
         ServiceAdapter::OpenAiAudioTranscriptions,
-        RecognitionTransport::SegmentedUpload,
-        false,
-        GROQ_ASR_MODELS,
-        Some(400),
-        SupportLevel::Native,
+        RecognitionServiceSpec {
+            transport: RecognitionTransport::SegmentedUpload,
+            partial_results: false,
+            models: GROQ_ASR_MODELS,
+            context_max_chars: Some(400),
+            support: SupportLevel::Native,
+        },
     ),
 ];
 
@@ -366,28 +383,24 @@ const fn recognition_service_definition(
     id: &'static str,
     display_name: &'static str,
     adapter: ServiceAdapter,
-    transport: RecognitionTransport,
-    partial_results: bool,
-    models: &'static [&'static str],
-    context_max_chars: Option<usize>,
-    asr_support: SupportLevel,
+    spec: RecognitionServiceSpec,
 ) -> ProviderServiceDefinition {
     ProviderServiceDefinition {
         id,
         display_name,
         capabilities: SPEECH_CAPABILITY,
         adapter,
-        recognition_transport: Some(transport),
-        partial_results,
-        supports_streaming: matches!(transport, RecognitionTransport::RealtimeStream),
+        recognition_transport: Some(spec.transport),
+        partial_results: spec.partial_results,
+        supports_streaming: matches!(spec.transport, RecognitionTransport::RealtimeStream),
         supports_model_listing: matches!(
             adapter,
             ServiceAdapter::QwenRealtime | ServiceAdapter::FunAsrRealtime
         ),
-        supports_context: context_max_chars.is_some(),
-        models,
-        context_max_chars,
-        asr_support: Some(asr_support),
+        supports_context: spec.context_max_chars.is_some(),
+        models: spec.models,
+        context_max_chars: spec.context_max_chars,
+        asr_support: Some(spec.support),
         translation_support: None,
     }
 }

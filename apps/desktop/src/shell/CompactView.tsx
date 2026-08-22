@@ -3,7 +3,7 @@ import { Maximize2, Mic, Square, X } from "lucide-react";
 
 import type { LookupOrigin } from "../app/app-types";
 import { useLivePartial, useTranslationPartials } from "../realtime-state";
-import type { Subtitle } from "../types";
+import type { Subtitle } from "../subtitles/types";
 import { contentLanguageTag } from "../app/ui-language";
 
 export function CompactView({ subtitle, running, vrchatMuted, captureDisabled, onSelect, onCapture, onRestore, onClose }: {

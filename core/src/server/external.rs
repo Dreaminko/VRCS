@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use axum::extract::State;
 use axum::http::StatusCode;
 use axum::Json;
@@ -7,7 +5,7 @@ use serde::Deserialize;
 
 use crate::credentials;
 
-use super::{api_error, ApiResult, AppState};
+use super::{api_error, ApiResult, SettingsContext};
 
 #[derive(Deserialize)]
 pub(super) struct TokenInput {
@@ -27,10 +25,11 @@ pub(super) async fn token_status() -> ApiResult<Json<credentials::CredentialStat
 }
 
 pub(super) async fn runtime_status(
-    State(state): State<Arc<AppState>>,
+    State(state): State<SettingsContext>,
 ) -> Json<crate::external_api::ExternalApiRuntimeStatus> {
     Json(
         state
+            .integrations
             .external_api_status
             .read()
             .expect("External API status lock")
@@ -39,10 +38,10 @@ pub(super) async fn runtime_status(
 }
 
 pub(super) async fn token_write(
-    State(state): State<Arc<AppState>>,
+    State(state): State<SettingsContext>,
     Json(input): Json<TokenInput>,
 ) -> ApiResult<Json<credentials::CredentialStatus>> {
-    let _config_control = state.config_control.lock().await;
+    let _config_control = state.config.config_control.lock().await;
     let current = credentials::external_api_token_status().map_err(|error| {
         api_error(
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -75,6 +74,7 @@ pub(super) async fn token_write(
 
     let config = state
         .config
+        .config
         .read()
         .expect("config lock")
         .external_api
@@ -101,11 +101,11 @@ pub(super) async fn token_write(
 }
 
 pub(super) async fn token_delete(
-    State(state): State<Arc<AppState>>,
+    State(state): State<SettingsContext>,
 ) -> ApiResult<Json<credentials::CredentialStatus>> {
-    let _config_control = state.config_control.lock().await;
+    let _config_control = state.config.config_control.lock().await;
     let token_required = {
-        let config = state.config.read().expect("config lock");
+        let config = state.config.config.read().expect("config lock");
         config.external_api.enabled && config.external_api.require_token
     };
     if token_required {

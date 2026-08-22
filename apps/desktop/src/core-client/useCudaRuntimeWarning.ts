@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 
-import type { AsrCapabilities } from "../types";
+import type { AsrCapabilities } from "../providers/types";
 
 export function useCudaRuntimeWarning(
   capabilities: AsrCapabilities | null,

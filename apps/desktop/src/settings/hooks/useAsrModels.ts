@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { open } from "@tauri-apps/plugin-dialog";
 
-import { coreApi } from "../../api";
+import { providersApi } from "../../providers/api";
 import { localizedError } from "../../app/app-utils";
 import { validComputeTypes } from "../settings-validation";
 import type {
@@ -10,8 +10,8 @@ import type {
   AsrCapabilities,
   AsrModelRecord,
   ProviderDefinition,
-  Settings,
-} from "../../types";
+} from "../../providers/types";
+import type { Settings } from "../types";
 import {
   recognitionServicesForProfile,
   selectRecognitionService,
@@ -58,7 +58,7 @@ export function useAsrModels({
   const fetchModels = useCallback(async (isCancelled: () => boolean) => {
     try {
       const previous = managedModelsRef.current;
-      const next = await coreApi.asrModels();
+      const next = await providersApi.asrModels();
       if (isCancelled()) return;
       managedModelsRef.current = next;
       setManagedModels(next);
@@ -185,7 +185,7 @@ export function useAsrModels({
       name: MODEL_PRESENTATION[model.id].name,
     }));
     try {
-      await coreApi.downloadAsrModel(model.id);
+      await providersApi.downloadAsrModel(model.id);
       setMessage(t("settings.recognition.downloadQueued", {
         name: MODEL_PRESENTATION[model.id].name,
       }));
@@ -200,7 +200,7 @@ export function useAsrModels({
     if (!window.confirm(t("settings.recognition.confirmDelete", { name }))) return;
     setMessage(t("settings.recognition.deleting", { name }));
     try {
-      await coreApi.deleteAsrModel(model.id);
+      await providersApi.deleteAsrModel(model.id);
       await loadModels();
       await onModelsChanged();
       setMessage(t("settings.recognition.deleted", { name }));

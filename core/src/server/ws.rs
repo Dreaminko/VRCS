@@ -12,16 +12,16 @@ use tokio::sync::broadcast;
 use crate::domain_events::DomainEvent;
 use crate::models::LiveTranscription;
 
-use super::{api_error, token_eq, AppState, ALLOWED_ORIGINS};
+use super::{api_error, token_eq, RealtimeContext, ALLOWED_ORIGINS};
 
 pub(super) async fn ws_handler(
-    State(state): State<Arc<AppState>>,
+    State(state): State<RealtimeContext>,
     Query(params): Query<HashMap<String, String>>,
     headers: HeaderMap,
     ws: WebSocketUpgrade,
 ) -> Response {
     let supplied = params.get("token").map(String::as_str).unwrap_or("");
-    if !token_eq(supplied, &state.session_token) {
+    if !token_eq(supplied, &state.integrations.session_token) {
         return api_error(
             StatusCode::UNAUTHORIZED,
             "auth.unauthorized",
@@ -40,14 +40,14 @@ pub(super) async fn ws_handler(
     ws.on_upgrade(move |socket| handle_socket(state, socket))
 }
 
-pub(super) async fn handle_socket(state: Arc<AppState>, socket: WebSocket) {
-    let mut receiver = state.subtitle_output.subscribe_subtitles();
-    let mut recognition_receiver = state.domain_events.subscribe();
-    let mut live_receiver = state.live_tx.subscribe();
-    let mut catalog_receiver = state.conversation_catalog_tx.subscribe();
-    let mut translation_receiver = state.subtitle_output.subscribe_translations();
-    let mut mute_receiver = state.vrchat_mute_sync.subscribe();
-    let mut shutdown = state.shutdown.clone();
+pub(super) async fn handle_socket(state: RealtimeContext, socket: WebSocket) {
+    let mut receiver = state.content.subtitle_output.subscribe_subtitles();
+    let mut recognition_receiver = state.integrations.domain_events.subscribe();
+    let mut live_receiver = state.capture.live_tx.subscribe();
+    let mut catalog_receiver = state.content.conversation_catalog_tx.subscribe();
+    let mut translation_receiver = state.content.subtitle_output.subscribe_translations();
+    let mut mute_receiver = state.integrations.vrchat_mute_sync.subscribe();
+    let mut shutdown = state.integrations.shutdown.clone();
     let (mut sender, mut incoming) = socket.split();
     if sender
         .send(Message::Text(r#"{"type":"connected"}"#.into()))
@@ -56,7 +56,11 @@ pub(super) async fn handle_socket(state: Arc<AppState>, socket: WebSocket) {
     {
         return;
     }
-    match super::db_call(Arc::clone(&state.db), |db| db.conversation_catalog()).await {
+    match super::db_call(Arc::clone(&state.content.db), |db| {
+        db.conversation_catalog()
+    })
+    .await
+    {
         Ok(catalog) => {
             let payload = json!({
                 "type": "conversation_catalog",

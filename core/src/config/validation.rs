@@ -187,6 +187,12 @@ fn validate_recognition_models(asr: &AsrConfig, vad: &VadConfig) -> Result<(), S
 }
 
 fn validate_vr_overlay(config: &VrOverlayConfig) -> Result<(), String> {
+    if !["preferred_only", "all_languages"].contains(&config.translation_display.as_str()) {
+        return Err(format!(
+            "Unsupported VR Overlay translation_display: {}",
+            config.translation_display
+        ));
+    }
     validate_content_mode("VR Overlay headset", &config.headset.content_mode)?;
     validate_range(
         "VR Overlay headset offset_x_m",

@@ -10,7 +10,7 @@ import {
   readAppliedInterfaceScaleFactor,
 } from "../../app/interface-scale";
 import type { SubtitleAnalysisOutcome } from "../../subtitle-actions";
-import type { Subtitle } from "../../types";
+import type { Subtitle } from "../types";
 import { usePrependScrollAnchor } from "../hooks/usePrependScrollAnchor";
 import {
   useSubtitleBoxSelection,

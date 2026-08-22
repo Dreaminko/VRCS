@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 
-import { coreApi } from "../../api";
+import { ankiApi } from "../../anki/api";
 import { localizedError } from "../../app/app-utils";
-import type { AnkiStatus, Settings } from "../../types";
+import type { AnkiStatus } from "../../anki/types";
+import type { Settings } from "../types";
 import { createAnkiOptions } from "../settings-derived";
 import type { SettingsDraftController } from "./useSettingsDraft";
 
@@ -39,7 +40,7 @@ export function useAnkiSettings({
     setBusy(true);
     setMessage("");
     try {
-      const next = await coreApi.ankiStatus();
+      const next = await ankiApi.ankiStatus();
       if (!getCurrent().anki.enabled) return;
       setStatus(next);
       setMessage(t(`apiStatus.${next.status_code}`, {

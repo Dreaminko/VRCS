@@ -37,7 +37,7 @@ pub struct LocalAsrConfig {
     pub compute_type: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RecognitionServiceSettings {
     #[serde(default)]
     pub model: String,
@@ -125,15 +125,6 @@ impl Default for LocalAsrConfig {
             model: default_asr_model(),
             device: default_device(),
             compute_type: default_compute_type(),
-        }
-    }
-}
-
-impl Default for RecognitionServiceSettings {
-    fn default() -> Self {
-        Self {
-            model: String::new(),
-            context: String::new(),
         }
     }
 }

@@ -2,7 +2,7 @@ import { ArrowDown, ArrowUp, FileUp, Plus, Search, Trash2 } from "lucide-react";
 import { memo, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { useTranslation } from "react-i18next";
 
-import type { GlossaryEntry } from "../../types";
+import type { GlossaryEntry } from "../types";
 import { DropdownField, type DropdownOption } from "../../shared/ui/DropdownField";
 import {
   applyGlossaryEntryBulkAction,

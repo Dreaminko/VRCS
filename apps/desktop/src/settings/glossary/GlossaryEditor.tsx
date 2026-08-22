@@ -13,14 +13,14 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
-import { coreApi } from "../../api";
+import { glossaryApi } from "./api";
 import { localizedError } from "../../app/app-utils";
 import type {
   GlossaryLocalSource,
   GlossarySource,
   GlossarySourceStatus,
   GlossarySubscriptionSource,
-} from "../../types";
+} from "../types";
 import { LocalGlossaryDialog, SubscriptionGlossaryDialog } from "./GlossaryDialogs";
 import {
   glossaryEntryDraft,
@@ -79,7 +79,7 @@ export function GlossaryEditor({
 
   const loadStatuses = useCallback(async () => {
     try {
-      setStatuses(await coreApi.glossaryStatuses());
+      setStatuses(await glossaryApi.glossaryStatuses());
       setStatusesLoaded(true);
       setStatusError("");
     } catch (reason) {
@@ -225,7 +225,7 @@ export function GlossaryEditor({
     setRefreshingId(id);
     setStatusError("");
     try {
-      await coreApi.refreshGlossary(id);
+      await glossaryApi.refreshGlossary(id);
       await loadStatuses();
     } catch (reason) {
       setStatusError(localizedError(reason, t, "errors.translation.failed"));

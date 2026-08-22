@@ -1,7 +1,8 @@
 import { HardDrive, Languages } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
-import type { AsrCapabilities, Settings } from "../../types";
+import type { AsrCapabilities } from "../../providers/types";
+import type { Settings } from "../types";
 import { Select } from "../SettingsControls";
 import { RecognitionLanguageSelect } from "./RecognitionLanguageSelect";
 

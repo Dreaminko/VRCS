@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { BookOpenText, Check, LoaderCircle, PlusCircle, Sparkles, TriangleAlert, X } from "lucide-react";
 
-import { coreApi } from "../api";
+import { ankiApi } from "../anki/api";
 import { ankiButtonLabel } from "../anki/anki";
 import type { AnkiAddState } from "../anki/anki";
 import { contextExcerpt, localizedError } from "../app/app-utils";
@@ -34,7 +34,7 @@ export function DictionaryPopover({ lookup, loading = false, ankiEnabled, compac
     setAnkiState("adding");
     setAnkiFeedback("");
     try {
-      const result = await coreApi.createCard({
+      const result = await ankiApi.createCard({
         term: lookup.term,
         reading: entry.reading,
         definition: cardContent.definition,

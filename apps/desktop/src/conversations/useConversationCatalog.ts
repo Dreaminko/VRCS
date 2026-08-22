@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { coreApi } from "../api";
+import { conversationsApi } from "./api";
 import {
   activeConversationId,
   catalogAfterRequest,
@@ -78,7 +78,7 @@ export function useConversationCatalog({
     const requestStartSequence = latestCatalogEventRef.current?.sequence ?? 0;
     const loadCatalog = async () => {
       try {
-        const response = await coreApi.conversations();
+        const response = await conversationsApi.conversations();
         if (cancelled) return;
         await applyCatalog(
           authoritativeResponse(response, requestStartSequence),
@@ -118,7 +118,7 @@ export function useConversationCatalog({
   const createConversation = useCallback(async (): Promise<boolean> => {
     const requestStartSequence = latestCatalogEventRef.current?.sequence ?? 0;
     try {
-      const response = await coreApi.createConversation();
+      const response = await conversationsApi.createConversation();
       await applyCatalog(
         authoritativeResponse(response, requestStartSequence),
         "active",
@@ -138,7 +138,7 @@ export function useConversationCatalog({
     if (!catalogConversation(catalog, id)) return;
     const requestStartSequence = latestCatalogEventRef.current?.sequence ?? 0;
     try {
-      const response = await coreApi.updateConversation(id, input);
+      const response = await conversationsApi.updateConversation(id, input);
       await applyCatalog(
         authoritativeResponse(response, requestStartSequence),
         "preserve",
@@ -153,7 +153,7 @@ export function useConversationCatalog({
     if (!catalogConversation(catalog, id)) return;
     const requestStartSequence = latestCatalogEventRef.current?.sequence ?? 0;
     try {
-      const response = await coreApi.deleteConversation(id);
+      const response = await conversationsApi.deleteConversation(id);
       await applyCatalog(
         authoritativeResponse(response, requestStartSequence),
         "preserve",

@@ -1,13 +1,13 @@
 import type { TFunction } from "i18next";
 
+import type { AnkiStatus } from "../anki/types";
 import type {
   ApiProfileView,
   AsrCapabilities,
   AsrModelRecord,
-  AnkiStatus,
   ProviderDefinition,
-  Settings,
-} from "../types";
+} from "../providers/types";
+import type { Settings } from "./types";
 import {
   LOCAL_RECOGNITION_SOURCE,
   recognitionSourceValue as dynamicRecognitionSourceValue,

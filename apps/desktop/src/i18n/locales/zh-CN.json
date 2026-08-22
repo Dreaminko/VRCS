@@ -562,6 +562,11 @@
           "title": "手腕对话",
           "description": "绑定到控制器并显示最近多条对话。"
         },
+        "translationDisplay": "多语言翻译",
+        "translationDisplays": {
+          "preferredOnly": "仅显示首选语言",
+          "allLanguages": "显示所有语言"
+        },
         "contentMode": "显示内容",
         "contentModes": {
           "original": "原文",

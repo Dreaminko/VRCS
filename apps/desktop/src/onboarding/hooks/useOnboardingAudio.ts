@@ -5,7 +5,8 @@ import {
   audioSelectionErrors,
   hasEnabledAudioSource,
 } from "../../settings/settings-validation";
-import type { AudioDevice, Settings } from "../../types";
+import type { AudioDevice } from "../../capture/types";
+import type { Settings } from "../../settings/types";
 
 export function useOnboardingAudio({
   settings,

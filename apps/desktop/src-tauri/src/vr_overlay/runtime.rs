@@ -542,7 +542,11 @@ fn update_headset(
             1.0,
         ))
     } else {
-        state.headset.frame(Instant::now(), &state.config.headset)
+        state.headset.frame_with_translation_display(
+            Instant::now(),
+            &state.config.headset,
+            &state.config.translation_display,
+        )
     };
     let Some(frame) = frame else {
         backend.hide(OverlayKind::Headset);
@@ -632,7 +636,11 @@ fn update_wrist(
     } else {
         state
             .wrist
-            .frame(Instant::now(), &state.config.wrist)
+            .frame_with_translation_display(
+                Instant::now(),
+                &state.config.wrist,
+                &state.config.translation_display,
+            )
             .unwrap_or_else(|| PresentationFrame::wrist(Vec::new()))
     };
 

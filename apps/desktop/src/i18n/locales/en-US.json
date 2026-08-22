@@ -562,6 +562,11 @@
           "title": "Wrist conversation",
           "description": "Recent conversation lines attached to a controller."
         },
+        "translationDisplay": "Multilingual translations",
+        "translationDisplays": {
+          "preferredOnly": "Preferred language only",
+          "allLanguages": "Show all languages"
+        },
         "contentMode": "Content",
         "contentModes": {
           "original": "Original",

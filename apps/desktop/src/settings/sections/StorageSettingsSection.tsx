@@ -2,9 +2,10 @@ import { useCallback, useEffect, useState } from "react";
 import { Database, HardDrive, RefreshCw, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
-import { coreApi } from "../../api";
+import { storageApi } from "../../storage/api";
 import { localizedError } from "../../app/app-utils";
-import type { DatabaseStorageStats, Settings } from "../../types";
+import type { Settings } from "../types";
+import type { DatabaseStorageStats } from "../../storage/types";
 import { formatBytes } from "../settings-derived";
 import type { ApplySettings, SaveState } from "../settings-types";
 
@@ -41,7 +42,7 @@ export function StorageSettingsSection({
   ) => {
     if (showBusy) setBusy("refresh");
     try {
-      const next = await coreApi.storageStats();
+      const next = await storageApi.storageStats();
       if (isCancelled()) return;
       setStats(next);
       setMessage("");
@@ -95,7 +96,7 @@ export function StorageSettingsSection({
     setBusy("clear");
     setMessage("");
     try {
-      setStats(await coreApi.clearSubtitleHistory());
+      setStats(await storageApi.clearSubtitleHistory());
       setMessage(t("settings.storage.clearComplete"));
       window.dispatchEvent(new Event("vrcs:subtitle-history-refresh"));
     } catch (reason) {

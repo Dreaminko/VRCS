@@ -11,7 +11,7 @@ import {
 import type {
   ChatboxComposeInput,
   ChatboxPreview,
-} from "../types";
+} from "./types";
 import { DropdownField } from "../shared/ui/DropdownField";
 import { LanguagePicker } from "../shared/ui/LanguagePicker";
 

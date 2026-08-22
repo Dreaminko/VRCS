@@ -3,8 +3,10 @@ import { ExternalLink, KeyRound, RadioTower, RefreshCw, Save, Trash2 } from "luc
 import { useCallback, useEffect, useRef, useState, type MouseEvent } from "react";
 import { useTranslation } from "react-i18next";
 
-import { coreApi } from "../../api";
-import type { CredentialStatus, Settings, VrcxRuntimeStatus } from "../../types";
+import { integrationsApi } from "../../integrations/api";
+import type { VrcxRuntimeStatus } from "../../integrations/types";
+import type { Settings } from "../types";
+import type { CredentialStatus } from "../../shared/protocol/credentials";
 import type { SaveState } from "../settings-types";
 import { PreferenceToggle } from "../SettingsControls";
 
@@ -29,7 +31,7 @@ export function VrcxIntegrationSettingsCard({ config, saveState, onChange }: {
 
   const loadRuntimeStatus = useCallback(() => {
     if (runtimeStatusRequestRef.current === null) {
-      runtimeStatusRequestRef.current = coreApi.vrcxRuntimeStatus().finally(() => {
+      runtimeStatusRequestRef.current = integrationsApi.vrcxRuntimeStatus().finally(() => {
         runtimeStatusRequestRef.current = null;
       });
     }
@@ -40,7 +42,7 @@ export function VrcxIntegrationSettingsCard({ config, saveState, onChange }: {
 
   useEffect(() => {
     let cancelled = false;
-    void coreApi.vrcxTokenStatus().then(
+    void integrationsApi.vrcxTokenStatus().then(
       (status) => {
         if (!cancelled) {
           setTokenStatus(status);
@@ -139,7 +141,7 @@ export function VrcxIntegrationSettingsCard({ config, saveState, onChange }: {
     setTokenBusy(true);
     setTokenMessage("");
     try {
-      setTokenStatus(await coreApi.saveVrcxToken(token));
+      setTokenStatus(await integrationsApi.saveVrcxToken(token));
       setTokenStatusError(false);
       setTokenInput("");
       setTokenMessage(t("settings.vrcx.tokenSaved"));
@@ -155,7 +157,7 @@ export function VrcxIntegrationSettingsCard({ config, saveState, onChange }: {
     setTokenBusy(true);
     setTokenMessage("");
     try {
-      setTokenStatus(await coreApi.deleteVrcxToken());
+      setTokenStatus(await integrationsApi.deleteVrcxToken());
       setTokenStatusError(false);
       setTokenMessage(t("settings.vrcx.tokenDeleted"));
       refreshRuntimeStatus();
@@ -170,7 +172,7 @@ export function VrcxIntegrationSettingsCard({ config, saveState, onChange }: {
     setTesting(true);
     setTestMessage("");
     try {
-      setRuntimeStatus(await coreApi.testVrcx());
+      setRuntimeStatus(await integrationsApi.testVrcx());
       setRuntimeStatusError(false);
     } catch {
       setTestMessage(t("settings.vrcx.testFailed"));

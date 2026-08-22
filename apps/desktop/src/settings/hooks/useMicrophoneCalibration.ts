@@ -4,7 +4,7 @@ import {
   suggestMicrophoneThreshold,
   type MicrophoneCalibrationResult,
 } from "../../microphone-calibration";
-import type { AudioLevel } from "../../types";
+import type { AudioLevel } from "../../capture/types";
 
 const QUIET_PROMPT_LEAD_MS = 500;
 const QUIET_SAMPLE_MS = 2_000;

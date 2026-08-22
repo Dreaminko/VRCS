@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
-import { coreApi } from "../api";
+import { providersApi } from "../providers/api";
 import { supportsLlmModels } from "../api-profile-purpose";
 import { localizedError } from "../app/app-utils";
 import type {
@@ -11,7 +11,7 @@ import type {
   ApiProfileView,
   ConnectionDiagnostic,
   ProviderDefinition,
-} from "../types";
+} from "../providers/types";
 
 export interface ApiModelCatalogState {
   models: string[];
@@ -32,8 +32,8 @@ export function useApiProfiles(onRefreshSettings: () => Promise<void>) {
 
   const load = useCallback(async () => {
     const [profileResponse, providerResponse] = await Promise.all([
-      coreApi.apiProfiles(),
-      coreApi.providers(),
+      providersApi.apiProfiles(),
+      providersApi.providers(),
     ]);
     setProfiles(profileResponse.profiles);
     setProviderDefinitions(providerResponse.providers);
@@ -57,7 +57,7 @@ export function useApiProfiles(onRefreshSettings: () => Promise<void>) {
       },
     }));
     try {
-      const response = await coreApi.apiProfileModels(profileId);
+      const response = await providersApi.apiProfileModels(profileId);
       setModelCatalogs((current) => ({
         ...current,
         [profileId]: { models: response.models, loading: false, error: "" },
@@ -135,7 +135,7 @@ export function useApiProfiles(onRefreshSettings: () => Promise<void>) {
     refreshModels: (profileId: string) => refreshModels(profileId, true),
     create: (profile: ApiProfileInput, apiKey: string) => run(
       "create",
-      () => coreApi.createApiProfile({
+      () => providersApi.createApiProfile({
         ...profile,
         api_key: apiKey.trim() || undefined,
       }),
@@ -147,8 +147,8 @@ export function useApiProfiles(onRefreshSettings: () => Promise<void>) {
       return run(
         profile.id,
         async () => {
-          let saved = await coreApi.updateApiProfile(profile);
-          if (apiKey.trim()) saved = await coreApi.saveApiProfileCredential(profile.id, apiKey);
+          let saved = await providersApi.updateApiProfile(profile);
+          if (apiKey.trim()) saved = await providersApi.saveApiProfileCredential(profile.id, apiKey);
           return saved;
         },
         "settings.apiManagement.profileSaved",
@@ -157,7 +157,7 @@ export function useApiProfiles(onRefreshSettings: () => Promise<void>) {
     },
     activate: (profileId: string, serviceId: string) => run(
       profileId,
-      () => coreApi.activateAsrProfile(profileId, serviceId),
+      () => providersApi.activateAsrProfile(profileId, serviceId),
       "settings.apiManagement.profileActivated",
       true,
     ),
@@ -169,7 +169,7 @@ export function useApiProfiles(onRefreshSettings: () => Promise<void>) {
     ) => {
       const result = await run(
         profileId,
-        () => coreApi.testApiProfile(profileId, capability, serviceId, model),
+        () => providersApi.testApiProfile(profileId, capability, serviceId, model),
         "settings.apiManagement.connectionSucceeded",
         false,
       );
@@ -181,13 +181,13 @@ export function useApiProfiles(onRefreshSettings: () => Promise<void>) {
     },
     removeCredential: (profileId: string) => run(
       profileId,
-      () => coreApi.deleteApiProfileCredential(profileId),
+      () => providersApi.deleteApiProfileCredential(profileId),
       "settings.apiManagement.credentialRemoved",
       false,
     ),
     remove: (profileId: string) => run(
       profileId,
-      () => coreApi.deleteApiProfile(profileId),
+      () => providersApi.deleteApiProfile(profileId),
       "settings.apiManagement.profileDeleted",
       true,
     ),

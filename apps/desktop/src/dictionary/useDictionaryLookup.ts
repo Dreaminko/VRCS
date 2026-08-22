@@ -1,12 +1,12 @@
 import { useCallback, useRef, useState } from "react";
 
-import { coreApi } from "../api";
+import { dictionaryApi } from "./api";
 import type { Lookup, SelectionTarget } from "../app/app-types";
 
 export function useDictionaryLookup({
   reportError,
 }: {
-  reportError: (reason: unknown, fallbackKey: string) => void;
+  reportError: (reason: unknown, fallbackKey: string, source?: string) => void;
 }) {
   const [lookup, setLookup] = useState<Lookup | null>(null);
   const [loading, setLoading] = useState(false);
@@ -27,7 +27,7 @@ export function useDictionaryLookup({
     });
     setLoading(true);
     try {
-      const entries = await coreApi.lookup(target.selectedText);
+      const entries = await dictionaryApi.lookup(target.selectedText);
       if (requestId !== requestRef.current) return false;
       setLookup({
         ...target,
@@ -37,7 +37,7 @@ export function useDictionaryLookup({
       return true;
     } catch (reason) {
       if (requestId === requestRef.current) {
-        reportError(reason, "errors.dictionary.lookup");
+        reportError(reason, "errors.dictionary.lookup", "dictionary:lookup");
       }
       return false;
     } finally {

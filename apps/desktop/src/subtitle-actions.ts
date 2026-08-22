@@ -1,4 +1,5 @@
-import type { LearningAnalysis, Subtitle } from "./types";
+import type { LearningAnalysis } from "./learning/types";
+import type { Subtitle } from "./subtitles/types";
 
 export type SubtitleCopyMode = "original" | "translation" | "bilingual";
 

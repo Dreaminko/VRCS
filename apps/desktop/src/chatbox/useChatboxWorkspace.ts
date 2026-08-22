@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
-import { coreApi } from "../api";
+import { subtitlesApi } from "../subtitles/api";
+import { chatboxApi } from "./api";
 import { localizedError } from "../app/app-utils";
 import {
   applyChatboxPreferences,
@@ -19,8 +20,8 @@ import {
 import type {
   ChatboxComposeInput,
   ChatboxPreview,
-  Settings,
-} from "../types";
+} from "./types";
+import type { Settings } from "../settings/types";
 
 export function useChatboxWorkspace(settings: Settings | null) {
   const { t } = useTranslation();
@@ -56,7 +57,7 @@ export function useChatboxWorkspace(settings: Settings | null) {
     const requestId = ++previewRequest.current;
     if (draft.send_mode !== "original" && !translationFresh) return;
     const timer = window.setTimeout(() => {
-      void coreApi.previewChatbox(draft).then(
+      void chatboxApi.previewChatbox(draft).then(
         (value) => {
           if (requestId === previewRequest.current) setPreview(value);
         },
@@ -90,7 +91,7 @@ export function useChatboxWorkspace(settings: Settings | null) {
   const close = useCallback(() => setOpen(false), []);
 
   const requestTranslation = useCallback(async (input: ChatboxComposeInput) => {
-    const result = await coreApi.previewTranslation(
+    const result = await subtitlesApi.previewTranslation(
       input.original,
       input.source_language,
       input.target_language ?? undefined,
@@ -138,7 +139,7 @@ export function useChatboxWorkspace(settings: Settings | null) {
       }
       stage = "send";
       setBusy(stage);
-      await coreApi.sendChatbox(outgoing);
+      await chatboxApi.sendChatbox(outgoing);
       setDraft((current) => clearSentDraft(current));
       setTranslationBasis(null);
       return true;

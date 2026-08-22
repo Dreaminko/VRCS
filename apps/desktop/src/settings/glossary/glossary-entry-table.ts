@@ -1,4 +1,4 @@
-import type { GlossaryCategory } from "../../types";
+import type { GlossaryCategory } from "../types";
 import type { GlossaryEntryDraft } from "./glossary-utils";
 
 export type GlossaryEntryCategoryFilter = GlossaryCategory | "all";

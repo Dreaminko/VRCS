@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { coreApi } from "../api";
+import { subtitlesApi } from "../subtitles/api";
+import { conversationsApi } from "./api";
 import {
   conversationSubtitlePage,
   isAbortError,
@@ -12,7 +13,10 @@ import {
   type ConversationRequestToken,
 } from "../subtitle-stream";
 import { clearTranslationPartial } from "../realtime-state";
-import type { Subtitle, SubtitleTranslation } from "../types";
+import type {
+  Subtitle,
+  SubtitleTranslation,
+} from "../subtitles/types";
 
 function updateSubtitle(
   subtitles: Subtitle[],
@@ -127,7 +131,7 @@ export function useConversationHistory({
     const controller = new AbortController();
     openRequestControllerRef.current = controller;
     try {
-      const response = await coreApi.conversationSubtitles(conversationId, {
+      const response = await conversationsApi.conversationSubtitles(conversationId, {
         limit: SUBTITLE_HISTORY_PAGE_SIZE,
         signal: controller.signal,
       });
@@ -165,7 +169,7 @@ export function useConversationHistory({
     const controller = new AbortController();
     openRequestControllerRef.current = controller;
     try {
-      const response = await coreApi.conversationSubtitles(conversationId, {
+      const response = await conversationsApi.conversationSubtitles(conversationId, {
         limit: SUBTITLE_HISTORY_PAGE_SIZE,
         signal: controller.signal,
       });
@@ -209,7 +213,7 @@ export function useConversationHistory({
     loadingOlderSubtitlesRef.current = true;
     setLoadingOlderSubtitles(true);
     try {
-      const response = await coreApi.conversationSubtitles(conversationId, {
+      const response = await conversationsApi.conversationSubtitles(conversationId, {
         limit: SUBTITLE_HISTORY_PAGE_SIZE,
         beforeId,
         signal: controller.signal,
@@ -266,7 +270,7 @@ export function useConversationHistory({
       ? current
       : [...current, subtitleId]);
     try {
-      const translation = await coreApi.translateSubtitle(subtitleId);
+      const translation = await subtitlesApi.translateSubtitle(subtitleId);
       clearTranslationPartial(subtitleId);
       setSubtitles((current) => withTranslation(current, subtitleId, translation, true));
       clearErrorFrom(`translation:${subtitleId}`);

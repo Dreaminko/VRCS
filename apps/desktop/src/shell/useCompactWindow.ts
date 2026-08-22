@@ -10,11 +10,11 @@ import {
 } from "../compact-mode";
 
 export function useCompactWindow({
-  clearError,
+  clearErrorFrom,
   reportError,
 }: {
-  clearError: () => void;
-  reportError: (reason: unknown, fallbackKey: string) => void;
+  clearErrorFrom: (source: string) => void;
+  reportError: (reason: unknown, fallbackKey: string, source?: string) => void;
 }) {
   const [compact, setCompact] = useState(false);
 
@@ -42,13 +42,16 @@ export function useCompactWindow({
     });
   }, [reportError, resizeCompactWindow]);
 
-  const toggleCompact = useCallback(async (onExitCompact: () => void) => {
-    const next = !compact;
+  const setCompactMode = useCallback(async (
+    next: boolean,
+    onExitCompact: () => void = () => undefined,
+  ): Promise<boolean> => {
     try {
       if (!NATIVE_APP) {
         if (!next) onExitCompact();
         setCompact(next);
-        return;
+        clearErrorFrom("window");
+        return true;
       }
 
       const { getCurrentWindow, LogicalSize } = await import(
@@ -65,22 +68,40 @@ export function useCompactWindow({
         await appWindow.setResizable(true);
         await invoke("set_compact_window_topmost", { enabled: true });
       } else {
-        onExitCompact();
         await invoke("set_compact_window_topmost", { enabled: false });
         await appWindow.setResizable(true);
         await appWindow.setSizeConstraints({ minWidth: 860, minHeight: 620 });
         await appWindow.setSize(new LogicalSize(1180, 760));
+        onExitCompact();
       }
 
       setCompact(next);
-      clearError();
+      clearErrorFrom("window");
+      return true;
     } catch (reason) {
       reportError(
         typeof reason === "string" ? new Error(reason) : reason,
         "errors.window.compactToggle",
+        "window",
       );
+      return false;
     }
-  }, [clearError, compact, reportError]);
+  }, [clearErrorFrom, reportError]);
+
+  const enterCompact = useCallback(
+    () => setCompactMode(true),
+    [setCompactMode],
+  );
+  const exitCompact = useCallback(
+    (onExitCompact?: () => void) => setCompactMode(false, onExitCompact),
+    [setCompactMode],
+  );
+  const toggleCompact = useCallback(
+    (onExitCompact: () => void) => compact
+      ? exitCompact(onExitCompact)
+      : enterCompact(),
+    [compact, enterCompact, exitCompact],
+  );
 
   const closeWindow = useCallback(async () => {
     try {
@@ -95,6 +116,8 @@ export function useCompactWindow({
     compact,
     resizeCompactWindow,
     collapseCompactOverlay,
+    enterCompact,
+    exitCompact,
     toggleCompact,
     closeWindow,
   };

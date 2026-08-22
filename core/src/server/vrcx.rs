@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use axum::extract::State;
 use axum::http::StatusCode;
 use axum::Json;
@@ -7,7 +5,7 @@ use serde::Deserialize;
 
 use crate::credentials;
 
-use super::{api_error, ApiResult, AppState};
+use super::{api_error, ApiResult, ServiceContext};
 
 #[derive(Deserialize)]
 pub(super) struct TokenInput {
@@ -25,16 +23,16 @@ pub(super) async fn token_status() -> ApiResult<Json<credentials::CredentialStat
 }
 
 pub(super) async fn runtime_status(
-    State(state): State<Arc<AppState>>,
+    State(state): State<ServiceContext>,
 ) -> Json<crate::vrcx::VrcxRuntimeStatus> {
-    Json(state.vrcx.status())
+    Json(state.integrations.vrcx.status())
 }
 
 pub(super) async fn token_write(
-    State(state): State<Arc<AppState>>,
+    State(state): State<ServiceContext>,
     Json(input): Json<TokenInput>,
 ) -> ApiResult<Json<credentials::CredentialStatus>> {
-    let _config_control = state.config_control.lock().await;
+    let _config_control = state.config.config_control.lock().await;
     let current = credentials::vrcx_token_status().map_err(|error| {
         api_error(
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -57,15 +55,25 @@ pub(super) async fn token_write(
             error,
         )
     })?;
-    let config = state.config.read().expect("config lock").vrcx.clone();
-    state.vrcx.reconfigure(config, Some(token)).await;
+    let config = state
+        .config
+        .config
+        .read()
+        .expect("config lock")
+        .vrcx
+        .clone();
+    state
+        .integrations
+        .vrcx
+        .reconfigure(config, Some(token))
+        .await;
     token_status().await
 }
 
 pub(super) async fn token_delete(
-    State(state): State<Arc<AppState>>,
+    State(state): State<ServiceContext>,
 ) -> ApiResult<Json<credentials::CredentialStatus>> {
-    let _config_control = state.config_control.lock().await;
+    let _config_control = state.config.config_control.lock().await;
     let current = credentials::vrcx_token_status().map_err(|error| {
         api_error(
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -87,15 +95,27 @@ pub(super) async fn token_delete(
             error,
         )
     })?;
-    let config = state.config.read().expect("config lock").vrcx.clone();
-    state.vrcx.reconfigure(config, None).await;
+    let config = state
+        .config
+        .config
+        .read()
+        .expect("config lock")
+        .vrcx
+        .clone();
+    state.integrations.vrcx.reconfigure(config, None).await;
     token_status().await
 }
 
 pub(super) async fn test_connection(
-    State(state): State<Arc<AppState>>,
+    State(state): State<ServiceContext>,
 ) -> ApiResult<Json<crate::vrcx::VrcxRuntimeStatus>> {
-    let config = state.config.read().expect("config lock").vrcx.clone();
+    let config = state
+        .config
+        .config
+        .read()
+        .expect("config lock")
+        .vrcx
+        .clone();
     let token = credentials::read_vrcx_token()
         .map_err(|error| {
             api_error(

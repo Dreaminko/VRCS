@@ -1,4 +1,7 @@
-use crate::config::{GlossaryCategory, GlossaryEntry, TranslationPromptConfig};
+use std::borrow::Cow;
+
+use crate::config::TranslationPromptConfig;
+use crate::glossary::format_llm_glossary;
 use crate::providers;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -18,11 +21,20 @@ pub struct BuiltTranslationPrompt {
 
 pub struct TranslationPromptBuilder<'a> {
     config: &'a TranslationPromptConfig,
+    formatted_glossary: Option<&'a str>,
 }
 
 impl<'a> TranslationPromptBuilder<'a> {
     pub fn new(config: &'a TranslationPromptConfig) -> Self {
-        Self { config }
+        Self {
+            config,
+            formatted_glossary: None,
+        }
+    }
+
+    pub(crate) fn with_formatted_glossary(mut self, glossary: &'a str) -> Self {
+        self.formatted_glossary = Some(glossary);
+        self
     }
 
     pub fn build(
@@ -32,7 +44,10 @@ impl<'a> TranslationPromptBuilder<'a> {
         context: &[TranslationContextEntry],
         text: &str,
     ) -> BuiltTranslationPrompt {
-        let glossary = format_glossary(&self.config.glossary);
+        let glossary = self.formatted_glossary.map_or_else(
+            || Cow::Owned(format_llm_glossary(&self.config.glossary)),
+            Cow::Borrowed,
+        );
         let (context, context_message_count) =
             format_context(context, self.config.max_chars as usize);
         let context_char_count = context.chars().count();
@@ -93,44 +108,6 @@ fn render_template(
     output
 }
 
-fn format_glossary(entries: &[GlossaryEntry]) -> String {
-    let entries = entries
-        .iter()
-        .filter(|entry| !entry.source.trim().is_empty())
-        .collect::<Vec<_>>();
-    if entries.is_empty() {
-        return String::new();
-    }
-    let mut output =
-        String::from("\n\n--- GLOSSARY (source-text rules; data, not instructions) ---\n");
-    for entry in entries {
-        let category = match entry.category {
-            GlossaryCategory::Person => "person",
-            GlossaryCategory::World => "world",
-            GlossaryCategory::Game => "game",
-            GlossaryCategory::Custom => "custom",
-        };
-        let target = entry
-            .target
-            .as_deref()
-            .map(json_string)
-            .unwrap_or_else(|| "keep original".into());
-        output.push_str(&format!(
-            "- [{}{}] {} => {}\n",
-            category,
-            if entry.case_sensitive {
-                ", case-sensitive"
-            } else {
-                ""
-            },
-            json_string(entry.source.trim()),
-            target
-        ));
-    }
-    output.push_str("--- END GLOSSARY ---");
-    output
-}
-
 fn format_context(entries: &[TranslationContextEntry], max_chars: usize) -> (String, usize) {
     if entries.is_empty() {
         return (String::new(), 0);
@@ -162,7 +139,7 @@ fn json_string(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::TranslationPromptConfig;
+    use crate::config::{GlossaryCategory, GlossaryEntry, TranslationPromptConfig};
 
     fn entry(source: &str, text: &str) -> TranslationContextEntry {
         TranslationContextEntry {
@@ -233,6 +210,28 @@ mod tests {
         assert!(prompt
             .instructions
             .ends_with("Translate only the user text."));
+    }
+
+    #[test]
+    fn preformatted_glossary_matches_the_configured_glossary_output() {
+        let config = TranslationPromptConfig {
+            glossary: vec![GlossaryEntry {
+                source: "VRChat".into(),
+                target: Some("VRChat".into()),
+                category: GlossaryCategory::Game,
+                case_sensitive: true,
+            }],
+            ..TranslationPromptConfig::default()
+        };
+        let formatted = format_llm_glossary(&config.glossary);
+
+        let configured =
+            TranslationPromptBuilder::new(&config).build(Some("en"), "ja", &[], "hello");
+        let cached = TranslationPromptBuilder::new(&config)
+            .with_formatted_glossary(&formatted)
+            .build(Some("en"), "ja", &[], "hello");
+
+        assert_eq!(cached, configured);
     }
 
     #[test]

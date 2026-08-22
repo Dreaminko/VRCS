@@ -1,10 +1,12 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct VrOverlayConfig {
     #[serde(default)]
     pub enabled: bool,
+    #[serde(default = "default_translation_display")]
+    pub translation_display: String,
     #[serde(default)]
     pub headset: VrOverlayHeadsetConfig,
     #[serde(default)]
@@ -111,6 +113,10 @@ fn default_content_mode() -> String {
     "bilingual".into()
 }
 
+fn default_translation_display() -> String {
+    "all_languages".into()
+}
+
 fn default_headset_offset_y_m() -> f32 {
     -0.28
 }
@@ -191,6 +197,17 @@ fn default_wrist_background_opacity() -> f32 {
     0.65
 }
 
+impl Default for VrOverlayConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            translation_display: default_translation_display(),
+            headset: VrOverlayHeadsetConfig::default(),
+            wrist: VrOverlayWristConfig::default(),
+        }
+    }
+}
+
 impl Default for VrOverlayHeadsetConfig {
     fn default() -> Self {
         Self {
@@ -260,5 +277,12 @@ mod tests {
 
         assert!(config.headset.show_partials);
         assert!(config.wrist.show_partials);
+    }
+
+    #[test]
+    fn translation_display_defaults_to_all_languages() {
+        let config: VrOverlayConfig = serde_json::from_value(serde_json::json!({})).unwrap();
+
+        assert_eq!(config.translation_display, "all_languages");
     }
 }

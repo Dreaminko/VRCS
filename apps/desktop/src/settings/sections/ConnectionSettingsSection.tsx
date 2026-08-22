@@ -2,7 +2,9 @@ import { useEffect, useState } from "react";
 import { Link, RadioTower, Send } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
-import type { AnkiStatus, Health, Settings } from "../../types";
+import type { AnkiStatus } from "../../anki/types";
+import type { Health } from "../../core-client/types";
+import type { Settings } from "../types";
 import type { ApplySettings, SaveState, SettingOption } from "../settings-types";
 import { PreferenceToggle, Select } from "../SettingsControls";
 import { ExternalApiSettingsCard } from "../system/ExternalApiSettingsCard";

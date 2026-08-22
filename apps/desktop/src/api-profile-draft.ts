@@ -7,7 +7,7 @@ import type {
   HttpHeaderConfig,
   ProviderConnectionField,
   ProviderDefinition,
-} from "./types";
+} from "./providers/types";
 
 export interface ApiProfileEditorDraft {
   id?: string;

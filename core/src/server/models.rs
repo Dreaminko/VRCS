@@ -8,11 +8,12 @@ use serde_json::{json, Value};
 use crate::asr;
 use crate::error::AppError;
 
-use super::{api_domain_error_with_params, api_error_with_params, ApiResult, AppState};
+use super::{api_domain_error_with_params, api_error_with_params, ApiResult, ModelContext};
 
-pub(super) async fn asr_capabilities(State(state): State<Arc<AppState>>) -> Json<Value> {
+pub(super) async fn asr_capabilities(State(state): State<ModelContext>) -> Json<Value> {
     let cuda = asr::cuda_capability();
     let active_model = state
+        .config
         .config
         .read()
         .expect("config lock")
@@ -20,8 +21,9 @@ pub(super) async fn asr_capabilities(State(state): State<Arc<AppState>>) -> Json
         .local
         .model
         .clone();
-    let (runtime_status, _) = state.asr_runtime.snapshot();
+    let (runtime_status, _) = state.capture.asr_runtime.snapshot();
     let models = state
+        .capture
         .model_manager
         .list(&active_model, runtime_status)
         .into_iter()
@@ -49,8 +51,9 @@ pub(super) async fn asr_capabilities(State(state): State<Arc<AppState>>) -> Json
     }))
 }
 
-pub(super) async fn asr_models(State(state): State<Arc<AppState>>) -> Json<Value> {
+pub(super) async fn asr_models(State(state): State<ModelContext>) -> Json<Value> {
     let active_model = state
+        .config
         .config
         .read()
         .expect("config lock")
@@ -58,14 +61,15 @@ pub(super) async fn asr_models(State(state): State<Arc<AppState>>) -> Json<Value
         .local
         .model
         .clone();
-    let (runtime_status, _) = state.asr_runtime.snapshot();
+    let (runtime_status, _) = state.capture.asr_runtime.snapshot();
     Json(json!(state
+        .capture
         .model_manager
         .list(&active_model, runtime_status)))
 }
 
 pub(super) async fn asr_model_download(
-    State(state): State<Arc<AppState>>,
+    State(state): State<ModelContext>,
     axum::extract::Path(model): axum::extract::Path<String>,
 ) -> ApiResult<(StatusCode, Json<Value>)> {
     if !asr::is_supported_model(&model) {
@@ -76,7 +80,7 @@ pub(super) async fn asr_model_download(
             format!("Unsupported recognition model: {model}"),
         ));
     }
-    let manager = Arc::clone(&state.model_manager);
+    let manager = Arc::clone(&state.capture.model_manager);
     let download_model = model.clone();
     tokio::task::spawn_blocking(move || manager.start_download(&download_model))
         .await
@@ -97,14 +101,16 @@ pub(super) async fn asr_model_download(
         })?;
     let active_model = state
         .config
+        .config
         .read()
         .expect("config lock")
         .asr
         .local
         .model
         .clone();
-    let (runtime_status, _) = state.asr_runtime.snapshot();
+    let (runtime_status, _) = state.capture.asr_runtime.snapshot();
     let record = state
+        .capture
         .model_manager
         .describe(&model, &active_model, runtime_status)
         .map_err(|error| {
@@ -119,10 +125,11 @@ pub(super) async fn asr_model_download(
 }
 
 pub(super) async fn asr_model_delete(
-    State(state): State<Arc<AppState>>,
+    State(state): State<ModelContext>,
     axum::extract::Path(model): axum::extract::Path<String>,
 ) -> ApiResult<Json<Value>> {
     let active_model = state
+        .config
         .config
         .read()
         .expect("config lock")
@@ -147,6 +154,7 @@ pub(super) async fn asr_model_delete(
         ));
     }
     state
+        .capture
         .model_manager
         .delete(&model, &active_model)
         .await

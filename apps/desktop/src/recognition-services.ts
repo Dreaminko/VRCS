@@ -4,7 +4,7 @@ import type {
   AsrSettings,
   ProviderDefinition,
   ProviderServiceDefinition,
-} from "./types";
+} from "./providers/types";
 
 export const LOCAL_RECOGNITION_SOURCE = "local";
 

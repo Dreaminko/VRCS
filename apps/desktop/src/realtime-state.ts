@@ -1,6 +1,10 @@
 import { useSyncExternalStore } from "react";
 
-import type { AudioLevel, LiveTranscription, Subtitle } from "./types";
+import type {
+  AudioLevel,
+  LiveTranscription,
+} from "./capture/types";
+import type { Subtitle } from "./subtitles/types";
 
 type Listener = () => void;
 type TranslationPartial = NonNullable<Subtitle["translation_partial"]> & { preferred: boolean };

@@ -7,7 +7,7 @@ use crate::config::{AppConfig, TranslationConfig};
 use crate::db::conversations::{publish_latest_catalog, ConversationCatalog};
 use crate::db::Database;
 use crate::models::{now_iso8601, LiveTranscription, Subtitle};
-use crate::subtitle_output::SubtitleLifecyclePublisher;
+use crate::subtitle_output::{SubtitleLifecyclePublisher, TranslationFailure};
 use crate::translation::{same_translation_language, TranslationDispatcher};
 
 #[derive(Clone)]
@@ -227,15 +227,16 @@ impl PipelineDependencies {
             ) {
                 if let Some(subtitle_id) = saved.id {
                     for (index, target) in failed_targets.iter().enumerate() {
-                        self.output.translation_failed_with_message(
-                            subtitle_id,
-                            "translation.queue_full".into(),
-                            detail.clone(),
-                            &target.target_language,
-                            index == 0,
-                            &message_id,
-                            source,
-                        );
+                        self.output
+                            .translation_failed_with_message(TranslationFailure {
+                                subtitle_id,
+                                code: "translation.queue_full".into(),
+                                detail: detail.clone(),
+                                target_language: &target.target_language,
+                                preferred: index == 0,
+                                message_id: &message_id,
+                                source,
+                            });
                     }
                 }
                 tracing::warn!(%detail, "automatic translation was not queued");

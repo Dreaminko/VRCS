@@ -1,7 +1,10 @@
 import { useEffect, useState } from "react";
 
-import { coreApi } from "../../api";
-import type { ApiProfileView, ProviderDefinition } from "../../types";
+import { providersApi } from "../../providers/api";
+import type {
+  ApiProfileView,
+  ProviderDefinition,
+} from "../../providers/types";
 
 export interface ApiProfileCatalog {
   profiles: ApiProfileView[];
@@ -15,7 +18,7 @@ export function useApiProfileViews(refreshKey: unknown): ApiProfileCatalog {
 
   useEffect(() => {
     let cancelled = false;
-    void Promise.all([coreApi.apiProfiles(), coreApi.providers()]).then(
+    void Promise.all([providersApi.apiProfiles(), providersApi.providers()]).then(
       ([profileResponse, providerResponse]) => {
         if (!cancelled) {
           setCatalog({

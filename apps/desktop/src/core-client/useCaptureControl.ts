@@ -21,7 +21,7 @@ export function useCaptureControl({
   createConversation,
   clearLookup,
   toggleCoreCapture,
-  clearError,
+  clearErrorFrom,
   resizeCompactWindow,
   collapseCompactOverlay,
   reportError,
@@ -33,7 +33,7 @@ export function useCaptureControl({
   createConversation: () => Promise<boolean>;
   clearLookup: () => void;
   toggleCoreCapture: () => Promise<unknown>;
-  clearError: () => void;
+  clearErrorFrom: (source: string) => void;
   resizeCompactWindow: (panelState: CompactPanelState) => Promise<unknown>;
   collapseCompactOverlay: () => void;
   reportError: ReportError;
@@ -54,7 +54,7 @@ export function useCaptureControl({
       return true;
     } catch (reason) {
       if (shouldShowVrchatNotRunningWarning(reason, outputMode === "vrchat")) {
-        clearError();
+        clearErrorFrom("capture");
         clearLookup();
         setVrchatWarningOpen(true);
         if (compact) {
@@ -70,7 +70,7 @@ export function useCaptureControl({
       return false;
     }
   }, [
-    clearError,
+    clearErrorFrom,
     clearLookup,
     compact,
     coreReady,

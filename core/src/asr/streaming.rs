@@ -17,7 +17,7 @@ use crate::providers::{
     SERVICE_OPENAI_REALTIME, SERVICE_QWEN_REALTIME,
 };
 
-use super::read_credential;
+use super::{read_credential, SharedAudio};
 
 mod provider;
 
@@ -50,7 +50,7 @@ pub enum CloudEvent {
 }
 
 enum StreamingInput {
-    Audio(Vec<f32>),
+    Audio(SharedAudio),
     Commit(oneshot::Sender<Result<(), String>>),
 }
 
@@ -63,7 +63,7 @@ pub struct StreamingSession {
 }
 
 impl StreamingSession {
-    pub async fn send(&self, samples: Vec<f32>) -> Result<(), String> {
+    pub async fn send(&self, samples: SharedAudio) -> Result<(), String> {
         self.audio
             .send(StreamingInput::Audio(samples))
             .await
@@ -345,7 +345,7 @@ async fn run_session(
                 match input {
                     Some(StreamingInput::Audio(samples)) => {
                         pending_audio = true;
-                        audio_buffer.extend(samples);
+                        audio_buffer.extend_from_slice(samples.as_slice());
                         while let Some(packet) = take_audio_packet(&mut audio_buffer) {
                             send_audio(provider, socket, packet).await?;
                         }

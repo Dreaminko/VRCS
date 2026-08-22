@@ -1,6 +1,6 @@
 import { useTranslation } from "react-i18next";
 
-import type { Settings } from "../../types";
+import type { Settings } from "../types";
 import { Select } from "../SettingsControls";
 
 export function RecognitionLanguageSelect({

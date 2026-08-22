@@ -1,7 +1,8 @@
 import { useTranslation } from "react-i18next";
 import { PlusCircle, RefreshCw } from "lucide-react";
 
-import type { AnkiStatus, Settings } from "../../types";
+import type { AnkiStatus } from "../../anki/types";
+import type { Settings } from "../types";
 import type { SaveState, SettingOption } from "../settings-types";
 import { DeckTreeSelect, PreferenceToggle, Select } from "../SettingsControls";
 

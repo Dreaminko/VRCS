@@ -1,4 +1,4 @@
-import type { ApiProfileView } from "./types";
+import type { ApiProfileView } from "./providers/types";
 
 export interface TranslationLanguage {
   code: string;

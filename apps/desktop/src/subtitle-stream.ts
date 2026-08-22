@@ -2,10 +2,12 @@ import type { ConversationCatalog, CoreConversation } from "./conversations/conv
 import type {
   AudioLevel,
   LiveTranscription,
+} from "./capture/types";
+import type { VrchatMuteStatus } from "./integrations/types";
+import type {
   Subtitle,
   SubtitleTranslation,
-  VrchatMuteStatus,
-} from "./types";
+} from "./subtitles/types";
 
 export const SUBTITLE_HISTORY_PAGE_SIZE = 100;
 export const MAX_SUBTITLE_HISTORY_ITEMS = 2_000;

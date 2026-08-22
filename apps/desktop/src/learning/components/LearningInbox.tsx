@@ -14,7 +14,10 @@ import {
 import { timestamp } from "../../app/app-utils";
 import type { LearningWorkspaceController } from "../hooks/useLearningWorkspace";
 import { learningTaskForKind } from "../../learning";
-import type { LearningItem, LearningTaskType } from "../../types";
+import type {
+  LearningItem,
+  LearningTaskType,
+} from "../types";
 import { DropdownField } from "../../shared/ui/DropdownField";
 import { LearningAnalysisView } from "./LearningAnalysisView";
 import { LearningCardEditor } from "./LearningCardEditor";

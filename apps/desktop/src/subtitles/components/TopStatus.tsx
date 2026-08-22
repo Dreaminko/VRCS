@@ -1,7 +1,15 @@
 import { useTranslation } from "react-i18next";
 
 import { recognitionEngineLabel } from "../../recognition-services";
-import type { ApiProfileView, ConnectionState, Health, ProviderDefinition, Settings } from "../../types";
+import type {
+  ConnectionState,
+  Health,
+} from "../../core-client/types";
+import type {
+  ApiProfileView,
+  ProviderDefinition,
+} from "../../providers/types";
+import type { Settings } from "../../settings/types";
 
 export function TopStatus({ connection, health, settings, apiProfiles = [], providerDefinitions = [] }: {
   connection: ConnectionState;

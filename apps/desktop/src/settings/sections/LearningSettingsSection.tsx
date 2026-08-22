@@ -2,7 +2,7 @@ import type { RefObject } from "react";
 import { GraduationCap } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
-import type { DictionarySource } from "../../types";
+import type { DictionarySource } from "../../dictionary/types";
 import type { SaveState } from "../settings-types";
 import { DictionarySettingsSection } from "./DictionarySettingsSection";
 import { LearningAiSettingsSection } from "./LearningAiSettingsSection";

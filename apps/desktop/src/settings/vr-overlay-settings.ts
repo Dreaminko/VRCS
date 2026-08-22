@@ -1,9 +1,9 @@
 import type {
-  Settings,
   VrOverlayHeadsetSettings,
   VrOverlaySettings,
   VrOverlayWristSettings,
-} from "../types";
+} from "../integrations/types";
+import type { Settings } from "./types";
 
 export const DEFAULT_VR_OVERLAY_HEADSET_SETTINGS: VrOverlayHeadsetSettings = {
   enabled: true,
@@ -54,6 +54,7 @@ export const DEFAULT_VR_OVERLAY_WRIST_SETTINGS: VrOverlayWristSettings = {
 
 export const DEFAULT_VR_OVERLAY_SETTINGS: VrOverlaySettings = {
   enabled: false,
+  translation_display: "all_languages",
   headset: { ...DEFAULT_VR_OVERLAY_HEADSET_SETTINGS },
   wrist: { ...DEFAULT_VR_OVERLAY_WRIST_SETTINGS },
 };

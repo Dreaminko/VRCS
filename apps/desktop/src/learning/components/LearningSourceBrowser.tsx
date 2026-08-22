@@ -8,7 +8,7 @@ import type { ConversationSummary } from "../../conversations/conversations";
 import type { LearningWorkspaceController } from "../hooks/useLearningWorkspace";
 import { subtitleLearningKey, subtitleSelectionLearningKey } from "../../learning";
 import { useTranslationPartials } from "../../realtime-state";
-import type { Subtitle } from "../../types";
+import type { Subtitle } from "../../subtitles/types";
 import { contentLanguageTag } from "../../app/ui-language";
 import { DropdownField } from "../../shared/ui/DropdownField";
 

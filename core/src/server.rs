@@ -13,15 +13,14 @@ mod learning;
 mod models;
 mod osc;
 mod provider_diagnostics;
+mod runtime;
 mod settings;
 mod storage;
 mod translation;
 mod vrcx;
 mod ws;
 
-use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, AtomicU64};
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, Mutex};
 
 use axum::extract::{DefaultBodyLimit, State};
 use axum::http::{header, Method, Request, StatusCode};
@@ -30,20 +29,19 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, patch, post};
 use axum::{Json, Router};
 use serde_json::{json, Value};
-use tokio::sync::{broadcast, watch, Mutex as AsyncMutex};
+
 use tower_http::cors::CorsLayer;
 
-use crate::config::AppConfig;
-use crate::db::conversations::ConversationCatalog;
 use crate::db::Database;
 use crate::error::{AppError, AppResult};
-use crate::microphone_monitor::MicrophoneMonitor;
-use crate::models::LiveTranscription;
-use crate::osc::OscChatboxDispatcher;
-use crate::pipeline::TranscriptionPipeline;
-use crate::subtitle_output::SubtitleLifecyclePublisher;
-use crate::translation::{TranslationDispatcher, TranslationService};
-use crate::{asr, vad, yomitan};
+use crate::yomitan;
+
+pub(crate) use runtime::{
+    AppState, CaptureContext, CaptureRuntime, CaptureRuntimeInput, ConfigRuntime,
+    ConfigRuntimeInput, ContentServices, ContentServicesInput, ContentState, HealthContext,
+    IntegrationRuntime, IntegrationRuntimeInput, IntegrationState, ModelContext, OutputContext,
+    RealtimeContext, ServiceContext, SettingsContext,
+};
 
 pub const CORE_VERSION: &str = env!("CARGO_PKG_VERSION");
 const CONFIG_REVISION_HEADER: &str = "x-vrcs-config-revision";
@@ -53,43 +51,6 @@ const ALLOWED_ORIGINS: [&str; 4] = [
     "tauri://localhost",
     "http://localhost:1420",
 ];
-
-pub struct AppState {
-    pub config_path: PathBuf,
-    pub asr_model_dir_override: Option<PathBuf>,
-    pub config: Arc<RwLock<AppConfig>>,
-    pub language_session: Arc<RwLock<crate::language_session::ActiveLanguageSession>>,
-    pub vr_overlay_config_tx: watch::Sender<crate::config::VrOverlayConfig>,
-    pub db: Arc<Mutex<Database>>,
-    pub live_tx: broadcast::Sender<LiveTranscription>,
-    pub conversation_catalog_tx: broadcast::Sender<ConversationCatalog>,
-    pub subtitle_output: SubtitleLifecyclePublisher,
-    pub translation_service: Arc<TranslationService>,
-    pub learning_service: Arc<crate::learning::LearningService>,
-    pub translation_dispatcher: TranslationDispatcher,
-    pub glossary: Arc<crate::glossary::GlossaryStore>,
-    pub osc: OscChatboxDispatcher,
-    pub http: reqwest::Client,
-    pub session_token: String,
-    pub domain_events: crate::domain_events::DomainEventHub,
-    pub external_api_server: AsyncMutex<Option<crate::external_api::ExternalApiServer>>,
-    pub external_api_status: RwLock<crate::external_api::ExternalApiRuntimeStatus>,
-    pub shutdown: watch::Receiver<bool>,
-    pub vad_runtime: vad::VadRuntimeState,
-    pub asr: Arc<Mutex<asr::AsrService>>,
-    pub asr_runtime: asr::AsrRuntimeState,
-    pub model_manager: Arc<asr::ModelManager>,
-    pub config_epoch: String,
-    pub config_revision: AtomicU64,
-    pub config_control: AsyncMutex<()>,
-    pub capture_control: AsyncMutex<()>,
-    pub capture_requested: AtomicBool,
-    pub speaker_pipeline: AsyncMutex<TranscriptionPipeline>,
-    pub microphone_pipeline: AsyncMutex<TranscriptionPipeline>,
-    pub microphone_monitor: AsyncMutex<MicrophoneMonitor>,
-    pub vrchat_mute_sync: crate::vrchat_mute_sync::VrchatMuteSync,
-    pub vrcx: crate::vrcx::VrcxIntegration,
-}
 
 type ApiResult<T> = Result<T, (StatusCode, Json<Value>)>;
 
@@ -173,7 +134,7 @@ fn token_eq(a: &str, b: &str) -> bool {
 }
 
 async fn authenticate(
-    State(state): State<Arc<AppState>>,
+    State(state): State<IntegrationState>,
     request: Request<axum::body::Body>,
     next: Next,
 ) -> Response {
@@ -391,19 +352,19 @@ pub fn router(state: Arc<AppState>) -> Router {
         .with_state(state)
 }
 
-async fn health(State(state): State<Arc<AppState>>) -> Json<Value> {
+async fn health(State(state): State<HealthContext>) -> Json<Value> {
     let (config_schema, microphone_enabled) = {
-        let config = state.config.read().expect("config lock");
+        let config = state.config.config.read().expect("config lock");
         (
             config.schema_version,
             config.audio.microphone.mode != "disabled",
         )
     };
-    let vad_backend = state.vad_runtime.backend();
-    let vad_model_version = state.vad_runtime.model_version();
-    let (asr_status, asr_error) = state.asr_runtime.snapshot();
+    let vad_backend = state.capture.vad_runtime.backend();
+    let vad_model_version = state.capture.vad_runtime.model_version();
+    let (asr_status, asr_error) = state.capture.asr_runtime.snapshot();
     let (speaker_running, audio_device, speaker_error) = {
-        let pipeline = state.speaker_pipeline.lock().await;
+        let pipeline = state.capture.speaker_pipeline.lock().await;
         (
             pipeline.running(),
             pipeline.device().cloned(),
@@ -411,7 +372,7 @@ async fn health(State(state): State<Arc<AppState>>) -> Json<Value> {
         )
     };
     let (microphone_running, microphone_device, microphone_error) = {
-        let pipeline = state.microphone_pipeline.lock().await;
+        let pipeline = state.capture.microphone_pipeline.lock().await;
         (
             pipeline.running(),
             pipeline.device().cloned(),
@@ -419,16 +380,18 @@ async fn health(State(state): State<Arc<AppState>>) -> Json<Value> {
         )
     };
     let (microphone_test_running, microphone_test_device) = {
-        let monitor = state.microphone_monitor.lock().await;
+        let monitor = state.capture.microphone_monitor.lock().await;
         (monitor.running(), monitor.device().cloned())
     };
     let last_error = speaker_error.or(microphone_error).or(asr_error);
-    let osc = state.osc.status();
+    let osc = state.integrations.osc.status();
     let capture_requested = state
+        .capture
         .capture_requested
         .load(std::sync::atomic::Ordering::SeqCst);
-    let vrchat_mute_sync = state.vrchat_mute_sync.status();
+    let vrchat_mute_sync = state.integrations.vrchat_mute_sync.status();
     let language_session = state
+        .config
         .language_session
         .read()
         .expect("language session lock")

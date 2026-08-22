@@ -1,7 +1,7 @@
 import { BookOpenText } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
-import type { Settings } from "../../types";
+import type { Settings } from "../types";
 import { GlossaryEditor } from "../glossary/GlossaryEditor";
 import type { ApplySettings, SaveState } from "../settings-types";
 import { PreferenceToggle } from "../SettingsControls";

@@ -1,6 +1,6 @@
 import type { SelectionTarget } from "../app/app-types";
 import type { LearningPreferences } from "../learning/hooks/useLearningWorkspace";
-import type { SelectionQueryInput } from "../types";
+import type { SelectionQueryInput } from "../learning/types";
 
 export function selectionAiConfigured(preferences: LearningPreferences): boolean {
   return Boolean(preferences.profileId && preferences.model.trim());

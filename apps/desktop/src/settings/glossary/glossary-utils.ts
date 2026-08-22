@@ -1,6 +1,9 @@
 import type { TFunction } from "i18next";
 
-import type { GlossaryEntry, GlossarySource } from "../../types";
+import type {
+  GlossaryEntry,
+  GlossarySource,
+} from "../types";
 
 export const MAX_GLOSSARY_ENTRIES = 500;
 export const MAX_GLOSSARY_NAME_LENGTH = 100;

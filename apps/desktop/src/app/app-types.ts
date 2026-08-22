@@ -1,4 +1,5 @@
-import type { DictionaryEntry, Subtitle } from "../types";
+import type { DictionaryEntry } from "../dictionary/types";
+import type { Subtitle } from "../subtitles/types";
 import type { LookupAnchor } from "../shared/lib/popover-placement";
 
 export type Page = "live" | "learning" | "settings";

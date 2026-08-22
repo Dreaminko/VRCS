@@ -5,7 +5,7 @@ import { BookOpenText, Inbox } from "lucide-react";
 import type { LookupOrigin } from "../../app/app-types";
 import type { ConversationSummary } from "../../conversations/conversations";
 import type { LearningWorkspaceController } from "../hooks/useLearningWorkspace";
-import type { Subtitle } from "../../types";
+import type { Subtitle } from "../../subtitles/types";
 import { LearningInbox } from "./LearningInbox";
 import { LearningSourceBrowser } from "./LearningSourceBrowser";
 

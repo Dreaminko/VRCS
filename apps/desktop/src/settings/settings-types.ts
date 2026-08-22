@@ -1,4 +1,4 @@
-import type { Settings } from "../types";
+import type { Settings } from "./types";
 
 export type SettingsCategory =
   | "system"

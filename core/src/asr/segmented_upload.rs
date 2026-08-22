@@ -5,6 +5,7 @@ use crate::config::{ApiProfile, RecognitionServiceSettings};
 
 use super::openai_audio_transcriptions;
 use super::streaming::{CloudEvent, SegmentationMode};
+use super::SharedAudio;
 
 const MAX_AUDIO_SECONDS: usize = 300;
 const MAX_AUDIO_SAMPLES: usize = 16_000 * MAX_AUDIO_SECONDS;
@@ -43,7 +44,7 @@ impl SegmentedUploadSession {
         }
     }
 
-    pub async fn send(&self, samples: Vec<f32>) -> Result<(), String> {
+    pub async fn send(&self, samples: SharedAudio) -> Result<(), String> {
         if samples.is_empty() {
             return Ok(());
         }
@@ -53,7 +54,7 @@ impl SegmentedUploadSession {
                 "Cloud transcription audio exceeds the {MAX_AUDIO_SECONDS}-second limit"
             ));
         }
-        audio.extend(samples);
+        audio.extend_from_slice(samples.as_slice());
         Ok(())
     }
 
@@ -238,9 +239,15 @@ mod tests {
         let (profile, requests) = mock_profile(2).await;
         let session =
             SegmentedUploadSession::spawn(profile, String::new(), settings(), "auto".into());
-        session.send(vec![0.1; 320]).await.unwrap();
+        session
+            .send(super::super::share_audio(vec![0.1; 320]))
+            .await
+            .unwrap();
         let first_id = session.commit().await.unwrap();
-        session.send(vec![0.2; 320]).await.unwrap();
+        session
+            .send(super::super::share_audio(vec![0.2; 320]))
+            .await
+            .unwrap();
         let second_id = session.commit().await.unwrap();
         assert_ne!(first_id, second_id);
 
@@ -284,7 +291,7 @@ mod tests {
             "auto".into(),
         );
         assert!(session
-            .send(vec![0.0; MAX_AUDIO_SAMPLES + 1])
+            .send(super::super::share_audio(vec![0.0; MAX_AUDIO_SAMPLES + 1]))
             .await
             .is_err());
         session.stop().await;

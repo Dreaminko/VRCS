@@ -562,6 +562,11 @@
           "title": "手首の会話表示",
           "description": "コントローラーに固定して最近の会話を表示します。"
         },
+        "translationDisplay": "多言語翻訳",
+        "translationDisplays": {
+          "preferredOnly": "優先言語のみ",
+          "allLanguages": "すべての言語を表示"
+        },
         "contentMode": "表示内容",
         "contentModes": {
           "original": "原文",

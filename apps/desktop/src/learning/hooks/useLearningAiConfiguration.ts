@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
-import { coreApi } from "../../api";
+import { providersApi } from "../../providers/api";
 import { localizedError } from "../../app/app-utils";
 import { explanationLanguageForUiLocale } from "../../learning";
-import type { ApiProfileView, LearningLevel } from "../../types";
+import type { LearningLevel } from "../types";
+import type { ApiProfileView } from "../../providers/types";
 
 const LEARNING_PREFERENCES_KEY = "vrcs.learning.preferences.v1";
 
@@ -56,7 +57,7 @@ export function useLearningAiConfiguration(active: boolean) {
     setProfilesLoading(true);
     setError("");
     try {
-      const response = await coreApi.apiProfiles();
+      const response = await providersApi.apiProfiles();
       if (requestId !== profileRequestRef.current) return;
       const available = response.profiles.filter(
         (profile) => profile.capabilities.supports_text_generation === true,
@@ -101,7 +102,7 @@ export function useLearningAiConfiguration(active: boolean) {
     const requestId = ++modelRequestRef.current;
     setModelsLoading(true);
     setModelsError("");
-    void coreApi.apiProfileModels(selectedProfile.id)
+    void providersApi.apiProfileModels(selectedProfile.id)
       .then((response) => {
         if (requestId === modelRequestRef.current) setModels(response.models);
       })

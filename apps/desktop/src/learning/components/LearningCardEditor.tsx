@@ -3,7 +3,10 @@ import { Check, PlusCircle, Save } from "lucide-react";
 
 import { useLearningCardDraftEditor } from "../hooks/useLearningCardDraftEditor";
 import type { LearningWorkspaceController } from "../hooks/useLearningWorkspace";
-import type { LearningCardType, LearningItem } from "../../types";
+import type {
+  LearningCardType,
+  LearningItem,
+} from "../types";
 import { DropdownField } from "../../shared/ui/DropdownField";
 
 export function LearningCardEditor({

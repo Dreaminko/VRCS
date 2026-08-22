@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 
-import { coreApi } from "../../api";
+import { settingsApi } from "../../settings/api";
 import {
   apiProfileFromEditorDraft,
   createApiProfileDraft,
@@ -18,7 +18,8 @@ import { useAsrModels } from "../../settings/hooks/useAsrModels";
 import { useSettingsDraft } from "../../settings/hooks/useSettingsDraft";
 import { asrSelectionError } from "../../settings/settings-validation";
 import { useApiProfiles } from "../../settings/useApiProfiles";
-import type { AsrCapabilities, Settings } from "../../types";
+import type { AsrCapabilities } from "../../providers/types";
+import type { Settings } from "../../settings/types";
 import type { RecognitionMode } from "../onboarding-types";
 
 export function useOnboardingRecognition({
@@ -165,7 +166,7 @@ export function useOnboardingRecognition({
       if (!tested?.ok) return;
       const activated = await apiProfiles.activate(selectedProfile.id, selectedService.id);
       if (!activated) return;
-      const latest = await coreApi.settings();
+      const latest = await settingsApi.settings();
       const selectedAsr = selectRecognitionProfile(
         latest.asr,
         selectedProfile.id,
@@ -194,7 +195,7 @@ export function useOnboardingRecognition({
     if (!localReady || saveBusy) return;
     setBusy(true);
     try {
-      const latest = await coreApi.settings();
+      const latest = await settingsApi.settings();
       const draft = draftController.getCurrent();
       await onSave({
         ...latest,

@@ -195,7 +195,10 @@ mod tests {
             &value["external_api"],
             ["enabled", "host", "port", "require_token"],
         );
-        assert_keys(&value["vr_overlay"], ["enabled", "headset", "wrist"]);
+        assert_keys(
+            &value["vr_overlay"],
+            ["enabled", "headset", "translation_display", "wrist"],
+        );
         assert_keys(
             &value["vr_overlay"]["headset"],
             [
@@ -272,6 +275,7 @@ mod tests {
         .unwrap();
 
         assert!(config.enabled);
+        assert_eq!(config.translation_display, "all_languages");
         assert!(!config.headset.enabled);
         assert_eq!(config.headset.distance_m, 1.2);
         assert_eq!(config.wrist.hand, "right");

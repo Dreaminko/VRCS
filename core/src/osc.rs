@@ -155,6 +155,26 @@ struct SentMessage {
     sent_at: Instant,
 }
 
+struct AutomaticMessageRecord<'a> {
+    db: Option<&'a Arc<Mutex<Database>>>,
+    events: &'a DomainEventHub,
+    message: &'a PendingMessage,
+    rendered_text: &'a str,
+    outcome: AutomaticMessageOutcome<'a>,
+    formatting: AutomaticMessageFormatting<'a>,
+}
+
+struct AutomaticMessageOutcome<'a> {
+    status: &'a str,
+    error_detail: Option<&'a str>,
+    sent_at: Option<String>,
+}
+
+struct AutomaticMessageFormatting<'a> {
+    preserve_original_text: bool,
+    translation_strategy: &'a str,
+}
+
 impl OscChatboxDispatcher {
     #[cfg(test)]
     pub fn new(config: OscConfig) -> Self {
@@ -367,6 +387,552 @@ impl OscChatboxDispatcher {
     }
 }
 
+struct OscWorkerState {
+    config: OscConfigState,
+    queue: VecDeque<PendingMessage>,
+    latest_subtitle_id: Option<i64>,
+    current_sent: Option<SentMessage>,
+    last_send: Option<Instant>,
+    round_robin_index: usize,
+}
+
+impl OscWorkerState {
+    fn new(config: OscConfigState) -> Self {
+        Self {
+            config,
+            queue: VecDeque::new(),
+            latest_subtitle_id: None,
+            current_sent: None,
+            last_send: None,
+            round_robin_index: 0,
+        }
+    }
+}
+
+enum OscWorkerInput {
+    ConfigChanged(OscConfigState),
+    SendCancelledByConfig(OscConfigState),
+    Event {
+        event: OscEvent,
+        now: Instant,
+        generated_message_id: Option<String>,
+    },
+    Tick(Instant),
+    SendCompleted {
+        request: OscSendRequest,
+        outcome: OscSendOutcome,
+        completed_at: Instant,
+    },
+}
+
+struct OscSendRequest {
+    message: PendingMessage,
+    rendered_text: String,
+    translation: Option<String>,
+    port: u16,
+    preserve_original_text: bool,
+    translation_strategy: String,
+}
+
+impl OscSendRequest {
+    fn is_manual(&self) -> bool {
+        self.message.responder.is_some()
+    }
+}
+
+enum OscSendOutcome {
+    Sent { sent_at: String },
+    Failed(String),
+}
+
+enum OscEffect {
+    DiscardPending(PendingMessage),
+    DiscardResponder(oneshot::Sender<Result<String, ManualSendError>>),
+    RejectPending {
+        message: PendingMessage,
+        code: &'static str,
+        detail: &'static str,
+    },
+    RecordDrop,
+    Send(OscSendRequest),
+    FinalizeSend {
+        request: OscSendRequest,
+        outcome: OscSendOutcome,
+    },
+}
+
+fn reduce_osc_event(state: &mut OscWorkerState, input: OscWorkerInput) -> Vec<OscEffect> {
+    match input {
+        OscWorkerInput::ConfigChanged(next) => reduce_config_change(state, next),
+        OscWorkerInput::SendCancelledByConfig(next) => {
+            state.config = next;
+            state.current_sent = None;
+            state.last_send = None;
+            discard_all_pending(&mut state.queue)
+        }
+        OscWorkerInput::Event {
+            event,
+            now,
+            generated_message_id,
+        } => reduce_received_event(state, event, now, generated_message_id),
+        OscWorkerInput::Tick(now) => reduce_tick(state, now),
+        OscWorkerInput::SendCompleted {
+            request,
+            outcome,
+            completed_at,
+        } => reduce_send_completed(state, request, outcome, completed_at),
+    }
+}
+
+fn reduce_config_change(state: &mut OscWorkerState, next: OscConfigState) -> Vec<OscEffect> {
+    let effects = if next.config_revision != state.config.config_revision {
+        state.current_sent = None;
+        state.latest_subtitle_id = None;
+        state.last_send = None;
+        discard_all_pending(&mut state.queue)
+    } else if next.automatic_revision != state.config.automatic_revision {
+        state.current_sent = None;
+        state.latest_subtitle_id = None;
+        discard_automatic_pending(&mut state.queue)
+    } else {
+        Vec::new()
+    };
+    state.config = next;
+    effects
+}
+
+fn reduce_received_event(
+    state: &mut OscWorkerState,
+    event: OscEvent,
+    now: Instant,
+    generated_message_id: Option<String>,
+) -> Vec<OscEffect> {
+    if !event.is_current(&state.config) {
+        return match event {
+            OscEvent::Manual { responder, .. } => vec![OscEffect::DiscardResponder(responder)],
+            _ => Vec::new(),
+        };
+    }
+    match event {
+        OscEvent::Test { .. } => enqueue_pending(
+            &mut state.queue,
+            PendingMessage {
+                message_id: generated_message_id.expect("test messages have generated IDs"),
+                subtitle_id: None,
+                original: "VRCS OSC test".into(),
+                preferred_target: None,
+                desired_target: None,
+                translations: HashMap::new(),
+                completed_targets: Vec::new(),
+                expected_targets: Vec::new(),
+                failed_targets: HashSet::new(),
+                rendered_text: None,
+                ready_at: now,
+                responder: None,
+            },
+            false,
+        ),
+        OscEvent::Manual {
+            text, responder, ..
+        } => enqueue_pending(
+            &mut state.queue,
+            PendingMessage {
+                message_id: generated_message_id.expect("manual messages have generated IDs"),
+                subtitle_id: None,
+                original: String::new(),
+                preferred_target: None,
+                desired_target: None,
+                translations: HashMap::new(),
+                completed_targets: Vec::new(),
+                expected_targets: Vec::new(),
+                failed_targets: HashSet::new(),
+                rendered_text: Some(text),
+                ready_at: now,
+                responder: Some(responder),
+            },
+            true,
+        ),
+        OscEvent::Subtitle {
+            message_id,
+            subtitle,
+            wait_for_translation,
+            target_languages,
+            ..
+        } => {
+            let Some(subtitle_id) = subtitle.id else {
+                return Vec::new();
+            };
+            state.latest_subtitle_id = Some(subtitle_id);
+            state.current_sent = None;
+            let preferred_target = target_languages.first().cloned();
+            let desired_target = select_translation_target(
+                &state.config.config.translation_strategy,
+                &target_languages,
+                &mut state.round_robin_index,
+            );
+            enqueue_pending(
+                &mut state.queue,
+                PendingMessage {
+                    message_id,
+                    subtitle_id: Some(subtitle_id),
+                    original: subtitle.text,
+                    preferred_target,
+                    desired_target,
+                    translations: HashMap::new(),
+                    completed_targets: Vec::new(),
+                    expected_targets: target_languages,
+                    failed_targets: HashSet::new(),
+                    rendered_text: None,
+                    ready_at: now
+                        + if wait_for_translation {
+                            TRANSLATION_GRACE
+                        } else {
+                            Duration::ZERO
+                        },
+                    responder: None,
+                },
+                false,
+            )
+        }
+        OscEvent::TranslationFailed {
+            subtitle_id,
+            target_language,
+            ..
+        } => {
+            if let Some(message) = state
+                .queue
+                .iter_mut()
+                .find(|item| item.subtitle_id == Some(subtitle_id))
+            {
+                message.failed_targets.insert(target_language);
+                let all_languages = state.config.config.translation_strategy == "all_languages";
+                let all_failed = !message.expected_targets.is_empty()
+                    && message.failed_targets.len() >= message.expected_targets.len();
+                if (all_languages && all_targets_resolved(message))
+                    || (!all_languages && (all_failed || selected_translation(message).is_some()))
+                {
+                    message.ready_at = now;
+                }
+            }
+            Vec::new()
+        }
+        OscEvent::TranslationCompleted {
+            subtitle_id,
+            translation,
+            preferred,
+            ..
+        } => reduce_translation_completed(state, subtitle_id, translation, preferred, now),
+    }
+}
+
+fn reduce_translation_completed(
+    state: &mut OscWorkerState,
+    subtitle_id: i64,
+    translation: SubtitleTranslation,
+    preferred: bool,
+    now: Instant,
+) -> Vec<OscEffect> {
+    if let Some(message) = state
+        .queue
+        .iter_mut()
+        .find(|item| item.subtitle_id == Some(subtitle_id))
+    {
+        let language = translation.target_language.clone();
+        if !message.translations.contains_key(&language) {
+            message.completed_targets.push(language.clone());
+        }
+        message
+            .translations
+            .insert(language.clone(), translation.text);
+        let all_languages = state.config.config.translation_strategy == "all_languages";
+        if (all_languages && all_targets_resolved(message))
+            || (!all_languages
+                && (message.desired_target.as_deref() == Some(&language)
+                    || (preferred && message.desired_target.is_none())
+                    || message
+                        .desired_target
+                        .as_ref()
+                        .is_some_and(|target| message.failed_targets.contains(target))))
+        {
+            message.ready_at = now;
+        }
+        return Vec::new();
+    }
+    if state.latest_subtitle_id != Some(subtitle_id) {
+        return Vec::new();
+    }
+    let Some(sent) = state.current_sent.as_ref().filter(|sent| {
+        sent.subtitle_id == subtitle_id
+            && sent.translation.is_none()
+            && sent
+                .desired_target
+                .as_deref()
+                .is_none_or(|target| target == translation.target_language)
+            && now.saturating_duration_since(sent.sent_at) <= LATE_TRANSLATION_TTL
+    }) else {
+        return Vec::new();
+    };
+    enqueue_pending(
+        &mut state.queue,
+        PendingMessage {
+            message_id: sent.message_id.clone(),
+            subtitle_id: Some(subtitle_id),
+            original: sent.original.clone(),
+            preferred_target: Some(translation.target_language.clone()),
+            desired_target: Some(translation.target_language.clone()),
+            translations: HashMap::from([(translation.target_language.clone(), translation.text)]),
+            completed_targets: vec![translation.target_language],
+            expected_targets: Vec::new(),
+            failed_targets: HashSet::new(),
+            rendered_text: None,
+            ready_at: now,
+            responder: None,
+        },
+        false,
+    )
+}
+
+fn reduce_tick(state: &mut OscWorkerState, now: Instant) -> Vec<OscEffect> {
+    if !state.config.config.enabled {
+        return discard_all_pending(&mut state.queue);
+    }
+    let mut effects = if state.config.send_gate != SendGate::Open {
+        discard_automatic_pending(&mut state.queue)
+    } else {
+        Vec::new()
+    };
+    let ready = state
+        .queue
+        .front()
+        .is_some_and(|message| message.ready_at <= now);
+    let rate_ready = state
+        .last_send
+        .is_none_or(|sent| now.saturating_duration_since(sent) >= SEND_INTERVAL);
+    if !ready || !rate_ready {
+        return effects;
+    }
+    let Some(message) = state.queue.pop_front() else {
+        return effects;
+    };
+    let translation =
+        selected_translation_text(&message, &state.config.config.translation_strategy);
+    let rendered_text = message.rendered_text.clone().unwrap_or_else(|| {
+        format_chatbox(
+            &message.original,
+            translation.as_deref(),
+            state.config.config.preserve_original_text,
+        )
+    });
+    effects.push(OscEffect::Send(OscSendRequest {
+        message,
+        rendered_text,
+        translation,
+        port: state.config.config.port,
+        preserve_original_text: state.config.config.preserve_original_text,
+        translation_strategy: state.config.config.translation_strategy.clone(),
+    }));
+    effects
+}
+
+fn reduce_send_completed(
+    state: &mut OscWorkerState,
+    request: OscSendRequest,
+    outcome: OscSendOutcome,
+    completed_at: Instant,
+) -> Vec<OscEffect> {
+    if matches!(outcome, OscSendOutcome::Sent { .. }) {
+        state.last_send = Some(completed_at);
+        if let Some(subtitle_id) = request.message.subtitle_id {
+            state.current_sent = Some(SentMessage {
+                message_id: request.message.message_id.clone(),
+                subtitle_id,
+                original: request.message.original.clone(),
+                desired_target: request.message.desired_target.clone(),
+                translation: request.translation.clone(),
+                sent_at: completed_at,
+            });
+        }
+    }
+    vec![OscEffect::FinalizeSend { request, outcome }]
+}
+
+fn enqueue_pending(
+    queue: &mut VecDeque<PendingMessage>,
+    message: PendingMessage,
+    priority: bool,
+) -> Vec<OscEffect> {
+    let mut effects = Vec::new();
+    if queue.len() == DISPLAY_QUEUE_CAPACITY {
+        let automatic = queue.iter().position(|queued| queued.responder.is_none());
+        let dropped = if let Some(index) = automatic {
+            queue.remove(index)
+        } else if priority {
+            queue.pop_front()
+        } else {
+            effects.push(OscEffect::RejectPending {
+                message,
+                code: "osc.queue_full",
+                detail: "OSC chatbox queue is full",
+            });
+            effects.push(OscEffect::RecordDrop);
+            return effects;
+        };
+        if let Some(message) = dropped {
+            effects.push(OscEffect::RejectPending {
+                message,
+                code: "osc.queue_full",
+                detail: "OSC chatbox queue is full",
+            });
+        }
+        effects.push(OscEffect::RecordDrop);
+    }
+    if priority {
+        let index = queue
+            .iter()
+            .position(|queued| queued.responder.is_none())
+            .unwrap_or(queue.len());
+        queue.insert(index, message);
+    } else {
+        queue.push_back(message);
+    }
+    effects
+}
+
+fn discard_all_pending(queue: &mut VecDeque<PendingMessage>) -> Vec<OscEffect> {
+    queue.drain(..).map(OscEffect::DiscardPending).collect()
+}
+
+fn discard_automatic_pending(queue: &mut VecDeque<PendingMessage>) -> Vec<OscEffect> {
+    let mut retained = VecDeque::with_capacity(queue.len());
+    let mut effects = Vec::new();
+    while let Some(message) = queue.pop_front() {
+        if message.responder.is_some() {
+            retained.push_back(message);
+        } else {
+            effects.push(OscEffect::DiscardPending(message));
+        }
+    }
+    *queue = retained;
+    effects
+}
+
+enum SendExecution {
+    Completed(OscSendOutcome, Instant),
+    ConfigChanged(OscConfigState),
+    ConfigClosed,
+}
+
+async fn execute_send(
+    socket: &Result<UdpSocket, std::io::Error>,
+    config_rx: &mut watch::Receiver<OscConfigState>,
+    request: &OscSendRequest,
+) -> SendExecution {
+    let result = match socket {
+        Ok(socket) if request.is_manual() => {
+            send_chatbox(socket, request.port, &request.rendered_text).await
+        }
+        Ok(socket) => {
+            tokio::select! {
+                biased;
+                changed = config_rx.changed() => {
+                    return if changed.is_err() {
+                        SendExecution::ConfigClosed
+                    } else {
+                        SendExecution::ConfigChanged(config_rx.borrow().clone())
+                    };
+                }
+                result = send_chatbox(socket, request.port, &request.rendered_text) => result,
+            }
+        }
+        Err(error) => Err(error.to_string()),
+    };
+    let completed_at = Instant::now();
+    let outcome = match result {
+        Ok(()) => OscSendOutcome::Sent {
+            sent_at: now_iso8601(),
+        },
+        Err(error) => OscSendOutcome::Failed(error),
+    };
+    SendExecution::Completed(outcome, completed_at)
+}
+
+fn execute_osc_effect(
+    effect: OscEffect,
+    status: &Arc<Mutex<OscRuntimeStatus>>,
+    db: Option<&Arc<Mutex<Database>>>,
+    events: &DomainEventHub,
+) {
+    match effect {
+        OscEffect::DiscardPending(message) => drop(message),
+        OscEffect::DiscardResponder(responder) => drop(responder),
+        OscEffect::RejectPending {
+            message,
+            code,
+            detail,
+        } => fail_pending(message, code, detail),
+        OscEffect::RecordDrop => {
+            status.lock().expect("OSC status lock").dropped_messages += 1;
+        }
+        OscEffect::Send(_) => unreachable!("send effects are executed by the worker"),
+        OscEffect::FinalizeSend {
+            mut request,
+            outcome,
+        } => {
+            let mut runtime = status.lock().expect("OSC status lock");
+            match outcome {
+                OscSendOutcome::Sent { sent_at } => {
+                    runtime.status = "ready".into();
+                    runtime.last_error = None;
+                    runtime.last_sent_at = Some(sent_at.clone());
+                    record_automatic_message(AutomaticMessageRecord {
+                        db,
+                        events,
+                        message: &request.message,
+                        rendered_text: &request.rendered_text,
+                        outcome: AutomaticMessageOutcome {
+                            status: "sent",
+                            error_detail: None,
+                            sent_at: Some(sent_at.clone()),
+                        },
+                        formatting: AutomaticMessageFormatting {
+                            preserve_original_text: request.preserve_original_text,
+                            translation_strategy: &request.translation_strategy,
+                        },
+                    });
+                    if let Some(responder) = request.message.responder.take() {
+                        let _ = responder.send(Ok(sent_at));
+                    }
+                }
+                OscSendOutcome::Failed(error) => {
+                    runtime.status = "error".into();
+                    runtime.last_error = Some(error.clone());
+                    record_automatic_message(AutomaticMessageRecord {
+                        db,
+                        events,
+                        message: &request.message,
+                        rendered_text: &request.rendered_text,
+                        outcome: AutomaticMessageOutcome {
+                            status: "failed",
+                            error_detail: Some(&error),
+                            sent_at: None,
+                        },
+                        formatting: AutomaticMessageFormatting {
+                            preserve_original_text: request.preserve_original_text,
+                            translation_strategy: &request.translation_strategy,
+                        },
+                    });
+                    if let Some(responder) = request.message.responder.take() {
+                        let _ = responder.send(Err(ManualSendError {
+                            code: "osc.send_failed",
+                            detail: error,
+                        }));
+                    }
+                }
+            }
+        }
+    }
+}
+
 async fn run_worker(
     mut receiver: mpsc::Receiver<OscEvent>,
     mut config_rx: watch::Receiver<OscConfigState>,
@@ -375,304 +941,78 @@ async fn run_worker(
     events: DomainEventHub,
 ) {
     let socket = UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).await;
-    let mut config = config_rx.borrow().clone();
-    let mut queue = VecDeque::<PendingMessage>::new();
-    let mut latest_subtitle_id = None;
-    let mut current_sent = None::<SentMessage>;
-    let mut last_send = None::<Instant>;
-    let mut round_robin_index = 0usize;
+    let mut state = OscWorkerState::new(config_rx.borrow().clone());
     let mut tick = tokio::time::interval(Duration::from_millis(50));
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
-    loop {
-        tokio::select! {
+    'worker: loop {
+        let input = tokio::select! {
             biased;
             changed = config_rx.changed() => {
                 if changed.is_err() {
                     break;
                 }
-                let next = config_rx.borrow().clone();
-                if next.config_revision != config.config_revision {
-                    queue.clear();
-                    current_sent = None;
-                    latest_subtitle_id = None;
-                    last_send = None;
-                } else if next.automatic_revision != config.automatic_revision {
-                    queue.retain(|message| message.responder.is_some());
-                    current_sent = None;
-                    latest_subtitle_id = None;
-                }
-                config = next;
+                OscWorkerInput::ConfigChanged(config_rx.borrow().clone())
             }
             event = receiver.recv() => {
                 let Some(event) = event else { break };
-                if !event.is_current(&config) {
-                    continue;
-                }
-                match event {
-                    OscEvent::Test { .. } => push_bounded(
-                        &mut queue,
-                        PendingMessage {
-                            message_id: format!("chatbox-{}", uuid::Uuid::new_v4()),
-                            subtitle_id: None,
-                            original: "VRCS OSC test".into(),
-                            preferred_target: None,
-                            desired_target: None,
-                            translations: HashMap::new(),
-                            completed_targets: Vec::new(),
-                            expected_targets: Vec::new(),
-                            failed_targets: HashSet::new(),
-                            rendered_text: None,
-                            ready_at: Instant::now(),
-                            responder: None,
-                        },
-                        &status,
-                        false,
-                    ),
-                    OscEvent::Manual { text, responder, .. } => push_bounded(
-                        &mut queue,
-                        PendingMessage {
-                            message_id: format!("chatbox-{}", uuid::Uuid::new_v4()),
-                            subtitle_id: None,
-                            original: String::new(),
-                            preferred_target: None,
-                            desired_target: None,
-                            translations: HashMap::new(),
-                            completed_targets: Vec::new(),
-                            expected_targets: Vec::new(),
-                            failed_targets: HashSet::new(),
-                            rendered_text: Some(text),
-                            ready_at: Instant::now(),
-                            responder: Some(responder),
-                        },
-                        &status,
-                        true,
-                    ),
-                    OscEvent::Subtitle { message_id, subtitle, wait_for_translation, target_languages, .. } => {
-                        let Some(subtitle_id) = subtitle.id else { continue };
-                        latest_subtitle_id = Some(subtitle_id);
-                        current_sent = None;
-                        let preferred_target = target_languages.first().cloned();
-                        let desired_target = select_translation_target(
-                            &config.config.translation_strategy,
-                            &target_languages,
-                            &mut round_robin_index,
-                        );
-                        push_bounded(
-                            &mut queue,
-                            PendingMessage {
-                                message_id,
-                                subtitle_id: Some(subtitle_id),
-                                original: subtitle.text,
-                                preferred_target,
-                                desired_target,
-                                translations: HashMap::new(),
-                                completed_targets: Vec::new(),
-                                expected_targets: target_languages,
-                                failed_targets: HashSet::new(),
-                                rendered_text: None,
-                                ready_at: Instant::now() + if wait_for_translation {
-                                    TRANSLATION_GRACE
-                                } else {
-                                    Duration::ZERO
-                                },
-                                responder: None,
-                            },
-                            &status,
-                            false,
-                        );
-                    }
-                    OscEvent::TranslationFailed { subtitle_id, target_language, .. } => {
-                        if let Some(message) = queue.iter_mut().find(|item| item.subtitle_id == Some(subtitle_id)) {
-                            message.failed_targets.insert(target_language);
-                            let all_languages = config.config.translation_strategy == "all_languages";
-                            let all_failed = !message.expected_targets.is_empty()
-                                && message.failed_targets.len() >= message.expected_targets.len();
-                            if (all_languages && all_targets_resolved(message))
-                                || (!all_languages && (all_failed || selected_translation(message).is_some()))
-                            {
-                                message.ready_at = Instant::now();
-                            }
-                        }
-                    }
-                    OscEvent::TranslationCompleted { subtitle_id, translation, preferred, .. } => {
-                        if let Some(message) = queue.iter_mut().find(|item| item.subtitle_id == Some(subtitle_id)) {
-                            let language = translation.target_language.clone();
-                            if !message.translations.contains_key(&language) {
-                                message.completed_targets.push(language.clone());
-                            }
-                            message.translations.insert(language.clone(), translation.text);
-                            let all_languages = config.config.translation_strategy == "all_languages";
-                            if (all_languages && all_targets_resolved(message))
-                                || (!all_languages && (message.desired_target.as_deref() == Some(&language)
-                                    || (preferred && message.desired_target.is_none())
-                                    || message.desired_target.as_ref().is_some_and(|target| {
-                                        message.failed_targets.contains(target)
-                                    })))
-                            {
-                                message.ready_at = Instant::now();
-                            }
-                        } else if latest_subtitle_id == Some(subtitle_id) {
-                            if let Some(sent) = current_sent.as_ref().filter(|sent| {
-                                sent.subtitle_id == subtitle_id
-                                    && sent.translation.is_none()
-                                    && sent.desired_target.as_deref().is_none_or(|target| {
-                                        target == translation.target_language
-                                    })
-                                    && sent.sent_at.elapsed() <= LATE_TRANSLATION_TTL
-                            }) {
-                                push_bounded(
-                                    &mut queue,
-                                    PendingMessage {
-                                        message_id: sent.message_id.clone(),
-                                        subtitle_id: Some(subtitle_id),
-                                        original: sent.original.clone(),
-                                        preferred_target: Some(translation.target_language.clone()),
-                                        desired_target: Some(translation.target_language.clone()),
-                                        translations: HashMap::from([(translation.target_language.clone(), translation.text)]),
-                                        completed_targets: vec![translation.target_language.clone()],
-                                        expected_targets: Vec::new(),
-                                        failed_targets: HashSet::new(),
-                                        rendered_text: None,
-                                        ready_at: Instant::now(),
-                                        responder: None,
-                                    },
-                                    &status,
-                                    false,
-                                );
-                            }
-                        }
-                    }
+                let generated_message_id = matches!(event, OscEvent::Test { .. } | OscEvent::Manual { .. })
+                    .then(|| format!("chatbox-{}", uuid::Uuid::new_v4()));
+                OscWorkerInput::Event {
+                    event,
+                    now: Instant::now(),
+                    generated_message_id,
                 }
             }
-            _ = tick.tick() => {
-                if !config.config.enabled {
-                    queue.clear();
-                    continue;
+            _ = tick.tick() => OscWorkerInput::Tick(Instant::now()),
+        };
+        let mut effects = VecDeque::from(reduce_osc_event(&mut state, input));
+        while let Some(effect) = effects.pop_front() {
+            let OscEffect::Send(request) = effect else {
+                execute_osc_effect(effect, &status, db.as_ref(), &events);
+                continue;
+            };
+            match execute_send(&socket, &mut config_rx, &request).await {
+                SendExecution::Completed(outcome, completed_at) => {
+                    effects.extend(reduce_osc_event(
+                        &mut state,
+                        OscWorkerInput::SendCompleted {
+                            request,
+                            outcome,
+                            completed_at,
+                        },
+                    ))
                 }
-                if config.send_gate != SendGate::Open {
-                    queue.retain(|message| message.responder.is_some());
-                }
-                let ready = queue.front().is_some_and(|message| message.ready_at <= Instant::now());
-                let rate_ready = last_send.is_none_or(|sent| sent.elapsed() >= SEND_INTERVAL);
-                if !ready || !rate_ready {
-                    continue;
-                }
-                let Some(message) = queue.pop_front() else { continue };
-                let translation = selected_translation_text(
-                    &message,
-                    &config.config.translation_strategy,
-                );
-                let text = message.rendered_text.clone().unwrap_or_else(|| {
-                    format_chatbox(
-                        &message.original,
-                        translation.as_deref(),
-                        config.config.preserve_original_text,
-                    )
-                });
-                let port = config.config.port;
-                let is_manual = message.responder.is_some();
-                let result = match &socket {
-                    Ok(socket) if is_manual => send_chatbox(socket, port, &text).await,
-                    Ok(socket) => {
-                        tokio::select! {
-                            biased;
-                            changed = config_rx.changed() => {
-                                if changed.is_err() {
-                                    break;
-                                }
-                                config = config_rx.borrow().clone();
-                                queue.clear();
-                                current_sent = None;
-                                last_send = None;
-                                continue;
-                            }
-                            result = send_chatbox(socket, port, &text) => result,
-                        }
-                    }
-                    Err(error) => Err(error.to_string()),
-                };
-                let mut runtime = status.lock().expect("OSC status lock");
-                match result {
-                    Ok(()) => {
-                        runtime.status = "ready".into();
-                        runtime.last_error = None;
-                        let sent_at = now_iso8601();
-                        runtime.last_sent_at = Some(sent_at.clone());
-                        last_send = Some(Instant::now());
-                        record_automatic_message(
-                            db.as_ref(),
-                            &events,
-                            &message,
-                            &text,
-                            "sent",
-                            None,
-                            Some(sent_at.clone()),
-                            config.config.preserve_original_text,
-                            &config.config.translation_strategy,
-                        );
-                        if let Some(subtitle_id) = message.subtitle_id {
-                            current_sent = Some(SentMessage {
-                                message_id: message.message_id.clone(),
-                                subtitle_id,
-                                original: message.original,
-                                desired_target: message.desired_target,
-                                translation,
-                                sent_at: Instant::now(),
-                            });
-                        }
-                        if let Some(responder) = message.responder {
-                            let _ = responder.send(Ok(sent_at));
-                        }
-                    }
-                    Err(error) => {
-                        runtime.status = "error".into();
-                        runtime.last_error = Some(error.clone());
-                        record_automatic_message(
-                            db.as_ref(),
-                            &events,
-                            &message,
-                            &text,
-                            "failed",
-                            Some(&error),
-                            None,
-                            config.config.preserve_original_text,
-                            &config.config.translation_strategy,
-                        );
-                        if let Some(responder) = message.responder {
-                            let _ = responder.send(Err(ManualSendError {
-                                code: "osc.send_failed",
-                                detail: error,
-                            }));
-                        }
-                    }
-                }
+                SendExecution::ConfigChanged(next) => effects.extend(reduce_osc_event(
+                    &mut state,
+                    OscWorkerInput::SendCancelledByConfig(next),
+                )),
+                SendExecution::ConfigClosed => break 'worker,
             }
         }
     }
 }
 
-fn record_automatic_message(
-    db: Option<&Arc<Mutex<Database>>>,
-    events: &DomainEventHub,
-    message: &PendingMessage,
-    rendered_text: &str,
-    status: &str,
-    error_detail: Option<&str>,
-    sent_at: Option<String>,
-    preserve_original_text: bool,
-    translation_strategy: &str,
-) {
+fn record_automatic_message(record: AutomaticMessageRecord<'_>) {
+    let AutomaticMessageRecord {
+        db,
+        events,
+        message,
+        rendered_text,
+        outcome,
+        formatting,
+    } = record;
     if message.subtitle_id.is_none() || message.rendered_text.is_some() {
         return;
     }
     let Some(db) = db else { return };
     let original = crate::chatbox::compact_text(&message.original);
-    let translation = selected_translation_text(message, translation_strategy);
+    let translation = selected_translation_text(message, formatting.translation_strategy);
     let effective_translation = translation
         .as_deref()
         .filter(|value| !value.is_empty() && *value != original.as_str());
-    let (send_mode, untruncated) = match (effective_translation, preserve_original_text) {
+    let (send_mode, untruncated) = match (effective_translation, formatting.preserve_original_text)
+    {
         (Some(value), true) => ("bilingual", format!("{original}\n{value}")),
         (Some(value), false) => ("translation", value.to_owned()),
         (None, _) => ("original", original),
@@ -682,23 +1022,25 @@ fn record_automatic_message(
         original: message.original.clone(),
         translation,
         source_language: None,
-        target_language: selected_target_language(message, translation_strategy),
+        target_language: selected_target_language(message, formatting.translation_strategy),
         send_mode: send_mode.into(),
         message_format: "original_newline_translation".into(),
         custom_format: None,
         rendered_text: rendered_text.into(),
         char_count: rendered_text.chars().count(),
         truncated: rendered_text != untruncated,
-        status: status.into(),
-        error_code: error_detail.map(|_| "osc.send_failed".into()),
-        error_detail: error_detail.map(str::to_owned),
+        status: outcome.status.into(),
+        error_code: outcome.error_detail.map(|_| "osc.send_failed".into()),
+        error_detail: outcome.error_detail.map(str::to_owned),
         resent_from_id: None,
         created_at: now_iso8601(),
-        sent_at,
+        sent_at: outcome.sent_at,
     };
     if let Ok(database) = db.lock() {
         match database.add_chatbox_message(&record) {
-            Ok(saved) if status == "sent" => events.chatbox_sent(&message.message_id, &saved),
+            Ok(saved) if outcome.status == "sent" => {
+                events.chatbox_sent(&message.message_id, &saved)
+            }
             Ok(_) => {}
             Err(error) => tracing::warn!("Failed to store automatic Chatbox history: {error}"),
         }
@@ -782,39 +1124,6 @@ fn select_translation_target(
     Some(selected)
 }
 
-fn push_bounded(
-    queue: &mut VecDeque<PendingMessage>,
-    message: PendingMessage,
-    status: &Arc<Mutex<OscRuntimeStatus>>,
-    priority: bool,
-) {
-    if queue.len() == DISPLAY_QUEUE_CAPACITY {
-        let automatic = queue.iter().position(|queued| queued.responder.is_none());
-        let dropped = if let Some(index) = automatic {
-            queue.remove(index)
-        } else if priority {
-            queue.pop_front()
-        } else {
-            fail_pending(message, "osc.queue_full", "OSC chatbox queue is full");
-            status.lock().expect("OSC status lock").dropped_messages += 1;
-            return;
-        };
-        if let Some(dropped) = dropped {
-            fail_pending(dropped, "osc.queue_full", "OSC chatbox queue is full");
-        }
-        status.lock().expect("OSC status lock").dropped_messages += 1;
-    }
-    if priority {
-        let index = queue
-            .iter()
-            .position(|queued| queued.responder.is_none())
-            .unwrap_or(queue.len());
-        queue.insert(index, message);
-    } else {
-        queue.push_back(message);
-    }
-}
-
 fn fail_pending(message: PendingMessage, code: &'static str, detail: &'static str) {
     if let Some(responder) = message.responder {
         let _ = responder.send(Err(ManualSendError {
@@ -863,6 +1172,22 @@ fn initial_gate(config: &OscConfig) -> SendGate {
 mod tests {
     use super::*;
 
+    fn config_state() -> OscConfigState {
+        OscConfigState {
+            config: OscConfig {
+                enabled: true,
+                port: 9000,
+                mute_sync_enabled: false,
+                mute_status_toast_enabled: false,
+                preserve_original_text: true,
+                translation_strategy: "preferred_only".into(),
+            },
+            config_revision: 0,
+            automatic_revision: 0,
+            send_gate: SendGate::Open,
+        }
+    }
+
     fn pending_message(targets: &[&str]) -> PendingMessage {
         PendingMessage {
             message_id: "message-test".into(),
@@ -878,6 +1203,285 @@ mod tests {
             ready_at: Instant::now(),
             responder: None,
         }
+    }
+
+    fn manual_message(text: &str, ready_at: Instant) -> PendingMessage {
+        let (responder, _receiver) = oneshot::channel();
+        PendingMessage {
+            message_id: format!("manual-{text}"),
+            subtitle_id: None,
+            original: String::new(),
+            preferred_target: None,
+            desired_target: None,
+            translations: HashMap::new(),
+            completed_targets: Vec::new(),
+            expected_targets: Vec::new(),
+            failed_targets: HashSet::new(),
+            rendered_text: Some(text.into()),
+            ready_at,
+            responder: Some(responder),
+        }
+    }
+
+    #[test]
+    fn config_revision_discards_all_worker_state() {
+        let now = Instant::now();
+        let mut state = OscWorkerState::new(config_state());
+        state.queue.push_back(pending_message(&[]));
+        state.queue.push_back(manual_message("manual", now));
+        state.latest_subtitle_id = Some(1);
+        state.current_sent = Some(SentMessage {
+            message_id: "sent".into(),
+            subtitle_id: 1,
+            original: "original".into(),
+            desired_target: None,
+            translation: None,
+            sent_at: now,
+        });
+        state.last_send = Some(now);
+        let mut next = config_state();
+        next.config_revision = 1;
+        next.automatic_revision = 1;
+
+        let effects = reduce_osc_event(&mut state, OscWorkerInput::ConfigChanged(next));
+
+        assert_eq!(effects.len(), 2);
+        assert!(effects
+            .iter()
+            .all(|effect| matches!(effect, OscEffect::DiscardPending(_))));
+        assert!(state.queue.is_empty());
+        assert!(state.current_sent.is_none());
+        assert!(state.latest_subtitle_id.is_none());
+        assert!(state.last_send.is_none());
+    }
+
+    #[test]
+    fn automatic_revision_preserves_manual_messages() {
+        let now = Instant::now();
+        let mut state = OscWorkerState::new(config_state());
+        state.queue.push_back(pending_message(&[]));
+        state.queue.push_back(manual_message("manual", now));
+        let mut next = config_state();
+        next.automatic_revision = 1;
+
+        let effects = reduce_osc_event(&mut state, OscWorkerInput::ConfigChanged(next));
+
+        assert_eq!(effects.len(), 1);
+        assert!(matches!(effects[0], OscEffect::DiscardPending(_)));
+        assert_eq!(state.queue.len(), 1);
+        assert!(state.queue.front().unwrap().responder.is_some());
+    }
+
+    #[test]
+    fn stale_events_are_ignored_before_message_construction() {
+        let mut state = OscWorkerState::new(config_state());
+        let effects = reduce_osc_event(
+            &mut state,
+            OscWorkerInput::Event {
+                event: OscEvent::Test {
+                    automatic_revision: 1,
+                },
+                now: Instant::now(),
+                generated_message_id: None,
+            },
+        );
+        assert!(effects.is_empty());
+        assert!(state.queue.is_empty());
+    }
+
+    #[test]
+    fn bounded_queue_drops_automatic_messages_for_manual_priority() {
+        let now = Instant::now();
+        let mut queue = VecDeque::new();
+        for index in 0..DISPLAY_QUEUE_CAPACITY {
+            let mut message = pending_message(&[]);
+            message.message_id = format!("automatic-{index}");
+            queue.push_back(message);
+        }
+
+        let effects = enqueue_pending(&mut queue, manual_message("priority", now), true);
+
+        assert_eq!(queue.len(), DISPLAY_QUEUE_CAPACITY);
+        assert!(queue.front().unwrap().responder.is_some());
+        assert!(matches!(
+            effects.as_slice(),
+            [OscEffect::RejectPending { .. }, OscEffect::RecordDrop]
+        ));
+    }
+
+    #[test]
+    fn translation_results_make_waiting_messages_ready() {
+        let now = Instant::now();
+        let mut state = OscWorkerState::new(config_state());
+        let mut completed = pending_message(&["en"]);
+        completed.desired_target = Some("en".into());
+        completed.ready_at = now + TRANSLATION_GRACE;
+        state.queue.push_back(completed);
+
+        reduce_osc_event(
+            &mut state,
+            OscWorkerInput::Event {
+                event: OscEvent::TranslationCompleted {
+                    generation: 0,
+                    subtitle_id: 1,
+                    translation: SubtitleTranslation {
+                        text: "Hello".into(),
+                        source_language: Some("ja".into()),
+                        target_language: "en".into(),
+                        provider: "local".into(),
+                        model: None,
+                        created_at: now_iso8601(),
+                    },
+                    preferred: true,
+                },
+                now,
+                generated_message_id: None,
+            },
+        );
+        assert_eq!(state.queue.front().unwrap().ready_at, now);
+
+        let mut failed = pending_message(&["en"]);
+        failed.ready_at = now + TRANSLATION_GRACE;
+        state.queue.clear();
+        state.queue.push_back(failed);
+        reduce_osc_event(
+            &mut state,
+            OscWorkerInput::Event {
+                event: OscEvent::TranslationFailed {
+                    generation: 0,
+                    subtitle_id: 1,
+                    target_language: "en".into(),
+                },
+                now,
+                generated_message_id: None,
+            },
+        );
+        assert_eq!(state.queue.front().unwrap().ready_at, now);
+    }
+
+    #[test]
+    fn late_translation_resends_only_within_ttl() {
+        let now = Instant::now();
+        let mut state = OscWorkerState::new(config_state());
+        state.latest_subtitle_id = Some(1);
+        state.current_sent = Some(SentMessage {
+            message_id: "utterance-1".into(),
+            subtitle_id: 1,
+            original: "こんにちは".into(),
+            desired_target: Some("en".into()),
+            translation: None,
+            sent_at: now - LATE_TRANSLATION_TTL,
+        });
+        let translation = || SubtitleTranslation {
+            text: "Hello".into(),
+            source_language: Some("ja".into()),
+            target_language: "en".into(),
+            provider: "local".into(),
+            model: None,
+            created_at: now_iso8601(),
+        };
+
+        reduce_translation_completed(&mut state, 1, translation(), true, now);
+        assert_eq!(state.queue.len(), 1);
+        state.queue.clear();
+        reduce_translation_completed(
+            &mut state,
+            1,
+            translation(),
+            true,
+            now + Duration::from_millis(1),
+        );
+        assert!(state.queue.is_empty());
+    }
+
+    #[test]
+    fn tick_applies_gate_and_rate_limit_before_sending() {
+        let now = Instant::now();
+        let mut config = config_state();
+        config.send_gate = SendGate::VrchatMuted;
+        let mut state = OscWorkerState::new(config);
+        state.queue.push_back(pending_message(&[]));
+        state.queue.push_back(manual_message("manual", now));
+
+        let effects = reduce_osc_event(&mut state, OscWorkerInput::Tick(now));
+        assert!(matches!(
+            effects.as_slice(),
+            [OscEffect::DiscardPending(_), OscEffect::Send(request)] if request.is_manual()
+        ));
+
+        state.config.send_gate = SendGate::Open;
+        state.queue.push_back(pending_message(&[]));
+        state.last_send = Some(now);
+        let effects = reduce_osc_event(
+            &mut state,
+            OscWorkerInput::Tick(now + SEND_INTERVAL - Duration::from_millis(1)),
+        );
+        assert!(effects.is_empty());
+        assert_eq!(state.queue.len(), 1);
+    }
+
+    #[test]
+    fn send_completion_updates_state_only_after_success() {
+        let now = Instant::now();
+        let request = |message_id: &str| OscSendRequest {
+            message: PendingMessage {
+                message_id: message_id.into(),
+                subtitle_id: Some(1),
+                original: "こんにちは".into(),
+                preferred_target: Some("en".into()),
+                desired_target: Some("en".into()),
+                translations: HashMap::from([("en".into(), "Hello".into())]),
+                completed_targets: vec!["en".into()],
+                expected_targets: vec!["en".into()],
+                failed_targets: HashSet::new(),
+                rendered_text: None,
+                ready_at: now,
+                responder: None,
+            },
+            rendered_text: "こんにちは\nHello".into(),
+            translation: Some("Hello".into()),
+            port: 9000,
+            preserve_original_text: true,
+            translation_strategy: "preferred_only".into(),
+        };
+        let mut state = OscWorkerState::new(config_state());
+
+        let effects = reduce_osc_event(
+            &mut state,
+            OscWorkerInput::SendCompleted {
+                request: request("success"),
+                outcome: OscSendOutcome::Sent {
+                    sent_at: "2025-01-01T00:00:00Z".into(),
+                },
+                completed_at: now,
+            },
+        );
+        assert_eq!(effects.len(), 1);
+        assert!(matches!(effects[0], OscEffect::FinalizeSend { .. }));
+        assert_eq!(state.last_send, Some(now));
+        assert_eq!(
+            state
+                .current_sent
+                .as_ref()
+                .map(|sent| sent.message_id.as_str()),
+            Some("success")
+        );
+
+        let previous_send = state.last_send;
+        let previous_message = state.current_sent.as_ref().unwrap().message_id.clone();
+        reduce_osc_event(
+            &mut state,
+            OscWorkerInput::SendCompleted {
+                request: request("failure"),
+                outcome: OscSendOutcome::Failed("network".into()),
+                completed_at: now + Duration::from_secs(1),
+            },
+        );
+        assert_eq!(state.last_send, previous_send);
+        assert_eq!(
+            state.current_sent.as_ref().unwrap().message_id,
+            previous_message
+        );
     }
 
     #[test]

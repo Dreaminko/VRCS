@@ -16,7 +16,11 @@ import {
 import { profileEnabledCapabilities, providerDefinition, providerDetail } from "../../provider-catalog";
 import { recognitionServicesForProfile } from "../../recognition-services";
 import { translationDiagnosticModel } from "../../translation-model-selection";
-import type { ApiProfileView, ProviderDefinition, Settings } from "../../types";
+import type {
+  ApiProfileView,
+  ProviderDefinition,
+} from "../../providers/types";
+import type { Settings } from "../types";
 import { ApiProfileEditor } from "../api/ApiProfileEditor";
 import { SettingsDialog } from "../components/SettingsDialog";
 import { useApiProfiles } from "../useApiProfiles";

@@ -6,8 +6,8 @@ import type {
   LearningItemKind,
   LearningItemStatus,
   LearningTaskType,
-  Subtitle,
-} from "./types";
+} from "./learning/types";
+import type { Subtitle } from "./subtitles/types";
 
 export const LEARNING_PAGE_SIZE = 50;
 

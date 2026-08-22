@@ -1,4 +1,4 @@
-import type { DictionaryEntry } from "../types";
+import type { DictionaryEntry } from "./types";
 
 export function definitionGlosses(definition: string): string[] {
   const normalized = definition.replace(/([①②③④⑤⑥⑦⑧⑨⑩])/g, "\n$1");

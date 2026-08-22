@@ -2,7 +2,8 @@ import { Mic, RefreshCw, Volume2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { DeviceGroup } from "../../settings/SettingsControls";
-import type { AudioDevice, Settings } from "../../types";
+import type { AudioDevice } from "../../capture/types";
+import type { Settings } from "../../settings/types";
 
 export function AudioStep({
   settings,

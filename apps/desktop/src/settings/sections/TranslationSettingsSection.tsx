@@ -2,7 +2,11 @@ import { Languages, Workflow } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { supportsContext, supportsTranslation } from "../../api-profile-purpose";
-import type { ApiProfileView, Settings, TranslationSettings } from "../../types";
+import type { ApiProfileView } from "../../providers/types";
+import type {
+  Settings,
+  TranslationSettings,
+} from "../types";
 import type { ApplySettings, SaveState } from "../settings-types";
 import { Select } from "../SettingsControls";
 import { LanguagePresetSettings } from "../translation/LanguagePresetSettings";

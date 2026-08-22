@@ -16,7 +16,7 @@ import {
   type SubtitleAnalysisOutcome,
   type SubtitleCopyMode,
 } from "../../subtitle-actions";
-import type { Subtitle } from "../../types";
+import type { Subtitle } from "../types";
 import { SubtitleAnalysisPopover } from "./SubtitleAnalysisPopover";
 import { SubtitleContextMenu } from "./SubtitleContextMenu";
 

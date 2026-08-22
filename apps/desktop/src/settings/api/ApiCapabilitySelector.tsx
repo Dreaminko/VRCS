@@ -1,7 +1,7 @@
 import { AudioLines, Languages, Sparkles, type LucideIcon } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
-import type { ApiCapability } from "../../types";
+import type { ApiCapability } from "../../providers/types";
 
 const CAPABILITY_OPTIONS: ReadonlyArray<{
   id: ApiCapability;

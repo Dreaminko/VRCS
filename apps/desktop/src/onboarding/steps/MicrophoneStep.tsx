@@ -4,7 +4,9 @@ import { useTranslation } from "react-i18next";
 import { DEFAULT_MICROPHONE_THRESHOLD_DBFS, type MicrophoneCalibrationResult } from "../../microphone-calibration";
 import { MicrophoneLevelSetting } from "../../settings/sections/MicrophoneLevelSetting";
 import type { MicrophoneCalibrationPhase } from "../../settings/hooks/useMicrophoneCalibration";
-import type { AudioLevel, Health, Settings } from "../../types";
+import type { AudioLevel } from "../../capture/types";
+import type { Health } from "../../core-client/types";
+import type { Settings } from "../../settings/types";
 
 export function MicrophoneStep({
   settings,

@@ -8,7 +8,8 @@ import { LanguagePicker } from "../../shared/ui/LanguagePicker";
 import { TRANSLATION_LANGUAGE_CODES } from "../../translation-languages";
 import { selectTranslationModel } from "../../translation-model-selection";
 import { thinkingControlForModel } from "../../translation-thinking";
-import type { ApiProfileView, TranslationTargetSettings } from "../../types";
+import type { ApiProfileView } from "../../providers/types";
+import type { TranslationTargetSettings } from "../types";
 import { useTranslationProfileModels } from "../hooks/useTranslationProfileModels";
 import { PreferenceToggle, Select } from "../SettingsControls";
 

@@ -10,13 +10,14 @@ import {
 import { useTranslation } from "react-i18next";
 
 import type {
-  Settings,
   VrOverlayHeadsetSettings,
   VrOverlayResourceState,
   VrOverlayRuntimeState,
   VrOverlayStatus,
+  VrOverlayTranslationDisplay,
   VrOverlayWristSettings,
-} from "../../types";
+} from "../../integrations/types";
+import type { Settings } from "../types";
 import {
   getVrOverlayStatus,
   hideVrOverlaySample,
@@ -248,6 +249,18 @@ export function VrOverlaySettingsSection({
             <RefreshCw size={15} />{t("common.retry")}
           </button>
         </div>
+        <Select
+          label={t("settings.vrOverlay.translationDisplay")}
+          value={draft.vr_overlay.translation_display}
+          options={[
+            { value: "preferred_only", label: t("settings.vrOverlay.translationDisplays.preferredOnly") },
+            { value: "all_languages", label: t("settings.vrOverlay.translationDisplays.allLanguages") },
+          ]}
+          disabled={overlayDisabled}
+          onChange={(value) => applySettings((current) => patchVrOverlay(current, {
+            translation_display: value as VrOverlayTranslationDisplay,
+          }))}
+        />
         {(statusError || status?.last_error_detail) && (
           <p className="vr-overlay-native-error" role="alert">
             <TriangleAlert size={15} />{statusError || status?.last_error_detail}

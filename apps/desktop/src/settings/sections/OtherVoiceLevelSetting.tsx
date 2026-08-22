@@ -5,7 +5,7 @@ import {
   MAX_MICROPHONE_THRESHOLD_DBFS,
   MIN_MICROPHONE_LEVEL_DBFS,
 } from "../../microphone-calibration";
-import type { AudioLevel } from "../../types";
+import type { AudioLevel } from "../../capture/types";
 import { RangeField } from "../SettingsControls";
 
 function clamp(value: number, min: number, max: number): number {

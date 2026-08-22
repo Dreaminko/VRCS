@@ -5,6 +5,7 @@ use super::openai_audio_transcriptions;
 use super::read_credential;
 use super::segmented_upload::SegmentedUploadSession;
 use super::streaming::{self, CloudEvent, SegmentationMode, StreamingSession};
+use super::SharedAudio;
 
 pub enum CloudRecognitionSession {
     Realtime(StreamingSession),
@@ -12,7 +13,7 @@ pub enum CloudRecognitionSession {
 }
 
 impl CloudRecognitionSession {
-    pub async fn send(&self, samples: Vec<f32>) -> Result<(), String> {
+    pub async fn send(&self, samples: SharedAudio) -> Result<(), String> {
         match self {
             Self::Realtime(session) => session.send(samples).await,
             Self::Segmented(session) => session.send(samples).await,

@@ -2,8 +2,10 @@ import { Copy, KeyRound, RadioTower, RefreshCw, Save, Trash2 } from "lucide-reac
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 
-import { coreApi } from "../../api";
-import type { CredentialStatus, ExternalApiRuntimeStatus, Settings } from "../../types";
+import { integrationsApi } from "../../integrations/api";
+import type { ExternalApiRuntimeStatus } from "../../integrations/types";
+import type { Settings } from "../types";
+import type { CredentialStatus } from "../../shared/protocol/credentials";
 import type { SaveState } from "../settings-types";
 import { PreferenceToggle } from "../SettingsControls";
 
@@ -24,7 +26,7 @@ export function ExternalApiSettingsCard({ config, saveState, onChange }: {
 
   useEffect(() => {
     let cancelled = false;
-    void coreApi.externalApiTokenStatus().then(
+    void integrationsApi.externalApiTokenStatus().then(
       (status) => {
         if (!cancelled) {
           setTokenStatus(status);
@@ -35,7 +37,7 @@ export function ExternalApiSettingsCard({ config, saveState, onChange }: {
         if (!cancelled) setTokenStatusError(true);
       },
     );
-    void coreApi.externalApiRuntimeStatus().then(
+    void integrationsApi.externalApiRuntimeStatus().then(
       (status) => {
         if (!cancelled) {
           setRuntimeStatus(status);
@@ -52,7 +54,7 @@ export function ExternalApiSettingsCard({ config, saveState, onChange }: {
   useEffect(() => {
     if (saveState !== "saved") return;
     let cancelled = false;
-    void coreApi.externalApiRuntimeStatus().then(
+    void integrationsApi.externalApiRuntimeStatus().then(
       (status) => {
         if (!cancelled) {
           setRuntimeStatus(status);
@@ -71,8 +73,8 @@ export function ExternalApiSettingsCard({ config, saveState, onChange }: {
     setTokenBusy(true);
     setTokenMessage("");
     try {
-      setTokenStatus(await coreApi.saveExternalApiToken(token));
-      void coreApi.externalApiRuntimeStatus().then(
+      setTokenStatus(await integrationsApi.saveExternalApiToken(token));
+      void integrationsApi.externalApiRuntimeStatus().then(
         (status) => {
           setRuntimeStatus(status);
           setRuntimeStatusError(false);
@@ -96,7 +98,7 @@ export function ExternalApiSettingsCard({ config, saveState, onChange }: {
     setTokenBusy(true);
     setTokenMessage("");
     try {
-      setTokenStatus(await coreApi.deleteExternalApiToken());
+      setTokenStatus(await integrationsApi.deleteExternalApiToken());
       setGeneratedToken("");
       setTokenMessage(t("settings.system.externalApi.tokenDeleted"));
     } catch {

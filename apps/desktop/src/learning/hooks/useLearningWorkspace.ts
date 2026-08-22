@@ -1,7 +1,10 @@
 import { useCallback } from "react";
 import { useTranslation } from "react-i18next";
 
-import type { LearningAnalysisFocus, LearningTaskType } from "../../types";
+import type {
+  LearningAnalysisFocus,
+  LearningTaskType,
+} from "../types";
 import { useLearningAiConfiguration } from "./useLearningAiConfiguration";
 import { useLearningCapture } from "./useLearningCapture";
 import { useLearningInbox } from "./useLearningInbox";

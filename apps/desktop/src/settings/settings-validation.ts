@@ -1,9 +1,9 @@
+import type { AudioDevice } from "../capture/types";
 import type {
   AsrCapabilities,
   AsrSettings,
-  AudioDevice,
-  Settings,
-} from "../types";
+} from "../providers/types";
+import type { Settings } from "./types";
 
 type TranslateValidation = (key: string) => string;
 

@@ -224,19 +224,16 @@ impl TranslationService {
         context: &[TranslationContextEntry],
         on_progress: Option<&LlmProgress>,
     ) -> Result<TranslationResult, TranslationError> {
-        let resolved_prompt;
-        let prompt_config = if let Some(glossary) = &self.glossary {
-            resolved_prompt = {
-                let mut prompt = prompt_config.clone();
-                prompt.glossary = glossary.entries_for_llm();
-                prompt
-            };
-            &resolved_prompt
-        } else {
-            prompt_config
+        let glossary = self
+            .glossary
+            .as_ref()
+            .map(|glossary| glossary.llm_snapshot());
+        let builder = TranslationPromptBuilder::new(prompt_config);
+        let builder = match glossary.as_ref() {
+            Some(glossary) => builder.with_formatted_glossary(glossary.formatted()),
+            None => builder,
         };
-        let prompt =
-            TranslationPromptBuilder::new(prompt_config).build(source, target, context, text);
+        let prompt = builder.build(source, target, context, text);
         let translated = self
             .llm
             .generate_for_capability(

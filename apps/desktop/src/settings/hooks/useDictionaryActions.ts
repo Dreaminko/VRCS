@@ -2,7 +2,7 @@ import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { localizedError } from "../../app/app-utils";
-import type { DictionarySource } from "../../types";
+import type { DictionarySource } from "../../dictionary/types";
 
 export function useDictionaryActions({
   locale,

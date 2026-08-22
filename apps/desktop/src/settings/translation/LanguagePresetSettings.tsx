@@ -1,7 +1,10 @@
 import { BookmarkPlus, Play, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
-import type { LanguagePreset, Settings } from "../../types";
+import type {
+  LanguagePreset,
+  Settings,
+} from "../types";
 
 export function LanguagePresetSettings({
   settings,

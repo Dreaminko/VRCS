@@ -9,7 +9,7 @@ use serde_json::{json, Value};
 
 use crate::db::conversations::publish_catalog;
 
-use super::{api_error, db_call, ApiResult, AppState};
+use super::{api_error, db_call, ApiResult, ContentState};
 
 const ICONS: [&str; 16] = [
     "message",
@@ -49,7 +49,7 @@ pub(super) struct SubtitlePageQuery {
     before_id: Option<String>,
 }
 
-pub(super) async fn catalog(State(state): State<Arc<AppState>>) -> ApiResult<Json<Value>> {
+pub(super) async fn catalog(State(state): State<ContentState>) -> ApiResult<Json<Value>> {
     let catalog = db_call(Arc::clone(&state.db), |db| db.conversation_catalog())
         .await
         .map_err(conversation_error("conversations.catalog_failed"))?;
@@ -57,7 +57,7 @@ pub(super) async fn catalog(State(state): State<Arc<AppState>>) -> ApiResult<Jso
 }
 
 pub(super) async fn create(
-    State(state): State<Arc<AppState>>,
+    State(state): State<ContentState>,
     Json(_input): Json<EmptyRequest>,
 ) -> ApiResult<Json<Value>> {
     let conversation_catalog = state.conversation_catalog_tx.clone();
@@ -72,7 +72,7 @@ pub(super) async fn create(
 }
 
 pub(super) async fn update(
-    State(state): State<Arc<AppState>>,
+    State(state): State<ContentState>,
     Path(id): Path<String>,
     Json(input): Json<UpdateConversationRequest>,
 ) -> ApiResult<Json<Value>> {
@@ -98,7 +98,7 @@ pub(super) async fn update(
 }
 
 pub(super) async fn delete_conversation(
-    State(state): State<Arc<AppState>>,
+    State(state): State<ContentState>,
     Path(id): Path<String>,
 ) -> ApiResult<Json<Value>> {
     validate_path_id(&id)?;
@@ -117,7 +117,7 @@ pub(super) async fn delete_conversation(
 }
 
 pub(super) async fn subtitles(
-    State(state): State<Arc<AppState>>,
+    State(state): State<ContentState>,
     Path(id): Path<String>,
     Query(query): Query<SubtitlePageQuery>,
 ) -> ApiResult<Json<Value>> {

@@ -29,7 +29,13 @@ const settings = {
 } as unknown as Settings;
 
 test("VR Overlay defaults match the complete schema v23 contract", () => {
-  assert.deepEqual(Object.keys(DEFAULT_VR_OVERLAY_SETTINGS).sort(), ["enabled", "headset", "wrist"]);
+  assert.deepEqual(Object.keys(DEFAULT_VR_OVERLAY_SETTINGS).sort(), [
+    "enabled",
+    "headset",
+    "translation_display",
+    "wrist",
+  ]);
+  assert.equal(DEFAULT_VR_OVERLAY_SETTINGS.translation_display, "all_languages");
   assert.deepEqual(Object.keys(DEFAULT_VR_OVERLAY_HEADSET_SETTINGS).sort(), [
     "background_opacity",
     "content_mode",
@@ -80,12 +86,16 @@ test("VR Overlay defaults match the complete schema v23 contract", () => {
 });
 
 test("VR Overlay patches are immutable and scoped to the requested branch", () => {
-  const enabled = patchVrOverlay(settings, { enabled: true });
+  const enabled = patchVrOverlay(settings, {
+    enabled: true,
+    translation_display: "preferred_only",
+  });
   const headset = patchVrOverlayHeadset(enabled, { distance_m: 2.4 });
   const wrist = patchVrOverlayWrist(headset, { hand: "right", max_entries: 8 });
 
   assert.equal(settings.vr_overlay.enabled, false);
   assert.equal(enabled.vr_overlay.enabled, true);
+  assert.equal(enabled.vr_overlay.translation_display, "preferred_only");
   assert.equal(headset.vr_overlay.headset.distance_m, 2.4);
   assert.equal(headset.vr_overlay.wrist, settings.vr_overlay.wrist);
   assert.equal(wrist.vr_overlay.wrist.hand, "right");

@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::Json;
@@ -14,7 +12,7 @@ use crate::providers::{
     CAPABILITY_TEXT_TRANSLATION, MICROSOFT_PROVIDER,
 };
 
-use super::{api_error, ApiResult, AppState};
+use super::{api_error, ApiResult, SettingsContext};
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -227,8 +225,12 @@ fn profile_value(profile: &ApiProfile, config: &crate::config::AppConfig) -> Res
     }))
 }
 
-pub(super) async fn profile_list(State(state): State<Arc<AppState>>) -> ApiResult<Json<Value>> {
-    let config = state.config.read().expect("config lock").clone();
+pub(super) async fn profile_list(State(state): State<SettingsContext>) -> ApiResult<Json<Value>> {
+    profile_list_response(&state)
+}
+
+fn profile_list_response(state: &SettingsContext) -> ApiResult<Json<Value>> {
+    let config = state.config.config.read().expect("config lock").clone();
     let profiles = config
         .asr
         .api_profiles
@@ -240,10 +242,10 @@ pub(super) async fn profile_list(State(state): State<Arc<AppState>>) -> ApiResul
 }
 
 pub(super) async fn profile_create(
-    State(state): State<Arc<AppState>>,
+    State(state): State<SettingsContext>,
     Json(input): Json<CreateProfileInput>,
 ) -> ApiResult<Json<Value>> {
-    let _config_control = state.config_control.lock().await;
+    let _config_control = state.config.config_control.lock().await;
     let enabled_capabilities = match input.enabled_capabilities {
         Some(capabilities) => capabilities,
         None => providers::provider_capability_ids(&input.provider)
@@ -269,12 +271,12 @@ pub(super) async fn profile_create(
         headers: input.headers.unwrap_or_default(),
     };
     normalize_profile_fields(&mut profile).map_err(profile_invalid)?;
-    let mut candidate = state.config.read().expect("config lock").clone();
+    let mut candidate = state.config.config.read().expect("config lock").clone();
     candidate.asr.api_profiles.push(profile.clone());
     commit_profile_config(&state, candidate).await?;
     if let Some(api_key) = input.api_key.filter(|value| !value.trim().is_empty()) {
         if let Err(error) = asr::write_credential(&profile.id, &profile.provider, &api_key) {
-            let mut rollback = state.config.read().expect("config lock").clone();
+            let mut rollback = state.config.config.read().expect("config lock").clone();
             rollback
                 .asr
                 .api_profiles
@@ -283,19 +285,19 @@ pub(super) async fn profile_create(
             return Err(credential_error(&profile.id, error));
         }
     }
-    let config = state.config.read().expect("config lock").clone();
+    let config = state.config.config.read().expect("config lock").clone();
     Ok(Json(
         profile_value(&profile, &config).map_err(|error| credential_error(&profile.id, error))?,
     ))
 }
 
 pub(super) async fn profile_update(
-    State(state): State<Arc<AppState>>,
+    State(state): State<SettingsContext>,
     Path(profile_id): Path<String>,
     Json(input): Json<UpdateProfileInput>,
 ) -> ApiResult<Json<Value>> {
-    let _config_control = state.config_control.lock().await;
-    let mut candidate = state.config.read().expect("config lock").clone();
+    let _config_control = state.config.config_control.lock().await;
+    let mut candidate = state.config.config.read().expect("config lock").clone();
     let updated = {
         let profile = candidate
             .asr
@@ -328,18 +330,18 @@ pub(super) async fn profile_update(
     };
     apply_profile_compatibility_fallbacks(&mut candidate, &updated);
     commit_profile_config(&state, candidate).await?;
-    let config = state.config.read().expect("config lock").clone();
+    let config = state.config.config.read().expect("config lock").clone();
     Ok(Json(
         profile_value(&updated, &config).map_err(|error| credential_error(&profile_id, error))?,
     ))
 }
 
 pub(super) async fn profile_delete(
-    State(state): State<Arc<AppState>>,
+    State(state): State<SettingsContext>,
     Path(profile_id): Path<String>,
 ) -> ApiResult<Json<Value>> {
-    let _config_control = state.config_control.lock().await;
-    let current = state.config.read().expect("config lock").clone();
+    let _config_control = state.config.config_control.lock().await;
+    let current = state.config.config.read().expect("config lock").clone();
     let mut candidate = current.clone();
     let profile = candidate
         .asr
@@ -382,12 +384,12 @@ pub(super) async fn profile_delete(
 }
 
 pub(super) async fn credential_write(
-    State(state): State<Arc<AppState>>,
+    State(state): State<SettingsContext>,
     Path(profile_id): Path<String>,
     Json(input): Json<CredentialInput>,
 ) -> ApiResult<Json<Value>> {
-    let _config_control = state.config_control.lock().await;
-    let config = state.config.read().expect("config lock").clone();
+    let _config_control = state.config.config_control.lock().await;
+    let config = state.config.config.read().expect("config lock").clone();
     let profile = config
         .asr
         .api_profiles
@@ -406,11 +408,11 @@ pub(super) async fn credential_write(
 }
 
 pub(super) async fn credential_delete(
-    State(state): State<Arc<AppState>>,
+    State(state): State<SettingsContext>,
     Path(profile_id): Path<String>,
 ) -> ApiResult<Json<Value>> {
-    let _config_control = state.config_control.lock().await;
-    let config = state.config.read().expect("config lock").clone();
+    let _config_control = state.config.config_control.lock().await;
+    let config = state.config.config.read().expect("config lock").clone();
     let profile = config
         .asr
         .api_profiles
@@ -439,11 +441,11 @@ pub(super) async fn credential_delete(
 }
 
 pub(super) async fn profile_activate(
-    State(state): State<Arc<AppState>>,
+    State(state): State<SettingsContext>,
     Json(input): Json<ActiveProfileInput>,
 ) -> ApiResult<Json<Value>> {
-    let _config_control = state.config_control.lock().await;
-    let mut candidate = state.config.read().expect("config lock").clone();
+    let _config_control = state.config.config_control.lock().await;
+    let mut candidate = state.config.config.read().expect("config lock").clone();
     let profile = candidate
         .asr
         .api_profiles
@@ -491,14 +493,14 @@ pub(super) async fn profile_activate(
     candidate.asr.active_profile_id = Some(input.profile_id);
     candidate.asr.backend = input.service_id;
     commit_profile_config(&state, candidate).await?;
-    profile_list(State(Arc::clone(&state))).await
+    profile_list_response(&state)
 }
 
 pub(super) async fn profile_models(
-    State(state): State<Arc<AppState>>,
+    State(state): State<SettingsContext>,
     Path(profile_id): Path<String>,
 ) -> ApiResult<Json<Value>> {
-    let config = state.config.read().expect("config lock").clone();
+    let config = state.config.config.read().expect("config lock").clone();
     let profile = config
         .asr
         .api_profiles
@@ -519,10 +521,10 @@ pub(super) async fn profile_models(
 }
 
 pub(super) async fn profile_service_models(
-    State(state): State<Arc<AppState>>,
+    State(state): State<SettingsContext>,
     Path((profile_id, service_id)): Path<(String, String)>,
 ) -> ApiResult<Json<Value>> {
-    let config = state.config.read().expect("config lock").clone();
+    let config = state.config.config.read().expect("config lock").clone();
     let profile = config
         .asr
         .api_profiles
@@ -535,13 +537,13 @@ pub(super) async fn profile_service_models(
 }
 
 async fn service_models(
-    state: &Arc<AppState>,
+    state: &SettingsContext,
     profile: &ApiProfile,
     service: &ProviderServiceDefinition,
 ) -> ApiResult<Json<Value>> {
     if service.supports_model_listing {
         let api_key = profile_api_key(profile)?;
-        let models = crate::llm::LlmClient::new(state.http.clone())
+        let models = crate::llm::LlmClient::new(state.integrations.http.clone())
             .list_provider_models(profile, &api_key)
             .await
             .map_err(|error| api_error(StatusCode::BAD_GATEWAY, error.code, error.detail))?;
@@ -587,7 +589,7 @@ pub(super) fn profile_api_key(profile: &ApiProfile) -> ApiResult<String> {
 }
 
 async fn commit_profile_config(
-    state: &Arc<AppState>,
+    state: &SettingsContext,
     candidate: crate::config::AppConfig,
 ) -> ApiResult<()> {
     candidate.validate_settings().map_err(|error| {
@@ -602,20 +604,22 @@ async fn commit_profile_config(
 }
 
 async fn reload_after_credential_change(
-    state: &Arc<AppState>,
+    state: &SettingsContext,
     config: &crate::config::AppConfig,
     profile: &ApiProfile,
     previous: Option<String>,
 ) -> ApiResult<()> {
     if !state
+        .capture
         .capture_requested
         .load(std::sync::atomic::Ordering::SeqCst)
         || !super::capture::uses_asr_profile(config, &profile.id)
     {
         return Ok(());
     }
-    let _capture_control = state.capture_control.lock().await;
+    let _capture_control = state.capture.capture_control.lock().await;
     if !state
+        .capture
         .capture_requested
         .load(std::sync::atomic::Ordering::SeqCst)
     {

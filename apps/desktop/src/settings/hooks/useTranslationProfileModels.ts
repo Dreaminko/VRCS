@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
-import { coreApi } from "../../api";
+import { providersApi } from "../../providers/api";
 import { localizedError } from "../../app/app-utils";
-import type { ApiProfileView } from "../../types";
+import type { ApiProfileView } from "../../providers/types";
 
 export function useTranslationProfileModels(
   profile: ApiProfileView | undefined,
@@ -16,7 +16,7 @@ export function useTranslationProfileModels(
   const request = useRef(0);
 
   const load = useCallback(async (profileId: string) => {
-    const response = await coreApi.apiProfileModels(profileId);
+    const response = await providersApi.apiProfileModels(profileId);
     return response.models;
   }, []);
 

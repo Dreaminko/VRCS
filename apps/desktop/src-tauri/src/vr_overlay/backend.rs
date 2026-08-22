@@ -32,7 +32,8 @@ mod platform {
     struct SubmittedState {
         visible: bool,
         opacity: Option<f32>,
-        texture: Option<OverlayTexture>,
+        textures: [Option<OverlayTexture>; 2],
+        submitted_texture: Option<usize>,
         d3d11_disabled: bool,
     }
 
@@ -137,7 +138,8 @@ mod platform {
                     tracing::warn!(error, "D3D11 overlay upload failed; using raw uploads");
                     self.upload_raw(handle, texture)?;
                     let state = self.state_mut(kind);
-                    state.texture = None;
+                    state.textures = Default::default();
+                    state.submitted_texture = None;
                     state.d3d11_disabled = true;
                 }
                 return Ok(());
@@ -152,12 +154,18 @@ mod platform {
             source: &Texture,
         ) -> Result<(), String> {
             let device = self.texture_device.as_ref().expect("D3D11 device exists");
-            if let Some(texture) = self.state(kind).texture.as_ref() {
+            let next_index = match self.state(kind).submitted_texture {
+                Some(index) => 1 - index,
+                None => 0,
+            };
+
+            if let Some(texture) = self.state(kind).textures[next_index].as_ref() {
                 device.update_texture(texture, source)?;
-                submit_texture(self.raw_overlay, handle, texture.handle())
+                submit_texture(self.raw_overlay, handle, texture.handle())?;
             } else {
                 let texture = device.create_texture(source)?;
                 submit_texture(self.raw_overlay, handle, texture.handle())?;
+                self.state_mut(kind).textures[next_index] = Some(texture);
                 tracing::info!(
                     ?kind,
                     width = source.width,
@@ -165,9 +173,10 @@ mod platform {
                     format = "BGRA8",
                     "VR Overlay D3D11 texture submitted"
                 );
-                self.state_mut(kind).texture = Some(texture);
-                Ok(())
             }
+
+            self.state_mut(kind).submitted_texture = Some(next_index);
+            Ok(())
         }
 
         fn upload_raw(&mut self, handle: OverlayHandle, texture: &Texture) -> Result<(), String> {

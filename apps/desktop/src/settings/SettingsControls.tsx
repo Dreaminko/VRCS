@@ -10,7 +10,7 @@ import {
   buildAnkiDeckTree,
   visibleAnkiDeckNodes,
 } from "../anki/anki-decks";
-import type { AudioDevice } from "../types";
+import type { AudioDevice } from "../capture/types";
 import { useDismissibleLayer } from "../shared/hooks/use-dismissible-layer";
 import { DropdownField } from "../shared/ui/DropdownField";
 import type { DropdownOption } from "../shared/ui/DropdownField";

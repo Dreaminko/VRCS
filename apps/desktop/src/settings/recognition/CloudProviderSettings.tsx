@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { HardDrive, RefreshCw } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
-import { coreApi } from "../../api";
+import { providersApi } from "../../providers/api";
 import { localizedError } from "../../app/app-utils";
 import {
   currentRecognitionProfile,
@@ -11,7 +11,11 @@ import {
   updateRecognitionServiceSettings,
 } from "../../recognition-services";
 import { EditableDropdownField } from "../../shared/ui/DropdownField";
-import type { ApiProfileView, ProviderDefinition, Settings } from "../../types";
+import type {
+  ApiProfileView,
+  ProviderDefinition,
+} from "../../providers/types";
+import type { Settings } from "../types";
 import { Select } from "../SettingsControls";
 import { RecognitionLanguageSelect } from "./RecognitionLanguageSelect";
 
@@ -83,7 +87,7 @@ export function CloudProviderSettings({
     setDiscoveredModels([]);
     setModelsLoading(true);
     setModelsError("");
-    void coreApi.recognitionServiceModels(selectedProfile.id, service.id).then(
+    void providersApi.recognitionServiceModels(selectedProfile.id, service.id).then(
       (response) => {
         if (!cancelled) setDiscoveredModels(response.models);
       },

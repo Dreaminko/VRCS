@@ -2,7 +2,13 @@ import { AudioLines, Languages } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { recognitionProfiles } from "../../recognition-services";
-import type { ApiProfileView, AsrCapabilities, AsrModelRecord, ProviderDefinition, Settings } from "../../types";
+import type {
+  ApiProfileView,
+  AsrCapabilities,
+  AsrModelRecord,
+  ProviderDefinition,
+} from "../../providers/types";
+import type { Settings } from "../types";
 import { CloudProviderSettings } from "../recognition/CloudProviderSettings";
 import { LocalRecognitionSettings, LocalRuntimeStatus } from "../recognition/LocalRecognitionSettings";
 import { ModelManagerPanel } from "../recognition/ModelManagerPanel";

@@ -1,4 +1,4 @@
-import type { Subtitle } from "./types";
+import type { Subtitle } from "./subtitles/types";
 
 export const COMPACT_WINDOW_SIZE = { width: 720, height: 120 } as const;
 export const COMPACT_PANEL_WINDOW_SIZE = { width: 720, height: 520 } as const;

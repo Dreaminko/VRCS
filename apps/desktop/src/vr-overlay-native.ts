@@ -1,7 +1,7 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
-import type { VrOverlayStatus } from "./types";
+import type { VrOverlayStatus } from "./integrations/types";
 
 export type VrOverlayKind = "headset" | "wrist";
 

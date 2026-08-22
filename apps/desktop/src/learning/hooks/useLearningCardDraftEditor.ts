@@ -1,7 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { normalizeLearningCardDraft } from "../../learning";
-import type { LearningCardDraft, LearningCardType, LearningItem } from "../../types";
+import type {
+  LearningCardDraft,
+  LearningCardType,
+  LearningItem,
+} from "../types";
 
 export function useLearningCardDraftEditor(item: LearningItem) {
   const [cardType, setCardTypeState] = useState<LearningCardType>(() => initialCardType(item));

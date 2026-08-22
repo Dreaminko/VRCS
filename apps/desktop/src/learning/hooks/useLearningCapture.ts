@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
-import { coreApi } from "../../api";
+import { learningApi } from "../api";
 import { localizedError } from "../../app/app-utils";
 import type { Lookup } from "../../app/app-types";
 import {
@@ -12,7 +12,11 @@ import {
   subtitleLearningKey,
   subtitleSelectionLearningKey,
 } from "../../learning";
-import type { LearningItem, LearningItemCreateInput, Subtitle } from "../../types";
+import type {
+  LearningItem,
+  LearningItemCreateInput,
+} from "../types";
+import type { Subtitle } from "../../subtitles/types";
 
 export function useLearningCapture(
   ready: boolean,
@@ -29,7 +33,7 @@ export function useLearningCapture(
     const requestId = ++captureKeysRequestRef.current;
     setError("");
     try {
-      const response = await coreApi.learningCaptureKeys();
+      const response = await learningApi.learningCaptureKeys();
       if (requestId !== captureKeysRequestRef.current) return;
       setCapturedKeys((current) => new Set([...response.keys, ...current]));
     } catch (reason) {
@@ -57,7 +61,7 @@ export function useLearningCapture(
     setCaptureBusyKeys((current) => new Set(current).add(key));
     setError("");
     try {
-      const item = await coreApi.createLearningItem(input);
+      const item = await learningApi.createLearningItem(input);
       setCapturedKeys((current) => addCapturedItemKeys(new Set(current).add(key), [item]));
       onCollected(item);
       return item;
@@ -97,7 +101,7 @@ export function useLearningCapture(
 
   const refreshAfterDelete = useCallback(async (item: LearningItem | null) => {
     try {
-      const response = await coreApi.learningCaptureKeys();
+      const response = await learningApi.learningCaptureKeys();
       setCapturedKeys(new Set(response.keys));
       setError("");
     } catch {

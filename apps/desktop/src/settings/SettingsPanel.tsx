@@ -6,13 +6,11 @@ import {
   audioSelectionErrors,
   validComputeTypes,
 } from "./settings-validation";
-import type {
-  AsrCapabilities,
-  AudioDevice,
-  DictionarySource,
-  Health,
-  Settings,
-} from "../types";
+import type { AudioDevice } from "../capture/types";
+import type { Health } from "../core-client/types";
+import type { DictionarySource } from "../dictionary/types";
+import type { AsrCapabilities } from "../providers/types";
+import type { Settings } from "./types";
 import { SettingsTabBar } from "./components/SettingsTabBar";
 import { useAnkiSettings } from "./hooks/useAnkiSettings";
 import { useApiProfileViews } from "./hooks/useApiProfileViews";

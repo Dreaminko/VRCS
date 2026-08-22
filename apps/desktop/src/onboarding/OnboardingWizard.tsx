@@ -13,7 +13,10 @@ import {
 import { localizedError } from "../app/app-utils";
 import type { UiLanguagePreference } from "../app/ui-language";
 import { changeUiLanguage, currentUiLanguagePreference } from "../i18n";
-import type { AsrCapabilities, AudioDevice, Health, Settings } from "../types";
+import type { AudioDevice } from "../capture/types";
+import type { Health } from "../core-client/types";
+import type { AsrCapabilities } from "../providers/types";
+import type { Settings } from "../settings/types";
 import { useOnboardingAudio } from "./hooks/useOnboardingAudio";
 import { useOnboardingMicrophone } from "./hooks/useOnboardingMicrophone";
 import { useOnboardingRecognition } from "./hooks/useOnboardingRecognition";

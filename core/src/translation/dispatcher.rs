@@ -7,7 +7,7 @@ use crate::config::{ApiProfile, TranslationPromptConfig, TranslationTargetConfig
 use crate::db::conversations::{publish_latest_catalog, ConversationCatalog};
 use crate::db::Database;
 use crate::models::Subtitle;
-use crate::subtitle_output::SubtitleLifecyclePublisher;
+use crate::subtitle_output::{SubtitleLifecyclePublisher, TranslationFailure};
 
 use super::TranslationService;
 
@@ -27,6 +27,15 @@ struct TranslationJob {
     queued_at: Instant,
 }
 
+#[derive(Clone)]
+struct TranslationJobContext {
+    service: Arc<TranslationService>,
+    database: Arc<Mutex<Database>>,
+    conversation_catalog: broadcast::Sender<ConversationCatalog>,
+    output: SubtitleLifecyclePublisher,
+    vrcx: crate::vrcx::VrcxIntegration,
+}
+
 impl TranslationDispatcher {
     pub fn new(
         service: Arc<TranslationService>,
@@ -36,31 +45,33 @@ impl TranslationDispatcher {
         vrcx: crate::vrcx::VrcxIntegration,
     ) -> Self {
         let (sender, mut receiver) = mpsc::channel::<TranslationJob>(64);
+        let context = TranslationJobContext {
+            service,
+            database,
+            conversation_catalog,
+            output,
+            vrcx,
+        };
         tokio::spawn(async move {
             let concurrency = Arc::new(Semaphore::new(4));
             while let Some(job) = receiver.recv().await {
-                for (index, target) in job.targets.iter().cloned().enumerate() {
+                let mut permits = Vec::with_capacity(job.targets.len());
+                for _ in &job.targets {
                     let permit = Arc::clone(&concurrency).acquire_owned().await;
                     let Ok(permit) = permit else { return };
-                    let service = Arc::clone(&service);
-                    let database = Arc::clone(&database);
-                    let conversation_catalog = conversation_catalog.clone();
-                    let output = output.clone();
-                    let vrcx = vrcx.clone();
+                    permits.push(permit);
+                }
+
+                // Start every target for one subtitle together so a language cannot
+                // advance to newer subtitles while its sibling targets are waiting.
+                for ((index, target), permit) in
+                    job.targets.iter().cloned().enumerate().zip(permits)
+                {
+                    let context = context.clone();
                     let job = job.clone();
                     tokio::spawn(async move {
                         let _permit = permit;
-                        process_job(
-                            service,
-                            database,
-                            conversation_catalog,
-                            output,
-                            vrcx,
-                            job,
-                            target,
-                            index == 0,
-                        )
-                        .await;
+                        process_job(context, job, target, index == 0).await;
                     });
                 }
             }
@@ -92,15 +103,18 @@ impl TranslationDispatcher {
 }
 
 async fn process_job(
-    service: Arc<TranslationService>,
-    database: Arc<Mutex<Database>>,
-    conversation_catalog: broadcast::Sender<ConversationCatalog>,
-    output: SubtitleLifecyclePublisher,
-    vrcx: crate::vrcx::VrcxIntegration,
+    context: TranslationJobContext,
     job: TranslationJob,
     target: TranslationTargetConfig,
     preferred: bool,
 ) {
+    let TranslationJobContext {
+        service,
+        database,
+        conversation_catalog,
+        output,
+        vrcx,
+    } = context;
     let Some(subtitle_id) = job.subtitle.id else {
         return;
     };
@@ -219,39 +233,39 @@ async fn process_job(
                     );
                 }
                 Ok(Err(detail)) => {
-                    output.translation_failed_with_message(
+                    output.translation_failed_with_message(TranslationFailure {
                         subtitle_id,
-                        "translation.storage_failed".into(),
+                        code: "translation.storage_failed".into(),
                         detail,
-                        &target.target_language,
+                        target_language: &target.target_language,
                         preferred,
-                        &job.message_id,
-                        &source,
-                    );
+                        message_id: &job.message_id,
+                        source: &source,
+                    });
                 }
                 Err(error) => {
-                    output.translation_failed_with_message(
+                    output.translation_failed_with_message(TranslationFailure {
                         subtitle_id,
-                        "translation.storage_failed".into(),
-                        error.to_string(),
-                        &target.target_language,
+                        code: "translation.storage_failed".into(),
+                        detail: error.to_string(),
+                        target_language: &target.target_language,
                         preferred,
-                        &job.message_id,
-                        &source,
-                    );
+                        message_id: &job.message_id,
+                        source: &source,
+                    });
                 }
             }
         }
         Err(error) => {
-            output.translation_failed_with_message(
+            output.translation_failed_with_message(TranslationFailure {
                 subtitle_id,
-                error.code.into(),
-                error.detail,
-                &target.target_language,
+                code: error.code.into(),
+                detail: error.detail,
+                target_language: &target.target_language,
                 preferred,
-                &job.message_id,
-                &source,
-            );
+                message_id: &job.message_id,
+                source: &source,
+            });
         }
     }
 }

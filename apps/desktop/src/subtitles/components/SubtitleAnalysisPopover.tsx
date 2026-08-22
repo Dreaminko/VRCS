@@ -9,7 +9,7 @@ import {
   readAppliedInterfaceScaleFactor,
 } from "../../app/interface-scale";
 import { isLookupAnchorVisible, placeLookupPopover } from "../../shared/lib/popover-placement";
-import type { LearningAnalysis } from "../../types";
+import type { LearningAnalysis } from "../../learning/types";
 import { LearningAnalysisView } from "../../learning/components/LearningAnalysisView";
 
 const ANALYSIS_POPOVER_HEIGHT = 520;

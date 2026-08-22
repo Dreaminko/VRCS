@@ -1,6 +1,6 @@
 import { useTranslation } from "react-i18next";
 
-import type { LearningAnalysis } from "../../types";
+import type { LearningAnalysis } from "../types";
 
 export function LearningAnalysisView({
   analysis,

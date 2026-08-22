@@ -11,7 +11,7 @@ use serde_json::{json, Value};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
 use super::{
-    api_error, api_error_with_params, db_call, dictionary_import_error, ApiResult, AppState,
+    api_error, api_error_with_params, db_call, dictionary_import_error, ApiResult, ContentState,
 };
 
 const IMPORT_ID_HEADER: &str = "x-vrcs-import-id";
@@ -82,7 +82,7 @@ fn remove_import(import_id: &str) {
 }
 
 pub(super) async fn subtitle_history(
-    State(state): State<Arc<AppState>>,
+    State(state): State<ContentState>,
     Query(params): Query<HashMap<String, String>>,
 ) -> ApiResult<Json<Value>> {
     let limit = match params.get("limit") {
@@ -130,7 +130,7 @@ pub(super) async fn subtitle_history(
 }
 
 pub(super) async fn dictionary_lookup(
-    State(state): State<Arc<AppState>>,
+    State(state): State<ContentState>,
     Query(params): Query<HashMap<String, String>>,
 ) -> ApiResult<Json<Value>> {
     let query = params
@@ -156,7 +156,7 @@ pub(super) async fn dictionary_lookup(
     Ok(Json(json!(entries)))
 }
 
-pub(super) async fn dictionary_list(State(state): State<Arc<AppState>>) -> ApiResult<Json<Value>> {
+pub(super) async fn dictionary_list(State(state): State<ContentState>) -> ApiResult<Json<Value>> {
     let sources = db_call(Arc::clone(&state.db), |db| db.dictionary_sources())
         .await
         .map_err(|error| {
@@ -170,7 +170,7 @@ pub(super) async fn dictionary_list(State(state): State<Arc<AppState>>) -> ApiRe
 }
 
 pub(super) async fn dictionary_import(
-    State(state): State<Arc<AppState>>,
+    State(state): State<ContentState>,
     Extension(import_permit): Extension<Arc<OwnedSemaphorePermit>>,
     headers: HeaderMap,
     body: axum::body::Bytes,
@@ -254,7 +254,7 @@ pub(super) async fn dictionary_import_progress(
 }
 
 pub(super) async fn dictionary_delete(
-    State(state): State<Arc<AppState>>,
+    State(state): State<ContentState>,
     axum::extract::Path(source_id): axum::extract::Path<i64>,
 ) -> ApiResult<Json<Value>> {
     let deleted = db_call(Arc::clone(&state.db), move |db| {

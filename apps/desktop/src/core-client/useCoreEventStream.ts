@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { coreWebSocketUrl } from "../api";
+import { coreWebSocketUrl } from "./transport";
 import {
   clearAudioLevels,
   clearLivePartial,
@@ -17,12 +17,12 @@ import {
   parseSubtitleStreamMessage,
   type ConversationCatalogEvent,
 } from "../subtitle-stream";
+import type { ConnectionState } from "./types";
+import type { VrchatMuteStatus } from "../integrations/types";
 import type {
-  ConnectionState,
   Subtitle,
   SubtitleTranslation,
-  VrchatMuteStatus,
-} from "../types";
+} from "../subtitles/types";
 
 type EventHandlers = {
   onConnected: () => void;

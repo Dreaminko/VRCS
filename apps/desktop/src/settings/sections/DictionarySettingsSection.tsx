@@ -2,7 +2,7 @@ import type { RefObject } from "react";
 import { useTranslation } from "react-i18next";
 import { BookOpen, Trash2, Upload } from "lucide-react";
 
-import type { DictionarySource } from "../../types";
+import type { DictionarySource } from "../../dictionary/types";
 import type { SaveState } from "../settings-types";
 import { PreferenceToggle } from "../SettingsControls";
 

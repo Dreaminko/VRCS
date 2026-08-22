@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::Json;
@@ -27,7 +25,7 @@ const OPENROUTER_DIAGNOSTIC_MODELS: &[&str] = &[
 ];
 
 use super::cloud::{ensure_asr_profile_ready, profile_api_key, profile_not_found};
-use super::{api_error, ApiResult, AppState};
+use super::{api_error, ApiResult, ServiceContext};
 
 #[derive(Default, Deserialize)]
 pub(super) struct TestProfileQuery {
@@ -47,11 +45,11 @@ struct DiagnosticCheck {
 }
 
 pub(super) async fn credential_test(
-    State(state): State<Arc<AppState>>,
+    State(state): State<ServiceContext>,
     Path(profile_id): Path<String>,
     Query(query): Query<TestProfileQuery>,
 ) -> ApiResult<Json<Value>> {
-    let config = state.config.read().expect("config lock").clone();
+    let config = state.config.config.read().expect("config lock").clone();
     let profile = config
         .asr
         .api_profiles
@@ -154,7 +152,7 @@ async fn test_recognition_service(
 }
 
 async fn test_text_generation(
-    state: &Arc<AppState>,
+    state: &ServiceContext,
     profile: &ApiProfile,
     service: &ProviderServiceDefinition,
     requested_model: Option<&str>,
@@ -172,7 +170,7 @@ async fn test_text_generation(
     }
     let api_key = profile_api_key(profile)?;
     let model = test_model(state, profile, service, requested_model).await?;
-    crate::llm::LlmClient::new(state.http.clone())
+    crate::llm::LlmClient::new(state.integrations.http.clone())
         .generate(
             profile,
             &api_key,
@@ -191,7 +189,7 @@ async fn test_text_generation(
 }
 
 async fn test_translation(
-    state: &Arc<AppState>,
+    state: &ServiceContext,
     profile: &ApiProfile,
     service: &ProviderServiceDefinition,
     config: &crate::config::AppConfig,
@@ -227,6 +225,7 @@ async fn test_translation(
     };
     let prompt = crate::config::TranslationPromptConfig::default();
     state
+        .content
         .translation_service
         .translate(
             &target,
@@ -242,7 +241,7 @@ async fn test_translation(
 }
 
 async fn compatible_diagnostic(
-    state: &Arc<AppState>,
+    state: &ServiceContext,
     profile: &ApiProfile,
     requested_model: Option<&str>,
 ) -> ApiResult<Json<Value>> {
@@ -263,7 +262,7 @@ async fn compatible_diagnostic(
             return Ok(diagnostic_value(false, started, checks));
         }
     };
-    let client = crate::llm::LlmClient::new(state.http.clone());
+    let client = crate::llm::LlmClient::new(state.integrations.http.clone());
     let requested_model = requested_model
         .map(str::trim)
         .filter(|model| !model.is_empty())
@@ -342,7 +341,7 @@ async fn compatible_diagnostic(
 }
 
 async fn test_model(
-    state: &Arc<AppState>,
+    state: &ServiceContext,
     profile: &ApiProfile,
     service: &ProviderServiceDefinition,
     requested: Option<&str>,
@@ -358,7 +357,7 @@ async fn test_model(
         ));
     }
     let api_key = profile_api_key(profile)?;
-    let models = crate::llm::LlmClient::new(state.http.clone())
+    let models = crate::llm::LlmClient::new(state.integrations.http.clone())
         .list_models(profile, &api_key)
         .await
         .map_err(|error| api_error(StatusCode::BAD_GATEWAY, error.code, error.detail))?;

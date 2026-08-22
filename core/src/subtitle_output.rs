@@ -28,10 +28,13 @@ pub enum PresentationEvent {
     TranslationPartial {
         subtitle_id: i64,
         text: String,
+        target_language: String,
+        preferred: bool,
     },
     TranslationCompleted {
         subtitle_id: i64,
         translation: SubtitleTranslation,
+        preferred: bool,
     },
 }
 
@@ -62,6 +65,16 @@ pub enum TranslationEvent {
         code: String,
         detail: String,
     },
+}
+
+pub struct TranslationFailure<'a> {
+    pub subtitle_id: i64,
+    pub code: String,
+    pub detail: String,
+    pub target_language: &'a str,
+    pub preferred: bool,
+    pub message_id: &'a str,
+    pub source: &'a str,
 }
 
 /// Owns the fan-out from subtitle lifecycle events to UI broadcasts and the
@@ -216,14 +229,14 @@ impl SubtitleLifecyclePublisher {
     ) {
         self.events
             .translation_partial(message_id, source, subtitle_id, &text, &target_language);
-        if preferred {
-            let _ = self
-                .presentation
-                .send(PresentationEvent::TranslationPartial {
-                    subtitle_id,
-                    text: text.clone(),
-                });
-        }
+        let _ = self
+            .presentation
+            .send(PresentationEvent::TranslationPartial {
+                subtitle_id,
+                text: text.clone(),
+                target_language: target_language.clone(),
+                preferred,
+            });
         let _ = self
             .translations
             .send(TranslationEvent::TranslationPartial {
@@ -246,14 +259,13 @@ impl SubtitleLifecyclePublisher {
             .translation_completed(message_id, source, subtitle_id, &translation);
         self.osc
             .translation_completed(subtitle_id, translation.clone(), preferred);
-        if preferred {
-            let _ = self
-                .presentation
-                .send(PresentationEvent::TranslationCompleted {
-                    subtitle_id,
-                    translation: translation.clone(),
-                });
-        }
+        let _ = self
+            .presentation
+            .send(PresentationEvent::TranslationCompleted {
+                subtitle_id,
+                translation: translation.clone(),
+                preferred,
+            });
         let _ = self
             .translations
             .send(TranslationEvent::TranslationCompleted {
@@ -263,32 +275,26 @@ impl SubtitleLifecyclePublisher {
             });
     }
 
-    pub fn translation_failed_with_message(
-        &self,
-        subtitle_id: i64,
-        code: String,
-        detail: String,
-        target_language: &str,
-        preferred: bool,
-        message_id: &str,
-        source: &str,
-    ) {
+    pub fn translation_failed_with_message(&self, failure: TranslationFailure<'_>) {
         self.events.translation_failed(
-            message_id,
-            source,
-            subtitle_id,
-            target_language,
-            &code,
-            &detail,
+            failure.message_id,
+            failure.source,
+            failure.subtitle_id,
+            failure.target_language,
+            &failure.code,
+            &failure.detail,
         );
-        self.osc
-            .translation_failed(subtitle_id, target_language, preferred);
+        self.osc.translation_failed(
+            failure.subtitle_id,
+            failure.target_language,
+            failure.preferred,
+        );
         let _ = self.translations.send(TranslationEvent::TranslationFailed {
-            subtitle_id,
-            target_language: target_language.into(),
-            preferred,
-            code,
-            detail,
+            subtitle_id: failure.subtitle_id,
+            target_language: failure.target_language.into(),
+            preferred: failure.preferred,
+            code: failure.code,
+            detail: failure.detail,
         });
     }
 
@@ -408,11 +414,66 @@ mod tests {
         ));
         assert!(matches!(
             receiver.recv().await.unwrap(),
-            PresentationEvent::TranslationPartial { subtitle_id: 7, .. }
+            PresentationEvent::TranslationPartial {
+                subtitle_id: 7,
+                target_language,
+                preferred: true,
+                ..
+            } if target_language == "zh-Hans"
         ));
         assert!(matches!(
             receiver.recv().await.unwrap(),
-            PresentationEvent::TranslationCompleted { subtitle_id: 7, .. }
+            PresentationEvent::TranslationCompleted {
+                subtitle_id: 7,
+                preferred: true,
+                ..
+            }
+        ));
+    }
+
+    #[tokio::test]
+    async fn non_preferred_translations_are_published_for_overlay_display() {
+        let (subtitles, _) = broadcast::channel(4);
+        let (translations, _) = broadcast::channel(4);
+        let output = SubtitleLifecyclePublisher::new(
+            subtitles,
+            translations,
+            OscChatboxDispatcher::new(OscConfig::default()),
+        );
+        let mut receiver = output.subscribe_presentation_events();
+
+        output.translation_partial_with_message(
+            7,
+            "こ".into(),
+            "ja".into(),
+            false,
+            "utterance-7",
+            "speaker",
+        );
+        let translation = SubtitleTranslation {
+            text: "こんにちは".into(),
+            source_language: Some("en".into()),
+            target_language: "ja".into(),
+            provider: "test".into(),
+            model: None,
+            created_at: now_iso8601(),
+        };
+        output.translation_completed_with_message(7, translation, false, "utterance-7", "speaker");
+
+        assert!(matches!(
+            receiver.recv().await.unwrap(),
+            PresentationEvent::TranslationPartial {
+                target_language,
+                preferred: false,
+                ..
+            } if target_language == "ja"
+        ));
+        assert!(matches!(
+            receiver.recv().await.unwrap(),
+            PresentationEvent::TranslationCompleted {
+                preferred: false,
+                ..
+            }
         ));
     }
 

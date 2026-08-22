@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
-import { coreApi } from "../../api";
+import { learningApi } from "../api";
 import { localizedError } from "../../app/app-utils";
 import {
   LEARNING_PAGE_SIZE,
@@ -15,7 +15,7 @@ import type {
   LearningCardType,
   LearningItem,
   LearningItemStatus,
-} from "../../types";
+} from "../types";
 
 export type LearningStatusFilter = LearningItemStatus | "all";
 export type LearningBusyAction = "save" | "analysis" | "draft" | "export" | "status" | "delete";
@@ -53,7 +53,7 @@ export function useLearningInbox(ready: boolean) {
       const beforeId = append && items.length
         ? Math.min(...items.map((item) => item.id))
         : undefined;
-      const response = await coreApi.learningItems({
+      const response = await learningApi.learningItems({
         status: statusFilter === "all" ? undefined : statusFilter,
         limit: LEARNING_PAGE_SIZE,
         beforeId,
@@ -128,49 +128,49 @@ export function useLearningInbox(ready: boolean) {
   const updateWorkingText = useCallback((itemId: number, workingText: string) => runItemAction(
     itemId,
     "save",
-    () => coreApi.updateLearningItem(itemId, { working_text: workingText }),
+    () => learningApi.updateLearningItem(itemId, { working_text: workingText }),
     "errors.learning.save",
   ), [runItemAction]);
 
   const analyze = useCallback((itemId: number, input: LearningAnalysisInput) => runItemAction(
     itemId,
     "analysis",
-    () => coreApi.analyzeLearningItem(itemId, input),
+    () => learningApi.analyzeLearningItem(itemId, input),
     "errors.learning.analysis",
   ), [runItemAction]);
 
   const generateDraft = useCallback((itemId: number, cardType: LearningCardType) => runItemAction(
     itemId,
     "draft",
-    () => coreApi.generateLearningDraft(itemId, { card_type: cardType }),
+    () => learningApi.generateLearningDraft(itemId, { card_type: cardType }),
     "errors.learning.draft",
   ), [runItemAction]);
 
   const saveDraft = useCallback((itemId: number, draft: LearningCardDraft) => runItemAction(
     itemId,
     "save",
-    () => coreApi.updateLearningItem(itemId, { draft: normalizeLearningCardDraft(draft) }),
+    () => learningApi.updateLearningItem(itemId, { draft: normalizeLearningCardDraft(draft) }),
     "errors.learning.saveDraft",
   ), [runItemAction]);
 
   const exportItem = useCallback((itemId: number) => runItemAction(
     itemId,
     "export",
-    () => coreApi.exportLearningItem(itemId),
+    () => learningApi.exportLearningItem(itemId),
     "errors.learning.export",
   ), [runItemAction]);
 
   const archiveItem = useCallback((itemId: number) => runItemAction(
     itemId,
     "status",
-    () => coreApi.archiveLearningItem(itemId),
+    () => learningApi.archiveLearningItem(itemId),
     "errors.learning.status",
   ), [runItemAction]);
 
   const restoreItem = useCallback((itemId: number) => runItemAction(
     itemId,
     "status",
-    () => coreApi.restoreLearningItem(itemId),
+    () => learningApi.restoreLearningItem(itemId),
     "errors.learning.status",
   ), [runItemAction]);
 
@@ -181,7 +181,7 @@ export function useLearningInbox(ready: boolean) {
     setItemErrors((current) => removeRecordKey(current, itemId));
     const item = items.find((candidate) => candidate.id === itemId) ?? null;
     try {
-      await coreApi.deleteLearningItem(itemId);
+      await learningApi.deleteLearningItem(itemId);
       setItems((current) => current.filter((candidate) => candidate.id !== itemId));
       setSelectedId((current) => current === itemId ? null : current);
       return { deleted: true, item };

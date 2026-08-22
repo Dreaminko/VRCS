@@ -18,7 +18,7 @@ import type {
   ApiProfileView,
   ProviderConnectionField,
   ProviderDefinition,
-} from "../../types";
+} from "../../providers/types";
 import { Select } from "../SettingsControls";
 import { ApiCapabilitySelector } from "./ApiCapabilitySelector";
 

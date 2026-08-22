@@ -31,6 +31,12 @@ pub use streaming::{
 use crate::config::AsrConfig;
 use model::model_spec;
 
+pub(crate) type SharedAudio = std::sync::Arc<Vec<f32>>;
+
+pub(crate) fn share_audio(samples: Vec<f32>) -> SharedAudio {
+    std::sync::Arc::new(samples)
+}
+
 pub fn validate_config(config: &mut AsrConfig) -> Result<(), String> {
     model_spec(&config.local.model)?;
     let local_required =
@@ -95,6 +101,21 @@ mod tests {
     use tokio::sync::{watch, Notify};
 
     use super::*;
+
+    #[test]
+    fn shared_audio_preserves_one_sample_allocation_for_multiple_consumers() {
+        let samples = vec![0.1_f32, 0.2, 0.3, 0.4];
+        let sample_allocation = samples.as_ptr();
+
+        let shared = share_audio(samples);
+        let cloud_consumer = Arc::clone(&shared);
+        let segmenter_consumer = Arc::clone(&shared);
+
+        assert_eq!(shared.as_ptr(), sample_allocation);
+        assert_eq!(cloud_consumer.as_ptr(), sample_allocation);
+        assert_eq!(segmenter_consumer.as_ptr(), sample_allocation);
+        assert_eq!(Arc::strong_count(&shared), 3);
+    }
 
     #[test]
     fn validates_supported_configuration() {
