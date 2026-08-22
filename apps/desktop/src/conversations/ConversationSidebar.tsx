@@ -126,27 +126,28 @@ export const ConversationSidebar = memo(function ConversationSidebar({
     closeActions();
   };
 
-  if (!open) {
-    return (
-      <CollapsedConversationSidebar
-        conversations={conversations}
-        activeId={activeId}
-        selectedId={selectedId}
-        onToggle={handleToggle}
-        onNew={onNew}
-        onSelect={onSelect}
-        onSearch={onFocusSearch}
-      />
-    );
-  }
-
   const menuConversation = conversations.find((conversation) => conversation.id === actionsId);
 
   return (
     <aside
-      className={`conversation-sidebar ${resize.resizing ? "conversation-sidebar-resizing" : ""}`}
+      className={[
+        "conversation-sidebar",
+        open ? "" : "conversation-sidebar-collapsed",
+        resize.resizing ? "conversation-sidebar-resizing" : "",
+      ].filter(Boolean).join(" ")}
       aria-label={t("conversations.sidebar")}
     >
+      {!open ? (
+        <CollapsedConversationSidebar
+          conversations={conversations}
+          activeId={activeId}
+          selectedId={selectedId}
+          onToggle={handleToggle}
+          onNew={onNew}
+          onSelect={onSelect}
+          onSearch={onFocusSearch}
+        />
+      ) : <>
       <div
         className="conversation-sidebar-resize-handle"
         role="separator"
@@ -274,6 +275,7 @@ export const ConversationSidebar = memo(function ConversationSidebar({
           onClose={closeActions}
         />
       )}
+      </>}
     </aside>
   );
 });

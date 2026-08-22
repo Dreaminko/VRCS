@@ -29,6 +29,15 @@
   background: #f8fbfe;
   transform: translateX(-2px) scale(0.992);
 }
+.conversation-sidebar-collapsed-content {
+  display: flex;
+  width: 100%;
+  min-height: 0;
+  flex: 1;
+  align-items: center;
+  flex-direction: column;
+  animation: sidebar-content-in 150ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
 .sidebar-scrim { display: none; }
 .conversation-sidebar-resize-handle {
   position: absolute;

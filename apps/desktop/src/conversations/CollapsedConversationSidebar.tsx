@@ -134,7 +134,7 @@ export function CollapsedConversationSidebar({
 
   return (
     <>
-      <aside className="conversation-sidebar conversation-sidebar-collapsed" aria-label={t("conversations.sidebar")}>
+      <div className="conversation-sidebar-collapsed-content">
         <button
           className="sidebar-icon-button"
           type="button"
@@ -190,7 +190,7 @@ export function CollapsedConversationSidebar({
             />
           ))}
         </div>
-      </aside>
+      </div>
       {tooltip && createPortal(
         <div
           className={`sidebar-rail-tooltip ${tooltip.visible ? "visible" : ""} ${tooltip.keyboard ? "keyboard" : ""}`}
