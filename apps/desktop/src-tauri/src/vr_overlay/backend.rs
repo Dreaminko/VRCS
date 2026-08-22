@@ -32,8 +32,7 @@ mod platform {
     struct SubmittedState {
         visible: bool,
         opacity: Option<f32>,
-        textures: [Option<OverlayTexture>; 2],
-        submitted_texture: Option<usize>,
+        texture: Option<OverlayTexture>,
         d3d11_disabled: bool,
     }
 
@@ -138,8 +137,7 @@ mod platform {
                     tracing::warn!(error, "D3D11 overlay upload failed; using raw uploads");
                     self.upload_raw(handle, texture)?;
                     let state = self.state_mut(kind);
-                    state.textures = Default::default();
-                    state.submitted_texture = None;
+                    state.texture = None;
                     state.d3d11_disabled = true;
                 }
                 return Ok(());
@@ -154,28 +152,29 @@ mod platform {
             source: &Texture,
         ) -> Result<(), String> {
             let device = self.texture_device.as_ref().expect("D3D11 device exists");
-            let next_index = match self.state(kind).submitted_texture {
-                Some(index) => 1 - index,
-                None => 0,
-            };
-
-            if let Some(texture) = self.state(kind).textures[next_index].as_ref() {
-                device.update_texture(texture, source)?;
-                submit_texture(self.raw_overlay, handle, texture.handle())?;
-            } else {
-                let texture = device.create_texture(source)?;
-                submit_texture(self.raw_overlay, handle, texture.handle())?;
-                self.state_mut(kind).textures[next_index] = Some(texture);
+            if let Some(texture) = self.state(kind).texture.as_ref() {
+                device.copy_texture(texture, source)?;
                 tracing::info!(
                     ?kind,
+                    shared_handle = texture.shared_handle() as usize,
+                    submitted = false,
+                    "VR Overlay diagnostic: shared texture updated"
+                );
+            } else {
+                let texture = device.create_shared_texture(source)?;
+                submit_shared_texture(self.raw_overlay, handle, texture.shared_handle())?;
+                let shared_handle = texture.shared_handle() as usize;
+                self.state_mut(kind).texture = Some(texture);
+                tracing::info!(
+                    ?kind,
+                    shared_handle,
+                    submitted = true,
                     width = source.width,
                     height = source.height,
                     format = "BGRA8",
-                    "VR Overlay D3D11 texture submitted"
+                    "VR Overlay diagnostic: shared texture submitted"
                 );
             }
-
-            self.state_mut(kind).submitted_texture = Some(next_index);
             Ok(())
         }
 
@@ -327,14 +326,14 @@ mod platform {
             .map_err(|_| "OpenVR did not provide a DXGI adapter".to_string())
     }
 
-    fn submit_texture(
+    fn submit_shared_texture(
         raw_overlay: *const openvr_sys::VR_IVROverlay_FnTable,
         handle: OverlayHandle,
-        texture_handle: *mut std::ffi::c_void,
+        shared_handle: *mut std::ffi::c_void,
     ) -> Result<(), String> {
         let mut texture = openvr_sys::Texture_t {
-            handle: texture_handle,
-            eType: openvr_sys::ETextureType_TextureType_DirectX,
+            handle: shared_handle,
+            eType: openvr_sys::ETextureType_TextureType_DXGISharedHandle,
             eColorSpace: openvr_sys::EColorSpace_ColorSpace_Auto,
         };
         let error = unsafe {

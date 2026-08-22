@@ -321,15 +321,36 @@ impl WristPresentation {
                 translation,
                 preferred,
             } => {
+                let target_language = translation.target_language.clone();
+                let mut matched = false;
+                let mut accepted = false;
+                let mut visible_languages = String::new();
                 if let Some(item) = self
                     .entries
                     .iter_mut()
                     .find(|item| item.subtitle_id == Some(subtitle_id))
                 {
-                    if update_completed_translation(item, translation, preferred) {
+                    matched = true;
+                    accepted = update_completed_translation(item, translation, preferred);
+                    visible_languages = item
+                        .translations
+                        .iter()
+                        .map(|translation| translation.target_language.as_str())
+                        .collect::<Vec<_>>()
+                        .join(",");
+                    if accepted {
                         self.last_activity = Some(now);
                     }
                 }
+                tracing::info!(
+                    subtitle_id,
+                    %target_language,
+                    preferred,
+                    matched,
+                    accepted,
+                    %visible_languages,
+                    "VR Overlay diagnostic: wrist translation state"
+                );
             }
             _ => {}
         }

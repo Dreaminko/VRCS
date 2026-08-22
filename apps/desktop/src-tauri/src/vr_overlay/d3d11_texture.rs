@@ -8,12 +8,15 @@ const D3D11_SDK_VERSION: u32 = 7;
 const D3D11_CREATE_DEVICE_BGRA_SUPPORT: u32 = 0x20;
 const D3D11_USAGE_DEFAULT: u32 = 0;
 const D3D11_BIND_SHADER_RESOURCE: u32 = 0x8;
+const D3D11_RESOURCE_MISC_SHARED: u32 = 0x2;
 const DXGI_FORMAT_B8G8R8A8_UNORM: u32 = 87;
 
+const QUERY_INTERFACE_INDEX: usize = 0;
 const RELEASE_INDEX: usize = 2;
 const ENUM_ADAPTERS_1_INDEX: usize = 12;
 const CREATE_TEXTURE_2D_INDEX: usize = 5;
-const UPDATE_SUBRESOURCE_INDEX: usize = 48;
+const GET_SHARED_HANDLE_INDEX: usize = 8;
+const COPY_RESOURCE_INDEX: usize = 47;
 const FLUSH_INDEX: usize = 111;
 
 const IID_IDXGI_FACTORY_1: Guid = Guid {
@@ -23,6 +26,14 @@ const IID_IDXGI_FACTORY_1: Guid = Guid {
     data4: [0xa8, 0x29, 0x25, 0x3c, 0x83, 0xd1, 0xb3, 0x87],
 };
 
+const IID_IDXGI_RESOURCE: Guid = Guid {
+    data1: 0x035f_3ab4,
+    data2: 0x482e,
+    data3: 0x4e50,
+    data4: [0xb4, 0x1f, 0x8a, 0x7f, 0x8b, 0xd8, 0x96, 0x0b],
+};
+
+type QueryInterface = unsafe extern "system" fn(*mut c_void, *const Guid, *mut *mut c_void) -> i32;
 type EnumAdapters1 = unsafe extern "system" fn(*mut c_void, u32, *mut *mut c_void) -> i32;
 type CreateTexture2d = unsafe extern "system" fn(
     *mut c_void,
@@ -30,15 +41,8 @@ type CreateTexture2d = unsafe extern "system" fn(
     *const SubresourceData,
     *mut *mut c_void,
 ) -> i32;
-type UpdateSubresource = unsafe extern "system" fn(
-    *mut c_void,
-    *mut c_void,
-    u32,
-    *const c_void,
-    *const c_void,
-    u32,
-    u32,
-);
+type GetSharedHandle = unsafe extern "system" fn(*mut c_void, *mut *mut c_void) -> i32;
+type CopyResource = unsafe extern "system" fn(*mut c_void, *mut c_void, *mut c_void);
 type Flush = unsafe extern "system" fn(*mut c_void);
 type Release = unsafe extern "system" fn(*mut c_void) -> u32;
 
@@ -105,6 +109,7 @@ pub struct Device {
 
 pub struct OverlayTexture {
     texture: ComPtr,
+    shared_handle: *mut c_void,
     width: u32,
     height: u32,
 }
@@ -144,8 +149,48 @@ impl Device {
         })
     }
 
-    pub fn create_texture(&self, source: &Texture) -> Result<OverlayTexture, String> {
+    pub fn create_shared_texture(&self, source: &Texture) -> Result<OverlayTexture, String> {
         validate(source)?;
+        let texture = self.create_texture_resource(source, D3D11_RESOURCE_MISC_SHARED)?;
+        let resource = query_interface(texture.0, &IID_IDXGI_RESOURCE)?;
+        let get_shared_handle: GetSharedHandle =
+            unsafe { std::mem::transmute(method(resource.0, GET_SHARED_HANDLE_INDEX)) };
+        let mut shared_handle = null_mut();
+        let result = unsafe { get_shared_handle(resource.0, &mut shared_handle) };
+        if result < 0 || shared_handle.is_null() {
+            return Err(format!(
+                "IDXGIResource::GetSharedHandle failed with HRESULT 0x{result:08x}"
+            ));
+        }
+
+        self.flush();
+        Ok(OverlayTexture {
+            texture,
+            shared_handle,
+            width: source.width,
+            height: source.height,
+        })
+    }
+
+    pub fn copy_texture(
+        &self,
+        destination: &OverlayTexture,
+        source: &Texture,
+    ) -> Result<(), String> {
+        validate(source)?;
+        if destination.width != source.width || destination.height != source.height {
+            return Err("Overlay texture dimensions changed unexpectedly".into());
+        }
+
+        let upload = self.create_texture_resource(source, 0)?;
+        let copy: CopyResource =
+            unsafe { std::mem::transmute(method(self.context.0, COPY_RESOURCE_INDEX)) };
+        unsafe { copy(self.context.0, destination.texture.0, upload.0) };
+        self.flush();
+        Ok(())
+    }
+
+    fn create_texture_resource(&self, source: &Texture, misc_flags: u32) -> Result<ComPtr, String> {
         let pitch = source.width * 4;
         let pixels = rgba_to_bgra(&source.pixels);
         let desc = Texture2dDesc {
@@ -161,7 +206,7 @@ impl Device {
             usage: D3D11_USAGE_DEFAULT,
             bind_flags: D3D11_BIND_SHADER_RESOURCE,
             cpu_access_flags: 0,
-            misc_flags: 0,
+            misc_flags,
         };
         let initial = SubresourceData {
             system_memory: pixels.as_ptr().cast(),
@@ -179,41 +224,7 @@ impl Device {
             ));
         }
 
-        self.flush();
-        Ok(OverlayTexture {
-            texture: ComPtr(texture),
-            width: source.width,
-            height: source.height,
-        })
-    }
-
-    pub fn update_texture(
-        &self,
-        destination: &OverlayTexture,
-        source: &Texture,
-    ) -> Result<(), String> {
-        validate(source)?;
-        if destination.width != source.width || destination.height != source.height {
-            return Err("Overlay texture dimensions changed unexpectedly".into());
-        }
-
-        let pitch = source.width * 4;
-        let pixels = rgba_to_bgra(&source.pixels);
-        let update: UpdateSubresource =
-            unsafe { std::mem::transmute(method(self.context.0, UPDATE_SUBRESOURCE_INDEX)) };
-        unsafe {
-            update(
-                self.context.0,
-                destination.texture.0,
-                0,
-                null(),
-                pixels.as_ptr().cast(),
-                pitch,
-                pitch * source.height,
-            );
-        }
-        self.flush();
-        Ok(())
+        Ok(ComPtr(texture))
     }
 
     fn flush(&self) {
@@ -223,8 +234,8 @@ impl Device {
 }
 
 impl OverlayTexture {
-    pub fn handle(&self) -> *mut c_void {
-        self.texture.0
+    pub fn shared_handle(&self) -> *mut c_void {
+        self.shared_handle
     }
 }
 
@@ -258,6 +269,20 @@ fn dxgi_adapter(index: u32) -> Result<ComPtr, String> {
         ));
     }
     Ok(ComPtr(adapter))
+}
+
+fn query_interface(object: *mut c_void, iid: &Guid) -> Result<ComPtr, String> {
+    let query: QueryInterface =
+        unsafe { std::mem::transmute(method(object, QUERY_INTERFACE_INDEX)) };
+    let mut interface = null_mut();
+    let result = unsafe { query(object, iid, &mut interface) };
+    if result < 0 || interface.is_null() {
+        unsafe { release(interface) };
+        return Err(format!(
+            "IUnknown::QueryInterface failed with HRESULT 0x{result:08x}"
+        ));
+    }
+    Ok(ComPtr(interface))
 }
 
 fn rgba_to_bgra(source: &[u8]) -> Vec<u8> {

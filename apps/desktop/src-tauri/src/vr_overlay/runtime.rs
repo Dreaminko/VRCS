@@ -1,3 +1,4 @@
+use std::hash::{DefaultHasher, Hash, Hasher};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, SyncSender, TrySendError};
 use std::sync::{Arc, Mutex};
@@ -11,7 +12,8 @@ use vrcs_core::{PresentationEvent, VrOverlayConfig};
 
 use super::backend::{OpenVrBackend, OverlayKind};
 use super::presentation::{
-    HeadsetPresentation, MessageSide, PresentationFrame, WristMessage, WristPresentation,
+    HeadsetPresentation, MessageSide, PresentationContent, PresentationFrame, WristMessage,
+    WristPresentation,
 };
 use super::process::steamvr_running;
 use super::renderer::{self, Layout};
@@ -681,6 +683,29 @@ fn render_and_show(
         renderer::content_hash(layout, &frame.content, font_size_px, background_opacity);
     if *last_hash != Some(content_hash) {
         let texture = renderer::render(layout, &frame.content, font_size_px, background_opacity)?;
+        let mut pixel_hasher = DefaultHasher::new();
+        texture.pixels.hash(&mut pixel_hasher);
+        let pixel_hash = pixel_hasher.finish();
+        let (message_count, line_count) = match &frame.content {
+            PresentationContent::Headset(text) => (1, text.lines().count()),
+            PresentationContent::Wrist(messages) => (
+                messages.len(),
+                messages
+                    .iter()
+                    .map(|message| message.text.lines().count())
+                    .sum(),
+            ),
+        };
+        tracing::info!(
+            ?kind,
+            content_hash,
+            pixel_hash,
+            message_count,
+            line_count,
+            width = texture.width,
+            height = texture.height,
+            "VR Overlay diagnostic: frame rendered"
+        );
         backend.upload(kind, &texture)?;
         *last_hash = Some(content_hash);
     }
