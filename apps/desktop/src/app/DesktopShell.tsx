@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import { useTranslation } from "react-i18next";
 import { ChevronDown, LoaderCircle } from "lucide-react";
@@ -18,12 +18,36 @@ import { UpdateNotice } from "../updates/UpdateNotice";
 import { SelectionToolOverlays } from "./SelectionToolOverlays";
 import type { AppWorkspace } from "./useAppWorkspace";
 
-const LearningWorkspace = lazy(() => import("../learning/components/LearningWorkspace").then(
+let learningWorkspaceModule: Promise<typeof import("../learning/components/LearningWorkspace")> | undefined;
+let settingsPanelModule: Promise<typeof import("../settings/SettingsPanel")> | undefined;
+
+function loadLearningWorkspace() {
+  learningWorkspaceModule ??= import("../learning/components/LearningWorkspace").catch((error) => {
+    learningWorkspaceModule = undefined;
+    throw error;
+  });
+  return learningWorkspaceModule;
+}
+
+function loadSettingsPanel() {
+  settingsPanelModule ??= import("../settings/SettingsPanel").catch((error) => {
+    settingsPanelModule = undefined;
+    throw error;
+  });
+  return settingsPanelModule;
+}
+
+const LearningWorkspace = lazy(() => loadLearningWorkspace().then(
   ({ LearningWorkspace }) => ({ default: LearningWorkspace }),
 ));
-const SettingsPanel = lazy(() => import("../settings/SettingsPanel").then(
+const SettingsPanel = lazy(() => loadSettingsPanel().then(
   ({ SettingsPanel }) => ({ default: SettingsPanel }),
 ));
+
+function preloadPage(page: Page) {
+  if (page === "learning") void loadLearningWorkspace().catch(() => undefined);
+  if (page === "settings") void loadSettingsPanel().catch(() => undefined);
+}
 
 function PageLoading() {
   const { t } = useTranslation();
@@ -67,6 +91,19 @@ export function DesktopShell({
   } = workspace;
   const [sidebarResizing, setSidebarResizing] = useState(false);
   const chatboxButtonRef = useRef<HTMLButtonElement | null>(null);
+
+  useEffect(() => {
+    const preloadDeferredPages = () => {
+      preloadPage("learning");
+      preloadPage("settings");
+    };
+    if ("requestIdleCallback" in window) {
+      const idleCallback = window.requestIdleCallback(preloadDeferredPages, { timeout: 1500 });
+      return () => window.cancelIdleCallback(idleCallback);
+    }
+    const timer = globalThis.setTimeout(preloadDeferredPages, 250);
+    return () => globalThis.clearTimeout(timer);
+  }, []);
 
   const selectConversation = useCallback((id: string) => {
     conversations.selectConversation(id);
@@ -291,6 +328,7 @@ export function DesktopShell({
           if (next === "settings") setSettingsInitialCategory("system");
           setPage(next);
         }}
+        onPageIntent={preloadPage}
         onCompact={() => void compact.enterCompact()}
         onChatbox={() => {
           if (page !== "live") {
