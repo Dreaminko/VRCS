@@ -61,10 +61,12 @@ export function useAppWorkspace({
     subtitles: subtitles.items,
     conversationCatalogEvent: subtitles.conversationCatalogEvent,
     openConversation: subtitles.openConversation,
+    openConversationAt: subtitles.openConversationAt,
     page,
     running: runtime.health?.capture_requested ?? false,
     hasOlderSubtitles: subtitles.hasOlder,
     loadingConversationSubtitles: subtitles.loadingConversation,
+    focusedSubtitleId: subtitles.focusedSubtitleId,
     reportError: runtime.reportError,
     clearErrorFrom: runtime.clearErrorFrom,
   });

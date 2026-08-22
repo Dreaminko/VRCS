@@ -43,6 +43,7 @@ export const LiveView = memo(function LiveView({
   isLearningSelectionBusy,
   isLearningSelectionCaptured,
   translatingSubtitleIds = [],
+  focusedSubtitleId = null,
 }: {
   subtitles: Subtitle[];
   scrollContainerRef: RefObject<HTMLDivElement | null>;
@@ -65,6 +66,7 @@ export const LiveView = memo(function LiveView({
   isLearningSelectionBusy?: (subtitles: Subtitle[]) => boolean;
   isLearningSelectionCaptured?: (subtitles: Subtitle[]) => boolean;
   translatingSubtitleIds?: number[];
+  focusedSubtitleId?: number | null;
 }) {
   const { t } = useTranslation();
   const chronological = useMemo(() => [...subtitles].reverse(), [subtitles]);
@@ -111,6 +113,16 @@ export const LiveView = memo(function LiveView({
   useEffect(() => {
     if (multiSelectionActive) window.getSelection()?.removeAllRanges();
   }, [multiSelectionActive]);
+
+  useEffect(() => {
+    if (focusedSubtitleId === null || loading) return;
+    const frame = window.requestAnimationFrame(() => {
+      containerRef.current
+        ?.querySelector<HTMLElement>(`[data-subtitle-id="${focusedSubtitleId}"]`)
+        ?.scrollIntoView({ block: "center" });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [containerRef, focusedSubtitleId, loading]);
 
   const showCopyFeedback = useCallback((tone: "success" | "error", text: string) => {
     if (feedbackTimerRef.current !== null) window.clearTimeout(feedbackTimerRef.current);
@@ -166,6 +178,7 @@ export const LiveView = memo(function LiveView({
               <SubtitleBubble
                 key={subtitle.id ?? `${subtitle.created_at}-${index}`}
                 subtitle={subtitle}
+                focused={subtitle.id === focusedSubtitleId}
                 selected={selected}
                 selectionActive={selectedIds.size > 0}
                 selection={selected && selectedSubtitles.length > 1 ? selectedSubtitles : null}

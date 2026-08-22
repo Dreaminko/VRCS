@@ -12,6 +12,7 @@ pub(crate) mod conversations;
 mod dictionary;
 mod learning;
 mod storage;
+mod subtitle_search;
 mod subtitles;
 mod translation_context;
 mod translations;
@@ -170,6 +171,7 @@ impl Database {
         }
 
         self.initialize_learning_storage()?;
+        self.initialize_subtitle_search()?;
         conversations::initialize_conversations(&self.conn)?;
         for (term, language, definition) in SEED_ENTRIES {
             self.conn.execute(

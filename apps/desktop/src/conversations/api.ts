@@ -1,5 +1,6 @@
 import { request } from "../core-client/transport";
 import type { ConversationSubtitlePage } from "../subtitle-stream";
+import type { ConversationSubtitleContext } from "../subtitles/types";
 import type {
   ConversationCatalog,
   ConversationIcon,
@@ -37,4 +38,12 @@ export const conversationsApi = {
       { signal },
     );
   },
+  conversationSubtitleContext: (
+    conversationId: string,
+    subtitleId: number,
+    { radius = 50, signal }: { radius?: number; signal?: AbortSignal } = {},
+  ) => request<ConversationSubtitleContext>(
+    `/api/conversations/${encodeURIComponent(conversationId)}/subtitles/${subtitleId}/context?radius=${radius}`,
+    { signal },
+  ),
 };

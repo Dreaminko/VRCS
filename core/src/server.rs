@@ -14,6 +14,7 @@ mod models;
 mod osc;
 mod provider_diagnostics;
 mod runtime;
+mod search;
 mod settings;
 mod storage;
 mod translation;
@@ -194,6 +195,7 @@ pub fn router(state: Arc<AppState>) -> Router {
             "/api/subtitles/range",
             delete(storage::delete_subtitle_range),
         )
+        .route("/api/subtitles/search", get(search::subtitles))
         .route(
             "/api/conversations",
             get(conversations::catalog).post(conversations::create),
@@ -205,6 +207,10 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route(
             "/api/conversations/{id}/subtitles",
             get(conversations::subtitles),
+        )
+        .route(
+            "/api/conversations/{id}/subtitles/{subtitle_id}/context",
+            get(conversations::subtitle_context),
         )
         .route("/api/storage/stats", get(storage::database_stats))
         .route(

@@ -384,6 +384,142 @@ fn subtitle_translation_is_saved_and_loaded() {
 }
 
 #[test]
+fn subtitle_search_finds_originals_and_translations_without_duplicates() {
+    let (_path, database) = open_temp_db("subtitle-search");
+    let first = database
+        .add_subtitle(&subtitle("今日は Virtual Market に行きます"))
+        .unwrap();
+    let second = database
+        .add_subtitle(&subtitle("Virtual Market starts soon"))
+        .unwrap();
+    database
+        .save_translation(
+            first.id.unwrap(),
+            &SubtitleTranslation {
+                text: "I am going to the virtual market today".into(),
+                source_language: Some("ja".into()),
+                target_language: "en".into(),
+                provider: "local".into(),
+                model: None,
+                created_at: now_iso8601(),
+            },
+        )
+        .unwrap();
+
+    let page = database.search_subtitles("Virtual Market", 50, 0).unwrap();
+    assert_eq!(page.items.len(), 2);
+    assert!(!page.has_more);
+    assert_eq!(
+        page.items
+            .iter()
+            .map(|hit| hit.subtitle.id.unwrap())
+            .collect::<std::collections::HashSet<_>>(),
+        [first.id.unwrap(), second.id.unwrap()]
+            .into_iter()
+            .collect()
+    );
+    let translated = database.search_subtitles("going to the", 50, 0).unwrap();
+    assert_eq!(translated.items.len(), 1);
+    assert_eq!(translated.items[0].matched_field, "translation");
+
+    let single_character = database.search_subtitles("今", 50, 0).unwrap();
+    assert_eq!(single_character.items.len(), 1);
+    assert_eq!(single_character.items[0].subtitle.id, first.id);
+
+    let single_character_translation = database.search_subtitles("g", 50, 0).unwrap();
+    assert_eq!(single_character_translation.items.len(), 1);
+    assert_eq!(
+        single_character_translation.items[0].matched_field,
+        "translation"
+    );
+}
+
+#[test]
+fn subtitle_search_index_tracks_updates_and_deletes() {
+    let (_path, database) = open_temp_db("subtitle-search-lifecycle");
+    let saved = database
+        .add_subtitle(&subtitle("searchable phrase"))
+        .unwrap();
+    let subtitle_id = saved.id.unwrap();
+    assert_eq!(
+        database
+            .search_subtitles("searchable", 10, 0)
+            .unwrap()
+            .items
+            .len(),
+        1
+    );
+
+    database
+        .conn
+        .execute(
+            "UPDATE subtitles SET text = 'replacement phrase' WHERE id = ?1",
+            [subtitle_id],
+        )
+        .unwrap();
+    assert!(database
+        .search_subtitles("searchable", 10, 0)
+        .unwrap()
+        .items
+        .is_empty());
+    assert_eq!(
+        database
+            .search_subtitles("replacement", 10, 0)
+            .unwrap()
+            .items
+            .len(),
+        1
+    );
+
+    database
+        .conn
+        .execute("DELETE FROM subtitles WHERE id = ?1", [subtitle_id])
+        .unwrap();
+    assert!(database
+        .search_subtitles("replacement", 10, 0)
+        .unwrap()
+        .items
+        .is_empty());
+}
+
+#[test]
+fn conversation_context_centers_the_target_and_reports_both_directions() {
+    let (_path, database) = open_temp_db("subtitle-context");
+    let saved = (0..7)
+        .map(|index| {
+            database
+                .add_subtitle(&subtitle(&format!("context line {index}")))
+                .unwrap()
+        })
+        .collect::<Vec<_>>();
+    let conversation_id = saved[0].conversation_id.as_deref().unwrap();
+    let target_id = saved[3].id.unwrap();
+
+    let context = database
+        .conversation_subtitle_context(conversation_id, target_id, 2)
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        context
+            .items
+            .iter()
+            .map(|item| item.id.unwrap())
+            .collect::<Vec<_>>(),
+        saved[1..=5]
+            .iter()
+            .rev()
+            .map(|item| item.id.unwrap())
+            .collect::<Vec<_>>()
+    );
+    assert!(context.has_older);
+    assert_eq!(context.target_id, target_id);
+    assert!(database
+        .conversation_subtitle_context(conversation_id, saved[6].id.unwrap() + 100, 2)
+        .unwrap()
+        .is_none());
+}
+
+#[test]
 fn subtitle_history_keeps_batched_translations_with_their_subtitles() {
     let (_path, database) = open_temp_db("history-translations");
     let older = database.add_subtitle(&subtitle("older")).unwrap();

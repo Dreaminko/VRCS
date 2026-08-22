@@ -19,12 +19,14 @@ export function useConversationCatalog({
   coreReady,
   conversationCatalogEvent,
   openConversation,
+  openConversationAt,
   reportError,
   clearErrorFrom,
 }: {
   coreReady: boolean;
   conversationCatalogEvent: ConversationCatalogEvent | null;
   openConversation: (conversationId: string | null) => Promise<void>;
+  openConversationAt: (conversationId: string, subtitleId: number) => Promise<void>;
   reportError: (reason: unknown, fallbackKey: string, source?: string) => void;
   clearErrorFrom: (source: string) => void;
 }) {
@@ -115,6 +117,13 @@ export function useConversationCatalog({
     void openConversation(id);
   }, [catalog, openConversation]);
 
+  const selectConversationAt = useCallback((id: string, subtitleId: number) => {
+    if (!catalogConversation(catalog, id)) return;
+    selectedConversationIdRef.current = id;
+    setSelectedConversationId(id);
+    void openConversationAt(id, subtitleId);
+  }, [catalog, openConversationAt]);
+
   const createConversation = useCallback(async (): Promise<boolean> => {
     const requestStartSequence = latestCatalogEventRef.current?.sequence ?? 0;
     try {
@@ -168,6 +177,7 @@ export function useConversationCatalog({
     catalog,
     selectedConversationId,
     selectConversation,
+    selectConversationAt,
     createConversation,
     updateConversation,
     deleteConversation,

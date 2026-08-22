@@ -26,6 +26,7 @@
 .message-group.source-chatbox.subtitle-selected .bubble {
   background: color-mix(in srgb, var(--primary-soft) 90%, var(--primary) 10%);
 }
+.message-group.subtitle-search-focused .bubble { border-color: var(--primary); }
 .message-group.source-microphone,
 .message-group.source-chatbox { align-self: flex-end; align-items: flex-end; }
 .message-meta { display: flex; align-items: center; gap: 7px; margin: 0 8px 5px; color: var(--text-secondary); font-size: 11px; }

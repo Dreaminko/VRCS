@@ -12,6 +12,7 @@ export function useLiveConversationScroll({
   openedConversationId,
   loadingConversationSubtitles,
   selectedConversationUpdatedAt,
+  focusedSubtitleId,
 }: {
   page: Page;
   running: boolean;
@@ -20,12 +21,14 @@ export function useLiveConversationScroll({
   openedConversationId: string | null;
   loadingConversationSubtitles: boolean;
   selectedConversationUpdatedAt: string | null;
+  focusedSubtitleId: number | null;
 }) {
   const liveScrollRef = useRef<HTMLDivElement>(null);
   const previousLiveScrollTopRef = useRef(0);
   const [followingLiveSubtitles, setFollowingLiveSubtitles] = useState(true);
   const liveAutoScrollActive = page === "live"
     && running
+    && focusedSubtitleId === null
     && selectedConversationId !== null
     && selectedConversationId === activeConversationId;
 
@@ -54,6 +57,7 @@ export function useLiveConversationScroll({
       || selectedConversationId === null
       || openedConversationId !== selectedConversationId
       || loadingConversationSubtitles
+      || focusedSubtitleId !== null
     ) return;
     setFollowingLiveSubtitles(true);
     const frame = window.requestAnimationFrame(
@@ -66,7 +70,12 @@ export function useLiveConversationScroll({
     page,
     scrollLiveViewToBottom,
     selectedConversationId,
+    focusedSubtitleId,
   ]);
+
+  useEffect(() => {
+    if (focusedSubtitleId !== null) setFollowingLiveSubtitles(false);
+  }, [focusedSubtitleId]);
 
   useEffect(() => {
     if (!liveAutoScrollActive || !followingLiveSubtitles) return;

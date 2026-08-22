@@ -1,5 +1,9 @@
 import { request } from "../core-client/transport";
-import type { Subtitle, SubtitleTranslation } from "./types";
+import type {
+  Subtitle,
+  SubtitleSearchPage,
+  SubtitleTranslation,
+} from "./types";
 
 export const subtitlesApi = {
   subtitles: ({ limit = 100, beforeId }: { limit?: number; beforeId?: number } = {}) => {
@@ -23,4 +27,19 @@ export const subtitlesApi = {
       target_language: targetLanguage,
     }),
   }),
+  search: (
+    query: string,
+    { limit = 50, offset = 0, signal }: {
+      limit?: number;
+      offset?: number;
+      signal?: AbortSignal;
+    } = {},
+  ) => {
+    const params = new URLSearchParams({
+      q: query,
+      limit: String(limit),
+      offset: String(offset),
+    });
+    return request<SubtitleSearchPage>(`/api/subtitles/search?${params}`, { signal });
+  },
 };

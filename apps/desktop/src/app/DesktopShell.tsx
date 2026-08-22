@@ -72,6 +72,10 @@ export function DesktopShell({
     conversations.selectConversation(id);
     selection.clear();
   }, [conversations.selectConversation, selection.clear]);
+  const selectConversationAt = useCallback((conversationId: string, subtitleId: number) => {
+    conversations.selectConversationAt(conversationId, subtitleId);
+    selection.clear();
+  }, [conversations.selectConversationAt, selection.clear]);
   const createConversation = useCallback(async () => {
     if (await conversations.createConversation()) selection.clear();
   }, [conversations.createConversation, selection.clear]);
@@ -117,6 +121,9 @@ export function DesktopShell({
             onIconChange={conversations.setConversationIcon}
             onResetCustomization={conversations.resetConversationCustomization}
             onDelete={conversations.deleteConversation}
+            onSelectAt={selectConversationAt}
+            onFocusSearch={conversations.search.focus}
+            search={conversations.search}
           />
         )}
         {page === "live" && conversations.sidebarOpen && (
@@ -172,6 +179,7 @@ export function DesktopShell({
                   running={
                     (runtime.health?.capture_requested ?? false)
                     && conversations.selectedConversation?.id === conversations.activeConversation?.id
+                    && subtitles.focusedSubtitleId === null
                   }
                   hasOlder={conversations.selectedConversationHasOlder}
                   loading={conversations.selectedLoading}
@@ -191,6 +199,7 @@ export function DesktopShell({
                   isLearningSelectionBusy={learning.actions.isSubtitleSelectionLearningBusy}
                   isLearningSelectionCaptured={learning.actions.isSubtitleSelectionLearningCaptured}
                   translatingSubtitleIds={subtitles.translatingIds}
+                  focusedSubtitleId={subtitles.focusedSubtitleId}
                 />
               </>
             )}
@@ -252,9 +261,19 @@ export function DesktopShell({
         <button
           className="live-scroll-to-bottom"
           type="button"
-          aria-label={t("live.returnToBottom")}
-          title={t("live.returnToBottomShort")}
-          onClick={() => conversations.scrollLiveViewToBottom()}
+          aria-label={t(subtitles.focusedSubtitleId !== null
+            ? "live.returnToLatest"
+            : "live.returnToBottom")}
+          title={t(subtitles.focusedSubtitleId !== null
+            ? "live.returnToLatestShort"
+            : "live.returnToBottomShort")}
+          onClick={() => {
+            if (subtitles.focusedSubtitleId !== null && conversations.selectedConversation) {
+              void subtitles.openConversation(conversations.selectedConversation.id);
+            } else {
+              conversations.scrollLiveViewToBottom();
+            }
+          }}
         >
           <ChevronDown size={20} strokeWidth={2} />
         </button>

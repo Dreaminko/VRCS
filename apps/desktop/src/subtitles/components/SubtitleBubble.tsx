@@ -24,6 +24,7 @@ type SubtitleSource = NonNullable<Subtitle["source"]>;
 
 export const SubtitleBubble = memo(function SubtitleBubble({
   subtitle,
+  focused,
   selected,
   selectionActive,
   selection,
@@ -45,6 +46,7 @@ export const SubtitleBubble = memo(function SubtitleBubble({
   selectionLearningCaptured = false,
 }: {
   subtitle: Subtitle;
+  focused: boolean;
   selected: boolean;
   selectionActive: boolean;
   selection: Subtitle[] | null;
@@ -169,8 +171,9 @@ export const SubtitleBubble = memo(function SubtitleBubble({
     <article
       ref={articleRef}
       data-subtitle-id={subtitle.id ?? undefined}
-      className={`message-group source-${source} ${selected ? "subtitle-selected" : ""}`}
+      className={`message-group source-${source} ${selected ? "subtitle-selected" : ""} ${focused ? "subtitle-search-focused" : ""}`}
       aria-selected={selected}
+      aria-current={focused ? "true" : undefined}
       onContextMenu={(event) => {
         event.preventDefault();
         openContextMenu(event.clientX, event.clientY);

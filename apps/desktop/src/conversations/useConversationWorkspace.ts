@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import type { Page } from "../app/app-types";
@@ -12,6 +12,7 @@ import type { ConversationCatalogEvent } from "../subtitle-stream";
 import type { Subtitle } from "../subtitles/types";
 import { useConversationCatalog } from "./useConversationCatalog";
 import { useLiveConversationScroll } from "./useLiveConversationScroll";
+import { useConversationSearch } from "./useConversationSearch";
 
 const SIDEBAR_OPEN_KEY = "vrcs.conversation-sidebar-open";
 const SIDEBAR_WIDTH_KEY = "vrcs.conversation-sidebar-width";
@@ -26,10 +27,12 @@ export function useConversationWorkspace({
   subtitles,
   conversationCatalogEvent,
   openConversation,
+  openConversationAt,
   page,
   running,
   hasOlderSubtitles,
   loadingConversationSubtitles,
+  focusedSubtitleId,
   reportError,
   clearErrorFrom,
 }: {
@@ -38,10 +41,12 @@ export function useConversationWorkspace({
   subtitles: Subtitle[];
   conversationCatalogEvent: ConversationCatalogEvent | null;
   openConversation: (conversationId: string | null) => Promise<void>;
+  openConversationAt: (conversationId: string, subtitleId: number) => Promise<void>;
   page: Page;
   running: boolean;
   hasOlderSubtitles: boolean;
   loadingConversationSubtitles: boolean;
+  focusedSubtitleId: number | null;
   reportError: (reason: unknown, fallbackKey: string, source?: string) => void;
   clearErrorFrom: (source: string) => void;
 }) {
@@ -50,10 +55,13 @@ export function useConversationWorkspace({
     () => localStorage.getItem(SIDEBAR_OPEN_KEY) !== "false",
   );
   const [sidebarWidth, setSidebarWidth] = useState(initialSidebarWidth);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const search = useConversationSearch(coreReady && page === "live");
   const catalogState = useConversationCatalog({
     coreReady,
     conversationCatalogEvent,
     openConversation,
+    openConversationAt,
     reportError,
     clearErrorFrom,
   });
@@ -85,7 +93,24 @@ export function useConversationWorkspace({
     openedConversationId,
     loadingConversationSubtitles,
     selectedConversationUpdatedAt: selectedConversation?.updatedAt ?? null,
+    focusedSubtitleId,
   });
+
+  const focusSearch = () => {
+    setSidebarOpen(true);
+    window.requestAnimationFrame(() => searchInputRef.current?.focus());
+  };
+
+  useEffect(() => {
+    if (page !== "live") return;
+    const handleShortcut = (event: KeyboardEvent) => {
+      if (!(event.ctrlKey || event.metaKey) || event.key.toLocaleLowerCase() !== "f") return;
+      event.preventDefault();
+      focusSearch();
+    };
+    window.addEventListener("keydown", handleShortcut);
+    return () => window.removeEventListener("keydown", handleShortcut);
+  }, [page]);
 
   useEffect(() => {
     localStorage.setItem(SIDEBAR_OPEN_KEY, String(sidebarOpen));
@@ -124,6 +149,7 @@ export function useConversationWorkspace({
     sidebarWidth,
     setSidebarWidth,
     selectConversation: catalogState.selectConversation,
+    selectConversationAt: catalogState.selectConversationAt,
     createConversation: catalogState.createConversation,
     renameConversation,
     setConversationIcon,
@@ -134,5 +160,10 @@ export function useConversationWorkspace({
     selectedConversationHasOlder,
     scrollLiveViewToBottom: liveScroll.scrollLiveViewToBottom,
     onLiveScroll: liveScroll.onLiveScroll,
+    search: {
+      ...search,
+      inputRef: searchInputRef,
+      focus: focusSearch,
+    },
   };
 }

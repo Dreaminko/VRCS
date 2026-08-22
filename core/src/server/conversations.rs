@@ -49,6 +49,11 @@ pub(super) struct SubtitlePageQuery {
     before_id: Option<String>,
 }
 
+#[derive(Deserialize, Default)]
+pub(super) struct SubtitleContextQuery {
+    radius: Option<String>,
+}
+
 pub(super) async fn catalog(State(state): State<ContentState>) -> ApiResult<Json<Value>> {
     let catalog = db_call(Arc::clone(&state.db), |db| db.conversation_catalog())
         .await
@@ -131,6 +136,24 @@ pub(super) async fn subtitles(
     .map_err(conversation_error("conversations.subtitles_failed"))?
     .ok_or_else(conversation_not_found)?;
     Ok(Json(json!(page)))
+}
+
+pub(super) async fn subtitle_context(
+    State(state): State<ContentState>,
+    Path((id, subtitle_id)): Path<(String, String)>,
+    Query(query): Query<SubtitleContextQuery>,
+) -> ApiResult<Json<Value>> {
+    validate_path_id(&id)?;
+    let subtitle_id =
+        parse_positive_id(Some(&subtitle_id), "subtitle_id")?.expect("subtitle_id is present");
+    let radius = parse_radius(query.radius.as_deref())?;
+    let context = db_call(Arc::clone(&state.db), move |db| {
+        db.conversation_subtitle_context(&id, subtitle_id, radius)
+    })
+    .await
+    .map_err(conversation_error("conversations.subtitle_context_failed"))?
+    .ok_or_else(conversation_not_found)?;
+    Ok(Json(json!(context)))
 }
 
 fn patch_value_as_deref(value: &Option<Option<String>>) -> Option<Option<&str>> {
@@ -225,6 +248,13 @@ fn parse_limit(value: Option<&str>) -> Result<u32, (StatusCode, Json<Value>)> {
 }
 
 fn parse_before_id(value: Option<&str>) -> Result<Option<i64>, (StatusCode, Json<Value>)> {
+    parse_positive_id(value, "before_id")
+}
+
+fn parse_positive_id(
+    value: Option<&str>,
+    name: &str,
+) -> Result<Option<i64>, (StatusCode, Json<Value>)> {
     value
         .map(|value| {
             value
@@ -235,11 +265,28 @@ fn parse_before_id(value: Option<&str>) -> Result<Option<i64>, (StatusCode, Json
                     api_error(
                         StatusCode::UNPROCESSABLE_ENTITY,
                         "conversations.invalid_before_id",
-                        "before_id must be a positive integer",
+                        format!("{name} must be a positive integer"),
                     )
                 })
         })
         .transpose()
+}
+
+fn parse_radius(value: Option<&str>) -> Result<u32, (StatusCode, Json<Value>)> {
+    match value {
+        None => Ok(50),
+        Some(value) => value
+            .parse::<u32>()
+            .ok()
+            .filter(|radius| (1..=100).contains(radius))
+            .ok_or_else(|| {
+                api_error(
+                    StatusCode::UNPROCESSABLE_ENTITY,
+                    "conversations.invalid_radius",
+                    "radius must be between 1 and 100",
+                )
+            }),
+    }
 }
 
 fn conversation_error(

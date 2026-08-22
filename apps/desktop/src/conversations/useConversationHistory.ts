@@ -80,8 +80,10 @@ export function useConversationHistory({
   const [hasOlderSubtitles, setHasOlderSubtitles] = useState(false);
   const [loadingConversationSubtitles, setLoadingConversationSubtitles] = useState(false);
   const [loadingOlderSubtitles, setLoadingOlderSubtitles] = useState(false);
+  const [focusedSubtitleId, setFocusedSubtitleId] = useState<number | null>(null);
   const [translatingSubtitleIds, setTranslatingSubtitleIds] = useState<number[]>([]);
   const currentConversationIdRef = useRef<string | null>(null);
+  const focusedSubtitleIdRef = useRef<number | null>(null);
   const nextBeforeIdRef = useRef<number | null>(null);
   const requestVersionRef = useRef(0);
   const paginationInitializedRef = useRef(false);
@@ -116,6 +118,8 @@ export function useConversationHistory({
     setHasOlderSubtitles(false);
     setLoadingConversationSubtitles(false);
     setLoadingOlderSubtitles(false);
+    focusedSubtitleIdRef.current = null;
+    setFocusedSubtitleId(null);
     setTranslatingSubtitleIds([]);
   }, [abortRequests]);
 
@@ -154,11 +158,54 @@ export function useConversationHistory({
     }
   }, [clearErrorFrom, clearPool, coreConfigured, reportError, requestIsCurrent]);
 
+  const openConversationAt = useCallback(async (
+    conversationId: string,
+    subtitleId: number,
+  ) => {
+    clearPool(conversationId);
+    if (!coreConfigured) return;
+
+    focusedSubtitleIdRef.current = subtitleId;
+    setFocusedSubtitleId(subtitleId);
+    setLoadingConversationSubtitles(true);
+    const request: ConversationRequestToken = {
+      conversationId,
+      version: requestVersionRef.current,
+    };
+    const controller = new AbortController();
+    openRequestControllerRef.current = controller;
+    try {
+      const context = await conversationsApi.conversationSubtitleContext(
+        conversationId,
+        subtitleId,
+        { signal: controller.signal },
+      );
+      if (!requestIsCurrent(request)) return;
+      setSubtitles(context.items);
+      setHasOlderSubtitles(context.has_older);
+      nextBeforeIdRef.current = context.has_older
+        ? context.items.at(-1)?.id ?? null
+        : null;
+      paginationInitializedRef.current = true;
+      clearErrorFrom("subtitle-history");
+    } catch (reason) {
+      if (!isAbortError(reason) && requestIsCurrent(request)) {
+        reportError(reason, "errors.core.connect", "subtitle-history");
+      }
+    } finally {
+      if (openRequestControllerRef.current === controller) {
+        openRequestControllerRef.current = null;
+      }
+      if (requestIsCurrent(request)) setLoadingConversationSubtitles(false);
+    }
+  }, [clearErrorFrom, clearPool, coreConfigured, reportError, requestIsCurrent]);
+
   const refreshOpenConversation = useCallback(async () => {
     const conversationId = currentConversationIdRef.current;
     if (
       !coreConfigured
       || conversationId === null
+      || focusedSubtitleIdRef.current !== null
       || openRequestControllerRef.current !== null
     ) return;
 
@@ -240,6 +287,7 @@ export function useConversationHistory({
   }, [canLoadOlderSubtitles, clearErrorFrom, reportError, requestIsCurrent]);
 
   const receiveSubtitle = useCallback((subtitle: Subtitle) => {
+    if (focusedSubtitleIdRef.current !== null) return;
     if (subtitle.conversation_id !== currentConversationIdRef.current) return;
     setSubtitles((current) => upsertSubtitleHistory(current, subtitle));
   }, []);
@@ -308,8 +356,10 @@ export function useConversationHistory({
     hasOlderSubtitles: canLoadOlderSubtitles,
     loadingConversationSubtitles,
     loadingOlderSubtitles,
+    focusedSubtitleId,
     translatingSubtitleIds,
     openConversation,
+    openConversationAt,
     refreshOpenConversation,
     loadOlderSubtitles,
     receiveSubtitle,

@@ -75,6 +75,13 @@ pub struct ConversationSubtitlePage {
     pub next_before_id: Option<i64>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct ConversationSubtitleContext {
+    pub items: Vec<Subtitle>,
+    pub target_id: i64,
+    pub has_older: bool,
+}
+
 impl Database {
     /// 写入字幕，并在数据库锁内确定当前 active 会话。
     #[allow(dead_code)]
@@ -181,6 +188,71 @@ impl Database {
             items,
             has_more,
             next_before_id,
+        }))
+    }
+
+    pub fn conversation_subtitle_context(
+        &self,
+        conversation_id: &str,
+        subtitle_id: i64,
+        radius: u32,
+    ) -> AppResult<Option<ConversationSubtitleContext>> {
+        let belongs = self.conn.query_row(
+            "SELECT EXISTS(
+                SELECT 1 FROM subtitles WHERE id = ?1 AND conversation_id = ?2
+             )",
+            params![subtitle_id, conversation_id],
+            |row| row.get::<_, bool>(0),
+        )?;
+        if !belongs {
+            return Ok(None);
+        }
+
+        let side_limit = radius.saturating_add(1);
+        let lower_id = self.conn.query_row(
+            "SELECT MIN(id) FROM (
+                SELECT id FROM subtitles
+                WHERE conversation_id = ?1 AND id <= ?2
+                ORDER BY id DESC LIMIT ?3
+             )",
+            params![conversation_id, subtitle_id, side_limit],
+            |row| row.get::<_, i64>(0),
+        )?;
+        let upper_id = self.conn.query_row(
+            "SELECT MAX(id) FROM (
+                SELECT id FROM subtitles
+                WHERE conversation_id = ?1 AND id >= ?2
+                ORDER BY id ASC LIMIT ?3
+             )",
+            params![conversation_id, subtitle_id, side_limit],
+            |row| row.get::<_, i64>(0),
+        )?;
+        let mut statement = self.conn.prepare(
+            "SELECT subtitle.id, subtitle.conversation_id, subtitle.text, subtitle.language,
+                    subtitle.started_at, subtitle.ended_at, subtitle.source, subtitle.created_at,
+                    translation.id, translation.text, translation.source_language,
+                    translation.target_language, translation.provider,
+                    translation.model, translation.created_at
+             FROM subtitles AS subtitle
+             LEFT JOIN subtitle_translations AS translation
+               ON translation.subtitle_id = subtitle.id
+             WHERE subtitle.conversation_id = ?1
+               AND subtitle.id BETWEEN ?2 AND ?3
+             ORDER BY subtitle.id DESC, translation.id",
+        )?;
+        let items =
+            collect_subtitles(&mut statement, params![conversation_id, lower_id, upper_id])?;
+        let has_older = self.conn.query_row(
+            "SELECT EXISTS(
+                SELECT 1 FROM subtitles WHERE conversation_id = ?1 AND id < ?2
+             )",
+            params![conversation_id, lower_id],
+            |row| row.get::<_, bool>(0),
+        )?;
+        Ok(Some(ConversationSubtitleContext {
+            items,
+            target_id: subtitle_id,
+            has_older,
         }))
     }
 

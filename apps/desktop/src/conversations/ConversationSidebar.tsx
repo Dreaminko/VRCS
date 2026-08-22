@@ -1,6 +1,7 @@
 import { memo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { PanelLeftClose, Plus } from "lucide-react";
+import { PanelLeftClose, Plus, Search, X } from "lucide-react";
+import type { RefObject } from "react";
 import type { ConversationIcon, ConversationSummary } from "./conversations";
 import {
   DEFAULT_CONVERSATION_SIDEBAR_WIDTH,
@@ -16,6 +17,8 @@ import {
 } from "./ConversationActionsPopover";
 import { ConversationRow } from "./ConversationSidebarItems";
 import { useConversationSidebarResize } from "./useConversationSidebarResize";
+import type { SubtitleSearchHit } from "../subtitles/types";
+import { ConversationSearchResults } from "./ConversationSearchResults";
 
 type SidebarProps = {
   open: boolean;
@@ -32,6 +35,22 @@ type SidebarProps = {
   onIconChange: (id: string, icon: ConversationIcon | null) => void;
   onResetCustomization: (id: string) => void;
   onDelete: (id: string) => Promise<void>;
+  onSelectAt: (conversationId: string, subtitleId: number) => void;
+  onFocusSearch: () => void;
+  search: {
+    query: string;
+    setQuery: (query: string) => void;
+    items: SubtitleSearchHit[];
+    loading: boolean;
+    loadingMore: boolean;
+    hasMore: boolean;
+    failed: boolean;
+    searchable: boolean;
+    active: boolean;
+    clear: () => void;
+    loadMore: () => Promise<void>;
+    inputRef: RefObject<HTMLInputElement | null>;
+  };
 };
 
 
@@ -50,6 +69,9 @@ export const ConversationSidebar = memo(function ConversationSidebar({
   onIconChange,
   onResetCustomization,
   onDelete,
+  onSelectAt,
+  onFocusSearch,
+  search,
 }: SidebarProps) {
   const { t } = useTranslation();
   const active = conversations.find((conversation) => conversation.id === activeId);
@@ -113,6 +135,7 @@ export const ConversationSidebar = memo(function ConversationSidebar({
         onToggle={handleToggle}
         onNew={onNew}
         onSelect={onSelect}
+        onSearch={onFocusSearch}
       />
     );
   }
@@ -149,7 +172,42 @@ export const ConversationSidebar = memo(function ConversationSidebar({
         <button className="sidebar-icon-button" type="button" aria-label={t("conversations.collapseSidebar")} aria-expanded="true" onClick={handleToggle}><PanelLeftClose size={19} /></button>
       </div>
       <button className="new-conversation-button" type="button" onClick={onNew}><Plus size={18} /><span>{t("conversations.create")}</span></button>
-      <div className="conversation-sidebar-list" onScroll={() => closeActions()}>
+      <div className="conversation-search-field">
+        <Search size={15} aria-hidden="true" />
+        <input
+          ref={search.inputRef}
+          type="search"
+          value={search.query}
+          aria-label={t("conversations.search")}
+          placeholder={t("conversations.searchPlaceholder")}
+          onChange={(event) => search.setQuery(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key !== "Escape") return;
+            event.preventDefault();
+            search.clear();
+          }}
+        />
+        {search.active && (
+          <button type="button" aria-label={t("conversations.clearSearch")} onClick={search.clear}>
+            <X size={14} />
+          </button>
+        )}
+      </div>
+      <div className={`conversation-sidebar-list ${search.active ? "search-active" : ""}`} onScroll={() => closeActions()}>
+        {search.active ? (
+          <ConversationSearchResults
+            query={search.query}
+            items={search.items}
+            conversations={conversations}
+            loading={search.loading}
+            loadingMore={search.loadingMore}
+            hasMore={search.hasMore}
+            failed={search.failed}
+            searchable={search.searchable}
+            onLoadMore={search.loadMore}
+            onSelect={onSelectAt}
+          />
+        ) : <>
         {active && (
           <section className="conversation-group" aria-labelledby="current-conversation-heading">
             <h2 id="current-conversation-heading">{t("conversations.current")}</h2>
@@ -192,6 +250,7 @@ export const ConversationSidebar = memo(function ConversationSidebar({
             />
           )) : <p className="conversation-list-empty">{t("conversations.empty")}</p>}
         </section>
+        </>}
       </div>
       {menuConversation && actionsPopoverPosition && (
         <ConversationActionsPopover

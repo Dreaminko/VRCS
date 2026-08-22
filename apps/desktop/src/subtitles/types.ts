@@ -25,6 +25,23 @@ export interface SubtitleTranslation {
   created_at: string;
 }
 
+export interface ConversationSubtitleContext {
+  items: Subtitle[];
+  target_id: number;
+  has_older: boolean;
+}
+
+export interface SubtitleSearchHit {
+  subtitle: Subtitle;
+  matched_field: "original" | "translation";
+  matched_text: string;
+}
+
+export interface SubtitleSearchPage {
+  items: SubtitleSearchHit[];
+  has_more: boolean;
+}
+
 export interface TranslationEvent {
   type: "translation_started" | "translation_partial" | "translation_completed" | "translation_failed";
   subtitle_id: number;

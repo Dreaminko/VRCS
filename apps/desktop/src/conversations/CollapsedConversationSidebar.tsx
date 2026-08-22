@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { PanelLeftOpen, Plus } from "lucide-react";
+import { PanelLeftOpen, Plus, Search } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import {
@@ -32,6 +32,7 @@ export function CollapsedConversationSidebar({
   onToggle,
   onNew,
   onSelect,
+  onSearch,
 }: {
   conversations: ConversationSummary[];
   activeId?: string;
@@ -39,6 +40,7 @@ export function CollapsedConversationSidebar({
   onToggle: () => void;
   onNew: () => void;
   onSelect: (id: string) => void;
+  onSearch: () => void;
 }) {
   const { t, i18n } = useTranslation();
   const locale = i18n.resolvedLanguage ?? "en-US";
@@ -157,6 +159,19 @@ export function CollapsedConversationSidebar({
             onNew();
           }}
         ><Plus size={20} /></button>
+        <button
+          className="sidebar-icon-button sidebar-search-icon"
+          type="button"
+          aria-label={t("conversations.search")}
+          onPointerEnter={(event) => showTooltip(event.currentTarget, t("conversations.search"))}
+          onPointerLeave={hideTooltip}
+          onFocus={(event) => showTooltip(event.currentTarget, t("conversations.search"), undefined, false, event.currentTarget.matches(":focus-visible"))}
+          onBlur={hideTooltip}
+          onClick={() => {
+            hideTooltip();
+            onSearch();
+          }}
+        ><Search size={18} /></button>
         <div className="sidebar-rail-divider" />
         <div className="sidebar-conversation-rail" aria-label={t("conversations.recent")} onScroll={hideTooltip}>
           {conversations.map((conversation) => (
