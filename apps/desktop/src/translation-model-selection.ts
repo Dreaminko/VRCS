@@ -12,6 +12,7 @@ const PREFERRED_MODELS: Record<string, readonly string[]> = {
   deepseek: ["deepseek-v4-flash", "deepseek-v4-pro"],
   gemini: ["gemini-3.7-flash", "gemini-3.6-flash", "gemini-2.5-flash"],
   alibaba_cloud: ["qwen3.6-flash", "qwen3.7-plus", "qwen3.7-max"],
+  alibaba_token_plan: ["qwen3.6-flash", "qwen3.7-plus", "qwen3.7-max"],
   openrouter: ["openai/gpt-5-mini", "google/gemini-2.5-flash", "openai/gpt-4o-mini"],
 };
 

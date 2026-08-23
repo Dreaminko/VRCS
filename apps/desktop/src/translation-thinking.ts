@@ -9,7 +9,9 @@ export function thinkingControlForModel(
 
   if (provider === "deepseek") return "disable_supported";
   if (provider === "groq") return groqThinkingControl(normalizedModel);
-  if (provider === "alibaba_cloud") return alibabaThinkingControl(normalizedModel);
+  if (provider === "alibaba_cloud" || provider === "alibaba_token_plan") {
+    return alibabaThinkingControl(normalizedModel);
+  }
   return "unsupported";
 }
 
@@ -49,7 +51,8 @@ function isAlibabaThinkingOnlyModel(model: string): boolean {
 }
 
 function isAlibabaHybridModel(model: string): boolean {
-  return model.startsWith("qwen3.7-max")
+  return model.startsWith("qwen3.8-max")
+    || model.startsWith("qwen3.7-max")
     || model.startsWith("qwen3.7-plus")
     || model === "qwen3.6-max-preview"
     || model === "qwen3.6-35b-a3b"

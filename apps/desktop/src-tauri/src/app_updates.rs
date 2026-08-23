@@ -51,7 +51,12 @@ pub(crate) struct UpdateMetadata {
 }
 
 #[derive(Clone, Serialize)]
-#[serde(tag = "event", content = "data", rename_all = "camelCase")]
+#[serde(
+    tag = "event",
+    content = "data",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
 pub(crate) enum DownloadEvent {
     Started { content_length: Option<u64> },
     Progress { chunk_length: usize },
@@ -204,7 +209,23 @@ pub(crate) async fn download_and_install_update(
 
 #[cfg(test)]
 mod tests {
-    use super::{target, variant};
+    use super::{target, variant, DownloadEvent};
+    use serde_json::json;
+
+    #[test]
+    fn download_events_match_the_frontend_contract() {
+        assert_eq!(
+            serde_json::to_value(DownloadEvent::Started {
+                content_length: Some(512),
+            })
+            .unwrap(),
+            json!({ "event": "started", "data": { "contentLength": 512 } })
+        );
+        assert_eq!(
+            serde_json::to_value(DownloadEvent::Progress { chunk_length: 128 }).unwrap(),
+            json!({ "event": "progress", "data": { "chunkLength": 128 } })
+        );
+    }
 
     #[test]
     fn updater_target_matches_build_variant() {

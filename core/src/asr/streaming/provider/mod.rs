@@ -116,6 +116,7 @@ impl NormalizationState {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Provider {
     Qwen,
+    TokenPlan,
     FunAsr,
     OpenAi,
 }
@@ -147,6 +148,7 @@ impl Provider {
         }
         match service.adapter {
             ServiceAdapter::QwenRealtime => Ok(Self::Qwen),
+            ServiceAdapter::AlibabaTokenPlanRealtime => Ok(Self::TokenPlan),
             ServiceAdapter::FunAsrRealtime => Ok(Self::FunAsr),
             ServiceAdapter::OpenAiRealtime => Ok(Self::OpenAi),
             _ => Err(format!(
@@ -163,6 +165,7 @@ impl Provider {
     ) -> Result<Request<()>, String> {
         match self {
             Self::Qwen => qwen::build_request(config, profile, key),
+            Self::TokenPlan => qwen::build_token_plan_request(config, key),
             Self::FunAsr => fun_asr::build_request(profile, key),
             Self::OpenAi => openai::build_request(key),
         }
@@ -174,7 +177,7 @@ impl Provider {
 
     pub(super) fn segmentation_mode(self) -> SegmentationMode {
         match self {
-            Self::Qwen | Self::OpenAi => SegmentationMode::LocalCommit,
+            Self::Qwen | Self::TokenPlan | Self::OpenAi => SegmentationMode::LocalCommit,
             Self::FunAsr => SegmentationMode::ServerVad,
         }
     }
@@ -187,6 +190,7 @@ impl Provider {
     ) -> Result<Value, String> {
         match self {
             Self::Qwen => qwen::session_update(config),
+            Self::TokenPlan => Ok(qwen::token_plan_session_update()),
             Self::FunAsr => fun_asr::run_task(
                 config,
                 silence_seconds,
@@ -198,17 +202,19 @@ impl Provider {
 
     pub(super) fn initialization_event(self, value: &Value) -> InitializationEvent {
         match self {
-            Self::Qwen | Self::OpenAi => match value.get("type").and_then(Value::as_str) {
-                Some("session.updated") => InitializationEvent::Ready,
-                Some("error") => InitializationEvent::Failed(
-                    value
-                        .pointer("/error/message")
-                        .and_then(Value::as_str)
-                        .unwrap_or("Cloud recognition session configuration failed")
-                        .to_string(),
-                ),
-                _ => InitializationEvent::Pending,
-            },
+            Self::Qwen | Self::TokenPlan | Self::OpenAi => {
+                match value.get("type").and_then(Value::as_str) {
+                    Some("session.updated") => InitializationEvent::Ready,
+                    Some("error") => InitializationEvent::Failed(
+                        value
+                            .pointer("/error/message")
+                            .and_then(Value::as_str)
+                            .unwrap_or("Cloud recognition session configuration failed")
+                            .to_string(),
+                    ),
+                    _ => InitializationEvent::Pending,
+                }
+            }
             Self::FunAsr => match value.pointer("/header/event").and_then(Value::as_str) {
                 Some("task-started") => InitializationEvent::Ready,
                 Some("task-failed") => InitializationEvent::Failed(
@@ -230,7 +236,7 @@ impl Provider {
         state: &mut NormalizationState,
     ) -> Result<Option<CloudEvent>, String> {
         match self {
-            Self::Qwen => qwen::normalize_event(config, value, state),
+            Self::Qwen | Self::TokenPlan => qwen::normalize_event(config, value, state),
             Self::FunAsr => fun_asr::normalize_event(config, value, state),
             Self::OpenAi => openai::normalize_event(config, value, state),
         }
@@ -238,7 +244,7 @@ impl Provider {
 
     pub(super) fn audio_message(self, samples: &[f32]) -> Message {
         match self {
-            Self::Qwen => qwen::audio_message(samples),
+            Self::Qwen | Self::TokenPlan => qwen::audio_message(samples),
             Self::FunAsr => fun_asr::audio_message(samples),
             Self::OpenAi => openai::audio_message(samples),
         }
@@ -246,7 +252,7 @@ impl Provider {
 
     pub(super) fn commit_message(self) -> Option<Message> {
         match self {
-            Self::Qwen => Some(qwen::commit_message()),
+            Self::Qwen | Self::TokenPlan => Some(qwen::commit_message()),
             Self::OpenAi => Some(openai::commit_message()),
             Self::FunAsr => None,
         }
@@ -255,6 +261,7 @@ impl Provider {
     pub(super) fn finish_message(self, task_id: Option<&str>) -> Option<Message> {
         match self {
             Self::Qwen => Some(qwen::finish_message()),
+            Self::TokenPlan => None,
             Self::FunAsr => Some(fun_asr::finish_message(
                 task_id.expect("Fun-ASR sessions always have a task id"),
             )),
@@ -265,6 +272,7 @@ impl Provider {
     pub(super) fn is_finished(self, value: &Value) -> bool {
         match self {
             Self::Qwen => value.get("type").and_then(Value::as_str) == Some("session.finished"),
+            Self::TokenPlan => false,
             Self::FunAsr => {
                 value.pointer("/header/event").and_then(Value::as_str) == Some("task-finished")
             }

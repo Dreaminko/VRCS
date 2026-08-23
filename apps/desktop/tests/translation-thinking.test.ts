@@ -14,6 +14,7 @@ test("DeepSeek and Alibaba distinguish toggleable and thinking-only models", () 
   assert.equal(thinkingControlForModel("deepseek", "deepseek-v4-flash"), "disable_supported");
   assert.equal(thinkingControlForModel("alibaba_cloud", "qwen-plus"), "disable_supported");
   assert.equal(thinkingControlForModel("alibaba_cloud", "deepseek-r1"), "hide_only");
+  assert.equal(thinkingControlForModel("alibaba_token_plan", "qwen3.8-max"), "disable_supported");
 });
 
 test("custom OpenAI-compatible profiles do not inherit branded parameters", () => {

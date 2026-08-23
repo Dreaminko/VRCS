@@ -70,6 +70,14 @@ test("automatic selection skips obvious non-text models", () => {
     selectTranslationModel("alibaba_cloud", ["text-embedding-v4", "qwen3.8-max"], ""),
     "qwen3.8-max",
   );
+  assert.equal(
+    selectTranslationModel(
+      "alibaba_token_plan",
+      ["qwen-audio-3.0-asr-flash", "qwen3.7-plus", "qwen3.6-flash"],
+      "",
+    ),
+    "qwen3.6-flash",
+  );
 });
 
 test("custom profiles keep manual model control when a catalog is unavailable", () => {

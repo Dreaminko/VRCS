@@ -175,6 +175,7 @@ fn adapter_id(adapter: ServiceAdapter) -> &'static str {
         ServiceAdapter::DeepLTextTranslation => "deepl_text_translation",
         ServiceAdapter::MicrosoftTextTranslation => "microsoft_text_translation",
         ServiceAdapter::QwenRealtime => "qwen_realtime",
+        ServiceAdapter::AlibabaTokenPlanRealtime => "alibaba_token_plan_realtime",
         ServiceAdapter::FunAsrRealtime => "fun_asr_realtime",
         ServiceAdapter::OpenAiRealtime => "openai_realtime",
         ServiceAdapter::OpenAiAudioTranscriptions => "openai_audio_transcriptions",

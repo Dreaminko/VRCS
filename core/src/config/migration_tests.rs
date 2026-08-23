@@ -475,6 +475,54 @@ fn migrates_v25_translation_fields_into_ordered_routes() {
 }
 
 #[test]
+fn migrates_v26_token_plan_asr_profiles_to_realtime_api() {
+    let config = config_from_value(&serde_json::json!({
+        "schema_version": 26,
+        "asr": {
+            "backend": "fun_asr_realtime",
+            "active_profile_id": "token-plan",
+            "api_profiles": [{
+                "id": "token-plan",
+                "name": "Token Plan",
+                "provider": "alibaba_token_plan",
+                "enabled_capabilities": ["speech_to_text"],
+                "auth_mode": "bearer",
+                "is_local": false
+            }]
+        }
+    }))
+    .unwrap();
+
+    assert_eq!(config.schema_version, SCHEMA_VERSION);
+    assert_eq!(config.asr.backend, "token_plan_realtime");
+    assert_eq!(config.asr.active_profile_id.as_deref(), Some("token-plan"));
+    assert_eq!(
+        config.asr.api_profiles[0].enabled_capabilities,
+        [CAPABILITY_SPEECH_TO_TEXT]
+    );
+    assert_eq!(
+        config.asr.service_settings["token_plan_realtime"].model,
+        "qwen-audio-3.0-realtime-plus"
+    );
+}
+
+#[test]
+fn current_schema_backfills_new_recognition_service_settings() {
+    let mut raw = serde_json::to_value(AppConfig::default()).unwrap();
+    raw["asr"]["service_settings"]
+        .as_object_mut()
+        .unwrap()
+        .remove("token_plan_realtime");
+
+    let config = config_from_value(&raw).unwrap();
+
+    assert_eq!(
+        config.asr.service_settings["token_plan_realtime"].model,
+        "qwen-audio-3.0-realtime-plus"
+    );
+}
+
+#[test]
 fn migrates_v13_with_external_api_disabled_on_loopback() {
     let config = config_from_value(&serde_json::json!({
         "schema_version": 13

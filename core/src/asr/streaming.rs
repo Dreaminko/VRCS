@@ -13,8 +13,9 @@ use crate::providers::{self, RecognitionTransport};
 
 #[cfg(test)]
 use crate::providers::{
-    ALIBABA_PROVIDER, CAPABILITY_SPEECH_TO_TEXT, OPENAI_PROVIDER, SERVICE_FUN_ASR_REALTIME,
-    SERVICE_OPENAI_REALTIME, SERVICE_QWEN_REALTIME,
+    ALIBABA_PROVIDER, ALIBABA_TOKEN_PLAN_PROVIDER, CAPABILITY_SPEECH_TO_TEXT, OPENAI_PROVIDER,
+    SERVICE_FUN_ASR_REALTIME, SERVICE_OPENAI_REALTIME, SERVICE_QWEN_REALTIME,
+    SERVICE_TOKEN_PLAN_REALTIME,
 };
 
 use super::{read_credential, SharedAudio};
@@ -1031,6 +1032,22 @@ mod tests {
         assert!(matches!(event, Some(CloudEvent::Partial { text, .. }) if text == "hello world"));
     }
 
+    #[test]
+    fn token_plan_transcription_delta_combines_text_and_stash() {
+        let config = AsrConfig {
+            backend: SERVICE_TOKEN_PLAN_REALTIME.into(),
+            ..AsrConfig::default()
+        };
+        let mut state = NormalizationState::default();
+        let event = normalize(
+            &config,
+            r#"{"type":"conversation.item.input_audio_transcription.delta","item_id":"a","text":"hello ","stash":"world"}"#,
+            &mut state,
+        )
+        .unwrap();
+        assert!(matches!(event, Some(CloudEvent::Partial { text, .. }) if text == "hello world"));
+    }
+
     fn message_json(message: Message) -> Value {
         let Message::Text(text) = message else {
             panic!("expected a text message");
@@ -1125,6 +1142,10 @@ mod tests {
             SegmentationMode::LocalCommit
         );
         assert_eq!(
+            Provider::TokenPlan.segmentation_mode(),
+            SegmentationMode::LocalCommit
+        );
+        assert_eq!(
             Provider::FunAsr.segmentation_mode(),
             SegmentationMode::ServerVad
         );
@@ -1185,6 +1206,32 @@ mod tests {
             build_request(&config, &profile, "sk-test").unwrap_err(),
             "Alibaba Cloud Workspace ID is not configured"
         );
+    }
+
+    #[test]
+    fn token_plan_request_uses_realtime_endpoint_without_workspace() {
+        let config = AsrConfig {
+            backend: SERVICE_TOKEN_PLAN_REALTIME.into(),
+            ..AsrConfig::default()
+        };
+        let profile = ApiProfile {
+            id: "token-plan".into(),
+            name: "Token Plan".into(),
+            provider: ALIBABA_TOKEN_PLAN_PROVIDER.into(),
+            ..ApiProfile::default()
+        };
+        let request = build_request(&config, &profile, "sk-sp-test").unwrap();
+        assert_eq!(
+            request.uri().to_string(),
+            "wss://token-plan.cn-beijing.maas.aliyuncs.com/api-ws/v1/realtime?model=qwen-audio-3.0-realtime-plus"
+        );
+        assert_eq!(request.headers()["Authorization"], "Bearer sk-sp-test");
+        assert!(!request.headers().contains_key("OpenAI-Beta"));
+
+        let update = session_update(&config, 0.4);
+        assert_eq!(update["session"]["modalities"][0], "text");
+        assert_eq!(update["session"]["input_audio_format"], "pcm");
+        assert!(update["session"]["turn_detection"].is_null());
     }
 
     #[test]

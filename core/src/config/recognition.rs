@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::providers::{
     SERVICE_FUN_ASR_REALTIME, SERVICE_GROQ_TRANSCRIPTION, SERVICE_OPENAI_REALTIME,
-    SERVICE_QWEN_REALTIME,
+    SERVICE_QWEN_REALTIME, SERVICE_TOKEN_PLAN_REALTIME,
 };
 
 use super::ApiProfile;
@@ -82,6 +82,13 @@ pub fn default_service_settings() -> BTreeMap<String, RecognitionServiceSettings
             SERVICE_FUN_ASR_REALTIME,
             RecognitionServiceSettings {
                 model: "fun-asr-realtime".into(),
+                context: String::new(),
+            },
+        ),
+        (
+            SERVICE_TOKEN_PLAN_REALTIME,
+            RecognitionServiceSettings {
+                model: "qwen-audio-3.0-realtime-plus".into(),
                 context: String::new(),
             },
         ),

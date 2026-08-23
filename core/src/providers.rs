@@ -7,6 +7,7 @@ mod validation;
 pub(crate) use validation::validate_profile;
 
 pub const ALIBABA_PROVIDER: &str = "alibaba_cloud";
+pub const ALIBABA_TOKEN_PLAN_PROVIDER: &str = "alibaba_token_plan";
 pub const OPENAI_PROVIDER: &str = "openai";
 pub const OPENAI_COMPATIBLE_PROVIDER: &str = "openai_compatible";
 pub const GEMINI_PROVIDER: &str = "gemini";
@@ -28,6 +29,7 @@ pub const CAPABILITY_TEXT_TRANSLATION: &str = "text_translation";
 
 pub const SERVICE_QWEN_REALTIME: &str = "qwen_realtime";
 pub const SERVICE_FUN_ASR_REALTIME: &str = "fun_asr_realtime";
+pub const SERVICE_TOKEN_PLAN_REALTIME: &str = "token_plan_realtime";
 pub const SERVICE_OPENAI_REALTIME: &str = "openai_realtime";
 pub const SERVICE_GROQ_TRANSCRIPTION: &str = "groq_transcription";
 
@@ -51,6 +53,7 @@ const SHARED_PURPOSES: &[&str] = &[API_PURPOSE_ASR, API_PURPOSE_LLM, API_PURPOSE
 const OPENAI_MODELS: &[&str] = &[];
 const QWEN_MODELS: &[&str] = &["qwen3-asr-flash-realtime"];
 const FUN_ASR_MODELS: &[&str] = &["qwen-audio-3.0-asr-flash-streaming", "fun-asr-realtime"];
+const TOKEN_PLAN_REALTIME_MODELS: &[&str] = &["qwen-audio-3.0-realtime-plus"];
 const OPENAI_ASR_MODELS: &[&str] = &["gpt-4o-mini-transcribe", "gpt-4o-transcribe"];
 const GROQ_ASR_MODELS: &[&str] = &["whisper-large-v3-turbo", "whisper-large-v3"];
 
@@ -125,6 +128,7 @@ pub enum ServiceAdapter {
     DeepLTextTranslation,
     MicrosoftTextTranslation,
     QwenRealtime,
+    AlibabaTokenPlanRealtime,
     FunAsrRealtime,
     OpenAiRealtime,
     OpenAiAudioTranscriptions,
@@ -221,6 +225,29 @@ const ALIBABA_SERVICES: &[ProviderServiceDefinition] = &[
             partial_results: true,
             models: FUN_ASR_MODELS,
             context_max_chars: Some(400),
+            support: SupportLevel::Native,
+        },
+    ),
+];
+
+const ALIBABA_TOKEN_PLAN_SERVICES: &[ProviderServiceDefinition] = &[
+    text_service(
+        "alibaba_token_plan_chat_completions",
+        "Token Plan Chat Completions",
+        ServiceAdapter::OpenAiChatCompletions {
+            behavior: OpenAiProtocolBehavior::Alibaba,
+        },
+        SupportLevel::ProtocolCompatible,
+    ),
+    recognition_service_definition(
+        SERVICE_TOKEN_PLAN_REALTIME,
+        "Token Plan Realtime ASR",
+        ServiceAdapter::AlibabaTokenPlanRealtime,
+        RecognitionServiceSpec {
+            transport: RecognitionTransport::RealtimeStream,
+            partial_results: true,
+            models: TOKEN_PLAN_REALTIME_MODELS,
+            context_max_chars: None,
             support: SupportLevel::Native,
         },
     ),
@@ -395,7 +422,9 @@ const fn recognition_service_definition(
         supports_streaming: matches!(spec.transport, RecognitionTransport::RealtimeStream),
         supports_model_listing: matches!(
             adapter,
-            ServiceAdapter::QwenRealtime | ServiceAdapter::FunAsrRealtime
+            ServiceAdapter::QwenRealtime
+                | ServiceAdapter::AlibabaTokenPlanRealtime
+                | ServiceAdapter::FunAsrRealtime
         ),
         supports_context: spec.context_max_chars.is_some(),
         models: spec.models,
@@ -408,6 +437,7 @@ const fn recognition_service_definition(
 pub fn catalog() -> Vec<ProviderDefinition> {
     [
         ALIBABA_PROVIDER,
+        ALIBABA_TOKEN_PLAN_PROVIDER,
         OPENAI_PROVIDER,
         GROQ_PROVIDER,
         OPENROUTER_PROVIDER,
@@ -438,6 +468,23 @@ pub fn definition(provider: &str) -> Option<ProviderDefinition> {
                     false,
                 ),
                 ALIBABA_SERVICES,
+                SHARED_PURPOSES,
+                LLM_TRANSLATION_LANGUAGES,
+                true,
+            ),
+            ALIBABA_TOKEN_PLAN_PROVIDER => (
+                "Alibaba Cloud Token Plan",
+                ProviderCategory::CloudProvider,
+                connection(
+                    ApiAuthMode::Bearer,
+                    BaseUrlPolicy::Fixed(
+                        "https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1",
+                    ),
+                    &["VRCS_ALIBABA_TOKEN_PLAN_API_KEY"],
+                    &[],
+                    false,
+                ),
+                ALIBABA_TOKEN_PLAN_SERVICES,
                 SHARED_PURPOSES,
                 LLM_TRANSLATION_LANGUAGES,
                 true,
@@ -638,6 +685,7 @@ const fn connection(
 fn provider_id(provider: &str) -> &'static str {
     match provider {
         ALIBABA_PROVIDER => ALIBABA_PROVIDER,
+        ALIBABA_TOKEN_PLAN_PROVIDER => ALIBABA_TOKEN_PLAN_PROVIDER,
         OPENAI_PROVIDER => OPENAI_PROVIDER,
         OPENAI_COMPATIBLE_PROVIDER => OPENAI_COMPATIBLE_PROVIDER,
         GEMINI_PROVIDER => GEMINI_PROVIDER,
@@ -732,6 +780,7 @@ pub fn recognition_model_supported(service: &ProviderServiceDefinition, model: &
     }
     match service.adapter {
         ServiceAdapter::QwenRealtime => versioned_model(model, "qwen3-asr-flash-realtime"),
+        ServiceAdapter::AlibabaTokenPlanRealtime => service.models.contains(&model),
         ServiceAdapter::FunAsrRealtime => {
             versioned_model(model, "qwen-audio-3.0-asr-flash-streaming")
                 || versioned_model(model, "fun-asr-realtime")
@@ -1119,6 +1168,43 @@ mod tests {
                 ],
             ),
             ["qwen-audio-3.0-asr-flash-streaming"]
+        );
+    }
+
+    #[test]
+    fn token_plan_catalog_exposes_text_and_realtime_asr_services() {
+        let provider = definition("alibaba_token_plan").unwrap();
+        assert_eq!(provider.category, ProviderCategory::CloudProvider);
+        assert_eq!(
+            provider.connection.base_url,
+            BaseUrlPolicy::Fixed(
+                "https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1"
+            )
+        );
+
+        assert_eq!(provider.services.len(), 2);
+        assert!(provider.services[0]
+            .capabilities
+            .contains(&CAPABILITY_TEXT_GENERATION));
+        let realtime = provider
+            .services
+            .iter()
+            .find(|service| service.id == SERVICE_TOKEN_PLAN_REALTIME)
+            .unwrap();
+        assert_eq!(
+            realtime.recognition_transport,
+            Some(RecognitionTransport::RealtimeStream)
+        );
+        assert_eq!(realtime.models, ["qwen-audio-3.0-realtime-plus"]);
+        assert_eq!(
+            compatible_service_models(
+                realtime,
+                vec![
+                    "qwen-audio-3.0-asr-flash".into(),
+                    "qwen-audio-3.0-realtime-plus".into(),
+                ],
+            ),
+            ["qwen-audio-3.0-realtime-plus"]
         );
     }
 

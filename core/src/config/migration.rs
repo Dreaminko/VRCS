@@ -8,10 +8,10 @@ use super::{
     OutputConfig, ServerConfig, StorageConfig, SCHEMA_VERSION,
 };
 use crate::providers::{
-    self, CAPABILITY_SPEECH_TO_TEXT, CAPABILITY_TEXT_GENERATION, CAPABILITY_TEXT_TRANSLATION,
-    DEEPSEEK_PROVIDER, GROQ_PROVIDER, LM_STUDIO_PROVIDER, OLLAMA_PROVIDER,
-    OPENAI_COMPATIBLE_PROVIDER, OPENROUTER_PROVIDER, SERVICE_FUN_ASR_REALTIME,
-    SERVICE_OPENAI_REALTIME, SERVICE_QWEN_REALTIME,
+    self, ALIBABA_TOKEN_PLAN_PROVIDER, CAPABILITY_SPEECH_TO_TEXT, CAPABILITY_TEXT_GENERATION,
+    CAPABILITY_TEXT_TRANSLATION, DEEPSEEK_PROVIDER, GROQ_PROVIDER, LM_STUDIO_PROVIDER,
+    OLLAMA_PROVIDER, OPENAI_COMPATIBLE_PROVIDER, OPENROUTER_PROVIDER, SERVICE_FUN_ASR_REALTIME,
+    SERVICE_OPENAI_REALTIME, SERVICE_QWEN_REALTIME, SERVICE_TOKEN_PLAN_REALTIME,
 };
 
 #[derive(Debug, Clone, Deserialize)]
@@ -795,6 +795,43 @@ pub fn config_from_value(raw: &serde_json::Value) -> Result<AppConfig, String> {
         other => return Err(format!("Unsupported configuration schema v{other}")),
     };
     config.schema_version = SCHEMA_VERSION;
+    for (service_id, settings) in default_service_settings() {
+        config
+            .asr
+            .service_settings
+            .entry(service_id)
+            .or_insert(settings);
+    }
+    normalize_token_plan_recognition(&mut config);
     config.validate_settings()?;
     Ok(config)
+}
+
+fn normalize_token_plan_recognition(config: &mut AppConfig) {
+    let Some(active_profile) = config
+        .asr
+        .active_profile_id
+        .as_deref()
+        .and_then(|active_id| {
+            config
+                .asr
+                .api_profiles
+                .iter()
+                .find(|profile| profile.id == active_id)
+        })
+    else {
+        return;
+    };
+    if active_profile.provider == ALIBABA_TOKEN_PLAN_PROVIDER
+        && active_profile
+            .enabled_capabilities
+            .iter()
+            .any(|capability| capability == CAPABILITY_SPEECH_TO_TEXT)
+        && matches!(
+            config.asr.backend.as_str(),
+            SERVICE_QWEN_REALTIME | SERVICE_FUN_ASR_REALTIME
+        )
+    {
+        config.asr.backend = SERVICE_TOKEN_PLAN_REALTIME.into();
+    }
 }

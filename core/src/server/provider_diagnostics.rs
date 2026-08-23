@@ -7,9 +7,9 @@ use serde_json::{json, Value};
 use crate::asr;
 use crate::config::ApiProfile;
 use crate::providers::{
-    self, ProviderServiceDefinition, ServiceAdapter, ALIBABA_PROVIDER, CAPABILITY_SPEECH_TO_TEXT,
-    CAPABILITY_TEXT_GENERATION, CAPABILITY_TEXT_TRANSLATION, DEEPSEEK_PROVIDER, GEMINI_PROVIDER,
-    GROQ_PROVIDER, OPENAI_PROVIDER, OPENROUTER_PROVIDER,
+    self, ProviderServiceDefinition, ServiceAdapter, ALIBABA_PROVIDER, ALIBABA_TOKEN_PLAN_PROVIDER,
+    CAPABILITY_SPEECH_TO_TEXT, CAPABILITY_TEXT_GENERATION, CAPABILITY_TEXT_TRANSLATION,
+    DEEPSEEK_PROVIDER, GEMINI_PROVIDER, GROQ_PROVIDER, OPENAI_PROVIDER, OPENROUTER_PROVIDER,
 };
 
 const OPENAI_DIAGNOSTIC_MODELS: &[&str] = &["gpt-4.1-mini", "gpt-4o-mini", "gpt-5-mini"];
@@ -110,6 +110,7 @@ async fn test_recognition_service(
     ensure_asr_profile_ready(profile)?;
     match service.adapter {
         ServiceAdapter::QwenRealtime
+        | ServiceAdapter::AlibabaTokenPlanRealtime
         | ServiceAdapter::FunAsrRealtime
         | ServiceAdapter::OpenAiRealtime => {
             asr::streaming_test_backend(config, &profile.id, Some(service.id)).map_err(
@@ -387,7 +388,7 @@ fn select_listed_model(provider: &str, models: Vec<String>) -> Option<String> {
         GROQ_PROVIDER => GROQ_DIAGNOSTIC_MODELS,
         DEEPSEEK_PROVIDER => DEEPSEEK_DIAGNOSTIC_MODELS,
         GEMINI_PROVIDER => GEMINI_DIAGNOSTIC_MODELS,
-        ALIBABA_PROVIDER => ALIBABA_DIAGNOSTIC_MODELS,
+        ALIBABA_PROVIDER | ALIBABA_TOKEN_PLAN_PROVIDER => ALIBABA_DIAGNOSTIC_MODELS,
         OPENROUTER_PROVIDER => OPENROUTER_DIAGNOSTIC_MODELS,
         _ => return None,
     };
@@ -562,6 +563,14 @@ mod tests {
         assert_eq!(
             select_listed_model(GEMINI_PROVIDER, vec!["text-embedding-004".into()]),
             None
+        );
+        assert_eq!(
+            select_listed_model(
+                ALIBABA_TOKEN_PLAN_PROVIDER,
+                vec!["qwen-audio-3.0-asr-flash".into(), "qwen3.6-flash".into()],
+            )
+            .as_deref(),
+            Some("qwen3.6-flash")
         );
     }
 

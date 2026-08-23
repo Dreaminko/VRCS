@@ -4,6 +4,7 @@ use tokio_tungstenite::tungstenite::Message;
 
 use crate::config::{ApiProfile, AsrConfig};
 use crate::providers::SERVICE_QWEN_REALTIME;
+use crate::providers::SERVICE_TOKEN_PLAN_REALTIME;
 
 use super::{
     authenticated_request, event_language, pcm16_base64, service_settings, CloudEvent,
@@ -32,6 +33,18 @@ pub(super) fn build_request(
     authenticated_request(url, key, true)
 }
 
+pub(super) fn build_token_plan_request(
+    config: &AsrConfig,
+    key: &str,
+) -> Result<Request<()>, String> {
+    let settings = service_settings(config, SERVICE_TOKEN_PLAN_REALTIME)?;
+    let url = format!(
+        "wss://token-plan.cn-beijing.maas.aliyuncs.com/api-ws/v1/realtime?model={}",
+        settings.model
+    );
+    authenticated_request(url, key, false)
+}
+
 pub(super) fn session_update(config: &AsrConfig) -> Result<Value, String> {
     let settings = service_settings(config, SERVICE_QWEN_REALTIME)?;
     let mut transcription = if config.language != "auto" {
@@ -52,6 +65,18 @@ pub(super) fn session_update(config: &AsrConfig) -> Result<Value, String> {
             "turn_detection": null
         }
     }))
+}
+
+pub(super) fn token_plan_session_update() -> Value {
+    json!({
+        "event_id": uuid::Uuid::new_v4().to_string(),
+        "type": "session.update",
+        "session": {
+            "modalities": ["text"],
+            "input_audio_format": "pcm",
+            "turn_detection": null
+        }
+    })
 }
 
 pub(super) fn normalize_event(
@@ -80,15 +105,30 @@ pub(super) fn normalize_event(
 
     let language = event_language(config, value);
     if kind.ends_with(".delta") {
-        let id = state.delta_id(value);
-        let delta = value
-            .get("delta")
-            .and_then(Value::as_str)
-            .unwrap_or_default();
-        let text = state.append_transcript(&id, delta)?;
-        return Ok((!text.is_empty()).then(|| CloudEvent::Partial {
+        if let Some(delta) = value.get("delta").and_then(Value::as_str) {
+            let id = state.delta_id(value);
+            let text = state.append_transcript(&id, delta)?;
+            return Ok((!text.is_empty()).then(|| CloudEvent::Partial {
+                utterance_id: id,
+                text: text.to_owned(),
+                language,
+            }));
+        }
+        let id = state.snapshot_id(value);
+        let text = format!(
+            "{}{}",
+            value
+                .get("text")
+                .and_then(Value::as_str)
+                .unwrap_or_default(),
+            value
+                .get("stash")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+        );
+        return Ok((!text.is_empty()).then_some(CloudEvent::Partial {
             utterance_id: id,
-            text: text.to_owned(),
+            text,
             language,
         }));
     }

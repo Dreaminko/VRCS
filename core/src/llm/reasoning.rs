@@ -131,7 +131,8 @@ fn is_alibaba_thinking_only_model(model: &str) -> bool {
 }
 
 fn is_alibaba_hybrid_model(model: &str) -> bool {
-    model.starts_with("qwen3.7-max")
+    model.starts_with("qwen3.8-max")
+        || model.starts_with("qwen3.7-max")
         || model.starts_with("qwen3.7-plus")
         || model == "qwen3.6-max-preview"
         || model == "qwen3.6-35b-a3b"
@@ -254,6 +255,10 @@ mod tests {
         );
         assert_eq!(
             thinking_control(OpenAiProtocolBehavior::Alibaba, "qwen-plus"),
+            ThinkingControl::DisableSupported
+        );
+        assert_eq!(
+            thinking_control(OpenAiProtocolBehavior::Alibaba, "qwen3.8-max"),
             ThinkingControl::DisableSupported
         );
         assert_eq!(
