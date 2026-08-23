@@ -50,7 +50,7 @@ const LLM_PURPOSES: &[&str] = &[API_PURPOSE_LLM];
 const SHARED_PURPOSES: &[&str] = &[API_PURPOSE_ASR, API_PURPOSE_LLM, API_PURPOSE_SHARED];
 const OPENAI_MODELS: &[&str] = &[];
 const QWEN_MODELS: &[&str] = &["qwen3-asr-flash-realtime"];
-const FUN_ASR_MODELS: &[&str] = &["fun-asr-realtime"];
+const FUN_ASR_MODELS: &[&str] = &["qwen-audio-3.0-asr-flash-streaming", "fun-asr-realtime"];
 const OPENAI_ASR_MODELS: &[&str] = &["gpt-4o-mini-transcribe", "gpt-4o-transcribe"];
 const GROQ_ASR_MODELS: &[&str] = &["whisper-large-v3-turbo", "whisper-large-v3"];
 
@@ -214,7 +214,7 @@ const ALIBABA_SERVICES: &[ProviderServiceDefinition] = &[
     ),
     recognition_service_definition(
         SERVICE_FUN_ASR_REALTIME,
-        "Fun-ASR Realtime",
+        "Qwen Audio / Fun-ASR Realtime",
         ServiceAdapter::FunAsrRealtime,
         RecognitionServiceSpec {
             transport: RecognitionTransport::RealtimeStream,
@@ -732,7 +732,10 @@ pub fn recognition_model_supported(service: &ProviderServiceDefinition, model: &
     }
     match service.adapter {
         ServiceAdapter::QwenRealtime => versioned_model(model, "qwen3-asr-flash-realtime"),
-        ServiceAdapter::FunAsrRealtime => versioned_model(model, "fun-asr-realtime"),
+        ServiceAdapter::FunAsrRealtime => {
+            versioned_model(model, "qwen-audio-3.0-asr-flash-streaming")
+                || versioned_model(model, "fun-asr-realtime")
+        }
         _ => service.models.contains(&model),
     }
 }
@@ -1074,7 +1077,7 @@ mod tests {
     }
 
     #[test]
-    fn alibaba_recognition_catalog_accepts_compatible_snapshots_only() {
+    fn alibaba_recognition_catalog_accepts_supported_realtime_families() {
         let qwen = service(ALIBABA_PROVIDER, SERVICE_QWEN_REALTIME).unwrap();
         let fun_asr = service(ALIBABA_PROVIDER, SERVICE_FUN_ASR_REALTIME).unwrap();
 
@@ -1087,9 +1090,13 @@ mod tests {
             fun_asr,
             "fun-asr-realtime-2025-11-07"
         ));
+        assert!(recognition_model_supported(
+            fun_asr,
+            "qwen-audio-3.0-asr-flash-streaming"
+        ));
         assert!(!recognition_model_supported(qwen, "qwen3-asr-flash"));
         assert!(!recognition_model_supported(
-            fun_asr,
+            qwen,
             "qwen-audio-3.0-asr-flash-streaming"
         ));
 
@@ -1102,6 +1109,16 @@ mod tests {
                 ],
             ),
             ["qwen3-asr-flash-realtime-2026-02-10"]
+        );
+        assert_eq!(
+            compatible_service_models(
+                fun_asr,
+                vec![
+                    "qwen-audio-3.0-asr-flash-streaming".into(),
+                    "qwen3-asr-flash".into(),
+                ],
+            ),
+            ["qwen-audio-3.0-asr-flash-streaming"]
         );
     }
 
