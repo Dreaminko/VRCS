@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import { providersApi } from "../providers/api";
 import { supportsLlmModels } from "../api-profile-purpose";
 import { localizedError } from "../app/app-utils";
+import { notifyApiProfilesChanged } from "./hooks/useApiProfileViews";
 import type {
   ApiCapability,
   ApiProfile,
@@ -101,11 +102,13 @@ export function useApiProfiles(onRefreshSettings: () => Promise<void>) {
     action: () => Promise<T>,
     successKey: string,
     refreshSettings: boolean,
+    refreshProfiles = false,
   ): Promise<T | null> => {
     setBusy(busyKey);
     setMessage("");
     try {
       const result = await action();
+      if (refreshProfiles) notifyApiProfilesChanged();
       if (refreshSettings) await onRefreshSettings();
       await load();
       setMessage(t(successKey));
@@ -141,6 +144,7 @@ export function useApiProfiles(onRefreshSettings: () => Promise<void>) {
       }),
       "settings.apiManagement.profileCreated",
       true,
+      true,
     ),
     update: (profile: ApiProfile, apiKey: string) => {
       invalidateModels(profile.id);
@@ -152,6 +156,7 @@ export function useApiProfiles(onRefreshSettings: () => Promise<void>) {
           return saved;
         },
         "settings.apiManagement.profileSaved",
+        true,
         true,
       );
     },
@@ -184,11 +189,13 @@ export function useApiProfiles(onRefreshSettings: () => Promise<void>) {
       () => providersApi.deleteApiProfileCredential(profileId),
       "settings.apiManagement.credentialRemoved",
       false,
+      true,
     ),
     remove: (profileId: string) => run(
       profileId,
       () => providersApi.deleteApiProfile(profileId),
       "settings.apiManagement.profileDeleted",
+      true,
       true,
     ),
   };

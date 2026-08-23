@@ -164,7 +164,7 @@ impl Provider {
         match self {
             Self::Qwen => qwen::build_request(config, profile, key),
             Self::FunAsr => fun_asr::build_request(profile, key),
-            Self::OpenAi => openai::build_request(config, key),
+            Self::OpenAi => openai::build_request(key),
         }
     }
 

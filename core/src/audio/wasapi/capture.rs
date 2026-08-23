@@ -3,8 +3,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use ::wasapi::{
-    AudioCaptureClient, AudioClient, Device, Direction, Handle, SampleType, ShareMode, StreamMode,
-    WaveFormat,
+    AudioCaptureClient, AudioClient, AudioClientProperties, Device, Direction, Handle, SampleType,
+    ShareMode, StreamMode, StreamOption, WaveFormat,
 };
 use tokio::sync::mpsc;
 
@@ -18,65 +18,177 @@ use super::pcm::{append_mono_f32, resample_linear, NativeFormat, SampleEncoding}
 use super::{CaptureTarget, DeviceDirection};
 
 const SHARED_BUFFER_DURATION_HNS: i64 = 0;
+const POLLING_BUFFER_DURATION_HNS: i64 = 200_000;
 const EVENT_WAIT_MS: u32 = 200;
+const POLLING_WAIT: std::time::Duration = std::time::Duration::from_millis(10);
 const DEFAULT_RECOVERY_DELAY: std::time::Duration = std::time::Duration::from_millis(150);
 
-fn map_initialize_error(error: ::wasapi::WasapiError) -> AudioError {
+fn is_out_of_memory(error: &::wasapi::WasapiError) -> bool {
     use windows::Win32::Foundation::ERROR_OUTOFMEMORY;
 
-    if matches!(
-        &error,
+    matches!(
+        error,
         ::wasapi::WasapiError::Windows(error)
             if error.code() == windows::core::HRESULT::from_win32(ERROR_OUTOFMEMORY.0)
-    ) {
-        AudioError::retryable_with_code("audio.unavailable", error.to_string())
+    )
+}
+
+fn map_initialize_error(error: ::wasapi::WasapiError) -> AudioError {
+    if is_out_of_memory(&error) {
+        AudioError::with_code("audio.unavailable", error.to_string())
     } else {
         err(error)
     }
 }
 
-fn initialize_loopback_client(device: &Device) -> Result<(AudioClient, NativeFormat), AudioError> {
-    let mut client = device
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum CaptureTiming {
+    Events,
+    Polling,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct InitializePlan {
+    timing: CaptureTiming,
+    raw: bool,
+}
+
+const INITIALIZE_PLANS: [InitializePlan; 3] = [
+    InitializePlan {
+        timing: CaptureTiming::Events,
+        raw: false,
+    },
+    InitializePlan {
+        timing: CaptureTiming::Polling,
+        raw: false,
+    },
+    InitializePlan {
+        timing: CaptureTiming::Polling,
+        raw: true,
+    },
+];
+
+impl InitializePlan {
+    fn stream_mode(self, autoconvert: bool) -> StreamMode {
+        match self.timing {
+            CaptureTiming::Events => StreamMode::EventsShared {
+                autoconvert,
+                buffer_duration_hns: SHARED_BUFFER_DURATION_HNS,
+            },
+            CaptureTiming::Polling => StreamMode::PollingShared {
+                autoconvert,
+                buffer_duration_hns: POLLING_BUFFER_DURATION_HNS,
+            },
+        }
+    }
+
+    fn stage(self) -> &'static str {
+        match (self.timing, self.raw) {
+            (CaptureTiming::Events, false) => "initialize_client_events",
+            (CaptureTiming::Polling, false) => "initialize_client_polling",
+            (_, true) => "initialize_client_raw",
+        }
+    }
+}
+
+fn initialize_shared_client(
+    client: AudioClient,
+    mut recreate_client: impl FnMut() -> Result<AudioClient, AudioError>,
+    wave_format: &WaveFormat,
+    autoconvert: bool,
+    raw_fallback: bool,
+) -> Result<(AudioClient, CaptureTiming), AudioError> {
+    let plans = if raw_fallback {
+        &INITIALIZE_PLANS[..]
+    } else {
+        &INITIALIZE_PLANS[..2]
+    };
+    let mut first_client = Some(client);
+    let mut previous_oom = None;
+    for (index, plan) in plans.iter().copied().enumerate() {
+        let mut client = match first_client.take() {
+            Some(client) => client,
+            None => recreate_client()?,
+        };
+        if plan.raw {
+            if let Err(error) =
+                client.set_properties(AudioClientProperties::new().set_option(StreamOption::Raw))
+            {
+                tracing::warn!(detail = %error, "WASAPI RAW fallback is unavailable");
+                let error = previous_oom.expect("RAW fallback follows an out-of-memory error");
+                return Err(map_initialize_error(error).at_stage(plan.stage()));
+            }
+        }
+        let mode = plan.stream_mode(autoconvert);
+        match client.initialize_client(wave_format, &Direction::Capture, &mode) {
+            Ok(()) => return Ok((client, plan.timing)),
+            Err(error) if is_out_of_memory(&error) && index + 1 < plans.len() => {
+                let next = plans[index + 1];
+                tracing::warn!(
+                    detail = %error,
+                    timing = ?plan.timing,
+                    next_timing = ?next.timing,
+                    next_raw = next.raw,
+                    "WASAPI initialization ran out of resources; trying a fallback mode"
+                );
+                previous_oom = Some(error);
+            }
+            Err(error) => {
+                return Err(map_initialize_error(error).at_stage(plan.stage()));
+            }
+        }
+    }
+    unreachable!("WASAPI initialization plans are non-empty")
+}
+
+fn initialize_loopback_client(
+    device: &Device,
+) -> Result<(AudioClient, NativeFormat, CaptureTiming), AudioError> {
+    let client = device
         .get_iaudioclient()
         .map_err(|error| err(error).at_stage("activate_client"))?;
     let wave_format = device
         .get_device_format()
         .map_err(|error| err(error).at_stage("read_device_format"))?;
     let native = NativeFormat::from_wave_format(&wave_format)?;
-    let mode = StreamMode::EventsShared {
-        autoconvert: false,
-        buffer_duration_hns: SHARED_BUFFER_DURATION_HNS,
-    };
-    client
-        .initialize_client(&wave_format, &Direction::Capture, &mode)
-        .map_err(|error| map_initialize_error(error).at_stage("initialize_client"))?;
-    Ok((client, native))
+    let (client, timing) = initialize_shared_client(
+        client,
+        || {
+            device
+                .get_iaudioclient()
+                .map_err(|error| err(error).at_stage("activate_client"))
+        },
+        &wave_format,
+        false,
+        true,
+    )?;
+    Ok((client, native, timing))
 }
 
 fn initialize_capture_mix_format(
     device: &Device,
-) -> Result<(AudioClient, NativeFormat), AudioError> {
-    let mut client = device.get_iaudioclient().map_err(err)?;
+) -> Result<(AudioClient, NativeFormat, CaptureTiming), AudioError> {
+    let client = device.get_iaudioclient().map_err(err)?;
     let mix_format = client.get_mixformat().map_err(err)?;
     let wave_format = client
         .is_supported(&mix_format, &ShareMode::Shared)
         .map_err(err)?
         .unwrap_or(mix_format);
     let native = NativeFormat::from_wave_format(&wave_format)?;
-    let mode = StreamMode::EventsShared {
-        autoconvert: false,
-        buffer_duration_hns: SHARED_BUFFER_DURATION_HNS,
-    };
-    client
-        .initialize_client(&wave_format, &Direction::Capture, &mode)
-        .map_err(map_initialize_error)?;
-    Ok((client, native))
+    let (client, timing) = initialize_shared_client(
+        client,
+        || device.get_iaudioclient().map_err(err),
+        &wave_format,
+        false,
+        true,
+    )?;
+    Ok((client, native, timing))
 }
 
 fn initialize_capture_client(
     device: &Device,
     output_rate: u32,
-) -> Result<(AudioClient, NativeFormat), AudioError> {
+) -> Result<(AudioClient, NativeFormat, CaptureTiming), AudioError> {
     match initialize_capture_mix_format(device) {
         Ok(initialized) => Ok(initialized),
         Err(error) if error.code() == "audio.unsupported_format" => {
@@ -84,16 +196,16 @@ fn initialize_capture_client(
                 output_rate,
                 "WASAPI rejected the shared mix format; using automatic format conversion"
             );
-            let mut client = device.get_iaudioclient().map_err(err)?;
+            let client = device.get_iaudioclient().map_err(err)?;
             let wave_format =
                 WaveFormat::new(32, 32, &SampleType::Float, output_rate as usize, 1, None);
-            let mode = StreamMode::EventsShared {
-                autoconvert: true,
-                buffer_duration_hns: SHARED_BUFFER_DURATION_HNS,
-            };
-            client
-                .initialize_client(&wave_format, &Direction::Capture, &mode)
-                .map_err(map_initialize_error)?;
+            let (client, timing) = initialize_shared_client(
+                client,
+                || device.get_iaudioclient().map_err(err),
+                &wave_format,
+                true,
+                true,
+            )?;
             Ok((
                 client,
                 NativeFormat {
@@ -101,6 +213,7 @@ fn initialize_capture_client(
                     channels: 1,
                     encoding: SampleEncoding::Float32,
                 },
+                timing,
             ))
         }
         Err(error) => Err(error),
@@ -109,11 +222,16 @@ fn initialize_capture_client(
 
 struct CaptureStream {
     capture: AudioCaptureClient,
-    event: Handle,
+    wait: CaptureWait,
     client: AudioClient,
     device: AudioDevice,
     native: NativeFormat,
     endpoint_id: String,
+}
+
+enum CaptureWait {
+    Event(Handle),
+    Polling,
 }
 
 struct StreamFailure {
@@ -136,9 +254,14 @@ fn open_stream(
     output_rate: u32,
 ) -> Result<CaptureStream, AudioError> {
     let process_loopback = matches!(target, CaptureTarget::Process(_));
-    let (client, device, native, selection, endpoint_id) = match target {
+    let (client, device, native, timing, selection, endpoint_id) = match target {
         CaptureTarget::Process(process_id) => {
-            let mut client = AudioClient::new_application_loopback_client(*process_id, true)
+            let render_device = resolve_device(com, None, &Direction::Render)?;
+            let wave_format = render_device
+                .get_device_format()
+                .map_err(|error| err(error).at_stage("read_device_format"))?;
+            let native = NativeFormat::from_wave_format(&wave_format)?;
+            let client = AudioClient::new_application_loopback_client(*process_id, true)
                 .map_err(|error| map_capture_error(error, true))?;
             let device = AudioDevice {
                 id: -1,
@@ -148,12 +271,6 @@ fn open_stream(
                 sample_rate: output_rate,
                 channels: 1,
             };
-            let wave_format =
-                WaveFormat::new(16, 16, &SampleType::Int, output_rate as usize, 1, None);
-            let mode = StreamMode::EventsShared {
-                autoconvert: true,
-                buffer_duration_hns: SHARED_BUFFER_DURATION_HNS,
-            };
             let endpoint_id = format!("process:{process_id}");
             tracing::info!(
                 selection = "process",
@@ -161,26 +278,18 @@ fn open_stream(
                 device_name = %device.name,
                 "initializing WASAPI capture"
             );
-            client
-                .initialize_client(&wave_format, &Direction::Capture, &mode)
-                .map_err(|error| {
-                    map_initialize_error(error)
-                        .with_default_code("audio.process_loopback_unavailable")
-                })?;
-            (
+            let (client, timing) = initialize_shared_client(
                 client,
-                device,
-                NativeFormat {
-                    sample_rate: output_rate,
-                    channels: 1,
-                    encoding: SampleEncoding::SignedInt {
-                        container_bytes: 2,
-                        valid_bits: 16,
-                    },
+                || {
+                    AudioClient::new_application_loopback_client(*process_id, true)
+                        .map_err(|error| map_capture_error(error, true))
                 },
-                "process",
-                endpoint_id,
+                &wave_format,
+                false,
+                false,
             )
+            .map_err(|error| error.with_default_code("audio.process_loopback_unavailable"))?;
+            (client, device, native, timing, "process", endpoint_id)
         }
         CaptureTarget::Device {
             wasapi_id,
@@ -209,17 +318,22 @@ fn open_stream(
                 device_name = %info.name,
                 "initializing WASAPI capture"
             );
-            let (client, native) = match direction {
+            let (client, native, timing) = match direction {
                 DeviceDirection::Render => initialize_loopback_client(&device)?,
                 DeviceDirection::Capture => initialize_capture_client(&device, output_rate)?,
             };
-            (client, info, native, selection, endpoint_id)
+            (client, info, native, timing, selection, endpoint_id)
         }
     };
 
-    let event = client
-        .set_get_eventhandle()
-        .map_err(|error| map_capture_error(error, process_loopback).at_stage("create_event"))?;
+    let wait = match timing {
+        CaptureTiming::Events => {
+            CaptureWait::Event(client.set_get_eventhandle().map_err(|error| {
+                map_capture_error(error, process_loopback).at_stage("create_event")
+            })?)
+        }
+        CaptureTiming::Polling => CaptureWait::Polling,
+    };
     let capture = client.get_audiocaptureclient().map_err(|error| {
         map_capture_error(error, process_loopback).at_stage("get_capture_client")
     })?;
@@ -233,11 +347,12 @@ fn open_stream(
         device_name = %device.name,
         sample_rate = native.sample_rate,
         channels = native.channels,
+        timing = ?timing,
         "initialized WASAPI capture"
     );
     Ok(CaptureStream {
         capture,
-        event,
+        wait,
         client,
         device,
         native,
@@ -267,7 +382,12 @@ fn run_stream(
     let mut pending = VecDeque::<f32>::new();
     let mut packet = VecDeque::<u8>::new();
     while !stop.load(Ordering::Relaxed) {
-        let _ = stream.event.wait_for_event(EVENT_WAIT_MS);
+        match &stream.wait {
+            CaptureWait::Event(event) => {
+                let _ = event.wait_for_event(EVENT_WAIT_MS);
+            }
+            CaptureWait::Polling => std::thread::sleep(POLLING_WAIT),
+        }
         while let Some(size) = stream
             .capture
             .get_next_packet_size()
@@ -367,5 +487,42 @@ pub(crate) fn capture_main(
                 return;
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{map_initialize_error, CaptureTiming, INITIALIZE_PLANS};
+
+    #[test]
+    fn out_of_memory_does_not_repeat_identical_startup() {
+        let windows_error = windows::core::Error::from_hresult(windows::core::HRESULT::from_win32(
+            windows::Win32::Foundation::ERROR_OUTOFMEMORY.0,
+        ));
+        let error = map_initialize_error(::wasapi::WasapiError::Windows(windows_error));
+
+        assert!(!error.is_retryable());
+    }
+
+    #[test]
+    fn out_of_memory_recovery_ends_with_raw_polling() {
+        let final_plan = *INITIALIZE_PLANS.last().unwrap();
+        assert_eq!(INITIALIZE_PLANS.len(), 3);
+        assert_eq!(final_plan.timing, CaptureTiming::Polling);
+        assert!(final_plan.raw);
+    }
+
+    #[test]
+    #[ignore]
+    fn initializes_native_process_loopback_client() {
+        let _com = super::init_com().unwrap();
+        let stream = super::open_stream(
+            &_com,
+            &super::CaptureTarget::Process(std::process::id()),
+            16_000,
+        )
+        .unwrap();
+        assert!(stream.native.sample_rate > 0);
+        stream.client.stop_stream().unwrap();
     }
 }
