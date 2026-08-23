@@ -1,6 +1,6 @@
 [package]
 name = "vrcs-core"
-version = "0.1.5"
+version = "0.1.6"
 description = "VRCS local core service (Rust)"
 authors = ["VRCS contributors"]
 license = "AGPL-3.0-only"
