@@ -34,6 +34,19 @@ test("localized audio errors retain the diagnostic detail", () => {
   );
 });
 
+test("localized LLM failures retain the provider detail", () => {
+  const error = new ApiError({
+    code: "llm.request_failed",
+    detail: "OpenAI response was incomplete: max_output_tokens",
+    status: 503,
+  });
+
+  assert.equal(
+    formatApiErrorMessage(error, "LLM 请求失败。", (detail) => `诊断详情：${detail}`),
+    "LLM 请求失败。\n诊断详情：OpenAI response was incomplete: max_output_tokens",
+  );
+});
+
 test("uses a stable fallback for malformed error responses", async () => {
   const error = await apiErrorFromResponse(new Response("not json", {
     status: 502,

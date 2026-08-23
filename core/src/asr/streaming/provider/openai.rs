@@ -10,7 +10,7 @@ use super::{
     CloudEvent, NormalizationState,
 };
 
-const REALTIME_SESSION_URL: &str = "wss://api.openai.com/v1/realtime?model=gpt-realtime";
+const REALTIME_SESSION_URL: &str = "wss://api.openai.com/v1/realtime?intent=transcription";
 
 pub(super) fn build_request(key: &str) -> Result<Request<()>, String> {
     authenticated_request(REALTIME_SESSION_URL.into(), key, false)
@@ -135,17 +135,22 @@ mod tests {
     use super::*;
 
     #[test]
-    fn request_uses_a_realtime_session_model() {
+    fn realtime_session_and_transcription_models_are_separate() {
+        let config = AsrConfig::default();
         let request = build_request("test-key").unwrap();
 
         assert_eq!(
             request.uri(),
-            "wss://api.openai.com/v1/realtime?model=gpt-realtime"
+            "wss://api.openai.com/v1/realtime?intent=transcription"
         );
         assert!(request.headers().get("OpenAI-Beta").is_none());
         assert_eq!(
             request.headers().get("Authorization").unwrap(),
             "Bearer test-key"
+        );
+        assert_eq!(
+            session_update(&config).unwrap()["session"]["audio"]["input"]["transcription"]["model"],
+            "gpt-4o-mini-transcribe"
         );
     }
 

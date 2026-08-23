@@ -51,8 +51,12 @@ test("profile switching reuses a valid model and otherwise prefers the provider 
 
 test("automatic selection skips obvious non-text models", () => {
   assert.equal(
-    selectTranslationModel("openai", ["text-embedding-3-small", "gpt-5-mini"], "text-embedding-3-small"),
-    "gpt-5-mini",
+    selectTranslationModel(
+      "openai",
+      ["text-embedding-3-small", "gpt-5-mini", "gpt-4.1-mini"],
+      "text-embedding-3-small",
+    ),
+    "gpt-4.1-mini",
   );
   assert.equal(
     selectTranslationModel("groq", ["whisper-large-v3", "openai/gpt-oss-120b"], ""),

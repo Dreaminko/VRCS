@@ -7,7 +7,7 @@ type ModelCatalog = {
 };
 
 const PREFERRED_MODELS: Record<string, readonly string[]> = {
-  openai: ["gpt-5-mini", "gpt-4.1-mini", "gpt-4o-mini"],
+  openai: ["gpt-4.1-mini", "gpt-4o-mini", "gpt-5-mini"],
   groq: ["openai/gpt-oss-20b", "openai/gpt-oss-120b"],
   deepseek: ["deepseek-v4-flash", "deepseek-v4-pro"],
   gemini: ["gemini-3.7-flash", "gemini-3.6-flash", "gemini-2.5-flash"],

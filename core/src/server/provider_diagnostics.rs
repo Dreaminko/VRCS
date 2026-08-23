@@ -12,7 +12,7 @@ use crate::providers::{
     GROQ_PROVIDER, OPENAI_PROVIDER, OPENROUTER_PROVIDER,
 };
 
-const OPENAI_DIAGNOSTIC_MODELS: &[&str] = &["gpt-5-mini", "gpt-4.1-mini", "gpt-4o-mini"];
+const OPENAI_DIAGNOSTIC_MODELS: &[&str] = &["gpt-4.1-mini", "gpt-4o-mini", "gpt-5-mini"];
 const GROQ_DIAGNOSTIC_MODELS: &[&str] = &["openai/gpt-oss-20b", "openai/gpt-oss-120b"];
 const DEEPSEEK_DIAGNOSTIC_MODELS: &[&str] = &["deepseek-v4-flash", "deepseek-v4-pro"];
 const GEMINI_DIAGNOSTIC_MODELS: &[&str] =
@@ -542,10 +542,14 @@ mod tests {
         assert_eq!(
             select_listed_model(
                 OPENAI_PROVIDER,
-                vec!["text-embedding-3-small".into(), "gpt-5-mini".into()],
+                vec![
+                    "text-embedding-3-small".into(),
+                    "gpt-5-mini".into(),
+                    "gpt-4.1-mini".into(),
+                ],
             )
             .as_deref(),
-            Some("gpt-5-mini")
+            Some("gpt-4.1-mini")
         );
         assert_eq!(
             select_listed_model(

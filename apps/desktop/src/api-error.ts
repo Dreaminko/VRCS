@@ -1,6 +1,6 @@
 export type ApiErrorParams = Record<string, unknown>;
 
-const audioErrorsWithDiagnosticDetail = new Set([
+const errorsWithDiagnosticDetail = new Set([
   "audio.com_initialization_failed",
   "audio.device_in_use",
   "audio.device_unavailable",
@@ -13,6 +13,7 @@ const audioErrorsWithDiagnosticDetail = new Set([
   "audio.unavailable",
   "audio.unsupported_format",
   "audio.unsupported_platform",
+  "llm.request_failed",
 ]);
 
 export interface ApiErrorPayload {
@@ -53,7 +54,7 @@ export function formatApiErrorMessage(
 ): string {
   const detail = error.detail.trim();
   if (
-    !audioErrorsWithDiagnosticDetail.has(error.code)
+    !errorsWithDiagnosticDetail.has(error.code)
     || !detail
     || detail === localized.trim()
   ) {
