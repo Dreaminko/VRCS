@@ -20,6 +20,7 @@ mod osc;
 mod pipeline;
 mod providers;
 mod server;
+mod smart_turn;
 mod startup;
 mod subtitle_output;
 mod translation;

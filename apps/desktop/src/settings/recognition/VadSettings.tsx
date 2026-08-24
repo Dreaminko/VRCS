@@ -2,7 +2,7 @@ import { Clock3 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import type { Settings } from "../types";
-import { RangeField } from "../SettingsControls";
+import { PreferenceToggle, RangeField } from "../SettingsControls";
 
 export function VadSettings({
   vad,
@@ -21,6 +21,13 @@ export function VadSettings({
         <span><strong>{t("settings.recognition.segmentation")}</strong></span>
       </div>
       <div className="recognition-config-fields">
+        <PreferenceToggle
+          title={t("settings.recognition.smartTurn")}
+          description={t("settings.recognition.smartTurnDescription")}
+          checked={vad.endpointing === "smart_turn"}
+          disabled={disabled}
+          onChange={(checked) => onUpdate("endpointing", checked ? "smart_turn" : "silence")}
+        />
         <RangeField
           label={t("settings.recognition.silence")}
           value={vad.silence_seconds}

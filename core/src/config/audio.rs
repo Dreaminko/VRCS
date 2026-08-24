@@ -32,6 +32,8 @@ pub struct AudioConfig {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct VadConfig {
+    #[serde(default = "default_endpointing")]
+    pub endpointing: String,
     #[serde(default = "default_silence_seconds")]
     pub silence_seconds: f64,
     #[serde(default = "default_max_speech_seconds")]
@@ -56,6 +58,10 @@ fn default_microphone_trigger_threshold_dbfs() -> f32 {
 
 fn default_sample_rate() -> u32 {
     16_000
+}
+
+fn default_endpointing() -> String {
+    "silence".into()
 }
 
 fn default_silence_seconds() -> f64 {
@@ -99,6 +105,7 @@ impl Default for AudioConfig {
 impl Default for VadConfig {
     fn default() -> Self {
         Self {
+            endpointing: default_endpointing(),
             silence_seconds: default_silence_seconds(),
             max_speech_seconds: default_max_speech_seconds(),
         }

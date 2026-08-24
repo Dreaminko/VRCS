@@ -28,7 +28,7 @@ The standard and CUDA editions share the same configuration, database, and model
 Runtime requirements:
 
 - [Microsoft Visual C++ v14 Redistributable (x64)](https://aka.ms/vs/17/release/vc_redist.x64.exe)
-- An internet connection on first launch to download the pinned Silero VAD model
+- An internet connection on first launch to download the pinned Silero VAD model; enabling semantic endpointing downloads the pinned Smart Turn model
 - An initial model download when using local Whisper
 - API credentials for the selected providers when using cloud recognition, translation, or learning analysis; provider charges may apply
 
@@ -50,6 +50,7 @@ You can change the configuration at any time in the application. To run the setu
 - Windows WASAPI system loopback, dedicated VRChat process loopback, and microphone capture
 - Dual-stream transcription for system audio and microphone input, with independent audio source and device controls
 - Silero ONNX VAD with automatic fallback to energy-based detection when the model is unavailable
+- Optional Smart Turn semantic endpointing for locally controlled speech segments
 - Incremental real-time subtitles, final subtitles, session history, and compact window mode
 - Local SQLite subtitle history with session organization, renaming, and cleanup
 

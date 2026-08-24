@@ -1036,6 +1036,8 @@
         "computeTypeDescription": "Available choices depend on the selected runtime.",
         "segmentation": "Speech segmentation",
         "segmentationDescription": "Control when speech segments end and their maximum length.",
+        "smartTurn": "Semantic endpointing (experimental)",
+        "smartTurnDescription": "Check whether speech is complete after a pause. Services with server-side endpointing are unaffected.",
         "silence": "End after silence",
         "silenceDescription": "Shorter pauses produce subtitles sooner.",
         "maxSegment": "Maximum segment",

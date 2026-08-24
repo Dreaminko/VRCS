@@ -1036,6 +1036,8 @@
         "computeTypeDescription": "可用选项取决于所选运行设备。",
         "segmentation": "语音分段",
         "segmentationDescription": "控制语音片段结束时机和最大长度。",
+        "smartTurn": "语义断句（实验性）",
+        "smartTurnDescription": "在停顿后判断话语是否完整；服务端断句的识别服务不受影响。",
         "silence": "静音后结束",
         "silenceDescription": "停顿越短，字幕出现得越快。",
         "maxSegment": "最长片段",

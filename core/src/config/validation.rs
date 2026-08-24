@@ -5,6 +5,12 @@ use crate::providers::{self, CAPABILITY_SPEECH_TO_TEXT, SERVICE_FUN_ASR_REALTIME
 
 impl VadConfig {
     pub fn validate(&self) -> Result<(), String> {
+        if !["silence", "smart_turn"].contains(&self.endpointing.as_str()) {
+            return Err(format!(
+                "Unsupported VAD endpointing mode: {}",
+                self.endpointing
+            ));
+        }
         if !(0.1..=2.0).contains(&self.silence_seconds) {
             return Err("VAD silence_seconds must be between 0.1 and 2.0".into());
         }

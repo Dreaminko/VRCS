@@ -15,7 +15,7 @@ use crate::osc::OscChatboxDispatcher;
 use crate::pipeline::TranscriptionPipeline;
 use crate::subtitle_output::SubtitleLifecyclePublisher;
 use crate::translation::{TranslationDispatcher, TranslationService};
-use crate::{asr, vad};
+use crate::{asr, smart_turn, vad};
 
 pub(crate) struct ConfigRuntime {
     pub(crate) config_path: PathBuf,
@@ -74,6 +74,11 @@ pub(crate) struct CaptureRuntimeInput {
 
 impl CaptureRuntime {
     pub(crate) fn new(input: CaptureRuntimeInput) -> Self {
+        let smart_turn_runtime = smart_turn::SmartTurnRuntime::new(
+            input
+                .vad_model_path
+                .with_file_name(smart_turn::MODEL_FILENAME),
+        );
         Self {
             live_tx: input.live_tx,
             vad_runtime: input.vad_runtime.clone(),
@@ -87,6 +92,7 @@ impl CaptureRuntime {
                 "speaker",
                 input.vad_model_path.clone(),
                 input.vad_runtime.clone(),
+                smart_turn_runtime.clone(),
                 input.shutdown.clone(),
             )),
             microphone_pipeline: AsyncMutex::new(TranscriptionPipeline::new(
@@ -94,6 +100,7 @@ impl CaptureRuntime {
                 "microphone",
                 input.vad_model_path,
                 input.vad_runtime,
+                smart_turn_runtime,
                 input.shutdown,
             )),
             microphone_monitor: AsyncMutex::new(MicrophoneMonitor::new()),

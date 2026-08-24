@@ -28,7 +28,7 @@ VRCS 是面向 VRChat 场景的 Windows 实时字幕与语言学习工具。它�
 运行环境：
 
 - [Microsoft Visual C++ v14 Redistributable（x64）](https://aka.ms/vs/17/release/vc_redist.x64.exe)
-- 首次启动时需要联网下载固定版本的 Silero VAD 模型
+- 首次启动时需要联网下载固定版本的 Silero VAD 模型；启用语义断句时会下载固定版本的 Smart Turn 模型
 - 使用本地 Whisper 时，需要按所选模型完成首次下载
 - 使用云端识别、翻译或学习分析时，需要对应服务商的 API 凭据；服务商可能产生费用
 
@@ -53,6 +53,7 @@ VRCS 是面向 VRChat 场景的 Windows 实时字幕与语言学习工具。它�
 - Windows WASAPI 系统回环、VRChat 进程专用回环和麦克风捕获
 - 系统音频与麦克风双路转写，可分别控制音频源和设备
 - Silero ONNX VAD；模型不可用时自动回退到能量检测
+- 可选 Smart Turn 语义断句，用于可由本地控制结束时机的语音片段
 - 实时增量字幕、最终字幕、会话历史和紧凑窗口模式
 - 字幕历史保存在本机 SQLite，可按会话组织、重命名和清理
 

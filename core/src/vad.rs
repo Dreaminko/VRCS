@@ -21,6 +21,9 @@ const DEFAULT_THRESHOLD: f32 = 0.5;
 const DEFAULT_NEGATIVE_THRESHOLD: f32 = DEFAULT_THRESHOLD - 0.15;
 const DEFAULT_MIN_SPEECH_SECONDS: f64 = 0.25;
 const MIN_SILENCE_AT_MAX_SPEECH_SECONDS: f64 = 0.1;
+const SMART_TURN_HARD_SILENCE_SECONDS: f64 = 3.0;
+const SMART_TURN_MAX_EXTENSION_SECONDS: f64 = 8.0;
+const SMART_TURN_ABSOLUTE_MAX_SECONDS: f64 = 30.0;
 pub const MODEL_VERSION: &str = "v6.2.1";
 const MODEL_REVISION: &str = "7e30209a3e901f9842f81b225f3e93d8199902b1";
 const MODEL_URL: &str = "https://raw.githubusercontent.com/snakers4/silero-vad/7e30209a3e901f9842f81b225f3e93d8199902b1/src/silero_vad/data/silero_vad.onnx";
@@ -386,12 +389,19 @@ fn energy_probability(samples: &[f32]) -> f32 {
 #[allow(dead_code)]
 pub struct SpeechSegmenter {
     silence_samples: usize,
+    hard_silence_samples: usize,
     min_silence_at_max_samples: usize,
     min_speech_samples: usize,
     max_speech_samples: usize,
+    absolute_max_samples: usize,
+    smart_endpointing: bool,
     chunks: Vec<Vec<f32>>,
+    buffered_samples: usize,
     speech_samples: usize,
     silence_samples_seen: usize,
+    candidate_ready: bool,
+    candidate_pending: bool,
+    generation: u64,
 }
 
 #[allow(dead_code)]
@@ -402,6 +412,17 @@ impl SpeechSegmenter {
             silence_seconds,
             DEFAULT_MIN_SPEECH_SECONDS,
             max_speech_seconds,
+            false,
+        )
+    }
+
+    pub fn smart(sample_rate: u32, silence_seconds: f64, max_speech_seconds: f64) -> Self {
+        Self::with_min_speech_seconds(
+            sample_rate,
+            silence_seconds,
+            DEFAULT_MIN_SPEECH_SECONDS,
+            max_speech_seconds,
+            true,
         )
     }
 
@@ -410,27 +431,45 @@ impl SpeechSegmenter {
         silence_seconds: f64,
         min_speech_seconds: f64,
         max_speech_seconds: f64,
+        smart_endpointing: bool,
     ) -> Self {
         let samples = |seconds: f64| (seconds * f64::from(sample_rate)) as usize;
         Self {
             silence_samples: samples(silence_seconds),
+            hard_silence_samples: samples(SMART_TURN_HARD_SILENCE_SECONDS),
             min_silence_at_max_samples: samples(MIN_SILENCE_AT_MAX_SPEECH_SECONDS),
             min_speech_samples: samples(min_speech_seconds),
             max_speech_samples: samples(max_speech_seconds),
+            absolute_max_samples: samples(
+                (max_speech_seconds + SMART_TURN_MAX_EXTENSION_SECONDS)
+                    .min(SMART_TURN_ABSOLUTE_MAX_SECONDS),
+            ),
+            smart_endpointing,
             chunks: Vec::new(),
+            buffered_samples: 0,
             speech_samples: 0,
             silence_samples_seen: 0,
+            candidate_ready: false,
+            candidate_pending: false,
+            generation: 0,
         }
     }
 
     /// 接收一个 PCM 块，并在达到尾部静音或最大时长时返回完整语音段。
     pub fn push(&mut self, chunk: &[f32], speech: bool) -> Option<Vec<f32>> {
         if speech {
+            if self.candidate_pending {
+                self.generation = self.generation.wrapping_add(1);
+                self.candidate_pending = false;
+                self.candidate_ready = false;
+            }
             self.chunks.push(chunk.to_vec());
+            self.buffered_samples += chunk.len();
             self.speech_samples += chunk.len();
             self.silence_samples_seen = 0;
         } else if !self.chunks.is_empty() {
             self.chunks.push(chunk.to_vec());
+            self.buffered_samples += chunk.len();
             self.silence_samples_seen += chunk.len();
         }
 
@@ -440,17 +479,52 @@ impl SpeechSegmenter {
             .saturating_sub(self.silence_samples_seen);
         let short_silence_near_max = self.silence_samples_seen >= self.min_silence_at_max_samples
             && total.saturating_add(remaining_normal_silence) >= self.max_speech_samples;
-        let finished = self.silence_samples_seen >= self.silence_samples
-            || short_silence_near_max
-            || total >= self.max_speech_samples;
+        if self.smart_endpointing
+            && !self.candidate_pending
+            && (self.silence_samples_seen >= self.silence_samples || short_silence_near_max)
+        {
+            self.candidate_pending = true;
+            self.candidate_ready = true;
+            let reason = if self.silence_samples_seen >= self.silence_samples {
+                "pause"
+            } else {
+                "soft_max"
+            };
+            tracing::debug!(reason, "Smart Turn endpoint candidate");
+        }
+        let finished = if self.smart_endpointing {
+            let hard_silence = self.silence_samples_seen >= self.hard_silence_samples;
+            let absolute_max = self.buffered_samples >= self.absolute_max_samples;
+            if hard_silence || absolute_max {
+                let reason = if hard_silence {
+                    "hard_silence"
+                } else {
+                    "absolute_max"
+                };
+                tracing::debug!(reason, "Smart Turn segment ended by safety limit");
+            }
+            hard_silence || absolute_max
+        } else {
+            self.silence_samples_seen >= self.silence_samples
+                || short_silence_near_max
+                || total >= self.max_speech_samples
+        };
         if !finished {
             return None;
         }
+        self.finish()
+    }
 
-        let valid = self.speech_samples >= self.min_speech_samples;
-        let segment = valid.then(|| self.chunks.concat());
-        self.reset();
-        segment
+    pub fn take_candidate(&mut self) -> Option<(u64, Vec<f32>)> {
+        if !self.candidate_ready {
+            return None;
+        }
+        self.candidate_ready = false;
+        Some((self.generation, self.chunks.concat()))
+    }
+
+    pub fn complete_candidate(&mut self, generation: u64) -> Option<Option<Vec<f32>>> {
+        (self.candidate_pending && self.generation == generation).then(|| self.finish())
     }
 
     pub fn is_active(&self) -> bool {
@@ -458,9 +532,22 @@ impl SpeechSegmenter {
     }
 
     pub fn reset(&mut self) {
+        if !self.chunks.is_empty() || self.candidate_pending {
+            self.generation = self.generation.wrapping_add(1);
+        }
         self.chunks.clear();
+        self.buffered_samples = 0;
         self.speech_samples = 0;
         self.silence_samples_seen = 0;
+        self.candidate_ready = false;
+        self.candidate_pending = false;
+    }
+
+    fn finish(&mut self) -> Option<Vec<f32>> {
+        let valid = self.speech_samples >= self.min_speech_samples;
+        let segment = valid.then(|| self.chunks.concat());
+        self.reset();
+        segment
     }
 }
 
@@ -502,7 +589,7 @@ mod tests {
 
     #[test]
     fn segmenter_emits_after_silence() {
-        let mut segmenter = SpeechSegmenter::with_min_speech_seconds(100, 0.2, 0.1, 6.0);
+        let mut segmenter = SpeechSegmenter::with_min_speech_seconds(100, 0.2, 0.1, 6.0, false);
         let speech = [1.0; 10];
         let silence = [0.0; 10];
 
@@ -513,7 +600,7 @@ mod tests {
 
     #[test]
     fn segmenter_drops_short_noise() {
-        let mut segmenter = SpeechSegmenter::with_min_speech_seconds(100, 0.1, 0.25, 6.0);
+        let mut segmenter = SpeechSegmenter::with_min_speech_seconds(100, 0.1, 0.25, 6.0, false);
         assert!(segmenter.push(&[1.0; 10], true).is_none());
         assert!(segmenter.push(&[0.0; 10], false).is_none());
     }
@@ -529,7 +616,7 @@ mod tests {
 
     #[test]
     fn segmenter_prefers_a_short_silence_near_the_maximum() {
-        let mut segmenter = SpeechSegmenter::with_min_speech_seconds(100, 0.4, 0.1, 1.0);
+        let mut segmenter = SpeechSegmenter::with_min_speech_seconds(100, 0.4, 0.1, 1.0, false);
 
         assert!(segmenter.push(&[1.0; 60], true).is_none());
         assert_eq!(segmenter.push(&[0.0; 10], false).unwrap().len(), 70);
@@ -537,10 +624,69 @@ mod tests {
 
     #[test]
     fn segmenter_ignores_a_short_silence_well_before_the_maximum() {
-        let mut segmenter = SpeechSegmenter::with_min_speech_seconds(100, 0.4, 0.1, 1.0);
+        let mut segmenter = SpeechSegmenter::with_min_speech_seconds(100, 0.4, 0.1, 1.0, false);
 
         assert!(segmenter.push(&[1.0; 40], true).is_none());
         assert!(segmenter.push(&[0.0; 10], false).is_none());
+    }
+
+    #[test]
+    fn smart_segmenter_waits_for_a_completion_decision() {
+        let mut segmenter = SpeechSegmenter::with_min_speech_seconds(100, 0.2, 0.1, 6.0, true);
+        assert!(segmenter.push(&[1.0; 10], true).is_none());
+        assert!(segmenter.push(&[0.0; 20], false).is_none());
+
+        let (generation, audio) = segmenter.take_candidate().unwrap();
+        assert_eq!(audio.len(), 30);
+        assert_eq!(
+            segmenter
+                .complete_candidate(generation)
+                .unwrap()
+                .unwrap()
+                .len(),
+            30
+        );
+        assert!(!segmenter.is_active());
+    }
+
+    #[test]
+    fn resumed_speech_invalidates_a_smart_turn_result() {
+        let mut segmenter = SpeechSegmenter::with_min_speech_seconds(100, 0.2, 0.1, 6.0, true);
+        assert!(segmenter.push(&[1.0; 10], true).is_none());
+        assert!(segmenter.push(&[0.0; 20], false).is_none());
+        let (generation, _) = segmenter.take_candidate().unwrap();
+        assert!(segmenter.push(&[1.0; 10], true).is_none());
+        assert!(segmenter.complete_candidate(generation).is_none());
+        assert!(segmenter.is_active());
+    }
+
+    #[test]
+    fn smart_segmenter_finishes_after_hard_silence_without_a_result() {
+        let mut segmenter = SpeechSegmenter::with_min_speech_seconds(100, 0.2, 0.1, 6.0, true);
+        assert!(segmenter.push(&[1.0; 10], true).is_none());
+        assert!(segmenter.push(&[0.0; 20], false).is_none());
+        assert_eq!(segmenter.push(&[0.0; 280], false).unwrap().len(), 310);
+        assert!(!segmenter.is_active());
+    }
+
+    #[test]
+    fn smart_segmenter_treats_the_configured_maximum_as_soft() {
+        let mut segmenter = SpeechSegmenter::with_min_speech_seconds(100, 0.4, 0.1, 1.0, true);
+        assert!(segmenter.push(&[1.0; 100], true).is_none());
+        assert!(segmenter.push(&[0.0; 10], false).is_none());
+
+        let (generation, audio) = segmenter.take_candidate().unwrap();
+        assert_eq!(audio.len(), 110);
+        assert!(segmenter.push(&[1.0; 10], true).is_none());
+        assert!(segmenter.complete_candidate(generation).is_none());
+        assert!(segmenter.is_active());
+    }
+
+    #[test]
+    fn smart_segmenter_enforces_an_absolute_maximum() {
+        let mut segmenter = SpeechSegmenter::with_min_speech_seconds(100, 0.4, 0.1, 1.0, true);
+        assert_eq!(segmenter.push(&[1.0; 900], true).unwrap().len(), 900);
+        assert!(!segmenter.is_active());
     }
 
     #[test]

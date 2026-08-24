@@ -1036,6 +1036,8 @@
         "computeTypeDescription": "選択肢は実行デバイスによって変わります。",
         "segmentation": "音声の分割",
         "segmentationDescription": "発話区間の終了タイミングと最大長を調整します。",
+        "smartTurn": "意味ベースの区切り（実験的）",
+        "smartTurnDescription": "無音後に発話が完結したかを判定します。サーバー側で区切る認識サービスには影響しません。",
         "silence": "無音で終了",
         "silenceDescription": "短くすると字幕が早く表示されます。",
         "maxSegment": "区間の最大長",

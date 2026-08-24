@@ -31,7 +31,7 @@ const settings: Settings = {
     output: { mode: "system", device_id: null, trigger_threshold_dbfs: -45 },
     microphone: { mode: "default", device_id: null, trigger_threshold_dbfs: -45 },
   },
-  vad: { silence_seconds: 0.4, max_speech_seconds: 6 },
+  vad: { endpointing: "silence", silence_seconds: 0.4, max_speech_seconds: 6 },
   asr: { backend: "local_whisper", language: "auto", local: { model: "small", device: "auto", compute_type: "int8" }, active_profile_id: null, service_settings: {}, cloud_failure_policy: "reconnect" },
   translation: { mode: "disabled", speaker_targets: [{ target_language: "zh-Hans", profile_id: null, model: "gpt-5-mini", thinking_enabled: false }], microphone_targets: [{ target_language: "en", profile_id: null, model: "gpt-5-mini", thinking_enabled: false }], prompt: { system_prompt: "", context_enabled: false, include_speaker: true, include_microphone: true, include_chatbox: true, max_messages: 5, max_chars: 4000 } },
   language_presets: [],

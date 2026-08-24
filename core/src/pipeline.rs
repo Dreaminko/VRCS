@@ -6,7 +6,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use tokio::sync::watch;
+use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
 
 use crate::asr::{
@@ -16,6 +16,7 @@ use crate::asr::{
 use crate::audio::{AudioCapture, AudioError, CaptureSource};
 use crate::config::{AsrConfig, VadConfig};
 use crate::models::{AudioDevice, LiveTranscription};
+use crate::smart_turn::{SmartTurnRuntime, COMPLETION_THRESHOLD};
 use crate::vad::{SpeechSegmenter, VadRuntimeState, VoiceDetector};
 
 mod dependencies;
@@ -23,6 +24,7 @@ mod recognition_lifecycle;
 
 const AUDIO_LEVEL_PUBLISH_INTERVAL: Duration = Duration::from_millis(80);
 const PARTIAL_PUBLISH_INTERVAL: Duration = Duration::from_millis(80);
+const SMART_TURN_TIMEOUT: Duration = Duration::from_secs(1);
 
 pub(crate) use dependencies::PipelineDependencies;
 use recognition_lifecycle::RecognitionLifecycle;
@@ -103,6 +105,7 @@ pub struct TranscriptionPipeline {
     source_name: &'static str,
     vad_model_path: PathBuf,
     vad_runtime: VadRuntimeState,
+    smart_turn_runtime: SmartTurnRuntime,
     shutdown: watch::Receiver<bool>,
     task: Option<JoinHandle<()>>,
     stop: Option<watch::Sender<bool>>,
@@ -117,6 +120,7 @@ impl TranscriptionPipeline {
         source_name: &'static str,
         vad_model_path: PathBuf,
         vad_runtime: VadRuntimeState,
+        smart_turn_runtime: SmartTurnRuntime,
         shutdown: watch::Receiver<bool>,
     ) -> Self {
         Self {
@@ -124,6 +128,7 @@ impl TranscriptionPipeline {
             source_name,
             vad_model_path,
             vad_runtime,
+            smart_turn_runtime,
             shutdown,
             task: None,
             stop: None,
@@ -167,6 +172,19 @@ impl TranscriptionPipeline {
                 "Transcription is already running",
             ));
         }
+        let smart_turn = if vad_config.endpointing == "smart_turn"
+            && asr_config.backend != crate::providers::SERVICE_FUN_ASR_REALTIME
+        {
+            match self.smart_turn_runtime.prepare().await {
+                Ok(()) => Some(self.smart_turn_runtime.clone()),
+                Err(error) => {
+                    tracing::warn!(%error, "Smart Turn is unavailable; using silence endpointing");
+                    None
+                }
+            }
+        } else {
+            None
+        };
         self.task.take();
         self.stop.take();
         self.device = None;
@@ -217,11 +235,19 @@ impl TranscriptionPipeline {
         let detector =
             VoiceDetector::load_with_runtime(&self.vad_model_path, self.vad_runtime.clone());
         let vad_ms = vad_started.elapsed().as_millis();
-        let segmenter = SpeechSegmenter::new(
-            sample_rate,
-            vad_config.silence_seconds,
-            vad_config.max_speech_seconds,
-        );
+        let segmenter = if smart_turn.is_some() {
+            SpeechSegmenter::smart(
+                sample_rate,
+                vad_config.silence_seconds,
+                vad_config.max_speech_seconds,
+            )
+        } else {
+            SpeechSegmenter::new(
+                sample_rate,
+                vad_config.silence_seconds,
+                vad_config.max_speech_seconds,
+            )
+        };
         let source = self.source_name;
 
         let last_error = Arc::clone(&self.last_error);
@@ -243,6 +269,7 @@ impl TranscriptionPipeline {
                     sample_rate,
                     trigger_threshold_dbfs,
                     discard_on_stop,
+                    smart_turn,
                 },
                 &mut shutdown,
                 stop_rx,
@@ -298,6 +325,7 @@ struct PipelineRunContext {
     sample_rate: u32,
     trigger_threshold_dbfs: Option<f32>,
     discard_on_stop: Arc<AtomicBool>,
+    smart_turn: Option<SmartTurnRuntime>,
 }
 
 struct PipelineState {
@@ -583,6 +611,18 @@ struct PipelineEffectRunner<'a> {
     echo_guard: &'a AsrEchoGuard,
     cloud: &'a mut Option<CloudRecognitionSession>,
     segmenter: &'a mut SpeechSegmenter,
+    smart_turn: Option<&'a SmartTurnRuntime>,
+    smart_turn_tx: &'a mpsc::UnboundedSender<SmartTurnResult>,
+}
+
+struct SmartTurnResult {
+    generation: u64,
+    result: Result<f32, String>,
+    elapsed: Duration,
+}
+
+fn smart_turn_should_complete(result: &Result<f32, String>) -> bool {
+    matches!(result, Ok(probability) if *probability > COMPLETION_THRESHOLD)
 }
 
 impl PipelineEffectRunner<'_> {
@@ -687,6 +727,26 @@ impl PipelineEffectRunner<'_> {
                         });
                     return Ok(Some(PipelineEvent::SegmentEnded { segment, backend }));
                 }
+                if let Some((generation, audio)) = self.segmenter.take_candidate() {
+                    let runtime = self
+                        .smart_turn
+                        .expect("smart endpointing requires a Smart Turn runtime")
+                        .clone();
+                    let tx = self.smart_turn_tx.clone();
+                    tokio::spawn(async move {
+                        let started = Instant::now();
+                        let result =
+                            tokio::time::timeout(SMART_TURN_TIMEOUT, runtime.predict(audio))
+                                .await
+                                .map_err(|_| "Smart Turn inference timed out".to_string())
+                                .and_then(|result| result);
+                        let _ = tx.send(SmartTurnResult {
+                            generation,
+                            result,
+                            elapsed: started.elapsed(),
+                        });
+                    });
+                }
             }
             PipelineEffect::CommitCloud { has_segment } => {
                 let utterance_id = match self.cloud.as_ref() {
@@ -722,8 +782,10 @@ async fn run(
         sample_rate,
         trigger_threshold_dbfs,
         discard_on_stop,
+        smart_turn,
     } = context;
     let mut state = PipelineState::new(sample_rate);
+    let (smart_turn_tx, mut smart_turn_rx) = mpsc::unbounded_channel();
     let mut result = loop {
         if *shutdown.borrow() || *stop.borrow() {
             break Ok(());
@@ -756,6 +818,10 @@ async fn run(
                 Ok(chunk) => PipelineInput::Audio(chunk),
                 Err(error) => break Err(error.to_string()),
             },
+            result = smart_turn_rx.recv(), if smart_turn.is_some() => match result {
+                Some(result) => PipelineInput::SmartTurn(result),
+                None => continue,
+            },
         };
         let event = match input {
             PipelineInput::Cloud(event) => PipelineEvent::Cloud {
@@ -780,6 +846,46 @@ async fn run(
                     now: Instant::now(),
                 }
             }
+            PipelineInput::SmartTurn(result) => {
+                let inference_ms = result.elapsed.as_millis();
+                let complete = smart_turn_should_complete(&result.result);
+                match result.result {
+                    Ok(probability) if complete => {
+                        tracing::debug!(
+                            probability,
+                            inference_ms,
+                            decision = "complete",
+                            "Smart Turn endpoint prediction"
+                        );
+                    }
+                    Ok(probability) => {
+                        tracing::debug!(
+                            probability,
+                            inference_ms,
+                            decision = "incomplete_wait",
+                            "Smart Turn endpoint prediction"
+                        );
+                    }
+                    Err(error) => {
+                        tracing::warn!(
+                            %error,
+                            inference_ms,
+                            decision = "unknown_wait",
+                            "Smart Turn failed; waiting for continuation or hard silence"
+                        );
+                    }
+                }
+                if !complete {
+                    continue;
+                }
+                let Some(segment) = segmenter.complete_candidate(result.generation) else {
+                    continue;
+                };
+                let backend = cloud.as_ref().map_or(RecognitionBackend::Local, |session| {
+                    RecognitionBackend::Cloud(session.segmentation_mode())
+                });
+                PipelineEvent::SegmentEnded { segment, backend }
+            }
         };
         let effects = reduce_pipeline_event(&mut state, event, &echo_guard);
         let mut runner = PipelineEffectRunner {
@@ -788,6 +894,8 @@ async fn run(
             echo_guard: &echo_guard,
             cloud: &mut cloud,
             segmenter: &mut segmenter,
+            smart_turn: smart_turn.as_ref(),
+            smart_turn_tx: &smart_turn_tx,
         };
         if let Err(error) = runner.execute(&mut state, effects).await {
             break Err(error);
@@ -817,6 +925,8 @@ async fn run(
                 echo_guard: &echo_guard,
                 cloud: &mut no_cloud,
                 segmenter: &mut segmenter,
+                smart_turn: None,
+                smart_turn_tx: &smart_turn_tx,
             };
             if let Err(error) = runner.execute(&mut state, effects).await {
                 result = Err(error);
@@ -862,6 +972,7 @@ fn finish_recognition_session(
 enum PipelineInput {
     Audio(Vec<f32>),
     Cloud(CloudEvent),
+    SmartTurn(SmartTurnResult),
 }
 
 const TRIGGER_CONFIRM_CHUNKS: usize = 2;
@@ -942,6 +1053,13 @@ mod tests {
     use tokio::sync::broadcast;
 
     struct FakeEngine;
+
+    #[test]
+    fn smart_turn_only_completes_on_a_positive_prediction() {
+        assert!(smart_turn_should_complete(&Ok(0.75)));
+        assert!(!smart_turn_should_complete(&Ok(COMPLETION_THRESHOLD)));
+        assert!(!smart_turn_should_complete(&Err("timed out".into())));
+    }
 
     #[test]
     fn audio_level_uses_dbfs_and_a_finite_silence_floor() {
@@ -1332,6 +1450,7 @@ mod tests {
             "speaker",
             PathBuf::new(),
             VadRuntimeState::default(),
+            SmartTurnRuntime::new(PathBuf::new()),
             shutdown_rx,
         );
         let (stop_tx, mut stop_rx) = watch::channel(false);

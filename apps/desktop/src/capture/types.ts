@@ -36,6 +36,7 @@ export interface MicrophoneSettings {
 }
 
 export interface VadSettings {
+  endpointing: "silence" | "smart_turn";
   silence_seconds: number;
   max_speech_seconds: number;
 }

@@ -114,7 +114,10 @@ mod tests {
             &value["audio"]["microphone"],
             ["device_id", "mode", "trigger_threshold_dbfs"],
         );
-        assert_keys(&value["vad"], ["max_speech_seconds", "silence_seconds"]);
+        assert_keys(
+            &value["vad"],
+            ["endpointing", "max_speech_seconds", "silence_seconds"],
+        );
         assert_keys(
             &value["asr"],
             [
