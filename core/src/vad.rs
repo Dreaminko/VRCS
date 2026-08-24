@@ -18,7 +18,9 @@ const FRAME_SAMPLES: usize = 512;
 const CONTEXT_SAMPLES: usize = 64;
 const ENERGY_REFERENCE_RMS: f32 = 0.04;
 const DEFAULT_THRESHOLD: f32 = 0.5;
+const DEFAULT_NEGATIVE_THRESHOLD: f32 = DEFAULT_THRESHOLD - 0.15;
 const DEFAULT_MIN_SPEECH_SECONDS: f64 = 0.25;
+const MIN_SILENCE_AT_MAX_SPEECH_SECONDS: f64 = 0.1;
 pub const MODEL_VERSION: &str = "v6.2.1";
 const MODEL_REVISION: &str = "7e30209a3e901f9842f81b225f3e93d8199902b1";
 const MODEL_URL: &str = "https://raw.githubusercontent.com/snakers4/silero-vad/7e30209a3e901f9842f81b225f3e93d8199902b1/src/silero_vad/data/silero_vad.onnx";
@@ -55,6 +57,7 @@ impl VadRuntimeState {
 #[derive(Debug)]
 pub struct VoiceDetector {
     threshold: f32,
+    speech_active: bool,
     backend: DetectorBackend,
     runtime: VadRuntimeState,
 }
@@ -117,6 +120,7 @@ impl VoiceDetector {
                 runtime.set_silero();
                 Self {
                     threshold: DEFAULT_THRESHOLD,
+                    speech_active: false,
                     backend: DetectorBackend::Silero(Box::new(model)),
                     runtime,
                 }
@@ -136,6 +140,7 @@ impl VoiceDetector {
         runtime.set_energy();
         Self {
             threshold,
+            speech_active: false,
             backend: DetectorBackend::Energy,
             runtime,
         }
@@ -163,11 +168,17 @@ impl VoiceDetector {
             },
             DetectorBackend::Energy => energy_probability(samples),
         };
-        probability >= self.threshold
+        self.speech_active = if self.speech_active {
+            probability >= DEFAULT_NEGATIVE_THRESHOLD
+        } else {
+            probability >= self.threshold
+        };
+        self.speech_active
     }
 
     #[allow(dead_code)]
     pub fn reset(&mut self) {
+        self.speech_active = false;
         if let DetectorBackend::Silero(model) = &mut self.backend {
             model.reset();
         }
@@ -375,6 +386,7 @@ fn energy_probability(samples: &[f32]) -> f32 {
 #[allow(dead_code)]
 pub struct SpeechSegmenter {
     silence_samples: usize,
+    min_silence_at_max_samples: usize,
     min_speech_samples: usize,
     max_speech_samples: usize,
     chunks: Vec<Vec<f32>>,
@@ -402,6 +414,7 @@ impl SpeechSegmenter {
         let samples = |seconds: f64| (seconds * f64::from(sample_rate)) as usize;
         Self {
             silence_samples: samples(silence_seconds),
+            min_silence_at_max_samples: samples(MIN_SILENCE_AT_MAX_SPEECH_SECONDS),
             min_speech_samples: samples(min_speech_seconds),
             max_speech_samples: samples(max_speech_seconds),
             chunks: Vec::new(),
@@ -422,8 +435,14 @@ impl SpeechSegmenter {
         }
 
         let total = self.speech_samples + self.silence_samples_seen;
-        let finished =
-            self.silence_samples_seen >= self.silence_samples || total >= self.max_speech_samples;
+        let remaining_normal_silence = self
+            .silence_samples
+            .saturating_sub(self.silence_samples_seen);
+        let short_silence_near_max = self.silence_samples_seen >= self.min_silence_at_max_samples
+            && total.saturating_add(remaining_normal_silence) >= self.max_speech_samples;
+        let finished = self.silence_samples_seen >= self.silence_samples
+            || short_silence_near_max
+            || total >= self.max_speech_samples;
         if !finished {
             return None;
         }
@@ -455,6 +474,15 @@ mod tests {
         assert_eq!(detector.backend(), "energy");
         assert!(!detector.is_speech(&[0.0; 512]));
         assert!(detector.is_speech(&[0.04; 512]));
+    }
+
+    #[test]
+    fn detector_uses_hysteresis_after_speech_starts() {
+        let mut detector = VoiceDetector::default();
+
+        assert!(detector.is_speech(&[0.04; 512]));
+        assert!(detector.is_speech(&[0.016; 512]));
+        assert!(!detector.is_speech(&[0.012; 512]));
     }
 
     #[test]
@@ -497,6 +525,22 @@ mod tests {
             assert!(segmenter.push(&[1.0; 100], true).is_none());
         }
         assert_eq!(segmenter.push(&[1.0; 100], true).unwrap().len(), 600);
+    }
+
+    #[test]
+    fn segmenter_prefers_a_short_silence_near_the_maximum() {
+        let mut segmenter = SpeechSegmenter::with_min_speech_seconds(100, 0.4, 0.1, 1.0);
+
+        assert!(segmenter.push(&[1.0; 60], true).is_none());
+        assert_eq!(segmenter.push(&[0.0; 10], false).unwrap().len(), 70);
+    }
+
+    #[test]
+    fn segmenter_ignores_a_short_silence_well_before_the_maximum() {
+        let mut segmenter = SpeechSegmenter::with_min_speech_seconds(100, 0.4, 0.1, 1.0);
+
+        assert!(segmenter.push(&[1.0; 40], true).is_none());
+        assert!(segmenter.push(&[0.0; 10], false).is_none());
     }
 
     #[test]
