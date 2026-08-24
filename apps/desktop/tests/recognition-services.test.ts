@@ -83,6 +83,19 @@ test("dynamic services preserve a discovered model outside the fallback list", (
   assert.equal(selected.service_settings[service.id]?.model, "whisper-large-v3");
 });
 
+test("services with preset models preserve a custom model name", () => {
+  const service = { ...definitions[0].services[0], model_listing: false };
+  const configured: AsrSettings = {
+    ...asr,
+    service_settings: {
+      [service.id]: { model: "custom-transcribe-v1", context: "" },
+    },
+  };
+
+  const selected = selectRecognitionService(configured, service);
+  assert.equal(selected.service_settings[service.id]?.model, "custom-transcribe-v1");
+});
+
 test("engine labels use catalog display names and safely fall back to service IDs", () => {
   const selected = selectRecognitionService(asr, definitions[0].services[0]);
   assert.equal(recognitionEngineLabel(selected, [profile], definitions), "Groq Transcription");

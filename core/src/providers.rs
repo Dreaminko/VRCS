@@ -773,9 +773,17 @@ pub fn recognition_service(
     })
 }
 
-pub fn recognition_model_supported(service: &ProviderServiceDefinition, model: &str) -> bool {
+/// Validates a user-configured recognition model name.
+///
+/// Provider model lists are suggestions for the UI, not an allowlist. The upstream service
+/// remains responsible for deciding whether a well-formed model name exists and is usable.
+pub fn recognition_model_supported(_service: &ProviderServiceDefinition, model: &str) -> bool {
     let trimmed = model.trim();
-    if model != trimmed || model.is_empty() || model.chars().count() > 200 {
+    model == trimmed && !model.is_empty() && model.chars().count() <= 200
+}
+
+fn recognition_catalog_model_supported(service: &ProviderServiceDefinition, model: &str) -> bool {
+    if !recognition_model_supported(service, model) {
         return false;
     }
     match service.adapter {
@@ -795,7 +803,7 @@ pub fn compatible_service_models(
 ) -> Vec<String> {
     models
         .into_iter()
-        .filter(|model| recognition_model_supported(service, model))
+        .filter(|model| recognition_catalog_model_supported(service, model))
         .collect()
 }
 
@@ -1131,20 +1139,23 @@ mod tests {
         let fun_asr = service(ALIBABA_PROVIDER, SERVICE_FUN_ASR_REALTIME).unwrap();
 
         assert!(qwen.supports_model_listing);
-        assert!(recognition_model_supported(
+        assert!(recognition_catalog_model_supported(
             qwen,
             "qwen3-asr-flash-realtime-2026-02-10"
         ));
-        assert!(recognition_model_supported(
+        assert!(recognition_catalog_model_supported(
             fun_asr,
             "fun-asr-realtime-2025-11-07"
         ));
-        assert!(recognition_model_supported(
+        assert!(recognition_catalog_model_supported(
             fun_asr,
             "qwen-audio-3.0-asr-flash-streaming"
         ));
-        assert!(!recognition_model_supported(qwen, "qwen3-asr-flash"));
-        assert!(!recognition_model_supported(
+        assert!(!recognition_catalog_model_supported(
+            qwen,
+            "qwen3-asr-flash"
+        ));
+        assert!(!recognition_catalog_model_supported(
             qwen,
             "qwen-audio-3.0-asr-flash-streaming"
         ));
@@ -1169,6 +1180,19 @@ mod tests {
             ),
             ["qwen-audio-3.0-asr-flash-streaming"]
         );
+    }
+
+    #[test]
+    fn recognition_model_validation_accepts_custom_names() {
+        let openai = service(OPENAI_PROVIDER, SERVICE_OPENAI_REALTIME).unwrap();
+
+        assert!(recognition_model_supported(openai, "custom-transcribe-v1"));
+        assert!(!recognition_model_supported(openai, ""));
+        assert!(!recognition_model_supported(
+            openai,
+            " custom-transcribe-v1"
+        ));
+        assert!(!recognition_model_supported(openai, &"m".repeat(201)));
     }
 
     #[test]

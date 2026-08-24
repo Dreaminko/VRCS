@@ -630,7 +630,7 @@ fn validates_fun_asr_specific_limits() {
 }
 
 #[test]
-fn accepts_compatible_alibaba_asr_snapshot_models() {
+fn accepts_custom_recognition_model_names() {
     let mut config = AppConfig::default();
     config
         .asr
@@ -645,10 +645,18 @@ fn accepts_compatible_alibaba_asr_snapshot_models() {
         .service_settings
         .get_mut(SERVICE_QWEN_REALTIME)
         .unwrap()
-        .model = "qwen3-asr-flash".into();
+        .model = "custom-asr-model".into();
+    assert!(config.validate_settings().is_ok());
+
+    config
+        .asr
+        .service_settings
+        .get_mut(SERVICE_QWEN_REALTIME)
+        .unwrap()
+        .model = "custom-asr-model ".into();
     assert_eq!(
         config.validate_settings().unwrap_err(),
-        "Unsupported model for recognition service qwen_realtime: qwen3-asr-flash"
+        "Unsupported model for recognition service qwen_realtime: custom-asr-model "
     );
 }
 
