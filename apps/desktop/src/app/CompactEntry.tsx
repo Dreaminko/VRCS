@@ -18,11 +18,14 @@ export function CompactEntry({
   learning: AppWorkspace["learning"];
 }) {
   const selectionPanelOpen = Boolean(selection.target && selection.tool);
+  const overlayOpen = selectionPanelOpen || capture.vrchatWarningOpen;
 
   return (
-    <div className={`compact-root ${selectionPanelOpen ? "compact-root-selection" : ""}`}>
+    <div className={`compact-root ${overlayOpen ? "compact-root-overlay" : ""} ${selectionPanelOpen ? "compact-root-selection" : ""}`}>
       <CompactView
-        subtitle={compact.subtitle}
+        subtitles={compact.subtitles}
+        subtitleLimit={overlayOpen ? 1 : compact.subtitleLimit}
+        selectionActive={Boolean(selection.target)}
         running={runtime.health?.capture_requested ?? false}
         vrchatMuted={runtime.vrchatMuteStatus?.muted === true}
         captureDisabled={!runtime.ready || capture.pending}

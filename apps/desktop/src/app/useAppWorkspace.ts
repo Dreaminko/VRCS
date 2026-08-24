@@ -2,7 +2,10 @@ import { useCallback } from "react";
 import { useTranslation } from "react-i18next";
 
 import type { Page } from "./app-types";
-import { subtitleForCompactView } from "../compact-mode";
+import {
+  compactSubtitleCount,
+  subtitlesForCompactView,
+} from "../compact-mode";
 import { useChatboxWorkspace } from "../chatbox/useChatboxWorkspace";
 import { useConversationWorkspace } from "../conversations/useConversationWorkspace";
 import { useCaptureControl } from "../core-client/useCaptureControl";
@@ -110,8 +113,9 @@ export function useAppWorkspace({
     subtitles.loadingConversation
     && conversation.selectedConversation?.id === subtitles.openedConversationId,
   );
-  const compactSubtitle = subtitleForCompactView(
+  const compactSubtitles = subtitlesForCompactView(
     subtitles.items,
+    compactWindow.height,
     selection.target?.context,
   );
 
@@ -148,7 +152,8 @@ export function useAppWorkspace({
     },
     compact: {
       ...compactWindow,
-      subtitle: compactSubtitle,
+      subtitles: compactSubtitles,
+      subtitleLimit: compactSubtitleCount(compactWindow.height),
     },
     conversations: {
       ...conversation,

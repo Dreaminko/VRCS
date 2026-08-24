@@ -1,8 +1,9 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 
 import { NATIVE_APP } from "../app/app-environment";
 import {
+  clampCompactWindowHeight,
   compactWindowConstraints,
   COMPACT_WINDOW_SIZE,
   compactWindowSize,
@@ -17,9 +18,30 @@ export function useCompactWindow({
   reportError: (reason: unknown, fallbackKey: string, source?: string) => void;
 }) {
   const [compact, setCompact] = useState(false);
+  const [height, setHeight] = useState<number>(COMPACT_WINDOW_SIZE.height);
+  const compactModeRef = useRef(false);
+  const panelStateRef = useRef<CompactPanelState>(false);
+  const heightRef = useRef<number>(COMPACT_WINDOW_SIZE.height);
+
+  useEffect(() => {
+    if (!NATIVE_APP || !compact) return;
+
+    const syncHeight = () => {
+      if (!compactModeRef.current || panelStateRef.current) return;
+      const nextHeight = clampCompactWindowHeight(window.innerHeight);
+      heightRef.current = nextHeight;
+      setHeight(nextHeight);
+    };
+    syncHeight();
+    window.addEventListener("resize", syncHeight);
+    return () => window.removeEventListener("resize", syncHeight);
+  }, [compact]);
 
   const resizeCompactWindow = useCallback(async (panelState: CompactPanelState) => {
-    if (!NATIVE_APP) return;
+    if (!NATIVE_APP) {
+      panelStateRef.current = panelState;
+      return;
+    }
     const { getCurrentWindow, LogicalSize } = await import(
       "@tauri-apps/api/window"
     );
@@ -28,12 +50,29 @@ export function useCompactWindow({
       appWindow.innerSize(),
       appWindow.scaleFactor(),
     ]);
-    const currentWidth = innerSize.toLogical(scaleFactor).width;
-    const size = compactWindowSize(panelState, currentWidth);
-    await appWindow.setSizeConstraints(compactWindowConstraints(panelState));
-    await appWindow.setSize(
-      new LogicalSize(size.width, size.height),
-    );
+    const currentSize = innerSize.toLogical(scaleFactor);
+    const previousPanelState = panelStateRef.current;
+    if (panelState && !previousPanelState) {
+      const currentHeight = clampCompactWindowHeight(currentSize.height);
+      heightRef.current = currentHeight;
+      setHeight(currentHeight);
+    }
+
+    panelStateRef.current = true;
+    try {
+      const size = compactWindowSize(
+        panelState,
+        currentSize.width,
+        heightRef.current,
+      );
+      await appWindow.setSizeConstraints(compactWindowConstraints(panelState));
+      await appWindow.setSize(new LogicalSize(size.width, size.height));
+      panelStateRef.current = panelState;
+      if (!panelState) setHeight(size.height);
+    } catch (reason) {
+      panelStateRef.current = previousPanelState;
+      throw reason;
+    }
   }, []);
 
   const collapseCompactOverlay = useCallback(() => {
@@ -46,8 +85,11 @@ export function useCompactWindow({
     next: boolean,
     onExitCompact: () => void = () => undefined,
   ): Promise<boolean> => {
+    const previousMode = compactModeRef.current;
+    compactModeRef.current = next;
     try {
       if (!NATIVE_APP) {
+        panelStateRef.current = false;
         if (!next) onExitCompact();
         setCompact(next);
         clearErrorFrom("window");
@@ -59,19 +101,23 @@ export function useCompactWindow({
       );
       const appWindow = getCurrentWindow();
       if (next) {
-        const compactSize = new LogicalSize(
+        panelStateRef.current = false;
+        const compactSize = compactWindowSize(
+          false,
           COMPACT_WINDOW_SIZE.width,
-          COMPACT_WINDOW_SIZE.height,
+          heightRef.current,
         );
         await appWindow.setSizeConstraints(compactWindowConstraints(false));
-        await appWindow.setSize(compactSize);
+        await appWindow.setSize(new LogicalSize(compactSize.width, compactSize.height));
         await appWindow.setResizable(true);
         await invoke("set_compact_window_topmost", { enabled: true });
+        setHeight(compactSize.height);
       } else {
         await invoke("set_compact_window_topmost", { enabled: false });
         await appWindow.setResizable(true);
         await appWindow.setSizeConstraints({ minWidth: 860, minHeight: 620 });
         await appWindow.setSize(new LogicalSize(1180, 760));
+        panelStateRef.current = false;
         onExitCompact();
       }
 
@@ -79,6 +125,7 @@ export function useCompactWindow({
       clearErrorFrom("window");
       return true;
     } catch (reason) {
+      compactModeRef.current = previousMode;
       reportError(
         typeof reason === "string" ? new Error(reason) : reason,
         "errors.window.compactToggle",
@@ -114,6 +161,7 @@ export function useCompactWindow({
 
   return {
     compact,
+    height,
     resizeCompactWindow,
     collapseCompactOverlay,
     enterCompact,
