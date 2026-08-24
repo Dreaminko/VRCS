@@ -60,3 +60,4 @@
 .translation-config-fields > * { min-width: 0; }
 .recognition-config-fields .field > small,
 .translation-config-fields .field > small { overflow-wrap: anywhere; }
+.vad-smart-turn-setting { grid-column: 1 / -1; }

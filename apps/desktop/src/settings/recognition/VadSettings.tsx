@@ -21,13 +21,6 @@ export function VadSettings({
         <span><strong>{t("settings.recognition.segmentation")}</strong></span>
       </div>
       <div className="recognition-config-fields">
-        <PreferenceToggle
-          title={t("settings.recognition.smartTurn")}
-          description={t("settings.recognition.smartTurnDescription")}
-          checked={vad.endpointing === "smart_turn"}
-          disabled={disabled}
-          onChange={(checked) => onUpdate("endpointing", checked ? "smart_turn" : "silence")}
-        />
         <RangeField
           label={t("settings.recognition.silence")}
           value={vad.silence_seconds}
@@ -48,6 +41,15 @@ export function VadSettings({
           formatValue={(value) => t("units.seconds", { value })}
           onCommit={(value) => onUpdate("max_speech_seconds", value)}
         />
+        <div className="vad-smart-turn-setting">
+          <PreferenceToggle
+            title={t("settings.recognition.smartTurn")}
+            description={t("settings.recognition.smartTurnDescription")}
+            checked={vad.endpointing === "smart_turn"}
+            disabled={disabled}
+            onChange={(checked) => onUpdate("endpointing", checked ? "smart_turn" : "silence")}
+          />
+        </div>
       </div>
     </div>
   );
