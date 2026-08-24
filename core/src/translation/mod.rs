@@ -125,6 +125,15 @@ impl TranslationService {
                 false,
             ));
         }
+        if source_language.is_some_and(|source| same_translation_language(source, target)) {
+            return Ok(TranslationResult {
+                text: text.to_owned(),
+                source_language: source_language.map(str::to_owned),
+                target_language: target.to_owned(),
+                provider: "local".into(),
+                model: None,
+            });
+        }
         let profile_id = target_config.profile_id.as_deref().ok_or_else(|| {
             error(
                 "translation.not_configured",
@@ -150,15 +159,6 @@ impl TranslationService {
                 ),
                 false,
             ));
-        }
-        if source_language.is_some_and(|source| same_translation_language(source, target)) {
-            return Ok(TranslationResult {
-                text: text.to_owned(),
-                source_language: source_language.map(str::to_owned),
-                target_language: target.to_owned(),
-                provider: "local".into(),
-                model: None,
-            });
         }
         let api_key = if profile.requires_api_key() {
             credentials::read_credential(&profile.id, &profile.provider)
@@ -271,21 +271,24 @@ fn translation_output_token_limit(text: &str) -> u32 {
 }
 
 pub fn same_translation_language(source: &str, target: &str) -> bool {
-    let source = source.to_ascii_lowercase();
-    let target = target.to_ascii_lowercase();
+    let source = canonical_translation_language(source);
+    let target = canonical_translation_language(target);
     if source == target {
         return true;
-    }
-    if target.starts_with("zh-") {
-        return matches!(
-            (source.as_str(), target.as_str()),
-            ("zh-cn" | "zh-hans", "zh-hans") | ("zh-tw" | "zh-hant", "zh-hant")
-        );
     }
     if !target.contains('-') {
         return source.split('-').next() == Some(target.as_str());
     }
     false
+}
+
+fn canonical_translation_language(language: &str) -> String {
+    let language = language.replace('_', "-").to_ascii_lowercase();
+    match language.as_str() {
+        "zh" | "zh-cn" | "zh-sg" | "zh-hans" => "zh-hans".into(),
+        "zh-tw" | "zh-hk" | "zh-mo" | "zh-hant" => "zh-hant".into(),
+        _ => language,
+    }
 }
 
 pub(super) fn error(
@@ -343,12 +346,34 @@ mod tests {
 
     #[test]
     fn compares_language_codes_by_script_and_base_language() {
+        assert!(same_translation_language("zh", "zh-Hans"));
+        assert!(same_translation_language("zh_SG", "zh-Hans"));
         assert!(!same_translation_language("zh", "zh-Hant"));
         assert!(same_translation_language("zh-CN", "zh-Hans"));
+        assert!(same_translation_language("zh-HK", "zh-Hant"));
         assert!(!same_translation_language("ja", "en"));
         assert!(same_translation_language("en-US", "en"));
         assert!(!same_translation_language("en-US", "en-GB"));
         assert!(!same_translation_language("pt-BR", "pt-PT"));
+    }
+
+    #[tokio::test]
+    async fn matching_languages_do_not_require_a_translation_profile() {
+        let result = TranslationService::new()
+            .unwrap()
+            .translate(
+                &TranslationTargetConfig::new("zh-Hans"),
+                &TranslationPromptConfig::default(),
+                &[],
+                "你好",
+                Some("zh"),
+                &[],
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(result.text, "你好");
+        assert_eq!(result.provider, "local");
     }
 
     #[test]

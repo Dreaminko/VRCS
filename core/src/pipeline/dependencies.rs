@@ -294,12 +294,12 @@ mod tests {
     fn automatic_mode_skips_matching_source_and_target_languages() {
         let config = TranslationConfig {
             mode: "automatic".into(),
-            speaker_targets: vec![TranslationTargetConfig::new("en")],
+            speaker_targets: vec![TranslationTargetConfig::new("zh-Hans")],
             microphone_targets: vec![TranslationTargetConfig::new("ja")],
             ..TranslationConfig::default()
         };
 
-        assert!(automatic_translation_targets(&config, "speaker", Some("en-US")).is_none());
+        assert!(automatic_translation_targets(&config, "speaker", Some("zh")).is_none());
         assert!(automatic_translation_targets(&config, "microphone", Some("ja")).is_none());
         assert!(automatic_translation_targets(&config, "speaker", Some("ja")).is_some());
         assert!(automatic_translation_targets(&config, "speaker", None).is_some());
