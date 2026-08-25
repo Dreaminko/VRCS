@@ -13,6 +13,7 @@ use crate::providers::{
 };
 
 const OPENAI_DIAGNOSTIC_MODELS: &[&str] = &["gpt-4.1-mini", "gpt-4o-mini", "gpt-5-mini"];
+const DIAGNOSTIC_MAX_OUTPUT_TOKENS: u32 = 1_024;
 const GROQ_DIAGNOSTIC_MODELS: &[&str] = &["openai/gpt-oss-20b", "openai/gpt-oss-120b"];
 const DEEPSEEK_DIAGNOSTIC_MODELS: &[&str] = &["deepseek-v4-flash", "deepseek-v4-pro"];
 const GEMINI_DIAGNOSTIC_MODELS: &[&str] =
@@ -179,7 +180,7 @@ async fn test_text_generation(
                 model: &model,
                 instructions: "Reply with OK only.",
                 input: "Connection test",
-                max_output_tokens: 8,
+                max_output_tokens: DIAGNOSTIC_MAX_OUTPUT_TOKENS,
                 thinking_enabled: false,
             },
             None,
@@ -311,7 +312,7 @@ async fn compatible_diagnostic(
         model: &model,
         instructions: "Reply with OK only.",
         input: "Connection test",
-        max_output_tokens: 8,
+        max_output_tokens: DIAGNOSTIC_MAX_OUTPUT_TOKENS,
         thinking_enabled: false,
     };
     if let Err(error) = client.generate(profile, &api_key, request(), None).await {

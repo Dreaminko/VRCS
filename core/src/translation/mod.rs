@@ -9,7 +9,7 @@ use crate::config::{ApiProfile, TranslationPromptConfig, TranslationTargetConfig
 use crate::credentials;
 use crate::llm::{LlmClient, LlmProgress, LlmRequest};
 use crate::models::{now_iso8601, SubtitleTranslation};
-use crate::providers::{self, ServiceAdapter, CAPABILITY_TEXT_TRANSLATION};
+use crate::providers::{self, ServiceAdapter, CAPABILITY_TEXT_TRANSLATION, OPENAI_PROVIDER};
 
 mod deepl;
 mod dispatcher;
@@ -244,7 +244,11 @@ impl TranslationService {
                     model,
                     instructions: &prompt.instructions,
                     input: &prompt.input,
-                    max_output_tokens: translation_output_token_limit(text),
+                    max_output_tokens: translation_output_token_limit(
+                        text,
+                        profile.provider == OPENAI_PROVIDER,
+                        thinking_enabled,
+                    ),
                     thinking_enabled,
                 },
                 on_progress,
@@ -265,9 +269,21 @@ impl TranslationService {
     }
 }
 
-fn translation_output_token_limit(text: &str) -> u32 {
+fn translation_output_token_limit(text: &str, openai: bool, thinking_enabled: bool) -> u32 {
     let estimated = text.chars().count().saturating_mul(2).saturating_add(64);
-    estimated.clamp(128, 8_192) as u32
+    let visible = estimated.clamp(128, 8_192) as u32;
+    if !openai {
+        return visible;
+    }
+    let (minimum, reasoning_reserve) = if thinking_enabled {
+        (4_096, 2_048)
+    } else {
+        (1_024, 512)
+    };
+    visible
+        .saturating_add(reasoning_reserve)
+        .max(minimum)
+        .min(16_384)
 }
 
 pub fn same_translation_language(source: &str, target: &str) -> bool {
@@ -378,8 +394,20 @@ mod tests {
 
     #[test]
     fn translation_output_limit_scales_without_unbounded_generation() {
-        assert_eq!(translation_output_token_limit("hello"), 128);
-        assert_eq!(translation_output_token_limit(&"あ".repeat(200)), 464);
-        assert_eq!(translation_output_token_limit(&"あ".repeat(5_000)), 8_192);
+        assert_eq!(translation_output_token_limit("hello", false, false), 128);
+        assert_eq!(
+            translation_output_token_limit(&"あ".repeat(200), false, false),
+            464
+        );
+        assert_eq!(
+            translation_output_token_limit(&"あ".repeat(5_000), false, false),
+            8_192
+        );
+        assert_eq!(translation_output_token_limit("hello", true, false), 1_024);
+        assert_eq!(translation_output_token_limit("hello", true, true), 4_096);
+        assert_eq!(
+            translation_output_token_limit(&"あ".repeat(5_000), true, true),
+            10_240
+        );
     }
 }
