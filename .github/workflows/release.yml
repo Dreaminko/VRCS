@@ -28,7 +28,7 @@ jobs:
         with:
           cuda: "13.2.0"
           method: network
-          sub-packages: '["nvcc", "cudart", "cublas", "cublas_dev", "cuobjdump", "thrust", "visual_studio_integration"]'
+          sub-packages: '["nvcc", "crt", "cudart", "cublas", "cublas_dev", "cuobjdump", "nvvm", "thrust", "visual_studio_integration"]'
 
       - name: Verify CUDA toolchain
         shell: pwsh
@@ -85,12 +85,59 @@ jobs:
           if (-not (Test-Path -LiteralPath $installedProps -PathType Leaf)) {
             throw "Failed to install CUDA $cudaVisualStudioVersion build customization at $installedProps"
           }
-          foreach ($tool in @("cuobjdump.exe")) {
-            if (-not (Get-Command $tool -ErrorAction SilentlyContinue)) {
-              throw "$tool is unavailable"
+
+          $requiredCudaFiles = [ordered]@{
+            "CUDA runtime header" = "include\cuda_runtime.h"
+            "CUDA compiler runtime header" = "include\crt\host_config.h"
+            "cuBLAS header" = "include\cublas_v2.h"
+            "Thrust header" = "include\cccl\thrust\version.h"
+            "cuBLAS import library" = "lib\x64\cublas.lib"
+            "CUDA runtime import library" = "lib\x64\cudart.lib"
+            "CUDA compiler" = "bin\nvcc.exe"
+            "CUDA binary inspector" = "bin\cuobjdump.exe"
+            "NVVM compiler" = "nvvm\bin\cicc.exe"
+            "NVVM device library" = "nvvm\libdevice\libdevice.10.bc"
+          }
+          foreach ($requirement in $requiredCudaFiles.GetEnumerator()) {
+            $requiredPath = Join-Path $env:CUDA_PATH $requirement.Value
+            if (-not (Test-Path -LiteralPath $requiredPath -PathType Leaf)) {
+              throw "$($requirement.Key) is unavailable at $requiredPath"
             }
           }
+
+          $msvcToolsPath = Join-Path $visualStudioPath.Trim() "VC\Tools\MSVC"
+          $msvcToolset = Get-ChildItem -LiteralPath $msvcToolsPath -Directory |
+            Sort-Object Name -Descending |
+            Select-Object -First 1
+          if (-not $msvcToolset) {
+            throw "No MSVC toolset was found below $msvcToolsPath"
+          }
+          $hostCompilerDirectory = Join-Path $msvcToolset.FullName "bin\Hostx64\x64"
+          $hostCompiler = Join-Path $hostCompilerDirectory "cl.exe"
+          if (-not (Test-Path -LiteralPath $hostCompiler -PathType Leaf)) {
+            throw "MSVC host compiler is unavailable at $hostCompiler"
+          }
+
+          $probeDirectory = Join-Path $env:RUNNER_TEMP "vrcs-cuda-compiler-probe-$PID"
+          New-Item -ItemType Directory -Path $probeDirectory -Force | Out-Null
+          $probeSource = Join-Path $probeDirectory "probe.cu"
+          $probeObject = Join-Path $probeDirectory "probe.obj"
+          [System.IO.File]::WriteAllText(
+            $probeSource,
+            'extern "C" __global__ void vrcs_cuda_probe() {}',
+            [System.Text.UTF8Encoding]::new($false)
+          )
+          & (Join-Path $env:CUDA_PATH "bin\nvcc.exe") `
+            -allow-unsupported-compiler `
+            -ccbin $hostCompilerDirectory `
+            -arch=sm_75 `
+            -c $probeSource `
+            -o $probeObject
+          if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $probeObject -PathType Leaf)) {
+            throw "CUDA compiler probe failed"
+          }
           Write-Host "Installed CUDA build customization: $installedProps"
+          Write-Host "CUDA compiler probe succeeded: $probeObject"
 
       - uses: Swatinem/rust-cache@v2
         with:
