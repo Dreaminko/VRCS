@@ -28,11 +28,12 @@ jobs:
         with:
           cuda: "13.2.0"
           method: network
-          sub-packages: '["nvcc", "cudart", "cublas", "visual_studio_integration"]'
+          sub-packages: '["nvcc", "cudart", "cublas", "cublas_dev", "cuobjdump", "thrust", "visual_studio_integration"]'
 
       - name: Verify CUDA toolchain
         shell: pwsh
         run: |
+          $ErrorActionPreference = "Stop"
           $nvccVersion = nvcc --version | Out-String
           if ($LASTEXITCODE -ne 0) {
             throw "nvcc is unavailable"
@@ -48,16 +49,48 @@ jobs:
 
           Write-Host "CUDA_PATH=$env:CUDA_PATH"
           $cudaVisualStudioVersion = $versionMatch.Groups[1].Value
-          $buildCustomizations = Get-ChildItem `
-            "C:\Program Files\Microsoft Visual Studio\2022\*\MSBuild\Microsoft\VC\v170\BuildCustomizations" `
-            -Filter "CUDA $cudaVisualStudioVersion.props" `
-            -ErrorAction SilentlyContinue
-          if (-not $buildCustomizations) {
-            throw "CUDA $cudaVisualStudioVersion Visual Studio integration was not installed"
+          $cudaBuildCustomizations = Join-Path `
+            $env:CUDA_PATH `
+            "extras\visual_studio_integration\MSBuildExtensions"
+          $cudaProps = Join-Path $cudaBuildCustomizations "CUDA $cudaVisualStudioVersion.props"
+          if (-not (Test-Path -LiteralPath $cudaProps -PathType Leaf)) {
+            throw "CUDA $cudaVisualStudioVersion build customization was not found at $cudaProps"
           }
-          $buildCustomizations | ForEach-Object {
-            Write-Host "Found CUDA build customization: $($_.FullName)"
+
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer\vswhere.exe"
+          if (-not (Test-Path -LiteralPath $vswhere -PathType Leaf)) {
+            throw "vswhere.exe is unavailable"
           }
+          $visualStudioPath = & $vswhere `
+            -latest `
+            -products * `
+            -version "[17.0,18.0)" `
+            -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 `
+            -property installationPath
+          if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($visualStudioPath)) {
+            throw "Visual Studio 2022 with C++ tools was not found"
+          }
+          $visualStudioBuildCustomizations = Join-Path `
+            $visualStudioPath.Trim() `
+            "MSBuild\Microsoft\VC\v170\BuildCustomizations"
+          if (-not (Test-Path -LiteralPath $visualStudioBuildCustomizations -PathType Container)) {
+            throw "Visual Studio BuildCustomizations directory was not found at $visualStudioBuildCustomizations"
+          }
+          # The network installer can leave these files under CUDA_PATH without
+          # registering them in the Visual Studio instance used by CMake.
+          Get-ChildItem -LiteralPath $cudaBuildCustomizations -File | Copy-Item `
+            -Destination $visualStudioBuildCustomizations `
+            -Force
+          $installedProps = Join-Path $visualStudioBuildCustomizations "CUDA $cudaVisualStudioVersion.props"
+          if (-not (Test-Path -LiteralPath $installedProps -PathType Leaf)) {
+            throw "Failed to install CUDA $cudaVisualStudioVersion build customization at $installedProps"
+          }
+          foreach ($tool in @("cuobjdump.exe")) {
+            if (-not (Get-Command $tool -ErrorAction SilentlyContinue)) {
+              throw "$tool is unavailable"
+            }
+          }
+          Write-Host "Installed CUDA build customization: $installedProps"
 
       - uses: Swatinem/rust-cache@v2
         with:

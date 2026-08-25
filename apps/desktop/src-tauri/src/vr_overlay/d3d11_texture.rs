@@ -287,7 +287,7 @@ fn query_interface(object: *mut c_void, iid: &Guid) -> Result<ComPtr, String> {
 
 fn rgba_to_bgra(source: &[u8]) -> Vec<u8> {
     let mut pixels = source.to_vec();
-    for pixel in pixels.chunks_exact_mut(4) {
+    for pixel in pixels.as_chunks_mut::<4>().0 {
         pixel.swap(0, 2);
     }
     pixels

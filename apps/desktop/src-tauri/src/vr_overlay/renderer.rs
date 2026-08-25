@@ -186,7 +186,7 @@ mod windows_renderer {
             let mask = std::slice::from_raw_parts(bits.cast::<u8>(), (width * height * 4) as usize);
             let background_alpha = (background_opacity.clamp(0.0, 1.0) * 255.0).round() as u8;
             let mut pixels = Vec::with_capacity(mask.len());
-            for pixel in mask.chunks_exact(4) {
+            for pixel in mask.as_chunks::<4>().0 {
                 let coverage = pixel[0].max(pixel[1]).max(pixel[2]);
                 let alpha = background_alpha.saturating_add(
                     ((255 - background_alpha) as u16 * coverage as u16 / 255) as u8,
