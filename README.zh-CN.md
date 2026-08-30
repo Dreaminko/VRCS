@@ -4,7 +4,7 @@
 
 # VRCS
 
-[English](README.md) | **简体中文** | [日本語](README.ja-JP.md)
+[English](README.md) | **简体中文** | [繁體中文](README.zh-Hant.md) | [日本語](README.ja-JP.md)
 
 ![](./screenshots/01.png)
 
