@@ -859,7 +859,7 @@
         "securityNotice": "API キーは Windows 資格情報マネージャーに保存され、設定ファイルには書き込まれません。環境変数のキーが優先されます。",
         "alibabaDescription": "Qwen3 ASR と Fun-ASR で共有します",
         "openaiDescription": "OpenAI 公式 API。Realtime 音声認識と LLM 翻訳で使用できます",
-        "geminiDescription": "LLM 翻訳用の Google Gemini ネイティブ API",
+        "geminiDescription": "音声認識と LLM 翻訳に対応する Google Gemini ネイティブ API",
         "deeplDescription": "DeepL テキスト翻訳で使用します",
         "addProfile": "API を追加",
         "editProfile": "API を編集",

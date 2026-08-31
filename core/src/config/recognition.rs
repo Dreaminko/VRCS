@@ -3,8 +3,8 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 
 use crate::providers::{
-    SERVICE_FUN_ASR_REALTIME, SERVICE_GROQ_TRANSCRIPTION, SERVICE_OPENAI_REALTIME,
-    SERVICE_QWEN_REALTIME, SERVICE_TOKEN_PLAN_REALTIME,
+    SERVICE_FUN_ASR_REALTIME, SERVICE_GEMINI_TRANSCRIBE, SERVICE_GROQ_TRANSCRIPTION,
+    SERVICE_OPENAI_REALTIME, SERVICE_QWEN_REALTIME, SERVICE_TOKEN_PLAN_REALTIME,
 };
 
 use super::ApiProfile;
@@ -103,6 +103,13 @@ pub fn default_service_settings() -> BTreeMap<String, RecognitionServiceSettings
             SERVICE_GROQ_TRANSCRIPTION,
             RecognitionServiceSettings {
                 model: "whisper-large-v3-turbo".into(),
+                context: String::new(),
+            },
+        ),
+        (
+            SERVICE_GEMINI_TRANSCRIBE,
+            RecognitionServiceSettings {
+                model: "gemini-3.5-transcribe-live".into(),
                 context: String::new(),
             },
         ),

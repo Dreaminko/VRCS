@@ -1,4 +1,5 @@
 mod fun_asr;
+mod gemini;
 mod openai;
 mod qwen;
 
@@ -119,6 +120,7 @@ pub(super) enum Provider {
     TokenPlan,
     FunAsr,
     OpenAi,
+    Gemini,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -151,6 +153,7 @@ impl Provider {
             ServiceAdapter::AlibabaTokenPlanRealtime => Ok(Self::TokenPlan),
             ServiceAdapter::FunAsrRealtime => Ok(Self::FunAsr),
             ServiceAdapter::OpenAiRealtime => Ok(Self::OpenAi),
+            ServiceAdapter::GeminiTranscribe => Ok(Self::Gemini),
             _ => Err(format!(
                 "Service {service_id} does not have a realtime recognition adapter"
             )),
@@ -168,6 +171,7 @@ impl Provider {
             Self::TokenPlan => qwen::build_token_plan_request(config, key),
             Self::FunAsr => fun_asr::build_request(profile, key),
             Self::OpenAi => openai::build_request(key),
+            Self::Gemini => gemini::build_request(key),
         }
     }
 
@@ -177,7 +181,9 @@ impl Provider {
 
     pub(super) fn segmentation_mode(self) -> SegmentationMode {
         match self {
-            Self::Qwen | Self::TokenPlan | Self::OpenAi => SegmentationMode::LocalCommit,
+            Self::Qwen | Self::TokenPlan | Self::OpenAi | Self::Gemini => {
+                SegmentationMode::LocalCommit
+            }
             Self::FunAsr => SegmentationMode::ServerVad,
         }
     }
@@ -197,6 +203,7 @@ impl Provider {
                 task_id.expect("Fun-ASR sessions always have a task id"),
             ),
             Self::OpenAi => openai::session_update(config),
+            Self::Gemini => gemini::setup(config),
         }
     }
 
@@ -226,6 +233,7 @@ impl Provider {
                 ),
                 _ => InitializationEvent::Pending,
             },
+            Self::Gemini => gemini::initialization_event(value),
         }
     }
 
@@ -239,6 +247,7 @@ impl Provider {
             Self::Qwen | Self::TokenPlan => qwen::normalize_event(config, value, state),
             Self::FunAsr => fun_asr::normalize_event(config, value, state),
             Self::OpenAi => openai::normalize_event(config, value, state),
+            Self::Gemini => gemini::normalize_event(config, value, state),
         }
     }
 
@@ -247,6 +256,7 @@ impl Provider {
             Self::Qwen | Self::TokenPlan => qwen::audio_message(samples),
             Self::FunAsr => fun_asr::audio_message(samples),
             Self::OpenAi => openai::audio_message(samples),
+            Self::Gemini => gemini::audio_message(samples),
         }
     }
 
@@ -254,6 +264,7 @@ impl Provider {
         match self {
             Self::Qwen | Self::TokenPlan => Some(qwen::commit_message()),
             Self::OpenAi => Some(openai::commit_message()),
+            Self::Gemini => Some(gemini::commit_message()),
             Self::FunAsr => None,
         }
     }
@@ -266,6 +277,7 @@ impl Provider {
                 task_id.expect("Fun-ASR sessions always have a task id"),
             )),
             Self::OpenAi => None,
+            Self::Gemini => None,
         }
     }
 
@@ -277,6 +289,15 @@ impl Provider {
                 value.pointer("/header/event").and_then(Value::as_str) == Some("task-finished")
             }
             Self::OpenAi => false,
+            Self::Gemini => false,
+        }
+    }
+
+    pub(super) fn connection_error(self, error: impl std::fmt::Display) -> String {
+        if self == Self::Gemini {
+            "Failed to connect to Gemini transcription service".into()
+        } else {
+            format!("Failed to connect to cloud recognition service: {error}")
         }
     }
 }

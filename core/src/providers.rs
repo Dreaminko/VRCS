@@ -32,6 +32,7 @@ pub const SERVICE_FUN_ASR_REALTIME: &str = "fun_asr_realtime";
 pub const SERVICE_TOKEN_PLAN_REALTIME: &str = "token_plan_realtime";
 pub const SERVICE_OPENAI_REALTIME: &str = "openai_realtime";
 pub const SERVICE_GROQ_TRANSCRIPTION: &str = "groq_transcription";
+pub const SERVICE_GEMINI_TRANSCRIBE: &str = "gemini_transcribe";
 
 pub const LLM_TRANSLATION_LANGUAGES: &[&str] = &[
     "zh-Hans", "zh-Hant", "yue-Hant", "en", "ja", "ko", "es", "fr", "de", "ru", "ar", "bg", "cs",
@@ -56,6 +57,7 @@ const FUN_ASR_MODELS: &[&str] = &["qwen-audio-3.0-asr-flash-streaming", "fun-asr
 const TOKEN_PLAN_REALTIME_MODELS: &[&str] = &["qwen-audio-3.0-realtime-plus"];
 const OPENAI_ASR_MODELS: &[&str] = &["gpt-4o-mini-transcribe", "gpt-4o-transcribe"];
 const GROQ_ASR_MODELS: &[&str] = &["whisper-large-v3-turbo", "whisper-large-v3"];
+const GEMINI_ASR_MODELS: &[&str] = &["gemini-3.5-transcribe-live"];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -131,6 +133,7 @@ pub enum ServiceAdapter {
     AlibabaTokenPlanRealtime,
     FunAsrRealtime,
     OpenAiRealtime,
+    GeminiTranscribe,
     OpenAiAudioTranscriptions,
 }
 
@@ -274,12 +277,26 @@ const OPENAI_SERVICES: &[ProviderServiceDefinition] = &[
     ),
 ];
 
-const GEMINI_SERVICES: &[ProviderServiceDefinition] = &[text_service(
-    "gemini_generate_content",
-    "Gemini Generate Content",
-    ServiceAdapter::GeminiGenerateContent,
-    SupportLevel::Native,
-)];
+const GEMINI_SERVICES: &[ProviderServiceDefinition] = &[
+    text_service(
+        "gemini_generate_content",
+        "Gemini Generate Content",
+        ServiceAdapter::GeminiGenerateContent,
+        SupportLevel::Native,
+    ),
+    recognition_service_definition(
+        SERVICE_GEMINI_TRANSCRIBE,
+        "Gemini Transcribe",
+        ServiceAdapter::GeminiTranscribe,
+        RecognitionServiceSpec {
+            transport: RecognitionTransport::RealtimeStream,
+            partial_results: true,
+            models: GEMINI_ASR_MODELS,
+            context_max_chars: Some(4_000),
+            support: SupportLevel::Native,
+        },
+    ),
+];
 
 const CUSTOM_SERVICES: &[ProviderServiceDefinition] = &[text_service(
     "custom_openai_chat_completions",
@@ -560,7 +577,7 @@ pub fn definition(provider: &str) -> Option<ProviderDefinition> {
                     false,
                 ),
                 GEMINI_SERVICES,
-                LLM_PURPOSES,
+                SHARED_PURPOSES,
                 LLM_TRANSLATION_LANGUAGES,
                 true,
             ),
@@ -1121,6 +1138,23 @@ mod tests {
         assert_eq!(custom.category, ProviderCategory::CustomProtocol);
         assert_eq!(custom.presets.len(), 1);
         assert_eq!(custom.presets[0].id, "custom");
+    }
+
+    #[test]
+    fn gemini_catalog_exposes_transcription_under_the_existing_provider() {
+        let gemini = definition(GEMINI_PROVIDER).unwrap();
+        assert_eq!(gemini.display_name, "Gemini");
+        assert_eq!(gemini.services.len(), 2);
+        assert_eq!(gemini.purposes, SHARED_PURPOSES);
+
+        let transcription = service(GEMINI_PROVIDER, SERVICE_GEMINI_TRANSCRIBE).unwrap();
+        assert_eq!(transcription.display_name, "Gemini Transcribe");
+        assert_eq!(
+            transcription.recognition_transport,
+            Some(RecognitionTransport::RealtimeStream)
+        );
+        assert_eq!(transcription.models, GEMINI_ASR_MODELS);
+        assert!(transcription.partial_results);
     }
 
     #[test]

@@ -4,7 +4,8 @@ use crate::providers::{
     self, ALIBABA_PROVIDER, CAPABILITY_SPEECH_TO_TEXT, CAPABILITY_TEXT_GENERATION,
     CAPABILITY_TEXT_TRANSLATION, DEEPL_PROVIDER, GEMINI_PROVIDER, GROQ_PROVIDER, OLLAMA_PROVIDER,
     OPENAI_COMPATIBLE_PROVIDER, OPENAI_PROVIDER, SERVICE_FUN_ASR_REALTIME,
-    SERVICE_GROQ_TRANSCRIPTION, SERVICE_OPENAI_REALTIME, SERVICE_QWEN_REALTIME,
+    SERVICE_GEMINI_TRANSCRIBE, SERVICE_GROQ_TRANSCRIPTION, SERVICE_OPENAI_REALTIME,
+    SERVICE_QWEN_REALTIME,
 };
 
 #[test]
@@ -238,7 +239,7 @@ fn translation_languages_follow_the_selected_provider() {
 }
 
 #[test]
-fn gemini_profiles_are_llm_only_and_require_a_model() {
+fn gemini_profiles_support_asr_and_still_require_an_llm_model() {
     let mut config = AppConfig::default();
     config.asr.api_profiles.push(ApiProfile {
         id: "gemini-one".into(),
@@ -265,7 +266,9 @@ fn gemini_profiles_are_llm_only_and_require_a_model() {
     config.asr.api_profiles[0]
         .enabled_capabilities
         .push(CAPABILITY_SPEECH_TO_TEXT.into());
-    assert!(config.validate_settings().is_err());
+    config.asr.backend = SERVICE_GEMINI_TRANSCRIBE.into();
+    config.asr.active_profile_id = Some("gemini-one".into());
+    assert!(config.validate_settings().is_ok());
 }
 
 #[test]

@@ -859,7 +859,7 @@
         "securityNotice": "API Key 保存在 Windows 凭据管理器中，不会写入配置文件。环境变量中的密钥会优先使用。",
         "alibabaDescription": "Qwen3 ASR 与 Fun-ASR 共用此连接",
         "openaiDescription": "OpenAI 官方 API，可用于 Realtime 云端识别和 LLM 翻译",
-        "geminiDescription": "Google Gemini 原生 API，用于 LLM 翻译",
+        "geminiDescription": "Google Gemini 原生 API，用于语音识别和 LLM 翻译",
         "deeplDescription": "用于 DeepL 文本翻译",
         "addProfile": "添加 API",
         "editProfile": "编辑 API",

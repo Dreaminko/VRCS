@@ -113,7 +113,8 @@ async fn test_recognition_service(
         ServiceAdapter::QwenRealtime
         | ServiceAdapter::AlibabaTokenPlanRealtime
         | ServiceAdapter::FunAsrRealtime
-        | ServiceAdapter::OpenAiRealtime => {
+        | ServiceAdapter::OpenAiRealtime
+        | ServiceAdapter::GeminiTranscribe => {
             asr::streaming_test_backend(config, &profile.id, Some(service.id)).map_err(
                 |error| {
                     api_error(

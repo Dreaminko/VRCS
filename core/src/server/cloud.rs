@@ -178,6 +178,7 @@ fn adapter_id(adapter: ServiceAdapter) -> &'static str {
         ServiceAdapter::AlibabaTokenPlanRealtime => "alibaba_token_plan_realtime",
         ServiceAdapter::FunAsrRealtime => "fun_asr_realtime",
         ServiceAdapter::OpenAiRealtime => "openai_realtime",
+        ServiceAdapter::GeminiTranscribe => "gemini_transcribe",
         ServiceAdapter::OpenAiAudioTranscriptions => "openai_audio_transcriptions",
     }
 }

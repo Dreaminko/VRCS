@@ -859,7 +859,7 @@
         "securityNotice": "API keys are stored in Windows Credential Manager and are never written to the settings file. Keys from environment variables take priority.",
         "alibabaDescription": "Shared by Qwen3 ASR and Fun-ASR",
         "openaiDescription": "Official OpenAI API for Realtime transcription and LLM translation",
-        "geminiDescription": "Native Google Gemini API for LLM translation",
+        "geminiDescription": "Native Google Gemini API for speech recognition and LLM translation",
         "deeplDescription": "Used for DeepL text translation",
         "addProfile": "Add API",
         "editProfile": "Edit API",

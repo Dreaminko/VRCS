@@ -410,7 +410,7 @@ async fn connect(
     tokio_tungstenite::connect_async(request)
         .await
         .map(|(socket, _)| socket)
-        .map_err(|error| format!("Failed to connect to cloud recognition service: {error}"))
+        .map_err(|error| provider.connection_error(error))
 }
 
 async fn connect_initialized(

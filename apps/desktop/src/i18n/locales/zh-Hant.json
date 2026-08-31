@@ -859,7 +859,7 @@
         "securityNotice": "API 金鑰會儲存在 Windows 認證管理員中，絕不會寫入設定檔。環境變數中的金鑰優先使用。",
         "alibabaDescription": "Qwen3 ASR 與 Fun-ASR 共用此連線",
         "openaiDescription": "OpenAI 官方 API，可用於 Realtime 轉錄和 LLM 翻譯",
-        "geminiDescription": "Google Gemini 原生 API，用於 LLM 翻譯",
+        "geminiDescription": "Google Gemini 原生 API，用於語音辨識和 LLM 翻譯",
         "deeplDescription": "用於 DeepL 文字翻譯",
         "addProfile": "新增 API",
         "editProfile": "編輯 API",
