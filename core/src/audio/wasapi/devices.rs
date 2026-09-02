@@ -94,6 +94,66 @@ pub(super) fn endpoint_info(
     })
 }
 
+pub(super) fn default_device_id(direction: &Direction) -> Result<String, AudioError> {
+    DeviceEnumerator::new()
+        .map_err(err)?
+        .get_default_device(direction)
+        .and_then(|device| device.get_id())
+        .map_err(err)
+}
+
+fn push_enumerated_device(
+    devices: &mut Vec<AudioDevice>,
+    result: Result<AudioDevice, AudioError>,
+    direction: &Direction,
+    index: u32,
+) {
+    match result {
+        Ok(device) => devices.push(device),
+        Err(error) => tracing::warn!(
+            ?direction,
+            index,
+            detail = %error,
+            "skipping unavailable audio endpoint"
+        ),
+    }
+}
+
+fn enumerate_direction(
+    enumerator: &DeviceEnumerator,
+    direction: &Direction,
+    is_loopback: bool,
+    default_id: Option<&str>,
+    devices: &mut Vec<AudioDevice>,
+) -> Result<(), AudioError> {
+    let collection = enumerator.get_device_collection(direction).map_err(err)?;
+    let count = collection.get_nbr_devices().map_err(err)?;
+    for index in 0..count {
+        let endpoint = collection.get_device_at_index(index).and_then(|device| {
+            if device.get_state()? != ::wasapi::DeviceState::Active {
+                return Ok(None);
+            }
+            device.get_id().map(|id| Some((device, id)))
+        });
+        let (device, wasapi_id) = match endpoint {
+            Ok(Some(endpoint)) => endpoint,
+            Ok(None) => continue,
+            Err(error) => {
+                push_enumerated_device(devices, Err(err(error)), direction, index);
+                continue;
+            }
+        };
+        let is_default = default_id == Some(wasapi_id.as_str());
+        push_enumerated_device(
+            devices,
+            endpoint_info(&device, is_default, is_loopback),
+            direction,
+            index,
+        );
+    }
+    Ok(())
+}
+
 pub(crate) fn list_devices() -> Result<Vec<AudioDevice>, AudioError> {
     let _com = init_com()?;
     let enumerator = DeviceEnumerator::new().map_err(err)?;
@@ -106,22 +166,31 @@ pub(crate) fn list_devices() -> Result<Vec<AudioDevice>, AudioError> {
         .and_then(|device| device.get_id())
         .ok();
     let mut devices = Vec::new();
+    let mut successful_directions = 0;
+    let mut last_error = None;
     for (direction, is_loopback, default_id) in [
         (Direction::Render, true, default_render_id),
         (Direction::Capture, false, default_capture_id),
     ] {
-        let collection = enumerator.get_device_collection(&direction).map_err(err)?;
-        for index in 0..collection.get_nbr_devices().map_err(err)? {
-            let device = collection.get_device_at_index(index).map_err(err)?;
-            if device.get_state().map_err(err)? != ::wasapi::DeviceState::Active {
-                continue;
+        match enumerate_direction(
+            &enumerator,
+            &direction,
+            is_loopback,
+            default_id.as_deref(),
+            &mut devices,
+        ) {
+            Ok(()) => successful_directions += 1,
+            Err(error) => {
+                tracing::warn!(?direction, detail = %error, "failed to enumerate audio direction");
+                last_error = Some(error);
             }
-            let wasapi_id = device.get_id().map_err(err)?;
-            let is_default = default_id.as_deref() == Some(wasapi_id.as_str());
-            devices.push(endpoint_info(&device, is_default, is_loopback)?);
         }
     }
-    Ok(devices)
+    if successful_directions == 0 {
+        Err(last_error.unwrap_or_else(|| AudioError::new("No audio directions were enumerated")))
+    } else {
+        Ok(devices)
+    }
 }
 
 pub(crate) fn resolve_device_id(
@@ -137,8 +206,16 @@ pub(crate) fn resolve_device_id(
     let enumerator = DeviceEnumerator::new().map_err(err)?;
     let collection = enumerator.get_device_collection(&direction).map_err(err)?;
     for index in 0..collection.get_nbr_devices().map_err(err)? {
-        let device_handle = collection.get_device_at_index(index).map_err(err)?;
-        let wasapi_id = device_handle.get_id().map_err(err)?;
+        let wasapi_id = match collection
+            .get_device_at_index(index)
+            .and_then(|device| device.get_id())
+        {
+            Ok(id) => id,
+            Err(error) => {
+                tracing::warn!(?direction, index, detail = %error, "skipping unavailable audio endpoint");
+                continue;
+            }
+        };
         if device_key(&wasapi_id) == device.id {
             return Ok(wasapi_id);
         }
@@ -205,8 +282,17 @@ pub(super) fn resolve_device(
 
     let collection = enumerator.get_device_collection(direction).map_err(err)?;
     for index in 0..collection.get_nbr_devices().map_err(err)? {
-        let device = collection.get_device_at_index(index).map_err(err)?;
-        if device.get_id().map_err(err)? == endpoint_id {
+        let endpoint = collection
+            .get_device_at_index(index)
+            .and_then(|device| device.get_id().map(|id| (device, id)));
+        let (device, id) = match endpoint {
+            Ok(endpoint) => endpoint,
+            Err(error) => {
+                tracing::warn!(?direction, index, detail = %error, "skipping unavailable audio endpoint");
+                continue;
+            }
+        };
+        if id == endpoint_id {
             return Ok(device);
         }
     }
@@ -243,7 +329,13 @@ pub(super) fn is_endpoint_invalidation(error: &::wasapi::WasapiError) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{device_key, device_unavailable, err, init_com, is_endpoint_invalidation};
+    use super::{
+        device_key, device_unavailable, err, init_com, is_endpoint_invalidation,
+        push_enumerated_device,
+    };
+    use crate::audio::AudioError;
+    use crate::models::AudioDevice;
+    use ::wasapi::Direction;
     use windows::Win32::Foundation::{ERROR_ACCESS_DENIED, ERROR_FILE_NOT_FOUND};
     use windows::Win32::Media::Audio::{
         AUDCLNT_E_DEVICE_INVALIDATED, AUDCLNT_E_DEVICE_IN_USE, AUDCLNT_E_RESOURCES_INVALIDATED,
@@ -334,5 +426,32 @@ mod tests {
     fn device_keys_are_javascript_safe() {
         let key = device_key("render-device-that-produces-a-large-fnv-hash");
         assert!((0..=9_007_199_254_740_991).contains(&key));
+    }
+
+    #[test]
+    fn one_bad_endpoint_does_not_discard_healthy_devices() {
+        let healthy = AudioDevice {
+            id: 7,
+            name: "healthy".into(),
+            is_default: false,
+            is_loopback: false,
+            sample_rate: 48_000,
+            channels: 1,
+        };
+        let mut devices = Vec::new();
+
+        push_enumerated_device(
+            &mut devices,
+            Err(AudioError::with_code(
+                "audio.unavailable",
+                "broken endpoint",
+            )),
+            &Direction::Capture,
+            0,
+        );
+        push_enumerated_device(&mut devices, Ok(healthy.clone()), &Direction::Capture, 1);
+
+        assert_eq!(devices.len(), 1);
+        assert_eq!(devices[0].id, healthy.id);
     }
 }

@@ -1,6 +1,78 @@
 use super::*;
 
 #[tokio::test]
+async fn audio_settings_can_repair_stale_routes_one_at_a_time() {
+    for output_first in [true, false] {
+        let directory = tempfile::tempdir().unwrap();
+        let config_path = directory.path().join("config.json");
+        let mut config = config::AppConfig::default();
+        config.audio.output.device_id = Some(-1);
+        config.audio.microphone.mode = "device".into();
+        config.audio.microphone.device_id = Some(-2);
+        config::save_config(&config_path, &config).unwrap();
+        let port = std::net::TcpListener::bind(("127.0.0.1", 0))
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port();
+        let handle = start(CoreOptions {
+            config_path: config_path.clone(),
+            host: Some("127.0.0.1".into()),
+            port: Some(port),
+            session_token: Some("audio-selection-test".into()),
+            vad_model_path: Some(directory.path().join("missing-silero.onnx")),
+            asr_model_dir: None,
+        })
+        .await
+        .unwrap();
+        let client = reqwest::Client::new();
+        let url = format!("http://{}/api/settings", handle.address());
+        let response = client
+            .get(&url)
+            .bearer_auth("audio-selection-test")
+            .send()
+            .await
+            .unwrap();
+        let mut revision = response.headers()["X-VRCS-Config-Revision"]
+            .to_str()
+            .unwrap()
+            .to_owned();
+        let mut settings: serde_json::Value = response.json().await.unwrap();
+
+        for output in [output_first, !output_first] {
+            if output {
+                settings["audio"]["output"]["device_id"] = serde_json::Value::Null;
+            } else {
+                settings["audio"]["microphone"]["mode"] = serde_json::json!("default");
+                settings["audio"]["microphone"]["device_id"] = serde_json::Value::Null;
+            }
+            let response = client
+                .put(&url)
+                .bearer_auth("audio-selection-test")
+                .header("X-VRCS-Config-Revision", &revision)
+                .json(&settings)
+                .send()
+                .await
+                .unwrap();
+            let status = response.status();
+            let next_revision = response.headers().get("X-VRCS-Config-Revision").cloned();
+            let saved: serde_json::Value = response.json().await.unwrap();
+            assert!(
+                status.is_success(),
+                "repair output={output}: {status}: {saved}"
+            );
+            assert_eq!(saved["audio"], settings["audio"]);
+            let persisted: serde_json::Value =
+                serde_json::from_slice(&std::fs::read(&config_path).unwrap()).unwrap();
+            assert_eq!(persisted["audio"], settings["audio"]);
+            revision = next_revision.unwrap().to_str().unwrap().to_owned();
+            settings = saved;
+        }
+        handle.shutdown().await.unwrap();
+    }
+}
+
+#[tokio::test]
 async fn embedded_core_starts_and_stops() {
     let directory = tempfile::tempdir().unwrap();
     let handle = start(CoreOptions {

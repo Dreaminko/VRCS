@@ -17,13 +17,14 @@ export function useCaptureRuntime({
 }) {
   const [pending, setPending] = useState(false);
   const pendingRef = useRef(false);
+  const { getCurrent, patch, refreshQuietly } = health;
 
   const toggle = useCallback(async () => {
     if (pendingRef.current) return;
     pendingRef.current = true;
     setPending(true);
     try {
-      if (health.getCurrent()?.capture_requested) {
+      if (getCurrent()?.capture_requested) {
         await captureApi.stop();
         clearPartials();
       } else {
@@ -31,44 +32,44 @@ export function useCaptureRuntime({
       }
       clearErrorFrom("capture");
     } finally {
-      await health.refreshQuietly();
+      await refreshQuietly();
       pendingRef.current = false;
       setPending(false);
     }
-  }, [clearErrorFrom, clearPartials, health]);
+  }, [clearErrorFrom, clearPartials, getCurrent, refreshQuietly]);
 
   const startMicrophoneTest = useCallback(async () => {
     try {
       const result = await captureApi.startMicrophoneTest();
-      health.patch((current) => current ? {
+      patch((current) => current ? {
         ...current,
         microphone_test_running: result.running,
         microphone_test_device: result.device,
       } : current);
       clearErrorFrom("microphone-test");
-      void health.refreshQuietly();
+      void refreshQuietly();
     } catch (reason) {
       reportError(reason, "errors.audio.microphoneTestFailed", "microphone-test");
       throw reason;
     }
-  }, [clearErrorFrom, health, reportError]);
+  }, [clearErrorFrom, patch, refreshQuietly, reportError]);
 
   const stopMicrophoneTest = useCallback(async () => {
     try {
       const result = await captureApi.stopMicrophoneTest();
       clearPartials();
-      health.patch((current) => current ? {
+      patch((current) => current ? {
         ...current,
         microphone_test_running: result.running,
         microphone_test_device: null,
       } : current);
       clearErrorFrom("microphone-test");
-      void health.refreshQuietly();
+      void refreshQuietly();
     } catch (reason) {
       reportError(reason, "errors.audio.microphoneTestFailed", "microphone-test");
       throw reason;
     }
-  }, [clearErrorFrom, clearPartials, health, reportError]);
+  }, [clearErrorFrom, clearPartials, patch, refreshQuietly, reportError]);
 
   return {
     pending,

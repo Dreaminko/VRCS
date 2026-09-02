@@ -12,7 +12,8 @@ use crate::models::AudioDevice;
 
 use super::super::{AudioError, CHUNK_FRAMES};
 use super::devices::{
-    endpoint_info, err, init_com, is_endpoint_invalidation, resolve_device, ComApartment,
+    default_device_id, endpoint_info, err, init_com, is_endpoint_invalidation, resolve_device,
+    ComApartment,
 };
 use super::pcm::{append_mono_f32, resample_linear, NativeFormat, SampleEncoding};
 use super::{CaptureTarget, DeviceDirection};
@@ -22,6 +23,7 @@ const POLLING_BUFFER_DURATION_HNS: i64 = 200_000;
 const EVENT_WAIT_MS: u32 = 200;
 const POLLING_WAIT: std::time::Duration = std::time::Duration::from_millis(10);
 const DEFAULT_RECOVERY_DELAY: std::time::Duration = std::time::Duration::from_millis(150);
+const DEFAULT_DEVICE_CHECK_INTERVAL: std::time::Duration = std::time::Duration::from_secs(1);
 
 fn is_out_of_memory(error: &::wasapi::WasapiError) -> bool {
     use windows::Win32::Foundation::ERROR_OUTOFMEMORY;
@@ -227,6 +229,7 @@ struct CaptureStream {
     device: AudioDevice,
     native: NativeFormat,
     endpoint_id: String,
+    default_direction: Option<Direction>,
 }
 
 enum CaptureWait {
@@ -254,7 +257,7 @@ fn open_stream(
     output_rate: u32,
 ) -> Result<CaptureStream, AudioError> {
     let process_loopback = matches!(target, CaptureTarget::Process(_));
-    let (client, device, native, timing, selection, endpoint_id) = match target {
+    let (client, device, native, timing, selection, endpoint_id, default_direction) = match target {
         CaptureTarget::Process(process_id) => {
             let render_device = resolve_device(com, None, &Direction::Render)?;
             let wave_format = render_device
@@ -289,7 +292,7 @@ fn open_stream(
                 false,
             )
             .map_err(|error| error.with_default_code("audio.process_loopback_unavailable"))?;
-            (client, device, native, timing, "process", endpoint_id)
+            (client, device, native, timing, "process", endpoint_id, None)
         }
         CaptureTarget::Device {
             wasapi_id,
@@ -322,7 +325,16 @@ fn open_stream(
                 DeviceDirection::Render => initialize_loopback_client(&device)?,
                 DeviceDirection::Capture => initialize_capture_client(&device, output_rate)?,
             };
-            (client, info, native, timing, selection, endpoint_id)
+            let default_direction = wasapi_id.is_none().then_some(wasapi_direction);
+            (
+                client,
+                info,
+                native,
+                timing,
+                selection,
+                endpoint_id,
+                default_direction,
+            )
         }
     };
 
@@ -357,6 +369,7 @@ fn open_stream(
         device,
         native,
         endpoint_id,
+        default_direction,
     })
 }
 
@@ -366,6 +379,18 @@ fn stream_failure(error: ::wasapi::WasapiError, process_loopback: bool) -> Strea
         error: map_capture_error(error, process_loopback),
         endpoint_invalidated,
     }
+}
+
+fn default_endpoint_changed(opened: &str, current: &str) -> bool {
+    opened != current
+}
+
+fn should_recover_default(
+    follows_default: bool,
+    endpoint_invalidated: bool,
+    stopped: bool,
+) -> bool {
+    follows_default && endpoint_invalidated && !stopped
 }
 
 fn run_stream(
@@ -381,12 +406,36 @@ fn run_stream(
         .max(1) as usize;
     let mut pending = VecDeque::<f32>::new();
     let mut packet = VecDeque::<u8>::new();
+    let mut next_default_check = std::time::Instant::now() + DEFAULT_DEVICE_CHECK_INTERVAL;
     while !stop.load(Ordering::Relaxed) {
         match &stream.wait {
             CaptureWait::Event(event) => {
                 let _ = event.wait_for_event(EVENT_WAIT_MS);
             }
             CaptureWait::Polling => std::thread::sleep(POLLING_WAIT),
+        }
+        if let Some(direction) = &stream.default_direction {
+            let now = std::time::Instant::now();
+            if now >= next_default_check {
+                next_default_check = now + DEFAULT_DEVICE_CHECK_INTERVAL;
+                match default_device_id(direction) {
+                    Ok(current) if default_endpoint_changed(&stream.endpoint_id, &current) => {
+                        return Err(StreamFailure {
+                            error: AudioError::retryable_with_code(
+                                "audio.device_unavailable",
+                                "The Windows default audio device changed",
+                            ),
+                            endpoint_invalidated: true,
+                        });
+                    }
+                    Ok(_) => {}
+                    Err(error) => tracing::debug!(
+                        ?direction,
+                        detail = %error,
+                        "could not inspect the current default audio endpoint"
+                    ),
+                }
+            }
         }
         while let Some(size) = stream
             .capture
@@ -450,37 +499,48 @@ pub(crate) fn capture_main(
     };
     let _ = ready.send(Ok(stream.device.clone()));
 
-    let mut recovered = false;
     loop {
         let result = run_stream(&stream, output_rate, &stop, &tx, process_loopback);
         let _ = stream.client.stop_stream();
         match result {
             Ok(()) => return,
             Err(failure)
-                if follows_default
-                    && failure.endpoint_invalidated
-                    && !recovered
-                    && !stop.load(Ordering::Relaxed) =>
+                if should_recover_default(
+                    follows_default,
+                    failure.endpoint_invalidated,
+                    stop.load(Ordering::Relaxed),
+                ) =>
             {
-                recovered = true;
                 let endpoint_id = stream.endpoint_id.clone();
                 tracing::warn!(
                     endpoint_id = %endpoint_id,
                     detail = %failure.error,
-                    "default audio endpoint was invalidated; rebuilding capture once"
+                    "default audio endpoint changed or was invalidated; rebuilding capture"
                 );
                 drop(stream);
-                std::thread::sleep(DEFAULT_RECOVERY_DELAY);
-                match open_stream(&_com, &target, output_rate) {
-                    Ok(replacement) => {
-                        stream = replacement;
-                        continue;
-                    }
-                    Err(error) => {
-                        tracing::warn!(detail = %error, "failed to rebuild default audio capture");
+                stream = loop {
+                    if stop.load(Ordering::Relaxed) {
                         return;
                     }
-                }
+                    std::thread::sleep(DEFAULT_RECOVERY_DELAY);
+                    match open_stream(&_com, &target, output_rate) {
+                        Ok(replacement) => break replacement,
+                        Err(error) if error.is_retryable() => {
+                            tracing::debug!(
+                                detail = %error,
+                                "default audio endpoint is not ready; retrying"
+                            );
+                        }
+                        Err(error) => {
+                            tracing::warn!(
+                                detail = %error,
+                                "failed to rebuild default audio capture"
+                            );
+                            return;
+                        }
+                    }
+                };
+                continue;
             }
             Err(failure) => {
                 tracing::warn!(detail = %failure.error, "audio capture stopped with error");
@@ -492,7 +552,10 @@ pub(crate) fn capture_main(
 
 #[cfg(test)]
 mod tests {
-    use super::{map_initialize_error, CaptureTiming, INITIALIZE_PLANS};
+    use super::{
+        default_endpoint_changed, map_initialize_error, should_recover_default, CaptureTiming,
+        INITIALIZE_PLANS,
+    };
 
     #[test]
     fn out_of_memory_does_not_repeat_identical_startup() {
@@ -510,6 +573,21 @@ mod tests {
         assert_eq!(INITIALIZE_PLANS.len(), 3);
         assert_eq!(final_plan.timing, CaptureTiming::Polling);
         assert!(final_plan.raw);
+    }
+
+    #[test]
+    fn default_endpoint_change_requests_a_reopen() {
+        assert!(!default_endpoint_changed("endpoint-a", "endpoint-a"));
+        assert!(default_endpoint_changed("endpoint-a", "endpoint-b"));
+    }
+
+    #[test]
+    fn every_default_endpoint_invalidation_is_recoverable() {
+        assert!(should_recover_default(true, true, false));
+        assert!(should_recover_default(true, true, false));
+        assert!(!should_recover_default(false, true, false));
+        assert!(!should_recover_default(true, false, false));
+        assert!(!should_recover_default(true, true, true));
     }
 
     #[test]

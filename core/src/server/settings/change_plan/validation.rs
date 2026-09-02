@@ -53,20 +53,30 @@ pub(super) async fn validate_candidate(
     }
     asr::validate_config(&mut candidate.asr).map_err(invalid)?;
     if candidate.audio != current.audio {
-        validate_audio_devices(candidate.audio.clone()).await?;
+        validate_audio_devices(current.audio.clone(), candidate.audio.clone()).await?;
     }
     Ok(())
 }
 
-async fn validate_audio_devices(config: crate::config::AudioConfig) -> ApiResult<()> {
+async fn validate_audio_devices(
+    current: crate::config::AudioConfig,
+    config: crate::config::AudioConfig,
+) -> ApiResult<()> {
     // WASAPI enumeration can block, so it must not occupy a Tokio worker.
     tokio::task::spawn_blocking(move || {
-        if config.output.mode == "system" {
+        // A disconnected, unchanged route must not block repairing the other route.
+        if config.output.mode == "system"
+            && (config.output.mode != current.output.mode
+                || config.output.device_id != current.output.device_id)
+        {
             if let Some(device_id) = config.output.device_id {
                 audio::validate_device_id(device_id, audio::CaptureSource::Speaker)?;
             }
         }
-        if config.microphone.mode == "device" {
+        if config.microphone.mode == "device"
+            && (config.microphone.mode != current.microphone.mode
+                || config.microphone.device_id != current.microphone.device_id)
+        {
             if let Some(device_id) = config.microphone.device_id {
                 audio::validate_device_id(device_id, audio::CaptureSource::Microphone)?;
             }
@@ -84,8 +94,80 @@ async fn validate_audio_devices(config: crate::config::AudioConfig) -> ApiResult
     .map_err(|error| {
         api_error(
             StatusCode::UNPROCESSABLE_ENTITY,
-            "settings.invalid",
+            error.code(),
             error.to_string(),
         )
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::AudioConfig;
+
+    fn stale_routes() -> AudioConfig {
+        let mut config = AudioConfig::default();
+        config.output.device_id = Some(-1);
+        config.microphone.mode = "device".into();
+        config.microphone.device_id = Some(-2);
+        config
+    }
+
+    #[tokio::test]
+    async fn threshold_changes_do_not_revalidate_unchanged_devices() {
+        let current = stale_routes();
+        let mut candidate = current.clone();
+        candidate.output.trigger_threshold_dbfs = -50.0;
+        candidate.microphone.trigger_threshold_dbfs = -50.0;
+
+        validate_audio_devices(current, candidate).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn new_invalid_selections_keep_the_audio_error() {
+        for output in [true, false] {
+            let current = AudioConfig::default();
+            let mut candidate = current.clone();
+            if output {
+                candidate.output.device_id = Some(-1);
+            } else {
+                candidate.microphone.mode = "device".into();
+                candidate.microphone.device_id = Some(-2);
+            }
+
+            let (status, axum::Json(error)) = validate_audio_devices(current, candidate)
+                .await
+                .unwrap_err();
+            assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+            assert!(
+                error["code"].as_str().unwrap().starts_with("audio."),
+                "{error}"
+            );
+            assert!(!error["detail"].as_str().unwrap().is_empty());
+        }
+    }
+
+    #[cfg(windows)]
+    #[tokio::test]
+    #[ignore = "requires live Windows audio endpoints"]
+    async fn listed_devices_can_replace_one_stale_route() {
+        let devices = tokio::task::spawn_blocking(audio::list_devices)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(
+            !devices.is_empty(),
+            "No live endpoints are available for this test"
+        );
+        for device in devices {
+            let current = stale_routes();
+            let mut candidate = current.clone();
+            if device.is_loopback {
+                candidate.output.device_id = Some(device.id);
+            } else {
+                candidate.microphone.device_id = Some(device.id);
+            }
+            validate_audio_devices(current, candidate).await.unwrap();
+        }
+    }
 }
