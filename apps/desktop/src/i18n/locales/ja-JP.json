@@ -352,6 +352,7 @@
         "modelPlaceholder": "モデルを選択または入力",
         "modelUnset": "モデル未設定",
         "explanationLanguage": "説明言語",
+        "followUiLanguage": "アプリの言語に合わせる",
         "explanationLevel": "説明の詳しさ",
         "profileMissing": "テキスト生成に対応する AI プロファイルを選択し、モデルを入力してください。",
         "cloudNoticeTitle": "外部クラウドサービス",

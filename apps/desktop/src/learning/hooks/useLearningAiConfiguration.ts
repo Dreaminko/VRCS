@@ -1,27 +1,19 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useTranslation } from "react-i18next";
 
 import { providersApi } from "../../providers/api";
 import { localizedError } from "../../app/app-utils";
 import { explanationLanguageForUiLocale } from "../../learning";
-import type { LearningLevel } from "../types";
 import type { ApiProfileView } from "../../providers/types";
+import {
+  learningPreferencesSnapshot,
+  normalizeLearningLevel,
+  readLearningPreferences,
+  subscribeLearningPreferences,
+  updateLearningPreferences as setPreferences,
+} from "../preferences";
 
-const LEARNING_PREFERENCES_KEY = "vrcs.learning.preferences.v1";
-
-export interface LearningPreferences {
-  profileId: string;
-  model: string;
-  explanationLanguage: string;
-  explanationLevel: LearningLevel;
-}
-
-const DEFAULT_PREFERENCES: LearningPreferences = {
-  profileId: "",
-  model: "",
-  explanationLanguage: "en-US",
-  explanationLevel: "beginner",
-};
+export type { LearningPreferences } from "../preferences";
 
 export function useLearningAiConfiguration(active: boolean) {
   const { t, i18n } = useTranslation();
@@ -31,9 +23,14 @@ export function useLearningAiConfiguration(active: boolean) {
   const [models, setModels] = useState<string[]>([]);
   const [modelsLoading, setModelsLoading] = useState(false);
   const [modelsError, setModelsError] = useState("");
-  const [preferences, setPreferencesState] = useState<LearningPreferences>(() => (
-    readLearningPreferences(i18n.resolvedLanguage)
-  ));
+  const serialized = useSyncExternalStore(subscribeLearningPreferences, learningPreferencesSnapshot);
+  const savedPreferences = useMemo(() => readLearningPreferences(serialized), [serialized]);
+  const preferences = useMemo(() => ({
+    ...savedPreferences,
+    explanationLanguage: savedPreferences.explanationLanguage === "ui"
+      ? explanationLanguageForUiLocale(i18n.resolvedLanguage)
+      : savedPreferences.explanationLanguage,
+  }), [savedPreferences, i18n.resolvedLanguage]);
   const profileRequestRef = useRef(0);
   const modelRequestRef = useRef(0);
 
@@ -41,16 +38,6 @@ export function useLearningAiConfiguration(active: boolean) {
     () => profiles.find((profile) => profile.id === preferences.profileId),
     [preferences.profileId, profiles],
   );
-
-  const setPreferences = useCallback((
-    next: LearningPreferences | ((current: LearningPreferences) => LearningPreferences),
-  ) => {
-    setPreferencesState((current) => {
-      const value = typeof next === "function" ? next(current) : next;
-      writeLearningPreferences(value);
-      return value;
-    });
-  }, []);
 
   const loadProfiles = useCallback(async () => {
     const requestId = ++profileRequestRef.current;
@@ -75,11 +62,6 @@ export function useLearningAiConfiguration(active: boolean) {
       if (requestId === profileRequestRef.current) setProfilesLoading(false);
     }
   }, [setPreferences, t]);
-
-  useEffect(() => {
-    if (!active) return;
-    setPreferencesState(readLearningPreferences(i18n.resolvedLanguage));
-  }, [active, i18n.resolvedLanguage]);
 
   useEffect(() => {
     if (!active) return;
@@ -133,6 +115,7 @@ export function useLearningAiConfiguration(active: boolean) {
     modelsError,
     selectedProfile,
     preferences,
+    explanationLanguagePreference: savedPreferences.explanationLanguage,
     setProfileId: (profileId: string) => setPreferences((current) => ({
       ...current,
       profileId,
@@ -148,43 +131,4 @@ export function useLearningAiConfiguration(active: boolean) {
       explanationLevel: normalizeLearningLevel(explanationLevel),
     })),
   };
-}
-
-function readLearningPreferences(uiLocale?: string): LearningPreferences {
-  const explanationLanguage = explanationLanguageForUiLocale(uiLocale);
-  if (typeof window === "undefined") return { ...DEFAULT_PREFERENCES, explanationLanguage };
-  try {
-    const parsed = JSON.parse(
-      window.localStorage.getItem(LEARNING_PREFERENCES_KEY) ?? "null",
-    ) as Partial<LearningPreferences> | null;
-    if (!parsed) return { ...DEFAULT_PREFERENCES, explanationLanguage };
-    return {
-      profileId: typeof parsed.profileId === "string" ? parsed.profileId : "",
-      model: typeof parsed.model === "string" ? parsed.model : "",
-      explanationLanguage: normalizeExplanationLanguage(
-        parsed.explanationLanguage,
-        explanationLanguage,
-      ),
-      explanationLevel: normalizeLearningLevel(parsed.explanationLevel),
-    };
-  } catch {
-    return { ...DEFAULT_PREFERENCES, explanationLanguage };
-  }
-}
-
-function normalizeExplanationLanguage(value: unknown, fallback: string): string {
-  return value === "zh-CN" || value === "ja-JP" || value === "en-US" ? value : fallback;
-}
-
-function normalizeLearningLevel(value: unknown): LearningLevel {
-  if (value === "beginner" || value === "intermediate" || value === "advanced") return value;
-  if (value === "brief") return "beginner";
-  if (value === "standard") return "intermediate";
-  if (value === "detailed") return "advanced";
-  return DEFAULT_PREFERENCES.explanationLevel;
-}
-
-function writeLearningPreferences(preferences: LearningPreferences): void {
-  if (typeof window === "undefined") return;
-  window.localStorage.setItem(LEARNING_PREFERENCES_KEY, JSON.stringify(preferences));
 }

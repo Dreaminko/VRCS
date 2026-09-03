@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 
 import { DropdownField, EditableDropdownField } from "../../shared/ui/DropdownField";
 import { useLearningAiConfiguration } from "../../learning/hooks/useLearningAiConfiguration";
+import { localeCatalog } from "../../i18n/catalog";
 
 export function LearningAiSettingsSection() {
   const { t } = useTranslation();
@@ -58,7 +59,7 @@ export function LearningAiSettingsSection() {
           <span>{t("learning.ai.explanationLanguage")}</span>
           <DropdownField
             label={t("learning.ai.explanationLanguage")}
-            value={ai.preferences.explanationLanguage}
+            value={ai.explanationLanguagePreference}
             options={explanationLanguageOptions(t)}
             onChange={ai.setExplanationLanguage}
           />
@@ -89,9 +90,8 @@ export function LearningAiSettingsSection() {
 
 function explanationLanguageOptions(t: (key: string) => string) {
   return [
-    { value: "zh-CN", label: t("learning.ai.languages.zhCN") },
-    { value: "en-US", label: t("learning.ai.languages.enUS") },
-    { value: "ja-JP", label: t("learning.ai.languages.jaJP") },
+    { value: "ui", label: t("learning.ai.followUiLanguage") },
+    ...localeCatalog.map(({ _meta }) => ({ value: _meta.locale, label: _meta.name })),
   ];
 }
 

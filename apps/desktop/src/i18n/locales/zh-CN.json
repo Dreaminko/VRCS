@@ -352,6 +352,7 @@
         "modelPlaceholder": "选择或输入模型",
         "modelUnset": "未设置模型",
         "explanationLanguage": "解释语言",
+        "followUiLanguage": "跟随软件语言",
         "explanationLevel": "解释详细度",
         "profileMissing": "请选择支持文本生成的 AI Profile，并输入模型后再发送内容。",
         "cloudNoticeTitle": "第三方云服务",

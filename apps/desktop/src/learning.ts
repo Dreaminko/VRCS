@@ -8,14 +8,12 @@ import type {
   LearningTaskType,
 } from "./learning/types";
 import type { Subtitle } from "./subtitles/types";
+import { canonicalLanguageTag } from "./translation-languages.ts";
 
 export const LEARNING_PAGE_SIZE = 50;
 
-export function explanationLanguageForUiLocale(locale?: string): "zh-CN" | "ja-JP" | "en-US" {
-  const normalized = locale?.toLocaleLowerCase() ?? "";
-  if (normalized.startsWith("zh")) return "zh-CN";
-  if (normalized.startsWith("ja")) return "ja-JP";
-  return "en-US";
+export function explanationLanguageForUiLocale(locale?: string): string {
+  return canonicalLanguageTag(locale ?? "") ?? "en-US";
 }
 
 export function buildSubtitleLearningCapture(

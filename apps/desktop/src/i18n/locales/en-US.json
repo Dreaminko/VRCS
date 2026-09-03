@@ -352,6 +352,7 @@
         "modelPlaceholder": "Select or enter a model",
         "modelUnset": "model not set",
         "explanationLanguage": "Explanation language",
+        "followUiLanguage": "Follow app language",
         "explanationLevel": "Explanation detail",
         "profileMissing": "Choose an AI profile that supports text generation and enter a model before sending content.",
         "cloudNoticeTitle": "Third-party service",

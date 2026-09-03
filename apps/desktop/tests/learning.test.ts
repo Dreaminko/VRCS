@@ -106,11 +106,14 @@ test("normalizes editable draft fields without changing the card type", () => {
   });
 });
 
-test("uses the interface locale as the default explanation language", () => {
+test("preserves the resolved interface language and script for AI explanations", () => {
   assert.equal(explanationLanguageForUiLocale("zh-CN"), "zh-CN");
-  assert.equal(explanationLanguageForUiLocale("ja"), "ja-JP");
-  assert.equal(explanationLanguageForUiLocale("en-GB"), "en-US");
+  assert.equal(explanationLanguageForUiLocale("ja-JP"), "ja-JP");
+  assert.equal(explanationLanguageForUiLocale("en-GB"), "en-GB");
+  assert.equal(explanationLanguageForUiLocale("zh-Hant"), "zh-Hant");
+  assert.equal(explanationLanguageForUiLocale("fr-FR"), "fr-FR");
   assert.equal(explanationLanguageForUiLocale(undefined), "en-US");
+  assert.equal(explanationLanguageForUiLocale("invalid locale"), "en-US");
 });
 
 test("restores captured source keys from persisted learning items", () => {
