@@ -20,6 +20,7 @@ use crate::providers::{
 
 use super::{read_credential, SharedAudio};
 
+mod alignment;
 mod provider;
 
 pub use provider::SegmentationMode;
@@ -44,6 +45,7 @@ pub struct LiveTranslationResult {
 #[derive(Debug, Clone, PartialEq)]
 pub enum CloudEvent {
     LiveTranslation {
+        service: String,
         snapshot: crate::models::LiveTranslation,
         completed: Vec<LiveTranslationResult>,
         translations: Vec<LiveTranslationResult>,
@@ -361,14 +363,66 @@ async fn run_session(
     stop: &mut watch::Receiver<bool>,
 ) -> Result<(), String> {
     let mut normalization = NormalizationState::default();
+    let outcome = run_session_inner(
+        provider,
+        config,
+        socket,
+        task_id,
+        audio,
+        events,
+        stop,
+        &mut normalization,
+    )
+    .await;
+    if provider == Provider::OpenAiLiveTranslate && outcome.is_err() {
+        if let Some(event) = provider.finish_translation(config, &mut normalization) {
+            let _ = events.send(event).await;
+        }
+    }
+    outcome
+}
+
+fn alignment_worker(provider: Provider, config: &AsrConfig) -> Option<alignment::Worker> {
+    (provider == Provider::OpenAiLiveTranslate && config.live_alignment.enabled)
+        .then(|| alignment::Worker::new(config))
+}
+
+async fn run_session_inner(
+    provider: Provider,
+    config: &AsrConfig,
+    socket: &mut Socket,
+    task_id: Option<&str>,
+    audio: &mut mpsc::Receiver<StreamingInput>,
+    events: &mpsc::Sender<CloudEvent>,
+    stop: &mut watch::Receiver<bool>,
+    normalization: &mut NormalizationState,
+) -> Result<(), String> {
+    let mut aligner = alignment_worker(provider, config);
     let mut audio_buffer = Vec::with_capacity(2048);
     let mut pending_audio = false;
     let mut translation_tick = tokio::time::interval(Duration::from_millis(100));
     loop {
         tokio::select! {
+            aligned = async {
+                match aligner.as_mut() {
+                    Some(worker) => worker.recv().await,
+                    None => std::future::pending().await,
+                }
+            } => {
+                if let Some((window, Ok(mapping))) = aligned {
+                    if let Some(event) = normalization.apply_alignment(config, &window, &mapping) {
+                        if events.send(event).await.is_err() { return Ok(()); }
+                    } else if mapping.groups.iter().any(|group| group.fully_translated) {
+                        tracing::warn!(revision=window.revision, "Ignored invalid or expired live alignment result");
+                    }
+                }
+            }
             _ = translation_tick.tick(), if provider.segmentation_mode() == SegmentationMode::Continuous => {
-                if let Some(event) = provider.poll_translation(config, &mut normalization) {
+                if let Some(event) = provider.poll_translation(config, normalization) {
                     if events.send(event).await.is_err() { return Ok(()); }
+                }
+                if let Some(aligner) = aligner.as_mut() {
+                    aligner.try_start(|| normalization.alignment_window());
                 }
             }
             _ = stop.changed() => {
@@ -391,7 +445,7 @@ async fn run_session(
                 if pending_audio {
                     let _ = commit_utterance(provider, socket).await;
                 }
-                return finish(provider, socket, config, task_id, &mut normalization, events).await;
+                return finish(provider, socket, config, task_id, normalization, events).await;
             }
             input = audio.recv() => {
                 match input {
@@ -424,19 +478,19 @@ async fn run_session(
                         if pending_audio {
                             let _ = commit_utterance(provider, socket).await;
                         }
-                        return finish(provider, socket, config, task_id, &mut normalization, events).await;
+                        return finish(provider, socket, config, task_id, normalization, events).await;
                     }
                 }
             }
             message = receive_event(socket) => {
                 let value = message?;
                 if provider == Provider::OpenAiLiveTranslate && provider.is_finished(&value) {
-                    if let Some(event) = provider.finish_translation(config, &mut normalization) {
+                    if let Some(event) = provider.finish_translation(config, normalization) {
                         let _ = events.send(event).await;
                     }
                     return Err("OpenAI closed the translation session".into());
                 }
-                if let Some(event) = provider.normalize_event(config, &value, &mut normalization)? {
+                if let Some(event) = provider.normalize_event(config, &value, normalization)? {
                     if events.send(event).await.is_err() {
                         return Ok(());
                     }
@@ -634,10 +688,9 @@ async fn finish(
             }
         }
     };
-    if provider != Provider::OpenAiLiveTranslate || outcome.is_ok() {
-        if let Some(event) = provider.finish_translation(config, state) {
-            let _ = events.send(event).await;
-        }
+    // Preserve buffered native text even when the close handshake times out.
+    if let Some(event) = provider.finish_translation(config, state) {
+        let _ = events.send(event).await;
     }
     let _ = socket.close(None).await;
     if provider == Provider::OpenAiLiveTranslate {
@@ -685,6 +738,97 @@ fn resample_16k_to_24k(samples: &[f32]) -> Vec<f32> {
 mod tests {
     use super::*;
 
+    #[tokio::test]
+    async fn alignment_worker_is_created_only_for_enabled_openai_translation() {
+        let mut config = AsrConfig::default();
+        for enabled in [false, true] {
+            config.live_alignment.enabled = enabled;
+            for provider in [
+                Provider::Qwen,
+                Provider::TokenPlan,
+                Provider::FunAsr,
+                Provider::OpenAi,
+                Provider::Gemini,
+                Provider::GeminiLiveTranslate,
+            ] {
+                assert!(alignment_worker(provider, &config).is_none());
+            }
+            assert_eq!(
+                alignment_worker(Provider::OpenAiLiveTranslate, &config).is_some(),
+                enabled
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn abrupt_gemini_disconnect_keeps_existing_unfinalized_tail_behavior() {
+        let (mut client, mut server) = socket_pair().await;
+        let (_audio_tx, mut audio_rx) = mpsc::channel(1);
+        let (_stop_tx, mut stop_rx) = watch::channel(false);
+        let (events, mut received) = mpsc::channel(8);
+        let task = tokio::spawn(async move {
+            let config = AsrConfig {
+                backend: crate::providers::SERVICE_GEMINI_LIVE_TRANSLATE.into(),
+                live_translation_target: Some("zh-Hans".into()),
+                ..Default::default()
+            };
+            run_session(
+                Provider::GeminiLiveTranslate,
+                &config,
+                &mut client,
+                None,
+                &mut audio_rx,
+                &events,
+                &mut stop_rx,
+            )
+            .await
+        });
+        server
+            .send(json_frame(
+                serde_json::json!({"serverContent": {
+                    "inputTranscription": {"text": "Original tail"},
+                    "outputTranscription": {"text": "译文尾部"}
+                }}),
+                false,
+            ))
+            .await
+            .unwrap();
+        // Wait for the delta before closing, so the test checks a buffered tail.
+        let first = tokio::time::timeout(Duration::from_secs(1), received.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        let CloudEvent::LiveTranslation {
+            service,
+            completed,
+            translations,
+            snapshot,
+        } = first
+        else {
+            panic!()
+        };
+        assert_eq!(service, crate::providers::SERVICE_GEMINI_LIVE_TRANSLATE);
+        assert_eq!(snapshot.text, "Original tail");
+        assert!(completed.is_empty() && translations.is_empty());
+        server.close(None).await.unwrap();
+        assert!(tokio::time::timeout(Duration::from_secs(2), task)
+            .await
+            .unwrap()
+            .unwrap()
+            .is_err());
+        while let Some(event) = received.recv().await {
+            let CloudEvent::LiveTranslation {
+                completed,
+                translations,
+                ..
+            } = event
+            else {
+                panic!()
+            };
+            assert!(completed.is_empty() && translations.is_empty());
+        }
+    }
+
     async fn socket_pair() -> (Socket, WebSocketStream<TcpStream>) {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let url = format!("ws://{}", listener.local_addr().unwrap());
@@ -712,7 +856,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn openai_translation_settles_without_target_punctuation_or_stop() {
+    async fn openai_translation_displays_without_target_punctuation_or_stop() {
         let (mut client, mut server) = socket_pair().await;
         let (_audio_tx, mut audio_rx) = mpsc::channel(1);
         let (events, mut received) = mpsc::channel(16);
@@ -742,33 +886,23 @@ mod tests {
                 }), true)).await.unwrap();
             }
             let mut originals = Vec::new();
-            let mut updates = Vec::new();
-            let mut partial = false;
-            while updates.is_empty() {
+            loop {
                 let CloudEvent::LiveTranslation {
+                    snapshot,
                     completed,
                     translations,
-                    snapshot,
+                    ..
                 } = received.recv().await.unwrap()
                 else {
                     panic!()
                 };
                 originals.extend(completed);
-                partial |= !snapshot.translation.is_empty()
-                    || translations.iter().any(|update| update.pending);
-                updates.extend(translations.into_iter().filter(|update| !update.pending));
+                assert!(translations.is_empty());
+                if snapshot.translation == "你好最近怎么样" {
+                    break;
+                }
             }
-            assert!(partial);
-            assert_eq!(originals.len(), 2);
-            assert_eq!(updates.len(), 1);
-            assert_eq!(updates[0].transcript.translation, "你好最近怎么样");
-            assert_eq!(
-                updates[0].source_utterance_ids,
-                originals
-                    .iter()
-                    .map(|source| source.transcript.utterance_id.clone())
-                    .collect::<Vec<_>>()
-            );
+            // Display does not depend on punctuation, source silence, a key or model completion.
             stop.send(true).unwrap();
             let close = server.next().await.unwrap().unwrap();
             assert!(close.to_text().unwrap().contains("session.close"));
@@ -780,6 +914,20 @@ mod tests {
                 .await
                 .unwrap();
             task.await.unwrap();
+            let mut updates = Vec::new();
+            while let Ok(CloudEvent::LiveTranslation {
+                completed,
+                translations,
+                ..
+            }) = received.try_recv()
+            {
+                originals.extend(completed);
+                updates.extend(translations.into_iter().filter(|update| !update.pending));
+            }
+            assert_eq!(originals.len(), 1);
+            assert_eq!(originals[0].transcript.text, "Hello. How are you?");
+            assert_eq!(updates.len(), 1);
+            assert_eq!(updates[0].transcript.translation, "你好最近怎么样");
         };
         tokio::time::timeout(Duration::from_secs(4), exchange)
             .await
@@ -878,17 +1026,12 @@ mod tests {
                     results.extend(completed);
                     updates.extend(translations.into_iter().filter(|update| !update.pending));
                 }
-                assert_eq!(results.len(), 2);
-                assert_eq!(results[0].transcript.text, "Hello.");
-                assert_eq!(results[1].transcript.text, "Tail");
-                assert_eq!(updates.len(), 2);
-                assert_eq!(updates[0].transcript.translation, "你好。");
-                assert_eq!(updates[1].transcript.translation, "尾句");
+                assert_eq!(results.len(), 1);
+                assert_eq!(results[0].transcript.text, "Hello. Tail");
+                assert_eq!(updates.len(), 1);
+                assert_eq!(updates[0].transcript.translation, "你好。尾句");
                 assert_eq!(
-                    updates
-                        .iter()
-                        .map(|update| update.transcript.utterance_id.clone())
-                        .collect::<Vec<_>>(),
+                    updates[0].source_utterance_ids,
                     results
                         .iter()
                         .map(|r| r.transcript.utterance_id.clone())
@@ -902,7 +1045,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn openai_translation_incomplete_drain_does_not_finalize_pending_text() {
+    async fn openai_translation_incomplete_drain_preserves_received_native_text() {
         for disconnect in [false, true] {
             let (mut client, mut server) = socket_pair().await;
             let config = translation_config();
@@ -942,12 +1085,23 @@ mod tests {
             if !disconnect {
                 assert!(result.unwrap_err().contains("Timed out"));
             }
+            let mut originals = Vec::new();
+            let mut updates = Vec::new();
             while let Ok(event) = received.try_recv() {
-                let CloudEvent::LiveTranslation { completed, .. } = event else {
+                let CloudEvent::LiveTranslation {
+                    completed,
+                    translations,
+                    ..
+                } = event
+                else {
                     panic!()
                 };
-                assert!(completed.is_empty());
+                originals.extend(completed);
+                updates.extend(translations);
             }
+            assert_eq!(originals.len(), 1);
+            assert_eq!(originals[0].transcript.text, "pending");
+            assert_eq!(updates[0].transcript.translation, "未完成");
             // A new session has no source text to pair with an old translation.
             let mut reconnected = NormalizationState::default();
             Provider::OpenAiLiveTranslate
@@ -969,6 +1123,50 @@ mod tests {
                 .finish_translation(&config, &mut reconnected)
                 .is_none());
         }
+    }
+
+    #[tokio::test]
+    async fn abrupt_translation_disconnect_preserves_buffered_source_and_target() {
+        let (mut client, mut server) = socket_pair().await;
+        let (_audio_tx, mut audio_rx) = mpsc::channel(1);
+        let (_stop_tx, mut stop_rx) = watch::channel(false);
+        let (events, mut received) = mpsc::channel(8);
+        let task = tokio::spawn(async move {
+            run_session(
+                Provider::OpenAiLiveTranslate,
+                &translation_config(),
+                &mut client,
+                None,
+                &mut audio_rx,
+                &events,
+                &mut stop_rx,
+            )
+            .await
+        });
+        for (kind, delta) in [("input", "Original tail"), ("output", "译文尾部")] {
+            server.send(json_frame(serde_json::json!({"type":format!("session.{kind}_transcript.delta"),"delta":delta}),false)).await.unwrap();
+        }
+        server.close(None).await.unwrap();
+        assert!(tokio::time::timeout(Duration::from_secs(2), task)
+            .await
+            .unwrap()
+            .unwrap()
+            .is_err());
+        let mut originals = Vec::new();
+        let mut updates = Vec::new();
+        while let Some(CloudEvent::LiveTranslation {
+            completed,
+            translations,
+            ..
+        }) = received.recv().await
+        {
+            originals.extend(completed);
+            updates.extend(translations);
+        }
+        assert_eq!(originals.len(), 1);
+        assert_eq!(originals[0].transcript.text, "Original tail");
+        assert_eq!(updates.len(), 1);
+        assert_eq!(updates[0].transcript.translation, "译文尾部");
     }
 
     #[tokio::test]

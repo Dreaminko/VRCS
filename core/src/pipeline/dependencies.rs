@@ -366,7 +366,10 @@ impl PipelineDependencies {
         let Some(items) = items else {
             return Ok(());
         };
-        let repair = {
+        // OpenAI native results come only from Realtime Translation; preserve its text.
+        let repair = if result.provider == crate::providers::OPENAI_PROVIDER {
+            None
+        } else {
             let config = self.config.read().expect("config lock");
             let language = self
                 .language_session
@@ -1076,6 +1079,73 @@ mod tests {
             .unwrap()
             .iter()
             .all(|subtitle| subtitle.translations.is_empty()));
+    }
+
+    #[tokio::test]
+    async fn native_group_preserves_translation_when_a_text_profile_is_available() {
+        let dependencies =
+            super::super::tests::test_dependencies(crate::domain_events::DomainEventHub::new());
+        let mut events = dependencies.output.subscribe_translations();
+        {
+            let mut config = dependencies.config.write().unwrap();
+            let mut target = TranslationTargetConfig::new("zh-Hans");
+            target.profile_id = Some("repair".into());
+            config.translation.mode = "automatic".into();
+            config.translation.microphone_targets = vec![target];
+            config.asr.api_profiles.push(ApiProfile {
+                id: "repair".into(),
+                provider: crate::providers::OLLAMA_PROVIDER.into(),
+                base_url: Some("http://127.0.0.1:9/v1".into()),
+                enabled_capabilities: vec![crate::providers::CAPABILITY_TEXT_TRANSLATION.into()],
+                auth_mode: ApiAuthMode::None,
+                is_local: true,
+                timeout_ms: 100,
+                ..ApiProfile::default()
+            });
+        }
+        for (id, text) in [("first", "First."), ("second", "Second.")] {
+            let mut result = native_result();
+            result.provider = crate::providers::OPENAI_PROVIDER.into();
+            result.pending = true;
+            result.source_utterance_ids = vec![id.into()];
+            result.transcript.utterance_id = id.into();
+            result.transcript.text = text.into();
+            result.transcript.translation.clear();
+            dependencies
+                .publish_native_translation("microphone", result)
+                .await
+                .unwrap();
+            events.try_recv().unwrap();
+        }
+
+        let mut result = native_result();
+        result.provider = crate::providers::OPENAI_PROVIDER.into();
+        result.source_utterance_ids = vec!["first".into(), "second".into()];
+        result.transcript.text = "First. Second.".into();
+        result.transcript.translation = "第一句和第二句。".into();
+        dependencies
+            .publish_native_translation_update("microphone", result)
+            .await
+            .unwrap();
+
+        for _ in 0..2 {
+            assert!(matches!(
+                events.try_recv().unwrap(),
+                crate::subtitle_output::TranslationEvent::TranslationCompleted { .. }
+            ));
+        }
+        assert!(events.try_recv().is_err());
+        assert!(dependencies.pending_native.lock().unwrap().is_empty());
+        assert!(dependencies
+            .database
+            .lock()
+            .unwrap()
+            .subtitle_history(10)
+            .unwrap()
+            .iter()
+            .all(
+                |row| row.translations.len() == 1 && row.translations[0].text == "第一句和第二句。"
+            ));
     }
 
     #[tokio::test]

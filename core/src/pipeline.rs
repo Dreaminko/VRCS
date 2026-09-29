@@ -506,11 +506,14 @@ fn reduce_cloud_event(
 ) -> Vec<PipelineEffect> {
     match event {
         CloudEvent::LiveTranslation {
+            service,
             snapshot,
             completed,
             translations,
         } => {
             let mut effects = Vec::new();
+            let immediate = service == crate::providers::SERVICE_OPENAI_REALTIME_TRANSLATE
+                && translations.is_empty();
             for result in completed {
                 if state
                     .lifecycle
@@ -535,7 +538,12 @@ fn reduce_cloud_event(
             {
                 return effects;
             }
-            effects.push(PipelineEffect::PublishLiveTranslation(snapshot));
+            if immediate {
+                // A delta must reach the display before any original-row database work.
+                effects.insert(0, PipelineEffect::PublishLiveTranslation(snapshot));
+            } else {
+                effects.push(PipelineEffect::PublishLiveTranslation(snapshot));
+            }
             effects
         }
         CloudEvent::Partial {
@@ -1261,6 +1269,61 @@ mod tests {
     }
 
     #[test]
+    fn live_delta_publication_order_changes_only_for_openai_translation() {
+        for (service, provider) in [
+            (
+                crate::providers::SERVICE_OPENAI_REALTIME_TRANSLATE,
+                "openai",
+            ),
+            (crate::providers::SERVICE_GEMINI_LIVE_TRANSLATE, "gemini"),
+        ] {
+            let mut state = PipelineState::new(16_000);
+            let snapshot = crate::models::LiveTranslation {
+                utterance_id: "preview".into(),
+                text: String::new(),
+                language: None,
+                translation: "立即显示".into(),
+                target_language: "zh-Hans".into(),
+            };
+            let mut source = snapshot.clone();
+            source.utterance_id = "source".into();
+            source.text = "Original.".into();
+            source.translation.clear();
+            let event = PipelineEvent::Cloud {
+                event: CloudEvent::LiveTranslation {
+                    service: service.into(),
+                    snapshot,
+                    completed: vec![crate::asr::LiveTranslationResult {
+                        pending: true,
+                        source_utterance_ids: vec!["source".into()],
+                        provider: provider.into(),
+                        transcript: source,
+                        model: "gpt-realtime-translate".into(),
+                    }],
+                    translations: vec![],
+                },
+                partial_publication: PartialPublication::Throttled(Instant::now()),
+                stop_cloud_on_failure: false,
+            };
+            let effects = reduce_pipeline_event(&mut state, event, &AsrEchoGuard::default());
+            if service == crate::providers::SERVICE_OPENAI_REALTIME_TRANSLATE {
+                assert!(
+                    matches!(effects.as_slice(),[PipelineEffect::PublishLiveTranslation(s), PipelineEffect::PublishNativeTranslation(_)]
+            if s.translation == "立即显示" && s.text.is_empty())
+                );
+            } else {
+                assert!(matches!(
+                    effects.as_slice(),
+                    [
+                        PipelineEffect::PublishNativeTranslation(_),
+                        PipelineEffect::PublishLiveTranslation(_)
+                    ]
+                ));
+            }
+        }
+    }
+
+    #[test]
     fn cloud_reducer_filters_and_throttles_partials() {
         let start = Instant::now();
         let guard = AsrEchoGuard::new(vec!["World: Example".into()], Some("Example".into()));
@@ -1372,9 +1435,9 @@ mod tests {
     }
 
     pub(super) fn test_dependencies(events: DomainEventHub) -> PipelineDependencies {
-        let directory = tempfile::tempdir().unwrap();
+        // The old TempDir was dropped on return, removing the database beneath async jobs.
         let db = Arc::new(Mutex::new(
-            Database::open(&directory.path().join("test.db")).unwrap(),
+            Database::open(std::path::Path::new(":memory:")).unwrap(),
         ));
         let asr = Arc::new(Mutex::new(AsrService::with_engine(
             AsrConfig::default(),

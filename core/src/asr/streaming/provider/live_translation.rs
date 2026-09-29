@@ -8,7 +8,7 @@ use crate::models::LiveTranslation;
 use crate::providers::SERVICE_GEMINI_LIVE_TRANSLATE;
 
 mod timed;
-pub(super) use timed::append_timed;
+pub(in crate::asr::streaming) use timed::{append_delta, apply, window};
 
 pub(super) const MAX_DISPLAY_CHARS: usize = 160;
 
@@ -259,6 +259,7 @@ impl State {
         self.snapshot = Some(snapshot.clone());
         (!completed.is_empty() || !translations.is_empty() || changed).then_some(
             CloudEvent::LiveTranslation {
+                service: config.backend.clone(),
                 snapshot,
                 completed,
                 translations,

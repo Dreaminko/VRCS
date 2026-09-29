@@ -96,6 +96,7 @@ pub fn select_session(
                         speaker_targets: preset.speaker_targets.clone(),
                         microphone_targets: preset.microphone_targets.clone(),
                         prompt: global.translation.prompt.clone(),
+                        live_alignment: global.translation.live_alignment.clone(),
                     },
                     osc_translation_strategy: preset.osc_translation_strategy.clone(),
                 },
@@ -109,6 +110,7 @@ pub fn select_session(
                     speaker_targets: override_config.speaker_targets,
                     microphone_targets: override_config.microphone_targets,
                     prompt: global.translation.prompt.clone(),
+                    live_alignment: global.translation.live_alignment.clone(),
                 },
                 osc_translation_strategy: override_config.osc_translation_strategy,
             };

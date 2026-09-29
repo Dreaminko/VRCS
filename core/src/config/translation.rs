@@ -17,6 +17,8 @@ pub struct TranslationConfig {
     pub microphone_targets: Vec<TranslationTargetConfig>,
     #[serde(default)]
     pub prompt: TranslationPromptConfig,
+    #[serde(default)]
+    pub live_alignment: LiveAlignmentConfig,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -89,6 +91,7 @@ impl Default for TranslationConfig {
             speaker_targets: default_speaker_targets(),
             microphone_targets: default_microphone_targets(),
             prompt: TranslationPromptConfig::default(),
+            live_alignment: LiveAlignmentConfig::default(),
         }
     }
 }
@@ -116,5 +119,40 @@ impl Default for TranslationPromptConfig {
             max_chars: default_translation_context_chars(),
             glossary: Vec::new(),
         }
+    }
+}
+
+/// Background semantic alignment never rewrites the native translation.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct LiveAlignmentConfig {
+    pub enabled: bool,
+    /// None reuses the recognition profile's OpenAI credential.
+    pub profile_id: Option<String>,
+    pub model: String,
+    pub thinking_enabled: bool,
+}
+
+impl Default for LiveAlignmentConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            profile_id: None,
+            model: "gpt-6-luna".into(),
+            thinking_enabled: false,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn existing_translation_settings_gain_safe_alignment_defaults() {
+        let config: TranslationConfig = serde_json::from_str(r#"{"mode":"automatic"}"#).unwrap();
+        assert_eq!(config.live_alignment, LiveAlignmentConfig::default());
+        let round_trip: TranslationConfig =
+            serde_json::from_str(&serde_json::to_string(&config).unwrap()).unwrap();
+        assert_eq!(round_trip, config);
     }
 }

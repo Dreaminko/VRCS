@@ -701,6 +701,13 @@
         "clearComplete": "Subtitle history was cleared and database space was reclaimed."
       },
       "translation": {
+        "alignment": {
+          "enabled": "Background text alignment",
+          "description": "A lightweight model segments and aligns source and translated text in the background, adding a small amount of API usage. (Only applies to OpenAI Realtime Translation models.)",
+          "profile": "Alignment API profile",
+          "recognitionProfile": "Use recognition profile",
+          "model": "Alignment model"
+        },
         "liveTranslateHint": "Each audio source uses Live Translate for its first target. Requires automatic translation. Text prompts, glossary and thinking settings do not apply. Translated audio is generated and billed even though it is not played.",
         "liveTranslatePreview": "Source and translation are saved together after both text streams briefly stop updating. History, extra targets and OSC are supported. Different sentence counts are not paired one by one; service delays can still affect grouping.",
         "title": "Subtitle translation",

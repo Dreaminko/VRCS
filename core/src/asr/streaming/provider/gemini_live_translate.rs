@@ -191,6 +191,7 @@ mod tests {
             completed,
             snapshot,
             translations,
+            ..
         } = finish(&config(), &mut state).unwrap()
         else {
             panic!()

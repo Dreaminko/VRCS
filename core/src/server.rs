@@ -289,6 +289,10 @@ pub fn router(state: Arc<AppState>) -> Router {
             get(cloud::profile_models),
         )
         .route(
+            "/api/asr/profiles/{profile_id}/alignment-models",
+            get(cloud::alignment_models),
+        )
+        .route(
             "/api/asr/profiles/{profile_id}/services/{service_id}/models",
             get(cloud::profile_service_models),
         )
