@@ -42,7 +42,11 @@ export function selectRecognitionProfile(
   const profile = recognitionProfiles(profiles).find((item) => item.id === source);
   const services = recognitionServicesForProfile(profile, definitions);
   if (!profile || services.length === 0) return asr;
-  const service = services.find((item) => item.id === asr.backend) ?? services[0];
+  const service = services.find((item) => item.id === asr.backend)
+    ?? (liveTranslationServiceName(asr.backend)
+      ? services.find((item) => liveTranslationServiceName(item.id))
+      : undefined)
+    ?? services[0];
   return selectRecognitionService(
     { ...asr, active_profile_id: profile.id },
     service,
