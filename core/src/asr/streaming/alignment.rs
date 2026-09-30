@@ -29,6 +29,7 @@ pub(super) struct Unit {
 pub(super) struct Window {
     pub session_id: String,
     pub revision: u64,
+    pub sequence: u64,
     pub sources: Vec<Unit>,
     pub targets: Vec<Unit>,
     pub source_truncated: bool,
@@ -97,6 +98,7 @@ pub(super) struct Worker {
     next_attempt: Instant,
     previous: Option<Window>,
     failures: u32,
+    pending_since: Option<Instant>,
 }
 
 impl Worker {
@@ -142,19 +144,47 @@ impl Worker {
             next_attempt: Instant::now(),
             previous: None,
             failures: 0,
+            pending_since: None,
+        }
+    }
+
+    pub fn is_running(&self) -> bool {
+        self.job.is_some()
+    }
+
+    pub fn cancel_running(&mut self) {
+        if let Some(job) = self.job.take() {
+            job.abort();
         }
     }
 
     pub fn try_start(&mut self, window: impl FnOnce() -> Option<Window>) {
-        if self.job.is_some() || self.key.is_none() || Instant::now() < self.next_attempt {
+        self.start(window, false);
+    }
+
+    pub fn start_final(&mut self, window: impl FnOnce() -> Option<Window>) {
+        self.start(window, true);
+    }
+
+    fn start(&mut self, window: impl FnOnce() -> Option<Window>, final_pass: bool) {
+        if self.job.is_some()
+            || self.key.is_none()
+            || (!final_pass && Instant::now() < self.next_attempt)
+        {
             return;
         }
         let Some(window) = window() else {
             return;
         };
-        if self.previous.as_ref() == Some(&window) {
+        if !final_pass && self.previous.as_ref() == Some(&window) {
+            self.pending_since = None;
             return;
         }
+        let since = *self.pending_since.get_or_insert_with(Instant::now);
+        if !final_pass && !ready(&window, self.previous.as_ref(), since.elapsed()) {
+            return;
+        }
+        self.pending_since = None;
         self.previous = Some(window.clone());
         let client = self.client.clone();
         let profile = self.profile.clone();
@@ -258,6 +288,36 @@ impl Drop for Worker {
     }
 }
 
+// These thresholds schedule requests only; the model still chooses every text boundary.
+fn ready(window: &Window, previous: Option<&Window>, waiting: Duration) -> bool {
+    let lengths = |w: &Window| {
+        (
+            w.sources
+                .iter()
+                .map(|u| u.text.chars().count())
+                .sum::<usize>(),
+            w.targets
+                .iter()
+                .map(|u| u.text.chars().count())
+                .sum::<usize>(),
+        )
+    };
+    let (source, target) = lengths(window);
+    if waiting >= Duration::from_secs(3) {
+        return true;
+    }
+    let Some(previous) =
+        previous.filter(|p| p.session_id == window.session_id && p.revision == window.revision)
+    else {
+        return source >= 12 && target >= 8;
+    };
+    let (old_source, old_target) = lengths(previous);
+    let source_added = source.saturating_sub(old_source);
+    let target_added = target.saturating_sub(old_target);
+    (source_added > 0 && target_added > 0 && source_added + target_added >= 24)
+        || source_added + target_added >= 120
+}
+
 fn schema(window: &Window) -> serde_json::Value {
     let boundary = |units: &[Unit]| {
         json!({"type":"object", "additionalProperties":false,
@@ -289,6 +349,7 @@ mod tests {
         Window {
             session_id: "session".into(),
             revision: 0,
+            sequence: 0,
             sources: vec![Unit {
                 id: format!("source-{id}"),
                 text: "Hello.".into(),
@@ -303,6 +364,25 @@ mod tests {
             target_truncated: false,
             context: vec![],
         }
+    }
+
+    #[test]
+    fn scheduling_coalesces_small_or_one_sided_deltas_but_bounds_waiting() {
+        let previous = window("1");
+        assert!(!ready(&previous, None, Duration::ZERO));
+        assert!(ready(&previous, None, Duration::from_secs(3)));
+        let mut next = previous.clone();
+        next.targets[0].text.push_str("少し");
+        assert!(!ready(&next, Some(&previous), Duration::from_secs(1)));
+        next.sources[0]
+            .text
+            .push_str(" This is a complete new clause.");
+        next.targets[0].text.push_str("新しい文章です。");
+        assert!(ready(&next, Some(&previous), Duration::ZERO));
+        let mut delayed = previous.clone();
+        delayed.targets[0].text.push_str("tiny delta");
+        assert!(!ready(&delayed, Some(&previous), Duration::from_secs(2)));
+        assert!(ready(&delayed, Some(&previous), Duration::from_secs(3)));
     }
 
     #[tokio::test(start_paused = true)]
@@ -355,14 +435,14 @@ mod tests {
         config.live_alignment.profile_id = Some("local-alignment".into());
         config.live_alignment.model = "user-chosen-model".into();
         let mut worker = Worker::new(&config);
-        worker.try_start(|| Some(window("valid")));
+        worker.start_final(|| Some(window("valid")));
         let (_, mapping) = tokio::time::timeout(Duration::from_secs(2), worker.recv())
             .await
             .unwrap()
             .unwrap();
         assert!(mapping.unwrap().groups.is_empty());
         worker.next_attempt = Instant::now();
-        worker.try_start(|| Some(window("invalid")));
+        worker.start_final(|| Some(window("invalid")));
         let (_, mapping) = tokio::time::timeout(Duration::from_secs(2), worker.recv())
             .await
             .unwrap()
@@ -445,7 +525,7 @@ mod tests {
                 };
                 assert!(completed.is_empty() && translations.is_empty());
             }
-            worker.try_start(|| state.alignment_window());
+            worker.start_final(|| state.alignment_window());
             received.recv().await.unwrap();
             for n in 2..=10 {
                 worker.try_start(|| panic!("an active job must not rebuild the window: {n}"));
@@ -478,7 +558,7 @@ mod tests {
             assert_eq!(snapshot.translation, "下一句。");
             assert!(worker.job.is_none());
             worker.next_attempt = Instant::now();
-            worker.try_start(|| Some(window("10")));
+            worker.start_final(|| Some(window("10")));
             let (w, result) = worker.recv().await.unwrap();
             assert!(result.is_ok());
             assert_eq!(w.sources[0].id, "source-10");

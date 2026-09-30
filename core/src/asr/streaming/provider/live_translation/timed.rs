@@ -12,6 +12,8 @@ pub(super) struct Timing {
     input_frames: VecDeque<(usize, usize, Frame)>,
     output_frames: VecDeque<(usize, usize, Frame)>,
     context: VecDeque<(String, String)>,
+    candidates: Vec<(usize, usize)>,
+    candidate_sequence: u64,
 }
 
 #[cfg(test)]
@@ -171,6 +173,7 @@ impl Timing {
             if !same_language {
                 translations.push(result(config, source, false));
             }
+            self.candidates.clear();
             self.revision += 1;
             tracing::warn!(
                 flush,
@@ -218,6 +221,7 @@ impl Timing {
         Some(Window {
             session_id: self.session_id.clone(),
             revision: self.revision,
+            sequence: self.sequence,
             sources,
             targets,
             source_truncated,
@@ -240,7 +244,22 @@ pub(in crate::asr::streaming) fn window(state: &State) -> Option<Window> {
     state.timing.as_ref()?.window(state)
 }
 
-pub(in crate::asr::streaming) fn apply(
+fn contains_number(text: &str) -> bool {
+    let mut ideographic_digits = 0;
+    text.chars().any(|c| {
+        ideographic_digits = if "零〇一二两兩三四五六七八九十百千万萬亿億兆".contains(c)
+        {
+            ideographic_digits + 1
+        } else {
+            0
+        };
+        c.is_numeric() || ideographic_digits >= 2
+    })
+}
+
+// Risky boundaries need agreement on a later snapshot with additional native text.
+// Preview is unaffected. At shutdown the final model pass can commit complete groups.
+pub(in crate::asr::streaming) fn confirm(
     config: &AsrConfig,
     state: &mut State,
     window: &Window,
@@ -250,11 +269,73 @@ pub(in crate::asr::streaming) fn apply(
     if timing.session_id != window.session_id || timing.revision != window.revision {
         return None;
     }
-    let source_text: String = window.sources.iter().map(|u| u.text.as_str()).collect();
-    let target_text: String = window.targets.iter().map(|u| u.text.as_str()).collect();
-    if !state.input.starts_with(&source_text) || !state.output.starts_with(&target_text) {
+    let source: String = window.sources.iter().map(|u| u.text.as_str()).collect();
+    let target: String = window.targets.iter().map(|u| u.text.as_str()).collect();
+    if !state.input.starts_with(&source) || !state.output.starts_with(&target) {
         return None;
     }
+    let sequence = window.sequence;
+    let mut candidate = Vec::new();
+    let mut accepted = Vec::new();
+    let (mut a, mut b) = (0, 0);
+    let mut deferred = false;
+    for group in &mapping.groups {
+        let end_a = boundary_end(&window.sources, &source, &group.source_end)?;
+        let end_b = boundary_end(&window.targets, &target, &group.target_end)?;
+        if end_a <= a || end_b <= b {
+            return None;
+        }
+        if !group.fully_translated {
+            break;
+        }
+        let pair = (timing.input_offset + end_a, timing.output_offset + end_b);
+        candidate.push(pair);
+        let text_a = &source[a..end_a];
+        let text_b = &target[b..end_b];
+        // Missing terminal punctuation triggers extra verification, never a local cut.
+        let closed = |text: &str| {
+            text.chars()
+                .rev()
+                .find(|c| !c.is_whitespace() && !closing(*c))
+                .is_some_and(terminal)
+        };
+        let risky = (end_a == source.len() && !closed(text_a))
+            || (end_b == target.len() && !closed(text_b))
+            || text_a.chars().count() > 240
+            || text_b.chars().count() > 240
+            || (contains_number(text_a) || contains_number(text_b))
+            || (text_a.chars().count() >= 8
+                && (source[..a].contains(text_a.trim())
+                    || source[end_a..].contains(text_a.trim())))
+            || (text_b.chars().count() >= 8
+                && (target[..b].contains(text_b.trim())
+                    || target[end_b..].contains(text_b.trim())));
+        let confirmed = sequence > timing.candidate_sequence && timing.candidates.contains(&pair);
+        deferred |= risky && !confirmed;
+        if !deferred {
+            accepted.push(group.clone());
+        }
+        a = end_a;
+        b = end_b;
+    }
+    validated_cuts(window, mapping, &source, &target)?;
+    let timing = state.timing.as_mut()?;
+    timing.candidates = candidate;
+    timing.candidate_sequence = sequence;
+    if accepted.is_empty() {
+        return None;
+    }
+    apply(config, state, window, &Mapping { groups: accepted })
+}
+
+type Cut = (usize, usize, usize, usize);
+
+fn validated_cuts(
+    window: &Window,
+    mapping: &Mapping,
+    source_text: &str,
+    target_text: &str,
+) -> Option<Vec<Cut>> {
     let mut cuts = Vec::new();
     let (mut source_start, mut target_start) = (0, 0);
     // Validate all boundaries before mutating any pending text.
@@ -275,6 +356,25 @@ pub(in crate::asr::streaming) fn apply(
         source_start = source_end;
         target_start = target_end;
     }
+    Some(cuts)
+}
+
+pub(in crate::asr::streaming) fn apply(
+    config: &AsrConfig,
+    state: &mut State,
+    window: &Window,
+    mapping: &Mapping,
+) -> Option<CloudEvent> {
+    let timing = state.timing.as_ref()?;
+    if timing.session_id != window.session_id || timing.revision != window.revision {
+        return None;
+    }
+    let source_text: String = window.sources.iter().map(|u| u.text.as_str()).collect();
+    let target_text: String = window.targets.iter().map(|u| u.text.as_str()).collect();
+    if !state.input.starts_with(&source_text) || !state.output.starts_with(&target_text) {
+        return None;
+    }
+    let cuts = validated_cuts(window, mapping, &source_text, &target_text)?;
     let &(_, source_end, _, target_end) = cuts.last()?;
     let mut snapshot = state.snapshot.clone()?;
     let mut timing = state.timing.take()?;
@@ -475,6 +575,75 @@ mod tests {
         );
         assert_eq!(translations[1].transcript.text, " Second. Third.");
         assert_eq!(translations[1].transcript.translation, "第二和第三。");
+    }
+
+    #[test]
+    fn numeric_statistics_include_ideographic_numbers_without_treating_every_first_clause_as_numeric(
+    ) {
+        assert!(contains_number("二百八十八家社区"));
+        assert!(contains_number("二千七百九十四个项目"));
+        assert!(contains_number("12,257 students"));
+        assert!(!contains_number("这是第一句。"));
+    }
+
+    #[test]
+    fn risky_numeric_boundary_needs_agreement_after_new_text() {
+        let mut state = state_with("In 2020. Next.", "2020年。次。");
+        let w = window(&state).unwrap();
+        let mapping = Mapping {
+            groups: vec![group(&w, "In 2020.", "2020年。", true)],
+        };
+        assert!(confirm(&config(), &mut state, &w, &mapping).is_none());
+        assert!(confirm(&config(), &mut state, &w, &mapping).is_none());
+        assert_eq!(state.output, "2020年。次。");
+        append_timed(&config(), &mut state, " More.", "続き。").unwrap();
+        let next = window(&state).unwrap();
+        let Some(CloudEvent::LiveTranslation { translations, .. }) =
+            confirm(&config(), &mut state, &next, &mapping)
+        else {
+            panic!()
+        };
+        assert_eq!(translations[0].transcript.text, "In 2020.");
+        assert_eq!(translations[0].transcript.translation, "2020年。");
+        assert_eq!(state.output, "次。続き。");
+    }
+
+    #[test]
+    fn changed_candidate_is_deferred_and_final_pass_keeps_provider_text_exact() {
+        let mut state = state_with("There are 288 teams and 3487 tasks.", "288組、3487件。");
+        let w = window(&state).unwrap();
+        let partial = Mapping {
+            groups: vec![group(&w, "288 teams", "288組", true)],
+        };
+        assert!(confirm(&config(), &mut state, &w, &partial).is_none());
+        append_timed(&config(), &mut state, " Next.", " 次。").unwrap();
+        let next = window(&state).unwrap();
+        let complete = Mapping {
+            groups: vec![group(&next, "3487 tasks.", "3487件。", true)],
+        };
+        assert!(confirm(&config(), &mut state, &next, &complete).is_none());
+        assert_eq!(state.input, "There are 288 teams and 3487 tasks. Next.");
+        let Some(CloudEvent::LiveTranslation { translations, .. }) =
+            apply(&config(), &mut state, &next, &complete)
+        else {
+            panic!()
+        };
+        assert_eq!(translations[0].transcript.translation, "288組、3487件。");
+    }
+
+    #[test]
+    fn complete_short_model_boundary_commits_without_waiting_for_another_utterance() {
+        let mut state = state_with("Hello.", "こんにちは。");
+        let w = window(&state).unwrap();
+        assert!(confirm(
+            &config(),
+            &mut state,
+            &w,
+            &Mapping {
+                groups: vec![group(&w, "Hello.", "こんにちは。", true)]
+            }
+        )
+        .is_some());
     }
 
     #[test]

@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::{collections::VecDeque, time::Duration};
 
 use futures_util::{SinkExt, StreamExt};
 use serde_json::Value;
@@ -21,6 +21,7 @@ use crate::providers::{
 use super::{read_credential, SharedAudio};
 
 mod alignment;
+mod idle;
 mod provider;
 
 pub use provider::SegmentationMode;
@@ -70,6 +71,7 @@ pub enum CloudEvent {
 
 enum StreamingInput {
     Audio(SharedAudio),
+    AudioActivity(SharedAudio, bool),
     Commit(oneshot::Sender<Result<(), String>>),
 }
 
@@ -85,6 +87,20 @@ impl StreamingSession {
     pub async fn send(&self, samples: SharedAudio) -> Result<(), String> {
         self.audio
             .send(StreamingInput::Audio(samples))
+            .await
+            .map_err(|_| "Cloud recognition session is closed".to_string())
+    }
+
+    pub async fn send_with_activity(
+        &self,
+        samples: SharedAudio,
+        speech: bool,
+    ) -> Result<(), String> {
+        if self.segmentation_mode != SegmentationMode::Continuous {
+            return self.send(samples).await;
+        }
+        self.audio
+            .send(StreamingInput::AudioActivity(samples, speech))
             .await
             .map_err(|_| "Cloud recognition session is closed".to_string())
     }
@@ -283,8 +299,9 @@ async fn run_with_reconnect(
     mut stop: watch::Receiver<bool>,
 ) {
     let mut backoff = Duration::from_millis(500);
+    let mut replay = VecDeque::new();
     loop {
-        let outcome = run_session(
+        let outcome = run_session_buffered(
             provider,
             &config,
             &mut socket,
@@ -292,8 +309,79 @@ async fn run_with_reconnect(
             &mut audio,
             &events,
             &mut stop,
+            &mut replay,
         )
         .await;
+        let outcome = match outcome {
+            Ok(SessionEnd::Idle(mut resume)) => {
+                while !resume.ready && !*stop.borrow() && !resume.closed {
+                    tokio::select! {
+                        _ = stop.changed() => {}
+                        input = audio.recv() => match input { Some(input) => resume.push(input), None => { resume.closed = true; break; } },
+                    }
+                }
+                if !resume.ready {
+                    break;
+                }
+                // Planned resumption is independent of the network failure policy.
+                let mut resume_backoff = Duration::from_millis(500);
+                let connection = loop {
+                    let connection = idle::collect_until(
+                        connect_initialized(provider, &config, &profile, silence_seconds, &key),
+                        &mut audio,
+                        &mut resume,
+                    )
+                    .await;
+                    match connection {
+                        Ok(connection) => break Ok(connection),
+                        Err(error) => {
+                            if config.cloud_failure_policy != "reconnect"
+                                || *stop.borrow()
+                                || !resume.has_capacity()
+                            {
+                                break Err(error);
+                            }
+                            let _ = events
+                                .send(CloudEvent::Failed {
+                                    utterance_id: None,
+                                    reset_session: true,
+                                    code: "asr.cloud_reconnect_failed".into(),
+                                    detail: error,
+                                })
+                                .await;
+                            idle::collect_until(
+                                tokio::time::sleep(resume_backoff),
+                                &mut audio,
+                                &mut resume,
+                            )
+                            .await;
+                            resume_backoff = (resume_backoff * 2).min(Duration::from_secs(8));
+                        }
+                    }
+                };
+                match connection {
+                    Ok((next_socket, next_task_id)) => {
+                        socket = next_socket;
+                        task_id = next_task_id;
+                        replay.extend(resume.take());
+                        tracing::info!("Live translation resumed with buffered speech onset");
+                        continue;
+                    }
+                    Err(error) => {
+                        let _ = events
+                            .send(CloudEvent::Failed {
+                                utterance_id: None,
+                                reset_session: true,
+                                code: "asr.cloud_reconnect_failed".into(),
+                                detail: error,
+                            })
+                            .await;
+                        break;
+                    }
+                }
+            }
+            other => other,
+        };
         if *stop.borrow() || audio.is_closed() {
             if let Err(detail) = outcome {
                 let _ = events
@@ -308,7 +396,7 @@ async fn run_with_reconnect(
             break;
         }
         let detail = match outcome {
-            Ok(()) => "Cloud recognition connection was closed".to_string(),
+            Ok(_) => "Cloud recognition connection was closed".to_string(),
             Err(error) => error,
         };
         let _ = events
@@ -354,6 +442,12 @@ async fn run_with_reconnect(
     }
 }
 
+enum SessionEnd {
+    Closed,
+    Idle(idle::ResumeBuffer),
+}
+
+#[cfg(test)]
 async fn run_session(
     provider: Provider,
     config: &AsrConfig,
@@ -362,7 +456,31 @@ async fn run_session(
     audio: &mut mpsc::Receiver<StreamingInput>,
     events: &mpsc::Sender<CloudEvent>,
     stop: &mut watch::Receiver<bool>,
-) -> Result<(), String> {
+) -> Result<SessionEnd, String> {
+    run_session_buffered(
+        provider,
+        config,
+        socket,
+        task_id,
+        audio,
+        events,
+        stop,
+        &mut VecDeque::new(),
+    )
+    .await
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn run_session_buffered(
+    provider: Provider,
+    config: &AsrConfig,
+    socket: &mut Socket,
+    task_id: Option<&str>,
+    audio: &mut mpsc::Receiver<StreamingInput>,
+    events: &mpsc::Sender<CloudEvent>,
+    stop: &mut watch::Receiver<bool>,
+    replay: &mut VecDeque<StreamingInput>,
+) -> Result<SessionEnd, String> {
     let mut normalization = NormalizationState::default();
     let outcome = run_session_inner(
         provider,
@@ -373,6 +491,7 @@ async fn run_session(
         events,
         stop,
         &mut normalization,
+        replay,
     )
     .await;
     if matches!(
@@ -404,10 +523,12 @@ async fn run_session_inner(
     events: &mpsc::Sender<CloudEvent>,
     stop: &mut watch::Receiver<bool>,
     normalization: &mut NormalizationState,
-) -> Result<(), String> {
+    replay: &mut VecDeque<StreamingInput>,
+) -> Result<SessionEnd, String> {
     let mut aligner = alignment_worker(provider, config);
     let mut audio_buffer = Vec::with_capacity(2048);
     let mut pending_audio = false;
+    let mut activity = idle::Activity::default();
     let mut translation_tick = tokio::time::interval(Duration::from_millis(100));
     loop {
         tokio::select! {
@@ -418,27 +539,25 @@ async fn run_session_inner(
                 }
             } => {
                 if let Some((window, Ok(mapping))) = aligned {
-                    if let Some(event) = normalization.apply_alignment(config, &window, &mapping) {
-                        if events.send(event).await.is_err() { return Ok(()); }
-                    } else if mapping.groups.iter().any(|group| group.fully_translated) {
-                        tracing::warn!(revision=window.revision, "Ignored invalid or expired live alignment result");
+                    if let Some(event) = normalization.confirm_alignment(config, &window, &mapping) {
+                        if events.send(event).await.is_err() { return Ok(SessionEnd::Closed); }
                     }
                 }
             }
             _ = translation_tick.tick(), if provider.segmentation_mode() == SegmentationMode::Continuous => {
                 if let Some(event) = provider.poll_translation(config, normalization) {
-                    if events.send(event).await.is_err() { return Ok(()); }
+                    if events.send(event).await.is_err() { return Ok(SessionEnd::Closed); }
                 }
                 if let Some(aligner) = aligner.as_mut() {
                     aligner.try_start(|| normalization.alignment_window());
                 }
             }
-            _ = stop.changed() => {
+            _ = async { if provider.segmentation_mode() != SegmentationMode::Continuous || !*stop.borrow() { let _ = stop.changed().await; } } => {
                 if matches!(provider, Provider::OpenAiLiveTranslate | Provider::GeminiLiveTranslate) {
                     audio.close();
-                    while let Some(input) = audio.recv().await {
+                    while let Some(input) = match replay.pop_front() { Some(input) => Some(input), None => audio.recv().await } {
                         match input {
-                            StreamingInput::Audio(samples) => {
+                            StreamingInput::Audio(samples) | StreamingInput::AudioActivity(samples, _) => {
                                 pending_audio = true;
                                 audio_buffer.extend_from_slice(&samples);
                                 while let Some(packet) = take_audio_packet(&mut audio_buffer, provider.audio_packet_samples()) {
@@ -453,15 +572,37 @@ async fn run_session_inner(
                 if pending_audio {
                     let _ = commit_utterance(provider, socket).await;
                 }
-                return finish(provider, socket, config, task_id, normalization, events, pending_audio).await;
+                return finish_aligned(provider, socket, config, task_id, normalization, events, pending_audio, aligner.as_mut()).await.map(|()| SessionEnd::Closed);
             }
-            input = audio.recv() => {
+            input = async { if replay.is_empty() { audio.recv().await } else { None } } => {
+                let input = if replay.is_empty() { input } else { replay.pop_front() };
                 match input {
-                    Some(StreamingInput::Audio(samples)) => {
+                    Some(input @ (StreamingInput::Audio(_) | StreamingInput::AudioActivity(_, _))) => {
+                        let (samples, speech) = match input {
+                            StreamingInput::Audio(samples) => (samples, true),
+                            StreamingInput::AudioActivity(samples, speech) => (samples, speech),
+                            _ => unreachable!(),
+                        };
+                        let idle = provider.segmentation_mode() == SegmentationMode::Continuous && activity.push(samples.len(), speech);
                         pending_audio = true;
                         audio_buffer.extend_from_slice(samples.as_slice());
                         while let Some(packet) = take_audio_packet(&mut audio_buffer, provider.audio_packet_samples()) {
                             send_audio(provider, socket, packet).await?;
+                        }
+                        if idle {
+                            flush_audio_buffer(provider, socket, &mut audio_buffer).await?;
+                            let mut resume = idle::ResumeBuffer::default();
+                            let closing = finish_aligned(provider, socket, config, task_id, normalization, events, pending_audio, aligner.as_mut());
+                            if let Err(error) = idle::collect_until(closing, audio, &mut resume).await {
+                                // A failed close must not discard speech captured for the next session.
+                                if let Some(event) = provider.finish_translation(config, normalization) {
+                                    let _ = events.send(event).await;
+                                }
+                                let _ = socket.close(None).await;
+                                tracing::warn!(%error, "Idle translation close incomplete; retained received text and resume audio");
+                            }
+                            tracing::info!("Live translation suspended after 30 seconds without speech");
+                            return Ok(SessionEnd::Idle(resume));
                         }
                     }
                     Some(StreamingInput::Commit(result)) => {
@@ -486,7 +627,7 @@ async fn run_session_inner(
                         if pending_audio {
                             let _ = commit_utterance(provider, socket).await;
                         }
-                        return finish(provider, socket, config, task_id, normalization, events, pending_audio).await;
+                        return finish_aligned(provider, socket, config, task_id, normalization, events, pending_audio, aligner.as_mut()).await.map(|()| SessionEnd::Closed);
                     }
                 }
             }
@@ -498,9 +639,14 @@ async fn run_session_inner(
                     }
                     return Err("OpenAI closed the translation session".into());
                 }
+                let source_len = normalization.live_source_len();
                 if let Some(event) = provider.normalize_event(config, &value, normalization)? {
+                    // Actual source transcript growth protects quiet speech missed by local VAD.
+                    if provider.segmentation_mode() == SegmentationMode::Continuous && normalization.live_source_len() > source_len {
+                        activity.push(0, true);
+                    }
                     if events.send(event).await.is_err() {
-                        return Ok(());
+                        return Ok(SessionEnd::Closed);
                     }
                 }
             }
@@ -657,6 +803,23 @@ async fn finish(
     events: &mpsc::Sender<CloudEvent>,
     had_audio: bool,
 ) -> Result<(), String> {
+    finish_aligned(
+        provider, socket, config, task_id, state, events, had_audio, None,
+    )
+    .await
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn finish_aligned(
+    provider: Provider,
+    socket: &mut Socket,
+    config: &AsrConfig,
+    task_id: Option<&str>,
+    state: &mut NormalizationState,
+    events: &mpsc::Sender<CloudEvent>,
+    had_audio: bool,
+    aligner: Option<&mut alignment::Worker>,
+) -> Result<(), String> {
     if provider == Provider::GeminiLiveTranslate && had_audio {
         // The continuous translator needs audio frames to emit its buffered tail.
         // audioStreamEnd alone did not flush the final words in live probes.
@@ -697,11 +860,27 @@ async fn finish(
             }
         }
     };
-    // Preserve buffered native text even when the close handshake times out.
+    let _ = socket.close(None).await;
+    if let Some(worker) = aligner {
+        // Replace obsolete work with one latest-tail request under a separate budget.
+        let _ = tokio::time::timeout(Duration::from_secs(4), async {
+            worker.cancel_running();
+            worker.start_final(|| state.alignment_window());
+            if worker.is_running() {
+                if let Some((window, Ok(mapping))) = worker.recv().await {
+                    if let Some(event) = state.apply_alignment(config, &window, &mapping) {
+                        let _ = events.send(event).await;
+                    }
+                }
+            }
+        })
+        .await;
+        worker.cancel_running();
+    }
+    // Preserve buffered native text even when close or final alignment times out.
     if let Some(event) = provider.finish_translation(config, state) {
         let _ = events.send(event).await;
     }
-    let _ = socket.close(None).await;
     if provider == Provider::OpenAiLiveTranslate {
         outcome
     } else {
@@ -746,6 +925,288 @@ fn resample_16k_to_24k(samples: &[f32]) -> Vec<f32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn native_delta(provider: Provider, kind: &str, text: &str) -> Value {
+        if provider == Provider::OpenAiLiveTranslate {
+            serde_json::json!({"type":format!("session.{kind}_transcript.delta"),"delta":text})
+        } else {
+            serde_json::json!({"serverContent":{format!("{kind}Transcription"):{"text":text}}})
+        }
+    }
+
+    #[tokio::test]
+    async fn final_alignment_uses_drained_tail_and_preview_precedes_model_completion() {
+        use axum::{extract::Json, routing::post, Router};
+        for provider in [Provider::OpenAiLiveTranslate, Provider::GeminiLiveTranslate] {
+            let (requested, mut requests) = mpsc::channel(1);
+            let release = std::sync::Arc::new(tokio::sync::Notify::new());
+            let gate = release.clone();
+            let app = Router::new().route("/v1/chat/completions", post(move |Json(body): Json<Value>| {
+                let requested = requested.clone(); let gate = gate.clone();
+                async move {
+                    let w: Value = serde_json::from_str(body["messages"][1]["content"].as_str().unwrap()).unwrap();
+                    assert_eq!(w["sources"][0]["text"], "Hello. Next.");
+                    assert_eq!(w["targets"][0]["text"], "你好。下一句。");
+                    requested.send(()).await.unwrap(); gate.notified().await;
+                    Json(serde_json::json!({"choices":[{"message":{"content":serde_json::json!({"groups":[
+                        {"source_end":{"unit_id":w["sources"][0]["id"],"quote":"Hello."},"target_end":{"unit_id":w["targets"][0]["id"],"quote":"你好。"},"fully_translated":true},
+                        {"source_end":{"unit_id":w["sources"][0]["id"],"quote":"Next."},"target_end":{"unit_id":w["targets"][0]["id"],"quote":"下一句。"},"fully_translated":true}
+                    ]}).to_string()}}]}))
+                }
+            }));
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let address = listener.local_addr().unwrap();
+            let http = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+            let mut config = translation_config();
+            if provider == Provider::GeminiLiveTranslate {
+                config.backend = crate::providers::SERVICE_GEMINI_LIVE_TRANSLATE.into();
+            }
+            config.api_profiles.push(ApiProfile {
+                id: "local".into(),
+                provider: crate::providers::OLLAMA_PROVIDER.into(),
+                base_url: Some(format!("http://{address}/v1")),
+                auth_mode: crate::config::ApiAuthMode::None,
+                ..Default::default()
+            });
+            config.live_alignment.profile_id = Some("local".into());
+            config.live_alignment.enabled = true;
+            let mut worker = alignment::Worker::new(&config);
+            let mut state = NormalizationState::default();
+            for (kind, text) in [("input", "Hello."), ("output", "你好。")] {
+                provider
+                    .normalize_event(&config, &native_delta(provider, kind, text), &mut state)
+                    .unwrap();
+            }
+            let (mut client, mut server) = socket_pair().await;
+            let (events, mut received) = mpsc::channel(8);
+            let task = tokio::spawn(async move {
+                finish_aligned(
+                    provider,
+                    &mut client,
+                    &config,
+                    None,
+                    &mut state,
+                    &events,
+                    false,
+                    Some(&mut worker),
+                )
+                .await
+            });
+            let close = server.next().await.unwrap().unwrap();
+            assert!(close.to_text().unwrap().contains(
+                if provider == Provider::OpenAiLiveTranslate {
+                    "session.close"
+                } else {
+                    "audioStreamEnd"
+                }
+            ));
+            for (kind, text) in [("input", " Next."), ("output", "下一句。")] {
+                server
+                    .send(json_frame(native_delta(provider, kind, text), false))
+                    .await
+                    .unwrap();
+            }
+            if provider == Provider::OpenAiLiveTranslate {
+                server
+                    .send(json_frame(
+                        serde_json::json!({"type":"session.closed"}),
+                        false,
+                    ))
+                    .await
+                    .unwrap();
+            } else {
+                server.close(None).await.unwrap();
+            }
+            tokio::time::timeout(Duration::from_secs(2), requests.recv())
+                .await
+                .unwrap()
+                .unwrap();
+            let mut previews = Vec::new();
+            while let Ok(CloudEvent::LiveTranslation {
+                snapshot,
+                completed,
+                ..
+            }) = received.try_recv()
+            {
+                assert!(completed.is_empty());
+                previews.push(snapshot.translation);
+            }
+            assert!(previews.contains(&"你好。下一句。".into()));
+            release.notify_one();
+            task.await.unwrap().unwrap();
+            let mut translations = Vec::new();
+            while let Some(CloudEvent::LiveTranslation {
+                translations: updates,
+                ..
+            }) = received.recv().await
+            {
+                translations.extend(updates);
+            }
+            assert_eq!(
+                translations
+                    .iter()
+                    .map(|t| t.transcript.translation.as_str())
+                    .collect::<Vec<_>>(),
+                ["你好。", "下一句。"]
+            );
+            http.abort();
+        }
+    }
+
+    #[tokio::test]
+    async fn final_alignment_timeout_preserves_unresolved_text_exactly() {
+        use axum::{extract::Json, routing::post, Router};
+        let app = Router::new().route(
+            "/v1/chat/completions",
+            post(|| async {
+                tokio::time::sleep(Duration::from_secs(2)).await;
+                Json(serde_json::json!({"choices":[{"message":{"content":"{\"groups\":[]}"}}]}))
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let http = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let provider = Provider::OpenAiLiveTranslate;
+        let mut config = translation_config();
+        config.api_profiles.push(ApiProfile {
+            id: "local".into(),
+            provider: crate::providers::OLLAMA_PROVIDER.into(),
+            base_url: Some(format!("http://{address}/v1")),
+            auth_mode: crate::config::ApiAuthMode::None,
+            timeout_ms: 1000,
+            ..Default::default()
+        });
+        config.live_alignment.profile_id = Some("local".into());
+        config.live_alignment.enabled = true;
+        let mut worker = alignment::Worker::new(&config);
+        let mut state = NormalizationState::default();
+        for (kind, text) in [
+            ("input", " Hello.\n Next."),
+            ("output", " 你好。\n 下一句。 "),
+        ] {
+            provider
+                .normalize_event(&config, &native_delta(provider, kind, text), &mut state)
+                .unwrap();
+        }
+        let (mut client, mut server) = socket_pair().await;
+        let (events, mut received) = mpsc::channel(8);
+        let task = tokio::spawn(async move {
+            finish_aligned(
+                provider,
+                &mut client,
+                &config,
+                None,
+                &mut state,
+                &events,
+                false,
+                Some(&mut worker),
+            )
+            .await
+            .unwrap();
+            assert!(!worker.is_running());
+        });
+        server.next().await.unwrap().unwrap();
+        server
+            .send(json_frame(
+                serde_json::json!({"type":"session.closed"}),
+                false,
+            ))
+            .await
+            .unwrap();
+        tokio::time::timeout(Duration::from_secs(3), task)
+            .await
+            .unwrap()
+            .unwrap();
+        let Some(CloudEvent::LiveTranslation { translations, .. }) = received.recv().await else {
+            panic!()
+        };
+        assert_eq!(translations.len(), 1);
+        assert_eq!(translations[0].transcript.text, " Hello.\n Next.");
+        assert_eq!(
+            translations[0].transcript.translation,
+            " 你好。\n 下一句。 "
+        );
+        assert!(received.recv().await.is_none());
+        http.abort();
+    }
+
+    #[tokio::test]
+    async fn long_silence_closes_live_sessions_normally_and_retains_native_tail() {
+        for provider in [Provider::OpenAiLiveTranslate, Provider::GeminiLiveTranslate] {
+            let (mut client, mut server) = socket_pair().await;
+            let (tx, mut rx) = mpsc::channel(2);
+            let (_stop, mut stop_rx) = watch::channel(false);
+            let (events, mut received) = mpsc::channel(8);
+            tx.send(StreamingInput::AudioActivity(
+                std::sync::Arc::new(vec![0.1; 512]),
+                true,
+            ))
+            .await
+            .unwrap();
+            tx.send(StreamingInput::AudioActivity(
+                std::sync::Arc::new(vec![0.0; idle::IDLE_SAMPLES]),
+                false,
+            ))
+            .await
+            .unwrap();
+            let task = tokio::spawn(async move {
+                let mut config = translation_config();
+                if provider == Provider::GeminiLiveTranslate {
+                    config.backend = crate::providers::SERVICE_GEMINI_LIVE_TRANSLATE.into();
+                }
+                run_session(
+                    provider,
+                    &config,
+                    &mut client,
+                    None,
+                    &mut rx,
+                    &events,
+                    &mut stop_rx,
+                )
+                .await
+            });
+            let mut packets = 0;
+            loop {
+                let frame = server.next().await.unwrap().unwrap();
+                let text = frame.to_text().unwrap();
+                if text.contains("session.close") || text.contains("audioStreamEnd") {
+                    break;
+                }
+                packets += 1;
+            }
+            assert!(packets > 100);
+            for (kind, text) in [("input", "Tail."), ("output", "尾句。")] {
+                server
+                    .send(json_frame(native_delta(provider, kind, text), false))
+                    .await
+                    .unwrap();
+            }
+            if provider == Provider::OpenAiLiveTranslate {
+                server
+                    .send(json_frame(
+                        serde_json::json!({"type":"session.closed"}),
+                        false,
+                    ))
+                    .await
+                    .unwrap();
+            } else {
+                server.close(None).await.unwrap();
+            }
+            let outcome = tokio::time::timeout(Duration::from_secs(2), task)
+                .await
+                .unwrap()
+                .unwrap()
+                .unwrap();
+            assert!(matches!(outcome, SessionEnd::Idle(_)));
+            let mut tails = Vec::new();
+            while let Some(CloudEvent::LiveTranslation { translations, .. }) = received.recv().await
+            {
+                tails.extend(translations);
+            }
+            assert_eq!(tails.len(), 1);
+            assert_eq!(tails[0].transcript.translation, "尾句。");
+        }
+    }
 
     #[tokio::test]
     async fn alignment_worker_is_created_only_for_enabled_live_translation() {

@@ -7,7 +7,7 @@ use crate::config::AsrConfig;
 use crate::models::LiveTranslation;
 
 mod timed;
-pub(in crate::asr::streaming) use timed::{append_delta, apply, window};
+pub(in crate::asr::streaming) use timed::{append_delta, apply, confirm, window};
 
 pub(super) const MAX_DISPLAY_CHARS: usize = 160;
 

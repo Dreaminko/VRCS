@@ -781,7 +781,9 @@ impl PipelineEffectRunner<'_> {
                 for (chunk, speech) in chunks {
                     if let Some(session) = self.cloud.as_ref() {
                         let chunk = share_audio(chunk);
-                        session.send(Arc::clone(&chunk)).await?;
+                        session
+                            .send_with_activity(Arc::clone(&chunk), speech)
+                            .await?;
                         self.segmenter.push(chunk.as_slice(), speech);
                     } else {
                         self.segmenter.push(&chunk, speech);
@@ -792,7 +794,9 @@ impl PipelineEffectRunner<'_> {
                 let was_active = self.segmenter.is_active();
                 let segment = if let Some(session) = self.cloud.as_ref() {
                     let chunk = share_audio(chunk);
-                    session.send(Arc::clone(&chunk)).await?;
+                    session
+                        .send_with_activity(Arc::clone(&chunk), speech)
+                        .await?;
                     self.segmenter.push(chunk.as_slice(), speech)
                 } else {
                     self.segmenter.push(&chunk, speech)
