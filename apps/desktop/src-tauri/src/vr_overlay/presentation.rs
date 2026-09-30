@@ -108,7 +108,7 @@ impl HeadsetPresentation {
     ) {
         match event {
             PresentationEvent::LiveTranslationUpdated { source, snapshot }
-                if config.show_partials
+                if (config.show_partials || config.show_translation_partials)
                     && source_enabled(&source, config)
                     && !self.terminated.contains(&source, &snapshot.utterance_id) =>
             {
@@ -243,19 +243,32 @@ impl HeadsetPresentation {
         config: &VrOverlayHeadsetConfig,
         translation_display: &str,
     ) -> Option<PresentationFrame> {
-        let item = self
-            .partial
-            .as_ref()
-            .filter(|_| config.show_partials)
-            .or(self.current.as_ref())?;
-        if !source_enabled(&item.source, config) {
-            return None;
+        for (item, preview) in [
+            (self.partial.as_ref(), true),
+            (self.current.as_ref(), false),
+        ] {
+            let Some(item) = item.filter(|item| source_enabled(&item.source, config)) else {
+                continue;
+            };
+            let Some(opacity) = fade_opacity(now, item.expires_at, config.fade_seconds) else {
+                continue;
+            };
+            let text = if preview {
+                preview_text(
+                    item,
+                    &config.content_mode,
+                    translation_display,
+                    config.show_partials,
+                    config.show_translation_partials,
+                )
+            } else {
+                display_text(item, &config.content_mode, translation_display, "\n")
+            };
+            if !text.trim().is_empty() {
+                return Some(PresentationFrame::headset(text, opacity));
+            }
         }
-        let opacity = fade_opacity(now, item.expires_at, config.fade_seconds)?;
-        Some(PresentationFrame::headset(
-            display_text(item, &config.content_mode, translation_display, "\n"),
-            opacity,
-        ))
+        None
     }
 }
 
@@ -271,7 +284,7 @@ impl WristPresentation {
     pub fn apply(&mut self, event: PresentationEvent, now: Instant, config: &VrOverlayWristConfig) {
         match event {
             PresentationEvent::LiveTranslationUpdated { source, snapshot }
-                if config.show_partials
+                if (config.show_partials || config.show_translation_partials)
                     && source_enabled(&source, config)
                     && !self.terminated.contains(&source, &snapshot.utterance_id) =>
             {
@@ -441,13 +454,27 @@ impl WristPresentation {
         }
 
         let limit = config.max_entries.clamp(3, 10) as usize;
-        let visible = self
+        let mut messages: Vec<WristMessage> = self
             .entries
             .iter()
-            .chain(self.partials.iter().filter(|_| config.show_partials))
-            .filter(|item| source_enabled(&item.source, config));
-        let mut messages: Vec<WristMessage> = visible
+            .filter(|item| source_enabled(&item.source, config))
             .map(|item| wrist_message(item, &config.content_mode, translation_display))
+            .chain(
+                self.partials
+                    .iter()
+                    .filter(|item| source_enabled(&item.source, config))
+                    .map(|item| WristMessage {
+                        text: preview_text(
+                            item,
+                            &config.content_mode,
+                            translation_display,
+                            config.show_partials,
+                            config.show_translation_partials,
+                        ),
+                        side: message_side(&item.source),
+                    }),
+            )
+            .filter(|message| !message.text.trim().is_empty())
             .collect();
         if messages.len() > limit {
             messages.drain(..messages.len() - limit);
@@ -611,10 +638,14 @@ fn wrist_message(
 ) -> WristMessage {
     WristMessage {
         text: display_text(item, content_mode, translation_display, "\n"),
-        side: match item.source.as_str() {
-            "microphone" | "chatbox" => MessageSide::Right,
-            _ => MessageSide::Left,
-        },
+        side: message_side(&item.source),
+    }
+}
+
+fn message_side(source: &str) -> MessageSide {
+    match source {
+        "microphone" | "chatbox" => MessageSide::Right,
+        _ => MessageSide::Left,
     }
 }
 
@@ -639,14 +670,50 @@ fn display_text(
     translation_display: &str,
     separator: &str,
 ) -> String {
+    display_parts(
+        &item.original,
+        &item.translations,
+        mode,
+        translation_display,
+        separator,
+    )
+}
+
+fn preview_text(
+    item: &PresentationItem,
+    mode: &str,
+    translation_display: &str,
+    show_original: bool,
+    show_translation: bool,
+) -> String {
+    display_parts(
+        if show_original { &item.original } else { "" },
+        if show_translation {
+            &item.translations
+        } else {
+            &[]
+        },
+        mode,
+        translation_display,
+        "\n",
+    )
+}
+
+fn display_parts(
+    original: &str,
+    translations: &[PresentationTranslation],
+    mode: &str,
+    translation_display: &str,
+    separator: &str,
+) -> String {
     let translations = if translation_display == "preferred_only" {
-        item.translations
+        translations
             .iter()
             .find(|translation| translation.preferred)
             .into_iter()
             .collect::<Vec<_>>()
     } else {
-        item.translations.iter().collect()
+        translations.iter().collect()
     };
     let translation = (!translations.is_empty()).then(|| {
         translations
@@ -656,19 +723,21 @@ fn display_text(
             .join(separator)
     });
     match mode {
-        "translation" => translation.unwrap_or_else(|| item.original.clone()),
+        "translation" => translation.unwrap_or_else(|| original.to_owned()),
         "bilingual" => translation
             .map(|text| {
-                format!(
-                    "{}{separator}{text}",
-                    translations
-                        .iter()
-                        .find_map(|translation| translation.original.as_deref())
-                        .unwrap_or(&item.original)
-                )
+                let original = translations
+                    .iter()
+                    .find_map(|translation| translation.original.as_deref())
+                    .unwrap_or(original);
+                if original.trim().is_empty() {
+                    text
+                } else {
+                    format!("{original}{separator}{text}")
+                }
             })
-            .unwrap_or_else(|| item.original.clone()),
-        _ => item.original.clone(),
+            .unwrap_or_else(|| original.to_owned()),
+        _ => original.to_owned(),
     }
 }
 
