@@ -417,7 +417,7 @@ fn validate_translation(
     live_service: &str,
 ) -> Result<(), String> {
     validate_translation_prompt(&translation.prompt)?;
-    if live_service == providers::SERVICE_OPENAI_REALTIME_TRANSLATE
+    if providers::is_live_translation(live_service)
         && translation.mode == "automatic"
         && translation.live_alignment.enabled
     {

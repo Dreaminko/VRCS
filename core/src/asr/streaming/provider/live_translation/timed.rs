@@ -66,7 +66,7 @@ pub(in crate::asr::streaming) fn append_delta(
             }
         }
     }
-    append(config, state, text, translation, None)
+    append(config, state, text, translation)
 }
 
 fn frames_for(frames: &VecDeque<(usize, usize, Frame)>, start: usize, end: usize) -> Vec<Frame> {
@@ -144,7 +144,11 @@ impl Timing {
         let mut snapshot = state.snapshot.clone()?;
         let mut completed = Vec::new();
         let mut translations = Vec::new();
-        // No silence/punctuation timer decides a normal OpenAI subtitle boundary.
+        let same_language = config.backend == crate::providers::SERVICE_GEMINI_LIVE_TRANSLATE
+            && snapshot.language.as_deref().is_some_and(|language| {
+                crate::translation::same_translation_language(language, &snapshot.target_language)
+            });
+        // No silence/punctuation timer decides a live translation subtitle boundary.
         // At shutdown or the memory limit only, preserve the unresolved text as a group.
         if (flush || state.input.len() + state.output.len() >= MAX_TRANSCRIPT_BYTES / 2)
             && !state.input.trim().is_empty()
@@ -153,7 +157,7 @@ impl Timing {
             source.utterance_id = format!("live-source-{}", uuid::Uuid::new_v4());
             source.text = std::mem::take(&mut state.input);
             source.translation.clear();
-            completed.push(result(config, source.clone(), true));
+            completed.push(result(config, source.clone(), !same_language));
             source.translation = std::mem::take(&mut state.output);
             self.input_offset += source.text.len();
             self.output_offset += source.translation.len();
@@ -164,7 +168,9 @@ impl Timing {
             while self.context.len() > 2 {
                 self.context.pop_front();
             }
-            translations.push(result(config, source, false));
+            if !same_language {
+                translations.push(result(config, source, false));
+            }
             self.revision += 1;
             tracing::warn!(
                 flush,
@@ -320,6 +326,7 @@ pub(in crate::asr::streaming) fn apply(
 mod tests {
     use super::*;
     use crate::asr::streaming::alignment::Group;
+    use std::time::Duration;
 
     fn config() -> AsrConfig {
         AsrConfig {
@@ -361,8 +368,6 @@ mod tests {
             assert!(poll(&config(), &mut state).is_none());
             assert_eq!(state.input, "平台2.0自2020年启动，吸引288家社区。后续");
             assert_eq!(state.output, "2020年の開始以来、");
-            assert!(state.sources.is_empty());
-            assert!(state.targets.is_empty());
         }
         let w = window(&state).unwrap();
         assert_eq!(w.sources[0].text, state.input);

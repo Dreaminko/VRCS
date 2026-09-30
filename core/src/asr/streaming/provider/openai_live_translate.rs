@@ -142,7 +142,15 @@ mod tests {
                 InitializationEvent::Ready
             ));
             let mut state = live_translation::State::default();
-            live_translation::append(&config, &mut state, "Hello.", "Translation.", None).unwrap();
+            live_translation::append_delta(
+                &config,
+                &mut state,
+                "Hello.",
+                "Translation.",
+                None,
+                None,
+            )
+            .unwrap();
             assert_eq!(state.snapshot.unwrap().target_language, target);
             assert_eq!(config.live_translation_target.as_deref(), Some(target));
         }

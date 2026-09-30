@@ -72,7 +72,7 @@ const INSTRUCTIONS: &str = concat!(
     "For example, a source that describes a platform AND gives participation statistics cannot be fully matched to a target that only describes the platform; the later statistics still belong to that source. ",
     "Use the following group to check the boundary; never shift a delayed continuation into the next source. ",
     "The final text may be unfinished; when truncated=true there is more text outside the window. context is already committed, never reference it. ",
-    "elapsed_ms is shared 200ms audio-frame metadata, not a sentence ID: output may lag input by seconds, so semantics takes priority over timing. ",
+    "elapsed_ms, when present, is coarse audio-frame metadata, not a sentence ID. received_ms is local text receipt time, not audio timing. Output may lag input by seconds, so semantics takes priority over timing. ",
     "If the source or target still needs continuation, set fully_translated=false or leave that group pending. ",
     "A delivery pause of any length is NOT a sentence boundary. Only confirm a group when its content and semantic boundary are complete."
 );
@@ -377,10 +377,11 @@ mod tests {
             provider::{NormalizationState, Provider},
             CloudEvent,
         };
-        let calls = Arc::new(AtomicUsize::new(0));
-        let (requested, mut received) = tokio::sync::mpsc::channel(4);
-        let count = calls.clone();
-        let app = Router::new().route("/responses",post(move |Json(body):Json<serde_json::Value>| {
+        for provider in [Provider::OpenAiLiveTranslate, Provider::GeminiLiveTranslate] {
+            let calls = Arc::new(AtomicUsize::new(0));
+            let (requested, mut received) = tokio::sync::mpsc::channel(4);
+            let count = calls.clone();
+            let app = Router::new().route("/responses",post(move |Json(body):Json<serde_json::Value>| {
             let count = count.clone(); let requested = requested.clone();
             async move {
                 count.fetch_add(1,Ordering::SeqCst);
@@ -401,77 +402,89 @@ mod tests {
                 }]}).to_string()}]}]}))
             }
         }));
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let endpoint = format!("http://{}/responses", listener.local_addr().unwrap());
-        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
-        let mut worker = Worker::new(&AsrConfig::default());
-        worker.key = Some("test-key".into());
-        worker.client = LlmClient::with_alignment_endpoint(endpoint);
-        let config = AsrConfig {
-            backend: crate::providers::SERVICE_OPENAI_REALTIME_TRANSLATE.into(),
-            live_translation_target: Some("zh-Hans".into()),
-            ..Default::default()
-        };
-        let mut state = NormalizationState::default();
-        for (kind, text) in [("input", "Hello. Next."), ("output", "你好。下一句。")] {
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let endpoint = format!("http://{}/responses", listener.local_addr().unwrap());
+            let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+            let mut worker = Worker::new(&AsrConfig::default());
+            worker.key = Some("test-key".into());
+            worker.client = LlmClient::with_alignment_endpoint(endpoint);
+            let config = AsrConfig {
+                backend: if provider == Provider::OpenAiLiveTranslate {
+                    crate::providers::SERVICE_OPENAI_REALTIME_TRANSLATE
+                } else {
+                    crate::providers::SERVICE_GEMINI_LIVE_TRANSLATE
+                }
+                .into(),
+                live_translation_target: Some("zh-Hans".into()),
+                ..Default::default()
+            };
+            let mut state = NormalizationState::default();
+            for (kind, text) in [("input", "Hello. Next."), ("output", "你好。下一句。")] {
+                let Some(CloudEvent::LiveTranslation {
+                    completed,
+                    translations,
+                    ..
+                }) = provider
+                    .normalize_event(
+                        &config,
+                        &if provider == Provider::OpenAiLiveTranslate {
+                            json!({
+                                "type": format!("session.{kind}_transcript.delta"), "delta":text,
+                                "elapsed_ms":400
+                            })
+                        } else {
+                            json!({"serverContent":{
+                                format!("{kind}Transcription"):{"text":text}
+                            }})
+                        },
+                        &mut state,
+                    )
+                    .unwrap()
+                else {
+                    panic!()
+                };
+                assert!(completed.is_empty() && translations.is_empty());
+            }
+            worker.try_start(|| state.alignment_window());
+            received.recv().await.unwrap();
+            for n in 2..=10 {
+                worker.try_start(|| panic!("an active job must not rebuild the window: {n}"));
+            }
+            assert_eq!(calls.load(Ordering::SeqCst), 1);
+            let (w, result) = tokio::time::timeout(Duration::from_secs(2), worker.recv())
+                .await
+                .unwrap()
+                .unwrap();
+            assert_eq!(w.sources[0].id, "source-0");
+            let mapping = result.unwrap();
+            assert_eq!(mapping.groups[0].target_end.unit_id, "target-0");
             let Some(CloudEvent::LiveTranslation {
                 completed,
                 translations,
+                snapshot,
                 ..
-            }) = Provider::OpenAiLiveTranslate
-                .normalize_event(
-                    &config,
-                    &json!({
-                        "type": format!("session.{kind}_transcript.delta"), "delta":text,
-                        "elapsed_ms":400
-                    }),
-                    &mut state,
-                )
-                .unwrap()
+            }) = state.apply_alignment(&config, &w, &mapping)
             else {
                 panic!()
             };
-            assert!(completed.is_empty() && translations.is_empty());
+            assert_eq!(completed.len(), 1);
+            assert_eq!(completed[0].transcript.text, "Hello.");
+            assert_eq!(translations[0].transcript.translation, "你好。");
+            assert_eq!(
+                completed[0].transcript.utterance_id,
+                translations[0].transcript.utterance_id
+            );
+            assert_eq!(snapshot.text, "Next.");
+            assert_eq!(snapshot.translation, "下一句。");
+            assert!(worker.job.is_none());
+            worker.next_attempt = Instant::now();
+            worker.try_start(|| Some(window("10")));
+            let (w, result) = worker.recv().await.unwrap();
+            assert!(result.is_ok());
+            assert_eq!(w.sources[0].id, "source-10");
+            assert_eq!(calls.load(Ordering::SeqCst), 2);
+            server.abort();
         }
-        worker.try_start(|| state.alignment_window());
-        received.recv().await.unwrap();
-        for n in 2..=10 {
-            worker.try_start(|| panic!("an active job must not rebuild the window: {n}"));
-        }
-        assert_eq!(calls.load(Ordering::SeqCst), 1);
-        let (w, result) = tokio::time::timeout(Duration::from_secs(2), worker.recv())
-            .await
-            .unwrap()
-            .unwrap();
-        assert_eq!(w.sources[0].id, "source-0");
-        let mapping = result.unwrap();
-        assert_eq!(mapping.groups[0].target_end.unit_id, "target-0");
-        let Some(CloudEvent::LiveTranslation {
-            completed,
-            translations,
-            snapshot,
-            ..
-        }) = state.apply_alignment(&config, &w, &mapping)
-        else {
-            panic!()
-        };
-        assert_eq!(completed.len(), 1);
-        assert_eq!(completed[0].transcript.text, "Hello.");
-        assert_eq!(translations[0].transcript.translation, "你好。");
-        assert_eq!(
-            completed[0].transcript.utterance_id,
-            translations[0].transcript.utterance_id
-        );
-        assert_eq!(snapshot.text, "Next.");
-        assert_eq!(snapshot.translation, "下一句。");
-        assert!(worker.job.is_none());
-        worker.next_attempt = Instant::now();
-        worker.try_start(|| Some(window("10")));
-        let (w, result) = worker.recv().await.unwrap();
-        assert!(result.is_ok());
-        assert_eq!(w.sources[0].id, "source-10");
-        assert_eq!(calls.load(Ordering::SeqCst), 2);
-        server.abort();
     }
 
     #[tokio::test(start_paused = true)]

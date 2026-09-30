@@ -703,13 +703,13 @@
       "translation": {
         "alignment": {
           "enabled": "Background text alignment",
-          "description": "A lightweight model segments and aligns source and translated text in the background, adding a small amount of API usage. (Only applies to OpenAI Realtime Translation models.)",
+          "description": "A lightweight model segments and aligns source and translated text in the background, adding a small amount of API usage. (Only applies to OpenAI Realtime Translation and Gemini Live Translate models.)",
           "profile": "Alignment API profile",
           "recognitionProfile": "Use recognition profile",
           "model": "Alignment model"
         },
         "liveTranslateHint": "Each audio source uses Live Translate for its first target. Requires automatic translation. Text prompts, glossary and thinking settings do not apply. Translated audio is generated and billed even though it is not played.",
-        "liveTranslatePreview": "Source and translation are saved together after both text streams briefly stop updating. History, extra targets and OSC are supported. Different sentence counts are not paired one by one; service delays can still affect grouping.",
+        "liveTranslatePreview": "Audio uploads begin after speech is detected. Translations can be previewed as they arrive; background text alignment can use a lightweight model to segment and match by meaning. History, extra targets and OSC are supported.",
         "title": "Subtitle translation",
 
         "mode": "Translation mode",

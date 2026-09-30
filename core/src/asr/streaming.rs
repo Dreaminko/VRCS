@@ -264,6 +264,7 @@ pub async fn test_streaming_connection(
         task_id.as_deref(),
         &mut NormalizationState::default(),
         &events,
+        false,
     )
     .await
 }
@@ -374,7 +375,11 @@ async fn run_session(
         &mut normalization,
     )
     .await;
-    if provider == Provider::OpenAiLiveTranslate && outcome.is_err() {
+    if matches!(
+        provider,
+        Provider::OpenAiLiveTranslate | Provider::GeminiLiveTranslate
+    ) && outcome.is_err()
+    {
         if let Some(event) = provider.finish_translation(config, &mut normalization) {
             let _ = events.send(event).await;
         }
@@ -383,7 +388,10 @@ async fn run_session(
 }
 
 fn alignment_worker(provider: Provider, config: &AsrConfig) -> Option<alignment::Worker> {
-    (provider == Provider::OpenAiLiveTranslate && config.live_alignment.enabled)
+    (matches!(
+        provider,
+        Provider::OpenAiLiveTranslate | Provider::GeminiLiveTranslate
+    ) && config.live_alignment.enabled)
         .then(|| alignment::Worker::new(config))
 }
 
@@ -445,7 +453,7 @@ async fn run_session_inner(
                 if pending_audio {
                     let _ = commit_utterance(provider, socket).await;
                 }
-                return finish(provider, socket, config, task_id, normalization, events).await;
+                return finish(provider, socket, config, task_id, normalization, events, pending_audio).await;
             }
             input = audio.recv() => {
                 match input {
@@ -478,7 +486,7 @@ async fn run_session_inner(
                         if pending_audio {
                             let _ = commit_utterance(provider, socket).await;
                         }
-                        return finish(provider, socket, config, task_id, normalization, events).await;
+                        return finish(provider, socket, config, task_id, normalization, events, pending_audio).await;
                     }
                 }
             }
@@ -647,8 +655,9 @@ async fn finish(
     task_id: Option<&str>,
     state: &mut NormalizationState,
     events: &mpsc::Sender<CloudEvent>,
+    had_audio: bool,
 ) -> Result<(), String> {
-    if provider == Provider::GeminiLiveTranslate {
+    if provider == Provider::GeminiLiveTranslate && had_audio {
         // The continuous translator needs audio frames to emit its buffered tail.
         // audioStreamEnd alone did not flush the final words in live probes.
         for _ in 0..5 {
@@ -739,7 +748,7 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    async fn alignment_worker_is_created_only_for_enabled_openai_translation() {
+    async fn alignment_worker_is_created_only_for_enabled_live_translation() {
         let mut config = AsrConfig::default();
         for enabled in [false, true] {
             config.live_alignment.enabled = enabled;
@@ -749,19 +758,17 @@ mod tests {
                 Provider::FunAsr,
                 Provider::OpenAi,
                 Provider::Gemini,
-                Provider::GeminiLiveTranslate,
             ] {
                 assert!(alignment_worker(provider, &config).is_none());
             }
-            assert_eq!(
-                alignment_worker(Provider::OpenAiLiveTranslate, &config).is_some(),
-                enabled
-            );
+            for provider in [Provider::OpenAiLiveTranslate, Provider::GeminiLiveTranslate] {
+                assert_eq!(alignment_worker(provider, &config).is_some(), enabled);
+            }
         }
     }
 
     #[tokio::test]
-    async fn abrupt_gemini_disconnect_keeps_existing_unfinalized_tail_behavior() {
+    async fn abrupt_gemini_disconnect_preserves_received_native_text() {
         let (mut client, mut server) = socket_pair().await;
         let (_audio_tx, mut audio_rx) = mpsc::channel(1);
         let (_stop_tx, mut stop_rx) = watch::channel(false);
@@ -816,6 +823,8 @@ mod tests {
             .unwrap()
             .unwrap()
             .is_err());
+        let mut originals = Vec::new();
+        let mut translated = Vec::new();
         while let Some(event) = received.recv().await {
             let CloudEvent::LiveTranslation {
                 completed,
@@ -825,8 +834,13 @@ mod tests {
             else {
                 panic!()
             };
-            assert!(completed.is_empty() && translations.is_empty());
+            originals.extend(completed);
+            translated.extend(translations);
         }
+        assert_eq!(originals.len(), 1);
+        assert_eq!(originals[0].transcript.text, "Original tail");
+        assert_eq!(translated.len(), 1);
+        assert_eq!(translated[0].transcript.translation, "译文尾部");
     }
 
     async fn socket_pair() -> (Socket, WebSocketStream<TcpStream>) {
@@ -1065,7 +1079,8 @@ mod tests {
                     &config,
                     None,
                     &mut state,
-                    &events
+                    &events,
+                    true
                 ),
                 async {
                     server.next().await.unwrap().unwrap();
@@ -1198,6 +1213,60 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(drained.len(), 64);
+    }
+
+    #[tokio::test]
+    async fn stopping_before_speech_sends_no_audio_for_either_live_translator() {
+        for provider in [Provider::OpenAiLiveTranslate, Provider::GeminiLiveTranslate] {
+            let (mut client, mut server) = socket_pair().await;
+            let mut config = translation_config();
+            if provider == Provider::GeminiLiveTranslate {
+                config.backend = providers::SERVICE_GEMINI_LIVE_TRANSLATE.into();
+            }
+            let (_audio_tx, mut audio_rx) = mpsc::channel(4);
+            let (stop_tx, mut stop_rx) = watch::channel(false);
+            stop_tx.send(true).unwrap();
+            let (events, _) = mpsc::channel(4);
+            let task = tokio::spawn(async move {
+                run_session(
+                    provider,
+                    &config,
+                    &mut client,
+                    None,
+                    &mut audio_rx,
+                    &events,
+                    &mut stop_rx,
+                )
+                .await
+            });
+            let message = tokio::time::timeout(Duration::from_secs(1), server.next())
+                .await
+                .unwrap()
+                .unwrap()
+                .unwrap();
+            let value: Value = serde_json::from_str(message.to_text().unwrap()).unwrap();
+            if provider == Provider::OpenAiLiveTranslate {
+                assert_eq!(value["type"], "session.close");
+                server
+                    .send(json_frame(
+                        serde_json::json!({"type":"session.closed"}),
+                        false,
+                    ))
+                    .await
+                    .unwrap();
+            } else {
+                assert_eq!(
+                    value.pointer("/realtimeInput/audioStreamEnd"),
+                    Some(&Value::Bool(true))
+                );
+                server.close(None).await.unwrap();
+            }
+            tokio::time::timeout(Duration::from_secs(2), task)
+                .await
+                .unwrap()
+                .unwrap()
+                .unwrap();
+        }
     }
 
     #[tokio::test]

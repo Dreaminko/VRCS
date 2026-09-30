@@ -265,8 +265,6 @@ impl TranscriptionPipeline {
                     dependencies,
                     source,
                     cloud,
-                    continuous_from_start: asr_config.backend
-                        == crate::providers::SERVICE_OPENAI_REALTIME_TRANSLATE,
                     local_fallback: asr_config.cloud_failure_policy == "local",
                     echo_guard: asr_echo_guard,
                     sample_rate,
@@ -324,7 +322,6 @@ struct PipelineRunContext {
     source: &'static str,
     cloud: Option<CloudRecognitionSession>,
     local_fallback: bool,
-    continuous_from_start: bool,
     echo_guard: AsrEchoGuard,
     sample_rate: u32,
     trigger_threshold_dbfs: Option<f32>,
@@ -512,8 +509,8 @@ fn reduce_cloud_event(
             translations,
         } => {
             let mut effects = Vec::new();
-            let immediate = service == crate::providers::SERVICE_OPENAI_REALTIME_TRANSLATE
-                && translations.is_empty();
+            let immediate =
+                crate::providers::is_live_translation(&service) && translations.is_empty();
             for result in completed {
                 if state
                     .lifecycle
@@ -860,7 +857,6 @@ async fn run(
         source,
         mut cloud,
         local_fallback,
-        continuous_from_start,
         echo_guard,
         sample_rate,
         trigger_threshold_dbfs,
@@ -868,7 +864,6 @@ async fn run(
         smart_turn,
     } = context;
     let mut state = PipelineState::new(sample_rate);
-    state.streaming = continuous_from_start;
     let (smart_turn_tx, mut smart_turn_rx) = mpsc::unbounded_channel();
     let mut result = loop {
         if *shutdown.borrow() || *stop.borrow() {
@@ -1171,6 +1166,39 @@ mod tests {
     }
 
     #[test]
+    fn audio_waits_for_speech_and_keeps_the_onset_in_pre_roll() {
+        let mut state = PipelineState::new(16_000);
+        let mut push = |samples: Vec<f32>, speech: bool| {
+            reduce_audio_event(
+                &mut state,
+                samples,
+                AudioAnalysis {
+                    rms_dbfs: if speech { -20.0 } else { -80.0 },
+                    peak_dbfs: -20.0,
+                    vad_speech: speech,
+                    trigger_speech: speech,
+                    publish_audio_level: false,
+                    now: Instant::now(),
+                },
+            )
+        };
+        for _ in 0..100 {
+            assert!(push(vec![0.0; 512], false).is_empty());
+        }
+        assert!(push(vec![0.1; 512], true).is_empty());
+        let effects = push(vec![0.2; 512], true);
+        let [PipelineEffect::FlushPreRoll(buffered), PipelineEffect::ProcessAudio { chunk, speech }] =
+            effects.as_slice()
+        else {
+            panic!("speech onset must flush the pre-roll before uploading the trigger chunk")
+        };
+        assert_eq!(buffered.last().unwrap().0, vec![0.1; 512]);
+        assert_eq!(chunk, &vec![0.2; 512]);
+        assert!(*speech);
+        assert!(state.streaming);
+    }
+
+    #[test]
     fn smart_turn_only_completes_on_a_positive_prediction() {
         assert!(smart_turn_should_complete(&Ok(0.75)));
         assert!(!smart_turn_should_complete(&Ok(COMPLETION_THRESHOLD)));
@@ -1269,7 +1297,7 @@ mod tests {
     }
 
     #[test]
-    fn live_delta_publication_order_changes_only_for_openai_translation() {
+    fn live_translation_deltas_publish_before_original_database_work() {
         for (service, provider) in [
             (
                 crate::providers::SERVICE_OPENAI_REALTIME_TRANSLATE,
@@ -1306,20 +1334,10 @@ mod tests {
                 stop_cloud_on_failure: false,
             };
             let effects = reduce_pipeline_event(&mut state, event, &AsrEchoGuard::default());
-            if service == crate::providers::SERVICE_OPENAI_REALTIME_TRANSLATE {
-                assert!(
-                    matches!(effects.as_slice(),[PipelineEffect::PublishLiveTranslation(s), PipelineEffect::PublishNativeTranslation(_)]
-            if s.translation == "立即显示" && s.text.is_empty())
-                );
-            } else {
-                assert!(matches!(
-                    effects.as_slice(),
-                    [
-                        PipelineEffect::PublishNativeTranslation(_),
-                        PipelineEffect::PublishLiveTranslation(_)
-                    ]
-                ));
-            }
+            assert!(
+                matches!(effects.as_slice(),[PipelineEffect::PublishLiveTranslation(s), PipelineEffect::PublishNativeTranslation(_)]
+                    if s.translation == "立即显示" && s.text.is_empty())
+            );
         }
     }
 

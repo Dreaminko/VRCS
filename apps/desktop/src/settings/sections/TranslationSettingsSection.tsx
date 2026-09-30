@@ -106,7 +106,7 @@ export function TranslationSettingsSection({ draft, apiProfiles, saveState, appl
           </div>
         </div>
 
-        {draft.asr.backend === "openai_realtime_translate" && (
+        {liveTranslate && (
           <LiveAlignmentSettings value={draft.translation.live_alignment} profiles={apiProfiles}
             recognitionProfileId={draft.asr.active_profile_id}
             disabled={controlsDisabled} onChange={(live_alignment) => updateTranslation({
