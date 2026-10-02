@@ -83,12 +83,22 @@ pub(super) fn normalize_event(
 ) -> Result<Option<CloudEvent>, String> {
     let delta = value["delta"].as_str().unwrap_or_default();
     match value["type"].as_str() {
-        Some("session.input_transcript.delta") => {
-            live_translation::append_timed(config, state, delta, "")
-        }
-        Some("session.output_transcript.delta") => {
-            live_translation::append_timed(config, state, "", delta)
-        }
+        Some("session.input_transcript.delta") => live_translation::append_delta(
+            config,
+            state,
+            delta,
+            "",
+            value["elapsed_ms"].as_u64(),
+            value["event_id"].as_str(),
+        ),
+        Some("session.output_transcript.delta") => live_translation::append_delta(
+            config,
+            state,
+            "",
+            delta,
+            value["elapsed_ms"].as_u64(),
+            value["event_id"].as_str(),
+        ),
         Some("error") => {
             // A recoverable session error must not terminate the current subtitle.
             tracing::warn!(detail = %error_detail(value), "OpenAI translation session error");
@@ -132,7 +142,15 @@ mod tests {
                 InitializationEvent::Ready
             ));
             let mut state = live_translation::State::default();
-            live_translation::append(&config, &mut state, "Hello.", "Translation.", None).unwrap();
+            live_translation::append_delta(
+                &config,
+                &mut state,
+                "Hello.",
+                "Translation.",
+                None,
+                None,
+            )
+            .unwrap();
             assert_eq!(state.snapshot.unwrap().target_language, target);
             assert_eq!(config.live_translation_target.as_deref(), Some(target));
         }
@@ -221,9 +239,8 @@ mod tests {
             results.extend(completed);
             translated.extend(translations);
         }
-        assert_eq!(results.len(), 2);
-        assert_eq!(results[0].transcript.text, "hello hello.");
-        assert_eq!(results[1].transcript.text, "Value 3.14.");
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].transcript.text, "hello hello. Value 3.14.");
         assert_eq!(translated.len(), 1);
         assert_eq!(translated[0].transcript.text, "hello hello. Value 3.14.");
         assert_eq!(translated[0].transcript.translation, "你好数值3.14");
@@ -258,8 +275,8 @@ mod tests {
         assert_eq!(translations[0].transcript.translation, "你好");
     }
 
-    #[tokio::test]
-    async fn source_idle_waits_for_a_translation_that_has_not_started() {
+    #[tokio::test(start_paused = true)]
+    async fn source_idle_does_not_cut_text_before_model_alignment() {
         let mut state = live_translation::State::default();
         normalize_event(
             &config(),
@@ -267,18 +284,9 @@ mod tests {
             &mut state,
         )
         .unwrap();
-        tokio::time::sleep(std::time::Duration::from_millis(1550)).await;
-        let Some(CloudEvent::LiveTranslation {
-            completed,
-            translations,
-            ..
-        }) = live_translation::poll(&config(), &mut state)
-        else {
-            panic!()
-        };
-        assert_eq!(completed.len(), 1);
-        assert!(translations.is_empty());
-        let id = completed[0].transcript.utterance_id.clone();
+        tokio::time::advance(std::time::Duration::from_secs(2)).await;
+        assert!(live_translation::poll(&config(), &mut state).is_none());
+        assert_eq!(state.input, "Hello.");
         let Some(CloudEvent::LiveTranslation {
             snapshot,
             translations,
@@ -292,22 +300,25 @@ mod tests {
         else {
             panic!()
         };
-        assert!(snapshot.translation.is_empty());
-        assert_eq!(translations.len(), 1);
-        assert!(translations[0].pending);
-        assert_eq!(translations[0].transcript.utterance_id, id);
-        assert_eq!(translations[0].transcript.translation, "你好");
-        let Some(CloudEvent::LiveTranslation { translations, .. }) =
-            live_translation::finish(&config(), &mut state)
+        assert_eq!(snapshot.translation, "你好");
+        assert!(translations.is_empty());
+        let Some(CloudEvent::LiveTranslation {
+            completed,
+            translations,
+            ..
+        }) = live_translation::finish(&config(), &mut state)
         else {
             panic!()
         };
         assert_eq!(translations[0].transcript.translation, "你好");
-        assert_eq!(translations[0].transcript.utterance_id, id);
+        assert_eq!(
+            translations[0].transcript.utterance_id,
+            completed[0].transcript.utterance_id
+        );
         assert!(!translations[0].pending);
     }
 
-    #[tokio::test]
+    #[tokio::test(start_paused = true)]
     async fn captured_arrival_timing_does_not_split_or_shift_sentences() {
         replay_capture(
             include_str!("fixtures/openai_translation_frames.json"),
@@ -325,7 +336,7 @@ mod tests {
         .await;
     }
 
-    #[tokio::test]
+    #[tokio::test(start_paused = true)]
     async fn captured_translation_can_finish_after_the_next_two_sources_start() {
         replay_capture(
             include_str!("fixtures/openai_translation_delayed.json"),
@@ -351,6 +362,7 @@ mod tests {
         let first = events[0]["received_ms"].as_u64().unwrap();
         let mut originals = Vec::new();
         let mut updates = Vec::new();
+        let mut visible_deltas = 0;
         let mut collect = |event| {
             if let Some(CloudEvent::LiveTranslation {
                 completed,
@@ -372,32 +384,43 @@ mod tests {
                 .await;
                 collect(live_translation::poll(&config, &mut state));
             }
-            collect(normalize_event(&config, &event, &mut state).unwrap());
+            let normalized = normalize_event(&config, &event, &mut state).unwrap();
+            if event["type"] == "session.output_transcript.delta" {
+                let Some(CloudEvent::LiveTranslation {
+                    snapshot,
+                    translations,
+                    ..
+                }) = &normalized
+                else {
+                    panic!("each nonempty translated delta must publish immediately");
+                };
+                visible_deltas += 1;
+                assert!(snapshot
+                    .translation
+                    .ends_with(event["delta"].as_str().unwrap()));
+                assert!(
+                    translations.is_empty(),
+                    "a visible delta must never wait for alignment"
+                );
+            }
+            collect(normalized);
         }
         collect(live_translation::finish(&config, &mut state));
-        assert_eq!(originals.len(), expected.len());
-        if updates.len() == 1 && updates[0].source_utterance_ids.len() == originals.len() {
-            assert_eq!(
-                updates[0].source_utterance_ids,
-                originals
-                    .iter()
-                    .map(|original| original.transcript.utterance_id.clone())
-                    .collect::<Vec<_>>()
-            );
-            assert_eq!(
-                updates[0].transcript.translation.replace(' ', ""),
-                expected.concat().replace(' ', "")
-            );
-        } else {
-            assert_eq!(updates.len(), expected.len());
-            for ((original, update), expected) in originals.iter().zip(&updates).zip(expected) {
-                assert_eq!(
-                    original.transcript.utterance_id,
-                    update.transcript.utterance_id
-                );
-                assert_eq!(update.transcript.translation, *expected);
-            }
-        }
+        println!("fixture replay: sources={}, immediately displayed deltas={}, native fallback groups={} (no model request)", originals.len(), visible_deltas, updates.len());
+        // Without a model response, shutdown retains the whole stream as one group.
+        assert_eq!(originals.len(), 1);
+        assert_eq!(updates.len(), 1);
+        assert_eq!(
+            updates[0].source_utterance_ids,
+            originals
+                .iter()
+                .map(|original| original.transcript.utterance_id.clone())
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(
+            updates[0].transcript.translation.replace(' ', ""),
+            expected.concat().replace(' ', "")
+        );
     }
 
     #[test]
@@ -423,11 +446,11 @@ mod tests {
             updates.extend(translations);
         }
         assert_eq!(updates.len(), 1);
-        assert_eq!(updates[0].source_utterance_ids.len(), 3);
+        assert_eq!(updates[0].source_utterance_ids.len(), 1);
         assert_eq!(updates[0].transcript.text, "First. Missing. Third.");
         assert_eq!(
             updates[0].transcript.translation,
-            "第一句第三句。 还有补充。"
+            "第一句第三句。还有补充。"
         );
     }
 

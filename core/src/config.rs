@@ -36,7 +36,7 @@ pub use runtime::{ExternalApiConfig, ServerConfig, StorageConfig, VrcxConfig};
 pub use schema::{AppConfig, SCHEMA_VERSION};
 #[allow(unused_imports)]
 pub use translation::{
-    TranslationConfig, TranslationPromptConfig, TranslationTargetConfig,
+    LiveAlignmentConfig, TranslationConfig, TranslationPromptConfig, TranslationTargetConfig,
     DEFAULT_TRANSLATION_SYSTEM_PROMPT,
 };
 pub use validation::{validate_glossary_source_url, validate_translation_prompt};

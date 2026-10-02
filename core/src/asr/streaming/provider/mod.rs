@@ -31,6 +31,32 @@ pub(super) struct NormalizationState {
 }
 
 impl NormalizationState {
+    pub(super) fn live_source_len(&self) -> usize {
+        self.live_translation.input.len()
+    }
+
+    pub(super) fn alignment_window(&self) -> Option<super::alignment::Window> {
+        live_translation::window(&self.live_translation)
+    }
+
+    pub(super) fn apply_alignment(
+        &mut self,
+        config: &AsrConfig,
+        window: &super::alignment::Window,
+        mapping: &super::alignment::Mapping,
+    ) -> Option<CloudEvent> {
+        live_translation::apply(config, &mut self.live_translation, window, mapping)
+    }
+
+    pub(super) fn confirm_alignment(
+        &mut self,
+        config: &AsrConfig,
+        window: &super::alignment::Window,
+        mapping: &super::alignment::Mapping,
+    ) -> Option<CloudEvent> {
+        live_translation::confirm(config, &mut self.live_translation, window, mapping)
+    }
+
     fn delta_id(&mut self, value: &Value) -> String {
         explicit_utterance_id(value).unwrap_or_else(|| self.fallback_id())
     }

@@ -28,6 +28,8 @@ impl CaptureReloadPlan {
         let live = crate::providers::is_live_translation(&current.asr.backend)
             || crate::providers::is_live_translation(&candidate.asr.backend);
         let live_mode_changed = live && current.translation.mode != candidate.translation.mode;
+        let alignment_changed =
+            live && current.translation.live_alignment != candidate.translation.live_alignment;
         let target = |targets: &[crate::config::TranslationTargetConfig]| {
             targets.first().map(|t| t.target_language.clone())
         };
@@ -35,6 +37,7 @@ impl CaptureReloadPlan {
         Self {
             speaker: shared
                 || live_mode_changed
+                || alignment_changed
                 || (live
                     && target(&current.translation.speaker_targets)
                         != target(&candidate.translation.speaker_targets))
@@ -42,6 +45,7 @@ impl CaptureReloadPlan {
                 || current.audio.output != candidate.audio.output,
             microphone: shared
                 || live_mode_changed
+                || alignment_changed
                 || (live
                     && target(&current.translation.microphone_targets)
                         != target(&candidate.translation.microphone_targets))
@@ -299,6 +303,9 @@ fn effective_asr_config(
             &config.translation.speaker_targets
         };
         asr.live_translation_target = targets.first().map(|target| target.target_language.clone());
+    }
+    if crate::providers::is_live_translation(&asr.backend) {
+        asr.live_alignment = config.translation.live_alignment.clone();
     }
     let terms = state
         .content
@@ -600,6 +607,25 @@ pub(crate) async fn resume_microphone(state: &CaptureContext) -> Result<(), Stri
 #[cfg(test)]
 mod tests {
     use super::{asr_runtime_changed, CaptureReloadPlan};
+
+    #[test]
+    fn alignment_changes_restart_both_live_translation_streams_only() {
+        for (service, reload) in [
+            (crate::providers::SERVICE_OPENAI_REALTIME_TRANSLATE, true),
+            (crate::providers::SERVICE_GEMINI_LIVE_TRANSLATE, true),
+            ("local_whisper", false),
+            (crate::providers::SERVICE_OPENAI_REALTIME, false),
+            (crate::providers::SERVICE_QWEN_REALTIME, false),
+            (crate::providers::SERVICE_FUN_ASR_REALTIME, false),
+        ] {
+            let mut current = crate::config::AppConfig::default();
+            current.asr.backend = service.into();
+            let mut next = current.clone();
+            next.translation.live_alignment.model = "gpt-5-mini".into();
+            let plan = CaptureReloadPlan::between(&current, &next);
+            assert_eq!((plan.speaker, plan.microphone), (reload, reload));
+        }
+    }
 
     #[test]
     fn live_translation_restarts_only_the_changed_audio_target() {

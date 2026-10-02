@@ -77,6 +77,9 @@ export const providersApi = {
   apiProfileModels: (profileId: string) => request<ApiModelCatalog>(
     `/api/asr/profiles/${profileId}/models`,
   ),
+  liveAlignmentModels: (profileId: string) => request<ApiModelCatalog>(
+    `/api/asr/profiles/${profileId}/alignment-models`,
+  ),
   recognitionServiceModels: (profileId: string, serviceId: string) => request<ApiModelCatalog>(
     `/api/asr/profiles/${profileId}/services/${serviceId}/models`,
   ),

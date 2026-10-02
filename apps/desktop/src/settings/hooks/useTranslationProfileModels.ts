@@ -8,6 +8,7 @@ import type { ApiProfileView } from "../../providers/types";
 export function useTranslationProfileModels(
   profile: ApiProfileView | undefined,
   enabled: boolean,
+  loadModels = providersApi.apiProfileModels,
 ) {
   const { t } = useTranslation();
   const [models, setModels] = useState<string[]>([]);
@@ -16,9 +17,9 @@ export function useTranslationProfileModels(
   const request = useRef(0);
 
   const load = useCallback(async (profileId: string) => {
-    const response = await providersApi.apiProfileModels(profileId);
+    const response = await loadModels(profileId);
     return response.models;
-  }, []);
+  }, [loadModels]);
 
   const refresh = useCallback(async () => {
     if (!profile || !enabled) {

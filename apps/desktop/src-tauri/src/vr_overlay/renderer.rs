@@ -83,8 +83,8 @@ mod windows_renderer {
         CreateCompatibleDC, CreateDIBSection, CreateFontW, CreateSolidBrush, DeleteDC,
         DeleteObject, DrawTextW, FillRect, SelectObject, SetBkMode, SetTextColor, BITMAPINFO,
         BITMAPINFOHEADER, BI_RGB, CLIP_DEFAULT_PRECIS, DEFAULT_CHARSET, DEFAULT_PITCH,
-        DIB_RGB_COLORS, DT_CALCRECT, DT_CENTER, DT_END_ELLIPSIS, DT_NOPREFIX, DT_SINGLELINE,
-        DT_VCENTER, FF_DONTCARE, FW_SEMIBOLD, OUT_DEFAULT_PRECIS, PROOF_QUALITY, TRANSPARENT,
+        DIB_RGB_COLORS, DT_CALCRECT, DT_CENTER, DT_NOPREFIX, DT_RIGHT, DT_SINGLELINE, DT_VCENTER,
+        FF_DONTCARE, FW_SEMIBOLD, OUT_DEFAULT_PRECIS, PROOF_QUALITY, TRANSPARENT,
     };
 
     pub fn render_mask(
@@ -167,7 +167,6 @@ mod windows_renderer {
             SetBkMode(dc, TRANSPARENT as i32);
             SetTextColor(dc, 0x00ff_ffff);
 
-            let flags = DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX;
             for (index, line) in lines.iter().enumerate() {
                 let mut rect = RECT {
                     left: padding,
@@ -180,6 +179,26 @@ mod windows_renderer {
                     },
                 };
                 let mut wide: Vec<u16> = line.encode_utf16().collect();
+                let mut measured = RECT {
+                    left: 0,
+                    top: 0,
+                    right: rect.right - rect.left,
+                    bottom: 0,
+                };
+                DrawTextW(
+                    dc,
+                    wide.as_mut_ptr(),
+                    wide.len() as i32,
+                    &mut measured,
+                    DT_SINGLELINE | DT_NOPREFIX | DT_CALCRECT,
+                );
+                // Keep the newest text visible as a streaming line grows past the viewport.
+                let alignment = if measured.right > rect.right - rect.left {
+                    DT_RIGHT
+                } else {
+                    DT_CENTER
+                };
+                let flags = alignment | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX;
                 DrawTextW(dc, wide.as_mut_ptr(), wide.len() as i32, &mut rect, flags);
             }
 
@@ -291,5 +310,32 @@ mod tests {
             first.pixels.len(),
             (first.width * first.height * 4) as usize
         );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn overflowing_headset_lines_follow_new_text() {
+        let prefix = "前面的文字很长已经超过字幕区域".repeat(40);
+        let first =
+            PresentationContent::Headset(format!("{prefix}旧的结尾 OLD 123\n{prefix}old ending"));
+        let next = PresentationContent::Headset(format!(
+            "{prefix}新的内容继续出现 NEW 456\n{prefix}new words keep arriving"
+        ));
+        let first = render(Layout::Headset, &first, 54, 0.5).unwrap();
+        let next = render(Layout::Headset, &next, 54, 0.5).unwrap();
+        let middle = (first.width * first.height / 2 * 4) as usize;
+        assert_ne!(&first.pixels[..middle], &next.pixels[..middle]);
+        assert_ne!(&first.pixels[middle..], &next.pixels[middle..]);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn overflowing_headset_lines_keep_the_tail_in_view() {
+        let suffix = "最新文字必须留在画面中 The newest words stay visible".repeat(10);
+        let first = PresentationContent::Headset(format!("{}{suffix}", "旧内容".repeat(100)));
+        let next = PresentationContent::Headset(format!("{}{suffix}", "不同的旧内容".repeat(150)));
+        let first = render(Layout::Headset, &first, 54, 0.5).unwrap();
+        let next = render(Layout::Headset, &next, 54, 0.5).unwrap();
+        assert_eq!(first.pixels, next.pixels);
     }
 }

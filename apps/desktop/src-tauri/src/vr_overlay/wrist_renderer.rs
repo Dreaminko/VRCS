@@ -7,11 +7,12 @@ use windows_sys::Win32::Graphics::Gdi::{
     CreateCompatibleDC, CreateDIBSection, CreateFontW, CreateSolidBrush, DeleteDC, DeleteObject,
     DrawTextW, FillRect, SelectObject, SetBkMode, SetTextColor, BITMAPINFO, BITMAPINFOHEADER,
     BI_RGB, CLIP_DEFAULT_PRECIS, DEFAULT_CHARSET, DEFAULT_PITCH, DIB_RGB_COLORS, DT_CALCRECT,
-    DT_END_ELLIPSIS, DT_NOPREFIX, DT_RIGHT, DT_WORDBREAK, FF_DONTCARE, FW_SEMIBOLD,
-    OUT_DEFAULT_PRECIS, PROOF_QUALITY, TRANSPARENT,
+    DT_NOPREFIX, DT_RIGHT, DT_WORDBREAK, FF_DONTCARE, FW_SEMIBOLD, OUT_DEFAULT_PRECIS,
+    PROOF_QUALITY, TRANSPARENT,
 };
 
 use super::presentation::{MessageSide, WristMessage};
+use super::wrist_layout::visible_rows;
 
 const PANEL_MARGIN: i32 = 16;
 const TEXT_MARGIN: i32 = 38;
@@ -61,21 +62,22 @@ pub fn render(
         content.right - content.left,
         content.bottom - content.top,
     )?;
-    let mut top = content.top;
-    for (message, row_height) in messages.iter().zip(row_heights) {
-        if top >= content.bottom {
-            break;
-        }
-        let bottom = (top + row_height).min(content.bottom);
+    for row in visible_rows(&row_heights, content.top, content.bottom, MESSAGE_GAP) {
+        let message = &messages[row.index];
         let text_rect = Rect::new(
             content.left,
-            top + MESSAGE_PADDING_Y,
+            row.top + MESSAGE_PADDING_Y,
             content.right,
-            bottom - MESSAGE_PADDING_Y,
+            row.bottom - MESSAGE_PADDING_Y,
         );
         text_mask.draw(&message.text, text_rect, message.side)?;
-        blend_text(&mut pixels, text_mask.pixels(), width, text_rect);
-        top = bottom + MESSAGE_GAP;
+        let visible_rect = Rect::new(
+            text_rect.left,
+            text_rect.top.max(content.top),
+            text_rect.right,
+            text_rect.bottom.min(content.bottom),
+        );
+        blend_text(&mut pixels, text_mask.pixels(), width, visible_rect);
     }
 
     Ok(pixels)
@@ -257,7 +259,7 @@ impl TextMask {
                 wide.as_mut_ptr(),
                 wide.len() as i32,
                 &mut target,
-                text_flags(side) | DT_END_ELLIPSIS,
+                text_flags(side),
             );
             if result == 0 && !text.is_empty() {
                 return Err(last_error("DrawTextW"));
@@ -397,4 +399,45 @@ fn blend_text(pixels: &mut [u8], mask: &[u8], width: u32, rect: Rect) {
 
 fn last_error(operation: &str) -> String {
     format!("{operation} failed: {}", std::io::Error::last_os_error())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn new_messages_are_drawn_after_an_oversized_translation() {
+        let mut messages = vec![
+            WristMessage {
+                text: "日本語の原文\n很长的翻译 older translated line\n".repeat(150),
+                side: MessageSide::Left,
+            },
+            WristMessage {
+                text: "LATEST message A".into(),
+                side: MessageSide::Right,
+            },
+        ];
+        let first = render(&messages, 768, 768, 36, 0.5).unwrap();
+        messages[1].text = "LATEST message B".into();
+        let next = render(&messages, 768, 768, 36, 0.5).unwrap();
+        assert_ne!(first, next);
+    }
+
+    #[test]
+    fn a_growing_translation_keeps_its_latest_text_visible() {
+        let mut messages = vec![WristMessage {
+            text: format!(
+                "{}LATEST translation A",
+                "older translated line\n".repeat(150)
+            ),
+            side: MessageSide::Left,
+        }];
+        let first = render(&messages, 768, 768, 36, 0.5).unwrap();
+        messages[0].text = format!(
+            "{}LATEST translation B",
+            "older translated line\n".repeat(150)
+        );
+        let next = render(&messages, 768, 768, 36, 0.5).unwrap();
+        assert_ne!(first, next);
+    }
 }

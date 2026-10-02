@@ -616,6 +616,104 @@ fn native_translation_can_arrive_before_the_original() {
 }
 
 #[test]
+fn japanese_live_translation_preview_does_not_require_recognition_preview() {
+    let now = Instant::now();
+    let config = VrOverlayHeadsetConfig {
+        content_mode: "translation".into(),
+        show_partials: false,
+        show_translation_partials: true,
+        ..Default::default()
+    };
+    let event = PresentationEvent::LiveTranslationUpdated {
+        source: "speaker".into(),
+        snapshot: vrcs_core::LiveTranslation {
+            utterance_id: "japanese-stream".into(),
+            text: "日本語の音声を再生しています。".into(),
+            language: Some("ja".into()),
+            translation: "正在播放日语音频。".into(),
+            target_language: "zh-Hans".into(),
+        },
+    };
+    let mut state = HeadsetPresentation::default();
+    state.apply(event.clone(), now, &config);
+    assert_eq!(
+        state.frame(now, &config).unwrap().content,
+        PresentationContent::Headset("正在播放日语音频。".into())
+    );
+    let config = VrOverlayWristConfig {
+        show_partials: false,
+        show_translation_partials: true,
+        content_mode: "bilingual".into(),
+        ..Default::default()
+    };
+    let mut wrist = WristPresentation::default();
+    wrist.apply(event, now, &config);
+    assert_eq!(
+        wrist.frame(now, &config).unwrap().content,
+        PresentationContent::Wrist(vec![WristMessage {
+            text: "正在播放日语音频。".into(),
+            side: MessageSide::Left,
+        }])
+    );
+}
+
+#[test]
+fn empty_live_original_does_not_hide_a_completed_japanese_subtitle() {
+    let now = Instant::now();
+    let config = VrOverlayHeadsetConfig {
+        content_mode: "original".into(),
+        show_partials: true,
+        show_translation_partials: true,
+        ..Default::default()
+    };
+    let mut state = HeadsetPresentation::default();
+    let mut original = subtitle(1, "日本語の字幕です。");
+    original.language = Some("ja".into());
+    state.apply(final_event(original), now, &config);
+    state.apply(
+        PresentationEvent::LiveTranslationUpdated {
+            source: "speaker".into(),
+            snapshot: vrcs_core::LiveTranslation {
+                utterance_id: "next-japanese-stream".into(),
+                text: String::new(),
+                language: Some("ja".into()),
+                translation: "下一句的译文".into(),
+                target_language: "zh-Hans".into(),
+            },
+        },
+        now,
+        &config,
+    );
+    assert_eq!(
+        state.frame(now, &config).unwrap().content,
+        PresentationContent::Headset("日本語の字幕です。".into())
+    );
+}
+
+#[test]
+fn expired_preview_does_not_hide_newer_completed_subtitles() {
+    let now = Instant::now();
+    let config = VrOverlayHeadsetConfig {
+        display_seconds: 2.0,
+        fade_seconds: 1.0,
+        show_partials: true,
+        ..Default::default()
+    };
+    let mut state = HeadsetPresentation::default();
+    state.apply(
+        partial_event("old-preview", "speaker", "古いプレビュー"),
+        now,
+        &config,
+    );
+    let later = now + Duration::from_secs(4);
+    state.apply(final_event(subtitle(2, "新しい字幕")), later, &config);
+    assert_eq!(
+        state.frame(later, &config).unwrap().content,
+        PresentationContent::Headset("新しい字幕".into())
+    );
+}
+
+#[test]
 fn shared_translation_uses_group_context_only_on_the_last_sentence() {
     let now = Instant::now();
     let mut first = item_from_subtitle(subtitle(1, "Hello."), None, now);

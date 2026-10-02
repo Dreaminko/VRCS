@@ -51,6 +51,62 @@ pub(super) async fn generate(
     unreachable!("OpenAI response loop returns after at most one retry")
 }
 
+pub(super) async fn generate_structured(
+    http: &reqwest::Client,
+    api_key: &str,
+    request: LlmRequest<'_>,
+    schema: Value,
+) -> Result<String, LlmError> {
+    generate_structured_at(
+        http,
+        api_key,
+        request,
+        schema,
+        "https://api.openai.com/v1/responses",
+    )
+    .await
+}
+
+fn structured_body(request: &LlmRequest<'_>, schema: Value) -> Value {
+    let mut body = request_body(request, request.max_output_tokens);
+    body["text"] = json!({"format": {"type":"json_schema", "name":"translation_alignment", "strict":true, "schema":schema}});
+    if is_model_or_snapshot(&request.model.to_ascii_lowercase(), "gpt-6-luna") {
+        body["reasoning"] =
+            json!({"effort": if request.thinking_enabled { "low" } else { "none" }});
+    }
+    body
+}
+
+pub(super) async fn generate_structured_at(
+    http: &reqwest::Client,
+    api_key: &str,
+    request: LlmRequest<'_>,
+    schema: Value,
+    endpoint: &str,
+) -> Result<String, LlmError> {
+    let body = structured_body(&request, schema);
+    let response = http
+        .post(endpoint)
+        .bearer_auth(api_key)
+        .json(&body)
+        .send()
+        .await
+        .map_err(network_error)?;
+    let status = response.status();
+    let value = response.json().await.map_err(invalid_response)?;
+    if !status.is_success() {
+        return Err(status_error(status, &value));
+    }
+    match parse_response(&value)? {
+        ParsedResponse::Complete(text) => Ok(text),
+        ParsedResponse::Incomplete(reason) => {
+            let mut error = incomplete_error(&reason);
+            error.code = "llm.incomplete_response";
+            Err(error)
+        }
+    }
+}
+
 fn request_body(request: &LlmRequest<'_>, max_output_tokens: u32) -> Value {
     let mut body = json!({
         "model": request.model,
@@ -175,6 +231,23 @@ fn extract_text(value: &Value) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn alignment_uses_strict_mapping_schema_and_explicit_luna_reasoning() {
+        for (enabled, effort) in [(false, "none"), (true, "low")] {
+            let request = LlmRequest {
+                model: "gpt-6-luna",
+                instructions: "align",
+                input: "data",
+                max_output_tokens: 2048,
+                thinking_enabled: enabled,
+            };
+            let body = structured_body(&request, json!({"type":"object"}));
+            assert_eq!(body["reasoning"]["effort"], effort);
+            assert_eq!(body["text"]["format"]["type"], "json_schema");
+            assert_eq!(body["text"]["format"]["strict"], true);
+        }
+    }
 
     #[test]
     fn extracts_responses_api_text() {

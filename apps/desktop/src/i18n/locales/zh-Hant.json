@@ -701,8 +701,15 @@
         "clearComplete": "字幕記錄已清除，資料庫空間已回收。"
       },
       "translation": {
+        "alignment": {
+          "enabled": "背景文字對齊",
+          "description": "使用輕量模型在背景為原文和譯文分句、對齊，會少量增加 API 用量。（僅對 OpenAI Realtime Translation 和 Gemini Live Translate 模型生效）",
+          "profile": "對齊 API 設定",
+          "recognitionProfile": "使用辨識設定",
+          "model": "對齊模型"
+        },
         "liveTranslateHint": "每路音源使用 Live Translate 翻譯第一目標語言，需開啟自動翻譯。文字 Prompt、術語表和思考設定不適用。服務會產生譯後音訊並計費，但應用不播放。",
-        "liveTranslatePreview": "原文與譯文在兩路文字短暫停止更新後整段儲存，支援歷史紀錄、額外目標翻譯及 OSC。不會依不同斷句數量強制逐句配對；服務延遲仍可能影響分段。",
+        "liveTranslatePreview": "偵測到語音後開始上傳。譯文回傳後即可預覽，背景文字對齊可使用輕量模型按語意分段、配對，支援歷史紀錄、額外目標翻譯及 OSC。",
         "title": "字幕翻譯",
 
         "mode": "翻譯方式",

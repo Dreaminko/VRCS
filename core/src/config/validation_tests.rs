@@ -703,3 +703,87 @@ fn openai_translation_does_not_inherit_gemini_language_restrictions() {
     config.asr.backend = crate::providers::SERVICE_GEMINI_LIVE_TRANSLATE.into();
     assert!(config.validate_settings().is_err());
 }
+
+#[test]
+fn live_alignment_requires_a_model_and_an_existing_profile_from_any_provider() {
+    for service in [
+        providers::SERVICE_OPENAI_REALTIME_TRANSLATE,
+        providers::SERVICE_GEMINI_LIVE_TRANSLATE,
+    ] {
+        let mut config = AppConfig::default();
+        config.asr.backend = service.into();
+        config.translation.mode = "automatic".into();
+        config.translation.live_alignment.model.clear();
+        assert_eq!(
+            config.validate_settings().unwrap_err(),
+            "The live alignment model cannot be empty"
+        );
+        config.translation.live_alignment.enabled = false;
+        assert!(config.validate_settings().is_ok());
+        config.translation.live_alignment = super::LiveAlignmentConfig::default();
+        config.translation.live_alignment.profile_id = Some("missing".into());
+        assert_eq!(
+            config.validate_settings().unwrap_err(),
+            "Live alignment requires an existing API profile"
+        );
+        config.asr.api_profiles.push(ApiProfile {
+            id: "alignment".into(),
+            name: "Local alignment".into(),
+            provider: OLLAMA_PROVIDER.into(),
+            enabled_capabilities: text_capabilities(),
+            base_url: Some("http://127.0.0.1:11434/v1".into()),
+            auth_mode: ApiAuthMode::None,
+            is_local: true,
+            ..ApiProfile::default()
+        });
+        config.translation.live_alignment.profile_id = Some("alignment".into());
+        config.translation.live_alignment.model = "user-chosen-model".into();
+        config.validate_settings().unwrap();
+    }
+}
+
+#[test]
+fn inactive_alignment_settings_do_not_affect_other_services_or_translation_modes() {
+    let mut config = AppConfig::default();
+    config.asr.api_profiles.push(ApiProfile {
+        id: "text".into(),
+        name: "Text translation".into(),
+        provider: OLLAMA_PROVIDER.into(),
+        base_url: Some("http://127.0.0.1:11434/v1".into()),
+        enabled_capabilities: text_capabilities(),
+        auth_mode: ApiAuthMode::None,
+        is_local: true,
+        ..ApiProfile::default()
+    });
+    set_translation_profile(&mut config, Some("text"));
+    config.translation.live_alignment.model.clear();
+    config.translation.live_alignment.profile_id = Some("missing".into());
+    for service in [
+        "local_whisper",
+        providers::SERVICE_OPENAI_REALTIME,
+        providers::SERVICE_QWEN_REALTIME,
+        providers::SERVICE_FUN_ASR_REALTIME,
+    ] {
+        config.asr.backend = service.into();
+        for mode in ["disabled", "manual", "automatic"] {
+            config.translation.mode = mode.into();
+            assert!(
+                config.validate_settings().is_ok(),
+                "{service}/{mode}: {:?}",
+                config.validate_settings()
+            );
+        }
+    }
+    for service in [
+        providers::SERVICE_OPENAI_REALTIME_TRANSLATE,
+        providers::SERVICE_GEMINI_LIVE_TRANSLATE,
+    ] {
+        config.asr.backend = service.into();
+        for mode in ["disabled", "manual"] {
+            config.translation.mode = mode.into();
+            assert!(config.validate_settings().is_ok());
+        }
+        config.translation.mode = "automatic".into();
+        assert!(config.validate_settings().is_err());
+    }
+}

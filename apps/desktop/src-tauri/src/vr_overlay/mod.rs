@@ -6,6 +6,8 @@ mod process;
 mod renderer;
 mod runtime;
 mod transform;
+#[cfg(any(windows, test))]
+mod wrist_layout;
 #[cfg(windows)]
 mod wrist_renderer;
 

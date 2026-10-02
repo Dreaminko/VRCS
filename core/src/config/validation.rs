@@ -417,6 +417,19 @@ fn validate_translation(
     live_service: &str,
 ) -> Result<(), String> {
     validate_translation_prompt(&translation.prompt)?;
+    if providers::is_live_translation(live_service)
+        && translation.mode == "automatic"
+        && translation.live_alignment.enabled
+    {
+        if translation.live_alignment.model.trim().is_empty() {
+            return Err("The live alignment model cannot be empty".into());
+        }
+        if let Some(id) = &translation.live_alignment.profile_id {
+            if !profiles.iter().any(|p| p.id == *id) {
+                return Err("Live alignment requires an existing API profile".into());
+            }
+        }
+    }
     if !["disabled", "manual", "automatic"].contains(&translation.mode.as_str()) {
         return Err(format!(
             "Unsupported translation mode: {}",

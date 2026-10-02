@@ -1,6 +1,6 @@
 [package]
 name = "vrcs-core"
-version = "0.1.11"
+version = "0.1.12"
 description = "VRCS local core service (Rust)"
 authors = ["VRCS contributors"]
 license = "AGPL-3.0-only"
@@ -49,5 +49,6 @@ windows = { version = "0.62", features = [
 ] }
 
 [dev-dependencies]
+tokio = { version = "1", features = ["test-util"] }
 tempfile = "3"
 hound = "3.5"

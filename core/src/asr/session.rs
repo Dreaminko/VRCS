@@ -20,6 +20,19 @@ impl CloudRecognitionSession {
         }
     }
 
+    pub async fn send_with_activity(
+        &self,
+        samples: SharedAudio,
+        speech: bool,
+    ) -> Result<(), String> {
+        if let Self::Realtime(session) = self {
+            if session.segmentation_mode() == SegmentationMode::Continuous {
+                return session.send_with_activity(samples, speech).await;
+            }
+        }
+        self.send(samples).await
+    }
+
     pub async fn commit(&self, valid_segment: bool) -> Result<Option<String>, String> {
         match self {
             Self::Realtime(session) => session.commit().await.map(|()| None),
