@@ -193,10 +193,15 @@ mod windows_renderer {
                 } else {
                     slot_height
                 });
-                let visible = headset_layout::visible_tail(line, |candidate| {
+                let fits = |candidate: &str| {
                     let measured = measure_text(dc, candidate, available_width, flags);
                     measured.right <= available_width && measured.bottom <= available_height
-                });
+                };
+                let visible = if index == 0 {
+                    headset_layout::visible_caption(line, fits)
+                } else {
+                    headset_layout::visible_tail(line, fits)
+                };
                 let mut wide: Vec<u16> = visible.encode_utf16().collect();
                 if lines.len() == 1 {
                     let measured = measure_text(dc, &visible, available_width, flags);
@@ -398,5 +403,27 @@ mod tests {
         }
         assert_eq!(bands.len(), 2);
         assert!(bands.iter().all(|&height| height > 30));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn overflowing_captions_still_render_different_speaker_numbers() {
+        let source = format!("{}最新字幕清晰可读", "旧字幕内容".repeat(100));
+        for bilingual in [false, true] {
+            let translation = if bilingual {
+                format!("\n{}", "Translation ".repeat(40))
+            } else {
+                String::new()
+            };
+            let first = PresentationContent::Headset(format!("[1] {source}{translation}"));
+            let next = PresentationContent::Headset(format!("[2] {source}{translation}"));
+            let first = render(Layout::Headset, &first, 54, 0.5).unwrap();
+            let next = render(Layout::Headset, &next, 54, 0.5).unwrap();
+            assert_ne!(first.pixels, next.pixels);
+            if bilingual {
+                let middle = (first.width * first.height / 2 * 4) as usize;
+                assert_eq!(&first.pixels[middle..], &next.pixels[middle..]);
+            }
+        }
     }
 }

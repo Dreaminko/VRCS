@@ -22,6 +22,28 @@ pub(super) fn font_size(
     best
 }
 
+// Presentation adds a numeric speaker label to the first caption line. Measure
+// that label together with each candidate, but only trim the spoken text.
+pub(super) fn visible_caption(text: &str, mut fits: impl FnMut(&str) -> bool) -> String {
+    let Some(end) = text.strip_prefix('[').and_then(|text| text.find("] ")) else {
+        return visible_tail(text, fits);
+    };
+    let number = &text[1..end + 1];
+    if number.is_empty() || !number.bytes().all(|byte| byte.is_ascii_digit()) {
+        return visible_tail(text, fits);
+    }
+    let (label, body) = text.split_at(end + 3);
+    let visible = visible_tail(body, |candidate| fits(&format!("{label}{candidate}")));
+    let caption = format!("{label}{visible}");
+    if fits(&caption) {
+        caption
+    } else if fits(label.trim_end()) {
+        label.trim_end().to_owned()
+    } else {
+        String::new()
+    }
+}
+
 // Keep the newest complete graphemes instead of squeezing the whole paragraph.
 pub(super) fn visible_tail(text: &str, mut fits: impl FnMut(&str) -> bool) -> String {
     if text.is_empty() || fits(text) {
@@ -104,6 +126,55 @@ mod tests {
     fn short_captions_are_not_truncated() {
         assert_eq!(visible_tail("短句", |_| true), "短句");
         assert_eq!(visible_tail("", |_| false), "");
+    }
+
+    #[test]
+    fn overflowing_captions_keep_the_speaker_and_latest_text() {
+        for limit in [16, 32] {
+            let fits = |text: &str| text.graphemes(true).count() <= limit;
+            let suffix = "最新字幕仍然清晰可读";
+            let first = visible_caption(&format!("[2] {}{suffix}", "旧内容".repeat(10)), fits);
+            let longer = visible_caption(&format!("[2] {}{suffix}", "旧内容".repeat(100)), fits);
+            assert!(first.starts_with("[2] …"));
+            assert!(first.ends_with(suffix));
+            assert_eq!(first, longer);
+            assert!(fits(&first));
+            let next_speaker =
+                visible_caption(&format!("[3] {}{suffix}", "旧内容".repeat(100)), fits);
+            assert!(next_speaker.starts_with("[3] …"));
+            assert_ne!(first, next_speaker);
+        }
+    }
+
+    #[test]
+    fn speaker_label_and_unicode_graphemes_are_retained_without_splitting() {
+        let text = "[12] 之前的内容 👨‍👩‍👧‍👦e\u{301} 🇯🇵";
+        let fits = |text: &str| text.graphemes(true).count() <= 11;
+        let result = visible_caption(text, fits);
+        assert_eq!(result, "[12] …👨‍👩‍👧‍👦e\u{301} 🇯🇵");
+        assert!(fits(&result));
+    }
+
+    #[test]
+    fn short_captions_and_non_speaker_brackets_keep_existing_behavior() {
+        assert_eq!(visible_caption("[2] Hello.", |_| true), "[2] Hello.");
+        let fits = |text: &str| text.graphemes(true).count() <= 8;
+        for text in [
+            "普通字幕保持结尾",
+            "[note] long caption",
+            "[] long caption",
+            "[2]caption",
+        ] {
+            assert_eq!(visible_caption(text, fits), visible_tail(text, fits));
+        }
+        assert_eq!(
+            visible_caption("[2] long caption", |text| text.len() <= 3),
+            "[2]"
+        );
+        assert_eq!(
+            visible_caption("[2] long caption", |text| text.len() <= 2),
+            ""
+        );
     }
 
     #[test]
