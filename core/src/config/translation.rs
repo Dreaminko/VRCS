@@ -122,14 +122,17 @@ impl Default for TranslationPromptConfig {
     }
 }
 
-/// Background semantic alignment never rewrites the native translation.
+/// Local alignment never rewrites the native translation.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct LiveAlignmentConfig {
     pub enabled: bool,
-    /// None reuses the recognition profile's OpenAI credential.
+    // Accept old model-based settings on load, but never use or save them.
+    #[serde(skip_serializing)]
     pub profile_id: Option<String>,
+    #[serde(skip_serializing)]
     pub model: String,
+    #[serde(skip_serializing)]
     pub thinking_enabled: bool,
 }
 
@@ -138,7 +141,7 @@ impl Default for LiveAlignmentConfig {
         Self {
             enabled: true,
             profile_id: None,
-            model: "gpt-6-luna".into(),
+            model: String::new(),
             thinking_enabled: false,
         }
     }
@@ -154,5 +157,14 @@ mod tests {
         let round_trip: TranslationConfig =
             serde_json::from_str(&serde_json::to_string(&config).unwrap()).unwrap();
         assert_eq!(round_trip, config);
+    }
+    #[test]
+    fn legacy_remote_alignment_settings_load_but_only_the_local_switch_is_saved() {
+        let config: LiveAlignmentConfig = serde_json::from_str(r#"{"enabled":true,"profile_id":"deleted","model":"gpt-6-luna","thinking_enabled":true}"#).unwrap();
+        assert!(config.enabled);
+        assert_eq!(
+            serde_json::to_value(config).unwrap(),
+            serde_json::json!({"enabled":true})
+        );
     }
 }

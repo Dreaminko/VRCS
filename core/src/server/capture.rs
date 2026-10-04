@@ -28,8 +28,9 @@ impl CaptureReloadPlan {
         let live = crate::providers::is_live_translation(&current.asr.backend)
             || crate::providers::is_live_translation(&candidate.asr.backend);
         let live_mode_changed = live && current.translation.mode != candidate.translation.mode;
-        let alignment_changed =
-            live && current.translation.live_alignment != candidate.translation.live_alignment;
+        let alignment_changed = live
+            && current.translation.live_alignment.enabled
+                != candidate.translation.live_alignment.enabled;
         let target = |targets: &[crate::config::TranslationTargetConfig]| {
             targets.first().map(|t| t.target_language.clone())
         };
@@ -613,6 +614,7 @@ mod tests {
         for (service, reload) in [
             (crate::providers::SERVICE_OPENAI_REALTIME_TRANSLATE, true),
             (crate::providers::SERVICE_GEMINI_LIVE_TRANSLATE, true),
+            (crate::providers::SERVICE_QWEN_LIVE_TRANSLATE, true),
             ("local_whisper", false),
             (crate::providers::SERVICE_OPENAI_REALTIME, false),
             (crate::providers::SERVICE_QWEN_REALTIME, false),
@@ -621,7 +623,7 @@ mod tests {
             let mut current = crate::config::AppConfig::default();
             current.asr.backend = service.into();
             let mut next = current.clone();
-            next.translation.live_alignment.model = "gpt-5-mini".into();
+            next.translation.live_alignment.enabled = false;
             let plan = CaptureReloadPlan::between(&current, &next);
             assert_eq!((plan.speaker, plan.microphone), (reload, reload));
         }
@@ -632,6 +634,7 @@ mod tests {
         for service in [
             crate::providers::SERVICE_GEMINI_LIVE_TRANSLATE,
             crate::providers::SERVICE_OPENAI_REALTIME_TRANSLATE,
+            crate::providers::SERVICE_QWEN_LIVE_TRANSLATE,
         ] {
             let mut current = crate::config::AppConfig::default();
             current.asr.backend = service.into();

@@ -77,6 +77,13 @@ fn default_cloud_failure_policy() -> String {
 pub fn default_service_settings() -> BTreeMap<String, RecognitionServiceSettings> {
     [
         (
+            crate::providers::SERVICE_QWEN_LIVE_TRANSLATE,
+            RecognitionServiceSettings {
+                model: "qwen3.8-livetranslate-flash-realtime".into(),
+                context: String::new(),
+            },
+        ),
+        (
             crate::providers::SERVICE_OPENAI_REALTIME_TRANSLATE,
             RecognitionServiceSettings {
                 model: "gpt-realtime-translate".into(),

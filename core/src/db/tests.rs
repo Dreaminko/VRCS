@@ -13,6 +13,7 @@ fn open_temp_db(name: &str) -> (std::path::PathBuf, Database) {
 
 fn subtitle(text: &str) -> Subtitle {
     Subtitle {
+        speaker: None,
         id: None,
         conversation_id: None,
         text: text.into(),
@@ -714,7 +715,7 @@ fn version_4_preserves_existing_version_3_subtitles() {
     let original = db.add_subtitle(&subtitle("Keep existing history")).unwrap();
     db.conn
         .execute_batch(
-            "ALTER TABLE subtitle_translations DROP COLUMN source_group; PRAGMA user_version = 3;",
+            "ALTER TABLE subtitle_translations DROP COLUMN source_group; ALTER TABLE subtitles DROP COLUMN speaker; PRAGMA user_version = 3;",
         )
         .unwrap();
     drop(db);
@@ -727,6 +728,67 @@ fn version_4_preserves_existing_version_3_subtitles() {
         db.conn
             .query_row("PRAGMA user_version", [], |row| row.get::<_, u32>(0))
             .unwrap(),
-        4
+        LATEST_SCHEMA_VERSION
+    );
+}
+
+#[test]
+fn version_5_preserves_history_and_round_trips_session_scoped_speakers() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("speakers.db");
+    let db = Database::open(&path).unwrap();
+    let legacy = db.add_subtitle(&subtitle("Legacy history")).unwrap();
+    db.conn
+        .execute_batch("ALTER TABLE subtitles DROP COLUMN speaker; PRAGMA user_version = 4;")
+        .unwrap();
+    drop(db);
+    let db = Database::open(&path).unwrap();
+    assert!(db
+        .subtitle(legacy.id.unwrap())
+        .unwrap()
+        .unwrap()
+        .speaker
+        .is_none());
+    let mut item = subtitle("Two speakers");
+    item.speaker = Some(crate::models::SpeakerIdentity {
+        id: "qwen-session-1".into(),
+        index: 1,
+    });
+    let saved = db.add_subtitle(&item).unwrap();
+    let id = saved.id.unwrap();
+    let conversation = saved.conversation_id.as_deref().unwrap();
+    assert_eq!(db.subtitle(id).unwrap().unwrap().speaker, item.speaker);
+    assert_eq!(db.subtitle_history(10).unwrap()[0].speaker, item.speaker);
+    assert_eq!(
+        db.conversation_subtitles(conversation, 10, None)
+            .unwrap()
+            .unwrap()
+            .items[0]
+            .speaker,
+        item.speaker
+    );
+    assert_eq!(
+        db.conversation_subtitle_context(conversation, id, 1)
+            .unwrap()
+            .unwrap()
+            .items[0]
+            .speaker,
+        item.speaker
+    );
+    assert_eq!(
+        db.search_subtitles("speakers", 10, 0).unwrap().items[0]
+            .subtitle
+            .speaker,
+        item.speaker
+    );
+    drop(db);
+    assert_eq!(
+        Database::open(&path)
+            .unwrap()
+            .subtitle(id)
+            .unwrap()
+            .unwrap()
+            .speaker,
+        item.speaker
     );
 }

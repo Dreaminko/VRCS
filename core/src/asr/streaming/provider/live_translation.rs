@@ -7,7 +7,7 @@ use crate::config::AsrConfig;
 use crate::models::LiveTranslation;
 
 mod timed;
-pub(in crate::asr::streaming) use timed::{append_delta, apply, confirm, window};
+pub(in crate::asr::streaming) use timed::append_delta;
 
 pub(super) const MAX_DISPLAY_CHARS: usize = 160;
 
@@ -45,61 +45,33 @@ pub(super) struct State {
     timing: Option<timed::Timing>,
 }
 
-fn terminal(c: char) -> bool {
-    matches!(
-        c,
-        '.' | '。'
-            | '．'
-            | '｡'
-            | '!'
-            | '！'
-            | '?'
-            | '？'
-            | '؟'
-            | '‼'
-            | '⁇'
-            | '⁈'
-            | '⁉'
-            | '\n'
-            | '\r'
-    )
-}
-
-fn closing(c: char) -> bool {
-    matches!(
-        c,
-        '"' | '\'' | '”' | '’' | '」' | '』' | ')' | '）' | ']' | '】' | '》' | '»'
-    )
-}
-
-fn has_content(text: &str) -> bool {
-    text.chars().any(|c| {
-        !c.is_whitespace()
-            && !terminal(c)
-            && !closing(c)
-            && !matches!(
-                c,
-                '“' | '‘' | '「' | '『' | '(' | '（' | '[' | '【' | '《' | '«'
-            )
-    })
-}
-
-fn result(config: &AsrConfig, transcript: LiveTranslation, pending: bool) -> LiveTranslationResult {
+pub(super) fn result(
+    config: &AsrConfig,
+    transcript: LiveTranslation,
+    pending: bool,
+) -> LiveTranslationResult {
     let source_utterance_ids = vec![transcript.utterance_id.clone()];
     LiveTranslationResult {
         pending,
         source_utterance_ids,
         transcript,
-        provider: crate::providers::recognition_service(&config.backend)
-            .unwrap()
-            .0
+        provider: config
+            .api_profiles
+            .iter()
+            .find(|profile| config.active_profile_id.as_deref() == Some(profile.id.as_str()))
+            .map(|profile| profile.provider.as_str())
+            .unwrap_or_else(|| {
+                crate::providers::recognition_service(&config.backend)
+                    .unwrap()
+                    .0
+            })
             .into(),
         model: config.service_settings[&config.backend].model.clone(),
     }
 }
 
 impl State {
-    fn collect(&mut self, config: &AsrConfig, flush: bool) -> Option<CloudEvent> {
+    pub(super) fn collect(&mut self, config: &AsrConfig, flush: bool) -> Option<CloudEvent> {
         let mut timing = self.timing.take()?;
         let event = timing.collect(self, config, flush);
         self.timing = Some(timing);
@@ -132,6 +104,7 @@ pub(super) fn append(
         return Err("Live translation transcript limit reached; restart recognition".into());
     }
     let snapshot = state.snapshot.get_or_insert_with(|| LiveTranslation {
+        speaker: None,
         utterance_id: format!("live-{}", uuid::Uuid::new_v4()),
         text: String::new(),
         language: None,

@@ -705,40 +705,17 @@ fn openai_translation_does_not_inherit_gemini_language_restrictions() {
 }
 
 #[test]
-fn live_alignment_requires_a_model_and_an_existing_profile_from_any_provider() {
+fn local_alignment_ignores_legacy_model_and_profile_settings() {
     for service in [
         providers::SERVICE_OPENAI_REALTIME_TRANSLATE,
         providers::SERVICE_GEMINI_LIVE_TRANSLATE,
+        providers::SERVICE_QWEN_LIVE_TRANSLATE,
     ] {
         let mut config = AppConfig::default();
         config.asr.backend = service.into();
-        config.translation.mode = "automatic".into();
         config.translation.live_alignment.model.clear();
-        assert_eq!(
-            config.validate_settings().unwrap_err(),
-            "The live alignment model cannot be empty"
-        );
-        config.translation.live_alignment.enabled = false;
-        assert!(config.validate_settings().is_ok());
-        config.translation.live_alignment = super::LiveAlignmentConfig::default();
         config.translation.live_alignment.profile_id = Some("missing".into());
-        assert_eq!(
-            config.validate_settings().unwrap_err(),
-            "Live alignment requires an existing API profile"
-        );
-        config.asr.api_profiles.push(ApiProfile {
-            id: "alignment".into(),
-            name: "Local alignment".into(),
-            provider: OLLAMA_PROVIDER.into(),
-            enabled_capabilities: text_capabilities(),
-            base_url: Some("http://127.0.0.1:11434/v1".into()),
-            auth_mode: ApiAuthMode::None,
-            is_local: true,
-            ..ApiProfile::default()
-        });
-        config.translation.live_alignment.profile_id = Some("alignment".into());
-        config.translation.live_alignment.model = "user-chosen-model".into();
-        config.validate_settings().unwrap();
+        assert!(config.validate_settings().is_ok());
     }
 }
 
@@ -784,6 +761,6 @@ fn inactive_alignment_settings_do_not_affect_other_services_or_translation_modes
             assert!(config.validate_settings().is_ok());
         }
         config.translation.mode = "automatic".into();
-        assert!(config.validate_settings().is_err());
+        assert!(config.validate_settings().is_ok());
     }
 }

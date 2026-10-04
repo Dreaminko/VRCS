@@ -361,7 +361,7 @@ mod tests {
         let start = tokio::time::Instant::now();
         let first = events[0]["received_ms"].as_u64().unwrap();
         let mut originals = Vec::new();
-        let mut updates = Vec::new();
+        let mut updates: Vec<crate::asr::LiveTranslationResult> = Vec::new();
         let mut visible_deltas = 0;
         let mut collect = |event| {
             if let Some(CloudEvent::LiveTranslation {
@@ -371,7 +371,15 @@ mod tests {
             }) = event
             {
                 originals.extend(completed);
-                updates.extend(translations.into_iter().filter(|t| !t.pending));
+                for update in translations.into_iter().filter(|t| !t.pending) {
+                    if let Some(previous) = updates.iter_mut().find(|previous| {
+                        previous.transcript.utterance_id == update.transcript.utterance_id
+                    }) {
+                        *previous = update;
+                    } else {
+                        updates.push(update);
+                    }
+                }
             }
         };
         for event in events {
@@ -406,19 +414,20 @@ mod tests {
             collect(normalized);
         }
         collect(live_translation::finish(&config, &mut state));
-        println!("fixture replay: sources={}, immediately displayed deltas={}, native fallback groups={} (no model request)", originals.len(), visible_deltas, updates.len());
-        // Without a model response, shutdown retains the whole stream as one group.
-        assert_eq!(originals.len(), 1);
-        assert_eq!(updates.len(), 1);
+        assert!(visible_deltas > 0);
+        assert_eq!(originals.len(), updates.len());
+        for (original, update) in originals.iter().zip(&updates) {
+            assert_eq!(
+                update.source_utterance_ids,
+                [original.transcript.utterance_id.clone()]
+            );
+        }
         assert_eq!(
-            updates[0].source_utterance_ids,
-            originals
+            updates
                 .iter()
-                .map(|original| original.transcript.utterance_id.clone())
-                .collect::<Vec<_>>()
-        );
-        assert_eq!(
-            updates[0].transcript.translation.replace(' ', ""),
+                .map(|update| update.transcript.translation.as_str())
+                .collect::<String>()
+                .replace(' ', ""),
             expected.concat().replace(' ', "")
         );
     }

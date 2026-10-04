@@ -125,6 +125,7 @@ async fn test_recognition_service(
     ensure_asr_profile_ready(profile)?;
     match service.adapter {
         ServiceAdapter::QwenRealtime
+        | ServiceAdapter::QwenLiveTranslate
         | ServiceAdapter::AlibabaTokenPlanRealtime
         | ServiceAdapter::FunAsrRealtime
         | ServiceAdapter::OpenAiRealtime
@@ -406,7 +407,9 @@ fn select_listed_model(provider: &str, models: Vec<String>) -> Option<String> {
         GROQ_PROVIDER => GROQ_DIAGNOSTIC_MODELS,
         DEEPSEEK_PROVIDER => DEEPSEEK_DIAGNOSTIC_MODELS,
         GEMINI_PROVIDER => GEMINI_DIAGNOSTIC_MODELS,
-        ALIBABA_PROVIDER | ALIBABA_TOKEN_PLAN_PROVIDER => ALIBABA_DIAGNOSTIC_MODELS,
+        ALIBABA_PROVIDER | ALIBABA_TOKEN_PLAN_PROVIDER | providers::QWEN_AI_PROVIDER => {
+            ALIBABA_DIAGNOSTIC_MODELS
+        }
         OPENROUTER_PROVIDER => OPENROUTER_DIAGNOSTIC_MODELS,
         _ => return None,
     };

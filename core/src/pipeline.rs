@@ -1311,6 +1311,7 @@ mod tests {
         ] {
             let mut state = PipelineState::new(16_000);
             let snapshot = crate::models::LiveTranslation {
+                speaker: None,
                 utterance_id: "preview".into(),
                 text: String::new(),
                 language: None,

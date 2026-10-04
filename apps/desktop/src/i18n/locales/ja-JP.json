@@ -231,6 +231,7 @@
       "transcribing": "文字起こし中",
       "waiting": "字幕を待っています…",
       "microphoneMe": "自分 · マイク",
+      "speakerNumber": "話者 {{number}}",
       "speakerOther": "相手 · システム音声",
       "returnToBottom": "最新の字幕に戻る",
       "returnToBottomShort": "最新の字幕",
@@ -702,14 +703,14 @@
       },
       "translation": {
         "alignment": {
-          "enabled": "バックグラウンドでテキストを対応付ける",
-          "description": "軽量モデルがバックグラウンドで原文と訳文を区切り、対応付けるため、API 使用量が少し増えます。（OpenAI Realtime Translation と Gemini Live Translate モデルのみ対象）",
+          "enabled": "ローカルテキスト整列",
+          "description": "文の境界、テキストの長さ、数値情報を使って原文と訳文をローカルで対応付けます。追加のモデルや API 利用は不要です。Qwen ではサーバーのメッセージ ID を使います。",
           "profile": "対応付け用 API 設定",
           "recognitionProfile": "音声認識の設定を使う",
           "model": "対応付けモデル"
         },
-        "liveTranslateHint": "各音声ソースの最初の翻訳先に Live Translate を使用します。自動翻訳が必要です。テキストプロンプト、用語集、思考設定は適用されません。翻訳音声は再生されませんが、生成と課金は行われます。",
-        "liveTranslatePreview": "音声を検出してから送信を開始します。訳文は受信後にプレビューでき、バックグラウンドのテキスト対応付けでは軽量モデルで意味に基づいて分割・対応付けできます。履歴、追加の翻訳先、OSC に対応します。",
+        "liveTranslateHint": "各音声ソースの最初の翻訳先を使用し、自動翻訳が必要です。テキストプロンプトと思考設定は適用されません。Qwen はテキストのみを出力し話者を識別します。他のリアルタイム翻訳サービスは翻訳音声を生成しますが、アプリでは再生しません。",
+        "liveTranslatePreview": "音声検出後にアップロードを開始し、訳文が届くとプレビューできます。ローカル整列は履歴、追加の翻訳先、OSC に対応し、同じ言語の原文は訳文を待たずに確定できます。",
         "title": "字幕翻訳",
 
         "mode": "翻訳モード",

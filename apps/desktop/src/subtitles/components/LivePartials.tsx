@@ -18,6 +18,7 @@ export function LivePartials() {
   }
   return partials.map((partial) => (
     <div className={`message-group source-${partial.source} streaming-message`} key={`${partial.source}-${partial.utterance_id}`}>
+      {partial.speaker && <div className="message-meta">{t("live.speakerNumber", { number: partial.speaker.index + 1 })}</div>}
       <div className="bubble">
         {partial.text && <p className="bubble-original" lang={contentLanguageTag(partial.language)}>{partial.text}<span className="streaming-ellipsis" aria-hidden="true">…</span></p>}
         {partial.text && partial.translation && <div className="bubble-translation-divider" aria-hidden="true" />}

@@ -7,12 +7,12 @@ use crate::error::AppResult;
 use crate::models::{Subtitle, SubtitleTranslation};
 
 const HISTORY_SQL: &str = "SELECT recent.id, recent.conversation_id, recent.text, recent.language,
-            recent.started_at, recent.ended_at, recent.source, recent.created_at,
+            recent.started_at, recent.ended_at, recent.source, recent.created_at, recent.speaker,
             translation.id, translation.text, translation.source_language,
             translation.target_language, translation.provider,
             translation.model, translation.created_at, translation.source_group
      FROM (
-         SELECT id, conversation_id, text, language, started_at, ended_at, source, created_at
+         SELECT id, conversation_id, text, language, started_at, ended_at, source, created_at, speaker
          FROM subtitles
          ORDER BY id DESC LIMIT ?1
      ) AS recent
@@ -22,12 +22,12 @@ const HISTORY_SQL: &str = "SELECT recent.id, recent.conversation_id, recent.text
 
 const HISTORY_BEFORE_SQL: &str =
     "SELECT recent.id, recent.conversation_id, recent.text, recent.language,
-            recent.started_at, recent.ended_at, recent.source, recent.created_at,
+            recent.started_at, recent.ended_at, recent.source, recent.created_at, recent.speaker,
             translation.id, translation.text, translation.source_language,
             translation.target_language, translation.provider,
             translation.model, translation.created_at, translation.source_group
      FROM (
-         SELECT id, conversation_id, text, language, started_at, ended_at, source, created_at
+         SELECT id, conversation_id, text, language, started_at, ended_at, source, created_at, speaker
          FROM subtitles
          WHERE id < ?1
          ORDER BY id DESC LIMIT ?2
@@ -38,12 +38,12 @@ const HISTORY_BEFORE_SQL: &str =
 
 const CONVERSATION_HISTORY_SQL: &str =
     "SELECT recent.id, recent.conversation_id, recent.text, recent.language,
-            recent.started_at, recent.ended_at, recent.source, recent.created_at,
+            recent.started_at, recent.ended_at, recent.source, recent.created_at, recent.speaker,
             translation.id, translation.text, translation.source_language,
             translation.target_language, translation.provider,
             translation.model, translation.created_at, translation.source_group
      FROM (
-         SELECT id, conversation_id, text, language, started_at, ended_at, source, created_at
+         SELECT id, conversation_id, text, language, started_at, ended_at, source, created_at, speaker
          FROM subtitles
          WHERE conversation_id = ?1
          ORDER BY id DESC LIMIT ?2
@@ -54,12 +54,12 @@ const CONVERSATION_HISTORY_SQL: &str =
 
 const CONVERSATION_HISTORY_BEFORE_SQL: &str =
     "SELECT recent.id, recent.conversation_id, recent.text, recent.language,
-            recent.started_at, recent.ended_at, recent.source, recent.created_at,
+            recent.started_at, recent.ended_at, recent.source, recent.created_at, recent.speaker,
             translation.id, translation.text, translation.source_language,
             translation.target_language, translation.provider,
             translation.model, translation.created_at, translation.source_group
      FROM (
-         SELECT id, conversation_id, text, language, started_at, ended_at, source, created_at
+         SELECT id, conversation_id, text, language, started_at, ended_at, source, created_at, speaker
          FROM subtitles
          WHERE conversation_id = ?1 AND id < ?2
          ORDER BY id DESC LIMIT ?3
@@ -95,8 +95,8 @@ impl Database {
         )?;
         transaction.execute(
             "INSERT INTO subtitles(
-                conversation_id, text, language, started_at, ended_at, source, created_at
-             ) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                conversation_id, text, language, started_at, ended_at, source, created_at, speaker
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             params![
                 conversation_id,
                 subtitle.text,
@@ -105,6 +105,11 @@ impl Database {
                 subtitle.ended_at,
                 subtitle.source,
                 subtitle.created_at,
+                subtitle
+                    .speaker
+                    .as_ref()
+                    .map(|speaker| serde_json::to_string(speaker)
+                        .expect("serializable speaker identity")),
             ],
         )?;
         let id = transaction.last_insert_rowid();
@@ -229,7 +234,7 @@ impl Database {
         )?;
         let mut statement = self.conn.prepare(
             "SELECT subtitle.id, subtitle.conversation_id, subtitle.text, subtitle.language,
-                    subtitle.started_at, subtitle.ended_at, subtitle.source, subtitle.created_at,
+                    subtitle.started_at, subtitle.ended_at, subtitle.source, subtitle.created_at, subtitle.speaker,
                     translation.id, translation.text, translation.source_language,
                     translation.target_language, translation.provider,
                     translation.model, translation.created_at, translation.source_group
@@ -275,7 +280,7 @@ impl Database {
 
     pub fn subtitle(&self, id: i64) -> AppResult<Option<Subtitle>> {
         let mut statement = self.conn.prepare(
-            "SELECT id, conversation_id, text, language, started_at, ended_at, source, created_at
+            "SELECT id, conversation_id, text, language, started_at, ended_at, source, created_at, speaker
              FROM subtitles WHERE id = ?",
         )?;
         let mut rows = statement.query(params![id])?;
@@ -299,15 +304,15 @@ where
 {
     let rows = statement.query_map(params, |row| {
         let subtitle = subtitle_from_row(row)?;
-        let translation = if row.get::<_, Option<i64>>(8)?.is_some() {
+        let translation = if row.get::<_, Option<i64>>(9)?.is_some() {
             Some(SubtitleTranslation {
-                source_group: super::translations::read_source_group(row, 15)?,
-                text: row.get(9)?,
-                source_language: row.get(10)?,
-                target_language: row.get(11)?,
-                provider: row.get(12)?,
-                model: row.get(13)?,
-                created_at: row.get(14)?,
+                source_group: super::translations::read_source_group(row, 16)?,
+                text: row.get(10)?,
+                source_language: row.get(11)?,
+                target_language: row.get(12)?,
+                provider: row.get(13)?,
+                model: row.get(14)?,
+                created_at: row.get(15)?,
             })
         } else {
             None
@@ -337,6 +342,18 @@ where
 
 fn subtitle_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Subtitle> {
     Ok(Subtitle {
+        speaker: row
+            .get::<_, Option<String>>(8)?
+            .map(|json| {
+                serde_json::from_str(&json).map_err(|error| {
+                    rusqlite::Error::FromSqlConversionFailure(
+                        8,
+                        rusqlite::types::Type::Text,
+                        Box::new(error),
+                    )
+                })
+            })
+            .transpose()?,
         id: Some(row.get(0)?),
         conversation_id: Some(row.get(1)?),
         text: row.get(2)?,

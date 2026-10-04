@@ -231,6 +231,7 @@
       "transcribing": "Transcribing",
       "waiting": "Waiting for subtitles…",
       "microphoneMe": "You · microphone",
+      "speakerNumber": "Speaker {{number}}",
       "speakerOther": "Others · system audio",
       "returnToBottom": "Return to the latest subtitle",
       "returnToBottomShort": "Latest subtitle",
@@ -702,14 +703,14 @@
       },
       "translation": {
         "alignment": {
-          "enabled": "Background text alignment",
-          "description": "A lightweight model segments and aligns source and translated text in the background, adding a small amount of API usage. (Only applies to OpenAI Realtime Translation and Gemini Live Translate models.)",
+          "enabled": "Local text alignment",
+          "description": "Aligns source and translated text locally using sentence boundaries, text length and numbers, without extra models or API usage. Qwen pairs text using server message IDs.",
           "profile": "Alignment API profile",
           "recognitionProfile": "Use recognition profile",
           "model": "Alignment model"
         },
-        "liveTranslateHint": "Each audio source uses Live Translate for its first target. Requires automatic translation. Text prompts, glossary and thinking settings do not apply. Translated audio is generated and billed even though it is not played.",
-        "liveTranslatePreview": "Audio uploads begin after speech is detected. Translations can be previewed as they arrive; background text alignment can use a lightweight model to segment and match by meaning. History, extra targets and OSC are supported.",
+        "liveTranslateHint": "Each audio source translates its first target and requires automatic translation. Text prompts and thinking settings do not apply. Qwen uses text-only output and speaker diarization; other live translators generate audio that the app does not play.",
+        "liveTranslatePreview": "Audio uploads begin after speech is detected. Translations can be previewed as they arrive. Local alignment supports history, extra targets and OSC; same-language source text can complete without waiting for a translation.",
         "title": "Subtitle translation",
 
         "mode": "Translation mode",

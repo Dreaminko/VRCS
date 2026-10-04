@@ -2,6 +2,7 @@ use super::*;
 
 fn subtitle(id: i64, text: &str) -> Subtitle {
     Subtitle {
+        speaker: None,
         id: Some(id),
         conversation_id: None,
         text: text.into(),
@@ -573,6 +574,7 @@ fn disabled_or_unknown_sources_are_not_presented() {
 fn native_translation_can_arrive_before_the_original() {
     let now = Instant::now();
     let snapshot = vrcs_core::LiveTranslation {
+        speaker: None,
         utterance_id: "native-1".into(),
         text: String::new(),
         language: None,
@@ -627,6 +629,7 @@ fn japanese_live_translation_preview_does_not_require_recognition_preview() {
     let event = PresentationEvent::LiveTranslationUpdated {
         source: "speaker".into(),
         snapshot: vrcs_core::LiveTranslation {
+            speaker: None,
             utterance_id: "japanese-stream".into(),
             text: "日本語の音声を再生しています。".into(),
             language: Some("ja".into()),
@@ -674,6 +677,7 @@ fn empty_live_original_does_not_hide_a_completed_japanese_subtitle() {
         PresentationEvent::LiveTranslationUpdated {
             source: "speaker".into(),
             snapshot: vrcs_core::LiveTranslation {
+                speaker: None,
                 utterance_id: "next-japanese-stream".into(),
                 text: String::new(),
                 language: Some("ja".into()),
@@ -741,4 +745,40 @@ fn shared_translation_uses_group_context_only_on_the_last_sentence() {
         display_text(&last, "original", "preferred_only", "\n"),
         "How are you?"
     );
+}
+
+#[test]
+fn diarized_final_has_a_speaker_label_with_both_previews_disabled() {
+    let now = Instant::now();
+    let mut item = subtitle(1, "Hello.");
+    item.speaker = Some(vrcs_core::SpeakerIdentity {
+        id: "qwen-session-1".into(),
+        index: 1,
+    });
+    let config = VrOverlayHeadsetConfig {
+        show_partials: false,
+        show_translation_partials: false,
+        content_mode: "original".into(),
+        ..Default::default()
+    };
+    let event = final_event(item);
+    let mut headset = HeadsetPresentation::default();
+    headset.apply(event.clone(), now, &config);
+    assert_eq!(
+        headset.frame(now, &config).unwrap().content,
+        PresentationContent::Headset("[2] Hello.".into())
+    );
+    let config = VrOverlayWristConfig {
+        show_partials: false,
+        show_translation_partials: false,
+        content_mode: "original".into(),
+        ..Default::default()
+    };
+    let mut wrist = WristPresentation::default();
+    wrist.apply(event, now, &config);
+    let frame = wrist.frame(now, &config).unwrap();
+    let PresentationContent::Wrist(messages) = frame.content else {
+        panic!()
+    };
+    assert_eq!(messages[0].text, "[2] Hello.");
 }

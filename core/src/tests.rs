@@ -220,6 +220,7 @@ async fn storage_stats_quota_update_and_history_clear_are_available_over_http() 
         .lock()
         .unwrap()
         .add_subtitle(&crate::models::Subtitle {
+            speaker: None,
             id: None,
             conversation_id: None,
             text: "temporary history".into(),
@@ -275,6 +276,7 @@ async fn subtitle_range_deletion_validates_and_deletes_only_the_requested_messag
             ("newer", "2026-01-03T00:00:00.000000Z"),
         ] {
             db.add_subtitle(&crate::models::Subtitle {
+                speaker: None,
                 id: None,
                 conversation_id: None,
                 text: text.into(),
@@ -366,6 +368,7 @@ async fn conversation_http_catalog_and_pagination_are_stable() {
         ] {
             database
                 .add_subtitle(&crate::models::Subtitle {
+                    speaker: None,
                     id: None,
                     conversation_id: None,
                     text: text.into(),

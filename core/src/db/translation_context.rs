@@ -63,6 +63,7 @@ mod tests {
         let add = |text: &str, source: &str, created_at: &str| {
             database
                 .add_subtitle(&Subtitle {
+                    speaker: None,
                     id: None,
                     conversation_id: None,
                     text: text.into(),
@@ -117,6 +118,7 @@ mod tests {
         let database = Database::open(&directory.path().join("disabled-context.db")).unwrap();
         database
             .add_subtitle(&Subtitle {
+                speaker: None,
                 id: None,
                 conversation_id: None,
                 text: "history".into(),
@@ -143,6 +145,7 @@ mod tests {
         for index in 0..3 {
             database
                 .add_subtitle(&Subtitle {
+                    speaker: None,
                     id: None,
                     conversation_id: None,
                     text: format!("speaker {index}"),

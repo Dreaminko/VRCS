@@ -8,6 +8,7 @@ export interface AudioDevice {
 }
 
 export interface LiveTranscription {
+  speaker?: import("../subtitles/types").SpeakerIdentity | null;
   type: "partial";
   utterance_id: string;
   source: "speaker" | "microphone";

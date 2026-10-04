@@ -5,6 +5,7 @@ mod live_translation;
 mod openai;
 mod openai_live_translate;
 mod qwen;
+mod qwen_live_translate;
 
 use std::collections::HashMap;
 
@@ -28,33 +29,12 @@ pub(super) struct NormalizationState {
     fallback_id: Option<String>,
     snapshot_id: Option<String>,
     live_translation: live_translation::State,
+    qwen_translation: qwen_live_translate::State,
 }
 
 impl NormalizationState {
     pub(super) fn live_source_len(&self) -> usize {
-        self.live_translation.input.len()
-    }
-
-    pub(super) fn alignment_window(&self) -> Option<super::alignment::Window> {
-        live_translation::window(&self.live_translation)
-    }
-
-    pub(super) fn apply_alignment(
-        &mut self,
-        config: &AsrConfig,
-        window: &super::alignment::Window,
-        mapping: &super::alignment::Mapping,
-    ) -> Option<CloudEvent> {
-        live_translation::apply(config, &mut self.live_translation, window, mapping)
-    }
-
-    pub(super) fn confirm_alignment(
-        &mut self,
-        config: &AsrConfig,
-        window: &super::alignment::Window,
-        mapping: &super::alignment::Mapping,
-    ) -> Option<CloudEvent> {
-        live_translation::confirm(config, &mut self.live_translation, window, mapping)
+        self.live_translation.input.len() + self.qwen_translation.source_len()
     }
 
     fn delta_id(&mut self, value: &Value) -> String {
@@ -147,6 +127,7 @@ impl NormalizationState {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Provider {
     Qwen,
+    QwenLiveTranslate,
     TokenPlan,
     FunAsr,
     OpenAi,
@@ -194,6 +175,9 @@ impl Provider {
         config: &AsrConfig,
         state: &mut NormalizationState,
     ) -> Option<CloudEvent> {
+        if self == Self::QwenLiveTranslate {
+            return state.qwen_translation.finish(config);
+        }
         if matches!(self, Self::GeminiLiveTranslate | Self::OpenAiLiveTranslate) {
             live_translation::finish(config, &mut state.live_translation)
         } else {
@@ -214,6 +198,7 @@ impl Provider {
         }
         match service.adapter {
             ServiceAdapter::QwenRealtime => Ok(Self::Qwen),
+            ServiceAdapter::QwenLiveTranslate => Ok(Self::QwenLiveTranslate),
             ServiceAdapter::AlibabaTokenPlanRealtime => Ok(Self::TokenPlan),
             ServiceAdapter::FunAsrRealtime => Ok(Self::FunAsr),
             ServiceAdapter::OpenAiRealtime => Ok(Self::OpenAi),
@@ -233,7 +218,7 @@ impl Provider {
         key: &str,
     ) -> Result<Request<()>, String> {
         match self {
-            Self::Qwen => qwen::build_request(config, profile, key),
+            Self::Qwen | Self::QwenLiveTranslate => qwen::build_request(config, profile, key),
             Self::TokenPlan => qwen::build_token_plan_request(config, key),
             Self::FunAsr => fun_asr::build_request(profile, key),
             Self::OpenAi => openai::build_request(key),
@@ -252,7 +237,9 @@ impl Provider {
                 SegmentationMode::LocalCommit
             }
             Self::FunAsr => SegmentationMode::ServerVad,
-            Self::GeminiLiveTranslate | Self::OpenAiLiveTranslate => SegmentationMode::Continuous,
+            Self::GeminiLiveTranslate | Self::OpenAiLiveTranslate | Self::QwenLiveTranslate => {
+                SegmentationMode::Continuous
+            }
         }
     }
 
@@ -264,6 +251,7 @@ impl Provider {
     ) -> Result<Value, String> {
         match self {
             Self::Qwen => qwen::session_update(config),
+            Self::QwenLiveTranslate => qwen_live_translate::session_update(config),
             Self::TokenPlan => Ok(qwen::token_plan_session_update()),
             Self::FunAsr => fun_asr::run_task(
                 config,
@@ -279,7 +267,7 @@ impl Provider {
 
     pub(super) fn initialization_event(self, value: &Value, update: &Value) -> InitializationEvent {
         match self {
-            Self::Qwen | Self::TokenPlan | Self::OpenAi => {
+            Self::Qwen | Self::QwenLiveTranslate | Self::TokenPlan | Self::OpenAi => {
                 match value.get("type").and_then(Value::as_str) {
                     Some("session.updated") => InitializationEvent::Ready,
                     Some("error") => InitializationEvent::Failed(
@@ -316,6 +304,9 @@ impl Provider {
     ) -> Result<Option<CloudEvent>, String> {
         match self {
             Self::Qwen | Self::TokenPlan => qwen::normalize_event(config, value, state),
+            Self::QwenLiveTranslate => {
+                qwen_live_translate::normalize_event(config, value, &mut state.qwen_translation)
+            }
             Self::FunAsr => fun_asr::normalize_event(config, value, state),
             Self::OpenAi => openai::normalize_event(config, value, state),
             Self::OpenAiLiveTranslate => {
@@ -330,7 +321,7 @@ impl Provider {
 
     pub(super) fn audio_message(self, samples: &[f32]) -> Message {
         match self {
-            Self::Qwen | Self::TokenPlan => qwen::audio_message(samples),
+            Self::Qwen | Self::QwenLiveTranslate | Self::TokenPlan => qwen::audio_message(samples),
             Self::FunAsr => fun_asr::audio_message(samples),
             Self::OpenAi => openai::audio_message(samples),
             Self::OpenAiLiveTranslate => openai_live_translate::audio_message(samples),
@@ -343,13 +334,16 @@ impl Provider {
             Self::Qwen | Self::TokenPlan => Some(qwen::commit_message()),
             Self::OpenAi => Some(openai::commit_message()),
             Self::Gemini => Some(gemini::commit_message()),
-            Self::FunAsr | Self::GeminiLiveTranslate | Self::OpenAiLiveTranslate => None,
+            Self::FunAsr
+            | Self::GeminiLiveTranslate
+            | Self::OpenAiLiveTranslate
+            | Self::QwenLiveTranslate => None,
         }
     }
 
     pub(super) fn finish_message(self, task_id: Option<&str>) -> Option<Message> {
         match self {
-            Self::Qwen => Some(qwen::finish_message()),
+            Self::Qwen | Self::QwenLiveTranslate => Some(qwen::finish_message()),
             Self::TokenPlan => None,
             Self::FunAsr => Some(fun_asr::finish_message(
                 task_id.expect("Fun-ASR sessions always have a task id"),
@@ -367,7 +361,9 @@ impl Provider {
 
     pub(super) fn is_finished(self, value: &Value) -> bool {
         match self {
-            Self::Qwen => value.get("type").and_then(Value::as_str) == Some("session.finished"),
+            Self::Qwen | Self::QwenLiveTranslate => {
+                value.get("type").and_then(Value::as_str) == Some("session.finished")
+            }
             Self::TokenPlan => false,
             Self::FunAsr => {
                 value.pointer("/header/event").and_then(Value::as_str) == Some("task-finished")

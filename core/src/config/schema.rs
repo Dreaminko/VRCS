@@ -162,14 +162,7 @@ mod tests {
                 "speaker_targets",
             ],
         );
-        assert_keys(
-            &value["translation"]["live_alignment"],
-            ["enabled", "model", "profile_id", "thinking_enabled"],
-        );
-        assert_eq!(
-            value["translation"]["live_alignment"]["model"],
-            "gpt-6-luna"
-        );
+        assert_keys(&value["translation"]["live_alignment"], ["enabled"]);
         assert_eq!(value["translation"]["live_alignment"]["enabled"], true);
         assert_keys(
             &value["translation"]["speaker_targets"][0],

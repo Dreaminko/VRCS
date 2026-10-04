@@ -1,6 +1,12 @@
 import type { ApiProvider } from "../providers/types";
 
+export interface SpeakerIdentity {
+  id: string;
+  index: number;
+}
+
 export interface Subtitle {
+  speaker?: SpeakerIdentity | null;
   id: number | null;
   text: string;
   language: string | null;

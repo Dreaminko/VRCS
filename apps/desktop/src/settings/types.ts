@@ -55,9 +55,6 @@ export interface TranslationSettings {
 
 export interface LiveAlignmentSettings {
   enabled: boolean;
-  profile_id: string | null;
-  model: string;
-  thinking_enabled: boolean;
 }
 
 export interface TranslationTargetSettings {

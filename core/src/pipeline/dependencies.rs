@@ -165,7 +165,7 @@ impl PipelineDependencies {
         source: &'static str,
         message_id: String,
     ) -> Result<(), String> {
-        self.publish_text_with_translation(text, language, source, message_id, None, false)
+        self.publish_text_with_translation(text, language, source, message_id, None, false, None)
             .await
     }
 
@@ -191,6 +191,7 @@ impl PipelineDependencies {
             transcript.utterance_id,
             Some(translation),
             result.pending,
+            transcript.speaker,
         )
         .await
     }
@@ -519,6 +520,7 @@ impl PipelineDependencies {
         message_id: String,
         native: Option<SubtitleTranslation>,
         native_pending: bool,
+        speaker: Option<crate::models::SpeakerIdentity>,
     ) -> Result<(), String> {
         let text = text.trim().to_string();
         if text.is_empty() {
@@ -526,6 +528,7 @@ impl PipelineDependencies {
             return Ok(());
         }
         let subtitle = Subtitle {
+            speaker,
             id: None,
             conversation_id: None,
             text,
@@ -657,6 +660,11 @@ impl PipelineDependencies {
                 );
             } else if !saved.language.as_deref().is_some_and(|language| {
                 same_translation_language(language, &native.target_language)
+                    || (native.provider == crate::providers::GEMINI_PROVIDER
+                        && crate::providers::same_live_translation_language(
+                            language,
+                            &native.target_language,
+                        ))
             }) {
                 self.output
                     .translation_failed_with_message(TranslationFailure {
@@ -763,6 +771,7 @@ mod tests {
             source_utterance_ids: vec!["native-1".into()],
             provider: crate::providers::GEMINI_PROVIDER.into(),
             transcript: crate::models::LiveTranslation {
+                speaker: None,
                 utterance_id: "native-1".into(),
                 text: "Hello.".into(),
                 language: Some("en".into()),
@@ -1175,6 +1184,7 @@ mod tests {
                 "microphone",
                 crate::asr::LiveTranslationResult {
                     transcript: crate::models::LiveTranslation {
+                        speaker: None,
                         utterance_id: "microphone".into(),
                         ..native_result().transcript
                     },
@@ -1371,5 +1381,56 @@ mod tests {
             assert!(automatic_translation_targets(&config, "microphone", Some("ja")).is_none());
             assert!(automatic_translation_targets(&config, "speaker", Some("en")).is_none());
         }
+    }
+    #[tokio::test]
+    async fn same_language_native_source_is_stored_and_published_without_translation_waiting() {
+        let dependencies =
+            super::super::tests::test_dependencies(crate::domain_events::DomainEventHub::new());
+        let mut presentations = dependencies.output.subscribe_presentation_events();
+        let mut translations = dependencies.output.subscribe_translations();
+        let mut result = native_result();
+        result.transcript.language = Some("zh".into());
+        result.transcript.target_language = "zh-Hant".into();
+        result.transcript.text = "你好。".into();
+        result.transcript.translation.clear();
+        dependencies
+            .publish_native_translation("microphone", result)
+            .await
+            .unwrap();
+        let history = dependencies
+            .database
+            .lock()
+            .unwrap()
+            .subtitle_history(10)
+            .unwrap();
+        assert_eq!(history[0].text, "你好。");
+        assert!(history[0].translations.is_empty());
+        assert!(
+            matches!(presentations.try_recv().unwrap(),crate::subtitle_output::PresentationEvent::Final{subtitle,..} if subtitle.text=="你好。")
+        );
+        assert!(translations.try_recv().is_err());
+    }
+    #[tokio::test]
+    async fn native_speaker_metadata_is_saved_with_source_and_translation() {
+        let dependencies =
+            super::super::tests::test_dependencies(crate::domain_events::DomainEventHub::new());
+        let mut result = native_result();
+        let speaker = crate::models::SpeakerIdentity {
+            id: "qwen-session-0".into(),
+            index: 0,
+        };
+        result.transcript.speaker = Some(speaker.clone());
+        dependencies
+            .publish_native_translation("speaker", result)
+            .await
+            .unwrap();
+        let history = dependencies
+            .database
+            .lock()
+            .unwrap()
+            .subtitle_history(10)
+            .unwrap();
+        assert_eq!(history[0].speaker.as_ref(), Some(&speaker));
+        assert_eq!(history[0].translations[0].text, "你好。");
     }
 }

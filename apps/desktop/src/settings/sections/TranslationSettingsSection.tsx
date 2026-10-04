@@ -106,9 +106,8 @@ export function TranslationSettingsSection({ draft, apiProfiles, saveState, appl
           </div>
         </div>
 
-        {liveTranslate && (
-          <LiveAlignmentSettings value={draft.translation.live_alignment} profiles={apiProfiles}
-            recognitionProfileId={draft.asr.active_profile_id}
+        {liveTranslate && draft.asr.backend !== "qwen_live_translate" && (
+          <LiveAlignmentSettings value={draft.translation.live_alignment}
             disabled={controlsDisabled} onChange={(live_alignment) => updateTranslation({
               ...draft.translation, live_alignment,
             })} />

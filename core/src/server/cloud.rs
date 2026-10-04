@@ -175,6 +175,7 @@ fn adapter_id(adapter: ServiceAdapter) -> &'static str {
         ServiceAdapter::DeepLTextTranslation => "deepl_text_translation",
         ServiceAdapter::MicrosoftTextTranslation => "microsoft_text_translation",
         ServiceAdapter::QwenRealtime => "qwen_realtime",
+        ServiceAdapter::QwenLiveTranslate => "qwen_live_translate",
         ServiceAdapter::AlibabaTokenPlanRealtime => "alibaba_token_plan_realtime",
         ServiceAdapter::FunAsrRealtime => "fun_asr_realtime",
         ServiceAdapter::OpenAiRealtime => "openai_realtime",
@@ -523,26 +524,6 @@ pub(super) async fn profile_models(
             )
         })?;
     service_models(&state, profile, resolved.service).await
-}
-
-pub(super) async fn alignment_models(
-    State(state): State<SettingsContext>,
-    Path(profile_id): Path<String>,
-) -> ApiResult<Json<Value>> {
-    let config = state.config.config.read().expect("config lock").clone();
-    let profile = config
-        .asr
-        .api_profiles
-        .iter()
-        .find(|profile| profile.id == profile_id)
-        .ok_or_else(profile_not_found)?;
-    // Alignment can share a recognition-only credential without changing its capabilities.
-    let api_key = profile_api_key(profile)?;
-    let models = crate::llm::LlmClient::new(state.integrations.http.clone())
-        .list_provider_models(profile, &api_key)
-        .await
-        .map_err(|error| api_error(StatusCode::BAD_GATEWAY, error.code, error.detail))?;
-    Ok(Json(json!({ "models": models })))
 }
 
 pub(super) async fn profile_service_models(
@@ -1006,6 +987,27 @@ mod tests {
         assert_eq!(value["services"][1]["id"], SERVICE_GROQ_TRANSCRIPTION);
         assert_eq!(value["services"][1]["model_listing"], false);
         assert!(value["services"][1]["adapter"].is_string());
+    }
+
+    #[test]
+    fn qwen_ai_catalog_and_readiness_do_not_require_model_studio_metadata() {
+        let value = provider_value(providers::definition(providers::QWEN_AI_PROVIDER).unwrap());
+        assert_eq!(value["display_name"], "Qwen AI");
+        assert_eq!(value["connection"]["fields"], json!([]));
+        assert_eq!(
+            value["connection"]["base_url"]["default"],
+            "https://maas.qianwenaiapi.com/compatible-mode/v1"
+        );
+        assert!(value["services"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|s| s["id"] == "qwen_live_translate"));
+        let profile = ApiProfile {
+            provider: providers::QWEN_AI_PROVIDER.into(),
+            ..Default::default()
+        };
+        assert!(ensure_asr_profile_ready(&profile).is_ok());
     }
 
     #[test]

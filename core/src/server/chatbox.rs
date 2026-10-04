@@ -151,6 +151,7 @@ fn conversation_subtitle(message: &ChatboxMessage) -> Subtitle {
     }
 
     Subtitle {
+        speaker: None,
         id: None,
         conversation_id: None,
         text,

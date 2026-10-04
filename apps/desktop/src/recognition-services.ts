@@ -118,6 +118,7 @@ function capitalize(value: string): string {
 }
 
 export function liveTranslationServiceName(serviceId: string | undefined): string | undefined {
+  if (serviceId === "qwen_live_translate") return "Qwen Live Translate";
   if (serviceId === "gemini_live_translate") return "Gemini Live Translate";
   if (serviceId === "openai_realtime_translate") return "OpenAI Realtime Translation";
   return undefined;

@@ -66,16 +66,66 @@ pub(super) fn normalize_event(
         .and_then(|v| v.get("text"))
         .and_then(Value::as_str)
         .unwrap_or("");
-    if text.is_empty() && translation.is_empty() {
-        return Ok(None);
-    }
-    if let Some(language) = input
+    let language = input
         .and_then(|v| v.get("languageCode"))
         .and_then(Value::as_str)
+        .or_else(|| (config.language != "auto").then_some(config.language.as_str()));
+    let mut previous = None;
+    if language.is_some_and(|next| state.language.as_deref().is_some_and(|old| old != next))
+        && same_language_source(config, state)
     {
+        previous = state.collect(config, true);
+    }
+    if let Some(language) = language {
         state.language = Some(language.to_owned());
     }
-    super::live_translation::append_delta(config, state, text, translation, None, None)
+    let mut event =
+        super::live_translation::append_delta(config, state, text, translation, None, None)?;
+    if (content["turnComplete"].as_bool() == Some(true)
+        || input.and_then(|input| input["finished"].as_bool()) == Some(true))
+        && same_language_source(config, state)
+    {
+        // A same-language source has no native output by design, so this is
+        // sufficient to complete it. Translation turns still use local alignment.
+        event = state.collect(config, true).or(event);
+    }
+    match (previous, event) {
+        (
+            Some(CloudEvent::LiveTranslation {
+                completed: mut before,
+                translations: mut old,
+                ..
+            }),
+            Some(CloudEvent::LiveTranslation {
+                service,
+                snapshot,
+                completed,
+                translations,
+            }),
+        ) => {
+            before.extend(completed);
+            old.extend(translations);
+            Ok(Some(CloudEvent::LiveTranslation {
+                service,
+                snapshot,
+                completed: before,
+                translations: old,
+            }))
+        }
+        (before, next) => Ok(next.or(before)),
+    }
+}
+
+fn same_language_source(config: &AsrConfig, state: &State) -> bool {
+    !state.input.trim().is_empty()
+        && state.output.trim().is_empty()
+        && state
+            .language
+            .as_deref()
+            .zip(config.live_translation_target.as_deref())
+            .is_some_and(|(source, target)| {
+                crate::providers::same_live_translation_language(source, target)
+            })
 }
 
 #[cfg(test)]
@@ -224,7 +274,7 @@ mod tests {
     }
 
     #[tokio::test(start_paused = true)]
-    async fn model_alignment_merges_gemini_sentence_counts_without_rewriting_text() {
+    async fn local_alignment_merges_gemini_sentence_counts_without_rewriting_text() {
         let source = "Platform 2.0 started in 2020, with 288 communities and 3487 tasks.";
         let translated = "平台2.0于2020年启动。共有288家社区。发布3487项任务。";
         let mut state = State::default();
@@ -237,23 +287,12 @@ mod tests {
             &mut state,
         )
         .unwrap();
-        for seconds in [2, 20] {
-            tokio::time::advance(std::time::Duration::from_secs(seconds)).await;
-            assert!(super::super::live_translation::poll(&config(), &mut state).is_none());
-        }
-        let window = super::super::live_translation::window(&state).unwrap();
-        assert!(window.sources[0].frames[0].elapsed_ms.is_none());
-        let mapping = serde_json::from_value(json!({"groups":[{
-            "source_end":{"unit_id":window.sources[0].id,"quote":source},
-            "target_end":{"unit_id":window.targets[0].id,"quote":translated},
-            "fully_translated":true
-        }]}))
-        .unwrap();
+        tokio::time::advance(std::time::Duration::from_millis(450)).await;
         let Some(CloudEvent::LiveTranslation {
             completed,
             translations,
             ..
-        }) = super::super::live_translation::apply(&config(), &mut state, &window, &mapping)
+        }) = super::super::live_translation::poll(&config(), &mut state)
         else {
             panic!()
         };
@@ -400,5 +439,44 @@ mod tests {
             normalize_event(&config(), &json!({"error":{"message":"quota"}}), &mut state).is_err()
         );
         assert!(normalize_event(&config(), &json!({"serverContent":{"inputTranscription":{"text":"a".repeat(MAX_TRANSCRIPT_BYTES + 1)}}}), &mut state).is_err());
+    }
+    #[tokio::test(start_paused = true)]
+    async fn same_language_completes_before_close_and_language_changes_keep_the_old_source() {
+        let mut state = State::default();
+        normalize_event(&config(), &json!({"serverContent":{"inputTranscription":{"text":"你好", "languageCode":"zh-Hant"}}}), &mut state).unwrap();
+        let Some(CloudEvent::LiveTranslation {
+            completed,
+            translations,
+            ..
+        }) = normalize_event(
+            &config(),
+            &json!({"serverContent":{"turnComplete":true}}),
+            &mut state,
+        )
+        .unwrap()
+        else {
+            panic!()
+        };
+        assert_eq!(completed[0].transcript.text, "你好");
+        assert!(!completed[0].pending);
+        assert!(translations.is_empty());
+        normalize_event(&config(), &json!({"serverContent":{"inputTranscription":{"text":"再见", "languageCode":"zh-Hant"}}}), &mut state).unwrap();
+        let Some(CloudEvent::LiveTranslation {
+            completed,
+            snapshot,
+            ..
+        }) = normalize_event(
+            &config(),
+            &json!({"serverContent":{"inputTranscription":{"text":"Hello.", "languageCode":"en"}}}),
+            &mut state,
+        )
+        .unwrap()
+        else {
+            panic!()
+        };
+        assert_eq!(completed[0].transcript.text, "再见");
+        assert_eq!(completed[0].transcript.language.as_deref(), Some("zh-Hant"));
+        assert_eq!(snapshot.text, "Hello.");
+        assert_eq!(snapshot.language.as_deref(), Some("en"));
     }
 }

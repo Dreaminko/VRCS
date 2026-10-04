@@ -232,6 +232,7 @@ mod tests {
 
     fn subtitle() -> Subtitle {
         Subtitle {
+            speaker: None,
             id: Some(7),
             conversation_id: Some("conversation-test".into()),
             text: "hello world".into(),
@@ -251,6 +252,7 @@ mod tests {
         events.live_translation(
             "speaker",
             &crate::models::LiveTranslation {
+                speaker: None,
                 utterance_id: "live-1".into(),
                 text: String::new(),
                 language: None,

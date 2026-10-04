@@ -41,7 +41,9 @@ use crate::server::AppState;
 use crate::startup::{RuntimeAssembly, RuntimeTasks, StartupPlan};
 
 pub use crate::config::{VrOverlayConfig, VrOverlayHeadsetConfig, VrOverlayWristConfig};
-pub use crate::models::{LiveTranslation, Subtitle, SubtitleTranslation, TranslationSourceGroup};
+pub use crate::models::{
+    LiveTranslation, SpeakerIdentity, Subtitle, SubtitleTranslation, TranslationSourceGroup,
+};
 pub use crate::subtitle_output::PresentationEvent;
 pub use crate::translation::same_translation_language;
 

@@ -467,6 +467,7 @@ mod tests {
         let mut database = Database::open(&directory.path().join("snapshot.db")).unwrap();
         let subtitle = database
             .add_subtitle(&Subtitle {
+                speaker: None,
                 id: None,
                 conversation_id: None,
                 text: "source snapshot".into(),

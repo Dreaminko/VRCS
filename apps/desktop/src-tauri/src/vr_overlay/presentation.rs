@@ -50,6 +50,7 @@ impl PresentationFrame {
 struct PresentationItem {
     utterance_id: Option<String>,
     subtitle_id: Option<i64>,
+    speaker_index: Option<u64>,
     source: String,
     language: Option<String>,
     original: String,
@@ -119,6 +120,7 @@ impl HeadsetPresentation {
                     snapshot.language,
                     expiry(now, config.display_seconds),
                 );
+                item.speaker_index = snapshot.speaker.map(|speaker| speaker.index);
                 if config.show_translation_partials && !snapshot.translation.is_empty() {
                     item.translations.push(PresentationTranslation {
                         original: None,
@@ -295,6 +297,7 @@ impl WristPresentation {
                     snapshot.language,
                     now,
                 );
+                item.speaker_index = snapshot.speaker.map(|speaker| speaker.index);
                 if config.show_translation_partials && !snapshot.translation.is_empty() {
                     item.translations.push(PresentationTranslation {
                         original: None,
@@ -523,6 +526,7 @@ fn item_from_subtitle(
     PresentationItem {
         utterance_id,
         subtitle_id: subtitle.id,
+        speaker_index: subtitle.speaker.map(|speaker| speaker.index),
         source: subtitle.source,
         language: subtitle.language,
         original: subtitle.text,
@@ -541,6 +545,7 @@ fn item_from_partial(
     PresentationItem {
         utterance_id: Some(utterance_id),
         subtitle_id: None,
+        speaker_index: None,
         source,
         language,
         original: text,
@@ -670,13 +675,14 @@ fn display_text(
     translation_display: &str,
     separator: &str,
 ) -> String {
-    display_parts(
+    let text = display_parts(
         &item.original,
         &item.translations,
         mode,
         translation_display,
         separator,
-    )
+    );
+    speaker_text(item, text)
 }
 
 fn preview_text(
@@ -686,7 +692,7 @@ fn preview_text(
     show_original: bool,
     show_translation: bool,
 ) -> String {
-    display_parts(
+    let text = display_parts(
         if show_original { &item.original } else { "" },
         if show_translation {
             &item.translations
@@ -696,7 +702,15 @@ fn preview_text(
         mode,
         translation_display,
         "\n",
-    )
+    );
+    speaker_text(item, text)
+}
+
+fn speaker_text(item: &PresentationItem, text: String) -> String {
+    match item.speaker_index {
+        Some(index) if !text.trim().is_empty() => format!("[{}] {text}", index.saturating_add(1)),
+        _ => text,
+    }
 }
 
 fn display_parts(
