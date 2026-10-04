@@ -562,7 +562,9 @@ fn update_headset(
     match render_and_show(
         backend,
         OverlayKind::Headset,
-        Layout::Headset,
+        Layout::Headset {
+            lines_per_language: state.config.headset.lines_per_language,
+        },
         &frame,
         state.config.headset.font_size_px,
         state.config.headset.background_opacity,

@@ -1,7 +1,7 @@
 use unicode_segmentation::UnicodeSegmentation;
 
-// Reserve two readable lines even when the current caption is short. Text length
-// never participates in font selection, so later deltas cannot shrink the font.
+// Font selection depends only on the height reserved for a line. Text length
+// never participates, so later deltas cannot shrink the font.
 pub(super) fn font_size(
     maximum: u32,
     available_line_height: i32,

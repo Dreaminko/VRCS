@@ -602,6 +602,7 @@
         "liveUpdates": "リアルタイム更新",
         "showRecognitionPartials": "認識途中のテキストを表示",
         "showTranslationPartials": "翻訳途中のテキストを表示",
+        "linesPerLanguage": "言語ごとの字幕行数",
         "displaySeconds": "表示時間",
         "fadeSeconds": "フェード時間",
         "maxEntries": "会話の件数",

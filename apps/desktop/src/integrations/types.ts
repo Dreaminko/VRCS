@@ -52,6 +52,7 @@ export interface VrOverlayHeadsetSettings {
   display_seconds: number;
   fade_seconds: number;
   font_size_px: number;
+  lines_per_language: number;
   background_opacity: number;
   vr_drag_edit_enabled: boolean;
 }

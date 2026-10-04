@@ -267,6 +267,9 @@ fn validate_vr_overlay(config: &VrOverlayConfig) -> Result<(), String> {
     if config.headset.fade_seconds > config.headset.display_seconds {
         return Err("VR Overlay headset fade_seconds cannot exceed display_seconds".into());
     }
+    if !(1..=4).contains(&config.headset.lines_per_language) {
+        return Err("VR Overlay headset lines_per_language must be between 1 and 4".into());
+    }
     if !(24..=96).contains(&config.headset.font_size_px) {
         return Err("VR Overlay headset font_size_px must be between 24 and 96".into());
     }

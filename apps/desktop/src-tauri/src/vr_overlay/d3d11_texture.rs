@@ -178,7 +178,7 @@ impl Device {
         source: &Texture,
     ) -> Result<(), String> {
         validate(source)?;
-        if destination.width != source.width || destination.height != source.height {
+        if !destination.matches_dimensions(source) {
             return Err("Overlay texture dimensions changed unexpectedly".into());
         }
 
@@ -234,6 +234,10 @@ impl Device {
 }
 
 impl OverlayTexture {
+    pub fn matches_dimensions(&self, source: &Texture) -> bool {
+        self.width == source.width && self.height == source.height
+    }
+
     pub fn shared_handle(&self) -> *mut c_void {
         self.shared_handle
     }

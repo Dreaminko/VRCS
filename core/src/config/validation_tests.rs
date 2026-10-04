@@ -79,6 +79,22 @@ fn microphone_trigger_threshold_is_bounded() {
 }
 
 #[test]
+fn headset_lines_per_language_are_bounded() {
+    let mut config = AppConfig::default();
+    for lines in 1..=4 {
+        config.vr_overlay.headset.lines_per_language = lines;
+        assert!(config.validate_settings().is_ok());
+    }
+    for lines in [0, 5, u32::MAX] {
+        config.vr_overlay.headset.lines_per_language = lines;
+        assert_eq!(
+            config.validate_settings().unwrap_err(),
+            "VR Overlay headset lines_per_language must be between 1 and 4"
+        );
+    }
+}
+
+#[test]
 fn validates_vr_overlay_boundaries_and_cross_fields() {
     let mut config = AppConfig::default();
     config.vr_overlay.headset.offset_x_m = -2.0;

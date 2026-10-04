@@ -215,6 +215,7 @@ mod tests {
                 "include_chatbox",
                 "include_microphone",
                 "include_speaker",
+                "lines_per_language",
                 "offset_x_m",
                 "offset_y_m",
                 "opacity",

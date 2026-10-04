@@ -305,6 +305,7 @@ export function VrOverlaySettingsSection({
               disabled={headsetDisabled}
               onChange={(value) => updateHeadset("content_mode", value as VrOverlayHeadsetSettings["content_mode"])}
             />
+            <MeterRange label={t("settings.vrOverlay.linesPerLanguage")} value={draft.vr_overlay.headset.lines_per_language} min={1} max={4} step={1} unit="" disabled={headsetDisabled} onCommit={(value) => updateHeadset("lines_per_language", value)} />
             <MeterRange label={t("settings.vrOverlay.displaySeconds")} value={draft.vr_overlay.headset.display_seconds} min={1} max={30} step={0.5} digits={1} unit=" s" disabled={headsetDisabled} onCommit={(value) => applySettings((current) => setVrOverlayHeadsetDisplaySeconds(current, value))} />
             <MeterRange label={t("settings.vrOverlay.fadeSeconds")} value={draft.vr_overlay.headset.fade_seconds} min={0} max={Math.min(5, draft.vr_overlay.headset.display_seconds)} step={0.1} digits={1} unit=" s" disabled={headsetDisabled} onCommit={(value) => updateHeadset("fade_seconds", value)} />
           </div>

@@ -602,6 +602,7 @@
         "liveUpdates": "即時更新",
         "showRecognitionPartials": "顯示辨識中的文字",
         "showTranslationPartials": "顯示翻譯中的文字",
+        "linesPerLanguage": "每種語言的字幕行數",
         "displaySeconds": "停留時間",
         "fadeSeconds": "淡出時間",
         "maxEntries": "對話行數",

@@ -602,6 +602,7 @@
         "liveUpdates": "Live updates",
         "showRecognitionPartials": "Show partial recognition",
         "showTranslationPartials": "Show partial translations",
+        "linesPerLanguage": "Subtitle lines per language",
         "displaySeconds": "Display duration",
         "fadeSeconds": "Fade duration",
         "maxEntries": "Conversation lines",

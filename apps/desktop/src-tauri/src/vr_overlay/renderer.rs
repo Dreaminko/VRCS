@@ -11,7 +11,7 @@ pub struct Texture {
 
 #[derive(Debug, Clone, Copy)]
 pub enum Layout {
-    Headset,
+    Headset { lines_per_language: u32 },
     Wrist,
 }
 
@@ -21,9 +21,12 @@ pub fn content_hash(
     font_size_px: u32,
     background_opacity: f32,
 ) -> u64 {
-    let (width, height) = dimensions(layout);
+    let (width, height) = dimensions(layout, content);
     let mut hasher = DefaultHasher::new();
     content.hash(&mut hasher);
+    if let Layout::Headset { lines_per_language } = layout {
+        lines_per_language.clamp(1, 4).hash(&mut hasher);
+    }
     font_size_px.hash(&mut hasher);
     background_opacity.to_bits().hash(&mut hasher);
     (width, height).hash(&mut hasher);
@@ -36,12 +39,19 @@ pub fn render(
     font_size_px: u32,
     background_opacity: f32,
 ) -> Result<Texture, String> {
-    let (width, height) = dimensions(layout);
+    let (width, height) = dimensions(layout, content);
 
     #[cfg(windows)]
     let pixels = match (layout, content) {
-        (Layout::Headset, PresentationContent::Headset(text)) => {
-            windows_renderer::render_mask(text, width, height, font_size_px, background_opacity)?
+        (Layout::Headset { lines_per_language }, PresentationContent::Headset(text)) => {
+            windows_renderer::render_mask(
+                text,
+                width,
+                height,
+                font_size_px,
+                background_opacity,
+                lines_per_language.clamp(1, 4),
+            )?
         }
         (Layout::Wrist, PresentationContent::Wrist(messages)) => super::wrist_renderer::render(
             messages,
@@ -65,9 +75,15 @@ pub fn render(
     })
 }
 
-fn dimensions(layout: Layout) -> (u32, u32) {
+fn dimensions(layout: Layout, content: &PresentationContent) -> (u32, u32) {
     match layout {
-        Layout::Headset => (1024, 192),
+        Layout::Headset { lines_per_language } => {
+            let languages = match content {
+                PresentationContent::Headset(text) => text.splitn(4, '\n').count() as u32,
+                _ => 1,
+            };
+            (1024, 28 + 82 * lines_per_language.clamp(1, 4) * languages)
+        }
         Layout::Wrist => (768, 768),
     }
 }
@@ -96,6 +112,7 @@ mod windows_renderer {
         height: u32,
         font_size_px: u32,
         background_opacity: f32,
+        lines_per_language: u32,
     ) -> Result<Vec<u8>, String> {
         unsafe {
             let dc = CreateCompatibleDC(null_mut());
@@ -133,11 +150,15 @@ mod windows_renderer {
             let padding = 28;
             let content_top = padding / 2;
             let content_bottom = height as i32 - padding / 2;
-            let lines: Vec<&str> = text.splitn(2, '\n').collect();
+            let lines: Vec<&str> = text.splitn(4, '\n').collect();
             let slot_height = (content_bottom - content_top) / lines.len() as i32;
             let face: Vec<u16> = "Segoe UI\0".encode_utf16().collect();
-            let rendered_font_size =
-                fit_font_size(dc, &face, font_size_px, (content_bottom - content_top) / 2);
+            let rendered_font_size = fit_font_size(
+                dc,
+                &face,
+                font_size_px,
+                slot_height / lines_per_language as i32,
+            );
             let font = CreateFontW(
                 -rendered_font_size,
                 0,
@@ -178,21 +199,17 @@ mod windows_renderer {
                         content_top + (index as i32 + 1) * slot_height
                     },
                 };
-                // A single language can use both lines; bilingual captions keep
-                // one readable line for the source and one for the translation.
+                // Each language has its own bounded, wrapping caption window.
                 let flags = DT_CENTER
                     | DT_NOPREFIX
-                    | if lines.len() == 1 {
+                    | if lines_per_language > 1 {
                         DT_WORDBREAK
                     } else {
                         DT_SINGLELINE
                     };
                 let available_width = rect.right - rect.left;
-                let available_height = (rect.bottom - rect.top).min(if lines.len() == 1 {
-                    line_height * 2
-                } else {
-                    slot_height
-                });
+                let available_height =
+                    (rect.bottom - rect.top).min(line_height * lines_per_language as i32);
                 let fits = |candidate: &str| {
                     let measured = measure_text(dc, candidate, available_width, flags);
                     measured.right <= available_width && measured.bottom <= available_height
@@ -203,7 +220,7 @@ mod windows_renderer {
                     headset_layout::visible_tail(line, fits)
                 };
                 let mut wide: Vec<u16> = visible.encode_utf16().collect();
-                if lines.len() == 1 {
+                if lines_per_language > 1 {
                     let measured = measure_text(dc, &visible, available_width, flags);
                     rect.top += ((rect.bottom - rect.top - measured.bottom) / 2).max(0);
                 }
@@ -212,7 +229,12 @@ mod windows_renderer {
                     wide.as_mut_ptr(),
                     wide.len() as i32,
                     &mut rect,
-                    flags | if lines.len() == 1 { 0 } else { DT_VCENTER },
+                    flags
+                        | if lines_per_language > 1 {
+                            0
+                        } else {
+                            DT_VCENTER
+                        },
                 );
             }
 
@@ -299,20 +321,95 @@ mod windows_renderer {
 mod tests {
     use super::*;
 
+    const ONE_LINE: Layout = Layout::Headset {
+        lines_per_language: 1,
+    };
+    const TWO_LINES: Layout = Layout::Headset {
+        lines_per_language: 2,
+    };
+
+    #[test]
+    fn line_limits_change_geometry_and_hash_without_dependence_on_text_length() {
+        let short = PresentationContent::Headset("hello\n你好".into());
+        let long = PresentationContent::Headset(format!("{0}\n{0}", "很长的字幕".repeat(100)));
+        for lines_per_language in 1..=4 {
+            let layout = Layout::Headset { lines_per_language };
+            assert_eq!(dimensions(layout, &short), dimensions(layout, &long));
+            assert_eq!(
+                dimensions(layout, &short),
+                (1024, 28 + 164 * lines_per_language)
+            );
+        }
+        assert_ne!(
+            content_hash(ONE_LINE, &short, 54, 0.5),
+            content_hash(TWO_LINES, &short, 54, 0.5)
+        );
+        let multilingual = PresentationContent::Headset("source\n中文\n日本語\nEnglish".into());
+        assert_eq!(dimensions(TWO_LINES, &multilingual), (1024, 684));
+        assert_eq!(
+            dimensions(
+                Layout::Headset {
+                    lines_per_language: u32::MAX
+                },
+                &short
+            ),
+            dimensions(
+                Layout::Headset {
+                    lines_per_language: 4
+                },
+                &short
+            )
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn configured_bilingual_line_limits_wrap_both_languages_at_a_stable_font_size() {
+        let content = PresentationContent::Headset(format!("{0}\n{0}", "国".repeat(200)));
+        let mut glyph_height = None;
+        for lines_per_language in 1..=4 {
+            let texture =
+                render(Layout::Headset { lines_per_language }, &content, 54, 0.5).unwrap();
+            for (from, to) in [
+                (0, texture.height / 2),
+                (texture.height / 2, texture.height),
+            ] {
+                let mut bands = Vec::new();
+                let mut started = None;
+                for y in from..to {
+                    let row = (y * texture.width * 4) as usize;
+                    let has_ink = texture.pixels[row..row + (texture.width * 4) as usize]
+                        .chunks_exact(4)
+                        .any(|pixel| pixel[0] != 0);
+                    if has_ink {
+                        started.get_or_insert(y);
+                    } else if let Some(start) = started.take() {
+                        bands.push(y - start);
+                    }
+                }
+                assert_eq!(bands.len(), lines_per_language as usize);
+                for height in bands {
+                    assert!(height > 30);
+                    assert_eq!(height, *glyph_height.get_or_insert(height));
+                }
+            }
+        }
+    }
+
     #[test]
     fn content_hash_changes_with_text_or_style() {
         let hello = PresentationContent::Headset("hello".into());
         let world = PresentationContent::Headset("world".into());
-        let first_hash = content_hash(Layout::Headset, &hello, 48, 0.5);
-        assert_ne!(first_hash, content_hash(Layout::Headset, &world, 48, 0.5));
-        assert_ne!(first_hash, content_hash(Layout::Headset, &hello, 54, 0.5));
+        let first_hash = content_hash(ONE_LINE, &hello, 48, 0.5);
+        assert_ne!(first_hash, content_hash(ONE_LINE, &world, 48, 0.5));
+        assert_ne!(first_hash, content_hash(ONE_LINE, &hello, 54, 0.5));
     }
 
     #[cfg(windows)]
     #[test]
     fn rendered_mask_matches_texture_dimensions() {
         let content = PresentationContent::Headset("hello".into());
-        let texture = render(Layout::Headset, &content, 48, 0.5).unwrap();
+        let texture = render(ONE_LINE, &content, 48, 0.5).unwrap();
         assert_eq!(
             texture.pixels.len(),
             (texture.width * texture.height * 4) as usize
@@ -328,8 +425,8 @@ mod tests {
         let next = PresentationContent::Headset(format!(
             "{prefix}新的内容继续出现 NEW 456\n{prefix}new words keep arriving"
         ));
-        let first = render(Layout::Headset, &first, 54, 0.5).unwrap();
-        let next = render(Layout::Headset, &next, 54, 0.5).unwrap();
+        let first = render(ONE_LINE, &first, 54, 0.5).unwrap();
+        let next = render(ONE_LINE, &next, 54, 0.5).unwrap();
         let middle = (first.width * first.height / 2 * 4) as usize;
         assert_ne!(&first.pixels[..middle], &next.pixels[..middle]);
         assert_ne!(&first.pixels[middle..], &next.pixels[middle..]);
@@ -341,8 +438,8 @@ mod tests {
         let suffix = "最新文字必须留在画面中 The newest words stay visible".repeat(10);
         let first = PresentationContent::Headset(format!("{}{suffix}", "旧内容".repeat(100)));
         let next = PresentationContent::Headset(format!("{}{suffix}", "不同的旧内容".repeat(150)));
-        let first = render(Layout::Headset, &first, 54, 0.5).unwrap();
-        let next = render(Layout::Headset, &next, 54, 0.5).unwrap();
+        let first = render(TWO_LINES, &first, 54, 0.5).unwrap();
+        let next = render(TWO_LINES, &next, 54, 0.5).unwrap();
         assert_eq!(first.pixels, next.pixels);
     }
 
@@ -351,8 +448,8 @@ mod tests {
     fn growing_bilingual_captions_keep_the_same_glyph_height() {
         let short = PresentationContent::Headset("国\n国".into());
         let long = PresentationContent::Headset(format!("{0}\n{0}", "国".repeat(80)));
-        let short = render(Layout::Headset, &short, 54, 0.5).unwrap();
-        let long = render(Layout::Headset, &long, 54, 0.5).unwrap();
+        let short = render(ONE_LINE, &short, 54, 0.5).unwrap();
+        let long = render(ONE_LINE, &long, 54, 0.5).unwrap();
         let ink_rows = |texture: &Texture, from: u32, to: u32| {
             // Inspect the final glyphs so the leading overflow marker does not
             // affect the measured ink height.
@@ -372,7 +469,7 @@ mod tests {
                 })
                 .collect::<Vec<_>>()
         };
-        for (from, to) in [(0, 96), (96, 192)] {
+        for (from, to) in [(0, short.height / 2), (short.height / 2, short.height)] {
             let short_rows = ink_rows(&short, from, to);
             let long_rows = ink_rows(&long, from, to);
             assert!(!short_rows.is_empty());
@@ -385,7 +482,7 @@ mod tests {
     #[test]
     fn monolingual_captions_use_two_lines_without_shrinking() {
         let content = PresentationContent::Headset("国".repeat(80));
-        let texture = render(Layout::Headset, &content, 54, 0.5).unwrap();
+        let texture = render(TWO_LINES, &content, 54, 0.5).unwrap();
         let mut bands = Vec::new();
         let mut ink_started = None;
         for y in 0..texture.height {
@@ -417,8 +514,8 @@ mod tests {
             };
             let first = PresentationContent::Headset(format!("[1] {source}{translation}"));
             let next = PresentationContent::Headset(format!("[2] {source}{translation}"));
-            let first = render(Layout::Headset, &first, 54, 0.5).unwrap();
-            let next = render(Layout::Headset, &next, 54, 0.5).unwrap();
+            let first = render(ONE_LINE, &first, 54, 0.5).unwrap();
+            let next = render(ONE_LINE, &next, 54, 0.5).unwrap();
             assert_ne!(first.pixels, next.pixels);
             if bilingual {
                 let middle = (first.width * first.height / 2 * 4) as usize;

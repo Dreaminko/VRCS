@@ -264,8 +264,12 @@ pub(super) fn normalize_event(
                     index,
                 }
             });
+            // Register speech even when diarization metadata is absent. A late
+            // completion for the previous sentence must not close this preview
+            // before its first transcription delta arrives.
+            let source = state.source(&id);
             if speaker.is_some() {
-                state.source(&id).speaker = speaker;
+                source.speaker = speaker;
             }
             state.active = Some(id);
         }
@@ -823,6 +827,36 @@ mod tests {
         };
         assert!(translations[0].transcript.translation.is_empty());
         assert!(!translations[0].pending);
+    }
+
+    #[test]
+    fn late_previous_completion_keeps_a_new_speech_preview_open_without_speaker_id() {
+        let mut state = State::default();
+        link(&mut state, "s1", "t1");
+        source(&mut state, "s1", "first original");
+        event(
+            &mut state,
+            json!({"type":"input_audio_buffer.speech_started","item_id":"s2"}),
+        );
+        let Some(CloudEvent::LiveTranslation { snapshot, .. }) =
+            target(&mut state, "t1", "first translation")
+        else {
+            panic!()
+        };
+        assert!(snapshot.text.is_empty() && snapshot.translation.is_empty());
+        assert_eq!(
+            snapshot.source_utterance_id,
+            Some(format!("qwen-source-{}-s2", state.session_id))
+        );
+        let preview_id = snapshot.utterance_id;
+        let Some(CloudEvent::LiveTranslation { snapshot, .. }) = event(
+            &mut state,
+            json!({"type":"conversation.item.input_audio_transcription.delta","item_id":"s2","delta":"second original delta"}),
+        ) else {
+            panic!()
+        };
+        assert_eq!(snapshot.utterance_id, preview_id);
+        assert_eq!(snapshot.text, "second original delta");
     }
 
     #[test]

@@ -152,7 +152,12 @@ mod platform {
             source: &Texture,
         ) -> Result<(), String> {
             let device = self.texture_device.as_ref().expect("D3D11 device exists");
-            if let Some(texture) = self.state(kind).texture.as_ref() {
+            if let Some(texture) = self
+                .state(kind)
+                .texture
+                .as_ref()
+                .filter(|texture| texture.matches_dimensions(source))
+            {
                 device.copy_texture(texture, source)?;
                 tracing::info!(
                     ?kind,

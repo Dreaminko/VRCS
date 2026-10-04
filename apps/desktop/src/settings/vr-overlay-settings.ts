@@ -24,6 +24,7 @@ export const DEFAULT_VR_OVERLAY_HEADSET_SETTINGS: VrOverlayHeadsetSettings = {
   display_seconds: 6,
   fade_seconds: 1,
   font_size_px: 54,
+  lines_per_language: 2,
   background_opacity: 0.55,
   vr_drag_edit_enabled: false,
 };
