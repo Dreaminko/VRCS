@@ -619,6 +619,47 @@ mod tests {
         assert!(state.finish(&config()).is_none());
     }
     #[test]
+    fn final_response_replaces_preview_and_text_done_without_early_publication() {
+        let mut state = State::default();
+        link(&mut state, "s1", "t1");
+        source(&mut state, "s1", "The train leaves at 7:05, not 7:50.");
+        for (kind, field, preview) in [
+            ("response.text.delta", "delta", "火车将在七点五十分出发"),
+            ("response.text.done", "text", "火车将在七点零五分出发。"),
+        ] {
+            let mut frame = json!({
+                "type": kind, "item_id": "t1", "response_id": "response-t1"
+            });
+            frame[field] = json!(preview);
+            let Some(CloudEvent::LiveTranslation {
+                snapshot,
+                completed,
+                translations,
+                ..
+            }) = event(&mut state, frame)
+            else {
+                panic!()
+            };
+            assert_eq!(snapshot.translation, preview);
+            assert!(completed.is_empty() && translations.is_empty());
+        }
+        let final_text = "火车七点零五分出发，而不是七点五十分。";
+        let Some(CloudEvent::LiveTranslation {
+            snapshot,
+            translations,
+            ..
+        }) = target(&mut state, "t1", final_text)
+        else {
+            panic!()
+        };
+        assert_eq!(translations.len(), 1);
+        assert_eq!(translations[0].transcript.translation, final_text);
+        assert!(!translations[0].pending);
+        assert!(snapshot.translation.is_empty());
+        assert!(state.finish(&config()).is_none());
+    }
+
+    #[test]
     fn translation_before_source_and_late_link_are_paired_by_id() {
         let mut state = State::default();
         target(&mut state, "t2", "再见。");

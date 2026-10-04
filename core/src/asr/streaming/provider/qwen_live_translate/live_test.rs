@@ -1,4 +1,4 @@
-//! Explicit opt-in test. Credentials are read from the environment, never logged.
+//! Explicit opt-in test. Credentials come from the environment or a file, never logged.
 use super::*;
 use crate::asr::streaming::provider::qwen;
 use crate::config::ApiProfile;
@@ -8,9 +8,16 @@ use std::time::Duration;
 use tokio_tungstenite::tungstenite::Message;
 
 #[tokio::test]
-#[ignore = "requires QWEN_LIVE_API_KEY and QWEN_LIVE_PCM (mono PCM16, 16 kHz)"]
+#[ignore = "requires Qwen credentials and QWEN_LIVE_PCM (mono PCM16, 16 kHz)"]
 async fn actual_speech_translation_and_speakers() {
-    let key = std::env::var("QWEN_LIVE_API_KEY").expect("QWEN_LIVE_API_KEY required");
+    let key = std::env::var("QWEN_LIVE_API_KEY").unwrap_or_else(|_| {
+        std::fs::read_to_string(
+            std::env::var("QWEN_LIVE_API_KEY_FILE").expect("QWEN_LIVE_API_KEY or file required"),
+        )
+        .expect("read test credential")
+        .trim()
+        .to_owned()
+    });
     let pcm = std::fs::read(std::env::var("QWEN_LIVE_PCM").expect("QWEN_LIVE_PCM required"))
         .expect("read test audio");
     assert!(pcm.len() > 32000 && pcm.len() % 2 == 0);
@@ -34,10 +41,18 @@ async fn actual_speech_translation_and_speakers() {
         ..Default::default()
     };
     let request = qwen::build_request(&config, &profile, &key).unwrap();
-    let connected = tokio::time::timeout(
-        Duration::from_secs(30),
-        tokio_tungstenite::connect_async(request),
-    )
+    let connected = tokio::time::timeout(Duration::from_secs(30), async {
+        if let Ok(address) = std::env::var("QWEN_LIVE_CONNECT_ADDR") {
+            // Test-only TCP routing for an unreachable DNS address. The
+            // original request still controls the Host and verified TLS name.
+            let socket = tokio::net::TcpStream::connect(address)
+                .await
+                .map_err(tokio_tungstenite::tungstenite::Error::Io)?;
+            tokio_tungstenite::client_async_tls(request, socket).await
+        } else {
+            tokio_tungstenite::connect_async(request).await
+        }
+    })
     .await
     .expect("connection timed out");
     let (socket, _) = match connected {
@@ -60,6 +75,7 @@ async fn actual_speech_translation_and_speakers() {
     let mut sender = None;
     let started = std::time::Instant::now();
     let mut raw = Vec::new();
+    let mut observations = Vec::new();
     let mut finished = false;
     while let Some(message) = tokio::time::timeout(Duration::from_secs(45), reader.next())
         .await
@@ -116,9 +132,17 @@ async fn actual_speech_translation_and_speakers() {
         if let Some(CloudEvent::LiveTranslation {
             completed,
             translations: done,
+            snapshot,
             ..
         }) = normalize_event(&config, &value, &mut state).unwrap()
         {
+            observations.push(json!({
+                "elapsed_ms": started.elapsed().as_millis(),
+                "trigger": kind,
+                "snapshot": snapshot,
+                "completed": completed.iter().map(|r| &r.transcript).collect::<Vec<_>>(),
+                "translations": done.iter().map(|r| &r.transcript).collect::<Vec<_>>()
+            }));
             for result in completed {
                 println!(
                     "source {}ms speaker={:?}: {}",
@@ -150,6 +174,9 @@ async fn actual_speech_translation_and_speakers() {
     }
     if let Ok(path) = std::env::var("QWEN_LIVE_RECORDING") {
         std::fs::write(path, serde_json::to_vec_pretty(&raw).unwrap()).unwrap();
+    }
+    if let Ok(path) = std::env::var("QWEN_LIVE_OBSERVATION") {
+        std::fs::write(path, serde_json::to_vec_pretty(&observations).unwrap()).unwrap();
     }
     assert!(finished, "session.finish was not acknowledged");
     assert!(!sources.is_empty(), "no final source transcription");
