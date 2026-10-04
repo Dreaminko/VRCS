@@ -414,6 +414,23 @@ mod tests {
             collect(normalized);
         }
         collect(live_translation::finish(&config, &mut state));
+        // Concatenated text conservation cannot detect a shifted pairing.
+        // These anchors are known from the recorded speech, not inferred by the
+        // production aligner, and remain valid for coarser merged groups.
+        for update in &updates {
+            let source = update.transcript.text.to_ascii_lowercase();
+            let target = &update.transcript.translation;
+            for (spoken, translated) in [
+                ("train", "火车"),
+                ("umbrella", "伞"),
+                ("thank you", "谢谢"),
+                ("apples", "苹果"),
+            ] {
+                if source.contains(spoken) {
+                    assert!(target.contains(translated), "recorded source anchor {spoken:?} has no matching translation in group {:?} => {:?}", update.transcript.text, target);
+                }
+            }
+        }
         assert!(visible_deltas > 0);
         assert_eq!(originals.len(), updates.len());
         for (original, update) in originals.iter().zip(&updates) {

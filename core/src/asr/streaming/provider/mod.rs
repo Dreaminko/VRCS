@@ -7,6 +7,9 @@ mod openai_live_translate;
 mod qwen;
 mod qwen_live_translate;
 
+#[cfg(test)]
+mod continuous_live_test;
+
 use std::collections::HashMap;
 
 use serde_json::Value;

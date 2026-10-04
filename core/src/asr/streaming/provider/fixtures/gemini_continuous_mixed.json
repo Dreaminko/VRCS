@@ -1,0 +1,316 @@
+[
+  {
+    "received_ms": 3472,
+    "serverContent": {
+      "inputTranscription": {
+        "languageCode": "en",
+        "text": "The red box is on the table."
+      }
+    }
+  },
+  {
+    "received_ms": 3650,
+    "serverContent": {
+      "outputTranscription": {
+        "languageCode": "zh-Hans",
+        "text": "红色的盒子在"
+      }
+    }
+  },
+  {
+    "received_ms": 4067,
+    "serverContent": {
+      "inputTranscription": {
+        "languageCode": "zh-Hans",
+        "text": "你好,"
+      }
+    }
+  },
+  {
+    "received_ms": 4341,
+    "serverContent": {
+      "outputTranscription": {
+        "languageCode": "zh-Hans"
+      }
+    }
+  },
+  {
+    "received_ms": 5013,
+    "serverContent": {
+      "inputTranscription": {
+        "languageCode": "zh-Hans",
+        "text": "这段中文应"
+      }
+    }
+  },
+  {
+    "received_ms": 5478,
+    "serverContent": {
+      "outputTranscription": {
+        "languageCode": "zh-Hans"
+      }
+    }
+  },
+  {
+    "received_ms": 6030,
+    "serverContent": {
+      "inputTranscription": {
+        "languageCode": "zh-Hans",
+        "text": "该保留原"
+      }
+    }
+  },
+  {
+    "received_ms": 6340,
+    "serverContent": {
+      "outputTranscription": {
+        "languageCode": "zh-Hans"
+      }
+    }
+  },
+  {
+    "received_ms": 7020,
+    "serverContent": {
+      "inputTranscription": {
+        "languageCode": "zh-Hans",
+        "text": "文,不需"
+      }
+    }
+  },
+  {
+    "received_ms": 7091,
+    "serverContent": {
+      "outputTranscription": {
+        "languageCode": "zh-Hans"
+      }
+    }
+  },
+  {
+    "received_ms": 7982,
+    "serverContent": {
+      "inputTranscription": {
+        "languageCode": "zh-Hans",
+        "text": "要重复翻"
+      }
+    }
+  },
+  {
+    "received_ms": 8096,
+    "serverContent": {
+      "outputTranscription": {
+        "languageCode": "zh-Hans"
+      }
+    }
+  },
+  {
+    "received_ms": 8976,
+    "serverContent": {
+      "inputTranscription": {
+        "languageCode": "en",
+        "text": "Tomorrow"
+      }
+    }
+  },
+  {
+    "received_ms": 9103,
+    "serverContent": {
+      "outputTranscription": {
+        "languageCode": "zh-Hans",
+        "text": "明天"
+      }
+    }
+  },
+  {
+    "received_ms": 9996,
+    "serverContent": {
+      "inputTranscription": {
+        "languageCode": "en",
+        "text": " we will meet at"
+      }
+    }
+  },
+  {
+    "received_ms": 10355,
+    "serverContent": {
+      "outputTranscription": {
+        "languageCode": "zh-Hans",
+        "text": "我们三点"
+      }
+    }
+  },
+  {
+    "received_ms": 11073,
+    "serverContent": {
+      "inputTranscription": {
+        "languageCode": "en",
+        "text": " 3:00. The blue"
+      }
+    }
+  },
+  {
+    "received_ms": 11357,
+    "serverContent": {
+      "outputTranscription": {
+        "languageCode": "zh-Hans",
+        "text": "见面。蓝"
+      }
+    }
+  },
+  {
+    "received_ms": 12132,
+    "serverContent": {
+      "inputTranscription": {
+        "languageCode": "en",
+        "text": " train leaves at 7:00."
+      }
+    }
+  },
+  {
+    "received_ms": 12375,
+    "serverContent": {
+      "outputTranscription": {
+        "languageCode": "zh-Hans",
+        "text": "色火车七点"
+      }
+    }
+  },
+  {
+    "received_ms": 13084,
+    "serverContent": {
+      "inputTranscription": {
+        "languageCode": "zh-Hans",
+        "text": "谢谢。"
+      }
+    }
+  },
+  {
+    "received_ms": 13353,
+    "serverContent": {
+      "outputTranscription": {
+        "languageCode": "zh-Hans",
+        "text": "发车。"
+      }
+    }
+  },
+  {
+    "received_ms": 14053,
+    "serverContent": {
+      "inputTranscription": {
+        "languageCode": "zh-Hans",
+        "text": "谢谢。"
+      }
+    }
+  },
+  {
+    "received_ms": 14341,
+    "serverContent": {
+      "outputTranscription": {
+        "languageCode": "zh-Hans"
+      }
+    }
+  },
+  {
+    "received_ms": 15072,
+    "serverContent": {
+      "inputTranscription": {
+        "languageCode": "zh-Hans",
+        "text": "请把门关"
+      }
+    }
+  },
+  {
+    "received_ms": 15383,
+    "serverContent": {
+      "outputTranscription": {
+        "languageCode": "zh-Hans"
+      }
+    }
+  },
+  {
+    "received_ms": 15970,
+    "serverContent": {
+      "inputTranscription": {
+        "languageCode": "zh-Hans",
+        "text": "上。"
+      }
+    }
+  },
+  {
+    "received_ms": 16090,
+    "serverContent": {
+      "outputTranscription": {
+        "languageCode": "zh-Hans"
+      }
+    }
+  },
+  {
+    "received_ms": 17187,
+    "serverContent": {
+      "inputTranscription": {
+        "languageCode": "en",
+        "text": " Please bring two"
+      }
+    }
+  },
+  {
+    "received_ms": 17359,
+    "serverContent": {
+      "outputTranscription": {
+        "languageCode": "zh-Hans",
+        "text": "请带两个"
+      }
+    }
+  },
+  {
+    "received_ms": 18037,
+    "serverContent": {
+      "inputTranscription": {
+        "languageCode": "en",
+        "text": " apples and one bottle of"
+      }
+    }
+  },
+  {
+    "received_ms": 18351,
+    "serverContent": {
+      "outputTranscription": {
+        "languageCode": "zh-Hans",
+        "text": "苹果和一瓶"
+      }
+    }
+  },
+  {
+    "received_ms": 18996,
+    "serverContent": {
+      "inputTranscription": {
+        "languageCode": "en",
+        "text": " water."
+      }
+    }
+  },
+  {
+    "received_ms": 19109,
+    "serverContent": {
+      "outputTranscription": {
+        "languageCode": "zh-Hans",
+        "text": "水。"
+      }
+    }
+  },
+  {
+    "received_ms": 20018,
+    "serverContent": {
+      "inputTranscription": {
+        "languageCode": "en"
+      }
+    }
+  },
+  {
+    "received_ms": 20094,
+    "serverContent": {
+      "outputTranscription": {
+        "languageCode": "zh-Hans"
+      }
+    }
+  }
+]

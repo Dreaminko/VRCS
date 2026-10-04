@@ -181,7 +181,10 @@ pub(super) fn align(
             if i != n && j != m {
                 continue;
             }
-            let score = scores[i][j] + 0.75 * (n - i + m - j) as f64;
+            // Source lookahead may be untranslated. Leaving it pending must
+            // cost less than merging it solely to improve coverage. Preserve
+            // the stronger target coverage cost for one-to-many translations.
+            let score = scores[i][j] + 0.1 * (n - i) as f64 + 0.75 * (m - j) as f64;
             if score < best_score {
                 best_score = score;
                 best = Some((i, j));
@@ -235,6 +238,17 @@ mod tests {
         assert_eq!(
             align("Hello. The train leaves at 7.", "你好。", &[], false),
             [(7, 9)]
+        );
+    }
+    #[test]
+    fn untranslated_source_lookahead_is_not_swallowed_by_a_long_pair() {
+        let prefix =
+            "I bought a red umbrella and a blue notebook yesterday but forgot to bring them home. ";
+        let source = format!("{prefix}Thank you.");
+        let target = "我昨天买了一把红伞和一本蓝色笔记本,但忘了带回家。";
+        assert_eq!(
+            align(&source, target, &[], false),
+            [(prefix.len(), target.len())]
         );
     }
 }

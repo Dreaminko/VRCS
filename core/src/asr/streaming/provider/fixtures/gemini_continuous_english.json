@@ -1,0 +1,378 @@
+[
+  {
+    "received_ms": 3404,
+    "serverContent": {
+      "inputTranscription": {
+        "languageCode": "en",
+        "text": "Although the meeting was originally"
+      }
+    }
+  },
+  {
+    "received_ms": 3568,
+    "serverContent": {
+      "outputTranscription": {
+        "languageCode": "zh-Hans",
+        "text": "虽然会议原本"
+      }
+    }
+  },
+  {
+    "received_ms": 4082,
+    "serverContent": {
+      "inputTranscription": {
+        "languageCode": "en",
+        "text": " planned for Monday morning,"
+      }
+    }
+  },
+  {
+    "received_ms": 4271,
+    "serverContent": {
+      "outputTranscription": {
+        "languageCode": "zh-Hans",
+        "text": "计划在周一上午"
+      }
+    }
+  },
+  {
+    "received_ms": 5152,
+    "serverContent": {
+      "inputTranscription": {
+        "languageCode": "en",
+        "text": " we moved it to"
+      }
+    }
+  },
+  {
+    "received_ms": 5266,
+    "serverContent": {
+      "outputTranscription": {
+        "languageCode": "zh-Hans",
+        "text": "举行，"
+      }
+    }
+  },
+  {
+    "received_ms": 6263,
+    "serverContent": {
+      "inputTranscription": {
+        "languageCode": "en",
+        "text": " Friday afternoon"
+      }
+    }
+  },
+  {
+    "received_ms": 6269,
+    "serverContent": {
+      "outputTranscription": {
+        "languageCode": "zh-Hans",
+        "text": "但我们改到了"
+      }
+    }
+  },
+  {
+    "received_ms": 7040,
+    "serverContent": {
+      "inputTranscription": {
+        "languageCode": "en",
+        "text": " because the manager was"
+      }
+    }
+  },
+  {
+    "received_ms": 7498,
+    "serverContent": {
+      "outputTranscription": {
+        "languageCode": "zh-Hans",
+        "text": "周五下午，"
+      }
+    }
+  },
+  {
+    "received_ms": 8240,
+    "serverContent": {
+      "inputTranscription": {
+        "languageCode": "en",
+        "text": " still traveling."
+      }
+    }
+  },
+  {
+    "received_ms": 8265,
+    "serverContent": {
+      "outputTranscription": {
+        "languageCode": "zh-Hans",
+        "text": "因为经理还在"
+      }
+    }
+  },
+  {
+    "received_ms": 8978,
+    "serverContent": {
+      "inputTranscription": {
+        "languageCode": "en",
+        "text": " Please"
+      }
+    }
+  },
+  {
+    "received_ms": 9282,
+    "serverContent": {
+      "outputTranscription": {
+        "languageCode": "zh-Hans",
+        "text": "出差。"
+      }
+    }
+  },
+  {
+    "received_ms": 10062,
+    "serverContent": {
+      "inputTranscription": {
+        "languageCode": "en",
+        "text": " wait, close the"
+      }
+    }
+  },
+  {
+    "received_ms": 10494,
+    "serverContent": {
+      "outputTranscription": {
+        "languageCode": "zh-Hans",
+        "text": "请稍等，"
+      }
+    }
+  },
+  {
+    "received_ms": 11245,
+    "serverContent": {
+      "inputTranscription": {
+        "languageCode": "en",
+        "text": " door. I"
+      }
+    }
+  },
+  {
+    "received_ms": 11422,
+    "serverContent": {
+      "outputTranscription": {
+        "languageCode": "zh-Hans",
+        "text": "关上门。"
+      }
+    }
+  },
+  {
+    "received_ms": 12074,
+    "serverContent": {
+      "inputTranscription": {
+        "languageCode": "en",
+        "text": " bought a red umbrella and"
+      }
+    }
+  },
+  {
+    "received_ms": 12282,
+    "serverContent": {
+      "outputTranscription": {
+        "languageCode": "zh-Hans",
+        "text": "我买了一把红"
+      }
+    }
+  },
+  {
+    "received_ms": 13013,
+    "serverContent": {
+      "inputTranscription": {
+        "languageCode": "en",
+        "text": " a blue notebook"
+      }
+    }
+  },
+  {
+    "received_ms": 13279,
+    "serverContent": {
+      "outputTranscription": {
+        "languageCode": "zh-Hans",
+        "text": "伞和一个蓝"
+      }
+    }
+  },
+  {
+    "received_ms": 14143,
+    "serverContent": {
+      "inputTranscription": {
+        "languageCode": "en",
+        "text": " yesterday, but"
+      }
+    }
+  },
+  {
+    "received_ms": 14306,
+    "serverContent": {
+      "outputTranscription": {
+        "languageCode": "zh-Hans",
+        "text": "色笔记本，"
+      }
+    }
+  },
+  {
+    "received_ms": 15069,
+    "serverContent": {
+      "inputTranscription": {
+        "languageCode": "en",
+        "text": " forgot to bring them"
+      }
+    }
+  },
+  {
+    "received_ms": 15276,
+    "serverContent": {
+      "outputTranscription": {
+        "languageCode": "zh-Hans",
+        "text": "但昨天忘记带"
+      }
+    }
+  },
+  {
+    "received_ms": 16044,
+    "serverContent": {
+      "inputTranscription": {
+        "languageCode": "en",
+        "text": " home. Thank"
+      }
+    }
+  },
+  {
+    "received_ms": 16270,
+    "serverContent": {
+      "outputTranscription": {
+        "languageCode": "zh-Hans",
+        "text": "回家了。"
+      }
+    }
+  },
+  {
+    "received_ms": 16991,
+    "serverContent": {
+      "inputTranscription": {
+        "languageCode": "en",
+        "text": " you. Thank"
+      }
+    }
+  },
+  {
+    "received_ms": 17271,
+    "serverContent": {
+      "outputTranscription": {
+        "languageCode": "zh-Hans",
+        "text": "谢谢。"
+      }
+    }
+  },
+  {
+    "received_ms": 18008,
+    "serverContent": {
+      "inputTranscription": {
+        "languageCode": "en",
+        "text": " you. The"
+      }
+    }
+  },
+  {
+    "received_ms": 18276,
+    "serverContent": {
+      "outputTranscription": {
+        "languageCode": "zh-Hans",
+        "text": "谢谢。"
+      }
+    }
+  },
+  {
+    "received_ms": 19202,
+    "serverContent": {
+      "inputTranscription": {
+        "languageCode": "en",
+        "text": " train leaves at 7:00."
+      }
+    }
+  },
+  {
+    "received_ms": 19450,
+    "serverContent": {
+      "outputTranscription": {
+        "languageCode": "zh-Hans",
+        "text": "火车7点"
+      }
+    }
+  },
+  {
+    "received_ms": 20160,
+    "serverContent": {
+      "inputTranscription": {
+        "languageCode": "en",
+        "text": " Please bring two"
+      }
+    }
+  },
+  {
+    "received_ms": 20280,
+    "serverContent": {
+      "outputTranscription": {
+        "languageCode": "zh-Hans",
+        "text": "发车。请"
+      }
+    }
+  },
+  {
+    "received_ms": 21033,
+    "serverContent": {
+      "inputTranscription": {
+        "languageCode": "en",
+        "text": " apples and one bottle"
+      }
+    }
+  },
+  {
+    "received_ms": 21272,
+    "serverContent": {
+      "outputTranscription": {
+        "languageCode": "zh-Hans",
+        "text": "带两个苹果"
+      }
+    }
+  },
+  {
+    "received_ms": 22146,
+    "serverContent": {
+      "inputTranscription": {
+        "languageCode": "en",
+        "text": " of water."
+      }
+    }
+  },
+  {
+    "received_ms": 22274,
+    "serverContent": {
+      "outputTranscription": {
+        "languageCode": "zh-Hans",
+        "text": "和一瓶水。"
+      }
+    }
+  },
+  {
+    "received_ms": 22950,
+    "serverContent": {
+      "inputTranscription": {
+        "languageCode": "en"
+      }
+    }
+  },
+  {
+    "received_ms": 23272,
+    "serverContent": {
+      "outputTranscription": {
+        "languageCode": "zh-Hans"
+      }
+    }
+  }
+]
