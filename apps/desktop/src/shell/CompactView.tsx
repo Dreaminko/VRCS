@@ -7,6 +7,7 @@ import { livePartialHasSubtitle, useLivePartial, useTranslationPartials } from "
 import type { Subtitle } from "../subtitles/types";
 import { contentLanguageTag } from "../app/ui-language";
 import { compactPreviewText } from "../compact-mode";
+import { useBatchedPreview } from "../streaming-preview";
 
 export function CompactView({ subtitles, subtitleLimit, selectionActive, running, vrchatMuted, captureDisabled, onSelect, onCapture, onRestore, onClose }: {
   subtitles: Subtitle[];
@@ -23,9 +24,14 @@ export function CompactView({ subtitles, subtitleLimit, selectionActive, running
   const { t } = useTranslation();
   const microphonePartial = useLivePartial("microphone");
   const speakerPartial = useLivePartial("speaker");
-  const partial = selectionActive
-    ? undefined
+  const rawPartial = selectionActive
+    ? null
     : microphonePartial ?? speakerPartial;
+  const partial = useBatchedPreview(
+    rawPartial,
+    rawPartial?.utterance_id ?? "",
+    rawPartial?.utterance_id.startsWith("qwen-preview-") ?? false,
+  );
   const historyLimit = Math.max(0, subtitleLimit - (partial ? 1 : 0));
   const visibleSubtitles = historyLimit > 0
     ? subtitles.filter((subtitle) => !partial || !livePartialHasSubtitle(partial, [subtitle])).slice(-historyLimit)
@@ -82,9 +88,13 @@ function CompactSubtitleRow({ subtitle, current, onSelect }: {
   onSelect: (context: string, origin?: LookupOrigin) => Promise<void>;
 }) {
   const translationPartial = useTranslationPartials(subtitle.id)[0];
-  const visibleTranslation = translationPartial
-    ?? subtitle.translation_partial
-    ?? subtitle.translations[0];
+  const pendingTranslation = translationPartial ?? subtitle.translation_partial;
+  const preview = useBatchedPreview(
+    pendingTranslation ?? null,
+    `${subtitle.utterance_id ?? subtitle.id}:${pendingTranslation?.target_language ?? ""}`,
+    subtitle.utterance_id?.startsWith("qwen-source-") ?? false,
+  );
+  const visibleTranslation = preview ?? subtitle.translations[0];
   const origin: LookupOrigin = {
     id: subtitle.id,
     language: subtitle.language,
@@ -106,7 +116,7 @@ function CompactSubtitleRow({ subtitle, current, onSelect }: {
           className="compact-translation"
           lang={contentLanguageTag(visibleTranslation.target_language)}
           text={visibleTranslation.text}
-          streaming={Boolean(translationPartial || subtitle.translation_partial)}
+          streaming={Boolean(preview)}
         />
       )}
     </div>
