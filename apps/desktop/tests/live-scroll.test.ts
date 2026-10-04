@@ -20,6 +20,58 @@ test("keeps following while new content increases the distance from the bottom",
   }), true);
 });
 
+test("keeps following when shorter final text clamps the scroll offset", () => {
+  assert.equal(shouldFollowLiveScroll(true, {
+    scrollTop: 520,
+    previousScrollTop: 1500,
+    scrollHeight: 1000,
+    clientHeight: 480,
+  }), true);
+  // The next delta must still follow even though it has grown beyond the bottom.
+  assert.equal(shouldFollowLiveScroll(true, {
+    scrollTop: 520,
+    previousScrollTop: 520,
+    scrollHeight: 1100,
+    clientHeight: 480,
+  }), true);
+});
+
+test("keeps following when a taller viewport clamps the scroll offset", () => {
+  assert.equal(shouldFollowLiveScroll(true, {
+    scrollTop: 520,
+    previousScrollTop: 680,
+    scrollHeight: 1000,
+    clientHeight: 480,
+  }), true);
+});
+
+test("layout clamping does not resume following for someone reading history", () => {
+  assert.equal(shouldFollowLiveScroll(false, {
+    scrollTop: 520,
+    previousScrollTop: 600,
+    scrollHeight: 1000,
+    clientHeight: 480,
+  }), false);
+});
+
+test("scrolling above the clamped bottom still pauses following", () => {
+  assert.equal(shouldFollowLiveScroll(true, {
+    scrollTop: 499,
+    previousScrollTop: 1500,
+    scrollHeight: 1000,
+    clientHeight: 480,
+  }), false);
+});
+
+test("keeps following when all content fits after the preview shrinks", () => {
+  assert.equal(shouldFollowLiveScroll(true, {
+    scrollTop: 0,
+    previousScrollTop: 300,
+    scrollHeight: 480,
+    clientHeight: 480,
+  }), true);
+});
+
 test("resumes following only after the user returns to the bottom", () => {
   assert.equal(shouldFollowLiveScroll(false, {
     scrollTop: 400,

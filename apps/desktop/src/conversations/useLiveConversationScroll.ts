@@ -6,7 +6,6 @@ import { shouldFollowLiveScroll } from "../shared/lib/live-scroll";
 
 export function useLiveConversationScroll({
   page,
-  running,
   activeConversationId,
   selectedConversationId,
   openedConversationId,
@@ -15,7 +14,6 @@ export function useLiveConversationScroll({
   focusedSubtitleId,
 }: {
   page: Page;
-  running: boolean;
   activeConversationId: string | null;
   selectedConversationId: string | null;
   openedConversationId: string | null;
@@ -28,9 +26,10 @@ export function useLiveConversationScroll({
   const followingLiveSubtitlesRef = useRef(true);
   const [followingLiveSubtitles, setFollowingLiveSubtitles] = useState(true);
   const liveAutoScrollActive = page === "live"
-    && running
     && focusedSubtitleId === null
     && selectedConversationId !== null
+    && openedConversationId === selectedConversationId
+    && !loadingConversationSubtitles
     && selectedConversationId === activeConversationId;
 
   const setFollowingLive = useCallback((following: boolean) => {
@@ -43,8 +42,8 @@ export function useLiveConversationScroll({
       const scrollRegion = liveScrollRef.current;
       if (!scrollRegion) return;
       setFollowingLive(true);
-      previousLiveScrollTopRef.current = scrollRegion.scrollTop;
       scrollRegion.scrollTo({ top: scrollRegion.scrollHeight, behavior });
+      previousLiveScrollTopRef.current = scrollRegion.scrollTop;
     },
     [setFollowingLive],
   );
@@ -53,8 +52,8 @@ export function useLiveConversationScroll({
     if (!followingLiveSubtitlesRef.current) return;
     const scrollRegion = liveScrollRef.current;
     if (!scrollRegion) return;
-    previousLiveScrollTopRef.current = scrollRegion.scrollTop;
     scrollRegion.scrollTo({ top: scrollRegion.scrollHeight, behavior: "auto" });
+    previousLiveScrollTopRef.current = scrollRegion.scrollTop;
   }, []);
 
   useLayoutEffect(() => {
@@ -98,7 +97,9 @@ export function useLiveConversationScroll({
       window.cancelAnimationFrame(frame);
       frame = window.requestAnimationFrame(autoScrollLiveViewToBottom);
     });
-    const content = liveScrollRef.current?.firstElementChild;
+    const scrollRegion = liveScrollRef.current;
+    if (scrollRegion) observer.observe(scrollRegion);
+    const content = scrollRegion?.firstElementChild;
     if (content) observer.observe(content);
     return () => {
       observer.disconnect();
