@@ -72,6 +72,14 @@ pub(crate) fn asr_runtime_changed(current: &AppConfig, candidate: &AppConfig) ->
 }
 
 fn glossary_asr_runtime_changed(current: &AppConfig, candidate: &AppConfig) -> bool {
+    if supports_live_translation_glossary(&current.asr)
+        || supports_live_translation_glossary(&candidate.asr)
+    {
+        return current.glossary.llm_enabled != candidate.glossary.llm_enabled
+            || current.glossary.asr_enabled != candidate.glossary.asr_enabled
+            || ((candidate.glossary.llm_enabled || candidate.glossary.asr_enabled)
+                && current.glossary.sources != candidate.glossary.sources);
+    }
     if !supports_asr_context(&current.asr) && !supports_asr_context(&candidate.asr) {
         return false;
     }
@@ -84,6 +92,16 @@ fn supports_asr_context(config: &AsrConfig) -> bool {
     crate::providers::recognition_service(&config.backend)
         .and_then(|(_, service)| service.context_max_chars)
         .is_some()
+}
+
+fn supports_live_translation_glossary(config: &AsrConfig) -> bool {
+    config.backend == crate::providers::SERVICE_QWEN_LIVE_TRANSLATE
+}
+
+fn glossary_used_by_capture(config: &AppConfig) -> bool {
+    (config.glossary.asr_enabled && supports_asr_context(&config.asr))
+        || (supports_live_translation_glossary(&config.asr)
+            && (config.glossary.llm_enabled || config.glossary.asr_enabled))
 }
 
 fn asr_config_runtime_changed(current: &AsrConfig, candidate: &AsrConfig) -> bool {
@@ -308,6 +326,12 @@ fn effective_asr_config(
     if crate::providers::is_live_translation(&asr.backend) {
         asr.live_alignment = config.translation.live_alignment.clone();
     }
+    if supports_live_translation_glossary(&asr) {
+        asr.live_translation_phrases = state
+            .content
+            .glossary
+            .phrases_for_live_translation(&config.glossary);
+    }
     let terms = state
         .content
         .glossary
@@ -476,9 +500,7 @@ pub(crate) async fn start_pipelines(
 pub(crate) async fn reload_glossary_asr_context(state: &CaptureContext) -> ApiResult<()> {
     let _control = state.capture.capture_control.lock().await;
     let config = state.config.config.read().expect("config lock").clone();
-    if !state.capture.capture_requested.load(Ordering::SeqCst)
-        || !config.glossary.asr_enabled
-        || !supports_asr_context(&config.asr)
+    if !state.capture.capture_requested.load(Ordering::SeqCst) || !glossary_used_by_capture(&config)
     {
         return Ok(());
     }
@@ -627,6 +649,49 @@ mod tests {
             let plan = CaptureReloadPlan::between(&current, &next);
             assert_eq!((plan.speaker, plan.microphone), (reload, reload));
         }
+    }
+
+    #[test]
+    fn qwen_glossary_changes_reload_live_sessions_for_either_consumer() {
+        let mut current = crate::config::AppConfig::default();
+        current.asr.backend = crate::providers::SERVICE_QWEN_LIVE_TRANSLATE.into();
+        for translation_only in [false, true] {
+            current.glossary.asr_enabled = !translation_only;
+            let mut next = current.clone();
+            next.glossary.sources.push(GlossarySource::Local {
+                id: "local".into(),
+                name: "local".into(),
+                enabled: true,
+                entries: Vec::new(),
+            });
+            assert_eq!(
+                CaptureReloadPlan::between(&current, &next),
+                CaptureReloadPlan::all()
+            );
+            assert!(super::glossary_used_by_capture(&current));
+            next = current.clone();
+            next.glossary.llm_enabled = false;
+            assert_eq!(
+                CaptureReloadPlan::between(&current, &next),
+                CaptureReloadPlan::all()
+            );
+        }
+        current.glossary.asr_enabled = false;
+        current.glossary.llm_enabled = false;
+        assert!(!super::glossary_used_by_capture(&current));
+        let mut next = current.clone();
+        next.glossary.sources.push(GlossarySource::Local {
+            id: "disabled-consumers".into(),
+            name: "local".into(),
+            enabled: true,
+            entries: Vec::new(),
+        });
+        assert!(CaptureReloadPlan::between(&current, &next).is_empty());
+        next.glossary.asr_enabled = true;
+        assert_eq!(
+            CaptureReloadPlan::between(&current, &next),
+            CaptureReloadPlan::all()
+        );
     }
 
     #[test]

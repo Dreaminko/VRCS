@@ -13,10 +13,14 @@ pub(super) fn session_update(config: &AsrConfig) -> Result<Value, String> {
         .as_deref()
         .ok_or("Select an automatic translation target for Qwen Live Translate")?;
     let language = crate::providers::qwen_translation_language(target)?;
+    let mut translation = json!({"language":language});
+    if !config.live_translation_phrases.is_empty() {
+        translation["corpus"] = json!({"phrases":config.live_translation_phrases});
+    }
     Ok(
         json!({"event_id": uuid::Uuid::new_v4().to_string(), "type":"session.update", "session": {
             "output_modalities":["text"],
-            "translation":{"language":language},
+            "translation":translation,
             "audio":{"input":{"turn_detection":{"type":"speaker_detection","threshold":0.5}}}
         }}),
     )
@@ -504,6 +508,29 @@ mod tests {
                 super::super::qwen::build_request(&config(), &profile, "test-key").unwrap();
             assert_eq!(request.uri().to_string(), format!("wss://ws-example.{host}.maas.aliyuncs.com/api-ws/v1/realtime?model=qwen3.8-livetranslate-flash-realtime"));
         }
+    }
+
+    #[test]
+    fn glossary_mapping_is_native_runtime_only_and_keeps_text_only_output() {
+        let mut config = config();
+        assert!(session_update(&config)
+            .unwrap()
+            .pointer("/session/translation/corpus")
+            .is_none());
+        config.live_translation_phrases = std::collections::BTreeMap::from([
+            ("VRChat".into(), "VRChat".into()),
+            ("report".into(), "星河档案".into()),
+        ]);
+        let value = session_update(&config).unwrap();
+        assert_eq!(
+            value.pointer("/session/translation/corpus/phrases"),
+            Some(&json!({"VRChat":"VRChat","report":"星河档案"}))
+        );
+        assert_eq!(value["session"]["output_modalities"], json!(["text"]));
+        let serialized = serde_json::to_value(&config).unwrap();
+        assert!(serialized.get("live_translation_phrases").is_none());
+        let restored: AsrConfig = serde_json::from_value(serialized).unwrap();
+        assert!(restored.live_translation_phrases.is_empty());
     }
 
     #[test]

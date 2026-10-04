@@ -30,6 +30,9 @@ pub struct AsrConfig {
     pub live_translation_target: Option<String>,
     #[serde(skip)]
     pub live_alignment: super::LiveAlignmentConfig,
+    /// Native translation glossary resolved from enabled sources; never persisted.
+    #[serde(skip)]
+    pub live_translation_phrases: BTreeMap<String, String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -157,6 +160,7 @@ impl Default for AsrConfig {
             cloud_failure_policy: default_cloud_failure_policy(),
             live_translation_target: None,
             live_alignment: super::LiveAlignmentConfig::default(),
+            live_translation_phrases: BTreeMap::new(),
         }
     }
 }

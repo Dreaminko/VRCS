@@ -14,13 +14,18 @@ async fn actual_speech_translation_and_speakers() {
     let pcm = std::fs::read(std::env::var("QWEN_LIVE_PCM").expect("QWEN_LIVE_PCM required"))
         .expect("read test audio");
     assert!(pcm.len() > 32000 && pcm.len() % 2 == 0);
-    let config = AsrConfig {
+    let mut config = AsrConfig {
         backend: SERVICE_QWEN_LIVE_TRANSLATE.into(),
         live_translation_target: Some(
             std::env::var("QWEN_LIVE_TARGET").unwrap_or("zh-Hans".into()),
         ),
         ..Default::default()
     };
+    if let Ok(path) = std::env::var("QWEN_LIVE_GLOSSARY") {
+        config.live_translation_phrases =
+            serde_json::from_slice(&std::fs::read(path).expect("read test glossary"))
+                .expect("glossary must be a JSON source-to-target map");
+    }
     let profile = ApiProfile {
         provider: std::env::var("QWEN_LIVE_PROVIDER")
             .unwrap_or(crate::providers::QWEN_AI_PROVIDER.into()),
@@ -65,6 +70,10 @@ async fn actual_speech_translation_and_speakers() {
         };
         let value: Value = serde_json::from_str(&message).unwrap();
         let kind = value["type"].as_str().unwrap_or_default();
+        assert_ne!(
+            kind, "response.audio.delta",
+            "text-only sessions must not generate audio"
+        );
         if kind == "error" {
             let detail = value
                 .pointer("/error/message")
@@ -148,6 +157,14 @@ async fn actual_speech_translation_and_speakers() {
     assert!(translations
         .iter()
         .all(|item| !item.translation.trim().is_empty()));
+    if let Ok(expected) = std::env::var("QWEN_LIVE_EXPECT_TERM") {
+        assert!(
+            translations
+                .iter()
+                .any(|item| item.translation.contains(&expected)),
+            "native output did not use glossary target: {expected}"
+        );
+    }
     assert!(!speakers.is_empty(), "speaker IDs missing");
     for source in &sources {
         let target = translations
