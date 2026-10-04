@@ -877,3 +877,72 @@ fn diarized_final_has_a_speaker_label_with_both_previews_disabled() {
     };
     assert_eq!(messages[0].text, "[2] Hello.");
 }
+
+#[test]
+fn diarized_live_preview_and_completed_translation_label_both_overlays() {
+    let now = Instant::now();
+    let speaker = vrcs_core::SpeakerIdentity {
+        id: "qwen-session-1".into(),
+        index: 1,
+    };
+    let event = PresentationEvent::LiveTranslationUpdated {
+        source: "speaker".into(),
+        snapshot: vrcs_core::LiveTranslation {
+            utterance_id: "qwen-preview-1".into(),
+            source_utterance_id: Some("qwen-source-1".into()),
+            conversation_preview: None,
+            speaker: Some(speaker.clone()),
+            text: "Hello.".into(),
+            language: Some("en".into()),
+            translation: "你好。".into(),
+            target_language: "zh".into(),
+        },
+    };
+    let headset_config = VrOverlayHeadsetConfig {
+        content_mode: "bilingual".into(),
+        show_partials: true,
+        show_translation_partials: true,
+        ..Default::default()
+    };
+    let wrist_config = VrOverlayWristConfig {
+        content_mode: "bilingual".into(),
+        show_partials: true,
+        show_translation_partials: true,
+        ..Default::default()
+    };
+    let mut headset = HeadsetPresentation::default();
+    let mut wrist = WristPresentation::default();
+    headset.apply(event.clone(), now, &headset_config);
+    wrist.apply(event, now, &wrist_config);
+
+    let assert_text = |headset: &HeadsetPresentation, wrist: &WristPresentation| {
+        assert_eq!(
+            headset.frame(now, &headset_config).unwrap().content,
+            PresentationContent::Headset("[2] Hello.\n你好。".into())
+        );
+        let PresentationContent::Wrist(messages) = wrist.frame(now, &wrist_config).unwrap().content
+        else {
+            panic!()
+        };
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0].text, "[2] Hello.\n你好。");
+    };
+    assert_text(&headset, &wrist);
+
+    let mut item = subtitle(1, "Hello.");
+    item.speaker = Some(speaker);
+    let event = PresentationEvent::Final {
+        utterance_id: Some("qwen-source-1".into()),
+        subtitle: item,
+    };
+    headset.apply(event.clone(), now, &headset_config);
+    wrist.apply(event, now, &wrist_config);
+    let event = PresentationEvent::TranslationCompleted {
+        subtitle_id: 1,
+        translation: translation("你好。"),
+        preferred: true,
+    };
+    headset.apply(event.clone(), now, &headset_config);
+    wrist.apply(event, now, &wrist_config);
+    assert_text(&headset, &wrist);
+}
