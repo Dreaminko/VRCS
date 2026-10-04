@@ -1,4 +1,6 @@
 mod backend;
+#[cfg(any(windows, test))]
+mod headset_layout;
 #[cfg(windows)]
 mod d3d11_texture;
 mod presentation;

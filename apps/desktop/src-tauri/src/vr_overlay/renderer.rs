@@ -81,11 +81,14 @@ mod windows_renderer {
     use windows_sys::Win32::Foundation::RECT;
     use windows_sys::Win32::Graphics::Gdi::{
         CreateCompatibleDC, CreateDIBSection, CreateFontW, CreateSolidBrush, DeleteDC,
-        DeleteObject, DrawTextW, FillRect, SelectObject, SetBkMode, SetTextColor, BITMAPINFO,
-        BITMAPINFOHEADER, BI_RGB, CLIP_DEFAULT_PRECIS, DEFAULT_CHARSET, DEFAULT_PITCH,
-        DIB_RGB_COLORS, DT_CALCRECT, DT_CENTER, DT_NOPREFIX, DT_RIGHT, DT_SINGLELINE, DT_VCENTER,
-        FF_DONTCARE, FW_SEMIBOLD, OUT_DEFAULT_PRECIS, PROOF_QUALITY, TRANSPARENT,
+        DeleteObject, DrawTextW, FillRect, GetTextMetricsW, SelectObject, SetBkMode, SetTextColor,
+        BITMAPINFO, BITMAPINFOHEADER, BI_RGB, CLIP_DEFAULT_PRECIS, DEFAULT_CHARSET, DEFAULT_PITCH,
+        DIB_RGB_COLORS, DT_CALCRECT, DT_CENTER, DT_NOPREFIX, DT_SINGLELINE, DT_VCENTER,
+        DT_WORDBREAK, FF_DONTCARE, FW_SEMIBOLD, OUT_DEFAULT_PRECIS, PROOF_QUALITY, TEXTMETRICW,
+        TRANSPARENT,
     };
+
+    use super::super::headset_layout;
 
     pub fn render_mask(
         text: &str,
@@ -133,14 +136,8 @@ mod windows_renderer {
             let lines: Vec<&str> = text.splitn(2, '\n').collect();
             let slot_height = (content_bottom - content_top) / lines.len() as i32;
             let face: Vec<u16> = "Segoe UI\0".encode_utf16().collect();
-            let rendered_font_size = fit_font_size(
-                dc,
-                &face,
-                &lines,
-                font_size_px,
-                width as i32 - padding * 2,
-                slot_height,
-            );
+            let rendered_font_size =
+                fit_font_size(dc, &face, font_size_px, (content_bottom - content_top) / 2);
             let font = CreateFontW(
                 -rendered_font_size,
                 0,
@@ -166,6 +163,9 @@ mod windows_renderer {
             let old_font = SelectObject(dc, font);
             SetBkMode(dc, TRANSPARENT as i32);
             SetTextColor(dc, 0x00ff_ffff);
+            let mut metrics: TEXTMETRICW = zeroed();
+            GetTextMetricsW(dc, &mut metrics);
+            let line_height = metrics.tmHeight.max(rendered_font_size);
 
             for (index, line) in lines.iter().enumerate() {
                 let mut rect = RECT {
@@ -178,28 +178,37 @@ mod windows_renderer {
                         content_top + (index as i32 + 1) * slot_height
                     },
                 };
-                let mut wide: Vec<u16> = line.encode_utf16().collect();
-                let mut measured = RECT {
-                    left: 0,
-                    top: 0,
-                    right: rect.right - rect.left,
-                    bottom: 0,
-                };
+                // A single language can use both lines; bilingual captions keep
+                // one readable line for the source and one for the translation.
+                let flags = DT_CENTER
+                    | DT_NOPREFIX
+                    | if lines.len() == 1 {
+                        DT_WORDBREAK
+                    } else {
+                        DT_SINGLELINE
+                    };
+                let available_width = rect.right - rect.left;
+                let available_height = (rect.bottom - rect.top).min(if lines.len() == 1 {
+                    line_height * 2
+                } else {
+                    slot_height
+                });
+                let visible = headset_layout::visible_tail(line, |candidate| {
+                    let measured = measure_text(dc, candidate, available_width, flags);
+                    measured.right <= available_width && measured.bottom <= available_height
+                });
+                let mut wide: Vec<u16> = visible.encode_utf16().collect();
+                if lines.len() == 1 {
+                    let measured = measure_text(dc, &visible, available_width, flags);
+                    rect.top += ((rect.bottom - rect.top - measured.bottom) / 2).max(0);
+                }
                 DrawTextW(
                     dc,
                     wide.as_mut_ptr(),
                     wide.len() as i32,
-                    &mut measured,
-                    DT_SINGLELINE | DT_NOPREFIX | DT_CALCRECT,
+                    &mut rect,
+                    flags | if lines.len() == 1 { 0 } else { DT_VCENTER },
                 );
-                // Keep the newest text visible as a streaming line grows past the viewport.
-                let alignment = if measured.right > rect.right - rect.left {
-                    DT_RIGHT
-                } else {
-                    DT_CENTER
-                };
-                let flags = alignment | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX;
-                DrawTextW(dc, wide.as_mut_ptr(), wide.len() as i32, &mut rect, flags);
             }
 
             let mask = std::slice::from_raw_parts(bits.cast::<u8>(), (width * height * 4) as usize);
@@ -226,19 +235,12 @@ mod windows_renderer {
     unsafe fn fit_font_size(
         dc: *mut c_void,
         face: &[u16],
-        lines: &[&str],
         maximum: u32,
-        available_width: i32,
         available_height: i32,
     ) -> i32 {
-        let mut low = 16;
-        let mut high = maximum.max(16) as i32;
-        let mut best = 16;
-
-        while low <= high {
-            let size = (low + high) / 2;
+        headset_layout::font_size(maximum, available_height, |size| {
             let font = CreateFontW(
-                -size,
+                -(size as i32),
                 0,
                 0,
                 0,
@@ -254,39 +256,33 @@ mod windows_renderer {
                 face.as_ptr(),
             );
             if font.is_null() {
-                high = size - 1;
-                continue;
+                return None;
             }
             let old_font = SelectObject(dc, font);
-            let fits = lines.iter().all(|line| {
-                let mut wide: Vec<u16> = line.encode_utf16().collect();
-                let mut measured = RECT {
-                    left: 0,
-                    top: 0,
-                    right: available_width,
-                    bottom: 0,
-                };
-                DrawTextW(
-                    dc,
-                    wide.as_mut_ptr(),
-                    wide.len() as i32,
-                    &mut measured,
-                    DT_SINGLELINE | DT_NOPREFIX | DT_CALCRECT,
-                );
-                measured.right <= available_width && measured.bottom <= available_height
-            });
+            let mut metrics: TEXTMETRICW = zeroed();
+            let measured = (GetTextMetricsW(dc, &mut metrics) != 0).then_some(metrics.tmHeight);
             SelectObject(dc, old_font);
             DeleteObject(font);
+            measured
+        }) as i32
+    }
 
-            if fits {
-                best = size;
-                low = size + 1;
-            } else {
-                high = size - 1;
-            }
-        }
-
-        best
+    unsafe fn measure_text(dc: *mut c_void, text: &str, width: i32, flags: u32) -> RECT {
+        let mut wide: Vec<u16> = text.encode_utf16().collect();
+        let mut measured = RECT {
+            left: 0,
+            top: 0,
+            right: width,
+            bottom: 0,
+        };
+        DrawTextW(
+            dc,
+            wide.as_mut_ptr(),
+            wide.len() as i32,
+            &mut measured,
+            flags | DT_CALCRECT,
+        );
+        measured
     }
 
     fn last_error(operation: &str) -> String {
@@ -302,13 +298,19 @@ mod tests {
     fn content_hash_changes_with_text_or_style() {
         let hello = PresentationContent::Headset("hello".into());
         let world = PresentationContent::Headset("world".into());
-        let first = render(Layout::Headset, &hello, 48, 0.5).unwrap();
         let first_hash = content_hash(Layout::Headset, &hello, 48, 0.5);
         assert_ne!(first_hash, content_hash(Layout::Headset, &world, 48, 0.5));
         assert_ne!(first_hash, content_hash(Layout::Headset, &hello, 54, 0.5));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn rendered_mask_matches_texture_dimensions() {
+        let content = PresentationContent::Headset("hello".into());
+        let texture = render(Layout::Headset, &content, 48, 0.5).unwrap();
         assert_eq!(
-            first.pixels.len(),
-            (first.width * first.height * 4) as usize
+            texture.pixels.len(),
+            (texture.width * texture.height * 4) as usize
         );
     }
 
@@ -337,5 +339,64 @@ mod tests {
         let first = render(Layout::Headset, &first, 54, 0.5).unwrap();
         let next = render(Layout::Headset, &next, 54, 0.5).unwrap();
         assert_eq!(first.pixels, next.pixels);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn growing_bilingual_captions_keep_the_same_glyph_height() {
+        let short = PresentationContent::Headset("国\n国".into());
+        let long = PresentationContent::Headset(format!("{0}\n{0}", "国".repeat(80)));
+        let short = render(Layout::Headset, &short, 54, 0.5).unwrap();
+        let long = render(Layout::Headset, &long, 54, 0.5).unwrap();
+        let ink_rows = |texture: &Texture, from: u32, to: u32| {
+            // Inspect the final glyphs so the leading overflow marker does not
+            // affect the measured ink height.
+            let right = (0..texture.width)
+                .rev()
+                .find(|&x| {
+                    (from..to).any(|y| texture.pixels[((y * texture.width + x) * 4) as usize] != 0)
+                })
+                .unwrap();
+            let left = right.saturating_sub(128);
+            (from..to)
+                .filter(|&y| {
+                    let row = ((y * texture.width + left) * 4) as usize;
+                    texture.pixels[row..row + ((right - left + 1) * 4) as usize]
+                        .chunks_exact(4)
+                        .any(|pixel| pixel[0] != 0)
+                })
+                .collect::<Vec<_>>()
+        };
+        for (from, to) in [(0, 96), (96, 192)] {
+            let short_rows = ink_rows(&short, from, to);
+            let long_rows = ink_rows(&long, from, to);
+            assert!(!short_rows.is_empty());
+            assert_eq!(short_rows.first(), long_rows.first());
+            assert_eq!(short_rows.last(), long_rows.last());
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn monolingual_captions_use_two_lines_without_shrinking() {
+        let content = PresentationContent::Headset("国".repeat(80));
+        let texture = render(Layout::Headset, &content, 54, 0.5).unwrap();
+        let mut bands = Vec::new();
+        let mut ink_started = None;
+        for y in 0..texture.height {
+            let row = (y * texture.width * 4) as usize;
+            let has_ink = texture.pixels[row..row + (texture.width * 4) as usize]
+                .chunks_exact(4)
+                .any(|pixel| pixel[0] != 0);
+            if has_ink && ink_started.is_none() {
+                ink_started = Some(y);
+            } else if !has_ink {
+                if let Some(start) = ink_started.take() {
+                    bands.push(y - start);
+                }
+            }
+        }
+        assert_eq!(bands.len(), 2);
+        assert!(bands.iter().all(|&height| height > 30));
     }
 }
