@@ -202,6 +202,113 @@ mod tests {
     fn append_text(state: &mut State, source: &str, target: &str) {
         append_delta(&config(), state, source, target, None, None).unwrap();
     }
+    fn native_delta(config: &AsrConfig, state: &mut State, source: bool, delta: &str) {
+        if config.backend == crate::providers::SERVICE_GEMINI_LIVE_TRANSLATE {
+            let content = if source {
+                serde_json::json!({"inputTranscription":{"text":delta,"languageCode":"en"}})
+            } else {
+                serde_json::json!({"outputTranscription":{"text":delta}})
+            };
+            crate::asr::streaming::provider::gemini_live_translate::normalize_event(
+                config,
+                &serde_json::json!({"serverContent":content}),
+                state,
+            )
+            .unwrap();
+        } else {
+            let kind = if source {
+                "session.input_transcript.delta"
+            } else {
+                "session.output_transcript.delta"
+            };
+            crate::asr::streaming::provider::openai_live_translate::normalize_event(
+                config,
+                &serde_json::json!({"type":kind,"delta":delta}),
+                state,
+            )
+            .unwrap();
+        }
+    }
+    #[tokio::test(start_paused = true)]
+    async fn expanded_short_translation_waits_for_late_output_in_both_services() {
+        for backend in [
+            crate::providers::SERVICE_OPENAI_REALTIME_TRANSLATE,
+            crate::providers::SERVICE_GEMINI_LIVE_TRANSLATE,
+        ] {
+            let mut config = config();
+            config.backend = backend.into();
+            let mut state = State::default();
+            native_delta(&config, &mut state, true, "Yes. Stop.");
+            native_delta(&config, &mut state, false, "はい、そうです。");
+            tokio::time::advance(SETTLE).await;
+            assert!(poll(&config, &mut state).is_none());
+            assert_eq!(state.input, "Yes. Stop.");
+            native_delta(&config, &mut state, true, " Good morning.");
+            native_delta(&config, &mut state, false, "止めて。");
+            tokio::time::advance(SETTLE).await;
+            let Some(CloudEvent::LiveTranslation {
+                completed,
+                translations,
+                ..
+            }) = poll(&config, &mut state)
+            else {
+                panic!()
+            };
+            assert_eq!(completed.len(), 1);
+            assert_eq!(completed[0].transcript.text, "Yes. Stop. ");
+            assert_eq!(
+                translations[0].transcript.translation,
+                "はい、そうです。止めて。"
+            );
+            assert_eq!(state.input, "Good morning.");
+            assert!(state.output.is_empty());
+            native_delta(&config, &mut state, false, "おはようございます。");
+            tokio::time::advance(SETTLE).await;
+            let Some(CloudEvent::LiveTranslation {
+                completed,
+                translations,
+                ..
+            }) = poll(&config, &mut state)
+            else {
+                panic!()
+            };
+            assert_eq!(completed[0].transcript.text, "Good morning.");
+            assert_eq!(
+                translations[0].transcript.translation,
+                "おはようございます。"
+            );
+            assert!(finish(&config, &mut state).is_none());
+        }
+    }
+    #[tokio::test(start_paused = true)]
+    async fn ambiguous_short_many_to_one_translation_is_preserved_at_idle_or_close() {
+        for flush in [false, true] {
+            let mut state = State::default();
+            append_text(&mut state, "Yes. Stop.", "はい、止めてください。");
+            tokio::time::advance(SETTLE).await;
+            assert!(poll(&config(), &mut state).is_none());
+            let event = if flush {
+                finish(&config(), &mut state)
+            } else {
+                tokio::time::advance(Duration::from_secs(5)).await;
+                poll(&config(), &mut state)
+            };
+            let Some(CloudEvent::LiveTranslation {
+                completed,
+                translations,
+                ..
+            }) = event
+            else {
+                panic!()
+            };
+            assert_eq!(completed[0].transcript.text, "Yes. Stop.");
+            assert_eq!(
+                translations[0].transcript.translation,
+                "はい、止めてください。"
+            );
+            assert!(finish(&config(), &mut state).is_none());
+        }
+    }
     #[tokio::test(start_paused = true)]
     async fn locally_completes_without_a_profile_or_model() {
         let config = config();

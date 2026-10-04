@@ -157,13 +157,6 @@ impl State {
         for id in published {
             self.sources.get_mut(&id).unwrap().published = true;
         }
-        let active = self.active.clone().unwrap_or_default();
-        let source_id = self
-            .targets
-            .get(&active)
-            .and_then(|target| target.source_id.as_deref())
-            .unwrap_or(&active)
-            .to_owned();
         for (id, target) in remove {
             finished_preview_ids.push(format!("qwen-preview-{}-{id}", self.session_id));
             self.previewed_items.remove(&id);
@@ -198,6 +191,26 @@ impl State {
                     .map(|id| format!("qwen-preview-{}-{id}", self.session_id)),
             );
         }
+        // A late delta can temporarily activate an older target. Once it is
+        // retired, restore a surviving preview before resolving its source ID.
+        if self
+            .active
+            .as_ref()
+            .is_some_and(|id| !self.sources.contains_key(id) && !self.targets.contains_key(id))
+        {
+            self.active = self
+                .order
+                .back()
+                .cloned()
+                .or_else(|| self.targets.keys().min().cloned());
+        }
+        let active = self.active.clone().unwrap_or_default();
+        let source_id = self
+            .targets
+            .get(&active)
+            .and_then(|target| target.source_id.as_deref())
+            .unwrap_or(&active)
+            .to_owned();
         let mut snapshot = if let Some(source) = self.sources.get(&source_id) {
             let mut snapshot = self.transcript(config, &source_id, source);
             snapshot.completed_original =
@@ -1056,6 +1069,62 @@ mod tests {
             ]
         );
         assert!(state.finish(&config()).is_none());
+    }
+
+    #[test]
+    fn late_old_target_delta_then_completion_restores_newer_source_preview() {
+        for new_target in [false, true] {
+            let mut state = State::default();
+            link(&mut state, "s1", "t1");
+            source(&mut state, "s1", "first original");
+            event(
+                &mut state,
+                json!({"type":"input_audio_buffer.speech_started","item_id":"s2","speaker_id":7}),
+            );
+            event(
+                &mut state,
+                json!({"type":"conversation.item.input_audio_transcription.delta","item_id":"s2","delta":"second original delta"}),
+            );
+            if new_target {
+                link(&mut state, "s2", "t2");
+                event(
+                    &mut state,
+                    json!({"type":"response.text.delta","item_id":"t2","delta":"second target delta"}),
+                );
+            }
+            event(
+                &mut state,
+                json!({"type":"response.text.delta","item_id":"t1","delta":"late first target delta"}),
+            );
+            let Some(CloudEvent::LiveTranslation {
+                snapshot,
+                translations,
+                finished_preview_ids,
+                ..
+            }) = target(&mut state, "t1", "first target final")
+            else {
+                panic!()
+            };
+            assert_eq!(translations[0].transcript.translation, "first target final");
+            assert_eq!(snapshot.text, "second original delta");
+            assert_eq!(
+                snapshot.translation,
+                if new_target {
+                    "second target delta"
+                } else {
+                    ""
+                }
+            );
+            assert_eq!(
+                snapshot.source_utterance_id,
+                Some(format!("qwen-source-{}-s2", state.session_id))
+            );
+            assert_eq!(snapshot.speaker.as_ref().unwrap().index, 0);
+            let preview = snapshot.conversation_preview.unwrap();
+            assert_eq!(preview.text, "second original delta");
+            assert_eq!(preview.translation, snapshot.translation);
+            assert!(!finished_preview_ids.contains(&snapshot.utterance_id));
+        }
     }
 
     #[test]

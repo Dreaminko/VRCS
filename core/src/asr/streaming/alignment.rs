@@ -161,6 +161,21 @@ pub(super) fn align(
             }
             for p in 1..=3.min(n - i) {
                 for q in 1..=3.min(m - j) {
+                    if p > q {
+                        let prefix = &source[a[i]..a[i + q]];
+                        let translated = &target[b[j]..b[j + q]];
+                        // A short prefix can expand substantially in another
+                        // language. Length alone cannot establish that the
+                        // extra source sentences have already been translated.
+                        // Wait for more output (or the timed coarse fallback)
+                        // unless additional numeric anchors justify the merge.
+                        if weight(prefix) < 4.0
+                            && numbers(prefix) == numbers(translated)
+                            && cost(&source[a[i]..a[i + 1]], &target[b[j]..b[j + 1]], ratio) > 1.4
+                        {
+                            continue;
+                        }
+                    }
                     let pair = cost(&source[a[i]..a[i + p]], &target[b[j]..b[j + q]], ratio);
                     if pair > 1.4 {
                         continue;
@@ -207,6 +222,25 @@ pub(super) fn align(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn expanded_short_translation_waits_instead_of_consuming_source_lookahead() {
+        assert!(align("Yes. Stop.", "はい、そうです。", &[], false).is_empty());
+    }
+    #[test]
+    fn delayed_short_translation_does_not_consume_the_next_source() {
+        let source = "Yes. Stop. Good morning.";
+        let target = "はい、そうです。止めて。";
+        assert_eq!(align(source, target, &[], false), [(11, target.len())]);
+    }
+    #[test]
+    fn numeric_anchors_still_allow_many_sources_to_one_translation() {
+        let source = "Go 1. Go 2.";
+        let target = "先去1，然后去2。";
+        assert_eq!(
+            align(source, target, &[], false),
+            [(source.len(), target.len())]
+        );
+    }
     #[test]
     fn unicode_decimals_quotes_and_abbreviations() {
         let text = "Dr. Lee paid 3.14. Next🙂。”";
