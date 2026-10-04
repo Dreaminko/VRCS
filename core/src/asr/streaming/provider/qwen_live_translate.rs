@@ -28,7 +28,9 @@ pub(super) fn session_update(config: &AsrConfig) -> Result<Value, String> {
 
 #[derive(Default)]
 struct Source {
+    // Preview text is append-only delta data. Completion text is stored separately.
     text: String,
+    final_text: Option<String>,
     language: Option<String>,
     speaker: Option<SpeakerIdentity>,
     done: bool,
@@ -36,11 +38,12 @@ struct Source {
 }
 #[derive(Default)]
 struct Target {
+    // text.done is intentionally ignored; only response.done supplies final_text.
     text: String,
+    final_text: Option<String>,
     previewed_text: Option<String>,
     source_id: Option<String>,
     response_id: Option<String>,
-    text_done: bool,
     done: bool,
 }
 #[derive(Default)]
@@ -57,15 +60,25 @@ pub(super) struct State {
 fn text(value: &Value, field: &str) -> String {
     value[field].as_str().unwrap_or_default().to_owned()
 }
-fn set_text(current: &mut String, value: &Value, done: bool, field: &str) -> Result<(), String> {
+fn set_text(
+    current: &mut String,
+    final_text: &mut Option<String>,
+    value: &Value,
+    done: bool,
+    field: &str,
+) -> Result<(), String> {
     if let Some(value) = value[field].as_str() {
         if done {
-            *current = value.to_owned();
+            *final_text = Some(value.to_owned());
         } else {
             current.push_str(value);
         }
     }
-    if current.len() > MAX_TRANSCRIPT_BYTES {
+    if current.len() > MAX_TRANSCRIPT_BYTES
+        || final_text
+            .as_ref()
+            .is_some_and(|text| text.len() > MAX_TRANSCRIPT_BYTES)
+    {
         return Err("Qwen translation transcript limit reached".into());
     }
     Ok(())
@@ -88,7 +101,7 @@ impl State {
             utterance_id: format!("qwen-source-{}-{id}", self.session_id),
             source_utterance_id: None,
             conversation_preview: None,
-            text: source.text.clone(),
+            text: source.final_text.as_ref().unwrap_or(&source.text).clone(),
             language: source.language.clone(),
             speaker: source.speaker.clone(),
             translation: String::new(),
@@ -106,7 +119,7 @@ impl State {
                 continue;
             }
             let mut transcript = self.transcript(config, id, source);
-            if !source.published && !source.text.trim().is_empty() {
+            if !source.published && !transcript.text.trim().is_empty() {
                 completed.push(result(config, transcript.clone(), true));
                 published.push(id.clone());
             }
@@ -116,8 +129,9 @@ impl State {
                 .find(|(_, target)| target.source_id.as_deref() == Some(id.as_str()));
             if let Some((target_id, target)) = target {
                 if target.done || flush {
-                    transcript.translation = target.text.clone();
-                    if !source.text.trim().is_empty() {
+                    transcript.translation =
+                        target.final_text.as_ref().unwrap_or(&target.text).clone();
+                    if !transcript.text.trim().is_empty() {
                         translations.push(result(config, transcript, false));
                     }
                     remove.push((id.clone(), Some(target_id.clone())));
@@ -131,7 +145,7 @@ impl State {
                     target.previewed_text = Some(target.text.clone());
                 }
             } else if flush {
-                if !source.text.trim().is_empty() {
+                if !transcript.text.trim().is_empty() {
                     translations.push(result(config, transcript, false));
                 }
                 remove.push((id.clone(), None));
@@ -157,7 +171,9 @@ impl State {
             }
         }
         let mut snapshot = if let Some(source) = self.sources.get(&source_id) {
-            self.transcript(config, &source_id, source)
+            let mut snapshot = self.transcript(config, &source_id, source);
+            snapshot.text = source.text.clone();
+            snapshot
         } else {
             LiveTranslation {
                 utterance_id: String::new(),
@@ -286,6 +302,7 @@ pub(super) fn normalize_event(
             }
             set_text(
                 &mut source.text,
+                &mut source.final_text,
                 value,
                 done,
                 if done { "transcript" } else { "delta" },
@@ -296,7 +313,9 @@ pub(super) fn normalize_event(
                 .or(source.language.take())
                 .or_else(|| (config.language != "auto").then(|| config.language.clone()));
             source.done = done;
-            state.active = Some(id);
+            if !done {
+                state.active = Some(id);
+            }
         }
         "conversation.item.input_audio_transcription.failed" => {
             let source = state.sources.remove(&id);
@@ -316,16 +335,12 @@ pub(super) fn normalize_event(
                     .into(),
             }));
         }
-        "response.text.delta"
-        | "response.audio_transcript.delta"
-        | "response.text.done"
-        | "response.audio_transcript.done" => {
+        "response.text.delta" | "response.audio_transcript.delta" => {
             if id.is_empty() {
                 return Ok(None);
             }
-            let done = kind.ends_with(".done");
             let target = state.targets.entry(id.clone()).or_default();
-            if target.done || target.text_done {
+            if target.done {
                 return Ok(None);
             }
             target.response_id = value["response_id"]
@@ -334,19 +349,11 @@ pub(super) fn normalize_event(
                 .or(target.response_id.take());
             set_text(
                 &mut target.text,
+                &mut target.final_text,
                 value,
-                done,
-                if !done {
-                    "delta"
-                } else if kind == "response.text.done" {
-                    "text"
-                } else {
-                    "transcript"
-                },
+                false,
+                "delta",
             )?;
-            // text.done also occurs for interrupted/incomplete output. Wait for
-            // response.done to decide whether this is a successful translation.
-            target.text_done = done;
             state.active = Some(id);
         }
         "response.output_item.added" => {
@@ -374,34 +381,32 @@ pub(super) fn normalize_event(
                     }
                     let target = state.targets.entry(item_id.clone()).or_default();
                     if !target.done {
-                        if let Some(content) = item["content"].as_array() {
-                            let full: String = content
-                                .iter()
-                                .filter_map(|part| {
-                                    part["text"].as_str().or(part["transcript"].as_str())
-                                })
-                                .collect();
-                            if !full.is_empty() {
-                                if full.len() > MAX_TRANSCRIPT_BYTES {
-                                    return Err("Qwen translation transcript limit reached".into());
-                                }
-                                target.text = full;
-                            }
+                        let full: String = item["content"]
+                            .as_array()
+                            .into_iter()
+                            .flatten()
+                            .filter_map(|part| {
+                                part["text"].as_str().or(part["transcript"].as_str())
+                            })
+                            .collect();
+                        if full.len() > MAX_TRANSCRIPT_BYTES {
+                            return Err("Qwen translation transcript limit reached".into());
                         }
+                        target.final_text = Some(full);
                         target.done = true;
                     }
                     if failed {
-                        target.text.clear();
+                        target.final_text = Some(String::new());
                     }
-                    state.active = Some(item_id);
                 }
             }
             for target in state.targets.values_mut().filter(|target| {
                 target.response_id.as_deref() == response_id && response_id.is_some()
             }) {
                 target.done = true;
+                target.final_text.get_or_insert_with(String::new);
                 if failed {
-                    target.text.clear();
+                    target.final_text = Some(String::new());
                 }
             }
         }
@@ -645,33 +650,23 @@ mod tests {
         let mut state = State::default();
         link(&mut state, "s1", "t1");
         source(&mut state, "s1", "The train leaves at 7:05, not 7:50.");
-        for (kind, field, preview) in [
-            ("response.text.delta", "delta", "火车将在七点五十分出发"),
-            ("response.text.done", "text", "火车将在七点零五分出发。"),
-        ] {
-            let mut frame = json!({
-                "type": kind, "item_id": "t1", "response_id": "response-t1"
-            });
-            frame[field] = json!(preview);
-            let Some(CloudEvent::LiveTranslation {
-                snapshot,
-                completed,
-                translations,
-                ..
-            }) = event(&mut state, frame)
-            else {
-                panic!()
-            };
-            assert_eq!(snapshot.translation, preview);
-            assert!(completed.is_empty());
-            assert_eq!(translations.len(), 1);
-            assert!(translations[0].pending);
-            assert_eq!(translations[0].transcript.translation, preview);
-            assert_eq!(
-                snapshot.source_utterance_id.as_deref(),
-                Some(translations[0].transcript.utterance_id.as_str())
-            );
-        }
+        let preview = "火车将在七点五十分出发";
+        let Some(CloudEvent::LiveTranslation {
+            snapshot,
+            translations,
+            ..
+        }) = event(
+            &mut state,
+            json!({"type":"response.text.delta","item_id":"t1","response_id":"response-t1","delta":preview}),
+        )
+        else {
+            panic!()
+        };
+        assert_eq!(snapshot.translation, preview);
+        assert!(translations[0].pending);
+        assert_eq!(translations[0].transcript.translation, preview);
+        assert!(event(&mut state, json!({"type":"response.text.done","item_id":"t1","response_id":"response-t1","text":"火车将在七点零五分出发。"})).is_none());
+        assert_eq!(state.targets["t1"].text, preview);
         let final_text = "火车七点零五分出发，而不是七点五十分。";
         let Some(CloudEvent::LiveTranslation {
             snapshot,
@@ -686,6 +681,175 @@ mod tests {
         assert!(!translations[0].pending);
         assert!(snapshot.translation.is_empty());
         assert!(state.finish(&config()).is_none());
+    }
+
+    #[test]
+    fn completion_snapshots_do_not_enter_either_preview_lane() {
+        for source_first in [true, false] {
+            let mut state = State::default();
+            link(&mut state, "s1", "t1");
+            event(
+                &mut state,
+                json!({"type":"conversation.item.input_audio_transcription.delta","item_id":"s1","delta":"original delta"}),
+            );
+            event(
+                &mut state,
+                json!({"type":"response.text.delta","item_id":"t1","delta":"target delta"}),
+            );
+            let next = if source_first {
+                source(&mut state, "s1", "corrected original final");
+                event(
+                    &mut state,
+                    json!({"type":"response.text.delta","item_id":"t1","delta":" suffix"}),
+                )
+            } else {
+                assert!(event(&mut state, json!({"type":"response.text.done","item_id":"t1","text":"corrected target final"})).is_none());
+                event(
+                    &mut state,
+                    json!({"type":"conversation.item.input_audio_transcription.delta","item_id":"s1","delta":" suffix"}),
+                )
+            };
+            let Some(CloudEvent::LiveTranslation {
+                snapshot,
+                completed,
+                translations,
+                ..
+            }) = next
+            else {
+                panic!()
+            };
+            let preview = snapshot.conversation_preview.unwrap();
+            assert_eq!(
+                preview.text,
+                if source_first {
+                    "original delta"
+                } else {
+                    "original delta suffix"
+                }
+            );
+            assert_eq!(
+                preview.translation,
+                if source_first {
+                    "target delta suffix"
+                } else {
+                    "target delta"
+                }
+            );
+            assert!(!snapshot.text.contains("corrected"));
+            assert!(!snapshot.translation.contains("corrected"));
+            assert!(completed.is_empty());
+            assert!(translations
+                .iter()
+                .all(|r| r.pending && !r.transcript.translation.contains("corrected")));
+            if !source_first {
+                source(&mut state, "s1", "corrected original final");
+            }
+            let Some(CloudEvent::LiveTranslation { translations, .. }) =
+                target(&mut state, "t1", "confirmed target final")
+            else {
+                panic!()
+            };
+            assert_eq!(translations[0].transcript.text, "corrected original final");
+            assert_eq!(
+                translations[0].transcript.translation,
+                "confirmed target final"
+            );
+            assert!(!translations[0].pending);
+        }
+    }
+
+    #[test]
+    fn done_only_output_is_published_as_final_without_synthetic_previews() {
+        let mut state = State::default();
+        link(&mut state, "s1", "t1");
+        assert!(event(&mut state, json!({"type":"response.audio_transcript.done","item_id":"t1","transcript":"done-only target"})).is_none());
+        let Some(CloudEvent::LiveTranslation {
+            snapshot,
+            completed,
+            translations,
+            ..
+        }) = source(&mut state, "s1", "done-only original")
+        else {
+            panic!()
+        };
+        assert!(snapshot.text.is_empty() && snapshot.translation.is_empty());
+        assert_eq!(completed[0].transcript.text, "done-only original");
+        assert!(translations.is_empty());
+        let Some(CloudEvent::LiveTranslation {
+            snapshot,
+            translations,
+            ..
+        }) = event(
+            &mut state,
+            json!({"type":"response.done","response":{"status":"completed","output":[{"id":"t1","content":[{"text":"done-only target"}]}]}}),
+        )
+        else {
+            panic!()
+        };
+        assert!(snapshot.text.is_empty() && snapshot.translation.is_empty());
+        assert_eq!(translations[0].transcript.translation, "done-only target");
+        assert!(!translations[0].pending);
+    }
+
+    #[test]
+    fn text_done_is_ignored_and_missing_response_text_is_not_saved_from_deltas() {
+        let mut state = State::default();
+        link(&mut state, "s1", "t1");
+        source(&mut state, "s1", "original final");
+        event(
+            &mut state,
+            json!({"type":"response.text.delta","item_id":"t1","response_id":"r1","delta":"delta"}),
+        );
+        assert!(event(&mut state, json!({"type":"response.text.done","item_id":"t1","response_id":"r1","text":"duplicate complete snapshot"})).is_none());
+        let Some(CloudEvent::LiveTranslation {
+            snapshot,
+            translations,
+            ..
+        }) = event(
+            &mut state,
+            json!({"type":"response.text.delta","item_id":"t1","response_id":"r1","delta":" suffix"}),
+        )
+        else {
+            panic!()
+        };
+        assert_eq!(snapshot.translation, "delta suffix");
+        assert_eq!(translations[0].transcript.translation, "delta suffix");
+        assert!(translations[0].pending);
+        let Some(CloudEvent::LiveTranslation { translations, .. }) = event(
+            &mut state,
+            json!({"type":"response.done","response":{"id":"r1","status":"completed","output":[]}}),
+        ) else {
+            panic!()
+        };
+        assert!(translations[0].transcript.translation.is_empty());
+        assert!(!translations[0].pending);
+    }
+
+    #[test]
+    fn late_response_done_preserves_the_newer_delta_preview() {
+        let mut state = State::default();
+        link(&mut state, "s1", "t1");
+        source(&mut state, "s1", "first original");
+        link(&mut state, "s2", "t2");
+        event(
+            &mut state,
+            json!({"type":"conversation.item.input_audio_transcription.delta","item_id":"s2","delta":"second original delta"}),
+        );
+        event(
+            &mut state,
+            json!({"type":"response.text.delta","item_id":"t2","delta":"second target delta"}),
+        );
+        let Some(CloudEvent::LiveTranslation {
+            snapshot,
+            translations,
+            ..
+        }) = target(&mut state, "t1", "first target final")
+        else {
+            panic!()
+        };
+        assert_eq!(translations[0].transcript.translation, "first target final");
+        assert_eq!(snapshot.text, "second original delta");
+        assert_eq!(snapshot.translation, "second target delta");
     }
 
     #[test]
@@ -838,7 +1002,7 @@ mod tests {
         link(&mut state, "s2", "t2");
         event(
             &mut state,
-            json!({"type":"response.text.done","item_id":"t2","response_id":"r2","text":"部分译文"}),
+            json!({"type":"response.text.delta","item_id":"t2","response_id":"r2","delta":"部分译文"}),
         );
         let Some(CloudEvent::LiveTranslation { translations, .. }) = event(
             &mut state,

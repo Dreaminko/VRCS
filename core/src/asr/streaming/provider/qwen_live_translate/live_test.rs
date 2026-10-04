@@ -32,7 +32,7 @@ fn recorded_stream_previews_and_final_text() {
         let mut state = State::default();
         let mut originals = HashSet::new();
         let (mut expected, mut saved) = (Vec::new(), Vec::new());
-        let (mut previews, mut row_updates, mut longest) = (0, 0, 0);
+        let (mut previews, mut source_previews, mut row_updates, mut longest) = (0, 0, 0, 0);
         for frame in frames {
             let value = frame.get("event").unwrap_or(&frame);
             if value["type"] == "response.done" {
@@ -44,12 +44,16 @@ fn recorded_stream_previews_and_final_text() {
                     }
                 }
             }
+            let normalized = normalize_event(&config, value, &mut state).unwrap();
+            if value["type"] == "response.text.done" {
+                assert!(normalized.is_none(), "text.done must not update a preview");
+            }
             if let Some(CloudEvent::LiveTranslation {
                 snapshot,
                 completed,
                 translations,
                 ..
-            }) = normalize_event(&config, value, &mut state).unwrap()
+            }) = normalized
             {
                 originals.extend(completed.iter().map(|r| r.transcript.utterance_id.clone()));
                 if let Some(preview) = snapshot.conversation_preview {
@@ -59,6 +63,10 @@ fn recorded_stream_previews_and_final_text() {
                     if value["type"] == "response.text.delta" {
                         assert!(!preview.translation.is_empty());
                         previews += 1;
+                    }
+                    if value["type"] == "conversation.item.input_audio_transcription.delta" {
+                        assert!(!preview.text.is_empty());
+                        source_previews += 1;
                     }
                 }
                 for result in translations {
@@ -78,9 +86,9 @@ fn recorded_stream_previews_and_final_text() {
         assert!(!saved.is_empty());
         assert_eq!(saved, expected, "final text differs in {}", path.display());
         assert_eq!(originals.len(), saved.len());
-        assert!(previews > 0 && row_updates > 0);
+        assert!(previews > 0 && source_previews > 0 && row_updates > 0);
         assert!(state.finish(&config).is_none());
-        println!("{}: {previews} delta previews, {row_updates} row updates, {} saved results, {longest} preview characters", path.file_name().unwrap().to_string_lossy(), saved.len());
+        println!("{}: {source_previews} original and {previews} translation delta previews, {row_updates} row updates, {} saved results, {longest} preview characters", path.file_name().unwrap().to_string_lossy(), saved.len());
         sessions += 1;
         final_count += saved.len();
     }

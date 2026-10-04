@@ -525,6 +525,11 @@ fn reduce_cloud_event(
                     .map(PipelineEffect::PublishNativeTranslationUpdate),
             );
             if snapshot.text.is_empty() && snapshot.translation.is_empty() {
+                if snapshot.source_utterance_id.is_some() {
+                    // A native original can finish before either delta lane has
+                    // text. Keep its preview lifecycle open for later deltas.
+                    return effects;
+                }
                 if state.lifecycle.accept_final(&snapshot.utterance_id) {
                     effects.push(PipelineEffect::CancelLiveTranslation(snapshot.utterance_id));
                 }
@@ -1350,6 +1355,61 @@ mod tests {
                     if s.translation == "立即显示" && s.text.is_empty() && r.pending)
             );
         }
+    }
+
+    #[test]
+    fn original_completion_without_deltas_keeps_native_preview_open() {
+        let mut state = PipelineState::new(16_000);
+        let mut snapshot = crate::models::LiveTranslation {
+            utterance_id: "preview".into(),
+            source_utterance_id: Some("source".into()),
+            conversation_preview: None,
+            speaker: None,
+            text: String::new(),
+            language: Some("en".into()),
+            translation: String::new(),
+            target_language: "zh-Hans".into(),
+        };
+        let mut original = snapshot.clone();
+        original.utterance_id = "source".into();
+        original.text = "final original".into();
+        let event = |snapshot, completed| CloudEvent::LiveTranslation {
+            service: crate::providers::SERVICE_QWEN_LIVE_TRANSLATE.into(),
+            snapshot,
+            completed,
+            translations: vec![],
+        };
+        let effects = reduce_cloud_event(
+            &mut state,
+            event(
+                snapshot.clone(),
+                vec![crate::asr::LiveTranslationResult {
+                    pending: true,
+                    source_utterance_ids: vec!["source".into()],
+                    transcript: original,
+                    provider: "qwen_ai".into(),
+                    model: "qwen3.8-livetranslate-flash-realtime".into(),
+                }],
+            ),
+            PartialPublication::Immediate,
+            false,
+            &AsrEchoGuard::default(),
+        );
+        assert!(matches!(
+            effects.as_slice(),
+            [PipelineEffect::PublishNativeTranslation(_)]
+        ));
+        snapshot.translation = "late delta".into();
+        let effects = reduce_cloud_event(
+            &mut state,
+            event(snapshot, vec![]),
+            PartialPublication::Immediate,
+            false,
+            &AsrEchoGuard::default(),
+        );
+        assert!(
+            matches!(effects.as_slice(), [PipelineEffect::PublishLiveTranslation(s)] if s.translation == "late delta")
+        );
     }
 
     #[test]
