@@ -154,16 +154,8 @@ mod tests {
         );
         assert_keys(
             &value["translation"],
-            [
-                "live_alignment",
-                "microphone_targets",
-                "mode",
-                "prompt",
-                "speaker_targets",
-            ],
+            ["microphone_targets", "mode", "prompt", "speaker_targets"],
         );
-        assert_keys(&value["translation"]["live_alignment"], ["enabled"]);
-        assert_eq!(value["translation"]["live_alignment"]["enabled"], true);
         assert_keys(
             &value["translation"]["speaker_targets"][0],
             ["model", "profile_id", "target_language", "thinking_enabled"],

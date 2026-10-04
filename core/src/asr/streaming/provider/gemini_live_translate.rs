@@ -522,76 +522,69 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn foreign_to_target_keeps_the_foreign_source_until_its_translation_arrives() {
-        for alignment_enabled in [true, false] {
-            let mut config = config();
-            config.live_alignment.enabled = alignment_enabled;
-            let mut state = State::default();
-            normalize_event(
-                &config,
-                &json!({"serverContent":{"inputTranscription":{
-                    "text":"Hello.", "languageCode":"en"
-                }}}),
-                &mut state,
-            )
-            .unwrap();
-            let Some(CloudEvent::LiveTranslation {
-                completed,
-                translations,
-                snapshot,
-                ..
-            }) = normalize_event(
-                &config,
-                &json!({"serverContent":{
-                    "inputTranscription":{"text":"你好。", "languageCode":"zh-Hant"},
-                    "turnComplete":true
-                }}),
-                &mut state,
-            )
-            .unwrap()
-            else {
-                panic!()
-            };
-            assert_eq!(completed.len(), 1);
-            assert_eq!(completed[0].transcript.text, "你好。");
-            assert_eq!(completed[0].transcript.language.as_deref(), Some("zh-Hant"));
-            assert!(!completed[0].pending);
-            assert!(translations.is_empty());
-            assert!(snapshot.text.is_empty());
-            assert_eq!(state.input, "Hello.");
-            assert_eq!(state.language.as_deref(), Some("en"));
-            normalize_event(
-                &config,
-                &json!({"serverContent":{
-                    "outputTranscription":{"text":"哈囉。"}
-                }}),
-                &mut state,
-            )
-            .unwrap();
-            tokio::time::advance(std::time::Duration::from_millis(450)).await;
-            let event = if alignment_enabled {
-                super::super::live_translation::poll(&config, &mut state)
-            } else {
-                finish(&config, &mut state)
-            };
-            let Some(CloudEvent::LiveTranslation {
-                completed,
-                translations,
-                ..
-            }) = event
-            else {
-                panic!()
-            };
-            assert_eq!(completed.len(), 1);
-            assert_eq!(completed[0].transcript.text, "Hello.");
-            assert_eq!(completed[0].transcript.language.as_deref(), Some("en"));
-            assert_eq!(translations.len(), 1);
-            assert_eq!(translations[0].transcript.translation, "哈囉。");
-            assert_eq!(
-                translations[0].transcript.utterance_id,
-                completed[0].transcript.utterance_id
-            );
-            assert!(finish(&config, &mut state).is_none());
-        }
+        let config = config();
+        let mut state = State::default();
+        normalize_event(
+            &config,
+            &json!({"serverContent":{"inputTranscription":{
+                "text":"Hello.", "languageCode":"en"
+            }}}),
+            &mut state,
+        )
+        .unwrap();
+        let Some(CloudEvent::LiveTranslation {
+            completed,
+            translations,
+            snapshot,
+            ..
+        }) = normalize_event(
+            &config,
+            &json!({"serverContent":{
+                "inputTranscription":{"text":"你好。", "languageCode":"zh-Hant"},
+                "turnComplete":true
+            }}),
+            &mut state,
+        )
+        .unwrap()
+        else {
+            panic!()
+        };
+        assert_eq!(completed.len(), 1);
+        assert_eq!(completed[0].transcript.text, "你好。");
+        assert_eq!(completed[0].transcript.language.as_deref(), Some("zh-Hant"));
+        assert!(!completed[0].pending);
+        assert!(translations.is_empty());
+        assert!(snapshot.text.is_empty());
+        assert_eq!(state.input, "Hello.");
+        assert_eq!(state.language.as_deref(), Some("en"));
+        normalize_event(
+            &config,
+            &json!({"serverContent":{
+                "outputTranscription":{"text":"哈囉。"}
+            }}),
+            &mut state,
+        )
+        .unwrap();
+        tokio::time::advance(std::time::Duration::from_millis(450)).await;
+        let event = super::super::live_translation::poll(&config, &mut state);
+        let Some(CloudEvent::LiveTranslation {
+            completed,
+            translations,
+            ..
+        }) = event
+        else {
+            panic!()
+        };
+        assert_eq!(completed.len(), 1);
+        assert_eq!(completed[0].transcript.text, "Hello.");
+        assert_eq!(completed[0].transcript.language.as_deref(), Some("en"));
+        assert_eq!(translations.len(), 1);
+        assert_eq!(translations[0].transcript.translation, "哈囉。");
+        assert_eq!(
+            translations[0].transcript.utterance_id,
+            completed[0].transcript.utterance_id
+        );
+        assert!(finish(&config, &mut state).is_none());
     }
 
     #[tokio::test(start_paused = true)]

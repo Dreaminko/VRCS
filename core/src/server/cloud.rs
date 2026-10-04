@@ -365,7 +365,6 @@ pub(super) async fn profile_delete(
     if uses_translation_profile(&candidate, &profile_id) {
         disable_translation_profile(&mut candidate, &profile_id);
     }
-    clear_alignment_profile(&mut candidate, &profile_id);
     let previous_credential = asr::read_stored_credential(&profile.id, &profile.provider)
         .map_err(|error| credential_error(&profile_id, error))?;
     commit_profile_config(&state, candidate).await?;
@@ -820,12 +819,6 @@ fn apply_profile_compatibility_fallbacks(
     }
 }
 
-fn clear_alignment_profile(config: &mut crate::config::AppConfig, profile_id: &str) {
-    if config.translation.live_alignment.profile_id.as_deref() == Some(profile_id) {
-        config.translation.live_alignment.profile_id = None;
-    }
-}
-
 fn disable_cloud_recognition(config: &mut crate::config::AppConfig) {
     config.asr.backend = "local_whisper".into();
     config.asr.active_profile_id = None;
@@ -966,17 +959,6 @@ mod tests {
         assert_eq!(config.translation.mode, "disabled");
         assert_eq!(config.translation.speaker_targets[0].profile_id, None);
         assert_eq!(config.translation.microphone_targets[0].profile_id, None);
-    }
-
-    #[test]
-    fn deleting_an_alignment_profile_restores_recognition_credential_selection() {
-        let mut config = crate::config::AppConfig::default();
-        config.translation.live_alignment.profile_id = Some("alignment".into());
-        clear_alignment_profile(&mut config, "unrelated");
-        assert!(config.translation.live_alignment.profile_id.is_some());
-        clear_alignment_profile(&mut config, "alignment");
-        assert!(config.translation.live_alignment.profile_id.is_none());
-        assert!(config.translation.live_alignment.enabled);
     }
 
     #[test]

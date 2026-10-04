@@ -702,13 +702,6 @@
         "clearComplete": "字幕历史已清理，数据库空间已回收。"
       },
       "translation": {
-        "alignment": {
-          "enabled": "本地文本对齐",
-          "description": "在本地按句子边界、文本长度及数字信息对齐原文和译文，无需额外模型或 API 用量。Qwen 按服务端消息 ID 配对。",
-          "profile": "对齐 API 配置",
-          "recognitionProfile": "使用识别配置",
-          "model": "对齐模型"
-        },
         "liveTranslateHint": "每路音源翻译第一目标语言，需开启自动翻译。文本 Prompt 和思考设置不适用。Qwen 使用纯文本输出并识别讲话人；其他实时翻译服务生成译后音频，但应用不播放。",
         "liveTranslatePreview": "检测到语音后开始上传，译文回传即可预览。本地对齐支持历史记录、额外目标翻译及 OSC；同语言原文无需等待译文即可完成。",
         "title": "字幕翻译",

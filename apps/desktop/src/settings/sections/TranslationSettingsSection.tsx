@@ -12,7 +12,6 @@ import type { ApplySettings, SaveState } from "../settings-types";
 import { Select } from "../SettingsControls";
 import { LanguagePresetSettings } from "../translation/LanguagePresetSettings";
 import { TranslationEnhancementSettings } from "../translation/TranslationEnhancementSettings";
-import { LiveAlignmentSettings } from "../translation/LiveAlignmentSettings";
 import { TranslationRouteList } from "../translation/TranslationRouteList";
 
 export function TranslationSettingsSection({ draft, apiProfiles, saveState, applySettings }: {
@@ -105,13 +104,6 @@ export function TranslationSettingsSection({ draft, apiProfiles, saveState, appl
             />
           </div>
         </div>
-
-        {liveTranslate && draft.asr.backend !== "qwen_live_translate" && (
-          <LiveAlignmentSettings value={draft.translation.live_alignment}
-            disabled={controlsDisabled} onChange={(live_alignment) => updateTranslation({
-              ...draft.translation, live_alignment,
-            })} />
-        )}
 
         {!liveTranslate && enhancementProfile && supportsContext(enhancementProfile) && (
           <TranslationEnhancementSettings

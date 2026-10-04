@@ -706,7 +706,7 @@ fn openai_translation_does_not_inherit_gemini_language_restrictions() {
 }
 
 #[test]
-fn local_alignment_ignores_legacy_model_and_profile_settings() {
+fn local_alignment_ignores_legacy_disabled_and_remote_settings() {
     for service in [
         providers::SERVICE_OPENAI_REALTIME_TRANSLATE,
         providers::SERVICE_GEMINI_LIVE_TRANSLATE,
@@ -714,14 +714,18 @@ fn local_alignment_ignores_legacy_model_and_profile_settings() {
     ] {
         let mut config = AppConfig::default();
         config.asr.backend = service.into();
-        config.translation.live_alignment.model.clear();
-        config.translation.live_alignment.profile_id = Some("missing".into());
+        config.translation.mode = "automatic".into();
+        let mut value = serde_json::to_value(&config).unwrap();
+        value["translation"]["live_alignment"] = serde_json::json!({
+            "enabled": false, "model": "", "profile_id": "missing"
+        });
+        let config: AppConfig = serde_json::from_value(value).unwrap();
         assert!(config.validate_settings().is_ok());
     }
 }
 
 #[test]
-fn inactive_alignment_settings_do_not_affect_other_services_or_translation_modes() {
+fn legacy_alignment_settings_do_not_affect_other_services_or_translation_modes() {
     let mut config = AppConfig::default();
     config.asr.api_profiles.push(ApiProfile {
         id: "text".into(),
@@ -734,8 +738,11 @@ fn inactive_alignment_settings_do_not_affect_other_services_or_translation_modes
         ..ApiProfile::default()
     });
     set_translation_profile(&mut config, Some("text"));
-    config.translation.live_alignment.model.clear();
-    config.translation.live_alignment.profile_id = Some("missing".into());
+    let mut value = serde_json::to_value(&config).unwrap();
+    value["translation"]["live_alignment"] = serde_json::json!({
+        "enabled": false, "model": "", "profile_id": "missing"
+    });
+    let mut config: AppConfig = serde_json::from_value(value).unwrap();
     for service in [
         "local_whisper",
         providers::SERVICE_OPENAI_REALTIME,

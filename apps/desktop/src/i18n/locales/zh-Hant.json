@@ -702,13 +702,6 @@
         "clearComplete": "字幕記錄已清除，資料庫空間已回收。"
       },
       "translation": {
-        "alignment": {
-          "enabled": "本機文字對齊",
-          "description": "在本機依句子邊界、文字長度及數字資訊對齊原文和譯文，無需額外模型或 API 用量。Qwen 依伺服器訊息 ID 配對。",
-          "profile": "對齊 API 設定",
-          "recognitionProfile": "使用辨識設定",
-          "model": "對齊模型"
-        },
         "liveTranslateHint": "每路音源翻譯第一目標語言，需開啟自動翻譯。文字 Prompt 和思考設定不適用。Qwen 使用純文字輸出並辨識發話者；其他即時翻譯服務產生譯後音訊，但應用不播放。",
         "liveTranslatePreview": "偵測到語音後開始上傳，譯文回傳即可預覽。本機對齊支援歷史記錄、額外目標翻譯及 OSC；同語言原文無需等待譯文即可完成。",
         "title": "字幕翻譯",

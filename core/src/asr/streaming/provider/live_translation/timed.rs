@@ -86,7 +86,7 @@ impl Timing {
             && alignment::sentences(&state.output).is_empty();
         let mut cuts = Vec::new();
         // Gemini intentionally does not echo target-language speech. Complete
-        // source-only rows independently of alignment and preview preferences.
+        // source-only rows without waiting for output or preview preferences.
         let source_boundary = alignment::sentences(&state.input)
             .last()
             .copied()
@@ -102,7 +102,7 @@ impl Timing {
             if source_end > 0 {
                 cuts.push((source_end, 0));
             }
-        } else if config.live_alignment.enabled && settled(self.last_output, SETTLE) {
+        } else if settled(self.last_output, SETTLE) {
             cuts = alignment::align(
                 &state.input,
                 &state.output,
@@ -110,8 +110,7 @@ impl Timing {
                 idle && unpunctuated,
             );
         }
-        if config.live_alignment.enabled
-            && !state.input.trim().is_empty()
+        if !state.input.trim().is_empty()
             && !state.output.trim().is_empty()
             && settled(self.last_input, Duration::from_secs(5))
             && settled(self.last_output, Duration::from_secs(5))
@@ -195,9 +194,7 @@ mod tests {
     }
     #[tokio::test(start_paused = true)]
     async fn locally_completes_without_a_profile_or_model() {
-        let mut config = config();
-        config.live_alignment.model.clear();
-        config.live_alignment.profile_id = Some("missing".into());
+        let config = config();
         let mut state = State::default();
         append_delta(
             &config,
@@ -256,10 +253,9 @@ mod tests {
         );
     }
     #[tokio::test(start_paused = true)]
-    async fn same_language_completes_with_alignment_disabled_and_without_output() {
+    async fn same_language_completes_without_output() {
         let mut config = config();
         config.backend = crate::providers::SERVICE_GEMINI_LIVE_TRANSLATE.into();
-        config.live_alignment.enabled = false;
         let mut state = State {
             language: Some("ja".into()),
             ..Default::default()
