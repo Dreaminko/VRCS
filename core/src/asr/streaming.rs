@@ -47,7 +47,7 @@ pub struct LiveTranslationResult {
 pub enum CloudEvent {
     LiveTranslation {
         service: String,
-        snapshot: crate::models::LiveTranslation,
+        snapshot: Box<crate::models::LiveTranslation>,
         completed: Vec<LiveTranslationResult>,
         translations: Vec<LiveTranslationResult>,
     },
@@ -485,13 +485,15 @@ async fn run_session_buffered(
     let outcome = run_session_inner(
         provider,
         config,
-        socket,
         task_id,
-        audio,
-        events,
-        stop,
         &mut normalization,
-        replay,
+        SessionIo {
+            socket,
+            audio,
+            events,
+            stop,
+            replay,
+        },
     )
     .await;
     if matches!(
@@ -506,17 +508,28 @@ async fn run_session_buffered(
     outcome
 }
 
+struct SessionIo<'a> {
+    socket: &'a mut Socket,
+    audio: &'a mut mpsc::Receiver<StreamingInput>,
+    events: &'a mpsc::Sender<CloudEvent>,
+    stop: &'a mut watch::Receiver<bool>,
+    replay: &'a mut VecDeque<StreamingInput>,
+}
+
 async fn run_session_inner(
     provider: Provider,
     config: &AsrConfig,
-    socket: &mut Socket,
     task_id: Option<&str>,
-    audio: &mut mpsc::Receiver<StreamingInput>,
-    events: &mpsc::Sender<CloudEvent>,
-    stop: &mut watch::Receiver<bool>,
     normalization: &mut NormalizationState,
-    replay: &mut VecDeque<StreamingInput>,
+    io: SessionIo<'_>,
 ) -> Result<SessionEnd, String> {
+    let SessionIo {
+        socket,
+        audio,
+        events,
+        stop,
+        replay,
+    } = io;
     let mut audio_buffer = Vec::with_capacity(2048);
     let mut pending_audio = false;
     let mut activity = idle::Activity::default();

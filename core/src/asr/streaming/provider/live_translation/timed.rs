@@ -171,7 +171,7 @@ impl Timing {
         (!completed.is_empty() || !translations.is_empty() || changed).then_some(
             CloudEvent::LiveTranslation {
                 service: config.backend.clone(),
-                snapshot,
+                snapshot: Box::new(snapshot),
                 completed,
                 translations,
             },

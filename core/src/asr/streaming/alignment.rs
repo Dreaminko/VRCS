@@ -176,15 +176,15 @@ pub(super) fn align(
     }
     let mut best = None;
     let mut best_score = f64::INFINITY;
-    for i in 1..=n {
-        for j in 1..=m {
+    for (i, row) in scores.iter().enumerate().skip(1) {
+        for (j, pair_score) in row.iter().enumerate().skip(1) {
             if i != n && j != m {
                 continue;
             }
             // Source lookahead may be untranslated. Leaving it pending must
             // cost less than merging it solely to improve coverage. Preserve
             // the stronger target coverage cost for one-to-many translations.
-            let score = scores[i][j] + 0.1 * (n - i) as f64 + 0.75 * (m - j) as f64;
+            let score = pair_score + 0.1 * (n - i) as f64 + 0.75 * (m - j) as f64;
             if score < best_score {
                 best_score = score;
                 best = Some((i, j));

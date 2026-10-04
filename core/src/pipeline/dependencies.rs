@@ -21,6 +21,12 @@ struct PendingNative {
     completed: Option<SubtitleTranslation>,
 }
 
+struct RecognizedText {
+    text: String,
+    language: Option<String>,
+    speaker: Option<crate::models::SpeakerIdentity>,
+}
+
 #[derive(Clone)]
 pub(crate) struct PipelineDependencies {
     asr: Arc<Mutex<AsrService>>,
@@ -165,8 +171,18 @@ impl PipelineDependencies {
         source: &'static str,
         message_id: String,
     ) -> Result<(), String> {
-        self.publish_text_with_translation(text, language, source, message_id, None, false, None)
-            .await
+        self.publish_text_with_translation(
+            RecognizedText {
+                text,
+                language,
+                speaker: None,
+            },
+            source,
+            message_id,
+            None,
+            false,
+        )
+        .await
     }
 
     pub(crate) async fn publish_native_translation(
@@ -185,13 +201,15 @@ impl PipelineDependencies {
             created_at: now_iso8601(),
         };
         self.publish_text_with_translation(
-            transcript.text,
-            transcript.language,
+            RecognizedText {
+                text: transcript.text,
+                language: transcript.language,
+                speaker: transcript.speaker,
+            },
             source,
             transcript.utterance_id,
             Some(translation),
             result.pending,
-            transcript.speaker,
         )
         .await
     }
@@ -514,14 +532,17 @@ impl PipelineDependencies {
 
     async fn publish_text_with_translation(
         &self,
-        text: String,
-        language: Option<String>,
+        transcript: RecognizedText,
         source: &'static str,
         message_id: String,
         native: Option<SubtitleTranslation>,
         native_pending: bool,
-        speaker: Option<crate::models::SpeakerIdentity>,
     ) -> Result<(), String> {
+        let RecognizedText {
+            text,
+            language,
+            speaker,
+        } = transcript;
         let text = text.trim().to_string();
         if text.is_empty() {
             self.output.asr_cancelled(&message_id, source, "empty");

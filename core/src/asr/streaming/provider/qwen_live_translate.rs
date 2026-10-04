@@ -213,7 +213,7 @@ impl State {
             || !snapshot.translation.is_empty())
         .then_some(CloudEvent::LiveTranslation {
             service: SERVICE_QWEN_LIVE_TRANSLATE.into(),
-            snapshot,
+            snapshot: Box::new(snapshot),
             completed,
             translations,
         })

@@ -435,8 +435,8 @@ mod tests {
         assert_eq!(originals.len(), updates.len());
         for (original, update) in originals.iter().zip(&updates) {
             assert_eq!(
-                update.source_utterance_ids,
-                [original.transcript.utterance_id.clone()]
+                update.source_utterance_ids.as_slice(),
+                std::slice::from_ref(&original.transcript.utterance_id)
             );
         }
         assert_eq!(

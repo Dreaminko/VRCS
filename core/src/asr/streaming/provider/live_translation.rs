@@ -126,7 +126,7 @@ impl State {
         if let (Some(CloudEvent::LiveTranslation { snapshot, .. }), Some(active)) =
             (&mut event, active)
         {
-            *snapshot = active.clone();
+            **snapshot = active.clone();
         }
         event
     }

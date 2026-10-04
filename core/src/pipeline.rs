@@ -542,9 +542,9 @@ fn reduce_cloud_event(
             }
             if immediate {
                 // A delta must reach the display before any original-row database work.
-                effects.insert(0, PipelineEffect::PublishLiveTranslation(snapshot));
+                effects.insert(0, PipelineEffect::PublishLiveTranslation(*snapshot));
             } else {
-                effects.push(PipelineEffect::PublishLiveTranslation(snapshot));
+                effects.push(PipelineEffect::PublishLiveTranslation(*snapshot));
             }
             effects
         }
@@ -1342,7 +1342,7 @@ mod tests {
             let event = PipelineEvent::Cloud {
                 event: CloudEvent::LiveTranslation {
                     service: service.into(),
-                    snapshot,
+                    snapshot: Box::new(snapshot),
                     completed: vec![result],
                     translations: vec![preview],
                 },
@@ -1373,12 +1373,13 @@ mod tests {
         let mut original = snapshot.clone();
         original.utterance_id = "source".into();
         original.text = "final original".into();
-        let event = |snapshot, completed| CloudEvent::LiveTranslation {
-            service: crate::providers::SERVICE_QWEN_LIVE_TRANSLATE.into(),
-            snapshot,
-            completed,
-            translations: vec![],
-        };
+        let event =
+            |snapshot: crate::models::LiveTranslation, completed| CloudEvent::LiveTranslation {
+                service: crate::providers::SERVICE_QWEN_LIVE_TRANSLATE.into(),
+                snapshot: Box::new(snapshot),
+                completed,
+                translations: vec![],
+            };
         let effects = reduce_cloud_event(
             &mut state,
             event(

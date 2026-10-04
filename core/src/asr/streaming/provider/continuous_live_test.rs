@@ -185,7 +185,7 @@ async fn run(provider: Provider, key_env: &str, service: &str) {
     let pcm =
         std::fs::read(std::env::var("CONTINUOUS_LIVE_PCM").expect("CONTINUOUS_LIVE_PCM required"))
             .expect("read PCM16 audio");
-    assert!(pcm.len() >= 32000 && pcm.len() <= 32000 * 120 && pcm.len() % 2 == 0);
+    assert!(pcm.len() >= 32000 && pcm.len() <= 32000 * 120 && pcm.len().is_multiple_of(2));
     let mut config = AsrConfig {
         backend: service.into(),
         live_translation_target: Some(
@@ -391,7 +391,7 @@ async fn replay_gemini(recording: &str) -> Observation {
         );
         observed.collect(
             provider
-                .normalize_event(&config, &event, &mut state)
+                .normalize_event(&config, event, &mut state)
                 .unwrap(),
             ms,
         );

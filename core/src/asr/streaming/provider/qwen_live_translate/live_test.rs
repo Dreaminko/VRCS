@@ -109,7 +109,7 @@ async fn actual_speech_translation_and_speakers() {
     });
     let pcm = std::fs::read(std::env::var("QWEN_LIVE_PCM").expect("QWEN_LIVE_PCM required"))
         .expect("read test audio");
-    assert!(pcm.len() > 32000 && pcm.len() % 2 == 0);
+    assert!(pcm.len() > 32000 && pcm.len().is_multiple_of(2));
     let mut config = AsrConfig {
         backend: SERVICE_QWEN_LIVE_TRANSLATE.into(),
         live_translation_target: Some(

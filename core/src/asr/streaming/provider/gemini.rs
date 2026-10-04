@@ -171,8 +171,10 @@ mod tests {
 
     #[test]
     fn setup_maps_language_and_context_to_transcription_config() {
-        let mut config = AsrConfig::default();
-        config.language = "zh".into();
+        let mut config = AsrConfig {
+            language: "zh".into(),
+            ..Default::default()
+        };
         config
             .service_settings
             .get_mut(SERVICE_GEMINI_TRANSCRIBE)
