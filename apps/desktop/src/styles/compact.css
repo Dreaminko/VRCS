@@ -87,7 +87,7 @@
   flex-direction: column;
   justify-content: safe center;
   overflow-x: hidden;
-  overflow-y: auto;
+  overflow-y: hidden;
   text-align: center;
 }
 .compact-subtitle-row {
@@ -98,10 +98,13 @@
 .compact-subtitle-row + .compact-subtitle-row { border-top: 1px solid var(--border); }
 .compact-content p {
   margin: 0;
+  max-height: calc(var(--compact-text-lines) * 1lh);
+  overflow: hidden;
   overflow-wrap: anywhere;
   white-space: pre-wrap;
 }
 .compact-original {
+  --compact-text-lines: 2;
   cursor: text;
   color: var(--text);
   font-size: 17px;
@@ -110,22 +113,29 @@
   user-select: text;
 }
 .compact-translation {
+  --compact-text-lines: 2;
   color: var(--text-secondary);
   font-size: 14px;
   font-weight: 400;
   line-height: 20px;
 }
 .compact-subtitle-history .compact-original {
+  --compact-text-lines: 1;
   color: var(--text-secondary);
   font-size: 15px;
   font-weight: 400;
   line-height: 22px;
 }
 .compact-subtitle-history .compact-translation {
+  --compact-text-lines: 1;
   color: var(--text-quiet);
   font-size: 13px;
   line-height: 18px;
 }
+.compact-subtitle-bilingual .compact-original { --compact-text-lines: 1; }
+.compact-subtitle-bilingual .compact-original,
+.compact-subtitle-history .compact-original,
+.compact-subtitle-history .compact-translation { white-space: nowrap; }
 .compact-actions {
   position: relative;
   z-index: 1;

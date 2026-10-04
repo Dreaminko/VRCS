@@ -1,10 +1,12 @@
 import { useTranslation } from "react-i18next";
+import { useLayoutEffect, useRef } from "react";
 import { Maximize2, Mic, Square, X } from "lucide-react";
 
 import type { LookupOrigin } from "../app/app-types";
 import { livePartialHasSubtitle, useLivePartial, useTranslationPartials } from "../realtime-state";
 import type { Subtitle } from "../subtitles/types";
 import { contentLanguageTag } from "../app/ui-language";
+import { compactPreviewText } from "../compact-mode";
 
 export function CompactView({ subtitles, subtitleLimit, selectionActive, running, vrchatMuted, captureDisabled, onSelect, onCapture, onRestore, onClose }: {
   subtitles: Subtitle[];
@@ -47,15 +49,14 @@ export function CompactView({ subtitles, subtitleLimit, selectionActive, running
           />
         ))}
         {partial && (
-          <div className="compact-subtitle-row compact-subtitle-current">
-            <p
+          <div className={`compact-subtitle-row compact-subtitle-current ${partial.translation ? "compact-subtitle-bilingual" : ""}`}>
+            <CompactText
               className="compact-original"
               lang={contentLanguageTag(partial.language)}
+              text={partial.text}
               onMouseUp={() => void onSelect(partial.text)}
-            >
-              {partial.text}
-            </p>
-            {partial.translation && <p className="compact-translation" lang={contentLanguageTag(partial.target_language)}>{partial.translation}</p>}
+            />
+            {partial.translation && <CompactText className="compact-translation" lang={contentLanguageTag(partial.target_language)} text={partial.translation} />}
           </div>
         )}
         {!partial && visibleSubtitles.length === 0 && (
@@ -93,20 +94,56 @@ function CompactSubtitleRow({ subtitle, current, onSelect }: {
   };
 
   return (
-    <div className={`compact-subtitle-row ${current ? "compact-subtitle-current" : "compact-subtitle-history"}`}>
-      <p
+    <div className={`compact-subtitle-row ${current ? "compact-subtitle-current" : "compact-subtitle-history"} ${visibleTranslation ? "compact-subtitle-bilingual" : ""}`}>
+      <CompactText
         className="compact-original"
         lang={contentLanguageTag(subtitle.language)}
+        text={subtitle.text}
         onMouseUp={() => void onSelect(subtitle.text, origin)}
-      >
-        {subtitle.text}
-      </p>
+      />
       {visibleTranslation && (
-        <p className="compact-translation" lang={contentLanguageTag(visibleTranslation.target_language)}>
-          {visibleTranslation.text}
-          {(translationPartial || subtitle.translation_partial) && <span className="streaming-ellipsis" aria-hidden="true">…</span>}
-        </p>
+        <CompactText
+          className="compact-translation"
+          lang={contentLanguageTag(visibleTranslation.target_language)}
+          text={visibleTranslation.text}
+          streaming={Boolean(translationPartial || subtitle.translation_partial)}
+        />
       )}
     </div>
+  );
+}
+
+function CompactText({ className, lang, text, streaming = false, onMouseUp }: {
+  className: string;
+  lang?: string;
+  text: string;
+  streaming?: boolean;
+  onMouseUp?: () => void;
+}) {
+  const ref = useRef<HTMLParagraphElement>(null);
+  const visibleText = compactPreviewText(text);
+  useLayoutEffect(() => {
+    const element = ref.current;
+    if (!element) return;
+    const followTail = () => {
+      const selection = window.getSelection();
+      if (selection && !selection.isCollapsed
+        && (element.contains(selection.anchorNode) || element.contains(selection.focusNode))) return;
+      element.scrollTop = element.scrollHeight;
+      element.scrollLeft = getComputedStyle(element).direction === "rtl"
+        ? -element.scrollWidth
+        : element.scrollWidth;
+    };
+    followTail();
+    const observer = new ResizeObserver(followTail);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [visibleText, streaming]);
+
+  return (
+    <p ref={ref} className={className} lang={lang} onMouseUp={onMouseUp}>
+      {visibleText}
+      {streaming && <span className="streaming-ellipsis" aria-hidden="true">…</span>}
+    </p>
   );
 }

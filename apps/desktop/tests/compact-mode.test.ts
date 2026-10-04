@@ -2,12 +2,14 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   COMPACT_PANEL_WINDOW_SIZE,
+  COMPACT_PREVIEW_MAX_CHARS,
   COMPACT_SUBTITLE_MAX_ITEMS,
   COMPACT_WINDOW_MAX_HEIGHT,
   COMPACT_WINDOW_MIN_WIDTH,
   COMPACT_WINDOW_SIZE,
   clampCompactWindowHeight,
   compactSubtitleCount,
+  compactPreviewText,
   compactWindowConstraints,
   compactWindowSize,
   subtitlesForCompactView,
@@ -127,4 +129,27 @@ test("compact subtitle context is chronological and bounded by height", () => {
       .map((subtitle) => subtitle.text),
     ["oldest subtitle", "older subtitle", "selected subtitle", "latest subtitle"],
   );
+});
+
+test("long compact text retains its newest end without changing full history", () => {
+  const text = "A long paragraph with detailed explanations. ".repeat(200) + "The latest sentence.";
+  const item = { ...subtitles[0], text };
+  const preview = compactPreviewText(item.text);
+  assert.equal(Array.from(preview).length, COMPACT_PREVIEW_MAX_CHARS);
+  assert.ok(preview.endsWith("The latest sentence."));
+  assert.equal(subtitlesForCompactView([item], 120)[0].text, text);
+});
+
+test("compact windows keep unicode characters and ignore trailing blank lines", () => {
+  const text = "🙂".repeat(COMPACT_PREVIEW_MAX_CHARS + 1) + "\n\n ";
+  const preview = compactPreviewText(text);
+  assert.equal(preview, "🙂".repeat(COMPACT_PREVIEW_MAX_CHARS));
+  assert.equal(compactPreviewText("短句。\n\n"), "短句。");
+  assert.equal(compactPreviewText(" \n "), "");
+});
+
+test("streaming and complete compact text both retain the latest translated tail", () => {
+  const text = "非常长的技术说明。".repeat(100) + "这是最后一句。";
+  assert.equal(compactPreviewText(text), compactPreviewText(text + "\n"));
+  assert.ok(compactPreviewText(text + "补充。 ").endsWith("这是最后一句。补充。"));
 });

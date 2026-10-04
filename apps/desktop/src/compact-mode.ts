@@ -6,6 +6,12 @@ export const COMPACT_WINDOW_MIN_WIDTH = 480;
 export const COMPACT_WINDOW_MAX_HEIGHT = 360;
 export const COMPACT_SUBTITLE_HEIGHT_STEP = 60;
 export const COMPACT_SUBTITLE_MAX_ITEMS = 4;
+export const COMPACT_PREVIEW_MAX_CHARS = 600;
+
+export function compactPreviewText(text: string): string {
+  // Bound layout work for complete paragraphs; the viewport shows the newest lines.
+  return Array.from(text.trimEnd()).slice(-COMPACT_PREVIEW_MAX_CHARS).join("");
+}
 
 export type CompactPanelState = boolean;
 
