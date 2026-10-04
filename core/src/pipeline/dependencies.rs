@@ -771,6 +771,8 @@ mod tests {
             source_utterance_ids: vec!["native-1".into()],
             provider: crate::providers::GEMINI_PROVIDER.into(),
             transcript: crate::models::LiveTranslation {
+                source_utterance_id: None,
+                conversation_preview: None,
                 speaker: None,
                 utterance_id: "native-1".into(),
                 text: "Hello.".into(),
@@ -1184,6 +1186,8 @@ mod tests {
                 "microphone",
                 crate::asr::LiveTranslationResult {
                     transcript: crate::models::LiveTranslation {
+                        source_utterance_id: None,
+                        conversation_preview: None,
                         speaker: None,
                         utterance_id: "microphone".into(),
                         ..native_result().transcript

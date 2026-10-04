@@ -98,7 +98,10 @@ export function useCoreEventStream({
                 clearLivePartial(source);
               }
             }
-            handlersRef.current.onSubtitle(message.subtitle);
+            handlersRef.current.onSubtitle({
+              ...message.subtitle,
+              ...(message.utterance_id ? { utterance_id: message.utterance_id } : {}),
+            });
             clearErrorFromRef.current(`stream:${source}`);
             break;
           }

@@ -212,12 +212,23 @@ pub struct SpeakerIdentity {
 #[derive(Debug, Clone, serde::Serialize, PartialEq)]
 pub struct LiveTranslation {
     pub utterance_id: String,
+    /// Native item link to the original row, independent of the preview lifecycle.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_utterance_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub conversation_preview: Option<LiveTranslationPreview>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub speaker: Option<SpeakerIdentity>,
     pub text: String,
     pub language: Option<String>,
     pub translation: String,
     pub target_language: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize, PartialEq)]
+pub struct LiveTranslationPreview {
+    pub text: String,
+    pub translation: String,
 }
 
 pub fn now_iso8601() -> String {

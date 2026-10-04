@@ -2,7 +2,7 @@ import { useTranslation } from "react-i18next";
 import { Maximize2, Mic, Square, X } from "lucide-react";
 
 import type { LookupOrigin } from "../app/app-types";
-import { useLivePartial, useTranslationPartials } from "../realtime-state";
+import { livePartialHasSubtitle, useLivePartial, useTranslationPartials } from "../realtime-state";
 import type { Subtitle } from "../subtitles/types";
 import { contentLanguageTag } from "../app/ui-language";
 
@@ -26,7 +26,7 @@ export function CompactView({ subtitles, subtitleLimit, selectionActive, running
     : microphonePartial ?? speakerPartial;
   const historyLimit = Math.max(0, subtitleLimit - (partial ? 1 : 0));
   const visibleSubtitles = historyLimit > 0
-    ? subtitles.slice(-historyLimit)
+    ? subtitles.filter((subtitle) => !partial || !livePartialHasSubtitle(partial, [subtitle])).slice(-historyLimit)
     : [];
   const latestSubtitle = subtitles.at(-1);
   const captureLabel = t(running ? "capture.pause" : "capture.start");

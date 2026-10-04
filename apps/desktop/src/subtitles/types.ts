@@ -6,6 +6,8 @@ export interface SpeakerIdentity {
 }
 
 export interface Subtitle {
+  /** Runtime link from the subtitle event; not stored in history. */
+  utterance_id?: string;
   speaker?: SpeakerIdentity | null;
   id: number | null;
   text: string;

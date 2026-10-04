@@ -574,6 +574,8 @@ fn disabled_or_unknown_sources_are_not_presented() {
 fn native_translation_can_arrive_before_the_original() {
     let now = Instant::now();
     let snapshot = vrcs_core::LiveTranslation {
+        source_utterance_id: None,
+        conversation_preview: None,
         speaker: None,
         utterance_id: "native-1".into(),
         text: String::new(),
@@ -618,6 +620,95 @@ fn native_translation_can_arrive_before_the_original() {
 }
 
 #[test]
+fn native_deltas_update_subtitle_previews_without_duplicating_the_stored_original() {
+    let now = Instant::now();
+    let headset_config = VrOverlayHeadsetConfig {
+        show_partials: false,
+        show_translation_partials: true,
+        content_mode: "translation".into(),
+        ..Default::default()
+    };
+    let wrist_config = VrOverlayWristConfig {
+        show_partials: false,
+        show_translation_partials: true,
+        content_mode: "translation".into(),
+        ..Default::default()
+    };
+    let preview = |text: &str| PresentationEvent::LiveTranslationUpdated {
+        source: "speaker".into(),
+        snapshot: vrcs_core::LiveTranslation {
+            utterance_id: "qwen-preview-1".into(),
+            source_utterance_id: Some("qwen-source-1".into()),
+            conversation_preview: Some(vrcs_core::LiveTranslationPreview {
+                text: "long original ".repeat(30),
+                translation: "long translation ".repeat(30),
+            }),
+            speaker: None,
+            text: "hello".into(),
+            language: Some("en".into()),
+            translation: text.into(),
+            target_language: "zh".into(),
+        },
+    };
+    let mut headset = HeadsetPresentation::default();
+    let mut wrist = WristPresentation::default();
+    let original = PresentationEvent::Final {
+        utterance_id: Some("qwen-source-1".into()),
+        subtitle: subtitle(7, "hello"),
+    };
+    for event in [
+        preview("你"),
+        original,
+        PresentationEvent::TranslationPartial {
+            subtitle_id: 7,
+            text: "你好".into(),
+            target_language: "zh".into(),
+            preferred: true,
+        },
+        preview("你好"),
+    ] {
+        headset.apply(event.clone(), now, &headset_config);
+        wrist.apply(event, now, &wrist_config);
+    }
+    assert_eq!(
+        headset.frame(now, &headset_config).unwrap().content,
+        PresentationContent::Headset("你好".into())
+    );
+    assert_eq!(
+        wrist.frame(now, &wrist_config).unwrap().content,
+        PresentationContent::Wrist(vec![WristMessage {
+            text: "你好".into(),
+            side: MessageSide::Left
+        }])
+    );
+    for event in [
+        PresentationEvent::TranslationCompleted {
+            subtitle_id: 7,
+            translation: translation("你好，完整结果。"),
+            preferred: true,
+        },
+        PresentationEvent::RecognitionCancelled {
+            source: "speaker".into(),
+            utterance_id: "qwen-preview-1".into(),
+        },
+    ] {
+        headset.apply(event.clone(), now, &headset_config);
+        wrist.apply(event, now, &wrist_config);
+    }
+    assert_eq!(
+        headset.frame(now, &headset_config).unwrap().content,
+        PresentationContent::Headset("你好，完整结果。".into())
+    );
+    assert_eq!(
+        wrist.frame(now, &wrist_config).unwrap().content,
+        PresentationContent::Wrist(vec![WristMessage {
+            text: "你好，完整结果。".into(),
+            side: MessageSide::Left
+        }])
+    );
+}
+
+#[test]
 fn japanese_live_translation_preview_does_not_require_recognition_preview() {
     let now = Instant::now();
     let config = VrOverlayHeadsetConfig {
@@ -629,6 +720,8 @@ fn japanese_live_translation_preview_does_not_require_recognition_preview() {
     let event = PresentationEvent::LiveTranslationUpdated {
         source: "speaker".into(),
         snapshot: vrcs_core::LiveTranslation {
+            source_utterance_id: None,
+            conversation_preview: None,
             speaker: None,
             utterance_id: "japanese-stream".into(),
             text: "日本語の音声を再生しています。".into(),
@@ -677,6 +770,8 @@ fn empty_live_original_does_not_hide_a_completed_japanese_subtitle() {
         PresentationEvent::LiveTranslationUpdated {
             source: "speaker".into(),
             snapshot: vrcs_core::LiveTranslation {
+                source_utterance_id: None,
+                conversation_preview: None,
                 speaker: None,
                 utterance_id: "next-japanese-stream".into(),
                 text: String::new(),

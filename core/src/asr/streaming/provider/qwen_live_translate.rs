@@ -2,7 +2,7 @@
 use super::live_translation::{append_display_text, result};
 use super::{CloudEvent, MAX_ACTIVE_TRANSCRIPTS, MAX_TRANSCRIPT_BYTES};
 use crate::config::AsrConfig;
-use crate::models::{LiveTranslation, SpeakerIdentity};
+use crate::models::{LiveTranslation, LiveTranslationPreview, SpeakerIdentity};
 use crate::providers::SERVICE_QWEN_LIVE_TRANSLATE;
 use serde_json::{json, Value};
 use std::collections::{HashMap, VecDeque};
@@ -37,6 +37,7 @@ struct Source {
 #[derive(Default)]
 struct Target {
     text: String,
+    previewed_text: Option<String>,
     source_id: Option<String>,
     response_id: Option<String>,
     text_done: bool,
@@ -85,6 +86,8 @@ impl State {
     fn transcript(&self, config: &AsrConfig, id: &str, source: &Source) -> LiveTranslation {
         LiveTranslation {
             utterance_id: format!("qwen-source-{}-{id}", self.session_id),
+            source_utterance_id: None,
+            conversation_preview: None,
             text: source.text.clone(),
             language: source.language.clone(),
             speaker: source.speaker.clone(),
@@ -109,7 +112,7 @@ impl State {
             }
             let target = self
                 .targets
-                .iter()
+                .iter_mut()
                 .find(|(_, target)| target.source_id.as_deref() == Some(id.as_str()));
             if let Some((target_id, target)) = target {
                 if target.done || flush {
@@ -118,6 +121,14 @@ impl State {
                         translations.push(result(config, transcript, false));
                     }
                     remove.push((id.clone(), Some(target_id.clone())));
+                } else if (!target.text.is_empty() || target.previewed_text.is_some())
+                    && target.previewed_text.as_ref() != Some(&target.text)
+                {
+                    // The original is stored independently. Stream into that row
+                    // without saving a translation until response.done confirms it.
+                    transcript.translation = target.text.clone();
+                    translations.push(result(config, transcript, true));
+                    target.previewed_text = Some(target.text.clone());
                 }
             } else if flush {
                 if !source.text.trim().is_empty() {
@@ -150,6 +161,8 @@ impl State {
         } else {
             LiveTranslation {
                 utterance_id: String::new(),
+                source_utterance_id: None,
+                conversation_preview: None,
                 text: String::new(),
                 language: None,
                 speaker: None,
@@ -157,6 +170,9 @@ impl State {
                 target_language: config.live_translation_target.clone().unwrap_or_default(),
             }
         };
+        if self.sources.contains_key(&source_id) {
+            snapshot.source_utterance_id = Some(snapshot.utterance_id.clone());
+        }
         snapshot.utterance_id = format!("qwen-preview-{}-{source_id}", self.session_id);
         if let Some(target) = self.targets.get(&active).or_else(|| {
             self.targets
@@ -168,6 +184,10 @@ impl State {
         let original = std::mem::take(&mut snapshot.text);
         let translated = std::mem::take(&mut snapshot.translation);
         if !flush {
+            snapshot.conversation_preview = Some(LiveTranslationPreview {
+                text: original.clone(),
+                translation: translated.clone(),
+            });
             append_display_text(&mut snapshot.text, &original);
             append_display_text(&mut snapshot.translation, &translated);
         }
@@ -463,7 +483,7 @@ mod tests {
             }) = event(&mut state, frame)
             {
                 sources.extend(completed);
-                translations.extend(done);
+                translations.extend(done.into_iter().filter(|result| !result.pending));
             }
         }
         assert_eq!(sources.len(), 3);
@@ -599,7 +619,9 @@ mod tests {
             panic!()
         };
         assert_eq!(completed[0].transcript.text, "Hello!");
-        assert!(translations.is_empty());
+        assert_eq!(translations.len(), 1);
+        assert!(translations[0].pending);
+        assert_eq!(translations[0].transcript.translation, "你好");
         event(
             &mut state,
             json!({"type":"response.text.done","item_id":"t1","response_id":"r1","text":"你好！"}),
@@ -619,7 +641,7 @@ mod tests {
         assert!(state.finish(&config()).is_none());
     }
     #[test]
-    fn final_response_replaces_preview_and_text_done_without_early_publication() {
+    fn final_response_replaces_streamed_previews_without_early_persistence() {
         let mut state = State::default();
         link(&mut state, "s1", "t1");
         source(&mut state, "s1", "The train leaves at 7:05, not 7:50.");
@@ -641,7 +663,14 @@ mod tests {
                 panic!()
             };
             assert_eq!(snapshot.translation, preview);
-            assert!(completed.is_empty() && translations.is_empty());
+            assert!(completed.is_empty());
+            assert_eq!(translations.len(), 1);
+            assert!(translations[0].pending);
+            assert_eq!(translations[0].transcript.translation, preview);
+            assert_eq!(
+                snapshot.source_utterance_id.as_deref(),
+                Some(translations[0].transcript.utterance_id.as_str())
+            );
         }
         let final_text = "火车七点零五分出发，而不是七点五十分。";
         let Some(CloudEvent::LiveTranslation {
@@ -657,6 +686,72 @@ mod tests {
         assert!(!translations[0].pending);
         assert!(snapshot.translation.is_empty());
         assert!(state.finish(&config()).is_none());
+    }
+
+    #[test]
+    fn long_deltas_keep_full_conversation_preview_and_stream_into_the_original_row() {
+        let mut state = State::default();
+        link(&mut state, "s1", "t1");
+        let original = "A long technical sentence with a conditional clause. ".repeat(8);
+        let translated = "包含条件从句的技术长句。".repeat(30);
+        event(
+            &mut state,
+            json!({"type":"conversation.item.input_audio_transcription.delta","item_id":"s1","delta":original}),
+        );
+        let Some(CloudEvent::LiveTranslation {
+            snapshot,
+            completed,
+            translations,
+            ..
+        }) = event(
+            &mut state,
+            json!({"type":"response.text.delta","item_id":"t1","delta":translated}),
+        )
+        else {
+            panic!()
+        };
+        assert!(completed.is_empty() && translations.is_empty());
+        let preview = snapshot.conversation_preview.unwrap();
+        assert_eq!(preview.text, original);
+        assert_eq!(preview.translation, translated);
+        assert!(snapshot.text.chars().count() <= 160);
+        assert!(snapshot.translation.chars().count() <= 160);
+        let Some(CloudEvent::LiveTranslation {
+            snapshot,
+            completed,
+            translations,
+            ..
+        }) = source(&mut state, "s1", &original)
+        else {
+            panic!()
+        };
+        assert_eq!(completed.len(), 1);
+        assert_eq!(translations.len(), 1);
+        assert!(translations[0].pending);
+        assert_eq!(translations[0].transcript.translation, translated);
+        assert_eq!(
+            snapshot.source_utterance_id.as_deref(),
+            Some(completed[0].transcript.utterance_id.as_str())
+        );
+        let Some(CloudEvent::LiveTranslation { translations, .. }) = event(
+            &mut state,
+            json!({"type":"response.text.delta","item_id":"t1","delta":"尾句。"}),
+        ) else {
+            panic!()
+        };
+        assert_eq!(
+            translations[0].transcript.translation,
+            format!("{translated}尾句。")
+        );
+        assert!(translations[0].pending);
+        let Some(CloudEvent::LiveTranslation { translations, .. }) =
+            target(&mut state, "t1", "修订后的完整译文。")
+        else {
+            panic!()
+        };
+        assert_eq!(translations.len(), 1);
+        assert!(!translations[0].pending);
+        assert_eq!(translations[0].transcript.translation, "修订后的完整译文。");
     }
 
     #[test]

@@ -2,9 +2,10 @@ import { MessageSquare } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { contentLanguageTag } from "../../app/ui-language";
-import { useLivePartial } from "../../realtime-state";
+import { livePartialHasSubtitle, useLivePartial } from "../../realtime-state";
+import type { Subtitle } from "../types";
 
-export function LivePartials() {
+export function LivePartials({ subtitles }: { subtitles: Subtitle[] }) {
   const { t } = useTranslation();
   const speaker = useLivePartial("speaker");
   const microphone = useLivePartial("microphone");
@@ -16,16 +17,19 @@ export function LivePartials() {
       </div>
     );
   }
-  return partials.map((partial) => (
-    <div className={`message-group source-${partial.source} streaming-message`} key={`${partial.source}-${partial.utterance_id}`}>
-      {partial.speaker && <div className="message-meta">{t("live.speakerNumber", { number: partial.speaker.index + 1 })}</div>}
-      <div className="bubble">
-        {partial.text && <p className="bubble-original" lang={contentLanguageTag(partial.language)}>{partial.text}<span className="streaming-ellipsis" aria-hidden="true">…</span></p>}
-        {partial.text && partial.translation && <div className="bubble-translation-divider" aria-hidden="true" />}
-        {partial.translation && <p className="bubble-translation streaming-translation" lang={contentLanguageTag(partial.target_language)}>{partial.translation}<span className="streaming-ellipsis" aria-hidden="true">…</span></p>}
+  return partials.filter((partial) => !livePartialHasSubtitle(partial, subtitles)).map((partial) => {
+    const preview = partial.conversation_preview ?? partial;
+    return (
+      <div className={`message-group source-${partial.source} streaming-message`} key={`${partial.source}-${partial.utterance_id}`}>
+        {partial.speaker && <div className="message-meta">{t("live.speakerNumber", { number: partial.speaker.index + 1 })}</div>}
+        <div className="bubble">
+          {preview.text && <p className="bubble-original" lang={contentLanguageTag(partial.language)}>{preview.text}<span className="streaming-ellipsis" aria-hidden="true">…</span></p>}
+          {preview.text && preview.translation && <div className="bubble-translation-divider" aria-hidden="true" />}
+          {preview.translation && <p className="bubble-translation streaming-translation" lang={contentLanguageTag(partial.target_language)}>{preview.translation}<span className="streaming-ellipsis" aria-hidden="true">…</span></p>}
+        </div>
       </div>
-    </div>
-  ));
+    );
+  });
 }
 
 export function EmptyLiveView({ running }: { running: boolean }) {

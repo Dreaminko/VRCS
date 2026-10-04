@@ -49,6 +49,7 @@ impl PresentationFrame {
 #[derive(Debug, Clone)]
 struct PresentationItem {
     utterance_id: Option<String>,
+    source_utterance_id: Option<String>,
     subtitle_id: Option<i64>,
     speaker_index: Option<u64>,
     source: String,
@@ -121,6 +122,7 @@ impl HeadsetPresentation {
                     expiry(now, config.display_seconds),
                 );
                 item.speaker_index = snapshot.speaker.map(|speaker| speaker.index);
+                item.source_utterance_id = snapshot.source_utterance_id;
                 if config.show_translation_partials && !snapshot.translation.is_empty() {
                     item.translations.push(PresentationTranslation {
                         original: None,
@@ -298,6 +300,7 @@ impl WristPresentation {
                     now,
                 );
                 item.speaker_index = snapshot.speaker.map(|speaker| speaker.index);
+                item.source_utterance_id = snapshot.source_utterance_id;
                 if config.show_translation_partials && !snapshot.translation.is_empty() {
                     item.translations.push(PresentationTranslation {
                         original: None,
@@ -461,6 +464,22 @@ impl WristPresentation {
             .entries
             .iter()
             .filter(|item| source_enabled(&item.source, config))
+            .filter(|item| {
+                !self.partials.iter().any(|partial| {
+                    partial.source == item.source
+                        && partial.source_utterance_id.is_some()
+                        && partial.source_utterance_id == item.utterance_id
+                        && !preview_text(
+                            partial,
+                            &config.content_mode,
+                            translation_display,
+                            config.show_partials,
+                            config.show_translation_partials,
+                        )
+                        .trim()
+                        .is_empty()
+                })
+            })
             .map(|item| wrist_message(item, &config.content_mode, translation_display))
             .chain(
                 self.partials
@@ -525,6 +544,7 @@ fn item_from_subtitle(
         .collect();
     PresentationItem {
         utterance_id,
+        source_utterance_id: None,
         subtitle_id: subtitle.id,
         speaker_index: subtitle.speaker.map(|speaker| speaker.index),
         source: subtitle.source,
@@ -544,6 +564,7 @@ fn item_from_partial(
 ) -> PresentationItem {
     PresentationItem {
         utterance_id: Some(utterance_id),
+        source_utterance_id: None,
         subtitle_id: None,
         speaker_index: None,
         source,

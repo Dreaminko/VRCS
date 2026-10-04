@@ -509,8 +509,8 @@ fn reduce_cloud_event(
             translations,
         } => {
             let mut effects = Vec::new();
-            let immediate =
-                crate::providers::is_live_translation(&service) && translations.is_empty();
+            let immediate = crate::providers::is_live_translation(&service)
+                && translations.iter().all(|result| result.pending);
             for result in completed {
                 if state
                     .lifecycle
@@ -1308,9 +1308,12 @@ mod tests {
                 "openai",
             ),
             (crate::providers::SERVICE_GEMINI_LIVE_TRANSLATE, "gemini"),
+            (crate::providers::SERVICE_QWEN_LIVE_TRANSLATE, "qwen_ai"),
         ] {
             let mut state = PipelineState::new(16_000);
             let snapshot = crate::models::LiveTranslation {
+                source_utterance_id: None,
+                conversation_preview: None,
                 speaker: None,
                 utterance_id: "preview".into(),
                 text: String::new(),
@@ -1322,26 +1325,29 @@ mod tests {
             source.utterance_id = "source".into();
             source.text = "Original.".into();
             source.translation.clear();
+            let result = crate::asr::LiveTranslationResult {
+                pending: true,
+                source_utterance_ids: vec!["source".into()],
+                provider: provider.into(),
+                transcript: source,
+                model: "live-translate".into(),
+            };
+            let mut preview = result.clone();
+            preview.transcript.translation = "立即显示".into();
             let event = PipelineEvent::Cloud {
                 event: CloudEvent::LiveTranslation {
                     service: service.into(),
                     snapshot,
-                    completed: vec![crate::asr::LiveTranslationResult {
-                        pending: true,
-                        source_utterance_ids: vec!["source".into()],
-                        provider: provider.into(),
-                        transcript: source,
-                        model: "gpt-realtime-translate".into(),
-                    }],
-                    translations: vec![],
+                    completed: vec![result],
+                    translations: vec![preview],
                 },
                 partial_publication: PartialPublication::Throttled(Instant::now()),
                 stop_cloud_on_failure: false,
             };
             let effects = reduce_pipeline_event(&mut state, event, &AsrEchoGuard::default());
             assert!(
-                matches!(effects.as_slice(),[PipelineEffect::PublishLiveTranslation(s), PipelineEffect::PublishNativeTranslation(_)]
-                    if s.translation == "立即显示" && s.text.is_empty())
+                matches!(effects.as_slice(),[PipelineEffect::PublishLiveTranslation(s), PipelineEffect::PublishNativeTranslation(_), PipelineEffect::PublishNativeTranslationUpdate(r)]
+                    if s.translation == "立即显示" && s.text.is_empty() && r.pending)
             );
         }
     }

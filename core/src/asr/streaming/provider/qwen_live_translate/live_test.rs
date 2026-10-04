@@ -1,4 +1,4 @@
-//! Explicit opt-in test. Credentials come from the environment or a file, never logged.
+//! Opt-in live and recorded protocol tests. Credentials are never logged.
 use super::*;
 use crate::asr::streaming::provider::qwen;
 use crate::config::ApiProfile;
@@ -6,6 +6,87 @@ use futures_util::{SinkExt, StreamExt};
 use std::collections::HashSet;
 use std::time::Duration;
 use tokio_tungstenite::tungstenite::Message;
+
+#[test]
+#[ignore = "requires QWEN_LIVE_REPLAY_DIR containing captured *-events.json files"]
+fn recorded_stream_previews_and_final_text() {
+    let directory = std::env::var("QWEN_LIVE_REPLAY_DIR").expect("recording directory required");
+    let mut sessions = 0;
+    let mut final_count = 0;
+    for entry in std::fs::read_dir(directory).unwrap() {
+        let path = entry.unwrap().path();
+        if !path
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .ends_with("-events.json")
+        {
+            continue;
+        }
+        let frames: Vec<Value> = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        let config = AsrConfig {
+            backend: SERVICE_QWEN_LIVE_TRANSLATE.into(),
+            live_translation_target: Some("zh-Hans".into()),
+            ..Default::default()
+        };
+        let mut state = State::default();
+        let mut originals = HashSet::new();
+        let (mut expected, mut saved) = (Vec::new(), Vec::new());
+        let (mut previews, mut row_updates, mut longest) = (0, 0, 0);
+        for frame in frames {
+            let value = frame.get("event").unwrap_or(&frame);
+            if value["type"] == "response.done" {
+                for item in value["response"]["output"].as_array().unwrap() {
+                    for content in item["content"].as_array().unwrap() {
+                        if let Some(text) = content["text"].as_str() {
+                            expected.push(text.to_owned());
+                        }
+                    }
+                }
+            }
+            if let Some(CloudEvent::LiveTranslation {
+                snapshot,
+                completed,
+                translations,
+                ..
+            }) = normalize_event(&config, value, &mut state).unwrap()
+            {
+                originals.extend(completed.iter().map(|r| r.transcript.utterance_id.clone()));
+                if let Some(preview) = snapshot.conversation_preview {
+                    longest = longest.max(preview.translation.chars().count());
+                    assert!(snapshot.text.chars().count() <= 160);
+                    assert!(snapshot.translation.chars().count() <= 160);
+                    if value["type"] == "response.text.delta" {
+                        assert!(!preview.translation.is_empty());
+                        previews += 1;
+                    }
+                }
+                for result in translations {
+                    assert!(originals.contains(&result.transcript.utterance_id));
+                    if result.pending {
+                        row_updates += 1;
+                    } else {
+                        assert_ne!(value["type"], "response.text.delta");
+                        assert_ne!(value["type"], "response.text.done");
+                        saved.push(result.transcript.translation);
+                    }
+                }
+            }
+        }
+        expected.sort();
+        saved.sort();
+        assert!(!saved.is_empty());
+        assert_eq!(saved, expected, "final text differs in {}", path.display());
+        assert_eq!(originals.len(), saved.len());
+        assert!(previews > 0 && row_updates > 0);
+        assert!(state.finish(&config).is_none());
+        println!("{}: {previews} delta previews, {row_updates} row updates, {} saved results, {longest} preview characters", path.file_name().unwrap().to_string_lossy(), saved.len());
+        sessions += 1;
+        final_count += saved.len();
+    }
+    assert!(sessions > 0);
+    println!("Verified {sessions} recorded sessions and {final_count} complete translations");
+}
 
 #[tokio::test]
 #[ignore = "requires Qwen credentials and QWEN_LIVE_PCM (mono PCM16, 16 kHz)"]
@@ -141,7 +222,8 @@ async fn actual_speech_translation_and_speakers() {
                 "trigger": kind,
                 "snapshot": snapshot,
                 "completed": completed.iter().map(|r| &r.transcript).collect::<Vec<_>>(),
-                "translations": done.iter().map(|r| &r.transcript).collect::<Vec<_>>()
+                "translations": done.iter().filter(|r| !r.pending).map(|r| &r.transcript).collect::<Vec<_>>(),
+                "translation_previews": done.iter().filter(|r| r.pending).map(|r| &r.transcript).collect::<Vec<_>>()
             }));
             for result in completed {
                 println!(
@@ -155,7 +237,7 @@ async fn actual_speech_translation_and_speakers() {
                 }
                 sources.push(result.transcript);
             }
-            for result in done {
+            for result in done.into_iter().filter(|result| !result.pending) {
                 println!(
                     "translation {}ms: {}",
                     started.elapsed().as_millis(),

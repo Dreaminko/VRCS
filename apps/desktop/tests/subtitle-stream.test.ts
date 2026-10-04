@@ -26,6 +26,19 @@ function subtitle(id: number, text: string): Subtitle {
   };
 }
 
+test("native stream carries cumulative conversation text separately from subtitle preview", () => {
+  const event = {
+    type: "live_translation_updated", source: "speaker", utterance_id: "preview-1",
+    source_utterance_id: "source-1", language: "en", text: "tail", translation: "尾部",
+    target_language: "zh-Hans",
+    conversation_preview: { text: "full original ".repeat(30), translation: "完整译文".repeat(60) },
+  };
+  assert.deepEqual(parseSubtitleStreamMessage(JSON.stringify(event)), event);
+  assert.equal(parseSubtitleStreamMessage(JSON.stringify({ ...event, source_utterance_id: 1 })), null);
+  assert.equal(parseSubtitleStreamMessage(JSON.stringify({ ...event, conversation_preview: { text: "hello" } })), null);
+  assert.equal(parseSubtitleStreamMessage(JSON.stringify({ ...event, conversation_preview: { text: "x".repeat(100_001), translation: "hi" } })), null);
+});
+
 test("conversation pages preserve the Core pagination cursor", () => {
   const page = conversationSubtitlePage({
     items: Array.from({ length: 100 }, (_, index) => subtitle(100 - index, `line ${index}`)),

@@ -210,7 +210,7 @@ export const LiveView = memo(function LiveView({
       ) : (
         <EmptyLiveView running={running} />
       )}
-      {running && <LivePartials />}
+      {running && <LivePartials subtitles={subtitles} />}
     </section>
   );
 });

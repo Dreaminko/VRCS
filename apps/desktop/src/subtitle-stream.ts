@@ -218,6 +218,10 @@ export function parseSubtitleStreamMessage(
         : null;
     case "live_translation_updated":
       return isSource(value.source) && isText(value.utterance_id) && isText(value.text)
+        && (value.source_utterance_id === undefined || isNullableText(value.source_utterance_id))
+        && (value.conversation_preview === undefined || value.conversation_preview === null
+          || (isObject(value.conversation_preview) && isText(value.conversation_preview.text)
+            && isText(value.conversation_preview.translation)))
         && isText(value.translation) && isText(value.target_language) && isNullableText(value.language) && isSpeaker(value.speaker)
         ? value as SubtitleStreamMessage : null;
     case "partial":

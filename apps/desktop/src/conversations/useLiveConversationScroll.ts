@@ -92,10 +92,18 @@ export function useLiveConversationScroll({
 
   useEffect(() => {
     if (!liveAutoScrollActive || !followingLiveSubtitles) return;
-    const frame = window.requestAnimationFrame(
-      autoScrollLiveViewToBottom,
-    );
-    return () => window.cancelAnimationFrame(frame);
+    let frame = window.requestAnimationFrame(autoScrollLiveViewToBottom);
+    // Delta updates grow the preview without changing the saved conversation.
+    const observer = new ResizeObserver(() => {
+      window.cancelAnimationFrame(frame);
+      frame = window.requestAnimationFrame(autoScrollLiveViewToBottom);
+    });
+    const content = liveScrollRef.current?.firstElementChild;
+    if (content) observer.observe(content);
+    return () => {
+      observer.disconnect();
+      window.cancelAnimationFrame(frame);
+    };
   }, [
     autoScrollLiveViewToBottom,
     followingLiveSubtitles,

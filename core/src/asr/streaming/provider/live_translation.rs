@@ -174,6 +174,8 @@ pub(super) fn append(
         return Err("Live translation transcript limit reached; restart recognition".into());
     }
     let snapshot = state.snapshot.get_or_insert_with(|| LiveTranslation {
+        source_utterance_id: None,
+        conversation_preview: None,
         speaker: None,
         utterance_id: format!("live-{}", uuid::Uuid::new_v4()),
         text: String::new(),

@@ -11,6 +11,8 @@ export interface LiveTranscription {
   speaker?: import("../subtitles/types").SpeakerIdentity | null;
   type: "partial";
   utterance_id: string;
+  source_utterance_id?: string | null;
+  conversation_preview?: { text: string; translation: string } | null;
   source: "speaker" | "microphone";
   text: string;
   language?: string | null;

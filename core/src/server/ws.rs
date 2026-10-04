@@ -252,6 +252,11 @@ mod tests {
         events.live_translation(
             "speaker",
             &crate::models::LiveTranslation {
+                source_utterance_id: Some("source-1".into()),
+                conversation_preview: Some(crate::models::LiveTranslationPreview {
+                    text: "original".into(),
+                    translation: "full translation".into(),
+                }),
                 speaker: None,
                 utterance_id: "live-1".into(),
                 text: String::new(),
@@ -264,6 +269,11 @@ mod tests {
         assert_eq!(payload["type"], "live_translation_updated");
         assert_eq!(payload["translation"], "hello");
         assert_eq!(payload["source"], "speaker");
+        assert_eq!(payload["source_utterance_id"], "source-1");
+        assert_eq!(
+            payload["conversation_preview"]["translation"],
+            "full translation"
+        );
         assert!(payload.get("subtitle_id").is_none());
     }
 
