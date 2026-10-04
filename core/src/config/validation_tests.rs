@@ -677,6 +677,7 @@ fn live_translation_does_not_require_a_text_profile_for_the_first_target() {
     for service in [
         crate::providers::SERVICE_GEMINI_LIVE_TRANSLATE,
         crate::providers::SERVICE_OPENAI_REALTIME_TRANSLATE,
+        crate::providers::SERVICE_QWEN_LIVE_TRANSLATE,
     ] {
         let mut config = AppConfig::default();
         config.asr.backend = service.into();

@@ -185,14 +185,22 @@ test("ordinary recognition selection and providers without native translation re
 test("switching Qwen AI and Model Studio keeps the live model and chooses the destination credential", () => {
   const qwenService = { ...definitions[0].services[0], id: "qwen_live_translate", models: ["qwen3.8-livetranslate-flash-realtime"] };
   const qwenDefinitions: ProviderDefinition[] = ["qwen_ai", "alibaba_cloud"].map((id) => ({
-    ...definitions[0], id, services: [qwenService],
+    ...definitions[0], id, services: [
+      { ...qwenService, id: "qwen_realtime", models: ["qwen3-asr-flash-realtime"] },
+      qwenService,
+      { ...qwenService, id: "fun_asr_realtime", models: ["fun-asr-realtime"] },
+    ],
   }));
   const qwenProfiles = ["qwen_ai", "alibaba_cloud"].map((provider) => ({ ...profile, id: provider, provider }));
-  const selected = selectRecognitionProfile(asr, "qwen_ai", qwenProfiles, qwenDefinitions);
+  const selected = selectRecognitionProfile(
+    { ...asr, backend: "gemini_live_translate" }, "qwen_ai", qwenProfiles, qwenDefinitions,
+  );
   assert.equal(selected.backend, "qwen_live_translate");
   assert.equal(selected.service_settings.qwen_live_translate.model, "qwen3.8-livetranslate-flash-realtime");
   const switched = selectRecognitionProfile(selected, "alibaba_cloud", qwenProfiles, qwenDefinitions);
   assert.equal(switched.active_profile_id, "alibaba_cloud");
   assert.equal(switched.backend, "qwen_live_translate");
   assert.deepEqual(switched.service_settings, selected.service_settings);
+  const ordinary = selectRecognitionProfile(asr, "qwen_ai", qwenProfiles, qwenDefinitions);
+  assert.equal(ordinary.backend, "qwen_realtime");
 });

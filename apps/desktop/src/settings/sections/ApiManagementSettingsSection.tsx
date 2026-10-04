@@ -14,7 +14,7 @@ import {
   type ApiProfileEditorDraft,
 } from "../../api-profile-draft";
 import { profileEnabledCapabilities, providerDefinition, providerDetail } from "../../provider-catalog";
-import { recognitionServicesForProfile } from "../../recognition-services";
+import { recognitionServicesForProfile, selectRecognitionProfile } from "../../recognition-services";
 import { translationDiagnosticModel } from "../../translation-model-selection";
 import type {
   ApiProfileView,
@@ -154,6 +154,12 @@ export function ApiManagementSettingsSection({
           const definition = providerDefinition(profiles.providerDefinitions, profile.provider);
           const recognitionServices = recognitionServicesForProfile(profile, profiles.providerDefinitions);
           const recognitionCapable = supportsRecognition(profile) && recognitionServices.length > 0;
+          const activationServiceId = selectRecognitionProfile(
+            settings.asr,
+            profile.id,
+            profiles.profiles,
+            profiles.providerDefinitions,
+          ).backend;
           const translationCapable = supportsTranslation(profile);
           const supportsModels = supportsLlmModels(profile);
           const profileSupportLevel = supportLevel(profile);
@@ -208,7 +214,7 @@ export function ApiManagementSettingsSection({
                   {transcriptionActive ? (
                     <span className="api-active-badge"><Check size={13} aria-hidden="true" />{t("settings.apiManagement.transcriptionActive")}</span>
                   ) : recognitionCapable ? (
-                    <button className="secondary-button" type="button" disabled={locked || !credentialReady} onClick={() => void profiles.activate(profile.id, recognitionServices[0].id)}>{t("settings.apiManagement.setDefault")}</button>
+                    <button className="secondary-button" type="button" disabled={locked || !credentialReady} onClick={() => void profiles.activate(profile.id, activationServiceId)}>{t("settings.apiManagement.setDefault")}</button>
                   ) : null}
                   {translationActive && <span className="api-active-badge"><Check size={13} aria-hidden="true" />{t("settings.apiManagement.translationActive")}</span>}
                   {supportsModels && (
