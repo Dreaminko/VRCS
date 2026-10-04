@@ -582,12 +582,6 @@
           "preferredOnly": "仅显示首选语言",
           "allLanguages": "显示所有语言"
         },
-        "contentMode": "显示内容",
-        "contentModes": {
-          "original": "原文",
-          "translation": "译文",
-          "bilingual": "双语"
-        },
         "hand": "控制器",
         "dominantHand": "主手",
         "hands": {

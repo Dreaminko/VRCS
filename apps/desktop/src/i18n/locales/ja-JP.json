@@ -582,12 +582,6 @@
           "preferredOnly": "優先言語のみ",
           "allLanguages": "すべての言語を表示"
         },
-        "contentMode": "表示内容",
-        "contentModes": {
-          "original": "原文",
-          "translation": "翻訳",
-          "bilingual": "二言語"
-        },
         "hand": "コントローラー",
         "dominantHand": "利き手",
         "hands": {

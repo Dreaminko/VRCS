@@ -582,12 +582,6 @@
           "preferredOnly": "Preferred language only",
           "allLanguages": "Show all languages"
         },
-        "contentMode": "Content",
-        "contentModes": {
-          "original": "Original",
-          "translation": "Translation",
-          "bilingual": "Bilingual"
-        },
         "hand": "Controller",
         "dominantHand": "Dominant hand",
         "hands": {
