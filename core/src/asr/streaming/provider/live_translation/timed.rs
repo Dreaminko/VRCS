@@ -11,6 +11,7 @@ pub(super) struct Timing {
     last_output: Option<Instant>,
     context: VecDeque<(String, String)>,
     last_committed: Option<LiveTranslation>,
+    continuation_bytes: usize,
 }
 
 pub(in crate::asr::streaming) fn append_delta(
@@ -25,6 +26,19 @@ pub(in crate::asr::streaming) fn append_delta(
         return Ok(None);
     }
     let timing = state.timing.get_or_insert_with(Timing::default);
+    if text.is_empty() && !translation.is_empty() && state.input.trim().is_empty() {
+        if let Some(previous) = &timing.last_committed {
+            let continuation_bytes = state.output.len() + translation.len();
+            if previous.translation.len() + continuation_bytes > MAX_TRANSCRIPT_BYTES {
+                return Err(
+                    "Live translation transcript limit reached; restart recognition".into(),
+                );
+            }
+            // Bind the continuation when it arrives. A new source can arrive
+            // before the output settles, but must never consume this prefix.
+            timing.continuation_bytes = continuation_bytes;
+        }
+    }
     if !text.is_empty() {
         timing.last_input = Some(Instant::now());
     }
@@ -53,6 +67,20 @@ impl Timing {
             && state.output.trim().is_empty();
         let settled =
             |last: Option<Instant>, delay| last.is_some_and(|time| time.elapsed() >= delay);
+        let mut translations = Vec::new();
+        if self.continuation_bytes > 0
+            && (flush || !state.input.trim().is_empty() || settled(self.last_output, SETTLE))
+        {
+            let end = std::mem::take(&mut self.continuation_bytes);
+            let continuation: String = state.output.drain(..end).collect();
+            if let Some(previous) = &mut self.last_committed {
+                previous.translation.push_str(&continuation);
+                if let Some(context) = self.context.back_mut() {
+                    context.1 = previous.translation.clone();
+                }
+                translations.push(result(config, previous.clone(), false));
+            }
+        }
         let idle = settled(self.last_input, TAIL_IDLE) && settled(self.last_output, TAIL_IDLE);
         let unpunctuated = alignment::sentences(&state.input).is_empty()
             && alignment::sentences(&state.output).is_empty();
@@ -99,7 +127,6 @@ impl Timing {
             cuts.push((state.input.len(), state.output.len()));
         }
         let mut completed = Vec::new();
-        let mut translations = Vec::new();
         let (mut source_start, mut target_start) = (0, 0);
         for &(source_end, target_end) in &cuts {
             let mut source = snapshot.clone();
@@ -296,5 +323,74 @@ mod tests {
             completed[0].transcript.text.chars().count(),
             MAX_TRANSCRIPT_BYTES / 6 + 1
         );
+    }
+    #[tokio::test(start_paused = true)]
+    async fn late_translation_is_bound_before_the_next_source_arrives() {
+        for wait_before_next_source in [Duration::ZERO, SETTLE] {
+            let config = config();
+            let mut state = State::default();
+            append_delta(
+                &config,
+                &mut state,
+                "Hello, how are you today?",
+                "こんにちは。",
+                None,
+                None,
+            )
+            .unwrap();
+            tokio::time::advance(SETTLE).await;
+            let Some(CloudEvent::LiveTranslation { completed, .. }) = poll(&config, &mut state)
+            else {
+                panic!()
+            };
+            let first_id = completed[0].transcript.utterance_id.clone();
+            append_delta(&config, &mut state, "", "今日はお元気ですか？", None, None).unwrap();
+            tokio::time::advance(wait_before_next_source).await;
+            let revision = poll(&config, &mut state);
+            let next =
+                append_delta(&config, &mut state, "Thank you very much.", "", None, None).unwrap();
+            let Some(CloudEvent::LiveTranslation {
+                completed,
+                translations,
+                ..
+            }) = merge_events(revision, next)
+            else {
+                panic!()
+            };
+            assert!(completed.is_empty());
+            assert_eq!(translations.len(), 1);
+            assert_eq!(translations[0].transcript.utterance_id, first_id);
+            assert_eq!(
+                translations[0].transcript.translation,
+                "こんにちは。今日はお元気ですか？"
+            );
+            assert_eq!(state.input, "Thank you very much.");
+            assert!(state.output.is_empty());
+            append_delta(
+                &config,
+                &mut state,
+                "",
+                "本当にありがとうございます。",
+                None,
+                None,
+            )
+            .unwrap();
+            tokio::time::advance(SETTLE).await;
+            let Some(CloudEvent::LiveTranslation {
+                completed,
+                translations,
+                ..
+            }) = poll(&config, &mut state)
+            else {
+                panic!()
+            };
+            assert_eq!(completed[0].transcript.text, "Thank you very much.");
+            assert_eq!(
+                translations[0].transcript.translation,
+                "本当にありがとうございます。"
+            );
+            assert_ne!(translations[0].transcript.utterance_id, first_id);
+            assert!(finish(&config, &mut state).is_none());
+        }
     }
 }

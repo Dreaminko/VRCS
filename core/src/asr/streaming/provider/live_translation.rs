@@ -42,7 +42,43 @@ pub(super) struct State {
     pub(super) input: String,
     pub(super) output: String,
     pub(super) language: Option<String>,
+    // Gemini target-language speech has no translated stream. Keep it apart
+    // from foreign speech whose native translation can still be arriving.
+    pub(super) source_only: Option<Box<State>>,
+    pub(super) source_only_input: bool,
+    pub(super) source_only_active: bool,
     timing: Option<timed::Timing>,
+}
+
+pub(super) fn merge_events(
+    before: Option<CloudEvent>,
+    next: Option<CloudEvent>,
+) -> Option<CloudEvent> {
+    match (before, next) {
+        (
+            Some(CloudEvent::LiveTranslation {
+                completed: mut before,
+                translations: mut old,
+                ..
+            }),
+            Some(CloudEvent::LiveTranslation {
+                service,
+                snapshot,
+                completed,
+                translations,
+            }),
+        ) => {
+            before.extend(completed);
+            old.extend(translations);
+            Some(CloudEvent::LiveTranslation {
+                service,
+                snapshot,
+                completed: before,
+                translations: old,
+            })
+        }
+        (before, next) => next.or(before),
+    }
 }
 
 pub(super) fn result(
@@ -71,6 +107,30 @@ pub(super) fn result(
 }
 
 impl State {
+    pub(super) fn source_len(&self) -> usize {
+        self.input.len()
+            + self
+                .source_only
+                .as_ref()
+                .map_or(0, |state| state.source_len())
+    }
+
+    pub(super) fn active_preview(&self, mut event: Option<CloudEvent>) -> Option<CloudEvent> {
+        let active = if self.source_only_active {
+            self.source_only
+                .as_deref()
+                .and_then(|state| state.snapshot.as_ref())
+        } else {
+            self.snapshot.as_ref()
+        };
+        if let (Some(CloudEvent::LiveTranslation { snapshot, .. }), Some(active)) =
+            (&mut event, active)
+        {
+            *snapshot = active.clone();
+        }
+        event
+    }
+
     pub(super) fn collect(&mut self, config: &AsrConfig, flush: bool) -> Option<CloudEvent> {
         let mut timing = self.timing.take()?;
         let event = timing.collect(self, config, flush);
@@ -80,11 +140,21 @@ impl State {
 }
 
 pub(super) fn poll(config: &AsrConfig, state: &mut State) -> Option<CloudEvent> {
-    state.collect(config, false)
+    let translated = state.collect(config, false);
+    let original = state
+        .source_only
+        .as_mut()
+        .and_then(|state| state.collect(config, false));
+    state.active_preview(merge_events(translated, original))
 }
 
 pub(super) fn finish(config: &AsrConfig, state: &mut State) -> Option<CloudEvent> {
-    let event = state.collect(config, true);
+    let translated = state.collect(config, true);
+    let original = state
+        .source_only
+        .as_mut()
+        .and_then(|state| state.collect(config, true));
+    let event = merge_events(translated, original);
     *state = State::default();
     event
 }

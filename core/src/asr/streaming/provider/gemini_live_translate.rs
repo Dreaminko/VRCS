@@ -69,63 +69,67 @@ pub(super) fn normalize_event(
     let language = input
         .and_then(|v| v.get("languageCode"))
         .and_then(Value::as_str)
-        .or_else(|| (config.language != "auto").then_some(config.language.as_str()));
-    let mut previous = None;
-    if language.is_some_and(|next| state.language.as_deref().is_some_and(|old| old != next))
-        && same_language_source(config, state)
-    {
-        previous = state.collect(config, true);
-    }
-    if let Some(language) = language {
-        state.language = Some(language.to_owned());
-    }
-    let mut event =
-        super::live_translation::append_delta(config, state, text, translation, None, None)?;
-    if (content["turnComplete"].as_bool() == Some(true)
-        || input.and_then(|input| input["finished"].as_bool()) == Some(true))
-        && same_language_source(config, state)
-    {
-        // A same-language source has no native output by design, so this is
-        // sufficient to complete it. Translation turns still use local alignment.
-        event = state.collect(config, true).or(event);
-    }
-    match (previous, event) {
-        (
-            Some(CloudEvent::LiveTranslation {
-                completed: mut before,
-                translations: mut old,
-                ..
-            }),
-            Some(CloudEvent::LiveTranslation {
-                service,
-                snapshot,
-                completed,
-                translations,
-            }),
-        ) => {
-            before.extend(completed);
-            old.extend(translations);
-            Ok(Some(CloudEvent::LiveTranslation {
-                service,
-                snapshot,
-                completed: before,
-                translations: old,
-            }))
+        .or_else(|| (config.language != "auto").then_some(config.language.as_str()))
+        .or_else(|| {
+            if state.source_only_input {
+                state
+                    .source_only
+                    .as_deref()
+                    .and_then(|state| state.language.as_deref())
+            } else {
+                state.language.as_deref()
+            }
+        })
+        .map(str::to_owned);
+    let source_only = language
+        .as_deref()
+        .zip(config.live_translation_target.as_deref())
+        .is_some_and(|(source, target)| {
+            crate::providers::same_live_translation_language(source, target)
+        });
+    let mut event = None;
+    if !text.is_empty() {
+        state.source_only_input = source_only;
+        state.source_only_active = source_only;
+        if !source_only {
+            // Finish any source-only tail before previewing the next foreign
+            // source. Never flush a foreign source merely because language changes.
+            event = state
+                .source_only
+                .as_mut()
+                .and_then(|state| state.collect(config, true));
+            state.language = language.clone();
         }
-        (before, next) => Ok(next.or(before)),
+    } else if !translation.is_empty() {
+        state.source_only_active = false;
     }
-}
-
-fn same_language_source(config: &AsrConfig, state: &State) -> bool {
-    !state.input.trim().is_empty()
-        && state.output.trim().is_empty()
-        && state
-            .language
-            .as_deref()
-            .zip(config.live_translation_target.as_deref())
-            .is_some_and(|(source, target)| {
-                crate::providers::same_live_translation_language(source, target)
-            })
+    let translated = super::live_translation::append_delta(
+        config,
+        state,
+        if source_only { "" } else { text },
+        translation,
+        None,
+        None,
+    )?;
+    event = super::live_translation::merge_events(event, translated);
+    if source_only && !text.is_empty() {
+        let original = state.source_only.get_or_insert_with(Default::default);
+        original.language = language;
+        let next = super::live_translation::append_delta(config, original, text, "", None, None)?;
+        event = super::live_translation::merge_events(event, next);
+    }
+    if content["turnComplete"].as_bool() == Some(true)
+        || input.and_then(|input| input["finished"].as_bool()) == Some(true)
+    {
+        // Only the independent source-only stream can complete without output.
+        // Merge rather than overwrite any punctuation prefix completed above.
+        let tail = state
+            .source_only
+            .as_mut()
+            .and_then(|state| state.collect(config, true));
+        event = super::live_translation::merge_events(event, tail);
+    }
+    Ok(state.active_preview(event))
 }
 
 #[cfg(test)]
@@ -478,5 +482,165 @@ mod tests {
         assert_eq!(completed[0].transcript.language.as_deref(), Some("zh-Hant"));
         assert_eq!(snapshot.text, "Hello.");
         assert_eq!(snapshot.language.as_deref(), Some("en"));
+    }
+    #[tokio::test(start_paused = true)]
+    async fn same_frame_completion_preserves_prefix_and_tail_once() {
+        for marker in ["turnComplete", "finished"] {
+            let mut state = State::default();
+            let mut message = json!({"serverContent":{
+                "inputTranscription":{"text":"你好。接下来", "languageCode":"zh-Hant"}
+            }});
+            if marker == "turnComplete" {
+                message["serverContent"][marker] = json!(true);
+            } else {
+                message["serverContent"]["inputTranscription"][marker] = json!(true);
+            }
+            let Some(CloudEvent::LiveTranslation {
+                completed,
+                translations,
+                snapshot,
+                ..
+            }) = normalize_event(&config(), &message, &mut state).unwrap()
+            else {
+                panic!("expected both source completions")
+            };
+            assert_eq!(completed.len(), 2);
+            assert_eq!(
+                completed
+                    .iter()
+                    .map(|r| r.transcript.text.as_str())
+                    .collect::<String>(),
+                "你好。接下来"
+            );
+            assert!(completed.iter().all(|r| !r.pending));
+            assert!(translations.is_empty());
+            assert!(snapshot.text.is_empty());
+            assert!(super::super::live_translation::poll(&config(), &mut state).is_none());
+            assert!(finish(&config(), &mut state).is_none());
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn foreign_to_target_keeps_the_foreign_source_until_its_translation_arrives() {
+        for alignment_enabled in [true, false] {
+            let mut config = config();
+            config.live_alignment.enabled = alignment_enabled;
+            let mut state = State::default();
+            normalize_event(
+                &config,
+                &json!({"serverContent":{"inputTranscription":{
+                    "text":"Hello.", "languageCode":"en"
+                }}}),
+                &mut state,
+            )
+            .unwrap();
+            let Some(CloudEvent::LiveTranslation {
+                completed,
+                translations,
+                snapshot,
+                ..
+            }) = normalize_event(
+                &config,
+                &json!({"serverContent":{
+                    "inputTranscription":{"text":"你好。", "languageCode":"zh-Hant"},
+                    "turnComplete":true
+                }}),
+                &mut state,
+            )
+            .unwrap()
+            else {
+                panic!()
+            };
+            assert_eq!(completed.len(), 1);
+            assert_eq!(completed[0].transcript.text, "你好。");
+            assert_eq!(completed[0].transcript.language.as_deref(), Some("zh-Hant"));
+            assert!(!completed[0].pending);
+            assert!(translations.is_empty());
+            assert!(snapshot.text.is_empty());
+            assert_eq!(state.input, "Hello.");
+            assert_eq!(state.language.as_deref(), Some("en"));
+            normalize_event(
+                &config,
+                &json!({"serverContent":{
+                    "outputTranscription":{"text":"哈囉。"}
+                }}),
+                &mut state,
+            )
+            .unwrap();
+            tokio::time::advance(std::time::Duration::from_millis(450)).await;
+            let event = if alignment_enabled {
+                super::super::live_translation::poll(&config, &mut state)
+            } else {
+                finish(&config, &mut state)
+            };
+            let Some(CloudEvent::LiveTranslation {
+                completed,
+                translations,
+                ..
+            }) = event
+            else {
+                panic!()
+            };
+            assert_eq!(completed.len(), 1);
+            assert_eq!(completed[0].transcript.text, "Hello.");
+            assert_eq!(completed[0].transcript.language.as_deref(), Some("en"));
+            assert_eq!(translations.len(), 1);
+            assert_eq!(translations[0].transcript.translation, "哈囉。");
+            assert_eq!(
+                translations[0].transcript.utterance_id,
+                completed[0].transcript.utterance_id
+            );
+            assert!(finish(&config, &mut state).is_none());
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn source_only_continuations_without_language_codes_stay_separate() {
+        let mut state = State::default();
+        normalize_event(
+            &config(),
+            &json!({"serverContent":{"inputTranscription":{
+                "text":"Hello.", "languageCode":"en"
+            }}}),
+            &mut state,
+        )
+        .unwrap();
+        normalize_event(
+            &config(),
+            &json!({"serverContent":{"inputTranscription":{
+                "text":"你好", "languageCode":"zh-Hant"
+            }}}),
+            &mut state,
+        )
+        .unwrap();
+        // Output for the earlier English source must not change how a later
+        // Chinese delta without its own language code is routed.
+        normalize_event(
+            &config(),
+            &json!({"serverContent":{
+                "outputTranscription":{"text":"哈囉。"}
+            }}),
+            &mut state,
+        )
+        .unwrap();
+        let Some(CloudEvent::LiveTranslation { completed, .. }) = normalize_event(
+            &config(),
+            &json!({"serverContent":{
+                "inputTranscription":{"text":"朋友"}, "turnComplete":true
+            }}),
+            &mut state,
+        )
+        .unwrap() else {
+            panic!()
+        };
+        assert_eq!(completed[0].transcript.text, "你好朋友");
+        assert_eq!(completed[0].transcript.language.as_deref(), Some("zh-Hant"));
+        assert_eq!(state.input, "Hello.");
+        let Some(CloudEvent::LiveTranslation { completed, .. }) = finish(&config(), &mut state)
+        else {
+            panic!()
+        };
+        assert_eq!(completed[0].transcript.text, "Hello.");
+        assert_eq!(completed[0].transcript.language.as_deref(), Some("en"));
     }
 }

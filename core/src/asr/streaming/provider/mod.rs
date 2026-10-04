@@ -34,7 +34,7 @@ pub(super) struct NormalizationState {
 
 impl NormalizationState {
     pub(super) fn live_source_len(&self) -> usize {
-        self.live_translation.input.len() + self.qwen_translation.source_len()
+        self.live_translation.source_len() + self.qwen_translation.source_len()
     }
 
     fn delta_id(&mut self, value: &Value) -> String {
