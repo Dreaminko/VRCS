@@ -50,6 +50,8 @@ pub enum CloudEvent {
         snapshot: Box<crate::models::LiveTranslation>,
         completed: Vec<LiveTranslationResult>,
         translations: Vec<LiveTranslationResult>,
+        /// Display previews that ended independently of the current snapshot.
+        finished_preview_ids: Vec<String>,
     },
     Partial {
         utterance_id: String,
@@ -1033,6 +1035,7 @@ mod tests {
             completed,
             translations,
             snapshot,
+            ..
         } = first
         else {
             panic!()

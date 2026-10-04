@@ -18,8 +18,6 @@ pub struct VrOverlayConfig {
 pub struct VrOverlayHeadsetConfig {
     #[serde(default = "default_true")]
     pub enabled: bool,
-    #[serde(default = "default_content_mode")]
-    pub content_mode: String,
     #[serde(default)]
     pub show_partials: bool,
     #[serde(default)]
@@ -69,8 +67,6 @@ pub struct VrOverlayWristConfig {
     pub hand: String,
     #[serde(default = "default_dominant_hand")]
     pub dominant_hand: String,
-    #[serde(default = "default_content_mode")]
-    pub content_mode: String,
     #[serde(default)]
     pub show_partials: bool,
     #[serde(default)]
@@ -109,10 +105,6 @@ pub struct VrOverlayWristConfig {
 
 fn default_true() -> bool {
     true
-}
-
-fn default_content_mode() -> String {
-    "bilingual".into()
 }
 
 fn default_translation_display() -> String {
@@ -218,7 +210,6 @@ impl Default for VrOverlayHeadsetConfig {
     fn default() -> Self {
         Self {
             enabled: default_true(),
-            content_mode: default_content_mode(),
             show_partials: false,
             show_translation_partials: false,
             include_speaker: default_true(),
@@ -248,7 +239,6 @@ impl Default for VrOverlayWristConfig {
             enabled: default_true(),
             hand: default_wrist_hand(),
             dominant_hand: default_dominant_hand(),
-            content_mode: default_content_mode(),
             show_partials: false,
             show_translation_partials: false,
             include_speaker: default_true(),

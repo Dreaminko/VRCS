@@ -167,6 +167,15 @@ impl Timing {
             append_display_text(&mut snapshot.translation, &state.output);
         }
         let changed = state.snapshot.as_ref() != Some(&snapshot);
+        let finished_preview_ids = if snapshot.text.is_empty()
+            && snapshot.translation.is_empty()
+            && state.snapshot.as_ref().is_some_and(|previous| {
+                !previous.text.is_empty() || !previous.translation.is_empty()
+            }) {
+            vec![snapshot.utterance_id.clone()]
+        } else {
+            Vec::new()
+        };
         state.snapshot = Some(snapshot.clone());
         (!completed.is_empty() || !translations.is_empty() || changed).then_some(
             CloudEvent::LiveTranslation {
@@ -174,6 +183,7 @@ impl Timing {
                 snapshot: Box::new(snapshot),
                 completed,
                 translations,
+                finished_preview_ids,
             },
         )
     }

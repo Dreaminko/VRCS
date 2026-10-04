@@ -433,6 +433,9 @@ test("out-of-range microphone levels are rejected", () => {
 test("native bilingual snapshots require both text fields and a source", () => {
   const snapshot = { type: "live_translation_updated", utterance_id: "native-1", source: "speaker", text: "", language: null, translation: "你好", target_language: "zh-Hans" };
   assert.deepEqual(parseSubtitleStreamMessage(JSON.stringify(snapshot)), snapshot);
+  const completed = { ...snapshot, completed_original: "Complete original." };
+  assert.deepEqual(parseSubtitleStreamMessage(JSON.stringify(completed)), completed);
+  assert.equal(parseSubtitleStreamMessage(JSON.stringify({ ...completed, completed_original: 42 })), null);
   assert.equal(parseSubtitleStreamMessage(JSON.stringify({ ...snapshot, translation: 42 })), null);
   assert.equal(parseSubtitleStreamMessage(JSON.stringify({ ...snapshot, source: "invalid" })), null);
 });

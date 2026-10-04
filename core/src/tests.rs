@@ -138,7 +138,7 @@ async fn vr_overlay_watch_starts_with_current_config_and_updates_after_commit() 
     );
 
     settings["vr_overlay"]["enabled"] = serde_json::json!(true);
-    settings["vr_overlay"]["headset"]["content_mode"] = serde_json::json!("translation");
+    settings["vr_overlay"]["headset"]["show_translation_partials"] = serde_json::json!(true);
     settings["vr_overlay"]["wrist"]["max_entries"] = serde_json::json!(5);
     let response = client
         .put(&settings_url)
@@ -156,7 +156,7 @@ async fn vr_overlay_watch_starts_with_current_config_and_updates_after_commit() 
         .unwrap()
         .unwrap();
     assert!(updates.borrow().enabled);
-    assert_eq!(updates.borrow().headset.content_mode, "translation");
+    assert!(updates.borrow().headset.show_translation_partials);
     handle.shutdown().await.unwrap();
 }
 

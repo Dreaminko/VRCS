@@ -28,14 +28,12 @@ export interface VrcxRuntimeStatus {
   error: string | null;
 }
 
-export type VrOverlayContentMode = "original" | "translation" | "bilingual";
 export type VrOverlayTranslationDisplay = "preferred_only" | "all_languages";
 export type VrOverlayHand = "left" | "right" | "dominant";
 export type VrOverlayControllerHand = "left" | "right";
 
 export interface VrOverlayHeadsetSettings {
   enabled: boolean;
-  content_mode: VrOverlayContentMode;
   show_partials: boolean;
   show_translation_partials: boolean;
   include_speaker: boolean;
@@ -61,7 +59,6 @@ export interface VrOverlayWristSettings {
   enabled: boolean;
   hand: VrOverlayHand;
   dominant_hand: VrOverlayControllerHand;
-  content_mode: VrOverlayContentMode;
   show_partials: boolean;
   show_translation_partials: boolean;
   include_speaker: boolean;

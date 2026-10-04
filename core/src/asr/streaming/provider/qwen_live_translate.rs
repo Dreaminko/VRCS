@@ -5,7 +5,7 @@ use crate::config::AsrConfig;
 use crate::models::{LiveTranslation, LiveTranslationPreview, SpeakerIdentity};
 use crate::providers::SERVICE_QWEN_LIVE_TRANSLATE;
 use serde_json::{json, Value};
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 
 pub(super) fn session_update(config: &AsrConfig) -> Result<Value, String> {
     let target = config
@@ -55,6 +55,7 @@ pub(super) struct State {
     retired: VecDeque<String>,
     speaker_indices: HashMap<u64, u64>,
     active: Option<String>,
+    previewed_items: HashSet<String>,
 }
 
 fn text(value: &Value, field: &str) -> String {
@@ -100,6 +101,7 @@ impl State {
         LiveTranslation {
             utterance_id: format!("qwen-source-{}-{id}", self.session_id),
             source_utterance_id: None,
+            completed_original: None,
             conversation_preview: None,
             text: source.final_text.as_ref().unwrap_or(&source.text).clone(),
             language: source.language.clone(),
@@ -111,6 +113,7 @@ impl State {
     fn collect(&mut self, config: &AsrConfig, flush: bool) -> Option<CloudEvent> {
         let mut completed = Vec::new();
         let mut translations = Vec::new();
+        let mut finished_preview_ids = Vec::new();
         let mut remove = Vec::new();
         let mut published = Vec::new();
         for id in &self.order {
@@ -162,22 +165,51 @@ impl State {
             .unwrap_or(&active)
             .to_owned();
         for (id, target) in remove {
+            finished_preview_ids.push(format!("qwen-preview-{}-{id}", self.session_id));
+            self.previewed_items.remove(&id);
             self.sources.remove(&id);
             self.order.retain(|value| *value != id);
             self.retire(id);
             if let Some(id) = target {
+                if self.previewed_items.remove(&id) {
+                    finished_preview_ids.push(format!("qwen-preview-{}-{id}", self.session_id));
+                }
                 self.targets.remove(&id);
                 self.retire(id);
             }
         }
+        // An unlinked target delta used its own item ID for display. Once the
+        // native source link arrives, retire that alias before publishing it
+        // under the source ID, even if its original has not arrived yet.
+        for (id, target) in &self.targets {
+            if target
+                .source_id
+                .as_deref()
+                .is_some_and(|source| source != id)
+                && self.previewed_items.remove(id)
+            {
+                finished_preview_ids.push(format!("qwen-preview-{}-{id}", self.session_id));
+            }
+        }
+        if flush {
+            finished_preview_ids.extend(
+                self.previewed_items
+                    .drain()
+                    .map(|id| format!("qwen-preview-{}-{id}", self.session_id)),
+            );
+        }
         let mut snapshot = if let Some(source) = self.sources.get(&source_id) {
             let mut snapshot = self.transcript(config, &source_id, source);
+            snapshot.completed_original =
+                (source.done && source.text.trim().is_empty() && !snapshot.text.trim().is_empty())
+                    .then(|| snapshot.text.clone());
             snapshot.text = source.text.clone();
             snapshot
         } else {
             LiveTranslation {
                 utterance_id: String::new(),
                 source_utterance_id: None,
+                completed_original: None,
                 conversation_preview: None,
                 text: String::new(),
                 language: None,
@@ -206,9 +238,13 @@ impl State {
             });
             append_display_text(&mut snapshot.text, &original);
             append_display_text(&mut snapshot.translation, &translated);
+            if !snapshot.text.is_empty() || !snapshot.translation.is_empty() {
+                self.previewed_items.insert(source_id);
+            }
         }
         (!completed.is_empty()
             || !translations.is_empty()
+            || !finished_preview_ids.is_empty()
             || !snapshot.text.is_empty()
             || !snapshot.translation.is_empty())
         .then_some(CloudEvent::LiveTranslation {
@@ -216,6 +252,7 @@ impl State {
             snapshot: Box::new(snapshot),
             completed,
             translations,
+            finished_preview_ids,
         })
     }
     pub(super) fn finish(&mut self, config: &AsrConfig) -> Option<CloudEvent> {
@@ -322,14 +359,34 @@ pub(super) fn normalize_event(
             }
         }
         "conversation.item.input_audio_transcription.failed" => {
-            let source = state.sources.remove(&id);
+            if id.is_empty() {
+                return Ok(None);
+            }
+            state.sources.remove(&id);
+            state.previewed_items.remove(&id);
             state.order.retain(|value| *value != id);
-            state
+            let target_ids: Vec<_> = state
                 .targets
-                .retain(|_, target| target.source_id.as_deref() != Some(&id));
+                .iter()
+                .filter(|(_, target)| target.source_id.as_deref() == Some(&id))
+                .map(|(id, _)| id.clone())
+                .collect();
+            for target_id in target_ids {
+                state.targets.remove(&target_id);
+                state.previewed_items.remove(&target_id);
+                if state.active.as_deref() == Some(&target_id) {
+                    state.active = None;
+                }
+                state.retire(target_id);
+            }
+            if state.active.as_deref() == Some(&id) {
+                state.active = None;
+            }
             state.retire(id.clone());
             return Ok(Some(CloudEvent::Failed {
-                utterance_id: source.map(|_| format!("qwen-source-{}-{id}", state.session_id)),
+                // Failure terminates the display lifecycle, whose ID differs
+                // from the completed original's history-row ID.
+                utterance_id: Some(format!("qwen-preview-{}-{id}", state.session_id)),
                 reset_session: false,
                 code: "asr.cloud_error".into(),
                 detail: value
@@ -458,6 +515,85 @@ mod tests {
             json!({"type":"response.done","response":{"id":format!("response-{id}"),"status":"completed","output":[{"id":id,"content":[{"text":transcript}]}]}}),
         )
     }
+    #[test]
+    fn source_failure_terminates_its_preview_and_ignores_late_target_events() {
+        let mut state = State::default();
+        link(&mut state, "s1", "t1");
+        event(
+            &mut state,
+            json!({"type":"conversation.item.input_audio_transcription.delta","item_id":"s1","delta":"Hello."}),
+        );
+        let Some(CloudEvent::LiveTranslation { snapshot, .. }) = event(
+            &mut state,
+            json!({"type":"response.text.delta","item_id":"t1","delta":"部分译文"}),
+        ) else {
+            panic!()
+        };
+        let Some(CloudEvent::Failed {
+            utterance_id,
+            reset_session,
+            ..
+        }) = event(
+            &mut state,
+            json!({"type":"conversation.item.input_audio_transcription.failed","item_id":"s1","error":{"message":"failed"}}),
+        )
+        else {
+            panic!()
+        };
+        assert_eq!(
+            utterance_id.as_deref(),
+            Some(snapshot.utterance_id.as_str())
+        );
+        assert!(!reset_session);
+        assert!(state.sources.is_empty() && state.targets.is_empty());
+        assert!(state.active.is_none());
+        for value in [
+            json!({"type":"response.text.delta","item_id":"t1","delta":"late"}),
+            json!({"type":"conversation.item.created","previous_item_id":"s1","item":{"id":"t1","role":"assistant"}}),
+            json!({"type":"response.done","response":{"id":"r1","status":"completed","output":[{"id":"t1","content":[{"text":"late final"}]}]}}),
+            json!({"type":"conversation.item.input_audio_transcription.completed","item_id":"s1","transcript":"late original"}),
+        ] {
+            assert!(event(&mut state, value).is_none());
+        }
+        assert!(state.finish(&config()).is_none());
+    }
+
+    #[test]
+    fn late_source_failure_preserves_a_newer_preview() {
+        let mut state = State::default();
+        link(&mut state, "s1", "t1");
+        event(
+            &mut state,
+            json!({"type":"conversation.item.input_audio_transcription.delta","item_id":"s1","delta":"First."}),
+        );
+        let Some(CloudEvent::LiveTranslation { snapshot, .. }) = event(
+            &mut state,
+            json!({"type":"conversation.item.input_audio_transcription.delta","item_id":"s2","delta":"Second."}),
+        ) else {
+            panic!()
+        };
+        let Some(CloudEvent::Failed { utterance_id, .. }) = event(
+            &mut state,
+            json!({"type":"conversation.item.input_audio_transcription.failed","item_id":"s1"}),
+        ) else {
+            panic!()
+        };
+        assert_ne!(
+            utterance_id.as_deref(),
+            Some(snapshot.utterance_id.as_str())
+        );
+        assert_eq!(state.active.as_deref(), Some("s2"));
+        assert!(state.sources.contains_key("s2"));
+        let Some(CloudEvent::LiveTranslation { snapshot: next, .. }) = event(
+            &mut state,
+            json!({"type":"conversation.item.input_audio_transcription.delta","item_id":"s2","delta":" Still active."}),
+        ) else {
+            panic!()
+        };
+        assert_eq!(next.utterance_id, snapshot.utterance_id);
+        assert_eq!(next.text, "Second. Still active.");
+    }
+
     #[test]
     fn native_results_record_the_selected_platform_in_history_metadata() {
         for provider in [
@@ -876,6 +1012,7 @@ mod tests {
         let Some(CloudEvent::LiveTranslation {
             snapshot,
             translations,
+            finished_preview_ids,
             ..
         }) = target(&mut state, "t1", "first target final")
         else {
@@ -884,6 +1021,41 @@ mod tests {
         assert_eq!(translations[0].transcript.translation, "first target final");
         assert_eq!(snapshot.text, "second original delta");
         assert_eq!(snapshot.translation, "second target delta");
+        assert_eq!(
+            finished_preview_ids,
+            [format!("qwen-preview-{}-s1", state.session_id)]
+        );
+        assert_ne!(snapshot.utterance_id, finished_preview_ids[0]);
+    }
+
+    #[test]
+    fn flush_finishes_all_previews_even_without_completed_text() {
+        let mut state = State::default();
+        for id in ["s1", "s2"] {
+            event(
+                &mut state,
+                json!({"type":"input_audio_buffer.speech_started","item_id":id}),
+            );
+        }
+        let session_id = state.session_id.clone();
+        let Some(CloudEvent::LiveTranslation {
+            finished_preview_ids,
+            completed,
+            translations,
+            ..
+        }) = state.finish(&config())
+        else {
+            panic!()
+        };
+        assert!(completed.is_empty() && translations.is_empty());
+        assert_eq!(
+            finished_preview_ids,
+            [
+                format!("qwen-preview-{session_id}-s1"),
+                format!("qwen-preview-{session_id}-s2")
+            ]
+        );
+        assert!(state.finish(&config()).is_none());
     }
 
     #[test]
@@ -967,6 +1139,101 @@ mod tests {
         assert_eq!(translations[0].transcript.text, "Goodbye.");
         assert_eq!(translations[0].transcript.translation, "再见。");
         assert!(state.sources.contains_key("s1"));
+    }
+
+    #[test]
+    fn late_links_retire_target_previews_without_accumulating_aliases() {
+        let mut state = State::default();
+        for index in 0..500 {
+            let source_id = format!("s{index}");
+            let target_id = format!("t{index}");
+            let Some(CloudEvent::LiveTranslation {
+                snapshot: unlinked, ..
+            }) = event(
+                &mut state,
+                json!({"type":"response.text.delta","item_id":target_id,"delta":"译文"}),
+            )
+            else {
+                panic!()
+            };
+            let Some(CloudEvent::LiveTranslation {
+                snapshot: linked,
+                finished_preview_ids,
+                ..
+            }) = event(
+                &mut state,
+                json!({"type":"conversation.item.created","previous_item_id":source_id,"item":{"id":target_id,"role":"assistant"}}),
+            )
+            else {
+                panic!()
+            };
+            assert_eq!(
+                finished_preview_ids,
+                std::slice::from_ref(&unlinked.utterance_id)
+            );
+            assert_ne!(unlinked.utterance_id, linked.utterance_id);
+            assert_eq!(state.previewed_items.len(), 1);
+            source(&mut state, &source_id, "Original.");
+            let Some(CloudEvent::LiveTranslation {
+                translations,
+                finished_preview_ids,
+                ..
+            }) = target(&mut state, &target_id, "最终译文。")
+            else {
+                panic!()
+            };
+            assert_eq!(finished_preview_ids, [linked.utterance_id]);
+            assert_eq!(translations[0].transcript.text, "Original.");
+            assert!(state.previewed_items.is_empty());
+        }
+        assert!(state.finish(&config()).is_none());
+    }
+
+    #[test]
+    fn flush_retires_unlinked_translation_previews() {
+        let mut state = State::default();
+        let Some(CloudEvent::LiveTranslation { snapshot, .. }) = event(
+            &mut state,
+            json!({"type":"response.text.delta","item_id":"target","delta":"译文"}),
+        ) else {
+            panic!()
+        };
+        let Some(CloudEvent::LiveTranslation {
+            finished_preview_ids,
+            ..
+        }) = state.finish(&config())
+        else {
+            panic!()
+        };
+        assert_eq!(finished_preview_ids, [snapshot.utterance_id]);
+        assert!(state.finish(&config()).is_none());
+    }
+
+    #[test]
+    fn late_translation_carries_its_original_without_synthesizing_source_deltas() {
+        let mut state = State::default();
+        link(&mut state, "older", "older-target");
+        source(&mut state, "older", "Older completed original.");
+        for index in 0..32 {
+            let id = format!("newer-{index}");
+            let target_id = format!("target-{index}");
+            link(&mut state, &id, &target_id);
+            source(&mut state, &id, "Newer original.");
+            target(&mut state, &target_id, "新译文。");
+        }
+        let Some(CloudEvent::LiveTranslation { snapshot, .. }) = event(
+            &mut state,
+            json!({"type":"response.text.delta","item_id":"older-target","delta":"迟到译文"}),
+        ) else {
+            panic!()
+        };
+        assert_eq!(
+            snapshot.completed_original.as_deref(),
+            Some("Older completed original.")
+        );
+        assert!(snapshot.text.is_empty());
+        assert!(snapshot.conversation_preview.unwrap().text.is_empty());
+        assert_eq!(snapshot.translation, "迟到译文");
     }
     #[test]
     fn alternating_speakers_survive_out_of_order_translation_and_session_reset() {

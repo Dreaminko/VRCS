@@ -59,6 +59,7 @@ pub(super) fn merge_events(
             Some(CloudEvent::LiveTranslation {
                 completed: mut before,
                 translations: mut old,
+                finished_preview_ids: mut finished,
                 ..
             }),
             Some(CloudEvent::LiveTranslation {
@@ -66,15 +67,18 @@ pub(super) fn merge_events(
                 snapshot,
                 completed,
                 translations,
+                finished_preview_ids,
             }),
         ) => {
             before.extend(completed);
             old.extend(translations);
+            finished.extend(finished_preview_ids);
             Some(CloudEvent::LiveTranslation {
                 service,
                 snapshot,
                 completed: before,
                 translations: old,
+                finished_preview_ids: finished,
             })
         }
         (before, next) => next.or(before),
@@ -175,6 +179,7 @@ pub(super) fn append(
     }
     let snapshot = state.snapshot.get_or_insert_with(|| LiveTranslation {
         source_utterance_id: None,
+        completed_original: None,
         conversation_preview: None,
         speaker: None,
         utterance_id: format!("live-{}", uuid::Uuid::new_v4()),

@@ -253,6 +253,7 @@ mod tests {
             "speaker",
             &crate::models::LiveTranslation {
                 source_utterance_id: Some("source-1".into()),
+                completed_original: Some("complete original".into()),
                 conversation_preview: Some(crate::models::LiveTranslationPreview {
                     text: "original".into(),
                     translation: "full translation".into(),
@@ -270,6 +271,7 @@ mod tests {
         assert_eq!(payload["translation"], "hello");
         assert_eq!(payload["source"], "speaker");
         assert_eq!(payload["source_utterance_id"], "source-1");
+        assert_eq!(payload["completed_original"], "complete original");
         assert_eq!(
             payload["conversation_preview"]["translation"],
             "full translation"

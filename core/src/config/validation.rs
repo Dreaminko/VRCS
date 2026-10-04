@@ -203,7 +203,6 @@ fn validate_vr_overlay(config: &VrOverlayConfig) -> Result<(), String> {
             config.translation_display
         ));
     }
-    validate_content_mode("VR Overlay headset", &config.headset.content_mode)?;
     validate_range(
         "VR Overlay headset offset_x_m",
         config.headset.offset_x_m,
@@ -292,7 +291,6 @@ fn validate_vr_overlay(config: &VrOverlayConfig) -> Result<(), String> {
             config.wrist.dominant_hand
         ));
     }
-    validate_content_mode("VR Overlay wrist", &config.wrist.content_mode)?;
     if !(3..=10).contains(&config.wrist.max_entries) {
         return Err("VR Overlay wrist max_entries must be between 3 and 10".into());
     }
@@ -324,13 +322,6 @@ fn validate_vr_overlay(config: &VrOverlayConfig) -> Result<(), String> {
         0.0,
         1.0,
     )?;
-    Ok(())
-}
-
-fn validate_content_mode(label: &str, value: &str) -> Result<(), String> {
-    if !["original", "translation", "bilingual"].contains(&value) {
-        return Err(format!("Unsupported {label} content_mode: {value}"));
-    }
     Ok(())
 }
 

@@ -215,6 +215,9 @@ pub struct LiveTranslation {
     /// Native item link to the original row, independent of the preview lifecycle.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source_utterance_id: Option<String>,
+    /// Completed original for a linked preview, separate from either delta lane.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub completed_original: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub conversation_preview: Option<LiveTranslationPreview>,
     #[serde(skip_serializing_if = "Option::is_none")]

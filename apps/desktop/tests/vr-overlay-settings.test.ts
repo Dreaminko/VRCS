@@ -38,7 +38,6 @@ test("VR Overlay defaults match the complete schema v23 contract", () => {
   assert.equal(DEFAULT_VR_OVERLAY_SETTINGS.translation_display, "all_languages");
   assert.deepEqual(Object.keys(DEFAULT_VR_OVERLAY_HEADSET_SETTINGS).sort(), [
     "background_opacity",
-    "content_mode",
     "display_seconds",
     "distance_m",
     "enabled",
@@ -63,7 +62,6 @@ test("VR Overlay defaults match the complete schema v23 contract", () => {
   assert.equal(DEFAULT_VR_OVERLAY_WRIST_SETTINGS.show_partials, false);
   assert.deepEqual(Object.keys(DEFAULT_VR_OVERLAY_WRIST_SETTINGS).sort(), [
     "background_opacity",
-    "content_mode",
     "dominant_hand",
     "enabled",
     "font_size_px",

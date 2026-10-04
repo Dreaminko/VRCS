@@ -118,7 +118,7 @@ impl HeadsetPresentation {
                 let mut item = item_from_partial(
                     snapshot.utterance_id,
                     source,
-                    snapshot.text,
+                    snapshot.completed_original.unwrap_or(snapshot.text),
                     snapshot.language,
                     expiry(now, config.display_seconds),
                 );
@@ -261,7 +261,6 @@ impl HeadsetPresentation {
             let text = if preview {
                 preview_text(
                     item,
-                    &config.content_mode,
                     translation_display,
                     config.show_partials,
                     config.show_translation_partials,
@@ -272,7 +271,12 @@ impl HeadsetPresentation {
                     }),
                 )
             } else {
-                display_text(item, &config.content_mode, translation_display, "\n")
+                display_text(
+                    item,
+                    selected_caption_mode(config.show_partials, config.show_translation_partials),
+                    translation_display,
+                    "\n",
+                )
             };
             if !text.trim().is_empty() {
                 return Some(PresentationFrame::headset(text, opacity));
@@ -301,7 +305,7 @@ impl WristPresentation {
                 let mut item = item_from_partial(
                     snapshot.utterance_id,
                     source,
-                    snapshot.text,
+                    snapshot.completed_original.unwrap_or(snapshot.text),
                     snapshot.language,
                     now,
                 );
@@ -477,7 +481,6 @@ impl WristPresentation {
                         && partial.source_utterance_id == item.utterance_id
                         && !preview_text(
                             partial,
-                            &config.content_mode,
                             translation_display,
                             config.show_partials,
                             config.show_translation_partials,
@@ -487,7 +490,13 @@ impl WristPresentation {
                         .is_empty()
                 })
             })
-            .map(|item| wrist_message(item, &config.content_mode, translation_display))
+            .map(|item| {
+                wrist_message(
+                    item,
+                    selected_caption_mode(config.show_partials, config.show_translation_partials),
+                    translation_display,
+                )
+            })
             .chain(
                 self.partials
                     .iter()
@@ -495,7 +504,6 @@ impl WristPresentation {
                     .map(|item| WristMessage {
                         text: preview_text(
                             item,
-                            &config.content_mode,
                             translation_display,
                             config.show_partials,
                             config.show_translation_partials,
@@ -669,13 +677,9 @@ fn update_translation(
     true
 }
 
-fn wrist_message(
-    item: &PresentationItem,
-    content_mode: &str,
-    translation_display: &str,
-) -> WristMessage {
+fn wrist_message(item: &PresentationItem, mode: &str, translation_display: &str) -> WristMessage {
     WristMessage {
-        text: display_text(item, content_mode, translation_display, "\n"),
+        text: display_text(item, mode, translation_display, "\n"),
         side: message_side(&item.source),
     }
 }
@@ -720,7 +724,6 @@ fn display_text(
 
 fn preview_text(
     item: &PresentationItem,
-    mode: &str,
     translation_display: &str,
     show_original: bool,
     show_translation: bool,
@@ -731,30 +734,47 @@ fn preview_text(
             && item.source_utterance_id.is_some()
             && item.source_utterance_id == completed.utterance_id
     });
-    // Preview toggles control unfinished lanes. Keep completed content from
-    // this same utterance while the other lane continues streaming.
-    let original = completed.map_or_else(
-        || {
-            if show_original {
-                item.original.as_str()
-            } else {
-                ""
-            }
-        },
-        |completed| completed.original.as_str(),
-    );
-    let translations = if show_translation && !item.translations.is_empty() {
-        item.translations.as_slice()
+    // A completed lane can supply this utterance's text, but it must still
+    // respect the same selection as its streaming counterpart.
+    let original = if show_original {
+        completed.map_or(item.original.as_str(), |completed| {
+            completed.original.as_str()
+        })
     } else {
-        completed.map_or(&[][..], |completed| completed.translations.as_slice())
+        ""
     };
-    let text = display_parts(original, translations, mode, translation_display, "\n");
+    let translations = if show_translation {
+        if !item.translations.is_empty() {
+            item.translations.as_slice()
+        } else {
+            completed.map_or(&[][..], |completed| completed.translations.as_slice())
+        }
+    } else {
+        &[][..]
+    };
+    let text = display_parts(
+        original,
+        translations,
+        "bilingual",
+        translation_display,
+        "\n",
+    );
     speaker_text(
         completed
             .filter(|_| item.speaker_index.is_none())
             .unwrap_or(item),
         text,
     )
+}
+
+fn selected_caption_mode(show_original: bool, show_translation: bool) -> &'static str {
+    // A single enabled lane selects that language for previews and final captions.
+    // With both preview switches off, completed captions remain bilingual.
+    match (show_original, show_translation) {
+        (true, false) => "original",
+        (false, true) => "translation",
+        _ => "bilingual",
+    }
 }
 
 fn speaker_text(item: &PresentationItem, text: String) -> String {
@@ -788,7 +808,7 @@ fn display_parts(
             .join(separator)
     });
     match mode {
-        "translation" => translation.unwrap_or_else(|| caption_line(original).into_owned()),
+        "translation" => translation.unwrap_or_default(),
         "bilingual" => translation
             .map(|text| {
                 let original = translations

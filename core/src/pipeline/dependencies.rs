@@ -793,6 +793,7 @@ mod tests {
             provider: crate::providers::GEMINI_PROVIDER.into(),
             transcript: crate::models::LiveTranslation {
                 source_utterance_id: None,
+                completed_original: None,
                 conversation_preview: None,
                 speaker: None,
                 utterance_id: "native-1".into(),
@@ -1208,6 +1209,7 @@ mod tests {
                 crate::asr::LiveTranslationResult {
                     transcript: crate::models::LiveTranslation {
                         source_utterance_id: None,
+                        completed_original: None,
                         conversation_preview: None,
                         speaker: None,
                         utterance_id: "microphone".into(),

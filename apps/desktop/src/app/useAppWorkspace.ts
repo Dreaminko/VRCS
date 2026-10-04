@@ -152,6 +152,7 @@ export function useAppWorkspace({
     compact: {
       ...compactWindow,
       subtitles: compactSubtitles,
+      subtitleHistory: subtitles.items,
       subtitleLimit: compactSubtitleCount(compactWindow.height),
     },
     conversations: {

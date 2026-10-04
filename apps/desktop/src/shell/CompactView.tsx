@@ -1,16 +1,17 @@
 import { useTranslation } from "react-i18next";
-import { useLayoutEffect, useRef } from "react";
+import { useLayoutEffect, useMemo, useRef } from "react";
 import { Maximize2, Mic, Square, X } from "lucide-react";
 
 import type { LookupOrigin } from "../app/app-types";
 import { livePartialHasSubtitle, useLivePartial, useTranslationPartials } from "../realtime-state";
 import type { Subtitle } from "../subtitles/types";
 import { contentLanguageTag } from "../app/ui-language";
-import { compactPreviewText } from "../compact-mode";
+import { compactLivePreview, compactPreviewText } from "../compact-mode";
 import { useBatchedPreview } from "../streaming-preview";
 
-export function CompactView({ subtitles, subtitleLimit, selectionActive, running, vrchatMuted, captureDisabled, onSelect, onCapture, onRestore, onClose }: {
+export function CompactView({ subtitles, subtitleHistory, subtitleLimit, selectionActive, running, vrchatMuted, captureDisabled, onSelect, onCapture, onRestore, onClose }: {
   subtitles: Subtitle[];
+  subtitleHistory: Subtitle[];
   subtitleLimit: number;
   selectionActive: boolean;
   running: boolean;
@@ -27,8 +28,12 @@ export function CompactView({ subtitles, subtitleLimit, selectionActive, running
   const rawPartial = selectionActive
     ? null
     : microphonePartial ?? speakerPartial;
+  const resolvedPartial = useMemo(
+    () => compactLivePreview(rawPartial, subtitleHistory),
+    [rawPartial, subtitleHistory],
+  );
   const partial = useBatchedPreview(
-    rawPartial,
+    resolvedPartial,
     rawPartial?.utterance_id ?? "",
     rawPartial?.utterance_id.startsWith("qwen-preview-") ?? false,
   );

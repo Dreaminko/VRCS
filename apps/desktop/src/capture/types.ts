@@ -12,6 +12,7 @@ export interface LiveTranscription {
   type: "partial";
   utterance_id: string;
   source_utterance_id?: string | null;
+  completed_original?: string | null;
   conversation_preview?: { text: string; translation: string } | null;
   source: "speaker" | "microphone";
   text: string;

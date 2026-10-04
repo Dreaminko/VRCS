@@ -588,6 +588,60 @@ mod tests {
     }
 
     #[tokio::test(start_paused = true)]
+    async fn language_switches_retire_every_preview_even_when_the_snapshot_is_replaced() {
+        let config = config();
+        let mut state = State::default();
+        let mut active = std::collections::HashSet::new();
+        let mut cancellations = 0;
+        let mut collect = |event: CloudEvent| {
+            let CloudEvent::LiveTranslation {
+                snapshot,
+                finished_preview_ids,
+                ..
+            } = event
+            else {
+                panic!()
+            };
+            for id in finished_preview_ids {
+                assert_ne!(
+                    id, snapshot.utterance_id,
+                    "the newer preview must stay open"
+                );
+                assert!(active.remove(&id));
+                cancellations += 1;
+            }
+            if !snapshot.text.is_empty() || !snapshot.translation.is_empty() {
+                active.insert(snapshot.utterance_id);
+            }
+            assert!(active.len() <= 2);
+        };
+        for _ in 0..100 {
+            for message in [
+                json!({"serverContent":{"inputTranscription":{"text":"你好。","languageCode":"zh-Hant"}}}),
+                json!({"serverContent":{"inputTranscription":{"text":"Hello.","languageCode":"en"}}}),
+            ] {
+                collect(
+                    normalize_event(&config, &message, &mut state)
+                        .unwrap()
+                        .unwrap(),
+                );
+            }
+        }
+        assert_eq!(cancellations, 100);
+        let Some(CloudEvent::LiveTranslation {
+            finished_preview_ids,
+            ..
+        }) = finish(&config, &mut state)
+        else {
+            panic!()
+        };
+        for id in finished_preview_ids {
+            assert!(active.remove(&id));
+        }
+        assert!(active.is_empty());
+    }
+
+    #[tokio::test(start_paused = true)]
     async fn source_only_continuations_without_language_codes_stay_separate() {
         let mut state = State::default();
         normalize_event(

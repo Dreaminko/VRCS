@@ -507,6 +507,7 @@ fn reduce_cloud_event(
             snapshot,
             completed,
             translations,
+            finished_preview_ids,
         } => {
             let mut effects = Vec::new();
             let immediate = crate::providers::is_live_translation(&service)
@@ -524,6 +525,11 @@ fn reduce_cloud_event(
                     .into_iter()
                     .map(PipelineEffect::PublishNativeTranslationUpdate),
             );
+            for utterance_id in finished_preview_ids {
+                if state.lifecycle.accept_final(&utterance_id) {
+                    effects.push(PipelineEffect::CancelLiveTranslation(utterance_id));
+                }
+            }
             if snapshot.text.is_empty() && snapshot.translation.is_empty() {
                 if snapshot.source_utterance_id.is_some() {
                     // A native original can finish before either delta lane has
@@ -1318,6 +1324,7 @@ mod tests {
             let mut state = PipelineState::new(16_000);
             let snapshot = crate::models::LiveTranslation {
                 source_utterance_id: None,
+                completed_original: None,
                 conversation_preview: None,
                 speaker: None,
                 utterance_id: "preview".into(),
@@ -1345,6 +1352,7 @@ mod tests {
                     snapshot: Box::new(snapshot),
                     completed: vec![result],
                     translations: vec![preview],
+                    finished_preview_ids: vec![],
                 },
                 partial_publication: PartialPublication::Throttled(Instant::now()),
                 stop_cloud_on_failure: false,
@@ -1363,6 +1371,7 @@ mod tests {
         let mut snapshot = crate::models::LiveTranslation {
             utterance_id: "preview".into(),
             source_utterance_id: Some("source".into()),
+            completed_original: None,
             conversation_preview: None,
             speaker: None,
             text: String::new(),
@@ -1379,6 +1388,7 @@ mod tests {
                 snapshot: Box::new(snapshot),
                 completed,
                 translations: vec![],
+                finished_preview_ids: vec![],
             };
         let effects = reduce_cloud_event(
             &mut state,
@@ -1411,6 +1421,77 @@ mod tests {
         assert!(
             matches!(effects.as_slice(), [PipelineEffect::PublishLiveTranslation(s)] if s.translation == "late delta")
         );
+    }
+
+    #[test]
+    fn overlapping_translation_completions_retire_only_the_finished_preview() {
+        let mut state = PipelineState::new(16_000);
+        let guard = AsrEchoGuard::default();
+        let snapshot = |index| crate::models::LiveTranslation {
+            utterance_id: format!("qwen-preview-{index}"),
+            source_utterance_id: Some(format!("qwen-source-{index}")),
+            completed_original: None,
+            conversation_preview: None,
+            speaker: None,
+            text: format!("Original {index}"),
+            language: Some("en".into()),
+            translation: String::new(),
+            target_language: "zh-Hans".into(),
+        };
+        assert!(state.lifecycle.accept_partial(&snapshot(0).utterance_id));
+        for index in 0..500 {
+            let previous = snapshot(index);
+            let next = snapshot(index + 1);
+            let mut final_text = previous.clone();
+            final_text.utterance_id = format!("qwen-source-{index}");
+            final_text.translation = "最终译文".into();
+            let effects = reduce_cloud_event(
+                &mut state,
+                CloudEvent::LiveTranslation {
+                    service: crate::providers::SERVICE_QWEN_LIVE_TRANSLATE.into(),
+                    snapshot: Box::new(next.clone()),
+                    completed: vec![],
+                    translations: vec![crate::asr::LiveTranslationResult {
+                        pending: false,
+                        source_utterance_ids: vec![final_text.utterance_id.clone()],
+                        transcript: final_text,
+                        provider: "qwen_ai".into(),
+                        model: "qwen3.8-livetranslate-flash-realtime".into(),
+                    }],
+                    finished_preview_ids: vec![previous.utterance_id.clone()],
+                },
+                PartialPublication::Immediate,
+                false,
+                &guard,
+            );
+            assert!(matches!(effects.as_slice(), [
+                PipelineEffect::PublishNativeTranslationUpdate(result),
+                PipelineEffect::CancelLiveTranslation(id),
+                PipelineEffect::PublishLiveTranslation(current),
+            ] if !result.pending && id == &previous.utterance_id && *current == next));
+            assert!(!state.lifecycle.accept_partial(&previous.utterance_id));
+            assert_eq!(state.lifecycle.failure_id(None), Some(next.utterance_id));
+        }
+        let mut last = snapshot(500);
+        last.source_utterance_id = None;
+        last.text.clear();
+        let effects = reduce_cloud_event(
+            &mut state,
+            CloudEvent::LiveTranslation {
+                service: crate::providers::SERVICE_QWEN_LIVE_TRANSLATE.into(),
+                snapshot: Box::new(last.clone()),
+                completed: vec![],
+                translations: vec![],
+                finished_preview_ids: vec![last.utterance_id.clone()],
+            },
+            PartialPublication::Immediate,
+            false,
+            &guard,
+        );
+        assert!(
+            matches!(effects.as_slice(), [PipelineEffect::CancelLiveTranslation(id)] if id == &last.utterance_id)
+        );
+        assert!(state.lifecycle.terminate_all().is_empty());
     }
 
     #[test]

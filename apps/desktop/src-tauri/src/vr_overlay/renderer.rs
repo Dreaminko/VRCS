@@ -379,7 +379,9 @@ mod tests {
                 for y in from..to {
                     let row = (y * texture.width * 4) as usize;
                     let has_ink = texture.pixels[row..row + (texture.width * 4) as usize]
-                        .chunks_exact(4)
+                        .as_chunks::<4>()
+                        .0
+                        .iter()
                         .any(|pixel| pixel[0] != 0);
                     if has_ink {
                         started.get_or_insert(y);
@@ -464,7 +466,9 @@ mod tests {
                 .filter(|&y| {
                     let row = ((y * texture.width + left) * 4) as usize;
                     texture.pixels[row..row + ((right - left + 1) * 4) as usize]
-                        .chunks_exact(4)
+                        .as_chunks::<4>()
+                        .0
+                        .iter()
                         .any(|pixel| pixel[0] != 0)
                 })
                 .collect::<Vec<_>>()
@@ -488,7 +492,9 @@ mod tests {
         for y in 0..texture.height {
             let row = (y * texture.width * 4) as usize;
             let has_ink = texture.pixels[row..row + (texture.width * 4) as usize]
-                .chunks_exact(4)
+                .as_chunks::<4>()
+                .0
+                .iter()
                 .any(|pixel| pixel[0] != 0);
             if has_ink && ink_started.is_none() {
                 ink_started = Some(y);

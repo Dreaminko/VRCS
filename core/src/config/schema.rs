@@ -206,7 +206,6 @@ mod tests {
             &value["vr_overlay"]["headset"],
             [
                 "background_opacity",
-                "content_mode",
                 "display_seconds",
                 "distance_m",
                 "enabled",
@@ -232,7 +231,6 @@ mod tests {
             &value["vr_overlay"]["wrist"],
             [
                 "background_opacity",
-                "content_mode",
                 "dominant_hand",
                 "enabled",
                 "font_size_px",

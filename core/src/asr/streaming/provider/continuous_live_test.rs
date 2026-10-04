@@ -227,8 +227,10 @@ async fn run(provider: Provider, key_env: &str, service: &str) {
         for (index, chunk) in pcm.chunks(3200).enumerate() {
             tokio::time::sleep_until(started + Duration::from_millis(index as u64 * 100)).await;
             let samples: Vec<_> = chunk
-                .chunks_exact(2)
-                .map(|bytes| i16::from_le_bytes([bytes[0], bytes[1]]) as f32 / 32768.0)
+                .as_chunks::<2>()
+                .0
+                .iter()
+                .map(|bytes| i16::from_le_bytes(*bytes) as f32 / 32768.0)
                 .collect();
             writer
                 .send(provider.audio_message(&samples))
