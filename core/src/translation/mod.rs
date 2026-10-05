@@ -57,6 +57,20 @@ pub struct TranslationService {
 }
 
 impl TranslationService {
+    pub(crate) fn ocr_glossary_fingerprint(&self, prompt: &TranslationPromptConfig) -> [u8; 32] {
+        use sha2::{Digest, Sha256};
+        let formatted = self.glossary.as_ref().map(|store| store.llm_snapshot());
+        let legacy;
+        let text = match &formatted {
+            Some(snapshot) => snapshot.formatted(),
+            None => {
+                legacy = crate::glossary::format_llm_glossary(&prompt.glossary);
+                &legacy
+            }
+        };
+        Sha256::digest(text.as_bytes()).into()
+    }
+
     #[cfg(test)]
     pub fn new() -> Result<Self, String> {
         Self::build(None)

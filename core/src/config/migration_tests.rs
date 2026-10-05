@@ -57,6 +57,50 @@ fn schema_v26_adds_managed_qwen_defaults_without_changing_whisper_settings() {
 }
 
 #[test]
+fn legacy_vr_overlay_content_modes_do_not_block_config_loading() {
+    for version in 23..=SCHEMA_VERSION {
+        for display in [None, Some("preferred_only"), Some("all_languages")] {
+            let mut raw = serde_json::to_value(AppConfig::default()).unwrap();
+            raw["schema_version"] = serde_json::json!(version);
+            raw["vr_overlay"]["headset"]["content_mode"] = serde_json::json!("bilingual");
+            raw["vr_overlay"]["wrist"]["content_mode"] = serde_json::json!("translation");
+            raw["vr_overlay"]["headset"]["width_m"] = serde_json::json!(1.7);
+            raw["vr_overlay"]["ocr"]["enabled"] = serde_json::json!(true);
+            if let Some(display) = display {
+                raw["vr_overlay"]["translation_display"] = serde_json::json!(display);
+            } else {
+                raw["vr_overlay"]
+                    .as_object_mut()
+                    .unwrap()
+                    .remove("translation_display");
+            }
+
+            let config = config_from_value(&raw).unwrap();
+            assert_eq!(config.schema_version, SCHEMA_VERSION);
+            assert_eq!(
+                config.vr_overlay.translation_display,
+                display.unwrap_or("all_languages")
+            );
+            assert_eq!(config.vr_overlay.headset.width_m, 1.7);
+            assert!(config.vr_overlay.ocr.enabled);
+            let saved = serde_json::to_value(&config).unwrap();
+            assert!(saved["vr_overlay"]["headset"].get("content_mode").is_none());
+            assert!(saved["vr_overlay"]["wrist"].get("content_mode").is_none());
+            assert_eq!(config_from_value(&saved).unwrap(), config);
+        }
+    }
+}
+
+#[test]
+fn legacy_vr_overlay_cleanup_keeps_unknown_field_validation() {
+    let mut raw = serde_json::to_value(AppConfig::default()).unwrap();
+    raw["vr_overlay"]["headset"]["content_mode"] = serde_json::json!("bilingual");
+    raw["vr_overlay"]["headset"]["unrecognized_setting"] = serde_json::json!(true);
+    let error = config_from_value(&raw).unwrap_err();
+    assert!(error.contains("unrecognized_setting"), "{error}");
+}
+
+#[test]
 fn schema_v4_without_feature_switches_keeps_existing_features_enabled() {
     let config = config_from_value(&serde_json::json!({
         "schema_version": 4

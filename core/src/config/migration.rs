@@ -775,6 +775,18 @@ pub(super) fn config_version(raw: &serde_json::Value) -> Result<u64, String> {
 
 pub fn config_from_value(raw: &serde_json::Value) -> Result<AppConfig, String> {
     let version = config_version(raw)?;
+    let mut normalized = raw.clone();
+    if let Some(overlay) = normalized.get_mut("vr_overlay") {
+        for surface in ["headset", "wrist"] {
+            if let Some(settings) = overlay
+                .get_mut(surface)
+                .and_then(serde_json::Value::as_object_mut)
+            {
+                settings.remove("content_mode");
+            }
+        }
+    }
+    let raw = &normalized;
     let mut config = match version {
         version if version == SCHEMA_VERSION as u64 => {
             serde_json::from_value(raw.clone()).map_err(|error| error.to_string())?

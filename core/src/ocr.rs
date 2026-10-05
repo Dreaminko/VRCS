@@ -1,6 +1,7 @@
 //! OCR for user-triggered VR captures.
 
 mod assets;
+mod cache;
 mod local;
 mod processors;
 mod tasks;
@@ -47,6 +48,7 @@ pub struct VrOcrService {
     translation: Arc<crate::translation::TranslationService>,
     client: Arc<PaddleOcrClient>,
     local: Arc<LocalOcrRuntime>,
+    cache: Arc<std::sync::Mutex<cache::TranslationCache>>,
 }
 
 impl VrOcrService {
@@ -60,6 +62,7 @@ impl VrOcrService {
             translation,
             client: Arc::new(PaddleOcrClient::new()?),
             local,
+            cache: Default::default(),
         })
     }
 
@@ -88,53 +91,93 @@ impl VrOcrService {
         verify: impl FnOnce(TextRegions) -> F,
         completed: impl FnMut(BlockUpdate),
     ) -> Result<ScanResult, String> {
-        let config = &config.0;
-        let ocr = &config.vr_overlay.ocr;
-        if !ocr.enabled {
-            return Err("VR OCR is disabled".into());
+        use tracing::Instrument;
+        let span = tracing::info_span!("ocr_scan", scan_id);
+        let started = std::time::Instant::now();
+        let result = async {
+            let config = &config.0;
+            let ocr = &config.vr_overlay.ocr;
+            if !ocr.enabled {
+                return Err("VR OCR is disabled".into());
+            }
+            if !self.matches_config(config) {
+                return Err("OCR configuration changed".into());
+            }
+            let blocks = tokio::time::timeout_at(deadline, async {
+                let blocks = if ocr.backend == crate::config::VrOcrBackend::Local {
+                    self.local
+                        .recognize(images, &mut progress)
+                        .await?
+                        .into_iter()
+                        .collect()
+                } else {
+                    let token = crate::credentials::read_ocr_token()?
+                        .ok_or("OCR access token is not configured")?;
+                    self.recognize_cloud(&token, images, deadline, &mut progress)
+                        .await?
+                        .into_iter()
+                        .collect()
+                };
+                Ok::<_, String>(blocks)
+            })
+            .await
+            .map_err(|_| "OCR task timed out".to_string())??;
+            self.translate_scan(
+                config, blocks, scan_id, deadline, verify, progress, completed,
+            )
+            .await
         }
-        if !self.matches_config(config) {
-            return Err("OCR configuration changed".into());
-        }
-        let blocks = tokio::time::timeout_at(deadline, async {
-            let blocks = if ocr.backend == crate::config::VrOcrBackend::Local {
-                self.local
-                    .recognize(images, &mut progress)
-                    .await?
-                    .into_iter()
-                    .collect()
-            } else {
-                let token = crate::credentials::read_ocr_token()?
-                    .ok_or("OCR access token is not configured")?;
-                let mut blocks = Vec::with_capacity(2);
-                // Each eye has its own image coordinates. Submit one bounded image per cloud job.
-                for image in images {
-                    let OcrImageData::Encoded(bytes) = image.data else {
-                        return Err("Cloud OCR requires an encoded image".into());
-                    };
-                    blocks.push(
-                        self.client
-                            .recognize(
-                                &token,
-                                bytes,
-                                image.width,
-                                image.height,
-                                deadline.saturating_duration_since(tokio::time::Instant::now()),
-                                &mut progress,
-                            )
-                            .await?,
-                    );
-                }
-                blocks
-            };
-            Ok::<_, String>(blocks)
-        })
-        .await
-        .map_err(|_| "OCR task timed out".to_string())??;
-        self.translate_scan(
-            config, blocks, scan_id, deadline, verify, progress, completed,
-        )
-        .await
+        .instrument(span.clone())
+        .await;
+        tracing::info!(parent: &span, elapsed_ms = started.elapsed().as_millis() as u64,
+            success = result.is_ok(), "OCR scan processed");
+        result
+    }
+
+    async fn recognize_cloud(
+        &self,
+        token: &str,
+        images: [OcrImage; 2],
+        deadline: tokio::time::Instant,
+        progress: &mut impl FnMut(Phase),
+    ) -> Result<[Vec<TextBlock>; 2], String> {
+        use tracing::Instrument;
+        let state = std::sync::Mutex::new((progress, 0usize));
+        let recognize = |eye, image: OcrImage| {
+            let state = &state;
+            async move {
+                let OcrImageData::Encoded(bytes) = image.data else {
+                    return Err("Cloud OCR requires an encoded image".into());
+                };
+                self.client
+                    .recognize(
+                        token,
+                        bytes,
+                        image.width,
+                        image.height,
+                        deadline.saturating_duration_since(tokio::time::Instant::now()),
+                        |phase| {
+                            let rank = match phase {
+                                Phase::Submitting => 1,
+                                Phase::Pending => 2,
+                                Phase::Running => 3,
+                                Phase::Downloading => 4,
+                                _ => return,
+                            };
+                            let mut state = state.lock().unwrap_or_else(|error| error.into_inner());
+                            if rank > state.1 {
+                                state.1 = rank;
+                                (state.0)(phase);
+                            }
+                        },
+                    )
+                    .await
+            }
+            .instrument(tracing::info_span!("ocr_cloud_eye", eye))
+        };
+        let [left, right] = images;
+        let (left, right) = tokio::try_join!(recognize(0usize, left), recognize(1usize, right))?;
+        Ok([left, right])
     }
 
     #[cfg(test)]
@@ -182,7 +225,7 @@ impl PaddleOcrClient {
                 .build()
                 .map_err(|_| "Could not create OCR HTTP client")?,
             jobs: JOB_URL.parse().expect("static OCR URL"),
-            poll_interval: Duration::from_secs(5),
+            poll_interval: Duration::from_millis(500),
         })
     }
 
@@ -214,7 +257,9 @@ impl PaddleOcrClient {
         } else {
             return Err("OCR capture must be PNG or JPEG".into());
         };
+        let upload_bytes = image.len();
         tokio::time::timeout(timeout, async {
+            let submitting = std::time::Instant::now();
             progress(Phase::Submitting);
             let file = reqwest::multipart::Part::bytes(image).file_name("vr-capture").mime_str(mime)
                 .map_err(|_| "Invalid OCR image type")?;
@@ -225,12 +270,19 @@ impl PaddleOcrClient {
                 .send().await.map_err(|_| "OCR submission failed; retry manually")?;
             let submitted: serde_json::Value = serde_json::from_slice(&bounded_body(response, 64*1024).await?)
                 .map_err(|_| "Invalid OCR submission response")?;
+            tracing::debug!(elapsed_ms = submitting.elapsed().as_millis() as u64, upload_bytes, "OCR cloud submitted");
             let id = submitted.pointer("/data/jobId").and_then(|v|v.as_str()).filter(|id|
                 !id.is_empty() && id.len() <= 256 && id.bytes().all(|c|c.is_ascii_alphanumeric() || c == b'-' || c == b'_'))
                 .ok_or("Missing or invalid OCR job ID")?;
             let mut job_url = self.jobs.clone();
             job_url.path_segments_mut().map_err(|_| "Invalid OCR API URL")?.push(id);
+            let polling = std::time::Instant::now();
+            let mut delay = self.poll_interval;
+            let mut polls = 0usize;
             let result_url = loop {
+                tokio::time::sleep(delay).await;
+                delay = (delay + self.poll_interval).min(self.poll_interval * 6);
+                polls += 1;
                 let response = self.get(job_url.clone(),Some(token.trim())).await?;
                 let job: serde_json::Value = serde_json::from_slice(&bounded_body(response,64*1024).await?)
                     .map_err(|_| "Invalid OCR job response")?;
@@ -242,15 +294,18 @@ impl PaddleOcrClient {
                     Some("failed") => return Err("Cloud OCR job failed".into()),
                     _ => return Err("Unknown OCR job state".into()),
                 }
-                tokio::time::sleep(self.poll_interval).await;
             };
+            tracing::debug!(elapsed_ms = polling.elapsed().as_millis() as u64, polls, "OCR cloud polled");
             progress(Phase::Downloading);
+            let downloading = std::time::Instant::now();
             let url: reqwest::Url = result_url.parse().map_err(|_| "Invalid OCR result URL")?;
             if !valid_result_url(&url) { return Err("Unsupported OCR result URL".into()); }
             // No Authorization header is attached to result downloads, including same-origin URLs.
             let result = bounded_body(self.get(url,None).await?,4*1024*1024).await?;
             let result = std::str::from_utf8(&result).map_err(|_| "OCR result is not UTF-8")?;
-            parse_jsonl(result,width,height)
+            let blocks = parse_jsonl(result,width,height)?;
+            tracing::debug!(elapsed_ms = downloading.elapsed().as_millis() as u64, blocks = blocks.len(), "OCR cloud downloaded");
+            Ok(blocks)
         }).await.map_err(|_| "OCR task timed out")?
     }
 
@@ -341,9 +396,9 @@ pub struct TextBlock {
 fn parse_jsonl(input: &str, width: u32, height: u32) -> Result<Vec<TextBlock>, String> {
     #[derive(serde::Deserialize)]
     struct Recognition {
-        rec_texts: Vec<String>,
-        rec_scores: Vec<f32>,
-        rec_polys: Vec<[[f32; 2]; 4]>,
+        rec_texts: Vec<serde_json::Value>,
+        rec_scores: Vec<serde_json::Value>,
+        rec_polys: Vec<serde_json::Value>,
     }
     let mut lines = input.lines().filter(|line| !line.trim().is_empty());
     let line = lines.next().ok_or("OCR result is empty")?;
@@ -367,24 +422,39 @@ fn parse_jsonl(input: &str, width: u32, height: u32) -> Result<Vec<TextBlock>, S
         return Err("OCR text and coordinate arrays do not match or exceed the block limit".into());
     }
     let mut blocks = Vec::new();
+    let mut skipped = 0usize;
     for ((text, confidence), polygon) in result
         .rec_texts
         .into_iter()
         .zip(result.rec_scores)
         .zip(result.rec_polys)
     {
+        let parsed = (
+            serde_json::from_value::<String>(text),
+            serde_json::from_value::<f32>(confidence),
+            serde_json::from_value::<[[f32; 2]; 4]>(polygon),
+        );
+        let (Ok(text), Ok(confidence), Ok(mut polygon)) = parsed else {
+            skipped += 1;
+            continue;
+        };
         if !confidence.is_finite()
             || !(0.0..=1.0).contains(&confidence)
             || polygon.iter().any(|[x, y]| {
                 !x.is_finite()
                     || !y.is_finite()
-                    || *x < 0.0
-                    || *y < 0.0
-                    || *x > width as f32
-                    || *y > height as f32
+                    || *x < -1.0
+                    || *y < -1.0
+                    || *x > width as f32 + 1.0
+                    || *y > height as f32 + 1.0
             })
         {
-            return Err("OCR coordinates or confidence are outside the capture bounds".into());
+            skipped += 1;
+            continue;
+        }
+        for [x, y] in &mut polygon {
+            *x = x.clamp(0.0, width as f32);
+            *y = y.clamp(0.0, height as f32);
         }
         let area = (0..4)
             .map(|i| {
@@ -394,7 +464,8 @@ fn parse_jsonl(input: &str, width: u32, height: u32) -> Result<Vec<TextBlock>, S
             .sum::<f32>()
             .abs();
         if area < 1.0 || text.chars().count() > 5000 {
-            return Err("Invalid OCR text block".into());
+            skipped += 1;
+            continue;
         }
         let text = text.trim().to_owned();
         if !text.is_empty() {
@@ -406,6 +477,7 @@ fn parse_jsonl(input: &str, width: u32, height: u32) -> Result<Vec<TextBlock>, S
             });
         }
     }
+    tracing::debug!(blocks = blocks.len(), skipped, "OCR cloud blocks parsed");
     Ok(blocks)
 }
 
@@ -413,6 +485,330 @@ fn parse_jsonl(input: &str, width: u32, height: u32) -> Result<Vec<TextBlock>, S
 mod tests {
     use super::*;
     use serde_json::json;
+
+    fn cloud_service(origin: &str) -> VrOcrService {
+        let mut client = PaddleOcrClient::new().unwrap();
+        client.jobs = format!("{origin}/jobs").parse().unwrap();
+        client.poll_interval = Duration::from_millis(2);
+        let mut service = VrOcrService::new(
+            Arc::new(RwLock::new(crate::config::AppConfig::default())),
+            Arc::new(crate::translation::TranslationService::new().unwrap()),
+            Arc::new(LocalOcrRuntime::new(
+                std::env::temp_dir().join("unused-ocr-cloud-models"),
+            )),
+        )
+        .unwrap();
+        service.client = Arc::new(client);
+        service
+    }
+
+    fn cloud_images() -> [OcrImage; 2] {
+        ["left", "right"].map(|eye| OcrImage {
+            data: OcrImageData::Encoded([b"\x89PNG\r\n\x1a\n".as_slice(), eye.as_bytes()].concat()),
+            width: 100,
+            height: 100,
+        })
+    }
+
+    #[tokio::test]
+    async fn ocr_cloud_pair_deadline_cancellation_and_failure_stop_both_pollers() {
+        use axum::{
+            body::Bytes,
+            extract::Path,
+            routing::{get, post},
+            Json, Router,
+        };
+        use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+        let counts = Arc::new([AtomicUsize::new(0), AtomicUsize::new(0)]);
+        let fail = Arc::new(AtomicBool::new(false));
+        let polled = Arc::new(tokio::sync::Notify::new());
+        let poll_counts = counts.clone();
+        let failed = fail.clone();
+        let notified = polled.clone();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let origin = format!("http://{}", listener.local_addr().unwrap());
+        let router = Router::new().route("/jobs", post(|body: Bytes| async move {
+            Json(json!({"data":{"jobId":if body.windows(4).any(|bytes| bytes == b"left") {"left"} else {"right"}}}))
+        })).route("/jobs/{eye}", get(move |Path(eye): Path<String>| {
+            let counts = poll_counts.clone(); let fail = failed.clone(); let polled = notified.clone();
+            async move {
+                counts[usize::from(eye == "right")].fetch_add(1, Ordering::SeqCst);
+                polled.notify_one();
+                Json(json!({"data":{"state":if eye == "left" && fail.load(Ordering::SeqCst) {"failed"} else {"pending"}}}))
+            }
+        }));
+        let server = tokio::spawn(async move {
+            axum::serve(listener, router).await.unwrap();
+        });
+        let service = cloud_service(&origin);
+        let error = service
+            .recognize_cloud(
+                "token",
+                cloud_images(),
+                tokio::time::Instant::now() + Duration::from_millis(80),
+                &mut |_| {},
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(error, "OCR task timed out");
+        assert!(counts.iter().all(|count| count.load(Ordering::SeqCst) > 0));
+        let snapshot = || counts.each_ref().map(|count| count.load(Ordering::SeqCst));
+        let before = snapshot();
+        tokio::time::sleep(Duration::from_millis(25)).await;
+        assert_eq!(snapshot(), before);
+        let task_service = service.clone();
+        let task = tokio::spawn(async move {
+            task_service
+                .recognize_cloud(
+                    "token",
+                    cloud_images(),
+                    tokio::time::Instant::now() + Duration::from_secs(2),
+                    &mut |_| {},
+                )
+                .await
+        });
+        tokio::time::timeout(Duration::from_secs(1), async {
+            while counts[1].load(Ordering::SeqCst) == before[1] {
+                polled.notified().await;
+            }
+        })
+        .await
+        .unwrap();
+        task.abort();
+        assert!(task.await.unwrap_err().is_cancelled());
+        // Allow requests already received by the mock server to finish before counting.
+        tokio::time::sleep(Duration::from_millis(25)).await;
+        let before = snapshot();
+        tokio::time::sleep(Duration::from_millis(25)).await;
+        assert_eq!(snapshot(), before);
+        fail.store(true, Ordering::SeqCst);
+        let error = service
+            .recognize_cloud(
+                "token",
+                cloud_images(),
+                tokio::time::Instant::now() + Duration::from_secs(1),
+                &mut |_| {},
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(error, "Cloud OCR job failed");
+        tokio::time::sleep(Duration::from_millis(25)).await;
+        let before = snapshot();
+        tokio::time::sleep(Duration::from_millis(25)).await;
+        assert_eq!(snapshot(), before);
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn ocr_cloud_poll_retries_keep_retry_after_and_do_not_resubmit() {
+        use axum::{
+            http::{HeaderMap, StatusCode},
+            routing::{get, post},
+            Json, Router,
+        };
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let submits = Arc::new(AtomicUsize::new(0));
+        let polls = Arc::new(AtomicUsize::new(0));
+        let submitted = submits.clone();
+        let polled = polls.clone();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let origin = format!("http://{}", listener.local_addr().unwrap());
+        let result_url = format!("{origin}/result");
+        let router = Router::new()
+            .route(
+                "/jobs",
+                post(move || {
+                    submitted.fetch_add(1, Ordering::SeqCst);
+                    async { Json(json!({"data":{"jobId":"retry"}})) }
+                }),
+            )
+            .route(
+                "/jobs/retry",
+                get(move || {
+                    let count = polled.fetch_add(1, Ordering::SeqCst);
+                    let url = result_url.clone();
+                    async move {
+                        let status = match count {
+                            0 => StatusCode::TOO_MANY_REQUESTS,
+                            1 => StatusCode::SERVICE_UNAVAILABLE,
+                            _ => StatusCode::OK,
+                        };
+                        (
+                            status,
+                            [("retry-after", "0")],
+                            Json(json!({"data":{"state":"done", "resultUrl":{"jsonUrl":url}}})),
+                        )
+                    }
+                }),
+            )
+            .route(
+                "/result",
+                get(|headers: HeaderMap| async move {
+                    assert!(!headers.contains_key("authorization"));
+                    page(
+                        json!(["text"]),
+                        json!([0.9]),
+                        json!([[[0, 0], [20, 0], [20, 20], [0, 20]]]),
+                    )
+                }),
+            );
+        let server = tokio::spawn(async move {
+            axum::serve(listener, router).await.unwrap();
+        });
+        let service = cloud_service(&origin);
+        let OcrImageData::Encoded(bytes) = cloud_images().into_iter().next().unwrap().data else {
+            panic!()
+        };
+        let blocks = service
+            .client
+            .recognize("token", bytes, 100, 100, Duration::from_secs(1), |_| {})
+            .await
+            .unwrap();
+        assert_eq!(blocks[0].text, "text");
+        assert_eq!(submits.load(Ordering::SeqCst), 1);
+        assert_eq!(polls.load(Ordering::SeqCst), 3);
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn ocr_cloud_eyes_submit_together_keep_order_and_advance_phases() {
+        use axum::{
+            body::Bytes,
+            extract::Path,
+            routing::{get, post},
+            Json, Router,
+        };
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let origin = format!("http://{}", listener.local_addr().unwrap());
+        let barrier = Arc::new(tokio::sync::Barrier::new(2));
+        let polls = Arc::new([
+            std::sync::atomic::AtomicUsize::new(0),
+            std::sync::atomic::AtomicUsize::new(0),
+        ]);
+        let submit_barrier = barrier.clone();
+        let poll_counts = polls.clone();
+        let poll_origin = origin.clone();
+        let router = Router::new()
+            .route("/jobs", post(move |body: Bytes| {
+                let barrier = submit_barrier.clone();
+                async move {
+                    let eye = if body.windows(4).any(|bytes| bytes == b"left") { "left" } else { "right" };
+                    barrier.wait().await;
+                    Json(json!({"data":{"jobId":eye}}))
+                }
+            }))
+            .route("/jobs/{eye}", get(move |Path(eye): Path<String>| {
+                let counts = poll_counts.clone(); let origin = poll_origin.clone();
+                async move {
+                    let index = usize::from(eye == "right");
+                    let count = counts[index].fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    if count >= index + 1 {
+                        Json(json!({"data":{"state":"done", "resultUrl":{"jsonUrl":format!("{origin}/results/{eye}")}}}))
+                    } else {
+                        Json(json!({"data":{"state":if index == 0 {"running"} else {"pending"}}}))
+                    }
+                }
+            }))
+            .route("/results/{eye}", get(|Path(eye): Path<String>| async move {
+                page(json!([eye]), json!([0.9]), json!([[[0,0],[20,0],[20,20],[0,20]]]))
+            }));
+        let server = tokio::spawn(async move {
+            axum::serve(listener, router).await.unwrap();
+        });
+        let mut client = PaddleOcrClient::new().unwrap();
+        client.jobs = format!("{origin}/jobs").parse().unwrap();
+        client.poll_interval = Duration::from_millis(2);
+        let mut service = VrOcrService::new(
+            Arc::new(RwLock::new(crate::config::AppConfig::default())),
+            Arc::new(crate::translation::TranslationService::new().unwrap()),
+            Arc::new(LocalOcrRuntime::new(
+                std::env::temp_dir().join("unused-ocr-pair-models"),
+            )),
+        )
+        .unwrap();
+        service.client = Arc::new(client);
+        let images = ["left", "right"].map(|eye| OcrImage {
+            data: OcrImageData::Encoded([b"\x89PNG\r\n\x1a\n".as_slice(), eye.as_bytes()].concat()),
+            width: 100,
+            height: 100,
+        });
+        let mut phases = Vec::new();
+        let result = tokio::time::timeout(
+            Duration::from_secs(2),
+            service.recognize_cloud(
+                "token",
+                images,
+                tokio::time::Instant::now() + Duration::from_secs(1),
+                &mut |phase| phases.push(phase),
+            ),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(result[0][0].text, "left");
+        assert_eq!(result[1][0].text, "right");
+        let ranks: Vec<_> = phases
+            .iter()
+            .map(|phase| match phase {
+                Phase::Submitting => 0,
+                Phase::Pending => 1,
+                Phase::Running => 2,
+                Phase::Downloading => 3,
+                _ => panic!(),
+            })
+            .collect();
+        assert!(ranks.windows(2).all(|pair| pair[0] < pair[1]));
+        assert_eq!(phases.last(), Some(&Phase::Downloading));
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn ocr_cloud_polling_waits_and_caps_incremental_backoff() {
+        use axum::{
+            routing::{get, post},
+            Json, Router,
+        };
+        let times = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let recorded = times.clone();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let origin = format!("http://{}", listener.local_addr().unwrap());
+        let router = Router::new().route("/jobs", post(|| async { Json(json!({"data":{"jobId":"poll"}})) }))
+            .route("/jobs/poll", get(move || {
+                let recorded = recorded.clone();
+                async move {
+                    let mut times = recorded.lock().unwrap(); times.push(tokio::time::Instant::now());
+                    Json(json!({"data":{"state":if times.len() < 8 {"running"} else {"failed"}}}))
+                }
+            }));
+        let server = tokio::spawn(async move {
+            axum::serve(listener, router).await.unwrap();
+        });
+        let mut client = PaddleOcrClient::new().unwrap();
+        client.jobs = format!("{origin}/jobs").parse().unwrap();
+        client.poll_interval = Duration::from_millis(2);
+        let started = tokio::time::Instant::now();
+        let error = client
+            .recognize(
+                "token",
+                b"\x89PNG\r\n\x1a\n".to_vec(),
+                100,
+                100,
+                Duration::from_secs(2),
+                |_| {},
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(error, "Cloud OCR job failed");
+        let times = times.lock().unwrap();
+        assert!(times[0] - started >= client.poll_interval);
+        for index in 1..times.len() {
+            assert!(
+                times[index] - times[index - 1]
+                    >= client.poll_interval * ((index + 1).min(6) as u32)
+            );
+        }
+        server.abort();
+    }
 
     #[tokio::test]
     async fn ocr_translation_queue_releases_slots_before_the_first_request_finishes() {
@@ -429,7 +825,9 @@ mod tests {
                 let release = release_handler.clone();
                 let fifth = fifth_handler.clone();
                 async move {
-                    let input = body["messages"].to_string();
+                    let input = body["messages"].as_array().unwrap().last().unwrap()["content"]
+                        .as_str()
+                        .unwrap();
                     if input.contains("slow-first") {
                         release.notified().await;
                     }
@@ -750,18 +1148,47 @@ mod tests {
     }
 
     #[test]
-    fn mismatched_arrays_and_out_of_image_polygons_are_rejected() {
+    fn ocr_bad_blocks_are_skipped_and_rounding_is_clamped() {
+        let input = page(
+            json!(["valid", "rounded", "bad", "flat", 42]),
+            json!([0.9, 0.9, 0.9, 0.9, 0.9]),
+            json!([
+                [[10, 10], [80, 10], [80, 30], [10, 30]],
+                [[-1, 0], [101, 0], [101, 20], [-1, 20]],
+                [[-2, 0], [80, 0], [80, 20], [-2, 20]],
+                [[0, 0], [0, 0], [0, 0], [0, 0]],
+                [[10, 10], [80, 10], [80, 30], [10, 30]]
+            ]),
+        );
+        let blocks = parse_jsonl(&input, 100, 100).unwrap();
+        assert_eq!(
+            blocks
+                .iter()
+                .map(|block| block.text.as_str())
+                .collect::<Vec<_>>(),
+            ["valid", "rounded"]
+        );
+        assert_eq!(
+            blocks[1].polygon,
+            [[0., 0.], [100., 0.], [100., 20.], [0., 20.]]
+        );
+        assert_eq!(blocks[1].id, 1);
+    }
+
+    #[test]
+    fn mismatched_arrays_are_rejected_and_out_of_image_polygons_are_skipped() {
         assert!(parse_jsonl(&page(json!(["text"]), json!([]), json!([])), 100, 100).is_err());
         assert!(parse_jsonl(
             &page(
                 json!(["text"]),
                 json!([0.9]),
-                json!([[[0, 0], [101, 0], [101, 20], [0, 20]]])
+                json!([[[0, 0], [102, 0], [102, 20], [0, 20]]])
             ),
             100,
             100
         )
-        .is_err());
+        .unwrap()
+        .is_empty());
     }
 
     #[test]

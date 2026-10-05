@@ -109,7 +109,23 @@ pub struct CaptureCrop {
     pub offset: [f32; 2],
     pub scale: [f32; 2],
 }
+#[derive(Clone, Copy)]
+pub struct CropTransform {
+    offset: [f32; 2],
+    scale: [f32; 2],
+}
 impl CaptureCrop {
+    pub fn transform(&self) -> CropTransform {
+        CropTransform {
+            offset: self.offset,
+            scale: self.scale,
+        }
+    }
+    pub fn restore(&self, polygon: &mut [[f32; 2]; 4]) {
+        self.transform().restore(polygon);
+    }
+}
+impl CropTransform {
     pub fn restore(&self, polygon: &mut [[f32; 2]; 4]) {
         for [x, y] in polygon {
             *x = *x * self.scale[0] + self.offset[0];

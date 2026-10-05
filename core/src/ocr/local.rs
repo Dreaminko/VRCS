@@ -61,23 +61,35 @@ impl LocalOcrRuntime {
         let engine = self.engine.clone();
         let assets = self.assets.clone();
         let (sender, mut receiver) = tokio::sync::mpsc::channel(4);
+        let span = tracing::Span::current();
         let mut worker = tokio::task::spawn_blocking(move || {
+            let _span = span.enter();
             let _permit = permit;
             let mut engine = engine.lock().map_err(|_| "Local OCR engine lock failed")?;
             check_cancelled(&cancelled)?;
             if engine.is_none() {
+                let started = std::time::Instant::now();
                 let _ = sender.try_send(Phase::LoadingModel);
                 assets.verify()?;
                 *engine = Some(Engine::load(&assets.directory)?);
+                tracing::debug!(
+                    elapsed_ms = started.elapsed().as_millis() as u64,
+                    "OCR local model loaded"
+                );
             }
             check_cancelled(&cancelled)?;
             let _ = sender.try_send(Phase::Recognizing);
             let engine = engine.as_mut().ok_or("Local OCR engine is unavailable")?;
             let [left, right] = images;
-            Ok::<_, String>([
-                engine.recognize(left, &options, &cancelled)?,
-                engine.recognize(right, &options, &cancelled)?,
-            ])
+            let left = {
+                let _eye = tracing::info_span!("ocr_local_eye", eye = 0usize).entered();
+                engine.recognize(left, &options, &cancelled)?
+            };
+            let right = {
+                let _eye = tracing::info_span!("ocr_local_eye", eye = 1usize).entered();
+                engine.recognize(right, &options, &cancelled)?
+            };
+            Ok::<_, String>([left, right])
         });
         loop {
             tokio::select! {
@@ -148,6 +160,7 @@ impl Engine {
         let OcrImageData::Rgba(pixels) = image.data else {
             return Err("Local OCR requires RGBA pixels".into());
         };
+        let detecting = std::time::Instant::now();
         let input = Value::from_array(processors::det_input(&pixels, image.width, image.height)?)
             .map_err(|_| "Could not create OCR detector input")?;
         check_cancelled(cancelled)?;
@@ -170,16 +183,22 @@ impl Engine {
             image.height,
         )?;
         drop(output);
+        tracing::debug!(
+            elapsed_ms = detecting.elapsed().as_millis() as u64,
+            regions = polygons.len(),
+            "OCR local detection processed"
+        );
+        let recognizing = std::time::Instant::now();
+        let mut skipped = 0usize;
         let mut blocks = Vec::with_capacity(polygons.len());
         for polygon in polygons {
             check_cancelled(cancelled)?;
-            let input = Value::from_array(processors::crop_and_rec_input(
-                &pixels,
-                image.width,
-                image.height,
-                polygon,
-            )?)
-            .map_err(|_| "Could not create OCR recognition input")?;
+            let Some(input) = rec_input(&pixels, image.width, image.height, polygon)? else {
+                skipped += 1;
+                continue;
+            };
+            let input =
+                Value::from_array(input).map_err(|_| "Could not create OCR recognition input")?;
             check_cancelled(cancelled)?;
             let output = self
                 .recognizer
@@ -208,8 +227,25 @@ impl Engine {
             }
         }
         check_cancelled(cancelled)?;
+        tracing::debug!(
+            elapsed_ms = recognizing.elapsed().as_millis() as u64,
+            blocks = blocks.len(),
+            skipped,
+            "OCR local recognition processed"
+        );
         Ok(blocks)
     }
+}
+
+fn rec_input(
+    pixels: &[u8],
+    width: u32,
+    height: u32,
+    polygon: [[f32; 2]; 4],
+) -> Result<Option<ndarray::Array4<f32>>, String> {
+    processors::validate_image(pixels, width, height)?;
+    // Once pixels are valid, crop errors describe only invalid polygon geometry.
+    Ok(processors::crop_and_rec_input(pixels, width, height, polygon).ok())
 }
 
 fn characters(text: &str) -> Result<Vec<String>, String> {
@@ -230,6 +266,17 @@ fn characters(text: &str) -> Result<Vec<String>, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ocr_local_skips_geometry_errors_but_rejects_invalid_images() {
+        assert!(rec_input(&[255; 16], 2, 2, [[0.; 2]; 4]).unwrap().is_none());
+        assert!(rec_input(&[], 2, 2, [[0.; 2]; 4]).is_err());
+        assert!(
+            rec_input(&[255; 16], 2, 2, [[0., 0.], [2., 0.], [2., 2.], [0., 2.]])
+                .unwrap()
+                .is_some()
+        );
+    }
 
     #[test]
     fn ocr_dictionary_adds_ctc_blank_and_space_without_reordering() {

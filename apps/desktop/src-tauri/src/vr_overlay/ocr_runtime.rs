@@ -12,8 +12,8 @@ use std::{
 use tokio::sync::mpsc;
 use vrcs_core::{
     ocr::{
-        source_view, OcrImage, OcrImageData, Phase, ScanConfiguration, ScanOutcome, ScanResult,
-        ScanSummary, TranslatedBlock, VrOcrService,
+        source_view, BlockUpdate, OcrImage, OcrImageData, Phase, ScanConfiguration, ScanOutcome,
+        ScanResult, ScanSummary, TranslatedBlock, VrOcrService,
     },
     VrOcrConfig,
 };
@@ -28,6 +28,54 @@ struct OcrFrame {
     summary: ScanSummary,
 }
 
+struct CaptureMetadata {
+    scene_pid: u32,
+    origin: i32,
+    captured_at: std::time::Instant,
+}
+
+impl From<&StereoCapture> for CaptureMetadata {
+    fn from(capture: &StereoCapture) -> Self {
+        Self {
+            scene_pid: capture.scene_pid,
+            origin: capture.origin,
+            captured_at: capture.captured_at,
+        }
+    }
+}
+
+struct ScanProgress {
+    scan_id: u64,
+    blocks: [Vec<TranslatedBlock>; 2],
+    dirty: bool,
+}
+
+impl ScanProgress {
+    fn new(scan_id: u64) -> Self {
+        Self {
+            scan_id,
+            blocks: Default::default(),
+            dirty: false,
+        }
+    }
+
+    fn apply(&mut self, update: BlockUpdate) {
+        if update.scan_id != self.scan_id || update.eye >= 2 {
+            return;
+        }
+        let blocks = &mut self.blocks[update.eye];
+        if let Some(block) = blocks
+            .iter_mut()
+            .find(|block| block.source.id == update.block.source.id)
+        {
+            *block = update.block;
+        } else {
+            blocks.push(update.block);
+        }
+        self.dirty = true;
+    }
+}
+
 pub struct OcrRuntime {
     service: Option<VrOcrService>,
     directory: Option<PathBuf>,
@@ -35,7 +83,8 @@ pub struct OcrRuntime {
     task: Option<tauri::async_runtime::JoinHandle<()>>,
     sender: mpsc::Sender<Update>,
     receiver: mpsc::Receiver<Update>,
-    capture: Option<Arc<StereoCapture>>,
+    capture: Option<CaptureMetadata>,
+    progress: Option<Arc<Mutex<ScanProgress>>>,
     configuration: Option<Arc<ScanConfiguration>>,
     capture_after: Option<std::time::Instant>,
     waiting_for_hands: Option<HandReleaseWait>,
@@ -56,6 +105,7 @@ impl OcrRuntime {
             sender,
             receiver,
             capture: None,
+            progress: None,
             configuration: None,
             capture_after: None,
             waiting_for_hands: None,
@@ -72,6 +122,7 @@ impl OcrRuntime {
         }
         self.status.scan_id = self.status.scan_id.wrapping_add(1);
         self.capture = None;
+        self.progress = None;
         self.configuration = None;
         self.capture_after = None;
         self.waiting_for_hands = None;
@@ -203,7 +254,13 @@ impl OcrRuntime {
             .is_some_and(|at| std::time::Instant::now() >= at)
         {
             self.capture_after = None;
+            let started = std::time::Instant::now();
             let capture = Arc::new(backend.capture_ocr()?);
+            tracing::debug!(
+                scan_id = self.status.scan_id,
+                elapsed_ms = started.elapsed().as_millis() as u64,
+                "OCR captured"
+            );
             self.start(capture, config)?;
         }
         while let Some(update) = self.next_current_update() {
@@ -220,34 +277,12 @@ impl OcrRuntime {
                     }
                 }
                 Update::Finished(id, result) if id == self.status.scan_id => {
-                    let frame = result?;
-                    if frame.summary.outcome == ScanOutcome::TimedOut
-                        && frame.summary.success_count == 0
-                    {
-                        self.clear();
-                        backend.reset_ocr();
-                        self.status.state = OcrState::TimedOut;
-                        self.status.timed_out = true;
-                        self.status.last_error_code = Some("timeout".into());
-                        self.status.failed_translations = frame.summary.failure_count;
-                        continue;
-                    }
-                    self.task = None;
-                    self.blocks = frame.blocks;
-                    self.status.layout_limited = false;
-                    self.status.block_count = self.blocks.iter().map(Vec::len).max().unwrap_or(0);
-                    let visible = !self.wrist_texts().is_empty();
-                    self.complete_status(&frame.summary, visible);
-                    if visible {
-                        self.displayed_at = Some(std::time::Instant::now());
-                    } else {
-                        self.capture = None;
-                        self.configuration = None;
-                    }
+                    self.finish_frame(result?);
                 }
                 _ => {}
             }
         }
+        self.sync_progress();
         if self.capture.is_none()
             && self.capture_after.is_none()
             && self.waiting_for_hands.is_none()
@@ -267,6 +302,34 @@ impl OcrRuntime {
         Ok(())
     }
 
+    fn finish_frame(&mut self, frame: OcrFrame) {
+        self.task = None;
+        self.progress = None;
+        self.blocks = frame.blocks;
+        self.status.layout_limited = false;
+        self.status.block_count = self.blocks.iter().map(Vec::len).max().unwrap_or(0);
+        let visible = !self.wrist_texts().is_empty();
+        self.complete_status(&frame.summary, visible);
+        if visible {
+            self.displayed_at = Some(std::time::Instant::now());
+        } else {
+            self.capture = None;
+            self.configuration = None;
+        }
+    }
+
+    fn sync_progress(&mut self) {
+        let Some(progress) = &self.progress else {
+            return;
+        };
+        let mut progress = progress.lock().unwrap_or_else(|error| error.into_inner());
+        if self.capture.is_some() && progress.scan_id == self.status.scan_id && progress.dirty {
+            self.blocks = progress.blocks.clone();
+            progress.dirty = false;
+            self.status.block_count = self.blocks.iter().map(Vec::len).max().unwrap_or(0);
+        }
+    }
+
     fn next_current_update(&mut self) -> Option<Update> {
         while let Ok(update) = self.receiver.try_recv() {
             let id = match &update {
@@ -283,27 +346,27 @@ impl OcrRuntime {
         self.blocks
             .iter()
             .map(|blocks| {
-                let translations = blocks
-                    .iter()
-                    .flat_map(|block| &block.translations)
-                    .filter_map(|translation| translation.text.as_deref())
-                    .map(str::trim)
-                    .filter(|text| !text.is_empty())
-                    .map(str::to_string)
-                    .collect::<Vec<_>>();
-                if translations.is_empty() {
-                    (
-                        false,
-                        blocks
-                            .iter()
-                            .map(|block| block.source.text.trim())
-                            .filter(|text| !text.is_empty())
-                            .map(str::to_string)
-                            .collect(),
-                    )
-                } else {
-                    (true, translations)
+                let mut translated = false;
+                let mut texts = Vec::new();
+                for block in blocks {
+                    let translations: Vec<_> = block
+                        .translations
+                        .iter()
+                        .filter_map(|translation| translation.text.as_deref())
+                        .map(str::trim)
+                        .filter(|text| !text.is_empty())
+                        .collect();
+                    if translations.is_empty() {
+                        let source = block.source.text.trim();
+                        if !source.is_empty() {
+                            texts.push(source.to_owned());
+                        }
+                    } else {
+                        translated = true;
+                        texts.extend(translations.into_iter().map(str::to_owned));
+                    }
                 }
+                (translated, texts)
             })
             .max_by_key(|(translated, texts)| {
                 (*translated, texts.iter().map(String::len).sum::<usize>())
@@ -342,15 +405,18 @@ impl OcrRuntime {
             return Err("OCR configuration changed".into());
         }
         self.configuration = Some(settings.clone());
-        self.capture = Some(capture.clone());
+        let metadata = CaptureMetadata::from(capture.as_ref());
+        let scan_started = metadata.captured_at;
+        self.capture = Some(metadata);
         let id = self.status.scan_id;
         let fraction = config.region_fraction;
         let local = config.backend == vrcs_core::VrOcrBackend::Local;
         let sender = self.sender.clone();
         let encoder = self.encoder.clone();
-        let completed_blocks = Arc::new(Mutex::new([Vec::<TranslatedBlock>::new(), Vec::new()]));
+        let completed_blocks = Arc::new(Mutex::new(ScanProgress::new(id)));
+        self.progress = Some(completed_blocks.clone());
         let deadline = tokio::time::Instant::from_std(
-            capture.captured_at + std::time::Duration::from_secs(config.timeout_seconds as u64),
+            scan_started + std::time::Duration::from_secs(config.timeout_seconds as u64),
         );
         self.task = Some(tauri::async_runtime::spawn(async move {
             let saved_blocks = completed_blocks.clone();
@@ -360,12 +426,14 @@ impl OcrRuntime {
                     .acquire_owned()
                     .await
                     .map_err(|_| "OCR encoder unavailable")?;
-                let encoding_capture = capture.clone();
+                let encoding_capture = capture;
                 let (images, crops) = tokio::task::spawn_blocking(move || {
                     let _permit = permit;
+                    let started = std::time::Instant::now();
                     let mut images = Vec::with_capacity(2);
                     let mut crops = Vec::with_capacity(2);
-                    for eye in &encoding_capture.eyes {
+                    for (eye_index, eye) in encoding_capture.eyes.iter().enumerate() {
+                        let eye_started = std::time::Instant::now();
                         let mut crop = center_crop(&eye.image, fraction)?;
                         images.push(OcrImage {
                             data: if local {
@@ -376,10 +444,26 @@ impl OcrRuntime {
                             width: crop.image.width,
                             height: crop.image.height,
                         });
-                        crops.push(crop);
+                        let upload_bytes = match &images.last().unwrap().data {
+                            OcrImageData::Encoded(bytes) => bytes.len(),
+                            OcrImageData::Rgba(_) => 0,
+                        };
+                        tracing::debug!(
+                            scan_id = id,
+                            eye = eye_index,
+                            elapsed_ms = eye_started.elapsed().as_millis() as u64,
+                            upload_bytes,
+                            "OCR eye prepared"
+                        );
+                        crops.push(crop.transform());
                     }
                     let images: [OcrImage; 2] =
                         images.try_into().map_err(|_| "Missing OCR eye image")?;
+                    tracing::debug!(
+                        scan_id = id,
+                        elapsed_ms = started.elapsed().as_millis() as u64,
+                        "OCR cropped and encoded"
+                    );
                     Ok::<_, String>((images, crops))
                 })
                 .await
@@ -404,15 +488,7 @@ impl OcrRuntime {
                             let mut saved = saved_blocks
                                 .lock()
                                 .unwrap_or_else(|error| error.into_inner());
-                            let eye_blocks = &mut saved[update.eye];
-                            if let Some(block) = eye_blocks
-                                .iter_mut()
-                                .find(|block| block.source.id == update.block.source.id)
-                            {
-                                *block = update.block;
-                            } else {
-                                eye_blocks.push(update.block);
-                            }
+                            saved.apply(update);
                         },
                     )
                     .await?;
@@ -429,6 +505,7 @@ impl OcrRuntime {
                     let blocks = completed_blocks
                         .lock()
                         .unwrap_or_else(|error| error.into_inner())
+                        .blocks
                         .clone();
                     let summary =
                         ScanSummary::from_blocks(&blocks, source_view(settings.ocr()), true);
@@ -439,6 +516,12 @@ impl OcrRuntime {
                 blocks: result.blocks,
                 summary: result.summary,
             });
+            tracing::info!(
+                scan_id = id,
+                elapsed_ms = scan_started.elapsed().as_millis() as u64,
+                success = result.is_ok(),
+                "OCR worker finished"
+            );
             let _ = sender.send(Update::Finished(id, result)).await;
         }));
         Ok(())
@@ -446,7 +529,7 @@ impl OcrRuntime {
 }
 
 fn tracking_valid(
-    capture: &StereoCapture,
+    capture: &CaptureMetadata,
     pose: [[f32; 4]; 3],
     scene_pid: u32,
     origin: i32,
@@ -505,6 +588,81 @@ mod tests {
                 error_code: translation.is_none().then(|| "translation_failed".into()),
             }],
         }
+    }
+
+    #[test]
+    fn ocr_wrist_keeps_untranslated_blocks_between_translations() {
+        let mut runtime = OcrRuntime::new(None, None);
+        runtime.blocks = [
+            vec![
+                block(0, "first", Some("translated")),
+                block(1, "pending", None),
+            ],
+            vec![],
+        ];
+        assert_eq!(runtime.wrist_texts(), ["translated", "pending"]);
+    }
+
+    #[test]
+    fn ocr_progress_shows_source_then_translation_and_rejects_old_scans() {
+        let mut runtime = OcrRuntime::new(None, None);
+        runtime.capture = Some(capture().as_ref().into());
+        runtime.status.state = OcrState::Translating;
+        let progress = Arc::new(Mutex::new(ScanProgress::new(runtime.status.scan_id)));
+        runtime.progress = Some(progress.clone());
+        let update = |scan_id, text| BlockUpdate {
+            scan_id,
+            eye: 0,
+            target_language: None,
+            block: block(0, "source", text),
+        };
+        progress
+            .lock()
+            .unwrap()
+            .apply(update(runtime.status.scan_id, None));
+        runtime.sync_progress();
+        assert_eq!(runtime.wrist_texts(), ["source"]);
+        assert!(!progress.lock().unwrap().dirty);
+        assert!(runtime.displayed_at.is_none());
+        progress
+            .lock()
+            .unwrap()
+            .apply(update(runtime.status.scan_id, Some("translated")));
+        runtime.sync_progress();
+        assert_eq!(runtime.wrist_texts(), ["translated"]);
+        assert_eq!(runtime.status.state, OcrState::Translating);
+        progress.lock().unwrap().apply(update(
+            runtime.status.scan_id.wrapping_add(1),
+            Some("stale"),
+        ));
+        runtime.sync_progress();
+        assert_eq!(runtime.wrist_texts(), ["translated"]);
+        runtime.clear();
+        progress.lock().unwrap().apply(update(0, Some("late")));
+        runtime.sync_progress();
+        assert!(runtime.wrist_texts().is_empty());
+    }
+
+    #[test]
+    fn ocr_timeout_keeps_recognized_sources_and_starts_display_time_on_finish() {
+        let mut runtime = OcrRuntime::new(None, None);
+        let mut metadata: CaptureMetadata = capture().as_ref().into();
+        metadata.captured_at -= std::time::Duration::from_secs(60);
+        runtime.capture = Some(metadata);
+        let blocks = [vec![block(0, "source", None)], vec![]];
+        let summary = ScanSummary::from_blocks(&blocks, false, true);
+        let finishing = std::time::Instant::now();
+        runtime.finish_frame(OcrFrame { blocks, summary });
+        assert_eq!(runtime.wrist_texts(), ["source"]);
+        assert_eq!(runtime.status.state, OcrState::TimedOut);
+        assert!(runtime.status.timed_out);
+        assert!(runtime.displayed_at.unwrap() >= finishing);
+        let blocks = Default::default();
+        let summary = ScanSummary::from_blocks(&blocks, false, true);
+        runtime.finish_frame(OcrFrame { blocks, summary });
+        assert!(runtime.wrist_texts().is_empty());
+        assert!(runtime.capture.is_none());
+        assert_eq!(runtime.status.state, OcrState::TimedOut);
     }
 
     #[test]
@@ -612,7 +770,7 @@ mod tests {
     #[test]
     fn ocr_clearing_rejects_late_phases() {
         let mut runtime = OcrRuntime::new(None, None);
-        runtime.capture = Some(capture());
+        runtime.capture = Some(capture().as_ref().into());
         let old = runtime.status.scan_id;
         runtime
             .sender
@@ -623,7 +781,7 @@ mod tests {
         assert!(runtime.capture.is_none());
         assert!(runtime.blocks.iter().all(|eye| eye.is_empty()));
         assert_eq!(runtime.status.failed_translations, 0);
-        runtime.capture = Some(capture());
+        runtime.capture = Some(capture().as_ref().into());
         runtime
             .sender
             .try_send(Update::Phase(runtime.status.scan_id, Phase::Recognizing))
@@ -646,7 +804,7 @@ mod tests {
 
     #[test]
     fn scan_result_is_not_cancelled_by_head_movement() {
-        let reference = capture();
+        let reference: CaptureMetadata = capture().as_ref().into();
         let moved = transform::matrix(0., 15., 0., [0.08, 0., 0.]);
         assert!(tracking_valid(&reference, moved, 1, 1));
         let walked = transform::matrix(0., 15., 0., [0.15, 0., 0.]);

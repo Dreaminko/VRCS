@@ -221,7 +221,7 @@ pub fn ctc_decode(
     ))
 }
 
-fn validate_image(rgba: &[u8], width: u32, height: u32) -> Result<(), String> {
+pub(super) fn validate_image(rgba: &[u8], width: u32, height: u32) -> Result<(), String> {
     if width == 0
         || height == 0
         || (width as usize)
