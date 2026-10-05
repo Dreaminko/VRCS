@@ -30,7 +30,8 @@ pub use language::LanguagePreset;
 pub use profile::{ApiAuthMode, ApiProfile, HttpHeaderConfig, DEFAULT_PROFILE_TIMEOUT_MS};
 #[allow(unused_imports)]
 pub use recognition::{
-    default_service_settings, AsrConfig, LocalAsrConfig, RecognitionServiceSettings,
+    default_service_settings, AsrConfig, LocalAsrConfig, ManagedQwenConfig,
+    RecognitionServiceSettings, QWEN_MANAGED_BACKEND,
 };
 pub use runtime::{ExternalApiConfig, ServerConfig, StorageConfig, VrcxConfig};
 pub use schema::{AppConfig, SCHEMA_VERSION};
@@ -40,4 +41,6 @@ pub use translation::{
     DEFAULT_TRANSLATION_SYSTEM_PROMPT,
 };
 pub use validation::{validate_glossary_source_url, validate_translation_prompt};
-pub use vr_overlay::{VrOverlayConfig, VrOverlayHeadsetConfig, VrOverlayWristConfig};
+pub use vr_overlay::{
+    VrOcrBackend, VrOcrConfig, VrOverlayConfig, VrOverlayHeadsetConfig, VrOverlayWristConfig,
+};

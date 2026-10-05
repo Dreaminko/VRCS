@@ -9,6 +9,8 @@ import type {
   ApiProfileView,
   AsrCapabilities,
   AsrModelRecord,
+  QwenModelRecord,
+  QwenRuntimeStatus,
   ProviderDefinition,
 } from "../../providers/types";
 import type { Settings } from "../types";
@@ -45,8 +47,12 @@ export function useAsrModels({
 }) {
   const { t } = useTranslation();
   const [managedModels, setManagedModels] = useState<AsrModelRecord[]>([]);
+  const [qwenModels, setQwenModels] = useState<QwenModelRecord[]>([]);
   const [modelsReady, setModelsReady] = useState(false);
+  const [qwenModelsReady, setQwenModelsReady] = useState(false);
+  const [qwenRuntime, setQwenRuntime] = useState<QwenRuntimeStatus | null>(null);
   const [message, setMessage] = useState("");
+  const [qwenMessage, setQwenMessage] = useState("");
   const [modelDirectoryText, setModelDirectoryText] = useState(settings.storage.model_directory);
   const managedModelsRef = useRef(managedModels);
   managedModelsRef.current = managedModels;
@@ -81,11 +87,29 @@ export function useAsrModels({
     [fetchModels],
   );
 
+  const fetchQwenModels = useCallback(async (isCancelled: () => boolean) => {
+    try {
+      const [next, runtime] = await Promise.all([providersApi.qwenModels(), providersApi.qwenRuntime()]);
+      if (isCancelled()) return;
+      setQwenModels(next);
+      setQwenRuntime(runtime);
+      setQwenModelsReady(true);
+    } catch (reason) {
+      if (isCancelled()) return;
+      setQwenModelsReady(false);
+      setQwenMessage(localizedError(reason, t, "errors.asr.models"));
+    }
+  }, [t]);
+  const loadQwenModels = useCallback(
+    () => fetchQwenModels(() => false),
+    [fetchQwenModels],
+  );
+
   useEffect(() => {
     let cancelled = false;
     let timer: number | null = null;
     const poll = async () => {
-      await fetchModels(() => cancelled);
+      await Promise.all([fetchModels(() => cancelled), fetchQwenModels(() => cancelled)]);
       if (!cancelled && active) timer = window.setTimeout(() => void poll(), 750);
     };
     void poll();
@@ -93,7 +117,7 @@ export function useAsrModels({
       cancelled = true;
       if (timer !== null) window.clearTimeout(timer);
     };
-  }, [active, fetchModels]);
+  }, [active, fetchModels, fetchQwenModels]);
 
   const updateAsr = <K extends keyof Settings["asr"]>(
     key: K,
@@ -135,6 +159,16 @@ export function useAsrModels({
       }
       return { ...current, asr: { ...current.asr, local } };
     });
+  };
+
+  const updateManagedQwen = <K extends keyof Settings["asr"]["managed_qwen"]>(
+    key: K,
+    value: Settings["asr"]["managed_qwen"][K],
+  ) => {
+    draftController.applySettings((current) => ({
+      ...current,
+      asr: { ...current.asr, managed_qwen: { ...current.asr.managed_qwen, [key]: value } },
+    }));
   };
 
   const updateVad = <K extends keyof Settings["vad"]>(
@@ -209,6 +243,24 @@ export function useAsrModels({
     }
   };
 
+  const runQwenAction = async (
+    model: QwenModelRecord,
+    action: (id: string) => Promise<unknown>,
+  ) => {
+    try {
+      await action(model.id);
+      setQwenMessage("");
+      await loadQwenModels();
+      await onModelsChanged();
+    } catch (reason) {
+      setQwenMessage(localizedError(reason, t, "errors.asr.models"));
+    }
+  };
+  const removeQwenModel = async (model: QwenModelRecord) => {
+    if (!window.confirm(t("settings.recognition.confirmDelete", { name: model.id }))) return;
+    await runQwenAction(model, providersApi.deleteQwenModel);
+  };
+
   const selectedModelCapability = asrCapabilities?.models.find(
     (model) => model.id === draftController.draft.asr.local.model,
   );
@@ -227,20 +279,30 @@ export function useAsrModels({
 
   return {
     managedModels,
+    qwenModels,
     modelsReady,
+    qwenModelsReady,
+    qwenRuntime,
     message,
+    qwenMessage,
     modelDirectoryText,
     setModelDirectoryText,
     loadModels,
+    loadQwenModels,
     updateAsr,
     updateRecognitionSource,
     updateRecognitionService,
     updateLocalAsr,
+    updateManagedQwen,
     updateVad,
     updateModelDirectory,
     chooseModelDirectory,
     downloadModel,
     removeModel,
+    downloadQwenModel: (model: QwenModelRecord) => runQwenAction(model, providersApi.downloadQwenModel),
+    cancelQwenDownload: (model: QwenModelRecord) => runQwenAction(model, providersApi.cancelQwenDownload),
+    verifyQwenModel: (model: QwenModelRecord) => runQwenAction(model, providersApi.verifyQwenModel),
+    removeQwenModel,
     modelStatusLabel: modelStatusLabel(selectedModelStatus, t),
     ...classified,
   };

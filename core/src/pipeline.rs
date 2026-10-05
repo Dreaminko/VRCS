@@ -10,8 +10,8 @@ use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
 
 use crate::asr::{
-    share_audio, spawn_cloud_recognition_session, CloudEvent, CloudRecognitionSession,
-    SegmentationMode,
+    share_audio, spawn_cloud_recognition_session, spawn_managed_qwen_session, CloudEvent,
+    CloudRecognitionSession, SegmentationMode,
 };
 use crate::audio::{AudioCapture, AudioError, CaptureSource};
 use crate::config::{AsrConfig, VadConfig};
@@ -212,9 +212,18 @@ impl TranscriptionPipeline {
         let cloud = if asr_config.backend == "local_whisper" {
             None
         } else {
-            match spawn_cloud_recognition_session(asr_config.clone(), vad_config.silence_seconds)
-                .await
-            {
+            let session = if asr_config.backend == crate::config::QWEN_MANAGED_BACKEND {
+                match dependencies.managed_qwen() {
+                    Some((runtime, manager)) => {
+                        spawn_managed_qwen_session(asr_config.clone(), runtime, manager).await
+                    }
+                    None => Err("Managed Qwen ASR runtime is unavailable".into()),
+                }
+            } else {
+                spawn_cloud_recognition_session(asr_config.clone(), vad_config.silence_seconds)
+                    .await
+            };
+            match session {
                 Ok(session) => Some(session),
                 Err(error) if asr_config.cloud_failure_policy == "local" => {
                     dependencies.publish_live(LiveTranscription::Failed {

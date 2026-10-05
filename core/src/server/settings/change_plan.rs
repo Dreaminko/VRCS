@@ -115,7 +115,11 @@ impl SettingsChangePlan {
 
         if let Err(detail) = self
             .asr_runtime
-            .prepare(&self.candidate, self.model_directory.candidate_path.clone())
+            .prepare(
+                state,
+                &self.candidate,
+                self.model_directory.candidate_path.clone(),
+            )
             .await
         {
             let error = api_error(

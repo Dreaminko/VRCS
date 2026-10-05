@@ -1,4 +1,6 @@
 import type {
+  VrOcrModelStatus,
+  VrOcrSettings,
   VrOverlayHeadsetSettings,
   VrOverlaySettings,
   VrOverlayWristSettings,
@@ -56,7 +58,26 @@ export const DEFAULT_VR_OVERLAY_SETTINGS: VrOverlaySettings = {
   translation_display: "all_languages",
   headset: { ...DEFAULT_VR_OVERLAY_HEADSET_SETTINGS },
   wrist: { ...DEFAULT_VR_OVERLAY_WRIST_SETTINGS },
+  ocr: {
+    enabled: false,
+    backend: "cloud",
+    timeout_seconds: 30,
+    minimum_confidence: 0.6,
+    region_fraction: 0.6,
+    targets: [{ target_language: "zh-Hans", profile_id: null, model: "gpt-5-mini", thinking_enabled: false }],
+    hand_gesture_enabled: true,
+    display_seconds: 15,
+    background_opacity: 0.75,
+  },
 };
+
+export function isVrOcrBackendReady(
+  backend: VrOcrSettings["backend"],
+  credentialConfigured: boolean,
+  modelState?: VrOcrModelStatus["state"],
+): boolean {
+  return backend === "local" ? modelState === "ready" : credentialConfigured;
+}
 
 export function patchVrOverlay(
   settings: Settings,

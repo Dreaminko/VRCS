@@ -6,11 +6,14 @@ import type {
   ApiProfileView,
   AsrCapabilities,
   AsrModelRecord,
+  QwenModelRecord,
+  QwenRuntimeStatus,
   ProviderDefinition,
 } from "../../providers/types";
 import type { Settings } from "../types";
 import { CloudProviderSettings } from "../recognition/CloudProviderSettings";
 import { LocalRecognitionSettings, LocalRuntimeStatus } from "../recognition/LocalRecognitionSettings";
+import { ManagedQwenSettings } from "../recognition/ManagedQwenSettings";
 import { ModelManagerPanel } from "../recognition/ModelManagerPanel";
 import { VadSettings } from "../recognition/VadSettings";
 import {
@@ -18,6 +21,7 @@ import {
   recognitionSourceValue,
   showsLocalRecognitionSettings,
 } from "../settings-derived";
+import { MANAGED_QWEN_RECOGNITION_SOURCE } from "../../recognition-services";
 import type { SaveState } from "../settings-types";
 import { Select } from "../SettingsControls";
 
@@ -36,6 +40,10 @@ type RecognitionModels = {
   ready: boolean;
   message: string;
   directoryText: string;
+  qwen: QwenModelRecord[];
+  qwenReady: boolean;
+  qwenRuntime: QwenRuntimeStatus | null;
+  qwenMessage: string;
 };
 
 type RecognitionActions = {
@@ -43,6 +51,7 @@ type RecognitionActions = {
   updateRecognitionSource: (source: string) => void;
   updateRecognitionService: (serviceId: string) => void;
   updateLocalAsr: <K extends keyof Settings["asr"]["local"]>(key: K, value: Settings["asr"]["local"][K]) => void;
+  updateManagedQwen: <K extends keyof Settings["asr"]["managed_qwen"]>(key: K, value: Settings["asr"]["managed_qwen"][K]) => void;
   updateVad: <K extends keyof Settings["vad"]>(key: K, value: Settings["vad"][K]) => void;
   loadModels: () => Promise<void>;
   setModelDirectoryText: (value: string) => void;
@@ -50,6 +59,11 @@ type RecognitionActions = {
   chooseModelDirectory: () => Promise<void>;
   downloadModel: (model: AsrModelRecord) => Promise<void>;
   removeModel: (model: AsrModelRecord) => Promise<void>;
+  loadQwenModels: () => Promise<void>;
+  downloadQwenModel: (model: QwenModelRecord) => Promise<void>;
+  cancelQwenDownload: (model: QwenModelRecord) => Promise<void>;
+  verifyQwenModel: (model: QwenModelRecord) => Promise<void>;
+  removeQwenModel: (model: QwenModelRecord) => Promise<void>;
 };
 
 export function RecognitionSettingsSection({
@@ -75,9 +89,11 @@ export function RecognitionSettingsSection({
 }) {
   const { t } = useTranslation();
   const usesLocalAsr = showsLocalRecognitionSettings(draft.asr.backend);
+  const usesManagedQwen = draft.asr.backend === "qwen_local_managed";
   const recognitionSource = recognitionSourceValue(draft.asr);
   const sourceOptions = [
     { value: LOCAL_RECOGNITION_SOURCE, label: t("settings.recognition.localSource") },
+    { value: MANAGED_QWEN_RECOGNITION_SOURCE, label: t("settings.recognition.managedQwenSource") },
     ...recognitionProfiles(apiProfiles)
       .map((profile) => {
         const providerLabel = profile.provider_display_name;
@@ -125,7 +141,7 @@ export function RecognitionSettingsSection({
             />
           </div>
         </div>
-        {!usesLocalAsr && (
+        {!usesLocalAsr && !usesManagedQwen && (
           <CloudProviderSettings
             draft={draft}
             apiProfiles={apiProfiles}
@@ -148,9 +164,25 @@ export function RecognitionSettingsSection({
             onUpdateLocalAsr={actions.updateLocalAsr}
           />
         )}
+        {usesManagedQwen && <ManagedQwenSettings
+          locale={locale}
+          draft={draft}
+          models={models.qwen}
+          ready={models.qwenReady}
+          runtime={models.qwenRuntime}
+          message={models.qwenMessage}
+          disabled={false}
+          onUpdateAsr={actions.updateAsr}
+          onUpdateQwen={actions.updateManagedQwen}
+          onRefresh={actions.loadQwenModels}
+          onDownload={actions.downloadQwenModel}
+          onCancel={actions.cancelQwenDownload}
+          onVerify={actions.verifyQwenModel}
+          onRemove={actions.removeQwenModel}
+        />}
         <VadSettings vad={draft.vad} disabled={false} onUpdate={actions.updateVad} />
       </div>
-      {usesLocalAsr && (
+      {(usesLocalAsr || usesManagedQwen) && (
         <ModelManagerPanel
           locale={locale}
           disabled={false}

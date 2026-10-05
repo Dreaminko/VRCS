@@ -21,6 +21,87 @@ const MESSAGE_PADDING_Y: i32 = 8;
 const MESSAGE_GAP: i32 = 10;
 const MIN_FONT_SIZE_PX: i32 = 16;
 
+pub(super) fn compact_text_box_size(
+    text: &str,
+    max_width: u32,
+    max_height: u32,
+) -> Result<Option<(u32, u32)>, String> {
+    if max_width < 12 || max_height < 12 || max_width > 960 || max_height > 720 {
+        return Ok(None);
+    }
+    for font_size in [24, 18, 12] {
+        let mask = TextMask::new(1, 1, font_size)?;
+        let (width, height) = mask.measure_size(text, max_width as i32 - 8, MessageSide::Left);
+        if width > 0
+            && height > 0
+            && width + 8 <= max_width as i32
+            && height + 8 <= max_height as i32
+        {
+            return Ok(Some((
+                (width as u32 + 8).max(12),
+                (height as u32 + 8).max(12),
+            )));
+        }
+    }
+    Ok(None)
+}
+
+pub(super) fn render_text_box(
+    text: &str,
+    width: u32,
+    height: u32,
+    background_opacity: f32,
+) -> Result<Option<Vec<u8>>, String> {
+    let padding = 4;
+    if width < 12 || height < 12 || width > 4096 || height > 4096 {
+        return Ok(None);
+    }
+    let available_width = width as i32 - padding * 2;
+    let available_height = height as i32 - padding * 2;
+    let mut low = 12;
+    let mut high = (height as i32 - padding * 2).clamp(12, 48);
+    let mut best = None;
+    while low <= high {
+        let size = (low + high) / 2;
+        let candidate = TextMask::new(width, height, size)?;
+        let (text_width, text_height) =
+            candidate.measure_size(text, available_width, MessageSide::Left);
+        if text_width <= available_width && text_height <= available_height {
+            best = Some(candidate);
+            low = size + 1;
+        } else {
+            high = size - 1;
+        }
+    }
+    let Some(mut best) = best else {
+        return Ok(None);
+    };
+    let rect = Rect::new(
+        padding,
+        padding,
+        width as i32 - padding,
+        height as i32 - padding,
+    );
+    best.draw(text, rect, MessageSide::Left)?;
+    let alpha = (background_opacity.clamp(0.0, 1.0) * 255.0).round() as u8;
+    Ok(Some(
+        best.pixels()
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .flat_map(|pixel| {
+                let coverage = pixel[0].max(pixel[1]).max(pixel[2]);
+                [
+                    coverage,
+                    coverage,
+                    coverage,
+                    alpha.saturating_add(((255 - alpha) as u16 * coverage as u16 / 255) as u8),
+                ]
+            })
+            .collect(),
+    ))
+}
+
 pub fn render(
     messages: &[WristMessage],
     width: u32,
@@ -219,6 +300,10 @@ impl TextMask {
     }
 
     fn measure(&self, text: &str, width: i32, side: MessageSide) -> i32 {
+        self.measure_size(text, width, side).1
+    }
+
+    fn measure_size(&self, text: &str, width: i32, side: MessageSide) -> (i32, i32) {
         unsafe {
             let mut wide: Vec<u16> = text.encode_utf16().collect();
             let mut measured = RECT {
@@ -233,6 +318,10 @@ impl TextMask {
                 wide.len() as i32,
                 &mut measured,
                 text_flags(side) | DT_CALCRECT,
+            );
+            (
+                measured.right - measured.left,
+                measured.bottom - measured.top,
             )
         }
     }
@@ -439,5 +528,18 @@ mod tests {
         );
         let next = render(&messages, 768, 768, 36, 0.5).unwrap();
         assert_ne!(first, next);
+    }
+
+    #[test]
+    fn ocr_text_boxes_reject_overflow_at_the_minimum_font_size() {
+        assert!(render_text_box("VR", 80, 50, 0.6).unwrap().is_some());
+        assert!(
+            render_text_box(&"Long translation sentence. ".repeat(12), 80, 30, 0.6)
+                .unwrap()
+                .is_none()
+        );
+        assert!(render_text_box(&"W".repeat(100), 80, 80, 0.6)
+            .unwrap()
+            .is_none());
     }
 }

@@ -18,6 +18,7 @@ use crate::translation::{TranslationDispatcher, TranslationService};
 use crate::{asr, smart_turn, vad};
 
 pub(crate) struct ConfigRuntime {
+    pub(crate) local_ocr: Arc<crate::ocr::LocalOcrRuntime>,
     pub(crate) config_path: PathBuf,
     pub(crate) asr_model_dir_override: Option<PathBuf>,
     pub(crate) config: Arc<RwLock<AppConfig>>,
@@ -35,7 +36,13 @@ pub(crate) struct ConfigRuntimeInput {
 
 impl ConfigRuntime {
     pub(crate) fn new(input: ConfigRuntimeInput) -> Self {
+        let ocr_directory = input
+            .config_path
+            .parent()
+            .unwrap_or_else(|| std::path::Path::new("."))
+            .join("models/ocr/ppocrv6-small");
         Self {
+            local_ocr: Arc::new(crate::ocr::LocalOcrRuntime::new(ocr_directory)),
             config_path: input.config_path,
             asr_model_dir_override: input.asr_model_dir_override,
             config: Arc::new(RwLock::new(input.config)),
@@ -55,6 +62,7 @@ pub(crate) struct CaptureRuntime {
     pub(crate) asr: Arc<Mutex<asr::AsrService>>,
     pub(crate) asr_runtime: asr::AsrRuntimeState,
     pub(crate) model_manager: Arc<asr::ModelManager>,
+    pub(crate) qwen_runtime: Arc<asr::QwenRuntime>,
     pub(crate) capture_control: AsyncMutex<()>,
     pub(crate) capture_requested: AtomicBool,
     pub(crate) speaker_pipeline: AsyncMutex<TranscriptionPipeline>,
@@ -85,6 +93,7 @@ impl CaptureRuntime {
             asr: input.asr,
             asr_runtime: input.asr_runtime,
             model_manager: input.model_manager,
+            qwen_runtime: Arc::new(asr::QwenRuntime::new()),
             capture_control: AsyncMutex::new(()),
             capture_requested: AtomicBool::new(false),
             speaker_pipeline: AsyncMutex::new(TranscriptionPipeline::new(

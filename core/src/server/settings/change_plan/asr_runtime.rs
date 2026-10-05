@@ -1,13 +1,15 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use crate::config::AppConfig;
+use crate::config::{AppConfig, QWEN_MANAGED_BACKEND};
 
 use super::super::super::{capture, SettingsContext};
 
 pub(super) struct AsrRuntimeChange {
     changed: bool,
     preload: bool,
+    preload_qwen: bool,
+    stop_qwen: bool,
     prepared_candidate: Option<Box<dyn crate::asr::AsrEngine>>,
     previous_engine: Option<Box<dyn crate::asr::AsrEngine>>,
     attempted: bool,
@@ -27,7 +29,15 @@ impl AsrRuntimeChange {
             || (!current_local_required && local_required);
         Self {
             changed: capture::asr_runtime_changed(current, candidate) || model_directory_changed,
-            preload: reload_capture && local_runtime_changed && local_required,
+            preload: reload_capture
+                && local_runtime_changed
+                && local_required
+                && candidate.asr.backend != QWEN_MANAGED_BACKEND,
+            preload_qwen: reload_capture && candidate.asr.backend == QWEN_MANAGED_BACKEND,
+            stop_qwen: current.asr.backend == QWEN_MANAGED_BACKEND
+                && (model_directory_changed
+                    || candidate.asr.backend != QWEN_MANAGED_BACKEND
+                    || current.asr.managed_qwen != candidate.asr.managed_qwen),
             prepared_candidate: None,
             previous_engine: None,
             attempted: false,
@@ -36,9 +46,21 @@ impl AsrRuntimeChange {
 
     pub(super) async fn prepare(
         &mut self,
+        state: &SettingsContext,
         candidate: &AppConfig,
         model_directory: PathBuf,
     ) -> Result<(), String> {
+        if self.stop_qwen {
+            state.capture.qwen_runtime.stop().await?;
+        }
+        if self.preload_qwen {
+            crate::asr::prepare_managed_qwen(
+                &candidate.asr,
+                &state.capture.qwen_runtime,
+                &state.capture.model_manager,
+            )
+            .await?;
+        }
         if self.preload {
             self.prepared_candidate = Some(prepare_asr_runtime(candidate, model_directory).await?);
         }
@@ -69,8 +91,13 @@ impl AsrRuntimeChange {
         state: &SettingsContext,
         previous: &AppConfig,
     ) -> Result<(), String> {
+        let stop_error = if self.preload_qwen {
+            state.capture.qwen_runtime.stop().await.err()
+        } else {
+            None
+        };
         if !self.attempted {
-            return Ok(());
+            return stop_error.map_or(Ok(()), Err);
         }
         let model_directory = state
             .config
@@ -90,7 +117,7 @@ impl AsrRuntimeChange {
         )
         .await?;
         self.attempted = false;
-        Ok(())
+        stop_error.map_or(Ok(()), Err)
     }
 }
 
@@ -147,5 +174,18 @@ mod tests {
         let active = AsrRuntimeChange::between(&current, &candidate, false, true);
         assert!(active.changed);
         assert!(active.preload);
+    }
+
+    #[test]
+    fn managed_qwen_switch_prepares_one_shared_runtime() {
+        let mut current = AppConfig::default();
+        current.asr.backend = "local_whisper".into();
+        let mut candidate = current.clone();
+        candidate.asr.backend = QWEN_MANAGED_BACKEND.into();
+        candidate.asr.cloud_failure_policy = "local".into();
+
+        let change = AsrRuntimeChange::between(&current, &candidate, false, true);
+        assert!(change.preload_qwen);
+        assert!(!change.preload);
     }
 }

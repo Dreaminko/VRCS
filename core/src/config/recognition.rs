@@ -4,10 +4,13 @@ use serde::{Deserialize, Serialize};
 
 use crate::providers::{
     SERVICE_FUN_ASR_REALTIME, SERVICE_GEMINI_TRANSCRIBE, SERVICE_GROQ_TRANSCRIPTION,
-    SERVICE_OPENAI_REALTIME, SERVICE_QWEN_REALTIME, SERVICE_TOKEN_PLAN_REALTIME,
+    SERVICE_OPENAI_REALTIME, SERVICE_QWEN_LOCAL_TRANSCRIPTION, SERVICE_QWEN_REALTIME,
+    SERVICE_TOKEN_PLAN_REALTIME,
 };
 
 use super::ApiProfile;
+
+pub const QWEN_MANAGED_BACKEND: &str = "qwen_local_managed";
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AsrConfig {
@@ -17,6 +20,8 @@ pub struct AsrConfig {
     pub language: String,
     #[serde(default)]
     pub local: LocalAsrConfig,
+    #[serde(default)]
+    pub managed_qwen: ManagedQwenConfig,
     #[serde(default)]
     pub api_profiles: Vec<ApiProfile>,
     #[serde(default)]
@@ -43,6 +48,14 @@ pub struct LocalAsrConfig {
     pub compute_type: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ManagedQwenConfig {
+    #[serde(default = "default_managed_qwen_package")]
+    pub package_id: String,
+    #[serde(default = "default_device")]
+    pub device: String,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RecognitionServiceSettings {
     #[serde(default)]
@@ -53,6 +66,10 @@ pub struct RecognitionServiceSettings {
 
 pub(super) fn default_asr_model() -> String {
     "small".into()
+}
+
+fn default_managed_qwen_package() -> String {
+    "qwen3-asr-0.6b-q8_0".into()
 }
 
 fn default_asr_backend() -> String {
@@ -134,6 +151,13 @@ pub fn default_service_settings() -> BTreeMap<String, RecognitionServiceSettings
             },
         ),
         (
+            SERVICE_QWEN_LOCAL_TRANSCRIPTION,
+            RecognitionServiceSettings {
+                model: "Qwen/Qwen3-ASR-0.6B".into(),
+                context: String::new(),
+            },
+        ),
+        (
             SERVICE_GEMINI_TRANSCRIBE,
             RecognitionServiceSettings {
                 model: "gemini-3.5-transcribe-live".into(),
@@ -152,6 +176,7 @@ impl Default for AsrConfig {
             backend: default_asr_backend(),
             language: default_language(),
             local: LocalAsrConfig::default(),
+            managed_qwen: ManagedQwenConfig::default(),
             api_profiles: Vec::new(),
             active_profile_id: None,
             service_settings: default_service_settings(),
@@ -168,6 +193,15 @@ impl Default for LocalAsrConfig {
             model: default_asr_model(),
             device: default_device(),
             compute_type: default_compute_type(),
+        }
+    }
+}
+
+impl Default for ManagedQwenConfig {
+    fn default() -> Self {
+        Self {
+            package_id: default_managed_qwen_package(),
+            device: default_device(),
         }
     }
 }

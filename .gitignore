@@ -79,3 +79,11 @@ Desktop.ini
 
 # Automatically generated config migration backups
 *.v*.backup.json
+
+# Local documentation; keep the Alibaba Cloud guide and its image assets
+/docs/*
+!/docs/AlibabaCloud_Free.md
+!/docs/images/
+/docs/images/*
+!/docs/images/APIKeys.png
+!/docs/images/WorkspaceID.png

@@ -6,7 +6,7 @@ use super::{
     VrOverlayConfig, VrcxConfig,
 };
 
-pub const SCHEMA_VERSION: u32 = 26;
+pub const SCHEMA_VERSION: u32 = 27;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AppConfig {
@@ -127,10 +127,12 @@ mod tests {
                 "cloud_failure_policy",
                 "language",
                 "local",
+                "managed_qwen",
                 "service_settings",
             ],
         );
         assert_keys(&value["asr"]["local"], ["compute_type", "device", "model"]);
+        assert_keys(&value["asr"]["managed_qwen"], ["device", "package_id"]);
         assert_keys(
             &value["asr"]["service_settings"]["qwen_realtime"],
             ["context", "model"],
@@ -200,7 +202,7 @@ mod tests {
         );
         assert_keys(
             &value["vr_overlay"],
-            ["enabled", "headset", "translation_display", "wrist"],
+            ["enabled", "headset", "ocr", "translation_display", "wrist"],
         );
         assert_keys(
             &value["vr_overlay"]["headset"],

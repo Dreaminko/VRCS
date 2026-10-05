@@ -177,6 +177,10 @@ export function SettingsPanel({
             ready: asr.modelsReady,
             message: asr.message,
             directoryText: asr.modelDirectoryText,
+            qwen: asr.qwenModels,
+            qwenReady: asr.qwenModelsReady,
+            qwenRuntime: asr.qwenRuntime,
+            qwenMessage: asr.qwenMessage,
           }}
           saveState={saveState}
           actions={{
@@ -184,6 +188,7 @@ export function SettingsPanel({
             updateRecognitionSource: asr.updateRecognitionSource,
             updateRecognitionService: asr.updateRecognitionService,
             updateLocalAsr: asr.updateLocalAsr,
+            updateManagedQwen: asr.updateManagedQwen,
             updateVad: asr.updateVad,
             loadModels: asr.loadModels,
             setModelDirectoryText: asr.setModelDirectoryText,
@@ -191,6 +196,11 @@ export function SettingsPanel({
             chooseModelDirectory: asr.chooseModelDirectory,
             downloadModel: asr.downloadModel,
             removeModel: asr.removeModel,
+            loadQwenModels: asr.loadQwenModels,
+            downloadQwenModel: asr.downloadQwenModel,
+            cancelQwenDownload: asr.cancelQwenDownload,
+            verifyQwenModel: asr.verifyQwenModel,
+            removeQwenModel: asr.removeQwenModel,
           }}
         />
       )}
@@ -288,6 +298,7 @@ export function SettingsPanel({
       {activeCategory === "vr_overlay" && (
         <VrOverlaySettingsSection
           draft={draft}
+          profiles={apiProfileCatalog.profiles}
           saveState={saveState}
           applySettings={applySettings}
         />

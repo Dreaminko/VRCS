@@ -2,6 +2,16 @@ const STEAMVR_SERVER_PROCESS: &str = "vrserver.exe";
 
 #[cfg(windows)]
 pub fn steamvr_running() -> bool {
+    process_running(None, STEAMVR_SERVER_PROCESS)
+}
+
+#[cfg(windows)]
+pub fn vrchat_process(pid: u32) -> bool {
+    process_running(Some(pid), "vrchat.exe")
+}
+
+#[cfg(windows)]
+fn process_running(pid: Option<u32>, name: &str) -> bool {
     use std::mem::{size_of, zeroed};
 
     use windows_sys::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE};
@@ -29,7 +39,9 @@ pub fn steamvr_running() -> bool {
                     .position(|character| *character == 0)
                     .unwrap_or(entry.szExeFile.len());
                 let executable = String::from_utf16_lossy(&entry.szExeFile[..len]);
-                if executable.eq_ignore_ascii_case(STEAMVR_SERVER_PROCESS) {
+                if executable.eq_ignore_ascii_case(name)
+                    && pid.is_none_or(|pid| pid == entry.th32ProcessID)
+                {
                     running = true;
                     break;
                 }

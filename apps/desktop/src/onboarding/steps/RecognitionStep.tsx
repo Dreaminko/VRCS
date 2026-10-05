@@ -6,6 +6,7 @@ import { ApiProfileEditor } from "../../settings/api/ApiProfileEditor";
 import type { useAsrModels } from "../../settings/hooks/useAsrModels";
 import type { SettingsDraftController } from "../../settings/hooks/useSettingsDraft";
 import { LocalRecognitionSettings, LocalRuntimeStatus } from "../../settings/recognition/LocalRecognitionSettings";
+import { ManagedQwenSettings } from "../../settings/recognition/ManagedQwenSettings";
 import { ModelManagerPanel } from "../../settings/recognition/ModelManagerPanel";
 import { Select } from "../../settings/SettingsControls";
 import { validComputeTypes } from "../../settings/settings-validation";
@@ -168,6 +169,17 @@ export function RecognitionStep({
         </div>
       ) : (
         <div className="onboarding-local-panel">
+          <Select
+            label={t("settings.recognition.source")}
+            value={draftController.draft.asr.backend === "qwen_local_managed" ? "managed_qwen" : "local"}
+            options={[
+              { value: "local", label: t("settings.recognition.localSource") },
+              { value: "managed_qwen", label: t("settings.recognition.managedQwenSource") },
+            ]}
+            disabled={operationBusy}
+            onChange={asr.updateRecognitionSource}
+          />
+          {draftController.draft.asr.backend !== "qwen_local_managed" && <>
           <LocalRuntimeStatus capabilities={asrCapabilities} />
           <LocalRecognitionSettings
             draft={draftController.draft}
@@ -180,6 +192,23 @@ export function RecognitionStep({
             onUpdateAsr={asr.updateAsr}
             onUpdateLocalAsr={asr.updateLocalAsr}
           />
+          </>}
+          {draftController.draft.asr.backend === "qwen_local_managed" && <ManagedQwenSettings
+            locale={locale}
+            draft={draftController.draft}
+            models={asr.qwenModels}
+            ready={asr.qwenModelsReady}
+            runtime={asr.qwenRuntime}
+            message={asr.qwenMessage}
+            disabled={operationBusy}
+            onUpdateAsr={asr.updateAsr}
+            onUpdateQwen={asr.updateManagedQwen}
+            onRefresh={asr.loadQwenModels}
+            onDownload={asr.downloadQwenModel}
+            onCancel={asr.cancelQwenDownload}
+            onVerify={asr.verifyQwenModel}
+            onRemove={asr.removeQwenModel}
+          />}
           <ModelManagerPanel
             locale={locale}
             disabled={operationBusy}

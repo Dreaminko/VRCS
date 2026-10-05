@@ -4,9 +4,10 @@ import test from "node:test";
 import {
   liveTranslationServiceName,
   recognitionEngineLabel,
+  recognitionSourceValue,
   recognitionServicesForProfile,
-  selectRecognitionService,
   selectRecognitionProfile,
+  selectRecognitionService,
   updateRecognitionServiceSettings,
 } from "../src/recognition-services.ts";
 import type { ApiProfileView, AsrSettings, ProviderDefinition } from "../src/types.ts";
@@ -48,6 +49,7 @@ const asr: AsrSettings = {
   backend: "local_whisper",
   language: "auto",
   local: { model: "small", device: "auto", compute_type: "int8" },
+  managed_qwen: { package_id: "qwen3-asr-0.6b-q8_0", device: "auto" },
   active_profile_id: "profile",
   service_settings: {},
   cloud_failure_policy: "reconnect",
@@ -102,6 +104,14 @@ test("engine labels use catalog display names and safely fall back to service ID
   const selected = selectRecognitionService(asr, definitions[0].services[0]);
   assert.equal(recognitionEngineLabel(selected, [profile], definitions), "Groq Transcription");
   assert.equal(recognitionEngineLabel(selected, [], []), "groq-transcribe");
+});
+
+test("managed Qwen is a local source without an API profile", () => {
+  const selected = selectRecognitionProfile(asr, "managed_qwen", [profile], definitions);
+  assert.equal(selected.backend, "qwen_local_managed");
+  assert.equal(selected.active_profile_id, null);
+  assert.equal(recognitionSourceValue(selected), "managed_qwen");
+  assert.equal(recognitionEngineLabel(selected, [], []), "Qwen3-ASR 0.6B");
 });
 
 test("native translation services keep their own labels and model settings", () => {

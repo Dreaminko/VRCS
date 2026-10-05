@@ -1,8 +1,27 @@
 mod backend;
 #[cfg(windows)]
 mod d3d11_texture;
+mod dashboard;
+mod dashboard_renderer;
 #[cfg(any(windows, test))]
 mod headset_layout;
+#[cfg(windows)]
+mod ocr_capture;
+#[cfg(windows)]
+mod ocr_geometry;
+#[cfg(windows)]
+mod ocr_gesture;
+#[cfg(windows)]
+mod ocr_input;
+#[cfg(windows)]
+mod ocr_input_state;
+#[cfg(windows)]
+mod ocr_renderer;
+#[cfg(windows)]
+mod ocr_runtime;
+mod ocr_status;
+#[cfg(windows)]
+mod ocr_tracking;
 mod presentation;
 mod process;
 mod renderer;
@@ -15,6 +34,7 @@ mod wrist_renderer;
 
 use tauri::State;
 
+use dashboard::DashboardViewModel;
 pub use runtime::Manager;
 use runtime::{SampleKind, VrOverlayStatus};
 
@@ -26,6 +46,19 @@ pub fn vr_overlay_status(manager: State<'_, Manager>) -> Result<VrOverlayStatus,
 #[tauri::command]
 pub fn vr_overlay_retry(manager: State<'_, Manager>) -> Result<(), String> {
     manager.retry()
+}
+
+#[tauri::command]
+pub fn vr_dashboard_update_view(
+    view: DashboardViewModel,
+    manager: State<'_, Manager>,
+) -> Result<(), String> {
+    manager.update_dashboard(view)
+}
+
+#[tauri::command]
+pub fn vr_ocr_open_bindings(manager: State<'_, Manager>) -> Result<(), String> {
+    manager.open_ocr_bindings()
 }
 
 #[tauri::command]

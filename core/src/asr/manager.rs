@@ -20,6 +20,12 @@ pub(super) struct DownloadJob {
     pub(super) done: Arc<Notify>,
 }
 
+impl DownloadJob {
+    pub(super) fn is_active(&self) -> bool {
+        matches!(self.status, "downloading" | "verifying")
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct ModelRecord {
     pub id: String,
@@ -63,10 +69,11 @@ impl ModelManager {
 
     pub fn move_model_dir(&self, model_dir: PathBuf) -> Result<(), String> {
         let mut jobs = self.jobs.lock().expect("model jobs lock");
-        if jobs.values().any(|job| job.status == "downloading") {
+        if jobs.values().any(DownloadJob::is_active) {
             return Err("The model storage path cannot be changed during a download".into());
         }
-        super::migration::move_model_dir(self.model_dir(), model_dir.clone())?;
+        let current = self.model_dir();
+        super::migration::move_model_dir(current, model_dir.clone())?;
         *self.model_dir.write().expect("model directory lock") = model_dir;
         jobs.clear();
         Ok(())
@@ -149,7 +156,7 @@ impl ModelManager {
             .lock()
             .expect("model jobs lock")
             .get(model)
-            .filter(|job| job.status == "downloading")
+            .filter(|job| job.is_active())
             .cloned();
         if let Some(job) = job {
             let _ = job.cancel.send(true);
@@ -174,7 +181,7 @@ impl ModelManager {
 
     pub fn cancel_all(&self) {
         for job in self.jobs.lock().expect("model jobs lock").values() {
-            if job.status == "downloading" {
+            if job.is_active() {
                 let _ = job.cancel.send(true);
             }
         }
@@ -186,7 +193,7 @@ impl ModelManager {
             .lock()
             .expect("model jobs lock")
             .values()
-            .filter(|job| job.status == "downloading")
+            .filter(|job| job.is_active())
             .cloned()
             .collect::<Vec<_>>();
         for job in &jobs {

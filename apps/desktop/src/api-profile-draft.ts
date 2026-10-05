@@ -1,4 +1,4 @@
-import { defaultEnabledCapabilities, profileEnabledCapabilities, providerDefinition } from "./provider-catalog";
+import { defaultEnabledCapabilities, profileEnabledCapabilities, providerDefinition } from "./provider-catalog.ts";
 import type {
   ApiAuthMode,
   ApiCapability,
@@ -34,7 +34,7 @@ export function createApiProfileDraft(
     base_url: definition?.connection.base_url.default ?? "",
     api_key: "",
     auth_mode: definition?.connection.default_auth_mode ?? "bearer",
-    timeout_ms: 8000,
+    timeout_ms: definition?.id === "qwen_local" ? 30_000 : 8000,
     headers: [],
     fields: Object.fromEntries(
       (definition?.connection.fields ?? []).map((field) => [field.id, field.default ?? defaultFieldValue(field)]),

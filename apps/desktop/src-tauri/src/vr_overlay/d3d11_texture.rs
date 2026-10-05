@@ -33,6 +33,20 @@ const IID_IDXGI_RESOURCE: Guid = Guid {
     data4: [0xb4, 0x1f, 0x8a, 0x7f, 0x8b, 0xd8, 0x96, 0x0b],
 };
 
+const IID_TEXTURE_2D: Guid = Guid {
+    data1: 0x6f15_aaf2,
+    data2: 0xd208,
+    data3: 0x4e89,
+    data4: [0x9a, 0xb4, 0x48, 0x95, 0x35, 0xd3, 0x4f, 0x9c],
+};
+
+#[repr(C)]
+struct MappedSubresource {
+    data: *mut c_void,
+    row_pitch: u32,
+    depth_pitch: u32,
+}
+
 type QueryInterface = unsafe extern "system" fn(*mut c_void, *const Guid, *mut *mut c_void) -> i32;
 type EnumAdapters1 = unsafe extern "system" fn(*mut c_void, u32, *mut *mut c_void) -> i32;
 type CreateTexture2d = unsafe extern "system" fn(
@@ -115,6 +129,138 @@ pub struct OverlayTexture {
 }
 
 impl Device {
+    pub fn raw_device(&self) -> *mut c_void {
+        self.device.0
+    }
+
+    /// The shader resource view must belong to this D3D11 device and remain alive for this call.
+    pub unsafe fn read_shader_resource(&self, view: *mut c_void) -> Result<Texture, String> {
+        if view.is_null() {
+            return Err("Mirror shader resource is null".into());
+        }
+        type GetResource = unsafe extern "system" fn(*mut c_void, *mut *mut c_void);
+        type GetDesc = unsafe extern "system" fn(*mut c_void, *mut Texture2dDesc);
+        type Map = unsafe extern "system" fn(
+            *mut c_void,
+            *mut c_void,
+            u32,
+            u32,
+            u32,
+            *mut MappedSubresource,
+        ) -> i32;
+        type Unmap = unsafe extern "system" fn(*mut c_void, *mut c_void, u32);
+        let get_resource: GetResource = unsafe { std::mem::transmute(method(view, 7)) };
+        let mut resource = null_mut();
+        unsafe {
+            get_resource(view, &mut resource);
+        }
+        if resource.is_null() {
+            return Err("Mirror texture resource is null".into());
+        }
+        let resource = ComPtr(resource);
+        let texture = query_interface(resource.0, &IID_TEXTURE_2D)?;
+        let get_desc: GetDesc = unsafe { std::mem::transmute(method(texture.0, 10)) };
+        let mut desc: Texture2dDesc = unsafe { std::mem::zeroed() };
+        unsafe {
+            get_desc(texture.0, &mut desc);
+        }
+        let bgra = match desc.format {
+            27..=29 => false,
+            87 | 90 | 91 => true,
+            _ => return Err("Unsupported mirror pixel format".into()),
+        };
+        if desc.width == 0
+            || desc.height == 0
+            || desc.width > 4096
+            || desc.height > 4096
+            || desc.array_size != 1
+            || desc.sample_desc.count != 1
+        {
+            return Err("Unsupported mirror texture dimensions or sampling".into());
+        }
+        desc.mip_levels = 1;
+        desc.usage = 3; // D3D11_USAGE_STAGING
+        desc.bind_flags = 0;
+        desc.cpu_access_flags = 0x20000; // D3D11_CPU_ACCESS_READ
+        desc.misc_flags = 0;
+        let create: CreateTexture2d =
+            unsafe { std::mem::transmute(method(self.device.0, CREATE_TEXTURE_2D_INDEX)) };
+        let mut staging = null_mut();
+        let result = unsafe { create(self.device.0, &desc, null(), &mut staging) };
+        if result < 0 || staging.is_null() {
+            unsafe {
+                release(staging);
+            }
+            return Err(format!(
+                "Create mirror staging texture failed: 0x{result:08x}"
+            ));
+        }
+        let staging = ComPtr(staging);
+        // Copy only subresource zero; the source may have additional mip levels.
+        type CopyRegion = unsafe extern "system" fn(
+            *mut c_void,
+            *mut c_void,
+            u32,
+            u32,
+            u32,
+            u32,
+            *mut c_void,
+            u32,
+            *const c_void,
+        );
+        let copy: CopyRegion = unsafe { std::mem::transmute(method(self.context.0, 46)) };
+        unsafe {
+            copy(self.context.0, staging.0, 0, 0, 0, 0, texture.0, 0, null());
+        }
+        let map: Map = unsafe { std::mem::transmute(method(self.context.0, 14)) };
+        let unmap: Unmap = unsafe { std::mem::transmute(method(self.context.0, 15)) };
+        let mut mapped = MappedSubresource {
+            data: null_mut(),
+            row_pitch: 0,
+            depth_pitch: 0,
+        };
+        let result = unsafe { map(self.context.0, staging.0, 0, 1, 0, &mut mapped) };
+        if result < 0 {
+            return Err(format!("Map mirror texture failed: 0x{result:08x}"));
+        }
+        if mapped.data.is_null() || mapped.row_pitch < desc.width * 4 {
+            unsafe {
+                unmap(self.context.0, staging.0, 0);
+            }
+            return Err("Invalid mapped mirror row pitch".into());
+        }
+        let row_bytes = desc.width as usize * 4;
+        let mut pixels = Vec::with_capacity(row_bytes * desc.height as usize);
+        for row in 0..desc.height as usize {
+            let data = unsafe {
+                std::slice::from_raw_parts(
+                    mapped
+                        .data
+                        .cast::<u8>()
+                        .add(row * mapped.row_pitch as usize),
+                    row_bytes,
+                )
+            };
+            pixels.extend_from_slice(data);
+        }
+        unsafe {
+            unmap(self.context.0, staging.0, 0);
+        }
+        if bgra {
+            for pixel in pixels.as_chunks_mut::<4>().0 {
+                pixel.swap(0, 2);
+            }
+        }
+        // The compositor's alpha is not meaningful for recognition.
+        for pixel in pixels.as_chunks_mut::<4>().0 {
+            pixel[3] = 255;
+        }
+        Ok(Texture {
+            width: desc.width,
+            height: desc.height,
+            pixels,
+        })
+    }
     pub fn create(adapter_index: u32) -> Result<Self, String> {
         let adapter = dxgi_adapter(adapter_index)?;
         let mut device = null_mut();
@@ -327,7 +473,35 @@ unsafe fn release(object: *mut c_void) {
 
 #[cfg(test)]
 mod tests {
-    use super::rgba_to_bgra;
+    use super::*;
+
+    #[test]
+    #[ignore = "requires a Windows D3D11 adapter"]
+    fn ocr_readback_preserves_rgba_and_row_pitch() {
+        let device = Device::create(0).unwrap();
+        let source = Texture {
+            width: 3,
+            height: 2,
+            pixels: vec![
+                10, 20, 30, 255, 40, 50, 60, 255, 70, 80, 90, 255, 100, 110, 120, 255, 130, 140,
+                150, 255, 160, 170, 180, 255,
+            ],
+        };
+        let texture = device.create_shared_texture(&source).unwrap();
+        type CreateView = unsafe extern "system" fn(
+            *mut c_void,
+            *mut c_void,
+            *const c_void,
+            *mut *mut c_void,
+        ) -> i32;
+        let create: CreateView = unsafe { std::mem::transmute(method(device.device.0, 7)) };
+        let mut view = null_mut();
+        assert!(unsafe { create(device.device.0, texture.texture.0, null(), &mut view) } >= 0);
+        let view = ComPtr(view);
+        let captured = unsafe { device.read_shader_resource(view.0) }.unwrap();
+        assert_eq!((captured.width, captured.height), (3, 2));
+        assert_eq!(captured.pixels, source.pixels);
+    }
 
     #[test]
     fn converts_rgba_pixels_to_bgra_without_changing_alpha() {

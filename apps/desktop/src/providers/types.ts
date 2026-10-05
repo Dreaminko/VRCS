@@ -13,6 +13,10 @@ export interface AsrSettings {
     device: "auto" | "cpu" | "cuda";
     compute_type: "int8";
   };
+  managed_qwen: {
+    package_id: string;
+    device: "auto" | "cpu";
+  };
   active_profile_id: string | null;
   service_settings: Record<string, RecognitionServiceSettings>;
   cloud_failure_policy: "reconnect" | "local";
@@ -171,6 +175,23 @@ export interface AsrModelRecord {
   total_bytes: number;
   progress: number;
   error: string | null;
+}
+
+export interface QwenModelRecord {
+  id: string;
+  engine: string;
+  repository: string;
+  revision: string;
+  status: "not_downloaded" | "downloading" | "verifying" | "installed" | "corrupt" | "error";
+  downloaded_bytes: number;
+  total_bytes: number;
+  progress: number;
+  error: string | null;
+}
+
+export interface QwenRuntimeStatus {
+  available: boolean;
+  running: boolean;
 }
 
 export interface AsrCapabilities {

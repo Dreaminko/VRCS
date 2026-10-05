@@ -17,6 +17,7 @@ import {
   getVrOverlayStatus,
   hideVrOverlaySample,
   listenVrOverlayStatus,
+  openVrOcrBindings,
   retryVrOverlay,
   showVrOverlaySample,
   UNSUPPORTED_VR_OVERLAY_STATUS,
@@ -24,18 +25,21 @@ import {
 } from "../src/vr-overlay-native.ts";
 
 const settings = {
-  schema_version: 26,
+  schema_version: 27,
   vr_overlay: DEFAULT_VR_OVERLAY_SETTINGS,
 } as unknown as Settings;
 
-test("VR Overlay defaults match the complete schema v23 contract", () => {
+test("VR Overlay defaults include disabled cloud OCR", () => {
   assert.deepEqual(Object.keys(DEFAULT_VR_OVERLAY_SETTINGS).sort(), [
     "enabled",
     "headset",
+    "ocr",
     "translation_display",
     "wrist",
   ]);
   assert.equal(DEFAULT_VR_OVERLAY_SETTINGS.translation_display, "all_languages");
+  assert.equal(DEFAULT_VR_OVERLAY_SETTINGS.ocr.enabled, false);
+  assert.equal(DEFAULT_VR_OVERLAY_SETTINGS.ocr.backend, "cloud");
   assert.deepEqual(Object.keys(DEFAULT_VR_OVERLAY_HEADSET_SETTINGS).sort(), [
     "background_opacity",
     "display_seconds",
@@ -102,6 +106,19 @@ test("VR Overlay patches are immutable and scoped to the requested branch", () =
   assert.equal(wrist.vr_overlay.headset, headset.vr_overlay.headset);
 });
 
+test("selecting local OCR preserves translation routes and other overlay settings", () => {
+  const local = patchVrOverlay(settings, {
+    ocr: { ...settings.vr_overlay.ocr, backend: "local" },
+  });
+
+  assert.equal(settings.vr_overlay.ocr.backend, "cloud");
+  assert.equal(local.vr_overlay.ocr.backend, "local");
+  assert.equal(local.vr_overlay.ocr.targets, settings.vr_overlay.ocr.targets);
+  assert.equal(local.vr_overlay.ocr.enabled, false);
+  assert.equal(local.vr_overlay.headset, settings.vr_overlay.headset);
+  assert.equal(local.vr_overlay.wrist, settings.vr_overlay.wrist);
+});
+
 test("headset display duration clamps fade duration in the same immutable patch", () => {
   const changed = patchVrOverlayHeadset(settings, { display_seconds: 6, fade_seconds: 4 });
   const shortened = setVrOverlayHeadsetDisplaySeconds(changed, 2.5);
@@ -139,6 +156,7 @@ test("native VR Overlay wrapper is safe outside Tauri", async () => {
   assert.equal(VR_OVERLAY_STATUS_EVENT, "vr-overlay-status-changed");
   assert.deepEqual(await getVrOverlayStatus(), UNSUPPORTED_VR_OVERLAY_STATUS);
   await retryVrOverlay();
+  await openVrOcrBindings();
   await showVrOverlaySample("headset");
   await hideVrOverlaySample("wrist");
   const unlisten = await listenVrOverlayStatus(() => assert.fail("browser fallback must not emit"));

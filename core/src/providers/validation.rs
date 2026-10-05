@@ -4,7 +4,7 @@ use crate::config::{ApiAuthMode, ApiProfile};
 
 use super::{
     definition, provider_capability_ids, BaseUrlPolicy, ProviderCategory, ALIBABA_PROVIDER,
-    MICROSOFT_PROVIDER,
+    MICROSOFT_PROVIDER, QWEN_LOCAL_PROVIDER,
 };
 
 pub(crate) fn validate_profile(profile: &ApiProfile) -> Result<(), String> {
@@ -82,6 +82,13 @@ fn validate_connection_fields(profile: &ApiProfile) -> Result<(), String> {
         BaseUrlPolicy::Editable(default) => {
             let base_url = profile.base_url.as_deref().unwrap_or(default);
             validate_editable_base_url(base_url, profile.requires_api_key())?;
+            if profile.provider == QWEN_LOCAL_PROVIDER {
+                let url = reqwest::Url::parse(base_url)
+                    .map_err(|_| "The local Qwen ASR Base URL is invalid".to_string())?;
+                if !is_loopback_url(&url) {
+                    return Err("Local Qwen ASR requires a loopback Base URL".into());
+                }
+            }
         }
     }
 
@@ -166,6 +173,8 @@ fn is_loopback_url(url: &reqwest::Url) -> bool {
     url.host_str().is_some_and(|host| {
         host.eq_ignore_ascii_case("localhost")
             || host
+                .trim_start_matches('[')
+                .trim_end_matches(']')
                 .parse::<std::net::IpAddr>()
                 .is_ok_and(|address| address.is_loopback())
     })
@@ -269,5 +278,24 @@ mod tests {
         ollama.auth_mode = ApiAuthMode::None;
         ollama.is_local = true;
         assert!(validate_profile(&ollama).is_ok());
+    }
+
+    #[test]
+    fn local_qwen_asr_requires_loopback_without_credentials() {
+        let mut local = profile(super::super::QWEN_LOCAL_PROVIDER);
+        local.enabled_capabilities = vec![super::super::CAPABILITY_SPEECH_TO_TEXT.into()];
+        local.auth_mode = ApiAuthMode::None;
+        local.is_local = true;
+        local.base_url = Some("http://127.0.0.1:8000/v1".into());
+        assert!(validate_profile(&local).is_ok());
+
+        local.base_url = Some("http://192.0.2.1:8000/v1".into());
+        assert!(validate_profile(&local).is_err());
+        local.base_url = Some("https://example.com/v1".into());
+        assert!(validate_profile(&local).is_err());
+        local.base_url = Some("http://[::1]:8000/v1".into());
+        assert!(validate_profile(&local).is_ok());
+        local.auth_mode = ApiAuthMode::Bearer;
+        assert!(validate_profile(&local).is_err());
     }
 }

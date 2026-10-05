@@ -7,6 +7,8 @@ import type {
   ApiProfileView,
   AsrCapabilities,
   AsrModelRecord,
+  QwenModelRecord,
+  QwenRuntimeStatus,
   ConnectionDiagnostic,
   ProviderDefinition,
 } from "./types";
@@ -86,6 +88,24 @@ export const providersApi = {
   ),
   deleteAsrModel: (model: AsrModelRecord["id"]) => request<{ deleted: boolean }>(
     `/api/asr/models/${model}`,
+    { method: "DELETE" },
+  ),
+  qwenModels: () => request<QwenModelRecord[]>("/api/asr/local-models/qwen"),
+  qwenRuntime: () => request<QwenRuntimeStatus>("/api/asr/local-models/qwen/runtime"),
+  downloadQwenModel: (id: string) => request<QwenModelRecord>(
+    `/api/asr/local-models/qwen/${encodeURIComponent(id)}/download`,
+    { method: "POST" },
+  ),
+  cancelQwenDownload: (id: string) => request<{ cancelled: boolean }>(
+    `/api/asr/local-models/qwen/${encodeURIComponent(id)}/cancel`,
+    { method: "POST" },
+  ),
+  verifyQwenModel: (id: string) => request<QwenModelRecord>(
+    `/api/asr/local-models/qwen/${encodeURIComponent(id)}/verify`,
+    { method: "POST" },
+  ),
+  deleteQwenModel: (id: string) => request<{ deleted: boolean }>(
+    `/api/asr/local-models/qwen/${encodeURIComponent(id)}`,
     { method: "DELETE" },
   ),
 };

@@ -83,6 +83,26 @@ export interface VrOverlaySettings {
   translation_display: VrOverlayTranslationDisplay;
   headset: VrOverlayHeadsetSettings;
   wrist: VrOverlayWristSettings;
+  ocr: VrOcrSettings;
+}
+
+export interface VrOcrSettings {
+  enabled: boolean;
+  backend: "cloud" | "local";
+  timeout_seconds: number;
+  minimum_confidence: number;
+  region_fraction: number;
+  targets: import("../settings/types").TranslationTargetSettings[];
+  hand_gesture_enabled: boolean;
+  display_seconds: number;
+  background_opacity: number;
+}
+
+export interface VrOcrModelStatus {
+  state: "missing" | "downloading" | "ready" | "error";
+  downloaded_bytes: number;
+  total_bytes: number;
+  error: string | null;
 }
 
 export type VrOverlayRuntimeState =
@@ -116,6 +136,12 @@ export interface VrOverlayWristStatus extends VrOverlayResourceStatus {
   tracked_device_available: boolean;
 }
 
+export interface VrDashboardStatus {
+  state: VrOverlayResourceState;
+  visible: boolean;
+  last_error_code: string | null;
+}
+
 export interface VrOverlayStatus {
   state: VrOverlayRuntimeState;
   runtime_installed: boolean;
@@ -124,7 +150,25 @@ export interface VrOverlayStatus {
   reconnect_attempt: number;
   headset: VrOverlayResourceStatus;
   wrist: VrOverlayWristStatus;
+  ocr: VrOcrStatus;
+  dashboard: VrDashboardStatus;
   last_error_detail: string | null;
+}
+
+export interface VrOcrStatus {
+  state: "disabled" | "waiting_vr" | "ready" | "unbound" | "capturing" | "submitting" | "pending" | "running"
+    | "waiting_hands" | "downloading" | "loading_model" | "recognizing" | "translating" | "recognized" | "visible" | "invalid" | "error"
+    | "no_text" | "low_confidence" | "source_visible" | "partial_visible" | "translation_failed" | "timed_out";
+  scan_id: number;
+  block_count: number;
+  controller_bound: boolean;
+  gesture_available: boolean;
+  layout_limited: boolean;
+  completed_translations: number;
+  failed_translations: number;
+  timed_out: boolean;
+  last_error_code: string | null;
+  last_error: string | null;
 }
 
 export interface VrchatMuteStatus {

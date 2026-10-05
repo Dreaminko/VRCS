@@ -12,6 +12,8 @@ notices and license terms remain applicable.
 - Silero VAD — MIT
 - Smart Turn — BSD-2-Clause
 - ONNX Runtime — MIT
+- PaddleOCR PP-OCRv6 models and dictionary — Apache-2.0
+- PaddleX OCR processing reference — Apache-2.0
 - rosc — MIT OR Apache-2.0
 - rust-openvr and openvr-sys — MIT
 - Valve OpenVR SDK — BSD-3-Clause
@@ -20,3 +22,6 @@ The standard installer does not redistribute a Whisper model. The selected
 model is downloaded on first use and remains subject to its upstream license.
 The Smart Turn model is downloaded only when semantic endpointing is enabled
 and remains subject to the upstream BSD-2-Clause license.
+The PP-OCRv6 small models and dictionary are downloaded through the OCR settings
+and remain subject to the upstream Apache-2.0 license. Local image processing
+follows the PaddleX reference algorithms, Copyright PaddlePaddle Authors.

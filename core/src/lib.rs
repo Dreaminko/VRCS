@@ -16,6 +16,7 @@ mod learning;
 mod llm;
 mod microphone_monitor;
 mod models;
+pub mod ocr;
 mod osc;
 mod pipeline;
 mod providers;
@@ -40,7 +41,9 @@ use tokio::task::JoinHandle;
 use crate::server::AppState;
 use crate::startup::{RuntimeAssembly, RuntimeTasks, StartupPlan};
 
-pub use crate::config::{VrOverlayConfig, VrOverlayHeadsetConfig, VrOverlayWristConfig};
+pub use crate::config::{
+    VrOcrBackend, VrOcrConfig, VrOverlayConfig, VrOverlayHeadsetConfig, VrOverlayWristConfig,
+};
 pub use crate::models::{
     LiveTranslation, LiveTranslationPreview, SpeakerIdentity, Subtitle, SubtitleTranslation,
     TranslationSourceGroup,
@@ -116,6 +119,14 @@ impl CoreHandle {
         self.state.integrations.vr_overlay_config_tx.subscribe()
     }
 
+    pub fn vr_ocr_service(&self) -> Result<ocr::VrOcrService, String> {
+        ocr::VrOcrService::new(
+            self.state.config.config.clone(),
+            self.state.content.translation_service.clone(),
+            self.state.config.local_ocr.clone(),
+        )
+    }
+
     pub fn vad_backend(&self) -> &'static str {
         self.vad_runtime.backend()
     }
@@ -172,7 +183,9 @@ impl CoreHandle {
             .await
             .stop()
             .await;
+        let qwen_stop = self.state.capture.qwen_runtime.stop().await;
         self.model_manager.cancel_all_and_wait().await;
+        qwen_stop?;
         result
     }
 

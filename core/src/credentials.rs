@@ -14,6 +14,44 @@ const EXTERNAL_API_TARGET: &str = "VRCS/ExternalAPI/token";
 const EXTERNAL_API_ENV: &str = "VRCS_EXTERNAL_API_TOKEN";
 const VRCX_TARGET: &str = "VRCS/VRCXIntegration/token";
 const VRCX_ENV: &str = "VRCS_VRCX_INTEGRATION_TOKEN";
+const OCR_TARGET: &str = "VRCS/OCR/PaddleOCR/token";
+const OCR_ENV: &str = "PADDLEOCR_ACCESS_TOKEN";
+
+pub fn ocr_token_status() -> Result<CredentialStatus, String> {
+    let environment_override = std::env::var(OCR_ENV).is_ok_and(|value| !value.trim().is_empty());
+    let stored_configured = read_stored(OCR_TARGET)?.is_some();
+    Ok(CredentialStatus {
+        configured: environment_override || stored_configured,
+        stored_configured,
+        environment_override,
+        source: if environment_override {
+            Some("environment")
+        } else {
+            stored_configured.then_some("credential_manager")
+        },
+    })
+}
+
+pub fn read_ocr_token() -> Result<Option<String>, String> {
+    if let Ok(value) = std::env::var(OCR_ENV) {
+        if !value.trim().is_empty() {
+            return Ok(Some(value));
+        }
+    }
+    read_stored(OCR_TARGET)
+}
+
+pub fn write_ocr_token(value: &str) -> Result<(), String> {
+    let value = value.trim();
+    if value.is_empty() || value.len() > 4096 || value.chars().any(char::is_control) {
+        return Err("OCR token is invalid".into());
+    }
+    write_stored(OCR_TARGET, value)
+}
+
+pub fn delete_ocr_token() -> Result<(), String> {
+    delete_stored(OCR_TARGET)
+}
 
 pub fn external_api_token_status() -> Result<CredentialStatus, String> {
     let environment_override =

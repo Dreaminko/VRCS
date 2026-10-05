@@ -45,6 +45,20 @@ impl AppConfig {
         validate_recognition_models(&self.asr, &self.vad)?;
         validate_anki(&self.anki)?;
         validate_vr_overlay(&self.vr_overlay)?;
+        let ocr = &self.vr_overlay.ocr;
+        if !(5..=120).contains(&ocr.timeout_seconds)
+            || !ocr.minimum_confidence.is_finite()
+            || !(0.0..=1.0).contains(&ocr.minimum_confidence)
+            || !ocr.region_fraction.is_finite()
+            || !(0.1..=1.0).contains(&ocr.region_fraction)
+            || !ocr.display_seconds.is_finite()
+            || !(1.0..=120.0).contains(&ocr.display_seconds)
+            || !ocr.background_opacity.is_finite()
+            || !(0.0..=1.0).contains(&ocr.background_opacity)
+        {
+            return Err("VR OCR settings are outside the supported bounds".into());
+        }
+        validate_translation_targets("ocr", &ocr.targets, &self.asr.api_profiles, false, "")?;
         Ok(())
     }
 }
@@ -117,7 +131,10 @@ fn validate_audio(audio: &AudioConfig, vad: &VadConfig) -> Result<(), String> {
 }
 
 fn validate_recognition_options(asr: &AsrConfig) -> Result<(), String> {
-    if asr.backend != "local_whisper" && providers::recognition_service(&asr.backend).is_none() {
+    if asr.backend != "local_whisper"
+        && asr.backend != QWEN_MANAGED_BACKEND
+        && providers::recognition_service(&asr.backend).is_none()
+    {
         return Err(format!("Unsupported recognition backend: {}", asr.backend));
     }
     if !ASR_LANGUAGES.contains(&asr.language.as_str()) {
@@ -138,13 +155,28 @@ fn validate_recognition_options(asr: &AsrConfig) -> Result<(), String> {
             asr.local.compute_type
         ));
     }
+    if !crate::asr::is_supported_qwen_package(&asr.managed_qwen.package_id) {
+        return Err(format!(
+            "Unsupported managed Qwen ASR package: {}",
+            asr.managed_qwen.package_id
+        ));
+    }
+    if !["auto", "cpu"].contains(&asr.managed_qwen.device.as_str()) {
+        return Err(format!(
+            "Unsupported managed Qwen ASR device: {}",
+            asr.managed_qwen.device
+        ));
+    }
     if !CLOUD_FAILURE_POLICIES.contains(&asr.cloud_failure_policy.as_str()) {
         return Err(format!(
             "Unsupported cloud failure policy: {}",
             asr.cloud_failure_policy
         ));
     }
-    if asr.backend != "local_whisper" && !asr.service_settings.contains_key(&asr.backend) {
+    if asr.backend != "local_whisper"
+        && asr.backend != QWEN_MANAGED_BACKEND
+        && !asr.service_settings.contains_key(&asr.backend)
+    {
         return Err(format!(
             "Recognition service settings are missing for backend: {}",
             asr.backend
@@ -381,7 +413,7 @@ fn validate_api_profiles(asr: &AsrConfig) -> Result<(), String> {
         providers::validate_profile(profile)?;
     }
 
-    if asr.backend == "local_whisper" {
+    if asr.backend == "local_whisper" || asr.backend == QWEN_MANAGED_BACKEND {
         return Ok(());
     }
     let Some(active_id) = asr.active_profile_id.as_deref() else {

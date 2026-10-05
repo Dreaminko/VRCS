@@ -3,13 +3,25 @@ use std::time::Duration;
 use reqwest::multipart::{Form, Part};
 use serde::Deserialize;
 
-use crate::config::{ApiProfile, RecognitionServiceSettings};
+use crate::config::{ApiAuthMode, ApiProfile, RecognitionServiceSettings};
 use crate::providers;
 
 const SAMPLE_RATE: u32 = 16_000;
 const CHANNELS: u16 = 1;
 const BITS_PER_SAMPLE: u16 = 16;
 const MAX_ERROR_BODY_CHARS: usize = 8 * 1024;
+
+pub(crate) fn http_client(profile: &ApiProfile) -> reqwest::Client {
+    if profile.provider == providers::QWEN_LOCAL_PROVIDER {
+        reqwest::Client::builder()
+            .no_proxy()
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .expect("static local HTTP client options are valid")
+    } else {
+        reqwest::Client::new()
+    }
+}
 
 #[derive(Debug, Deserialize)]
 struct TranscriptionResponse {
@@ -25,11 +37,61 @@ pub(crate) async fn transcribe(
     samples: &[f32],
 ) -> Result<String, String> {
     let text = request_transcription(http, profile, api_key, settings, language, samples).await?;
-    let text = text.trim();
-    if text.is_empty() {
-        return Err("Cloud transcription response did not contain text".into());
+    let text = if profile.provider == providers::QWEN_LOCAL_PROVIDER {
+        normalize_local_qwen_text(&text)?
+    } else {
+        text.trim()
+    };
+    if text.is_empty() && profile.provider != providers::QWEN_LOCAL_PROVIDER {
+        return Err("Transcription response did not contain text".into());
     }
     Ok(text.to_owned())
+}
+
+pub(crate) async fn transcribe_managed_qwen(
+    connection: &super::qwen_runtime::QwenConnection,
+    language: &str,
+    samples: &[f32],
+) -> Result<String, String> {
+    let profile = ApiProfile {
+        provider: providers::QWEN_LOCAL_PROVIDER.into(),
+        base_url: Some(connection.base_url.clone()),
+        auth_mode: ApiAuthMode::Bearer,
+        timeout_ms: 30_000,
+        ..ApiProfile::default()
+    };
+    let settings = RecognitionServiceSettings {
+        model: connection.model.clone(),
+        context: String::new(),
+    };
+    transcribe(
+        &http_client(&profile),
+        &profile,
+        &connection.token,
+        &settings,
+        language,
+        samples,
+    )
+    .await
+}
+
+fn normalize_local_qwen_text(text: &str) -> Result<&str, String> {
+    let text = text.trim();
+    if let Some(text) = text.strip_prefix("<asr_text>") {
+        return Ok(text.trim());
+    }
+    if let Some(marked) = text.strip_prefix("language ") {
+        if let Some((language, transcript)) = marked.split_once("<asr_text>") {
+            if language.trim().is_empty() {
+                return Err("Local Qwen ASR returned an empty language marker".into());
+            }
+            return Ok(transcript.trim());
+        }
+    }
+    if text.contains("<asr_text") {
+        return Err("Local Qwen ASR returned an unexpected text marker".into());
+    }
+    Ok(text)
 }
 
 pub(crate) async fn test_connection(
@@ -91,7 +153,7 @@ async fn request_transcription(
     let response: TranscriptionResponse = response
         .json()
         .await
-        .map_err(|error| format!("Cloud transcription returned invalid JSON: {error}"))?;
+        .map_err(|error| format!("Transcription returned invalid JSON: {error}"))?;
     Ok(response.text)
 }
 
@@ -151,9 +213,9 @@ pub(crate) fn encode_wav(samples: &[f32]) -> Vec<u8> {
 
 fn network_error(error: reqwest::Error) -> String {
     if error.is_timeout() {
-        "Cloud transcription request timed out".into()
+        "Transcription request timed out".into()
     } else {
-        format!("Cloud transcription request failed: {error}")
+        format!("Transcription request failed: {error}")
     }
 }
 
@@ -164,12 +226,12 @@ fn status_error(status: reqwest::StatusCode, body: &str) -> String {
         .take(MAX_ERROR_BODY_CHARS)
         .collect::<String>();
     let summary = match status.as_u16() {
-        401 | 403 => "Cloud transcription authentication failed",
-        404 => "Cloud transcription endpoint or model was not found",
-        413 => "Cloud transcription audio payload is too large",
-        429 => "Cloud transcription rate limit was exceeded",
-        500..=599 => "Cloud transcription service is unavailable",
-        _ => "Cloud transcription request was rejected",
+        401 | 403 => "Transcription authentication failed",
+        404 => "Transcription endpoint or model was not found",
+        413 => "Transcription audio payload is too large",
+        429 => "Transcription rate limit was exceeded",
+        500..=599 => "Transcription service is unavailable",
+        _ => "Transcription request was rejected",
     };
     if detail.is_empty() {
         format!("{summary} (HTTP {status})")
@@ -243,6 +305,25 @@ mod tests {
             auth_mode: ApiAuthMode::None,
             ..ApiProfile::default()
         }
+    }
+
+    #[tokio::test]
+    async fn managed_qwen_reuses_multipart_transcription_with_runtime_credentials() {
+        let (base_url, server) = mock_server(r#"{"text":"<asr_text>你好"}"#).await;
+        let connection = super::super::qwen_runtime::QwenConnection {
+            base_url,
+            token: "runtime-token".into(),
+            model: "vrcs-qwen".into(),
+            generation: 1,
+        };
+        let text = transcribe_managed_qwen(&connection, "auto", &[0.1, -0.1])
+            .await
+            .unwrap();
+        assert_eq!(text, "你好");
+        let request = String::from_utf8_lossy(&server.await.unwrap()).to_lowercase();
+        assert!(request.contains("authorization: bearer runtime-token"));
+        assert!(request.contains("name=\"model\""));
+        assert!(request.contains("vrcs-qwen"));
     }
 
     #[test]
@@ -338,6 +419,134 @@ mod tests {
         )
         .await
         .unwrap();
+    }
+
+    #[tokio::test]
+    async fn local_qwen_silence_returns_an_empty_final_without_changing_cloud_behavior() {
+        let settings = RecognitionServiceSettings {
+            model: "Qwen/Qwen3-ASR-0.6B".into(),
+            context: String::new(),
+        };
+        let (base_url, request) = mock_server(r#"{"text":""}"#).await;
+        let profile = ApiProfile {
+            provider: crate::providers::QWEN_LOCAL_PROVIDER.into(),
+            base_url: Some(base_url),
+            auth_mode: ApiAuthMode::None,
+            is_local: true,
+            ..ApiProfile::default()
+        };
+        assert_eq!(
+            transcribe(
+                &reqwest::Client::new(),
+                &profile,
+                "",
+                &settings,
+                "auto",
+                &[0.1; 320]
+            )
+            .await
+            .unwrap(),
+            ""
+        );
+        let request = String::from_utf8_lossy(&request.await.unwrap()).to_string();
+        assert!(request.starts_with("POST /v1/audio/transcriptions HTTP/1.1"));
+        assert!(request.contains("name=\"model\""));
+        assert!(!request.contains("authorization:"));
+    }
+
+    #[tokio::test]
+    async fn local_qwen_strips_the_asr_language_prefix() {
+        let (base_url, _) =
+            mock_server(r#"{"text":"language English<asr_text>Hello VRChat"}"#).await;
+        let profile = ApiProfile {
+            provider: crate::providers::QWEN_LOCAL_PROVIDER.into(),
+            base_url: Some(base_url),
+            auth_mode: ApiAuthMode::None,
+            is_local: true,
+            ..ApiProfile::default()
+        };
+        let settings = RecognitionServiceSettings {
+            model: "Qwen/Qwen3-ASR-0.6B".into(),
+            context: String::new(),
+        };
+        assert_eq!(
+            transcribe(
+                &http_client(&profile),
+                &profile,
+                "",
+                &settings,
+                "auto",
+                &[0.1; 320]
+            )
+            .await
+            .unwrap(),
+            "Hello VRChat"
+        );
+    }
+
+    #[test]
+    fn malformed_qwen_asr_prefix_is_not_shown_as_a_subtitle() {
+        assert!(normalize_local_qwen_text("language English<asr_text>")
+            .unwrap()
+            .is_empty());
+        assert!(normalize_local_qwen_text("language English<asr_text>Hello").is_ok());
+        assert!(normalize_local_qwen_text("language English<asr_text").is_err());
+        assert_eq!(
+            normalize_local_qwen_text("language English is useful").unwrap(),
+            "language English is useful"
+        );
+        assert_eq!(
+            normalize_local_qwen_text("normal transcript").unwrap(),
+            "normal transcript"
+        );
+    }
+
+    #[tokio::test]
+    async fn local_qwen_does_not_follow_audio_redirects() {
+        let destination = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let destination_url = format!(
+            "http://{}/v1/audio/transcriptions",
+            destination.local_addr().unwrap()
+        );
+        let source = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base_url = format!("http://{}/v1", source.local_addr().unwrap());
+        let source_task = tokio::spawn(async move {
+            let (mut stream, _) = source.accept().await.unwrap();
+            read_request(&mut stream).await;
+            let response = format!(
+                "HTTP/1.1 307 Temporary Redirect\r\nLocation: {destination_url}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+            );
+            stream.write_all(response.as_bytes()).await.unwrap();
+        });
+        let profile = ApiProfile {
+            provider: crate::providers::QWEN_LOCAL_PROVIDER.into(),
+            base_url: Some(base_url),
+            auth_mode: ApiAuthMode::None,
+            is_local: true,
+            ..ApiProfile::default()
+        };
+        let settings = RecognitionServiceSettings {
+            model: "Qwen/Qwen3-ASR-0.6B".into(),
+            context: String::new(),
+        };
+        let error = transcribe(
+            &http_client(&profile),
+            &profile,
+            "",
+            &settings,
+            "auto",
+            &[0.1; 320],
+        )
+        .await
+        .unwrap_err();
+        assert!(error.contains("HTTP 307"), "{error}");
+        assert!(!error.contains("Cloud"), "{error}");
+        source_task.await.unwrap();
+        assert!(
+            tokio::time::timeout(Duration::from_millis(100), destination.accept())
+                .await
+                .is_err()
+        );
     }
 
     #[test]

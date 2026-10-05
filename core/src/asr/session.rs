@@ -1,10 +1,16 @@
+use std::sync::Arc;
+use std::time::Duration;
+
 use crate::config::{ApiProfile, AsrConfig};
 use crate::providers::{self, RecognitionTransport, ServiceAdapter};
 
 use super::openai_audio_transcriptions;
+use super::qwen_models::{is_installed, package_dir, package_spec};
+use super::qwen_runtime::{executable_path, QwenConnection, QwenRuntime};
 use super::read_credential;
 use super::segmented_upload::SegmentedUploadSession;
 use super::streaming::{self, CloudEvent, SegmentationMode, StreamingSession};
+use super::ModelManager;
 use super::SharedAudio;
 
 pub enum CloudRecognitionSession {
@@ -133,6 +139,53 @@ pub async fn spawn_cloud_recognition_session(
     }
 }
 
+pub(crate) async fn spawn_managed_qwen_session(
+    config: AsrConfig,
+    runtime: Arc<QwenRuntime>,
+    manager: Arc<ModelManager>,
+) -> Result<CloudRecognitionSession, String> {
+    let connection = prepare_managed_qwen(&config, &runtime, &manager).await?;
+    Ok(CloudRecognitionSession::Segmented(
+        SegmentedUploadSession::spawn_managed_qwen(connection, runtime, config.language),
+    ))
+}
+
+pub(crate) async fn prepare_managed_qwen(
+    config: &AsrConfig,
+    runtime: &Arc<QwenRuntime>,
+    manager: &Arc<ModelManager>,
+) -> Result<QwenConnection, String> {
+    if config.backend != crate::config::QWEN_MANAGED_BACKEND {
+        return Err("Managed Qwen ASR is not the selected backend".into());
+    }
+    let spec = package_spec(&config.managed_qwen.package_id)?;
+    let root = manager.model_dir();
+    let verified_root = root.clone();
+    let installed = tokio::task::spawn_blocking(move || is_installed(&verified_root, spec, false))
+        .await
+        .map_err(|error| format!("Qwen ASR package check failed: {error}"))??;
+    if !installed {
+        return Err(format!(
+            "Managed Qwen ASR package {} is not installed",
+            spec.id
+        ));
+    }
+    let directory = package_dir(&root, spec);
+    let [model, mmproj] = spec.files else {
+        return Err("Managed Qwen ASR package must contain a model and projector".into());
+    };
+    runtime
+        .ensure_started(
+            &executable_path()?,
+            &directory.join(model.name),
+            &directory.join(mmproj.name),
+            spec.id,
+            &config.managed_qwen.device,
+            Duration::from_secs(120),
+        )
+        .await
+}
+
 pub async fn test_cloud_service(
     config: &AsrConfig,
     profile_id: &str,
@@ -159,7 +212,7 @@ pub async fn test_cloud_service(
             let settings = service_settings(config, service_id)?;
             let samples = connection_test_audio();
             openai_audio_transcriptions::test_connection(
-                &reqwest::Client::new(),
+                &openai_audio_transcriptions::http_client(profile),
                 profile,
                 &key,
                 settings,
@@ -221,6 +274,24 @@ fn connection_test_audio() -> Vec<f32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn managed_qwen_session_checks_its_package_without_an_api_profile() {
+        let root = tempfile::tempdir().unwrap();
+        let manager = std::sync::Arc::new(
+            super::super::ModelManager::new(root.path().to_path_buf()).unwrap(),
+        );
+        let runtime = std::sync::Arc::new(super::super::QwenRuntime::new());
+        let mut config = AsrConfig::default();
+        config.backend = crate::config::QWEN_MANAGED_BACKEND.into();
+        config.active_profile_id = None;
+
+        assert!(spawn_managed_qwen_session(config, runtime, manager)
+            .await
+            .err()
+            .unwrap()
+            .contains("not installed"));
+    }
 
     #[test]
     fn connection_test_audio_is_non_empty_and_bounded() {

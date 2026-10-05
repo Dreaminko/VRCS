@@ -170,7 +170,9 @@ export function CloudProviderSettings({
           </div>
         )}
         {Boolean(liveTranslationServiceName(service?.id)) && <div className="cloud-transport-hint" role="note"><strong>{liveTranslationServiceName(service?.id)}</strong><small>{t("settings.translation.liveTranslateHint")}</small><small>{t("settings.translation.liveTranslatePreview")}</small></div>}
-        {selectedProfile && <small className="cloud-api-hint">{t("settings.recognition.selectedApiHint", { name: selectedProfile.name })}</small>}
+        {selectedProfile && <small className="cloud-api-hint">{selectedProfile.provider === "qwen_local"
+          ? t("settings.recognition.selectedLocalQwenHint", { name: selectedProfile.name })
+          : t("settings.recognition.selectedApiHint", { name: selectedProfile.name })}</small>}
       </div>
     </div>
   );

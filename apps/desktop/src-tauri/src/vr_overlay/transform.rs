@@ -18,6 +18,15 @@ pub fn wrist(config: &VrOverlayWristConfig) -> [[f32; 4]; 3] {
     )
 }
 
+pub fn compose(parent: [[f32; 4]; 3], child: [[f32; 4]; 3]) -> [[f32; 4]; 3] {
+    std::array::from_fn(|row| {
+        std::array::from_fn(|column| {
+            let product: f32 = (0..3).map(|k| parent[row][k] * child[k][column]).sum();
+            product + if column == 3 { parent[row][3] } else { 0. }
+        })
+    })
+}
+
 /// Builds a row-major OpenVR transform using intrinsic X (pitch), Y (yaw),
 /// then Z (roll) rotations. The composed matrix is Rz * Ry * Rx.
 pub fn matrix(pitch_deg: f32, yaw_deg: f32, roll_deg: f32, translation: [f32; 3]) -> [[f32; 4]; 3] {
@@ -70,6 +79,18 @@ mod tests {
         assert_close(value[0][2], 1.0);
         assert_close(value[2][0], -1.0);
         assert_close(value[2][2], 0.0);
+    }
+
+    #[test]
+    fn eye_offset_is_rotated_and_translated_into_tracking_space() {
+        let headset = matrix(0., 90., 0., [1., 2., 3.]);
+        let eye = matrix(0., 0., 0., [-0.032, 0., 0.]);
+        let value = compose(headset, eye);
+        assert_close(value[0][3], 1.);
+        assert_close(value[1][3], 2.);
+        assert_close(value[2][3], 3.032);
+        assert_close(value[0][2], 1.);
+        assert_close(value[2][0], -1.);
     }
 
     #[test]

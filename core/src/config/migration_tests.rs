@@ -42,6 +42,21 @@ fn schema_v3_without_model_directory_uses_the_default() {
 }
 
 #[test]
+fn schema_v26_adds_managed_qwen_defaults_without_changing_whisper_settings() {
+    let mut raw = serde_json::to_value(AppConfig::default()).unwrap();
+    raw["schema_version"] = serde_json::json!(26);
+    raw["asr"].as_object_mut().unwrap().remove("managed_qwen");
+    raw["asr"]["backend"] = serde_json::json!("local_whisper");
+    raw["asr"]["local"]["model"] = serde_json::json!("tiny");
+
+    let config = config_from_value(&raw).unwrap();
+    assert_eq!(config.schema_version, SCHEMA_VERSION);
+    assert_eq!(config.asr.backend, "local_whisper");
+    assert_eq!(config.asr.local.model, "tiny");
+    assert_eq!(config.asr.managed_qwen.package_id, "qwen3-asr-0.6b-q8_0");
+}
+
+#[test]
 fn schema_v4_without_feature_switches_keeps_existing_features_enabled() {
     let config = config_from_value(&serde_json::json!({
         "schema_version": 4

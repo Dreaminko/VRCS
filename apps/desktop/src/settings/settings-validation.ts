@@ -60,6 +60,7 @@ export function asrSelectionError(
   capabilities: AsrCapabilities | null,
   translate: TranslateValidation = validationMessage,
 ): string | null {
+  if (settings.asr.backend !== "local_whisper" && settings.asr.cloud_failure_policy !== "local") return null;
   if (!capabilities) return null;
   if (settings.asr.local.device === "cuda" && !capabilities.cuda.available) {
     return translate("validation.asr.cudaUnavailable");

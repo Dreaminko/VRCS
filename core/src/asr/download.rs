@@ -20,13 +20,10 @@ impl ModelManager {
             if self.is_downloaded(model)? {
                 return Ok(());
             }
-            if jobs
-                .get(model)
-                .is_some_and(|job| job.status == "downloading")
-            {
+            if jobs.get(model).is_some_and(DownloadJob::is_active) {
                 return Ok(());
             }
-            if jobs.values().any(|job| job.status == "downloading") {
+            if jobs.values().any(DownloadJob::is_active) {
                 return Err("Another model download is already in progress".into());
             }
             jobs.insert(

@@ -825,6 +825,12 @@ fn disable_cloud_recognition(config: &mut crate::config::AppConfig) {
 }
 
 fn disable_translation_profile(config: &mut crate::config::AppConfig, profile_id: &str) {
+    for target in &mut config.vr_overlay.ocr.targets {
+        if target.profile_id.as_deref() == Some(profile_id) {
+            target.profile_id = None;
+            config.vr_overlay.ocr.enabled = false;
+        }
+    }
     let global_uses_profile = config
         .translation
         .speaker_targets
@@ -867,6 +873,12 @@ fn disable_translation_profile(config: &mut crate::config::AppConfig, profile_id
 
 fn uses_translation_profile(config: &crate::config::AppConfig, profile_id: &str) -> bool {
     uses_global_translation_profile(config, profile_id)
+        || config
+            .vr_overlay
+            .ocr
+            .targets
+            .iter()
+            .any(|target| target.profile_id.as_deref() == Some(profile_id))
         || config.language_presets.iter().any(|preset| {
             preset
                 .speaker_targets
@@ -892,6 +904,21 @@ mod tests {
     use crate::providers::{
         GROQ_PROVIDER, OPENAI_COMPATIBLE_PROVIDER, OPENAI_PROVIDER, SERVICE_GROQ_TRANSCRIPTION,
     };
+
+    #[test]
+    fn losing_ocr_translation_profile_disables_ocr_without_changing_voice_translation() {
+        let mut config = crate::config::AppConfig::default();
+        config.vr_overlay.ocr.enabled = true;
+        config.vr_overlay.ocr.targets[0].profile_id = Some("removed".into());
+        assert!(uses_translation_profile(&config, "removed"));
+        disable_translation_profile(&mut config, "removed");
+        assert!(!config.vr_overlay.ocr.enabled);
+        assert_eq!(config.vr_overlay.ocr.targets[0].profile_id, None);
+        assert_eq!(
+            config.translation,
+            crate::config::TranslationConfig::default()
+        );
+    }
 
     #[test]
     fn fixed_provider_ignores_client_base_url_and_uses_provider_name() {

@@ -11,8 +11,10 @@ mod external;
 mod glossaries;
 mod learning;
 mod models;
+mod ocr;
 mod osc;
 mod provider_diagnostics;
+mod qwen_models;
 mod runtime;
 mod search;
 mod settings;
@@ -262,7 +264,15 @@ pub fn router(state: Arc<AppState>) -> Router {
         )
         .route("/api/vrcx/status", get(vrcx::runtime_status))
         .route("/api/vrcx/test", post(vrcx::test_connection))
+        .route(
+            "/api/ocr/token",
+            get(ocr::token_status)
+                .put(ocr::token_write)
+                .delete(ocr::token_delete),
+        )
         .route("/api/asr/capabilities", get(models::asr_capabilities))
+        .route("/api/ocr/models", get(ocr::model_status))
+        .route("/api/ocr/models/download", post(ocr::model_download))
         .route("/api/providers", get(cloud::provider_list))
         .route(
             "/api/asr/profiles",
@@ -298,6 +308,27 @@ pub fn router(state: Arc<AppState>) -> Router {
             post(models::asr_model_download),
         )
         .route("/api/asr/models/{model}", delete(models::asr_model_delete))
+        .route("/api/asr/local-models/qwen", get(qwen_models::list))
+        .route(
+            "/api/asr/local-models/qwen/runtime",
+            get(qwen_models::runtime_status),
+        )
+        .route(
+            "/api/asr/local-models/qwen/{package}/download",
+            post(qwen_models::download),
+        )
+        .route(
+            "/api/asr/local-models/qwen/{package}/cancel",
+            post(qwen_models::cancel),
+        )
+        .route(
+            "/api/asr/local-models/qwen/{package}/verify",
+            post(qwen_models::verify),
+        )
+        .route(
+            "/api/asr/local-models/qwen/{package}",
+            delete(qwen_models::delete),
+        )
         .route("/api/dictionary", get(dictionary::dictionary_lookup))
         .route("/api/dictionaries", get(dictionary::dictionary_list))
         .route(

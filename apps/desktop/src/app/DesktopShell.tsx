@@ -17,6 +17,7 @@ import { LiveView, TopStatus } from "../subtitles/components/SubtitleViews";
 import { UpdateNotice } from "../updates/UpdateNotice";
 import { SelectionToolOverlays } from "./SelectionToolOverlays";
 import type { AppWorkspace } from "./useAppWorkspace";
+import { useVrDashboardBridge } from "../vr-dashboard/useVrDashboardBridge";
 
 let learningWorkspaceModule: Promise<typeof import("../learning/components/LearningWorkspace")> | undefined;
 let settingsPanelModule: Promise<typeof import("../settings/SettingsPanel")> | undefined;
@@ -91,6 +92,7 @@ export function DesktopShell({
   } = workspace;
   const [sidebarResizing, setSidebarResizing] = useState(false);
   const chatboxButtonRef = useRef<HTMLButtonElement | null>(null);
+  useVrDashboardBridge(settings.value, settings.save);
 
   useEffect(() => {
     const preloadDeferredPages = () => {

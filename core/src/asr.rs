@@ -7,9 +7,16 @@ mod manager;
 mod migration;
 mod model;
 mod openai_audio_transcriptions;
+mod qwen_models;
+mod qwen_runtime;
 mod segmented_upload;
 mod session;
 mod streaming;
+
+#[cfg(test)]
+mod qwen_models_tests;
+#[cfg(test)]
+mod qwen_runtime_tests;
 
 pub(crate) use crate::credentials::read_stored_credential;
 pub use crate::credentials::{
@@ -20,6 +27,10 @@ pub(crate) use engine::{prepare_local_engine, AsrEngine};
 pub use engine::{AsrRuntimeState, AsrService};
 pub use manager::ModelManager;
 pub use model::is_supported_model;
+pub(crate) use qwen_models::is_supported as is_supported_qwen_package;
+pub(crate) use qwen_runtime::executable_path as qwen_executable_path;
+pub(crate) use qwen_runtime::QwenRuntime;
+pub(crate) use session::{prepare_managed_qwen, spawn_managed_qwen_session};
 pub use session::{
     spawn_cloud_recognition_session, test_cloud_service, validate_cloud_connection,
     CloudRecognitionSession,

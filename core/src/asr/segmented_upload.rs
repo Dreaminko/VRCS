@@ -1,9 +1,12 @@
+use std::sync::Arc;
+
 use tokio::sync::{mpsc, Mutex};
 use tokio::task::JoinHandle;
 
 use crate::config::{ApiProfile, RecognitionServiceSettings};
 
 use super::openai_audio_transcriptions;
+use super::qwen_runtime::{QwenConnection, QwenRuntime};
 use super::streaming::{CloudEvent, SegmentationMode};
 use super::SharedAudio;
 
@@ -15,6 +18,18 @@ const EVENT_QUEUE_CAPACITY: usize = 32;
 struct UploadJob {
     utterance_id: String,
     samples: Vec<f32>,
+}
+
+enum UploadTarget {
+    Profile {
+        profile: ApiProfile,
+        api_key: String,
+        settings: RecognitionServiceSettings,
+    },
+    ManagedQwen {
+        connection: QwenConnection,
+        runtime: Arc<QwenRuntime>,
+    },
 }
 
 pub struct SegmentedUploadSession {
@@ -34,7 +49,38 @@ impl SegmentedUploadSession {
         let (jobs_tx, jobs_rx) = mpsc::channel(UPLOAD_QUEUE_CAPACITY);
         let (events_tx, events_rx) = mpsc::channel(EVENT_QUEUE_CAPACITY);
         let task = tokio::spawn(run_worker(
-            profile, api_key, settings, language, jobs_rx, events_tx,
+            UploadTarget::Profile {
+                profile,
+                api_key,
+                settings,
+            },
+            language,
+            jobs_rx,
+            events_tx,
+        ));
+        Self {
+            audio: Mutex::new(Vec::new()),
+            jobs: jobs_tx,
+            events: events_rx,
+            task,
+        }
+    }
+
+    pub(crate) fn spawn_managed_qwen(
+        connection: QwenConnection,
+        runtime: Arc<QwenRuntime>,
+        language: String,
+    ) -> Self {
+        let (jobs_tx, jobs_rx) = mpsc::channel(UPLOAD_QUEUE_CAPACITY);
+        let (events_tx, events_rx) = mpsc::channel(EVENT_QUEUE_CAPACITY);
+        let task = tokio::spawn(run_worker(
+            UploadTarget::ManagedQwen {
+                connection,
+                runtime,
+            },
+            language,
+            jobs_rx,
+            events_tx,
         ));
         Self {
             audio: Mutex::new(Vec::new()),
@@ -51,7 +97,7 @@ impl SegmentedUploadSession {
         let mut audio = self.audio.lock().await;
         if audio.len().saturating_add(samples.len()) > MAX_AUDIO_SAMPLES {
             return Err(format!(
-                "Cloud transcription audio exceeds the {MAX_AUDIO_SECONDS}-second limit"
+                "Transcription audio exceeds the {MAX_AUDIO_SECONDS}-second limit"
             ));
         }
         audio.extend_from_slice(samples.as_slice());
@@ -65,7 +111,7 @@ impl SegmentedUploadSession {
     pub async fn commit(&self) -> Result<String, String> {
         let mut audio = self.audio.lock().await;
         if audio.is_empty() {
-            return Err("Cannot commit empty cloud transcription audio".into());
+            return Err("Cannot commit empty transcription audio".into());
         }
         let utterance_id = format!("segmented-utterance-{}", uuid::Uuid::new_v4());
         let samples = std::mem::take(&mut *audio);
@@ -76,11 +122,11 @@ impl SegmentedUploadSession {
             Ok(()) => Ok(utterance_id),
             Err(mpsc::error::TrySendError::Full(job)) => {
                 *audio = job.samples;
-                Err("Cloud transcription upload queue is full".into())
+                Err("Transcription upload queue is full".into())
             }
             Err(mpsc::error::TrySendError::Closed(job)) => {
                 *audio = job.samples;
-                Err("Cloud transcription session is closed".into())
+                Err("Transcription session is closed".into())
             }
         }
     }
@@ -123,25 +169,51 @@ impl SegmentedUploadSession {
 }
 
 async fn run_worker(
-    profile: ApiProfile,
-    api_key: String,
-    settings: RecognitionServiceSettings,
+    target: UploadTarget,
     language: String,
     mut jobs: mpsc::Receiver<UploadJob>,
     events: mpsc::Sender<CloudEvent>,
 ) {
-    let http = reqwest::Client::new();
+    let http = match &target {
+        UploadTarget::Profile { profile, .. } => {
+            Some(openai_audio_transcriptions::http_client(profile))
+        }
+        UploadTarget::ManagedQwen { .. } => None,
+    };
     while let Some(job) = jobs.recv().await {
-        let event = match openai_audio_transcriptions::transcribe(
-            &http,
-            &profile,
-            &api_key,
-            &settings,
-            &language,
-            &job.samples,
-        )
-        .await
-        {
+        let result = match &target {
+            UploadTarget::Profile {
+                profile,
+                api_key,
+                settings,
+            } => {
+                openai_audio_transcriptions::transcribe(
+                    http.as_ref().expect("profile client exists"),
+                    profile,
+                    api_key,
+                    settings,
+                    &language,
+                    &job.samples,
+                )
+                .await
+            }
+            UploadTarget::ManagedQwen {
+                connection,
+                runtime,
+            } => {
+                let result = openai_audio_transcriptions::transcribe_managed_qwen(
+                    connection,
+                    &language,
+                    &job.samples,
+                )
+                .await;
+                match runtime.connection().await {
+                    Ok(Some(current)) if current.generation == connection.generation => result,
+                    _ => Err("Managed Qwen ASR runtime changed during transcription".into()),
+                }
+            }
+        };
+        let event = match result {
             Ok(text) => CloudEvent::Final {
                 utterance_id: job.utterance_id,
                 text,

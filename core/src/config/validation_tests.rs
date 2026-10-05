@@ -1,5 +1,16 @@
 use super::validation::validate_glossary;
 use super::*;
+
+#[test]
+fn managed_qwen_selection_has_no_api_profile_and_rejects_unknown_packages() {
+    let mut config = AppConfig::default();
+    config.asr.backend = "qwen_local_managed".into();
+    config.asr.active_profile_id = None;
+    assert!(config.validate_settings().is_ok());
+
+    config.asr.managed_qwen.package_id = "unknown".into();
+    assert!(config.validate_settings().is_err());
+}
 use crate::providers::{
     self, ALIBABA_PROVIDER, CAPABILITY_SPEECH_TO_TEXT, CAPABILITY_TEXT_GENERATION,
     CAPABILITY_TEXT_TRANSLATION, DEEPL_PROVIDER, GEMINI_PROVIDER, GROQ_PROVIDER, OLLAMA_PROVIDER,
@@ -621,6 +632,30 @@ fn groq_transcription_requires_a_speech_enabled_groq_profile() {
 }
 
 #[test]
+fn local_qwen_transcription_uses_its_own_profile_and_default_model() {
+    let mut config = AppConfig::default();
+    config.asr.backend = crate::providers::SERVICE_QWEN_LOCAL_TRANSCRIPTION.into();
+    config.asr.active_profile_id = Some("local-qwen".into());
+    config.asr.api_profiles.push(ApiProfile {
+        id: "local-qwen".into(),
+        name: "Local Qwen".into(),
+        provider: crate::providers::QWEN_LOCAL_PROVIDER.into(),
+        enabled_capabilities: vec![CAPABILITY_SPEECH_TO_TEXT.into()],
+        base_url: Some("http://127.0.0.1:8000/v1".into()),
+        auth_mode: crate::config::ApiAuthMode::None,
+        is_local: true,
+        ..ApiProfile::default()
+    });
+    assert_eq!(
+        config.asr.service_settings[crate::providers::SERVICE_QWEN_LOCAL_TRANSCRIPTION].model,
+        "Qwen/Qwen3-ASR-0.6B"
+    );
+    assert!(config.validate_settings().is_ok());
+    config.asr.api_profiles[0].base_url = Some("http://192.0.2.1:8000/v1".into());
+    assert!(config.validate_settings().is_err());
+}
+
+#[test]
 fn validates_fun_asr_specific_limits() {
     let mut config = AppConfig::default();
     config.asr.backend = SERVICE_FUN_ASR_REALTIME.into();
@@ -784,4 +819,43 @@ fn legacy_alignment_settings_do_not_affect_other_services_or_translation_modes()
         config.translation.mode = "automatic".into();
         assert!(config.validate_settings().is_ok());
     }
+}
+
+#[test]
+fn ocr_config_defaults_disabled_and_rejects_unbounded_requests() {
+    let default = serde_json::to_value(crate::config::AppConfig::default()).unwrap();
+    assert_eq!(default["vr_overlay"]["ocr"]["enabled"], false);
+    for patch in [
+        serde_json::json!({"timeout_seconds":0}),
+        serde_json::json!({"minimum_confidence":1.1}),
+        serde_json::json!({"region_fraction":0.0}),
+        serde_json::json!({"targets":[]}),
+    ] {
+        let mut config = default.clone();
+        config["vr_overlay"]["ocr"] = patch;
+        let config: crate::config::AppConfig = serde_json::from_value(config).unwrap();
+        assert!(config.validate_settings().is_err());
+    }
+}
+
+#[test]
+fn ocr_source_view_can_be_enabled_without_a_translation_profile() {
+    let mut config = AppConfig::default();
+    config.vr_overlay.ocr.enabled = true;
+    assert!(config.validate_settings().is_ok());
+    config.vr_overlay.ocr.targets[0].profile_id = Some("missing".into());
+    assert!(config.validate_settings().is_err());
+}
+
+#[test]
+fn ocr_backend_preserves_cloud_defaults_and_accepts_local() {
+    let legacy: crate::config::VrOcrConfig = serde_json::from_value(serde_json::json!({})).unwrap();
+    assert_eq!(serde_json::to_value(legacy).unwrap()["backend"], "cloud");
+    let local: crate::config::VrOcrConfig =
+        serde_json::from_value(serde_json::json!({"backend":"local"})).unwrap();
+    assert_eq!(serde_json::to_value(local).unwrap()["backend"], "local");
+    assert!(serde_json::from_value::<crate::config::VrOcrConfig>(
+        serde_json::json!({"backend":"invalid"})
+    )
+    .is_err());
 }

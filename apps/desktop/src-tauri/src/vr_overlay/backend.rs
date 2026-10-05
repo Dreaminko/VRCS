@@ -8,6 +8,12 @@ mod platform {
 
     use super::{ControllerBinding, OverlayKind};
     use crate::vr_overlay::d3d11_texture::{Device, OverlayTexture};
+    use crate::vr_overlay::dashboard::{
+        pointer_from_openvr, DashboardPointerEvent, DASHBOARD_HEIGHT, DASHBOARD_WIDTH,
+    };
+    use crate::vr_overlay::ocr_capture::{
+        pose_within_translation_limit_m, EyeCapture, StereoCapture, OCR_MOVEMENT_LIMIT_M,
+    };
     use crate::vr_overlay::renderer::Texture;
     use crate::vr_overlay::transform;
 
@@ -15,6 +21,8 @@ mod platform {
     const HEADSET_NAME: &str = "VRCS Headset Subtitles\0";
     const WRIST_KEY: &str = "org.vrcs.overlay.wrist\0";
     const WRIST_NAME: &str = "VRCS Wrist Subtitles\0";
+    const DASHBOARD_KEY: &str = "org.vrcs.dashboard.settings\0";
+    const DASHBOARD_NAME: &str = "VRCS\0";
 
     pub struct OpenVrBackend {
         context: Context,
@@ -24,8 +32,15 @@ mod platform {
         texture_device: Option<Device>,
         headset: Option<OverlayHandle>,
         wrist: Option<OverlayHandle>,
+        ocr: [Option<OverlayHandle>; 2],
+        dashboard: Option<OverlayHandle>,
+        dashboard_thumbnail: Option<OverlayHandle>,
         headset_state: SubmittedState,
         wrist_state: SubmittedState,
+        ocr_state: [SubmittedState; 2],
+        dashboard_state: SubmittedState,
+        dashboard_thumbnail_state: SubmittedState,
+        ocr_input: Option<crate::vr_overlay::ocr_input::OcrInput>,
     }
 
     #[derive(Default)]
@@ -37,6 +52,221 @@ mod platform {
     }
 
     impl OpenVrBackend {
+        pub fn reset_ocr(&mut self) {
+            self.reset(OverlayKind::OcrLeft);
+            self.reset(OverlayKind::OcrRight);
+        }
+
+        pub fn ocr_tracking(&self) -> Result<([[f32; 4]; 3], u32, i32), String> {
+            let table = load_raw_interface(openvr_sys::IVRCompositor_Version, "compositor")?
+                as *const openvr_sys::VR_IVRCompositor_FnTable;
+            unsafe {
+                let table = &*table;
+                let mut pose: openvr_sys::TrackedDevicePose_t = std::mem::zeroed();
+                let error = table
+                    .GetLastPoseForTrackedDeviceIndex
+                    .ok_or("Headset pose query unavailable")?(
+                    tracked_device_index::HMD.0,
+                    &mut pose,
+                    std::ptr::null_mut(),
+                );
+                if error != 0 || !pose.bPoseIsValid || !pose.bDeviceIsConnected {
+                    return Err("Headset tracking unavailable".into());
+                }
+                Ok((
+                    pose.mDeviceToAbsoluteTracking.m,
+                    table
+                        .GetLastFrameRenderer
+                        .ok_or("Scene query unavailable")?(),
+                    table
+                        .GetTrackingSpace
+                        .ok_or("Tracking space query unavailable")?(),
+                ))
+            }
+        }
+        pub fn ocr_input(
+            &mut self,
+            path: &std::path::Path,
+            gesture_enabled: bool,
+        ) -> Result<crate::vr_overlay::ocr_input::InputActions, String> {
+            if self.ocr_input.is_none() {
+                let table = load_raw_interface(openvr_sys::IVRInput_Version, "input")?
+                    as *const openvr_sys::VR_IVRInput_FnTable;
+                self.ocr_input =
+                    Some(unsafe { crate::vr_overlay::ocr_input::OcrInput::new(table, path)? });
+            }
+            let tracking = gesture_enabled
+                .then(|| self.ocr_tracking().ok())
+                .flatten()
+                .map(|(head, _, origin)| (head, origin));
+            self.ocr_input
+                .as_mut()
+                .ok_or("OCR input is unavailable")?
+                .poll(tracking)
+        }
+        pub fn reset_ocr_input(&mut self) {
+            self.ocr_input = None;
+        }
+        pub fn open_ocr_bindings(&mut self) -> Result<(), String> {
+            self.ocr_input
+                .as_mut()
+                .ok_or("Enable VR OCR before opening its bindings")?
+                .open_bindings()
+        }
+        pub fn capture_ocr(&self) -> Result<StereoCapture, String> {
+            let system = load_raw_system()?;
+            let compositor = load_raw_interface(openvr_sys::IVRCompositor_Version, "compositor")?
+                as *const openvr_sys::VR_IVRCompositor_FnTable;
+            let device = self
+                .texture_device
+                .as_ref()
+                .ok_or("OCR requires a D3D11 texture device")?;
+            unsafe {
+                let compositor = &*compositor;
+                let system = &*system;
+                let scene_pid = compositor
+                    .GetLastFrameRenderer
+                    .ok_or("Scene renderer query unavailable")?();
+                if scene_pid == 0 || !crate::vr_overlay::process::vrchat_process(scene_pid) {
+                    return Err("OCR requires an active VRChat VR scene".into());
+                }
+                let pose_fn = compositor
+                    .GetLastPoseForTrackedDeviceIndex
+                    .ok_or("Scene pose query unavailable")?;
+                let mut pose: openvr_sys::TrackedDevicePose_t = std::mem::zeroed();
+                if pose_fn(tracked_device_index::HMD.0, &mut pose, std::ptr::null_mut()) != 0
+                    || !pose.bPoseIsValid
+                    || !pose.bDeviceIsConnected
+                {
+                    return Err("Headset pose is unavailable".into());
+                }
+                let captured_at = std::time::Instant::now();
+                let origin = compositor
+                    .GetTrackingSpace
+                    .ok_or("Tracking space query unavailable")?();
+                let get_mirror = compositor
+                    .GetMirrorTextureD3D11
+                    .ok_or("D3D11 mirror capture unavailable")?;
+                let release = compositor
+                    .ReleaseMirrorTextureD3D11
+                    .ok_or("D3D11 mirror release unavailable")?;
+                struct Mirror {
+                    view: *mut std::ffi::c_void,
+                    release: unsafe extern "C" fn(*mut std::ffi::c_void),
+                }
+                impl Drop for Mirror {
+                    fn drop(&mut self) {
+                        if !self.view.is_null() {
+                            unsafe {
+                                (self.release)(self.view);
+                            }
+                        }
+                    }
+                }
+                let mut eyes = Vec::new();
+                for eye in [openvr_sys::EVREye_Eye_Left, openvr_sys::EVREye_Eye_Right] {
+                    let mut mirror = Mirror {
+                        view: std::ptr::null_mut(),
+                        release,
+                    };
+                    if get_mirror(eye, device.raw_device(), &mut mirror.view) != 0
+                        || mirror.view.is_null()
+                    {
+                        return Err("Could not acquire SteamVR eye mirror".into());
+                    }
+                    let mut eye_pose: openvr_sys::TrackedDevicePose_t = std::mem::zeroed();
+                    if pose_fn(
+                        tracked_device_index::HMD.0,
+                        &mut eye_pose,
+                        std::ptr::null_mut(),
+                    ) != 0
+                        || !eye_pose.bPoseIsValid
+                        || !eye_pose.bDeviceIsConnected
+                    {
+                        return Err(
+                            "Headset tracking unavailable during capture; scan again".into()
+                        );
+                    }
+                    if !pose_within_translation_limit_m(
+                        pose.mDeviceToAbsoluteTracking.m,
+                        eye_pose.mDeviceToAbsoluteTracking.m,
+                        OCR_MOVEMENT_LIMIT_M,
+                    ) {
+                        return Err("Headset position changed during capture; scan again".into());
+                    }
+                    let image = device.read_shader_resource(mirror.view)?;
+                    let mut projection = [0.; 4];
+                    system
+                        .GetProjectionRaw
+                        .ok_or("Eye projection query unavailable")?(
+                        eye,
+                        &mut projection[0],
+                        &mut projection[1],
+                        &mut projection[2],
+                        &mut projection[3],
+                    );
+                    let eye_to_head =
+                        system
+                            .GetEyeToHeadTransform
+                            .ok_or("Eye transform query unavailable")?(eye)
+                        .m;
+                    let eye_capture = EyeCapture {
+                        image,
+                        projection,
+                        eye_to_head,
+                        head_pose: eye_pose.mDeviceToAbsoluteTracking.m,
+                    };
+                    if eye_capture
+                        .projection
+                        .iter()
+                        .any(|value| !value.is_finite())
+                        || eye_capture.projection[0] >= eye_capture.projection[1]
+                        || eye_capture.projection[2] >= eye_capture.projection[3]
+                        || eye_capture
+                            .eye_to_head
+                            .iter()
+                            .flatten()
+                            .any(|value| !value.is_finite())
+                    {
+                        return Err("Invalid eye projection".into());
+                    }
+                    eyes.push(eye_capture);
+                }
+                let mut after: openvr_sys::TrackedDevicePose_t = std::mem::zeroed();
+                if pose_fn(
+                    tracked_device_index::HMD.0,
+                    &mut after,
+                    std::ptr::null_mut(),
+                ) != 0
+                    || !after.bPoseIsValid
+                    || !after.bDeviceIsConnected
+                    || !pose_within_translation_limit_m(
+                        pose.mDeviceToAbsoluteTracking.m,
+                        after.mDeviceToAbsoluteTracking.m,
+                        OCR_MOVEMENT_LIMIT_M,
+                    )
+                    || compositor
+                        .GetLastFrameRenderer
+                        .ok_or("Scene renderer query unavailable")?()
+                        != scene_pid
+                    || compositor
+                        .GetTrackingSpace
+                        .ok_or("Tracking space query unavailable")?()
+                        != origin
+                {
+                    return Err(
+                        "Headset position or scene changed during capture; scan again".into(),
+                    );
+                }
+                Ok(StereoCapture {
+                    eyes: eyes.try_into().map_err(|_| "Missing eye capture")?,
+                    pose: after.mDeviceToAbsoluteTracking.m,
+                    scene_pid,
+                    captured_at,
+                    origin,
+                })
+            }
+        }
         pub fn runtime_installed() -> bool {
             openvr::is_runtime_installed()
         }
@@ -46,7 +276,7 @@ mod platform {
         }
 
         pub fn connect() -> Result<Self, String> {
-            let context = unsafe { openvr::init(ApplicationType::Background) }
+            let context = unsafe { openvr::init(ApplicationType::Overlay) }
                 .map_err(|error| format!("OpenVR initialization failed: {error:?}"))?;
             let system = context
                 .system()
@@ -64,9 +294,130 @@ mod platform {
                 texture_device,
                 headset: None,
                 wrist: None,
+                ocr: [None, None],
+                dashboard: None,
+                dashboard_thumbnail: None,
                 headset_state: SubmittedState::default(),
                 wrist_state: SubmittedState::default(),
+                ocr_state: Default::default(),
+                dashboard_state: SubmittedState::default(),
+                dashboard_thumbnail_state: SubmittedState::default(),
+                ocr_input: None,
             })
+        }
+
+        pub fn ensure_dashboard(&mut self) -> Result<(), String> {
+            if self.dashboard.is_none() {
+                let table = unsafe { &*self.raw_overlay };
+                let create = table
+                    .CreateDashboardOverlay
+                    .ok_or("SteamVR dashboard overlays unavailable")?;
+                let mut main = 0;
+                let mut thumbnail = 0;
+                let error = unsafe {
+                    create(
+                        DASHBOARD_KEY.as_ptr().cast_mut().cast(),
+                        DASHBOARD_NAME.as_ptr().cast_mut().cast(),
+                        &mut main,
+                        &mut thumbnail,
+                    )
+                };
+                if error != openvr_sys::EVROverlayError_VROverlayError_None {
+                    return Err(format!("Create dashboard overlay failed with code {error}"));
+                }
+                self.dashboard = Some(OverlayHandle(main));
+                self.dashboard_thumbnail = Some(OverlayHandle(thumbnail));
+            }
+
+            let handle = self.dashboard.expect("dashboard overlay exists");
+            self.overlay
+                .set_width(handle, 2.25)
+                .map_err(|error| format!("Configure dashboard width failed: {error:?}"))?;
+            let table = unsafe { &*self.raw_overlay };
+            let input = table
+                .SetOverlayInputMethod
+                .ok_or("SteamVR dashboard input unavailable")?;
+            let error = unsafe { input(handle.0, openvr_sys::VROverlayInputMethod_Mouse) };
+            if error != openvr_sys::EVROverlayError_VROverlayError_None {
+                return Err(format!(
+                    "Configure dashboard input failed with code {error}"
+                ));
+            }
+            let mut scale = openvr_sys::HmdVector2_t {
+                v: [DASHBOARD_WIDTH as f32, DASHBOARD_HEIGHT as f32],
+            };
+            let error = unsafe {
+                table
+                    .SetOverlayMouseScale
+                    .ok_or("SteamVR dashboard pointer scale unavailable")?(
+                    handle.0, &mut scale
+                )
+            };
+            if error != openvr_sys::EVROverlayError_VROverlayError_None {
+                return Err(format!(
+                    "Configure dashboard pointer failed with code {error}"
+                ));
+            }
+            Ok(())
+        }
+
+        pub fn dashboard_visible(&self) -> bool {
+            self.dashboard
+                .and_then(|handle| unsafe {
+                    (&*self.raw_overlay).IsOverlayVisible.map(|f| f(handle.0))
+                })
+                .unwrap_or(false)
+        }
+
+        pub fn poll_dashboard_events(&self) -> Result<Vec<DashboardPointerEvent>, String> {
+            let Some(handle) = self.dashboard else {
+                return Ok(Vec::new());
+            };
+            let poll = unsafe { (&*self.raw_overlay).PollNextOverlayEvent }
+                .ok_or("SteamVR dashboard event polling unavailable")?;
+            let mut events = Vec::new();
+            loop {
+                let mut event = openvr_sys::VREvent_t::default();
+                if !unsafe {
+                    poll(
+                        handle.0,
+                        &mut event,
+                        std::mem::size_of::<openvr_sys::VREvent_t>() as u32,
+                    )
+                } {
+                    break;
+                }
+                let pointer = match event.eventType as i32 {
+                    openvr_sys::EVREventType_VREvent_MouseMove => {
+                        let mouse = unsafe { event.data.mouse };
+                        let (x, y) = pointer_from_openvr(mouse.x, mouse.y);
+                        Some(DashboardPointerEvent::Move { x, y })
+                    }
+                    openvr_sys::EVREventType_VREvent_MouseButtonDown => {
+                        let mouse = unsafe { event.data.mouse };
+                        let (x, y) = pointer_from_openvr(mouse.x, mouse.y);
+                        (mouse.button & openvr_sys::EVRMouseButton_VRMouseButton_Left as u32 != 0)
+                            .then_some(DashboardPointerEvent::Down { x, y })
+                    }
+                    openvr_sys::EVREventType_VREvent_MouseButtonUp => {
+                        let mouse = unsafe { event.data.mouse };
+                        let (x, y) = pointer_from_openvr(mouse.x, mouse.y);
+                        (mouse.button & openvr_sys::EVRMouseButton_VRMouseButton_Left as u32 != 0)
+                            .then_some(DashboardPointerEvent::Up { x, y })
+                    }
+                    openvr_sys::EVREventType_VREvent_OverlayShown => {
+                        Some(DashboardPointerEvent::Shown)
+                    }
+                    openvr_sys::EVREventType_VREvent_OverlayHidden => {
+                        Some(DashboardPointerEvent::Hidden)
+                    }
+                    _ => None,
+                };
+                if let Some(event) = pointer {
+                    events.push(event);
+                }
+            }
+            Ok(events)
         }
 
         pub fn ensure_headset(&mut self, config: &VrOverlayHeadsetConfig) -> Result<(), String> {
@@ -239,6 +590,8 @@ mod platform {
         pub fn hide_all(&mut self) {
             self.hide(OverlayKind::Headset);
             self.hide(OverlayKind::Wrist);
+            self.hide(OverlayKind::OcrLeft);
+            self.hide(OverlayKind::OcrRight);
         }
 
         pub fn reset(&mut self, kind: OverlayKind) {
@@ -250,6 +603,10 @@ mod platform {
             match kind {
                 OverlayKind::Headset => self.headset,
                 OverlayKind::Wrist => self.wrist,
+                OverlayKind::OcrLeft => self.ocr[0],
+                OverlayKind::OcrRight => self.ocr[1],
+                OverlayKind::Dashboard => self.dashboard,
+                OverlayKind::DashboardThumbnail => self.dashboard_thumbnail,
             }
         }
 
@@ -257,6 +614,10 @@ mod platform {
             match kind {
                 OverlayKind::Headset => &self.headset_state,
                 OverlayKind::Wrist => &self.wrist_state,
+                OverlayKind::OcrLeft => &self.ocr_state[0],
+                OverlayKind::OcrRight => &self.ocr_state[1],
+                OverlayKind::Dashboard => &self.dashboard_state,
+                OverlayKind::DashboardThumbnail => &self.dashboard_thumbnail_state,
             }
         }
 
@@ -264,6 +625,10 @@ mod platform {
             match kind {
                 OverlayKind::Headset => &mut self.headset_state,
                 OverlayKind::Wrist => &mut self.wrist_state,
+                OverlayKind::OcrLeft => &mut self.ocr_state[0],
+                OverlayKind::OcrRight => &mut self.ocr_state[1],
+                OverlayKind::Dashboard => &mut self.dashboard_state,
+                OverlayKind::DashboardThumbnail => &mut self.dashboard_thumbnail_state,
             }
         }
 
@@ -271,6 +636,10 @@ mod platform {
             let handle = match kind {
                 OverlayKind::Headset => self.headset.take(),
                 OverlayKind::Wrist => self.wrist.take(),
+                OverlayKind::OcrLeft => self.ocr[0].take(),
+                OverlayKind::OcrRight => self.ocr[1].take(),
+                OverlayKind::Dashboard => self.dashboard.take(),
+                OverlayKind::DashboardThumbnail => self.dashboard_thumbnail.take(),
             };
             if let Some(handle) = handle {
                 unsafe {
@@ -292,6 +661,10 @@ mod platform {
             self.hide_all();
             self.destroy(OverlayKind::Headset);
             self.destroy(OverlayKind::Wrist);
+            self.destroy(OverlayKind::OcrLeft);
+            self.destroy(OverlayKind::OcrRight);
+            self.destroy(OverlayKind::Dashboard);
+            self.destroy(OverlayKind::DashboardThumbnail);
             let _ = &self.context;
         }
     }
@@ -433,6 +806,17 @@ mod platform {
         pub fn hide(&mut self, _: OverlayKind) {}
         pub fn hide_all(&mut self) {}
         pub fn reset(&mut self, _: OverlayKind) {}
+        pub fn ensure_dashboard(&mut self) -> Result<(), String> {
+            Err("VR Overlay is only supported on Windows".into())
+        }
+        pub fn dashboard_visible(&self) -> bool {
+            false
+        }
+        pub fn poll_dashboard_events(
+            &self,
+        ) -> Result<Vec<crate::vr_overlay::dashboard::DashboardPointerEvent>, String> {
+            Ok(Vec::new())
+        }
     }
 }
 
@@ -442,6 +826,10 @@ pub use platform::OpenVrBackend;
 pub enum OverlayKind {
     Headset,
     Wrist,
+    OcrLeft,
+    OcrRight,
+    Dashboard,
+    DashboardThumbnail,
 }
 
 #[derive(Debug, Clone)]

@@ -39,6 +39,7 @@ impl ModelDirectoryChange {
 
     pub(super) async fn apply(&mut self, state: &SettingsContext) -> Result<(), String> {
         if self.changed {
+            state.capture.qwen_runtime.stop().await?;
             move_model_directory(state, self.candidate_path.clone()).await?;
             self.applied = true;
         }
@@ -47,6 +48,7 @@ impl ModelDirectoryChange {
 
     pub(super) async fn rollback(&mut self, state: &SettingsContext) -> Result<(), String> {
         if self.applied {
+            state.capture.qwen_runtime.stop().await?;
             move_model_directory(state, self.previous_path.clone()).await?;
             self.applied = false;
         }

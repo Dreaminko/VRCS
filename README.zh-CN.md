@@ -79,6 +79,7 @@ VRCS 是面向 VRChat 场景的 Windows 实时字幕与语言学习工具。它�
 - Chatbox 快速输入、翻译预览、格式设置和 144 字符处理
 - 通过 OSCQuery 同步 VRChat 的 `MuteSelf` 状态；静音或状态未知时阻止自动发送
 - SteamVR VR Overlay：头显字幕与手腕对话视图
+- VRCS 运行时，可从 SteamVR 仪表盘底栏打开快捷设置
 - Overlay 支持原文、译文或双语内容，可选择系统音频、麦克风和 Chatbox 来源，并调整位置、尺寸、透明度和显示时间
 
 ### 查词、学习与 Anki

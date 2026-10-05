@@ -19,6 +19,7 @@ pub const OPENROUTER_PROVIDER: &str = "openrouter";
 pub const DEEPSEEK_PROVIDER: &str = "deepseek";
 pub const LM_STUDIO_PROVIDER: &str = "lm_studio";
 pub const OLLAMA_PROVIDER: &str = "ollama";
+pub const QWEN_LOCAL_PROVIDER: &str = "qwen_local";
 
 pub const API_PURPOSE_ASR: &str = "asr";
 pub const API_PURPOSE_LLM: &str = "llm";
@@ -37,6 +38,7 @@ pub const SERVICE_OPENAI_REALTIME_TRANSLATE: &str = "openai_realtime_translate";
 pub const SERVICE_GROQ_TRANSCRIPTION: &str = "groq_transcription";
 pub const SERVICE_GEMINI_TRANSCRIBE: &str = "gemini_transcribe";
 pub const SERVICE_GEMINI_LIVE_TRANSLATE: &str = "gemini_live_translate";
+pub const SERVICE_QWEN_LOCAL_TRANSCRIPTION: &str = "qwen_local_transcription";
 
 pub fn is_live_translation(service: &str) -> bool {
     matches!(
@@ -131,6 +133,7 @@ const TEXT_CAPABILITIES: &[&str] = &[CAPABILITY_TEXT_GENERATION, CAPABILITY_TEXT
 const TRANSLATION_CAPABILITY: &[&str] = &[CAPABILITY_TEXT_TRANSLATION];
 const SPEECH_CAPABILITY: &[&str] = &[CAPABILITY_SPEECH_TO_TEXT];
 const LLM_PURPOSES: &[&str] = &[API_PURPOSE_LLM];
+const ASR_PURPOSES: &[&str] = &[API_PURPOSE_ASR];
 const SHARED_PURPOSES: &[&str] = &[API_PURPOSE_ASR, API_PURPOSE_LLM, API_PURPOSE_SHARED];
 const OPENAI_MODELS: &[&str] = &[];
 const QWEN_MODELS: &[&str] = &["qwen3-asr-flash-realtime"];
@@ -143,6 +146,7 @@ const OPENAI_ASR_MODELS: &[&str] = &[
 ];
 const GROQ_ASR_MODELS: &[&str] = &["whisper-large-v3-turbo", "whisper-large-v3"];
 const GEMINI_ASR_MODELS: &[&str] = &["gemini-3.5-transcribe-live"];
+const QWEN_LOCAL_ASR_MODELS: &[&str] = &["Qwen/Qwen3-ASR-0.6B", "Qwen/Qwen3-ASR-1.7B"];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -514,6 +518,19 @@ const OLLAMA_SERVICES: &[ProviderServiceDefinition] = &[text_service(
     SupportLevel::ProtocolCompatible,
 )];
 
+const QWEN_LOCAL_SERVICES: &[ProviderServiceDefinition] = &[recognition_service_definition(
+    SERVICE_QWEN_LOCAL_TRANSCRIPTION,
+    "Local Qwen ASR",
+    ServiceAdapter::OpenAiAudioTranscriptions,
+    RecognitionServiceSpec {
+        transport: RecognitionTransport::SegmentedUpload,
+        partial_results: false,
+        models: QWEN_LOCAL_ASR_MODELS,
+        context_max_chars: None,
+        support: SupportLevel::ProtocolCompatible,
+    },
+)];
+
 const fn text_service(
     id: &'static str,
     display_name: &'static str,
@@ -602,6 +619,7 @@ pub fn catalog() -> Vec<ProviderDefinition> {
         MICROSOFT_PROVIDER,
         LM_STUDIO_PROVIDER,
         OLLAMA_PROVIDER,
+        QWEN_LOCAL_PROVIDER,
         OPENAI_COMPATIBLE_PROVIDER,
     ]
     .into_iter()
@@ -794,6 +812,21 @@ pub fn definition(provider: &str) -> Option<ProviderDefinition> {
                 LLM_TRANSLATION_LANGUAGES,
                 true,
             ),
+            QWEN_LOCAL_PROVIDER => (
+                "Local Qwen ASR",
+                ProviderCategory::LocalService,
+                connection(
+                    ApiAuthMode::None,
+                    BaseUrlPolicy::Editable("http://127.0.0.1:8000/v1"),
+                    &[],
+                    &[],
+                    false,
+                ),
+                QWEN_LOCAL_SERVICES,
+                ASR_PURPOSES,
+                OPENAI_MODELS,
+                false,
+            ),
             OPENAI_COMPATIBLE_PROVIDER => (
                 "Custom OpenAI Compatible",
                 ProviderCategory::CustomProtocol,
@@ -867,6 +900,7 @@ fn provider_id(provider: &str) -> &'static str {
         DEEPSEEK_PROVIDER => DEEPSEEK_PROVIDER,
         LM_STUDIO_PROVIDER => LM_STUDIO_PROVIDER,
         OLLAMA_PROVIDER => OLLAMA_PROVIDER,
+        QWEN_LOCAL_PROVIDER => QWEN_LOCAL_PROVIDER,
         _ => unreachable!("provider was matched before conversion"),
     }
 }
@@ -1309,6 +1343,29 @@ mod tests {
         assert_eq!(custom.category, ProviderCategory::CustomProtocol);
         assert_eq!(custom.presets.len(), 1);
         assert_eq!(custom.presets[0].id, "custom");
+    }
+
+    #[test]
+    fn local_qwen_asr_is_a_separate_loopback_transcription_service() {
+        let provider = definition(QWEN_LOCAL_PROVIDER).unwrap();
+        assert_eq!(provider.category, ProviderCategory::LocalService);
+        assert_eq!(provider.purposes, &[API_PURPOSE_ASR]);
+        assert_eq!(provider.connection.auth_mode, ApiAuthMode::None);
+        assert!(provider.capabilities.supports_asr);
+        assert!(!provider.capabilities.supports_text_generation);
+        assert!(!provider.capabilities.supports_translation);
+        let service = service(QWEN_LOCAL_PROVIDER, SERVICE_QWEN_LOCAL_TRANSCRIPTION).unwrap();
+        assert!(matches!(
+            service.adapter,
+            ServiceAdapter::OpenAiAudioTranscriptions
+        ));
+        assert_eq!(
+            service.recognition_transport,
+            Some(RecognitionTransport::SegmentedUpload)
+        );
+        assert!(!service.partial_results);
+        assert!(!service.supports_context);
+        assert!(catalog().iter().any(|item| item.id == QWEN_LOCAL_PROVIDER));
     }
 
     #[test]

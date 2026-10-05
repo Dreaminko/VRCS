@@ -49,13 +49,13 @@ export function useOnboardingRecognition({
 }) {
   const { t } = useTranslation();
   const [recognitionMode, setRecognitionMode] = useState<RecognitionMode>(
-    settings.asr.backend === "local_whisper" ? "local" : "cloud",
+    ["local_whisper", "qwen_local_managed"].includes(settings.asr.backend) ? "local" : "cloud",
   );
   const [selectedProfileId, setSelectedProfileId] = useState(
     settings.asr.active_profile_id ?? "",
   );
   const [selectedServiceId, setSelectedServiceId] = useState(
-    settings.asr.backend === "local_whisper" ? "" : settings.asr.backend,
+    ["local_whisper", "qwen_local_managed"].includes(settings.asr.backend) ? "" : settings.asr.backend,
   );
   const [testedSelectionId, setTestedSelectionId] = useState("");
   const [apiEditor, setApiEditor] = useState<ApiProfileEditorDraft | null>(null);
@@ -91,14 +91,18 @@ export function useOnboardingRecognition({
   const selectedModel = asr.managedModels.find(
     (model) => model.id === draftController.draft.asr.local.model,
   );
+  const selectedQwen = asr.qwenModels.find(
+    (model) => model.id === draftController.draft.asr.managed_qwen.package_id,
+  );
   const localSettingsError = asrSelectionError(
     draftController.draft,
     asrCapabilities,
     (key) => t(key),
   );
   const localReady = Boolean(
-    selectedModel
-    && ["downloaded", "loading", "ready"].includes(selectedModel.status)
+    (draftController.draft.asr.backend === "qwen_local_managed"
+      ? selectedQwen?.status === "installed" && asr.qwenRuntime?.available
+      : selectedModel && ["downloaded", "loading", "ready"].includes(selectedModel.status))
     && !localSettingsError
     && draftController.saveState !== "error",
   );
@@ -201,10 +205,11 @@ export function useOnboardingRecognition({
         ...latest,
         asr: {
           ...latest.asr,
-          backend: "local_whisper",
+          backend: draft.asr.backend === "qwen_local_managed" ? "qwen_local_managed" : "local_whisper",
           active_profile_id: null,
           language: draft.asr.language,
           local: draft.asr.local,
+          managed_qwen: draft.asr.managed_qwen,
         },
       });
       await onFinish();

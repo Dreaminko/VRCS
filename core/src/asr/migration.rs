@@ -1,10 +1,60 @@
 use std::path::PathBuf;
 
 use super::model::{
-    file_sha256, record_verification, verification_path, verify_model_file, MODELS,
+    file_sha256, record_verification, verification_path, verify_model_file, ModelSpec, MODELS,
 };
+use super::qwen_models::{prepare_migration, PackageSpec, PACKAGES};
 
 pub(super) fn move_model_dir(source_dir: PathBuf, model_dir: PathBuf) -> Result<(), String> {
+    move_model_dir_with_specs(source_dir, model_dir, &MODELS, &PACKAGES)
+}
+
+pub(super) fn move_model_dir_with_specs(
+    source_dir: PathBuf,
+    model_dir: PathBuf,
+    whisper_specs: &[ModelSpec],
+    qwen_specs: &[PackageSpec],
+) -> Result<(), String> {
+    std::fs::create_dir_all(&model_dir).map_err(|error| {
+        format!(
+            "Failed to create ASR model directory {}: {error}",
+            model_dir.display()
+        )
+    })?;
+    let same_directory = source_dir == model_dir
+        || matches!(
+            (
+                std::fs::canonicalize(&source_dir),
+                std::fs::canonicalize(&model_dir)
+            ),
+            (Ok(source), Ok(destination)) if source == destination
+        );
+    if same_directory {
+        return Ok(());
+    }
+
+    let qwen_migration = prepare_migration(&source_dir, &model_dir, qwen_specs)?;
+    match move_whisper_files(source_dir, model_dir, whisper_specs) {
+        Ok(()) => {
+            if let Err(error) = qwen_migration.commit() {
+                tracing::warn!(%error, "Qwen ASR package moved, but old copy could not be removed");
+            }
+            Ok(())
+        }
+        Err(error) => match qwen_migration.rollback() {
+            Ok(()) => Err(error),
+            Err(rollback_error) => Err(format!(
+                "{error}; Qwen ASR migration rollback failed: {rollback_error}"
+            )),
+        },
+    }
+}
+
+fn move_whisper_files(
+    source_dir: PathBuf,
+    model_dir: PathBuf,
+    whisper_specs: &[ModelSpec],
+) -> Result<(), String> {
     #[derive(Clone, Copy)]
     enum TransferKind {
         Renamed,
@@ -34,25 +84,7 @@ pub(super) fn move_model_dir(source_dir: PathBuf, model_dir: PathBuf) -> Result<
         }
     }
 
-    std::fs::create_dir_all(&model_dir).map_err(|error| {
-        format!(
-            "Failed to create ASR model directory {}: {error}",
-            model_dir.display()
-        )
-    })?;
-    let same_directory = source_dir == model_dir
-        || matches!(
-            (
-                std::fs::canonicalize(&source_dir),
-                std::fs::canonicalize(&model_dir)
-            ),
-            (Ok(source), Ok(destination)) if source == destination
-        );
-    if same_directory {
-        return Ok(());
-    }
-
-    let models = MODELS
+    let models = whisper_specs
         .iter()
         .filter_map(|spec| {
             let source = source_dir.join(spec.filename);

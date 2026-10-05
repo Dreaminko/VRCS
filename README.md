@@ -76,6 +76,7 @@ You can change the configuration at any time in the application. To run the setu
 - Quick Chatbox input, translation preview, formatting, and 144-character handling
 - Synchronize VRChat's `MuteSelf` state through OSCQuery and block automatic sending when muted or when the state is unknown
 - SteamVR VR Overlay with headset subtitles and a wrist-mounted conversation view
+- Open VRCS quick settings from the SteamVR dashboard bottom bar while VRCS is running
 - Configure the overlay to show original text, translations, or both; select system audio, microphone, and Chatbox sources; and adjust position, size, opacity, and display duration
 
 ### Dictionary lookup, learning, and Anki

@@ -7,7 +7,7 @@ use axum::Json;
 use serde_json::{json, Value};
 
 use crate::audio;
-use crate::config::{AppConfig, AsrConfig};
+use crate::config::{AppConfig, AsrConfig, QWEN_MANAGED_BACKEND};
 use crate::error::AppError;
 use crate::pipeline::{AsrEchoGuard, PipelineDependencies};
 
@@ -114,7 +114,14 @@ fn asr_config_runtime_changed(current: &AsrConfig, candidate: &AsrConfig) -> boo
         return true;
     }
 
+    if (current.backend == QWEN_MANAGED_BACKEND || candidate.backend == QWEN_MANAGED_BACKEND)
+        && current.managed_qwen != candidate.managed_qwen
+    {
+        return true;
+    }
+
     let backend_config_changed = current.backend != "local_whisper"
+        && current.backend != QWEN_MANAGED_BACKEND
         && current.service_settings.get(&current.backend)
             != candidate.service_settings.get(&current.backend);
     backend_config_changed
@@ -129,7 +136,7 @@ fn asr_profile_runtime_config(profile: &crate::config::ApiProfile) -> crate::con
 }
 
 fn active_asr_profile(config: &AsrConfig) -> Option<&crate::config::ApiProfile> {
-    if config.backend == "local_whisper" {
+    if config.backend == "local_whisper" || config.backend == QWEN_MANAGED_BACKEND {
         return None;
     }
     let profile_id = config.active_profile_id.as_deref()?;
@@ -144,6 +151,7 @@ fn active_asr_profile(config: &AsrConfig) -> Option<&crate::config::ApiProfile> 
 
 pub(crate) fn uses_asr_profile(config: &AppConfig, profile_id: &str) -> bool {
     config.asr.backend != "local_whisper"
+        && config.asr.backend != QWEN_MANAGED_BACKEND
         && config.asr.active_profile_id.as_deref() == Some(profile_id)
 }
 
@@ -263,7 +271,33 @@ pub(crate) async fn validate_capture_config(
             })?;
         }
     }
-    if config.asr.backend != "local_whisper" {
+    if config.asr.backend == QWEN_MANAGED_BACKEND {
+        let manager = Arc::clone(&state.capture.model_manager);
+        let package = config.asr.managed_qwen.package_id.clone();
+        let installed = tokio::task::spawn_blocking(move || manager.describe_qwen(&package))
+            .await
+            .map_err(|error| {
+                api_error(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "asr.qwen_model.inspect_task_failed",
+                    error.to_string(),
+                )
+            })?
+            .map_err(|error| {
+                api_error(
+                    StatusCode::UNPROCESSABLE_ENTITY,
+                    "asr.qwen_model.inspect_failed",
+                    error,
+                )
+            })?;
+        if installed.status != "installed" {
+            return Err(api_error(
+                StatusCode::CONFLICT,
+                "asr.qwen_model.not_installed",
+                "The selected Qwen ASR package is not installed",
+            ));
+        }
+    } else if config.asr.backend != "local_whisper" {
         crate::asr::validate_cloud_connection(&config.asr)
             .map_err(|error| api_error(StatusCode::CONFLICT, "asr.cloud_profile_invalid", error))?;
     }
@@ -349,6 +383,10 @@ fn pipeline_dependencies(state: &CaptureContext) -> PipelineDependencies {
         Arc::clone(&state.config.config),
         Arc::clone(&state.config.language_session),
         state.content.subtitle_output.clone(),
+    )
+    .with_managed_qwen(
+        Arc::clone(&state.capture.qwen_runtime),
+        Arc::clone(&state.capture.model_manager),
     )
 }
 
@@ -538,6 +576,9 @@ pub(super) async fn capture_start(
     let (device, microphone) = match started {
         Ok(devices) => devices,
         Err(error) => {
+            if let Err(stop_error) = state.capture.qwen_runtime.stop().await {
+                tracing::warn!(%stop_error, "could not stop Qwen ASR after capture start failed");
+            }
             *state
                 .config
                 .language_session
@@ -568,6 +609,9 @@ pub(super) async fn capture_stop(State(state): State<CaptureContext>) -> Json<Va
     let mut speaker = state.capture.speaker_pipeline.lock().await;
     let mut microphone = state.capture.microphone_pipeline.lock().await;
     tokio::join!(speaker.stop(), microphone.stop());
+    if let Err(error) = state.capture.qwen_runtime.stop().await {
+        tracing::warn!(%error, "could not stop managed Qwen ASR runtime after capture");
+    }
     *state
         .config
         .language_session

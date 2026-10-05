@@ -167,10 +167,17 @@ fn launch_core(app: &tauri::AppHandle) -> Result<(), String> {
             Ok(core) => {
                 let presentation_events = core.subscribe_presentation_events();
                 let vr_overlay_config = core.subscribe_vr_overlay_config();
-                if let Err(error) = app
-                    .state::<vr_overlay::Manager>()
-                    .start(presentation_events, vr_overlay_config)
-                {
+                let ocr_service = core
+                    .vr_ocr_service()
+                    .map_err(|error| {
+                        tracing::warn!(%error,"Cloud OCR service initialization failed");
+                    })
+                    .ok();
+                if let Err(error) = app.state::<vr_overlay::Manager>().start(
+                    presentation_events,
+                    vr_overlay_config,
+                    ocr_service,
+                ) {
                     tracing::warn!(%error, "VR Overlay startup failed");
                 }
                 *runtime.handle.lock().expect("core runtime lock poisoned") = Some(core);
@@ -455,8 +462,10 @@ pub fn run() {
             set_compact_window_topmost,
             vr_overlay::vr_overlay_status,
             vr_overlay::vr_overlay_retry,
+            vr_overlay::vr_ocr_open_bindings,
             vr_overlay::vr_overlay_show_sample,
-            vr_overlay::vr_overlay_hide_sample
+            vr_overlay::vr_overlay_hide_sample,
+            vr_overlay::vr_dashboard_update_view
         ])
         .setup(move |app| {
             app_updates::register_plugin(app)?;

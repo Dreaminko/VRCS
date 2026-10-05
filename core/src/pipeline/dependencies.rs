@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex};
 
 use tokio::sync::broadcast;
 
-use crate::asr::AsrService;
+use crate::asr::{AsrService, ModelManager, QwenRuntime};
 use crate::config::{AppConfig, TranslationConfig};
 use crate::db::conversations::{publish_latest_catalog, ConversationCatalog};
 use crate::db::Database;
@@ -38,6 +38,7 @@ pub(crate) struct PipelineDependencies {
     language_session: Arc<std::sync::RwLock<crate::language_session::ActiveLanguageSession>>,
     output: SubtitleLifecyclePublisher,
     pending_native: Arc<Mutex<HashMap<String, PendingNative>>>,
+    managed_qwen: Option<(Arc<QwenRuntime>, Arc<ModelManager>)>,
 }
 
 impl PipelineDependencies {
@@ -62,7 +63,21 @@ impl PipelineDependencies {
             language_session,
             output,
             pending_native: Arc::default(),
+            managed_qwen: None,
         }
+    }
+
+    pub(crate) fn with_managed_qwen(
+        mut self,
+        runtime: Arc<QwenRuntime>,
+        manager: Arc<ModelManager>,
+    ) -> Self {
+        self.managed_qwen = Some((runtime, manager));
+        self
+    }
+
+    pub(crate) fn managed_qwen(&self) -> Option<(Arc<QwenRuntime>, Arc<ModelManager>)> {
+        self.managed_qwen.clone()
     }
 
     pub(crate) fn publish_live_translation(

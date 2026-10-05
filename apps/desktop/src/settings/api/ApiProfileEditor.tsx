@@ -158,7 +158,7 @@ export function ApiProfileEditor({
             />
           )}
 
-          {showAdvancedHttp && (
+          {(showAdvancedHttp || definition?.id === "qwen_local") && (
             <label className="field cloud-text-field">
               <span>{t("settings.apiManagement.timeout")}</span>
               <input

@@ -8,7 +8,7 @@ import type {
 import type { AsrSettings } from "../providers/types";
 
 export interface Settings {
-  schema_version: 26;
+  schema_version: 27;
   server: {
     host: string;
     port: number;
