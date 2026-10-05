@@ -26,6 +26,19 @@ function subtitle(id: number, text: string): Subtitle {
   };
 }
 
+test("native stream carries cumulative conversation text separately from subtitle preview", () => {
+  const event = {
+    type: "live_translation_updated", source: "speaker", utterance_id: "preview-1",
+    source_utterance_id: "source-1", language: "en", text: "tail", translation: "尾部",
+    target_language: "zh-Hans",
+    conversation_preview: { text: "full original ".repeat(30), translation: "完整译文".repeat(60) },
+  };
+  assert.deepEqual(parseSubtitleStreamMessage(JSON.stringify(event)), event);
+  assert.equal(parseSubtitleStreamMessage(JSON.stringify({ ...event, source_utterance_id: 1 })), null);
+  assert.equal(parseSubtitleStreamMessage(JSON.stringify({ ...event, conversation_preview: { text: "hello" } })), null);
+  assert.equal(parseSubtitleStreamMessage(JSON.stringify({ ...event, conversation_preview: { text: "x".repeat(100_001), translation: "hi" } })), null);
+});
+
 test("conversation pages preserve the Core pagination cursor", () => {
   const page = conversationSubtitlePage({
     items: Array.from({ length: 100 }, (_, index) => subtitle(100 - index, `line ${index}`)),
@@ -420,6 +433,9 @@ test("out-of-range microphone levels are rejected", () => {
 test("native bilingual snapshots require both text fields and a source", () => {
   const snapshot = { type: "live_translation_updated", utterance_id: "native-1", source: "speaker", text: "", language: null, translation: "你好", target_language: "zh-Hans" };
   assert.deepEqual(parseSubtitleStreamMessage(JSON.stringify(snapshot)), snapshot);
+  const completed = { ...snapshot, completed_original: "Complete original." };
+  assert.deepEqual(parseSubtitleStreamMessage(JSON.stringify(completed)), completed);
+  assert.equal(parseSubtitleStreamMessage(JSON.stringify({ ...completed, completed_original: 42 })), null);
   assert.equal(parseSubtitleStreamMessage(JSON.stringify({ ...snapshot, translation: 42 })), null);
   assert.equal(parseSubtitleStreamMessage(JSON.stringify({ ...snapshot, source: "invalid" })), null);
 });
@@ -433,4 +449,21 @@ test("shared source context survives protocol validation and history reconciliat
   assert.deepEqual(parseSubtitleStreamMessage(JSON.stringify(event)), event);
   const invalid = { ...event, translation: { ...translation, source_group: { subtitle_ids: ["1"], text: "Hello" } } };
   assert.equal(parseSubtitleStreamMessage(JSON.stringify(invalid)), null);
+});
+
+test("speaker identities survive live previews and history messages", () => {
+  const speaker = { id: "qwen-session-0", index: 0 };
+  const item = { ...subtitle(1, "Hello"), speaker };
+  const history = parseSubtitleStreamMessage(JSON.stringify({ type: "subtitle", subtitle: item }));
+  assert.equal(history?.type, "subtitle");
+  if (history?.type === "subtitle") assert.deepEqual(history.subtitle.speaker, speaker);
+  const live = {
+    type: "live_translation_updated", utterance_id: "live-1", source: "speaker",
+    text: "Hello", language: "en", translation: "你好", target_language: "zh-Hans", speaker,
+  };
+  const preview = parseSubtitleStreamMessage(JSON.stringify(live));
+  assert.deepEqual(preview, live);
+  for (const invalid of [{ index: -1, id: "x" }, { index: 1.5, id: "x" }, { index: "1", id: "x" }]) {
+    assert.equal(parseSubtitleStreamMessage(JSON.stringify({ ...live, speaker: invalid })), null);
+  }
 });

@@ -66,16 +66,70 @@ pub(super) fn normalize_event(
         .and_then(|v| v.get("text"))
         .and_then(Value::as_str)
         .unwrap_or("");
-    if text.is_empty() && translation.is_empty() {
-        return Ok(None);
-    }
-    if let Some(language) = input
+    let language = input
         .and_then(|v| v.get("languageCode"))
         .and_then(Value::as_str)
-    {
-        state.language = Some(language.to_owned());
+        .or_else(|| (config.language != "auto").then_some(config.language.as_str()))
+        .or_else(|| {
+            if state.source_only_input {
+                state
+                    .source_only
+                    .as_deref()
+                    .and_then(|state| state.language.as_deref())
+            } else {
+                state.language.as_deref()
+            }
+        })
+        .map(str::to_owned);
+    let source_only = language
+        .as_deref()
+        .zip(config.live_translation_target.as_deref())
+        .is_some_and(|(source, target)| {
+            crate::providers::same_live_translation_language(source, target)
+        });
+    let mut event = None;
+    if !text.is_empty() {
+        state.source_only_input = source_only;
+        state.source_only_active = source_only;
+        if !source_only {
+            // Finish any source-only tail before previewing the next foreign
+            // source. Never flush a foreign source merely because language changes.
+            event = state
+                .source_only
+                .as_mut()
+                .and_then(|state| state.collect(config, true));
+            state.language = language.clone();
+        }
+    } else if !translation.is_empty() {
+        state.source_only_active = false;
     }
-    super::live_translation::append_delta(config, state, text, translation, None, None)
+    let translated = super::live_translation::append_delta(
+        config,
+        state,
+        if source_only { "" } else { text },
+        translation,
+        None,
+        None,
+    )?;
+    event = super::live_translation::merge_events(event, translated);
+    if source_only && !text.is_empty() {
+        let original = state.source_only.get_or_insert_with(Default::default);
+        original.language = language;
+        let next = super::live_translation::append_delta(config, original, text, "", None, None)?;
+        event = super::live_translation::merge_events(event, next);
+    }
+    if content["turnComplete"].as_bool() == Some(true)
+        || input.and_then(|input| input["finished"].as_bool()) == Some(true)
+    {
+        // Only the independent source-only stream can complete without output.
+        // Merge rather than overwrite any punctuation prefix completed above.
+        let tail = state
+            .source_only
+            .as_mut()
+            .and_then(|state| state.collect(config, true));
+        event = super::live_translation::merge_events(event, tail);
+    }
+    Ok(state.active_preview(event))
 }
 
 #[cfg(test)]
@@ -224,7 +278,7 @@ mod tests {
     }
 
     #[tokio::test(start_paused = true)]
-    async fn model_alignment_merges_gemini_sentence_counts_without_rewriting_text() {
+    async fn local_alignment_merges_gemini_sentence_counts_without_rewriting_text() {
         let source = "Platform 2.0 started in 2020, with 288 communities and 3487 tasks.";
         let translated = "平台2.0于2020年启动。共有288家社区。发布3487项任务。";
         let mut state = State::default();
@@ -237,23 +291,12 @@ mod tests {
             &mut state,
         )
         .unwrap();
-        for seconds in [2, 20] {
-            tokio::time::advance(std::time::Duration::from_secs(seconds)).await;
-            assert!(super::super::live_translation::poll(&config(), &mut state).is_none());
-        }
-        let window = super::super::live_translation::window(&state).unwrap();
-        assert!(window.sources[0].frames[0].elapsed_ms.is_none());
-        let mapping = serde_json::from_value(json!({"groups":[{
-            "source_end":{"unit_id":window.sources[0].id,"quote":source},
-            "target_end":{"unit_id":window.targets[0].id,"quote":translated},
-            "fully_translated":true
-        }]}))
-        .unwrap();
+        tokio::time::advance(std::time::Duration::from_millis(450)).await;
         let Some(CloudEvent::LiveTranslation {
             completed,
             translations,
             ..
-        }) = super::super::live_translation::apply(&config(), &mut state, &window, &mapping)
+        }) = super::super::live_translation::poll(&config(), &mut state)
         else {
             panic!()
         };
@@ -400,5 +443,251 @@ mod tests {
             normalize_event(&config(), &json!({"error":{"message":"quota"}}), &mut state).is_err()
         );
         assert!(normalize_event(&config(), &json!({"serverContent":{"inputTranscription":{"text":"a".repeat(MAX_TRANSCRIPT_BYTES + 1)}}}), &mut state).is_err());
+    }
+    #[tokio::test(start_paused = true)]
+    async fn same_language_completes_before_close_and_language_changes_keep_the_old_source() {
+        let mut state = State::default();
+        normalize_event(&config(), &json!({"serverContent":{"inputTranscription":{"text":"你好", "languageCode":"zh-Hant"}}}), &mut state).unwrap();
+        let Some(CloudEvent::LiveTranslation {
+            completed,
+            translations,
+            ..
+        }) = normalize_event(
+            &config(),
+            &json!({"serverContent":{"turnComplete":true}}),
+            &mut state,
+        )
+        .unwrap()
+        else {
+            panic!()
+        };
+        assert_eq!(completed[0].transcript.text, "你好");
+        assert!(!completed[0].pending);
+        assert!(translations.is_empty());
+        normalize_event(&config(), &json!({"serverContent":{"inputTranscription":{"text":"再见", "languageCode":"zh-Hant"}}}), &mut state).unwrap();
+        let Some(CloudEvent::LiveTranslation {
+            completed,
+            snapshot,
+            ..
+        }) = normalize_event(
+            &config(),
+            &json!({"serverContent":{"inputTranscription":{"text":"Hello.", "languageCode":"en"}}}),
+            &mut state,
+        )
+        .unwrap()
+        else {
+            panic!()
+        };
+        assert_eq!(completed[0].transcript.text, "再见");
+        assert_eq!(completed[0].transcript.language.as_deref(), Some("zh-Hant"));
+        assert_eq!(snapshot.text, "Hello.");
+        assert_eq!(snapshot.language.as_deref(), Some("en"));
+    }
+    #[tokio::test(start_paused = true)]
+    async fn same_frame_completion_preserves_prefix_and_tail_once() {
+        for marker in ["turnComplete", "finished"] {
+            let mut state = State::default();
+            let mut message = json!({"serverContent":{
+                "inputTranscription":{"text":"你好。接下来", "languageCode":"zh-Hant"}
+            }});
+            if marker == "turnComplete" {
+                message["serverContent"][marker] = json!(true);
+            } else {
+                message["serverContent"]["inputTranscription"][marker] = json!(true);
+            }
+            let Some(CloudEvent::LiveTranslation {
+                completed,
+                translations,
+                snapshot,
+                ..
+            }) = normalize_event(&config(), &message, &mut state).unwrap()
+            else {
+                panic!("expected both source completions")
+            };
+            assert_eq!(completed.len(), 2);
+            assert_eq!(
+                completed
+                    .iter()
+                    .map(|r| r.transcript.text.as_str())
+                    .collect::<String>(),
+                "你好。接下来"
+            );
+            assert!(completed.iter().all(|r| !r.pending));
+            assert!(translations.is_empty());
+            assert!(snapshot.text.is_empty());
+            assert!(super::super::live_translation::poll(&config(), &mut state).is_none());
+            assert!(finish(&config(), &mut state).is_none());
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn foreign_to_target_keeps_the_foreign_source_until_its_translation_arrives() {
+        let config = config();
+        let mut state = State::default();
+        normalize_event(
+            &config,
+            &json!({"serverContent":{"inputTranscription":{
+                "text":"Hello.", "languageCode":"en"
+            }}}),
+            &mut state,
+        )
+        .unwrap();
+        let Some(CloudEvent::LiveTranslation {
+            completed,
+            translations,
+            snapshot,
+            ..
+        }) = normalize_event(
+            &config,
+            &json!({"serverContent":{
+                "inputTranscription":{"text":"你好。", "languageCode":"zh-Hant"},
+                "turnComplete":true
+            }}),
+            &mut state,
+        )
+        .unwrap()
+        else {
+            panic!()
+        };
+        assert_eq!(completed.len(), 1);
+        assert_eq!(completed[0].transcript.text, "你好。");
+        assert_eq!(completed[0].transcript.language.as_deref(), Some("zh-Hant"));
+        assert!(!completed[0].pending);
+        assert!(translations.is_empty());
+        assert!(snapshot.text.is_empty());
+        assert_eq!(state.input, "Hello.");
+        assert_eq!(state.language.as_deref(), Some("en"));
+        normalize_event(
+            &config,
+            &json!({"serverContent":{
+                "outputTranscription":{"text":"哈囉。"}
+            }}),
+            &mut state,
+        )
+        .unwrap();
+        tokio::time::advance(std::time::Duration::from_millis(450)).await;
+        let event = super::super::live_translation::poll(&config, &mut state);
+        let Some(CloudEvent::LiveTranslation {
+            completed,
+            translations,
+            ..
+        }) = event
+        else {
+            panic!()
+        };
+        assert_eq!(completed.len(), 1);
+        assert_eq!(completed[0].transcript.text, "Hello.");
+        assert_eq!(completed[0].transcript.language.as_deref(), Some("en"));
+        assert_eq!(translations.len(), 1);
+        assert_eq!(translations[0].transcript.translation, "哈囉。");
+        assert_eq!(
+            translations[0].transcript.utterance_id,
+            completed[0].transcript.utterance_id
+        );
+        assert!(finish(&config, &mut state).is_none());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn language_switches_retire_every_preview_even_when_the_snapshot_is_replaced() {
+        let config = config();
+        let mut state = State::default();
+        let mut active = std::collections::HashSet::new();
+        let mut cancellations = 0;
+        let mut collect = |event: CloudEvent| {
+            let CloudEvent::LiveTranslation {
+                snapshot,
+                finished_preview_ids,
+                ..
+            } = event
+            else {
+                panic!()
+            };
+            for id in finished_preview_ids {
+                assert_ne!(
+                    id, snapshot.utterance_id,
+                    "the newer preview must stay open"
+                );
+                assert!(active.remove(&id));
+                cancellations += 1;
+            }
+            if !snapshot.text.is_empty() || !snapshot.translation.is_empty() {
+                active.insert(snapshot.utterance_id);
+            }
+            assert!(active.len() <= 2);
+        };
+        for _ in 0..100 {
+            for message in [
+                json!({"serverContent":{"inputTranscription":{"text":"你好。","languageCode":"zh-Hant"}}}),
+                json!({"serverContent":{"inputTranscription":{"text":"Hello.","languageCode":"en"}}}),
+            ] {
+                collect(
+                    normalize_event(&config, &message, &mut state)
+                        .unwrap()
+                        .unwrap(),
+                );
+            }
+        }
+        assert_eq!(cancellations, 100);
+        let Some(CloudEvent::LiveTranslation {
+            finished_preview_ids,
+            ..
+        }) = finish(&config, &mut state)
+        else {
+            panic!()
+        };
+        for id in finished_preview_ids {
+            assert!(active.remove(&id));
+        }
+        assert!(active.is_empty());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn source_only_continuations_without_language_codes_stay_separate() {
+        let mut state = State::default();
+        normalize_event(
+            &config(),
+            &json!({"serverContent":{"inputTranscription":{
+                "text":"Hello.", "languageCode":"en"
+            }}}),
+            &mut state,
+        )
+        .unwrap();
+        normalize_event(
+            &config(),
+            &json!({"serverContent":{"inputTranscription":{
+                "text":"你好", "languageCode":"zh-Hant"
+            }}}),
+            &mut state,
+        )
+        .unwrap();
+        // Output for the earlier English source must not change how a later
+        // Chinese delta without its own language code is routed.
+        normalize_event(
+            &config(),
+            &json!({"serverContent":{
+                "outputTranscription":{"text":"哈囉。"}
+            }}),
+            &mut state,
+        )
+        .unwrap();
+        let Some(CloudEvent::LiveTranslation { completed, .. }) = normalize_event(
+            &config(),
+            &json!({"serverContent":{
+                "inputTranscription":{"text":"朋友"}, "turnComplete":true
+            }}),
+            &mut state,
+        )
+        .unwrap() else {
+            panic!()
+        };
+        assert_eq!(completed[0].transcript.text, "你好朋友");
+        assert_eq!(completed[0].transcript.language.as_deref(), Some("zh-Hant"));
+        assert_eq!(state.input, "Hello.");
+        let Some(CloudEvent::LiveTranslation { completed, .. }) = finish(&config(), &mut state)
+        else {
+            panic!()
+        };
+        assert_eq!(completed[0].transcript.text, "Hello.");
+        assert_eq!(completed[0].transcript.language.as_deref(), Some("en"));
     }
 }

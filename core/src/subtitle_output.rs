@@ -325,6 +325,7 @@ mod tests {
 
     fn subtitle(id: i64) -> Subtitle {
         Subtitle {
+            speaker: None,
             id: Some(id),
             conversation_id: Some("conversation-test".into()),
             text: "hello".into(),

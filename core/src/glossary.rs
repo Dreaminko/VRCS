@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
@@ -299,6 +299,37 @@ impl GlossaryStore {
                 (!term.is_empty() && keys.insert(term.to_lowercase())).then(|| term.to_owned())
             })
             .collect()
+    }
+
+    pub(crate) fn phrases_for_live_translation(
+        &self,
+        config: &GlossaryConfig,
+    ) -> BTreeMap<String, String> {
+        if !config.llm_enabled && !config.asr_enabled {
+            return BTreeMap::new();
+        }
+        let mut phrases = BTreeMap::new();
+        for entry in self.effective_entries(&config.sources) {
+            let source = entry.source.trim();
+            if source.is_empty() {
+                continue;
+            }
+            // The native API has one shared hotword map. Translation applies
+            // configured targets; ASR-only use preserves each original term.
+            let target = config
+                .llm_enabled
+                .then_some(entry.target.as_deref())
+                .flatten()
+                .map(str::trim)
+                .filter(|target| !target.is_empty())
+                .unwrap_or(source);
+            // Native maps cannot distinguish identical spellings with different
+            // case-sensitive flags. Keep the first glossary source's priority.
+            phrases
+                .entry(source.to_owned())
+                .or_insert_with(|| target.to_owned());
+        }
+        phrases
     }
 
     fn effective_entries(&self, sources: &[GlossarySource]) -> Vec<GlossaryEntry> {
@@ -1195,6 +1226,69 @@ mod tests {
     }
 
     #[test]
+    fn native_translation_maps_enabled_local_and_cached_sources_in_priority_order() {
+        let directory = tempfile::tempdir().unwrap();
+        let mut ignored = local("disabled", vec![entry("Ignored", Some("ignored"))]);
+        if let GlossarySource::Local { enabled, .. } = &mut ignored {
+            *enabled = false;
+        }
+        let mut config = GlossaryConfig {
+            sources: vec![
+                ignored,
+                local(
+                    "first",
+                    vec![entry(" report ", Some(" 星河档案 ")), entry("VRChat", None)],
+                ),
+                subscription("remote", "https://example.com/terms.json".into(), true),
+                local("last", vec![entry("Udon", Some("later"))]),
+            ],
+            ..Default::default()
+        };
+        let store =
+            GlossaryStore::new(directory.path().join("cache.json"), config.clone()).unwrap();
+        store.subscriptions.write().unwrap()[0].entries =
+            vec![entry("report", Some("remote")), entry("Udon", Some("乌冬"))];
+        let phrases = store.phrases_for_live_translation(&config);
+        assert_eq!(
+            phrases,
+            BTreeMap::from([
+                ("report".into(), "星河档案".into()),
+                ("VRChat".into(), "VRChat".into()),
+                ("Udon".into(), "乌冬".into()),
+            ])
+        );
+        config.asr_enabled = false;
+        assert_eq!(store.phrases_for_live_translation(&config), phrases);
+        config.llm_enabled = false;
+        config.asr_enabled = true;
+        assert_eq!(
+            store.phrases_for_live_translation(&config)["report"],
+            "report"
+        );
+        config.asr_enabled = false;
+        assert!(store.phrases_for_live_translation(&config).is_empty());
+    }
+
+    #[test]
+    fn native_translation_respects_entry_limit_and_first_exact_spelling() {
+        let directory = tempfile::tempdir().unwrap();
+        let mut sensitive = entry("Udon", Some("later"));
+        sensitive.case_sensitive = true;
+        let mut entries = vec![entry("Udon", Some("first")), sensitive];
+        entries.extend((0..600).map(|i| entry(&format!("term-{i}"), Some("target"))));
+        let config = GlossaryConfig {
+            sources: vec![local("local", entries)],
+            ..Default::default()
+        };
+        let store =
+            GlossaryStore::new(directory.path().join("cache.json"), config.clone()).unwrap();
+        let phrases = store.phrases_for_live_translation(&config);
+        assert!(phrases.len() <= MAX_GLOSSARY_ENTRIES);
+        assert_eq!(phrases["Udon"], "first");
+        assert!(!phrases.contains_key("term-599"));
+    }
+
+    #[test]
     fn consumer_switches_control_shared_glossary_entries() {
         let directory = tempfile::tempdir().unwrap();
         let mut config = GlossaryConfig {
@@ -1348,7 +1442,7 @@ mod tests {
                             Json(json!({
                                 "version": 1,
                                 "name": "Two",
-                                "entries": [{"source": "Udon"}]
+                                "entries": [{"source": "Udon", "target": "乌冬"}]
                             }))
                         }),
                     ),
@@ -1389,6 +1483,7 @@ mod tests {
         let statuses = store.statuses(&config);
         assert_eq!(statuses.len(), 2);
         assert!(statuses.iter().all(|status| status.state == "ready"));
+        assert_eq!(store.phrases_for_live_translation(&config)["Udon"], "乌冬");
         let cache: serde_json::Value =
             serde_json::from_slice(&fs::read(&cache_path).unwrap()).unwrap();
         assert_eq!(cache["subscriptions"].as_array().unwrap().len(), 2);
@@ -1405,6 +1500,10 @@ mod tests {
             .statuses(&config)
             .iter()
             .all(|status| status.state == "ready" && status.entry_count == 1));
+        assert_eq!(
+            reloaded.phrases_for_live_translation(&config),
+            store.phrases_for_live_translation(&config)
+        );
         server.abort();
     }
 

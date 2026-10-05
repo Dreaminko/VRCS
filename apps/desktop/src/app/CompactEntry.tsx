@@ -24,6 +24,7 @@ export function CompactEntry({
     <div className={`compact-root ${overlayOpen ? "compact-root-overlay" : ""} ${selectionPanelOpen ? "compact-root-selection" : ""}`}>
       <CompactView
         subtitles={compact.subtitles}
+        subtitleHistory={compact.subtitleHistory}
         subtitleLimit={overlayOpen ? 1 : compact.subtitleLimit}
         selectionActive={Boolean(selection.target)}
         running={runtime.health?.capture_requested ?? false}

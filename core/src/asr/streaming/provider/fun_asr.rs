@@ -8,6 +8,13 @@ use crate::providers::SERVICE_FUN_ASR_REALTIME;
 use super::{authenticated_request, pcm16_bytes, service_settings, CloudEvent, NormalizationState};
 
 pub(super) fn build_request(profile: &ApiProfile, key: &str) -> Result<Request<()>, String> {
+    if profile.provider == crate::providers::QWEN_AI_PROVIDER {
+        return authenticated_request(
+            "wss://maas.qianwenaiapi.com/api-ws/v1/inference".into(),
+            key,
+            false,
+        );
+    }
     let workspace = profile.workspace_id.as_deref().unwrap_or("").trim();
     if workspace.is_empty() {
         return Err("Alibaba Cloud Workspace ID is not configured".into());

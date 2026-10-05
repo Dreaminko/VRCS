@@ -17,8 +17,6 @@ pub struct TranslationConfig {
     pub microphone_targets: Vec<TranslationTargetConfig>,
     #[serde(default)]
     pub prompt: TranslationPromptConfig,
-    #[serde(default)]
-    pub live_alignment: LiveAlignmentConfig,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -91,7 +89,6 @@ impl Default for TranslationConfig {
             speaker_targets: default_speaker_targets(),
             microphone_targets: default_microphone_targets(),
             prompt: TranslationPromptConfig::default(),
-            live_alignment: LiveAlignmentConfig::default(),
         }
     }
 }
@@ -122,37 +119,41 @@ impl Default for TranslationPromptConfig {
     }
 }
 
-/// Background semantic alignment never rewrites the native translation.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(default)]
-pub struct LiveAlignmentConfig {
-    pub enabled: bool,
-    /// None reuses the recognition profile's OpenAI credential.
-    pub profile_id: Option<String>,
-    pub model: String,
-    pub thinking_enabled: bool,
-}
-
-impl Default for LiveAlignmentConfig {
-    fn default() -> Self {
-        Self {
-            enabled: true,
-            profile_id: None,
-            model: "gpt-6-luna".into(),
-            thinking_enabled: false,
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     #[test]
-    fn existing_translation_settings_gain_safe_alignment_defaults() {
+    fn existing_translation_settings_load_without_alignment_options() {
         let config: TranslationConfig = serde_json::from_str(r#"{"mode":"automatic"}"#).unwrap();
-        assert_eq!(config.live_alignment, LiveAlignmentConfig::default());
+        assert_eq!(config.mode, "automatic");
         let round_trip: TranslationConfig =
             serde_json::from_str(&serde_json::to_string(&config).unwrap()).unwrap();
         assert_eq!(round_trip, config);
+    }
+    #[test]
+    fn legacy_alignment_settings_are_ignored_and_not_saved() {
+        for enabled in [true, false] {
+            let config: TranslationConfig = serde_json::from_value(serde_json::json!({
+                "mode": "automatic",
+                "live_alignment": {
+                    "enabled": enabled,
+                    "profile_id": "deleted",
+                    "model": "gpt-6-luna",
+                    "thinking_enabled": true
+                }
+            }))
+            .unwrap();
+            assert_eq!(
+                config,
+                TranslationConfig {
+                    mode: "automatic".into(),
+                    ..Default::default()
+                }
+            );
+            assert!(serde_json::to_value(config)
+                .unwrap()
+                .get("live_alignment")
+                .is_none());
+        }
     }
 }

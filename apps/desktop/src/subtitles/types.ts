@@ -1,6 +1,14 @@
 import type { ApiProvider } from "../providers/types";
 
+export interface SpeakerIdentity {
+  id: string;
+  index: number;
+}
+
 export interface Subtitle {
+  /** Runtime link from the subtitle event; not stored in history. */
+  utterance_id?: string;
+  speaker?: SpeakerIdentity | null;
   id: number | null;
   text: string;
   language: string | null;

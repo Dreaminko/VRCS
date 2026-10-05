@@ -18,8 +18,6 @@ pub struct VrOverlayConfig {
 pub struct VrOverlayHeadsetConfig {
     #[serde(default = "default_true")]
     pub enabled: bool,
-    #[serde(default = "default_content_mode")]
-    pub content_mode: String,
     #[serde(default)]
     pub show_partials: bool,
     #[serde(default)]
@@ -52,6 +50,8 @@ pub struct VrOverlayHeadsetConfig {
     pub fade_seconds: f32,
     #[serde(default = "default_headset_font_size_px")]
     pub font_size_px: u32,
+    #[serde(default = "default_headset_lines_per_language")]
+    pub lines_per_language: u32,
     #[serde(default = "default_headset_background_opacity")]
     pub background_opacity: f32,
     #[serde(default)]
@@ -67,8 +67,6 @@ pub struct VrOverlayWristConfig {
     pub hand: String,
     #[serde(default = "default_dominant_hand")]
     pub dominant_hand: String,
-    #[serde(default = "default_content_mode")]
-    pub content_mode: String,
     #[serde(default)]
     pub show_partials: bool,
     #[serde(default)]
@@ -109,10 +107,6 @@ fn default_true() -> bool {
     true
 }
 
-fn default_content_mode() -> String {
-    "bilingual".into()
-}
-
 fn default_translation_display() -> String {
     "all_languages".into()
 }
@@ -147,6 +141,10 @@ fn default_headset_fade_seconds() -> f32 {
 
 fn default_headset_font_size_px() -> u32 {
     54
+}
+
+fn default_headset_lines_per_language() -> u32 {
+    2
 }
 
 fn default_headset_background_opacity() -> f32 {
@@ -212,7 +210,6 @@ impl Default for VrOverlayHeadsetConfig {
     fn default() -> Self {
         Self {
             enabled: default_true(),
-            content_mode: default_content_mode(),
             show_partials: false,
             show_translation_partials: false,
             include_speaker: default_true(),
@@ -229,6 +226,7 @@ impl Default for VrOverlayHeadsetConfig {
             display_seconds: default_headset_display_seconds(),
             fade_seconds: default_headset_fade_seconds(),
             font_size_px: default_headset_font_size_px(),
+            lines_per_language: default_headset_lines_per_language(),
             background_opacity: default_headset_background_opacity(),
             vr_drag_edit_enabled: false,
         }
@@ -241,7 +239,6 @@ impl Default for VrOverlayWristConfig {
             enabled: default_true(),
             hand: default_wrist_hand(),
             dominant_hand: default_dominant_hand(),
-            content_mode: default_content_mode(),
             show_partials: false,
             show_translation_partials: false,
             include_speaker: default_true(),
@@ -277,6 +274,21 @@ mod tests {
 
         assert!(config.headset.show_partials);
         assert!(config.wrist.show_partials);
+    }
+
+    #[test]
+    fn old_headset_settings_get_two_lines_per_language_and_custom_values_round_trip() {
+        let mut value = serde_json::to_value(VrOverlayConfig::default()).unwrap();
+        value["headset"]
+            .as_object_mut()
+            .unwrap()
+            .remove("lines_per_language");
+        let mut config: VrOverlayConfig = serde_json::from_value(value).unwrap();
+        assert_eq!(config.headset.lines_per_language, 2);
+        config.headset.lines_per_language = 4;
+        let restored: VrOverlayConfig =
+            serde_json::from_value(serde_json::to_value(&config).unwrap()).unwrap();
+        assert_eq!(restored.headset.lines_per_language, 4);
     }
 
     #[test]

@@ -29,7 +29,6 @@ export function useConversationWorkspace({
   openConversation,
   openConversationAt,
   page,
-  running,
   hasOlderSubtitles,
   loadingConversationSubtitles,
   focusedSubtitleId,
@@ -43,7 +42,6 @@ export function useConversationWorkspace({
   openConversation: (conversationId: string | null) => Promise<void>;
   openConversationAt: (conversationId: string, subtitleId: number) => Promise<void>;
   page: Page;
-  running: boolean;
   hasOlderSubtitles: boolean;
   loadingConversationSubtitles: boolean;
   focusedSubtitleId: number | null;
@@ -87,7 +85,6 @@ export function useConversationWorkspace({
   );
   const liveScroll = useLiveConversationScroll({
     page,
-    running,
     activeConversationId: activeConversation?.id ?? null,
     selectedConversationId: selectedConversation?.id ?? null,
     openedConversationId,

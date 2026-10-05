@@ -79,6 +79,22 @@ fn microphone_trigger_threshold_is_bounded() {
 }
 
 #[test]
+fn headset_lines_per_language_are_bounded() {
+    let mut config = AppConfig::default();
+    for lines in 1..=4 {
+        config.vr_overlay.headset.lines_per_language = lines;
+        assert!(config.validate_settings().is_ok());
+    }
+    for lines in [0, 5, u32::MAX] {
+        config.vr_overlay.headset.lines_per_language = lines;
+        assert_eq!(
+            config.validate_settings().unwrap_err(),
+            "VR Overlay headset lines_per_language must be between 1 and 4"
+        );
+    }
+}
+
+#[test]
 fn validates_vr_overlay_boundaries_and_cross_fields() {
     let mut config = AppConfig::default();
     config.vr_overlay.headset.offset_x_m = -2.0;
@@ -129,9 +145,6 @@ fn rejects_invalid_vr_overlay_enums_and_non_finite_values() {
     config.vr_overlay.translation_display = "unknown".into();
     assert!(config.validate_settings().is_err());
     config.vr_overlay.translation_display = "all_languages".into();
-    config.vr_overlay.headset.content_mode = "unknown".into();
-    assert!(config.validate_settings().is_err());
-    config.vr_overlay.headset.content_mode = "bilingual".into();
     config.vr_overlay.wrist.hand = "either".into();
     assert!(config.validate_settings().is_err());
     config.vr_overlay.wrist.hand = "dominant".into();
@@ -677,6 +690,7 @@ fn live_translation_does_not_require_a_text_profile_for_the_first_target() {
     for service in [
         crate::providers::SERVICE_GEMINI_LIVE_TRANSLATE,
         crate::providers::SERVICE_OPENAI_REALTIME_TRANSLATE,
+        crate::providers::SERVICE_QWEN_LIVE_TRANSLATE,
     ] {
         let mut config = AppConfig::default();
         config.asr.backend = service.into();
@@ -705,45 +719,26 @@ fn openai_translation_does_not_inherit_gemini_language_restrictions() {
 }
 
 #[test]
-fn live_alignment_requires_a_model_and_an_existing_profile_from_any_provider() {
+fn local_alignment_ignores_legacy_disabled_and_remote_settings() {
     for service in [
         providers::SERVICE_OPENAI_REALTIME_TRANSLATE,
         providers::SERVICE_GEMINI_LIVE_TRANSLATE,
+        providers::SERVICE_QWEN_LIVE_TRANSLATE,
     ] {
         let mut config = AppConfig::default();
         config.asr.backend = service.into();
         config.translation.mode = "automatic".into();
-        config.translation.live_alignment.model.clear();
-        assert_eq!(
-            config.validate_settings().unwrap_err(),
-            "The live alignment model cannot be empty"
-        );
-        config.translation.live_alignment.enabled = false;
-        assert!(config.validate_settings().is_ok());
-        config.translation.live_alignment = super::LiveAlignmentConfig::default();
-        config.translation.live_alignment.profile_id = Some("missing".into());
-        assert_eq!(
-            config.validate_settings().unwrap_err(),
-            "Live alignment requires an existing API profile"
-        );
-        config.asr.api_profiles.push(ApiProfile {
-            id: "alignment".into(),
-            name: "Local alignment".into(),
-            provider: OLLAMA_PROVIDER.into(),
-            enabled_capabilities: text_capabilities(),
-            base_url: Some("http://127.0.0.1:11434/v1".into()),
-            auth_mode: ApiAuthMode::None,
-            is_local: true,
-            ..ApiProfile::default()
+        let mut value = serde_json::to_value(&config).unwrap();
+        value["translation"]["live_alignment"] = serde_json::json!({
+            "enabled": false, "model": "", "profile_id": "missing"
         });
-        config.translation.live_alignment.profile_id = Some("alignment".into());
-        config.translation.live_alignment.model = "user-chosen-model".into();
-        config.validate_settings().unwrap();
+        let config: AppConfig = serde_json::from_value(value).unwrap();
+        assert!(config.validate_settings().is_ok());
     }
 }
 
 #[test]
-fn inactive_alignment_settings_do_not_affect_other_services_or_translation_modes() {
+fn legacy_alignment_settings_do_not_affect_other_services_or_translation_modes() {
     let mut config = AppConfig::default();
     config.asr.api_profiles.push(ApiProfile {
         id: "text".into(),
@@ -756,8 +751,11 @@ fn inactive_alignment_settings_do_not_affect_other_services_or_translation_modes
         ..ApiProfile::default()
     });
     set_translation_profile(&mut config, Some("text"));
-    config.translation.live_alignment.model.clear();
-    config.translation.live_alignment.profile_id = Some("missing".into());
+    let mut value = serde_json::to_value(&config).unwrap();
+    value["translation"]["live_alignment"] = serde_json::json!({
+        "enabled": false, "model": "", "profile_id": "missing"
+    });
+    let mut config: AppConfig = serde_json::from_value(value).unwrap();
     for service in [
         "local_whisper",
         providers::SERVICE_OPENAI_REALTIME,
@@ -784,6 +782,6 @@ fn inactive_alignment_settings_do_not_affect_other_services_or_translation_modes
             assert!(config.validate_settings().is_ok());
         }
         config.translation.mode = "automatic".into();
-        assert!(config.validate_settings().is_err());
+        assert!(config.validate_settings().is_ok());
     }
 }

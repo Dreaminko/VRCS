@@ -138,7 +138,7 @@ async fn vr_overlay_watch_starts_with_current_config_and_updates_after_commit() 
     );
 
     settings["vr_overlay"]["enabled"] = serde_json::json!(true);
-    settings["vr_overlay"]["headset"]["content_mode"] = serde_json::json!("translation");
+    settings["vr_overlay"]["headset"]["show_translation_partials"] = serde_json::json!(true);
     settings["vr_overlay"]["wrist"]["max_entries"] = serde_json::json!(5);
     let response = client
         .put(&settings_url)
@@ -156,7 +156,7 @@ async fn vr_overlay_watch_starts_with_current_config_and_updates_after_commit() 
         .unwrap()
         .unwrap();
     assert!(updates.borrow().enabled);
-    assert_eq!(updates.borrow().headset.content_mode, "translation");
+    assert!(updates.borrow().headset.show_translation_partials);
     handle.shutdown().await.unwrap();
 }
 
@@ -220,6 +220,7 @@ async fn storage_stats_quota_update_and_history_clear_are_available_over_http() 
         .lock()
         .unwrap()
         .add_subtitle(&crate::models::Subtitle {
+            speaker: None,
             id: None,
             conversation_id: None,
             text: "temporary history".into(),
@@ -275,6 +276,7 @@ async fn subtitle_range_deletion_validates_and_deletes_only_the_requested_messag
             ("newer", "2026-01-03T00:00:00.000000Z"),
         ] {
             db.add_subtitle(&crate::models::Subtitle {
+                speaker: None,
                 id: None,
                 conversation_id: None,
                 text: text.into(),
@@ -366,6 +368,7 @@ async fn conversation_http_catalog_and_pagination_are_stable() {
         ] {
             database
                 .add_subtitle(&crate::models::Subtitle {
+                    speaker: None,
                     id: None,
                     conversation_id: None,
                     text: text.into(),

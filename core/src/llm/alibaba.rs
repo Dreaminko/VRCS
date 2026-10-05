@@ -40,6 +40,13 @@ pub(super) async fn list_models(
 }
 
 fn base_url(profile: &ApiProfile) -> Result<String, LlmError> {
+    if profile.provider == crate::providers::QWEN_AI_PROVIDER {
+        return crate::providers::effective_base_url(profile).map_err(|detail| LlmError {
+            code: "llm.invalid_profile",
+            detail,
+            retryable: false,
+        });
+    }
     let workspace = profile.workspace_id.as_deref().unwrap_or("").trim();
     match (profile.region.as_deref(), workspace.is_empty()) {
         (Some("china_beijing"), false) => Ok(format!(
@@ -66,6 +73,18 @@ fn base_url(profile: &ApiProfile) -> Result<String, LlmError> {
 mod tests {
     use super::*;
     use crate::providers::ALIBABA_PROVIDER;
+
+    #[test]
+    fn qwen_ai_uses_its_own_endpoint_without_workspace_or_region() {
+        let profile = ApiProfile {
+            provider: crate::providers::QWEN_AI_PROVIDER.into(),
+            ..Default::default()
+        };
+        assert_eq!(
+            base_url(&profile).unwrap(),
+            "https://maas.qianwenaiapi.com/compatible-mode/v1"
+        );
+    }
 
     #[test]
     fn builds_workspace_endpoints_for_supported_regions() {

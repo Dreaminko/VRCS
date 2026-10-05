@@ -66,7 +66,6 @@ export function useAppWorkspace({
     openConversation: subtitles.openConversation,
     openConversationAt: subtitles.openConversationAt,
     page,
-    running: runtime.health?.capture_requested ?? false,
     hasOlderSubtitles: subtitles.hasOlder,
     loadingConversationSubtitles: subtitles.loadingConversation,
     focusedSubtitleId: subtitles.focusedSubtitleId,
@@ -153,6 +152,7 @@ export function useAppWorkspace({
     compact: {
       ...compactWindow,
       subtitles: compactSubtitles,
+      subtitleHistory: subtitles.items,
       subtitleLimit: compactSubtitleCount(compactWindow.height),
     },
     conversations: {

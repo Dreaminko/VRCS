@@ -14,6 +14,8 @@ pub struct Subtitle {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub conversation_id: Option<String>,
     pub text: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub speaker: Option<SpeakerIdentity>,
     #[serde(default)]
     pub language: Option<String>,
     #[serde(default)]
@@ -198,14 +200,38 @@ fn validate_optional_text(label: &str, value: Option<&str>, maximum: usize) -> R
     Ok(())
 }
 
+/// An anonymous, session-scoped diarization identity, not a person's account ID.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SpeakerIdentity {
+    pub id: String,
+    /// Zero-based display ordinal, stable within one recognition session.
+    pub index: u64,
+}
+
 /// A display snapshot. It is not evidence of sentence alignment.
 #[derive(Debug, Clone, serde::Serialize, PartialEq)]
 pub struct LiveTranslation {
     pub utterance_id: String,
+    /// Native item link to the original row, independent of the preview lifecycle.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_utterance_id: Option<String>,
+    /// Completed original for a linked preview, separate from either delta lane.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub completed_original: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub conversation_preview: Option<LiveTranslationPreview>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub speaker: Option<SpeakerIdentity>,
     pub text: String,
     pub language: Option<String>,
     pub translation: String,
     pub target_language: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize, PartialEq)]
+pub struct LiveTranslationPreview {
+    pub text: String,
+    pub translation: String,
 }
 
 pub fn now_iso8601() -> String {

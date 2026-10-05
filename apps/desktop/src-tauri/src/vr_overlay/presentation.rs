@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::collections::VecDeque;
 use std::time::{Duration, Instant};
 
@@ -49,7 +50,9 @@ impl PresentationFrame {
 #[derive(Debug, Clone)]
 struct PresentationItem {
     utterance_id: Option<String>,
+    source_utterance_id: Option<String>,
     subtitle_id: Option<i64>,
+    speaker_index: Option<u64>,
     source: String,
     language: Option<String>,
     original: String,
@@ -94,7 +97,7 @@ impl TerminatedUtterances {
 
 #[derive(Default)]
 pub struct HeadsetPresentation {
-    current: Option<PresentationItem>,
+    recent: VecDeque<PresentationItem>,
     partial: Option<PresentationItem>,
     terminated: TerminatedUtterances,
 }
@@ -115,10 +118,12 @@ impl HeadsetPresentation {
                 let mut item = item_from_partial(
                     snapshot.utterance_id,
                     source,
-                    snapshot.text,
+                    snapshot.completed_original.unwrap_or(snapshot.text),
                     snapshot.language,
                     expiry(now, config.display_seconds),
                 );
+                item.speaker_index = snapshot.speaker.map(|speaker| speaker.index);
+                item.source_utterance_id = snapshot.source_utterance_id;
                 if config.show_translation_partials && !snapshot.translation.is_empty() {
                     item.translations.push(PresentationTranslation {
                         original: None,
@@ -182,11 +187,14 @@ impl HeadsetPresentation {
                     }
                 }
                 if source_enabled(&subtitle.source, config) {
-                    self.current = Some(item_from_subtitle(
+                    self.recent.push_back(item_from_subtitle(
                         subtitle,
                         utterance_id,
                         expiry(now, config.display_seconds),
                     ));
+                    while self.recent.len() > MAX_TERMINATED_UTTERANCES {
+                        self.recent.pop_front();
+                    }
                 }
             }
             PresentationEvent::TranslationPartial {
@@ -196,9 +204,9 @@ impl HeadsetPresentation {
                 preferred,
             } if config.show_translation_partials => {
                 if let Some(item) = self
-                    .current
-                    .as_mut()
-                    .filter(|item| item.subtitle_id == Some(subtitle_id))
+                    .recent
+                    .iter_mut()
+                    .find(|item| item.subtitle_id == Some(subtitle_id))
                 {
                     update_translation(item, target_language, text, preferred);
                 }
@@ -209,9 +217,9 @@ impl HeadsetPresentation {
                 preferred,
             } => {
                 if let Some(item) = self
-                    .current
-                    .as_mut()
-                    .filter(|item| item.subtitle_id == Some(subtitle_id))
+                    .recent
+                    .iter_mut()
+                    .find(|item| item.subtitle_id == Some(subtitle_id))
                 {
                     if update_completed_translation(item, translation, preferred) {
                         item.expires_at = expiry(now, config.display_seconds);
@@ -243,10 +251,7 @@ impl HeadsetPresentation {
         config: &VrOverlayHeadsetConfig,
         translation_display: &str,
     ) -> Option<PresentationFrame> {
-        for (item, preview) in [
-            (self.partial.as_ref(), true),
-            (self.current.as_ref(), false),
-        ] {
+        for (item, preview) in [(self.partial.as_ref(), true), (self.recent.back(), false)] {
             let Some(item) = item.filter(|item| source_enabled(&item.source, config)) else {
                 continue;
             };
@@ -256,13 +261,22 @@ impl HeadsetPresentation {
             let text = if preview {
                 preview_text(
                     item,
-                    &config.content_mode,
                     translation_display,
                     config.show_partials,
                     config.show_translation_partials,
+                    self.recent.iter().find(|completed| {
+                        item.source == completed.source
+                            && item.source_utterance_id.is_some()
+                            && item.source_utterance_id == completed.utterance_id
+                    }),
                 )
             } else {
-                display_text(item, &config.content_mode, translation_display, "\n")
+                display_text(
+                    item,
+                    selected_caption_mode(config.show_partials, config.show_translation_partials),
+                    translation_display,
+                    "\n",
+                )
             };
             if !text.trim().is_empty() {
                 return Some(PresentationFrame::headset(text, opacity));
@@ -291,10 +305,12 @@ impl WristPresentation {
                 let mut item = item_from_partial(
                     snapshot.utterance_id,
                     source,
-                    snapshot.text,
+                    snapshot.completed_original.unwrap_or(snapshot.text),
                     snapshot.language,
                     now,
                 );
+                item.speaker_index = snapshot.speaker.map(|speaker| speaker.index);
+                item.source_utterance_id = snapshot.source_utterance_id;
                 if config.show_translation_partials && !snapshot.translation.is_empty() {
                     item.translations.push(PresentationTranslation {
                         original: None,
@@ -458,7 +474,29 @@ impl WristPresentation {
             .entries
             .iter()
             .filter(|item| source_enabled(&item.source, config))
-            .map(|item| wrist_message(item, &config.content_mode, translation_display))
+            .filter(|item| {
+                !self.partials.iter().any(|partial| {
+                    partial.source == item.source
+                        && partial.source_utterance_id.is_some()
+                        && partial.source_utterance_id == item.utterance_id
+                        && !preview_text(
+                            partial,
+                            translation_display,
+                            config.show_partials,
+                            config.show_translation_partials,
+                            Some(item),
+                        )
+                        .trim()
+                        .is_empty()
+                })
+            })
+            .map(|item| {
+                wrist_message(
+                    item,
+                    selected_caption_mode(config.show_partials, config.show_translation_partials),
+                    translation_display,
+                )
+            })
             .chain(
                 self.partials
                     .iter()
@@ -466,10 +504,14 @@ impl WristPresentation {
                     .map(|item| WristMessage {
                         text: preview_text(
                             item,
-                            &config.content_mode,
                             translation_display,
                             config.show_partials,
                             config.show_translation_partials,
+                            self.entries.iter().find(|entry| {
+                                entry.source == item.source
+                                    && item.source_utterance_id.is_some()
+                                    && item.source_utterance_id == entry.utterance_id
+                            }),
                         ),
                         side: message_side(&item.source),
                     }),
@@ -522,7 +564,9 @@ fn item_from_subtitle(
         .collect();
     PresentationItem {
         utterance_id,
+        source_utterance_id: None,
         subtitle_id: subtitle.id,
+        speaker_index: subtitle.speaker.map(|speaker| speaker.index),
         source: subtitle.source,
         language: subtitle.language,
         original: subtitle.text,
@@ -540,7 +584,9 @@ fn item_from_partial(
 ) -> PresentationItem {
     PresentationItem {
         utterance_id: Some(utterance_id),
+        source_utterance_id: None,
         subtitle_id: None,
+        speaker_index: None,
         source,
         language,
         original: text,
@@ -631,13 +677,9 @@ fn update_translation(
     true
 }
 
-fn wrist_message(
-    item: &PresentationItem,
-    content_mode: &str,
-    translation_display: &str,
-) -> WristMessage {
+fn wrist_message(item: &PresentationItem, mode: &str, translation_display: &str) -> WristMessage {
     WristMessage {
-        text: display_text(item, content_mode, translation_display, "\n"),
+        text: display_text(item, mode, translation_display, "\n"),
         side: message_side(&item.source),
     }
 }
@@ -670,33 +712,76 @@ fn display_text(
     translation_display: &str,
     separator: &str,
 ) -> String {
-    display_parts(
+    let text = display_parts(
         &item.original,
         &item.translations,
         mode,
         translation_display,
         separator,
-    )
+    );
+    speaker_text(item, text)
 }
 
 fn preview_text(
     item: &PresentationItem,
-    mode: &str,
     translation_display: &str,
     show_original: bool,
     show_translation: bool,
+    completed: Option<&PresentationItem>,
 ) -> String {
-    display_parts(
-        if show_original { &item.original } else { "" },
-        if show_translation {
-            &item.translations
+    let completed = completed.filter(|completed| {
+        item.source == completed.source
+            && item.source_utterance_id.is_some()
+            && item.source_utterance_id == completed.utterance_id
+    });
+    // A completed lane can supply this utterance's text, but it must still
+    // respect the same selection as its streaming counterpart.
+    let original = if show_original {
+        completed.map_or(item.original.as_str(), |completed| {
+            completed.original.as_str()
+        })
+    } else {
+        ""
+    };
+    let translations = if show_translation {
+        if !item.translations.is_empty() {
+            item.translations.as_slice()
         } else {
-            &[]
-        },
-        mode,
+            completed.map_or(&[][..], |completed| completed.translations.as_slice())
+        }
+    } else {
+        &[][..]
+    };
+    let text = display_parts(
+        original,
+        translations,
+        "bilingual",
         translation_display,
         "\n",
+    );
+    speaker_text(
+        completed
+            .filter(|_| item.speaker_index.is_none())
+            .unwrap_or(item),
+        text,
     )
+}
+
+fn selected_caption_mode(show_original: bool, show_translation: bool) -> &'static str {
+    // A single enabled lane selects that language for previews and final captions.
+    // With both preview switches off, completed captions remain bilingual.
+    match (show_original, show_translation) {
+        (true, false) => "original",
+        (false, true) => "translation",
+        _ => "bilingual",
+    }
+}
+
+fn speaker_text(item: &PresentationItem, text: String) -> String {
+    match item.speaker_index {
+        Some(index) if !text.trim().is_empty() => format!("[{}] {text}", index.saturating_add(1)),
+        _ => text,
+    }
 }
 
 fn display_parts(
@@ -718,12 +803,12 @@ fn display_parts(
     let translation = (!translations.is_empty()).then(|| {
         translations
             .iter()
-            .map(|translation| translation.text.as_str())
+            .map(|translation| caption_line(&translation.text))
             .collect::<Vec<_>>()
             .join(separator)
     });
     match mode {
-        "translation" => translation.unwrap_or_else(|| original.to_owned()),
+        "translation" => translation.unwrap_or_default(),
         "bilingual" => translation
             .map(|text| {
                 let original = translations
@@ -733,11 +818,21 @@ fn display_parts(
                 if original.trim().is_empty() {
                     text
                 } else {
-                    format!("{original}{separator}{text}")
+                    format!("{}{separator}{text}", caption_line(original))
                 }
             })
-            .unwrap_or_else(|| original.to_owned()),
-        _ => original.to_owned(),
+            .unwrap_or_else(|| caption_line(original).into_owned()),
+        _ => caption_line(original).into_owned(),
+    }
+}
+
+fn caption_line(text: &str) -> Cow<'_, str> {
+    // Newlines within a transcript are paragraph breaks, not extra languages.
+    // The renderer wraps each language according to its configured line limit.
+    if text.contains(['\r', '\n']) {
+        Cow::Owned(text.split_whitespace().collect::<Vec<_>>().join(" "))
+    } else {
+        Cow::Borrowed(text)
     }
 }
 

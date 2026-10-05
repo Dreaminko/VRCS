@@ -24,7 +24,7 @@ const SEED_ENTRIES: [(&str, &str, &str); 4] = [
     ("ありがとう", "ja", "谢谢"),
 ];
 
-const LATEST_SCHEMA_VERSION: u32 = 4;
+const LATEST_SCHEMA_VERSION: u32 = 5;
 
 const MIGRATION_1_SCHEMA: &str = "
 CREATE TABLE IF NOT EXISTS subtitles (
@@ -176,6 +176,13 @@ impl Database {
                 [],
             )?;
             transaction.pragma_update(None, "user_version", 4)?;
+            transaction.commit()?;
+        }
+
+        if version < 5 {
+            let transaction = self.conn.transaction()?;
+            transaction.execute("ALTER TABLE subtitles ADD COLUMN speaker TEXT", [])?;
+            transaction.pragma_update(None, "user_version", 5)?;
             transaction.commit()?;
         }
 

@@ -203,7 +203,6 @@ fn validate_vr_overlay(config: &VrOverlayConfig) -> Result<(), String> {
             config.translation_display
         ));
     }
-    validate_content_mode("VR Overlay headset", &config.headset.content_mode)?;
     validate_range(
         "VR Overlay headset offset_x_m",
         config.headset.offset_x_m,
@@ -267,6 +266,9 @@ fn validate_vr_overlay(config: &VrOverlayConfig) -> Result<(), String> {
     if config.headset.fade_seconds > config.headset.display_seconds {
         return Err("VR Overlay headset fade_seconds cannot exceed display_seconds".into());
     }
+    if !(1..=4).contains(&config.headset.lines_per_language) {
+        return Err("VR Overlay headset lines_per_language must be between 1 and 4".into());
+    }
     if !(24..=96).contains(&config.headset.font_size_px) {
         return Err("VR Overlay headset font_size_px must be between 24 and 96".into());
     }
@@ -289,7 +291,6 @@ fn validate_vr_overlay(config: &VrOverlayConfig) -> Result<(), String> {
             config.wrist.dominant_hand
         ));
     }
-    validate_content_mode("VR Overlay wrist", &config.wrist.content_mode)?;
     if !(3..=10).contains(&config.wrist.max_entries) {
         return Err("VR Overlay wrist max_entries must be between 3 and 10".into());
     }
@@ -321,13 +322,6 @@ fn validate_vr_overlay(config: &VrOverlayConfig) -> Result<(), String> {
         0.0,
         1.0,
     )?;
-    Ok(())
-}
-
-fn validate_content_mode(label: &str, value: &str) -> Result<(), String> {
-    if !["original", "translation", "bilingual"].contains(&value) {
-        return Err(format!("Unsupported {label} content_mode: {value}"));
-    }
     Ok(())
 }
 
@@ -417,19 +411,6 @@ fn validate_translation(
     live_service: &str,
 ) -> Result<(), String> {
     validate_translation_prompt(&translation.prompt)?;
-    if providers::is_live_translation(live_service)
-        && translation.mode == "automatic"
-        && translation.live_alignment.enabled
-    {
-        if translation.live_alignment.model.trim().is_empty() {
-            return Err("The live alignment model cannot be empty".into());
-        }
-        if let Some(id) = &translation.live_alignment.profile_id {
-            if !profiles.iter().any(|p| p.id == *id) {
-                return Err("Live alignment requires an existing API profile".into());
-            }
-        }
-    }
     if !["disabled", "manual", "automatic"].contains(&translation.mode.as_str()) {
         return Err(format!(
             "Unsupported translation mode: {}",

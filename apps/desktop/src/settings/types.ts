@@ -50,14 +50,6 @@ export interface TranslationSettings {
   speaker_targets: TranslationTargetSettings[];
   microphone_targets: TranslationTargetSettings[];
   prompt: TranslationPromptSettings;
-  live_alignment?: LiveAlignmentSettings;
-}
-
-export interface LiveAlignmentSettings {
-  enabled: boolean;
-  profile_id: string | null;
-  model: string;
-  thinking_enabled: boolean;
 }
 
 export interface TranslationTargetSettings {

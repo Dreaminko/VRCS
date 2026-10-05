@@ -7,7 +7,7 @@ use crate::config::AsrConfig;
 use crate::models::LiveTranslation;
 
 mod timed;
-pub(in crate::asr::streaming) use timed::{append_delta, apply, confirm, window};
+pub(in crate::asr::streaming) use timed::append_delta;
 
 pub(super) const MAX_DISPLAY_CHARS: usize = 160;
 
@@ -42,64 +42,100 @@ pub(super) struct State {
     pub(super) input: String,
     pub(super) output: String,
     pub(super) language: Option<String>,
+    // Gemini target-language speech has no translated stream. Keep it apart
+    // from foreign speech whose native translation can still be arriving.
+    pub(super) source_only: Option<Box<State>>,
+    pub(super) source_only_input: bool,
+    pub(super) source_only_active: bool,
     timing: Option<timed::Timing>,
 }
 
-fn terminal(c: char) -> bool {
-    matches!(
-        c,
-        '.' | '。'
-            | '．'
-            | '｡'
-            | '!'
-            | '！'
-            | '?'
-            | '？'
-            | '؟'
-            | '‼'
-            | '⁇'
-            | '⁈'
-            | '⁉'
-            | '\n'
-            | '\r'
-    )
+pub(super) fn merge_events(
+    before: Option<CloudEvent>,
+    next: Option<CloudEvent>,
+) -> Option<CloudEvent> {
+    match (before, next) {
+        (
+            Some(CloudEvent::LiveTranslation {
+                completed: mut before,
+                translations: mut old,
+                finished_preview_ids: mut finished,
+                ..
+            }),
+            Some(CloudEvent::LiveTranslation {
+                service,
+                snapshot,
+                completed,
+                translations,
+                finished_preview_ids,
+            }),
+        ) => {
+            before.extend(completed);
+            old.extend(translations);
+            finished.extend(finished_preview_ids);
+            Some(CloudEvent::LiveTranslation {
+                service,
+                snapshot,
+                completed: before,
+                translations: old,
+                finished_preview_ids: finished,
+            })
+        }
+        (before, next) => next.or(before),
+    }
 }
 
-fn closing(c: char) -> bool {
-    matches!(
-        c,
-        '"' | '\'' | '”' | '’' | '」' | '』' | ')' | '）' | ']' | '】' | '》' | '»'
-    )
-}
-
-fn has_content(text: &str) -> bool {
-    text.chars().any(|c| {
-        !c.is_whitespace()
-            && !terminal(c)
-            && !closing(c)
-            && !matches!(
-                c,
-                '“' | '‘' | '「' | '『' | '(' | '（' | '[' | '【' | '《' | '«'
-            )
-    })
-}
-
-fn result(config: &AsrConfig, transcript: LiveTranslation, pending: bool) -> LiveTranslationResult {
+pub(super) fn result(
+    config: &AsrConfig,
+    transcript: LiveTranslation,
+    pending: bool,
+) -> LiveTranslationResult {
     let source_utterance_ids = vec![transcript.utterance_id.clone()];
     LiveTranslationResult {
         pending,
         source_utterance_ids,
         transcript,
-        provider: crate::providers::recognition_service(&config.backend)
-            .unwrap()
-            .0
+        provider: config
+            .api_profiles
+            .iter()
+            .find(|profile| config.active_profile_id.as_deref() == Some(profile.id.as_str()))
+            .map(|profile| profile.provider.as_str())
+            .unwrap_or_else(|| {
+                crate::providers::recognition_service(&config.backend)
+                    .unwrap()
+                    .0
+            })
             .into(),
         model: config.service_settings[&config.backend].model.clone(),
     }
 }
 
 impl State {
-    fn collect(&mut self, config: &AsrConfig, flush: bool) -> Option<CloudEvent> {
+    pub(super) fn source_len(&self) -> usize {
+        self.input.len()
+            + self
+                .source_only
+                .as_ref()
+                .map_or(0, |state| state.source_len())
+    }
+
+    pub(super) fn active_preview(&self, mut event: Option<CloudEvent>) -> Option<CloudEvent> {
+        let active = if self.source_only_active {
+            self.source_only
+                .as_deref()
+                .and_then(|state| state.snapshot.as_ref())
+        } else {
+            self.snapshot.as_ref()
+        };
+        if let (Some(CloudEvent::LiveTranslation { snapshot, .. }), Some(active)) =
+            (&mut event, active)
+        {
+            **snapshot = active.clone();
+        }
+        event
+    }
+
+    pub(super) fn collect(&mut self, config: &AsrConfig, flush: bool) -> Option<CloudEvent> {
         let mut timing = self.timing.take()?;
         let event = timing.collect(self, config, flush);
         self.timing = Some(timing);
@@ -108,11 +144,21 @@ impl State {
 }
 
 pub(super) fn poll(config: &AsrConfig, state: &mut State) -> Option<CloudEvent> {
-    state.collect(config, false)
+    let translated = state.collect(config, false);
+    let original = state
+        .source_only
+        .as_mut()
+        .and_then(|state| state.collect(config, false));
+    state.active_preview(merge_events(translated, original))
 }
 
 pub(super) fn finish(config: &AsrConfig, state: &mut State) -> Option<CloudEvent> {
-    let event = state.collect(config, true);
+    let translated = state.collect(config, true);
+    let original = state
+        .source_only
+        .as_mut()
+        .and_then(|state| state.collect(config, true));
+    let event = merge_events(translated, original);
     *state = State::default();
     event
 }
@@ -132,6 +178,10 @@ pub(super) fn append(
         return Err("Live translation transcript limit reached; restart recognition".into());
     }
     let snapshot = state.snapshot.get_or_insert_with(|| LiveTranslation {
+        source_utterance_id: None,
+        completed_original: None,
+        conversation_preview: None,
+        speaker: None,
         utterance_id: format!("live-{}", uuid::Uuid::new_v4()),
         text: String::new(),
         language: None,

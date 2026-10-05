@@ -2,12 +2,15 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   COMPACT_PANEL_WINDOW_SIZE,
+  COMPACT_PREVIEW_MAX_CHARS,
   COMPACT_SUBTITLE_MAX_ITEMS,
   COMPACT_WINDOW_MAX_HEIGHT,
   COMPACT_WINDOW_MIN_WIDTH,
   COMPACT_WINDOW_SIZE,
   clampCompactWindowHeight,
   compactSubtitleCount,
+  compactPreviewText,
+  compactLivePreview,
   compactWindowConstraints,
   compactWindowSize,
   subtitlesForCompactView,
@@ -57,8 +60,66 @@ const subtitles: Subtitle[] = [
   },
 ];
 
+test("compact translation preview keeps a completed original even without source deltas", () => {
+  const completed = { ...subtitles[0], utterance_id: "qwen-source-1" };
+  const preview = {
+    type: "partial" as const,
+    source: "speaker" as const,
+    utterance_id: "qwen-preview-1",
+    source_utterance_id: "qwen-source-1",
+    text: "",
+    translation: "流式译文",
+    target_language: "zh-Hans",
+  };
+  for (const text of ["", "  "]) {
+    const resolved = compactLivePreview({ ...preview, text }, [completed]);
+    assert.equal(resolved?.text, completed.text);
+    assert.equal(resolved?.language, completed.language);
+    assert.equal(resolved?.translation, preview.translation);
+    assert.equal(resolved?.utterance_id, preview.utterance_id);
+  }
+  const sourceDelta = { ...preview, text: "original delta" };
+  assert.equal(compactLivePreview(sourceDelta, [completed]), sourceDelta);
+  assert.equal(preview.text, "");
+  assert.equal(compactLivePreview(preview, []), preview);
+  assert.equal(compactLivePreview(preview, [{ ...completed, utterance_id: "other" }]), preview);
+  assert.equal(compactLivePreview(preview, [{ ...completed, source: "microphone" }]), preview);
+  assert.equal(compactLivePreview(null, [completed]), null);
+});
+
 test("compact mode follows the latest subtitle when the selection panel is closed", () => {
   assert.deepEqual(subtitlesForCompactView(subtitles, 120), [subtitles[0]]);
+});
+
+test("compact previews recover originals after loaded history has been evicted", () => {
+  const preview = {
+    type: "partial" as const, source: "speaker" as const,
+    utterance_id: "qwen-preview-older", source_utterance_id: "qwen-source-older",
+    text: "", completed_original: "Older original.", translation: "迟到译文",
+  };
+  assert.equal(compactLivePreview(preview, [])?.text, "Older original.");
+  const delta = { ...preview, text: "Original delta" };
+  assert.equal(compactLivePreview(delta, []), delta);
+});
+
+test("late compact translation finds its original outside the visible history", () => {
+  const older = { ...subtitles[1], utterance_id: "qwen-source-older" };
+  const history = [subtitles[0], older];
+  const visible = subtitlesForCompactView(history, COMPACT_WINDOW_SIZE.height);
+  assert.deepEqual(visible, [subtitles[0]]);
+  const preview = {
+    type: "partial" as const,
+    source: "speaker" as const,
+    utterance_id: "qwen-preview-older",
+    source_utterance_id: older.utterance_id,
+    text: "",
+    translation: "迟到的译文",
+    target_language: "zh-Hans",
+  };
+  const resolved = compactLivePreview(preview, history);
+  assert.equal(resolved?.text, older.text);
+  assert.equal(resolved?.translation, preview.translation);
+  assert.deepEqual(visible, [subtitles[0]]);
 });
 
 test("compact mode freezes the selected subtitle while the selection panel is open", () => {
@@ -127,4 +188,27 @@ test("compact subtitle context is chronological and bounded by height", () => {
       .map((subtitle) => subtitle.text),
     ["oldest subtitle", "older subtitle", "selected subtitle", "latest subtitle"],
   );
+});
+
+test("long compact text retains its newest end without changing full history", () => {
+  const text = "A long paragraph with detailed explanations. ".repeat(200) + "The latest sentence.";
+  const item = { ...subtitles[0], text };
+  const preview = compactPreviewText(item.text);
+  assert.equal(Array.from(preview).length, COMPACT_PREVIEW_MAX_CHARS);
+  assert.ok(preview.endsWith("The latest sentence."));
+  assert.equal(subtitlesForCompactView([item], 120)[0].text, text);
+});
+
+test("compact windows keep unicode characters and ignore trailing blank lines", () => {
+  const text = "🙂".repeat(COMPACT_PREVIEW_MAX_CHARS + 1) + "\n\n ";
+  const preview = compactPreviewText(text);
+  assert.equal(preview, "🙂".repeat(COMPACT_PREVIEW_MAX_CHARS));
+  assert.equal(compactPreviewText("短句。\n\n"), "短句。");
+  assert.equal(compactPreviewText(" \n "), "");
+});
+
+test("streaming and complete compact text both retain the latest translated tail", () => {
+  const text = "非常长的技术说明。".repeat(100) + "这是最后一句。";
+  assert.equal(compactPreviewText(text), compactPreviewText(text + "\n"));
+  assert.ok(compactPreviewText(text + "补充。 ").endsWith("这是最后一句。补充。"));
 });

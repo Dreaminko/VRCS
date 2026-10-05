@@ -231,6 +231,7 @@
       "transcribing": "Transcribing",
       "waiting": "Waiting for subtitles…",
       "microphoneMe": "You · microphone",
+      "speakerNumber": "Speaker {{number}}",
       "speakerOther": "Others · system audio",
       "returnToBottom": "Return to the latest subtitle",
       "returnToBottomShort": "Latest subtitle",
@@ -581,12 +582,6 @@
           "preferredOnly": "Preferred language only",
           "allLanguages": "Show all languages"
         },
-        "contentMode": "Content",
-        "contentModes": {
-          "original": "Original",
-          "translation": "Translation",
-          "bilingual": "Bilingual"
-        },
         "hand": "Controller",
         "dominantHand": "Dominant hand",
         "hands": {
@@ -601,6 +596,7 @@
         "liveUpdates": "Live updates",
         "showRecognitionPartials": "Show partial recognition",
         "showTranslationPartials": "Show partial translations",
+        "linesPerLanguage": "Subtitle lines per language",
         "displaySeconds": "Display duration",
         "fadeSeconds": "Fade duration",
         "maxEntries": "Conversation lines",
@@ -701,15 +697,8 @@
         "clearComplete": "Subtitle history was cleared and database space was reclaimed."
       },
       "translation": {
-        "alignment": {
-          "enabled": "Background text alignment",
-          "description": "A lightweight model segments and aligns source and translated text in the background, adding a small amount of API usage. (Only applies to OpenAI Realtime Translation and Gemini Live Translate models.)",
-          "profile": "Alignment API profile",
-          "recognitionProfile": "Use recognition profile",
-          "model": "Alignment model"
-        },
-        "liveTranslateHint": "Each audio source uses Live Translate for its first target. Requires automatic translation. Text prompts, glossary and thinking settings do not apply. Translated audio is generated and billed even though it is not played.",
-        "liveTranslatePreview": "Audio uploads begin after speech is detected. Translations can be previewed as they arrive; background text alignment can use a lightweight model to segment and match by meaning. History, extra targets and OSC are supported.",
+        "liveTranslateHint": "Each audio source translates its first target and requires automatic translation. Text prompts and thinking settings do not apply. Qwen uses text-only output and speaker diarization; other live translators generate audio that the app does not play.",
+        "liveTranslatePreview": "Audio uploads begin after speech is detected. Translations can be previewed as they arrive. Local alignment supports history, extra targets and OSC; same-language source text can complete without waiting for a translation.",
         "title": "Subtitle translation",
 
         "mode": "Translation mode",
@@ -765,9 +754,9 @@
         "title": "Glossaries",
         "description": "Manage shared terminology for LLM translation and speech recognition.",
         "llmEnabled": "Use for LLM translation",
-        "llmEnabledDescription": "Apply enabled glossary sources when VRCS builds LLM translation prompts.",
+        "llmEnabledDescription": "Use enabled glossary sources in translation prompts and Qwen Live Translate term mappings.",
         "asrEnabled": "Use for ASR",
-        "asrEnabledDescription": "Apply enabled glossary sources as recognition context when the selected ASR service supports it.",
+        "asrEnabledDescription": "Use enabled terms as recognition context where supported. Qwen Live Translate preserves original terms when only ASR usage is enabled.",
         "sourcesTitle": "Glossary sources",
         "glossaryPriorityHint": "List order is the match priority. Sources nearer the top take precedence.",
         "addGlossary": "Add glossary",

@@ -87,7 +87,7 @@
   flex-direction: column;
   justify-content: safe center;
   overflow-x: hidden;
-  overflow-y: auto;
+  overflow-y: hidden;
   text-align: center;
 }
 .compact-subtitle-row {
@@ -98,8 +98,11 @@
 .compact-subtitle-row + .compact-subtitle-row { border-top: 1px solid var(--border); }
 .compact-content p {
   margin: 0;
+  max-height: 1lh;
+  overflow: hidden;
+  scroll-behavior: auto;
   overflow-wrap: anywhere;
-  white-space: pre-wrap;
+  white-space: nowrap;
 }
 .compact-original {
   cursor: text;
@@ -114,6 +117,10 @@
   font-size: 14px;
   font-weight: 400;
   line-height: 20px;
+}
+.compact-subtitle-current .compact-translation {
+  max-height: 2lh;
+  white-space: pre-wrap;
 }
 .compact-subtitle-history .compact-original {
   color: var(--text-secondary);

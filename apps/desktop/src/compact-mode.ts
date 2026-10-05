@@ -1,4 +1,6 @@
 import type { Subtitle } from "./subtitles/types";
+import type { LiveTranscription } from "./capture/types";
+import { livePartialHasSubtitle } from "./realtime-state.ts";
 
 export const COMPACT_WINDOW_SIZE = { width: 720, height: 120 } as const;
 export const COMPACT_PANEL_WINDOW_SIZE = { width: 720, height: 520 } as const;
@@ -6,6 +8,24 @@ export const COMPACT_WINDOW_MIN_WIDTH = 480;
 export const COMPACT_WINDOW_MAX_HEIGHT = 360;
 export const COMPACT_SUBTITLE_HEIGHT_STEP = 60;
 export const COMPACT_SUBTITLE_MAX_ITEMS = 4;
+export const COMPACT_PREVIEW_MAX_CHARS = 600;
+
+export function compactPreviewText(text: string): string {
+  // Bound layout work for complete paragraphs; the viewport shows the newest lines.
+  return Array.from(text.trimEnd()).slice(-COMPACT_PREVIEW_MAX_CHARS).join("");
+}
+
+export function compactLivePreview(
+  partial: LiveTranscription | null,
+  subtitles: Subtitle[],
+): LiveTranscription | null {
+  if (!partial || partial.text.trim()) return partial;
+  if (partial.completed_original?.trim()) return { ...partial, text: partial.completed_original };
+  // A completed original can arrive without any source preview deltas.
+  const completed = subtitles.find((subtitle) => livePartialHasSubtitle(partial, [subtitle]));
+  if (!completed) return partial;
+  return { ...partial, text: completed.text, language: completed.language ?? partial.language };
+}
 
 export type CompactPanelState = boolean;
 

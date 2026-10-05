@@ -157,10 +157,17 @@ function isTranslation(value: unknown): value is SubtitleTranslation {
     && isText(value.created_at);
 }
 
+function isSpeaker(value: unknown): boolean {
+  return value === undefined || value === null || (isObject(value)
+    && isText(value.id) && typeof value.index === "number"
+    && Number.isSafeInteger(value.index) && value.index >= 0);
+}
+
 function isSubtitle(value: unknown): value is Subtitle {
   return isObject(value)
     && (value.id === null || isSubtitleId(value.id))
     && isText(value.text)
+    && isSpeaker(value.speaker)
     && isNullableText(value.language)
     && isNullableFiniteNumber(value.started_at)
     && isNullableFiniteNumber(value.ended_at)
@@ -211,7 +218,12 @@ export function parseSubtitleStreamMessage(
         : null;
     case "live_translation_updated":
       return isSource(value.source) && isText(value.utterance_id) && isText(value.text)
-        && isText(value.translation) && isText(value.target_language) && isNullableText(value.language)
+        && (value.source_utterance_id === undefined || isNullableText(value.source_utterance_id))
+        && (value.completed_original === undefined || isNullableText(value.completed_original))
+        && (value.conversation_preview === undefined || value.conversation_preview === null
+          || (isObject(value.conversation_preview) && isText(value.conversation_preview.text)
+            && isText(value.conversation_preview.translation)))
+        && isText(value.translation) && isText(value.target_language) && isNullableText(value.language) && isSpeaker(value.speaker)
         ? value as SubtitleStreamMessage : null;
     case "partial":
       return isSource(value.source)

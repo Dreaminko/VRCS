@@ -7,6 +7,7 @@ mod validation;
 pub(crate) use validation::validate_profile;
 
 pub const ALIBABA_PROVIDER: &str = "alibaba_cloud";
+pub const QWEN_AI_PROVIDER: &str = "qwen_ai";
 pub const ALIBABA_TOKEN_PLAN_PROVIDER: &str = "alibaba_token_plan";
 pub const OPENAI_PROVIDER: &str = "openai";
 pub const OPENAI_COMPATIBLE_PROVIDER: &str = "openai_compatible";
@@ -27,6 +28,7 @@ pub const CAPABILITY_SPEECH_TO_TEXT: &str = "speech_to_text";
 pub const CAPABILITY_TEXT_GENERATION: &str = "text_generation";
 pub const CAPABILITY_TEXT_TRANSLATION: &str = "text_translation";
 
+pub const SERVICE_QWEN_LIVE_TRANSLATE: &str = "qwen_live_translate";
 pub const SERVICE_QWEN_REALTIME: &str = "qwen_realtime";
 pub const SERVICE_FUN_ASR_REALTIME: &str = "fun_asr_realtime";
 pub const SERVICE_TOKEN_PLAN_REALTIME: &str = "token_plan_realtime";
@@ -39,13 +41,33 @@ pub const SERVICE_GEMINI_LIVE_TRANSLATE: &str = "gemini_live_translate";
 pub fn is_live_translation(service: &str) -> bool {
     matches!(
         service,
-        SERVICE_GEMINI_LIVE_TRANSLATE | SERVICE_OPENAI_REALTIME_TRANSLATE
+        SERVICE_GEMINI_LIVE_TRANSLATE
+            | SERVICE_OPENAI_REALTIME_TRANSLATE
+            | SERVICE_QWEN_LIVE_TRANSLATE
     )
+}
+
+/// Spoken language identity. Script/region variants do not require an audio
+/// translation, even though they can require a separate text conversion.
+pub fn same_live_translation_language(source: &str, target: &str) -> bool {
+    fn base(language: &str) -> String {
+        language
+            .trim()
+            .split(['-', '_'])
+            .next()
+            .unwrap_or_default()
+            .to_ascii_lowercase()
+    }
+    let source = base(source);
+    !source.is_empty() && source == base(target)
 }
 
 pub fn validate_live_translation_language(service: &str, language: &str) -> Result<(), String> {
     if service == SERVICE_OPENAI_REALTIME_TRANSLATE {
         return openai_translation_language(language).map(|_| ());
+    }
+    if service == SERVICE_QWEN_LIVE_TRANSLATE {
+        return qwen_translation_language(language).map(|_| ());
     }
     const LANGUAGES: &str = "af ak sq am ar hy az eu be bn bg my ca zh-Hans zh-Hant hr cs da en et fil fi fr gl ka de el gu ha he hi hu is id it ja jv kn kk km ko lo lv lt lb mk ms ml mr mn ne no nb fa pl pt-BR pt-PT pa ro ru sr sd si sk sl es su sw sv ta te th tr uk ur uz vi zu";
     if LANGUAGES.split_whitespace().any(|code| code == language) {
@@ -72,6 +94,23 @@ pub fn openai_translation_language(language: &str) -> Result<&str, String> {
     } else {
         Err(format!(
             "Unsupported OpenAI Realtime Translation target language: {language}"
+        ))
+    }
+}
+
+pub fn qwen_translation_language(language: &str) -> Result<&str, String> {
+    let wire = match language {
+        "zh-Hans" | "zh-Hant" => "zh",
+        "yue-Hant" => "yue",
+        "pt-BR" | "pt-PT" => "pt",
+        other => other,
+    };
+    const LANGUAGES: &str = "zh en ar de fr es pt id it ko ru th vi ja tr hi ms nl ur nb sv da he fi pl is cs fil fa yue el af ast be bg bn bs ca ceb et gl gu hr hu jv kk kn ky lv mk ml mr pa ro sk sl sw tg az uk";
+    if LANGUAGES.split_whitespace().any(|code| code == wire) {
+        Ok(wire)
+    } else {
+        Err(format!(
+            "Unsupported Qwen Live Translate target language: {language}"
         ))
     }
 }
@@ -176,6 +215,7 @@ pub enum ServiceAdapter {
     DeepLTextTranslation,
     MicrosoftTextTranslation,
     QwenRealtime,
+    QwenLiveTranslate,
     AlibabaTokenPlanRealtime,
     FunAsrRealtime,
     OpenAiRealtime,
@@ -268,6 +308,18 @@ const ALIBABA_SERVICES: &[ProviderServiceDefinition] = &[
         },
     ),
     recognition_service_definition(
+        SERVICE_QWEN_LIVE_TRANSLATE,
+        "Qwen Live Translate",
+        ServiceAdapter::QwenLiveTranslate,
+        RecognitionServiceSpec {
+            transport: RecognitionTransport::RealtimeStream,
+            partial_results: true,
+            models: &["qwen3.8-livetranslate-flash-realtime"],
+            context_max_chars: None,
+            support: SupportLevel::Native,
+        },
+    ),
+    recognition_service_definition(
         SERVICE_FUN_ASR_REALTIME,
         "Qwen Audio / Fun-ASR Realtime",
         ServiceAdapter::FunAsrRealtime,
@@ -279,6 +331,18 @@ const ALIBABA_SERVICES: &[ProviderServiceDefinition] = &[
             support: SupportLevel::Native,
         },
     ),
+];
+
+const QWEN_AI_SERVICES: &[ProviderServiceDefinition] = &[
+    text_service(
+        "qwen_ai_chat_completions",
+        "Qwen AI Chat Completions",
+        ServiceAdapter::AlibabaChatCompletions,
+        SupportLevel::ProtocolCompatible,
+    ),
+    ALIBABA_SERVICES[1],
+    ALIBABA_SERVICES[2],
+    ALIBABA_SERVICES[3],
 ];
 
 const ALIBABA_TOKEN_PLAN_SERVICES: &[ProviderServiceDefinition] = &[
@@ -512,6 +576,7 @@ const fn recognition_service_definition(
         supports_model_listing: matches!(
             adapter,
             ServiceAdapter::QwenRealtime
+                | ServiceAdapter::QwenLiveTranslate
                 | ServiceAdapter::AlibabaTokenPlanRealtime
                 | ServiceAdapter::FunAsrRealtime
         ),
@@ -526,6 +591,7 @@ const fn recognition_service_definition(
 pub fn catalog() -> Vec<ProviderDefinition> {
     [
         ALIBABA_PROVIDER,
+        QWEN_AI_PROVIDER,
         ALIBABA_TOKEN_PLAN_PROVIDER,
         OPENAI_PROVIDER,
         GROQ_PROVIDER,
@@ -547,7 +613,7 @@ pub fn definition(provider: &str) -> Option<ProviderDefinition> {
     let (display_name, category, connection, services, purposes, languages, custom_languages) =
         match provider {
             ALIBABA_PROVIDER => (
-                "Alibaba Cloud",
+                "Alibaba Cloud Model Studio",
                 ProviderCategory::CloudProvider,
                 connection(
                     ApiAuthMode::Bearer,
@@ -557,6 +623,21 @@ pub fn definition(provider: &str) -> Option<ProviderDefinition> {
                     false,
                 ),
                 ALIBABA_SERVICES,
+                SHARED_PURPOSES,
+                LLM_TRANSLATION_LANGUAGES,
+                true,
+            ),
+            QWEN_AI_PROVIDER => (
+                "Qwen AI",
+                ProviderCategory::CloudProvider,
+                connection(
+                    ApiAuthMode::Bearer,
+                    BaseUrlPolicy::Fixed("https://maas.qianwenaiapi.com/compatible-mode/v1"),
+                    &["VRCS_QWEN_AI_API_KEY"],
+                    &[],
+                    false,
+                ),
+                QWEN_AI_SERVICES,
                 SHARED_PURPOSES,
                 LLM_TRANSLATION_LANGUAGES,
                 true,
@@ -774,6 +855,7 @@ const fn connection(
 fn provider_id(provider: &str) -> &'static str {
     match provider {
         ALIBABA_PROVIDER => ALIBABA_PROVIDER,
+        QWEN_AI_PROVIDER => QWEN_AI_PROVIDER,
         ALIBABA_TOKEN_PLAN_PROVIDER => ALIBABA_TOKEN_PLAN_PROVIDER,
         OPENAI_PROVIDER => OPENAI_PROVIDER,
         OPENAI_COMPATIBLE_PROVIDER => OPENAI_COMPATIBLE_PROVIDER,
@@ -877,6 +959,9 @@ fn recognition_catalog_model_supported(service: &ProviderServiceDefinition, mode
     }
     match service.adapter {
         ServiceAdapter::QwenRealtime => versioned_model(model, "qwen3-asr-flash-realtime"),
+        ServiceAdapter::QwenLiveTranslate => {
+            versioned_model(model, "qwen3.8-livetranslate-flash-realtime")
+        }
         ServiceAdapter::AlibabaTokenPlanRealtime => service.models.contains(&model),
         ServiceAdapter::FunAsrRealtime => {
             versioned_model(model, "qwen-audio-3.0-asr-flash-streaming")
@@ -1192,6 +1277,20 @@ mod tests {
             enabled_capabilities: capabilities.iter().map(|value| (*value).into()).collect(),
             ..ApiProfile::default()
         }
+    }
+
+    #[test]
+    fn qwen_ai_profile_has_native_live_translation_and_no_regional_fields() {
+        let profile = profile(QWEN_AI_PROVIDER, &[CAPABILITY_SPEECH_TO_TEXT]);
+        validation::validate_profile(&profile).unwrap();
+        let resolved = resolve_profile_service(&profile, SERVICE_QWEN_LIVE_TRANSLATE).unwrap();
+        assert_eq!(resolved.service.adapter, ServiceAdapter::QwenLiveTranslate);
+        assert_eq!(resolved.provider.id, QWEN_AI_PROVIDER);
+        assert_eq!(
+            effective_base_url(&profile).unwrap(),
+            "https://maas.qianwenaiapi.com/compatible-mode/v1"
+        );
+        assert!(resolve_profile_service(&profile, SERVICE_TOKEN_PLAN_REALTIME).is_err());
     }
 
     #[test]

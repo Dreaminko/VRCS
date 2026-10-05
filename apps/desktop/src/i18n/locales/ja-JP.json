@@ -231,6 +231,7 @@
       "transcribing": "文字起こし中",
       "waiting": "字幕を待っています…",
       "microphoneMe": "自分 · マイク",
+      "speakerNumber": "話者 {{number}}",
       "speakerOther": "相手 · システム音声",
       "returnToBottom": "最新の字幕に戻る",
       "returnToBottomShort": "最新の字幕",
@@ -581,12 +582,6 @@
           "preferredOnly": "優先言語のみ",
           "allLanguages": "すべての言語を表示"
         },
-        "contentMode": "表示内容",
-        "contentModes": {
-          "original": "原文",
-          "translation": "翻訳",
-          "bilingual": "二言語"
-        },
         "hand": "コントローラー",
         "dominantHand": "利き手",
         "hands": {
@@ -601,6 +596,7 @@
         "liveUpdates": "リアルタイム更新",
         "showRecognitionPartials": "認識途中のテキストを表示",
         "showTranslationPartials": "翻訳途中のテキストを表示",
+        "linesPerLanguage": "言語ごとの字幕行数",
         "displaySeconds": "表示時間",
         "fadeSeconds": "フェード時間",
         "maxEntries": "会話の件数",
@@ -701,15 +697,8 @@
         "clearComplete": "字幕履歴を消去し、データベース容量を回収しました。"
       },
       "translation": {
-        "alignment": {
-          "enabled": "バックグラウンドでテキストを対応付ける",
-          "description": "軽量モデルがバックグラウンドで原文と訳文を区切り、対応付けるため、API 使用量が少し増えます。（OpenAI Realtime Translation と Gemini Live Translate モデルのみ対象）",
-          "profile": "対応付け用 API 設定",
-          "recognitionProfile": "音声認識の設定を使う",
-          "model": "対応付けモデル"
-        },
-        "liveTranslateHint": "各音声ソースの最初の翻訳先に Live Translate を使用します。自動翻訳が必要です。テキストプロンプト、用語集、思考設定は適用されません。翻訳音声は再生されませんが、生成と課金は行われます。",
-        "liveTranslatePreview": "音声を検出してから送信を開始します。訳文は受信後にプレビューでき、バックグラウンドのテキスト対応付けでは軽量モデルで意味に基づいて分割・対応付けできます。履歴、追加の翻訳先、OSC に対応します。",
+        "liveTranslateHint": "各音声ソースの最初の翻訳先を使用し、自動翻訳が必要です。テキストプロンプトと思考設定は適用されません。Qwen はテキストのみを出力し話者を識別します。他のリアルタイム翻訳サービスは翻訳音声を生成しますが、アプリでは再生しません。",
+        "liveTranslatePreview": "音声検出後にアップロードを開始し、訳文が届くとプレビューできます。ローカル整列は履歴、追加の翻訳先、OSC に対応し、同じ言語の原文は訳文を待たずに確定できます。",
         "title": "字幕翻訳",
 
         "mode": "翻訳モード",
@@ -765,9 +754,9 @@
         "title": "用語集",
         "description": "LLM 翻訳と音声認識で使用する共通の用語を管理します。",
         "llmEnabled": "LLM 翻訳で使用",
-        "llmEnabledDescription": "VRCS が LLM 翻訳プロンプトを作成するときに、有効な用語集ソースを適用します。",
+        "llmEnabledDescription": "翻訳プロンプトと Qwen リアルタイム翻訳の用語対応に、有効な用語集ソースを適用します。",
         "asrEnabled": "ASR で使用",
-        "asrEnabledDescription": "選択した音声認識サービスが対応している場合、有効な用語集ソースを認識コンテキストとして適用します。",
+        "asrEnabledDescription": "対応する認識サービスで用語を認識コンテキストとして使用します。Qwen リアルタイム翻訳で ASR 用途のみを有効にした場合は元の用語を保持します。",
         "sourcesTitle": "用語集ソース",
         "glossaryPriorityHint": "一覧の順序が一致時の優先順位です。上にあるソースが優先されます。",
         "addGlossary": "用語集を追加",

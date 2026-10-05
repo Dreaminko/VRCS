@@ -16,6 +16,17 @@ pub(super) fn build_request(
     profile: &ApiProfile,
     key: &str,
 ) -> Result<Request<()>, String> {
+    let settings = service_settings(config, &config.backend)?;
+    if profile.provider == crate::providers::QWEN_AI_PROVIDER {
+        return authenticated_request(
+            format!(
+                "wss://maas.qianwenaiapi.com/api-ws/v1/realtime?model={}",
+                settings.model
+            ),
+            key,
+            true,
+        );
+    }
     let workspace = profile.workspace_id.as_deref().unwrap_or("").trim();
     if workspace.is_empty() {
         return Err("Alibaba Cloud Workspace ID is not configured".into());
@@ -25,7 +36,6 @@ pub(super) fn build_request(
         "china_beijing" => "cn-beijing",
         other => return Err(format!("Unsupported Alibaba Cloud region: {other}")),
     };
-    let settings = service_settings(config, SERVICE_QWEN_REALTIME)?;
     let url = format!(
         "wss://{}.{}.maas.aliyuncs.com/api-ws/v1/realtime?model={}",
         workspace, region, settings.model

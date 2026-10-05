@@ -134,6 +134,16 @@ export function getLivePartial(
   return livePartials.get(source) ?? null;
 }
 
+export function livePartialHasSubtitle(
+  partial: LiveTranscription,
+  subtitles: Subtitle[],
+): boolean {
+  return Boolean(partial.source_utterance_id && subtitles.some((subtitle) =>
+    subtitle.utterance_id === partial.source_utterance_id
+    && (subtitle.source ?? "speaker") === partial.source,
+  ));
+}
+
 export function useLivePartial(
   source: LiveTranscription["source"],
 ): LiveTranscription | null {

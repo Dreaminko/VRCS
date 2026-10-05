@@ -7,7 +7,6 @@ import type { Settings } from "./types";
 
 export const DEFAULT_VR_OVERLAY_HEADSET_SETTINGS: VrOverlayHeadsetSettings = {
   enabled: true,
-  content_mode: "bilingual",
   show_partials: false,
   show_translation_partials: false,
   include_speaker: true,
@@ -24,6 +23,7 @@ export const DEFAULT_VR_OVERLAY_HEADSET_SETTINGS: VrOverlayHeadsetSettings = {
   display_seconds: 6,
   fade_seconds: 1,
   font_size_px: 54,
+  lines_per_language: 2,
   background_opacity: 0.55,
   vr_drag_edit_enabled: false,
 };
@@ -32,7 +32,6 @@ export const DEFAULT_VR_OVERLAY_WRIST_SETTINGS: VrOverlayWristSettings = {
   enabled: true,
   hand: "left",
   dominant_hand: "right",
-  content_mode: "bilingual",
   show_partials: false,
   show_translation_partials: false,
   include_speaker: true,

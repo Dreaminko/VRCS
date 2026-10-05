@@ -294,17 +294,7 @@ export function VrOverlaySettingsSection({
           </div>
 
           <div className="vr-overlay-field-grid">
-            <Select
-              label={t("settings.vrOverlay.contentMode")}
-              value={draft.vr_overlay.headset.content_mode}
-              options={[
-                { value: "original", label: t("settings.vrOverlay.contentModes.original") },
-                { value: "translation", label: t("settings.vrOverlay.contentModes.translation") },
-                { value: "bilingual", label: t("settings.vrOverlay.contentModes.bilingual") },
-              ]}
-              disabled={headsetDisabled}
-              onChange={(value) => updateHeadset("content_mode", value as VrOverlayHeadsetSettings["content_mode"])}
-            />
+            <MeterRange label={t("settings.vrOverlay.linesPerLanguage")} value={draft.vr_overlay.headset.lines_per_language} min={1} max={4} step={1} unit="" disabled={headsetDisabled} onCommit={(value) => updateHeadset("lines_per_language", value)} />
             <MeterRange label={t("settings.vrOverlay.displaySeconds")} value={draft.vr_overlay.headset.display_seconds} min={1} max={30} step={0.5} digits={1} unit=" s" disabled={headsetDisabled} onCommit={(value) => applySettings((current) => setVrOverlayHeadsetDisplaySeconds(current, value))} />
             <MeterRange label={t("settings.vrOverlay.fadeSeconds")} value={draft.vr_overlay.headset.fade_seconds} min={0} max={Math.min(5, draft.vr_overlay.headset.display_seconds)} step={0.1} digits={1} unit=" s" disabled={headsetDisabled} onCommit={(value) => updateHeadset("fade_seconds", value)} />
           </div>
@@ -405,17 +395,6 @@ export function VrOverlaySettingsSection({
               ]}
               disabled={wristDisabled || draft.vr_overlay.wrist.hand !== "dominant"}
               onChange={(value) => updateWrist("dominant_hand", value as VrOverlayWristSettings["dominant_hand"])}
-            />
-            <Select
-              label={t("settings.vrOverlay.contentMode")}
-              value={draft.vr_overlay.wrist.content_mode}
-              options={[
-                { value: "original", label: t("settings.vrOverlay.contentModes.original") },
-                { value: "translation", label: t("settings.vrOverlay.contentModes.translation") },
-                { value: "bilingual", label: t("settings.vrOverlay.contentModes.bilingual") },
-              ]}
-              disabled={wristDisabled}
-              onChange={(value) => updateWrist("content_mode", value as VrOverlayWristSettings["content_mode"])}
             />
             <MeterRange label={t("settings.vrOverlay.maxEntries")} value={draft.vr_overlay.wrist.max_entries} min={3} max={10} step={1} unit="" disabled={wristDisabled} onCommit={(value) => updateWrist("max_entries", value)} />
             <MeterRange label={t("settings.vrOverlay.idleHideSeconds")} value={draft.vr_overlay.wrist.idle_hide_seconds} min={0} max={120} step={5} unit=" s" disabled={wristDisabled} onCommit={(value) => updateWrist("idle_hide_seconds", value)} />

@@ -1,7 +1,162 @@
 use super::*;
 
+#[test]
+fn preview_switches_select_original_and_translation_in_previews_and_finals() {
+    let now = Instant::now();
+    for (show_original, show_translation, expected_preview, expected_final) in [
+        (true, true, "Hello.\n你好。", "Hello.\n已完成的译文"),
+        (true, false, "Hello.", "Hello."),
+        (false, true, "你好。", "已完成的译文"),
+    ] {
+        let headset_config = VrOverlayHeadsetConfig {
+            show_partials: show_original,
+            show_translation_partials: show_translation,
+            ..Default::default()
+        };
+        let wrist_config = VrOverlayWristConfig {
+            show_partials: show_original,
+            show_translation_partials: show_translation,
+            ..Default::default()
+        };
+        let mut headset = HeadsetPresentation::default();
+        let mut wrist = WristPresentation::default();
+        let preview = |text: &str| PresentationEvent::LiveTranslationUpdated {
+            source: "speaker".into(),
+            snapshot: vrcs_core::LiveTranslation {
+                utterance_id: "preview-1".into(),
+                source_utterance_id: Some("source-1".into()),
+                completed_original: None,
+                conversation_preview: None,
+                speaker: None,
+                text: text.into(),
+                language: Some("en".into()),
+                translation: "你好。".into(),
+                target_language: "zh".into(),
+            },
+        };
+        let assert_text =
+            |headset: &HeadsetPresentation, wrist: &WristPresentation, expected: &str| {
+                assert_eq!(
+                    headset.frame(now, &headset_config).unwrap().content,
+                    PresentationContent::Headset(expected.into()),
+                    "original={show_original}, translation={show_translation}",
+                );
+                assert_eq!(
+                    wrist.frame(now, &wrist_config).unwrap().content,
+                    PresentationContent::Wrist(vec![WristMessage {
+                        text: expected.into(),
+                        side: MessageSide::Left,
+                    }]),
+                    "original={show_original}, translation={show_translation}",
+                );
+            };
+        let event = preview("Hello.");
+        headset.apply(event.clone(), now, &headset_config);
+        wrist.apply(event, now, &wrist_config);
+        assert_text(&headset, &wrist, expected_preview);
+
+        let mut completed = subtitle(1, "Hello.");
+        completed.translations.push(translation("已完成的译文"));
+        for event in [
+            PresentationEvent::Final {
+                utterance_id: Some("source-1".into()),
+                subtitle: completed,
+            },
+            preview(""),
+        ] {
+            headset.apply(event.clone(), now, &headset_config);
+            wrist.apply(event, now, &wrist_config);
+        }
+        assert_text(&headset, &wrist, expected_preview);
+
+        let event = PresentationEvent::RecognitionCancelled {
+            source: "speaker".into(),
+            utterance_id: "preview-1".into(),
+        };
+        headset.apply(event.clone(), now, &headset_config);
+        wrist.apply(event, now, &wrist_config);
+        assert_text(&headset, &wrist, expected_final);
+    }
+}
+
+#[test]
+fn delayed_native_previews_keep_both_lanes_after_display_history_is_evicted() {
+    let now = Instant::now();
+    for newer_count in [3, 32] {
+        for (show_original, show_translation, expected) in [
+            (true, true, "Older original.\n迟到译文"),
+            (true, false, "Older original."),
+            (false, true, "迟到译文"),
+        ] {
+            let headset_config = VrOverlayHeadsetConfig {
+                show_partials: show_original,
+                show_translation_partials: show_translation,
+                ..Default::default()
+            };
+            let wrist_config = VrOverlayWristConfig {
+                show_partials: show_original,
+                show_translation_partials: show_translation,
+                max_entries: 3,
+                ..Default::default()
+            };
+            let mut headset = HeadsetPresentation::default();
+            let mut wrist = WristPresentation::default();
+            for index in 0..=newer_count {
+                let event = PresentationEvent::Final {
+                    utterance_id: Some(format!("qwen-source-{index}")),
+                    subtitle: subtitle(
+                        index + 1,
+                        if index == 0 {
+                            "Older original."
+                        } else {
+                            "Newer original."
+                        },
+                    ),
+                };
+                headset.apply(event.clone(), now, &headset_config);
+                wrist.apply(event, now, &wrist_config);
+            }
+            let event = PresentationEvent::LiveTranslationUpdated {
+                source: "speaker".into(),
+                snapshot: vrcs_core::LiveTranslation {
+                    utterance_id: "qwen-preview-0".into(),
+                    source_utterance_id: Some("qwen-source-0".into()),
+                    completed_original: Some("Older original.".into()),
+                    conversation_preview: None,
+                    speaker: None,
+                    text: String::new(),
+                    language: Some("en".into()),
+                    translation: "迟到译文".into(),
+                    target_language: "zh-Hans".into(),
+                },
+            };
+            headset.apply(event.clone(), now, &headset_config);
+            wrist.apply(event, now, &wrist_config);
+            assert_eq!(
+                headset.frame(now, &headset_config).unwrap().content,
+                PresentationContent::Headset(expected.into())
+            );
+            let PresentationContent::Wrist(messages) =
+                wrist.frame(now, &wrist_config).unwrap().content
+            else {
+                panic!()
+            };
+            assert_eq!(messages.last().unwrap().text, expected);
+            assert!(messages.len() <= 3);
+            let event = PresentationEvent::RecognitionCancelled {
+                source: "speaker".into(),
+                utterance_id: "qwen-preview-0".into(),
+            };
+            headset.apply(event.clone(), now, &headset_config);
+            wrist.apply(event, now, &wrist_config);
+            assert!(headset.partial.is_none() && wrist.partials.is_empty());
+        }
+    }
+}
+
 fn subtitle(id: i64, text: &str) -> Subtitle {
     Subtitle {
+        speaker: None,
         id: Some(id),
         conversation_id: None,
         text: text.into(),
@@ -68,7 +223,6 @@ fn headset_final_fades() {
 fn translation_completion_updates_matching_headset_item() {
     let now = Instant::now();
     let config = VrOverlayHeadsetConfig {
-        content_mode: "bilingual".into(),
         ..Default::default()
     };
     let mut state = HeadsetPresentation::default();
@@ -92,11 +246,10 @@ fn translation_completion_updates_matching_headset_item() {
 fn multilingual_translation_display_can_show_preferred_or_all_languages() {
     let now = Instant::now();
     let headset_config = VrOverlayHeadsetConfig {
-        content_mode: "bilingual".into(),
         ..Default::default()
     };
     let wrist_config = VrOverlayWristConfig {
-        content_mode: "translation".into(),
+        show_translation_partials: true,
         ..Default::default()
     };
     let events = [
@@ -160,7 +313,6 @@ fn multilingual_translation_display_can_show_preferred_or_all_languages() {
 fn interleaved_wrist_translation_partials_keep_each_language_current() {
     let now = Instant::now();
     let config = VrOverlayWristConfig {
-        content_mode: "translation".into(),
         show_translation_partials: true,
         idle_hide_seconds: 3,
         ..Default::default()
@@ -201,7 +353,7 @@ fn interleaved_wrist_translation_partials_keep_each_language_current() {
 fn later_non_preferred_update_preserves_preferred_translation() {
     let now = Instant::now();
     let config = VrOverlayHeadsetConfig {
-        content_mode: "translation".into(),
+        show_translation_partials: true,
         ..Default::default()
     };
     let mut headset = HeadsetPresentation::default();
@@ -235,7 +387,6 @@ fn same_language_translation_is_hidden() {
     translation.target_language = "en".into();
 
     let headset_config = VrOverlayHeadsetConfig {
-        content_mode: "bilingual".into(),
         ..Default::default()
     };
     let mut headset = HeadsetPresentation::default();
@@ -255,7 +406,6 @@ fn same_language_translation_is_hidden() {
     );
 
     let wrist_config = VrOverlayWristConfig {
-        content_mode: "bilingual".into(),
         ..Default::default()
     };
     let mut item = subtitle(7, "hello");
@@ -573,6 +723,10 @@ fn disabled_or_unknown_sources_are_not_presented() {
 fn native_translation_can_arrive_before_the_original() {
     let now = Instant::now();
     let snapshot = vrcs_core::LiveTranslation {
+        source_utterance_id: None,
+        completed_original: None,
+        conversation_preview: None,
+        speaker: None,
         utterance_id: "native-1".into(),
         text: String::new(),
         language: None,
@@ -586,7 +740,6 @@ fn native_translation_can_arrive_before_the_original() {
     let config = VrOverlayHeadsetConfig {
         show_partials: true,
         show_translation_partials: true,
-        content_mode: "bilingual".into(),
         ..Default::default()
     };
     let mut headset = HeadsetPresentation::default();
@@ -616,10 +769,246 @@ fn native_translation_can_arrive_before_the_original() {
 }
 
 #[test]
+fn qwen_translation_delta_keeps_its_completed_original_in_bilingual_preview() {
+    let now = Instant::now();
+    let config = VrOverlayHeadsetConfig {
+        show_partials: true,
+        show_translation_partials: true,
+        ..Default::default()
+    };
+    let wrist_config = VrOverlayWristConfig {
+        show_partials: true,
+        show_translation_partials: true,
+        ..Default::default()
+    };
+    let mut headset = HeadsetPresentation::default();
+    let mut wrist = WristPresentation::default();
+    let final_event = PresentationEvent::Final {
+        utterance_id: Some("qwen-source-1".into()),
+        subtitle: subtitle(7, "Hello."),
+    };
+    let preview = PresentationEvent::LiveTranslationUpdated {
+        source: "speaker".into(),
+        snapshot: vrcs_core::LiveTranslation {
+            utterance_id: "qwen-preview-1".into(),
+            source_utterance_id: Some("qwen-source-1".into()),
+            completed_original: None,
+            conversation_preview: None,
+            speaker: None,
+            text: String::new(),
+            language: Some("en".into()),
+            translation: "你好".into(),
+            target_language: "zh".into(),
+        },
+    };
+    for event in [final_event, preview] {
+        headset.apply(event.clone(), now, &config);
+        wrist.apply(event, now, &wrist_config);
+    }
+    assert_eq!(
+        headset.frame(now, &config).unwrap().content,
+        PresentationContent::Headset("Hello.\n你好".into())
+    );
+    assert_eq!(
+        wrist.frame(now, &wrist_config).unwrap().content,
+        PresentationContent::Wrist(vec![WristMessage {
+            text: "Hello.\n你好".into(),
+            side: MessageSide::Left,
+        }])
+    );
+}
+
+#[test]
+fn paragraph_breaks_do_not_create_extra_language_slots() {
+    let now = Instant::now();
+    let mut item = item_from_subtitle(subtitle(1, "First sentence.\nSecond sentence."), None, now);
+    update_completed_translation(&mut item, translation("第一句。\n第二句。"), true);
+    assert_eq!(
+        display_text(&item, "bilingual", "all_languages", "\n"),
+        "First sentence. Second sentence.\n第一句。 第二句。"
+    );
+}
+
+#[test]
+fn recognition_only_preview_keeps_its_original_and_never_pairs_different_utterances() {
+    let now = Instant::now();
+    let config = VrOverlayHeadsetConfig {
+        show_partials: true,
+        show_translation_partials: false,
+        ..Default::default()
+    };
+    let mut state = HeadsetPresentation::default();
+    let mut original = subtitle(7, "Hello.");
+    original.translations.push(translation("你好。"));
+    state.apply(
+        PresentationEvent::Final {
+            utterance_id: Some("source-1".into()),
+            subtitle: original,
+        },
+        now,
+        &config,
+    );
+    let preview = |id: &str, text: &str| PresentationEvent::LiveTranslationUpdated {
+        source: "speaker".into(),
+        snapshot: vrcs_core::LiveTranslation {
+            utterance_id: format!("preview-{id}"),
+            source_utterance_id: Some(id.into()),
+            completed_original: None,
+            conversation_preview: None,
+            speaker: None,
+            text: text.into(),
+            language: Some("en".into()),
+            translation: "unfinished translation must stay hidden".into(),
+            target_language: "zh".into(),
+        },
+    };
+    state.apply(preview("source-1", "Hello"), now, &config);
+    assert_eq!(
+        state.frame(now, &config).unwrap().content,
+        PresentationContent::Headset("Hello.".into())
+    );
+    state.apply(preview("source-2", "Next sentence"), now, &config);
+    assert_eq!(
+        state.frame(now, &config).unwrap().content,
+        PresentationContent::Headset("Next sentence".into())
+    );
+}
+
+#[test]
+fn late_translation_preview_uses_its_own_original_after_another_source_finishes() {
+    let now = Instant::now();
+    let config = VrOverlayHeadsetConfig {
+        show_partials: true,
+        show_translation_partials: true,
+        ..Default::default()
+    };
+    let mut state = HeadsetPresentation::default();
+    for (id, text) in [("source-1", "First."), ("source-2", "Second.")] {
+        state.apply(
+            PresentationEvent::Final {
+                utterance_id: Some(id.into()),
+                subtitle: subtitle(if id == "source-1" { 1 } else { 2 }, text),
+            },
+            now,
+            &config,
+        );
+    }
+    state.apply(
+        PresentationEvent::LiveTranslationUpdated {
+            source: "speaker".into(),
+            snapshot: vrcs_core::LiveTranslation {
+                utterance_id: "preview-1".into(),
+                source_utterance_id: Some("source-1".into()),
+                completed_original: None,
+                conversation_preview: None,
+                speaker: None,
+                text: String::new(),
+                language: Some("en".into()),
+                translation: "第一句".into(),
+                target_language: "zh".into(),
+            },
+        },
+        now,
+        &config,
+    );
+    assert_eq!(
+        state.frame(now, &config).unwrap().content,
+        PresentationContent::Headset("First.\n第一句".into())
+    );
+}
+
+#[test]
+fn native_deltas_update_subtitle_previews_without_duplicating_the_stored_original() {
+    let now = Instant::now();
+    let headset_config = VrOverlayHeadsetConfig {
+        show_partials: false,
+        show_translation_partials: true,
+        ..Default::default()
+    };
+    let wrist_config = VrOverlayWristConfig {
+        show_partials: false,
+        show_translation_partials: true,
+        ..Default::default()
+    };
+    let preview = |text: &str| PresentationEvent::LiveTranslationUpdated {
+        source: "speaker".into(),
+        snapshot: vrcs_core::LiveTranslation {
+            utterance_id: "qwen-preview-1".into(),
+            source_utterance_id: Some("qwen-source-1".into()),
+            completed_original: None,
+            conversation_preview: Some(vrcs_core::LiveTranslationPreview {
+                text: "long original ".repeat(30),
+                translation: "long translation ".repeat(30),
+            }),
+            speaker: None,
+            text: "hello".into(),
+            language: Some("en".into()),
+            translation: text.into(),
+            target_language: "zh".into(),
+        },
+    };
+    let mut headset = HeadsetPresentation::default();
+    let mut wrist = WristPresentation::default();
+    let original = PresentationEvent::Final {
+        utterance_id: Some("qwen-source-1".into()),
+        subtitle: subtitle(7, "hello"),
+    };
+    for event in [
+        preview("你"),
+        original,
+        PresentationEvent::TranslationPartial {
+            subtitle_id: 7,
+            text: "你好".into(),
+            target_language: "zh".into(),
+            preferred: true,
+        },
+        preview("你好"),
+    ] {
+        headset.apply(event.clone(), now, &headset_config);
+        wrist.apply(event, now, &wrist_config);
+    }
+    assert_eq!(
+        headset.frame(now, &headset_config).unwrap().content,
+        PresentationContent::Headset("你好".into())
+    );
+    assert_eq!(
+        wrist.frame(now, &wrist_config).unwrap().content,
+        PresentationContent::Wrist(vec![WristMessage {
+            text: "你好".into(),
+            side: MessageSide::Left
+        }])
+    );
+    for event in [
+        PresentationEvent::TranslationCompleted {
+            subtitle_id: 7,
+            translation: translation("你好，完整结果。"),
+            preferred: true,
+        },
+        PresentationEvent::RecognitionCancelled {
+            source: "speaker".into(),
+            utterance_id: "qwen-preview-1".into(),
+        },
+    ] {
+        headset.apply(event.clone(), now, &headset_config);
+        wrist.apply(event, now, &wrist_config);
+    }
+    assert_eq!(
+        headset.frame(now, &headset_config).unwrap().content,
+        PresentationContent::Headset("你好，完整结果。".into())
+    );
+    assert_eq!(
+        wrist.frame(now, &wrist_config).unwrap().content,
+        PresentationContent::Wrist(vec![WristMessage {
+            text: "你好，完整结果。".into(),
+            side: MessageSide::Left
+        }])
+    );
+}
+
+#[test]
 fn japanese_live_translation_preview_does_not_require_recognition_preview() {
     let now = Instant::now();
     let config = VrOverlayHeadsetConfig {
-        content_mode: "translation".into(),
         show_partials: false,
         show_translation_partials: true,
         ..Default::default()
@@ -627,6 +1016,10 @@ fn japanese_live_translation_preview_does_not_require_recognition_preview() {
     let event = PresentationEvent::LiveTranslationUpdated {
         source: "speaker".into(),
         snapshot: vrcs_core::LiveTranslation {
+            source_utterance_id: None,
+            completed_original: None,
+            conversation_preview: None,
+            speaker: None,
             utterance_id: "japanese-stream".into(),
             text: "日本語の音声を再生しています。".into(),
             language: Some("ja".into()),
@@ -643,7 +1036,6 @@ fn japanese_live_translation_preview_does_not_require_recognition_preview() {
     let config = VrOverlayWristConfig {
         show_partials: false,
         show_translation_partials: true,
-        content_mode: "bilingual".into(),
         ..Default::default()
     };
     let mut wrist = WristPresentation::default();
@@ -661,9 +1053,8 @@ fn japanese_live_translation_preview_does_not_require_recognition_preview() {
 fn empty_live_original_does_not_hide_a_completed_japanese_subtitle() {
     let now = Instant::now();
     let config = VrOverlayHeadsetConfig {
-        content_mode: "original".into(),
         show_partials: true,
-        show_translation_partials: true,
+        show_translation_partials: false,
         ..Default::default()
     };
     let mut state = HeadsetPresentation::default();
@@ -674,6 +1065,10 @@ fn empty_live_original_does_not_hide_a_completed_japanese_subtitle() {
         PresentationEvent::LiveTranslationUpdated {
             source: "speaker".into(),
             snapshot: vrcs_core::LiveTranslation {
+                source_utterance_id: None,
+                completed_original: None,
+                conversation_preview: None,
+                speaker: None,
                 utterance_id: "next-japanese-stream".into(),
                 text: String::new(),
                 language: Some("ja".into()),
@@ -741,4 +1136,106 @@ fn shared_translation_uses_group_context_only_on_the_last_sentence() {
         display_text(&last, "original", "preferred_only", "\n"),
         "How are you?"
     );
+}
+
+#[test]
+fn diarized_final_has_a_speaker_label_with_both_previews_disabled() {
+    let now = Instant::now();
+    let mut item = subtitle(1, "Hello.");
+    item.speaker = Some(vrcs_core::SpeakerIdentity {
+        id: "qwen-session-1".into(),
+        index: 1,
+    });
+    let config = VrOverlayHeadsetConfig {
+        show_partials: false,
+        show_translation_partials: false,
+        ..Default::default()
+    };
+    let event = final_event(item);
+    let mut headset = HeadsetPresentation::default();
+    headset.apply(event.clone(), now, &config);
+    assert_eq!(
+        headset.frame(now, &config).unwrap().content,
+        PresentationContent::Headset("[2] Hello.".into())
+    );
+    let config = VrOverlayWristConfig {
+        show_partials: false,
+        show_translation_partials: false,
+        ..Default::default()
+    };
+    let mut wrist = WristPresentation::default();
+    wrist.apply(event, now, &config);
+    let frame = wrist.frame(now, &config).unwrap();
+    let PresentationContent::Wrist(messages) = frame.content else {
+        panic!()
+    };
+    assert_eq!(messages[0].text, "[2] Hello.");
+}
+
+#[test]
+fn diarized_live_preview_and_completed_translation_label_both_overlays() {
+    let now = Instant::now();
+    let speaker = vrcs_core::SpeakerIdentity {
+        id: "qwen-session-1".into(),
+        index: 1,
+    };
+    let event = PresentationEvent::LiveTranslationUpdated {
+        source: "speaker".into(),
+        snapshot: vrcs_core::LiveTranslation {
+            utterance_id: "qwen-preview-1".into(),
+            source_utterance_id: Some("qwen-source-1".into()),
+            completed_original: None,
+            conversation_preview: None,
+            speaker: Some(speaker.clone()),
+            text: "Hello.".into(),
+            language: Some("en".into()),
+            translation: "你好。".into(),
+            target_language: "zh".into(),
+        },
+    };
+    let headset_config = VrOverlayHeadsetConfig {
+        show_partials: true,
+        show_translation_partials: true,
+        ..Default::default()
+    };
+    let wrist_config = VrOverlayWristConfig {
+        show_partials: true,
+        show_translation_partials: true,
+        ..Default::default()
+    };
+    let mut headset = HeadsetPresentation::default();
+    let mut wrist = WristPresentation::default();
+    headset.apply(event.clone(), now, &headset_config);
+    wrist.apply(event, now, &wrist_config);
+
+    let assert_text = |headset: &HeadsetPresentation, wrist: &WristPresentation| {
+        assert_eq!(
+            headset.frame(now, &headset_config).unwrap().content,
+            PresentationContent::Headset("[2] Hello.\n你好。".into())
+        );
+        let PresentationContent::Wrist(messages) = wrist.frame(now, &wrist_config).unwrap().content
+        else {
+            panic!()
+        };
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0].text, "[2] Hello.\n你好。");
+    };
+    assert_text(&headset, &wrist);
+
+    let mut item = subtitle(1, "Hello.");
+    item.speaker = Some(speaker);
+    let event = PresentationEvent::Final {
+        utterance_id: Some("qwen-source-1".into()),
+        subtitle: item,
+    };
+    headset.apply(event.clone(), now, &headset_config);
+    wrist.apply(event, now, &wrist_config);
+    let event = PresentationEvent::TranslationCompleted {
+        subtitle_id: 1,
+        translation: translation("你好。"),
+        preferred: true,
+    };
+    headset.apply(event.clone(), now, &headset_config);
+    wrist.apply(event, now, &wrist_config);
+    assert_text(&headset, &wrist);
 }

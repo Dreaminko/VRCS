@@ -154,23 +154,8 @@ mod tests {
         );
         assert_keys(
             &value["translation"],
-            [
-                "live_alignment",
-                "microphone_targets",
-                "mode",
-                "prompt",
-                "speaker_targets",
-            ],
+            ["microphone_targets", "mode", "prompt", "speaker_targets"],
         );
-        assert_keys(
-            &value["translation"]["live_alignment"],
-            ["enabled", "model", "profile_id", "thinking_enabled"],
-        );
-        assert_eq!(
-            value["translation"]["live_alignment"]["model"],
-            "gpt-6-luna"
-        );
-        assert_eq!(value["translation"]["live_alignment"]["enabled"], true);
         assert_keys(
             &value["translation"]["speaker_targets"][0],
             ["model", "profile_id", "target_language", "thinking_enabled"],
@@ -221,7 +206,6 @@ mod tests {
             &value["vr_overlay"]["headset"],
             [
                 "background_opacity",
-                "content_mode",
                 "display_seconds",
                 "distance_m",
                 "enabled",
@@ -230,6 +214,7 @@ mod tests {
                 "include_chatbox",
                 "include_microphone",
                 "include_speaker",
+                "lines_per_language",
                 "offset_x_m",
                 "offset_y_m",
                 "opacity",
@@ -246,7 +231,6 @@ mod tests {
             &value["vr_overlay"]["wrist"],
             [
                 "background_opacity",
-                "content_mode",
                 "dominant_hand",
                 "enabled",
                 "font_size_px",

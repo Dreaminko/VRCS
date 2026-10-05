@@ -32,7 +32,6 @@ export type {
   ExternalApiSettings,
   OscRuntimeStatus,
   VrchatMuteStatus,
-  VrOverlayContentMode,
   VrOverlayControllerHand,
   VrOverlayHand,
   VrOverlayHeadsetSettings,

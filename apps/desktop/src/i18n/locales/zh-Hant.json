@@ -231,6 +231,7 @@
       "transcribing": "正在轉錄",
       "waiting": "等待字幕…",
       "microphoneMe": "我 · 麥克風",
+      "speakerNumber": "發話者 {{number}}",
       "speakerOther": "其他人 · 系統音訊",
       "returnToBottom": "回到最新字幕",
       "returnToBottomShort": "最新字幕",
@@ -581,12 +582,6 @@
           "preferredOnly": "僅顯示偏好語言",
           "allLanguages": "顯示所有語言"
         },
-        "contentMode": "顯示內容",
-        "contentModes": {
-          "original": "原文",
-          "translation": "譯文",
-          "bilingual": "雙語"
-        },
         "hand": "控制器",
         "dominantHand": "主手",
         "hands": {
@@ -601,6 +596,7 @@
         "liveUpdates": "即時更新",
         "showRecognitionPartials": "顯示辨識中的文字",
         "showTranslationPartials": "顯示翻譯中的文字",
+        "linesPerLanguage": "每種語言的字幕行數",
         "displaySeconds": "停留時間",
         "fadeSeconds": "淡出時間",
         "maxEntries": "對話行數",
@@ -701,15 +697,8 @@
         "clearComplete": "字幕記錄已清除，資料庫空間已回收。"
       },
       "translation": {
-        "alignment": {
-          "enabled": "背景文字對齊",
-          "description": "使用輕量模型在背景為原文和譯文分句、對齊，會少量增加 API 用量。（僅對 OpenAI Realtime Translation 和 Gemini Live Translate 模型生效）",
-          "profile": "對齊 API 設定",
-          "recognitionProfile": "使用辨識設定",
-          "model": "對齊模型"
-        },
-        "liveTranslateHint": "每路音源使用 Live Translate 翻譯第一目標語言，需開啟自動翻譯。文字 Prompt、術語表和思考設定不適用。服務會產生譯後音訊並計費，但應用不播放。",
-        "liveTranslatePreview": "偵測到語音後開始上傳。譯文回傳後即可預覽，背景文字對齊可使用輕量模型按語意分段、配對，支援歷史紀錄、額外目標翻譯及 OSC。",
+        "liveTranslateHint": "每路音源翻譯第一目標語言，需開啟自動翻譯。文字 Prompt 和思考設定不適用。Qwen 使用純文字輸出並辨識發話者；其他即時翻譯服務產生譯後音訊，但應用不播放。",
+        "liveTranslatePreview": "偵測到語音後開始上傳，譯文回傳即可預覽。本機對齊支援歷史記錄、額外目標翻譯及 OSC；同語言原文無需等待譯文即可完成。",
         "title": "字幕翻譯",
 
         "mode": "翻譯方式",
@@ -765,9 +754,9 @@
         "title": "術語表",
         "description": "統一管理供 LLM 翻譯和語音辨識使用的術語。",
         "llmEnabled": "用於 LLM 翻譯",
-        "llmEnabledDescription": "VRCS 建立 LLM 翻譯提示詞時，會套用已啟用的術語來源。",
+        "llmEnabledDescription": "建立翻譯提示詞和 Qwen 即時翻譯術語映射時，會套用已啟用的術語來源。",
         "asrEnabled": "用於 ASR",
-        "asrEnabledDescription": "所選 ASR 服務支援時，會將已啟用的術語來源套用為辨識上下文。",
+        "asrEnabledDescription": "所選辨識服務支援時，會將已啟用的術語套用為辨識上下文。Qwen 即時翻譯僅啟用 ASR 用途時會保留原詞。",
         "sourcesTitle": "術語來源",
         "glossaryPriorityHint": "清單順序就是比對優先順序；越上方的來源越優先。",
         "addGlossary": "新增術語表",

@@ -1683,6 +1683,7 @@ mod tests {
 
     fn subtitle(id: i64, source: &str, text: &str) -> Subtitle {
         Subtitle {
+            speaker: None,
             id: Some(id),
             conversation_id: Some("conversation-test".into()),
             text: text.into(),

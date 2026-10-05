@@ -1,13 +1,17 @@
 import { useTranslation } from "react-i18next";
+import { useLayoutEffect, useMemo, useRef } from "react";
 import { Maximize2, Mic, Square, X } from "lucide-react";
 
 import type { LookupOrigin } from "../app/app-types";
-import { useLivePartial, useTranslationPartials } from "../realtime-state";
+import { livePartialHasSubtitle, useLivePartial, useTranslationPartials } from "../realtime-state";
 import type { Subtitle } from "../subtitles/types";
 import { contentLanguageTag } from "../app/ui-language";
+import { compactLivePreview, compactPreviewText } from "../compact-mode";
+import { useBatchedPreview } from "../streaming-preview";
 
-export function CompactView({ subtitles, subtitleLimit, selectionActive, running, vrchatMuted, captureDisabled, onSelect, onCapture, onRestore, onClose }: {
+export function CompactView({ subtitles, subtitleHistory, subtitleLimit, selectionActive, running, vrchatMuted, captureDisabled, onSelect, onCapture, onRestore, onClose }: {
   subtitles: Subtitle[];
+  subtitleHistory: Subtitle[];
   subtitleLimit: number;
   selectionActive: boolean;
   running: boolean;
@@ -21,12 +25,21 @@ export function CompactView({ subtitles, subtitleLimit, selectionActive, running
   const { t } = useTranslation();
   const microphonePartial = useLivePartial("microphone");
   const speakerPartial = useLivePartial("speaker");
-  const partial = selectionActive
-    ? undefined
+  const rawPartial = selectionActive
+    ? null
     : microphonePartial ?? speakerPartial;
+  const resolvedPartial = useMemo(
+    () => compactLivePreview(rawPartial, subtitleHistory),
+    [rawPartial, subtitleHistory],
+  );
+  const partial = useBatchedPreview(
+    resolvedPartial,
+    rawPartial?.utterance_id ?? "",
+    rawPartial?.utterance_id.startsWith("qwen-preview-") ?? false,
+  );
   const historyLimit = Math.max(0, subtitleLimit - (partial ? 1 : 0));
   const visibleSubtitles = historyLimit > 0
-    ? subtitles.slice(-historyLimit)
+    ? subtitles.filter((subtitle) => !partial || !livePartialHasSubtitle(partial, [subtitle])).slice(-historyLimit)
     : [];
   const latestSubtitle = subtitles.at(-1);
   const captureLabel = t(running ? "capture.pause" : "capture.start");
@@ -47,15 +60,14 @@ export function CompactView({ subtitles, subtitleLimit, selectionActive, running
           />
         ))}
         {partial && (
-          <div className="compact-subtitle-row compact-subtitle-current">
-            <p
+          <div className={`compact-subtitle-row compact-subtitle-current ${partial.translation ? "compact-subtitle-bilingual" : ""}`}>
+            <CompactText
               className="compact-original"
               lang={contentLanguageTag(partial.language)}
+              text={partial.text}
               onMouseUp={() => void onSelect(partial.text)}
-            >
-              {partial.text}
-            </p>
-            {partial.translation && <p className="compact-translation" lang={contentLanguageTag(partial.target_language)}>{partial.translation}</p>}
+            />
+            {partial.translation && <CompactText className="compact-translation" lang={contentLanguageTag(partial.target_language)} text={partial.translation} />}
           </div>
         )}
         {!partial && visibleSubtitles.length === 0 && (
@@ -81,9 +93,13 @@ function CompactSubtitleRow({ subtitle, current, onSelect }: {
   onSelect: (context: string, origin?: LookupOrigin) => Promise<void>;
 }) {
   const translationPartial = useTranslationPartials(subtitle.id)[0];
-  const visibleTranslation = translationPartial
-    ?? subtitle.translation_partial
-    ?? subtitle.translations[0];
+  const pendingTranslation = translationPartial ?? subtitle.translation_partial;
+  const preview = useBatchedPreview(
+    pendingTranslation ?? null,
+    `${subtitle.utterance_id ?? subtitle.id}:${pendingTranslation?.target_language ?? ""}`,
+    subtitle.utterance_id?.startsWith("qwen-source-") ?? false,
+  );
+  const visibleTranslation = preview ?? subtitle.translations[0];
   const origin: LookupOrigin = {
     id: subtitle.id,
     language: subtitle.language,
@@ -93,20 +109,56 @@ function CompactSubtitleRow({ subtitle, current, onSelect }: {
   };
 
   return (
-    <div className={`compact-subtitle-row ${current ? "compact-subtitle-current" : "compact-subtitle-history"}`}>
-      <p
+    <div className={`compact-subtitle-row ${current ? "compact-subtitle-current" : "compact-subtitle-history"} ${visibleTranslation ? "compact-subtitle-bilingual" : ""}`}>
+      <CompactText
         className="compact-original"
         lang={contentLanguageTag(subtitle.language)}
+        text={subtitle.text}
         onMouseUp={() => void onSelect(subtitle.text, origin)}
-      >
-        {subtitle.text}
-      </p>
+      />
       {visibleTranslation && (
-        <p className="compact-translation" lang={contentLanguageTag(visibleTranslation.target_language)}>
-          {visibleTranslation.text}
-          {(translationPartial || subtitle.translation_partial) && <span className="streaming-ellipsis" aria-hidden="true">…</span>}
-        </p>
+        <CompactText
+          className="compact-translation"
+          lang={contentLanguageTag(visibleTranslation.target_language)}
+          text={visibleTranslation.text}
+          streaming={Boolean(preview)}
+        />
       )}
     </div>
+  );
+}
+
+function CompactText({ className, lang, text, streaming = false, onMouseUp }: {
+  className: string;
+  lang?: string;
+  text: string;
+  streaming?: boolean;
+  onMouseUp?: () => void;
+}) {
+  const ref = useRef<HTMLParagraphElement>(null);
+  const visibleText = compactPreviewText(text);
+  useLayoutEffect(() => {
+    const element = ref.current;
+    if (!element) return;
+    const followTail = () => {
+      const selection = window.getSelection();
+      if (selection && !selection.isCollapsed
+        && (element.contains(selection.anchorNode) || element.contains(selection.focusNode))) return;
+      element.scrollTop = element.scrollHeight;
+      element.scrollLeft = getComputedStyle(element).direction === "rtl"
+        ? -element.scrollWidth
+        : element.scrollWidth;
+    };
+    followTail();
+    const observer = new ResizeObserver(followTail);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [visibleText, streaming]);
+
+  return (
+    <p ref={ref} className={className} lang={lang} onMouseUp={onMouseUp}>
+      {visibleText}
+      {streaming && <span className="streaming-ellipsis" aria-hidden="true">…</span>}
+    </p>
   );
 }

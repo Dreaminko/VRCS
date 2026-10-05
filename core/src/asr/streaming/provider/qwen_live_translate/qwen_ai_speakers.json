@@ -1,0 +1,681 @@
+[
+  {
+    "item_id": "source-1",
+    "speaker_id": 1,
+    "type": "input_audio_buffer.speech_started"
+  },
+  {
+    "item": {
+      "content": [
+        {
+          "type": "input_audio"
+        }
+      ],
+      "id": "source-1",
+      "role": "assistant",
+      "status": "in_progress",
+      "type": "message"
+    },
+    "type": "conversation.item.created"
+  },
+  {
+    "content_index": 0,
+    "delta": "Hello.",
+    "item_id": "source-1",
+    "obfuscation": "O246S3fG2YtiJx",
+    "type": "conversation.item.input_audio_transcription.delta"
+  },
+  {
+    "item": {
+      "content": [],
+      "id": "source-2",
+      "role": "assistant",
+      "status": "in_progress",
+      "type": "message"
+    },
+    "output_index": 0,
+    "response_id": "response-3",
+    "type": "response.output_item.added"
+  },
+  {
+    "item": {
+      "content": [],
+      "id": "source-2",
+      "role": "assistant",
+      "status": "in_progress",
+      "type": "message"
+    },
+    "previous_item_id": "source-1",
+    "type": "conversation.item.created"
+  },
+  {
+    "content_index": 0,
+    "delta": " ",
+    "item_id": "source-1",
+    "obfuscation": "PHXfnsXqoKk5zk",
+    "type": "conversation.item.input_audio_transcription.delta"
+  },
+  {
+    "content_index": 0,
+    "delta": "你好。",
+    "item_id": "source-2",
+    "output_index": 0,
+    "response_id": "response-3",
+    "type": "response.text.delta"
+  },
+  {
+    "content_index": 0,
+    "delta": "My name is Alice. ",
+    "item_id": "source-1",
+    "obfuscation": "M34CyORXxXF4t3",
+    "type": "conversation.item.input_audio_transcription.delta"
+  },
+  {
+    "content_index": 0,
+    "delta": "我叫",
+    "item_id": "source-2",
+    "output_index": 0,
+    "response_id": "response-3",
+    "type": "response.text.delta"
+  },
+  {
+    "content_index": 0,
+    "delta": "爱丽丝。",
+    "item_id": "source-2",
+    "output_index": 0,
+    "response_id": "response-3",
+    "type": "response.text.delta"
+  },
+  {
+    "content_index": 0,
+    "delta": "Our meeting starts at nine",
+    "item_id": "source-1",
+    "obfuscation": "XoJJIsc4tAexOF",
+    "type": "conversation.item.input_audio_transcription.delta"
+  },
+  {
+    "content_index": 0,
+    "delta": " tomorrow.",
+    "item_id": "source-1",
+    "obfuscation": "VpVUE5HZ6RRpmv",
+    "type": "conversation.item.input_audio_transcription.delta"
+  },
+  {
+    "content_index": 0,
+    "delta": " ",
+    "item_id": "source-1",
+    "obfuscation": "WvRjpj1TieHTci",
+    "type": "conversation.item.input_audio_transcription.delta"
+  },
+  {
+    "content_index": 0,
+    "delta": "我们的",
+    "item_id": "source-2",
+    "output_index": 0,
+    "response_id": "response-3",
+    "type": "response.text.delta"
+  },
+  {
+    "content_index": 0,
+    "delta": "会议明天九点开始。",
+    "item_id": "source-2",
+    "output_index": 0,
+    "response_id": "response-3",
+    "type": "response.text.delta"
+  },
+  {
+    "content_index": 0,
+    "delta": "Please",
+    "item_id": "source-1",
+    "obfuscation": "K3E1zoTQp8MBdA",
+    "type": "conversation.item.input_audio_transcription.delta"
+  },
+  {
+    "content_index": 0,
+    "delta": " bring the report",
+    "item_id": "source-1",
+    "obfuscation": "HD26BZgjYNwhyu",
+    "type": "conversation.item.input_audio_transcription.delta"
+  },
+  {
+    "content_index": 0,
+    "delta": ". ",
+    "item_id": "source-1",
+    "obfuscation": "AhBbcVxz8Nr7gI",
+    "type": "conversation.item.input_audio_transcription.delta"
+  },
+  {
+    "content_index": 0,
+    "delta": "请",
+    "item_id": "source-2",
+    "output_index": 0,
+    "response_id": "response-3",
+    "type": "response.text.delta"
+  },
+  {
+    "content_index": 0,
+    "delta": "带上报告",
+    "item_id": "source-2",
+    "output_index": 0,
+    "response_id": "response-3",
+    "type": "response.text.delta"
+  },
+  {
+    "content_index": 0,
+    "delta": "。",
+    "item_id": "source-2",
+    "output_index": 0,
+    "response_id": "response-3",
+    "type": "response.text.delta"
+  },
+  {
+    "content_index": 0,
+    "item_id": "source-1",
+    "transcript": "Hello. My name is Alice. Our meeting starts at nine tomorrow. Please bring the report. ",
+    "type": "conversation.item.input_audio_transcription.completed"
+  },
+  {
+    "content_index": 0,
+    "item_id": "source-2",
+    "output_index": 0,
+    "response_id": "response-3",
+    "text": "你好。我叫爱丽丝。我们的会议明天九点开始。请带上报告。",
+    "type": "response.text.done"
+  },
+  {
+    "response": {
+      "conversation_id": "conv_DbINvDFurtzxPVVN4eqYc",
+      "id": "response-3",
+      "modalities": [
+        "text"
+      ],
+      "output": [
+        {
+          "content": [
+            {
+              "text": "你好。我叫爱丽丝。我们的会议明天九点开始。请带上报告。",
+              "type": "text"
+            }
+          ],
+          "id": "source-2",
+          "role": "assistant",
+          "status": "completed",
+          "type": "message"
+        }
+      ],
+      "status": "completed"
+    },
+    "type": "response.done"
+  },
+  {
+    "item_id": "source-4",
+    "speaker_id": 2,
+    "type": "input_audio_buffer.speech_started"
+  },
+  {
+    "item": {
+      "content": [
+        {
+          "type": "input_audio"
+        }
+      ],
+      "id": "source-4",
+      "role": "assistant",
+      "status": "in_progress",
+      "type": "message"
+    },
+    "previous_item_id": "source-2",
+    "type": "conversation.item.created"
+  },
+  {
+    "content_index": 0,
+    "delta": "Hi Alice",
+    "item_id": "source-4",
+    "obfuscation": "Jo8MInw5TvSiyu",
+    "type": "conversation.item.input_audio_transcription.delta"
+  },
+  {
+    "item": {
+      "content": [],
+      "id": "source-5",
+      "role": "assistant",
+      "status": "in_progress",
+      "type": "message"
+    },
+    "output_index": 0,
+    "response_id": "response-6",
+    "type": "response.output_item.added"
+  },
+  {
+    "item": {
+      "content": [],
+      "id": "source-5",
+      "role": "assistant",
+      "status": "in_progress",
+      "type": "message"
+    },
+    "previous_item_id": "source-4",
+    "type": "conversation.item.created"
+  },
+  {
+    "content_index": 0,
+    "delta": ". ",
+    "item_id": "source-4",
+    "obfuscation": "AT3aVfpnZqG8ju",
+    "type": "conversation.item.input_audio_transcription.delta"
+  },
+  {
+    "content_index": 0,
+    "delta": "嗨",
+    "item_id": "source-5",
+    "output_index": 0,
+    "response_id": "response-6",
+    "type": "response.text.delta"
+  },
+  {
+    "content_index": 0,
+    "delta": "，",
+    "item_id": "source-5",
+    "output_index": 0,
+    "response_id": "response-6",
+    "type": "response.text.delta"
+  },
+  {
+    "content_index": 0,
+    "delta": "爱丽丝。",
+    "item_id": "source-5",
+    "output_index": 0,
+    "response_id": "response-6",
+    "type": "response.text.delta"
+  },
+  {
+    "content_index": 0,
+    "delta": "This",
+    "item_id": "source-4",
+    "obfuscation": "OW3x19LGIBFGiK",
+    "type": "conversation.item.input_audio_transcription.delta"
+  },
+  {
+    "content_index": 0,
+    "delta": " is Bob speaking",
+    "item_id": "source-4",
+    "obfuscation": "CVU7bAYyjvPVPz",
+    "type": "conversation.item.input_audio_transcription.delta"
+  },
+  {
+    "content_index": 0,
+    "delta": ". ",
+    "item_id": "source-4",
+    "obfuscation": "EXrYYpJ3aXg8qT",
+    "type": "conversation.item.input_audio_transcription.delta"
+  },
+  {
+    "content_index": 0,
+    "delta": "我是鲍勃。",
+    "item_id": "source-5",
+    "output_index": 0,
+    "response_id": "response-6",
+    "type": "response.text.delta"
+  },
+  {
+    "content_index": 0,
+    "delta": "I will bring the report",
+    "item_id": "source-4",
+    "obfuscation": "Q1KgI2ZCqxhKXN",
+    "type": "conversation.item.input_audio_transcription.delta"
+  },
+  {
+    "content_index": 0,
+    "delta": " and two copies for the",
+    "item_id": "source-4",
+    "obfuscation": "QrvAyAeyxVj31O",
+    "type": "conversation.item.input_audio_transcription.delta"
+  },
+  {
+    "content_index": 0,
+    "delta": " team. ",
+    "item_id": "source-4",
+    "obfuscation": "GqRVxOLYVGdWHk",
+    "type": "conversation.item.input_audio_transcription.delta"
+  },
+  {
+    "content_index": 0,
+    "delta": "我会",
+    "item_id": "source-5",
+    "output_index": 0,
+    "response_id": "response-6",
+    "type": "response.text.delta"
+  },
+  {
+    "content_index": 0,
+    "delta": "把",
+    "item_id": "source-5",
+    "output_index": 0,
+    "response_id": "response-6",
+    "type": "response.text.delta"
+  },
+  {
+    "content_index": 0,
+    "delta": "报告和",
+    "item_id": "source-5",
+    "output_index": 0,
+    "response_id": "response-6",
+    "type": "response.text.delta"
+  },
+  {
+    "content_index": 0,
+    "delta": "两份",
+    "item_id": "source-5",
+    "output_index": 0,
+    "response_id": "response-6",
+    "type": "response.text.delta"
+  },
+  {
+    "content_index": 0,
+    "delta": "复印件",
+    "item_id": "source-5",
+    "output_index": 0,
+    "response_id": "response-6",
+    "type": "response.text.delta"
+  },
+  {
+    "content_index": 0,
+    "delta": "带给",
+    "item_id": "source-5",
+    "output_index": 0,
+    "response_id": "response-6",
+    "type": "response.text.delta"
+  },
+  {
+    "content_index": 0,
+    "delta": "团队。",
+    "item_id": "source-5",
+    "output_index": 0,
+    "response_id": "response-6",
+    "type": "response.text.delta"
+  },
+  {
+    "content_index": 0,
+    "item_id": "source-4",
+    "transcript": "Hi Alice. This is Bob speaking. I will bring the report and two copies for the team. ",
+    "type": "conversation.item.input_audio_transcription.completed"
+  },
+  {
+    "content_index": 0,
+    "item_id": "source-5",
+    "output_index": 0,
+    "response_id": "response-6",
+    "text": "嗨，爱丽丝。我是鲍勃。我会把报告和两份复印件带给团队。",
+    "type": "response.text.done"
+  },
+  {
+    "response": {
+      "conversation_id": "conv_DbINvDFurtzxPVVN4eqYc",
+      "id": "response-6",
+      "modalities": [
+        "text"
+      ],
+      "output": [
+        {
+          "content": [
+            {
+              "text": "嗨，爱丽丝。我是鲍勃。我会把报告和两份复印件带给团队。",
+              "type": "text"
+            }
+          ],
+          "id": "source-5",
+          "role": "assistant",
+          "status": "completed",
+          "type": "message"
+        }
+      ],
+      "status": "completed"
+    },
+    "type": "response.done"
+  },
+  {
+    "item_id": "source-7",
+    "speaker_id": 1,
+    "type": "input_audio_buffer.speech_started"
+  },
+  {
+    "item": {
+      "content": [
+        {
+          "type": "input_audio"
+        }
+      ],
+      "id": "source-7",
+      "role": "assistant",
+      "status": "in_progress",
+      "type": "message"
+    },
+    "previous_item_id": "source-5",
+    "type": "conversation.item.created"
+  },
+  {
+    "content_index": 0,
+    "delta": "Hello",
+    "item_id": "source-7",
+    "obfuscation": "YdVrcoTLJnUIH2",
+    "type": "conversation.item.input_audio_transcription.delta"
+  },
+  {
+    "item": {
+      "content": [],
+      "id": "source-8",
+      "role": "assistant",
+      "status": "in_progress",
+      "type": "message"
+    },
+    "output_index": 0,
+    "response_id": "response-9",
+    "type": "response.output_item.added"
+  },
+  {
+    "item": {
+      "content": [],
+      "id": "source-8",
+      "role": "assistant",
+      "status": "in_progress",
+      "type": "message"
+    },
+    "previous_item_id": "source-7",
+    "type": "conversation.item.created"
+  },
+  {
+    "content_index": 0,
+    "delta": ". ",
+    "item_id": "source-7",
+    "obfuscation": "Tarr4htr4ZamTc",
+    "type": "conversation.item.input_audio_transcription.delta"
+  },
+  {
+    "content_index": 0,
+    "delta": "你好。",
+    "item_id": "source-8",
+    "output_index": 0,
+    "response_id": "response-9",
+    "type": "response.text.delta"
+  },
+  {
+    "content_index": 0,
+    "delta": "My",
+    "item_id": "source-7",
+    "obfuscation": "Wz6Q6t7MjInZaJ",
+    "type": "conversation.item.input_audio_transcription.delta"
+  },
+  {
+    "content_index": 0,
+    "delta": " name is",
+    "item_id": "source-7",
+    "obfuscation": "K7Aff356n1hMh1",
+    "type": "conversation.item.input_audio_transcription.delta"
+  },
+  {
+    "content_index": 0,
+    "delta": " Alice.",
+    "item_id": "source-7",
+    "obfuscation": "UJaMSKuH9leWo7",
+    "type": "conversation.item.input_audio_transcription.delta"
+  },
+  {
+    "content_index": 0,
+    "delta": " ",
+    "item_id": "source-7",
+    "obfuscation": "IV4m9LbJYV8Qz1",
+    "type": "conversation.item.input_audio_transcription.delta"
+  },
+  {
+    "content_index": 0,
+    "delta": "我叫",
+    "item_id": "source-8",
+    "output_index": 0,
+    "response_id": "response-9",
+    "type": "response.text.delta"
+  },
+  {
+    "content_index": 0,
+    "delta": "爱丽丝。",
+    "item_id": "source-8",
+    "output_index": 0,
+    "response_id": "response-9",
+    "type": "response.text.delta"
+  },
+  {
+    "content_index": 0,
+    "delta": "Our",
+    "item_id": "source-7",
+    "obfuscation": "PyS6cS6uckyG8o",
+    "type": "conversation.item.input_audio_transcription.delta"
+  },
+  {
+    "content_index": 0,
+    "delta": " meeting starts",
+    "item_id": "source-7",
+    "obfuscation": "NiyTWj7it1WGyh",
+    "type": "conversation.item.input_audio_transcription.delta"
+  },
+  {
+    "content_index": 0,
+    "delta": " at nine",
+    "item_id": "source-7",
+    "obfuscation": "JN2eyLHIu3nPYQ",
+    "type": "conversation.item.input_audio_transcription.delta"
+  },
+  {
+    "content_index": 0,
+    "delta": " tomorrow. ",
+    "item_id": "source-7",
+    "obfuscation": "RE9nF8WlBxD8gd",
+    "type": "conversation.item.input_audio_transcription.delta"
+  },
+  {
+    "content_index": 0,
+    "delta": "我们的",
+    "item_id": "source-8",
+    "output_index": 0,
+    "response_id": "response-9",
+    "type": "response.text.delta"
+  },
+  {
+    "content_index": 0,
+    "delta": "会议明天",
+    "item_id": "source-8",
+    "output_index": 0,
+    "response_id": "response-9",
+    "type": "response.text.delta"
+  },
+  {
+    "content_index": 0,
+    "delta": "九点",
+    "item_id": "source-8",
+    "output_index": 0,
+    "response_id": "response-9",
+    "type": "response.text.delta"
+  },
+  {
+    "content_index": 0,
+    "delta": "开始。",
+    "item_id": "source-8",
+    "output_index": 0,
+    "response_id": "response-9",
+    "type": "response.text.delta"
+  },
+  {
+    "content_index": 0,
+    "delta": "Please",
+    "item_id": "source-7",
+    "obfuscation": "T52nmD3pNp42Te",
+    "type": "conversation.item.input_audio_transcription.delta"
+  },
+  {
+    "content_index": 0,
+    "delta": " bring the",
+    "item_id": "source-7",
+    "obfuscation": "JIGBH6uJR4fD18",
+    "type": "conversation.item.input_audio_transcription.delta"
+  },
+  {
+    "content_index": 0,
+    "delta": " report. ",
+    "item_id": "source-7",
+    "obfuscation": "Vy6X3y4oq5DxGI",
+    "type": "conversation.item.input_audio_transcription.delta"
+  },
+  {
+    "content_index": 0,
+    "delta": "请",
+    "item_id": "source-8",
+    "output_index": 0,
+    "response_id": "response-9",
+    "type": "response.text.delta"
+  },
+  {
+    "content_index": 0,
+    "delta": "带上报告。",
+    "item_id": "source-8",
+    "output_index": 0,
+    "response_id": "response-9",
+    "type": "response.text.delta"
+  },
+  {
+    "content_index": 0,
+    "item_id": "source-7",
+    "transcript": "Hello. My name is Alice. Our meeting starts at nine tomorrow. Please bring the report. ",
+    "type": "conversation.item.input_audio_transcription.completed"
+  },
+  {
+    "content_index": 0,
+    "item_id": "source-8",
+    "output_index": 0,
+    "response_id": "response-9",
+    "text": "你好。我叫爱丽丝。我们的会议明天九点开始。请带上报告。",
+    "type": "response.text.done"
+  },
+  {
+    "response": {
+      "conversation_id": "conv_DbINvDFurtzxPVVN4eqYc",
+      "id": "response-9",
+      "modalities": [
+        "text"
+      ],
+      "output": [
+        {
+          "content": [
+            {
+              "text": "你好。我叫爱丽丝。我们的会议明天九点开始。请带上报告。",
+              "type": "text"
+            }
+          ],
+          "id": "source-8",
+          "role": "assistant",
+          "status": "completed",
+          "type": "message"
+        }
+      ],
+      "status": "completed"
+    },
+    "type": "response.done"
+  }
+]

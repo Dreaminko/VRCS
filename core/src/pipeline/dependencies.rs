@@ -21,6 +21,12 @@ struct PendingNative {
     completed: Option<SubtitleTranslation>,
 }
 
+struct RecognizedText {
+    text: String,
+    language: Option<String>,
+    speaker: Option<crate::models::SpeakerIdentity>,
+}
+
 #[derive(Clone)]
 pub(crate) struct PipelineDependencies {
     asr: Arc<Mutex<AsrService>>,
@@ -165,8 +171,18 @@ impl PipelineDependencies {
         source: &'static str,
         message_id: String,
     ) -> Result<(), String> {
-        self.publish_text_with_translation(text, language, source, message_id, None, false)
-            .await
+        self.publish_text_with_translation(
+            RecognizedText {
+                text,
+                language,
+                speaker: None,
+            },
+            source,
+            message_id,
+            None,
+            false,
+        )
+        .await
     }
 
     pub(crate) async fn publish_native_translation(
@@ -185,8 +201,11 @@ impl PipelineDependencies {
             created_at: now_iso8601(),
         };
         self.publish_text_with_translation(
-            transcript.text,
-            transcript.language,
+            RecognizedText {
+                text: transcript.text,
+                language: transcript.language,
+                speaker: transcript.speaker,
+            },
             source,
             transcript.utterance_id,
             Some(translation),
@@ -513,19 +532,24 @@ impl PipelineDependencies {
 
     async fn publish_text_with_translation(
         &self,
-        text: String,
-        language: Option<String>,
+        transcript: RecognizedText,
         source: &'static str,
         message_id: String,
         native: Option<SubtitleTranslation>,
         native_pending: bool,
     ) -> Result<(), String> {
+        let RecognizedText {
+            text,
+            language,
+            speaker,
+        } = transcript;
         let text = text.trim().to_string();
         if text.is_empty() {
             self.output.asr_cancelled(&message_id, source, "empty");
             return Ok(());
         }
         let subtitle = Subtitle {
+            speaker,
             id: None,
             conversation_id: None,
             text,
@@ -657,6 +681,11 @@ impl PipelineDependencies {
                 );
             } else if !saved.language.as_deref().is_some_and(|language| {
                 same_translation_language(language, &native.target_language)
+                    || (native.provider == crate::providers::GEMINI_PROVIDER
+                        && crate::providers::same_live_translation_language(
+                            language,
+                            &native.target_language,
+                        ))
             }) {
                 self.output
                     .translation_failed_with_message(TranslationFailure {
@@ -763,6 +792,10 @@ mod tests {
             source_utterance_ids: vec!["native-1".into()],
             provider: crate::providers::GEMINI_PROVIDER.into(),
             transcript: crate::models::LiveTranslation {
+                source_utterance_id: None,
+                completed_original: None,
+                conversation_preview: None,
+                speaker: None,
                 utterance_id: "native-1".into(),
                 text: "Hello.".into(),
                 language: Some("en".into()),
@@ -1175,6 +1208,10 @@ mod tests {
                 "microphone",
                 crate::asr::LiveTranslationResult {
                     transcript: crate::models::LiveTranslation {
+                        source_utterance_id: None,
+                        completed_original: None,
+                        conversation_preview: None,
+                        speaker: None,
                         utterance_id: "microphone".into(),
                         ..native_result().transcript
                     },
@@ -1371,5 +1408,56 @@ mod tests {
             assert!(automatic_translation_targets(&config, "microphone", Some("ja")).is_none());
             assert!(automatic_translation_targets(&config, "speaker", Some("en")).is_none());
         }
+    }
+    #[tokio::test]
+    async fn same_language_native_source_is_stored_and_published_without_translation_waiting() {
+        let dependencies =
+            super::super::tests::test_dependencies(crate::domain_events::DomainEventHub::new());
+        let mut presentations = dependencies.output.subscribe_presentation_events();
+        let mut translations = dependencies.output.subscribe_translations();
+        let mut result = native_result();
+        result.transcript.language = Some("zh".into());
+        result.transcript.target_language = "zh-Hant".into();
+        result.transcript.text = "你好。".into();
+        result.transcript.translation.clear();
+        dependencies
+            .publish_native_translation("microphone", result)
+            .await
+            .unwrap();
+        let history = dependencies
+            .database
+            .lock()
+            .unwrap()
+            .subtitle_history(10)
+            .unwrap();
+        assert_eq!(history[0].text, "你好。");
+        assert!(history[0].translations.is_empty());
+        assert!(
+            matches!(presentations.try_recv().unwrap(),crate::subtitle_output::PresentationEvent::Final{subtitle,..} if subtitle.text=="你好。")
+        );
+        assert!(translations.try_recv().is_err());
+    }
+    #[tokio::test]
+    async fn native_speaker_metadata_is_saved_with_source_and_translation() {
+        let dependencies =
+            super::super::tests::test_dependencies(crate::domain_events::DomainEventHub::new());
+        let mut result = native_result();
+        let speaker = crate::models::SpeakerIdentity {
+            id: "qwen-session-0".into(),
+            index: 0,
+        };
+        result.transcript.speaker = Some(speaker.clone());
+        dependencies
+            .publish_native_translation("speaker", result)
+            .await
+            .unwrap();
+        let history = dependencies
+            .database
+            .lock()
+            .unwrap()
+            .subtitle_history(10)
+            .unwrap();
+        assert_eq!(history[0].speaker.as_ref(), Some(&speaker));
+        assert_eq!(history[0].translations[0].text, "你好。");
     }
 }

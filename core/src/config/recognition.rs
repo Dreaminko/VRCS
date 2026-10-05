@@ -28,8 +28,9 @@ pub struct AsrConfig {
     /// Resolved per audio source; never persisted.
     #[serde(skip)]
     pub live_translation_target: Option<String>,
+    /// Native translation glossary resolved from enabled sources; never persisted.
     #[serde(skip)]
-    pub live_alignment: super::LiveAlignmentConfig,
+    pub live_translation_phrases: BTreeMap<String, String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -76,6 +77,13 @@ fn default_cloud_failure_policy() -> String {
 
 pub fn default_service_settings() -> BTreeMap<String, RecognitionServiceSettings> {
     [
+        (
+            crate::providers::SERVICE_QWEN_LIVE_TRANSLATE,
+            RecognitionServiceSettings {
+                model: "qwen3.8-livetranslate-flash-realtime".into(),
+                context: String::new(),
+            },
+        ),
         (
             crate::providers::SERVICE_OPENAI_REALTIME_TRANSLATE,
             RecognitionServiceSettings {
@@ -149,7 +157,7 @@ impl Default for AsrConfig {
             service_settings: default_service_settings(),
             cloud_failure_policy: default_cloud_failure_policy(),
             live_translation_target: None,
-            live_alignment: super::LiveAlignmentConfig::default(),
+            live_translation_phrases: BTreeMap::new(),
         }
     }
 }
