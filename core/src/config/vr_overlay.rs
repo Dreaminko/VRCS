@@ -20,6 +20,7 @@ pub struct VrOverlayConfig {
 pub struct VrOcrConfig {
     pub enabled: bool,
     pub backend: VrOcrBackend,
+    pub display_mode: VrOcrDisplayMode,
     pub timeout_seconds: u32,
     pub minimum_confidence: f32,
     pub region_fraction: f32,
@@ -37,11 +38,20 @@ pub enum VrOcrBackend {
     Local,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum VrOcrDisplayMode {
+    #[default]
+    Wrist,
+    Stereo,
+}
+
 impl Default for VrOcrConfig {
     fn default() -> Self {
         Self {
             enabled: false,
             backend: VrOcrBackend::Cloud,
+            display_mode: VrOcrDisplayMode::Wrist,
             timeout_seconds: 30,
             minimum_confidence: 0.6,
             region_fraction: 0.6,
@@ -304,6 +314,27 @@ impl Default for VrOverlayWristConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn old_ocr_settings_keep_wrist_display_and_stereo_choice_round_trips() {
+        let mut value = serde_json::to_value(VrOcrConfig::default()).unwrap();
+        value.as_object_mut().unwrap().remove("display_mode");
+        let config: VrOcrConfig = serde_json::from_value(value).unwrap();
+        assert_eq!(
+            serde_json::to_value(config).unwrap()["display_mode"],
+            "wrist"
+        );
+
+        let value = serde_json::json!({"backend": "local", "display_mode": "stereo"});
+        let config: VrOcrConfig = serde_json::from_value(value).unwrap();
+        let saved = serde_json::to_value(config).unwrap();
+        assert_eq!(saved["display_mode"], "stereo");
+        assert_eq!(saved["backend"], "local");
+        assert!(serde_json::from_value::<VrOcrConfig>(
+            serde_json::json!({"display_mode": "unknown"})
+        )
+        .is_err());
+    }
 
     #[test]
     fn recognition_partials_can_be_enabled_explicitly() {

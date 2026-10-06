@@ -260,6 +260,7 @@ mod platform {
                 }
                 Ok(StereoCapture {
                     eyes: eyes.try_into().map_err(|_| "Missing eye capture")?,
+                    #[cfg(test)]
                     pose: after.mDeviceToAbsoluteTracking.m,
                     scene_pid,
                     captured_at,
@@ -436,6 +437,60 @@ mod platform {
             self.overlay
                 .set_transform_tracked_device_relative(handle, tracked_device_index::HMD, &matrix)
                 .map_err(|error| format!("Position headset overlay failed: {error:?}"))
+        }
+
+        pub fn ensure_ocr(
+            &mut self,
+            index: usize,
+            eye: &EyeCapture,
+            origin: i32,
+        ) -> Result<(), String> {
+            let (key, name, target_eye) = match index {
+                0 => (
+                    "org.vrcs.overlay.ocr.left\0",
+                    "VRCS OCR Left\0",
+                    openvr_sys::EVREye_Eye_Left,
+                ),
+                1 => (
+                    "org.vrcs.overlay.ocr.right\0",
+                    "VRCS OCR Right\0",
+                    openvr_sys::EVREye_Eye_Right,
+                ),
+                _ => return Err("Invalid OCR eye".into()),
+            };
+            if self.ocr[index].is_none() {
+                self.ocr[index] = Some(
+                    self.overlay
+                        .create_overlay(key, name)
+                        .map_err(|error| format!("Create OCR overlay failed: {error:?}"))?,
+                );
+            }
+            let handle = self.ocr[index].expect("OCR overlay exists");
+            let mut matrix = openvr_sys::HmdMatrix34_t {
+                m: transform::compose(eye.head_pose, eye.eye_to_head),
+            };
+            let [f_left, f_right, f_top, f_bottom] = eye.projection;
+            let mut projection = openvr_sys::VROverlayProjection_t {
+                fLeft: f_left,
+                fRight: f_right,
+                fTop: f_top,
+                fBottom: f_bottom,
+            };
+            let error = unsafe {
+                (*self.raw_overlay)
+                    .SetOverlayTransformProjection
+                    .ok_or("OCR projection overlays are unavailable")?(
+                    handle.0,
+                    origin,
+                    &mut matrix,
+                    &mut projection,
+                    target_eye,
+                )
+            };
+            if error != openvr_sys::EVROverlayError_VROverlayError_None {
+                return Err(format!("Position OCR overlay failed: {error}"));
+            }
+            Ok(())
         }
 
         pub fn ensure_wrist(

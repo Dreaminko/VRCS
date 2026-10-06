@@ -98,6 +98,7 @@ pub fn pose_within_translation_limit_m(
 #[derive(Clone)]
 pub struct StereoCapture {
     pub eyes: [EyeCapture; 2],
+    #[cfg(test)]
     pub pose: [[f32; 4]; 3],
     pub scene_pid: u32,
     pub captured_at: Instant,
@@ -120,9 +121,6 @@ impl CaptureCrop {
             offset: self.offset,
             scale: self.scale,
         }
-    }
-    pub fn restore(&self, polygon: &mut [[f32; 2]; 4]) {
-        self.transform().restore(polygon);
     }
 }
 impl CropTransform {
@@ -316,7 +314,7 @@ mod tests {
             vec![5, 0, 0, 255, 6, 0, 0, 255, 9, 0, 0, 255, 10, 0, 0, 255]
         );
         let mut polygon = [[0., 0.], [2., 0.], [2., 2.], [0., 2.]];
-        crop.restore(&mut polygon);
+        crop.transform().restore(&mut polygon);
         assert_eq!(polygon, [[1., 1.], [3., 1.], [3., 3.], [1., 3.]]);
         let image = Texture {
             width: 3072,
@@ -326,7 +324,7 @@ mod tests {
         let crop = center_crop(&image, 1.0).unwrap();
         assert_eq!((crop.image.width, crop.image.height), (1536, 1));
         let mut polygon = [[0., 0.], [10., 0.], [10., 1.], [0., 1.]];
-        crop.restore(&mut polygon);
+        crop.transform().restore(&mut polygon);
         assert_eq!(polygon, [[0., 0.], [20., 0.], [20., 2.], [0., 2.]]);
     }
 
@@ -384,7 +382,7 @@ mod tests {
             [crop.image.width as f32, crop.image.height as f32],
             [0., crop.image.height as f32],
         ];
-        crop.restore(&mut polygon);
+        crop.transform().restore(&mut polygon);
         assert_eq!(
             polygon,
             [[512., 384.], [3583., 384.], [3583., 2689.], [512., 2689.]]

@@ -42,7 +42,8 @@ use crate::server::AppState;
 use crate::startup::{RuntimeAssembly, RuntimeTasks, StartupPlan};
 
 pub use crate::config::{
-    VrOcrBackend, VrOcrConfig, VrOverlayConfig, VrOverlayHeadsetConfig, VrOverlayWristConfig,
+    VrOcrBackend, VrOcrConfig, VrOcrDisplayMode, VrOverlayConfig, VrOverlayHeadsetConfig,
+    VrOverlayWristConfig,
 };
 pub use crate::models::{
     LiveTranslation, LiveTranslationPreview, SpeakerIdentity, Subtitle, SubtitleTranslation,

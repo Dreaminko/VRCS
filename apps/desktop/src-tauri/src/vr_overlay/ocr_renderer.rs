@@ -26,13 +26,18 @@ pub fn render_eye(
         let text = if source_view {
             block.source.text.clone()
         } else {
-            block
+            let translated = block
                 .translations
                 .iter()
                 .filter_map(|translation| translation.text.as_deref())
                 .filter(|text| !text.trim().is_empty())
                 .collect::<Vec<_>>()
-                .join("\n")
+                .join("\n");
+            if translated.is_empty() {
+                block.source.text.clone()
+            } else {
+                translated
+            }
         };
         if text.is_empty() {
             continue;
@@ -292,7 +297,33 @@ mod tests {
     use vrcs_core::ocr::{BlockTranslation, TextBlock};
 
     #[test]
-    fn ocr_eye_texture_covers_only_translated_regions() {
+    fn untranslated_regions_keep_source_visible_while_translations_arrive() {
+        let eye = EyeCapture {
+            image: Texture {
+                width: 160,
+                height: 96,
+                pixels: vec![],
+            },
+            projection: [-1., 1., -1., 1.],
+            eye_to_head: super::super::transform::matrix(0., 0., 0., [0.; 3]),
+            head_pose: super::super::transform::matrix(0., 0., 0., [0.; 3]),
+        };
+        let block = TranslatedBlock {
+            source: TextBlock {
+                id: 0,
+                text: "source".into(),
+                confidence: 0.95,
+                polygon: [[10., 10.], [150., 10.], [150., 80.], [10., 80.]],
+            },
+            translations: vec![],
+        };
+        let texture = render_eye(&eye, &[block], 0.4, false).unwrap().0;
+        assert!(texture.pixels.chunks_exact(4).any(|pixel| pixel[3] > 0));
+        assert_eq!(&texture.pixels[..4], &[0, 0, 0, 0]);
+    }
+
+    #[test]
+    fn ocr_eye_texture_covers_only_text_regions() {
         let eye = EyeCapture {
             image: Texture {
                 width: 100,
@@ -316,7 +347,9 @@ mod tests {
                 error_code: None,
             }],
         };
-        let texture = render_eye(&eye, &[block.clone()], 0.6, false).unwrap().0;
+        let texture = render_eye(&eye, std::slice::from_ref(&block), 0.6, false)
+            .unwrap()
+            .0;
         assert_eq!((texture.width, texture.height), (100, 80));
         assert_eq!(&texture.pixels[..4], &[0, 0, 0, 0]);
         assert!(texture
@@ -327,8 +360,11 @@ mod tests {
             .any(|pixel| pixel[0] > 0));
         assert!(texture.pixels[(20 * 100 + 20) * 4 + 3] >= 153);
         let untranslated = TranslatedBlock {
+            source: TextBlock {
+                text: String::new(),
+                ..block.source
+            },
             translations: vec![],
-            ..block
         };
         assert!(render_eye(&eye, &[untranslated], 0.6, false)
             .unwrap()

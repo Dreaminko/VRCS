@@ -364,6 +364,8 @@ struct WorkerState {
     ocr: super::ocr_runtime::OcrRuntime,
 }
 
+// Keep the existing worker spawn boundary explicit.
+#[allow(clippy::too_many_arguments)]
 fn worker_loop(
     app: AppHandle,
     shared_status: Arc<Mutex<VrOverlayStatus>>,
@@ -808,7 +810,9 @@ fn update_wrist(
     let ocr_texts = state.ocr.wrist_texts();
     #[cfg(not(windows))]
     let ocr_texts = Vec::new();
-    let showing_ocr = state.config.ocr.enabled && !ocr_texts.is_empty();
+    let showing_ocr = state.config.ocr.enabled
+        && state.config.ocr.display_mode == vrcs_core::VrOcrDisplayMode::Wrist
+        && !ocr_texts.is_empty();
     if !state.config.enabled || (!state.config.wrist.enabled && !showing_ocr) {
         backend.reset(OverlayKind::Wrist);
         state.wrist_hash = None;
@@ -878,7 +882,11 @@ fn update_wrist(
         Layout::Wrist,
         &frame,
         state.config.wrist.font_size_px,
-        state.config.wrist.background_opacity,
+        if showing_ocr {
+            state.config.ocr.background_opacity
+        } else {
+            state.config.wrist.background_opacity
+        },
         state.config.wrist.opacity,
         &mut state.wrist_hash,
     ) {

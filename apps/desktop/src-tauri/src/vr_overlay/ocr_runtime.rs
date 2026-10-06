@@ -1,9 +1,10 @@
 use super::{
-    backend::OpenVrBackend,
-    ocr_capture::{center_crop, encode_png, StereoCapture},
+    backend::{OpenVrBackend, OverlayKind},
+    ocr_capture::{center_crop, encode_png, EyeCapture, StereoCapture},
     ocr_input::install_manifest,
     ocr_input_state::{HandReleaseWait, HandWait},
     ocr_status::{failure_code, OcrState, OcrStatus},
+    renderer::Texture,
 };
 use std::{
     path::PathBuf,
@@ -15,7 +16,7 @@ use vrcs_core::{
         source_view, BlockUpdate, OcrImage, OcrImageData, Phase, ScanConfiguration, ScanOutcome,
         ScanResult, ScanSummary, TranslatedBlock, VrOcrService,
     },
-    VrOcrConfig,
+    VrOcrConfig, VrOcrDisplayMode,
 };
 
 enum Update {
@@ -84,6 +85,9 @@ pub struct OcrRuntime {
     sender: mpsc::Sender<Update>,
     receiver: mpsc::Receiver<Update>,
     capture: Option<CaptureMetadata>,
+    projection_eyes: Option<[EyeCapture; 2]>,
+    stereo_dirty: bool,
+    summary: Option<ScanSummary>,
     progress: Option<Arc<Mutex<ScanProgress>>>,
     configuration: Option<Arc<ScanConfiguration>>,
     capture_after: Option<std::time::Instant>,
@@ -105,6 +109,9 @@ impl OcrRuntime {
             sender,
             receiver,
             capture: None,
+            projection_eyes: None,
+            stereo_dirty: false,
+            summary: None,
             progress: None,
             configuration: None,
             capture_after: None,
@@ -122,6 +129,9 @@ impl OcrRuntime {
         }
         self.status.scan_id = self.status.scan_id.wrapping_add(1);
         self.capture = None;
+        self.projection_eyes = None;
+        self.stereo_dirty = false;
+        self.summary = None;
         self.progress = None;
         self.configuration = None;
         self.capture_after = None;
@@ -162,7 +172,10 @@ impl OcrRuntime {
             self.unavailable(false);
             return;
         }
-        if let Err(error) = self.update(backend, config) {
+        if let Err(error) = self
+            .update(backend, config)
+            .and_then(|_| self.update_stereo(backend, config))
+        {
             self.clear();
             backend.reset_ocr();
             let code = failure_code(&error);
@@ -306,6 +319,8 @@ impl OcrRuntime {
         self.task = None;
         self.progress = None;
         self.blocks = frame.blocks;
+        self.summary = Some(frame.summary.clone());
+        self.stereo_dirty = true;
         self.status.layout_limited = false;
         self.status.block_count = self.blocks.iter().map(Vec::len).max().unwrap_or(0);
         let visible = !self.wrist_texts().is_empty();
@@ -325,6 +340,7 @@ impl OcrRuntime {
         let mut progress = progress.lock().unwrap_or_else(|error| error.into_inner());
         if self.capture.is_some() && progress.scan_id == self.status.scan_id && progress.dirty {
             self.blocks = progress.blocks.clone();
+            self.stereo_dirty = true;
             progress.dirty = false;
             self.status.block_count = self.blocks.iter().map(Vec::len).max().unwrap_or(0);
         }
@@ -340,6 +356,80 @@ impl OcrRuntime {
             }
         }
         None
+    }
+
+    fn stereo_frame(&self, config: &VrOcrConfig) -> Result<Option<([Texture; 2], bool)>, String> {
+        if config.display_mode != VrOcrDisplayMode::Stereo || self.blocks.iter().all(Vec::is_empty)
+        {
+            return Ok(None);
+        }
+        let Some(eyes) = &self.projection_eyes else {
+            return Ok(None);
+        };
+        let (left, left_limited) = super::ocr_renderer::render_eye(
+            &eyes[0],
+            &self.blocks[0],
+            config.background_opacity,
+            source_view(config),
+        )?;
+        let (right, right_limited) = super::ocr_renderer::render_eye(
+            &eyes[1],
+            &self.blocks[1],
+            config.background_opacity,
+            source_view(config),
+        )?;
+        Ok(Some(([left, right], left_limited || right_limited)))
+    }
+
+    fn update_stereo(
+        &mut self,
+        backend: &mut OpenVrBackend,
+        config: &VrOcrConfig,
+    ) -> Result<(), String> {
+        if config.display_mode != VrOcrDisplayMode::Stereo || self.capture.is_none() {
+            backend.reset_ocr();
+            return Ok(());
+        }
+        if !self.stereo_dirty {
+            return Ok(());
+        }
+        let mut visible = false;
+        if let Some((textures, limited)) = self.stereo_frame(config)? {
+            let eyes = self
+                .projection_eyes
+                .as_ref()
+                .ok_or("OCR eye projection is missing")?;
+            let origin = self
+                .capture
+                .as_ref()
+                .ok_or("OCR capture is missing")?
+                .origin;
+            for (index, texture) in textures.iter().enumerate() {
+                let kind = if index == 0 {
+                    OverlayKind::OcrLeft
+                } else {
+                    OverlayKind::OcrRight
+                };
+                if !texture.pixels.chunks_exact(4).any(|pixel| pixel[3] != 0) {
+                    backend.reset(kind);
+                    continue;
+                }
+                backend.ensure_ocr(index, &eyes[index], origin)?;
+                backend.upload(kind, texture)?;
+                backend.set_opacity(kind, 1.0)?;
+                backend.show(kind)?;
+                visible = true;
+            }
+            self.status.layout_limited = limited;
+        } else {
+            backend.reset_ocr();
+            self.status.layout_limited = false;
+        }
+        if let Some(summary) = self.summary.clone() {
+            self.complete_status(&summary, visible);
+        }
+        self.stereo_dirty = false;
+        Ok(())
     }
 
     pub fn wrist_texts(&self) -> Vec<String> {
@@ -408,6 +498,22 @@ impl OcrRuntime {
         let metadata = CaptureMetadata::from(capture.as_ref());
         let scan_started = metadata.captured_at;
         self.capture = Some(metadata);
+        // Rendering needs geometry, not the captured pixels once encoding completes.
+        self.projection_eyes = (config.display_mode == VrOcrDisplayMode::Stereo).then(|| {
+            std::array::from_fn(|index| {
+                let eye = &capture.eyes[index];
+                EyeCapture {
+                    image: Texture {
+                        pixels: vec![],
+                        width: eye.image.width,
+                        height: eye.image.height,
+                    },
+                    projection: eye.projection,
+                    eye_to_head: eye.eye_to_head,
+                    head_pose: eye.head_pose,
+                }
+            })
+        });
         let id = self.status.scan_id;
         let fraction = config.region_fraction;
         let local = config.backend == vrcs_core::VrOcrBackend::Local;
@@ -588,6 +694,45 @@ mod tests {
                 error_code: translation.is_none().then(|| "translation_failed".into()),
             }],
         }
+    }
+
+    #[test]
+    fn stereo_display_renders_each_eye_and_uses_ocr_background() {
+        let mut runtime = OcrRuntime::new(None, None);
+        let mut eyes = capture().eyes.clone();
+        for (index, eye) in eyes.iter_mut().enumerate() {
+            eye.image = Texture {
+                width: 160 + index as u32 * 40,
+                height: 96,
+                pixels: vec![],
+            };
+        }
+        runtime.projection_eyes = Some(eyes);
+        let mut left = block(0, "left source", Some("left"));
+        left.source.polygon = [[10., 10.], [150., 10.], [150., 80.], [10., 80.]];
+        let mut right = block(1, "right source", None);
+        right.source.polygon = [[10., 10.], [190., 10.], [190., 80.], [10., 80.]];
+        runtime.blocks = [vec![left], vec![right]];
+        let mut config = VrOcrConfig {
+            display_mode: VrOcrDisplayMode::Stereo,
+            background_opacity: 0.4,
+            ..Default::default()
+        };
+        config.targets[0].profile_id = Some("translation-profile".into());
+        let (textures, limited) = runtime.stereo_frame(&config).unwrap().unwrap();
+        assert!(!limited);
+        assert_eq!((textures[0].width, textures[1].width), (160, 200));
+        for texture in &textures {
+            assert_eq!(&texture.pixels[..4], &[0; 4]);
+            assert!(texture.pixels.chunks_exact(4).any(|pixel| pixel[3] == 102));
+            assert!(texture.pixels.chunks_exact(4).any(|pixel| pixel[0] > 0));
+        }
+        assert!(runtime
+            .stereo_frame(&VrOcrConfig::default())
+            .unwrap()
+            .is_none());
+        runtime.clear();
+        assert!(runtime.stereo_frame(&config).unwrap().is_none());
     }
 
     #[test]

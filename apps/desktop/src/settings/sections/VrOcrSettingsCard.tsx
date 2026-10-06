@@ -125,6 +125,12 @@ export function VrOcrSettingsCard({ config, profiles, disabled, runtime, onChang
           { value: "local", label: t("settings.vrOcr.backends.local") },
         ]}
         disabled={disabled} onChange={(backend) => onChange({ backend: backend as VrOcrSettings["backend"] })} />
+      <Select label={t("settings.vrOcr.displayMode")} value={config.display_mode}
+        options={[
+          { value: "wrist", label: t("settings.vrOcr.displayModes.wrist") },
+          { value: "stereo", label: t("settings.vrOcr.displayModes.stereo") },
+        ]}
+        disabled={disabled} onChange={(display_mode) => onChange({ display_mode: display_mode as VrOcrSettings["display_mode"] })} />
       <PreferenceToggle title={t("settings.vrOcr.enable")} checked={config.enabled}
         disabled={disabled || (!config.enabled && !isVrOcrBackendReady(config.backend, Boolean(status?.configured), models?.state))}
         onChange={(enabled) => onChange({ enabled })} />

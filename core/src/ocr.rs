@@ -81,6 +81,8 @@ impl VrOcrService {
             .map(|result| result.blocks)
     }
 
+    // Keep the scan callbacks separate so callers can stream progress and completed blocks.
+    #[allow(clippy::too_many_arguments)]
     pub async fn process_scan<F: std::future::Future<Output = Result<(), String>>>(
         &self,
         images: [OcrImage; 2],
@@ -702,7 +704,7 @@ mod tests {
                 async move {
                     let index = usize::from(eye == "right");
                     let count = counts[index].fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-                    if count >= index + 1 {
+                    if count > index {
                         Json(json!({"data":{"state":"done", "resultUrl":{"jsonUrl":format!("{origin}/results/{eye}")}}}))
                     } else {
                         Json(json!({"data":{"state":if index == 0 {"running"} else {"pending"}}}))

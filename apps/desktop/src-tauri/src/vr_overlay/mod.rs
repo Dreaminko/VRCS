@@ -20,7 +20,8 @@ mod ocr_renderer;
 #[cfg(windows)]
 mod ocr_runtime;
 mod ocr_status;
-#[cfg(windows)]
+// Keep the image verifier covered without enabling scan cancellation.
+#[cfg(all(windows, test))]
 mod ocr_tracking;
 mod presentation;
 mod process;

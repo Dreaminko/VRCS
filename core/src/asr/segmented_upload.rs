@@ -22,7 +22,7 @@ struct UploadJob {
 
 enum UploadTarget {
     Profile {
-        profile: ApiProfile,
+        profile: Box<ApiProfile>,
         api_key: String,
         settings: RecognitionServiceSettings,
     },
@@ -50,7 +50,7 @@ impl SegmentedUploadSession {
         let (events_tx, events_rx) = mpsc::channel(EVENT_QUEUE_CAPACITY);
         let task = tokio::spawn(run_worker(
             UploadTarget::Profile {
-                profile,
+                profile: Box::new(profile),
                 api_key,
                 settings,
             },

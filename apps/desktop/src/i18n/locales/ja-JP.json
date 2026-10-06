@@ -549,6 +549,8 @@
         "sourceView": "翻訳サービスを設定していない場合も、スキャン操作で認識した原文を VR 内に表示できます。",
         "errors": {"timeout": "処理がタイムアウトしました。再スキャンしてください。", "authentication": "OCR の認証に失敗しました。アクセストークンを確認してください。", "credentials_missing": "OCR アクセストークンを設定してください。", "rate_limit": "OCR のリクエスト上限に達しました。時間をおいて再試行してください。", "models_missing": "設定でローカル OCR モデルを準備してください。", "configuration_changed": "OCR 設定が変更されました。再スキャンしてください。", "tracking_lost": "ヘッドセットの追跡を復旧して再スキャンしてください。", "view_changed": "原文の領域が変化しました。再スキャンしてください。", "network": "OCR のネットワーク接続を確認して再試行してください。", "local_failed": "ローカル OCR の推論に失敗しました。モデルを確認してください。", "invalid_result": "OCR の応答に有効な文字位置がありません。", "unavailable": "VR 接続と OCR バックエンドを確認してください。", "translation_failed": "すべての翻訳に失敗しました。翻訳サービスを確認してください。", "partial_failure": "一部の翻訳に失敗しました。完了した翻訳は保持されます。", "partial_timeout": "一部の翻訳がタイムアウトしました。完了した翻訳は保持されます。"},
         "backend": "OCR サービス",
+        "displayMode": "OCR の表示方法",
+        "displayModes": { "wrist": "手首パネル", "stereo": "元の文字位置（両眼）" },
         "backends": { "cloud": "PaddleOCR クラウド", "local": "ローカル PP-OCRv6" },
         "localDescription": "PP-OCRv6 で文字をローカル認識します。認識した文字は引き続き選択した翻訳サービスに送信されます。",
         "modelStates": { "missing": "ダウンロードが必要", "downloading": "ダウンロード中", "ready": "準備完了", "error": "ダウンロード失敗" },

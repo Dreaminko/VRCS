@@ -513,16 +513,17 @@ fn homography(from: Quad, to: Quad) -> Result<[f32; 8], String> {
         }
         matrix.swap(column, pivot);
         let divisor = matrix[column][column];
-        for j in column..9 {
-            matrix[column][j] /= divisor;
+        for value in &mut matrix[column][column..] {
+            *value /= divisor;
         }
-        for row in 0..8 {
-            if row == column {
+        let pivot_row = matrix[column];
+        for (row_index, row) in matrix.iter_mut().enumerate() {
+            if row_index == column {
                 continue;
             }
-            let factor = matrix[row][column];
-            for j in column..9 {
-                matrix[row][j] -= factor * matrix[column][j];
+            let factor = row[column];
+            for (value, pivot_value) in row[column..].iter_mut().zip(&pivot_row[column..]) {
+                *value -= factor * pivot_value;
             }
         }
     }

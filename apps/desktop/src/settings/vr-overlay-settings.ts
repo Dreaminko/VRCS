@@ -61,6 +61,7 @@ export const DEFAULT_VR_OVERLAY_SETTINGS: VrOverlaySettings = {
   ocr: {
     enabled: false,
     backend: "cloud",
+    display_mode: "wrist",
     timeout_seconds: 30,
     minimum_confidence: 0.6,
     region_fraction: 0.6,

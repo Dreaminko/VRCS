@@ -122,6 +122,8 @@ impl VrOcrService {
         })
     }
 
+    // Match the public scan boundary without adding a wrapper for its three callbacks.
+    #[allow(clippy::too_many_arguments)]
     pub(super) async fn translate_scan<F: std::future::Future<Output = Result<(), String>>>(
         &self,
         config: &crate::config::AppConfig,
@@ -200,10 +202,8 @@ impl VrOcrService {
         let texts: Vec<String> = blocks
             .iter()
             .flatten()
-            .filter_map(|block| {
-                seen.insert(block.source.text.clone())
-                    .then(|| block.source.text.clone())
-            })
+            .filter(|block| seen.insert(block.source.text.clone()))
+            .map(|block| block.source.text.clone())
             .collect();
         let requests: Vec<_> = texts
             .iter()

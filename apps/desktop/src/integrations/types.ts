@@ -89,6 +89,7 @@ export interface VrOverlaySettings {
 export interface VrOcrSettings {
   enabled: boolean;
   backend: "cloud" | "local";
+  display_mode: "wrist" | "stereo";
   timeout_seconds: number;
   minimum_confidence: number;
   region_fraction: number;

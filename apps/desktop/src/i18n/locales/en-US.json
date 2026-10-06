@@ -549,6 +549,8 @@
         "sourceView": "Without a translation service, scan to view recognized source text in VR.",
         "errors": {"timeout": "The task timed out. Scan again.", "authentication": "OCR authentication failed. Check the access token.", "credentials_missing": "Configure an OCR access token.", "rate_limit": "OCR rate limit reached. Try again later.", "models_missing": "Prepare the local OCR models in settings.", "configuration_changed": "OCR settings changed. Scan again.", "tracking_lost": "Restore headset tracking and scan again.", "view_changed": "The source view changed. Scan again.", "network": "OCR network request failed. Check the connection and retry.", "local_failed": "Local OCR inference failed. Check model preparation and retry.", "invalid_result": "The OCR response has no valid text positions.", "unavailable": "OCR is unavailable. Check the VR connection and backend.", "translation_failed": "All translation requests failed. Check the translation service.", "partial_failure": "Some translations failed. Completed translations are retained.", "partial_timeout": "Some translations timed out. Completed translations are retained."},
         "backend": "OCR service",
+        "displayMode": "OCR display",
+        "displayModes": { "wrist": "Wrist panel", "stereo": "Original text position (both eyes)" },
         "backends": { "cloud": "PaddleOCR cloud", "local": "Local PP-OCRv6" },
         "localDescription": "Recognize text locally with PP-OCRv6. Recognized text is still sent to your selected translation service.",
         "modelStates": { "missing": "Download required", "downloading": "Downloading", "ready": "Ready", "error": "Download failed" },

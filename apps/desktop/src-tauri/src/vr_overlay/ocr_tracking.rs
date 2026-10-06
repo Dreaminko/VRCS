@@ -141,12 +141,9 @@ fn project_rotation(
     ])
 }
 
-fn offset_score(
-    image: &Texture,
-    patches: &[(f32, Vec<[f32; 2]>, Vec<f32>)],
-    dx: f32,
-    dy: f32,
-) -> (usize, f32) {
+type FeaturePatch = (f32, Vec<[f32; 2]>, Vec<f32>);
+
+fn offset_score(image: &Texture, patches: &[FeaturePatch], dx: f32, dy: f32) -> (usize, f32) {
     let mut matched = 0;
     let mut count = 0;
     let mut sum = 0.;

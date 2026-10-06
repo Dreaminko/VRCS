@@ -445,8 +445,8 @@ impl Canvas {
                 if alpha == 0 {
                     continue;
                 }
-                for channel in 0..3 {
-                    self.pixels[target_offset + channel] = (((source[channel] as u16 * alpha)
+                for (channel, value) in source.iter().take(3).enumerate() {
+                    self.pixels[target_offset + channel] = (((*value as u16 * alpha)
                         + (self.pixels[target_offset + channel] as u16 * (255 - alpha)))
                         / 255) as u8;
                 }

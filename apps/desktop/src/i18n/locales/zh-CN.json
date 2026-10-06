@@ -549,6 +549,8 @@
         "sourceView": "未配置翻译服务时，可通过识别操作在 VR 中查看 OCR 原文。",
         "errors": {"timeout": "任务已超时，请重新识别。", "authentication": "OCR 鉴权失败，请检查访问令牌。", "credentials_missing": "请配置 OCR 访问令牌。", "rate_limit": "OCR 请求达到限额，请稍后重试。", "models_missing": "请在设置中准备本地 OCR 模型。", "configuration_changed": "OCR 配置已变化，请重新识别。", "tracking_lost": "请恢复头显追踪后重新识别。", "view_changed": "原文字区域已变化，请重新识别。", "network": "OCR 网络请求失败，请检查连接后重试。", "local_failed": "本地 OCR 推理失败，请检查模型准备状态。", "invalid_result": "OCR 响应缺少有效的文字位置。", "unavailable": "OCR 暂不可用，请检查 VR 连接和识别后端。", "translation_failed": "全部翻译请求失败，请检查翻译服务。", "partial_failure": "部分翻译失败，已完成的译文会被保留。", "partial_timeout": "部分翻译超时，已完成的译文会被保留。"},
         "backend": "OCR 服务",
+        "displayMode": "OCR 显示方式",
+        "displayModes": { "wrist": "手腕面板", "stereo": "原文字位置（左右眼）" },
         "backends": { "cloud": "PaddleOCR 云端", "local": "本地 PP-OCRv6" },
         "localDescription": "使用 PP-OCRv6 在本地识别文字。识别文字仍会发送到所选翻译服务。",
         "modelStates": { "missing": "需要下载", "downloading": "正在下载", "ready": "已就绪", "error": "下载失败" },
