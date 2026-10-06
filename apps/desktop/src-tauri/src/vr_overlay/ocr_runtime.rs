@@ -410,7 +410,13 @@ impl OcrRuntime {
                 } else {
                     OverlayKind::OcrRight
                 };
-                if !texture.pixels.chunks_exact(4).any(|pixel| pixel[3] != 0) {
+                if !texture
+                    .pixels
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
+                    .any(|pixel| pixel[3] != 0)
+                {
                     backend.reset(kind);
                     continue;
                 }
@@ -724,8 +730,18 @@ mod tests {
         assert_eq!((textures[0].width, textures[1].width), (160, 200));
         for texture in &textures {
             assert_eq!(&texture.pixels[..4], &[0; 4]);
-            assert!(texture.pixels.chunks_exact(4).any(|pixel| pixel[3] == 102));
-            assert!(texture.pixels.chunks_exact(4).any(|pixel| pixel[0] > 0));
+            assert!(texture
+                .pixels
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .any(|pixel| pixel[3] == 102));
+            assert!(texture
+                .pixels
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .any(|pixel| pixel[0] > 0));
         }
         assert!(runtime
             .stereo_frame(&VrOcrConfig::default())

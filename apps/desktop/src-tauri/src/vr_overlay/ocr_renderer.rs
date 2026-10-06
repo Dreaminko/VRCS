@@ -318,7 +318,12 @@ mod tests {
             translations: vec![],
         };
         let texture = render_eye(&eye, &[block], 0.4, false).unwrap().0;
-        assert!(texture.pixels.chunks_exact(4).any(|pixel| pixel[3] > 0));
+        assert!(texture
+            .pixels
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .any(|pixel| pixel[3] > 0));
         assert_eq!(&texture.pixels[..4], &[0, 0, 0, 0]);
     }
 
