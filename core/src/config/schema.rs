@@ -3,10 +3,10 @@ use serde::{Deserialize, Serialize};
 use super::{
     AnkiConfig, AsrConfig, AudioConfig, DictionaryConfig, ExternalApiConfig, GlossaryConfig,
     LanguagePreset, OscConfig, ServerConfig, StorageConfig, TranslationConfig, VadConfig,
-    VrOverlayConfig, VrcxConfig,
+    VrOcrConfig, VrOverlayConfig, VrcxConfig,
 };
 
-pub const SCHEMA_VERSION: u32 = 27;
+pub const SCHEMA_VERSION: u32 = 28;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AppConfig {
@@ -40,6 +40,8 @@ pub struct AppConfig {
     pub vrcx: VrcxConfig,
     #[serde(default)]
     pub vr_overlay: VrOverlayConfig,
+    #[serde(default)]
+    pub ocr: VrOcrConfig,
 }
 
 fn schema_version() -> u32 {
@@ -64,6 +66,7 @@ impl Default for AppConfig {
             external_api: ExternalApiConfig::default(),
             vrcx: VrcxConfig::default(),
             vr_overlay: VrOverlayConfig::default(),
+            ocr: VrOcrConfig::default(),
         }
     }
 }
@@ -86,6 +89,7 @@ mod tests {
                 "external_api",
                 "glossary",
                 "language_presets",
+                "ocr",
                 "osc",
                 "schema_version",
                 "server",
@@ -202,7 +206,7 @@ mod tests {
         );
         assert_keys(
             &value["vr_overlay"],
-            ["enabled", "headset", "ocr", "translation_display", "wrist"],
+            ["enabled", "headset", "translation_display", "wrist"],
         );
         assert_keys(
             &value["vr_overlay"]["headset"],

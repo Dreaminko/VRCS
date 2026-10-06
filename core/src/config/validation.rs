@@ -45,7 +45,7 @@ impl AppConfig {
         validate_recognition_models(&self.asr, &self.vad)?;
         validate_anki(&self.anki)?;
         validate_vr_overlay(&self.vr_overlay)?;
-        let ocr = &self.vr_overlay.ocr;
+        let ocr = &self.ocr;
         if !(5..=120).contains(&ocr.timeout_seconds)
             || !ocr.minimum_confidence.is_finite()
             || !(0.0..=1.0).contains(&ocr.minimum_confidence)
@@ -56,7 +56,10 @@ impl AppConfig {
             || !ocr.background_opacity.is_finite()
             || !(0.0..=1.0).contains(&ocr.background_opacity)
         {
-            return Err("VR OCR settings are outside the supported bounds".into());
+            return Err("OCR settings are outside the supported bounds".into());
+        }
+        if ocr.shortcut.trim().is_empty() || ocr.shortcut.len() > 64 {
+            return Err("OCR shortcut must contain 1 to 64 characters".into());
         }
         validate_translation_targets("ocr", &ocr.targets, &self.asr.api_profiles, false, "")?;
         Ok(())

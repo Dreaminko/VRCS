@@ -544,22 +544,31 @@
         "saveFailed": "设置保存失败，请在桌面端重试。",
         "actionFailed": "SteamVR 操作失败，请检查连接。"
       },
+      "ocr": {
+        "common": "识别与翻译",
+        "desktop": "桌面模式",
+        "desktopEnabled": "启用桌面 OCR",
+        "desktopDescription": "VRChat 位于前台时，按快捷键识别当前游戏窗口。",
+        "shortcut": "截图快捷键",
+        "desktopResults": "结果窗口显示原文和译文，直到关闭窗口或再次识别。",
+        "vr": "VR 模式"
+      },
       "vrOcr": {
         "results": "区域译文：{{completed}} 项成功，{{failed}} 项失败",
-        "sourceView": "未配置翻译服务时，可通过识别操作在 VR 中查看 OCR 原文。",
+        "sourceView": "原文与译文一同显示。",
         "errors": {"timeout": "任务已超时，请重新识别。", "authentication": "OCR 鉴权失败，请检查访问令牌。", "credentials_missing": "请配置 OCR 访问令牌。", "rate_limit": "OCR 请求达到限额，请稍后重试。", "models_missing": "请在设置中准备本地 OCR 模型。", "configuration_changed": "OCR 配置已变化，请重新识别。", "tracking_lost": "请恢复头显追踪后重新识别。", "view_changed": "原文字区域已变化，请重新识别。", "network": "OCR 网络请求失败，请检查连接后重试。", "local_failed": "本地 OCR 推理失败，请检查模型准备状态。", "invalid_result": "OCR 响应缺少有效的文字位置。", "unavailable": "OCR 暂不可用，请检查 VR 连接和识别后端。", "translation_failed": "全部翻译请求失败，请检查翻译服务。", "partial_failure": "部分翻译失败，已完成的译文会被保留。", "partial_timeout": "部分翻译超时，已完成的译文会被保留。"},
         "backend": "OCR 服务",
-        "displayMode": "OCR 显示方式",
+        "displayMode": "VR 结果显示方式",
         "displayModes": { "wrist": "手腕面板", "stereo": "原文字位置（左右眼）" },
         "backends": { "cloud": "PaddleOCR 云端", "local": "本地 PP-OCRv6" },
-        "localDescription": "使用 PP-OCRv6 在本地识别文字。识别文字仍会发送到所选翻译服务。",
+        "localDescription": "在本地识别游戏文字，并通过所选 API 翻译。",
         "modelStates": { "missing": "需要下载", "downloading": "正在下载", "ready": "已就绪", "error": "下载失败" },
         "modelFailed": "无法准备 OCR 模型，请检查连接后重试。",
         "controls": "保持已绑定的识别或清除操作 0.65 秒",
         "states": {"disabled": "已关闭", "waiting_vr": "等待 SteamVR", "ready": "可以识别", "unbound": "请在 SteamVR 中绑定 OCR 控制器操作", "capturing": "正在采集", "waiting_hands": "移开双手后开始识别", "submitting": "正在上传", "pending": "正在排队", "running": "正在识别", "downloading": "正在获取结果", "loading_model": "正在加载本地模型", "recognizing": "正在本地识别", "translating": "正在翻译", "recognized": "识别完成", "visible": "正在显示译文", "invalid": "视野已变化，请重新识别", "error": "OCR 不可用", "no_text": "未发现文字", "low_confidence": "文字置信度低于阈值", "source_visible": "正在显示识别原文", "partial_visible": "正在显示已完成的译文", "translation_failed": "全部翻译失败", "timed_out": "OCR 任务超时"},
-        "title": "VR 文字翻译",
-        "description": "通过 PaddleOCR 识别 VR 视野中的文字。仅在触发识别时上传选区图片，识别文字随后发送到所选翻译服务。",
-        "enable": "启用 OCR",
+        "title": "OCR",
+        "description": "通过云端 OCR 识别游戏文字并翻译。",
+        "enable": "启用 VR OCR",
         "token": "PaddleOCR 访问令牌",
         "configured": "已配置",
         "unconfigured": "配置 OCR 访问令牌后可启用云端识别",
@@ -567,10 +576,10 @@
         "tokenFailed": "无法访问 OCR 凭据，请检查连接后重试。",
         "translation": "OCR 翻译语言与服务",
         "timeout": "任务超时时间",
-        "region": "中心识别区域",
+        "region": "VR 截图区域",
         "confidence": "最低识别置信度",
-        "lifetime": "结果显示时间",
-        "background": "译文背景不透明度",
+        "lifetime": "VR 结果显示时长",
+        "background": "VR 结果背景不透明度",
         "gesture": "在支持的设备上启用相机框手势",
         "gestureReady": "保持手指取景框 0.65 秒，随后移开双手；识别范围为中心选区。",
         "gestureUnavailable": "当前未取得完整手指追踪，请使用控制器操作。",
@@ -589,7 +598,8 @@
         "api": "API 管理",
         "learning": "学习",
         "connections": "连接",
-        "vrOverlay": "VR Overlay"
+        "vrOverlay": "VR Overlay",
+        "ocr": "OCR"
       },
       "vrOverlay": {
         "title": "VR Overlay",
@@ -1655,6 +1665,41 @@
       },
       "auth": {
         "unauthorized": "本地会话未获授权。"
+      }
+    },
+    "ocrWindow": {
+      "title": "OCR 结果",
+      "copy": "复制",
+      "copied": "已复制",
+      "copyFailed": "无法复制结果。",
+      "rescan": "重新识别",
+      "close": "关闭",
+      "source": "原文",
+      "translationPending": "正在翻译…",
+      "translationFailed": "翻译不可用",
+      "timedOut": "请求已超时，已获取的原文和译文会保留。",
+      "states": {
+        "disabled": "桌面 OCR 未启用。",
+        "idle": "等待识别。",
+        "capturing": "正在截取游戏窗口…",
+        "recognizing": "正在识别文字…",
+        "translating": "正在翻译…",
+        "complete": "识别完成。",
+        "no_text": "未找到文字。",
+        "partial_failure": "部分译文未能完成。",
+        "error": "识别失败。"
+      },
+      "errors": {
+        "not_game": "请切换到 VRChat 后按快捷键。",
+        "minimized": "请恢复 VRChat 窗口后重试。",
+        "unavailable": "当前系统无法捕获游戏画面。",
+        "capture_failed": "无法截取游戏窗口。",
+        "capture_timeout": "截取游戏画面超时，请重试。",
+        "disabled": "请在“设置 → OCR”中启用桌面 OCR。",
+        "core_unavailable": "OCR 服务不可用。",
+        "failed": "OCR 未能完成，请重试。",
+        "invalid_shortcut": "快捷键无效，请使用 Ctrl+Alt+O 等组合。",
+        "shortcut_conflict": "快捷键已被占用，请选择其他组合。"
       }
     }
   }

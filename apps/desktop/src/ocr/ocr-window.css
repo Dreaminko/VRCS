@@ -1,0 +1,71 @@
+.ocr-window {
+  display: flex;
+  height: 100%;
+  min-width: 0;
+  flex-direction: column;
+  background: var(--canvas);
+}
+.ocr-window-header {
+  flex: 0 0 auto;
+  justify-content: space-between;
+  padding-left: 24px;
+}
+.ocr-window-header h1 {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+}
+.ocr-window-toolbar {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 24px 16px;
+}
+.ocr-window-status { min-width: 0; color: var(--text-quiet); font-size: 11px; line-height: 1.5; }
+.ocr-window-actions { display: flex; flex: 0 0 auto; align-items: center; gap: 4px; }
+.ocr-window-actions .dock-button::after { left: auto; right: 0; transform: translateY(3px) scale(0.985); }
+.ocr-window-actions .dock-button:hover::after,
+.ocr-window-actions .dock-button:focus-visible::after { transform: translateY(0) scale(1); }
+.ocr-window-content {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 16px;
+  padding: 18px 24px 24px;
+  overflow: auto;
+  scrollbar-gutter: stable;
+}
+.ocr-window-content > * { flex-shrink: 0; }
+.ocr-window-empty { min-height: 0; flex: 1; padding: 24px 12px; }
+.ocr-window-error { margin: 0; justify-content: flex-start; align-items: flex-start; gap: 8px; font-size: 12px; line-height: 1.6; }
+.ocr-window-error svg { flex: 0 0 auto; margin-top: 2px; }
+.ocr-window-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0;
+  color: var(--warning);
+  font-size: 11px;
+  line-height: 1.6;
+}
+.ocr-window-notice svg { flex: 0 0 auto; margin-top: 1px; }
+.ocr-result-list { display: grid; gap: 24px; }
+.ocr-result-block { display: grid; min-width: 0; gap: 14px; padding-bottom: 24px; border-bottom: 1px solid var(--border); }
+.ocr-result-block:last-child { padding-bottom: 0; border-bottom: 0; }
+.ocr-result-target > small { display: block; margin-bottom: 4px; color: var(--text-quiet); font-size: 11px; line-height: 1.5; }
+.ocr-result-block p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
+.ocr-result-source { color: var(--text); font-size: 16px; line-height: 1.7; }
+.ocr-result-translation { color: var(--text-secondary); font-size: 13px; line-height: 1.65; }
+.ocr-result-block .ocr-result-placeholder { color: var(--text-quiet); }
+@media (max-width: 420px) {
+  .ocr-window-header { padding-left: 16px; }
+  .ocr-window-toolbar { padding-inline: 16px; }
+  .ocr-window-content { padding: 16px; }
+}

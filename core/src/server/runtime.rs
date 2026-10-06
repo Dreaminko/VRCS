@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex, RwLock};
 use axum::extract::FromRef;
 use tokio::sync::{broadcast, watch, Mutex as AsyncMutex};
 
-use crate::config::{AppConfig, VrOverlayConfig};
+use crate::config::{AppConfig, VrOcrConfig, VrOverlayConfig};
 use crate::db::conversations::ConversationCatalog;
 use crate::db::Database;
 use crate::microphone_monitor::MicrophoneMonitor;
@@ -152,7 +152,7 @@ impl ContentServices {
 }
 
 pub(crate) struct IntegrationRuntime {
-    pub(crate) vr_overlay_config_tx: watch::Sender<VrOverlayConfig>,
+    pub(crate) vr_overlay_config_tx: watch::Sender<(VrOverlayConfig, VrOcrConfig)>,
     pub(crate) osc: OscChatboxDispatcher,
     pub(crate) http: reqwest::Client,
     pub(crate) session_token: String,
@@ -165,7 +165,7 @@ pub(crate) struct IntegrationRuntime {
 }
 
 pub(crate) struct IntegrationRuntimeInput {
-    pub(crate) vr_overlay_config_tx: watch::Sender<VrOverlayConfig>,
+    pub(crate) vr_overlay_config_tx: watch::Sender<(VrOverlayConfig, VrOcrConfig)>,
     pub(crate) osc: OscChatboxDispatcher,
     pub(crate) session_token: String,
     pub(crate) domain_events: crate::domain_events::DomainEventHub,

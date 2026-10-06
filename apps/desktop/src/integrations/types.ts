@@ -83,11 +83,12 @@ export interface VrOverlaySettings {
   translation_display: VrOverlayTranslationDisplay;
   headset: VrOverlayHeadsetSettings;
   wrist: VrOverlayWristSettings;
-  ocr: VrOcrSettings;
 }
 
 export interface VrOcrSettings {
   enabled: boolean;
+  desktop_enabled: boolean;
+  shortcut: string;
   backend: "cloud" | "local";
   display_mode: "wrist" | "stereo";
   timeout_seconds: number;

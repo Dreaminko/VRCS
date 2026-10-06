@@ -6,7 +6,7 @@ mod dashboard_renderer;
 #[cfg(any(windows, test))]
 mod headset_layout;
 #[cfg(windows)]
-mod ocr_capture;
+pub(crate) mod ocr_capture;
 #[cfg(windows)]
 mod ocr_geometry;
 #[cfg(windows)]
@@ -25,7 +25,7 @@ mod ocr_status;
 mod ocr_tracking;
 mod presentation;
 mod process;
-mod renderer;
+pub(crate) mod renderer;
 mod runtime;
 mod transform;
 #[cfg(any(windows, test))]

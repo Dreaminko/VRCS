@@ -109,7 +109,10 @@ async fn vr_overlay_watch_starts_with_current_config_and_updates_after_commit() 
     .await
     .unwrap();
     let mut updates = handle.subscribe_vr_overlay_config();
-    assert_eq!(*updates.borrow(), VrOverlayConfig::default());
+    assert_eq!(
+        *updates.borrow(),
+        (VrOverlayConfig::default(), VrOcrConfig::default())
+    );
 
     let client = reqwest::Client::new();
     let settings_url = format!("http://{}/api/settings", handle.address());
@@ -155,8 +158,22 @@ async fn vr_overlay_watch_starts_with_current_config_and_updates_after_commit() 
         .await
         .unwrap()
         .unwrap();
-    assert!(updates.borrow().enabled);
-    assert!(updates.borrow().headset.show_translation_partials);
+    assert!(updates.borrow().0.enabled);
+    assert!(updates.borrow().0.headset.show_translation_partials);
+    settings["ocr"]["desktop_enabled"] = serde_json::json!(true);
+    let response = client
+        .put(&settings_url)
+        .bearer_auth("vr-overlay-token")
+        .json(&settings)
+        .send()
+        .await
+        .unwrap();
+    assert!(response.status().is_success());
+    tokio::time::timeout(std::time::Duration::from_secs(1), updates.changed())
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(updates.borrow().1.desktop_enabled);
     handle.shutdown().await.unwrap();
 }
 

@@ -28,6 +28,7 @@ import { RecognitionSettingsSection } from "./sections/RecognitionSettingsSectio
 import { ConnectionSettingsSection } from "./sections/ConnectionSettingsSection";
 import { SystemSettingsSection } from "./sections/SystemSettingsSection";
 import { TranslationSettingsSection } from "./sections/TranslationSettingsSection";
+import { OcrSettingsSection } from "./sections/OcrSettingsSection";
 import { VrOverlaySettingsSection } from "./sections/VrOverlaySettingsSection";
 import type { SettingsCategory } from "./settings-types";
 import type { AppUpdaterState } from "../updates/useAppUpdater";
@@ -295,10 +296,14 @@ export function SettingsPanel({
         />
       )}
 
+      {activeCategory === "ocr" && (
+        <OcrSettingsSection draft={draft} profiles={apiProfileCatalog.profiles}
+          saveState={saveState} applySettings={applySettings} />
+      )}
+
       {activeCategory === "vr_overlay" && (
         <VrOverlaySettingsSection
           draft={draft}
-          profiles={apiProfileCatalog.profiles}
           saveState={saveState}
           applySettings={applySettings}
         />

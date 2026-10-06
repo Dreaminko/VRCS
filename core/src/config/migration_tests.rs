@@ -8,6 +8,29 @@ use crate::providers::{
 };
 
 #[test]
+fn legacy_ocr_moves_to_root_without_losing_vr_settings() {
+    let raw = serde_json::json!({
+        "schema_version": 27,
+        "vr_overlay": {"ocr": {
+            "enabled": true, "backend": "local", "display_mode": "stereo",
+            "timeout_seconds": 45, "region_fraction": 0.8,
+            "targets": [{"target_language": "ja", "profile_id": null, "model": "", "thinking_enabled": false}]
+        }}
+    });
+    let migrated = config_from_value(&raw).unwrap();
+    let saved = serde_json::to_value(&migrated).unwrap();
+    assert_eq!(saved["schema_version"], 28);
+    assert_eq!(saved["ocr"]["enabled"], true);
+    assert_eq!(saved["ocr"]["desktop_enabled"], false);
+    assert_eq!(saved["ocr"]["shortcut"], "Ctrl+Alt+O");
+    assert_eq!(saved["ocr"]["backend"], "local");
+    assert_eq!(saved["ocr"]["display_mode"], "stereo");
+    assert_eq!(saved["ocr"]["timeout_seconds"], 45);
+    assert_eq!(saved["ocr"]["targets"][0]["target_language"], "ja");
+    assert!(saved["vr_overlay"].get("ocr").is_none());
+}
+
+#[test]
 fn existing_config_gets_translation_settings_without_changing_recognition() {
     let mut before = AppConfig::default();
     before.asr.backend = SERVICE_OPENAI_REALTIME.into();
@@ -62,6 +85,7 @@ fn legacy_vr_overlay_content_modes_do_not_block_config_loading() {
         for display in [None, Some("preferred_only"), Some("all_languages")] {
             let mut raw = serde_json::to_value(AppConfig::default()).unwrap();
             raw["schema_version"] = serde_json::json!(version);
+            raw.as_object_mut().unwrap().remove("ocr");
             raw["vr_overlay"]["headset"]["content_mode"] = serde_json::json!("bilingual");
             raw["vr_overlay"]["wrist"]["content_mode"] = serde_json::json!("translation");
             raw["vr_overlay"]["headset"]["width_m"] = serde_json::json!(1.7);
@@ -82,7 +106,7 @@ fn legacy_vr_overlay_content_modes_do_not_block_config_loading() {
                 display.unwrap_or("all_languages")
             );
             assert_eq!(config.vr_overlay.headset.width_m, 1.7);
-            assert!(config.vr_overlay.ocr.enabled);
+            assert!(config.ocr.enabled);
             let saved = serde_json::to_value(&config).unwrap();
             assert!(saved["vr_overlay"]["headset"].get("content_mode").is_none());
             assert!(saved["vr_overlay"]["wrist"].get("content_mode").is_none());

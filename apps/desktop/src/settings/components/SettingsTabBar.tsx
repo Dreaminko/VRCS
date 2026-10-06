@@ -4,6 +4,7 @@ import {
   BookOpenText,
   GraduationCap,
   Layers3,
+  ScanText,
   KeyRound,
   Languages,
   Link,
@@ -32,6 +33,7 @@ export function SettingsTabBar({
     { id: "api", label: t("settings.categories.api"), icon: <KeyRound size={18} /> },
     { id: "learning", label: t("settings.categories.learning"), icon: <GraduationCap size={18} /> },
     { id: "connections", label: t("settings.categories.connections"), icon: <Link size={18} /> },
+    { id: "ocr", label: t("settings.categories.ocr"), icon: <ScanText size={18} /> },
     { id: "vr_overlay", label: t("settings.categories.vrOverlay"), icon: <Layers3 size={18} /> },
     { id: "debug", label: "Debug", icon: <Wrench size={18} /> },
   ] satisfies Array<{ id: SettingsCategory; label: string; icon: ReactNode }>;

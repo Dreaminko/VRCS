@@ -19,7 +19,8 @@ impl PostCommitUpdates {
             storage_quota_changed: candidate.storage.subtitle_history_max_bytes
                 != current.storage.subtitle_history_max_bytes,
             vrcx_changed: candidate.vrcx != current.vrcx,
-            vr_overlay_changed: candidate.vr_overlay != current.vr_overlay,
+            vr_overlay_changed: candidate.vr_overlay != current.vr_overlay
+                || candidate.ocr != current.ocr,
         }
     }
 
@@ -65,7 +66,7 @@ impl PostCommitUpdates {
             state
                 .integrations
                 .vr_overlay_config_tx
-                .send_replace(candidate.vr_overlay.clone());
+                .send_replace((candidate.vr_overlay.clone(), candidate.ocr.clone()));
         }
     }
 }

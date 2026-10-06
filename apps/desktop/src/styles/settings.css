@@ -11,6 +11,7 @@
 @import "./settings/audio.css";
 @import "./settings/integrations.css";
 @import "./settings/vr-overlay.css";
+@import "./settings/ocr.css";
 @import "./settings/models.css";
 @import "./settings/system-api.css";
 @import "./settings/storage.css";

@@ -2,17 +2,17 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { applyVrDashboardAction } from "../src/vr-dashboard/settings-actions.ts";
-import { DEFAULT_VR_OVERLAY_SETTINGS } from "../src/settings/vr-overlay-settings.ts";
+import { DEFAULT_OCR_SETTINGS, DEFAULT_VR_OVERLAY_SETTINGS } from "../src/settings/vr-overlay-settings.ts";
 import type { Settings } from "../src/settings/types.ts";
 
 const settings = {
-  schema_version: 27,
+  schema_version: 28,
   vr_overlay: {
     ...DEFAULT_VR_OVERLAY_SETTINGS,
     headset: { ...DEFAULT_VR_OVERLAY_SETTINGS.headset },
     wrist: { ...DEFAULT_VR_OVERLAY_SETTINGS.wrist },
-    ocr: { ...DEFAULT_VR_OVERLAY_SETTINGS.ocr },
   },
+  ocr: { ...DEFAULT_OCR_SETTINGS },
   untouched: { value: 42 },
 } as unknown as Settings;
 
@@ -62,4 +62,14 @@ test("dashboard wrist hand action cycles without changing headset settings", () 
   assert.equal(dominant.vr_overlay.wrist.hand, "dominant");
   assert.equal(left.vr_overlay.wrist.hand, "left");
   assert.equal(left.vr_overlay.headset, settings.vr_overlay.headset);
+});
+
+test("dashboard OCR toggles change root VR settings without enabling desktop mode", () => {
+  const enabled = applyVrDashboardAction(settings, "toggle_ocr");
+  const gesture = applyVrDashboardAction(enabled, "toggle_ocr_gesture");
+  assert.equal(enabled.ocr.enabled, true);
+  assert.equal(enabled.ocr.desktop_enabled, false);
+  assert.equal(enabled.vr_overlay, settings.vr_overlay);
+  assert.equal(gesture.ocr.hand_gesture_enabled, false);
+  assert.equal(gesture.ocr.enabled, true);
 });

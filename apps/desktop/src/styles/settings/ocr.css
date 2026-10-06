@@ -1,0 +1,28 @@
+.ocr-shortcut-field { max-width: 320px; }
+.ocr-settings-section .model-row-title { flex-wrap: wrap; }
+.ocr-settings-section .model-row-title .model-size { white-space: normal; }
+.ocr-settings-section .model-row-body > .vr-overlay-native-error { margin-top: 8px; color: var(--error); }
+.ocr-settings-section .external-api-token-row { flex-wrap: wrap; }
+.ocr-settings-section .external-api-token-section {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-elevated);
+}
+.ocr-settings-section .external-api-token-row > strong {
+  font-size: var(--settings-text-label);
+  font-weight: var(--settings-weight-heading);
+  line-height: var(--settings-leading-label);
+}
+.ocr-settings-section .field-description {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--settings-text-caption);
+  line-height: var(--settings-leading-copy);
+}
+
+@media (max-width: 680px) {
+  .ocr-settings-section .model-row { grid-template-columns: minmax(0, 1fr); }
+  .ocr-settings-section .model-row-title .model-size { width: 100%; margin-left: 0; }
+  .ocr-settings-section .model-row-action { justify-content: flex-start; }
+  .ocr-shortcut-field { max-width: none; }
+}

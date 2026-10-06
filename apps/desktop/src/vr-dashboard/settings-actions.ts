@@ -5,6 +5,7 @@ import type {
 import type { Settings } from "../settings/types";
 import {
   patchVrOverlay,
+  patchOcr,
   patchVrOverlayHeadset,
   patchVrOverlayWrist,
 } from "../settings/vr-overlay-settings.ts";
@@ -88,16 +89,9 @@ export function applyVrDashboardAction(settings: Settings, action: VrDashboardAc
           action.endsWith("down") ? -0.05 : 0.05, 0.1, 1),
       });
     case "toggle_ocr":
-      return patchVrOverlay(settings, {
-        ocr: { ...settings.vr_overlay.ocr, enabled: !settings.vr_overlay.ocr.enabled },
-      });
+      return patchOcr(settings, { enabled: !settings.ocr.enabled });
     case "toggle_ocr_gesture":
-      return patchVrOverlay(settings, {
-        ocr: {
-          ...settings.vr_overlay.ocr,
-          hand_gesture_enabled: !settings.vr_overlay.ocr.hand_gesture_enabled,
-        },
-      });
+      return patchOcr(settings, { hand_gesture_enabled: !settings.ocr.hand_gesture_enabled });
     case "preview_headset":
     case "preview_wrist":
     case "open_ocr_bindings":

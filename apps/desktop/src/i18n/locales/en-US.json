@@ -544,22 +544,31 @@
         "saveFailed": "Could not save settings. Try again in the desktop app.",
         "actionFailed": "The SteamVR action failed. Check the connection."
       },
+      "ocr": {
+        "common": "Recognition and translation",
+        "desktop": "Desktop mode",
+        "desktopEnabled": "Enable desktop OCR",
+        "desktopDescription": "Press the shortcut while VRChat is in the foreground to recognize the game window.",
+        "shortcut": "Screenshot shortcut",
+        "desktopResults": "The result window shows original text and translations until you close it or scan again.",
+        "vr": "VR mode"
+      },
       "vrOcr": {
         "results": "Region translations: {{completed}} completed, {{failed}} failed",
-        "sourceView": "Without a translation service, scan to view recognized source text in VR.",
+        "sourceView": "Original text is shown with translations.",
         "errors": {"timeout": "The task timed out. Scan again.", "authentication": "OCR authentication failed. Check the access token.", "credentials_missing": "Configure an OCR access token.", "rate_limit": "OCR rate limit reached. Try again later.", "models_missing": "Prepare the local OCR models in settings.", "configuration_changed": "OCR settings changed. Scan again.", "tracking_lost": "Restore headset tracking and scan again.", "view_changed": "The source view changed. Scan again.", "network": "OCR network request failed. Check the connection and retry.", "local_failed": "Local OCR inference failed. Check model preparation and retry.", "invalid_result": "The OCR response has no valid text positions.", "unavailable": "OCR is unavailable. Check the VR connection and backend.", "translation_failed": "All translation requests failed. Check the translation service.", "partial_failure": "Some translations failed. Completed translations are retained.", "partial_timeout": "Some translations timed out. Completed translations are retained."},
         "backend": "OCR service",
-        "displayMode": "OCR display",
+        "displayMode": "VR result display",
         "displayModes": { "wrist": "Wrist panel", "stereo": "Original text position (both eyes)" },
         "backends": { "cloud": "PaddleOCR cloud", "local": "Local PP-OCRv6" },
-        "localDescription": "Recognize text locally with PP-OCRv6. Recognized text is still sent to your selected translation service.",
+        "localDescription": "Recognize game text locally and translate it with the selected API.",
         "modelStates": { "missing": "Download required", "downloading": "Downloading", "ready": "Ready", "error": "Download failed" },
         "modelFailed": "Could not prepare the OCR models. Check the connection and try again.",
         "controls": "Hold the bound Scan or Clear action for 0.65 seconds",
         "states": {"disabled": "Disabled", "waiting_vr": "Waiting for SteamVR", "ready": "Ready to scan", "unbound": "Bind the OCR controller actions in SteamVR", "capturing": "Capturing", "waiting_hands": "Move your hands away to start recognition", "submitting": "Uploading", "pending": "Queued", "running": "Recognizing", "downloading": "Fetching results", "loading_model": "Loading local models", "recognizing": "Recognizing locally", "translating": "Translating", "recognized": "Recognition complete", "visible": "Translations displayed", "invalid": "View changed; scan again", "error": "OCR unavailable", "no_text": "No text found", "low_confidence": "Text confidence is below the threshold", "source_visible": "Recognized text displayed", "partial_visible": "Completed translations displayed", "translation_failed": "All translations failed", "timed_out": "OCR task timed out"},
-        "title": "VR text translation",
-        "description": "Recognize text in your VR view with PaddleOCR. Only the selected region is uploaded when you trigger a scan; recognized text is sent to your translation service.",
-        "enable": "Enable OCR",
+        "title": "OCR",
+        "description": "Recognize game text with cloud OCR and translate it.",
+        "enable": "Enable VR OCR",
         "token": "PaddleOCR access token",
         "configured": "Configured",
         "unconfigured": "Configure an OCR access token to enable cloud recognition",
@@ -567,10 +576,10 @@
         "tokenFailed": "Could not access the OCR credential. Check the connection and try again.",
         "translation": "OCR translation languages and services",
         "timeout": "Task timeout",
-        "region": "Central scan region",
+        "region": "VR capture region",
         "confidence": "Minimum recognition confidence",
-        "lifetime": "Result display time",
-        "background": "Translation background opacity",
+        "lifetime": "VR result display duration",
+        "background": "VR result background opacity",
         "gesture": "Enable camera-frame gesture on supported devices",
         "gestureReady": "Hold a finger frame for 0.65 seconds, then move your hands away. Recognition uses the center region.",
         "gestureUnavailable": "Full finger tracking is unavailable. Use the controller actions.",
@@ -589,7 +598,8 @@
         "api": "API access",
         "learning": "Learning",
         "connections": "Connections",
-        "vrOverlay": "VR Overlay"
+        "vrOverlay": "VR Overlay",
+        "ocr": "OCR"
       },
       "vrOverlay": {
         "title": "VR Overlay",
@@ -1655,6 +1665,41 @@
       },
       "auth": {
         "unauthorized": "The local session is not authorized."
+      }
+    },
+    "ocrWindow": {
+      "title": "OCR results",
+      "copy": "Copy",
+      "copied": "Copied",
+      "copyFailed": "Could not copy the result.",
+      "rescan": "Scan again",
+      "close": "Close",
+      "source": "Original text",
+      "translationPending": "Translating…",
+      "translationFailed": "Translation unavailable",
+      "timedOut": "The request timed out. Available text and translations are retained.",
+      "states": {
+        "disabled": "Desktop OCR is disabled.",
+        "idle": "Ready to scan.",
+        "capturing": "Capturing the game window…",
+        "recognizing": "Recognizing text…",
+        "translating": "Translating…",
+        "complete": "Recognition complete.",
+        "no_text": "No text found.",
+        "partial_failure": "Some translations could not be completed.",
+        "error": "Recognition failed."
+      },
+      "errors": {
+        "not_game": "Switch to VRChat and press the shortcut.",
+        "minimized": "Restore the VRChat window and try again.",
+        "unavailable": "Game capture is unavailable on this system.",
+        "capture_failed": "Could not capture the game window.",
+        "capture_timeout": "Game capture timed out. Try again.",
+        "disabled": "Enable desktop OCR in Settings → OCR.",
+        "core_unavailable": "The OCR service is unavailable.",
+        "failed": "OCR could not complete. Try again.",
+        "invalid_shortcut": "Invalid shortcut. Use a combination such as Ctrl+Alt+O.",
+        "shortcut_conflict": "This shortcut is already in use. Choose another combination."
       }
     }
   }

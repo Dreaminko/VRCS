@@ -1,4 +1,5 @@
 mod app_updates;
+mod desktop_ocr;
 mod diagnostics;
 mod vr_overlay;
 
@@ -173,6 +174,8 @@ fn launch_core(app: &tauri::AppHandle) -> Result<(), String> {
                         tracing::warn!(%error,"Cloud OCR service initialization failed");
                     })
                     .ok();
+                app.state::<desktop_ocr::Manager>()
+                    .start(ocr_service.clone(), vr_overlay_config.clone());
                 if let Err(error) = app.state::<vr_overlay::Manager>().start(
                     presentation_events,
                     vr_overlay_config,
@@ -350,6 +353,7 @@ fn minimize_to_tray_enabled(app: &tauri::AppHandle) -> bool {
 }
 
 pub(crate) fn prepare_for_exit(app: &tauri::AppHandle) {
+    app.state::<desktop_ocr::Manager>().stop();
     app.state::<vr_overlay::Manager>().stop();
     stop_core(app);
 }
@@ -465,7 +469,10 @@ pub fn run() {
             vr_overlay::vr_ocr_open_bindings,
             vr_overlay::vr_overlay_show_sample,
             vr_overlay::vr_overlay_hide_sample,
-            vr_overlay::vr_dashboard_update_view
+            vr_overlay::vr_dashboard_update_view,
+            desktop_ocr::desktop_ocr_status,
+            desktop_ocr::desktop_ocr_scan,
+            desktop_ocr::desktop_ocr_close
         ])
         .setup(move |app| {
             app_updates::register_plugin(app)?;
@@ -517,6 +524,7 @@ pub fn run() {
                 .and_then(|value| value.parse().ok())
                 .ok_or_else(|| std::io::Error::other("core URL is missing a valid port"))?;
             app.manage(vr_overlay::Manager::new(app.handle().clone()));
+            app.manage(desktop_ocr::Manager::new(app.handle().clone()));
             app.manage(CoreRuntime {
                 handle: Mutex::new(None),
                 launch_task: Mutex::new(None),
@@ -535,6 +543,12 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
+            if window.label() == "ocr" {
+                if let WindowEvent::CloseRequested { api, .. } = event {
+                    api.prevent_close();
+                    window.app_handle().state::<desktop_ocr::Manager>().close();
+                }
+            }
             if window.label() == "main" {
                 if matches!(event, WindowEvent::Focused(false)) {
                     if let Some(window) = window.app_handle().get_webview_window("main") {

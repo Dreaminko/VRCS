@@ -53,23 +53,26 @@ export const DEFAULT_VR_OVERLAY_WRIST_SETTINGS: VrOverlayWristSettings = {
   background_opacity: 0.65,
 };
 
+export const DEFAULT_OCR_SETTINGS: VrOcrSettings = {
+  enabled: false,
+  desktop_enabled: false,
+  shortcut: "Ctrl+Alt+O",
+  backend: "cloud",
+  display_mode: "wrist",
+  timeout_seconds: 30,
+  minimum_confidence: 0.6,
+  region_fraction: 0.6,
+  targets: [{ target_language: "zh-Hans", profile_id: null, model: "gpt-5-mini", thinking_enabled: false }],
+  hand_gesture_enabled: true,
+  display_seconds: 15,
+  background_opacity: 0.75,
+};
+
 export const DEFAULT_VR_OVERLAY_SETTINGS: VrOverlaySettings = {
   enabled: false,
   translation_display: "all_languages",
   headset: { ...DEFAULT_VR_OVERLAY_HEADSET_SETTINGS },
   wrist: { ...DEFAULT_VR_OVERLAY_WRIST_SETTINGS },
-  ocr: {
-    enabled: false,
-    backend: "cloud",
-    display_mode: "wrist",
-    timeout_seconds: 30,
-    minimum_confidence: 0.6,
-    region_fraction: 0.6,
-    targets: [{ target_language: "zh-Hans", profile_id: null, model: "gpt-5-mini", thinking_enabled: false }],
-    hand_gesture_enabled: true,
-    display_seconds: 15,
-    background_opacity: 0.75,
-  },
 };
 
 export function isVrOcrBackendReady(
@@ -128,4 +131,8 @@ export function resetVrOverlayWrist(settings: Settings): Settings {
   return patchVrOverlay(settings, {
     wrist: { ...DEFAULT_VR_OVERLAY_WRIST_SETTINGS },
   });
+}
+
+export function patchOcr(settings: Settings, patch: Partial<VrOcrSettings>): Settings {
+  return { ...settings, ocr: { ...settings.ocr, ...patch } };
 }

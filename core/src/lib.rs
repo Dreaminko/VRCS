@@ -116,7 +116,7 @@ impl CoreHandle {
             .subscribe_presentation_events()
     }
 
-    pub fn subscribe_vr_overlay_config(&self) -> watch::Receiver<VrOverlayConfig> {
+    pub fn subscribe_vr_overlay_config(&self) -> watch::Receiver<(VrOverlayConfig, VrOcrConfig)> {
         self.state.integrations.vr_overlay_config_tx.subscribe()
     }
 

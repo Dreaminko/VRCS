@@ -544,22 +544,31 @@
         "saveFailed": "設定を保存できませんでした。デスクトップアプリで再試行してください。",
         "actionFailed": "SteamVR の操作に失敗しました。接続を確認してください。"
       },
+      "ocr": {
+        "common": "認識と翻訳",
+        "desktop": "デスクトップモード",
+        "desktopEnabled": "デスクトップ OCR を有効にする",
+        "desktopDescription": "VRChat が前面にあるときにショートカットを押すと、ゲーム画面の文字を認識します。",
+        "shortcut": "スクリーンショットのショートカット",
+        "desktopResults": "結果ウィンドウには原文と翻訳を表示します。閉じるか再認識するまで結果を保持します。",
+        "vr": "VR モード"
+      },
       "vrOcr": {
         "results": "領域の翻訳：完了 {{completed}} 件、失敗 {{failed}} 件",
-        "sourceView": "翻訳サービスを設定していない場合も、スキャン操作で認識した原文を VR 内に表示できます。",
+        "sourceView": "原文と翻訳を一緒に表示します。",
         "errors": {"timeout": "処理がタイムアウトしました。再スキャンしてください。", "authentication": "OCR の認証に失敗しました。アクセストークンを確認してください。", "credentials_missing": "OCR アクセストークンを設定してください。", "rate_limit": "OCR のリクエスト上限に達しました。時間をおいて再試行してください。", "models_missing": "設定でローカル OCR モデルを準備してください。", "configuration_changed": "OCR 設定が変更されました。再スキャンしてください。", "tracking_lost": "ヘッドセットの追跡を復旧して再スキャンしてください。", "view_changed": "原文の領域が変化しました。再スキャンしてください。", "network": "OCR のネットワーク接続を確認して再試行してください。", "local_failed": "ローカル OCR の推論に失敗しました。モデルを確認してください。", "invalid_result": "OCR の応答に有効な文字位置がありません。", "unavailable": "VR 接続と OCR バックエンドを確認してください。", "translation_failed": "すべての翻訳に失敗しました。翻訳サービスを確認してください。", "partial_failure": "一部の翻訳に失敗しました。完了した翻訳は保持されます。", "partial_timeout": "一部の翻訳がタイムアウトしました。完了した翻訳は保持されます。"},
         "backend": "OCR サービス",
-        "displayMode": "OCR の表示方法",
+        "displayMode": "VR 結果の表示方法",
         "displayModes": { "wrist": "手首パネル", "stereo": "元の文字位置（両眼）" },
         "backends": { "cloud": "PaddleOCR クラウド", "local": "ローカル PP-OCRv6" },
-        "localDescription": "PP-OCRv6 で文字をローカル認識します。認識した文字は引き続き選択した翻訳サービスに送信されます。",
+        "localDescription": "ゲームの文字をローカルで認識し、選択した API で翻訳します。",
         "modelStates": { "missing": "ダウンロードが必要", "downloading": "ダウンロード中", "ready": "準備完了", "error": "ダウンロード失敗" },
         "modelFailed": "OCR モデルを準備できません。接続を確認して再試行してください。",
         "controls": "割り当て済みのスキャンまたはクリア操作を 0.65 秒保持してください",
         "states": {"disabled": "無効", "waiting_vr": "SteamVR を待機中", "ready": "認識できます", "unbound": "SteamVR で OCR の操作を割り当ててください", "capturing": "画像取得中", "waiting_hands": "両手を移動すると認識を開始します", "submitting": "アップロード中", "pending": "待機中", "running": "認識中", "downloading": "結果取得中", "loading_model": "ローカルモデル読込中", "recognizing": "ローカル認識中", "translating": "翻訳中", "recognized": "認識完了", "visible": "訳文表示中", "invalid": "視野が変わりました。再認識してください", "error": "OCR を利用できません", "no_text": "文字が見つかりません", "low_confidence": "文字の信頼度がしきい値未満です", "source_visible": "認識した原文を表示中", "partial_visible": "完了した翻訳を表示中", "translation_failed": "すべての翻訳に失敗しました", "timed_out": "OCR 処理がタイムアウトしました"},
-        "title": "VR テキスト翻訳",
-        "description": "PaddleOCR で VR 視野内の文字を認識します。スキャン時のみ選択領域の画像をアップロードし、認識した文字を選択した翻訳サービスに送信します。",
-        "enable": "OCR を有効にする",
+        "title": "OCR",
+        "description": "クラウド OCR でゲームの文字を認識し、翻訳します。",
+        "enable": "VR OCR を有効にする",
         "token": "PaddleOCR アクセストークン",
         "configured": "設定済み",
         "unconfigured": "OCR アクセストークンを設定するとクラウド認識を有効にできます",
@@ -567,10 +576,10 @@
         "tokenFailed": "OCR 認証情報にアクセスできません。接続を確認して再試行してください。",
         "translation": "OCR の翻訳言語とサービス",
         "timeout": "タスクのタイムアウト",
-        "region": "中央の認識領域",
+        "region": "VR 撮影領域",
         "confidence": "認識信頼度の下限",
-        "lifetime": "結果の表示時間",
-        "background": "翻訳背景の不透明度",
+        "lifetime": "VR 結果の表示時間",
+        "background": "VR 結果の背景の不透明度",
         "gesture": "対応デバイスでカメラフレームジェスチャーを有効にする",
         "gestureReady": "指で作ったフレームを 0.65 秒保持し、両手を移動してください。中央の範囲を認識します。",
         "gestureUnavailable": "完全な指のトラッキングを取得できません。コントローラー操作を使用してください。",
@@ -589,7 +598,8 @@
         "api": "API 管理",
         "learning": "学習",
         "connections": "接続",
-        "vrOverlay": "VR Overlay"
+        "vrOverlay": "VR Overlay",
+        "ocr": "OCR"
       },
       "vrOverlay": {
         "title": "VR Overlay",
@@ -1655,6 +1665,41 @@
       },
       "auth": {
         "unauthorized": "ローカルセッションが認証されていません。"
+      }
+    },
+    "ocrWindow": {
+      "title": "OCR 結果",
+      "copy": "コピー",
+      "copied": "コピーしました",
+      "copyFailed": "結果をコピーできませんでした。",
+      "rescan": "再認識",
+      "close": "閉じる",
+      "source": "原文",
+      "translationPending": "翻訳中…",
+      "translationFailed": "翻訳を取得できません",
+      "timedOut": "リクエストがタイムアウトしました。取得済みの原文と翻訳は保持されます。",
+      "states": {
+        "disabled": "デスクトップ OCR は無効です。",
+        "idle": "認識を待機しています。",
+        "capturing": "ゲーム画面を撮影中…",
+        "recognizing": "文字を認識中…",
+        "translating": "翻訳中…",
+        "complete": "認識が完了しました。",
+        "no_text": "文字が見つかりませんでした。",
+        "partial_failure": "一部の翻訳を完了できませんでした。",
+        "error": "認識に失敗しました。"
+      },
+      "errors": {
+        "not_game": "VRChat に切り替えてショートカットを押してください。",
+        "minimized": "VRChat ウィンドウを元に戻して再試行してください。",
+        "unavailable": "このシステムではゲーム画面を撮影できません。",
+        "capture_failed": "ゲーム画面を撮影できませんでした。",
+        "capture_timeout": "画面の撮影がタイムアウトしました。再試行してください。",
+        "disabled": "「設定 → OCR」でデスクトップ OCR を有効にしてください。",
+        "core_unavailable": "OCR サービスを利用できません。",
+        "failed": "OCR を完了できませんでした。再試行してください。",
+        "invalid_shortcut": "無効なショートカットです。Ctrl+Alt+O などを指定してください。",
+        "shortcut_conflict": "このショートカットは使用中です。別の組み合わせを選択してください。"
       }
     }
   }

@@ -138,9 +138,9 @@ export function useVrDashboardBridge(
         opacity: `${Math.round(overlay.wrist.opacity * 100)}%`,
       },
       ocr: {
-        enabled: overlay.ocr.enabled,
-        backend: t(`settings.vrOcr.backends.${overlay.ocr.backend}`),
-        gesture: overlay.ocr.hand_gesture_enabled,
+        enabled: settings.ocr.enabled,
+        backend: t(`settings.vrOcr.backends.${settings.ocr.backend}`),
+        gesture: settings.ocr.hand_gesture_enabled,
       },
       status: status
         ? t(`settings.vrOverlay.runtimeStates.${status.state}`)

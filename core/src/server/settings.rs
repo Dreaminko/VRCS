@@ -50,6 +50,7 @@ pub(super) async fn update_settings(
         external_api: update.external_api,
         vrcx: update.vrcx,
         vr_overlay: update.vr_overlay,
+        ocr: update.ocr,
     };
 
     let expected_revision = headers

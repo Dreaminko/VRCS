@@ -33,7 +33,7 @@ pub struct ScanConfiguration(pub(super) crate::config::AppConfig);
 
 impl ScanConfiguration {
     pub fn ocr(&self) -> &crate::config::VrOcrConfig {
-        &self.0.vr_overlay.ocr
+        &self.0.ocr
     }
 }
 
@@ -116,7 +116,7 @@ impl VrOcrService {
 
     pub(super) fn matches_config(&self, snapshot: &crate::config::AppConfig) -> bool {
         self.config.read().is_ok_and(|current| {
-            current.vr_overlay.ocr == snapshot.vr_overlay.ocr
+            current.ocr == snapshot.ocr
                 && current.translation.prompt == snapshot.translation.prompt
                 && current.asr.api_profiles == snapshot.asr.api_profiles
         })
@@ -135,13 +135,18 @@ impl VrOcrService {
         mut completed: impl FnMut(BlockUpdate),
     ) -> Result<ScanResult, String> {
         let started = std::time::Instant::now();
-        if images.len() != 2 {
-            return Err("Missing OCR eye result".into());
+        if !(1..=2).contains(&images.len()) {
+            return Err("OCR requires one or two images".into());
         }
+        let desktop = images.len() == 1;
+        images.resize_with(2, Vec::new);
         let had_text = images.iter().any(|eye| !eye.is_empty());
-        let ocr = &config.vr_overlay.ocr;
+        let ocr = &config.ocr;
         for eye in &mut images {
             eye.retain(|block| block.confidence >= ocr.minimum_confidence);
+        }
+        if desktop {
+            images[0] = super::layout::merge_blocks(std::mem::take(&mut images[0]));
         }
         let regions =
             std::array::from_fn(|eye| images[eye].iter().map(|block| block.polygon).collect());
@@ -377,6 +382,127 @@ mod tests {
         }
     }
 
+    fn positioned(id: usize, text: &str, x: f32, y: f32, width: f32) -> TextBlock {
+        TextBlock {
+            polygon: [[x, y], [x + width, y], [x + width, y + 20.], [x, y + 20.]],
+            ..block(id, text)
+        }
+    }
+
+    async fn layout_scan(images: Vec<Vec<TextBlock>>) -> ScanResult {
+        let (service, config) = service(None);
+        service
+            .translate_scan(
+                &config,
+                images,
+                1,
+                tokio::time::Instant::now() + Duration::from_secs(2),
+                |_| async { Ok(()) },
+                |_| {},
+                |_| {},
+            )
+            .await
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn desktop_layout_joins_fragments_and_wrapped_sentences_before_translation() {
+        let result = layout_scan(vec![vec![
+            positioned(2, "where this is?", 10., 36., 170.),
+            positioned(1, "tell me", 125., 12., 125.),
+            positioned(0, "Could you", 10., 10., 110.),
+        ]])
+        .await;
+        assert_eq!(result.blocks[0].len(), 1);
+        assert_eq!(
+            result.blocks[0][0].source.text,
+            "Could you tell me where this is?"
+        );
+        assert_eq!(
+            result.blocks[0][0].source.polygon,
+            [[10., 10.], [250., 10.], [250., 56.], [10., 56.]]
+        );
+        let result = layout_scan(vec![vec![
+            positioned(0, "この文章は", 10., 10., 190.),
+            positioned(1, "次の行に続きます。", 10., 34., 180.),
+        ]])
+        .await;
+        assert_eq!(
+            result.blocks[0][0].source.text,
+            "この文章は次の行に続きます。"
+        );
+    }
+
+    #[tokio::test]
+    async fn desktop_layout_keeps_other_columns_labels_and_finished_sentences_separate() {
+        for texts in [
+            ("This sentence ends.", "another sentence"),
+            ("Alice", "hello from another player"),
+            ("Open Settings", "Open Folder"),
+        ] {
+            let result = layout_scan(vec![vec![
+                positioned(0, texts.0, 10., 10., 220.),
+                positioned(1, texts.1, 10., 34., 180.),
+            ]])
+            .await;
+            assert_eq!(result.blocks[0].len(), 2, "{texts:?}");
+        }
+        let separate = vec![
+            positioned(0, "Could you tell me", 10., 10., 220.),
+            positioned(1, "text from another column", 400., 10., 220.),
+            positioned(2, "text much further down", 10., 120., 180.),
+        ];
+        assert_eq!(layout_scan(vec![separate.clone()]).await.blocks[0].len(), 3);
+        let vr = vec![
+            positioned(0, "Could you tell me", 10., 10., 220.),
+            positioned(1, "where this is?", 10., 34., 180.),
+        ];
+        assert_eq!(layout_scan(vec![vr, vec![]]).await.blocks[0].len(), 2);
+    }
+
+    #[tokio::test]
+    async fn desktop_layout_keeps_adjacent_buttons_and_speakers_separate() {
+        for (left, right) in [
+            ("Cancel", "Save"),
+            ("Alice:", "hello there"),
+            ("取消", "保存"),
+        ] {
+            let result = layout_scan(vec![vec![
+                positioned(0, left, 10., 10., 70.),
+                positioned(1, right, 90., 10., 50.),
+            ]])
+            .await;
+            assert_eq!(result.blocks[0].len(), 2, "{left} / {right}");
+        }
+    }
+
+    #[tokio::test]
+    async fn single_image_keeps_sources_without_creating_a_second_image() {
+        let (service, config) = service(None);
+        let mut updates = Vec::new();
+        let result = service
+            .translate_scan(
+                &config,
+                vec![vec![block(0, "hello")]],
+                7,
+                tokio::time::Instant::now() + Duration::from_secs(2),
+                |regions| async move {
+                    assert_eq!(regions[0].len(), 1);
+                    assert!(regions[1].is_empty());
+                    Ok(())
+                },
+                |_| {},
+                |update| updates.push(update),
+            )
+            .await
+            .unwrap();
+        assert_eq!(result.blocks[0][0].source.text, "hello");
+        assert!(result.blocks[1].is_empty());
+        assert_eq!(result.summary.outcome, ScanOutcome::SourceOnly);
+        assert_eq!(updates.len(), 1);
+        assert_eq!((updates[0].scan_id, updates[0].eye), (7, 0));
+    }
+
     fn service(origin: Option<String>) -> (VrOcrService, crate::config::AppConfig) {
         let mut config = crate::config::AppConfig::default();
         if let Some(origin) = origin {
@@ -389,7 +515,7 @@ mod tests {
                 enabled_capabilities: vec![crate::providers::CAPABILITY_TEXT_TRANSLATION.into()],
                 ..crate::config::ApiProfile::default()
             });
-            config.vr_overlay.ocr.targets[0].profile_id = Some("ocr-test".into());
+            config.ocr.targets[0].profile_id = Some("ocr-test".into());
         }
         let service = VrOcrService::new(
             Arc::new(RwLock::new(config.clone())),
@@ -449,7 +575,7 @@ mod tests {
         let body = bodies.lock().unwrap()[0].to_string();
         assert!(body.contains("REFERENCE CONTEXT"));
         assert!(body.contains("context"));
-        config.vr_overlay.ocr.targets[0].model = "different-model".into();
+        config.ocr.targets[0].model = "different-model".into();
         *service.config.write().unwrap() = config.clone();
         service
             .translate_scan(
@@ -850,7 +976,7 @@ mod tests {
         tokio::time::timeout(Duration::from_secs(1), started.notified())
             .await
             .unwrap();
-        current.write().unwrap().vr_overlay.ocr.minimum_confidence = 0.9;
+        current.write().unwrap().ocr.minimum_confidence = 0.9;
         release.notify_one();
         let error = match work.await.unwrap() {
             Ok(_) => panic!("Old settings must be rejected"),

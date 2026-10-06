@@ -29,19 +29,22 @@ impl LocalOcrRuntime {
         self.assets.start_download()
     }
 
-    pub async fn recognize(
+    pub async fn recognize<const N: usize>(
         &self,
-        images: [OcrImage; 2],
+        images: [OcrImage; N],
         mut progress: impl FnMut(Phase),
-    ) -> Result<[Vec<TextBlock>; 2], String> {
+    ) -> Result<[Vec<TextBlock>; N], String> {
         for image in &images {
-            if image.width == 0 || image.height == 0 || image.width > 1536 || image.height > 1536 {
+            if image.width == 0 || image.height == 0 || image.width > 16384 || image.height > 16384
+            {
                 return Err("Local OCR capture exceeds image limits".into());
             }
             let OcrImageData::Rgba(pixels) = &image.data else {
                 return Err("Local OCR requires RGBA pixels".into());
             };
-            if pixels.len() != image.width as usize * image.height as usize * 4 {
+            if pixels.len() > 128 * 1024 * 1024
+                || pixels.len() != image.width as usize * image.height as usize * 4
+            {
                 return Err("Invalid local OCR pixel buffer".into());
             }
         }
@@ -80,16 +83,16 @@ impl LocalOcrRuntime {
             check_cancelled(&cancelled)?;
             let _ = sender.try_send(Phase::Recognizing);
             let engine = engine.as_mut().ok_or("Local OCR engine is unavailable")?;
-            let [left, right] = images;
-            let left = {
-                let _eye = tracing::info_span!("ocr_local_eye", eye = 0usize).entered();
-                engine.recognize(left, &options, &cancelled)?
-            };
-            let right = {
-                let _eye = tracing::info_span!("ocr_local_eye", eye = 1usize).entered();
-                engine.recognize(right, &options, &cancelled)?
-            };
-            Ok::<_, String>([left, right])
+            images
+                .into_iter()
+                .enumerate()
+                .map(|(index, image)| {
+                    let _eye = tracing::info_span!("ocr_image", index).entered();
+                    engine.recognize(image, &options, &cancelled)
+                })
+                .collect::<Result<Vec<_>, _>>()?
+                .try_into()
+                .map_err(|_| "Missing OCR image result".into())
         });
         loop {
             tokio::select! {
@@ -320,6 +323,49 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn desktop_scan_uses_local_recognition_with_vr_ocr_disabled() {
+        let directory = tempfile::tempdir().unwrap();
+        let mut config = crate::config::AppConfig::default();
+        config.ocr.desktop_enabled = true;
+        config.ocr.backend = crate::config::VrOcrBackend::Local;
+        let service = super::super::VrOcrService::new(
+            Arc::new(std::sync::RwLock::new(config)),
+            Arc::new(crate::translation::TranslationService::new().unwrap()),
+            Arc::new(LocalOcrRuntime::new(directory.path().into())),
+        )
+        .unwrap();
+        let snapshot = service.configuration().unwrap();
+        assert!(!snapshot.ocr().enabled);
+        let error = service
+            .process_scan(
+                [sample()],
+                &snapshot,
+                1,
+                tokio::time::Instant::now() + std::time::Duration::from_secs(2),
+                |_| {},
+                |_| async { Ok(()) },
+                |_| {},
+            )
+            .await
+            .err()
+            .expect("Missing local models must fail recognition");
+        assert!(error.contains("models are missing"), "{error}");
+    }
+
+    #[tokio::test]
+    async fn local_ocr_accepts_original_desktop_resolution_before_loading_models() {
+        let directory = tempfile::tempdir().unwrap();
+        let runtime = LocalOcrRuntime::new(directory.path().into());
+        let image = OcrImage {
+            width: 5120,
+            height: 2,
+            data: OcrImageData::Rgba(vec![255; 5120 * 2 * 4]),
+        };
+        let error = runtime.recognize([image], |_| {}).await.err().unwrap();
+        assert!(error.contains("models are missing"), "{error}");
+    }
+
+    #[tokio::test]
     #[ignore = "requires downloaded official PP-OCRv6 small weights"]
     async fn ocr_official_onnx_models_recognize_multilingual_sample() {
         let directory = std::env::var_os("VRCS_TEST_OCR_MODELS")
@@ -395,9 +441,9 @@ mod tests {
             axum::serve(listener, router).await.unwrap();
         });
         let mut config = crate::config::AppConfig::default();
-        config.vr_overlay.ocr.enabled = true;
-        config.vr_overlay.ocr.backend = crate::config::VrOcrBackend::Local;
-        config.vr_overlay.ocr.targets[0].profile_id = Some("ocr-test".into());
+        config.ocr.enabled = true;
+        config.ocr.backend = crate::config::VrOcrBackend::Local;
+        config.ocr.targets[0].profile_id = Some("ocr-test".into());
         config.asr.api_profiles.push(crate::config::ApiProfile {
             id: "ocr-test".into(),
             provider: crate::providers::OPENAI_COMPATIBLE_PROVIDER.into(),
@@ -446,7 +492,7 @@ mod tests {
                 .iter()
                 .all(|block| block.translations[0].text.as_deref() == Some("translated sample")));
         }
-        service.config.write().unwrap().vr_overlay.ocr.targets[0].profile_id = None;
+        service.config.write().unwrap().ocr.targets[0].profile_id = None;
         phases.clear();
         let original = service
             .process(

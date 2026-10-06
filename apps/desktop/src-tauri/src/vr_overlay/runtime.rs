@@ -10,7 +10,7 @@ use serde::Serialize;
 use tauri::Manager as _;
 use tauri::{AppHandle, Emitter};
 use tokio::sync::{broadcast, watch};
-use vrcs_core::{PresentationEvent, VrOverlayConfig};
+use vrcs_core::{PresentationEvent, VrOcrConfig, VrOverlayConfig};
 
 use super::backend::{OpenVrBackend, OverlayKind};
 use super::dashboard::{
@@ -161,7 +161,7 @@ pub struct Manager {
     status: Arc<Mutex<VrOverlayStatus>>,
     event_sender: Mutex<Option<SyncSender<PresentationEvent>>>,
     pending_control: Arc<Mutex<PendingControl>>,
-    latest_config: Arc<Mutex<Option<VrOverlayConfig>>>,
+    latest_config: Arc<Mutex<Option<(VrOverlayConfig, VrOcrConfig)>>>,
     latest_dashboard: Arc<Mutex<Option<DashboardViewModel>>>,
     stopping: Arc<AtomicBool>,
     worker: Mutex<Option<JoinHandle<()>>>,
@@ -209,7 +209,7 @@ impl Manager {
     pub fn start(
         &self,
         mut events: broadcast::Receiver<PresentationEvent>,
-        mut config: watch::Receiver<VrOverlayConfig>,
+        mut config: watch::Receiver<(VrOverlayConfig, VrOcrConfig)>,
         ocr_service: Option<vrcs_core::ocr::VrOcrService>,
     ) -> Result<(), String> {
         tracing::info!("Starting VR Overlay manager");
@@ -348,6 +348,7 @@ impl Manager {
 
 struct WorkerState {
     config: VrOverlayConfig,
+    ocr_config: VrOcrConfig,
     headset: HeadsetPresentation,
     wrist: WristPresentation,
     headset_sample: bool,
@@ -371,10 +372,10 @@ fn worker_loop(
     shared_status: Arc<Mutex<VrOverlayStatus>>,
     event_receiver: Receiver<PresentationEvent>,
     pending_control: Arc<Mutex<PendingControl>>,
-    latest_config: Arc<Mutex<Option<VrOverlayConfig>>>,
+    latest_config: Arc<Mutex<Option<(VrOverlayConfig, VrOcrConfig)>>>,
     latest_dashboard: Arc<Mutex<Option<DashboardViewModel>>>,
     stopping: Arc<AtomicBool>,
-    config: VrOverlayConfig,
+    config: (VrOverlayConfig, VrOcrConfig),
     ocr_service: Option<vrcs_core::ocr::VrOcrService>,
 ) {
     #[cfg(windows)]
@@ -383,8 +384,10 @@ fn worker_loop(
         .app_config_dir()
         .ok()
         .map(|path| path.join("steamvr-ocr"));
+    let (config, ocr_config) = config;
     let mut state = WorkerState {
         config,
+        ocr_config,
         headset: HeadsetPresentation::default(),
         wrist: WristPresentation::default(),
         headset_sample: false,
@@ -414,9 +417,9 @@ fn worker_loop(
         }
 
         if let Ok(mut pending) = latest_config.lock() {
-            if let Some(config) = pending.take() {
+            if let Some((config, ocr_config)) = pending.take() {
                 #[cfg(windows)]
-                if state.config.ocr != config.ocr {
+                if state.ocr_config != ocr_config {
                     state.ocr.clear();
                 }
                 state.wrist.set_max_entries(config.wrist.max_entries);
@@ -433,6 +436,7 @@ fn worker_loop(
                     state.wrist_sample = false;
                 }
                 state.config = config;
+                state.ocr_config = ocr_config;
                 status.last_error_detail = None;
             }
         }
@@ -525,7 +529,7 @@ fn tick(app: &AppHandle, state: &mut WorkerState, status: &mut VrOverlayStatus) 
     }
     let any_enabled =
         state.config.enabled && (state.config.headset.enabled || state.config.wrist.enabled);
-    let ocr_enabled = state.config.ocr.enabled;
+    let ocr_enabled = state.ocr_config.enabled;
     if !status.runtime_installed || !status.hmd_present {
         #[cfg(windows)]
         state.ocr.unavailable(ocr_enabled);
@@ -602,7 +606,7 @@ fn tick(app: &AppHandle, state: &mut WorkerState, status: &mut VrOverlayStatus) 
     status.last_error_detail = None;
     update_headset(state, status, &mut backend);
     #[cfg(windows)]
-    state.ocr.tick(&mut backend, &state.config.ocr);
+    state.ocr.tick(&mut backend, &state.ocr_config);
     update_wrist(state, status, &mut backend);
     update_dashboard(app, state, status, &mut backend);
     let headset_failed =
@@ -810,8 +814,8 @@ fn update_wrist(
     let ocr_texts = state.ocr.wrist_texts();
     #[cfg(not(windows))]
     let ocr_texts = Vec::new();
-    let showing_ocr = state.config.ocr.enabled
-        && state.config.ocr.display_mode == vrcs_core::VrOcrDisplayMode::Wrist
+    let showing_ocr = state.ocr_config.enabled
+        && state.ocr_config.display_mode == vrcs_core::VrOcrDisplayMode::Wrist
         && !ocr_texts.is_empty();
     if !state.config.enabled || (!state.config.wrist.enabled && !showing_ocr) {
         backend.reset(OverlayKind::Wrist);
@@ -883,7 +887,7 @@ fn update_wrist(
         &frame,
         state.config.wrist.font_size_px,
         if showing_ocr {
-            state.config.ocr.background_opacity
+            state.ocr_config.background_opacity
         } else {
             state.config.wrist.background_opacity
         },

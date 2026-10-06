@@ -96,7 +96,8 @@ impl RuntimeAssembly {
             plan.config.osc.mute_sync_enabled,
             shutdown_rx.clone(),
         );
-        let (vr_overlay_config_tx, _) = watch::channel(plan.config.vr_overlay.clone());
+        let (vr_overlay_config_tx, _) =
+            watch::channel((plan.config.vr_overlay.clone(), plan.config.ocr.clone()));
 
         let config_runtime = ConfigRuntime::new(ConfigRuntimeInput {
             config_path: plan.config_path,

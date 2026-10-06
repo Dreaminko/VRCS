@@ -9,6 +9,7 @@ export type SettingsCategory =
   | "audio"
   | "learning"
   | "connections"
+  | "ocr"
   | "vr_overlay"
   | "debug";
 

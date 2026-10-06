@@ -1,19 +1,21 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { DEFAULT_VR_OVERLAY_SETTINGS, isVrOcrBackendReady, patchVrOverlay } from "../src/settings/vr-overlay-settings.ts";
+import { DEFAULT_OCR_SETTINGS, DEFAULT_VR_OVERLAY_SETTINGS, isVrOcrBackendReady, patchOcr } from "../src/settings/vr-overlay-settings.ts";
 import type { Settings } from "../src/settings/types.ts";
 
 test("OCR defaults preserve wrist display while allowing independent stereo and backend choices", () => {
-  const defaults = DEFAULT_VR_OVERLAY_SETTINGS;
-  assert.equal(defaults.ocr.display_mode, "wrist");
-  const settings = { vr_overlay: defaults } as Settings;
-  const patched = patchVrOverlay(settings, {
-    ocr: { ...defaults.ocr, display_mode: "stereo", backend: "local" },
-  });
-  assert.equal(patched.vr_overlay.ocr.display_mode, "stereo");
-  assert.equal(patched.vr_overlay.ocr.backend, "local");
-  assert.equal(settings.vr_overlay.ocr.backend, "cloud");
+  const settings = { vr_overlay: DEFAULT_VR_OVERLAY_SETTINGS, ocr: DEFAULT_OCR_SETTINGS } as Settings;
+  assert.equal(settings.ocr.display_mode, "wrist");
+  assert.equal(settings.ocr.desktop_enabled, false);
+  assert.equal(settings.ocr.shortcut, "Ctrl+Alt+O");
+  const patched = patchOcr(settings, { display_mode: "stereo", backend: "local", desktop_enabled: true });
+  assert.equal(patched.ocr.display_mode, "stereo");
+  assert.equal(patched.ocr.backend, "local");
+  assert.equal(patched.ocr.desktop_enabled, true);
+  assert.equal(patched.ocr.enabled, false);
+  assert.equal(patched.vr_overlay, settings.vr_overlay);
+  assert.equal(settings.ocr.backend, "cloud");
 });
 
 test("local OCR requires prepared models and does not require a cloud credential", () => {

@@ -825,10 +825,11 @@ fn disable_cloud_recognition(config: &mut crate::config::AppConfig) {
 }
 
 fn disable_translation_profile(config: &mut crate::config::AppConfig, profile_id: &str) {
-    for target in &mut config.vr_overlay.ocr.targets {
+    for target in &mut config.ocr.targets {
         if target.profile_id.as_deref() == Some(profile_id) {
             target.profile_id = None;
-            config.vr_overlay.ocr.enabled = false;
+            config.ocr.enabled = false;
+            config.ocr.desktop_enabled = false;
         }
     }
     let global_uses_profile = config
@@ -874,7 +875,6 @@ fn disable_translation_profile(config: &mut crate::config::AppConfig, profile_id
 fn uses_translation_profile(config: &crate::config::AppConfig, profile_id: &str) -> bool {
     uses_global_translation_profile(config, profile_id)
         || config
-            .vr_overlay
             .ocr
             .targets
             .iter()
@@ -908,12 +908,12 @@ mod tests {
     #[test]
     fn losing_ocr_translation_profile_disables_ocr_without_changing_voice_translation() {
         let mut config = crate::config::AppConfig::default();
-        config.vr_overlay.ocr.enabled = true;
-        config.vr_overlay.ocr.targets[0].profile_id = Some("removed".into());
+        config.ocr.enabled = true;
+        config.ocr.targets[0].profile_id = Some("removed".into());
         assert!(uses_translation_profile(&config, "removed"));
         disable_translation_profile(&mut config, "removed");
-        assert!(!config.vr_overlay.ocr.enabled);
-        assert_eq!(config.vr_overlay.ocr.targets[0].profile_id, None);
+        assert!(!config.ocr.enabled);
+        assert_eq!(config.ocr.targets[0].profile_id, None);
         assert_eq!(
             config.translation,
             crate::config::TranslationConfig::default()

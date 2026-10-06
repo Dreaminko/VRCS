@@ -1,7 +1,11 @@
-//! OCR for user-triggered VR captures.
+//! OCR for user-triggered desktop and VR captures.
+
+#[cfg(windows)]
+pub mod desktop_capture;
 
 mod assets;
 mod cache;
+mod layout;
 mod local;
 mod processors;
 mod tasks;
@@ -83,9 +87,12 @@ impl VrOcrService {
 
     // Keep the scan callbacks separate so callers can stream progress and completed blocks.
     #[allow(clippy::too_many_arguments)]
-    pub async fn process_scan<F: std::future::Future<Output = Result<(), String>>>(
+    pub async fn process_scan<
+        const N: usize,
+        F: std::future::Future<Output = Result<(), String>>,
+    >(
         &self,
-        images: [OcrImage; 2],
+        images: [OcrImage; N],
         config: &ScanConfiguration,
         scan_id: u64,
         deadline: tokio::time::Instant,
@@ -98,9 +105,12 @@ impl VrOcrService {
         let started = std::time::Instant::now();
         let result = async {
             let config = &config.0;
-            let ocr = &config.vr_overlay.ocr;
-            if !ocr.enabled {
-                return Err("VR OCR is disabled".into());
+            let ocr = &config.ocr;
+            if !matches!(N, 1 | 2) {
+                return Err("OCR requires one or two images".into());
+            }
+            if (N == 1 && !ocr.desktop_enabled) || (N == 2 && !ocr.enabled) {
+                return Err("OCR is disabled".into());
             }
             if !self.matches_config(config) {
                 return Err("OCR configuration changed".into());
@@ -136,13 +146,13 @@ impl VrOcrService {
         result
     }
 
-    async fn recognize_cloud(
+    async fn recognize_cloud<const N: usize>(
         &self,
         token: &str,
-        images: [OcrImage; 2],
+        images: [OcrImage; N],
         deadline: tokio::time::Instant,
         progress: &mut impl FnMut(Phase),
-    ) -> Result<[Vec<TextBlock>; 2], String> {
+    ) -> Result<[Vec<TextBlock>; N], String> {
         use tracing::Instrument;
         let state = std::sync::Mutex::new((progress, 0usize));
         let recognize = |eye, image: OcrImage| {
@@ -177,9 +187,15 @@ impl VrOcrService {
             }
             .instrument(tracing::info_span!("ocr_cloud_eye", eye))
         };
-        let [left, right] = images;
-        let (left, right) = tokio::try_join!(recognize(0usize, left), recognize(1usize, right))?;
-        Ok([left, right])
+        futures_util::future::try_join_all(
+            images
+                .into_iter()
+                .enumerate()
+                .map(|(index, image)| recognize(index, image)),
+        )
+        .await?
+        .try_into()
+        .map_err(|_| "Missing OCR image result".into())
     }
 
     #[cfg(test)]
@@ -190,8 +206,8 @@ impl VrOcrService {
         verify: impl FnOnce(TextRegions) -> F,
         progress: impl FnMut(Phase),
     ) -> Result<Vec<Vec<TranslatedBlock>>, String> {
-        let deadline = tokio::time::Instant::now()
-            + Duration::from_secs(config.vr_overlay.ocr.timeout_seconds as u64);
+        let deadline =
+            tokio::time::Instant::now() + Duration::from_secs(config.ocr.timeout_seconds as u64);
         self.translate_scan(config, images, 0, deadline, verify, progress, |_| {})
             .await
             .map(|result| result.blocks.into_iter().collect())
@@ -853,7 +869,7 @@ mod tests {
             enabled_capabilities: vec![crate::providers::CAPABILITY_TEXT_TRANSLATION.into()],
             ..crate::config::ApiProfile::default()
         });
-        config.vr_overlay.ocr.targets[0].profile_id = Some("ocr-test".into());
+        config.ocr.targets[0].profile_id = Some("ocr-test".into());
         let service = VrOcrService::new(
             Arc::new(RwLock::new(config.clone())),
             Arc::new(crate::translation::TranslationService::new().unwrap()),
@@ -922,7 +938,7 @@ mod tests {
             enabled_capabilities: vec![crate::providers::CAPABILITY_TEXT_TRANSLATION.into()],
             ..crate::config::ApiProfile::default()
         });
-        config.vr_overlay.ocr.targets[0].profile_id = Some("ocr-test".into());
+        config.ocr.targets[0].profile_id = Some("ocr-test".into());
         let service = VrOcrService::new(
             Arc::new(RwLock::new(config.clone())),
             Arc::new(crate::translation::TranslationService::new().unwrap()),

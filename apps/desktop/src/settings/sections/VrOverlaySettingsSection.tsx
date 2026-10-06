@@ -18,8 +18,6 @@ import type {
   VrOverlayWristSettings,
 } from "../../integrations/types";
 import type { Settings } from "../types";
-import type { ApiProfileView } from "../../providers/types";
-import { VrOcrSettingsCard } from "./VrOcrSettingsCard";
 import {
   getVrOverlayStatus,
   hideVrOverlaySample,
@@ -118,12 +116,10 @@ function OverlayStatusBadge({
 
 export function VrOverlaySettingsSection({
   draft,
-  profiles,
   saveState,
   applySettings,
 }: {
   draft: Settings;
-  profiles: ApiProfileView[];
   saveState: SaveState;
   applySettings: ApplySettings;
 }) {
@@ -215,8 +211,6 @@ export function VrOverlaySettingsSection({
       role="tabpanel"
       aria-labelledby="settings-tab-vr_overlay"
     >
-      <VrOcrSettingsCard config={draft.vr_overlay.ocr} profiles={profiles} disabled={saveState === "saving"} runtime={status?.ocr}
-        onChange={(patch) => applySettings((current) => patchVrOverlay(current, { ocr: { ...current.vr_overlay.ocr, ...patch } }))} />
       <div className="section-heading">
         <div><Layers3 size={18} /><h2>{t("settings.vrOverlay.title")}</h2></div>
       </div>

@@ -3,12 +3,13 @@ import type { AudioOutputSettings, MicrophoneSettings, VadSettings } from "../ca
 import type {
   ExternalApiSettings,
   VrOverlaySettings,
+  VrOcrSettings,
   VrcxSettings,
 } from "../integrations/types";
 import type { AsrSettings } from "../providers/types";
 
 export interface Settings {
-  schema_version: 27;
+  schema_version: 28;
   server: {
     host: string;
     port: number;
@@ -43,6 +44,7 @@ export interface Settings {
   external_api: ExternalApiSettings;
   vrcx: VrcxSettings;
   vr_overlay: VrOverlaySettings;
+  ocr: VrOcrSettings;
 }
 
 export interface TranslationSettings {

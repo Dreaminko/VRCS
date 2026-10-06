@@ -776,6 +776,17 @@ pub(super) fn config_version(raw: &serde_json::Value) -> Result<u64, String> {
 pub fn config_from_value(raw: &serde_json::Value) -> Result<AppConfig, String> {
     let version = config_version(raw)?;
     let mut normalized = raw.clone();
+    let legacy_ocr = normalized
+        .get_mut("vr_overlay")
+        .and_then(serde_json::Value::as_object_mut)
+        .and_then(|overlay| overlay.remove("ocr"));
+    if let Some(ocr) = legacy_ocr {
+        normalized
+            .as_object_mut()
+            .unwrap()
+            .entry("ocr")
+            .or_insert(ocr);
+    }
     if let Some(overlay) = normalized.get_mut("vr_overlay") {
         for surface in ["headset", "wrist"] {
             if let Some(settings) = overlay
@@ -791,7 +802,7 @@ pub fn config_from_value(raw: &serde_json::Value) -> Result<AppConfig, String> {
         version if version == SCHEMA_VERSION as u64 => {
             serde_json::from_value(raw.clone()).map_err(|error| error.to_string())?
         }
-        26 => serde_json::from_value(raw.clone()).map_err(|error| error.to_string())?,
+        26 | 27 => serde_json::from_value(raw.clone()).map_err(|error| error.to_string())?,
         23..=25 => deserialize_v24(raw.clone())?,
         22 => migrate_v22(raw)?,
         21 => migrate_v21(raw)?,

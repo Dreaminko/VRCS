@@ -137,8 +137,9 @@ pub fn center_crop(image: &Texture, fraction: f32) -> Result<CaptureCrop, String
         || !(0.1..=1.0).contains(&fraction)
         || image.width == 0
         || image.height == 0
-        || image.width > 4096
-        || image.height > 4096
+        || image.width > 16384
+        || image.height > 16384
+        || image.pixels.len() > 128 * 1024 * 1024
         || image.pixels.len() != image.width as usize * image.height as usize * 4
     {
         return Err("Invalid OCR crop".into());
@@ -326,6 +327,18 @@ mod tests {
         let mut polygon = [[0., 0.], [10., 0.], [10., 1.], [0., 1.]];
         crop.transform().restore(&mut polygon);
         assert_eq!(polygon, [[0., 0.], [20., 0.], [20., 2.], [0., 2.]]);
+    }
+
+    #[test]
+    fn ultrawide_capture_is_resized_before_recognition() {
+        let image = Texture {
+            width: 5120,
+            height: 2,
+            pixels: [20, 40, 60, 255].repeat(5120 * 2),
+        };
+        let crop = center_crop(&image, 1.0).unwrap();
+        assert_eq!((crop.image.width, crop.image.height), (1536, 1));
+        assert_eq!(&crop.image.pixels[..4], &[20, 40, 60, 255]);
     }
 
     #[test]

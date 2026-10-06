@@ -824,7 +824,7 @@ fn legacy_alignment_settings_do_not_affect_other_services_or_translation_modes()
 #[test]
 fn ocr_config_defaults_disabled_and_rejects_unbounded_requests() {
     let default = serde_json::to_value(crate::config::AppConfig::default()).unwrap();
-    assert_eq!(default["vr_overlay"]["ocr"]["enabled"], false);
+    assert_eq!(default["ocr"]["enabled"], false);
     for patch in [
         serde_json::json!({"timeout_seconds":0}),
         serde_json::json!({"minimum_confidence":1.1}),
@@ -832,7 +832,7 @@ fn ocr_config_defaults_disabled_and_rejects_unbounded_requests() {
         serde_json::json!({"targets":[]}),
     ] {
         let mut config = default.clone();
-        config["vr_overlay"]["ocr"] = patch;
+        config["ocr"] = patch;
         let config: crate::config::AppConfig = serde_json::from_value(config).unwrap();
         assert!(config.validate_settings().is_err());
     }
@@ -841,9 +841,9 @@ fn ocr_config_defaults_disabled_and_rejects_unbounded_requests() {
 #[test]
 fn ocr_source_view_can_be_enabled_without_a_translation_profile() {
     let mut config = AppConfig::default();
-    config.vr_overlay.ocr.enabled = true;
+    config.ocr.enabled = true;
     assert!(config.validate_settings().is_ok());
-    config.vr_overlay.ocr.targets[0].profile_id = Some("missing".into());
+    config.ocr.targets[0].profile_id = Some("missing".into());
     assert!(config.validate_settings().is_err());
 }
 

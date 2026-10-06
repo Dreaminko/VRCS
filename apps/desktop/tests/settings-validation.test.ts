@@ -6,11 +6,11 @@ import {
   hasEnabledAudioSource,
   validComputeTypes,
 } from "../src/settings/settings-validation.ts";
-import { DEFAULT_VR_OVERLAY_SETTINGS } from "../src/settings/vr-overlay-settings.ts";
+import { DEFAULT_OCR_SETTINGS, DEFAULT_VR_OVERLAY_SETTINGS } from "../src/settings/vr-overlay-settings.ts";
 import type { AsrCapabilities, AudioDevice, Settings } from "../src/types.ts";
 
 const settings: Settings = {
-  schema_version: 27,
+  schema_version: 28,
   server: { host: "127.0.0.1", port: 8766 },
   storage: {
     database_path: "data/vrcs.db",
@@ -33,6 +33,7 @@ const settings: Settings = {
   external_api: { enabled: false, host: "127.0.0.1", port: 8767, require_token: false },
   vrcx: { enabled: false, port: 22500, include_in_llm_context: false, include_in_asr_context: false },
   vr_overlay: DEFAULT_VR_OVERLAY_SETTINGS,
+  ocr: DEFAULT_OCR_SETTINGS,
 };
 
 const devices: AudioDevice[] = [

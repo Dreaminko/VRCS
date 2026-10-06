@@ -4,8 +4,10 @@ import test from "node:test";
 import {
   DEFAULT_VR_OVERLAY_HEADSET_SETTINGS,
   DEFAULT_VR_OVERLAY_SETTINGS,
+  DEFAULT_OCR_SETTINGS,
   DEFAULT_VR_OVERLAY_WRIST_SETTINGS,
   patchVrOverlay,
+  patchOcr,
   patchVrOverlayHeadset,
   patchVrOverlayWrist,
   resetVrOverlayHeadset,
@@ -25,21 +27,21 @@ import {
 } from "../src/vr-overlay-native.ts";
 
 const settings = {
-  schema_version: 27,
+  schema_version: 28,
   vr_overlay: DEFAULT_VR_OVERLAY_SETTINGS,
+  ocr: DEFAULT_OCR_SETTINGS,
 } as unknown as Settings;
 
-test("VR Overlay defaults include disabled cloud OCR", () => {
+test("VR Overlay defaults keep OCR settings separate", () => {
   assert.deepEqual(Object.keys(DEFAULT_VR_OVERLAY_SETTINGS).sort(), [
     "enabled",
     "headset",
-    "ocr",
     "translation_display",
     "wrist",
   ]);
   assert.equal(DEFAULT_VR_OVERLAY_SETTINGS.translation_display, "all_languages");
-  assert.equal(DEFAULT_VR_OVERLAY_SETTINGS.ocr.enabled, false);
-  assert.equal(DEFAULT_VR_OVERLAY_SETTINGS.ocr.backend, "cloud");
+  assert.equal(DEFAULT_OCR_SETTINGS.enabled, false);
+  assert.equal(DEFAULT_OCR_SETTINGS.backend, "cloud");
   assert.deepEqual(Object.keys(DEFAULT_VR_OVERLAY_HEADSET_SETTINGS).sort(), [
     "background_opacity",
     "display_seconds",
@@ -107,14 +109,11 @@ test("VR Overlay patches are immutable and scoped to the requested branch", () =
 });
 
 test("selecting local OCR preserves translation routes and other overlay settings", () => {
-  const local = patchVrOverlay(settings, {
-    ocr: { ...settings.vr_overlay.ocr, backend: "local" },
-  });
-
-  assert.equal(settings.vr_overlay.ocr.backend, "cloud");
-  assert.equal(local.vr_overlay.ocr.backend, "local");
-  assert.equal(local.vr_overlay.ocr.targets, settings.vr_overlay.ocr.targets);
-  assert.equal(local.vr_overlay.ocr.enabled, false);
+  const local = patchOcr(settings, { backend: "local" });
+  assert.equal(settings.ocr.backend, "cloud");
+  assert.equal(local.ocr.backend, "local");
+  assert.equal(local.ocr.targets, settings.ocr.targets);
+  assert.equal(local.ocr.enabled, false);
   assert.equal(local.vr_overlay.headset, settings.vr_overlay.headset);
   assert.equal(local.vr_overlay.wrist, settings.vr_overlay.wrist);
 });
