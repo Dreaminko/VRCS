@@ -525,6 +525,10 @@
     },
     "settings": {
       "vrDashboard": {
+        "resetPosition": "恢復預設位置與旋轉",
+        "displayTab": "顯示與 OCR",
+        "languageTab": "語言",
+        "oscHint": "請同時在 VRChat 中啟用 OSC。連接埠可在桌面端設定。",
         "title": "VRCS 快捷設定",
         "subtitle": "在 SteamVR 中調整常用顯示選項",
         "master": "VR Overlay",

@@ -7,6 +7,49 @@ import type {
 } from "../integrations/types";
 import type { Settings } from "./types";
 
+export type VrOverlayDisplayKind = "headset" | "wrist";
+export type VrOverlayPositionField = "offset_x_m" | "offset_y_m" | "offset_z_m" | "distance_m" | "pitch_deg" | "yaw_deg" | "roll_deg";
+
+export const VR_OVERLAY_POSITION_RANGES = {
+  headset: {
+    offset_x_m: { min: -2, max: 2, step: 0.01 },
+    offset_y_m: { min: -2, max: 2, step: 0.01 },
+    distance_m: { min: 0.25, max: 5, step: 0.05 },
+    pitch_deg: { min: -90, max: 90, step: 1 },
+    yaw_deg: { min: -180, max: 180, step: 1 },
+    roll_deg: { min: -180, max: 180, step: 1 },
+  },
+  wrist: {
+    offset_x_m: { min: -0.5, max: 0.5, step: 0.01 },
+    offset_y_m: { min: -0.5, max: 0.5, step: 0.01 },
+    offset_z_m: { min: -0.5, max: 0.5, step: 0.01 },
+    pitch_deg: { min: -180, max: 180, step: 1 },
+    yaw_deg: { min: -180, max: 180, step: 1 },
+    roll_deg: { min: -180, max: 180, step: 1 },
+  },
+} as const;
+
+export function adjustVrOverlayPosition(settings: Settings, kind: VrOverlayDisplayKind, field: VrOverlayPositionField, direction: number): Settings {
+  if ((kind !== "headset" && kind !== "wrist") || ![-1, 1].includes(direction)) return settings;
+  const ranges: Partial<Record<VrOverlayPositionField, { min: number; max: number; step: number }>> = VR_OVERLAY_POSITION_RANGES[kind];
+  const range = ranges[field];
+  if (!range) return settings;
+  const current = (settings.vr_overlay[kind] as unknown as Record<string, unknown>)[field];
+  if (typeof current !== "number" || !Number.isFinite(current)) return settings;
+  const value = Math.round(Math.min(range.max, Math.max(range.min, current + direction * range.step)) * 100) / 100;
+  if (current === value) return settings;
+  return kind === "headset" ? patchVrOverlayHeadset(settings, { [field]: value }) : patchVrOverlayWrist(settings, { [field]: value });
+}
+
+export function resetVrOverlayPosition(settings: Settings, kind: VrOverlayDisplayKind): Settings {
+  if (kind !== "headset" && kind !== "wrist") return settings;
+  const defaults = kind === "headset" ? DEFAULT_VR_OVERLAY_HEADSET_SETTINGS : DEFAULT_VR_OVERLAY_WRIST_SETTINGS;
+  const patch = Object.fromEntries(Object.keys(VR_OVERLAY_POSITION_RANGES[kind]).map((field) => [field, (defaults as unknown as Record<string, unknown>)[field]]));
+  const current = settings.vr_overlay[kind] as unknown as Record<string, unknown>;
+  if (Object.entries(patch).every(([field, value]) => current[field] === value)) return settings;
+  return kind === "headset" ? patchVrOverlayHeadset(settings, patch) : patchVrOverlayWrist(settings, patch);
+}
+
 export const DEFAULT_VR_OVERLAY_HEADSET_SETTINGS: VrOverlayHeadsetSettings = {
   enabled: true,
   show_partials: false,

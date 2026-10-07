@@ -5,6 +5,7 @@ import type {
   LanguagePreset,
   Settings,
 } from "../types";
+import { applyLanguagePreset, saveLanguagePreset } from "./language-settings";
 
 export function LanguagePresetSettings({
   settings,
@@ -18,35 +19,16 @@ export function LanguagePresetSettings({
   const { t } = useTranslation();
   const savePreset = () => {
     if (settings.language_presets.length >= 5) return;
-    const preset: LanguagePreset = {
-      id: crypto.randomUUID(),
-      name: t("settings.translation.presetDefaultName", {
-        count: settings.language_presets.length + 1,
-      }),
-      recognition_language: settings.asr.language,
-      translation_mode: settings.translation.mode,
-      speaker_targets: structuredClone(settings.translation.speaker_targets),
-      microphone_targets: structuredClone(settings.translation.microphone_targets),
-      osc_translation_strategy: settings.osc.translation_strategy,
-    };
-    onChange({ ...settings, language_presets: [...settings.language_presets, preset] });
+    onChange(saveLanguagePreset(settings, t("settings.translation.presetDefaultName", {
+      count: settings.language_presets.length + 1,
+    })));
   };
   const updatePreset = (index: number, patch: Partial<LanguagePreset>) => {
     const language_presets = [...settings.language_presets];
     language_presets[index] = { ...language_presets[index], ...patch };
     onChange({ ...settings, language_presets });
   };
-  const applyPreset = (preset: LanguagePreset) => onChange({
-    ...settings,
-    asr: { ...settings.asr, language: preset.recognition_language },
-    translation: {
-      ...settings.translation,
-      mode: preset.translation_mode,
-      speaker_targets: structuredClone(preset.speaker_targets),
-      microphone_targets: structuredClone(preset.microphone_targets),
-    },
-    osc: { ...settings.osc, translation_strategy: preset.osc_translation_strategy },
-  });
+  const applyPreset = (preset: LanguagePreset) => onChange(applyLanguagePreset(settings, preset.id));
 
   return (
     <section className="translation-preset-group">

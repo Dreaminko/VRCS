@@ -525,6 +525,10 @@
     },
     "settings": {
       "vrDashboard": {
+        "resetPosition": "Reset position and rotation",
+        "displayTab": "Display & OCR",
+        "languageTab": "Languages",
+        "oscHint": "Enable OSC in VRChat as well. Set the port in the desktop app.",
         "title": "VRCS Quick Settings",
         "subtitle": "Adjust common display options inside SteamVR",
         "master": "VR Overlay",

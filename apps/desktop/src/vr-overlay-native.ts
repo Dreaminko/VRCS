@@ -3,11 +3,25 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
 import type { VrOverlayStatus } from "./integrations/types";
 import type { VrDashboardAction } from "./vr-dashboard/settings-actions";
+import type { VrOverlayPositionField } from "./settings/vr-overlay-settings";
 
 export type VrOverlayKind = "headset" | "wrist";
 
 export const VR_OVERLAY_STATUS_EVENT = "vr-overlay-status-changed";
 export const VR_DASHBOARD_ACTION_EVENT = "vr-dashboard-action";
+
+export interface VrDashboardChoice {
+  value: string;
+  options: Array<{ value: string; label: string }>;
+}
+
+export interface VrDashboardNumberField {
+  field: VrOverlayPositionField;
+  label: string;
+  value: string;
+  can_decrease: boolean;
+  can_increase: boolean;
+}
 
 export interface VrDashboardViewModel {
   labels: {
@@ -21,16 +35,45 @@ export interface VrDashboardViewModel {
     hand: string;
     width: string;
     opacity: string;
+    position: string;
+    rotation: string;
+    reset_position: string;
     gesture: string;
     preview: string;
     bindings: string;
     saving: string;
     saved: string;
+    display_tab: string;
+    language_tab: string;
+    osc_tab: string;
+    recognition_language: string;
+    translation_mode: string;
+    translation_languages: string;
+    speaker_language: string;
+    microphone_language: string;
+    add_target: string;
+    presets: string;
+    save_preset: string;
+    apply_preset: string;
+    delete: string;
+    osc_original: string;
+    osc_enabled: string;
+    osc_mute_sync: string;
+    osc_mute_toast: string;
+    osc_strategy: string;
+    osc_hint: string;
+    close: string;
   };
   enabled: boolean;
-  headset: { enabled: boolean; content: string; width: string; opacity: string };
-  wrist: { enabled: boolean; hand: string; content: string; width: string; opacity: string };
+  headset: { enabled: boolean; content: string; width: string; opacity: string; position: VrDashboardNumberField[] };
+  wrist: { enabled: boolean; hand: string; content: string; width: string; opacity: string; position: VrDashboardNumberField[] };
   ocr: { enabled: boolean; backend: string; gesture: boolean };
+  language: {
+    recognition: VrDashboardChoice; mode: VrDashboardChoice;
+    speaker_targets: VrDashboardChoice[]; microphone_targets: VrDashboardChoice[];
+    can_add: boolean; presets: VrDashboardChoice; can_save_preset: boolean;
+  };
+  osc: { enabled: boolean; original: boolean; mute_sync: boolean; mute_toast: boolean; strategy: string; endpoint: string };
   status: string;
   save_state: "idle" | "saving" | "saved" | "error";
   error: string | null;

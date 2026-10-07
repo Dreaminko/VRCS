@@ -35,6 +35,7 @@ import {
   resetVrOverlayHeadset,
   resetVrOverlayWrist,
   setVrOverlayHeadsetDisplaySeconds,
+  VR_OVERLAY_POSITION_RANGES,
 } from "../vr-overlay-settings";
 
 const runtimeStates: VrOverlayRuntimeState[] = [
@@ -315,18 +316,18 @@ export function VrOverlaySettingsSection({
           <div className="vr-overlay-range-group">
             <h3>{t("settings.vrOverlay.position")}</h3>
             <div className="vr-overlay-range-grid">
-              <MeterRange label={t("settings.vrOverlay.horizontal")} value={draft.vr_overlay.headset.offset_x_m} min={-2} max={2} step={0.01} digits={2} unit=" m" disabled={headsetDisabled} onCommit={(value) => updateHeadset("offset_x_m", value)} />
-              <MeterRange label={t("settings.vrOverlay.vertical")} value={draft.vr_overlay.headset.offset_y_m} min={-2} max={2} step={0.01} digits={2} unit=" m" disabled={headsetDisabled} onCommit={(value) => updateHeadset("offset_y_m", value)} />
-              <MeterRange label={t("settings.vrOverlay.distance")} value={draft.vr_overlay.headset.distance_m} min={0.25} max={5} step={0.05} digits={2} unit=" m" disabled={headsetDisabled} onCommit={(value) => updateHeadset("distance_m", value)} />
+              <MeterRange label={t("settings.vrOverlay.horizontal")} value={draft.vr_overlay.headset.offset_x_m} {...VR_OVERLAY_POSITION_RANGES.headset.offset_x_m} digits={2} unit=" m" disabled={headsetDisabled} onCommit={(value) => updateHeadset("offset_x_m", value)} />
+              <MeterRange label={t("settings.vrOverlay.vertical")} value={draft.vr_overlay.headset.offset_y_m} {...VR_OVERLAY_POSITION_RANGES.headset.offset_y_m} digits={2} unit=" m" disabled={headsetDisabled} onCommit={(value) => updateHeadset("offset_y_m", value)} />
+              <MeterRange label={t("settings.vrOverlay.distance")} value={draft.vr_overlay.headset.distance_m} {...VR_OVERLAY_POSITION_RANGES.headset.distance_m} digits={2} unit=" m" disabled={headsetDisabled} onCommit={(value) => updateHeadset("distance_m", value)} />
             </div>
           </div>
 
           <div className="vr-overlay-range-group">
             <h3>{t("settings.vrOverlay.rotation")}</h3>
             <div className="vr-overlay-range-grid">
-              <MeterRange label={t("settings.vrOverlay.pitch")} value={draft.vr_overlay.headset.pitch_deg} min={-90} max={90} step={1} unit="°" disabled={headsetDisabled} onCommit={(value) => updateHeadset("pitch_deg", value)} />
-              <MeterRange label={t("settings.vrOverlay.yaw")} value={draft.vr_overlay.headset.yaw_deg} min={-180} max={180} step={1} unit="°" disabled={headsetDisabled} onCommit={(value) => updateHeadset("yaw_deg", value)} />
-              <MeterRange label={t("settings.vrOverlay.roll")} value={draft.vr_overlay.headset.roll_deg} min={-180} max={180} step={1} unit="°" disabled={headsetDisabled} onCommit={(value) => updateHeadset("roll_deg", value)} />
+              <MeterRange label={t("settings.vrOverlay.pitch")} value={draft.vr_overlay.headset.pitch_deg} {...VR_OVERLAY_POSITION_RANGES.headset.pitch_deg} unit="°" disabled={headsetDisabled} onCommit={(value) => updateHeadset("pitch_deg", value)} />
+              <MeterRange label={t("settings.vrOverlay.yaw")} value={draft.vr_overlay.headset.yaw_deg} {...VR_OVERLAY_POSITION_RANGES.headset.yaw_deg} unit="°" disabled={headsetDisabled} onCommit={(value) => updateHeadset("yaw_deg", value)} />
+              <MeterRange label={t("settings.vrOverlay.roll")} value={draft.vr_overlay.headset.roll_deg} {...VR_OVERLAY_POSITION_RANGES.headset.roll_deg} unit="°" disabled={headsetDisabled} onCommit={(value) => updateHeadset("roll_deg", value)} />
             </div>
           </div>
 
@@ -416,18 +417,18 @@ export function VrOverlaySettingsSection({
           <div className="vr-overlay-range-group">
             <h3>{t("settings.vrOverlay.position")}</h3>
             <div className="vr-overlay-range-grid">
-              <MeterRange label={t("settings.vrOverlay.horizontal")} value={draft.vr_overlay.wrist.offset_x_m} min={-0.5} max={0.5} step={0.01} digits={2} unit=" m" disabled={wristDisabled} onCommit={(value) => updateWrist("offset_x_m", value)} />
-              <MeterRange label={t("settings.vrOverlay.vertical")} value={draft.vr_overlay.wrist.offset_y_m} min={-0.5} max={0.5} step={0.01} digits={2} unit=" m" disabled={wristDisabled} onCommit={(value) => updateWrist("offset_y_m", value)} />
-              <MeterRange label={t("settings.vrOverlay.depth")} value={draft.vr_overlay.wrist.offset_z_m} min={-0.5} max={0.5} step={0.01} digits={2} unit=" m" disabled={wristDisabled} onCommit={(value) => updateWrist("offset_z_m", value)} />
+              <MeterRange label={t("settings.vrOverlay.horizontal")} value={draft.vr_overlay.wrist.offset_x_m} {...VR_OVERLAY_POSITION_RANGES.wrist.offset_x_m} digits={2} unit=" m" disabled={wristDisabled} onCommit={(value) => updateWrist("offset_x_m", value)} />
+              <MeterRange label={t("settings.vrOverlay.vertical")} value={draft.vr_overlay.wrist.offset_y_m} {...VR_OVERLAY_POSITION_RANGES.wrist.offset_y_m} digits={2} unit=" m" disabled={wristDisabled} onCommit={(value) => updateWrist("offset_y_m", value)} />
+              <MeterRange label={t("settings.vrOverlay.depth")} value={draft.vr_overlay.wrist.offset_z_m} {...VR_OVERLAY_POSITION_RANGES.wrist.offset_z_m} digits={2} unit=" m" disabled={wristDisabled} onCommit={(value) => updateWrist("offset_z_m", value)} />
             </div>
           </div>
 
           <div className="vr-overlay-range-group">
             <h3>{t("settings.vrOverlay.rotation")}</h3>
             <div className="vr-overlay-range-grid">
-              <MeterRange label={t("settings.vrOverlay.pitch")} value={draft.vr_overlay.wrist.pitch_deg} min={-180} max={180} step={1} unit="°" disabled={wristDisabled} onCommit={(value) => updateWrist("pitch_deg", value)} />
-              <MeterRange label={t("settings.vrOverlay.yaw")} value={draft.vr_overlay.wrist.yaw_deg} min={-180} max={180} step={1} unit="°" disabled={wristDisabled} onCommit={(value) => updateWrist("yaw_deg", value)} />
-              <MeterRange label={t("settings.vrOverlay.roll")} value={draft.vr_overlay.wrist.roll_deg} min={-180} max={180} step={1} unit="°" disabled={wristDisabled} onCommit={(value) => updateWrist("roll_deg", value)} />
+              <MeterRange label={t("settings.vrOverlay.pitch")} value={draft.vr_overlay.wrist.pitch_deg} {...VR_OVERLAY_POSITION_RANGES.wrist.pitch_deg} unit="°" disabled={wristDisabled} onCommit={(value) => updateWrist("pitch_deg", value)} />
+              <MeterRange label={t("settings.vrOverlay.yaw")} value={draft.vr_overlay.wrist.yaw_deg} {...VR_OVERLAY_POSITION_RANGES.wrist.yaw_deg} unit="°" disabled={wristDisabled} onCommit={(value) => updateWrist("yaw_deg", value)} />
+              <MeterRange label={t("settings.vrOverlay.roll")} value={draft.vr_overlay.wrist.roll_deg} {...VR_OVERLAY_POSITION_RANGES.wrist.roll_deg} unit="°" disabled={wristDisabled} onCommit={(value) => updateWrist("roll_deg", value)} />
             </div>
           </div>
 

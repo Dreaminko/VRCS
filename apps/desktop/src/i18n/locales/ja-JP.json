@@ -525,6 +525,10 @@
     },
     "settings": {
       "vrDashboard": {
+        "resetPosition": "位置と回転をリセット",
+        "displayTab": "表示と OCR",
+        "languageTab": "言語",
+        "oscHint": "VRChat 側でも OSC を有効にしてください。ポートはデスクトップで設定できます。",
         "title": "VRCS クイック設定",
         "subtitle": "SteamVR 内でよく使う表示設定を調整します",
         "master": "VR Overlay",

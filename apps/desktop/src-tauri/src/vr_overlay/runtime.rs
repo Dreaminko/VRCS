@@ -13,9 +13,7 @@ use tokio::sync::{broadcast, watch};
 use vrcs_core::{PresentationEvent, VrOcrConfig, VrOverlayConfig};
 
 use super::backend::{OpenVrBackend, OverlayKind};
-use super::dashboard::{
-    DashboardPointerEvent, DashboardSaveState, DashboardState, DashboardViewModel,
-};
+use super::dashboard::{DashboardPointerEvent, DashboardState, DashboardViewModel};
 use super::dashboard_renderer;
 use super::presentation::{
     HeadsetPresentation, MessageSide, PresentationContent, PresentationFrame, WristMessage,
@@ -443,9 +441,7 @@ fn worker_loop(
         if let Ok(mut pending) = latest_dashboard.lock() {
             if let Some(view) = pending.take() {
                 if state.dashboard_view.as_ref() != Some(&view) {
-                    state
-                        .dashboard
-                        .set_interactive(!matches!(view.save_state, DashboardSaveState::Saving));
+                    state.dashboard.update_view(&view);
                     state.dashboard_view = Some(view);
                     state.dashboard_dirty = true;
                 }

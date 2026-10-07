@@ -13,6 +13,7 @@ import type { ApiProfileView } from "../../providers/types";
 import type { TranslationTargetSettings } from "../types";
 import { useTranslationProfileModels } from "../hooks/useTranslationProfileModels";
 import { PreferenceToggle, Select } from "../SettingsControls";
+import { targetLanguageCodes } from "./language-settings";
 
 function profileLabel(profile: ApiProfileView): string {
   return profile.name === profile.provider_display_name
@@ -139,8 +140,7 @@ function TranslationRouteRow({
   const profile = profiles.find((item) => item.id === target.profile_id);
   const usesModels = Boolean(!native && profile && supportsLlmModels(profile));
   const { models, loading, error, refresh, load } = useTranslationProfileModels(profile, usesModels);
-  const languageCodes = (native ? TRANSLATION_LANGUAGE_CODES.filter((code) => liveService !== "gemini_live_translate" || !["yue-Hant", "nl"].includes(code)) : profile?.capabilities.supported_languages ?? TRANSLATION_LANGUAGE_CODES)
-    .filter((language) => language === target.target_language || !usedLanguages.includes(language));
+  const languageCodes = targetLanguageCodes(target, usedLanguages, profiles, liveService);
   const thinkingControl = thinkingControlForModel(profile?.provider, target.model);
   const selectProfile = async (profileId: string) => {
     const nextProfile = profiles.find((item) => item.id === profileId);

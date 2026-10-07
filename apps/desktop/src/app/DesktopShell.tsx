@@ -92,7 +92,7 @@ export function DesktopShell({
   } = workspace;
   const [sidebarResizing, setSidebarResizing] = useState(false);
   const chatboxButtonRef = useRef<HTMLButtonElement | null>(null);
-  useVrDashboardBridge(settings.value, settings.save);
+  useVrDashboardBridge(settings.value, settings.save, providers.catalog.profiles);
 
   useEffect(() => {
     const preloadDeferredPages = () => {
