@@ -683,7 +683,8 @@ impl DashboardState {
     }
 
     pub fn update_view(&mut self, view: &DashboardViewModel) {
-        self.set_interactive(view.save_state != DashboardSaveState::Saving);
+        // The frontend serializes saves, so pending persistence must not block input.
+        self.set_interactive(true);
         if self.language != view.language {
             self.language = view.language.clone();
             self.pressed = None;
@@ -1112,7 +1113,7 @@ mod tests {
     }
 
     #[test]
-    fn position_limits_and_saving_disable_adjustments_without_closing_the_editor() {
+    fn position_limits_and_disabled_input_preserve_the_editor() {
         let mut state = DashboardState::default();
         state.position[0] = vec![DashboardNumberField {
             field: PositionField::Horizontal,

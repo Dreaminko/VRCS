@@ -17,6 +17,10 @@ pub fn load_config(path: &Path) -> Result<AppConfig, String> {
         .map_err(|error| format!("Configuration JSON is invalid: {error}"))?;
     let version = config_version(&raw)?;
     let config = config_from_value(&raw)?;
+    let migrate_ocr_wrist = raw
+        .get("ocr")
+        .and_then(|ocr| ocr.get("wrist"))
+        .is_none_or(serde_json::Value::is_null);
     if version != SCHEMA_VERSION as u64 {
         let backup = path.with_extension(format!("v{version}.backup.json"));
         if !backup.exists() {
@@ -27,6 +31,8 @@ pub fn load_config(path: &Path) -> Result<AppConfig, String> {
                 )
             })?;
         }
+        save_config(path, &config)?;
+    } else if migrate_ocr_wrist {
         save_config(path, &config)?;
     }
     Ok(config)

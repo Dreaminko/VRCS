@@ -394,12 +394,7 @@ mod tests {
             let (eye, block) = background_fixture(background);
             let texture = render_eye(&eye, &[block], 1.0, false).unwrap().0;
             assert_eq!(&texture.pixels[(11 * 160 + 11) * 4..][..4], &background);
-            assert!(texture
-                .pixels
-                .as_chunks::<4>()
-                .0
-                .iter()
-                .any(|pixel| *pixel == foreground));
+            assert!(texture.pixels.as_chunks::<4>().0.contains(&foreground));
             assert_eq!(&texture.pixels[..4], &[0, 0, 0, 0]);
             assert!(texture
                 .pixels
@@ -419,12 +414,7 @@ mod tests {
             &texture.pixels[(11 * 160 + 11) * 4..][..4],
             &[120, 108, 96, 153]
         );
-        assert!(texture
-            .pixels
-            .as_chunks::<4>()
-            .0
-            .iter()
-            .any(|pixel| *pixel == [0, 0, 0, 255]));
+        assert!(texture.pixels.as_chunks::<4>().0.contains(&[0, 0, 0, 255]));
         assert!(texture
             .pixels
             .as_chunks::<4>()
@@ -455,12 +445,7 @@ mod tests {
             eye.image.pixels = pixels;
             let texture = render_eye(&eye, &[block], 0.6, false).unwrap().0;
             assert_eq!(&texture.pixels[(11 * 160 + 11) * 4..][..4], &[0, 0, 0, 153]);
-            assert!(texture
-                .pixels
-                .as_chunks::<4>()
-                .0
-                .iter()
-                .any(|pixel| *pixel == [255; 4]));
+            assert!(texture.pixels.as_chunks::<4>().0.contains(&[255; 4]));
         }
     }
 

@@ -4,7 +4,9 @@ use super::{
     ocr_input::install_manifest,
     ocr_input_state::{HandReleaseWait, HandWait},
     ocr_selection::Selection,
-    ocr_status::{failure_code, OcrState, OcrStatus},
+    ocr_status::{failure_code, OcrState, OcrStatus, OcrWristState},
+    ocr_wrist::{Action, Pointer, Reader, View},
+    ocr_wrist_renderer::{self, Button},
 };
 use std::{
     path::PathBuf,
@@ -96,6 +98,13 @@ pub struct OcrRuntime {
     selecting: bool,
     selection: Option<Selection>,
     displayed_at: Option<std::time::Instant>,
+    reader: Reader,
+    wrist_eye: Option<usize>,
+    wrist_view: Option<View>,
+    wrist_buttons: Vec<Button>,
+    wrist_pages: usize,
+    wrist_pointer: Pointer,
+    wrist_hovered: Option<Action>,
     encoder: Arc<tokio::sync::Semaphore>,
     pub blocks: [Vec<TranslatedBlock>; 2],
     pub status: OcrStatus,
@@ -123,10 +132,49 @@ impl OcrRuntime {
             selecting: false,
             selection: None,
             displayed_at: None,
+            reader: Reader::default(),
+            wrist_eye: None,
+            wrist_view: None,
+            wrist_buttons: Vec::new(),
+            wrist_pages: 1,
+            wrist_pointer: Pointer::default(),
+            wrist_hovered: None,
             encoder: Arc::new(tokio::sync::Semaphore::new(1)),
             blocks: Default::default(),
             status: OcrStatus::default(),
         }
+    }
+
+    fn reading_blocks(&mut self, mode: VrOcrDisplayMode) -> Vec<TranslatedBlock> {
+        if mode == VrOcrDisplayMode::Stereo {
+            self.fallback_blocks.clone()
+        } else {
+            if self.wrist_eye.is_none() {
+                self.wrist_eye = self
+                    .blocks
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, blocks)| !blocks.is_empty())
+                    .max_by_key(|(_, blocks)| {
+                        blocks
+                            .iter()
+                            .map(|block| block.source.text.len())
+                            .sum::<usize>()
+                    })
+                    .map(|(eye, _)| eye);
+            }
+            self.wrist_eye
+                .map(|eye| self.blocks[eye].clone())
+                .unwrap_or_default()
+        }
+    }
+
+    fn expired(&self, now: std::time::Instant, seconds: f32) -> bool {
+        !self.reader.pinned
+            && self.task.is_none()
+            && self.displayed_at.is_some_and(|started| {
+                now.saturating_duration_since(started).as_secs_f32() > seconds
+            })
     }
 
     pub fn clear(&mut self) {
@@ -146,6 +194,14 @@ impl OcrRuntime {
         self.selecting = false;
         self.selection = None;
         self.displayed_at = None;
+        self.reader = Reader::default();
+        self.reader.sync(self.status.scan_id, &[]);
+        self.wrist_eye = None;
+        self.wrist_view = None;
+        self.wrist_buttons.clear();
+        self.wrist_pages = 1;
+        self.wrist_pointer = Pointer::default();
+        self.wrist_hovered = None;
         self.blocks = Default::default();
         self.status.block_count = 0;
         self.status.layout_limited = false;
@@ -155,6 +211,8 @@ impl OcrRuntime {
         self.status.last_error_code = None;
         self.status.last_error = None;
         self.status.state = OcrState::Ready;
+        self.status.wrist_state = OcrWristState::Hidden;
+        self.status.wrist_error = None;
     }
 
     pub fn unavailable(&mut self, enabled: bool) {
@@ -171,20 +229,32 @@ impl OcrRuntime {
         self.status.gesture_available = false;
     }
 
-    pub fn tick(&mut self, backend: &mut OpenVrBackend, config: &VrOcrConfig) {
+    pub fn tick(
+        &mut self,
+        backend: &mut OpenVrBackend,
+        config: &VrOcrConfig,
+        wrist: &vrcs_core::VrOverlayWristConfig,
+    ) {
         if self.capture.is_none() && !self.selecting {
             backend.reset_ocr();
         }
         if !config.enabled {
             backend.reset_ocr();
+            backend.reset(OverlayKind::OcrWrist);
             backend.reset_ocr_input();
             self.unavailable(false);
             return;
         }
-        if let Err(error) = self
-            .update(backend, config)
-            .and_then(|_| self.update_result(backend, config))
-        {
+        let result = self.update(backend, config).and_then(|_| {
+            let changed = self.result_dirty;
+            self.update_result(backend, config)?;
+            if changed {
+                let blocks = self.reading_blocks(config.display_mode);
+                self.reader.sync(self.status.scan_id, &blocks);
+            }
+            Ok(())
+        });
+        if let Err(error) = result {
             self.clear();
             backend.reset_ocr();
             let code = failure_code(&error);
@@ -196,10 +266,35 @@ impl OcrRuntime {
             self.status.last_error = Some(error);
             self.status.last_error_code = Some(code.into());
             self.status.timed_out = code == "timeout";
+            self.displayed_at = Some(std::time::Instant::now());
+        }
+        if let Err(error) = self.update_wrist(backend, config, wrist) {
+            backend.reset(OverlayKind::OcrWrist);
+            self.wrist_view = None;
+            self.status.wrist_state = OcrWristState::Error;
+            self.status.wrist_error = Some(error);
         }
     }
 
     fn update(&mut self, backend: &mut OpenVrBackend, config: &VrOcrConfig) -> Result<(), String> {
+        let (point, pressed) = backend.ocr_wrist_pointer();
+        self.wrist_hovered = point.and_then(|[x, y]| {
+            self.wrist_buttons
+                .iter()
+                .find(|button| {
+                    let [left, top, right, bottom] = button.bounds;
+                    x >= left && x < right && y >= top && y < bottom
+                })
+                .map(|button| button.action)
+        });
+        let reading_focus = point.is_some();
+        if self.status.wrist_state == OcrWristState::Visible {
+            if let Some(action) = self.wrist_pointer.update(self.wrist_hovered, pressed) {
+                self.reading_action(action);
+            }
+        } else {
+            self.wrist_pointer = Pointer::default();
+        }
         if self.manifest.is_none() {
             self.manifest = Some(install_manifest(
                 self.directory
@@ -210,13 +305,21 @@ impl OcrRuntime {
         let input = backend.ocr_input(
             self.manifest.as_deref().ok_or("OCR manifest unavailable")?,
             config.hand_gesture_enabled,
+            reading_focus,
         )?;
+        for action in input.navigation.iter().copied() {
+            self.reading_action(action);
+        }
         self.status.controller_bound = input.available;
         self.status.gesture_available = input.gesture_available;
         if input.clear {
             self.clear();
             backend.reset_ocr();
             return Ok(());
+        }
+        if self.expired(std::time::Instant::now(), config.display_seconds) {
+            self.clear();
+            backend.reset_ocr();
         }
         if let Some(capture) = &self.capture {
             let configuration_valid = self.configuration.as_deref().is_some_and(|snapshot| {
@@ -227,11 +330,7 @@ impl OcrRuntime {
             let valid = backend
                 .ocr_tracking()
                 .is_ok_and(|(pose, pid, origin)| tracking_valid(capture, pose, pid, origin));
-            let expired = self.task.is_none()
-                && self.displayed_at.is_some_and(|started| {
-                    started.elapsed().as_secs_f32() > config.display_seconds
-                });
-            if !configuration_valid || expired {
+            if !configuration_valid {
                 self.clear();
                 backend.reset_ocr();
             } else if !valid {
@@ -389,12 +488,89 @@ impl OcrRuntime {
         self.status.block_count = self.blocks.iter().map(Vec::len).max().unwrap_or(0);
         let visible = !self.wrist_texts().is_empty();
         self.complete_status(&frame.summary, visible);
-        if visible {
-            self.displayed_at = Some(std::time::Instant::now());
-        } else {
+        self.displayed_at = Some(std::time::Instant::now());
+        if !visible {
             self.capture = None;
             self.configuration = None;
         }
+    }
+
+    fn reading_action(&mut self, action: Action) {
+        if action == Action::Close {
+            self.clear();
+            return;
+        }
+        self.reader.act(action, self.wrist_pages);
+        if self.displayed_at.is_some() {
+            self.displayed_at = Some(std::time::Instant::now());
+        }
+    }
+
+    fn update_wrist(
+        &mut self,
+        backend: &mut OpenVrBackend,
+        config: &VrOcrConfig,
+        subtitle_wrist: &vrcs_core::VrOverlayWristConfig,
+    ) -> Result<(), String> {
+        let mut view = self.reader.view(
+            self.status.state,
+            source_view(config),
+            config.display_mode == VrOcrDisplayMode::Stereo,
+        );
+        let visible = match config.display_mode {
+            VrOcrDisplayMode::Stereo => view.block_count > 0,
+            VrOcrDisplayMode::Wrist => {
+                view.block_count > 0
+                    || matches!(
+                        self.status.state,
+                        OcrState::Submitting
+                            | OcrState::Pending
+                            | OcrState::Running
+                            | OcrState::Downloading
+                            | OcrState::LoadingModel
+                            | OcrState::Recognizing
+                            | OcrState::Translating
+                            | OcrState::NoText
+                            | OcrState::LowConfidence
+                            | OcrState::Error
+                            | OcrState::TimedOut
+                    )
+            }
+        };
+        if !visible {
+            backend.reset(OverlayKind::OcrWrist);
+            self.wrist_view = None;
+            self.status.wrist_state = OcrWristState::Hidden;
+            self.status.wrist_error = None;
+            return Ok(());
+        }
+        let config_wrist = config
+            .wrist
+            .clone()
+            .unwrap_or_else(|| vrcs_core::VrOcrWristConfig::from(subtitle_wrist));
+        if !backend.ensure_ocr_wrist(&config_wrist)?.available {
+            self.status.wrist_state = OcrWristState::DeviceUnavailable;
+            self.status.wrist_error = None;
+            return Ok(());
+        }
+        view.hovered = self.wrist_hovered;
+        if self.wrist_view.as_ref() != Some(&view) {
+            let rendered = ocr_wrist_renderer::render(
+                &view,
+                config_wrist.font_size_px,
+                config.background_opacity,
+            )?;
+            self.reader.clamp_page(rendered.page_count);
+            self.wrist_pages = rendered.page_count;
+            self.wrist_buttons = rendered.buttons;
+            backend.upload(OverlayKind::OcrWrist, &rendered.texture)?;
+            self.wrist_view = Some(view);
+        }
+        backend.set_opacity(OverlayKind::OcrWrist, config_wrist.opacity)?;
+        backend.show(OverlayKind::OcrWrist)?;
+        self.status.wrist_state = OcrWristState::Visible;
+        self.status.wrist_error = None;
+        Ok(())
     }
 
     fn sync_progress(&mut self) {
@@ -460,6 +636,7 @@ impl OcrRuntime {
         }
         if config.display_mode != VrOcrDisplayMode::Stereo || self.capture.is_none() {
             backend.reset_ocr();
+            self.result_dirty = false;
             return Ok(());
         }
         if !self.result_dirty {
@@ -723,6 +900,51 @@ mod tests {
     use super::super::{ocr_capture::EyeCapture, renderer::Texture, transform};
     use super::*;
     use vrcs_core::ocr::{BlockTranslation, TextBlock};
+
+    #[test]
+    fn wrist_reading_source_does_not_switch_eyes_when_translation_arrives() {
+        let mut runtime = OcrRuntime::new(None, None);
+        runtime.blocks = [
+            vec![block(1, "complete original", None)],
+            vec![block(1, "short", None)],
+        ];
+        assert_eq!(
+            runtime.reading_blocks(VrOcrDisplayMode::Wrist)[0]
+                .source
+                .text,
+            "complete original"
+        );
+        runtime.blocks[1][0].translations[0].text = Some("translated".into());
+        assert_eq!(
+            runtime.reading_blocks(VrOcrDisplayMode::Wrist)[0]
+                .source
+                .text,
+            "complete original"
+        );
+    }
+
+    #[test]
+    fn pinned_reader_survives_expiry_but_new_scan_resets_pin() {
+        let mut runtime = OcrRuntime::new(None, None);
+        let now = std::time::Instant::now();
+        runtime.displayed_at = Some(now - std::time::Duration::from_secs(20));
+        assert!(runtime.expired(now, 15.));
+        runtime.reader.pinned = true;
+        assert!(!runtime.expired(now, 15.));
+        runtime.clear();
+        assert!(!runtime.reader.pinned);
+    }
+
+    #[test]
+    fn wrist_fallback_keeps_only_unplaced_paired_blocks() {
+        let mut runtime = OcrRuntime::new(None, None);
+        runtime.blocks = [vec![block(1, "placed", Some("已放置"))], vec![]];
+        runtime.fallback_blocks = vec![block(2, "unplaced", Some("未放置"))];
+        let result = runtime.reading_blocks(VrOcrDisplayMode::Stereo);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].source.text, "unplaced");
+        assert_eq!(result[0].translations[0].text.as_deref(), Some("未放置"));
+    }
 
     fn capture() -> Arc<StereoCapture> {
         let pose = transform::matrix(0., 0., 0., [0.; 3]);

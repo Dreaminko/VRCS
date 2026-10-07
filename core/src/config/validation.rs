@@ -62,6 +62,36 @@ impl AppConfig {
             return Err("OCR shortcut must contain 1 to 64 characters".into());
         }
         validate_translation_targets("ocr", &ocr.targets, &self.asr.api_profiles, false, "")?;
+        if let Some(wrist) = &ocr.wrist {
+            if !["left", "right", "dominant"].contains(&wrist.hand.as_str()) {
+                return Err(format!("Unsupported OCR wrist hand: {}", wrist.hand));
+            }
+            if !["left", "right"].contains(&wrist.dominant_hand.as_str()) {
+                return Err(format!(
+                    "Unsupported OCR wrist dominant_hand: {}",
+                    wrist.dominant_hand
+                ));
+            }
+            for (field, value) in [
+                ("offset_x_m", wrist.offset_x_m),
+                ("offset_y_m", wrist.offset_y_m),
+                ("offset_z_m", wrist.offset_z_m),
+            ] {
+                validate_range(&format!("OCR wrist {field}"), value, -0.5, 0.5)?;
+            }
+            for (field, value) in [
+                ("pitch_deg", wrist.pitch_deg),
+                ("yaw_deg", wrist.yaw_deg),
+                ("roll_deg", wrist.roll_deg),
+            ] {
+                validate_range(&format!("OCR wrist {field}"), value, -180.0, 180.0)?;
+            }
+            validate_range("OCR wrist width_m", wrist.width_m, 0.1, 1.0)?;
+            validate_range("OCR wrist opacity", wrist.opacity, 0.1, 1.0)?;
+            if !(18..=72).contains(&wrist.font_size_px) {
+                return Err("OCR wrist font_size_px must be between 18 and 72".into());
+            }
+        }
         Ok(())
     }
 }

@@ -4,6 +4,7 @@ use super::presentation::PresentationContent;
 
 #[derive(Debug, Clone)]
 pub struct Texture {
+    /// Row-major RGBA8 pixels. Upload backends convert to their native format.
     pub pixels: Vec<u8>,
     pub width: u32,
     pub height: u32,

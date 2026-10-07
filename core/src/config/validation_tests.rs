@@ -859,3 +859,32 @@ fn ocr_backend_preserves_cloud_defaults_and_accepts_local() {
     )
     .is_err());
 }
+
+#[test]
+fn rejects_invalid_ocr_wrist_settings() {
+    let default = serde_json::to_value(AppConfig::default()).unwrap();
+    for (field, value) in [
+        ("hand", serde_json::json!("either")),
+        ("dominant_hand", serde_json::json!("dominant")),
+        ("offset_x_m", serde_json::json!(0.51)),
+        ("offset_y_m", serde_json::json!(-0.51)),
+        ("offset_z_m", serde_json::json!(0.51)),
+        ("pitch_deg", serde_json::json!(181)),
+        ("yaw_deg", serde_json::json!(-181)),
+        ("roll_deg", serde_json::json!(181)),
+        ("width_m", serde_json::json!(0.09)),
+        ("opacity", serde_json::json!(1.01)),
+        ("font_size_px", serde_json::json!(17)),
+    ] {
+        let mut raw = default.clone();
+        raw["ocr"]["wrist"][field] = value;
+        let config: AppConfig = serde_json::from_value(raw).unwrap();
+        assert!(
+            config.validate_settings().is_err(),
+            "accepted OCR wrist {field}"
+        );
+    }
+    let mut config = AppConfig::default();
+    config.ocr.wrist.as_mut().unwrap().offset_x_m = f32::NAN;
+    assert!(config.validate_settings().is_err());
+}

@@ -558,6 +558,9 @@
         "vr": "VR モード"
       },
       "vrOcr": {
+        "wristTitle": "OCR 手首パネル",
+        "wristDescription": "原文と訳文を比較できます。この設定は OCR パネルにのみ適用されます。",
+        "wristPosition": "位置と角度",
         "results": "領域の翻訳：完了 {{completed}} 件、失敗 {{failed}} 件",
         "sourceView": "原文と翻訳を一緒に表示します。",
         "errors": {"timeout": "処理がタイムアウトしました。再スキャンしてください。", "authentication": "OCR の認証に失敗しました。アクセストークンを確認してください。", "credentials_missing": "OCR アクセストークンを設定してください。", "rate_limit": "OCR のリクエスト上限に達しました。時間をおいて再試行してください。", "models_missing": "設定でローカル OCR モデルを準備してください。", "configuration_changed": "OCR 設定が変更されました。再スキャンしてください。", "tracking_lost": "ヘッドセットの追跡を復旧して再スキャンしてください。", "view_changed": "原文の領域が変化しました。再スキャンしてください。", "network": "OCR のネットワーク接続を確認して再試行してください。", "local_failed": "ローカル OCR の推論に失敗しました。モデルを確認してください。", "invalid_result": "OCR の応答に有効な文字位置がありません。", "unavailable": "VR 接続と OCR バックエンドを確認してください。", "translation_failed": "すべての翻訳に失敗しました。翻訳サービスを確認してください。", "partial_failure": "一部の翻訳に失敗しました。完了した翻訳は保持されます。", "partial_timeout": "一部の翻訳がタイムアウトしました。完了した翻訳は保持されます。"},

@@ -98,7 +98,12 @@ export interface VrOcrSettings {
   hand_gesture_enabled: boolean;
   display_seconds: number;
   background_opacity: number;
+  wrist: VrOcrWristSettings | null;
 }
+
+export type VrOcrWristSettings = Pick<VrOverlayWristSettings,
+  "hand" | "dominant_hand" | "offset_x_m" | "offset_y_m" | "offset_z_m" |
+  "pitch_deg" | "yaw_deg" | "roll_deg" | "width_m" | "opacity" | "font_size_px">;
 
 export interface VrOcrModelStatus {
   state: "missing" | "downloading" | "ready" | "error";
@@ -169,6 +174,8 @@ export interface VrOcrStatus {
   completed_translations: number;
   failed_translations: number;
   timed_out: boolean;
+  wrist_state?: "hidden" | "visible" | "device_unavailable" | "error";
+  wrist_error?: string | null;
   last_error_code: string | null;
   last_error: string | null;
 }

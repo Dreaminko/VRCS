@@ -66,7 +66,10 @@ impl Default for AppConfig {
             external_api: ExternalApiConfig::default(),
             vrcx: VrcxConfig::default(),
             vr_overlay: VrOverlayConfig::default(),
-            ocr: VrOcrConfig::default(),
+            ocr: VrOcrConfig {
+                wrist: Some(super::VrOcrWristConfig::default()),
+                ..Default::default()
+            },
         }
     }
 }

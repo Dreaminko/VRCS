@@ -1,5 +1,6 @@
 use super::ocr_gesture::{camera_frame, gesture_frame, point_in_head, FrameCorners, HandSample};
 use super::ocr_input_state::{FrameSession, FrameTracking, HoldAction};
+use super::ocr_wrist::Action;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::{ffi::CString, mem::size_of, path::Path, time::Instant};
 
@@ -12,6 +13,7 @@ pub struct InputActions {
     pub frame_confirmed: bool,
     pub frame_cancelled: bool,
     pub hand_points: Vec<[f32; 3]>,
+    pub navigation: Vec<Action>,
 }
 
 pub struct OcrInput {
@@ -19,6 +21,7 @@ pub struct OcrInput {
     action_set: u64,
     scan: u64,
     clear: u64,
+    reading: [u64; 4],
     scan_hold: HoldAction,
     clear_hold: HoldAction,
     hands: [u64; 2],
@@ -77,6 +80,10 @@ pub fn install_manifest(directory: &Path) -> Result<std::path::PathBuf, String> 
             "action_sets":[{"name":"/actions/ocr","usage":"leftright"}],
             "actions":[{"name":"/actions/ocr/in/scan","type":"boolean","requirement":"optional"},
                 {"name":"/actions/ocr/in/clear","type":"boolean","requirement":"optional"},
+                {"name":"/actions/ocr/in/previous_block","type":"boolean","requirement":"optional"},
+                {"name":"/actions/ocr/in/next_block","type":"boolean","requirement":"optional"},
+                {"name":"/actions/ocr/in/previous_page","type":"boolean","requirement":"optional"},
+                {"name":"/actions/ocr/in/next_page","type":"boolean","requirement":"optional"},
                 {"name":"/actions/ocr/in/left_grip","type":"boolean","requirement":"optional"},
                 {"name":"/actions/ocr/in/right_grip","type":"boolean","requirement":"optional"},
                 {"name":"/actions/ocr/in/left_pose","type":"pose","requirement":"optional"},
@@ -86,6 +93,10 @@ pub fn install_manifest(directory: &Path) -> Result<std::path::PathBuf, String> 
             "default_bindings":bindings,
             "localization":[{"language_tag":"en_US","/actions/ocr":"VRCS OCR",
                 "/actions/ocr/in/scan":"Confirm frame / scan (hold)","/actions/ocr/in/clear":"Cancel frame / clear (hold)",
+                "/actions/ocr/in/previous_block":"Previous OCR block (point at panel)",
+                "/actions/ocr/in/next_block":"Next OCR block (point at panel)",
+                "/actions/ocr/in/previous_page":"Previous OCR page (point at panel)",
+                "/actions/ocr/in/next_page":"Next OCR page (point at panel)",
                 "/actions/ocr/in/left_grip":"Frame drag left grip", "/actions/ocr/in/right_grip":"Frame drag right grip",
                 "/actions/ocr/in/left_pose":"Frame left corner", "/actions/ocr/in/right_pose":"Frame right corner",
                 "/actions/ocr/in/left_hand":"Left hand camera frame", "/actions/ocr/in/right_hand":"Right hand camera frame"}]
@@ -156,6 +167,8 @@ impl OcrInput {
             action_set,
             scan: action("/actions/ocr/in/scan")?,
             clear: action("/actions/ocr/in/clear")?,
+            reading: ["previous_block", "next_block", "previous_page", "next_page"]
+                .map(|name| action(&format!("/actions/ocr/in/{name}")).unwrap_or(0)),
             scan_hold: HoldAction::default(),
             clear_hold: HoldAction::default(),
             hands: [
@@ -175,7 +188,12 @@ impl OcrInput {
         })
     }
 
-    pub fn poll(&mut self, tracking: Option<([[f32; 4]; 3], i32)>) -> Result<InputActions, String> {
+    pub fn poll(
+        &mut self,
+        tracking: Option<([[f32; 4]; 3], i32)>,
+        reading_focus: bool,
+    ) -> Result<InputActions, String> {
+        let tracking = tracking.filter(|_| !reading_focus);
         let api = unsafe { &*self.table };
         let mut set: openvr_sys::VRActiveActionSet_t = unsafe { std::mem::zeroed() };
         set.ulActionSet = self.action_set;
@@ -202,6 +220,27 @@ impl OcrInput {
         };
         let scan = read(self.scan)?;
         let clear = read(self.clear)?;
+        let navigation = if reading_focus {
+            self.reading
+                .iter()
+                .copied()
+                .zip([
+                    Action::PreviousBlock,
+                    Action::NextBlock,
+                    Action::PreviousPage,
+                    Action::NextPage,
+                ])
+                .filter_map(|(handle, action)| {
+                    (handle != 0)
+                        .then(|| read(handle).ok())
+                        .flatten()
+                        .filter(|data| data.bActive && data.bChanged && data.bState)
+                        .map(|_| action)
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
         let state = (
             scan.bActive,
             clear.bActive,
@@ -222,7 +261,7 @@ impl OcrInput {
             self.last_digital_state = Some(state);
         }
         let origin = |data: &openvr_sys::InputDigitalActionData_t| {
-            (data.bActive && data.activeOrigin != 0).then_some(data.activeOrigin)
+            (data.bActive && data.activeOrigin != 0 && !reading_focus).then_some(data.activeOrigin)
         };
         let now = Instant::now();
         let hands = tracking.and_then(|(head, origin)| {
@@ -312,6 +351,7 @@ impl OcrInput {
             frame_confirmed: frame.confirmed,
             frame_cancelled: frame.cancelled,
             hand_points,
+            navigation,
         })
     }
 }
@@ -485,6 +525,7 @@ mod tests {
             action_set: 42,
             scan: 1,
             clear: 2,
+            reading: [0; 4],
             hands: [72, 73],
             grips: [3, 4],
             poses: [5, 6],
@@ -524,11 +565,56 @@ mod tests {
         api.GetDigitalActionData = Some(digital);
         let mut input = input(&api);
         let head = super::super::transform::matrix(0., 0., 0., [0.; 3]);
-        let actions = input.poll(Some((head, 1))).unwrap();
+        let actions = input.poll(Some((head, 1)), false).unwrap();
         assert!(actions.available);
         assert!(!actions.gesture_available);
         assert!(actions.frame.is_none());
         assert!(!actions.frame_confirmed);
+    }
+
+    #[test]
+    fn reading_navigation_requires_focus_and_does_not_trigger_scan_or_clear() {
+        unsafe extern "C" fn update(
+            _: *mut openvr_sys::VRActiveActionSet_t,
+            _: u32,
+            _: u32,
+        ) -> i32 {
+            0
+        }
+        unsafe extern "C" fn digital(
+            action: u64,
+            data: *mut openvr_sys::InputDigitalActionData_t,
+            _: u32,
+            _: u64,
+        ) -> i32 {
+            unsafe {
+                (*data).bActive = true;
+                (*data).bChanged = true;
+                (*data).bState = true;
+                (*data).activeOrigin = action;
+            }
+            0
+        }
+        let mut api: openvr_sys::VR_IVRInput_FnTable = unsafe { std::mem::zeroed() };
+        api.UpdateActionState = Some(update);
+        api.GetDigitalActionData = Some(digital);
+        let mut input = input(&api);
+        input.reading = [7, 8, 9, 10];
+        let held_since = Instant::now() - std::time::Duration::from_secs(1);
+        input.scan_hold.update(Some(1), true, held_since);
+        input.clear_hold.update(Some(2), true, held_since);
+        let focused = input.poll(None, true).unwrap();
+        assert!(!focused.scan && !focused.clear);
+        assert_eq!(
+            focused.navigation,
+            [
+                Action::PreviousBlock,
+                Action::NextBlock,
+                Action::PreviousPage,
+                Action::NextPage
+            ]
+        );
+        assert!(input.poll(None, false).unwrap().navigation.is_empty());
     }
 
     #[test]

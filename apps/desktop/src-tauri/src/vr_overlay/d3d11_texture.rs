@@ -504,6 +504,13 @@ mod tests {
     }
 
     #[test]
+    fn dashboard_thumbnail_keeps_desktop_colors_after_bgra_upload_conversion() {
+        let source = crate::vr_overlay::dashboard_renderer::render_thumbnail("VRCS").unwrap();
+        let uploaded = rgba_to_bgra(&source.pixels);
+        assert_eq!(&uploaded[..4], &[0xff, 0xfb, 0xf0, 255]);
+    }
+
+    #[test]
     fn converts_rgba_pixels_to_bgra_without_changing_alpha() {
         assert_eq!(
             rgba_to_bgra(&[10, 20, 30, 40, 50, 60, 70, 80]),

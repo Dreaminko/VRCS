@@ -111,7 +111,13 @@ async fn vr_overlay_watch_starts_with_current_config_and_updates_after_commit() 
     let mut updates = handle.subscribe_vr_overlay_config();
     assert_eq!(
         *updates.borrow(),
-        (VrOverlayConfig::default(), VrOcrConfig::default())
+        (
+            VrOverlayConfig::default(),
+            VrOcrConfig {
+                wrist: Some(VrOcrWristConfig::default()),
+                ..Default::default()
+            }
+        )
     );
 
     let client = reqwest::Client::new();

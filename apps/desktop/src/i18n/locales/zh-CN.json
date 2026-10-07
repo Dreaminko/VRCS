@@ -558,6 +558,9 @@
         "vr": "VR 模式"
       },
       "vrOcr": {
+        "wristTitle": "OCR 手腕面板",
+        "wristDescription": "对照阅读原文与译文，以下设置只影响 OCR 面板。",
+        "wristPosition": "位置与角度",
         "results": "区域译文：{{completed}} 项成功，{{failed}} 项失败",
         "sourceView": "原文与译文一同显示。",
         "errors": {"timeout": "任务已超时，请重新识别。", "authentication": "OCR 鉴权失败，请检查访问令牌。", "credentials_missing": "请配置 OCR 访问令牌。", "rate_limit": "OCR 请求达到限额，请稍后重试。", "models_missing": "请在设置中准备本地 OCR 模型。", "configuration_changed": "OCR 配置已变化，请重新识别。", "tracking_lost": "请恢复头显追踪后重新识别。", "view_changed": "原文字区域已变化，请重新识别。", "network": "OCR 网络请求失败，请检查连接后重试。", "local_failed": "本地 OCR 推理失败，请检查模型准备状态。", "invalid_result": "OCR 响应缺少有效的文字位置。", "unavailable": "OCR 暂不可用，请检查 VR 连接和识别后端。", "translation_failed": "全部翻译请求失败，请检查翻译服务。", "partial_failure": "部分翻译失败，已完成的译文会被保留。", "partial_timeout": "部分翻译超时，已完成的译文会被保留。"},

@@ -4,10 +4,10 @@ import { useTranslation } from "react-i18next";
 import { request } from "../../core-client/transport";
 import type { CredentialStatus } from "../../shared/protocol/credentials";
 import type { ApiProfileView } from "../../providers/types";
-import type { VrOcrModelStatus, VrOcrSettings, VrOcrStatus } from "../../integrations/types";
+import type { VrOcrModelStatus, VrOcrSettings, VrOcrStatus, VrOcrWristSettings } from "../../integrations/types";
 import { PreferenceToggle, RangeField, Select } from "../SettingsControls";
 import { formatBytes } from "../settings-derived";
-import { isVrOcrBackendReady } from "../vr-overlay-settings";
+import { DEFAULT_OCR_WRIST_SETTINGS, isVrOcrBackendReady, VR_OVERLAY_POSITION_RANGES } from "../vr-overlay-settings";
 import { TranslationRouteList } from "../translation/TranslationRouteList";
 import type { DesktopOcrStatus } from "../../ocr/status";
 import { openVrOcrBindings } from "../../vr-overlay-native";
@@ -94,6 +94,8 @@ export function OcrSettingsCard({ config, profiles, disabled, runtime, desktopSt
   };
   const credentialDisabled = disabled || busy || status === null || status.environment_override;
   const local = config.backend === "local";
+  const wrist = config.wrist ?? DEFAULT_OCR_WRIST_SETTINGS;
+  const updateWrist = (patch: Partial<VrOcrWristSettings>) => onChange({ wrist: { ...wrist, ...patch } });
   const modelProgress = models?.total_bytes ? Math.min(1, Math.max(0, models.downloaded_bytes / models.total_bytes)) : 0;
   return (
     <div className="vr-overlay-card-list">
@@ -211,6 +213,7 @@ export function OcrSettingsCard({ config, profiles, disabled, runtime, desktopSt
         {(runtime?.last_error_code || runtime?.last_error) && <p className="vr-overlay-native-error" role="alert">
           {t(`settings.vrOcr.errors.${runtime.last_error_code ?? "unavailable"}`, { defaultValue: t("settings.vrOcr.errors.unavailable") })}
         </p>}
+        {runtime?.wrist_error && <p className="vr-overlay-native-error" role="alert">{runtime.wrist_error}</p>}
         {runtime && (runtime.completed_translations > 0 || runtime.failed_translations > 0) && <p className="field-description" role="status">
           {t("settings.vrOcr.results", { completed: runtime.completed_translations, failed: runtime.failed_translations })}
         </p>}
@@ -234,6 +237,39 @@ export function OcrSettingsCard({ config, profiles, disabled, runtime, desktopSt
         <PreferenceToggle title={t("settings.vrOcr.gesture")} checked={config.hand_gesture_enabled}
           disabled={disabled} onChange={(hand_gesture_enabled) => onChange({ hand_gesture_enabled })} />
       </section>
+      {config.display_mode === "wrist" && <section className="vr-overlay-card" aria-labelledby="ocr-wrist-heading">
+        <header className="vr-overlay-card-heading">
+          <div><Glasses size={18} /><span><strong id="ocr-wrist-heading">{t("settings.vrOcr.wristTitle")}</strong>
+            <small>{t("settings.vrOcr.wristDescription")}</small></span></div>
+        </header>
+        <div className="vr-overlay-field-grid">
+          <Select label={t("settings.vrOverlay.hand")} value={wrist.hand}
+            options={["left", "right", "dominant"].map((value) => ({ value, label: t(`settings.vrOverlay.hands.${value}`) }))}
+            disabled={disabled} onChange={(hand) => updateWrist({ hand: hand as VrOcrWristSettings["hand"] })} />
+          <Select label={t("settings.vrOverlay.dominantHand")} value={wrist.dominant_hand}
+            options={["left", "right"].map((value) => ({ value, label: t(`settings.vrOverlay.hands.${value}`) }))}
+            disabled={disabled || wrist.hand !== "dominant"}
+            onChange={(dominant_hand) => updateWrist({ dominant_hand: dominant_hand as VrOcrWristSettings["dominant_hand"] })} />
+          <RangeField label={t("settings.vrOverlay.fontSize")} value={wrist.font_size_px} min={18} max={72} step={1}
+            disabled={disabled} formatValue={(value) => `${value}px`} onCommit={(font_size_px) => updateWrist({ font_size_px })} />
+          <RangeField label={t("settings.vrOverlay.width")} value={wrist.width_m} min={0.1} max={1} step={0.01}
+            disabled={disabled} formatValue={(value) => `${value.toFixed(2)}m`} onCommit={(width_m) => updateWrist({ width_m })} />
+          <RangeField label={t("settings.vrOverlay.opacity")} value={wrist.opacity} min={0.1} max={1} step={0.05}
+            disabled={disabled} formatValue={(value) => `${Math.round(value * 100)}%`} onCommit={(opacity) => updateWrist({ opacity })} />
+        </div>
+        <details className="vr-overlay-range-group">
+          <summary>{t("settings.vrOcr.wristPosition")}</summary>
+          <div className="vr-overlay-range-grid">
+            {([
+              ["offset_x_m", "horizontal"], ["offset_y_m", "vertical"], ["offset_z_m", "depth"],
+              ["pitch_deg", "pitch"], ["yaw_deg", "yaw"], ["roll_deg", "roll"],
+            ] as const).map(([field, label]) => <RangeField key={field} label={t(`settings.vrOverlay.${label}`)}
+              value={wrist[field]} {...VR_OVERLAY_POSITION_RANGES.wrist[field]} disabled={disabled}
+              formatValue={(value) => field.startsWith("offset_") ? `${value.toFixed(2)}m` : `${value}°`}
+              onCommit={(value) => updateWrist({ [field]: value })} />)}
+          </div>
+        </details>
+      </section>}
     </div>
   );
 }

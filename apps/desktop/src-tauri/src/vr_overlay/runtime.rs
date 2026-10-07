@@ -24,6 +24,7 @@ use super::renderer::{self, Layout};
 
 pub const STATUS_EVENT: &str = "vr-overlay-status-changed";
 const UPDATE_INTERVAL: Duration = Duration::from_millis(50);
+const DASHBOARD_UPDATE_INTERVAL: Duration = Duration::from_millis(16);
 const RECONNECT_INTERVAL: Duration = Duration::from_secs(2);
 const EVENT_QUEUE_CAPACITY: usize = 256;
 const DROP_WARNING_INTERVAL: Duration = Duration::from_secs(5);
@@ -507,7 +508,12 @@ fn worker_loop(
             status.ocr = state.ocr.status.clone();
         }
         update_status(&app, &shared_status, &status);
-        if let Some(delay) = UPDATE_INTERVAL.checked_sub(started.elapsed()) {
+        let interval = if status.dashboard.visible {
+            DASHBOARD_UPDATE_INTERVAL
+        } else {
+            UPDATE_INTERVAL
+        };
+        if let Some(delay) = interval.checked_sub(started.elapsed()) {
             std::thread::sleep(delay);
         }
     }
@@ -602,7 +608,9 @@ fn tick(app: &AppHandle, state: &mut WorkerState, status: &mut VrOverlayStatus) 
     status.last_error_detail = None;
     update_headset(state, status, &mut backend);
     #[cfg(windows)]
-    state.ocr.tick(&mut backend, &state.ocr_config);
+    state
+        .ocr
+        .tick(&mut backend, &state.ocr_config, &state.config.wrist);
     update_wrist(state, status, &mut backend);
     update_dashboard(app, state, status, &mut backend);
     let headset_failed =
@@ -807,20 +815,14 @@ fn update_wrist(
     backend: &mut OpenVrBackend,
 ) {
     #[cfg(windows)]
-    let (ocr_texts, ocr_limited) = (
-        if state.ocr_config.display_mode == vrcs_core::VrOcrDisplayMode::Wrist {
-            state.ocr.wrist_texts()
-        } else {
-            state.ocr.fallback_texts()
-        },
-        state.ocr.status.layout_limited,
-    );
-    #[cfg(not(windows))]
-    let (ocr_texts, ocr_limited) = (Vec::new(), false);
-    let showing_ocr = state.ocr_config.enabled
-        && (state.ocr_config.display_mode == vrcs_core::VrOcrDisplayMode::Wrist || ocr_limited)
-        && !ocr_texts.is_empty();
-    if (!state.config.enabled || !state.config.wrist.enabled) && !showing_ocr {
+    if state.ocr.status.wrist_state == super::ocr_status::OcrWristState::Visible
+        && backend.ocr_wrist_on_same_hand(&state.config.wrist)
+    {
+        backend.hide(OverlayKind::Wrist);
+        status.wrist.state = ResourceState::ReadyHidden;
+        return;
+    }
+    if !state.config.enabled || !state.config.wrist.enabled {
         backend.reset(OverlayKind::Wrist);
         state.wrist_hash = None;
         status.wrist.state = ResourceState::Disabled;
@@ -847,17 +849,7 @@ fn update_wrist(
         return;
     }
 
-    let frame = if showing_ocr {
-        PresentationFrame::wrist(
-            ocr_texts
-                .into_iter()
-                .map(|text| WristMessage {
-                    text,
-                    side: MessageSide::Left,
-                })
-                .collect(),
-        )
-    } else if state.wrist_sample {
+    let frame = if state.wrist_sample {
         PresentationFrame::wrist(vec![
             WristMessage {
                 text: "你好，欢迎使用 VRCS。".into(),
@@ -889,11 +881,7 @@ fn update_wrist(
         Layout::Wrist,
         &frame,
         state.config.wrist.font_size_px,
-        if showing_ocr {
-            state.ocr_config.background_opacity
-        } else {
-            state.config.wrist.background_opacity
-        },
+        state.config.wrist.background_opacity,
         state.config.wrist.opacity,
         &mut state.wrist_hash,
     ) {

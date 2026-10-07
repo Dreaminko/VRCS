@@ -6,7 +6,8 @@ use super::dashboard::{
 };
 use super::renderer::Texture;
 
-// BGRA equivalents of the desktop theme in styles/base.css.
+// The GDI canvas uses BGRA; into_texture converts the complete image to RGBA.
+// Colors match the desktop theme in styles/base.css.
 const CANVAS: [u8; 4] = [0xfb, 0xf8, 0xf5, 255];
 const SURFACE: [u8; 4] = [255, 255, 255, 255];
 const SURFACE_ELEVATED: [u8; 4] = [0xfd, 0xfb, 0xf9, 255];
@@ -117,11 +118,7 @@ pub fn render(view: &DashboardViewModel, state: &DashboardState) -> Result<Textu
         canvas.rounded(Rect::new(48, 860, 1392, 892), 10, ERROR_SOFT);
         canvas.text(error, Rect::new(64, 860, 1376, 892), 18, ERROR, Align::Left)?;
     }
-    Ok(Texture {
-        pixels: canvas.pixels,
-        width: DASHBOARD_WIDTH,
-        height: DASHBOARD_HEIGHT,
-    })
+    Ok(canvas.into_texture())
 }
 
 fn render_display(
@@ -663,11 +660,7 @@ fn render_picker(
 pub fn render_thumbnail(_title: &str) -> Result<Texture, String> {
     let mut canvas = Canvas::new(256, 256, PRIMARY_SOFTER);
     canvas.icon(Rect::new(26, 26, 230, 230))?;
-    Ok(Texture {
-        pixels: canvas.pixels,
-        width: 256,
-        height: 256,
-    })
+    Ok(canvas.into_texture())
 }
 
 fn visual(state: &DashboardState, control: DashboardControl) -> ControlVisual {
@@ -990,6 +983,17 @@ struct Canvas {
 }
 
 impl Canvas {
+    fn into_texture(mut self) -> Texture {
+        for pixel in self.pixels.as_chunks_mut::<4>().0 {
+            pixel.swap(0, 2);
+        }
+        Texture {
+            pixels: self.pixels,
+            width: self.width,
+            height: self.height,
+        }
+    }
+
     fn new(width: u32, height: u32, color: [u8; 4]) -> Self {
         let mut pixels = vec![0; (width * height * 4) as usize];
         for pixel in pixels.as_chunks_mut::<4>().0 {
@@ -1497,25 +1501,24 @@ impl Canvas {
         color: [u8; 4],
         style: TextStyle,
     ) -> Result<(), String> {
-        if text.is_empty() {
+        if text.is_empty() || rect.right <= rect.left || rect.bottom <= rect.top {
             return Ok(());
         }
-        let mask = render_text_mask(text, self.width, self.height, rect, style, self.font_face)?;
-        for (target, coverage) in self
-            .pixels
-            .as_chunks_mut::<4>()
-            .0
-            .iter_mut()
-            .zip(mask.as_chunks::<4>().0)
-        {
-            let alpha = coverage[0] as u16;
-            if alpha == 0 {
-                continue;
-            }
-            for channel in 0..3 {
-                target[channel] = (((color[channel] as u16 * alpha)
-                    + (target[channel] as u16 * (255 - alpha)))
-                    / 255) as u8;
+        let mask = render_text_mask(text, rect, style, self.font_face)?;
+        let mask_width = (rect.right - rect.left) as usize;
+        for y in rect.top.max(0)..rect.bottom.min(self.height as i32) {
+            for x in rect.left.max(0)..rect.right.min(self.width as i32) {
+                let source = ((y - rect.top) as usize * mask_width + (x - rect.left) as usize) * 4;
+                let alpha = mask[source] as u16;
+                if alpha == 0 {
+                    continue;
+                }
+                let offset = ((y as u32 * self.width + x as u32) * 4) as usize;
+                for (channel, value) in color.iter().take(3).enumerate() {
+                    self.pixels[offset + channel] = (((*value as u16 * alpha)
+                        + (self.pixels[offset + channel] as u16 * (255 - alpha)))
+                        / 255) as u8;
+                }
             }
         }
         Ok(())
@@ -1644,12 +1647,15 @@ fn render_app_icon(width: u32, height: u32) -> Result<Vec<u8>, String> {
 #[cfg(windows)]
 fn render_text_mask(
     text: &str,
-    width: u32,
-    height: u32,
     rect: Rect,
     style: TextStyle,
     font_face: &str,
 ) -> Result<Vec<u8>, String> {
+    let width = (rect.right - rect.left).max(0) as u32;
+    let height = (rect.bottom - rect.top).max(0) as u32;
+    if width == 0 || height == 0 {
+        return Ok(Vec::new());
+    }
     use std::ffi::c_void;
     use std::mem::{size_of, zeroed};
     use std::ptr::null_mut;
@@ -1713,10 +1719,10 @@ fn render_text_mask(
         SetTextColor(dc, 0x00ff_ffff);
         let mut wide: Vec<u16> = text.encode_utf16().collect();
         let mut target = RECT {
-            left: rect.left,
-            top: rect.top,
-            right: rect.right,
-            bottom: rect.bottom,
+            left: 0,
+            top: 0,
+            right: width as i32,
+            bottom: height as i32,
         };
         let alignment = match style.align {
             Align::Left => DT_LEFT,
@@ -1745,14 +1751,9 @@ fn render_text_mask(
 }
 
 #[cfg(not(windows))]
-fn render_text_mask(
-    _: &str,
-    width: u32,
-    height: u32,
-    _: Rect,
-    _: TextStyle,
-    _: &str,
-) -> Result<Vec<u8>, String> {
+fn render_text_mask(_: &str, rect: Rect, _: TextStyle, _: &str) -> Result<Vec<u8>, String> {
+    let width = (rect.right - rect.left).max(0) as u32;
+    let height = (rect.bottom - rect.top).max(0) as u32;
     Ok(vec![0; (width * height * 4) as usize])
 }
 
@@ -1826,6 +1827,152 @@ mod tests {
             save_state: DashboardSaveState::Idle,
             error,
         }
+    }
+
+    #[test]
+    fn empty_text_rectangles_leave_the_canvas_unchanged() {
+        let mut canvas = Canvas::new(64, 32, CANVAS);
+        let before = canvas.pixels.clone();
+        for rect in [Rect::new(4, 4, 4, 20), Rect::new(20, 20, 4, 4)] {
+            canvas.text("VRCS", rect, 24, TEXT, Align::Left).unwrap();
+        }
+        assert_eq!(canvas.pixels, before);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn cropped_text_preserves_alignment_and_clips_to_the_canvas() {
+        for align in [Align::Left, Align::Center] {
+            let mut reference = Canvas::new(300, 40, CANVAS);
+            reference.font_face = "Microsoft YaHei UI\0";
+            reference
+                .text(
+                    "VRCS 快捷设置 · 言語",
+                    Rect::new(0, 0, 300, 40),
+                    24,
+                    TEXT,
+                    align,
+                )
+                .unwrap();
+            assert!(reference
+                .pixels
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .any(|pixel| *pixel != CANVAS));
+
+            let mut clipped = Canvas::new(280, 80, CANVAS);
+            clipped.font_face = reference.font_face;
+            clipped
+                .text(
+                    "VRCS 快捷设置 · 言語",
+                    Rect::new(-10, 25, 290, 65),
+                    24,
+                    TEXT,
+                    align,
+                )
+                .unwrap();
+            for y in 0..80 {
+                for x in 0..280 {
+                    let actual = ((y * 280 + x) * 4) as usize;
+                    let expected = if (25..65).contains(&y) {
+                        let offset = (((y - 25) * 300 + x + 10) * 4) as usize;
+                        &reference.pixels[offset..offset + 4]
+                    } else {
+                        &CANVAS
+                    };
+                    assert_eq!(&clipped.pixels[actual..actual + 4], expected);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn text_masks_only_allocate_the_text_rectangle() {
+        let rect = Rect::new(20, 12, 220, 52);
+        let mask = render_text_mask(
+            "VRCS",
+            rect,
+            TextStyle {
+                size: 24,
+                align: Align::Left,
+                strong: false,
+            },
+            "Segoe UI\0",
+        )
+        .unwrap();
+        assert_eq!(mask.len(), 200 * 40 * 4);
+    }
+
+    #[test]
+    fn saving_keeps_menu_navigation_and_adjustments_interactive() {
+        let mut saving = view(None);
+        saving.save_state = DashboardSaveState::Saving;
+        let mut state = DashboardState::default();
+        state.update_view(&saving);
+        state.pointer_down(500., 168.);
+        state.pointer_up(500., 168.);
+        assert_eq!(state.page(), DashboardPage::Language);
+        state.pointer_down(100., 168.);
+        state.pointer_up(100., 168.);
+        state.pointer_down(650., 510.);
+        assert_eq!(
+            state.pointer_up(650., 510.),
+            Some(super::super::dashboard::DashboardAction::HeadsetOpacityUp)
+        );
+    }
+
+    #[test]
+    fn dashboard_texture_uses_desktop_rgba_colors() {
+        let texture = render(&view(None), &DashboardState::default()).unwrap();
+        assert_eq!(&texture.pixels[..4], &[0xf5, 0xf8, 0xfb, 255]);
+        let toggle_offset = ((168 * texture.width + 1290) * 4) as usize;
+        assert_eq!(
+            &texture.pixels[toggle_offset..toggle_offset + 4],
+            &[0x74, 0xd6, 0xff, 255]
+        );
+
+        let error = render(
+            &view(Some("Save failed".into())),
+            &DashboardState::default(),
+        )
+        .unwrap();
+        let error_offset = ((876 * error.width + 1380) * 4) as usize;
+        assert_eq!(
+            &error.pixels[error_offset..error_offset + 4],
+            &[0xfd, 0xf0, 0xee, 255]
+        );
+    }
+
+    #[test]
+    fn dashboard_thumbnail_uses_desktop_rgba_background() {
+        let texture = render_thumbnail("VRCS").unwrap();
+        assert_eq!(&texture.pixels[..4], &[0xf0, 0xfb, 0xff, 255]);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn dashboard_thumbnail_converts_gdi_icon_colors_to_rgba() {
+        let icon = render_app_icon(204, 204).unwrap();
+        let texture = render_thumbnail("VRCS").unwrap();
+        let mut colored_pixels = 0;
+        for (index, bgra) in icon.as_chunks::<4>().0.iter().enumerate() {
+            if bgra[3] != 255 || bgra[0] == bgra[2] {
+                continue;
+            }
+            let x = index as u32 % 204 + 26;
+            let y = index as u32 / 204 + 26;
+            let offset = ((y * texture.width + x) * 4) as usize;
+            assert_eq!(
+                &texture.pixels[offset..offset + 4],
+                &[bgra[2], bgra[1], bgra[0], 255]
+            );
+            colored_pixels += 1;
+        }
+        assert!(
+            colored_pixels > 0,
+            "The icon must contain opaque colored pixels"
+        );
     }
 
     #[test]

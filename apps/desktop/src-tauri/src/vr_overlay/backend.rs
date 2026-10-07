@@ -4,7 +4,7 @@ mod platform {
     use openvr::pose::Matrix3x4;
     use openvr::tracked_device_index;
     use openvr::{ApplicationType, Context, Overlay, System, TrackedControllerRole};
-    use vrcs_core::{VrOverlayHeadsetConfig, VrOverlayWristConfig};
+    use vrcs_core::{VrOcrWristConfig, VrOverlayHeadsetConfig, VrOverlayWristConfig};
 
     use super::{ControllerBinding, OverlayKind};
     use crate::vr_overlay::d3d11_texture::{Device, OverlayTexture};
@@ -33,12 +33,15 @@ mod platform {
         ocr_mirrors: [Option<Mirror>; 2],
         headset: Option<OverlayHandle>,
         wrist: Option<OverlayHandle>,
+        ocr_wrist: Option<OverlayHandle>,
+        ocr_wrist_device: Option<u32>,
         ocr_frame: Option<OverlayHandle>,
         ocr_result: Option<OverlayHandle>,
         dashboard: Option<OverlayHandle>,
         dashboard_thumbnail: Option<OverlayHandle>,
         headset_state: SubmittedState,
         wrist_state: SubmittedState,
+        ocr_wrist_state: SubmittedState,
         ocr_frame_state: SubmittedState,
         ocr_result_state: SubmittedState,
         dashboard_state: SubmittedState,
@@ -66,35 +69,6 @@ mod platform {
                     (self.release)(self.view);
                 }
             }
-        }
-    }
-
-    #[cfg(test)]
-    mod tests {
-        use super::Mirror;
-        use std::sync::atomic::{AtomicUsize, Ordering};
-
-        #[test]
-        fn mirrors_remain_owned_until_reacquisition_or_shutdown() {
-            unsafe extern "C" fn release(view: *mut std::ffi::c_void) {
-                let count = &*view.cast::<AtomicUsize>();
-                count.fetch_add(1, Ordering::Relaxed);
-            }
-            let released = AtomicUsize::new(0);
-            let mirror = || Mirror {
-                view: std::ptr::from_ref(&released).cast_mut().cast(),
-                release,
-            };
-            let mut mirrors = [Some(mirror()), Some(mirror())];
-            assert_eq!(released.load(Ordering::Relaxed), 0);
-            mirrors[0] = None;
-            assert_eq!(released.load(Ordering::Relaxed), 1);
-            mirrors[0] = Some(mirror());
-            assert_eq!(released.load(Ordering::Relaxed), 1);
-            mirrors = [None, None];
-            assert_eq!(released.load(Ordering::Relaxed), 3);
-            drop(mirrors);
-            assert_eq!(released.load(Ordering::Relaxed), 3);
         }
     }
 
@@ -135,6 +109,7 @@ mod platform {
             &mut self,
             path: &std::path::Path,
             gesture_enabled: bool,
+            reading_focus: bool,
         ) -> Result<crate::vr_overlay::ocr_input::InputActions, String> {
             if self.ocr_input.is_none() {
                 let table = load_raw_interface(openvr_sys::IVRInput_Version, "input")?
@@ -149,7 +124,7 @@ mod platform {
             self.ocr_input
                 .as_mut()
                 .ok_or("OCR input is unavailable")?
-                .poll(tracking)
+                .poll(tracking, reading_focus)
         }
         pub fn reset_ocr_input(&mut self) {
             self.ocr_input = None;
@@ -380,12 +355,15 @@ mod platform {
                 ocr_mirrors: [None, None],
                 headset: None,
                 wrist: None,
+                ocr_wrist: None,
+                ocr_wrist_device: None,
                 ocr_frame: None,
                 ocr_result: None,
                 dashboard: None,
                 dashboard_thumbnail: None,
                 headset_state: SubmittedState::default(),
                 wrist_state: SubmittedState::default(),
+                ocr_wrist_state: SubmittedState::default(),
                 ocr_frame_state: SubmittedState::default(),
                 ocr_result_state: SubmittedState::default(),
                 dashboard_state: SubmittedState::default(),
@@ -577,30 +555,63 @@ mod platform {
             &mut self,
             config: &VrOverlayWristConfig,
         ) -> Result<ControllerBinding, String> {
+            self.ensure_controller_overlay(OverlayKind::Wrist, config)
+        }
+
+        pub fn ensure_ocr_wrist(
+            &mut self,
+            config: &VrOcrWristConfig,
+        ) -> Result<ControllerBinding, String> {
+            self.ensure_controller_overlay(OverlayKind::OcrWrist, &config.overlay_config())
+        }
+
+        pub fn ocr_wrist_on_same_hand(&self, config: &VrOverlayWristConfig) -> bool {
+            self.system
+                .tracked_device_index_for_controller_role(controller_role(config).1)
+                .is_some_and(|device| Some(device.0) == self.ocr_wrist_device)
+        }
+
+        fn ensure_controller_overlay(
+            &mut self,
+            kind: OverlayKind,
+            config: &VrOverlayWristConfig,
+        ) -> Result<ControllerBinding, String> {
             let (role_name, role) = controller_role(config);
             let Some(device) = self.system.tracked_device_index_for_controller_role(role) else {
-                self.hide(OverlayKind::Wrist);
+                self.hide(kind);
                 return Ok(ControllerBinding {
                     role: Some(role_name),
                     available: false,
                 });
             };
-            if !self.system.is_tracked_device_connected(device) {
-                self.hide(OverlayKind::Wrist);
+            if !self.system.is_tracked_device_connected(device)
+                || (kind == OverlayKind::OcrWrist && self.controller_pose(device.0).is_none())
+            {
+                self.hide(kind);
                 return Ok(ControllerBinding {
                     role: Some(role_name),
                     available: false,
                 });
             }
 
-            if self.wrist.is_none() {
+            let (slot, key, name) = if kind == OverlayKind::OcrWrist {
+                self.ocr_wrist_device = Some(device.0);
+                (
+                    &mut self.ocr_wrist,
+                    "org.vrcs.overlay.ocr.wrist\0",
+                    "VRCS OCR Reader\0",
+                )
+            } else {
+                (&mut self.wrist, WRIST_KEY, WRIST_NAME)
+            };
+            if slot.is_none() {
                 let handle = self
                     .overlay
-                    .create_overlay(WRIST_KEY, WRIST_NAME)
+                    .create_overlay(key, name)
                     .map_err(|error| format!("Create wrist overlay failed: {error:?}"))?;
-                self.wrist = Some(handle);
+                *slot = Some(handle);
             }
-            let handle = self.wrist.expect("wrist overlay exists");
+            let handle = slot.expect("controller overlay exists");
             self.overlay
                 .set_width(handle, config.width_m)
                 .map_err(|error| format!("Configure wrist overlay failed: {error:?}"))?;
@@ -612,6 +623,79 @@ mod platform {
                 role: Some(role_name),
                 available: true,
             })
+        }
+
+        fn controller_pose(&self, device: u32) -> Option<([[f32; 4]; 3], i32)> {
+            let table = load_raw_interface(openvr_sys::IVRCompositor_Version, "compositor").ok()?
+                as *const openvr_sys::VR_IVRCompositor_FnTable;
+            let table = unsafe { &*table };
+            let mut pose: openvr_sys::TrackedDevicePose_t = unsafe { std::mem::zeroed() };
+            let error = unsafe {
+                table.GetLastPoseForTrackedDeviceIndex?(device, &mut pose, std::ptr::null_mut())
+            };
+            if error != 0 || !pose.bPoseIsValid || !pose.bDeviceIsConnected {
+                return None;
+            }
+            Some((pose.mDeviceToAbsoluteTracking.m, unsafe {
+                table.GetTrackingSpace?()
+            }))
+        }
+
+        /// Use the other controller's ray without changing the game's input bindings.
+        pub fn ocr_wrist_pointer(&self) -> (Option<[f32; 2]>, bool) {
+            let Some(handle) = self.ocr_wrist.filter(|_| self.ocr_wrist_state.visible) else {
+                return (None, false);
+            };
+            for role in [
+                TrackedControllerRole::LeftHand,
+                TrackedControllerRole::RightHand,
+            ] {
+                let Some(device) = self.system.tracked_device_index_for_controller_role(role)
+                else {
+                    continue;
+                };
+                if Some(device.0) == self.ocr_wrist_device {
+                    continue;
+                }
+                let Some((pose, origin)) = self.controller_pose(device.0) else {
+                    continue;
+                };
+                let mut controller: openvr_sys::VRControllerState_t = unsafe { std::mem::zeroed() };
+                let pressed = load_raw_system().ok().is_some_and(|system| unsafe {
+                    (*system).GetControllerState.is_some_and(|read| {
+                        read(
+                            device.0,
+                            &mut controller,
+                            std::mem::size_of::<openvr_sys::VRControllerState_t>() as u32,
+                        )
+                    })
+                }) && controller.ulButtonPressed
+                    & (1u64 << openvr_sys::EVRButtonId_k_EButton_SteamVR_Trigger)
+                    != 0;
+                let Some(intersect) = (unsafe { (*self.raw_overlay).ComputeOverlayIntersection })
+                else {
+                    return (None, pressed);
+                };
+                let mut params = openvr_sys::VROverlayIntersectionParams_t {
+                    vSource: openvr_sys::HmdVector3_t {
+                        v: [pose[0][3], pose[1][3], pose[2][3]],
+                    },
+                    vDirection: openvr_sys::HmdVector3_t {
+                        v: [-pose[0][2], -pose[1][2], -pose[2][2]],
+                    },
+                    eOrigin: origin,
+                };
+                let mut result: openvr_sys::VROverlayIntersectionResults_t =
+                    unsafe { std::mem::zeroed() };
+                let hit = unsafe { intersect(handle.0, &mut params, &mut result) };
+                let uv = [result.vUVs.v[0], 1. - result.vUVs.v[1]];
+                let inside = hit
+                    && uv
+                        .iter()
+                        .all(|value| value.is_finite() && (0. ..=1.).contains(value));
+                return (inside.then_some(uv), pressed);
+            }
+            (None, false)
         }
 
         pub fn upload(&mut self, kind: OverlayKind, texture: &Texture) -> Result<(), String> {
@@ -725,6 +809,7 @@ mod platform {
         pub fn hide_all(&mut self) {
             self.hide(OverlayKind::Headset);
             self.hide(OverlayKind::Wrist);
+            self.hide(OverlayKind::OcrWrist);
             self.hide(OverlayKind::OcrFrame);
             self.hide(OverlayKind::OcrResult);
         }
@@ -738,6 +823,7 @@ mod platform {
             match kind {
                 OverlayKind::Headset => self.headset,
                 OverlayKind::Wrist => self.wrist,
+                OverlayKind::OcrWrist => self.ocr_wrist,
                 OverlayKind::OcrFrame => self.ocr_frame,
                 OverlayKind::OcrResult => self.ocr_result,
                 OverlayKind::Dashboard => self.dashboard,
@@ -749,6 +835,7 @@ mod platform {
             match kind {
                 OverlayKind::Headset => &self.headset_state,
                 OverlayKind::Wrist => &self.wrist_state,
+                OverlayKind::OcrWrist => &self.ocr_wrist_state,
                 OverlayKind::OcrFrame => &self.ocr_frame_state,
                 OverlayKind::OcrResult => &self.ocr_result_state,
                 OverlayKind::Dashboard => &self.dashboard_state,
@@ -760,6 +847,7 @@ mod platform {
             match kind {
                 OverlayKind::Headset => &mut self.headset_state,
                 OverlayKind::Wrist => &mut self.wrist_state,
+                OverlayKind::OcrWrist => &mut self.ocr_wrist_state,
                 OverlayKind::OcrFrame => &mut self.ocr_frame_state,
                 OverlayKind::OcrResult => &mut self.ocr_result_state,
                 OverlayKind::Dashboard => &mut self.dashboard_state,
@@ -771,6 +859,10 @@ mod platform {
             let handle = match kind {
                 OverlayKind::Headset => self.headset.take(),
                 OverlayKind::Wrist => self.wrist.take(),
+                OverlayKind::OcrWrist => {
+                    self.ocr_wrist_device = None;
+                    self.ocr_wrist.take()
+                }
                 OverlayKind::OcrFrame => self.ocr_frame.take(),
                 OverlayKind::OcrResult => self.ocr_result.take(),
                 OverlayKind::Dashboard => self.dashboard.take(),
@@ -797,6 +889,7 @@ mod platform {
             self.hide_all();
             self.destroy(OverlayKind::Headset);
             self.destroy(OverlayKind::Wrist);
+            self.destroy(OverlayKind::OcrWrist);
             self.destroy(OverlayKind::OcrFrame);
             self.destroy(OverlayKind::OcrResult);
             self.destroy(OverlayKind::Dashboard);
@@ -900,6 +993,35 @@ mod platform {
         }
         Ok(pointer)
     }
+
+    #[cfg(test)]
+    mod tests {
+        use super::Mirror;
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        #[test]
+        fn mirrors_remain_owned_until_reacquisition_or_shutdown() {
+            unsafe extern "C" fn release(view: *mut std::ffi::c_void) {
+                let count = &*view.cast::<AtomicUsize>();
+                count.fetch_add(1, Ordering::Relaxed);
+            }
+            let released = AtomicUsize::new(0);
+            let mirror = || Mirror {
+                view: std::ptr::from_ref(&released).cast_mut().cast(),
+                release,
+            };
+            let mut mirrors = [Some(mirror()), Some(mirror())];
+            assert_eq!(released.load(Ordering::Relaxed), 0);
+            mirrors[0] = None;
+            assert_eq!(released.load(Ordering::Relaxed), 1);
+            mirrors[0] = Some(mirror());
+            assert_eq!(released.load(Ordering::Relaxed), 1);
+            mirrors = [None, None];
+            assert_eq!(released.load(Ordering::Relaxed), 3);
+            drop(mirrors);
+            assert_eq!(released.load(Ordering::Relaxed), 3);
+        }
+    }
 }
 
 #[cfg(not(windows))]
@@ -962,6 +1084,7 @@ pub use platform::OpenVrBackend;
 pub enum OverlayKind {
     Headset,
     Wrist,
+    OcrWrist,
     OcrFrame,
     OcrResult,
     Dashboard,

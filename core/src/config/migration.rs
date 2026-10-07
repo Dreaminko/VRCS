@@ -819,6 +819,9 @@ pub fn config_from_value(raw: &serde_json::Value) -> Result<AppConfig, String> {
         other => return Err(format!("Unsupported configuration schema v{other}")),
     };
     config.schema_version = SCHEMA_VERSION;
+    if config.ocr.wrist.is_none() {
+        config.ocr.wrist = Some(super::VrOcrWristConfig::from(&config.vr_overlay.wrist));
+    }
     for (service_id, settings) in default_service_settings() {
         config
             .asr

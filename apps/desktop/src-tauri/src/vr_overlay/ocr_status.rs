@@ -79,6 +79,18 @@ pub struct OcrStatus {
     pub timed_out: bool,
     pub last_error_code: Option<String>,
     pub last_error: Option<String>,
+    pub wrist_state: OcrWristState,
+    pub wrist_error: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OcrWristState {
+    #[default]
+    Hidden,
+    Visible,
+    DeviceUnavailable,
+    Error,
 }
 
 impl Default for OcrStatus {
@@ -95,6 +107,8 @@ impl Default for OcrStatus {
             timed_out: false,
             last_error_code: None,
             last_error: None,
+            wrist_state: OcrWristState::Hidden,
+            wrist_error: None,
         }
     }
 }

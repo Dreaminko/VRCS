@@ -29,3 +29,14 @@ test("cloud OCR readiness requires a credential regardless of local model state"
   assert.equal(isVrOcrBackendReady("cloud", true, "missing"), true);
   assert.equal(isVrOcrBackendReady("cloud", false, "ready"), false);
 });
+
+test("OCR wrist defaults have their own readable appearance and position", () => {
+  assert.equal(DEFAULT_OCR_SETTINGS.wrist?.font_size_px, 32);
+  assert.equal(DEFAULT_OCR_SETTINGS.wrist?.width_m, 0.32);
+  assert.equal(DEFAULT_OCR_SETTINGS.wrist?.hand, "left");
+  const settings = { vr_overlay: DEFAULT_VR_OVERLAY_SETTINGS, ocr: DEFAULT_OCR_SETTINGS } as Settings;
+  const patched = patchOcr(settings, { wrist: { ...DEFAULT_OCR_SETTINGS.wrist!, width_m: 0.48 } });
+  assert.equal(patched.ocr.wrist?.width_m, 0.48);
+  assert.equal(settings.ocr.wrist?.width_m, 0.32);
+  assert.equal(patched.vr_overlay.wrist.width_m, 0.32);
+});

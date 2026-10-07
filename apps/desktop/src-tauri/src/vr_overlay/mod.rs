@@ -24,6 +24,14 @@ mod ocr_runtime;
 #[cfg(windows)]
 mod ocr_selection;
 mod ocr_status;
+#[cfg(windows)]
+mod ocr_wrist;
+#[cfg(windows)]
+mod ocr_wrist_layout;
+#[cfg(windows)]
+mod ocr_wrist_renderer;
+#[cfg(windows)]
+mod text_raster;
 // Keep the image verifier covered without enabling scan cancellation.
 #[cfg(all(windows, test))]
 mod ocr_tracking;

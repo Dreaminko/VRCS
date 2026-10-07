@@ -1,6 +1,7 @@
 import type {
   VrOcrModelStatus,
   VrOcrSettings,
+  VrOcrWristSettings,
   VrOverlayHeadsetSettings,
   VrOverlaySettings,
   VrOverlayWristSettings,
@@ -96,6 +97,20 @@ export const DEFAULT_VR_OVERLAY_WRIST_SETTINGS: VrOverlayWristSettings = {
   background_opacity: 0.65,
 };
 
+export const DEFAULT_OCR_WRIST_SETTINGS: VrOcrWristSettings = {
+  hand: "left",
+  dominant_hand: "right",
+  offset_x_m: 0.03,
+  offset_y_m: 0.08,
+  offset_z_m: -0.06,
+  pitch_deg: -55,
+  yaw_deg: 0,
+  roll_deg: 0,
+  width_m: 0.32,
+  opacity: 0.94,
+  font_size_px: 32,
+};
+
 export const DEFAULT_OCR_SETTINGS: VrOcrSettings = {
   enabled: false,
   desktop_enabled: false,
@@ -109,6 +124,7 @@ export const DEFAULT_OCR_SETTINGS: VrOcrSettings = {
   hand_gesture_enabled: true,
   display_seconds: 15,
   background_opacity: 1,
+  wrist: { ...DEFAULT_OCR_WRIST_SETTINGS },
 };
 
 export const DEFAULT_VR_OVERLAY_SETTINGS: VrOverlaySettings = {

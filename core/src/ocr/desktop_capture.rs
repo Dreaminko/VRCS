@@ -377,7 +377,7 @@ fn bgra_to_rgba(
     let mut rgba = Vec::with_capacity(width * height * 4);
     for row in y..y + height {
         let start = row * stride + x * 4;
-        for pixel in pixels[start..start + width * 4].chunks_exact(4) {
+        for pixel in pixels[start..start + width * 4].as_chunks::<4>().0 {
             rgba.extend_from_slice(&[pixel[2], pixel[1], pixel[0], 255]);
         }
     }
@@ -393,7 +393,7 @@ mod tests {
         // WinRT returns S_OK with a null object while the frame pool is empty.
         let frame: windows::core::Result<windows::Graphics::Capture::Direct3D11CaptureFrame> =
             unsafe { windows::core::Type::from_abi(std::ptr::null_mut()) };
-        let error = frame.err().expect("The binding rejects a null frame");
+        let error = frame.expect_err("The binding rejects a null frame");
         assert_eq!(error.code(), HRESULT(0));
         assert!(is_pending_frame(&error));
         assert!(is_pending_frame(&Error::from(E_POINTER)));
