@@ -16,9 +16,13 @@ mod ocr_input;
 #[cfg(windows)]
 mod ocr_input_state;
 #[cfg(windows)]
+mod ocr_plane;
+#[cfg(windows)]
 mod ocr_renderer;
 #[cfg(windows)]
 mod ocr_runtime;
+#[cfg(windows)]
+mod ocr_selection;
 mod ocr_status;
 // Keep the image verifier covered without enabling scan cancellation.
 #[cfg(all(windows, test))]

@@ -79,6 +79,16 @@ You can change the configuration at any time in the application. To run the setu
 - Open VRCS quick settings from the SteamVR dashboard bottom bar while VRCS is running
 - Configure the overlay to show original text, translations, or both; select system audio, microphone, and Chatbox sources; and adjust position, size, opacity, and display duration
 
+### OCR in SteamVR
+
+Enable VR OCR in Settings and select **Original text position (both eyes)** to place translated text over its source. New configurations use this mode with an opaque background; saved display preferences remain in effect.
+
+Hold a camera-frame finger pose, or both controller grip buttons, for 0.65 seconds. Move the hands to opposite corners to adjust the cyan selection frame. The frame is a 3D overlay anchored to both hands; SteamVR renders both eye views. Hold the right trigger to confirm, then move both hands out of view within five seconds. Release the pose or grips before confirmation to cancel. Hold the left trigger to clear results. Without a hand frame, the right trigger scans the configured center region. SteamVR bindings can change these controls.
+
+Finger poses require full skeletal tracking. Grip selection uses controller poses and works without full finger tracking. Translated patches match the sampled source background and use black or white text for contrast. Matching text blocks in the two screenshots provide an estimated source plane. The translation uses one texture on a 3D overlay; SteamVR handles both eye views and head movement. Long translations can use a nearby card on the same plane if they do not fit the source block. Results that cannot be placed appear on the wrist panel.
+
+This is a snapshot overlay for text on a common plane. Depth and surface tilt are estimates; a single matched word provides depth only. It does not track moving objects or movement within VRChat, so scan again when the source moves. Cloud OCR sends the selected image region to the configured OCR provider. Local OCR keeps image recognition on the device; translation follows the selected translation service.
+
 ### Dictionary lookup, learning, and Anki
 
 - Import and manage Yomitan dictionary packages

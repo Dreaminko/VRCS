@@ -159,7 +159,7 @@ export interface VrOverlayStatus {
 
 export interface VrOcrStatus {
   state: "disabled" | "waiting_vr" | "ready" | "unbound" | "capturing" | "submitting" | "pending" | "running"
-    | "waiting_hands" | "downloading" | "loading_model" | "recognizing" | "translating" | "recognized" | "visible" | "invalid" | "error"
+    | "selecting" | "waiting_hands" | "downloading" | "loading_model" | "recognizing" | "translating" | "recognized" | "visible" | "invalid" | "error"
     | "no_text" | "low_confidence" | "source_visible" | "partial_visible" | "translation_failed" | "timed_out";
   scan_id: number;
   block_count: number;

@@ -1,3 +1,8 @@
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct FrameCorners {
+    pub corners: [[f32; 3]; 2],
+}
+
 #[derive(Clone)]
 pub struct HandSample {
     pub origin: u64,
@@ -67,6 +72,58 @@ pub fn camera_frame(hands: &[HandSample; 2]) -> bool {
     true
 }
 
+pub fn drag_frame(hands: &[HandSample; 2]) -> Option<FrameCorners> {
+    if hands[0].origin == 0 || hands[1].origin == 0 || hands[0].origin == hands[1].origin {
+        return None;
+    }
+    for hand in hands {
+        if hand
+            .curls
+            .iter()
+            .any(|curl| !curl.is_finite() || !(0.0..=1.0).contains(curl))
+            || hand.curls[0] > 0.45
+            || hand.curls[1] > 0.45
+            || !(-3.0..=-0.05).contains(&hand.wrist[2])
+            || [
+                hand.wrist,
+                hand.thumb_base,
+                hand.thumb_tip,
+                hand.index_base,
+                hand.index_tip,
+            ]
+            .iter()
+            .flatten()
+            .any(|value| !value.is_finite())
+            || direction(hand.thumb_base, hand.thumb_tip, 0.02, 0.2).is_none()
+            || direction(hand.index_base, hand.index_tip, 0.04, 0.25).is_none()
+        {
+            return None;
+        }
+    }
+    Some(FrameCorners {
+        corners: [hands[0].wrist, hands[1].wrist],
+    })
+}
+
+pub fn gesture_frame(hands: &[HandSample; 2], confirm_pressed: bool) -> Option<FrameCorners> {
+    if !confirm_pressed {
+        return drag_frame(hands);
+    }
+    if hands[0].origin == 0
+        || hands[1].origin == 0
+        || hands[0].origin == hands[1].origin
+        || hands.iter().any(|hand| {
+            hand.wrist.iter().any(|value| !value.is_finite())
+                || !(-3.0..=-0.05).contains(&hand.wrist[2])
+        })
+    {
+        return None;
+    }
+    Some(FrameCorners {
+        corners: [hands[0].wrist, hands[1].wrist],
+    })
+}
+
 fn direction(base: [f32; 3], tip: [f32; 3], minimum: f32, maximum: f32) -> Option<[f32; 3]> {
     let delta: [f32; 3] = std::array::from_fn(|axis| tip[axis] - base[axis]);
     let length = delta.iter().map(|value| value * value).sum::<f32>().sqrt();
@@ -125,6 +182,40 @@ mod tests {
             hand.index_tip[1] = -hand.index_tip[1];
         }
         assert!(camera_frame(&hands));
+    }
+
+    #[test]
+    fn dragging_keeps_extended_fingers_without_requiring_the_activation_orientation() {
+        let mut hands = frame();
+        hands[1].wrist = [-0.1, 0.03, -1.4];
+        hands[0].thumb_tip = [-0.18, -0.12, -0.38];
+        hands[0].curls[2] = 0.1;
+        assert!(!camera_frame(&hands));
+        assert_eq!(
+            drag_frame(&hands).unwrap().corners,
+            [[-0.18, -0.12, -0.45], [-0.1, 0.03, -1.4]]
+        );
+        hands[0].curls[1] = 0.8;
+        assert!(drag_frame(&hands).is_none());
+        hands[0].curls[1] = 0.1;
+        hands[1].wrist[0] = f32::NAN;
+        assert!(drag_frame(&hands).is_none());
+    }
+
+    #[test]
+    fn trigger_confirmation_keeps_valid_wrists_when_the_index_finger_curls() {
+        let mut hands = frame();
+        hands[1].curls[1] = 0.9;
+        assert!(gesture_frame(&hands, false).is_none());
+        assert_eq!(
+            gesture_frame(&hands, true).unwrap().corners,
+            [[-0.18, -0.12, -0.45], [0.18, 0.12, -0.45]]
+        );
+        hands[1].wrist[2] = 0.1;
+        assert!(gesture_frame(&hands, true).is_none());
+        hands[1].wrist[2] = -0.45;
+        hands[1].wrist[0] = f32::NAN;
+        assert!(gesture_frame(&hands, true).is_none());
     }
 
     #[test]

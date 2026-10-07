@@ -27,6 +27,19 @@ pub fn compose(parent: [[f32; 4]; 3], child: [[f32; 4]; 3]) -> [[f32; 4]; 3] {
     })
 }
 
+/// Inverts a rigid OpenVR pose: transpose the rotation, then transform its translation.
+pub fn inverse(pose: [[f32; 4]; 3]) -> [[f32; 4]; 3] {
+    std::array::from_fn(|row| {
+        std::array::from_fn(|column| {
+            if column < 3 {
+                pose[column][row]
+            } else {
+                -(0..3).map(|k| pose[k][row] * pose[k][3]).sum::<f32>()
+            }
+        })
+    })
+}
+
 /// Builds a row-major OpenVR transform using intrinsic X (pitch), Y (yaw),
 /// then Z (roll) rotations. The composed matrix is Rz * Ry * Rx.
 pub fn matrix(pitch_deg: f32, yaw_deg: f32, roll_deg: f32, translation: [f32; 3]) -> [[f32; 4]; 3] {

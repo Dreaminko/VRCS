@@ -30,14 +30,17 @@ mod platform {
         overlay: Overlay,
         raw_overlay: *const openvr_sys::VR_IVROverlay_FnTable,
         texture_device: Option<Device>,
+        ocr_mirrors: [Option<Mirror>; 2],
         headset: Option<OverlayHandle>,
         wrist: Option<OverlayHandle>,
-        ocr: [Option<OverlayHandle>; 2],
+        ocr_frame: Option<OverlayHandle>,
+        ocr_result: Option<OverlayHandle>,
         dashboard: Option<OverlayHandle>,
         dashboard_thumbnail: Option<OverlayHandle>,
         headset_state: SubmittedState,
         wrist_state: SubmittedState,
-        ocr_state: [SubmittedState; 2],
+        ocr_frame_state: SubmittedState,
+        ocr_result_state: SubmittedState,
         dashboard_state: SubmittedState,
         dashboard_thumbnail_state: SubmittedState,
         ocr_input: Option<crate::vr_overlay::ocr_input::OcrInput>,
@@ -51,10 +54,54 @@ mod platform {
         d3d11_disabled: bool,
     }
 
+    struct Mirror {
+        view: *mut std::ffi::c_void,
+        release: unsafe extern "C" fn(*mut std::ffi::c_void),
+    }
+
+    impl Drop for Mirror {
+        fn drop(&mut self) {
+            if !self.view.is_null() {
+                unsafe {
+                    (self.release)(self.view);
+                }
+            }
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::Mirror;
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        #[test]
+        fn mirrors_remain_owned_until_reacquisition_or_shutdown() {
+            unsafe extern "C" fn release(view: *mut std::ffi::c_void) {
+                let count = &*view.cast::<AtomicUsize>();
+                count.fetch_add(1, Ordering::Relaxed);
+            }
+            let released = AtomicUsize::new(0);
+            let mirror = || Mirror {
+                view: std::ptr::from_ref(&released).cast_mut().cast(),
+                release,
+            };
+            let mut mirrors = [Some(mirror()), Some(mirror())];
+            assert_eq!(released.load(Ordering::Relaxed), 0);
+            mirrors[0] = None;
+            assert_eq!(released.load(Ordering::Relaxed), 1);
+            mirrors[0] = Some(mirror());
+            assert_eq!(released.load(Ordering::Relaxed), 1);
+            mirrors = [None, None];
+            assert_eq!(released.load(Ordering::Relaxed), 3);
+            drop(mirrors);
+            assert_eq!(released.load(Ordering::Relaxed), 3);
+        }
+    }
+
     impl OpenVrBackend {
         pub fn reset_ocr(&mut self) {
-            self.reset(OverlayKind::OcrLeft);
-            self.reset(OverlayKind::OcrRight);
+            self.reset(OverlayKind::OcrFrame);
+            self.reset(OverlayKind::OcrResult);
         }
 
         pub fn ocr_tracking(&self) -> Result<([[f32; 4]; 3], u32, i32), String> {
@@ -113,7 +160,49 @@ mod platform {
                 .ok_or("Enable VR OCR before opening its bindings")?
                 .open_bindings()
         }
-        pub fn capture_ocr(&self) -> Result<StereoCapture, String> {
+        /// Projection metadata for crop validation and hand visibility; no mirror readback needed.
+        pub fn ocr_view(&self) -> Result<([EyeCapture; 2], u32, i32), String> {
+            let (head, pid, origin) = self.ocr_tracking()?;
+            let system = load_raw_system()?;
+            let mut eyes = Vec::with_capacity(2);
+            for eye in [openvr_sys::EVREye_Eye_Left, openvr_sys::EVREye_Eye_Right] {
+                let mut projection = [0.; 4];
+                unsafe {
+                    let system = &*system;
+                    system
+                        .GetProjectionRaw
+                        .ok_or("Eye projection query unavailable")?(
+                        eye,
+                        &mut projection[0],
+                        &mut projection[1],
+                        &mut projection[2],
+                        &mut projection[3],
+                    );
+                    let eye_to_head =
+                        system
+                            .GetEyeToHeadTransform
+                            .ok_or("Eye transform query unavailable")?(eye)
+                        .m;
+                    eyes.push(EyeCapture {
+                        image: Texture {
+                            width: 1024,
+                            height: 1024,
+                            pixels: vec![],
+                        },
+                        projection,
+                        eye_to_head,
+                        head_pose: head,
+                    });
+                }
+            }
+            Ok((
+                eyes.try_into().map_err(|_| "Missing OCR eye projection")?,
+                pid,
+                origin,
+            ))
+        }
+
+        pub fn capture_ocr(&mut self) -> Result<StereoCapture, String> {
             let system = load_raw_system()?;
             let compositor = load_raw_interface(openvr_sys::IVRCompositor_Version, "compositor")?
                 as *const openvr_sys::VR_IVRCompositor_FnTable;
@@ -150,21 +239,14 @@ mod platform {
                 let release = compositor
                     .ReleaseMirrorTextureD3D11
                     .ok_or("D3D11 mirror release unavailable")?;
-                struct Mirror {
-                    view: *mut std::ffi::c_void,
-                    release: unsafe extern "C" fn(*mut std::ffi::c_void),
-                }
-                impl Drop for Mirror {
-                    fn drop(&mut self) {
-                        if !self.view.is_null() {
-                            unsafe {
-                                (self.release)(self.view);
-                            }
-                        }
-                    }
-                }
                 let mut eyes = Vec::new();
-                for eye in [openvr_sys::EVREye_Eye_Left, openvr_sys::EVREye_Eye_Right] {
+                for (index, eye) in [openvr_sys::EVREye_Eye_Left, openvr_sys::EVREye_Eye_Right]
+                    .into_iter()
+                    .enumerate()
+                {
+                    // Releasing just after readback can make SteamVR return the previous image.
+                    // Keep the mirror alive until the next acquisition (OpenVR issue #1888).
+                    self.ocr_mirrors[index] = None;
                     let mut mirror = Mirror {
                         view: std::ptr::null_mut(),
                         release,
@@ -174,6 +256,8 @@ mod platform {
                     {
                         return Err("Could not acquire SteamVR eye mirror".into());
                     }
+                    let view = mirror.view;
+                    self.ocr_mirrors[index] = Some(mirror);
                     let mut eye_pose: openvr_sys::TrackedDevicePose_t = std::mem::zeroed();
                     if pose_fn(
                         tracked_device_index::HMD.0,
@@ -194,7 +278,7 @@ mod platform {
                     ) {
                         return Err("Headset position changed during capture; scan again".into());
                     }
-                    let image = device.read_shader_resource(mirror.view)?;
+                    let image = device.read_shader_resource(view)?;
                     let mut projection = [0.; 4];
                     system
                         .GetProjectionRaw
@@ -293,14 +377,17 @@ mod platform {
                 overlay,
                 raw_overlay,
                 texture_device,
+                ocr_mirrors: [None, None],
                 headset: None,
                 wrist: None,
-                ocr: [None, None],
+                ocr_frame: None,
+                ocr_result: None,
                 dashboard: None,
                 dashboard_thumbnail: None,
                 headset_state: SubmittedState::default(),
                 wrist_state: SubmittedState::default(),
-                ocr_state: Default::default(),
+                ocr_frame_state: SubmittedState::default(),
+                ocr_result_state: SubmittedState::default(),
                 dashboard_state: SubmittedState::default(),
                 dashboard_thumbnail_state: SubmittedState::default(),
                 ocr_input: None,
@@ -439,52 +526,45 @@ mod platform {
                 .map_err(|error| format!("Position headset overlay failed: {error:?}"))
         }
 
-        pub fn ensure_ocr(
+        pub fn ensure_ocr_plane(
             &mut self,
-            index: usize,
-            eye: &EyeCapture,
+            kind: OverlayKind,
+            plane: &crate::vr_overlay::ocr_plane::PlaneOverlay,
             origin: i32,
         ) -> Result<(), String> {
-            let (key, name, target_eye) = match index {
-                0 => (
-                    "org.vrcs.overlay.ocr.left\0",
-                    "VRCS OCR Left\0",
-                    openvr_sys::EVREye_Eye_Left,
+            let (slot, key, name) = match kind {
+                OverlayKind::OcrFrame => (
+                    &mut self.ocr_frame,
+                    "org.vrcs.overlay.ocr.frame\0",
+                    "VRCS OCR Frame\0",
                 ),
-                1 => (
-                    "org.vrcs.overlay.ocr.right\0",
-                    "VRCS OCR Right\0",
-                    openvr_sys::EVREye_Eye_Right,
+                OverlayKind::OcrResult => (
+                    &mut self.ocr_result,
+                    "org.vrcs.overlay.ocr.result\0",
+                    "VRCS OCR Translation\0",
                 ),
-                _ => return Err("Invalid OCR eye".into()),
+                _ => return Err("Invalid OCR overlay kind".into()),
             };
-            if self.ocr[index].is_none() {
-                self.ocr[index] = Some(
+            if slot.is_none() {
+                *slot = Some(
                     self.overlay
                         .create_overlay(key, name)
                         .map_err(|error| format!("Create OCR overlay failed: {error:?}"))?,
                 );
             }
-            let handle = self.ocr[index].expect("OCR overlay exists");
-            let mut matrix = openvr_sys::HmdMatrix34_t {
-                m: transform::compose(eye.head_pose, eye.eye_to_head),
-            };
-            let [f_left, f_right, f_top, f_bottom] = eye.projection;
-            let mut projection = openvr_sys::VROverlayProjection_t {
-                fLeft: f_left,
-                fRight: f_right,
-                fTop: f_top,
-                fBottom: f_bottom,
-            };
+            let handle = slot.expect("OCR overlay exists");
+            self.overlay
+                .set_width(handle, plane.width_m)
+                .map_err(|error| format!("Configure OCR width failed: {error:?}"))?;
+            self.overlay
+                .set_texel_aspect(handle, plane.texel_aspect)
+                .map_err(|error| format!("Configure OCR aspect failed: {error:?}"))?;
+            let mut matrix = openvr_sys::HmdMatrix34_t { m: plane.pose };
             let error = unsafe {
                 (*self.raw_overlay)
-                    .SetOverlayTransformProjection
-                    .ok_or("OCR projection overlays are unavailable")?(
-                    handle.0,
-                    origin,
-                    &mut matrix,
-                    &mut projection,
-                    target_eye,
+                    .SetOverlayTransformAbsolute
+                    .ok_or("OCR absolute overlays are unavailable")?(
+                    handle.0, origin, &mut matrix
                 )
             };
             if error != openvr_sys::EVROverlayError_VROverlayError_None {
@@ -645,8 +725,8 @@ mod platform {
         pub fn hide_all(&mut self) {
             self.hide(OverlayKind::Headset);
             self.hide(OverlayKind::Wrist);
-            self.hide(OverlayKind::OcrLeft);
-            self.hide(OverlayKind::OcrRight);
+            self.hide(OverlayKind::OcrFrame);
+            self.hide(OverlayKind::OcrResult);
         }
 
         pub fn reset(&mut self, kind: OverlayKind) {
@@ -658,8 +738,8 @@ mod platform {
             match kind {
                 OverlayKind::Headset => self.headset,
                 OverlayKind::Wrist => self.wrist,
-                OverlayKind::OcrLeft => self.ocr[0],
-                OverlayKind::OcrRight => self.ocr[1],
+                OverlayKind::OcrFrame => self.ocr_frame,
+                OverlayKind::OcrResult => self.ocr_result,
                 OverlayKind::Dashboard => self.dashboard,
                 OverlayKind::DashboardThumbnail => self.dashboard_thumbnail,
             }
@@ -669,8 +749,8 @@ mod platform {
             match kind {
                 OverlayKind::Headset => &self.headset_state,
                 OverlayKind::Wrist => &self.wrist_state,
-                OverlayKind::OcrLeft => &self.ocr_state[0],
-                OverlayKind::OcrRight => &self.ocr_state[1],
+                OverlayKind::OcrFrame => &self.ocr_frame_state,
+                OverlayKind::OcrResult => &self.ocr_result_state,
                 OverlayKind::Dashboard => &self.dashboard_state,
                 OverlayKind::DashboardThumbnail => &self.dashboard_thumbnail_state,
             }
@@ -680,8 +760,8 @@ mod platform {
             match kind {
                 OverlayKind::Headset => &mut self.headset_state,
                 OverlayKind::Wrist => &mut self.wrist_state,
-                OverlayKind::OcrLeft => &mut self.ocr_state[0],
-                OverlayKind::OcrRight => &mut self.ocr_state[1],
+                OverlayKind::OcrFrame => &mut self.ocr_frame_state,
+                OverlayKind::OcrResult => &mut self.ocr_result_state,
                 OverlayKind::Dashboard => &mut self.dashboard_state,
                 OverlayKind::DashboardThumbnail => &mut self.dashboard_thumbnail_state,
             }
@@ -691,8 +771,8 @@ mod platform {
             let handle = match kind {
                 OverlayKind::Headset => self.headset.take(),
                 OverlayKind::Wrist => self.wrist.take(),
-                OverlayKind::OcrLeft => self.ocr[0].take(),
-                OverlayKind::OcrRight => self.ocr[1].take(),
+                OverlayKind::OcrFrame => self.ocr_frame.take(),
+                OverlayKind::OcrResult => self.ocr_result.take(),
                 OverlayKind::Dashboard => self.dashboard.take(),
                 OverlayKind::DashboardThumbnail => self.dashboard_thumbnail.take(),
             };
@@ -713,11 +793,12 @@ mod platform {
 
     impl Drop for OpenVrBackend {
         fn drop(&mut self) {
+            self.ocr_mirrors = [None, None];
             self.hide_all();
             self.destroy(OverlayKind::Headset);
             self.destroy(OverlayKind::Wrist);
-            self.destroy(OverlayKind::OcrLeft);
-            self.destroy(OverlayKind::OcrRight);
+            self.destroy(OverlayKind::OcrFrame);
+            self.destroy(OverlayKind::OcrResult);
             self.destroy(OverlayKind::Dashboard);
             self.destroy(OverlayKind::DashboardThumbnail);
             let _ = &self.context;
@@ -881,8 +962,8 @@ pub use platform::OpenVrBackend;
 pub enum OverlayKind {
     Headset,
     Wrist,
-    OcrLeft,
-    OcrRight,
+    OcrFrame,
+    OcrResult,
     Dashboard,
     DashboardThumbnail,
 }

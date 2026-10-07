@@ -1,5 +1,5 @@
-use super::ocr_gesture::{camera_frame, point_in_head, HandSample};
-use super::ocr_input_state::HoldAction;
+use super::ocr_gesture::{camera_frame, gesture_frame, point_in_head, FrameCorners, HandSample};
+use super::ocr_input_state::{FrameSession, FrameTracking, HoldAction};
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::{ffi::CString, mem::size_of, path::Path, time::Instant};
 
@@ -8,8 +8,10 @@ pub struct InputActions {
     pub clear: bool,
     pub available: bool,
     pub gesture_available: bool,
-    pub gesture_scan: bool,
-    pub hands_in_view: bool,
+    pub frame: Option<FrameCorners>,
+    pub frame_confirmed: bool,
+    pub frame_cancelled: bool,
+    pub hand_points: Vec<[f32; 3]>,
 }
 
 pub struct OcrInput {
@@ -20,7 +22,9 @@ pub struct OcrInput {
     scan_hold: HoldAction,
     clear_hold: HoldAction,
     hands: [u64; 2],
-    gesture_hold: HoldAction,
+    grips: [u64; 2],
+    poses: [u64; 2],
+    frame_session: FrameSession,
     last_digital_state: Option<(bool, bool, bool, bool, bool, bool)>,
 }
 
@@ -37,14 +41,31 @@ pub fn install_manifest(directory: &Path) -> Result<std::path::PathBuf, String> 
     let mut bindings = Vec::new();
     for controller in ["knuckles", "oculus_touch", "vive_controller"] {
         let name = format!("{controller}.json");
+        let grip = |side: &str| {
+            let (mode, component) = if controller == "knuckles" {
+                ("grab", "grab")
+            } else {
+                ("button", "click")
+            };
+            let mut inputs = serde_json::Map::new();
+            inputs.insert(
+                component.into(),
+                serde_json::json!({"output":format!("/actions/ocr/in/{side}_grip")}),
+            );
+            serde_json::json!({"path":format!("/user/hand/{side}/input/grip"),"mode":mode,"inputs":inputs})
+        };
         let binding = serde_json::json!({"controller_type":controller,"name":"VRCS OCR",
-        "description":"Hold right trigger to scan; hold left trigger to clear. Customize to avoid game input conflicts.",
-        "bindings":{"/actions/ocr":{"skeleton":[
+        "description":"Hold both grips to drag a frame. Hold right trigger to confirm / scan, left trigger to cancel / clear. Customize to avoid game input conflicts.",
+        "bindings":{"/actions/ocr":{"poses":[
+            {"path":"/user/hand/left/pose/raw","output":"/actions/ocr/in/left_pose"},
+            {"path":"/user/hand/right/pose/raw","output":"/actions/ocr/in/right_pose"}
+        ],"skeleton":[
             {"path":"/user/hand/left/input/skeleton/left","output":"/actions/ocr/in/left_hand"},
             {"path":"/user/hand/right/input/skeleton/right","output":"/actions/ocr/in/right_hand"}
         ],"sources":[
             {"path":"/user/hand/right/input/trigger","mode":"button","inputs":{"click":{"output":"/actions/ocr/in/scan"}}},
-            {"path":"/user/hand/left/input/trigger","mode":"button","inputs":{"click":{"output":"/actions/ocr/in/clear"}}}
+            {"path":"/user/hand/left/input/trigger","mode":"button","inputs":{"click":{"output":"/actions/ocr/in/clear"}}},
+            grip("left"), grip("right")
         ]}}});
         write_if_changed(&directory.join(&name), &binding)?;
         bindings.push(serde_json::json!({"controller_type":controller,"binding_url":name}));
@@ -56,11 +77,17 @@ pub fn install_manifest(directory: &Path) -> Result<std::path::PathBuf, String> 
             "action_sets":[{"name":"/actions/ocr","usage":"leftright"}],
             "actions":[{"name":"/actions/ocr/in/scan","type":"boolean","requirement":"optional"},
                 {"name":"/actions/ocr/in/clear","type":"boolean","requirement":"optional"},
+                {"name":"/actions/ocr/in/left_grip","type":"boolean","requirement":"optional"},
+                {"name":"/actions/ocr/in/right_grip","type":"boolean","requirement":"optional"},
+                {"name":"/actions/ocr/in/left_pose","type":"pose","requirement":"optional"},
+                {"name":"/actions/ocr/in/right_pose","type":"pose","requirement":"optional"},
                 {"name":"/actions/ocr/in/left_hand","type":"skeleton","skeleton":"/skeleton/hand/left","requirement":"optional"},
                 {"name":"/actions/ocr/in/right_hand","type":"skeleton","skeleton":"/skeleton/hand/right","requirement":"optional"}],
             "default_bindings":bindings,
             "localization":[{"language_tag":"en_US","/actions/ocr":"VRCS OCR",
-                "/actions/ocr/in/scan":"Scan / rescan (hold)","/actions/ocr/in/clear":"Clear OCR (hold)",
+                "/actions/ocr/in/scan":"Confirm frame / scan (hold)","/actions/ocr/in/clear":"Cancel frame / clear (hold)",
+                "/actions/ocr/in/left_grip":"Frame drag left grip", "/actions/ocr/in/right_grip":"Frame drag right grip",
+                "/actions/ocr/in/left_pose":"Frame left corner", "/actions/ocr/in/right_pose":"Frame right corner",
                 "/actions/ocr/in/left_hand":"Left hand camera frame", "/actions/ocr/in/right_hand":"Right hand camera frame"}]
         }),
     )?;
@@ -89,7 +116,7 @@ impl OcrInput {
         })?;
         self.scan_hold = HoldAction::default();
         self.clear_hold = HoldAction::default();
-        self.gesture_hold = HoldAction::default();
+        self.frame_session = FrameSession::default();
         self.last_digital_state = None;
         Ok(())
     }
@@ -132,10 +159,18 @@ impl OcrInput {
             scan_hold: HoldAction::default(),
             clear_hold: HoldAction::default(),
             hands: [
-                action("/actions/ocr/in/left_hand")?,
-                action("/actions/ocr/in/right_hand")?,
+                action("/actions/ocr/in/left_hand").unwrap_or(0),
+                action("/actions/ocr/in/right_hand").unwrap_or(0),
             ],
-            gesture_hold: HoldAction::default(),
+            grips: [
+                action("/actions/ocr/in/left_grip").unwrap_or(0),
+                action("/actions/ocr/in/right_grip").unwrap_or(0),
+            ],
+            poses: [
+                action("/actions/ocr/in/left_pose").unwrap_or(0),
+                action("/actions/ocr/in/right_pose").unwrap_or(0),
+            ],
+            frame_session: FrameSession::default(),
             last_digital_state: None,
         })
     }
@@ -201,9 +236,53 @@ impl OcrInput {
             (hands[0].origin, hands[1].origin).hash(&mut hasher);
             hasher.finish()
         });
-        let gesture = hands.as_ref().is_some_and(camera_frame);
-        let hands_in_view = hands.as_ref().is_some_and(|hands| {
-            hands.iter().any(|hand| {
+        let gesture_tracking = hands.as_ref().map(|hands| {
+            let frame = gesture_frame(hands, scan.bActive && scan.activeOrigin != 0 && scan.bState);
+            FrameTracking {
+                origin: gesture_origin.unwrap_or(0),
+                corners: frame.unwrap_or(FrameCorners {
+                    corners: [hands[0].wrist, hands[1].wrist],
+                }),
+                activating: camera_frame(hands),
+                dragging: frame.is_some(),
+            }
+        });
+        let controllers = tracking.and_then(|(head, tracking_origin)| {
+            let grips = [read(self.grips[0]).ok()?, read(self.grips[1]).ok()?];
+            let poses = [
+                read_controller(api, self.poses[0], head, tracking_origin).ok()?,
+                read_controller(api, self.poses[1], head, tracking_origin).ok()?,
+            ];
+            if poses[0].0 == poses[1].0
+                || grips
+                    .iter()
+                    .any(|grip| !grip.bActive || grip.activeOrigin == 0)
+            {
+                return None;
+            }
+            let mut hasher = DefaultHasher::new();
+            (
+                poses[0].0,
+                poses[1].0,
+                grips[0].activeOrigin,
+                grips[1].activeOrigin,
+            )
+                .hash(&mut hasher);
+            let pressed = grips.iter().all(|grip| grip.bState);
+            Some(FrameTracking {
+                origin: hasher.finish(),
+                corners: FrameCorners {
+                    corners: [poses[0].1, poses[1].1],
+                },
+                activating: pressed,
+                dragging: pressed,
+            })
+        });
+        let hand_points = hands
+            .as_ref()
+            .into_iter()
+            .flat_map(|hands| hands.iter())
+            .flat_map(|hand| {
                 [
                     hand.wrist,
                     hand.thumb_base,
@@ -211,21 +290,28 @@ impl OcrInput {
                     hand.index_base,
                     hand.index_tip,
                 ]
-                .iter()
-                .any(|point| {
-                    (-1.5..=-0.05).contains(&point[2])
-                        && point[0].abs() < 0.75
-                        && point[1].abs() < 0.65
-                })
             })
-        });
+            .chain(
+                controllers
+                    .into_iter()
+                    .flat_map(|sample| sample.corners.corners),
+            )
+            .collect();
+        let available = scan.bActive && clear.bActive;
+        let scan = self.scan_hold.update(origin(&scan), scan.bState, now);
+        let clear = self.clear_hold.update(origin(&clear), clear.bState, now);
+        let frame = self
+            .frame_session
+            .update([gesture_tracking, controllers], scan, clear, now);
         Ok(InputActions {
-            scan: self.scan_hold.update(origin(&scan), scan.bState, now),
-            clear: self.clear_hold.update(origin(&clear), clear.bState, now),
-            available: scan.bActive && clear.bActive,
-            gesture_available: hands.is_some(),
-            gesture_scan: self.gesture_hold.update(gesture_origin, gesture, now),
-            hands_in_view,
+            scan,
+            clear,
+            available,
+            gesture_available: hands.is_some() || controllers.is_some(),
+            frame: frame.frame,
+            frame_confirmed: frame.confirmed,
+            frame_cancelled: frame.cancelled,
+            hand_points,
         })
     }
 }
@@ -244,6 +330,47 @@ fn binding_count(api: &openvr_sys::VR_IVRInput_FnTable, action: u64) -> Option<R
         )
     };
     Some(if error == 0 { Ok(count) } else { Err(error) })
+}
+
+fn read_controller(
+    api: &openvr_sys::VR_IVRInput_FnTable,
+    action: u64,
+    head: [[f32; 4]; 3],
+    origin: i32,
+) -> Result<(u64, [f32; 3]), String> {
+    if action == 0 {
+        return Err("Controller pose unbound".into());
+    }
+    let mut data: openvr_sys::InputPoseActionData_t = unsafe { std::mem::zeroed() };
+    check(unsafe {
+        api.GetPoseActionDataRelativeToNow
+            .ok_or("Controller pose unavailable")?(
+            action,
+            origin,
+            0.,
+            &mut data,
+            size_of::<openvr_sys::InputPoseActionData_t>() as u32,
+            0,
+        )
+    })?;
+    let device = data.pose.mDeviceToAbsoluteTracking.m;
+    if !data.bActive
+        || data.activeOrigin == 0
+        || !data.pose.bPoseIsValid
+        || !data.pose.bDeviceIsConnected
+        || head
+            .iter()
+            .chain(device.iter())
+            .flatten()
+            .any(|value| !value.is_finite())
+    {
+        return Err("Controller tracking inactive".into());
+    }
+    let point = point_in_head(head, device, [0.; 3]);
+    if point.iter().any(|value| !value.is_finite()) || !(-3.0..=-0.05).contains(&point[2]) {
+        return Err("Controller outside frame view".into());
+    }
+    Ok((data.activeOrigin, point))
 }
 
 fn read_hand(
@@ -351,6 +478,134 @@ fn read_hand(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn input(api: &openvr_sys::VR_IVRInput_FnTable) -> OcrInput {
+        OcrInput {
+            table: api,
+            action_set: 42,
+            scan: 1,
+            clear: 2,
+            hands: [72, 73],
+            grips: [3, 4],
+            poses: [5, 6],
+            scan_hold: Default::default(),
+            clear_hold: Default::default(),
+            frame_session: Default::default(),
+            last_digital_state: None,
+        }
+    }
+
+    #[test]
+    fn optional_frame_apis_do_not_disable_scan_and_clear() {
+        unsafe extern "C" fn update(
+            _: *mut openvr_sys::VRActiveActionSet_t,
+            _: u32,
+            _: u32,
+        ) -> i32 {
+            0
+        }
+        unsafe extern "C" fn digital(
+            action: u64,
+            data: *mut openvr_sys::InputDigitalActionData_t,
+            _: u32,
+            _: u64,
+        ) -> i32 {
+            if action > 2 {
+                return 3;
+            }
+            unsafe {
+                (*data).bActive = true;
+                (*data).activeOrigin = action;
+            }
+            0
+        }
+        let mut api: openvr_sys::VR_IVRInput_FnTable = unsafe { std::mem::zeroed() };
+        api.UpdateActionState = Some(update);
+        api.GetDigitalActionData = Some(digital);
+        let mut input = input(&api);
+        let head = super::super::transform::matrix(0., 0., 0., [0.; 3]);
+        let actions = input.poll(Some((head, 1))).unwrap();
+        assert!(actions.available);
+        assert!(!actions.gesture_available);
+        assert!(actions.frame.is_none());
+        assert!(!actions.frame_confirmed);
+    }
+
+    #[test]
+    fn manifests_bind_two_controller_corners_and_grips_to_optional_actions() {
+        let directory =
+            std::env::temp_dir().join(format!("vrcs-frame-bindings-{}", std::process::id()));
+        let manifest = install_manifest(&directory).unwrap();
+        let manifest: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(manifest).unwrap()).unwrap();
+        for controller in ["knuckles", "oculus_touch", "vive_controller"] {
+            let binding: serde_json::Value = serde_json::from_slice(
+                &std::fs::read(directory.join(format!("{controller}.json"))).unwrap(),
+            )
+            .unwrap();
+            let binding = &binding["bindings"]["/actions/ocr"];
+            for side in ["left", "right"] {
+                let pose = binding["poses"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .find(|pose| pose["path"] == format!("/user/hand/{side}/pose/raw"))
+                    .unwrap();
+                assert_eq!(pose["output"], format!("/actions/ocr/in/{side}_pose"));
+                let grip = binding["sources"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .find(|source| source["path"] == format!("/user/hand/{side}/input/grip"))
+                    .unwrap();
+                let component = if controller == "knuckles" {
+                    "grab"
+                } else {
+                    "click"
+                };
+                assert_eq!(
+                    grip["inputs"][component]["output"],
+                    format!("/actions/ocr/in/{side}_grip")
+                );
+                for (name, kind) in [("pose", "pose"), ("grip", "boolean")] {
+                    let action = manifest["actions"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .find(|action| action["name"] == format!("/actions/ocr/in/{side}_{name}"))
+                        .unwrap();
+                    assert_eq!(action["type"], kind);
+                    assert_eq!(action["requirement"], "optional");
+                }
+            }
+        }
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn controller_corner_uses_head_coordinates_and_rejects_invalid_poses() {
+        let mut api = api();
+        let head = super::super::transform::matrix(0., 0., 0., [1., 2., 3.45]);
+        let (origin, point) = read_controller(&api, 72, head, 1).unwrap();
+        assert_eq!(origin, 22);
+        for (actual, expected) in point.into_iter().zip([0., 0., -0.45]) {
+            assert!((actual - expected).abs() < 0.0001);
+        }
+        unsafe extern "C" fn lost(
+            _: u64,
+            _: i32,
+            _: f32,
+            _: *mut openvr_sys::InputPoseActionData_t,
+            _: u32,
+            _: u64,
+        ) -> i32 {
+            0
+        }
+        api.GetPoseActionDataRelativeToNow = Some(lost);
+        assert!(read_controller(&api, 72, head, 1).is_err());
+        api.GetPoseActionDataRelativeToNow = None;
+        assert!(read_controller(&api, 72, head, 1).is_err());
+    }
 
     unsafe extern "C" fn skeletal(
         action: u64,
@@ -499,32 +754,14 @@ mod tests {
         }
         let mut api = api();
         api.OpenBindingUI = Some(open);
-        let mut input = OcrInput {
-            table: &api,
-            action_set: 42,
-            scan: 1,
-            clear: 2,
-            hands: [72, 73],
-            scan_hold: Default::default(),
-            clear_hold: Default::default(),
-            gesture_hold: Default::default(),
-            last_digital_state: None,
-        };
+        let mut input = input(&api);
         let now = Instant::now();
-        for hold in [
-            &mut input.scan_hold,
-            &mut input.clear_hold,
-            &mut input.gesture_hold,
-        ] {
+        for hold in [&mut input.scan_hold, &mut input.clear_hold] {
             hold.update(Some(1), false, now);
             hold.update(Some(1), true, now);
         }
         input.open_bindings().unwrap();
-        for hold in [
-            &mut input.scan_hold,
-            &mut input.clear_hold,
-            &mut input.gesture_hold,
-        ] {
+        for hold in [&mut input.scan_hold, &mut input.clear_hold] {
             assert!(!hold.update(Some(1), true, now + std::time::Duration::from_secs(2)));
         }
     }

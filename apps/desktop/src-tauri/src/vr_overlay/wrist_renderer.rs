@@ -52,6 +52,17 @@ pub(super) fn render_text_box(
     height: u32,
     background_opacity: f32,
 ) -> Result<Option<Vec<u8>>, String> {
+    render_text_box_with_colors(text, width, height, background_opacity, [0; 3], [255; 3])
+}
+
+pub(super) fn render_text_box_with_colors(
+    text: &str,
+    width: u32,
+    height: u32,
+    background_opacity: f32,
+    background: [u8; 3],
+    foreground: [u8; 3],
+) -> Result<Option<Vec<u8>>, String> {
     let padding = 4;
     if width < 12 || height < 12 || width > 4096 || height > 4096 {
         return Ok(None);
@@ -91,10 +102,17 @@ pub(super) fn render_text_box(
             .iter()
             .flat_map(|pixel| {
                 let coverage = pixel[0].max(pixel[1]).max(pixel[2]);
+                // Text remains opaque; only the source-covering patch uses the configured opacity.
+                let color: [u8; 3] = std::array::from_fn(|channel| {
+                    ((foreground[channel] as u32 * coverage as u32
+                        + background[channel] as u32 * alpha as u32 * (255 - coverage) as u32
+                            / 255)
+                        / 255) as u8
+                });
                 [
-                    coverage,
-                    coverage,
-                    coverage,
+                    color[0],
+                    color[1],
+                    color[2],
                     alpha.saturating_add(((255 - alpha) as u16 * coverage as u16 / 255) as u8),
                 ]
             })

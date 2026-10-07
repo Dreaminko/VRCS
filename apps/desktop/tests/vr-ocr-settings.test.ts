@@ -4,13 +4,13 @@ import test from "node:test";
 import { DEFAULT_OCR_SETTINGS, DEFAULT_VR_OVERLAY_SETTINGS, isVrOcrBackendReady, patchOcr } from "../src/settings/vr-overlay-settings.ts";
 import type { Settings } from "../src/settings/types.ts";
 
-test("OCR defaults preserve wrist display while allowing independent stereo and backend choices", () => {
+test("OCR defaults use original-position display while allowing independent wrist and backend choices", () => {
   const settings = { vr_overlay: DEFAULT_VR_OVERLAY_SETTINGS, ocr: DEFAULT_OCR_SETTINGS } as Settings;
-  assert.equal(settings.ocr.display_mode, "wrist");
+  assert.equal(settings.ocr.display_mode, "stereo");
   assert.equal(settings.ocr.desktop_enabled, false);
   assert.equal(settings.ocr.shortcut, "Ctrl+Alt+O");
-  const patched = patchOcr(settings, { display_mode: "stereo", backend: "local", desktop_enabled: true });
-  assert.equal(patched.ocr.display_mode, "stereo");
+  const patched = patchOcr(settings, { display_mode: "wrist", backend: "local", desktop_enabled: true });
+  assert.equal(patched.ocr.display_mode, "wrist");
   assert.equal(patched.ocr.backend, "local");
   assert.equal(patched.ocr.desktop_enabled, true);
   assert.equal(patched.ocr.enabled, false);

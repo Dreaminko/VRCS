@@ -18,13 +18,19 @@ pub fn det_input(rgba: &[u8], width: u32, height: u32) -> Result<Array4<f32>, St
     let (w, h) = (resize(width), resize(height));
     let mean = [0.485, 0.456, 0.406];
     let std = [0.229, 0.224, 0.225];
-    Ok(Array4::from_shape_fn((1, 3, h, w), |(_, c, y, x)| {
-        let sx = (x as f32 + 0.5) * width as f32 / w as f32 - 0.5;
+    let mut input = Array4::zeros((1, 3, h, w));
+    let data = input.as_slice_mut().expect("OCR input is contiguous");
+    for y in 0..h {
         let sy = (y as f32 + 0.5) * height as f32 / h as f32 - 0.5;
-        (bilinear(rgba, width as usize, height as usize, 4, sx, sy, 2 - c).round() / 255.0
-            - mean[c])
-            / std[c]
-    }))
+        for x in 0..w {
+            let sx = (x as f32 + 0.5) * width as f32 / w as f32 - 0.5;
+            let color = bilinear(rgba, width as usize, height as usize, 4, sx, sy);
+            for c in 0..3 {
+                data[c * h * w + y * w + x] = (color[2 - c].round() / 255.0 - mean[c]) / std[c];
+            }
+        }
+    }
+    Ok(input)
 }
 
 pub fn det_boxes(
@@ -157,11 +163,9 @@ pub fn crop_and_rec_input(
                 (x as f32, y as f32)
             };
             let [sx, sy] = project(transform, px, py);
-            for c in 0..3 {
-                crop[(y * crop_w + x) * 3 + c] =
-                    bicubic(rgba, width as usize, height as usize, sx, sy, 2 - c)
-                        .round()
-                        .clamp(0.0, 255.0) as u8;
+            let color = bicubic(rgba, width as usize, height as usize, sx, sy);
+            for (c, value) in color.into_iter().rev().enumerate() {
+                crop[(y * crop_w + x) * 3 + c] = value.round().clamp(0.0, 255.0) as u8;
             }
         }
     }
@@ -169,17 +173,19 @@ pub fn crop_and_rec_input(
         .ceil()
         .clamp(1.0, 3200.0) as usize;
     let input_w = resized_w.max(320);
-    Ok(Array4::from_shape_fn(
-        (1, 3, 48, input_w),
-        |(_, c, y, x)| {
-            if x >= resized_w {
-                return 0.0;
-            }
+    let mut input = Array4::zeros((1, 3, 48, input_w));
+    let data = input.as_slice_mut().expect("OCR input is contiguous");
+    for y in 0..48 {
+        let sy = (y as f32 + 0.5) * crop_h as f32 / 48.0 - 0.5;
+        for x in 0..resized_w {
             let sx = (x as f32 + 0.5) * crop_w as f32 / resized_w as f32 - 0.5;
-            let sy = (y as f32 + 0.5) * crop_h as f32 / 48.0 - 0.5;
-            bilinear(&crop, crop_w, crop_h, 3, sx, sy, c).round() / 127.5 - 1.0
-        },
-    ))
+            let color = bilinear(&crop, crop_w, crop_h, 3, sx, sy);
+            for (c, value) in color.into_iter().enumerate() {
+                data[c * 48 * input_w + y * input_w + x] = value.round() / 127.5 - 1.0;
+            }
+        }
+    }
+    Ok(input)
 }
 
 pub fn ctc_decode(
@@ -234,21 +240,6 @@ pub(super) fn validate_image(rgba: &[u8], width: u32, height: u32) -> Result<(),
     Ok(())
 }
 
-fn pixel(
-    image: &[u8],
-    width: usize,
-    height: usize,
-    channels: usize,
-    x: isize,
-    y: isize,
-    c: usize,
-) -> f32 {
-    image[(y.clamp(0, height as isize - 1) as usize * width
-        + x.clamp(0, width as isize - 1) as usize)
-        * channels
-        + c] as f32
-}
-
 fn bilinear(
     image: &[u8],
     width: usize,
@@ -256,18 +247,21 @@ fn bilinear(
     channels: usize,
     x: f32,
     y: f32,
-    c: usize,
-) -> f32 {
+) -> [f32; 3] {
     let (ix, iy) = (x.floor() as isize, y.floor() as isize);
     let (fx, fy) = (x - x.floor(), y - y.floor());
-    let upper = pixel(image, width, height, channels, ix, iy, c) * (1.0 - fx)
-        + pixel(image, width, height, channels, ix + 1, iy, c) * fx;
-    let lower = pixel(image, width, height, channels, ix, iy + 1, c) * (1.0 - fx)
-        + pixel(image, width, height, channels, ix + 1, iy + 1, c) * fx;
-    upper * (1.0 - fy) + lower * fy
+    let xs = [ix, ix + 1].map(|v| v.clamp(0, width as isize - 1) as usize);
+    let ys = [iy, iy + 1].map(|v| v.clamp(0, height as isize - 1) as usize * width);
+    std::array::from_fn(|c| {
+        let upper = image[(ys[0] + xs[0]) * channels + c] as f32 * (1.0 - fx)
+            + image[(ys[0] + xs[1]) * channels + c] as f32 * fx;
+        let lower = image[(ys[1] + xs[0]) * channels + c] as f32 * (1.0 - fx)
+            + image[(ys[1] + xs[1]) * channels + c] as f32 * fx;
+        upper * (1.0 - fy) + lower * fy
+    })
 }
 
-fn bicubic(image: &[u8], width: usize, height: usize, x: f32, y: f32, c: usize) -> f32 {
+fn bicubic(image: &[u8], width: usize, height: usize, x: f32, y: f32) -> [f32; 3] {
     // OpenCV INTER_CUBIC uses a=-0.75 with replicated edge pixels.
     let weight = |t: f32| {
         let t = t.abs();
@@ -280,12 +274,27 @@ fn bicubic(image: &[u8], width: usize, height: usize, x: f32, y: f32, c: usize) 
         }
     };
     let (ix, iy) = (x.floor() as isize, y.floor() as isize);
-    let mut result = 0.0;
-    for dy in -1..=2 {
-        for dx in -1..=2 {
-            result += pixel(image, width, height, 4, ix + dx, iy + dy, c)
-                * weight(x - (ix + dx) as f32)
-                * weight(y - (iy + dy) as f32);
+    let xs: [_; 4] = std::array::from_fn(|i| {
+        let source = ix + i as isize - 1;
+        (
+            source.clamp(0, width as isize - 1) as usize,
+            weight(x - source as f32),
+        )
+    });
+    let ys: [_; 4] = std::array::from_fn(|i| {
+        let source = iy + i as isize - 1;
+        (
+            source.clamp(0, height as isize - 1) as usize * width,
+            weight(y - source as f32),
+        )
+    });
+    let mut result = [0.0; 3];
+    for (row, wy) in ys {
+        for (column, wx) in xs {
+            let offset = (row + column) * 4;
+            for (c, value) in result.iter_mut().enumerate() {
+                *value += image[offset + c] as f32 * wx * wy;
+            }
         }
     }
     result
@@ -544,6 +553,22 @@ mod tests {
 
     fn solid_image(width: u32, height: u32, color: [u8; 4]) -> Vec<u8> {
         (0..width * height).flat_map(|_| color).collect()
+    }
+
+    #[test]
+    fn bilinear_sampling_preserves_channels_and_replicates_edges() {
+        let pixels = [0, 30, 60, 255, 60, 90, 120, 0];
+        assert_eq!(bilinear(&pixels, 2, 1, 4, 0.5, 0.), [30., 60., 90.]);
+        assert_eq!(bilinear(&pixels, 2, 1, 4, -0.5, 1.), [0., 30., 60.]);
+        assert_eq!(bilinear(&pixels, 2, 1, 4, 2., -1.), [60., 90., 120.]);
+    }
+
+    #[test]
+    fn bicubic_sampling_keeps_opencv_weights_at_image_edges() {
+        let pixels = [0, 30, 60, 255, 60, 90, 120, 0];
+        assert_eq!(bicubic(&pixels, 2, 1, 0., 0.), [0., 30., 60.]);
+        assert_eq!(bicubic(&pixels, 2, 1, -0.5, 0.), [-5.625, 24.375, 54.375]);
+        assert_eq!(bicubic(&pixels, 2, 1, 1.5, 0.), [65.625, 95.625, 125.625]);
     }
 
     #[test]

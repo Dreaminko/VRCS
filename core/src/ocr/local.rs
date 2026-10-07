@@ -75,7 +75,7 @@ impl LocalOcrRuntime {
                 let _ = sender.try_send(Phase::LoadingModel);
                 assets.verify()?;
                 *engine = Some(Engine::load(&assets.directory)?);
-                tracing::debug!(
+                tracing::info!(
                     elapsed_ms = started.elapsed().as_millis() as u64,
                     "OCR local model loaded"
                 );
@@ -166,11 +166,14 @@ impl Engine {
         let detecting = std::time::Instant::now();
         let input = Value::from_array(processors::det_input(&pixels, image.width, image.height)?)
             .map_err(|_| "Could not create OCR detector input")?;
+        let preparation_ms = detecting.elapsed().as_millis() as u64;
         check_cancelled(cancelled)?;
+        let inference = std::time::Instant::now();
         let output = self
             .detector
             .run_with_options(ort::inputs![input], options)
             .map_err(|error| format!("OCR detection failed: {error}"))?;
+        let inference_ms = inference.elapsed().as_millis() as u64;
         let (shape, probabilities) = output[0]
             .try_extract_tensor::<f32>()
             .map_err(|_| "Invalid OCR detector tensor")?;
@@ -186,27 +189,35 @@ impl Engine {
             image.height,
         )?;
         drop(output);
-        tracing::debug!(
+        tracing::info!(
             elapsed_ms = detecting.elapsed().as_millis() as u64,
+            preparation_ms,
+            inference_ms,
             regions = polygons.len(),
             "OCR local detection processed"
         );
         let recognizing = std::time::Instant::now();
         let mut skipped = 0usize;
         let mut blocks = Vec::with_capacity(polygons.len());
+        let mut preparation_time = std::time::Duration::ZERO;
+        let mut inference_time = std::time::Duration::ZERO;
         for polygon in polygons {
             check_cancelled(cancelled)?;
+            let preparation = std::time::Instant::now();
             let Some(input) = rec_input(&pixels, image.width, image.height, polygon)? else {
                 skipped += 1;
                 continue;
             };
             let input =
                 Value::from_array(input).map_err(|_| "Could not create OCR recognition input")?;
+            preparation_time += preparation.elapsed();
             check_cancelled(cancelled)?;
+            let inference = std::time::Instant::now();
             let output = self
                 .recognizer
                 .run_with_options(ort::inputs![input], options)
                 .map_err(|error| format!("OCR recognition failed: {error}"))?;
+            inference_time += inference.elapsed();
             let (shape, probabilities) = output[0]
                 .try_extract_tensor::<f32>()
                 .map_err(|_| "Invalid OCR recognizer tensor")?;
@@ -230,8 +241,10 @@ impl Engine {
             }
         }
         check_cancelled(cancelled)?;
-        tracing::debug!(
+        tracing::info!(
             elapsed_ms = recognizing.elapsed().as_millis() as u64,
+            preparation_ms = preparation_time.as_millis() as u64,
+            inference_ms = inference_time.as_millis() as u64,
             blocks = blocks.len(),
             skipped,
             "OCR local recognition processed"

@@ -28,8 +28,8 @@ pub enum VrOcrBackend {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum VrOcrDisplayMode {
-    #[default]
     Wrist,
+    #[default]
     Stereo,
 }
 
@@ -40,14 +40,14 @@ impl Default for VrOcrConfig {
             desktop_enabled: false,
             shortcut: "Ctrl+Alt+O".into(),
             backend: VrOcrBackend::Cloud,
-            display_mode: VrOcrDisplayMode::Wrist,
+            display_mode: VrOcrDisplayMode::Stereo,
             timeout_seconds: 30,
             minimum_confidence: 0.6,
             region_fraction: 0.6,
             targets: vec![super::TranslationTargetConfig::new("zh-Hans")],
             hand_gesture_enabled: true,
             display_seconds: 15.0,
-            background_opacity: 0.75,
+            background_opacity: 1.0,
         }
     }
 }

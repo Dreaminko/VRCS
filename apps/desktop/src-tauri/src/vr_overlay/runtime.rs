@@ -807,13 +807,20 @@ fn update_wrist(
     backend: &mut OpenVrBackend,
 ) {
     #[cfg(windows)]
-    let ocr_texts = state.ocr.wrist_texts();
+    let (ocr_texts, ocr_limited) = (
+        if state.ocr_config.display_mode == vrcs_core::VrOcrDisplayMode::Wrist {
+            state.ocr.wrist_texts()
+        } else {
+            state.ocr.fallback_texts()
+        },
+        state.ocr.status.layout_limited,
+    );
     #[cfg(not(windows))]
-    let ocr_texts = Vec::new();
+    let (ocr_texts, ocr_limited) = (Vec::new(), false);
     let showing_ocr = state.ocr_config.enabled
-        && state.ocr_config.display_mode == vrcs_core::VrOcrDisplayMode::Wrist
+        && (state.ocr_config.display_mode == vrcs_core::VrOcrDisplayMode::Wrist || ocr_limited)
         && !ocr_texts.is_empty();
-    if !state.config.enabled || (!state.config.wrist.enabled && !showing_ocr) {
+    if (!state.config.enabled || !state.config.wrist.enabled) && !showing_ocr {
         backend.reset(OverlayKind::Wrist);
         state.wrist_hash = None;
         status.wrist.state = ResourceState::Disabled;

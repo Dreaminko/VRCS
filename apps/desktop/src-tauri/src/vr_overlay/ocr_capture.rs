@@ -74,6 +74,12 @@ pub struct EyeCapture {
     pub head_pose: [[f32; 4]; 3],
 }
 
+impl EyeCapture {
+    pub fn tracking_to_eye(&self) -> [[f32; 4]; 3] {
+        super::transform::inverse(super::transform::compose(self.head_pose, self.eye_to_head))
+    }
+}
+
 pub const OCR_MOVEMENT_LIMIT_M: f32 = 0.10;
 
 pub fn pose_within_translation_limit_m(
@@ -133,27 +139,63 @@ impl CropTransform {
 }
 
 pub fn center_crop(image: &Texture, fraction: f32) -> Result<CaptureCrop, String> {
-    if !fraction.is_finite()
-        || !(0.1..=1.0).contains(&fraction)
-        || image.width == 0
-        || image.height == 0
-        || image.width > 16384
-        || image.height > 16384
-        || image.pixels.len() > 128 * 1024 * 1024
-        || image.pixels.len() != image.width as usize * image.height as usize * 4
-    {
+    if !fraction.is_finite() || !(0.1..=1.0).contains(&fraction) {
+        return Err("Invalid OCR crop".into());
+    }
+    if image.width == 0 || image.height == 0 {
         return Err("Invalid OCR crop".into());
     }
     let width = ((image.width as f32 * fraction).round() as u32).clamp(1, image.width);
     let height = ((image.height as f32 * fraction).round() as u32).clamp(1, image.height);
     let x = (image.width - width) / 2;
     let y = (image.height - height) / 2;
+    region_crop(image, [x, y, x + width, y + height])
+}
+
+pub fn region_crop(
+    image: &Texture,
+    [x, y, right, bottom]: [u32; 4],
+) -> Result<CaptureCrop, String> {
+    if image.width == 0
+        || image.height == 0
+        || image.width > 16384
+        || image.height > 16384
+        || image.pixels.len() > 128 * 1024 * 1024
+        || image.pixels.len() != image.width as usize * image.height as usize * 4
+        || x >= right
+        || y >= bottom
+        || right > image.width
+        || bottom > image.height
+    {
+        return Err("Invalid OCR crop".into());
+    }
+    let width = right - x;
+    let height = bottom - y;
     let factor = (1536.0 / width.max(height) as f32).min(1.0);
     let output_width = ((width as f32 * factor).round() as u32).max(1);
     let output_height = ((height as f32 * factor).round() as u32).max(1);
     let mut pixels = Vec::with_capacity(output_width as usize * output_height as usize * 4);
     let scale_x = width as f64 / output_width as f64;
     let scale_y = height as f64 / output_height as f64;
+    // Horizontal overlap is identical for every output row.
+    let columns: Vec<Vec<_>> = if output_width == width && output_height == height {
+        Vec::new()
+    } else {
+        (0..output_width)
+            .map(|column| {
+                let left = x as f64 + column as f64 * scale_x;
+                let right = x as f64 + (column + 1) as f64 * scale_x;
+                (left.floor() as u32..(right.ceil() as u32).min(x + width))
+                    .map(|source_x| {
+                        (
+                            source_x as usize * 4,
+                            right.min(source_x as f64 + 1.0) - left.max(source_x as f64),
+                        )
+                    })
+                    .collect()
+            })
+            .collect()
+    };
     for row in 0..output_height {
         if output_width == width && output_height == height {
             let offset = ((y + row) as usize * image.width as usize + x as usize) * 4;
@@ -162,16 +204,14 @@ pub fn center_crop(image: &Texture, fraction: f32) -> Result<CaptureCrop, String
         }
         let top = y as f64 + row as f64 * scale_y;
         let bottom = y as f64 + (row + 1) as f64 * scale_y;
-        for column in 0..output_width {
-            let left = x as f64 + column as f64 * scale_x;
-            let right = x as f64 + (column + 1) as f64 * scale_x;
+        for column in &columns {
             let mut sum = [0.0; 4];
             // Average the source area so downsampling retains thin text strokes.
             for source_y in top.floor() as u32..(bottom.ceil() as u32).min(y + height) {
                 let weight_y = bottom.min(source_y as f64 + 1.0) - top.max(source_y as f64);
-                for source_x in left.floor() as u32..(right.ceil() as u32).min(x + width) {
-                    let weight_x = right.min(source_x as f64 + 1.0) - left.max(source_x as f64);
-                    let offset = (source_y as usize * image.width as usize + source_x as usize) * 4;
+                let row_offset = source_y as usize * image.width as usize * 4;
+                for &(column_offset, weight_x) in column {
+                    let offset = row_offset + column_offset;
                     for (channel, total) in sum.iter_mut().enumerate() {
                         *total += image.pixels[offset + channel] as f64 * weight_x * weight_y;
                     }
@@ -282,6 +322,53 @@ mod tests {
     use super::*;
 
     #[test]
+    fn projection_view_maps_tracking_points_into_each_eye_after_head_rotation() {
+        let head = super::super::transform::matrix(0., 90., 0., [1., 2., 3.]);
+        for x in [-0.03, 0.03] {
+            let eye = EyeCapture {
+                image: Texture {
+                    width: 1,
+                    height: 1,
+                    pixels: vec![],
+                },
+                projection: [-1., 1., -1., 1.],
+                eye_to_head: super::super::transform::matrix(0., 0., 0., [x, 0., 0.]),
+                head_pose: head,
+            };
+            let view = eye.tracking_to_eye();
+            let world = [0.5, 2., 3.];
+            let local: [f32; 3] = std::array::from_fn(|r| {
+                view[r][3] + (0..3).map(|c| view[r][c] * world[c]).sum::<f32>()
+            });
+            for (actual, expected) in local.into_iter().zip([-x, 0., -0.5]) {
+                assert!(
+                    (actual - expected).abs() < 0.00001,
+                    "{actual} != {expected}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn dragged_crop_uses_selected_pixels_and_restores_off_center_coordinates() {
+        let image = Texture {
+            width: 4,
+            height: 4,
+            pixels: (0..16).flat_map(|value| [value, 0, 0, 255]).collect(),
+        };
+        let crop = region_crop(&image, [2, 0, 4, 2]).unwrap();
+        assert_eq!(
+            crop.image.pixels,
+            vec![2, 0, 0, 255, 3, 0, 0, 255, 6, 0, 0, 255, 7, 0, 0, 255]
+        );
+        let mut polygon = [[0., 0.], [2., 0.], [2., 2.], [0., 2.]];
+        crop.transform().restore(&mut polygon);
+        assert_eq!(polygon, [[2., 0.], [4., 0.], [4., 2.], [2., 2.]]);
+        assert!(region_crop(&image, [4, 0, 5, 2]).is_err());
+        assert!(region_crop(&image, [2, 0, 2, 2]).is_err());
+    }
+
+    #[test]
     fn normal_head_rotation_and_small_translation_are_allowed() {
         let before = super::super::transform::matrix(0., 0., 0., [0.; 3]);
         let rotated = super::super::transform::matrix(0., 20., 0., [0.01, 0., 0.]);
@@ -327,6 +414,29 @@ mod tests {
         let mut polygon = [[0., 0.], [10., 0.], [10., 1.], [0., 1.]];
         crop.transform().restore(&mut polygon);
         assert_eq!(polygon, [[0., 0.], [20., 0.], [20., 2.], [0., 2.]]);
+    }
+
+    #[test]
+    fn fractional_downsampling_preserves_color_alpha_and_crop_offset() {
+        let image = Texture {
+            width: 2054,
+            height: 1,
+            pixels: (0..2054)
+                .flat_map(|x| {
+                    let value = ((x + 1) % 4 * 60) as u8;
+                    [value, 180 - value, value, 180 - value]
+                })
+                .collect(),
+        };
+        let crop = region_crop(&image, [3, 0, 2051, 1]).unwrap();
+        assert_eq!((crop.image.width, crop.image.height), (1536, 1));
+        assert_eq!(
+            &crop.image.pixels[..12],
+            &[15, 165, 15, 165, 90, 90, 90, 90, 165, 15, 165, 15]
+        );
+        let mut polygon = [[0., 0.], [1536., 0.], [1536., 1.], [0., 1.]];
+        crop.transform().restore(&mut polygon);
+        assert_eq!(polygon, [[3., 0.], [2051., 0.], [2051., 1.], [3., 1.]]);
     }
 
     #[test]

@@ -101,14 +101,14 @@ export const DEFAULT_OCR_SETTINGS: VrOcrSettings = {
   desktop_enabled: false,
   shortcut: "Ctrl+Alt+O",
   backend: "cloud",
-  display_mode: "wrist",
+  display_mode: "stereo",
   timeout_seconds: 30,
   minimum_confidence: 0.6,
   region_fraction: 0.6,
   targets: [{ target_language: "zh-Hans", profile_id: null, model: "gpt-5-mini", thinking_enabled: false }],
   hand_gesture_enabled: true,
   display_seconds: 15,
-  background_opacity: 0.75,
+  background_opacity: 1,
 };
 
 export const DEFAULT_VR_OVERLAY_SETTINGS: VrOverlaySettings = {

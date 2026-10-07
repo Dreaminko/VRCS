@@ -266,13 +266,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn old_ocr_settings_keep_wrist_display_and_stereo_choice_round_trips() {
+    fn missing_ocr_display_uses_stereo_and_saved_display_choices_round_trip() {
         let mut value = serde_json::to_value(VrOcrConfig::default()).unwrap();
         value.as_object_mut().unwrap().remove("display_mode");
         let config: VrOcrConfig = serde_json::from_value(value).unwrap();
         assert_eq!(
             serde_json::to_value(config).unwrap()["display_mode"],
-            "wrist"
+            "stereo"
         );
 
         let value = serde_json::json!({"backend": "local", "display_mode": "stereo"});
@@ -280,6 +280,11 @@ mod tests {
         let saved = serde_json::to_value(config).unwrap();
         assert_eq!(saved["display_mode"], "stereo");
         assert_eq!(saved["backend"], "local");
+        let value = serde_json::json!({"display_mode":"wrist", "background_opacity":0.75});
+        let config: VrOcrConfig = serde_json::from_value(value).unwrap();
+        let saved = serde_json::to_value(config).unwrap();
+        assert_eq!(saved["display_mode"], "wrist");
+        assert_eq!(saved["background_opacity"], 0.75);
         assert!(serde_json::from_value::<VrOcrConfig>(
             serde_json::json!({"display_mode": "unknown"})
         )

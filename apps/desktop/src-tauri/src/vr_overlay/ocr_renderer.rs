@@ -2,12 +2,38 @@ use super::ocr_geometry::Homography;
 use super::{ocr_capture::EyeCapture, renderer::Texture};
 use vrcs_core::ocr::TranslatedBlock;
 
+fn display_text(block: &TranslatedBlock, source_view: bool) -> String {
+    if !source_view {
+        let translated = block
+            .translations
+            .iter()
+            .filter_map(|t| t.text.as_deref())
+            .filter(|text| !text.trim().is_empty())
+            .collect::<Vec<_>>()
+            .join("\n");
+        if !translated.is_empty() {
+            return translated;
+        }
+    }
+    block.source.text.clone()
+}
+
+fn tile_size(polygon: [[f32; 2]; 4]) -> (u32, u32) {
+    let edge = |a: usize, b: usize| {
+        ((polygon[a][0] - polygon[b][0]).powi(2) + (polygon[a][1] - polygon[b][1]).powi(2)).sqrt()
+    };
+    (
+        ((edge(0, 1) + edge(2, 3)) * 0.5).round().clamp(1., 2048.) as u32,
+        ((edge(1, 2) + edge(3, 0)) * 0.5).round().clamp(1., 2048.) as u32,
+    )
+}
+
 pub fn render_eye(
     eye: &EyeCapture,
     blocks: &[TranslatedBlock],
     opacity: f32,
     source_view: bool,
-) -> Result<(Texture, bool), String> {
+) -> Result<(Texture, Vec<usize>), String> {
     let (width, height) = (eye.image.width, eye.image.height);
     if width == 0 || height == 0 || width > 4096 || height > 4096 {
         return Err("Invalid OCR render dimensions".into());
@@ -20,25 +46,10 @@ pub fn render_eye(
         .iter()
         .map(|block| Bounds::from_quad(block.source.polygon, width, height))
         .collect();
-    let mut layout_limited = false;
+    let mut unplaced = Vec::new();
     let mut cards_used = 0;
     for block in blocks {
-        let text = if source_view {
-            block.source.text.clone()
-        } else {
-            let translated = block
-                .translations
-                .iter()
-                .filter_map(|translation| translation.text.as_deref())
-                .filter(|text| !text.trim().is_empty())
-                .collect::<Vec<_>>()
-                .join("\n");
-            if translated.is_empty() {
-                block.source.text.clone()
-            } else {
-                translated
-            }
-        };
+        let text = display_text(block, source_view);
         if text.is_empty() {
             continue;
         }
@@ -57,14 +68,16 @@ pub fn render_eye(
         let inverse = Homography::from_quad(*polygon)
             .and_then(Homography::inverse)
             .ok_or("Invalid OCR text quadrilateral")?;
-        let edge = |a: usize, b: usize| {
-            ((polygon[a][0] - polygon[b][0]).powi(2) + (polygon[a][1] - polygon[b][1]).powi(2))
-                .sqrt()
-        };
-        let tile_width = ((edge(0, 1) + edge(2, 3)) * 0.5).round().clamp(1., 2048.) as u32;
-        let tile_height = ((edge(1, 2) + edge(3, 0)) * 0.5).round().clamp(1., 2048.) as u32;
-        let Some(tile) =
-            super::wrist_renderer::render_text_box(&text, tile_width, tile_height, opacity)?
+        let (tile_width, tile_height) = tile_size(*polygon);
+        let (background, foreground) = text_colors(&eye.image, *polygon);
+        let Some(tile) = super::wrist_renderer::render_text_box_with_colors(
+            &text,
+            tile_width,
+            tile_height,
+            opacity,
+            background,
+            foreground,
+        )?
         else {
             if cards_used < 8 {
                 if let Some((card, tile)) =
@@ -97,7 +110,7 @@ pub fn render_eye(
                     continue;
                 }
             }
-            layout_limited = true;
+            unplaced.push(block.source.id);
             continue;
         };
         for y in bounds.top..bounds.bottom {
@@ -119,8 +132,54 @@ pub fn render_eye(
             width,
             height,
         },
-        layout_limited,
+        unplaced,
     ))
+}
+
+fn text_colors(image: &Texture, polygon: [[f32; 2]; 4]) -> ([u8; 3], [u8; 3]) {
+    let fallback = ([0; 3], [255; 3]);
+    if image.pixels.len() != image.width as usize * image.height as usize * 4 {
+        return fallback;
+    }
+    let Some(mapping) = Homography::from_quad(polygon) else {
+        return fallback;
+    };
+    let mut samples = Vec::with_capacity(36);
+    // Sample inside the perimeter so neighboring surfaces do not enter the patch color.
+    // The median rejects isolated strokes that intersect the text region's edges.
+    for step in 0..9 {
+        let t = 0.04 + step as f32 * 0.92 / 8.;
+        for uv in [[t, 0.04], [t, 0.96], [0.04, t], [0.96, t]] {
+            let Some([x, y]) = mapping.map(uv) else {
+                continue;
+            };
+            let x = x.floor().clamp(0., (image.width - 1) as f32) as u32;
+            let y = y.floor().clamp(0., (image.height - 1) as f32) as u32;
+            let pixel = &image.pixels[((y * image.width + x) * 4) as usize..][..4];
+            if pixel[3] != 0 {
+                samples.push([pixel[0], pixel[1], pixel[2]]);
+            }
+        }
+    }
+    if samples.is_empty() {
+        return fallback;
+    }
+    let background = std::array::from_fn(|channel| {
+        samples.sort_unstable_by_key(|color| color[channel]);
+        samples[samples.len() / 2][channel]
+    });
+    let linear = background.map(|channel| {
+        let value = channel as f32 / 255.;
+        if value <= 0.04045 {
+            value / 12.92
+        } else {
+            ((value + 0.055) / 1.055).powf(2.4)
+        }
+    });
+    let luminance = linear[0] * 0.2126 + linear[1] * 0.7152 + linear[2] * 0.0722;
+    // Select the greater contrast ratio between black and white against this background.
+    let foreground = if luminance > 0.179 { [0; 3] } else { [255; 3] };
+    (background, foreground)
 }
 
 #[derive(Clone, Copy)]
@@ -270,7 +329,7 @@ fn line(pixels: &mut [u8], width: u32, height: u32, from: [f32; 2], to: [f32; 2]
     }
 }
 
-fn sample(pixels: &[u8], width: u32, height: u32, u: f32, v: f32) -> [u8; 4] {
+pub(super) fn sample(pixels: &[u8], width: u32, height: u32, u: f32, v: f32) -> [u8; 4] {
     let x = (u * width as f32 - 0.5).clamp(0., (width - 1) as f32);
     let y = (v * height as f32 - 0.5).clamp(0., (height - 1) as f32);
     let (x0, y0) = (x.floor() as u32, y.floor() as u32);
@@ -295,6 +354,115 @@ fn blend(destination: &mut [u8], source: [u8; 4]) {
 mod tests {
     use super::*;
     use vrcs_core::ocr::{BlockTranslation, TextBlock};
+
+    fn background_fixture(background: [u8; 4]) -> (EyeCapture, TranslatedBlock) {
+        (
+            EyeCapture {
+                image: Texture {
+                    width: 160,
+                    height: 96,
+                    pixels: background.repeat(160 * 96),
+                },
+                projection: [-1., 1., -1., 1.],
+                eye_to_head: super::super::transform::matrix(0., 0., 0., [0.; 3]),
+                head_pose: super::super::transform::matrix(0., 0., 0., [0.; 3]),
+            },
+            TranslatedBlock {
+                source: TextBlock {
+                    id: 0,
+                    text: "source".into(),
+                    confidence: 0.95,
+                    polygon: [[10., 10.], [150., 10.], [150., 80.], [10., 80.]],
+                },
+                translations: vec![BlockTranslation {
+                    target_language: "en".into(),
+                    text: Some("VR".into()),
+                    error_code: None,
+                }],
+            },
+        )
+    }
+
+    #[test]
+    fn translated_patches_match_light_and_dark_source_backgrounds_with_contrasting_text() {
+        for (background, foreground) in [
+            ([240, 230, 220, 255], [0, 0, 0, 255]),
+            ([20, 30, 40, 255], [255, 255, 255, 255]),
+            ([0, 240, 0, 255], [0, 0, 0, 255]),
+            ([0, 0, 200, 255], [255, 255, 255, 255]),
+        ] {
+            let (eye, block) = background_fixture(background);
+            let texture = render_eye(&eye, &[block], 1.0, false).unwrap().0;
+            assert_eq!(&texture.pixels[(11 * 160 + 11) * 4..][..4], &background);
+            assert!(texture
+                .pixels
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .any(|pixel| *pixel == foreground));
+            assert_eq!(&texture.pixels[..4], &[0, 0, 0, 0]);
+            assert!(texture
+                .pixels
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .filter(|pixel| pixel[3] != 0)
+                .all(|pixel| pixel[3] == 255));
+        }
+    }
+
+    #[test]
+    fn adaptive_patch_uses_premultiplied_opacity_without_fading_text() {
+        let (eye, block) = background_fixture([200, 180, 160, 255]);
+        let texture = render_eye(&eye, &[block], 0.6, false).unwrap().0;
+        assert_eq!(
+            &texture.pixels[(11 * 160 + 11) * 4..][..4],
+            &[120, 108, 96, 153]
+        );
+        assert!(texture
+            .pixels
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .any(|pixel| *pixel == [0, 0, 0, 255]));
+        assert!(texture
+            .pixels
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .all(|pixel| pixel[..3].iter().all(|channel| *channel <= pixel[3])));
+    }
+
+    #[test]
+    fn adaptive_background_ignores_sparse_source_ink_near_text_edges() {
+        let (mut eye, block) = background_fixture([240, 230, 220, 255]);
+        for y in 10..80 {
+            for x in 75..85 {
+                eye.image.pixels[(y * 160 + x) * 4..][..4].copy_from_slice(&[0, 0, 0, 255]);
+            }
+        }
+        let texture = render_eye(&eye, &[block], 1.0, false).unwrap().0;
+        assert_eq!(
+            &texture.pixels[(11 * 160 + 11) * 4..][..4],
+            &[240, 230, 220, 255]
+        );
+    }
+
+    #[test]
+    fn unavailable_source_pixels_keep_the_black_patch_and_white_text_fallback() {
+        for pixels in [vec![], vec![1, 2, 3, 255], vec![0; 160 * 96 * 4]] {
+            let (mut eye, block) = background_fixture([240, 230, 220, 255]);
+            eye.image.pixels = pixels;
+            let texture = render_eye(&eye, &[block], 0.6, false).unwrap().0;
+            assert_eq!(&texture.pixels[(11 * 160 + 11) * 4..][..4], &[0, 0, 0, 153]);
+            assert!(texture
+                .pixels
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .any(|pixel| *pixel == [255; 4]));
+        }
+    }
 
     #[test]
     fn untranslated_regions_keep_source_visible_while_translations_arrive() {
@@ -426,7 +594,7 @@ mod tests {
             translations: vec![BlockTranslation { target_language: "en".into(),
                 text: Some("A long translation needs more room than its original single line provides, so it should appear in a connected card.".into()), error_code: None }] };
         let (texture, limited) = render_eye(&eye, &[block.clone()], 0.6, false).unwrap();
-        assert!(!limited);
+        assert!(limited.is_empty());
         assert_eq!(texture.pixels[(55 * 512 + 50) * 4 + 3], 0);
         assert!(texture.pixels[(100 * 512 + 200) * 4 + 3] >= 153);
         eye.image.width = 100;
@@ -434,7 +602,7 @@ mod tests {
         block.source.polygon = [[10., 10.], [90., 10.], [90., 30.], [10., 30.]];
         block.translations[0].text = Some("More text ".repeat(2000));
         let (texture, limited) = render_eye(&eye, &[block], 0.6, false).unwrap();
-        assert!(limited);
+        assert_eq!(limited, vec![0]);
         assert!(texture.pixels.iter().all(|channel| *channel == 0));
     }
 

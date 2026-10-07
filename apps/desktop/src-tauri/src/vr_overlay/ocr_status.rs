@@ -44,6 +44,7 @@ pub enum OcrState {
     WaitingVr,
     Ready,
     Unbound,
+    Selecting,
     Capturing,
     WaitingHands,
     Submitting,
