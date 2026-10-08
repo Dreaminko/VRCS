@@ -16,7 +16,8 @@ $generatedTauriConfigArgument = "src-tauri/tauri.release.generated.conf.json"
 $cargoManifestPath = Join-Path $repoRoot "apps\desktop\src-tauri\Cargo.toml"
 $desktopPackagePath = Join-Path $repoRoot "apps\desktop\package.json"
 $coreManifestPath = Join-Path $repoRoot "core\Cargo.toml"
-$defaultTargetRoot = Join-Path $repoRoot "apps\desktop\src-tauri\target"
+# GGML's nested Vulkan shader build must stay within MSVC's path limits.
+$defaultTargetRoot = Join-Path $repoRoot ".build"
 $artifactRoot = Join-Path $repoRoot "release-artifacts"
 $cudaArchitectures = "75-real;80-real;86-real;89-real;89-virtual;120a-real"
 $requiredCudaArchitectures = @("sm_75", "sm_80", "sm_86", "sm_89", "sm_120a")
@@ -89,7 +90,8 @@ function Get-CudaReleaseTargetRoot {
     finally {
         $sha256.Dispose()
     }
-    return Join-Path $defaultTargetRoot "cuda-release-$($hash.Substring(0, 12))"
+    # A sibling cache avoids adding another level to the Vulkan shader build.
+    return Join-Path $repoRoot ".cu-$($hash.Substring(0, 12))"
 }
 
 function Assert-CudaExecutableArchitectures {
@@ -233,8 +235,10 @@ function Invoke-ReleaseBuild {
     }
 }
 
+$previousReleaseCargoTargetDir = [Environment]::GetEnvironmentVariable("CARGO_TARGET_DIR", "Process")
 Push-Location $repoRoot
 try {
+    $env:CARGO_TARGET_DIR = $defaultTargetRoot
     & (Join-Path $PSScriptRoot "prepare-vulkan-sdk.ps1")
     Write-ReleaseTauriConfig `
         -TemplatePath $tauriReleaseConfigTemplatePath `
@@ -291,6 +295,7 @@ try {
     }) + $latestPath
 }
 finally {
+    [Environment]::SetEnvironmentVariable("CARGO_TARGET_DIR", $previousReleaseCargoTargetDir, "Process")
     if (Test-Path -LiteralPath $generatedTauriConfigPath) {
         Remove-Item -LiteralPath $generatedTauriConfigPath -Force
     }
