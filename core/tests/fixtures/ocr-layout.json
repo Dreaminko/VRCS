@@ -1,0 +1,16 @@
+[
+  {"name":"short-continuation","blocks":[["I think",10,10,150],["I know the way.",10,34,180]],"groups":[[0,1]],"texts":["I think I know the way."]},
+  {"name":"capitalized-place","blocks":[["Meet me at",10,10,150],["Central Station.",10,34,180]],"groups":[[0,1]],"texts":["Meet me at Central Station."]},
+  {"name":"japanese-continuation","blocks":[["どこに",10,10,150],["行きますか？",10,34,180]],"groups":[[0,1]],"texts":["どこに行きますか？"]},
+  {"name":"english-paragraph","blocks":[["We arrived at the station.",10,10,250],["The next train leaves soon.",10,34,250]],"groups":[[0,1]],"texts":["We arrived at the station. The next train leaves soon."]},
+  {"name":"fragments-and-wrap","blocks":[["Could you",10,10,110],["tell me",125,12,125],["where this is?",10,36,170]],"groups":[[0,1,2]],"texts":["Could you tell me where this is?"]},
+  {"name":"buttons","blocks":[["Cancel",10,10,70],["Save",90,10,50]],"groups":[[0],[1]],"texts":["Cancel","Save"]},
+  {"name":"vertical-menu","blocks":[["Settings",10,10,150],["Audio",10,34,150],["Video",10,58,150]],"groups":[[0],[1],[2]],"texts":["Settings","Audio","Video"]},
+  {"name":"speakers","blocks":[["Alice:",10,10,70],["hello there",90,10,150],["Bob:",10,58,70],["good evening",90,58,150]],"groups":[[0],[1],[2],[3]],"texts":["Alice:","hello there","Bob:","good evening"]},
+  {"name":"two-columns","blocks":[["Please tell me",10,10,180],["where to go.",10,34,180],["Could you explain",400,10,180],["what this means?",400,34,180]],"groups":[[0,1],[2,3]],"texts":["Please tell me where to go.","Could you explain what this means?"]},
+  {"name":"list-items","blocks":[["1. Open the menu",10,10,180],["2. Choose a language",10,34,180]],"groups":[[0],[1]],"texts":["1. Open the menu","2. Choose a language"]},
+  {"name":"repeated-actions","blocks":[["Open Settings",10,10,220],["Open Folder",10,34,180]],"groups":[[0],[1]],"texts":["Open Settings","Open Folder"]},
+  {"name":"hyphen-preserved","blocks":[["Use the built-in",10,10,220],["translator for this.",10,34,180]],"groups":[[0,1]],"texts":["Use the built-in translator for this."]},
+  {"name":"cjk-menu","blocks":[["音声設定",10,10,180],["画面設定",10,34,180],["操作設定",10,58,180]],"groups":[[0],[1],[2]],"texts":["音声設定","画面設定","操作設定"]},
+  {"name":"japanese-paragraph","blocks":[["駅に到着しました。",10,10,220],["次の電車はすぐに出発します。",10,34,220]],"groups":[[0,1]],"texts":["駅に到着しました。次の電車はすぐに出発します。"]}
+]

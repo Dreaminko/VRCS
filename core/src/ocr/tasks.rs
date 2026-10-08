@@ -1,7 +1,7 @@
 use super::{BlockTranslation, TextBlock, TranslatedBlock, VrOcrService};
-use futures_util::{stream, StreamExt};
+use futures_util::{stream, stream::FuturesUnordered, Stream, StreamExt};
 use serde::Serialize;
-use std::collections::HashSet;
+use std::collections::{HashMap, VecDeque};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -46,6 +46,55 @@ pub struct BlockUpdate {
     pub block: TranslatedBlock,
 }
 
+#[derive(Clone)]
+struct TranslationRequest {
+    key: [u8; 32],
+    text: String,
+    context: Vec<crate::translation::TranslationContextEntry>,
+    target_index: usize,
+    target: crate::config::TranslationTargetConfig,
+    subscribers: Vec<(usize, usize)>,
+    translation: Option<BlockTranslation>,
+}
+
+fn group_context(
+    groups: &[super::layout::TextGroup],
+    index: usize,
+    prompt: &crate::config::TranslationPromptConfig,
+) -> Vec<crate::translation::TranslationContextEntry> {
+    let mut nearby: Vec<_> = groups
+        .iter()
+        .enumerate()
+        .filter(|(other, group)| *other != index && group.region == groups[index].region)
+        .collect();
+    nearby.sort_by_key(|(other, _)| other.abs_diff(index));
+    let mut remaining = prompt.max_chars.saturating_sub(256) as usize;
+    let mut selected = Vec::new();
+    for (other, group) in nearby {
+        if selected.len() >= prompt.max_messages as usize {
+            break;
+        }
+        let cost = serde_json::to_string(&group.source.text)
+            .unwrap()
+            .chars()
+            .count()
+            + 16;
+        if cost <= remaining {
+            remaining -= cost;
+            selected.push((
+                other,
+                crate::translation::TranslationContextEntry {
+                    source: "OCR".into(),
+                    text: group.source.text.clone(),
+                    created_at: String::new(),
+                },
+            ));
+        }
+    }
+    selected.sort_by_key(|(other, _)| *other);
+    selected.into_iter().map(|(_, context)| context).collect()
+}
+
 pub fn source_view(config: &crate::config::VrOcrConfig) -> bool {
     config
         .targets
@@ -78,7 +127,7 @@ impl ScanSummary {
         }
         let outcome = if source_only && blocks.iter().any(|eye| !eye.is_empty()) {
             ScanOutcome::SourceOnly
-        } else if success_count > 0 && failure_count > 0 {
+        } else if success_count > 0 && (failure_count > 0 || timed_out) {
             ScanOutcome::PartialFailure
         } else if failure_count > 0 {
             if timed_out {
@@ -131,237 +180,250 @@ impl VrOcrService {
         scan_id: u64,
         deadline: tokio::time::Instant,
         verify: impl FnOnce(super::TextRegions) -> F,
-        mut progress: impl FnMut(super::Phase),
-        mut completed: impl FnMut(BlockUpdate),
+        progress: impl FnMut(super::Phase),
+        completed: impl FnMut(BlockUpdate),
     ) -> Result<ScanResult, String> {
-        let started = std::time::Instant::now();
         if !(1..=2).contains(&images.len()) {
             return Err("OCR requires one or two images".into());
         }
-        let desktop = images.len() == 1;
         images.resize_with(2, Vec::new);
-        let had_text = images.iter().any(|eye| !eye.is_empty());
-        let ocr = &config.ocr;
-        for eye in &mut images {
-            eye.retain(|block| block.confidence >= ocr.minimum_confidence);
-        }
-        if desktop {
-            images[0] = super::layout::merge_blocks(std::mem::take(&mut images[0]));
-        }
-        let regions =
-            std::array::from_fn(|eye| images[eye].iter().map(|block| block.polygon).collect());
+        let regions = std::array::from_fn(|eye| {
+            images[eye]
+                .iter()
+                .filter(|block| block.confidence >= config.ocr.minimum_confidence)
+                .map(|block| block.polygon)
+                .collect()
+        });
         tokio::time::timeout_at(deadline, verify(regions))
             .await
             .map_err(|_| "OCR task timed out")??;
-        if !self.matches_config(config) {
-            return Err("OCR configuration changed".into());
-        }
+        self.translate_stream(
+            config,
+            stream::iter(images.into_iter().enumerate().map(Ok)),
+            scan_id,
+            deadline,
+            progress,
+            completed,
+        )
+        .await
+    }
+
+    pub(super) async fn translate_stream(
+        &self,
+        config: &crate::config::AppConfig,
+        images: impl Stream<Item = Result<(usize, Vec<TextBlock>), String>>,
+        scan_id: u64,
+        deadline: tokio::time::Instant,
+        mut progress: impl FnMut(super::Phase),
+        mut completed: impl FnMut(BlockUpdate),
+    ) -> Result<ScanResult, String> {
+        use sha2::{Digest, Sha256};
+        let started = std::time::Instant::now();
+        let ocr = &config.ocr;
         let source_only = source_view(ocr);
-        let images: [Vec<TextBlock>; 2] =
-            images.try_into().map_err(|_| "Missing OCR eye result")?;
-        let mut blocks: [Vec<TranslatedBlock>; 2] = images.map(|eye| {
-            eye.into_iter()
-                .map(|source| TranslatedBlock {
-                    source,
-                    translations: if source_only {
-                        vec![]
-                    } else {
-                        ocr.targets
-                            .iter()
-                            .map(|target| BlockTranslation {
-                                target_language: target.target_language.clone(),
-                                text: None,
-                                error_code: Some(
-                                    if target.profile_id.is_some() {
-                                        "translation.timeout"
-                                    } else {
-                                        "translation.not_configured"
-                                    }
-                                    .into(),
-                                ),
-                            })
-                            .collect()
-                    },
-                })
-                .collect()
-        });
-        for (eye, eye_blocks) in blocks.iter().enumerate() {
-            for block in eye_blocks {
-                completed(BlockUpdate {
-                    scan_id,
-                    eye,
-                    target_language: None,
-                    block: block.clone(),
-                });
-            }
-        }
-        if source_only || blocks.iter().all(|eye| eye.is_empty()) {
-            let mut summary = ScanSummary::from_blocks(&blocks, source_only, false);
-            if had_text && summary.outcome == ScanOutcome::NoText {
-                summary.outcome = ScanOutcome::LowConfidence;
-            }
-            return Ok(ScanResult { blocks, summary });
-        }
-        progress(super::Phase::Translating);
-        let mut seen = HashSet::new();
-        let texts: Vec<String> = blocks
-            .iter()
-            .flatten()
-            .filter(|block| seen.insert(block.source.text.clone()))
-            .map(|block| block.source.text.clone())
-            .collect();
-        let requests: Vec<_> = texts
-            .iter()
-            .flat_map(|text| {
-                ocr.targets
-                    .iter()
-                    .enumerate()
-                    .filter(|(_, target)| target.profile_id.is_some())
-                    .map(move |(target_index, target)| (text.clone(), target_index, target.clone()))
-            })
-            .collect();
-        let mut pending = stream::iter(requests)
-            .map(|(text, target_index, target)| {
-                let texts = &texts;
-                async move {
-                    use sha2::{Digest, Sha256};
-                    let context: Vec<_> = texts
-                        .iter()
-                        .filter(|other| **other != text)
-                        .take(config.translation.prompt.max_messages as usize)
-                        .map(|other| crate::translation::TranslationContextEntry {
-                            source: "OCR".into(),
-                            text: other.clone(),
-                            created_at: String::new(),
-                        })
-                        .collect();
-                    let glossary = self
-                        .translation
-                        .ocr_glossary_fingerprint(&config.translation.prompt);
-                    let profile = config
-                        .asr
-                        .api_profiles
-                        .iter()
-                        .find(|profile| Some(&profile.id) == target.profile_id.as_ref());
-                    let context_key: Vec<_> = context
-                        .iter()
-                        .map(|entry| (&entry.source, &entry.text))
-                        .collect();
-                    let key: [u8; 32] = Sha256::digest(
-                        serde_json::to_vec(&(
-                            &text,
-                            &target,
-                            profile,
-                            &config.translation.prompt,
-                            context_key,
-                            glossary,
-                        ))
-                        .expect("OCR translation cache key is serializable"),
-                    )
-                    .into();
-                    let cached = self
-                        .cache
-                        .lock()
-                        .unwrap_or_else(|error| error.into_inner())
-                        .get(&key);
-                    if let Some(cached) = cached {
-                        return (
-                            text,
-                            target_index,
-                            BlockTranslation {
-                                target_language: target.target_language.clone(),
-                                text: Some(cached),
-                                error_code: None,
-                            },
-                            true,
-                        );
-                    }
-                    let result = self
-                        .translation
-                        .translate(
-                            &target,
-                            &config.translation.prompt,
-                            &config.asr.api_profiles,
-                            &text,
-                            None,
-                            &context,
-                        )
-                        .await;
-                    let translation = match result {
-                        Ok(result) if !result.text.trim().is_empty() => BlockTranslation {
-                            target_language: target.target_language.clone(),
-                            text: Some(result.text),
-                            error_code: None,
-                        },
-                        Ok(_) => BlockTranslation {
-                            target_language: target.target_language.clone(),
-                            text: None,
-                            error_code: Some("translation.empty_result".into()),
-                        },
-                        Err(error) => BlockTranslation {
-                            target_language: target.target_language.clone(),
-                            text: None,
-                            error_code: Some(error.code.into()),
-                        },
-                    };
-                    if self.matches_config(config)
-                        && glossary
-                            == self
-                                .translation
-                                .ocr_glossary_fingerprint(&config.translation.prompt)
-                    {
-                        if let Some(text) = &translation.text {
-                            self.cache
-                                .lock()
-                                .unwrap_or_else(|error| error.into_inner())
-                                .insert(key, text.clone());
-                        }
-                    }
-                    (text, target_index, translation, false)
-                }
-            })
-            .buffer_unordered(4);
+        let glossary = self
+            .translation
+            .ocr_glossary_fingerprint(&config.translation.prompt);
+        let mut blocks: [Vec<TranslatedBlock>; 2] = Default::default();
+        let mut requests: Vec<TranslationRequest> = Vec::new();
+        let mut seen = HashMap::new();
+        let mut queued: VecDeque<usize> = VecDeque::new();
+        let mut pending = FuturesUnordered::new();
+        let mut images_done = false;
+        let mut had_text = false;
+        let mut translating = false;
         let mut timed_out = false;
         let mut cache_hits = 0usize;
+        let mut first_translation_ms = None;
+        let mut config_check = tokio::time::interval(std::time::Duration::from_millis(100));
+        futures_util::pin_mut!(images);
         loop {
-            let next = tokio::select! {
-                biased;
-                next = pending.next() => next,
-                _ = tokio::time::sleep_until(deadline) => { timed_out = true; break; }
-            };
-            let Some((text, target_index, translation, cached)) = next else {
-                break;
-            };
-            cache_hits += usize::from(cached);
             if !self.matches_config(config) {
                 return Err("OCR configuration changed".into());
             }
-            for (eye, eye_blocks) in blocks.iter_mut().enumerate() {
-                for block in eye_blocks
-                    .iter_mut()
-                    .filter(|block| block.source.text == text)
-                {
-                    block.translations[target_index] = translation.clone();
-                    completed(BlockUpdate {
-                        scan_id,
-                        eye,
-                        target_language: Some(translation.target_language.clone()),
-                        block: block.clone(),
-                    });
+            while pending.len() < 4 {
+                let Some(index) = queued.pop_front() else {
+                    break;
+                };
+                let request = requests[index].clone();
+                pending.push(async move {
+                    let (translation, cached) =
+                        self.translate_request(config, glossary, request).await;
+                    (index, translation, cached)
+                });
+            }
+            if images_done && pending.is_empty() {
+                break;
+            }
+            tokio::select! {
+                biased;
+                Some((request_index, translation, cached)) = pending.next(), if !pending.is_empty() => {
+                    if !self.matches_config(config) {
+                        return Err("OCR configuration changed".into());
+                    }
+                    cache_hits += usize::from(cached);
+                    if first_translation_ms.is_none() && translation.text.is_some() {
+                        first_translation_ms = Some(started.elapsed().as_millis() as u64);
+                    }
+                    let request = &mut requests[request_index];
+                    request.translation = Some(translation.clone());
+                    for &(eye, index) in &request.subscribers {
+                        let block = &mut blocks[eye][index];
+                        block.translations[request.target_index] = translation.clone();
+                        completed(BlockUpdate {
+                            scan_id, eye, target_language: Some(translation.target_language.clone()),
+                            block: block.clone(),
+                        });
+                    }
                 }
+                _ = tokio::time::sleep_until(deadline) => {
+                    timed_out = true;
+                    break;
+                }
+                next = images.next(), if !images_done => {
+                    let Some(next) = next else { images_done = true; continue; };
+                    let (eye, image) = next?;
+                    if eye >= 2 { return Err("Invalid OCR eye result".into()); }
+                    had_text |= !image.is_empty();
+                    let groups = super::layout::group_blocks(image, ocr.minimum_confidence);
+                    let contexts: Vec<_> = (0..groups.len())
+                        .map(|index| group_context(&groups, index, &config.translation.prompt)).collect();
+                    blocks[eye] = groups.into_iter().map(|group| TranslatedBlock {
+                        source: group.source,
+                        fragments: group.fragments,
+                        translations: if source_only { vec![] } else {
+                            ocr.targets.iter().map(|target| BlockTranslation {
+                                target_language: target.target_language.clone(),
+                                text: None,
+                                error_code: Some(if target.profile_id.is_some() {
+                                    "translation.timeout"
+                                } else { "translation.not_configured" }.into()),
+                            }).collect()
+                        },
+                    }).collect();
+                    for (index, block) in blocks[eye].iter_mut().enumerate() {
+                        completed(BlockUpdate { scan_id, eye, target_language: None, block: block.clone() });
+                        if source_only { continue; }
+                        for (target_index, target) in ocr.targets.iter().enumerate()
+                            .filter(|(_, target)| target.profile_id.is_some())
+                        {
+                            if !translating { progress(super::Phase::Translating); translating = true; }
+                            let context = &contexts[index];
+                            let context_key: Vec<_> = context.iter()
+                                .map(|entry| (&entry.source, &entry.text)).collect();
+                            let profile = config.asr.api_profiles.iter()
+                                .find(|profile| Some(&profile.id) == target.profile_id.as_ref());
+                            let key: [u8; 32] = Sha256::digest(serde_json::to_vec(&(
+                                &block.source.text, target, profile, &config.translation.prompt,
+                                context_key, glossary,
+                            )).expect("OCR translation cache key is serializable")).into();
+                            // Pending and completed requests share subscribers; target slots stay separate.
+                            if let Some(&request_index) = seen.get(&(key, target_index)) {
+                                let request: &mut TranslationRequest = &mut requests[request_index];
+                                request.subscribers.push((eye, index));
+                                if let Some(translation) = &request.translation {
+                                    block.translations[target_index] = translation.clone();
+                                    completed(BlockUpdate {
+                                        scan_id, eye, target_language: Some(translation.target_language.clone()),
+                                        block: block.clone(),
+                                    });
+                                }
+                            } else {
+                                seen.insert((key, target_index), requests.len());
+                                queued.push_back(requests.len());
+                                requests.push(TranslationRequest {
+                                    key, text: block.source.text.clone(), context: context.clone(),
+                                    target_index, target: target.clone(),
+                                    subscribers: vec![(eye, index)], translation: None,
+                                });
+                            }
+                        }
+                    }
+                }
+                _ = config_check.tick() => {}
             }
         }
         drop(pending);
-        let summary = ScanSummary::from_blocks(&blocks, false, timed_out);
+        let mut summary = ScanSummary::from_blocks(&blocks, source_only, timed_out);
+        if had_text && summary.outcome == ScanOutcome::NoText {
+            summary.outcome = ScanOutcome::LowConfidence;
+        }
         tracing::debug!(
             scan_id,
             elapsed_ms = started.elapsed().as_millis() as u64,
             cache_hits,
+            ?first_translation_ms,
+            requests = requests.len(),
             blocks = blocks.iter().map(Vec::len).sum::<usize>(),
             timed_out,
             "OCR translations processed"
         );
         Ok(ScanResult { blocks, summary })
+    }
+
+    async fn translate_request(
+        &self,
+        config: &crate::config::AppConfig,
+        glossary: [u8; 32],
+        request: TranslationRequest,
+    ) -> (BlockTranslation, bool) {
+        let cached = self
+            .cache
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .get(&request.key);
+        if let Some(cached) = cached {
+            return (
+                BlockTranslation {
+                    target_language: request.target.target_language,
+                    text: Some(cached),
+                    error_code: None,
+                },
+                true,
+            );
+        }
+        let result = self
+            .translation
+            .translate(
+                &request.target,
+                &config.translation.prompt,
+                &config.asr.api_profiles,
+                &request.text,
+                None,
+                &request.context,
+            )
+            .await;
+        let translation = match result {
+            Ok(result) if !result.text.trim().is_empty() => BlockTranslation {
+                target_language: request.target.target_language,
+                text: Some(result.text),
+                error_code: None,
+            },
+            Ok(_) => BlockTranslation {
+                target_language: request.target.target_language,
+                text: None,
+                error_code: Some("translation.empty_result".into()),
+            },
+            Err(error) => BlockTranslation {
+                target_language: request.target.target_language,
+                text: None,
+                error_code: Some(error.code.into()),
+            },
+        };
+        if self.matches_config(config)
+            && glossary
+                == self
+                    .translation
+                    .ocr_glossary_fingerprint(&config.translation.prompt)
+        {
+            if let Some(text) = &translation.text {
+                self.cache
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner())
+                    .insert(request.key, text.clone());
+            }
+        }
+        (translation, false)
     }
 }
 
@@ -457,7 +519,7 @@ mod tests {
             positioned(0, "Could you tell me", 10., 10., 220.),
             positioned(1, "where this is?", 10., 34., 180.),
         ];
-        assert_eq!(layout_scan(vec![vr, vec![]]).await.blocks[0].len(), 2);
+        assert_eq!(layout_scan(vec![vr, vec![]]).await.blocks[0].len(), 1);
     }
 
     #[tokio::test]
@@ -474,6 +536,57 @@ mod tests {
             .await;
             assert_eq!(result.blocks[0].len(), 2, "{left} / {right}");
         }
+    }
+
+    #[tokio::test]
+    async fn vr_layout_joins_short_and_capitalized_continuations() {
+        for (first, second, expected) in [
+            ("I think", "I know the way.", "I think I know the way."),
+            (
+                "Meet me at",
+                "Central Station.",
+                "Meet me at Central Station.",
+            ),
+            ("どこに", "行きますか？", "どこに行きますか？"),
+        ] {
+            let result = layout_scan(vec![
+                vec![
+                    positioned(9, second, 10., 34., 180.),
+                    positioned(4, first, 10., 10., 150.),
+                ],
+                vec![],
+            ])
+            .await;
+            assert_eq!(result.blocks[0].len(), 1, "{expected}");
+            assert_eq!(result.blocks[0][0].source.text, expected);
+        }
+    }
+
+    #[tokio::test]
+    async fn layout_keeps_a_multisentence_paragraph_together() {
+        let result = layout_scan(vec![vec![
+            positioned(0, "We arrived at the station.", 10., 10., 250.),
+            positioned(1, "The next train leaves soon.", 10., 34., 250.),
+        ]])
+        .await;
+        assert_eq!(result.blocks[0].len(), 1);
+        assert_eq!(
+            result.blocks[0][0].source.text,
+            "We arrived at the station. The next train leaves soon."
+        );
+    }
+
+    #[tokio::test]
+    async fn layout_keeps_low_confidence_text_as_a_merge_barrier() {
+        let mut barrier = positioned(1, "another speaker", 10., 25., 150.);
+        barrier.confidence = 0.01;
+        let result = layout_scan(vec![vec![
+            positioned(0, "Please tell me", 10., 10., 180.),
+            barrier,
+            positioned(2, "where to go", 10., 34., 180.),
+        ]])
+        .await;
+        assert_eq!(result.blocks[0].len(), 2);
     }
 
     #[tokio::test]
@@ -503,6 +616,180 @@ mod tests {
         assert_eq!((updates[0].scan_id, updates[0].eye), (7, 0));
     }
 
+    #[tokio::test]
+    async fn streamed_eyes_translate_before_the_next_eye_and_share_in_flight_requests() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let requests = Arc::new(AtomicUsize::new(0));
+        let started = Arc::new(tokio::sync::Notify::new());
+        let release = Arc::new(tokio::sync::Notify::new());
+        let (count, notify, wait) = (requests.clone(), started.clone(), release.clone());
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let origin = format!("http://{}", listener.local_addr().unwrap());
+        let server = tokio::spawn(async move {
+            axum::serve(
+                listener,
+                Router::new().route(
+                    "/chat/completions",
+                    post(move || {
+                        let (count, notify, wait) = (count.clone(), notify.clone(), wait.clone());
+                        async move {
+                            count.fetch_add(1, Ordering::SeqCst);
+                            notify.notify_one();
+                            wait.notified().await;
+                            Json(json!({"choices":[{"message":{"content":"translated"}}]}))
+                        }
+                    }),
+                ),
+            )
+            .await
+            .unwrap();
+        });
+        let (service, config) = service(Some(origin));
+        let eyes =
+            stream::once(async { Ok((0, vec![block(0, "same")])) }).chain(stream::once(async {
+                started.notified().await;
+                Ok((1, vec![positioned(0, "same", 100., 10., 70.)]))
+            }));
+        let mut updates = Vec::new();
+        let result = service
+            .translate_stream(
+                &config,
+                eyes,
+                81,
+                tokio::time::Instant::now() + Duration::from_secs(2),
+                |_| {},
+                |update| {
+                    if update.eye == 1 && update.target_language.is_none() {
+                        release.notify_one();
+                    }
+                    updates.push(update);
+                },
+            )
+            .await
+            .unwrap();
+        server.abort();
+        assert!(
+            !result.summary.timed_out,
+            "Eye 1 can finish only after translation starts"
+        );
+        assert_eq!(requests.load(Ordering::SeqCst), 1);
+        assert_eq!(result.summary.success_count, 2);
+        assert_eq!(result.blocks[1][0].source.polygon[0][0], 100.);
+        let translated: Vec<_> = updates
+            .iter()
+            .filter(|update| update.target_language.is_some())
+            .collect();
+        assert_eq!(
+            translated
+                .iter()
+                .map(|update| (update.scan_id, update.eye))
+                .collect::<Vec<_>>(),
+            [(81, 0), (81, 1)]
+        );
+    }
+
+    #[tokio::test]
+    async fn streamed_deadline_keeps_completed_first_eye_while_recognition_is_pending() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let origin = format!("http://{}", listener.local_addr().unwrap());
+        let server = tokio::spawn(async move {
+            axum::serve(
+                listener,
+                Router::new().route(
+                    "/chat/completions",
+                    post(|| async { Json(json!({"choices":[{"message":{"content":"done"}}]})) }),
+                ),
+            )
+            .await
+            .unwrap();
+        });
+        let (service, config) = service(Some(origin));
+        let eyes =
+            stream::once(async { Ok((0, vec![block(0, "first")])) }).chain(stream::pending());
+        let result = service
+            .translate_stream(
+                &config,
+                eyes,
+                1,
+                tokio::time::Instant::now() + Duration::from_millis(200),
+                |_| {},
+                |_| {},
+            )
+            .await
+            .unwrap();
+        server.abort();
+        assert!(result.summary.timed_out);
+        assert_eq!(result.summary.outcome, ScanOutcome::PartialFailure);
+        assert_eq!(
+            result.blocks[0][0].translations[0].text.as_deref(),
+            Some("done")
+        );
+        assert!(result.blocks[1].is_empty());
+    }
+
+    #[tokio::test]
+    async fn streamed_translation_drop_stops_queued_requests_after_four_active_calls() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let requests = Arc::new(AtomicUsize::new(0));
+        let active = requests.clone();
+        let release = Arc::new(tokio::sync::Notify::new());
+        let wait = release.clone();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let origin = format!("http://{}", listener.local_addr().unwrap());
+        let server = tokio::spawn(async move {
+            axum::serve(
+                listener,
+                Router::new().route(
+                    "/chat/completions",
+                    post(move || {
+                        let (active, wait) = (active.clone(), wait.clone());
+                        async move {
+                            active.fetch_add(1, Ordering::SeqCst);
+                            wait.notified().await;
+                            Json(json!({"choices":[{"message":{"content":"done"}}]}))
+                        }
+                    }),
+                ),
+            )
+            .await
+            .unwrap();
+        });
+        let (service, config) = service(Some(origin));
+        let eyes = stream::iter([
+            Ok((
+                0,
+                (0..4).map(|id| block(id, &format!("left {id}"))).collect(),
+            )),
+            Ok((
+                1,
+                (0..4).map(|id| block(id, &format!("right {id}"))).collect(),
+            )),
+        ]);
+        let mut scan = Box::pin(service.translate_stream(
+            &config,
+            eyes,
+            1,
+            tokio::time::Instant::now() + Duration::from_secs(2),
+            |_| {},
+            |_| {},
+        ));
+        tokio::select! {
+            result = &mut scan => panic!("Scan finished unexpectedly: {}", result.is_ok()),
+            _ = async {
+                while requests.load(Ordering::SeqCst) < 4 {
+                    tokio::time::sleep(Duration::from_millis(5)).await;
+                }
+            } => {}
+            _ = tokio::time::sleep(Duration::from_secs(1)) => panic!("No four active requests"),
+        }
+        assert_eq!(requests.load(Ordering::SeqCst), 4);
+        drop(scan);
+        release.notify_waiters();
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        assert_eq!(requests.load(Ordering::SeqCst), 4);
+        server.abort();
+    }
+
     fn service(origin: Option<String>) -> (VrOcrService, crate::config::AppConfig) {
         let mut config = crate::config::AppConfig::default();
         if let Some(origin) = origin {
@@ -529,7 +816,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn ocr_translation_reuses_cache_and_includes_scan_context() {
+    async fn ocr_translation_reuses_cache_without_unrelated_scan_context() {
         let bodies = Arc::new(std::sync::Mutex::new(Vec::new()));
         let recorded = bodies.clone();
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -570,11 +857,15 @@ mod tests {
                 .unwrap();
             assert_eq!(result.summary.outcome, ScanOutcome::Complete);
             let count = bodies.lock().unwrap().len();
-            assert_eq!(count, if other == "context" { 2 } else { 4 });
+            assert_eq!(count, if other == "context" { 2 } else { 3 });
         }
-        let body = bodies.lock().unwrap()[0].to_string();
-        assert!(body.contains("REFERENCE CONTEXT"));
-        assert!(body.contains("context"));
+        let bodies_snapshot = bodies.lock().unwrap().clone();
+        let hello = bodies_snapshot
+            .iter()
+            .find(|body| body["messages"].to_string().contains("hello"))
+            .unwrap();
+        assert!(!hello["messages"].to_string().contains("REFERENCE CONTEXT"));
+        assert!(!hello["messages"].to_string().contains("context"));
         config.ocr.targets[0].model = "different-model".into();
         *service.config.write().unwrap() = config.clone();
         service
@@ -589,7 +880,7 @@ mod tests {
             )
             .await
             .unwrap();
-        assert_eq!(bodies.lock().unwrap().len(), 6);
+        assert_eq!(bodies.lock().unwrap().len(), 5);
         config
             .translation
             .prompt
@@ -608,7 +899,7 @@ mod tests {
             )
             .await
             .unwrap();
-        assert_eq!(bodies.lock().unwrap().len(), 8);
+        assert_eq!(bodies.lock().unwrap().len(), 7);
         config.asr.api_profiles[0]
             .headers
             .push(crate::config::HttpHeaderConfig {
@@ -628,7 +919,150 @@ mod tests {
             )
             .await
             .unwrap();
-        assert_eq!(bodies.lock().unwrap().len(), 10);
+        assert_eq!(bodies.lock().unwrap().len(), 9);
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn translation_request_contains_assembled_source_and_no_unrelated_context() {
+        let bodies = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let recorded = bodies.clone();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let origin = format!("http://{}", listener.local_addr().unwrap());
+        let server = tokio::spawn(async move {
+            axum::serve(
+                listener,
+                Router::new().route(
+                    "/chat/completions",
+                    post(move |Json(body): Json<serde_json::Value>| {
+                        let recorded = recorded.clone();
+                        async move {
+                            recorded.lock().unwrap().push(body);
+                            Json(json!({"choices":[{"message":{"content":"translated"}}]}))
+                        }
+                    }),
+                ),
+            )
+            .await
+            .unwrap();
+        });
+        let (service, config) = service(Some(origin));
+        let fragments = vec![
+            positioned(8, "Could you", 10., 10., 110.),
+            positioned(3, "tell me", 125., 10., 125.),
+            positioned(6, "where this is?", 10., 34., 180.),
+        ];
+        let mut inputs = fragments.clone();
+        inputs.push(positioned(1, "Settings", 400., 10., 150.));
+        let result = service
+            .translate_scan(
+                &config,
+                vec![inputs],
+                9,
+                tokio::time::Instant::now() + Duration::from_secs(2),
+                |_| async { Ok(()) },
+                |_| {},
+                |_| {},
+            )
+            .await
+            .unwrap();
+        assert_eq!(result.blocks[0][0].fragments, fragments);
+        let bodies = bodies.lock().unwrap();
+        assert_eq!(bodies.len(), 2);
+        let assembled = bodies
+            .iter()
+            .find(|body| {
+                body["messages"]
+                    .to_string()
+                    .contains("Could you tell me where this is?")
+            })
+            .expect("one complete source in the LLM request");
+        let messages = assembled["messages"].to_string();
+        assert!(!messages.contains("Settings"));
+        assert!(!messages.contains("REFERENCE CONTEXT"));
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn paragraph_chunks_translate_with_local_context_and_distinct_subscribers() {
+        let bodies = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let recorded = bodies.clone();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let origin = format!("http://{}", listener.local_addr().unwrap());
+        let server = tokio::spawn(async move {
+            axum::serve(
+                listener,
+                Router::new().route(
+                    "/chat/completions",
+                    post(move |Json(body): Json<serde_json::Value>| {
+                        let recorded = recorded.clone();
+                        async move {
+                            let messages = body["messages"].to_string();
+                            let translation = if messages.contains('甲') {
+                                "first region"
+                            } else {
+                                "second region"
+                            };
+                            recorded.lock().unwrap().push(body);
+                            Json(json!({"choices":[{"message":{"content":translation}}]}))
+                        }
+                    }),
+                ),
+            )
+            .await
+            .unwrap();
+        });
+        let (service, config) = service(Some(origin));
+        let common = "同じ文章".repeat(275);
+        let mut updates = Vec::new();
+        for _ in 0..2 {
+            let eye = vec![
+                positioned(0, &common, 10., 10., 180.),
+                positioned(1, &"甲の説明".repeat(275), 10., 34., 180.),
+                positioned(2, &common, 400., 10., 180.),
+                positioned(3, &"乙の説明".repeat(275), 400., 34., 180.),
+            ];
+            let result = service
+                .translate_scan(
+                    &config,
+                    vec![eye.clone(), eye],
+                    11,
+                    tokio::time::Instant::now() + Duration::from_secs(2),
+                    |_| async { Ok(()) },
+                    |_| {},
+                    |update| updates.push(update),
+                )
+                .await
+                .unwrap();
+            assert_eq!(result.blocks[0].len(), 4);
+            assert_eq!(result.summary.success_count, 8);
+            assert_eq!(
+                result.blocks[0][0].translations[0].text.as_deref(),
+                Some("first region")
+            );
+            assert_eq!(
+                result.blocks[0][2].translations[0].text.as_deref(),
+                Some("second region")
+            );
+        }
+        let bodies = bodies.lock().unwrap();
+        assert_eq!(
+            bodies.len(),
+            4,
+            "identical stereo inputs and repeated scans reuse translations"
+        );
+        for body in bodies.iter() {
+            let messages = body["messages"].to_string();
+            assert!(messages.contains("REFERENCE CONTEXT"));
+            assert!(!(messages.contains('甲') && messages.contains('乙')));
+        }
+        assert_eq!(
+            updates
+                .iter()
+                .filter(|update| update.target_language.is_some())
+                .count(),
+            16
+        );
         server.abort();
     }
 
@@ -769,7 +1203,7 @@ mod tests {
                 |update| {
                     assert_eq!(
                         (update.scan_id, update.eye, update.block.source.id),
-                        (17, 0, 7)
+                        (17, 0, 0)
                     );
                     assert!(update.block.translations.is_empty());
                 },
@@ -880,7 +1314,7 @@ mod tests {
                 completed[1].eye,
                 completed[1].block.source.id
             ),
-            (42, 1, 20)
+            (42, 1, 0)
         );
     }
 

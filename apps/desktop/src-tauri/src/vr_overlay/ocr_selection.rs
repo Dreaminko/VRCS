@@ -5,50 +5,33 @@ use super::{
 
 #[derive(Clone)]
 pub struct Selection {
+    basis: [[f32; 4]; 3],
     world: [[f32; 3]; 4],
     pub scene_pid: u32,
     pub origin: i32,
 }
 
-pub fn head_point_visible(eye: &EyeCapture, point: [f32; 3]) -> bool {
-    let [left, right, top, bottom] = eye.projection;
-    if point
-        .iter()
-        .chain(eye.projection.iter())
-        .chain(eye.eye_to_head.iter().flatten())
-        .any(|v| !v.is_finite())
-        || left >= right
-        || top >= bottom
-    {
-        return false;
-    }
-    let local: [f32; 3] = std::array::from_fn(|c| {
-        (0..3)
-            .map(|r| eye.eye_to_head[r][c] * (point[r] - eye.eye_to_head[r][3]))
-            .sum()
-    });
-    if local[2] >= -0.01 {
-        return false;
-    }
-    let depth = -local[2];
-    // Include an 8 cm margin around tracked points for the hand/controller body.
-    let margin = 0.08 / depth;
-    let (x, y) = (local[0] / depth, -local[1] / depth);
-    (left - margin..=right + margin).contains(&x) && (top - margin..=bottom + margin).contains(&y)
-}
-
 impl Selection {
     pub fn from_corners(
         corners: [[f32; 3]; 2],
-        head: [[f32; 4]; 3],
+        basis: [[f32; 4]; 3],
         scene_pid: u32,
         origin: i32,
     ) -> Option<Self> {
         if corners
             .iter()
             .flatten()
-            .chain(head.iter().flatten())
+            .chain(basis.iter().flatten())
             .any(|v| !v.is_finite())
+        {
+            return None;
+        }
+        // Reuse the initial frame axes. Head motion changes projection, not frame geometry.
+        let view = super::transform::inverse(basis);
+        let corners: [[f32; 3]; 2] = corners.map(|point| {
+            std::array::from_fn(|r| view[r][3] + (0..3).map(|c| view[r][c] * point[c]).sum::<f32>())
+        });
+        if corners.iter().flatten().any(|v| !v.is_finite())
             || corners.iter().any(|p| !(-2.0..=-0.05).contains(&p[2]))
         {
             return None;
@@ -71,13 +54,18 @@ impl Selection {
             [left[0], bottom, left[2]],
         ]
         .map(|p| {
-            std::array::from_fn(|r| head[r][3] + (0..3).map(|c| head[r][c] * p[c]).sum::<f32>())
+            std::array::from_fn(|r| basis[r][3] + (0..3).map(|c| basis[r][c] * p[c]).sum::<f32>())
         });
         Some(Self {
+            basis,
             world,
             scene_pid,
             origin,
         })
+    }
+
+    pub fn with_corners(&self, corners: [[f32; 3]; 2]) -> Option<Self> {
+        Self::from_corners(corners, self.basis, self.scene_pid, self.origin)
     }
 
     pub fn project(&self, eye: &EyeCapture) -> Option<[[f32; 2]; 4]> {
@@ -238,15 +226,47 @@ mod tests {
         }
     }
 
+    fn world_corners(corners: [[f32; 3]; 2], head: [[f32; 4]; 3]) -> [[f32; 3]; 2] {
+        corners.map(|point| {
+            std::array::from_fn(|r| head[r][3] + (0..3).map(|c| head[r][c] * point[c]).sum::<f32>())
+        })
+    }
+
     #[test]
-    fn capture_wait_uses_the_eye_frustum_for_far_and_near_hands() {
-        let head = transform::matrix(0., 0., 0., [0.; 3]);
-        let view = eye(0.03, head);
-        assert!(head_point_visible(&view, [0.9, 0.4, -1.]));
-        assert!(!head_point_visible(&view, [0.7, 0., -0.2]));
-        assert!(!head_point_visible(&view, [0., -1., -0.3]));
-        assert!(!head_point_visible(&view, [0., 0., 0.2]));
-        assert!(!head_point_visible(&view, [f32::NAN, 0., -0.5]));
+    fn world_anchors_are_not_transformed_twice_when_the_head_is_rotated_and_translated() {
+        let head = transform::matrix(15., -25., 30., [1., 1.6, 0.]);
+        let anchors = world_corners([[-0.2, 0.1, -0.4], [0.2, -0.1, -0.7]], head);
+        let selection = Selection::from_corners(anchors, head, 7, 1).unwrap();
+        for (actual, expected) in [selection.world[0], selection.world[2]]
+            .into_iter()
+            .zip(anchors)
+        {
+            for (a, b) in actual.into_iter().zip(expected) {
+                assert!((a - b).abs() < 0.0001, "{a} != {b}");
+            }
+        }
+    }
+
+    #[test]
+    fn dragging_world_anchors_resizes_the_frame_and_preserves_unequal_depths() {
+        let basis = transform::matrix(15., -25., 30., [1., 1.6, -2.]);
+        let initial = world_corners([[-0.2, 0.1, -0.4], [0.2, -0.1, -0.7]], basis);
+        let selection = Selection::from_corners(initial, basis, 7, 1).unwrap();
+        assert!(selection.with_corners([initial[0]; 2]).is_none());
+        let anchors = world_corners([[-0.3, 0.2, -0.3], [0.4, -0.2, -0.8]], basis);
+        let resized = selection.with_corners([anchors[1], anchors[0]]).unwrap();
+        for (actual, expected) in [resized.world[0], resized.world[2]]
+            .into_iter()
+            .zip(anchors)
+        {
+            for (a, b) in actual.into_iter().zip(expected) {
+                assert!((a - b).abs() < 0.0001, "{a} != {b}");
+            }
+        }
+        let plane = resized.preview();
+        assert!((plane.width_m - 0.7_f32.hypot(0.5)).abs() < 0.0001);
+        assert!((plane.width_m / plane.texel_aspect - 0.4).abs() < 0.0001);
+        assert_eq!((resized.scene_pid, resized.origin), (7, 1));
     }
 
     #[test]
@@ -264,6 +284,18 @@ mod tests {
             &crop.image.pixels[center..center + 4],
             &[200, 200, 200, 255]
         );
+        let bounds = selection.crop_bounds(&view).unwrap();
+        let readback = region_crop(&view.image, bounds).unwrap().image;
+        view.projection = super::super::ocr_capture::crop_projection(
+            view.projection,
+            [view.image.width, view.image.height],
+            bounds,
+        );
+        view.image = readback;
+        let selected = selection.crop(&view).unwrap();
+        assert_eq!(selected.image.width, crop.image.width);
+        assert_eq!(selected.image.height, crop.image.height);
+        assert_eq!(selected.image.pixels, crop.image.pixels);
     }
 
     #[test]
@@ -284,6 +316,22 @@ mod tests {
             selection.project(&eye(0.03, moved)).unwrap(),
             [[34., 30.], [154., 30.], [154., 90.], [34., 90.]],
         );
+    }
+
+    #[test]
+    fn asymmetric_openvr_projection_keeps_the_crop_on_the_hand_frame() {
+        let head = transform::matrix(0., 0., 0., [0.; 3]);
+        let selection =
+            Selection::from_corners([[-0.2, 0.1, -0.5], [0.4, -0.2, -0.5]], head, 7, 1).unwrap();
+        for (x, left, right) in [(-0.03, 66., 186.), (0.03, 54., 174.)] {
+            let mut view = eye(x, head);
+            view.projection =
+                super::super::ocr_capture::projection_from_openvr([-1., 1., -0.7, 0.3]);
+            assert_quad(
+                selection.project(&view).unwrap(),
+                [[left, 10.], [right, 10.], [right, 70.], [left, 70.]],
+            );
+        }
     }
 
     #[test]
@@ -316,7 +364,8 @@ mod tests {
                 [[-0.2, 0.1, -0.25], [0.2, -0.1, -0.75]],
                 [[0.2, 0.1, -0.75], [-0.2, -0.1, -0.25]],
             ] {
-                let selection = Selection::from_corners(corners, head, 7, 1).unwrap();
+                let selection =
+                    Selection::from_corners(world_corners(corners, head), head, 7, 1).unwrap();
                 let plane = selection.preview();
                 let height_m = plane.width_m * plane.texture.height as f32
                     / (plane.texture.width as f32 * plane.texel_aspect);

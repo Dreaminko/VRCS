@@ -47,7 +47,7 @@ export function OcrWindow() {
     try { await navigator.clipboard.writeText(desktopOcrCopyText(status?.blocks ?? [])); setCopied(true); }
     catch { setError(t("ocrWindow.copyFailed")); }
   };
-  const processing = Boolean(status && ["capturing", "recognizing", "translating"].includes(status.state));
+  const processing = Boolean(status && ["capturing", "selecting", "recognizing", "translating"].includes(status.state));
   const nativeError = status?.error ?? status?.shortcut_error;
   const state = status?.state ?? "idle";
   const stateLabel = status ? t(`ocrWindow.states.${state}`) : t("common.loading");

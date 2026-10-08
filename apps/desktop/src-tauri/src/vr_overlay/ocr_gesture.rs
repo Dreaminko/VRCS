@@ -83,7 +83,6 @@ pub fn drag_frame(hands: &[HandSample; 2]) -> Option<FrameCorners> {
             .any(|curl| !curl.is_finite() || !(0.0..=1.0).contains(curl))
             || hand.curls[0] > 0.45
             || hand.curls[1] > 0.45
-            || !(-3.0..=-0.05).contains(&hand.wrist[2])
             || [
                 hand.wrist,
                 hand.thumb_base,
@@ -112,10 +111,9 @@ pub fn gesture_frame(hands: &[HandSample; 2], confirm_pressed: bool) -> Option<F
     if hands[0].origin == 0
         || hands[1].origin == 0
         || hands[0].origin == hands[1].origin
-        || hands.iter().any(|hand| {
-            hand.wrist.iter().any(|value| !value.is_finite())
-                || !(-3.0..=-0.05).contains(&hand.wrist[2])
-        })
+        || hands
+            .iter()
+            .any(|hand| hand.wrist.iter().any(|value| !value.is_finite()))
     {
         return None;
     }
@@ -203,6 +201,27 @@ mod tests {
     }
 
     #[test]
+    fn turning_away_does_not_cancel_tracked_hand_anchors_after_activation() {
+        let mut hands = frame();
+        let head = super::super::transform::matrix(0., 180., 0., [0.; 3]);
+        let device = super::super::transform::matrix(0., 0., 0., [0.; 3]);
+        for hand in &mut hands {
+            for point in [
+                &mut hand.wrist,
+                &mut hand.thumb_base,
+                &mut hand.thumb_tip,
+                &mut hand.index_base,
+                &mut hand.index_tip,
+            ] {
+                *point = point_in_head(head, device, *point);
+            }
+        }
+        assert!(!camera_frame(&hands));
+        assert!(drag_frame(&hands).is_some());
+        assert!(gesture_frame(&hands, true).is_some());
+    }
+
+    #[test]
     fn trigger_confirmation_keeps_valid_wrists_when_the_index_finger_curls() {
         let mut hands = frame();
         hands[1].curls[1] = 0.9;
@@ -212,7 +231,7 @@ mod tests {
             [[-0.18, -0.12, -0.45], [0.18, 0.12, -0.45]]
         );
         hands[1].wrist[2] = 0.1;
-        assert!(gesture_frame(&hands, true).is_none());
+        assert!(gesture_frame(&hands, true).is_some());
         hands[1].wrist[2] = -0.45;
         hands[1].wrist[0] = f32::NAN;
         assert!(gesture_frame(&hands, true).is_none());

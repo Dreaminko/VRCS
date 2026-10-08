@@ -12,6 +12,11 @@ pub(crate) struct LocalOcrRuntime {
     inference_gate: Arc<tokio::sync::Semaphore>,
 }
 
+enum InferenceUpdate {
+    Phase(Phase),
+    Eye(usize, Vec<TextBlock>),
+}
+
 impl LocalOcrRuntime {
     pub fn new(directory: PathBuf) -> Self {
         Self {
@@ -32,8 +37,22 @@ impl LocalOcrRuntime {
     pub async fn recognize<const N: usize>(
         &self,
         images: [OcrImage; N],
-        mut progress: impl FnMut(Phase),
+        progress: impl FnMut(Phase),
     ) -> Result<[Vec<TextBlock>; N], String> {
+        let mut results = std::array::from_fn(|_| Vec::new());
+        self.recognize_each(images.into_iter().collect(), progress, |eye, blocks| {
+            results[eye] = blocks
+        })
+        .await?;
+        Ok(results)
+    }
+
+    pub(super) async fn recognize_each(
+        &self,
+        images: Vec<OcrImage>,
+        mut progress: impl FnMut(Phase),
+        mut recognized: impl FnMut(usize, Vec<TextBlock>),
+    ) -> Result<(), String> {
         for image in &images {
             if image.width == 0 || image.height == 0 || image.width > 16384 || image.height > 16384
             {
@@ -72,7 +91,7 @@ impl LocalOcrRuntime {
             check_cancelled(&cancelled)?;
             if engine.is_none() {
                 let started = std::time::Instant::now();
-                let _ = sender.try_send(Phase::LoadingModel);
+                let _ = sender.try_send(InferenceUpdate::Phase(Phase::LoadingModel));
                 assets.verify()?;
                 *engine = Some(Engine::load(&assets.directory)?);
                 tracing::info!(
@@ -81,23 +100,25 @@ impl LocalOcrRuntime {
                 );
             }
             check_cancelled(&cancelled)?;
-            let _ = sender.try_send(Phase::Recognizing);
+            let _ = sender.try_send(InferenceUpdate::Phase(Phase::Recognizing));
             let engine = engine.as_mut().ok_or("Local OCR engine is unavailable")?;
-            images
-                .into_iter()
-                .enumerate()
-                .map(|(index, image)| {
-                    let _eye = tracing::info_span!("ocr_image", index).entered();
-                    engine.recognize(image, &options, &cancelled)
-                })
-                .collect::<Result<Vec<_>, _>>()?
-                .try_into()
-                .map_err(|_| "Missing OCR image result".into())
+            for (index, image) in images.into_iter().enumerate() {
+                let _eye = tracing::info_span!("ocr_image", index).entered();
+                let blocks = engine.recognize(image, &options, &cancelled)?;
+                sender
+                    .blocking_send(InferenceUpdate::Eye(index, blocks))
+                    .map_err(|_| "Local OCR was cancelled")?;
+            }
+            Ok(())
         });
         loop {
             tokio::select! {
+                biased;
+                Some(update) = receiver.recv() => match update {
+                    InferenceUpdate::Phase(phase) => progress(phase),
+                    InferenceUpdate::Eye(eye, blocks) => recognized(eye, blocks),
+                },
                 result = &mut worker => return result.map_err(|_| "Local OCR inference worker failed")?,
-                Some(phase) = receiver.recv() => progress(phase),
             }
         }
     }
@@ -366,6 +387,66 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn vr_single_eye_uses_vr_enablement_independently_of_desktop() {
+        let directory = tempfile::tempdir().unwrap();
+        let mut config = crate::config::AppConfig::default();
+        config.ocr.enabled = true;
+        config.ocr.desktop_enabled = false;
+        config.ocr.backend = crate::config::VrOcrBackend::Local;
+        let service = super::super::VrOcrService::new(
+            Arc::new(std::sync::RwLock::new(config)),
+            Arc::new(crate::translation::TranslationService::new().unwrap()),
+            Arc::new(LocalOcrRuntime::new(directory.path().into())),
+        )
+        .unwrap();
+        let snapshot = service.configuration().unwrap();
+        let error = service
+            .process_vr_scan(
+                vec![sample()],
+                &snapshot,
+                1,
+                tokio::time::Instant::now() + std::time::Duration::from_secs(2),
+                |_| {},
+                |_| {},
+            )
+            .await
+            .err()
+            .unwrap();
+        assert!(error.contains("models are missing"), "{error}");
+        for images in [vec![], vec![sample(), sample(), sample()]] {
+            let error = service
+                .process_vr_scan(
+                    images,
+                    &snapshot,
+                    1,
+                    tokio::time::Instant::now() + std::time::Duration::from_secs(2),
+                    |_| {},
+                    |_| {},
+                )
+                .await
+                .err()
+                .unwrap();
+            assert!(error.contains("one or two images"), "{error}");
+        }
+        service.config.write().unwrap().ocr.enabled = false;
+        service.config.write().unwrap().ocr.desktop_enabled = true;
+        let snapshot = service.configuration().unwrap();
+        let error = service
+            .process_vr_scan(
+                vec![sample()],
+                &snapshot,
+                1,
+                tokio::time::Instant::now() + std::time::Duration::from_secs(2),
+                |_| {},
+                |_| {},
+            )
+            .await
+            .err()
+            .unwrap();
+        assert_eq!(error, "OCR is disabled");
+    }
+
+    #[tokio::test]
     async fn local_ocr_accepts_original_desktop_resolution_before_loading_models() {
         let directory = tempfile::tempdir().unwrap();
         let runtime = LocalOcrRuntime::new(directory.path().into());
@@ -492,15 +573,15 @@ mod tests {
             .await
             .unwrap();
         server.abort();
-        assert_eq!(requests.load(Ordering::Relaxed), 4);
+        assert_eq!(requests.load(Ordering::Relaxed), 1);
         assert!(phases.contains(&Phase::Recognizing));
         assert!(phases.contains(&Phase::Translating));
         assert!(!phases.contains(&Phase::Submitting));
         for eye in result {
-            assert_eq!(eye.len(), 4);
+            assert_eq!(eye.len(), 1);
             assert!(eye
                 .iter()
-                .any(|block| block.source.text == "LOCAL OCR TEST 123"));
+                .any(|block| block.source.text.contains("LOCAL OCR TEST 123")));
             assert!(eye
                 .iter()
                 .all(|block| block.translations[0].text.as_deref() == Some("translated sample")));
@@ -520,9 +601,101 @@ mod tests {
             .unwrap();
         assert!(original
             .iter()
-            .all(|eye| eye.len() == 4 && eye.iter().all(|block| block.translations.is_empty())));
-        assert_eq!(requests.load(Ordering::Relaxed), 4);
+            .all(|eye| eye.len() == 1 && eye.iter().all(|block| block.translations.is_empty())));
+        assert_eq!(requests.load(Ordering::Relaxed), 1);
         assert!(!phases.contains(&Phase::Translating));
+    }
+
+    #[tokio::test]
+    #[ignore = "requires downloaded official PP-OCRv6 small weights"]
+    async fn ocr_local_vr_streams_translations_while_the_second_eye_is_recognizing() {
+        use axum::{routing::post, Json, Router};
+        use std::sync::atomic::AtomicUsize;
+        let directory = std::env::var_os("VRCS_TEST_OCR_MODELS")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| {
+                PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("models/ocr/ppocrv6-small")
+            });
+        let runtime = Arc::new(LocalOcrRuntime::new(directory));
+        let overlapped = Arc::new(AtomicBool::new(false));
+        let requests = Arc::new(AtomicUsize::new(0));
+        let (worker, overlap, count) = (runtime.clone(), overlapped.clone(), requests.clone());
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let origin = format!("http://{}", listener.local_addr().unwrap());
+        let server = tokio::spawn(async move {
+            axum::serve(listener, Router::new().route("/chat/completions", post(move || {
+                let (worker, overlap, count) = (worker.clone(), overlap.clone(), count.clone());
+                async move {
+                    count.fetch_add(1, Ordering::SeqCst);
+                    if worker.inference_gate.available_permits() == 0 {
+                        overlap.store(true, Ordering::SeqCst);
+                    }
+                    Json(serde_json::json!({"choices":[{"message":{"content":"translated"}}]}))
+                }
+            }))).await.unwrap();
+        });
+        let mut config = crate::config::AppConfig::default();
+        config.ocr.enabled = true;
+        config.ocr.desktop_enabled = false;
+        config.ocr.backend = crate::config::VrOcrBackend::Local;
+        config.ocr.targets[0].profile_id = Some("ocr-test".into());
+        config.asr.api_profiles.push(crate::config::ApiProfile {
+            id: "ocr-test".into(),
+            provider: crate::providers::OPENAI_COMPATIBLE_PROVIDER.into(),
+            base_url: Some(origin),
+            auth_mode: crate::config::ApiAuthMode::None,
+            is_local: true,
+            enabled_capabilities: vec![crate::providers::CAPABILITY_TEXT_TRANSLATION.into()],
+            ..crate::config::ApiProfile::default()
+        });
+        let service = super::super::VrOcrService::new(
+            Arc::new(std::sync::RwLock::new(config)),
+            Arc::new(crate::translation::TranslationService::new().unwrap()),
+            runtime,
+        )
+        .unwrap();
+        let snapshot = service.configuration().unwrap();
+        let mut updates = Vec::new();
+        let stereo = service
+            .process_vr_scan(
+                vec![sample(), sample_offset(30)],
+                &snapshot,
+                4,
+                tokio::time::Instant::now() + std::time::Duration::from_secs(30),
+                |_| {},
+                |update| updates.push(update),
+            )
+            .await
+            .unwrap();
+        assert!(
+            overlapped.load(Ordering::SeqCst),
+            "Translation must begin while sequential OCR still holds its worker permit"
+        );
+        assert_eq!(requests.load(Ordering::SeqCst), 1);
+        assert_eq!(stereo.summary.success_count, 2);
+        assert_eq!((stereo.blocks[0].len(), stereo.blocks[1].len()), (1, 1));
+        assert!(updates
+            .iter()
+            .any(|update| update.eye == 0 && update.target_language.is_some()));
+        assert!(updates
+            .iter()
+            .any(|update| update.eye == 1 && update.target_language.is_some()));
+        let mono = service
+            .process_vr_scan(
+                vec![sample()],
+                &snapshot,
+                5,
+                tokio::time::Instant::now() + std::time::Duration::from_secs(30),
+                |_| {},
+                |_| {},
+            )
+            .await
+            .unwrap();
+        server.abort();
+        assert_eq!(mono.blocks[0].len(), 1);
+        assert!(mono.blocks[1].is_empty());
+        assert_eq!(mono.summary.success_count, 1);
+        assert_eq!(requests.load(Ordering::SeqCst), 1);
     }
 
     #[tokio::test]

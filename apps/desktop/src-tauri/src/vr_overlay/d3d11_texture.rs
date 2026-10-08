@@ -133,8 +133,12 @@ impl Device {
         self.device.0
     }
 
-    /// The shader resource view must belong to this D3D11 device and remain alive for this call.
-    pub unsafe fn read_shader_resource(&self, view: *mut c_void) -> Result<Texture, String> {
+    /// The view must belong to this device and remain alive until readback ends.
+    pub unsafe fn read_shader_resource_region(
+        &self,
+        view: *mut c_void,
+        region: impl FnOnce(u32, u32) -> Result<[u32; 4], String>,
+    ) -> Result<(Texture, [u32; 4], [u32; 2]), String> {
         if view.is_null() {
             return Err("Mirror shader resource is null".into());
         }
@@ -178,6 +182,13 @@ impl Device {
         {
             return Err("Unsupported mirror texture dimensions or sampling".into());
         }
+        let size = [desc.width, desc.height];
+        let bounds @ [left, top, right, bottom] = region(desc.width, desc.height)?;
+        if left >= right || top >= bottom || right > desc.width || bottom > desc.height {
+            return Err("Invalid mirror capture region".into());
+        }
+        desc.width = right - left;
+        desc.height = bottom - top;
         desc.mip_levels = 1;
         desc.usage = 3; // D3D11_USAGE_STAGING
         desc.bind_flags = 0;
@@ -196,7 +207,7 @@ impl Device {
             ));
         }
         let staging = ComPtr(staging);
-        // Copy only subresource zero; the source may have additional mip levels.
+        // Copy only selected pixels from subresource zero before CPU readback.
         type CopyRegion = unsafe extern "system" fn(
             *mut c_void,
             *mut c_void,
@@ -209,8 +220,20 @@ impl Device {
             *const c_void,
         );
         let copy: CopyRegion = unsafe { std::mem::transmute(method(self.context.0, 46)) };
+        // D3D11_BOX: left, top, front, right, bottom, back.
+        let source_box = [left, top, 0, right, bottom, 1];
         unsafe {
-            copy(self.context.0, staging.0, 0, 0, 0, 0, texture.0, 0, null());
+            copy(
+                self.context.0,
+                staging.0,
+                0,
+                0,
+                0,
+                0,
+                texture.0,
+                0,
+                source_box.as_ptr().cast(),
+            );
         }
         let map: Map = unsafe { std::mem::transmute(method(self.context.0, 14)) };
         let unmap: Unmap = unsafe { std::mem::transmute(method(self.context.0, 15)) };
@@ -255,11 +278,15 @@ impl Device {
         for pixel in pixels.as_chunks_mut::<4>().0 {
             pixel[3] = 255;
         }
-        Ok(Texture {
-            width: desc.width,
-            height: desc.height,
-            pixels,
-        })
+        Ok((
+            Texture {
+                width: desc.width,
+                height: desc.height,
+                pixels,
+            },
+            bounds,
+            size,
+        ))
     }
     pub fn create(adapter_index: u32) -> Result<Self, String> {
         let adapter = dxgi_adapter(adapter_index)?;
@@ -498,9 +525,21 @@ mod tests {
         let mut view = null_mut();
         assert!(unsafe { create(device.device.0, texture.texture.0, null(), &mut view) } >= 0);
         let view = ComPtr(view);
-        let captured = unsafe { device.read_shader_resource(view.0) }.unwrap();
+        let (captured, _, _) = unsafe {
+            device.read_shader_resource_region(view.0, |width, height| Ok([0, 0, width, height]))
+        }
+        .unwrap();
         assert_eq!((captured.width, captured.height), (3, 2));
         assert_eq!(captured.pixels, source.pixels);
+        let (cropped, bounds, size) =
+            unsafe { device.read_shader_resource_region(view.0, |_, _| Ok([1, 0, 2, 2])) }.unwrap();
+        assert_eq!(bounds, [1, 0, 2, 2]);
+        assert_eq!(size, [3, 2]);
+        assert_eq!((cropped.width, cropped.height), (1, 2));
+        assert_eq!(cropped.pixels, [40, 50, 60, 255, 130, 140, 150, 255]);
+        assert!(
+            unsafe { device.read_shader_resource_region(view.0, |_, _| Ok([2, 0, 4, 2])) }.is_err()
+        );
     }
 
     #[test]

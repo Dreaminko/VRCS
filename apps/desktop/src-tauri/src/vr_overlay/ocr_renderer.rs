@@ -31,6 +31,7 @@ fn tile_size(polygon: [[f32; 2]; 4]) -> (u32, u32) {
 pub fn render_eye(
     eye: &EyeCapture,
     blocks: &[TranslatedBlock],
+    excluded: &[TranslatedBlock],
     opacity: f32,
     source_view: bool,
 ) -> Result<(Texture, Vec<usize>), String> {
@@ -38,22 +39,48 @@ pub fn render_eye(
     if width == 0 || height == 0 || width > 4096 || height > 4096 {
         return Err("Invalid OCR render dimensions".into());
     }
-    if blocks.len() > 256 {
+    if blocks.len() + excluded.len() > 256 {
         return Err("OCR render exceeds the block limit".into());
     }
     let mut pixels = vec![0; (width * height * 4) as usize];
     let mut occupied: Vec<Bounds> = blocks
         .iter()
-        .map(|block| Bounds::from_quad(block.source.polygon, width, height))
+        .chain(excluded)
+        .flat_map(|block| block.fragments())
+        .map(|fragment| Bounds::from_quad(fragment.polygon, width, height))
         .collect();
     let mut unplaced = Vec::new();
     let mut cards_used = 0;
-    for block in blocks {
-        let text = display_text(block, source_view);
+    let patches: Vec<_> = blocks
+        .iter()
+        .flat_map(|block| {
+            let translated = !source_view
+                && block.translations.iter().any(|translation| {
+                    translation
+                        .text
+                        .as_ref()
+                        .is_some_and(|text| !text.trim().is_empty())
+                });
+            let sources = if translated {
+                std::slice::from_ref(&block.source)
+            } else {
+                block.fragments()
+            };
+            sources
+                .iter()
+                .map(move |source| (block, source, translated))
+        })
+        .collect();
+    for (block, source, translated) in patches {
+        let text = if translated {
+            display_text(block, false)
+        } else {
+            source.text.clone()
+        };
         if text.is_empty() {
             continue;
         }
-        let polygon = &block.source.polygon;
+        let polygon = &source.polygon;
         if polygon.iter().any(|[x, y]| {
             !x.is_finite()
                 || !y.is_finite()
@@ -70,15 +97,53 @@ pub fn render_eye(
             .ok_or("Invalid OCR text quadrilateral")?;
         let (tile_width, tile_height) = tile_size(*polygon);
         let (background, foreground) = text_colors(&eye.image, *polygon);
-        let Some(tile) = super::wrist_renderer::render_text_box_with_colors(
-            &text,
-            tile_width,
-            tile_height,
-            opacity,
-            background,
-            foreground,
-        )?
-        else {
+        let grouped = translated && block.fragments().len() > 1;
+        let masks: Vec<_> = if grouped {
+            block
+                .fragments()
+                .iter()
+                .map(|fragment| {
+                    let inverse = Homography::from_quad(fragment.polygon)
+                        .and_then(Homography::inverse)
+                        .ok_or("Invalid OCR text quadrilateral")?;
+                    let (background, _) = text_colors(&eye.image, fragment.polygon);
+                    Ok((inverse, background))
+                })
+                .collect::<Result<_, &str>>()?
+        } else {
+            Vec::new()
+        };
+        let member_area: u64 = block
+            .fragments()
+            .iter()
+            .map(|fragment| {
+                let (w, h) = tile_size(fragment.polygon);
+                w as u64 * h as u64
+            })
+            .sum();
+        let compact = !grouped || member_area * 10 >= tile_width as u64 * tile_height as u64 * 6;
+        let obstructed = grouped
+            && blocks
+                .iter()
+                .chain(excluded)
+                .filter(|other| other.source.id != block.source.id)
+                .flat_map(|other| other.fragments())
+                .any(|fragment| {
+                    bounds.intersects(Bounds::from_quad(fragment.polygon, width, height))
+                });
+        let tile = if compact && !obstructed {
+            super::wrist_renderer::render_text_box_with_colors(
+                &text,
+                tile_width,
+                tile_height,
+                if grouped { 0. } else { opacity },
+                background,
+                foreground,
+            )?
+        } else {
+            None
+        };
+        let Some(tile) = tile else {
             if cards_used < 8 {
                 if let Some((card, tile)) =
                     place_card(&text, bounds, &occupied, width, height, opacity)?
@@ -122,7 +187,25 @@ pub fn render_eye(
                     continue;
                 }
                 let color = sample(&tile, tile_width, tile_height, u, v);
-                blend(&mut pixels[((y * width + x) * 4) as usize..][..4], color);
+                let destination = &mut pixels[((y * width + x) * 4) as usize..][..4];
+                if grouped {
+                    if let Some((_, background)) = masks.iter().find(|(inverse, _)| {
+                        inverse
+                            .map([x as f32 + 0.5, y as f32 + 0.5])
+                            .is_some_and(|[u, v]| {
+                                (0.0..1.0).contains(&u) && (0.0..1.0).contains(&v)
+                            })
+                    }) {
+                        let alpha = (opacity.clamp(0., 1.) * 255.).round() as u8;
+                        let background =
+                            background.map(|channel| (channel as u16 * alpha as u16 / 255) as u8);
+                        blend(
+                            destination,
+                            [background[0], background[1], background[2], alpha],
+                        );
+                    }
+                }
+                blend(destination, color);
             }
         }
     }
@@ -368,6 +451,7 @@ mod tests {
                 head_pose: super::super::transform::matrix(0., 0., 0., [0.; 3]),
             },
             TranslatedBlock {
+                fragments: vec![],
                 source: TextBlock {
                     id: 0,
                     text: "source".into(),
@@ -392,7 +476,7 @@ mod tests {
             ([0, 0, 200, 255], [255, 255, 255, 255]),
         ] {
             let (eye, block) = background_fixture(background);
-            let texture = render_eye(&eye, &[block], 1.0, false).unwrap().0;
+            let texture = render_eye(&eye, &[block], &[], 1.0, false).unwrap().0;
             assert_eq!(&texture.pixels[(11 * 160 + 11) * 4..][..4], &background);
             assert!(texture.pixels.as_chunks::<4>().0.contains(&foreground));
             assert_eq!(&texture.pixels[..4], &[0, 0, 0, 0]);
@@ -409,7 +493,7 @@ mod tests {
     #[test]
     fn adaptive_patch_uses_premultiplied_opacity_without_fading_text() {
         let (eye, block) = background_fixture([200, 180, 160, 255]);
-        let texture = render_eye(&eye, &[block], 0.6, false).unwrap().0;
+        let texture = render_eye(&eye, &[block], &[], 0.6, false).unwrap().0;
         assert_eq!(
             &texture.pixels[(11 * 160 + 11) * 4..][..4],
             &[120, 108, 96, 153]
@@ -431,7 +515,7 @@ mod tests {
                 eye.image.pixels[(y * 160 + x) * 4..][..4].copy_from_slice(&[0, 0, 0, 255]);
             }
         }
-        let texture = render_eye(&eye, &[block], 1.0, false).unwrap().0;
+        let texture = render_eye(&eye, &[block], &[], 1.0, false).unwrap().0;
         assert_eq!(
             &texture.pixels[(11 * 160 + 11) * 4..][..4],
             &[240, 230, 220, 255]
@@ -443,7 +527,7 @@ mod tests {
         for pixels in [vec![], vec![1, 2, 3, 255], vec![0; 160 * 96 * 4]] {
             let (mut eye, block) = background_fixture([240, 230, 220, 255]);
             eye.image.pixels = pixels;
-            let texture = render_eye(&eye, &[block], 0.6, false).unwrap().0;
+            let texture = render_eye(&eye, &[block], &[], 0.6, false).unwrap().0;
             assert_eq!(&texture.pixels[(11 * 160 + 11) * 4..][..4], &[0, 0, 0, 153]);
             assert!(texture.pixels.as_chunks::<4>().0.contains(&[255; 4]));
         }
@@ -462,6 +546,7 @@ mod tests {
             head_pose: super::super::transform::matrix(0., 0., 0., [0.; 3]),
         };
         let block = TranslatedBlock {
+            fragments: vec![],
             source: TextBlock {
                 id: 0,
                 text: "source".into(),
@@ -470,7 +555,7 @@ mod tests {
             },
             translations: vec![],
         };
-        let texture = render_eye(&eye, &[block], 0.4, false).unwrap().0;
+        let texture = render_eye(&eye, &[block], &[], 0.4, false).unwrap().0;
         assert!(texture
             .pixels
             .as_chunks::<4>()
@@ -493,6 +578,7 @@ mod tests {
             head_pose: super::super::transform::matrix(0., 0., 0., [0.; 3]),
         };
         let block = TranslatedBlock {
+            fragments: vec![],
             source: TextBlock {
                 id: 0,
                 text: "source".into(),
@@ -505,7 +591,7 @@ mod tests {
                 error_code: None,
             }],
         };
-        let texture = render_eye(&eye, std::slice::from_ref(&block), 0.6, false)
+        let texture = render_eye(&eye, std::slice::from_ref(&block), &[], 0.6, false)
             .unwrap()
             .0;
         assert_eq!((texture.width, texture.height), (100, 80));
@@ -518,13 +604,14 @@ mod tests {
             .any(|pixel| pixel[0] > 0));
         assert!(texture.pixels[(20 * 100 + 20) * 4 + 3] >= 153);
         let untranslated = TranslatedBlock {
+            fragments: vec![],
             source: TextBlock {
                 text: String::new(),
                 ..block.source
             },
             translations: vec![],
         };
-        assert!(render_eye(&eye, &[untranslated], 0.6, false)
+        assert!(render_eye(&eye, &[untranslated], &[], 0.6, false)
             .unwrap()
             .0
             .pixels
@@ -545,6 +632,7 @@ mod tests {
             head_pose: super::super::transform::matrix(0., 0., 0., [0.; 3]),
         };
         let block = TranslatedBlock {
+            fragments: vec![],
             source: TextBlock {
                 id: 0,
                 text: "source".into(),
@@ -557,9 +645,56 @@ mod tests {
                 error_code: None,
             }],
         };
-        let texture = render_eye(&eye, &[block], 0.6, false).unwrap().0;
+        let texture = render_eye(&eye, &[block], &[], 0.6, false).unwrap().0;
         assert_eq!(texture.pixels[(12 * 100 + 12) * 4 + 3], 0);
         assert!(texture.pixels[(40 * 100 + 50) * 4 + 3] >= 153);
+    }
+
+    #[test]
+    fn grouped_translation_masks_only_original_lines_and_keeps_gap_transparent() {
+        let eye = EyeCapture {
+            image: Texture {
+                width: 320,
+                height: 160,
+                pixels: vec![0; 320 * 160 * 4],
+            },
+            projection: [-1., 1., -1., 1.],
+            eye_to_head: super::super::transform::matrix(0., 0., 0., [0.; 3]),
+            head_pose: super::super::transform::matrix(0., 0., 0., [0.; 3]),
+        };
+        let fragments: Vec<_> = [10., 54.]
+            .into_iter()
+            .enumerate()
+            .map(|(id, y)| TextBlock {
+                id,
+                text: "original line".into(),
+                confidence: 0.9,
+                polygon: [[10., y], [300., y], [300., y + 30.], [10., y + 30.]],
+            })
+            .collect();
+        let group = TranslatedBlock {
+            source: TextBlock {
+                id: 0,
+                text: "original line original line".into(),
+                confidence: 0.9,
+                polygon: [[10., 10.], [300., 10.], [300., 84.], [10., 84.]],
+            },
+            fragments,
+            translations: vec![BlockTranslation {
+                target_language: "en".into(),
+                text: Some("VR".into()),
+                error_code: None,
+            }],
+        };
+        let (texture, unplaced) = render_eye(&eye, &[group], &[], 0.6, false).unwrap();
+        assert!(unplaced.is_empty());
+        assert_eq!(
+            texture.pixels[(46 * 320 + 280) * 4 + 3],
+            0,
+            "blank space is not a source-covering patch"
+        );
+        assert!(texture.pixels[(20 * 320 + 280) * 4 + 3] >= 153);
+        assert!(texture.pixels[(64 * 320 + 280) * 4 + 3] >= 153);
     }
 
     #[test]
@@ -574,19 +709,30 @@ mod tests {
             eye_to_head: super::super::transform::matrix(0., 0., 0., [0.; 3]),
             head_pose: super::super::transform::matrix(0., 0., 0., [0.; 3]),
         };
-        let mut block = TranslatedBlock { source: TextBlock { id: 0, text: "source".into(), confidence: 0.95,
+        let mut block = TranslatedBlock { fragments: vec![], source: TextBlock { id: 0, text: "source".into(), confidence: 0.95,
             polygon: [[40., 50.], [160., 50.], [160., 74.], [40., 74.]] },
             translations: vec![BlockTranslation { target_language: "en".into(),
                 text: Some("A long translation needs more room than its original single line provides, so it should appear in a connected card.".into()), error_code: None }] };
-        let (texture, limited) = render_eye(&eye, &[block.clone()], 0.6, false).unwrap();
+        let (texture, limited) = render_eye(&eye, &[block.clone()], &[], 0.6, false).unwrap();
         assert!(limited.is_empty());
         assert_eq!(texture.pixels[(55 * 512 + 50) * 4 + 3], 0);
         assert!(texture.pixels[(100 * 512 + 200) * 4 + 3] >= 153);
+        let mut excluded = block.clone();
+        excluded.source.id = 1;
+        excluded.source.polygon = [[0., 0.], [512., 0.], [512., 320.], [0., 320.]];
+        let (texture, limited) =
+            render_eye(&eye, &[block.clone()], &[excluded], 0.6, false).unwrap();
+        assert_eq!(
+            limited,
+            vec![0],
+            "unplaced source regions still block translation cards"
+        );
+        assert!(texture.pixels.iter().all(|channel| *channel == 0));
         eye.image.width = 100;
         eye.image.height = 80;
         block.source.polygon = [[10., 10.], [90., 10.], [90., 30.], [10., 30.]];
         block.translations[0].text = Some("More text ".repeat(2000));
-        let (texture, limited) = render_eye(&eye, &[block], 0.6, false).unwrap();
+        let (texture, limited) = render_eye(&eye, &[block], &[], 0.6, false).unwrap();
         assert_eq!(limited, vec![0]);
         assert!(texture.pixels.iter().all(|channel| *channel == 0));
     }
@@ -639,6 +785,7 @@ mod tests {
             head_pose: super::super::transform::matrix(0., 0., 0., [0.; 3]),
         };
         let block = TranslatedBlock {
+            fragments: vec![],
             source: TextBlock {
                 id: 0,
                 text: "source text".into(),
@@ -648,7 +795,7 @@ mod tests {
             translations: vec![],
         };
 
-        let texture = render_eye(&eye, &[block], 0.6, true).unwrap().0;
+        let texture = render_eye(&eye, &[block], &[], 0.6, true).unwrap().0;
 
         assert!(texture
             .pixels

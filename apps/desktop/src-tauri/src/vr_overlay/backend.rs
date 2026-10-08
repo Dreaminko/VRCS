@@ -12,7 +12,8 @@ mod platform {
         pointer_from_openvr, DashboardPointerEvent, DASHBOARD_HEIGHT, DASHBOARD_WIDTH,
     };
     use crate::vr_overlay::ocr_capture::{
-        pose_within_translation_limit_m, EyeCapture, StereoCapture, OCR_MOVEMENT_LIMIT_M,
+        center_bounds, crop_projection, pose_within_translation_limit_m, projection_from_openvr,
+        EyeCapture, StereoCapture, OCR_MOVEMENT_LIMIT_M,
     };
     use crate::vr_overlay::renderer::Texture;
     use crate::vr_overlay::transform;
@@ -135,7 +136,7 @@ mod platform {
                 .ok_or("Enable VR OCR before opening its bindings")?
                 .open_bindings()
         }
-        /// Projection metadata for crop validation and hand visibility; no mirror readback needed.
+        /// Projection metadata for crop validation; no mirror readback needed.
         pub fn ocr_view(&self) -> Result<([EyeCapture; 2], u32, i32), String> {
             let (head, pid, origin) = self.ocr_tracking()?;
             let system = load_raw_system()?;
@@ -164,7 +165,7 @@ mod platform {
                             height: 1024,
                             pixels: vec![],
                         },
-                        projection,
+                        projection: projection_from_openvr(projection),
                         eye_to_head,
                         head_pose: head,
                     });
@@ -177,7 +178,11 @@ mod platform {
             ))
         }
 
-        pub fn capture_ocr(&mut self) -> Result<StereoCapture, String> {
+        pub fn capture_ocr(
+            &mut self,
+            config: &vrcs_core::VrOcrConfig,
+            selection: Option<&crate::vr_overlay::ocr_selection::Selection>,
+        ) -> Result<StereoCapture, String> {
             let system = load_raw_system()?;
             let compositor = load_raw_interface(openvr_sys::IVRCompositor_Version, "compositor")?
                 as *const openvr_sys::VR_IVRCompositor_FnTable;
@@ -215,8 +220,15 @@ mod platform {
                     .ReleaseMirrorTextureD3D11
                     .ok_or("D3D11 mirror release unavailable")?;
                 let mut eyes = Vec::new();
+                let eye_count = if config.display_mode == vrcs_core::VrOcrDisplayMode::Stereo {
+                    2
+                } else {
+                    self.ocr_mirrors[1] = None;
+                    1
+                };
                 for (index, eye) in [openvr_sys::EVREye_Eye_Left, openvr_sys::EVREye_Eye_Right]
                     .into_iter()
+                    .take(eye_count)
                     .enumerate()
                 {
                     // Releasing just after readback can make SteamVR return the previous image.
@@ -253,7 +265,6 @@ mod platform {
                     ) {
                         return Err("Headset position changed during capture; scan again".into());
                     }
-                    let image = device.read_shader_resource(view)?;
                     let mut projection = [0.; 4];
                     system
                         .GetProjectionRaw
@@ -269,9 +280,13 @@ mod platform {
                             .GetEyeToHeadTransform
                             .ok_or("Eye transform query unavailable")?(eye)
                         .m;
-                    let eye_capture = EyeCapture {
-                        image,
-                        projection,
+                    let mut eye_capture = EyeCapture {
+                        image: Texture {
+                            width: 0,
+                            height: 0,
+                            pixels: Vec::new(),
+                        },
+                        projection: projection_from_openvr(projection),
                         eye_to_head,
                         head_pose: eye_pose.mDeviceToAbsoluteTracking.m,
                     };
@@ -289,6 +304,20 @@ mod platform {
                     {
                         return Err("Invalid eye projection".into());
                     }
+                    let (image, bounds, size) =
+                        device.read_shader_resource_region(view, |width, height| {
+                            eye_capture.image.width = width;
+                            eye_capture.image.height = height;
+                            if let Some(selection) = selection {
+                                selection
+                                    .crop_bounds(&eye_capture)
+                                    .ok_or_else(|| "OCR frame left the view before capture".into())
+                            } else {
+                                center_bounds(width, height, config.region_fraction)
+                            }
+                        })?;
+                    eye_capture.projection = crop_projection(eye_capture.projection, size, bounds);
+                    eye_capture.image = image;
                     eyes.push(eye_capture);
                 }
                 let mut after: openvr_sys::TrackedDevicePose_t = std::mem::zeroed();
@@ -318,7 +347,7 @@ mod platform {
                     );
                 }
                 Ok(StereoCapture {
-                    eyes: eyes.try_into().map_err(|_| "Missing eye capture")?,
+                    eyes,
                     #[cfg(test)]
                     pose: after.mDeviceToAbsoluteTracking.m,
                     scene_pid,
@@ -610,6 +639,9 @@ mod platform {
                     .create_overlay(key, name)
                     .map_err(|error| format!("Create wrist overlay failed: {error:?}"))?;
                 *slot = Some(handle);
+                if kind == OverlayKind::OcrWrist {
+                    configure_ocr_wrist_input(unsafe { &*self.raw_overlay }, handle)?;
+                }
             }
             let handle = slot.expect("controller overlay exists");
             self.overlay
@@ -641,61 +673,40 @@ mod platform {
             }))
         }
 
-        /// Use the other controller's ray without changing the game's input bindings.
-        pub fn ocr_wrist_pointer(&self) -> (Option<[f32; 2]>, bool) {
+        pub fn poll_ocr_wrist_events(
+            &self,
+        ) -> Result<(Vec<crate::vr_overlay::ocr_wrist::LaserEvent>, bool), String> {
             let Some(handle) = self.ocr_wrist.filter(|_| self.ocr_wrist_state.visible) else {
-                return (None, false);
+                return Ok((Vec::new(), false));
             };
-            for role in [
-                TrackedControllerRole::LeftHand,
-                TrackedControllerRole::RightHand,
-            ] {
-                let Some(device) = self.system.tracked_device_index_for_controller_role(role)
-                else {
-                    continue;
-                };
-                if Some(device.0) == self.ocr_wrist_device {
-                    continue;
+            let wrist_device = self
+                .ocr_wrist_device
+                .ok_or("OCR wrist controller unavailable")?;
+            let api = unsafe { &*self.raw_overlay };
+            let poll = api
+                .PollNextOverlayEvent
+                .ok_or("SteamVR OCR wrist event polling unavailable")?;
+            let hover = api
+                .IsHoverTargetOverlay
+                .ok_or("SteamVR OCR wrist focus query unavailable")?;
+            let mut events = Vec::new();
+            loop {
+                let mut event = openvr_sys::VREvent_t::default();
+                if !unsafe {
+                    poll(
+                        handle.0,
+                        &mut event,
+                        std::mem::size_of::<openvr_sys::VREvent_t>() as u32,
+                    )
+                } {
+                    break;
                 }
-                let Some((pose, origin)) = self.controller_pose(device.0) else {
-                    continue;
-                };
-                let mut controller: openvr_sys::VRControllerState_t = unsafe { std::mem::zeroed() };
-                let pressed = load_raw_system().ok().is_some_and(|system| unsafe {
-                    (*system).GetControllerState.is_some_and(|read| {
-                        read(
-                            device.0,
-                            &mut controller,
-                            std::mem::size_of::<openvr_sys::VRControllerState_t>() as u32,
-                        )
-                    })
-                }) && controller.ulButtonPressed
-                    & (1u64 << openvr_sys::EVRButtonId_k_EButton_SteamVR_Trigger)
-                    != 0;
-                let Some(intersect) = (unsafe { (*self.raw_overlay).ComputeOverlayIntersection })
-                else {
-                    return (None, pressed);
-                };
-                let mut params = openvr_sys::VROverlayIntersectionParams_t {
-                    vSource: openvr_sys::HmdVector3_t {
-                        v: [pose[0][3], pose[1][3], pose[2][3]],
-                    },
-                    vDirection: openvr_sys::HmdVector3_t {
-                        v: [-pose[0][2], -pose[1][2], -pose[2][2]],
-                    },
-                    eOrigin: origin,
-                };
-                let mut result: openvr_sys::VROverlayIntersectionResults_t =
-                    unsafe { std::mem::zeroed() };
-                let hit = unsafe { intersect(handle.0, &mut params, &mut result) };
-                let uv = [result.vUVs.v[0], 1. - result.vUVs.v[1]];
-                let inside = hit
-                    && uv
-                        .iter()
-                        .all(|value| value.is_finite() && (0. ..=1.).contains(value));
-                return (inside.then_some(uv), pressed);
+                if let Some(event) = crate::vr_overlay::ocr_wrist::laser_event(&event, wrist_device)
+                {
+                    events.push(event);
+                }
             }
-            (None, false)
+            Ok((events, unsafe { hover(handle.0) }))
         }
 
         pub fn upload(&mut self, kind: OverlayKind, texture: &Texture) -> Result<(), String> {
@@ -919,6 +930,50 @@ mod platform {
         }
     }
 
+    fn configure_ocr_wrist_input(
+        api: &openvr_sys::VR_IVROverlay_FnTable,
+        handle: OverlayHandle,
+    ) -> Result<(), String> {
+        let check = |error| {
+            if error == openvr_sys::EVROverlayError_VROverlayError_None {
+                Ok(())
+            } else {
+                Err(format!(
+                    "Configure OCR wrist laser input failed with code {error}"
+                ))
+            }
+        };
+        unsafe {
+            check(api
+                .SetOverlayInputMethod
+                .ok_or("SteamVR OCR wrist mouse input unavailable")?(
+                handle.0,
+                openvr_sys::VROverlayInputMethod_Mouse,
+            ))?;
+            let size = crate::vr_overlay::ocr_wrist_renderer::SIZE as f32;
+            let mut scale = openvr_sys::HmdVector2_t { v: [size, size] };
+            check(api
+                .SetOverlayMouseScale
+                .ok_or("SteamVR OCR wrist mouse scale unavailable")?(
+                handle.0, &mut scale,
+            ))?;
+            let set_flag = api
+                .SetOverlayFlag
+                .ok_or("SteamVR OCR wrist laser flags unavailable")?;
+            for (flag, enabled) in [
+                (
+                    openvr_sys::VROverlayFlags_MakeOverlaysInteractiveIfVisible,
+                    true,
+                ),
+                (openvr_sys::VROverlayFlags_HideLaserIntersection, false),
+                (openvr_sys::VROverlayFlags_EnableClickStabilization, true),
+            ] {
+                check(set_flag(handle.0, flag, enabled))?;
+            }
+        }
+        Ok(())
+    }
+
     fn dxgi_adapter_index() -> Result<u32, String> {
         let raw_system = load_raw_system()?;
         let mut adapter_index = -1;
@@ -998,6 +1053,61 @@ mod platform {
     mod tests {
         use super::Mirror;
         use std::sync::atomic::{AtomicUsize, Ordering};
+
+        #[test]
+        fn ocr_wrist_enables_native_laser_input_and_reports_configuration_errors() {
+            static CONFIGURED: AtomicUsize = AtomicUsize::new(0);
+            unsafe extern "C" fn method(handle: u64, method: i32) -> i32 {
+                assert_eq!(
+                    (handle, method),
+                    (73, openvr_sys::VROverlayInputMethod_Mouse)
+                );
+                CONFIGURED.fetch_or(1, Ordering::Relaxed);
+                0
+            }
+            unsafe extern "C" fn scale(handle: u64, scale: *mut openvr_sys::HmdVector2_t) -> i32 {
+                assert_eq!(handle, 73);
+                assert_eq!(unsafe { (*scale).v }, [1024., 1024.]);
+                CONFIGURED.fetch_or(2, Ordering::Relaxed);
+                0
+            }
+            unsafe extern "C" fn flag(handle: u64, flag: i32, enabled: bool) -> i32 {
+                assert_eq!(handle, 73);
+                match flag {
+                    openvr_sys::VROverlayFlags_MakeOverlaysInteractiveIfVisible => {
+                        assert!(enabled);
+                        CONFIGURED.fetch_or(4, Ordering::Relaxed);
+                    }
+                    openvr_sys::VROverlayFlags_EnableClickStabilization => {
+                        assert!(enabled);
+                        CONFIGURED.fetch_or(8, Ordering::Relaxed);
+                    }
+                    openvr_sys::VROverlayFlags_HideLaserIntersection => {
+                        assert!(!enabled);
+                        CONFIGURED.fetch_or(16, Ordering::Relaxed);
+                    }
+                    _ => panic!("unexpected overlay flag"),
+                }
+                0
+            }
+            unsafe extern "C" fn rejected(_: u64, _: i32, _: bool) -> i32 {
+                10
+            }
+            let mut api: openvr_sys::VR_IVROverlay_FnTable = unsafe { std::mem::zeroed() };
+            api.SetOverlayInputMethod = Some(method);
+            api.SetOverlayMouseScale = Some(scale);
+            api.SetOverlayFlag = Some(flag);
+            super::configure_ocr_wrist_input(&api, openvr::overlay::OverlayHandle(73)).unwrap();
+            assert_eq!(CONFIGURED.load(Ordering::Relaxed), 31);
+            api.SetOverlayFlag = Some(rejected);
+            assert!(
+                super::configure_ocr_wrist_input(&api, openvr::overlay::OverlayHandle(73)).is_err()
+            );
+            api.SetOverlayFlag = None;
+            assert!(
+                super::configure_ocr_wrist_input(&api, openvr::overlay::OverlayHandle(73)).is_err()
+            );
+        }
 
         #[test]
         fn mirrors_remain_owned_until_reacquisition_or_shutdown() {

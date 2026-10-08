@@ -1,5 +1,10 @@
 use super::status::DesktopOcrStatus;
 use std::sync::Mutex;
+#[cfg(windows)]
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
 use tauri::{AppHandle, Emitter, Manager as _, WebviewUrl, WebviewWindowBuilder};
 use tokio::sync::watch;
 use vrcs_core::{
@@ -17,10 +22,14 @@ struct State {
     status: DesktopOcrStatus,
     task: Option<tauri::async_runtime::JoinHandle<()>>,
     game_window: Option<isize>,
+    #[cfg(windows)]
+    selection_cancelled: Arc<AtomicBool>,
 }
 
 impl State {
     fn cancel(&mut self) {
+        #[cfg(windows)]
+        self.selection_cancelled.store(true, Ordering::Release);
         if let Some(task) = self.task.take() {
             task.abort();
         }
@@ -241,12 +250,17 @@ impl Manager {
     #[cfg(windows)]
     pub fn scan(&self) -> Result<(), String> {
         use vrcs_core::ocr::desktop_capture::capture_vrchat;
+        if self.status().state == "selecting" {
+            self.close();
+            return Ok(());
+        }
         // Native getters can wait for the UI thread. Do not hold scan state here.
         let result_window = self
             .app
             .get_webview_window("ocr")
             .and_then(|window| window.hwnd().ok())
             .map(|hwnd| hwnd.0 as isize);
+        let hint = selection_hint(&self.app);
         let mut state = self.state.lock().unwrap();
         let service = state
             .service
@@ -259,6 +273,8 @@ impl Manager {
         state.cancel();
         let scan_id = state.status.scan_id;
         state.active_config = Some(config.ocr().clone());
+        let selection_cancelled = Arc::new(AtomicBool::new(false));
+        state.selection_cancelled = selection_cancelled.clone();
         state.status.state = "capturing";
         state.status.blocks.clear();
         state.status.error = None;
@@ -266,11 +282,9 @@ impl Manager {
         self.publish(&state.status);
         let game_window = state.game_window;
         let app = self.app.clone();
-        let deadline = tokio::time::Instant::now()
-            + std::time::Duration::from_secs(config.ocr().timeout_seconds as u64);
         state.task = Some(tauri::async_runtime::spawn(async move {
             let result = async {
-                let capture = tauri::async_runtime::spawn_blocking(move || {
+                let mut capture = tauri::async_runtime::spawn_blocking(move || {
                     capture_vrchat(game_window, result_window)
                 })
                 .await
@@ -283,9 +297,44 @@ impl Manager {
                     }
                     state.game_window = Some(capture.window);
                 }
-                app.state::<Self>()
-                    .update(scan_id, |status| status.state = "recognizing");
+                if !app
+                    .state::<Self>()
+                    .update(scan_id, |status| status.state = "selecting")
+                {
+                    return Ok(None);
+                }
+                let selected = tauri::async_runtime::spawn_blocking(move || {
+                    let region = super::selection_window::select_region(
+                        capture.window,
+                        capture.width,
+                        capture.height,
+                        &capture.pixels,
+                        &selection_cancelled,
+                        &hint,
+                    )?;
+                    let Some(region) = region else {
+                        return Ok::<_, String>(None);
+                    };
+                    capture.pixels = region.crop(capture.width, capture.height, &capture.pixels)?;
+                    capture.width = region.width;
+                    capture.height = region.height;
+                    Ok(Some(capture))
+                })
+                .await
+                .map_err(|_| "desktop_ocr.capture_failed".to_string())??;
+                let Some(capture) = selected else {
+                    return Ok(None);
+                };
+                if !app
+                    .state::<Self>()
+                    .update(scan_id, |status| status.state = "recognizing")
+                {
+                    return Ok(None);
+                }
                 app.state::<Self>().show_result(scan_id);
+                // Time spent choosing the region does not consume the OCR deadline.
+                let deadline = tokio::time::Instant::now()
+                    + std::time::Duration::from_secs(config.ocr().timeout_seconds as u64);
                 let backend = config.ocr().backend;
                 let image =
                     tauri::async_runtime::spawn_blocking(move || prepare_image(capture, backend))
@@ -313,11 +362,12 @@ impl Manager {
                         },
                     )
                     .await
+                    .map(Some)
             }
             .await;
             let manager = app.state::<Self>();
             match result {
-                Ok(result) => {
+                Ok(Some(result)) => {
                     manager.update(scan_id, |status| {
                         status.blocks = result.blocks.into_iter().next().unwrap_or_default();
                         sort_blocks(&mut status.blocks);
@@ -330,6 +380,9 @@ impl Manager {
                             _ => "complete",
                         };
                     });
+                }
+                Ok(None) => {
+                    manager.update(scan_id, |status| status.state = "idle");
                 }
                 Err(error) => {
                     tracing::warn!(scan_id, %error, "Desktop OCR scan failed");
@@ -350,6 +403,44 @@ impl Manager {
     }
 }
 
+#[cfg(windows)]
+fn selection_hint(app: &AppHandle) -> String {
+    use tauri_plugin_store::StoreExt;
+    let preference = app
+        .store("preferences.json")
+        .ok()
+        .and_then(|store| store.get("uiLanguage"))
+        .and_then(|value| value.as_str().map(str::to_owned));
+    let locale = preference
+        .filter(|value| value != "system")
+        .unwrap_or_else(|| {
+            match unsafe { windows_sys::Win32::Globalization::GetUserDefaultUILanguage() } {
+                0x0404 | 0x0c04 | 0x1404 => "zh-Hant",
+                0x0804 | 0x1004 => "zh-CN",
+                0x0411 => "ja-JP",
+                _ => "en-US",
+            }
+            .into()
+        });
+    let messages = match locale.as_str() {
+        "zh-CN" => include_str!("../../../src/i18n/locales/zh-CN.json"),
+        "zh-Hant" => include_str!("../../../src/i18n/locales/zh-Hant.json"),
+        "ja-JP" => include_str!("../../../src/i18n/locales/ja-JP.json"),
+        _ => include_str!("../../../src/i18n/locales/en-US.json"),
+    };
+    serde_json::from_str::<serde_json::Value>(messages)
+        .ok()
+        .and_then(|value| {
+            value
+                .pointer("/translation/ocrWindow/selectionHint")
+                .and_then(|text| text.as_str())
+                .map(str::to_owned)
+        })
+        .unwrap_or_else(|| {
+            "Drag to select text. Release to recognize. Esc / right-click to cancel.".into()
+        })
+}
+
 fn upsert_block(blocks: &mut Vec<TranslatedBlock>, update: BlockUpdate) {
     if let Some(block) = blocks
         .iter_mut()
@@ -363,11 +454,7 @@ fn upsert_block(blocks: &mut Vec<TranslatedBlock>, update: BlockUpdate) {
 }
 
 fn sort_blocks(blocks: &mut [TranslatedBlock]) {
-    blocks.sort_by(|a, b| {
-        a.source.polygon[0][1]
-            .total_cmp(&b.source.polygon[0][1])
-            .then_with(|| a.source.polygon[0][0].total_cmp(&b.source.polygon[0][0]))
-    });
+    blocks.sort_by_key(|block| block.source.id);
 }
 
 #[cfg(windows)]
@@ -396,17 +483,31 @@ fn prepare_image(
         1.0,
     )?
     .image;
-    let data = OcrImageData::Encoded(encode_png(&image)?);
+    let (width, height) = (image.width, image.height);
+    let data = OcrImageData::Encoded(encode_png(image)?);
     Ok(OcrImage {
         data,
-        width: image.width,
-        height: image.height,
+        width,
+        height,
     })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(windows)]
+    #[test]
+    fn cancelling_a_scan_signals_its_native_picker() {
+        let mut state = State::default();
+        let picker = state.selection_cancelled.clone();
+        assert!(!picker.load(Ordering::Acquire));
+        state.cancel();
+        assert!(picker.load(Ordering::Acquire));
+        state.selection_cancelled = Arc::new(AtomicBool::new(false));
+        assert!(picker.load(Ordering::Acquire));
+        assert!(!state.selection_cancelled.load(Ordering::Acquire));
+    }
 
     #[cfg(windows)]
     #[test]

@@ -9,11 +9,31 @@ pub struct InputActions {
     pub clear: bool,
     pub available: bool,
     pub gesture_available: bool,
-    pub frame: Option<FrameCorners>,
+    pub frame: Option<Frame>,
     pub frame_confirmed: bool,
     pub frame_cancelled: bool,
-    pub hand_points: Vec<[f32; 3]>,
     pub navigation: Vec<Action>,
+}
+
+pub struct Frame {
+    /// Hand anchors in the tracking space, sampled using head_pose.
+    pub corners: [[f32; 3]; 2],
+    pub head_pose: [[f32; 4]; 3],
+    pub origin: i32,
+}
+
+impl Frame {
+    fn from_head_corners(corners: FrameCorners, head_pose: [[f32; 4]; 3], origin: i32) -> Self {
+        Self {
+            corners: corners.corners.map(|point| {
+                std::array::from_fn(|r| {
+                    head_pose[r][3] + (0..3).map(|c| head_pose[r][c] * point[c]).sum::<f32>()
+                })
+            }),
+            head_pose,
+            origin,
+        }
+    }
 }
 
 pub struct OcrInput {
@@ -317,25 +337,6 @@ impl OcrInput {
                 dragging: pressed,
             })
         });
-        let hand_points = hands
-            .as_ref()
-            .into_iter()
-            .flat_map(|hands| hands.iter())
-            .flat_map(|hand| {
-                [
-                    hand.wrist,
-                    hand.thumb_base,
-                    hand.thumb_tip,
-                    hand.index_base,
-                    hand.index_tip,
-                ]
-            })
-            .chain(
-                controllers
-                    .into_iter()
-                    .flat_map(|sample| sample.corners.corners),
-            )
-            .collect();
         let available = scan.bActive && clear.bActive;
         let scan = self.scan_hold.update(origin(&scan), scan.bState, now);
         let clear = self.clear_hold.update(origin(&clear), clear.bState, now);
@@ -347,10 +348,12 @@ impl OcrInput {
             clear,
             available,
             gesture_available: hands.is_some() || controllers.is_some(),
-            frame: frame.frame,
+            frame: frame
+                .frame
+                .zip(tracking)
+                .map(|(corners, (head, origin))| Frame::from_head_corners(corners, head, origin)),
             frame_confirmed: frame.confirmed,
             frame_cancelled: frame.cancelled,
-            hand_points,
             navigation,
         })
     }
@@ -407,8 +410,8 @@ fn read_controller(
         return Err("Controller tracking inactive".into());
     }
     let point = point_in_head(head, device, [0.; 3]);
-    if point.iter().any(|value| !value.is_finite()) || !(-3.0..=-0.05).contains(&point[2]) {
-        return Err("Controller outside frame view".into());
+    if point.iter().any(|value| !value.is_finite()) {
+        return Err("Invalid controller position".into());
     }
     Ok((data.activeOrigin, point))
 }
@@ -691,6 +694,81 @@ mod tests {
         assert!(read_controller(&api, 72, head, 1).is_err());
         api.GetPoseActionDataRelativeToNow = None;
         assert!(read_controller(&api, 72, head, 1).is_err());
+    }
+
+    #[test]
+    fn turning_away_does_not_reject_a_valid_controller_pose() {
+        let api = api();
+        let head = super::super::transform::matrix(0., 180., 0., [1., 2., 3.45]);
+        let (origin, point) = read_controller(&api, 72, head, 1).unwrap();
+        assert_eq!(origin, 22);
+        for (actual, expected) in point.into_iter().zip([0., 0., 0.45]) {
+            assert!((actual - expected).abs() < 0.0001);
+        }
+    }
+
+    #[test]
+    fn frame_anchors_use_the_head_pose_from_the_input_sample() {
+        let head = super::super::transform::matrix(0., 90., 0., [1., 2., 3.]);
+        let frame = Frame::from_head_corners(
+            FrameCorners {
+                corners: [[-0.2, 0.1, -0.5], [0.2, -0.1, -0.5]],
+            },
+            head,
+            1,
+        );
+        assert_eq!(frame.head_pose, head);
+        assert_eq!(frame.origin, 1);
+        for (actual, expected) in frame
+            .corners
+            .into_iter()
+            .zip([[0.5, 2.1, 3.2], [0.5, 1.9, 2.8]])
+        {
+            for (a, b) in actual.into_iter().zip(expected) {
+                assert!((a - b).abs() < 0.0001, "{a} != {b}");
+            }
+        }
+    }
+
+    #[test]
+    fn fixed_world_hands_keep_the_initial_frame_geometry_during_head_motion() {
+        use super::super::{ocr_selection::Selection, transform};
+        let head = transform::matrix(15., -25., 30., [1., 1.6, -2.]);
+        let frame = Frame::from_head_corners(
+            FrameCorners {
+                corners: [[-0.2, 0.1, -0.4], [0.2, -0.1, -0.7]],
+            },
+            head,
+            1,
+        );
+        let initial = Selection::from_corners(frame.corners, head, 7, 1).unwrap();
+        let expected = initial.preview();
+        let identity = transform::matrix(0., 0., 0., [0.; 3]);
+        let mut selection = initial;
+        for moved_head in [
+            transform::matrix(-20., 10., -40., [1.1, 1.65, -1.9]),
+            transform::matrix(0., 180., 0., [1., 1.6, -2.]),
+            head,
+        ] {
+            let observed = FrameCorners {
+                corners: frame
+                    .corners
+                    .map(|point| point_in_head(moved_head, identity, point)),
+            };
+            let updated = Frame::from_head_corners(observed, moved_head, 1);
+            selection = selection.with_corners(updated.corners).unwrap();
+            let plane = selection.preview();
+            for (a, b) in plane
+                .pose
+                .iter()
+                .flatten()
+                .zip(expected.pose.iter().flatten())
+            {
+                assert!((a - b).abs() < 0.0001, "{a} != {b}");
+            }
+            assert!((plane.width_m - expected.width_m).abs() < 0.0001);
+            assert!((plane.texel_aspect - expected.texel_aspect).abs() < 0.0001);
+        }
     }
 
     unsafe extern "C" fn skeletal(

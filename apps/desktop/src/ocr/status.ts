@@ -6,7 +6,7 @@ export interface DesktopOcrBlock {
 export interface DesktopOcrStatus {
   scan_id: number;
   revision: number;
-  state: "disabled" | "idle" | "capturing" | "recognizing" | "translating" | "complete" | "no_text" | "partial_failure" | "error";
+  state: "disabled" | "idle" | "capturing" | "selecting" | "recognizing" | "translating" | "complete" | "no_text" | "partial_failure" | "error";
   blocks: DesktopOcrBlock[];
   error: string | null;
   shortcut_error: string | null;

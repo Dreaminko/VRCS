@@ -14,7 +14,9 @@ pub fn verify_regions(
     current: &StereoCapture,
     regions: &TextRegions,
 ) -> bool {
-    if reference.scene_pid != current.scene_pid
+    if reference.eyes.len() != 2
+        || current.eyes.len() != 2
+        || reference.scene_pid != current.scene_pid
         || reference.origin != current.origin
         || reference
             .pose
@@ -257,7 +259,7 @@ mod tests {
             head_pose: transform::matrix(0., yaw, 0., [0.; 3]),
         };
         StereoCapture {
-            eyes: [eye.clone(), eye],
+            eyes: vec![eye.clone(), eye],
             pose: transform::matrix(0., yaw, 0., [0.; 3]),
             scene_pid: 123,
             captured_at: std::time::Instant::now(),

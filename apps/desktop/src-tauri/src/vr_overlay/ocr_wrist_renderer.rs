@@ -7,7 +7,7 @@ use super::ocr_wrist_layout::Pages;
 use super::renderer::Texture;
 use super::text_raster::{fill_rounded_rect, Rect, TextMask};
 
-const SIZE: u32 = 1024;
+pub(super) const SIZE: u32 = 1024;
 const TEXT_FLAGS: u32 = DT_SINGLELINE | DT_NOPREFIX | DT_EXPANDTABS;
 const SOURCE_CARD: Rect = Rect::new(48, 164, 976, 488);
 const TRANSLATION_CARD: Rect = Rect::new(48, 504, 976, 828);
@@ -371,7 +371,7 @@ mod tests {
         if let Ok(path) = std::env::var("VRCS_OCR_PREVIEW_PATH") {
             std::fs::write(
                 path,
-                super::super::ocr_capture::encode_png(&first.texture).unwrap(),
+                super::super::ocr_capture::encode_png(first.texture.clone()).unwrap(),
             )
             .unwrap();
         }

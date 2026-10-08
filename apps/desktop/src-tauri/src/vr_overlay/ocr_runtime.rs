@@ -1,11 +1,10 @@
 use super::{
     backend::{OpenVrBackend, OverlayKind},
-    ocr_capture::{center_crop, encode_png, StereoCapture},
+    ocr_capture::{center_crop, encode_png, CropTransform, StereoCapture},
     ocr_input::install_manifest,
-    ocr_input_state::{HandReleaseWait, HandWait},
     ocr_selection::Selection,
     ocr_status::{failure_code, OcrState, OcrStatus, OcrWristState},
-    ocr_wrist::{Action, Pointer, Reader, View},
+    ocr_wrist::{Action, LaserEvent, Pointer, Reader, View},
     ocr_wrist_renderer::{self, Button},
 };
 use std::{
@@ -93,8 +92,6 @@ pub struct OcrRuntime {
     summary: Option<ScanSummary>,
     progress: Option<Arc<Mutex<ScanProgress>>>,
     configuration: Option<Arc<ScanConfiguration>>,
-    capture_after: Option<std::time::Instant>,
-    waiting_for_hands: Option<HandReleaseWait>,
     selecting: bool,
     selection: Option<Selection>,
     displayed_at: Option<std::time::Instant>,
@@ -127,8 +124,6 @@ impl OcrRuntime {
             summary: None,
             progress: None,
             configuration: None,
-            capture_after: None,
-            waiting_for_hands: None,
             selecting: false,
             selection: None,
             displayed_at: None,
@@ -189,8 +184,6 @@ impl OcrRuntime {
         self.summary = None;
         self.progress = None;
         self.configuration = None;
-        self.capture_after = None;
-        self.waiting_for_hands = None;
         self.selecting = false;
         self.selection = None;
         self.displayed_at = None;
@@ -276,25 +269,39 @@ impl OcrRuntime {
         }
     }
 
-    fn update(&mut self, backend: &mut OpenVrBackend, config: &VrOcrConfig) -> Result<(), String> {
-        let (point, pressed) = backend.ocr_wrist_pointer();
-        self.wrist_hovered = point.and_then(|[x, y]| {
-            self.wrist_buttons
-                .iter()
-                .find(|button| {
-                    let [left, top, right, bottom] = button.bounds;
-                    x >= left && x < right && y >= top && y < bottom
-                })
-                .map(|button| button.action)
-        });
-        let reading_focus = point.is_some();
+    fn update_wrist_pointer(&mut self, events: &[LaserEvent], focused: bool) -> bool {
+        // Suppress scan/clear even if a complete click and focus loss arrive in the same tick.
+        let reading_focus = focused || events.iter().any(|event| event.point().is_some());
         if self.status.wrist_state == OcrWristState::Visible {
-            if let Some(action) = self.wrist_pointer.update(self.wrist_hovered, pressed) {
-                self.reading_action(action);
+            for event in events.iter().copied() {
+                self.wrist_hovered = event.point().and_then(|[x, y]| {
+                    self.wrist_buttons
+                        .iter()
+                        .find(|button| {
+                            let [left, top, right, bottom] = button.bounds;
+                            x >= left && x < right && y >= top && y < bottom
+                        })
+                        .map(|button| button.action)
+                });
+                if let Some(action) = self.wrist_pointer.event(event, self.wrist_hovered) {
+                    tracing::info!(?action, "SteamVR OCR wrist button clicked");
+                    self.reading_action(action);
+                    if action == Action::Close {
+                        break;
+                    }
+                }
             }
-        } else {
-            self.wrist_pointer = Pointer::default();
         }
+        if !focused || self.status.wrist_state != OcrWristState::Visible {
+            self.wrist_pointer = Pointer::default();
+            self.wrist_hovered = None;
+        }
+        reading_focus
+    }
+
+    fn update(&mut self, backend: &mut OpenVrBackend, config: &VrOcrConfig) -> Result<(), String> {
+        let (events, focused) = backend.poll_ocr_wrist_events()?;
+        let reading_focus = self.update_wrist_pointer(&events, focused);
         if self.manifest.is_none() {
             self.manifest = Some(install_manifest(
                 self.directory
@@ -344,6 +351,7 @@ impl OcrRuntime {
             backend.reset_ocr();
             return Ok(());
         }
+        let mut capture_requested = false;
         if let Some(frame) = &input.frame {
             if !self.selecting {
                 self.clear();
@@ -351,11 +359,24 @@ impl OcrRuntime {
                 self.selecting = true;
             }
             let (eyes, pid, origin) = backend.ocr_view()?;
-            let Some(selection) =
-                Selection::from_corners(frame.corners, eyes[0].head_pose, pid, origin)
-            else {
+            if frame.origin != origin
+                || self.selection.as_ref().is_some_and(|selection| {
+                    selection.scene_pid != pid || selection.origin != origin
+                })
+            {
+                self.clear();
+                backend.reset_ocr();
+                self.status.state = OcrState::Invalid;
+                return Ok(());
+            }
+            let selection = if let Some(selection) = &self.selection {
+                selection.with_corners(frame.corners)
+            } else {
+                Selection::from_corners(frame.corners, frame.head_pose, pid, origin)
+            };
+            let Some(selection) = selection else {
                 // The hands can pass through the same row while the user adjusts the diagonal.
-                self.selection = None;
+                // Keep the initial axes while the current frame is degenerate.
                 backend.reset_ocr();
                 self.status.state = OcrState::Selecting;
                 if input.frame_confirmed {
@@ -364,19 +385,23 @@ impl OcrRuntime {
                 }
                 return Ok(());
             };
-            // A frame that has left either eye cannot be confirmed as a valid crop.
-            if eyes.iter().any(|eye| selection.crop_bounds(eye).is_none()) {
-                self.clear();
+            let visible = eyes.iter().all(|eye| selection.crop_bounds(eye).is_some());
+            self.selection = Some(selection);
+            // Hide an off-screen preview without ending the frame session.
+            if !visible {
                 backend.reset_ocr();
-                self.status.state = OcrState::Invalid;
+                self.status.state = OcrState::Selecting;
+                if input.frame_confirmed {
+                    self.clear();
+                    self.status.state = OcrState::Invalid;
+                }
                 return Ok(());
             }
-            self.selection = Some(selection);
             if input.frame_confirmed {
                 self.selecting = false;
                 backend.reset_ocr();
-                self.status.state = OcrState::WaitingHands;
-                self.waiting_for_hands = Some(HandReleaseWait::new(std::time::Instant::now()));
+                self.status.state = OcrState::Capturing;
+                capture_requested = true;
             } else {
                 self.status.state = OcrState::Selecting;
                 let plane = self
@@ -393,40 +418,11 @@ impl OcrRuntime {
             self.clear();
             backend.reset_ocr();
             self.status.state = OcrState::Capturing;
-            // Allow the compositor to remove the previous translation before acquiring a new frame.
-            self.capture_after =
-                Some(std::time::Instant::now() + std::time::Duration::from_millis(100));
+            capture_requested = true;
         }
-        if let Some(wait) = self.waiting_for_hands.as_mut() {
-            let (eyes, _, _) = backend.ocr_view()?;
-            let hands_in_view = input.hand_points.iter().any(|point| {
-                eyes.iter()
-                    .any(|eye| super::ocr_selection::head_point_visible(eye, *point))
-            });
-            match wait.poll(
-                input.gesture_available,
-                hands_in_view,
-                std::time::Instant::now(),
-            ) {
-                HandWait::Waiting => {}
-                HandWait::Invalid => {
-                    self.clear();
-                    self.status.state = OcrState::Invalid;
-                }
-                HandWait::Ready => {
-                    self.waiting_for_hands = None;
-                    self.status.state = OcrState::Capturing;
-                    self.capture_after = Some(std::time::Instant::now());
-                }
-            }
-        }
-        if self
-            .capture_after
-            .is_some_and(|at| std::time::Instant::now() >= at)
-        {
-            self.capture_after = None;
+        if capture_requested {
             let started = std::time::Instant::now();
-            let capture = Arc::new(backend.capture_ocr()?);
+            let capture = Arc::new(backend.capture_ocr(config, self.selection.as_ref())?);
             if self.selection.as_ref().is_some_and(|selection| {
                 selection.scene_pid != capture.scene_pid || selection.origin != capture.origin
             }) {
@@ -460,8 +456,6 @@ impl OcrRuntime {
         }
         self.sync_progress();
         if self.capture.is_none()
-            && self.capture_after.is_none()
-            && self.waiting_for_hands.is_none()
             && self.status.last_error.is_none()
             && self.status.last_error_code.is_none()
             && matches!(
@@ -608,18 +602,22 @@ impl OcrRuntime {
             return Ok(None);
         }
         let result = if let Some(capture) = &self.source_capture {
-            super::ocr_plane::render(
-                &capture.eyes,
+            Some(super::ocr_plane::render(
+                capture
+                    .eyes
+                    .as_slice()
+                    .try_into()
+                    .map_err(|_| "Missing stereo capture")?,
                 &self.blocks,
                 config.background_opacity,
                 source_view(config),
-            )?
+            )?)
         } else {
             None
         };
         if let Some((plane, fallback)) = result {
             self.fallback_blocks = fallback;
-            Ok(Some((plane, !self.fallback_blocks.is_empty())))
+            Ok(plane.map(|plane| (plane, !self.fallback_blocks.is_empty())))
         } else {
             self.fallback_blocks = self.preferred_blocks().to_vec();
             Ok(None)
@@ -728,9 +726,7 @@ impl OcrRuntime {
         self.source_capture =
             (config.display_mode == VrOcrDisplayMode::Stereo).then(|| capture.clone());
         let id = self.status.scan_id;
-        let fraction = config.region_fraction;
         let selection = self.selection.take();
-        let local = config.backend == vrcs_core::VrOcrBackend::Local;
         let sender = self.sender.clone();
         let encoder = self.encoder.clone();
         let completed_blocks = Arc::new(Mutex::new(ScanProgress::new(id)));
@@ -747,55 +743,22 @@ impl OcrRuntime {
                     .await
                     .map_err(|_| "OCR encoder unavailable")?;
                 let encoding_capture = capture;
+                let preparing_settings = settings.clone();
                 let (images, crops) = tokio::task::spawn_blocking(move || {
                     let _permit = permit;
-                    let started = std::time::Instant::now();
-                    let mut images = Vec::with_capacity(2);
-                    let mut crops = Vec::with_capacity(2);
-                    for (eye_index, eye) in encoding_capture.eyes.iter().enumerate() {
-                        let eye_started = std::time::Instant::now();
-                        let mut crop = if let Some(selection) = &selection {
-                            selection.crop(eye)?
-                        } else {
-                            center_crop(&eye.image, fraction)?
-                        };
-                        images.push(OcrImage {
-                            data: if local {
-                                OcrImageData::Rgba(std::mem::take(&mut crop.image.pixels))
-                            } else {
-                                OcrImageData::Encoded(encode_png(&crop.image)?)
-                            },
-                            width: crop.image.width,
-                            height: crop.image.height,
-                        });
-                        let upload_bytes = match &images.last().unwrap().data {
-                            OcrImageData::Encoded(bytes) => bytes.len(),
-                            OcrImageData::Rgba(_) => 0,
-                        };
-                        tracing::debug!(
-                            scan_id = id,
-                            eye = eye_index,
-                            elapsed_ms = eye_started.elapsed().as_millis() as u64,
-                            upload_bytes,
-                            "OCR eye prepared"
-                        );
-                        crops.push(crop.transform());
-                    }
-                    let images: [OcrImage; 2] =
-                        images.try_into().map_err(|_| "Missing OCR eye image")?;
-                    tracing::info!(
-                        scan_id = id,
-                        elapsed_ms = started.elapsed().as_millis() as u64,
-                        "OCR cropped and encoded"
-                    );
-                    Ok::<_, String>((images, crops))
+                    prepare_images(
+                        &encoding_capture,
+                        preparing_settings.ocr(),
+                        selection.as_ref(),
+                        id,
+                    )
                 })
                 .await
                 .map_err(|_| "OCR encoding worker failed")??;
                 let progress_sender = sender.clone();
                 let completed_crops = &crops;
                 let mut result = service
-                    .process_scan(
+                    .process_vr_scan(
                         images,
                         &settings,
                         id,
@@ -803,12 +766,11 @@ impl OcrRuntime {
                         move |phase| {
                             let _ = progress_sender.try_send(Update::Phase(id, phase));
                         },
-                        move |_| async move { Ok(()) },
                         move |mut update| {
                             if update.scan_id != id || update.eye >= 2 {
                                 return;
                             }
-                            completed_crops[update.eye].restore(&mut update.block.source.polygon);
+                            completed_crops[update.eye].restore_group(&mut update.block);
                             let mut saved = saved_blocks
                                 .lock()
                                 .unwrap_or_else(|error| error.into_inner());
@@ -818,7 +780,7 @@ impl OcrRuntime {
                     .await?;
                 for (eye_blocks, crop) in result.blocks.iter_mut().zip(crops) {
                     for block in eye_blocks {
-                        crop.restore(&mut block.source.polygon);
+                        crop.restore_group(block);
                     }
                 }
                 Ok::<_, String>(result)
@@ -850,6 +812,81 @@ impl OcrRuntime {
         }));
         Ok(())
     }
+}
+
+fn prepare_images(
+    capture: &StereoCapture,
+    config: &VrOcrConfig,
+    selection: Option<&Selection>,
+    scan_id: u64,
+) -> Result<(Vec<OcrImage>, Vec<CropTransform>), String> {
+    let started = std::time::Instant::now();
+    let eye_count = if config.display_mode == VrOcrDisplayMode::Stereo {
+        2
+    } else {
+        1
+    };
+    if capture.eyes.len() < eye_count {
+        return Err("Missing OCR eye capture".into());
+    }
+    let prepare = |index: usize| {
+        let eye_started = std::time::Instant::now();
+        let eye = &capture.eyes[index];
+        let crop = if let Some(selection) = selection {
+            selection.crop(eye)?
+        } else {
+            // The compositor readback has already selected the requested region.
+            center_crop(&eye.image, 1.0)?
+        };
+        let transform = crop.transform();
+        let (width, height) = (crop.image.width, crop.image.height);
+        let data = if config.backend == vrcs_core::VrOcrBackend::Local {
+            OcrImageData::Rgba(crop.image.pixels)
+        } else {
+            OcrImageData::Encoded(encode_png(crop.image)?)
+        };
+        let upload_bytes = match &data {
+            OcrImageData::Encoded(bytes) => bytes.len(),
+            OcrImageData::Rgba(_) => 0,
+        };
+        tracing::debug!(
+            scan_id,
+            eye = index,
+            elapsed_ms = eye_started.elapsed().as_millis() as u64,
+            upload_bytes,
+            "OCR eye prepared"
+        );
+        Ok::<_, String>((
+            OcrImage {
+                data,
+                width,
+                height,
+            },
+            transform,
+        ))
+    };
+    let prepared = std::thread::scope(|scope| {
+        let right = (eye_count == 2).then(|| scope.spawn(|| prepare(1)));
+        let left = prepare(0);
+        let right = right
+            .map(|worker| {
+                worker
+                    .join()
+                    .map_err(|_| "OCR eye preparation worker failed".to_string())?
+            })
+            .transpose()?;
+        let mut images = vec![left?];
+        if let Some(right) = right {
+            images.push(right);
+        }
+        Ok::<_, String>(images)
+    })?;
+    tracing::info!(
+        scan_id,
+        elapsed_ms = started.elapsed().as_millis() as u64,
+        "OCR cropped and encoded"
+    );
+    Ok(prepared.into_iter().unzip())
 }
 
 fn block_texts(blocks: &[TranslatedBlock]) -> (bool, Vec<String>) {
@@ -900,6 +937,114 @@ mod tests {
     use super::super::{ocr_capture::EyeCapture, renderer::Texture, transform};
     use super::*;
     use vrcs_core::ocr::{BlockTranslation, TextBlock};
+
+    #[test]
+    fn wrist_preparation_skips_the_other_eye() {
+        let mut capture = capture().as_ref().clone();
+        capture.eyes[1].image.pixels.clear();
+        let config = VrOcrConfig {
+            display_mode: VrOcrDisplayMode::Wrist,
+            backend: vrcs_core::VrOcrBackend::Local,
+            ..Default::default()
+        };
+        let (images, crops) = prepare_images(&capture, &config, None, 1).unwrap();
+        assert_eq!(images.len(), 1);
+        assert_eq!(crops.len(), 1);
+        assert_eq!((images[0].width, images[0].height), (2, 2));
+        let OcrImageData::Rgba(pixels) = &images[0].data else {
+            panic!("Local recognition requires pixels");
+        };
+        assert_eq!(pixels, &[0; 16]);
+    }
+
+    #[test]
+    fn stereo_preparation_keeps_eye_order_and_restores_coordinates() {
+        let mut capture = capture().as_ref().clone();
+        capture.eyes[0].image.pixels = [10, 20, 30, 255].repeat(4);
+        capture.eyes[1].image.pixels = [40, 50, 60, 255].repeat(4);
+        let config = VrOcrConfig {
+            display_mode: VrOcrDisplayMode::Stereo,
+            backend: vrcs_core::VrOcrBackend::Local,
+            ..Default::default()
+        };
+        let (images, crops) = prepare_images(&capture, &config, None, 1).unwrap();
+        assert_eq!(images.len(), 2);
+        for (index, image) in images.iter().enumerate() {
+            let OcrImageData::Rgba(pixels) = &image.data else {
+                panic!("Expected pixels");
+            };
+            assert_eq!(pixels, &capture.eyes[index].image.pixels);
+            let mut polygon = [[0., 0.], [2., 0.], [2., 2.], [0., 2.]];
+            crops[index].restore(&mut polygon);
+            assert_eq!(polygon, [[0., 0.], [2., 0.], [2., 2.], [0., 2.]]);
+        }
+        capture.eyes.truncate(1);
+        assert!(prepare_images(&capture, &config, None, 1).is_err());
+    }
+
+    #[test]
+    fn native_laser_events_operate_reader_controls_and_keep_scan_suppressed_for_the_batch() {
+        use super::super::ocr_wrist::LaserEvent;
+        for action in [Action::NextPage, Action::TogglePin, Action::Close] {
+            let mut runtime = OcrRuntime::new(None, None);
+            runtime.status.wrist_state = OcrWristState::Visible;
+            runtime.wrist_pages = 2;
+            runtime.wrist_buttons = vec![Button {
+                action,
+                bounds: [0.75, 0.9, 0.95, 0.99],
+            }];
+            let events = [
+                LaserEvent::Down {
+                    device: 2,
+                    point: [0.9, 0.95],
+                },
+                LaserEvent::Up {
+                    device: 2,
+                    point: [0.9, 0.95],
+                },
+                LaserEvent::Leave,
+            ];
+            assert!(runtime.update_wrist_pointer(&events, false));
+            let view = runtime.reader.view(OcrState::Visible, false, false);
+            match action {
+                Action::NextPage => assert_eq!(view.page, 1),
+                Action::TogglePin => assert!(view.pinned),
+                Action::Close => assert_eq!(runtime.status.wrist_state, OcrWristState::Hidden),
+                _ => unreachable!(),
+            }
+            assert!(runtime.wrist_hovered.is_none());
+            assert!(!runtime.update_wrist_pointer(&[], false));
+        }
+    }
+
+    #[test]
+    fn native_laser_focus_loss_clears_hover_and_prevents_an_orphan_release() {
+        use super::super::ocr_wrist::LaserEvent;
+        let mut runtime = OcrRuntime::new(None, None);
+        runtime.status.wrist_state = OcrWristState::Visible;
+        runtime.wrist_buttons = vec![Button {
+            action: Action::TogglePin,
+            bounds: [0., 0., 1., 1.],
+        }];
+        runtime.update_wrist_pointer(
+            &[LaserEvent::Down {
+                device: 2,
+                point: [0.5, 0.5],
+            }],
+            true,
+        );
+        assert_eq!(runtime.wrist_hovered, Some(Action::TogglePin));
+        runtime.update_wrist_pointer(&[LaserEvent::Leave], false);
+        assert!(runtime.wrist_hovered.is_none());
+        runtime.update_wrist_pointer(
+            &[LaserEvent::Up {
+                device: 2,
+                point: [0.5, 0.5],
+            }],
+            true,
+        );
+        assert!(!runtime.reader.pinned);
+    }
 
     #[test]
     fn wrist_reading_source_does_not_switch_eyes_when_translation_arrives() {
@@ -959,7 +1104,7 @@ mod tests {
             head_pose: pose,
         };
         Arc::new(StereoCapture {
-            eyes: [eye.clone(), eye],
+            eyes: vec![eye.clone(), eye],
             pose,
             scene_pid: 1,
             origin: 1,
@@ -969,6 +1114,7 @@ mod tests {
 
     fn block(id: usize, source: &str, translation: Option<&str>) -> TranslatedBlock {
         TranslatedBlock {
+            fragments: vec![],
             source: TextBlock {
                 id,
                 text: source.into(),
@@ -1047,6 +1193,40 @@ mod tests {
     }
 
     #[test]
+    fn cropped_capture_preserves_stereo_overlay_position() {
+        let (mut runtime, config) = result_fixture();
+        let original = runtime.result_frame(&config).unwrap().unwrap().0;
+        let capture = Arc::make_mut(runtime.source_capture.as_mut().unwrap());
+        for (index, eye) in capture.eyes.iter_mut().enumerate() {
+            let bounds @ [x, y, right, bottom] = [60, 40, 260, 200];
+            eye.projection = super::super::ocr_capture::crop_projection(
+                eye.projection,
+                [eye.image.width, eye.image.height],
+                bounds,
+            );
+            eye.image.width = right - x;
+            eye.image.height = bottom - y;
+            for block in &mut runtime.blocks[index] {
+                for point in &mut block.source.polygon {
+                    point[0] -= x as f32;
+                    point[1] -= y as f32;
+                }
+            }
+        }
+        let cropped = runtime.result_frame(&config).unwrap().unwrap().0;
+        for (actual, expected) in cropped
+            .pose
+            .iter()
+            .flatten()
+            .zip(original.pose.iter().flatten())
+        {
+            assert!((actual - expected).abs() < 0.0001, "{actual} != {expected}");
+        }
+        assert!((cropped.width_m - original.width_m).abs() < 0.0001);
+        assert!((cropped.texel_aspect - original.texel_aspect).abs() < 0.0001);
+    }
+
+    #[test]
     fn result_display_uses_ready_translation_from_either_eye() {
         let (mut runtime, config) = result_fixture();
         let (left_ready, _) = runtime.result_frame(&config).unwrap().unwrap();
@@ -1055,6 +1235,50 @@ mod tests {
         let (right_ready, _) = runtime.result_frame(&config).unwrap().unwrap();
         assert_eq!(left_ready.texture.pixels, right_ready.texture.pixels);
         assert_eq!(left_ready.pose, right_ready.pose);
+    }
+
+    #[test]
+    fn whole_group_fallback_keeps_unique_text_from_both_eyes_without_a_plane() {
+        for unmatched in [false, true] {
+            let (mut runtime, config) = result_fixture();
+            for (eye, groups) in runtime.blocks.iter_mut().enumerate() {
+                let group = &mut groups[0];
+                let mut first = group.source.clone();
+                first.text = if eye == 1 && unmatched {
+                    "unmatched"
+                } else {
+                    "shared fragment"
+                }
+                .into();
+                let mut second = first.clone();
+                second.id = 1;
+                second.text = format!("eye {eye} fragment");
+                group.fragments = vec![first, second];
+                group.source.id = 0;
+                group.source.text = format!("shared fragment eye {eye} fragment");
+                groups.push(block(
+                    1,
+                    &format!("eye {eye} only"),
+                    Some(&format!("eye {eye} translation")),
+                ));
+            }
+            assert!(runtime.result_frame(&config).unwrap().is_none());
+            let fallback = runtime.reading_blocks(VrOcrDisplayMode::Stereo);
+            assert_eq!(
+                fallback.len(),
+                4,
+                "both complete groups and both single-eye results survive"
+            );
+            assert!(fallback
+                .iter()
+                .any(|block| block.source.text == "eye 0 only"));
+            assert!(fallback
+                .iter()
+                .any(|block| block.source.text == "eye 1 only"));
+            let ids: std::collections::HashSet<_> =
+                fallback.iter().map(|block| block.source.id).collect();
+            assert_eq!(ids.len(), 4);
+        }
     }
 
     #[test]

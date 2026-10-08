@@ -1,7 +1,7 @@
 use super::{
     ocr_capture::EyeCapture, ocr_geometry::Homography, ocr_renderer, renderer::Texture, transform,
 };
-use vrcs_core::ocr::TranslatedBlock;
+use vrcs_core::ocr::{TextBlock, TranslatedBlock};
 
 pub struct PlaneOverlay {
     pub texture: Texture,
@@ -15,14 +15,31 @@ pub fn render(
     blocks: &[Vec<TranslatedBlock>; 2],
     opacity: f32,
     source_view: bool,
-) -> Result<Option<(PlaneOverlay, Vec<TranslatedBlock>)>, String> {
+) -> Result<(Option<PlaneOverlay>, Vec<TranslatedBlock>), String> {
     if blocks.iter().any(|eye| eye.len() > 256) {
         return Err("OCR render exceeds the block limit".into());
     }
     let eye = &eyes[0];
     let eye_pose = transform::compose(eye.head_pose, eye.eye_to_head);
     let to_reference = transform::inverse(eye_pose);
-    let matches = match_blocks(eyes, blocks, to_reference);
+    let fragments: [Vec<_>; 2] = blocks.each_ref().map(|groups| {
+        groups
+            .iter()
+            .enumerate()
+            .flat_map(|(index, group)| {
+                group
+                    .fragments()
+                    .iter()
+                    .map(move |fragment| (index, fragment))
+            })
+            .collect()
+    });
+    let matches = match_blocks(eyes, &fragments, to_reference);
+    let right_id_offset = blocks[0]
+        .iter()
+        .map(|block| block.source.id)
+        .max()
+        .map_or(0, |id| id + 1);
     let points: Vec<_> = matches.iter().map(|(_, _, point)| *point).collect();
     let other_pose = transform::compose(
         to_reference,
@@ -39,17 +56,51 @@ pub fn render(
     let Some((center, normal)) = fit_plane(&points, error_per_m2) else {
         tracing::debug!(
             matches = points.len(),
+            fallback_groups = blocks.iter().map(Vec::len).sum::<usize>(),
             "OCR source plane could not be estimated"
         );
-        return Ok(None);
+        let fallback = blocks
+            .iter()
+            .enumerate()
+            .flat_map(|(eye, groups)| {
+                groups.iter().cloned().map(move |mut group| {
+                    if eye == 1 {
+                        group.source.id += right_id_offset;
+                    }
+                    group
+                })
+            })
+            .collect();
+        return Ok((None, fallback));
     };
     let mut selected = Vec::new();
     let mut fallback = Vec::new();
     let mut paired_right = vec![false; blocks[1].len()];
-    for (left, other, point) in &matches {
-        paired_right[*other] = true;
-        let mut block = blocks[0][*left].clone();
-        for translation in &mut block.translations {
+    for (left, group) in blocks[0].iter().enumerate() {
+        let member_matches: Vec<_> = matches
+            .iter()
+            .filter(|(member, _, _)| fragments[0][*member].0 == left)
+            .collect();
+        let other = member_matches
+            .first()
+            .map(|(_, right, _)| fragments[1][*right].0);
+        let complete = other.is_some_and(|right| {
+            member_matches.len() == group.fragments().len()
+                && blocks[1][right].fragments().len() == group.fragments().len()
+                && member_matches
+                    .iter()
+                    .all(|(_, member, _)| fragments[1][*member].0 == right)
+                && normalized_text(&group.source.text)
+                    == normalized_text(&blocks[1][right].source.text)
+        });
+        if !complete {
+            fallback.push(group.clone());
+            continue;
+        }
+        let other = other.unwrap();
+        paired_right[other] = true;
+        let mut block = group.clone();
+        for (target, translation) in block.translations.iter_mut().enumerate() {
             if translation
                 .text
                 .as_deref()
@@ -57,69 +108,83 @@ pub fn render(
             {
                 continue;
             }
-            if let Some(ready) = blocks[1][*other].translations.iter().find(|t| {
+            if let Some(ready) = blocks[1][other].translations.get(target).filter(|t| {
                 t.target_language == translation.target_language
                     && t.text.as_deref().is_some_and(|s| !s.trim().is_empty())
             }) {
                 *translation = ready.clone();
             }
         }
-        if dot(sub(*point, center), normal).abs() <= plane_tolerance(-center[2], error_per_m2) {
+        if member_matches.iter().all(|(_, _, point)| {
+            dot(sub(*point, center), normal).abs() <= plane_tolerance(-center[2], error_per_m2)
+        }) {
             selected.push(block);
         } else {
             fallback.push(block);
         }
     }
     fallback.extend(
-        blocks[0]
-            .iter()
-            .enumerate()
-            .filter(|(index, _)| !matches.iter().any(|(left, _, _)| left == index))
-            .map(|(_, block)| block.clone()),
-    );
-    fallback.extend(
         blocks[1]
             .iter()
             .enumerate()
             .filter(|(index, _)| !paired_right[*index])
-            .map(|(_, block)| block.clone()),
+            .map(|(_, block)| {
+                let mut block = block.clone();
+                block.source.id += right_id_offset;
+                block
+            }),
     );
     // Layout happens once. Only blocks that cannot be placed go to the wrist.
-    let (texture, unplaced) = ocr_renderer::render_eye(eye, &selected, opacity, source_view)?;
+    let excluded: Vec<_> = blocks[0]
+        .iter()
+        .filter(|group| {
+            !selected
+                .iter()
+                .any(|block| block.source.id == group.source.id)
+        })
+        .cloned()
+        .collect();
+    let (texture, unplaced) =
+        ocr_renderer::render_eye(eye, &selected, &excluded, opacity, source_view)?;
+    tracing::debug!(
+        placed_groups = selected
+            .iter()
+            .filter(|group| !unplaced.contains(&group.source.id))
+            .count(),
+        fallback_groups = fallback.len()
+            + selected
+                .iter()
+                .filter(|group| unplaced.contains(&group.source.id))
+                .count(),
+        "OCR groups laid out"
+    );
     fallback.extend(
         selected
             .into_iter()
             .filter(|block| unplaced.contains(&block.source.id)),
     );
-    Ok(place_texture(eye, eye_pose, texture, center, normal).map(|overlay| (overlay, fallback)))
+    Ok((
+        place_texture(eye, eye_pose, texture, center, normal),
+        fallback,
+    ))
 }
 
 fn match_blocks(
     eyes: &[EyeCapture; 2],
-    blocks: &[Vec<TranslatedBlock>; 2],
+    blocks: &[Vec<(usize, &TextBlock)>; 2],
     to_reference: [[f32; 4]; 3],
 ) -> Vec<(usize, usize, [f32; 3])> {
     let texts = blocks.each_ref().map(|blocks| {
         blocks
             .iter()
-            .map(|block| {
-                block
-                    .source
-                    .text
-                    .chars()
-                    .filter(|c| c.is_alphanumeric())
-                    .flat_map(char::to_lowercase)
-                    .collect::<String>()
-            })
+            .map(|(_, block)| normalized_text(&block.text))
             .collect::<Vec<_>>()
     });
     let centers = blocks.each_ref().map(|blocks| {
         blocks
             .iter()
-            .map(|block| {
-                std::array::from_fn(|c| {
-                    block.source.polygon.iter().map(|p| p[c]).sum::<f32>() * 0.25
-                })
+            .map(|(_, block)| {
+                std::array::from_fn(|c| block.polygon.iter().map(|p| p[c]).sum::<f32>() * 0.25)
             })
             .collect::<Vec<[f32; 2]>>()
     });
@@ -154,6 +219,13 @@ fn match_blocks(
             let (right, point, _) = best?;
             (right_best[right]?.0 == left).then_some((left, right, point))
         })
+        .collect()
+}
+
+fn normalized_text(text: &str) -> String {
+    text.chars()
+        .filter(|c| c.is_alphanumeric())
+        .flat_map(char::to_lowercase)
         .collect()
 }
 
@@ -432,25 +504,28 @@ mod tests {
         head: [[f32; 4]; 3],
         tilt: [f32; 2],
     ) -> ([EyeCapture; 2], [Vec<TranslatedBlock>; 2]) {
-        let eyes = [-0.032, 0.032].map(|offset| EyeCapture {
+        let raw_projections = [[-1.2, 0.8, -0.9, 1.1], [-0.8, 1.2, -0.9, 1.1]];
+        let eyes = std::array::from_fn(|index| EyeCapture {
             image: Texture {
                 width: 320,
                 height: 240,
                 pixels: vec![],
             },
-            projection: if offset < 0. {
-                [-1.2, 0.8, -0.9, 1.1]
-            } else {
-                [-0.8, 1.2, -0.9, 1.1]
-            },
-            eye_to_head: transform::matrix(0., 0., 0., [offset, 0., 0.]),
+            projection: super::super::ocr_capture::projection_from_openvr(raw_projections[index]),
+            eye_to_head: transform::matrix(
+                0.,
+                0.,
+                0.,
+                [if index == 0 { -0.032 } else { 0.032 }, 0., 0.],
+            ),
             head_pose: head,
         });
-        let project = |eye: &EyeCapture, point: [f32; 3]| {
-            let [l, r, t, b] = eye.projection;
+        let project = |index: usize, point: [f32; 3]| {
+            let eye = &eyes[index];
+            let [l, r, t, b] = raw_projections[index];
             [
                 (point[0] - eye.eye_to_head[0][3]) / -point[2] - l,
-                -point[1] / -point[2] - t,
+                b - point[1] / -point[2],
             ]
             .into_iter()
             .zip([r - l, b - t])
@@ -471,8 +546,9 @@ mod tests {
                 .iter()
                 .enumerate()
                 .map(|(id, p)| {
-                    let center: [f32; 2] = project(&eyes[index], *p);
+                    let center: [f32; 2] = project(index, *p);
                     TranslatedBlock {
+                        fragments: vec![],
                         source: TextBlock {
                             id,
                             text: format!("word {id}"),
@@ -497,12 +573,71 @@ mod tests {
     }
 
     #[test]
+    fn asymmetric_openvr_projection_preserves_image_edge_rays() {
+        let (mut eyes, _) = fixture(2., transform::matrix(0., 0., 0., [0.; 3]));
+        for raw in [
+            [-1.2, 0.8, -1.3, 0.7],
+            [-0.8, 1.2, -0.7, 1.3],
+            [-1., 1., -1., 1.],
+        ] {
+            eyes[0].projection = super::super::ocr_capture::projection_from_openvr(raw);
+            for (pixel, expected) in [
+                ([0., 0.], [raw[0], raw[3], -1.]),
+                ([320., 240.], [raw[1], raw[2], -1.]),
+            ] {
+                for (actual, expected) in ray(&eyes[0], pixel).unwrap().into_iter().zip(expected) {
+                    assert!(
+                        (actual - expected).abs() < 0.00001,
+                        "{actual} != {expected}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn grouped_text_uses_original_fragment_centers_for_depth() {
+        let (eyes, blocks) = fixture(2., transform::matrix(0., 0., 0., [0.; 3]));
+        let groups = blocks.map(|blocks| {
+            let mut group = blocks[0].clone();
+            group.fragments = blocks.iter().map(|block| block.source.clone()).collect();
+            group.source.text = "word 0 word 1 word 2".into();
+            // Equal display envelopes have no stereo disparity. Raw fragments still do.
+            group.source.polygon = [[20., 20.], [200., 20.], [200., 100.], [20., 100.]];
+            vec![group]
+        });
+        let (overlay, fallback) = render(&eyes, &groups, 0.8, false).unwrap();
+        let overlay = overlay.expect("source plane");
+        assert!((overlay.pose[2][3] + 2.).abs() < 0.01);
+        assert!(fallback.is_empty());
+    }
+
+    #[test]
+    fn partially_matched_groups_fall_back_as_whole_translations() {
+        let (eyes, blocks) = fixture(2., transform::matrix(0., 0., 0., [0.; 3]));
+        let mut groups = blocks.each_ref().map(|blocks| {
+            let mut group = blocks[0].clone();
+            group.source.text = "first complete group".into();
+            group.fragments = blocks[..2]
+                .iter()
+                .map(|block| block.source.clone())
+                .collect();
+            vec![group, blocks[2].clone()]
+        });
+        groups[1][0].fragments[1].text = "unmatched fragment".into();
+        let (_, fallback) = render(&eyes, &groups, 0.8, false).unwrap();
+        assert!(!fallback.is_empty());
+        assert!(fallback
+            .iter()
+            .all(|block| block.source.text == "first complete group"));
+    }
+
+    #[test]
     fn result_plane_uses_source_depth_instead_of_hand_depth() {
         for depth in [1., 4.] {
             let (eyes, blocks) = fixture(depth, transform::matrix(0., 0., 0., [0.; 3]));
-            let (overlay, limited) = render(&eyes, &blocks, 1., false)
-                .unwrap()
-                .expect("source plane");
+            let (overlay, limited) = render(&eyes, &blocks, 1., false).unwrap();
+            let overlay = overlay.expect("source plane");
             assert!(limited.is_empty());
             assert!((overlay.pose[2][3] + depth).abs() < 0.01);
             assert!(overlay.width_m > 0. && overlay.texel_aspect > 0.);
@@ -522,9 +657,8 @@ mod tests {
     fn result_plane_keeps_capture_tracking_pose_after_head_rotation() {
         let head = transform::matrix(0., 45., 0., [1., 2., 3.]);
         let (eyes, blocks) = fixture(2., head);
-        let (overlay, _) = render(&eyes, &blocks, 1., false)
-            .unwrap()
-            .expect("source plane");
+        let (overlay, _) = render(&eyes, &blocks, 1., false).unwrap();
+        let overlay = overlay.expect("source plane");
         let local = transform::compose(transform::inverse(head), overlay.pose);
         assert!((local[2][3] + 2.).abs() < 0.01);
         assert!((local[0][0] - 1.).abs() < 0.01);
@@ -534,7 +668,8 @@ mod tests {
     fn tilted_source_plane_sets_surface_orientation() {
         let (eyes, blocks) =
             fixture_with_tilt(2., transform::matrix(0., 0., 0., [0.; 3]), [0.5, 0.2]);
-        let (overlay, _) = render(&eyes, &blocks, 1., false).unwrap().unwrap();
+        let (overlay, _) = render(&eyes, &blocks, 1., false).unwrap();
+        let overlay = overlay.expect("source plane");
         let expected = normalize([-0.5, -0.2, 1.]).unwrap();
         let actual = overlay.pose.map(|r| r[2]);
         assert!(dot(expected, actual) > 0.999);
@@ -569,7 +704,8 @@ mod tests {
             / overlay.texture.width as f32
             / overlay.texel_aspect;
         for pixel in [[100., 80.], [160., 120.], [220., 160.]] {
-            let direction = ray(eye, pixel).unwrap();
+            // Expected rays come from native OpenVR bounds, independent of the inverse mapping.
+            let direction = [-1.2 + 2. * pixel[0] / 320., 1.1 - 2. * pixel[1] / 240., -1.];
             let point = direction.map(|v| v * dot(normal, center) / dot(normal, direction));
             let local: [f32; 3] = std::array::from_fn(|r| {
                 to_plane[r][3] + (0..3).map(|c| to_plane[r][c] * point[c]).sum::<f32>()
@@ -603,9 +739,8 @@ mod tests {
             block.source.text = "OPEN\nMENU!".into();
         }
         blocks[1].reverse();
-        let (plane, _) = render(&eyes, &blocks, 1., false)
-            .unwrap()
-            .expect("source plane");
+        let (plane, _) = render(&eyes, &blocks, 1., false).unwrap();
+        let plane = plane.expect("source plane");
         assert!((plane.pose[2][3] + 2.).abs() < 0.01);
     }
 
@@ -645,9 +780,8 @@ mod tests {
         for pixel in &mut blocks[1][2].source.polygon {
             pixel[0] += 1.;
         }
-        let (plane, fallback) = render(&eyes, &blocks, 1., false)
-            .unwrap()
-            .expect("noisy plane");
+        let (plane, fallback) = render(&eyes, &blocks, 1., false).unwrap();
+        let plane = plane.expect("noisy plane");
         assert!((plane.pose[2][3] + 2.).abs() < 0.06);
         assert!(fallback.is_empty());
     }
@@ -660,7 +794,8 @@ mod tests {
         unmatched.source.text = "left only".into();
         unmatched.translations[0].text = Some("unplaced translation".into());
         blocks[0].push(unmatched);
-        let (plane, fallback) = render(&eyes, &blocks, 1., false).unwrap().unwrap();
+        let (plane, fallback) = render(&eyes, &blocks, 1., false).unwrap();
+        let plane = plane.expect("source plane");
         assert!((plane.pose[2][3] + 2.).abs() < 0.01);
         assert_eq!(fallback.len(), 1);
         assert_eq!(fallback[0].source.id, 10);
@@ -672,6 +807,6 @@ mod tests {
         for block in &mut blocks[1] {
             block.source.text = "unmatched".into();
         }
-        assert!(render(&eyes, &blocks, 1., false).unwrap().is_none());
+        assert!(render(&eyes, &blocks, 1., false).unwrap().0.is_none());
     }
 }

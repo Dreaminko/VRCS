@@ -68,6 +68,7 @@ unsafe fn release_stream(stream: *mut c_void) {
 #[derive(Clone)]
 pub struct EyeCapture {
     pub image: Texture,
+    /// Image-space tangent bounds [left, right, top, bottom], with Y pointing down.
     pub projection: [f32; 4],
     pub eye_to_head: [[f32; 4]; 3],
     /// Sampled near mirror readback; OpenVR does not guarantee a synchronized frame.
@@ -78,6 +79,26 @@ impl EyeCapture {
     pub fn tracking_to_eye(&self) -> [[f32; 4]; 3] {
         super::transform::inverse(super::transform::compose(self.head_pose, self.eye_to_head))
     }
+}
+
+pub fn projection_from_openvr([left, right, top, bottom]: [f32; 4]) -> [f32; 4] {
+    // OpenVR's "top" is the lower Y bound; "bottom" is the upper Y bound.
+    [left, right, -bottom, -top]
+}
+
+pub fn crop_projection(
+    [left, right, top, bottom]: [f32; 4],
+    [width, height]: [u32; 2],
+    [x, y, end_x, end_y]: [u32; 4],
+) -> [f32; 4] {
+    let horizontal = (right - left) / width as f32;
+    let vertical = (bottom - top) / height as f32;
+    [
+        left + x as f32 * horizontal,
+        left + end_x as f32 * horizontal,
+        top + y as f32 * vertical,
+        top + end_y as f32 * vertical,
+    ]
 }
 
 pub const OCR_MOVEMENT_LIMIT_M: f32 = 0.10;
@@ -103,7 +124,7 @@ pub fn pose_within_translation_limit_m(
 
 #[derive(Clone)]
 pub struct StereoCapture {
-    pub eyes: [EyeCapture; 2],
+    pub eyes: Vec<EyeCapture>,
     #[cfg(test)]
     pub pose: [[f32; 4]; 3],
     pub scene_pid: u32,
@@ -130,6 +151,13 @@ impl CaptureCrop {
     }
 }
 impl CropTransform {
+    pub fn restore_group(&self, block: &mut vrcs_core::ocr::TranslatedBlock) {
+        self.restore(&mut block.source.polygon);
+        for fragment in &mut block.fragments {
+            self.restore(&mut fragment.polygon);
+        }
+    }
+
     pub fn restore(&self, polygon: &mut [[f32; 2]; 4]) {
         for [x, y] in polygon {
             *x = *x * self.scale[0] + self.offset[0];
@@ -139,17 +167,21 @@ impl CropTransform {
 }
 
 pub fn center_crop(image: &Texture, fraction: f32) -> Result<CaptureCrop, String> {
+    region_crop(image, center_bounds(image.width, image.height, fraction)?)
+}
+
+pub fn center_bounds(width: u32, height: u32, fraction: f32) -> Result<[u32; 4], String> {
     if !fraction.is_finite() || !(0.1..=1.0).contains(&fraction) {
         return Err("Invalid OCR crop".into());
     }
-    if image.width == 0 || image.height == 0 {
+    if width == 0 || height == 0 {
         return Err("Invalid OCR crop".into());
     }
-    let width = ((image.width as f32 * fraction).round() as u32).clamp(1, image.width);
-    let height = ((image.height as f32 * fraction).round() as u32).clamp(1, image.height);
-    let x = (image.width - width) / 2;
-    let y = (image.height - height) / 2;
-    region_crop(image, [x, y, x + width, y + height])
+    let crop_width = ((width as f32 * fraction).round() as u32).clamp(1, width);
+    let crop_height = ((height as f32 * fraction).round() as u32).clamp(1, height);
+    let x = (width - crop_width) / 2;
+    let y = (height - crop_height) / 2;
+    Ok([x, y, x + crop_width, y + crop_height])
 }
 
 pub fn region_crop(
@@ -234,7 +266,7 @@ pub fn region_crop(
     })
 }
 
-pub fn encode_png(image: &Texture) -> Result<Vec<u8>, String> {
+pub fn encode_png(image: Texture) -> Result<Vec<u8>, String> {
     let expected = image
         .width
         .checked_mul(image.height)
@@ -247,7 +279,7 @@ pub fn encode_png(image: &Texture) -> Result<Vec<u8>, String> {
     {
         return Err("Invalid OCR image".into());
     }
-    let mut pixels = image.pixels.clone();
+    let mut pixels = image.pixels;
     for pixel in pixels.as_chunks_mut::<4>().0 {
         pixel.swap(0, 2);
     }
@@ -322,6 +354,16 @@ mod tests {
     use super::*;
 
     #[test]
+    fn cropped_readback_keeps_the_same_eye_rays() {
+        let projection = [-1., 1., -0.75, 0.75];
+        let cropped = crop_projection(projection, [400, 300], [100, 50, 300, 250]);
+        assert_eq!(cropped, [-0.5, 0.5, -0.5, 0.5]);
+        // The original pixel (150, 100) becomes crop pixel (50, 50).
+        assert_eq!(projection[0] + 150. / 400. * 2., cropped[0] + 50. / 200.);
+        assert_eq!(projection[2] + 100. / 300. * 1.5, cropped[2] + 50. / 200.);
+    }
+
+    #[test]
     fn projection_view_maps_tracking_points_into_each_eye_after_head_rotation() {
         let head = super::super::transform::matrix(0., 90., 0., [1., 2., 3.]);
         for x in [-0.03, 0.03] {
@@ -366,6 +408,35 @@ mod tests {
         assert_eq!(polygon, [[2., 0.], [4., 0.], [4., 2.], [2., 2.]]);
         assert!(region_crop(&image, [4, 0, 5, 2]).is_err());
         assert!(region_crop(&image, [2, 0, 2, 2]).is_err());
+    }
+
+    #[test]
+    fn crop_restore_preserves_each_group_member_coordinate() {
+        use vrcs_core::ocr::{TextBlock, TranslatedBlock};
+        let source = TextBlock {
+            id: 0,
+            text: "two lines".into(),
+            confidence: 0.9,
+            polygon: [[0., 0.], [2., 0.], [2., 2.], [0., 2.]],
+        };
+        let mut block = TranslatedBlock {
+            source: source.clone(),
+            fragments: vec![source],
+            translations: vec![],
+        };
+        let transform = CropTransform {
+            offset: [10., 20.],
+            scale: [2., 3.],
+        };
+        transform.restore_group(&mut block);
+        assert_eq!(
+            block.source.polygon,
+            [[10., 20.], [14., 20.], [14., 26.], [10., 26.]]
+        );
+        assert_eq!(
+            block.fragments[0].polygon,
+            [[10., 20.], [14., 20.], [14., 26.], [10., 26.]]
+        );
     }
 
     #[test]
@@ -528,7 +599,7 @@ mod tests {
             height: 2,
             pixels: [10, 20, 30, 255].repeat(6),
         };
-        let png = encode_png(&image).unwrap();
+        let png = encode_png(image).unwrap();
         assert_eq!(&png[..8], b"\x89PNG\r\n\x1a\n");
         assert_eq!(u32::from_be_bytes(png[16..20].try_into().unwrap()), 3);
         assert_eq!(u32::from_be_bytes(png[20..24].try_into().unwrap()), 2);
