@@ -493,6 +493,7 @@
         "cloud_error": "雲端辨識服務傳回錯誤。",
         "cloud_reconnect_failed": "無法重新連線雲端辨識服務。",
         "cudaUnavailable": "CUDA 預檢失敗，請改用自動選擇或 CPU。",
+        "vulkanUnavailable": "Vulkan 無法使用，請改用自動選擇或 CPU。",
         "invalidComputeType": "目前執行裝置與計算類型組合無效。"
       }
     },
@@ -587,7 +588,7 @@
         "confidence": "最低辨識信心值",
         "lifetime": "VR 結果顯示時間",
         "background": "VR 結果背景不透明度",
-        "gesture": "啟用拍照手勢與雙握持鍵框選",
+        "gesture": "啟用雙手握持鍵框選",
         "gestureReady": "保持拍照手勢或同時按住雙握持鍵 0.65 秒，移動雙手調整選框，長按右扳機確認後移開雙手。鬆開手勢或握持鍵可取消。",
         "gestureUnavailable": "目前未取得雙手或控制器選框追蹤，長按右扳機可辨識中央區域。",
         "bindings": "開啟 SteamVR OCR 綁定設定",
@@ -1060,11 +1061,18 @@
         "source": "辨識來源",
         "sourceDescription": "使用本機辨識，或直接選擇具名的 API 連線。",
         "localSource": "本機 Whisper",
-        "managedQwenSource": "本機 Qwen ASR（託管）",
+        "managedQwenSource": "本機 Qwen ASR",
         "qwenModels": "Qwen ASR 模型套件",
         "verifyModel": "驗證",
         "qwenInstallRequired": "開始辨識前，請下載並驗證此 Qwen ASR 模型套件。",
-        "qwenRuntimeMissing": "Qwen 執行程式無法使用。使用此來源前，請將相容的 llama-server 安裝在 VRCS Core 程式旁。",
+        "qwenRuntimeMissing": "Qwen 執行階段無法使用，請重新安裝 VRCS。開發環境請先準備 Qwen 執行階段。",
+        "qwenRuntimeState": {
+          "not_loaded": "Qwen 模型尚未載入",
+          "loading": "正在載入 Qwen 模型…",
+          "ready": "Qwen 模型已就緒",
+          "error": "Qwen 執行階段發生錯誤"
+        },
+        "qwenCpuFallback": "GPU 載入失敗，已自動切換至 CPU。",
         "qwenStatus": {
           "not_downloaded": "尚未下載",
           "downloading": "下載中",
@@ -1106,6 +1114,7 @@
         "runtime": "執行階段可用性",
         "runtimeChecking": "正在檢查可用執行階段…",
         "cudaAvailable": "CUDA 可用，共偵測到 {{count}} 個裝置。",
+        "vulkanAvailable": "Vulkan 可用，共偵測到 {{count}} 個裝置。",
         "cudaRuntimeMissing": "偵測到 CUDA 裝置，但執行階段不可用。",
         "cudaUnavailable": "未偵測到 CUDA；仍可使用 CPU。",
         "content": "辨識內容",

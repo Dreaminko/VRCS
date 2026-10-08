@@ -2,6 +2,18 @@ use super::validation::validate_glossary;
 use super::*;
 
 #[test]
+fn whisper_vulkan_device_is_accepted_and_persisted() {
+    let mut config = AppConfig::default();
+    config.asr.backend = "local_whisper".into();
+    config.asr.local.device = "vulkan".into();
+    assert!(config.validate_settings().is_ok());
+
+    let restored: AppConfig =
+        serde_json::from_str(&serde_json::to_string(&config).unwrap()).unwrap();
+    assert_eq!(restored.asr.local.device, "vulkan");
+}
+
+#[test]
 fn managed_qwen_selection_has_no_api_profile_and_rejects_unknown_packages() {
     let mut config = AppConfig::default();
     config.asr.backend = "qwen_local_managed".into();

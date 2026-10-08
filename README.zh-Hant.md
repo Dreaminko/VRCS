@@ -20,23 +20,25 @@ VRCS 是一款專為 VRChat 設計的 Windows 即時字幕與語言學習工具�
 
 | 安裝程式 | 建議用途 | 額外需求 |
 |---|---|---|
-| `VRCS-<version>-windows-x64.exe` | 建議大多數使用者選用；支援雲端辨識及以本機 CPU 執行的 Whisper | 不需要 CUDA |
-| `VRCS-<version>-windows-x64-CUDA.exe` | 使用 NVIDIA GPU 加速本機 Whisper | [CUDA 13.x Runtime](https://developer.nvidia.com/cuda-downloads?target_os=Windows)、cuBLAS，以及相容的 NVIDIA GPU 與驅動程式 |
+| `VRCS-<version>-windows-x64.exe` | 建議大多數使用者選用；支援雲端辨識、本機 Whisper 及本機 Qwen ASR | 不需要 CUDA |
+| `VRCS-<version>-windows-x64-CUDA.exe` | 為本機 Whisper 增加 NVIDIA CUDA 加速 | [CUDA 13.x Runtime](https://developer.nvidia.com/cuda-downloads?target_os=Windows)、cuBLAS，以及相容的 NVIDIA GPU 與驅動程式 |
 
 標準版與 CUDA 版共用相同的設定、資料庫及模型目錄，因此切換版本時不必遷移資料。
+
+兩個版本的本機 Whisper 及本機 Qwen ASR 都支援 CPU 及 Vulkan 加速。安裝程式已包含 Vulkan 載入器及 Qwen 執行階段，使用者不必安裝 Vulkan SDK。Vulkan 加速需要相容的 GPU 及顯示卡驅動程式。本機 Qwen 在兩個版本中均使用 CPU 或 Vulkan；CUDA 版僅為 Whisper 增加 CUDA 支援。
 
 執行環境需求：
 
 - [Microsoft Visual C++ v14 Redistributable (x64)](https://aka.ms/vs/17/release/vc_redist.x64.exe)
 - 首次啟動時需連上網際網路，以下載固定版本的 Silero VAD 模型；啟用語意斷句時，則會下載固定版本的 Smart Turn 模型
-- 使用本機 Whisper 時，需先下載模型
+- 使用本機 Whisper 或本機 Qwen ASR 時，需先下載所選模型
 - 使用雲端辨識、翻譯或學習分析時，需提供所選服務供應商的 API 認證資訊；供應商可能會收取費用
 
 ## 開始使用
 首次啟動時會開啟設定精靈：
 
 1. 選擇簡體中文、日文、英文或系統語言。
-2. 選擇雲端即時辨識或本機 Whisper。
+2. 選擇雲端即時辨識、本機 Whisper 或本機 Qwen ASR。
 3. 設定系統音訊、VRChat 程序音訊及麥克風。
 4. 測試麥克風並校準語音啟動門檻值。
 5. 完成設定並開始轉錄。
@@ -56,8 +58,9 @@ VRCS 是一款專為 VRChat 設計的 Windows 即時字幕與語言學習工具�
 
 ### 語音辨識
 
-- 本機 `whisper.cpp`，支援 CPU 及選用的 CUDA 加速
+- 本機 `whisper.cpp`，支援 CPU、Vulkan 及選用的 CUDA 加速
 - 本機 Whisper 模型下載、完整性驗證、遷移及刪除
+- 由應用程式管理的本機 Qwen3 ASR，支援模型下載、完整性驗證，以及 CPU 或 Vulkan 執行
 - Alibaba Cloud Qwen3 ASR 及 Fun-ASR 即時串流辨識
 - OpenAI Realtime Transcription
 - 雲端服務自動重新連線及可設定的失敗處理原則
@@ -93,7 +96,7 @@ VRCS 是一款專為 VRChat 設計的 Windows 即時字幕與語言學習工具�
 
 VRCS 不會儲存原始音訊。字幕記錄、工作階段、學習項目、字典及設定預設都儲存在本機。
 
-使用本機 Whisper 時，語音不會傳送至雲端。使用雲端辨識時，偵測到的語音片段會傳送給所選的辨識服務供應商。使用雲端翻譯、學習分析或「問 AI」時，相關文字、使用者明確選取的上下文，以及送出的問題會傳送給相應的供應商。
+使用本機 Whisper 或由應用程式管理的本機 Qwen ASR 時，語音不會傳送至雲端。使用雲端辨識時，偵測到的語音片段會傳送給所選的辨識服務供應商。使用雲端翻譯、學習分析或「問 AI」時，相關文字、使用者明確選取的上下文，以及送出的問題會傳送給相應的供應商。
 
 ## 從原始碼執行
 
@@ -101,27 +104,46 @@ VRCS 不會儲存原始音訊。字幕記錄、工作階段、學習項目、字
 
 - Windows 10 或 11
 - Node.js 24+
-- Rust 穩定版
+- Rustup，使用 `rust-toolchain.toml` 指定的 Rust 版本及元件
 - Visual Studio Build Tools，並安裝「**使用 C++ 的桌面開發**」工作負載
+- CMake 及 Ninja，並加入 `PATH`
+- Vulkan SDK，可由下方桌面指令或 `scripts/prepare-vulkan-sdk.ps1` 自動準備
 - 僅開發 CUDA 版本時需要 NVIDIA CUDA 13.x Toolkit，並須設定 `CUDA_PATH`
+
+在儲存庫根目錄的 PowerShell 中執行：
 
 ```powershell
 npm install
 npm run dev
 ```
 
-預設指令使用 CPU 組建。若要啟用 CUDA：
+桌面開發及發行指令會自動準備 Vulkan SDK、Vulkan 載入器及固定版本的 Qwen 執行階段。SDK 指令碼會重用 `VULKAN_SDK` 指向且包含 `Bin/glslc.exe` 的 SDK，否則下載並驗證 SDK `1.4.309.0`，存放至 `core/.cache/vulkan-sdk/1.4.309.0`。首次準備需要網際網路連線，Ninja 必須已加入 `PATH`。
+
+預設組建包含 Vulkan。Whisper 使用自動裝置模式時，會依 CUDA、Vulkan、CPU 的順序嘗試可用後端。若要增加 CUDA 支援：
 
 ```powershell
 npm run dev:cuda
 ```
 
-若只要執行獨立的 Rust Core：
+若只要執行獨立的 Rust Core，請先在同一個 PowerShell 工作階段中準備 SDK：
 
 ```powershell
+& .\scripts\prepare-vulkan-sdk.ps1
 npm run dev:core
+
+# Or, with CUDA Toolkit installed and CUDA_PATH set:
 npm run dev:core:cuda
 ```
+
+準備指令碼設定的 `VULKAN_SDK`、`PATH` 及 `CMAKE_GENERATOR` 僅對目前終端機有效。開啟新終端機後，執行獨立 Core 或直接呼叫 Cargo 前需重新執行。若要在獨立 Core 中使用應用程式管理的本機 Qwen，啟動前還需執行 `& .\scripts\prepare-qwen-runtime.ps1`。
+
+若要組建 Whisper 及本機 Qwen 均僅使用 CPU 的 Core：
+
+```powershell
+cargo run --manifest-path core/Cargo.toml --no-default-features
+```
+
+此選項同時關閉 Whisper 及本機 Qwen 的 Vulkan 加速。Qwen 自動裝置模式使用 CPU；明確選擇 GPU 時會回報 Vulkan 後端無法使用。
 
 獨立 Core 預設監聽 `http://127.0.0.1:8766`，其字幕 WebSocket 位於 `ws://127.0.0.1:8766/ws`。桌面應用程式會自動產生並管理本機工作階段權杖。若你單獨執行 Core 並繫結至非回送位址，則必須明確設定非空白的 `VRCS_SESSION_TOKEN`。
 
@@ -131,9 +153,10 @@ npm run dev:core:cuda
 npm run check:i18n
 npm --workspace apps/desktop test
 npm run build:frontend
-.\scripts\test-core.ps1
-cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml
+.\scripts\check-rust.ps1
 ```
+
+Rust 檢查指令碼會準備 Vulkan SDK，並在 Windows 上對兩個 Rust crate 執行格式檢查、Clippy（`-D warnings`）及測試。
 
 ## 組建發行版本
 

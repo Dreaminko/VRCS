@@ -8,7 +8,7 @@ use whisper_rs::{
 
 use crate::config::AsrConfig;
 
-use super::cuda::cuda_capability;
+use super::gpu::{gpu_devices, GpuDevice};
 use super::model::{model_spec, verify_model_file};
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -64,43 +64,47 @@ pub(super) struct WhisperEngine {
 impl WhisperEngine {
     pub(super) fn load(model_path: &Path, device: &str) -> Result<Self, String> {
         match device {
-            "cpu" => Self::load_with_backend(model_path, false),
-            "cuda" => {
-                let capability = cuda_capability();
-                if !capability.available {
-                    return Err(capability
-                        .error
-                        .unwrap_or_else(|| "CUDA is currently unavailable".into()));
-                }
-                Self::load_with_backend(model_path, true)
+            "cpu" => Self::load_with_backend(model_path, None),
+            "cuda" | "vulkan" => {
+                let backend = if device == "cuda" { "CUDA" } else { "Vulkan" };
+                let gpu = gpu_devices()
+                    .iter()
+                    .find(|gpu| gpu.backend == backend)
+                    .ok_or_else(|| format!("{backend} is currently unavailable"))?;
+                Self::load_with_backend(model_path, Some(gpu))
             }
             "auto" => {
-                let capability = cuda_capability();
-                if capability.available {
-                    match Self::load_with_backend(model_path, true) {
-                        Ok(engine) => return Ok(engine),
-                        Err(error) => tracing::warn!(
-                            %error,
-                            "CUDA model loading failed; falling back to CPU"
-                        ),
+                for backend in ["CUDA", "Vulkan"] {
+                    if let Some(gpu) = gpu_devices().iter().find(|gpu| gpu.backend == backend) {
+                        match Self::load_with_backend(model_path, Some(gpu)) {
+                            Ok(engine) => return Ok(engine),
+                            Err(error) => tracing::warn!(
+                                %backend,
+                                %error,
+                                "GPU model loading failed; trying the next backend"
+                            ),
+                        }
                     }
                 }
-                Self::load_with_backend(model_path, false)
+                Self::load_with_backend(model_path, None)
             }
             value => Err(format!("Unsupported recognition device: {value}")),
         }
     }
 
-    fn load_with_backend(model_path: &Path, use_gpu: bool) -> Result<Self, String> {
+    fn load_with_backend(model_path: &Path, gpu: Option<&GpuDevice>) -> Result<Self, String> {
         let path = model_path
             .to_str()
             .ok_or_else(|| format!("Model path is not valid UTF-8: {}", model_path.display()))?;
         let mut parameters = WhisperContextParameters::default();
-        parameters.use_gpu(use_gpu);
+        parameters.use_gpu(gpu.is_some());
+        if let Some(gpu) = gpu {
+            parameters.gpu_device(gpu.index);
+        }
         let context = WhisperContext::new_with_params(path, parameters)
             .map_err(|error| format!("Failed to load Whisper model: {error}"))?;
         tracing::info!(
-            backend = if use_gpu { "cuda" } else { "cpu" },
+            backend = gpu.map_or("CPU", |gpu| gpu.backend.as_str()),
             model = %model_path.display(),
             "Whisper model loaded"
         );
@@ -140,7 +144,7 @@ pub(crate) fn prepare_local_engine(
 }
 
 fn local_required(config: &AsrConfig) -> bool {
-    config.backend == "local_whisper" || config.cloud_failure_policy == "local"
+    config.backend == "local_whisper" || config.local_fallback_enabled()
 }
 
 impl AsrEngine for WhisperEngine {

@@ -9,7 +9,7 @@ import { RecognitionLanguageSelect } from "./RecognitionLanguageSelect";
 export function LocalRuntimeStatus({ capabilities }: { capabilities: AsrCapabilities | null }) {
   const { t } = useTranslation();
   return (
-    <div className={`recognition-runtime ${capabilities?.cuda.available ? "available" : "unavailable"}`}>
+    <div className={`recognition-runtime ${capabilities?.cuda.available || capabilities?.vulkan?.available ? "available" : "unavailable"}`}>
       <span className="recognition-runtime-dot" aria-hidden="true" />
       <div>
         <strong>{t("settings.recognition.runtime")}</strong>
@@ -18,9 +18,11 @@ export function LocalRuntimeStatus({ capabilities }: { capabilities: AsrCapabili
             ? t("settings.recognition.runtimeChecking")
             : capabilities.cuda.available
               ? t("settings.recognition.cudaAvailable", { count: capabilities.cuda.device_count })
-              : capabilities.cuda.device_count > 0
-                ? t("settings.recognition.cudaRuntimeMissing")
-                : t("settings.recognition.cudaUnavailable")}
+              : capabilities.vulkan?.available
+                ? t("settings.recognition.vulkanAvailable", { count: capabilities.vulkan.device_count })
+                : capabilities.cuda.device_count > 0
+                  ? t("settings.recognition.cudaRuntimeMissing")
+                  : t("settings.recognition.cudaUnavailable")}
         </span>
       </div>
     </div>
@@ -95,6 +97,10 @@ export function LocalRecognitionSettings({
           options={[
             { value: "auto", label: t("common.autoSelect") },
             { value: "cpu", label: "CPU" },
+            ...(capabilities?.vulkan?.available ? [{ value: "vulkan", label: "GPU (Vulkan)" }] : []),
+            ...(draft.asr.local.device === "vulkan" && !capabilities?.vulkan?.available
+              ? [{ value: "vulkan", label: `GPU (Vulkan) · ${t("common.unavailable")}` }]
+              : []),
             ...(capabilities?.cuda.available ? [{ value: "cuda", label: "CUDA" }] : []),
             ...(draft.asr.local.device === "cuda" && !capabilities?.cuda.available
               ? [{ value: "cuda", label: `CUDA · ${t("common.unavailable")}` }]

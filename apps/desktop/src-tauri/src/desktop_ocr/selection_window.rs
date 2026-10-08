@@ -102,11 +102,11 @@ pub fn select_region(
             return Err("desktop_ocr.unavailable".into());
         }
         let mut bgra = pixels.to_vec();
-        for pixel in bgra.chunks_exact_mut(4) {
+        for pixel in bgra.as_chunks_mut::<4>().0 {
             pixel.swap(0, 2);
         }
         let mut dimmed = bgra.clone();
-        for pixel in dimmed.chunks_exact_mut(4) {
+        for pixel in dimmed.as_chunks_mut::<4>().0 {
             pixel[0] /= 2;
             pixel[1] /= 2;
             pixel[2] /= 2;
@@ -546,10 +546,10 @@ mod tests {
                 selected: None,
                 finished: false,
             };
-            for (index, pixel) in picker.bgra.chunks_exact_mut(4).enumerate() {
+            for (index, pixel) in picker.bgra.as_chunks_mut::<4>().0.iter_mut().enumerate() {
                 pixel.copy_from_slice(&[(index / 100) as u8, 80, 160, 255]);
             }
-            for (index, pixel) in picker.dimmed.chunks_exact_mut(4).enumerate() {
+            for (index, pixel) in picker.dimmed.as_chunks_mut::<4>().0.iter_mut().enumerate() {
                 pixel.copy_from_slice(&[(index / 100 / 2) as u8, 40, 80, 255]);
             }
             let dc = CreateCompatibleDC(null_mut());

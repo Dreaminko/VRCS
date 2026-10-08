@@ -14,7 +14,7 @@ VRCS 的本地后端。数据面、音频采集、VAD、本地/云端 ASR 与字
 | 音频设备枚举（回环+麦克风）与设置校验 | 已实现（`src/audio.rs`、`/api/audio/devices`） |
 | 音频采集（系统回环/进程回环/麦克风，`AudioCapture`） | 已实现并接入管线（`src/audio.rs`） |
 | VAD | 已实现 Silero ONNX、能量检测回退与流式语音分段（`src/vad.rs`） |
-| ASR | 已实现 whisper.cpp CPU/CUDA，以及 Qwen3 ASR / Fun-ASR / OpenAI WebSocket 流式适配（`src/asr.rs`） |
+| ASR | 已实现 whisper.cpp CPU/Vulkan/CUDA、应用管理的本地 Qwen3 ASR，以及云端 Qwen3 ASR / Fun-ASR / OpenAI WebSocket 流式适配（`src/asr.rs`） |
 | 识别管线与 `/api/capture/start` `/api/capture/stop` | 已实现双音源采集、VAD 上传门控、增量事件、最终结果 SQLite 写入与 WebSocket 发布（`src/pipeline.rs`） |
 | OSC Chatbox / Mute Sync | 已实现麦克风最终字幕与译文的本机 UDP 输出、限长、限速、静音发送门，以及通过 OSCQuery 同步 VRChat 麦克风静音状态（`src/osc.rs`、`src/vrchat_mute_sync.rs`） |
 
@@ -24,17 +24,45 @@ Core 首次启动时会从 Silero 官方仓库下载固定的 v6.2.1 模型到�
 
 Whisper GGML 模型默认存放在配置文件同目录的 `models/whisper/`，可通过设置页或配置项 `storage.model_directory` 自定义；相对路径以配置文件目录为基准。修改保存位置时，Core 会自动迁移已下载的有效模型；跨磁盘时采用复制完成后再删除源文件，迁移失败则保留原设置和原目录。`VRCS_ASR_MODEL_DIR` 可用于启动时强制覆盖该设置。`/api/asr/models` 会报告模型大小与下载进度，下载文件完成前使用 `.part` 后缀；下载源固定到已知仓库版本，完成后校验精确大小与 SHA-256。运行前会按文件大小和修改时间复用校验记录，首次发现、文件变化或模型加载失败时重新计算 SHA-256；删除下载中的模型会取消任务。
 
-Core 默认构建保持 CPU-only，`--features cuda` 会编译 GGML CUDA 后端。`device=auto` 在检测到可用 NVIDIA GPU 时优先 CUDA，模型装载失败会记录原因并回退 CPU；显式保存 `device=cuda` 前会预检驱动与设备，不可用时拒绝设置且不会静默降级。`/api/asr/capabilities` 通过 CUDA Driver API 返回真实设备数量。
+Core 默认构建包含 GGML Vulkan 后端；`--features cuda` 会额外编译 CUDA 后端，`--no-default-features` 则同时关闭 Whisper 和本地 Qwen 的 Vulkan 加速，两者仅使用 CPU。`local.device=auto` 会按 CUDA、Vulkan、CPU 的顺序尝试可用后端；GPU 模型加载失败时会记录原因并尝试下一后端。显式选择 CUDA 或 Vulkan 时会检查后端与设备是否可用；当前识别后端为本地 Whisper 且所选 GPU 不可用时，配置会恢复自动选择模式。`/api/asr/capabilities` 返回 CUDA 和 Vulkan 的可用状态与设备数量。
+
+应用管理的本地 Qwen3 ASR 使用独立的 `llama-server` 运行时，支持 CPU 或 Vulkan，与 Whisper 共用 `vulkan` Cargo 功能开关。启用该功能时，自动设备模式会优先使用可用的 Vulkan GPU；GPU 启动失败且启动时限仍有剩余时会尝试 CPU。关闭该功能时，不探测 GPU，自动设备模式使用 CPU，显式选择 GPU 会报告 Vulkan 后端不可用。模型包由应用负责下载和完整性校验，语音在本机处理。
 
 ## 运行与测试
 
-```powershell
-cd core
-cargo test        # 单元测试（配置迁移、查词、Yomitan、Anki HTML）
-cargo run         # 监听 127.0.0.1:8766，配置写入 ./config.json
+在 Windows 上安装 Rustup、Visual Studio C++ Build Tools，并将 CMake 和 Ninja 加入 `PATH`。Rustup 会使用仓库根目录 `rust-toolchain.toml` 指定的版本和组件。默认 Vulkan 构建还需要 SDK；从仓库根目录的 PowerShell 开始：
 
-# CUDA Toolkit 已安装并设置 CUDA_PATH 时
-cargo run --features cuda
+```powershell
+& .\scripts\prepare-vulkan-sdk.ps1
+cd core
+cargo test
+cargo run
+```
+
+此时 Core 监听 `127.0.0.1:8766`，配置写入 `core/config.json`。准备脚本会复用 `VULKAN_SDK` 指向且包含 `Bin/glslc.exe` 的 SDK，否则下载并校验固定版本 `1.4.309.0`，放入 `core/.cache/vulkan-sdk/1.4.309.0`。脚本同时准备 Vulkan 加载器，并在当前终端设置 `VULKAN_SDK`、`PATH` 和 `CMAKE_GENERATOR=Ninja`。新开终端后需重新执行准备脚本。
+
+若要使用应用管理的本地 Qwen，先在仓库根目录准备其运行时；桌面开发和发布命令会自动执行此步骤：
+
+```powershell
+& .\scripts\prepare-qwen-runtime.ps1
+```
+
+CUDA Toolkit 已安装并设置 `CUDA_PATH` 时，在完成 SDK 准备后从仓库根目录运行：
+
+```powershell
+npm run dev:core:cuda
+```
+
+该命令还会将 CUDA 运行时目录加入进程的 `PATH`。若 Whisper 和本地 Qwen 均仅使用 CPU，可在仓库根目录运行，无需准备 Vulkan SDK：
+
+```powershell
+cargo run --manifest-path core/Cargo.toml --no-default-features
+```
+
+对两个 Rust crate 执行格式检查、Clippy 和测试，在仓库根目录运行：
+
+```powershell
+.\scripts\check-rust.ps1
 ```
 
 ## 音频实现要点

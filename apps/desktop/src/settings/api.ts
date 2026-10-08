@@ -32,7 +32,9 @@ async function settingsRequest(
   if (init?.method === "PUT" && configRevision !== null) {
     headers.set("X-VRCS-Config-Revision", configRevision.token);
   }
-  const response = await timedCoreFetch("/api/settings", { ...init, headers });
+  const response = await timedCoreFetch("/api/settings", {
+    ...init, headers, timeoutMs: init?.method === "PUT" ? 150_000 : undefined,
+  });
   if (!response.ok) throw await apiErrorFromResponse(response);
 
   const responseRevision = parseConfigRevision(

@@ -390,16 +390,22 @@ pub fn router(state: Arc<AppState>) -> Router {
 }
 
 async fn health(State(state): State<HealthContext>) -> Json<Value> {
-    let (config_schema, microphone_enabled) = {
+    let (config_schema, microphone_enabled, managed_qwen) = {
         let config = state.config.config.read().expect("config lock");
         (
             config.schema_version,
             config.audio.microphone.mode != "disabled",
+            config.asr.backend == crate::config::QWEN_MANAGED_BACKEND,
         )
     };
     let vad_backend = state.capture.vad_runtime.backend();
     let vad_model_version = state.capture.vad_runtime.model_version();
-    let (asr_status, asr_error) = state.capture.asr_runtime.snapshot();
+    let (asr_status, asr_error) = if managed_qwen {
+        let snapshot = state.capture.qwen_runtime.snapshot().await;
+        (snapshot.status, snapshot.error)
+    } else {
+        state.capture.asr_runtime.snapshot()
+    };
     let (speaker_running, audio_device, speaker_error) = {
         let pipeline = state.capture.speaker_pipeline.lock().await;
         (

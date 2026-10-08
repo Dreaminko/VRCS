@@ -38,6 +38,12 @@ pub struct AsrConfig {
     pub live_translation_phrases: BTreeMap<String, String>,
 }
 
+impl AsrConfig {
+    pub(crate) fn local_fallback_enabled(&self) -> bool {
+        self.backend != QWEN_MANAGED_BACKEND && self.cloud_failure_policy == "local"
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct LocalAsrConfig {
     #[serde(default = "default_asr_model")]

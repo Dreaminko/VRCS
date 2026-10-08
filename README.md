@@ -20,23 +20,25 @@ Download the appropriate installer from [GitHub Releases](https://github.com/Dre
 
 | Installer | Recommended use | Additional requirements |
 |---|---|---|
-| `VRCS-<version>-windows-x64.exe` | Recommended for most users; supports cloud recognition and local CPU-based Whisper | No CUDA required |
-| `VRCS-<version>-windows-x64-CUDA.exe` | Accelerates local Whisper with an NVIDIA GPU | [CUDA 13.x Runtime](https://developer.nvidia.com/cuda-downloads?target_os=Windows), cuBLAS, and a compatible NVIDIA GPU and driver |
+| `VRCS-<version>-windows-x64.exe` | Recommended for most users; supports cloud recognition, local Whisper, and local Qwen ASR | No CUDA required |
+| `VRCS-<version>-windows-x64-CUDA.exe` | Adds NVIDIA CUDA acceleration for local Whisper | [CUDA 13.x Runtime](https://developer.nvidia.com/cuda-downloads?target_os=Windows), cuBLAS, and a compatible NVIDIA GPU and driver |
 
 The standard and CUDA editions share the same configuration, database, and model directories, so you can switch between them without migrating data.
+
+Both editions support CPU and Vulkan acceleration for local Whisper and local Qwen ASR. The installer includes the Vulkan loader and Qwen runtime, so users do not need to install the Vulkan SDK. Vulkan acceleration requires a compatible GPU and graphics driver. Local Qwen uses CPU or Vulkan in both editions; the CUDA edition adds CUDA only for Whisper.
 
 Runtime requirements:
 
 - [Microsoft Visual C++ v14 Redistributable (x64)](https://aka.ms/vs/17/release/vc_redist.x64.exe)
 - An internet connection on first launch to download the pinned Silero VAD model; enabling semantic endpointing downloads the pinned Smart Turn model
-- An initial model download when using local Whisper
+- An initial model download when using local Whisper or local Qwen ASR
 - API credentials for the selected providers when using cloud recognition, translation, or learning analysis; provider charges may apply
 
 ## Getting started
 The setup wizard opens on first launch:
 
 1. Select Simplified Chinese, Japanese, English, or the system language.
-2. Select cloud-based real-time recognition or local Whisper.
+2. Select cloud-based real-time recognition, local Whisper, or local Qwen ASR.
 3. Configure system audio, VRChat process audio, and the microphone.
 4. Test the microphone and calibrate the voice activation threshold.
 5. Complete setup and start transcription.
@@ -56,8 +58,9 @@ You can change the configuration at any time in the application. To run the setu
 
 ### Speech recognition
 
-- Local `whisper.cpp` with CPU support and optional CUDA acceleration
+- Local `whisper.cpp` with CPU and Vulkan support, plus optional CUDA acceleration
 - Local Whisper model download, integrity verification, migration, and deletion
+- Managed local Qwen3 ASR with model download, integrity verification, and CPU or Vulkan execution
 - Alibaba Cloud Qwen3 ASR and Fun-ASR real-time streaming recognition
 - OpenAI Realtime Transcription
 - Automatic reconnection for cloud services and configurable failure-handling policies
@@ -103,7 +106,7 @@ This is a snapshot overlay for text on a common plane. Depth and surface tilt ar
 
 VRCS does not store raw audio. Subtitle history, sessions, learning items, dictionaries, and configuration are stored locally by default.
 
-When using local Whisper, speech is not sent to the cloud. When using cloud recognition, detected speech segments are sent to the selected recognition provider. When using cloud translation, learning analysis, or Ask AI, the relevant text, the context explicitly selected by the user, and any submitted question are sent to the corresponding provider.
+When using local Whisper or managed local Qwen ASR, speech is not sent to the cloud. When using cloud recognition, detected speech segments are sent to the selected recognition provider. When using cloud translation, learning analysis, or Ask AI, the relevant text, the context explicitly selected by the user, and any submitted question are sent to the corresponding provider.
 
 ## Run from source
 
@@ -111,27 +114,46 @@ Development requirements:
 
 - Windows 10 or 11
 - Node.js 24+
-- Rust stable
+- Rustup with the Rust version and components specified in `rust-toolchain.toml`
 - Visual Studio Build Tools with the **Desktop development with C++** workload
+- CMake and Ninja available on `PATH`
+- Vulkan SDK, prepared automatically by the desktop commands below or with `scripts/prepare-vulkan-sdk.ps1`
 - NVIDIA CUDA 13.x Toolkit with `CUDA_PATH` configured, only for CUDA development
+
+Run the following commands in PowerShell from the repository root:
 
 ```powershell
 npm install
 npm run dev
 ```
 
-The default command uses a CPU build. To enable CUDA:
+Desktop development and release commands automatically prepare the Vulkan SDK, Vulkan loader, and pinned Qwen runtime. The SDK script reuses the SDK at `VULKAN_SDK` if `Bin/glslc.exe` exists there; otherwise it downloads and verifies SDK `1.4.309.0` into `core/.cache/vulkan-sdk/1.4.309.0`. Initial preparation requires internet access. Ninja must already be on `PATH`.
+
+The default build includes Vulkan. Whisper in automatic device mode tries CUDA, then Vulkan, then CPU, using the available backends. To add CUDA support:
 
 ```powershell
 npm run dev:cuda
 ```
 
-To run only the standalone Rust Core:
+To run only the standalone Rust Core, prepare the SDK in the same PowerShell session first:
 
 ```powershell
+& .\scripts\prepare-vulkan-sdk.ps1
 npm run dev:core
+
+# Or, with CUDA Toolkit installed and CUDA_PATH set:
 npm run dev:core:cuda
 ```
+
+The preparation script sets `VULKAN_SDK`, `PATH`, and `CMAKE_GENERATOR` for the current shell. Run it again in each new shell before standalone Core or direct Cargo commands. To use managed local Qwen with the standalone Core, also run `& .\scripts\prepare-qwen-runtime.ps1` before starting it.
+
+For a Core build that uses only CPU for Whisper and local Qwen:
+
+```powershell
+cargo run --manifest-path core/Cargo.toml --no-default-features
+```
+
+This disables Vulkan acceleration for both Whisper and local Qwen. Qwen in automatic device mode uses CPU; an explicit GPU selection reports that the Vulkan backend is unavailable.
 
 The standalone Core listens on `http://127.0.0.1:8766` by default, and its subtitle WebSocket is available at `ws://127.0.0.1:8766/ws`. The desktop application automatically generates and manages a local session token. If you run the Core separately and bind it to a non-loopback address, you must explicitly set a non-empty `VRCS_SESSION_TOKEN`.
 
@@ -141,9 +163,10 @@ The standalone Core listens on `http://127.0.0.1:8766` by default, and its subti
 npm run check:i18n
 npm --workspace apps/desktop test
 npm run build:frontend
-.\scripts\test-core.ps1
-cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml
+.\scripts\check-rust.ps1
 ```
+
+The Rust check script prepares the Vulkan SDK and runs formatting checks, Clippy with `-D warnings`, and tests for both Rust crates on Windows.
 
 ## Build a release
 

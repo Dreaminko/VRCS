@@ -2054,6 +2054,16 @@ mod tests {
 
     #[cfg(windows)]
     #[test]
+    fn dashboard_thumbnail_preserves_the_logo_sky_blue_in_rgba() {
+        let texture = render_thumbnail("VRCS").unwrap();
+        let pixels = texture.pixels.as_chunks::<4>().0;
+        assert!(pixels.contains(&[0x74, 0xd6, 0xff, 255]));
+        assert!(pixels.contains(&[255, 255, 255, 255]));
+        assert!(!pixels.contains(&[0xff, 0xd6, 0x74, 255]));
+    }
+
+    #[cfg(windows)]
+    #[test]
     fn dashboard_thumbnail_contains_the_existing_white_logo_detail() {
         let texture = render_thumbnail("VRCS").unwrap();
 

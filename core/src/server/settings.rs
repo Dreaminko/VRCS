@@ -143,7 +143,9 @@ fn protect_profile_owned_settings(
                 .entry(service_id.clone())
                 .or_insert_with(|| settings.clone());
         }
-        if candidate.asr.backend == "local_whisper" {
+        if candidate.asr.backend == "local_whisper"
+            || candidate.asr.backend == crate::config::QWEN_MANAGED_BACKEND
+        {
             candidate.asr.active_profile_id = None;
         } else if !valid_active_selection(&candidate.asr) {
             candidate.asr.backend = current.asr.backend.clone();
@@ -276,6 +278,20 @@ mod tests {
             candidate.asr.service_settings[SERVICE_GROQ_TRANSCRIPTION].context,
             "current"
         );
+    }
+
+    #[test]
+    fn versioned_payload_preserves_managed_qwen_without_an_api_profile() {
+        let mut current = AppConfig::default();
+        current.asr.backend = "local_whisper".into();
+        let mut candidate = current.clone();
+        candidate.asr.backend = crate::config::QWEN_MANAGED_BACKEND.into();
+        candidate.asr.active_profile_id = None;
+
+        protect_profile_owned_settings(&mut candidate, &current, true);
+
+        assert_eq!(candidate.asr.backend, crate::config::QWEN_MANAGED_BACKEND);
+        assert_eq!(candidate.asr.active_profile_id, None);
     }
 
     #[test]

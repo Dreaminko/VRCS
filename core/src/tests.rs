@@ -1,6 +1,104 @@
 use super::*;
 
 #[tokio::test]
+async fn local_recognition_sources_can_be_saved_without_an_api_profile() {
+    let directory = tempfile::tempdir().unwrap();
+    let config_path = directory.path().join("config.json");
+    let port = std::net::TcpListener::bind("127.0.0.1:0")
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .port();
+    let handle = start(CoreOptions {
+        config_path: config_path.clone(),
+        host: Some("127.0.0.1".into()),
+        port: Some(port),
+        session_token: Some("test-token".into()),
+        vad_model_path: Some(directory.path().join("missing-silero.onnx")),
+        asr_model_dir: None,
+    })
+    .await
+    .unwrap();
+    let client = reqwest::Client::new();
+    let base = format!("http://{}", handle.address());
+    let capabilities: serde_json::Value = client
+        .get(format!("{base}/api/asr/capabilities"))
+        .bearer_auth("test-token")
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let vulkan_available = asr::vulkan_capability().available;
+    assert_eq!(capabilities["vulkan"]["available"], vulkan_available);
+    assert_eq!(
+        capabilities["compute_types"]["vulkan"],
+        if vulkan_available {
+            serde_json::json!(["int8"])
+        } else {
+            serde_json::json!([])
+        }
+    );
+    for backend in [
+        crate::config::QWEN_MANAGED_BACKEND,
+        "local_whisper",
+        crate::config::QWEN_MANAGED_BACKEND,
+    ] {
+        let response = client
+            .get(format!("{base}/api/settings"))
+            .bearer_auth("test-token")
+            .send()
+            .await
+            .unwrap();
+        let revision = response.headers()["x-vrcs-config-revision"]
+            .to_str()
+            .unwrap()
+            .to_owned();
+        let mut settings: serde_json::Value = response.json().await.unwrap();
+        settings["asr"]["backend"] = serde_json::json!(backend);
+        settings["asr"]["active_profile_id"] = serde_json::Value::Null;
+        settings["asr"]["cloud_failure_policy"] = serde_json::json!("local");
+        if backend == "local_whisper" {
+            settings["asr"]["local"]["device"] = serde_json::json!("vulkan");
+        }
+        let response = client
+            .put(format!("{base}/api/settings"))
+            .bearer_auth("test-token")
+            .header("x-vrcs-config-revision", revision)
+            .json(&settings)
+            .send()
+            .await
+            .unwrap();
+        let status = response.status();
+        let saved: serde_json::Value = response.json().await.unwrap();
+        assert_eq!(status, reqwest::StatusCode::OK, "{saved}");
+        assert_eq!(saved["asr"]["backend"], backend);
+        assert!(saved["asr"]["active_profile_id"].is_null());
+        if backend == "local_whisper" {
+            assert_eq!(
+                saved["asr"]["local"]["device"],
+                if vulkan_available { "vulkan" } else { "auto" }
+            );
+        }
+    }
+    let health: serde_json::Value = client
+        .get(format!("{base}/health"))
+        .bearer_auth("test-token")
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(health["asr_status"], "not_loaded");
+    handle.shutdown().await.unwrap();
+    let saved: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(config_path).unwrap()).unwrap();
+    assert_eq!(saved["asr"]["backend"], crate::config::QWEN_MANAGED_BACKEND);
+}
+
+#[tokio::test]
 async fn audio_settings_can_repair_stale_routes_one_at_a_time() {
     for output_first in [true, false] {
         let directory = tempfile::tempdir().unwrap();

@@ -169,7 +169,7 @@ impl SegmentedUploadSession {
 }
 
 async fn run_worker(
-    target: UploadTarget,
+    mut target: UploadTarget,
     language: String,
     mut jobs: mpsc::Receiver<UploadJob>,
     events: mpsc::Sender<CloudEvent>,
@@ -181,13 +181,13 @@ async fn run_worker(
         UploadTarget::ManagedQwen { .. } => None,
     };
     while let Some(job) = jobs.recv().await {
-        let result = match &target {
+        let result = match &mut target {
             UploadTarget::Profile {
                 profile,
                 api_key,
                 settings,
             } => {
-                openai_audio_transcriptions::transcribe(
+                openai_audio_transcriptions::transcribe_result(
                     http.as_ref().expect("profile client exists"),
                     profile,
                     api_key,
@@ -200,24 +200,28 @@ async fn run_worker(
             UploadTarget::ManagedQwen {
                 connection,
                 runtime,
-            } => {
-                let result = openai_audio_transcriptions::transcribe_managed_qwen(
-                    connection,
-                    &language,
-                    &job.samples,
-                )
-                .await;
-                match runtime.connection().await {
-                    Ok(Some(current)) if current.generation == connection.generation => result,
-                    _ => Err("Managed Qwen ASR runtime changed during transcription".into()),
+            } => match runtime.reconnect(connection).await {
+                Ok(current) => {
+                    *connection = current;
+                    let result = openai_audio_transcriptions::transcribe_managed_qwen(
+                        connection,
+                        &language,
+                        &job.samples,
+                    )
+                    .await;
+                    match runtime.connection().await {
+                        Ok(Some(current)) if current.generation == connection.generation => result,
+                        _ => Err("Managed Qwen ASR runtime changed during transcription".into()),
+                    }
                 }
-            }
+                Err(error) => Err(error),
+            },
         };
         let event = match result {
-            Ok(text) => CloudEvent::Final {
+            Ok(result) => CloudEvent::Final {
                 utterance_id: job.utterance_id,
-                text,
-                language: (language != "auto").then(|| language.clone()),
+                text: result.text,
+                language: result.language,
             },
             Err(detail) => CloudEvent::Failed {
                 utterance_id: Some(job.utterance_id),
@@ -247,7 +251,7 @@ mod tests {
             for index in 0..request_count {
                 let (mut stream, _) = listener.accept().await.unwrap();
                 read_request(&mut stream).await;
-                let body = format!(r#"{{"text":"result-{index}"}}"#);
+                let body = format!(r#"{{"text":"language Chinese<asr_text>result-{index}"}}"#);
                 let response = format!(
                     "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
                     body.len(),
@@ -307,6 +311,29 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn qwen_auto_language_reaches_final_events() {
+        let (mut profile, requests) = mock_profile(1).await;
+        profile.provider = crate::providers::QWEN_LOCAL_PROVIDER.into();
+        let session =
+            SegmentedUploadSession::spawn(profile, String::new(), settings(), "auto".into());
+        session
+            .send(super::super::share_audio(vec![0.1; 320]))
+            .await
+            .unwrap();
+        let id = session.commit().await.unwrap();
+        let events = session.stop_and_drain().await;
+        assert_eq!(requests.await.unwrap(), 1);
+        assert_eq!(
+            events,
+            vec![CloudEvent::Final {
+                utterance_id: id,
+                text: "result-0".into(),
+                language: Some("zh".into()),
+            }]
+        );
+    }
+
+    #[tokio::test]
     async fn commits_are_uploaded_once_and_completed_in_order() {
         let (profile, requests) = mock_profile(2).await;
         let session =
@@ -330,12 +357,12 @@ mod tests {
             vec![
                 CloudEvent::Final {
                     utterance_id: first_id,
-                    text: "result-0".into(),
+                    text: "language Chinese<asr_text>result-0".into(),
                     language: None,
                 },
                 CloudEvent::Final {
                     utterance_id: second_id,
-                    text: "result-1".into(),
+                    text: "language Chinese<asr_text>result-1".into(),
                     language: None,
                 },
             ]

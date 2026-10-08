@@ -1,14 +1,15 @@
 [package]
 name = "vrcs-core"
-version = "0.1.12"
+version = "0.2.0"
 description = "VRCS local core service (Rust)"
 authors = ["VRCS contributors"]
 license = "AGPL-3.0-only"
 edition = "2021"
 
 [features]
-default = []
+default = ["vulkan"]
 cuda = ["whisper-rs/cuda"]
+vulkan = ["whisper-rs/vulkan"]
 
 [dependencies]
 axum = { version = "0.8", features = ["ws"] }
@@ -30,7 +31,7 @@ rustfft = "6.4.1"
 futures-util = "0.3"
 base64 = "0.22"
 tokio-tungstenite = { version = "0.29", features = ["rustls-tls-native-roots"] }
-whisper-rs = "0.16"
+whisper-rs = { version = "0.16", features = ["raw-api"] }
 sha2 = "0.10"
 serde_ignored = "0.1"
 uuid = { version = "1", features = ["v4"] }

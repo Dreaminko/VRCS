@@ -10,12 +10,12 @@ export interface AsrSettings {
   language: "auto" | "en" | "ja" | "zh" | "ko" | "es" | "fr" | "de";
   local: {
     model: "tiny" | "base" | "small" | "medium" | "large-v3";
-    device: "auto" | "cpu" | "cuda";
+    device: "auto" | "cpu" | "cuda" | "vulkan";
     compute_type: "int8";
   };
   managed_qwen: {
     package_id: string;
-    device: "auto" | "cpu";
+    device: "auto" | "cpu" | "gpu";
   };
   active_profile_id: string | null;
   service_settings: Record<string, RecognitionServiceSettings>;
@@ -192,11 +192,21 @@ export interface QwenModelRecord {
 export interface QwenRuntimeStatus {
   available: boolean;
   running: boolean;
+  status: "not_loaded" | "loading" | "ready" | "error";
+  error: string | null;
+  device: "cpu" | "gpu" | null;
+  fallback: string | null;
+  gpu_devices: string[];
 }
 
 export interface AsrCapabilities {
   runtime_available: boolean;
   cuda: {
+    available: boolean;
+    device_count: number;
+    error: string | null;
+  };
+  vulkan: {
     available: boolean;
     device_count: number;
     error: string | null;

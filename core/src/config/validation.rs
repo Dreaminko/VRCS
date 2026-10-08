@@ -23,7 +23,7 @@ impl VadConfig {
 
 const ASR_LANGUAGES: [&str; 8] = ["auto", "en", "ja", "zh", "ko", "es", "fr", "de"];
 
-const ASR_DEVICES: [&str; 3] = ["auto", "cpu", "cuda"];
+const ASR_DEVICES: [&str; 4] = ["auto", "cpu", "cuda", "vulkan"];
 const ASR_COMPUTE_TYPES: [&str; 1] = ["int8"];
 const CLOUD_FAILURE_POLICIES: [&str; 2] = ["reconnect", "local"];
 
@@ -194,7 +194,7 @@ fn validate_recognition_options(asr: &AsrConfig) -> Result<(), String> {
             asr.managed_qwen.package_id
         ));
     }
-    if !["auto", "cpu"].contains(&asr.managed_qwen.device.as_str()) {
+    if !["auto", "cpu", "gpu"].contains(&asr.managed_qwen.device.as_str()) {
         return Err(format!(
             "Unsupported managed Qwen ASR device: {}",
             asr.managed_qwen.device

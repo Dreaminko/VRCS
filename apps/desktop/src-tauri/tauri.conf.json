@@ -1,12 +1,12 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "VRCS",
-  "version": "0.1.12",
+  "version": "0.2.0",
   "identifier": "app.vrcs.desktop",
   "build": {
-    "beforeDevCommand": "npm run dev",
+    "beforeDevCommand": "npm run prepare:qwen && npm run prepare:vulkan && npm run dev",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "npm run build",
+    "beforeBuildCommand": "npm run prepare:qwen && npm run prepare:vulkan && npm run build",
     "frontendDist": "../dist"
   },
   "app": {

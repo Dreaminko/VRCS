@@ -165,25 +165,28 @@ export function RecognitionSettingsSection({
           />
         )}
         {usesManagedQwen && <ManagedQwenSettings
-          locale={locale}
           draft={draft}
           models={models.qwen}
           ready={models.qwenReady}
           runtime={models.qwenRuntime}
-          message={models.qwenMessage}
           disabled={false}
           onUpdateAsr={actions.updateAsr}
           onUpdateQwen={actions.updateManagedQwen}
-          onRefresh={actions.loadQwenModels}
-          onDownload={actions.downloadQwenModel}
-          onCancel={actions.cancelQwenDownload}
-          onVerify={actions.verifyQwenModel}
-          onRemove={actions.removeQwenModel}
         />}
         <VadSettings vad={draft.vad} disabled={false} onUpdate={actions.updateVad} />
       </div>
       {(usesLocalAsr || usesManagedQwen) && (
         <ModelManagerPanel
+          qwen={{
+            models: models.qwen,
+            ready: models.qwenReady,
+            message: models.qwenMessage,
+            selectedId: draft.asr.backend === "qwen_local_managed" ? draft.asr.managed_qwen.package_id : null,
+            onLoad: actions.loadQwenModels,
+            onDownload: actions.downloadQwenModel,
+            onCancel: actions.cancelQwenDownload,
+            onRemove: actions.removeQwenModel,
+          }}
           locale={locale}
           disabled={false}
           installedModels={models.installed}

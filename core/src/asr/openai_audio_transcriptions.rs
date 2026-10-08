@@ -3,6 +3,7 @@ use std::time::Duration;
 use reqwest::multipart::{Form, Part};
 use serde::Deserialize;
 
+use super::engine::Transcription;
 use crate::config::{ApiAuthMode, ApiProfile, RecognitionServiceSettings};
 use crate::providers;
 
@@ -26,8 +27,11 @@ pub(crate) fn http_client(profile: &ApiProfile) -> reqwest::Client {
 #[derive(Debug, Deserialize)]
 struct TranscriptionResponse {
     text: String,
+    #[serde(default)]
+    language: Option<String>,
 }
 
+#[cfg(test)]
 pub(crate) async fn transcribe(
     http: &reqwest::Client,
     profile: &ApiProfile,
@@ -36,7 +40,35 @@ pub(crate) async fn transcribe(
     language: &str,
     samples: &[f32],
 ) -> Result<String, String> {
-    let text = request_transcription(http, profile, api_key, settings, language, samples).await?;
+    transcribe_result(http, profile, api_key, settings, language, samples)
+        .await
+        .map(|result| result.text)
+}
+
+pub(crate) async fn transcribe_result(
+    http: &reqwest::Client,
+    profile: &ApiProfile,
+    api_key: &str,
+    settings: &RecognitionServiceSettings,
+    language: &str,
+    samples: &[f32],
+) -> Result<Transcription, String> {
+    let response =
+        request_transcription(http, profile, api_key, settings, language, samples).await?;
+    let text = response.text;
+    let detected = response
+        .language
+        .as_deref()
+        .and_then(qwen_language_code)
+        .or_else(|| {
+            if profile.provider != providers::QWEN_LOCAL_PROVIDER {
+                return None;
+            }
+            text.trim()
+                .strip_prefix("language ")
+                .and_then(|marked| marked.split_once("<asr_text>"))
+                .and_then(|(name, _)| qwen_language_code(name.trim()))
+        });
     let text = if profile.provider == providers::QWEN_LOCAL_PROVIDER {
         normalize_local_qwen_text(&text)?
     } else {
@@ -45,26 +77,33 @@ pub(crate) async fn transcribe(
     if text.is_empty() && profile.provider != providers::QWEN_LOCAL_PROVIDER {
         return Err("Transcription response did not contain text".into());
     }
-    Ok(text.to_owned())
+    Ok(Transcription {
+        text: text.to_owned(),
+        language: if language == "auto" {
+            detected.map(str::to_owned)
+        } else {
+            Some(language.to_owned())
+        },
+    })
 }
 
 pub(crate) async fn transcribe_managed_qwen(
     connection: &super::qwen_runtime::QwenConnection,
     language: &str,
     samples: &[f32],
-) -> Result<String, String> {
+) -> Result<Transcription, String> {
     let profile = ApiProfile {
         provider: providers::QWEN_LOCAL_PROVIDER.into(),
         base_url: Some(connection.base_url.clone()),
         auth_mode: ApiAuthMode::Bearer,
-        timeout_ms: 30_000,
+        timeout_ms: 120_000,
         ..ApiProfile::default()
     };
     let settings = RecognitionServiceSettings {
         model: connection.model.clone(),
         context: String::new(),
     };
-    transcribe(
+    transcribe_result(
         &http_client(&profile),
         &profile,
         &connection.token,
@@ -73,6 +112,42 @@ pub(crate) async fn transcribe_managed_qwen(
         samples,
     )
     .await
+}
+
+fn qwen_language_code(language: &str) -> Option<&'static str> {
+    match language.to_ascii_lowercase().as_str() {
+        "chinese" | "zh" => Some("zh"),
+        "english" | "en" => Some("en"),
+        "japanese" | "ja" => Some("ja"),
+        "korean" | "ko" => Some("ko"),
+        "spanish" | "es" => Some("es"),
+        "french" | "fr" => Some("fr"),
+        "german" | "de" => Some("de"),
+        "arabic" | "ar" => Some("ar"),
+        "cantonese" | "yue" => Some("yue"),
+        "russian" | "ru" => Some("ru"),
+        "portuguese" | "pt" => Some("pt"),
+        "italian" | "it" => Some("it"),
+        "indonesian" | "id" => Some("id"),
+        "thai" | "th" => Some("th"),
+        "vietnamese" | "vi" => Some("vi"),
+        "turkish" | "tr" => Some("tr"),
+        "hindi" | "hi" => Some("hi"),
+        "malay" | "ms" => Some("ms"),
+        "dutch" | "nl" => Some("nl"),
+        "swedish" | "sv" => Some("sv"),
+        "danish" | "da" => Some("da"),
+        "finnish" | "fi" => Some("fi"),
+        "polish" | "pl" => Some("pl"),
+        "czech" | "cs" => Some("cs"),
+        "filipino" | "tagalog" | "tl" => Some("tl"),
+        "persian" | "fa" => Some("fa"),
+        "greek" | "el" => Some("el"),
+        "hungarian" | "hu" => Some("hu"),
+        "macedonian" | "mk" => Some("mk"),
+        "romanian" | "ro" => Some("ro"),
+        _ => None,
+    }
 }
 
 fn normalize_local_qwen_text(text: &str) -> Result<&str, String> {
@@ -114,7 +189,7 @@ async fn request_transcription(
     settings: &RecognitionServiceSettings,
     language: &str,
     samples: &[f32],
-) -> Result<String, String> {
+) -> Result<TranscriptionResponse, String> {
     if samples.is_empty() {
         return Err("Cannot transcribe empty audio".into());
     }
@@ -154,7 +229,7 @@ async fn request_transcription(
         .json()
         .await
         .map_err(|error| format!("Transcription returned invalid JSON: {error}"))?;
-    Ok(response.text)
+    Ok(response)
 }
 
 fn transcription_form(model: &str, context: &str, language: &str, wav: Vec<u8>) -> Form {
@@ -315,11 +390,12 @@ mod tests {
             token: "runtime-token".into(),
             model: "vrcs-qwen".into(),
             generation: 1,
+            session: 1,
         };
         let text = transcribe_managed_qwen(&connection, "auto", &[0.1, -0.1])
             .await
             .unwrap();
-        assert_eq!(text, "你好");
+        assert_eq!(text.text, "你好");
         let request = String::from_utf8_lossy(&server.await.unwrap()).to_lowercase();
         assert!(request.contains("authorization: bearer runtime-token"));
         assert!(request.contains("name=\"model\""));

@@ -21,7 +21,17 @@ jobs:
           node-version: "24"
           cache: npm
 
-      - uses: dtolnay/rust-toolchain@stable
+      - name: Install pinned Rust toolchain
+        shell: pwsh
+        run: rustup show
+
+      - name: Prepare Vulkan SDK
+        shell: pwsh
+        run: |
+          & ./scripts/prepare-vulkan-sdk.ps1
+          "VULKAN_SDK=$env:VULKAN_SDK" >> $env:GITHUB_ENV
+          "CMAKE_GENERATOR=$env:CMAKE_GENERATOR" >> $env:GITHUB_ENV
+          "$env:VULKAN_SDK\Bin" >> $env:GITHUB_PATH
 
       - name: Install CUDA Toolkit
         uses: Jimver/cuda-toolkit@v0.2.36

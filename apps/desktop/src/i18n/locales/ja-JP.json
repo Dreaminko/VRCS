@@ -493,6 +493,7 @@
         "cloud_error": "クラウド音声認識サービスからエラーが返されました。",
         "cloud_reconnect_failed": "クラウド音声認識サービスへの再接続に失敗しました。",
         "cudaUnavailable": "CUDA の事前確認に失敗しました。自動選択または CPU を選んでください。",
+        "vulkanUnavailable": "Vulkan を利用できません。自動選択または CPU を選んでください。",
         "invalidComputeType": "実行デバイスと計算タイプの組み合わせが無効です。"
       }
     },
@@ -587,7 +588,7 @@
         "confidence": "認識信頼度の下限",
         "lifetime": "VR 結果の表示時間",
         "background": "VR 結果の背景の不透明度",
-        "gesture": "指フレームと両グリップの範囲選択を有効化",
+        "gesture": "両手のグリップボタンによる範囲選択を有効化",
         "gestureReady": "指フレームまたは両グリップを 0.65 秒保持してください。両手を動かして範囲を調整し、右トリガーを長押しして確定した後、両手を移動してください。指の姿勢またはグリップを解除するとキャンセルします。",
         "gestureUnavailable": "両手とコントローラーの範囲追跡を取得できません。右トリガーの長押しで中央を認識できます。",
         "bindings": "SteamVR の OCR 操作設定を開く",
@@ -1060,11 +1061,18 @@
         "source": "認識ソース",
         "sourceDescription": "ローカル認識、または名前を付けた API 接続を直接選択します。",
         "localSource": "ローカル Whisper",
-        "managedQwenSource": "ローカル Qwen ASR（管理対象）",
+        "managedQwenSource": "ローカル Qwen ASR",
         "qwenModels": "Qwen ASR モデルパッケージ",
         "verifyModel": "検証",
         "qwenInstallRequired": "認識を開始する前に Qwen ASR モデルをダウンロードして検証してください。",
-        "qwenRuntimeMissing": "Qwen ランタイムが見つかりません。使用するには、互換性のある llama-server を VRCS Core の隣に配置してください。",
+        "qwenRuntimeMissing": "Qwen ランタイムを利用できません。VRCS を再インストールしてください。開発環境では、先に Qwen ランタイムを準備してください。",
+        "qwenRuntimeState": {
+          "not_loaded": "Qwen モデル未読み込み",
+          "loading": "Qwen モデルを読み込み中…",
+          "ready": "Qwen モデルの準備完了",
+          "error": "Qwen ランタイムエラー"
+        },
+        "qwenCpuFallback": "GPU の読み込みに失敗したため、CPU に自動切り替えしました。",
         "qwenStatus": {
           "not_downloaded": "未ダウンロード",
           "downloading": "ダウンロード中",
@@ -1106,6 +1114,7 @@
         "runtime": "ランタイム",
         "runtimeChecking": "利用可能なランタイムを確認中…",
         "cudaAvailable": "{{count}} 台のデバイスで CUDA を利用できます。",
+        "vulkanAvailable": "{{count}} 台のデバイスで Vulkan を利用できます。",
         "cudaRuntimeMissing": "CUDA デバイスは検出されましたが、ランタイムを利用できません。",
         "cudaUnavailable": "CUDA は検出されませんでした。CPU は利用できます。",
         "content": "認識内容",

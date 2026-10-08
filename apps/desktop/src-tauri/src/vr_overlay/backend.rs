@@ -713,6 +713,10 @@ mod platform {
             let handle = self
                 .handle(kind)
                 .ok_or_else(|| "Overlay is not created".to_string())?;
+            // SteamVR copies dashboard icons into its UI; provide RGBA bytes directly.
+            if kind == OverlayKind::DashboardThumbnail {
+                return self.upload_raw(handle, texture);
+            }
             if self.texture_device.is_some() && !self.state(kind).d3d11_disabled {
                 if let Err(error) = self.upload_d3d11(kind, handle, texture) {
                     tracing::warn!(error, "D3D11 overlay upload failed; using raw uploads");

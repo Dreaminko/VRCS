@@ -138,6 +138,7 @@ test("recognition source selects a profile and service atomically", () => {
 test("model classification keeps the current model selectable", () => {
   const capabilities: AsrCapabilities = {
     runtime_available: true,
+    vulkan: { available: false, device_count: 0, error: null },
     cuda: {
       available: false,
       device_count: 0,
@@ -151,6 +152,7 @@ test("model classification keeps the current model selectable", () => {
       auto: ["int8"],
       cpu: ["int8"],
       cuda: [],
+      vulkan: [],
     },
   };
   const managed: AsrModelRecord[] = [];

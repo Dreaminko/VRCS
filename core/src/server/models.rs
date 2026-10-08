@@ -12,6 +12,7 @@ use super::{api_domain_error_with_params, api_error_with_params, ApiResult, Mode
 
 pub(super) async fn asr_capabilities(State(state): State<ModelContext>) -> Json<Value> {
     let cuda = asr::cuda_capability();
+    let vulkan = asr::vulkan_capability();
     let active_model = state
         .config
         .config
@@ -42,10 +43,12 @@ pub(super) async fn asr_capabilities(State(state): State<ModelContext>) -> Json<
     Json(json!({
         "runtime_available": true,
         "cuda": cuda,
+        "vulkan": vulkan,
         "compute_types": {
             "auto": ["int8"],
             "cpu": ["int8"],
             "cuda": if cuda.available { vec!["int8"] } else { vec![] },
+            "vulkan": if vulkan.available { vec!["int8"] } else { vec![] },
         },
         "models": models,
     }))

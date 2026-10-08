@@ -194,22 +194,25 @@ export function RecognitionStep({
           />
           </>}
           {draftController.draft.asr.backend === "qwen_local_managed" && <ManagedQwenSettings
-            locale={locale}
             draft={draftController.draft}
             models={asr.qwenModels}
             ready={asr.qwenModelsReady}
             runtime={asr.qwenRuntime}
-            message={asr.qwenMessage}
             disabled={operationBusy}
             onUpdateAsr={asr.updateAsr}
             onUpdateQwen={asr.updateManagedQwen}
-            onRefresh={asr.loadQwenModels}
-            onDownload={asr.downloadQwenModel}
-            onCancel={asr.cancelQwenDownload}
-            onVerify={asr.verifyQwenModel}
-            onRemove={asr.removeQwenModel}
           />}
           <ModelManagerPanel
+            qwen={{
+              models: asr.qwenModels,
+              ready: asr.qwenModelsReady,
+              message: asr.qwenMessage,
+              selectedId: draftController.draft.asr.backend === "qwen_local_managed" ? draftController.draft.asr.managed_qwen.package_id : null,
+              onLoad: asr.loadQwenModels,
+              onDownload: asr.downloadQwenModel,
+              onCancel: asr.cancelQwenDownload,
+              onRemove: asr.removeQwenModel,
+            }}
             locale={locale}
             disabled={operationBusy}
             installedModels={asr.installed}

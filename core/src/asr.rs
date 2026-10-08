@@ -3,6 +3,7 @@
 mod cuda;
 mod download;
 mod engine;
+mod gpu;
 mod manager;
 mod migration;
 mod model;
@@ -15,8 +16,6 @@ mod streaming;
 
 #[cfg(test)]
 mod qwen_models_tests;
-#[cfg(test)]
-mod qwen_runtime_tests;
 
 pub(crate) use crate::credentials::read_stored_credential;
 pub use crate::credentials::{
@@ -25,6 +24,7 @@ pub use crate::credentials::{
 pub use cuda::cuda_capability;
 pub(crate) use engine::{prepare_local_engine, AsrEngine};
 pub use engine::{AsrRuntimeState, AsrService};
+pub use gpu::vulkan_capability;
 pub use manager::ModelManager;
 pub use model::is_supported_model;
 pub(crate) use qwen_models::is_supported as is_supported_qwen_package;
@@ -51,33 +51,25 @@ pub(crate) fn share_audio(samples: Vec<f32>) -> SharedAudio {
 
 pub fn validate_config(config: &mut AsrConfig) -> Result<(), String> {
     model_spec(&config.local.model)?;
-    let local_required =
-        config.backend == "local_whisper" || config.cloud_failure_policy == "local";
-    if local_required && config.local.device == "cuda" {
-        let cuda_error = if !cfg!(feature = "cuda") {
-            Some("This build does not include the CUDA backend".to_string())
+    let local_required = config.backend == "local_whisper" || config.local_fallback_enabled();
+    if local_required && ["cuda", "vulkan"].contains(&config.local.device.as_str()) {
+        let error = if config.local.device == "cuda" {
+            cuda_capability().error.map(|error| {
+                if cfg!(feature = "cuda") {
+                    format!("CUDA preflight failed: {error}")
+                } else {
+                    error
+                }
+            })
         } else {
-            let capability = cuda_capability();
-            if capability.available {
-                None
-            } else {
-                Some(format!(
-                    "CUDA preflight failed: {}",
-                    capability
-                        .error
-                        .unwrap_or_else(|| "CUDA is unavailable".into())
-                ))
-            }
+            vulkan_capability().error
         };
-        if let Some(error) = cuda_error {
-            // Whisper 本地识别模式下，CUDA 预检失败不应阻塞启动/切换：
-            // 之前在其他机器或 CUDA 构建下选择的 CUDA 配置可能在当前环境
-            // 不可用，硬性报错会导致无法回到设置里改回自动/CPU 的死锁。
-            // 因此自动回退到自动选择模式，由引擎在装载时再决定实际后端。
+        if let Some(error) = error {
+            // Keep settings accessible when a saved GPU backend is unavailable.
             if config.backend == "local_whisper" {
                 tracing::warn!(
                     %error,
-                    "CUDA preflight failed, falling back to automatic selection mode"
+                    "GPU preflight failed, falling back to automatic selection mode"
                 );
                 config.local.device = "auto".into();
             } else {
@@ -115,6 +107,16 @@ mod tests {
     use super::*;
 
     #[test]
+    fn managed_qwen_does_not_require_a_whisper_fallback() {
+        let mut config = AsrConfig::default();
+        config.backend = crate::config::QWEN_MANAGED_BACKEND.into();
+        config.cloud_failure_policy = "local".into();
+        config.local.device = "cuda".into();
+        assert!(validate_config(&mut config).is_ok());
+        assert_eq!(config.local.device, "cuda");
+    }
+
+    #[test]
     fn shared_audio_preserves_one_sample_allocation_for_multiple_consumers() {
         let samples = vec![0.1_f32, 0.2, 0.3, 0.4];
         let sample_allocation = samples.as_ptr();
@@ -142,6 +144,18 @@ mod tests {
             ..AsrConfig::default()
         };
         assert!(validate_config(&mut config).is_ok());
+
+        let mut vulkan = config.clone();
+        vulkan.local.device = "vulkan".into();
+        assert!(validate_config(&mut vulkan).is_ok());
+        assert_eq!(
+            vulkan.local.device,
+            if vulkan_capability().available {
+                "vulkan"
+            } else {
+                "auto"
+            }
+        );
 
         let mut cuda = config.clone();
         cuda.local.device = "cuda".into();

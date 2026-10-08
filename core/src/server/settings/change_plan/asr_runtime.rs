@@ -122,7 +122,7 @@ impl AsrRuntimeChange {
 }
 
 fn local_asr_required(config: &AppConfig) -> bool {
-    config.asr.backend == "local_whisper" || config.asr.cloud_failure_policy == "local"
+    config.asr.backend == "local_whisper" || config.asr.local_fallback_enabled()
 }
 
 async fn prepare_asr_runtime(

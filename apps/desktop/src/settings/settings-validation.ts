@@ -11,6 +11,7 @@ const validationMessage: TranslateValidation = (key) => ({
   "validation.audio.outputUnavailable": "The selected system output device is no longer available",
   "validation.audio.microphoneUnavailable": "The selected microphone device is no longer available",
   "validation.asr.cudaUnavailable": "CUDA preflight failed; use automatic selection or CPU",
+  "validation.asr.vulkanUnavailable": "Vulkan is unavailable; use automatic selection or CPU",
   "validation.asr.invalidComputeType": "The selected runtime device and compute type are incompatible",
 })[key] ?? key;
 
@@ -64,6 +65,9 @@ export function asrSelectionError(
   if (!capabilities) return null;
   if (settings.asr.local.device === "cuda" && !capabilities.cuda.available) {
     return translate("validation.asr.cudaUnavailable");
+  }
+  if (settings.asr.local.device === "vulkan" && !capabilities.vulkan?.available) {
+    return translate("validation.asr.vulkanUnavailable");
   }
   if (!validComputeTypes(capabilities, settings.asr.local.device).includes(settings.asr.local.compute_type)) {
     return translate("validation.asr.invalidComputeType");

@@ -1,15 +1,17 @@
 {
   "name": "@vrcs/desktop",
   "private": true,
-  "version": "0.1.12",
+  "version": "0.2.0",
   "license": "AGPL-3.0-only",
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "prepare:qwen": "powershell -NoProfile -ExecutionPolicy Bypass -File ../../scripts/prepare-qwen-runtime.ps1",
+    "prepare:vulkan": "powershell -NoProfile -ExecutionPolicy Bypass -File ../../scripts/prepare-vulkan-runtime.ps1",
     "build": "tsc && vite build",
     "typecheck:tests": "tsc -p tsconfig.tests.json",
     "test": "npm run typecheck:tests && node --test tests/*.test.ts",
-    "tauri": "tauri"
+    "tauri": "powershell -NoProfile -ExecutionPolicy Bypass -File ../../scripts/run-tauri.ps1"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.0.0",

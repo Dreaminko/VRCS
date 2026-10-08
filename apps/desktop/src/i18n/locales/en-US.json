@@ -493,6 +493,7 @@
         "cloud_error": "The cloud recognition service returned an error.",
         "cloud_reconnect_failed": "Could not reconnect to the cloud recognition service.",
         "cudaUnavailable": "CUDA preflight failed. Choose automatic selection or CPU.",
+        "vulkanUnavailable": "Vulkan is unavailable. Choose automatic selection or CPU.",
         "invalidComputeType": "This runtime device and compute type combination is invalid."
       }
     },
@@ -587,7 +588,7 @@
         "confidence": "Minimum recognition confidence",
         "lifetime": "VR result display duration",
         "background": "VR result background opacity",
-        "gesture": "Enable finger frame and two-grip selection",
+        "gesture": "Enable selection with both grip buttons",
         "gestureReady": "Hold a finger frame or both grips for 0.65 seconds. Move your hands to resize the frame, hold the right trigger to confirm, then move your hands away. Release the pose or grips to cancel.",
         "gestureUnavailable": "Hand and controller frame tracking is unavailable. Hold the right trigger to scan the center region.",
         "bindings": "Open SteamVR OCR bindings",
@@ -1060,11 +1061,18 @@
         "source": "Recognition source",
         "sourceDescription": "Use local recognition or select a named API connection directly.",
         "localSource": "Local Whisper",
-        "managedQwenSource": "Local Qwen ASR (managed)",
+        "managedQwenSource": "Local Qwen ASR",
         "qwenModels": "Qwen ASR model packages",
         "verifyModel": "Verify",
         "qwenInstallRequired": "Download and verify this Qwen ASR package before starting recognition.",
-        "qwenRuntimeMissing": "The Qwen runtime executable is unavailable. Install a compatible llama-server beside VRCS Core before using this source.",
+        "qwenRuntimeMissing": "The Qwen runtime is unavailable. Reinstall VRCS. In a development environment, prepare the Qwen runtime first.",
+        "qwenRuntimeState": {
+          "not_loaded": "Qwen model is not loaded",
+          "loading": "Loading Qwen model…",
+          "ready": "Qwen model is ready",
+          "error": "Qwen runtime error"
+        },
+        "qwenCpuFallback": "GPU loading failed. Switched to CPU automatically.",
         "qwenStatus": {
           "not_downloaded": "Not downloaded",
           "downloading": "Downloading",
@@ -1106,6 +1114,7 @@
         "runtime": "Runtime availability",
         "runtimeChecking": "Checking available runtimes…",
         "cudaAvailable": "CUDA is available on {{count}} device(s).",
+        "vulkanAvailable": "Vulkan is available on {{count}} device(s).",
         "cudaRuntimeMissing": "A CUDA device was detected, but its runtime is unavailable.",
         "cudaUnavailable": "CUDA was not detected; CPU remains available.",
         "content": "Recognition content",

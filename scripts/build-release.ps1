@@ -235,6 +235,7 @@ function Invoke-ReleaseBuild {
 
 Push-Location $repoRoot
 try {
+    & (Join-Path $PSScriptRoot "prepare-vulkan-sdk.ps1")
     Write-ReleaseTauriConfig `
         -TemplatePath $tauriReleaseConfigTemplatePath `
         -DestinationPath $generatedTauriConfigPath `

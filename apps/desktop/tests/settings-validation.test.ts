@@ -44,7 +44,8 @@ const devices: AudioDevice[] = [
 const capabilities: AsrCapabilities = {
   runtime_available: true,
   cuda: { available: false, device_count: 0, error: null },
-  compute_types: { auto: ["int8"], cpu: ["int8"], cuda: [] },
+  vulkan: { available: true, device_count: 1, error: null },
+  compute_types: { auto: ["int8"], cpu: ["int8"], cuda: [], vulkan: ["int8"] },
   models: [],
 };
 
@@ -80,4 +81,19 @@ test("filters compute types and rejects unavailable CUDA", () => {
     ),
     "CUDA preflight failed; use automatic selection or CPU",
   );
+});
+
+test("accepts Vulkan with its supported compute type", () => {
+  assert.deepEqual(validComputeTypes(capabilities, "vulkan"), ["int8"]);
+  assert.equal(asrSelectionError(
+    { ...settings, asr: { ...settings.asr, local: { ...settings.asr.local, device: "vulkan" } } },
+    capabilities,
+  ), null);
+});
+
+test("reports unavailable Vulkan before compute type validation", () => {
+  assert.equal(asrSelectionError(
+    { ...settings, asr: { ...settings.asr, local: { ...settings.asr.local, device: "vulkan" } } },
+    { ...capabilities, vulkan: { available: false, device_count: 0, error: null } },
+  ), "Vulkan is unavailable; use automatic selection or CPU");
 });

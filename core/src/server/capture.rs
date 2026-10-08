@@ -107,9 +107,8 @@ fn asr_config_runtime_changed(current: &AsrConfig, candidate: &AsrConfig) -> boo
         return true;
     }
 
-    let local_required = |config: &AsrConfig| {
-        config.backend == "local_whisper" || config.cloud_failure_policy == "local"
-    };
+    let local_required =
+        |config: &AsrConfig| config.backend == "local_whisper" || config.local_fallback_enabled();
     if (local_required(current) || local_required(candidate)) && current.local != candidate.local {
         return true;
     }
@@ -304,7 +303,7 @@ pub(crate) async fn validate_capture_config(
     let manager = Arc::clone(&state.capture.model_manager);
     let model = config.asr.local.model.clone();
     let local_required =
-        config.asr.backend == "local_whisper" || config.asr.cloud_failure_policy == "local";
+        config.asr.backend == "local_whisper" || config.asr.local_fallback_enabled();
     if local_required
         && !tokio::task::spawn_blocking(move || manager.is_downloaded(&model))
             .await
@@ -476,6 +475,23 @@ async fn start_planned_pipelines(
     Option<crate::models::AudioDevice>,
     Option<crate::models::AudioDevice>,
 )> {
+    if config.asr.backend == QWEN_MANAGED_BACKEND
+        && (config.audio.output.mode != "disabled" || config.audio.microphone.mode != "disabled")
+    {
+        crate::asr::prepare_managed_qwen(
+            &config.asr,
+            &state.capture.qwen_runtime,
+            &state.capture.model_manager,
+        )
+        .await
+        .map_err(|error| {
+            api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "asr.cloud_connect_failed",
+                error,
+            )
+        })?;
+    }
     let result = tokio::try_join!(
         async {
             if plan.speaker {
@@ -601,6 +617,9 @@ pub(super) async fn capture_start(
 }
 
 pub(super) async fn capture_stop(State(state): State<CaptureContext>) -> Json<Value> {
+    if let Err(error) = state.capture.qwen_runtime.cancel_loading().await {
+        tracing::warn!(%error, "could not cancel Qwen ASR startup");
+    }
     let _control = state.capture.capture_control.lock().await;
     state
         .capture

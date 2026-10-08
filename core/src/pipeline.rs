@@ -225,7 +225,7 @@ impl TranscriptionPipeline {
             };
             match session {
                 Ok(session) => Some(session),
-                Err(error) if asr_config.cloud_failure_policy == "local" => {
+                Err(error) if asr_config.local_fallback_enabled() => {
                     dependencies.publish_live(LiveTranscription::Failed {
                         utterance_id: None,
                         source: self.source_name.into(),
@@ -274,7 +274,7 @@ impl TranscriptionPipeline {
                     dependencies,
                     source,
                     cloud,
-                    local_fallback: asr_config.cloud_failure_policy == "local",
+                    local_fallback: asr_config.local_fallback_enabled(),
                     echo_guard: asr_echo_guard,
                     sample_rate,
                     trigger_threshold_dbfs,

@@ -37,9 +37,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
+      - name: Install pinned Rust toolchain
+        shell: pwsh
+        run: rustup show
+
+      - name: Prepare Vulkan SDK
+        shell: pwsh
+        run: |
+          & ./scripts/prepare-vulkan-sdk.ps1
+          "VULKAN_SDK=$env:VULKAN_SDK" >> $env:GITHUB_ENV
+          "CMAKE_GENERATOR=$env:CMAKE_GENERATOR" >> $env:GITHUB_ENV
+          "$env:VULKAN_SDK\Bin" >> $env:GITHUB_PATH
 
       - uses: Swatinem/rust-cache@v2
         with:
@@ -47,20 +55,6 @@ jobs:
             core
             apps/desktop/src-tauri
 
-      - name: Check formatting
+      - name: Check Rust
         shell: pwsh
-        run: |
-          cargo fmt --manifest-path core/Cargo.toml -- --check
-          cargo fmt --manifest-path apps/desktop/src-tauri/Cargo.toml -- --check
-
-      - name: Run Clippy
-        shell: pwsh
-        run: |
-          cargo clippy --manifest-path core/Cargo.toml --all-targets --locked -- -D warnings
-          cargo clippy --manifest-path apps/desktop/src-tauri/Cargo.toml --all-targets --locked -- -D warnings
-
-      - name: Test Rust
-        shell: pwsh
-        run: |
-          cargo test --manifest-path core/Cargo.toml --locked
-          cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml --locked
+        run: ./scripts/check-rust.ps1

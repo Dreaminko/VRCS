@@ -20,23 +20,25 @@ VRCS は、VRChat 向けの Windows リアルタイム字幕・言語学習ツ�
 
 | インストーラー | 用途 | 追加要件 |
 |---|---|---|
-| `VRCS-<version>-windows-x64.exe` | ほとんどのユーザーに推奨。クラウド認識とローカル CPU 版 Whisper に対応 | CUDA は不要 |
-| `VRCS-<version>-windows-x64-CUDA.exe` | NVIDIA GPU でローカル Whisper を高速化 | CUDA 13.x Runtime、cuBLAS、互換性のある NVIDIA GPU とドライバー |
+| `VRCS-<version>-windows-x64.exe` | ほとんどのユーザーに推奨。クラウド認識、ローカル Whisper、ローカル Qwen ASR に対応 | CUDA は不要 |
+| `VRCS-<version>-windows-x64-CUDA.exe` | ローカル Whisper に NVIDIA CUDA アクセラレーションを追加 | CUDA 13.x Runtime、cuBLAS、互換性のある NVIDIA GPU とドライバー |
 
 標準版と CUDA 版は同じ設定、データベース、モデルディレクトリを共有するため、データを移行せずに切り替えられます。
+
+両方のエディションで、ローカル Whisper とローカル Qwen ASR は CPU と Vulkan アクセラレーションに対応しています。インストーラーには Vulkan ローダーと Qwen ランタイムが含まれるため、ユーザーによる Vulkan SDK のインストールは不要です。Vulkan アクセラレーションには互換性のある GPU とグラフィックスドライバーが必要です。ローカル Qwen は両方のエディションで CPU または Vulkan を使用し、CUDA 版は Whisper にのみ CUDA 対応を追加します。
 
 動作要件：
 
 - [Microsoft Visual C++ v14 Redistributable（x64）](https://aka.ms/vs/17/release/vc_redist.x64.exe)
 - 初回起動時に、固定バージョンの Silero VAD モデルをダウンロードするためのインターネット接続。意味ベースの区切りを有効にすると、固定バージョンの Smart Turn モデルもダウンロードされます
-- ローカル Whisper を使用する場合は、選択したモデルの初回ダウンロード
+- ローカル Whisper またはローカル Qwen ASR を使用する場合は、選択したモデルの初回ダウンロード
 - クラウド認識、翻訳、学習分析を使用する場合は、選択したサービスプロバイダーの API 認証情報。プロバイダーによって料金が発生する場合があります
 
 ## はじめに
 初回起動時にセットアップウィザードが開きます。
 
 1. 簡体字中国語、日本語、英語、またはシステム言語を選択します。
-2. クラウドのリアルタイム認識またはローカル Whisper を選択します。
+2. クラウドのリアルタイム認識、ローカル Whisper、ローカル Qwen ASR のいずれかを選択します。
 3. システム音声、VRChat プロセス音声、マイクを設定します。
 4. マイクをテストし、音声トリガーのしきい値を調整します。
 5. セットアップを完了し、文字起こしを開始します。
@@ -56,8 +58,9 @@ VRCS は、VRChat 向けの Windows リアルタイム字幕・言語学習ツ�
 
 ### 音声認識
 
-- ローカル `whisper.cpp`。CPU とオプションの CUDA アクセラレーションに対応
+- ローカル `whisper.cpp`。CPU、Vulkan、オプションの CUDA アクセラレーションに対応
 - ローカル Whisper モデルのダウンロード、整合性検証、移行、削除
+- アプリが管理するローカル Qwen3 ASR。モデルのダウンロード、整合性検証、CPU または Vulkan での実行に対応
 - Alibaba Cloud Qwen3 ASR と Fun-ASR によるリアルタイムストリーミング認識
 - OpenAI Realtime Transcription
 - クラウドサービスの自動再接続と設定可能な障害処理ポリシー
@@ -93,7 +96,7 @@ VRCS は、VRChat 向けの Windows リアルタイム字幕・言語学習ツ�
 
 VRCS は元の音声を保存しません。字幕履歴、セッション、学習項目、辞書、設定はデフォルトでローカルに保存されます。
 
-ローカル Whisper を使用する場合、音声はクラウドに送信されません。クラウド認識を使用する場合、検出された音声区間が選択した認識サービスプロバイダーに送信されます。クラウド翻訳、学習分析、または「AI に質問」を使用する場合、関連テキスト、ユーザーが明示的に選択したコンテキスト、送信した質問が対応するプロバイダーに送信されます。
+ローカル Whisper またはアプリが管理するローカル Qwen ASR を使用する場合、音声はクラウドに送信されません。クラウド認識を使用する場合、検出された音声区間が選択した認識サービスプロバイダーに送信されます。クラウド翻訳、学習分析、または「AI に質問」を使用する場合、関連テキスト、ユーザーが明示的に選択したコンテキスト、送信した質問が対応するプロバイダーに送信されます。
 
 ## ソースから実行
 
@@ -101,27 +104,46 @@ VRCS は元の音声を保存しません。字幕履歴、セッション、学
 
 - Windows 10 / 11
 - Node.js 24+
-- Rust stable
+- Rustup と `rust-toolchain.toml` で指定された Rust バージョンおよびコンポーネント
 - Visual Studio Build Tools と「C++ によるデスクトップ開発」ワークロード
+- `PATH` に追加された CMake と Ninja
+- Vulkan SDK。以下のデスクトップコマンドまたは `scripts/prepare-vulkan-sdk.ps1` で自動準備
 - CUDA 開発の場合のみ、NVIDIA CUDA 13.x Toolkit と設定済みの `CUDA_PATH`
+
+リポジトリのルートで PowerShell を開き、次のコマンドを実行します。
 
 ```powershell
 npm install
 npm run dev
 ```
 
-デフォルトのコマンドは CPU ビルドを使用します。CUDA を有効にする場合：
+デスクトップの開発およびリリースコマンドは、Vulkan SDK、Vulkan ローダー、固定バージョンの Qwen ランタイムを自動準備します。SDK スクリプトは `VULKAN_SDK` が指す SDK に `Bin/glslc.exe` があれば再利用し、それ以外の場合は SDK `1.4.309.0` をダウンロードして検証し、`core/.cache/vulkan-sdk/1.4.309.0` に配置します。初回の準備にはインターネット接続が必要です。Ninja は事前に `PATH` に追加してください。
+
+デフォルトのビルドには Vulkan が含まれます。Whisper の自動デバイスモードは CUDA、Vulkan、CPU の順に利用可能なバックエンドを試します。CUDA 対応を追加する場合：
 
 ```powershell
 npm run dev:cuda
 ```
 
-スタンドアロンの Rust Core のみを実行する場合：
+スタンドアロンの Rust Core のみを実行する場合は、同じ PowerShell セッションで先に SDK を準備します。
 
 ```powershell
+& .\scripts\prepare-vulkan-sdk.ps1
 npm run dev:core
+
+# Or, with CUDA Toolkit installed and CUDA_PATH set:
 npm run dev:core:cuda
 ```
+
+準備スクリプトが設定する `VULKAN_SDK`、`PATH`、`CMAKE_GENERATOR` は現在のシェルでのみ有効です。新しいシェルでは、スタンドアロン Core や Cargo コマンドを実行する前に再度実行してください。スタンドアロン Core でアプリ管理のローカル Qwen を使う場合は、起動前に `& .\scripts\prepare-qwen-runtime.ps1` も実行します。
+
+Whisper とローカル Qwen を CPU のみで実行する Core ビルド：
+
+```powershell
+cargo run --manifest-path core/Cargo.toml --no-default-features
+```
+
+このオプションは Whisper とローカル Qwen の Vulkan アクセラレーションを無効にします。Qwen の自動デバイスモードは CPU を使用し、GPU を明示的に選択すると Vulkan バックエンドを利用できないことを報告します。
 
 スタンドアロン Core はデフォルトで `http://127.0.0.1:8766` をリッスンし、字幕 WebSocket は `ws://127.0.0.1:8766/ws` で利用できます。デスクトップアプリはローカルセッショントークンを自動的に生成して管理します。Core を単独で実行し、ループバック以外のアドレスでリッスンする場合は、空でない `VRCS_SESSION_TOKEN` を明示的に設定する必要があります。
 
@@ -131,9 +153,10 @@ npm run dev:core:cuda
 npm run check:i18n
 npm --workspace apps/desktop test
 npm run build:frontend
-.\scripts\test-core.ps1
-cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml
+.\scripts\check-rust.ps1
 ```
+
+Rust チェックスクリプトは Vulkan SDK を準備し、Windows 上で両方の Rust crate のフォーマットチェック、Clippy（`-D warnings`）、テストを実行します。
 
 ## Release のビルド
 

@@ -8,6 +8,9 @@ notices and license terms remain applicable.
 - Axum and Tokio — MIT
 - rusqlite and SQLite — MIT / Public Domain
 - whisper.cpp and whisper-rs — MIT
+- Vulkan Loader — Apache-2.0
+- llama.cpp (Qwen ASR runtime) — MIT
+- LLVM OpenMP runtime — Apache-2.0 WITH LLVM-exception
 - wasapi-rs — MIT
 - Silero VAD — MIT
 - Smart Turn — BSD-2-Clause
@@ -20,6 +23,10 @@ notices and license terms remain applicable.
 
 The standard installer does not redistribute a Whisper model. The selected
 model is downloaded on first use and remains subject to its upstream license.
+The Qwen ASR model and audio projector are downloaded through recognition settings
+and remain subject to their upstream Apache-2.0 license. The bundled llama.cpp
+runtime includes its MIT license and the LLVM OpenMP license.
+The bundled Vulkan loader includes the VulkanRT license notices.
 The Smart Turn model is downloaded only when semantic endpointing is enabled
 and remains subject to the upstream BSD-2-Clause license.
 The PP-OCRv6 small models and dictionary are downloaded through the OCR settings

@@ -9,9 +9,10 @@ export const captureApi = {
     microphone_device: AudioDevice | null;
   }>("/api/capture/start", {
     method: "POST",
+    timeoutMs: 150_000,
     body: JSON.stringify({}),
   }),
-  stop: () => request<{ running: boolean }>("/api/capture/stop", { method: "POST" }),
+  stop: () => request<{ running: boolean }>("/api/capture/stop", { method: "POST", timeoutMs: 600_000 }),
   startMicrophoneTest: () => request<{ running: boolean; device: AudioDevice }>(
     "/api/audio/microphone-test/start",
     { method: "POST" },

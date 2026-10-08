@@ -25,15 +25,13 @@ fn ensure_package(id: &str) -> ApiResult<()> {
 
 pub(super) async fn runtime_status(State(state): State<ModelContext>) -> Json<Value> {
     let available = asr::qwen_executable_path().is_ok_and(|path| path.is_file());
-    let running = state
-        .capture
-        .qwen_runtime
-        .connection()
-        .await
-        .ok()
-        .flatten()
-        .is_some();
-    Json(json!({ "available": available, "running": running }))
+    let snapshot = state.capture.qwen_runtime.snapshot().await;
+    let devices = state.capture.qwen_runtime.devices().await;
+    let mut status = serde_json::to_value(&snapshot).expect("runtime snapshot serializes");
+    status["available"] = json!(available);
+    status["running"] = json!(snapshot.status == "ready");
+    status["gpu_devices"] = json!(devices);
+    Json(status)
 }
 
 pub(super) async fn list(State(state): State<ModelContext>) -> ApiResult<Json<Value>> {
