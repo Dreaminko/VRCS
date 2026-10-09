@@ -334,6 +334,7 @@ export function EditableDropdownField({
   disabled = false,
   optionsDisabled = false,
   placeholder,
+  commitOnBlur = false,
   onChange,
 }: {
   label: string;
@@ -342,13 +343,21 @@ export function EditableDropdownField({
   disabled?: boolean;
   optionsDisabled?: boolean;
   placeholder?: string;
+  commitOnBlur?: boolean;
   onChange: (value: string) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const [draftValue, setDraftValue] = useState(value);
+  const submittedValueRef = useRef(value);
   const rootRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const menuId = useId();
   const listDisabled = disabled || optionsDisabled || options.length === 0;
+
+  useEffect(() => {
+    setDraftValue(value);
+    submittedValueRef.current = value;
+  }, [value]);
 
   useDismissibleLayer(open, rootRef, () => setOpen(false));
 
@@ -357,6 +366,8 @@ export function EditableDropdownField({
   }, [listDisabled]);
 
   const choose = (next: string) => {
+    setDraftValue(next);
+    submittedValueRef.current = next;
     onChange(next);
     setOpen(false);
     inputRef.current?.focus();
@@ -366,6 +377,12 @@ export function EditableDropdownField({
     <div
       className={`dropdown-field editable-dropdown-field ${open ? "open" : ""}`}
       ref={rootRef}
+      onBlur={(event) => {
+        if (!commitOnBlur || event.currentTarget.contains(event.relatedTarget)) return;
+        if (draftValue === submittedValueRef.current) return;
+        submittedValueRef.current = draftValue;
+        onChange(draftValue);
+      }}
     >
       <div className="editable-dropdown-control">
         <input
@@ -375,11 +392,18 @@ export function EditableDropdownField({
           aria-expanded={open}
           aria-controls={menuId}
           aria-label={label}
-          value={value}
+          value={commitOnBlur ? draftValue : value}
           placeholder={placeholder}
           disabled={disabled}
-          onChange={(event) => onChange(event.target.value)}
+          onChange={(event) => {
+            if (commitOnBlur) setDraftValue(event.target.value);
+            else onChange(event.target.value);
+          }}
           onKeyDown={(event) => {
+            if (commitOnBlur && event.key === "Enter" && !event.nativeEvent.isComposing) {
+              event.preventDefault();
+              event.currentTarget.blur();
+            }
             if (event.key === "ArrowDown" && !listDisabled) {
               event.preventDefault();
               setOpen(true);

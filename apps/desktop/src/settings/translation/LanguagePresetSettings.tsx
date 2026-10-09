@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { BookmarkPlus, Play, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
@@ -6,6 +7,34 @@ import type {
   Settings,
 } from "../types";
 import { applyLanguagePreset, saveLanguagePreset } from "./language-settings";
+
+function PresetNameInput({ name, disabled, onCommit }: {
+  name: string;
+  disabled: boolean;
+  onCommit: (name: string) => void;
+}) {
+  const { t } = useTranslation();
+  const [draftName, setDraftName] = useState(name);
+
+  useEffect(() => setDraftName(name), [name]);
+
+  return (
+    <input
+      aria-label={t("settings.translation.presetName")}
+      maxLength={40}
+      value={draftName}
+      disabled={disabled}
+      onChange={(event) => setDraftName(event.target.value)}
+      onBlur={() => {
+        if (!draftName.trim()) {
+          setDraftName(name);
+          return;
+        }
+        if (draftName !== name) onCommit(draftName);
+      }}
+    />
+  );
+}
 
 export function LanguagePresetSettings({
   settings,
@@ -42,14 +71,10 @@ export function LanguagePresetSettings({
         <div className="translation-preset-list">
           {settings.language_presets.map((preset, index) => (
             <div className="translation-preset-row" key={preset.id}>
-              <input
-                aria-label={t("settings.translation.presetName")}
-                maxLength={40}
-                value={preset.name}
+              <PresetNameInput
+                name={preset.name}
                 disabled={disabled}
-                onChange={(event) => {
-                  if (event.target.value.trim()) updatePreset(index, { name: event.target.value });
-                }}
+                onCommit={(name) => updatePreset(index, { name })}
               />
               <span>{preset.recognition_language} · {preset.speaker_targets.map((target) => target.target_language).join(" / ")}</span>
               <button type="button" aria-label={t("settings.translation.applyPreset")} disabled={disabled} onClick={() => applyPreset(preset)}><Play size={14} /></button>

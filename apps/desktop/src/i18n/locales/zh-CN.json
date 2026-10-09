@@ -813,7 +813,7 @@
         "maxChars": "上下文字符上限（200–12000）",
         "contextPrivacyCloud": "最近原文会与当前文本一起发送给所选云端 Provider。",
         "contextPrivacyLocal": "最近原文只会发送到此 Profile 配置的本机地址。",
-        "addRoute": "添加翻译路线",
+        "addRoute": "添加目标语言",
         "moveUp": "上移",
         "moveDown": "下移",
         "presets": "语言预设",

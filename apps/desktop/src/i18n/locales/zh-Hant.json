@@ -813,7 +813,7 @@
         "maxChars": "上下文字元上限（200–12000）",
         "contextPrivacyCloud": "最近的原文會與目前文字一併傳送給所選的雲端供應商。",
         "contextPrivacyLocal": "最近的原文只會傳送至此設定檔所設定的本機位址。",
-        "addRoute": "新增翻譯路由",
+        "addRoute": "新增目標語言",
         "moveUp": "上移",
         "moveDown": "下移",
         "presets": "語言預設",

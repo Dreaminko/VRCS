@@ -31,6 +31,45 @@ const CONTEXT_SOURCES = [
   { field: "include_chatbox", label: "chatbox", Icon: MessageSquare },
 ] as const;
 
+function ContextLimitInput({ value, min, max, step, disabled, onCommit }: {
+  value: number;
+  min: number;
+  max: number;
+  step?: number;
+  disabled: boolean;
+  onCommit: (value: number) => void;
+}) {
+  const [draftValue, setDraftValue] = useState(String(value));
+  useEffect(() => setDraftValue(String(value)), [value]);
+
+  return (
+    <input
+      type="number"
+      min={min}
+      max={max}
+      step={step}
+      value={draftValue}
+      disabled={disabled}
+      onChange={(event) => setDraftValue(event.target.value)}
+      onBlur={() => {
+        const next = Number(draftValue);
+        if (!draftValue.trim() || !Number.isInteger(next) || next < min || next > max) {
+          setDraftValue(String(value));
+          return;
+        }
+        setDraftValue(String(next));
+        if (next !== value) onCommit(next);
+      }}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" && !event.nativeEvent.isComposing) {
+          event.preventDefault();
+          event.currentTarget.blur();
+        }
+      }}
+    />
+  );
+}
+
 export function TranslationEnhancementSettings({
   translation,
   preferredTarget,
@@ -266,25 +305,23 @@ export function TranslationEnhancementSettings({
                 <div className="translation-context-limits">
                   <label className="translation-context-limit">
                     <span>{t("settings.translation.maxMessages")}</span>
-                    <input
-                      type="number"
+                    <ContextLimitInput
                       min={1}
                       max={50}
                       value={translation.prompt.max_messages}
                       disabled={disabled}
-                      onChange={(event) => update({ max_messages: Number(event.target.value) })}
+                      onCommit={(max_messages) => update({ max_messages })}
                     />
                   </label>
                   <label className="translation-context-limit">
                     <span>{t("settings.translation.maxChars")}</span>
-                    <input
-                      type="number"
+                    <ContextLimitInput
                       min={200}
                       max={12000}
                       step={100}
                       value={translation.prompt.max_chars}
                       disabled={disabled}
-                      onChange={(event) => update({ max_chars: Number(event.target.value) })}
+                      onCommit={(max_chars) => update({ max_chars })}
                     />
                   </label>
                 </div>

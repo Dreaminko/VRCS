@@ -184,6 +184,7 @@ function TranslationRouteRow({
         {usesModels && (
           <div className="translation-route-model">
             <EditableDropdownField
+              commitOnBlur
               label={t("settings.translation.model")}
               value={target.model}
               options={models.map((model) => ({ value: model, label: model }))}
