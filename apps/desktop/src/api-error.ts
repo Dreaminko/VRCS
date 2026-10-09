@@ -14,6 +14,7 @@ const errorsWithDiagnosticDetail = new Set([
   "audio.unsupported_format",
   "audio.unsupported_platform",
   "llm.request_failed",
+  "llm.invalid_response",
 ]);
 
 export interface ApiErrorPayload {

@@ -58,6 +58,7 @@ export interface TranslationTargetSettings {
   target_language: string;
   profile_id: string | null;
   model: string;
+  model_by_profile?: Record<string, string>;
   thinking_enabled: boolean;
 }
 

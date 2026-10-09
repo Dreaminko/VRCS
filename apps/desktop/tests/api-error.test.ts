@@ -57,3 +57,15 @@ test("uses a stable fallback for malformed error responses", async () => {
   assert.deepEqual(error.params, { status: 502 });
   assert.equal(error.detail, "502 Bad Gateway");
 });
+
+test("invalid LLM responses retain the reason for the failure", () => {
+  const error = new ApiError({
+    code: "llm.invalid_response",
+    detail: "Alibaba Cloud response did not contain text",
+    status: 502,
+  });
+  assert.equal(
+    formatApiErrorMessage(error, "Invalid LLM response", (detail) => `Details: ${detail}`),
+    "Invalid LLM response\nDetails: Alibaba Cloud response did not contain text",
+  );
+});

@@ -241,6 +241,7 @@ async fn test_translation(
         target_language: "en".into(),
         profile_id: Some(profile.id.clone()),
         model,
+        model_by_profile: Default::default(),
         thinking_enabled: false,
     };
     let prompt = crate::config::TranslationPromptConfig::default();

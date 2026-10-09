@@ -1,4 +1,6 @@
 import type { ApiProfileView } from "./providers/types";
+import type { TranslationTargetSettings } from "./settings/types";
+import { supportsLlmModels } from "./api-profile-purpose.ts";
 
 type ModelCatalog = {
   models: string[];
@@ -49,6 +51,34 @@ export function selectTranslationModel(
   const preferred = preferredModel(provider, models);
   if (preferred) return preferred;
   return models.find(likelyTextModel);
+}
+
+export function updateTranslationModel(
+  target: TranslationTargetSettings,
+  model: string,
+): TranslationTargetSettings {
+  return {
+    ...target,
+    model,
+    ...(target.profile_id ? {
+      model_by_profile: { ...target.model_by_profile, [target.profile_id]: model },
+    } : {}),
+  };
+}
+
+export function switchTranslationProfile(
+  target: TranslationTargetSettings,
+  profile: ApiProfileView,
+  models: readonly string[] = [],
+): TranslationTargetSettings {
+  const remembered = updateTranslationModel(target, target.model).model_by_profile;
+  const savedModel = Object.hasOwn(remembered ?? {}, profile.id) ? remembered?.[profile.id] : undefined;
+  const model = savedModel ?? (
+    supportsLlmModels(profile) && profile.provider !== "openai_compatible"
+      ? selectTranslationModel(profile.provider, models, target.model) ?? ""
+      : target.model
+  );
+  return updateTranslationModel({ ...target, profile_id: profile.id, model_by_profile: remembered }, model);
 }
 
 export function translationDiagnosticModel(

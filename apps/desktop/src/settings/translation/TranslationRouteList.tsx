@@ -7,7 +7,7 @@ import { supportsLlmModels, supportsTranslation } from "../../api-profile-purpos
 import { EditableDropdownField } from "../../shared/ui/DropdownField";
 import { LanguagePicker } from "../../shared/ui/LanguagePicker";
 import { TRANSLATION_LANGUAGE_CODES } from "../../translation-languages";
-import { selectTranslationModel } from "../../translation-model-selection";
+import { switchTranslationProfile, updateTranslationModel } from "../../translation-model-selection";
 import { thinkingControlForModel } from "../../translation-thinking";
 import type { ApiProfileView } from "../../providers/types";
 import type { TranslationTargetSettings } from "../types";
@@ -147,12 +147,11 @@ function TranslationRouteRow({
     if (!nextProfile) return;
     setSwitching(true);
     try {
-      let model = target.model;
-      if (supportsLlmModels(nextProfile) && nextProfile.provider !== "openai_compatible") {
-        const available = await load(nextProfile.id);
-        model = selectTranslationModel(nextProfile.provider, available, target.model) ?? "";
-      }
-      onChange({ ...target, profile_id: profileId, model });
+      const remembered = Object.hasOwn(target.model_by_profile ?? {}, profileId);
+      const available = !remembered && supportsLlmModels(nextProfile) && nextProfile.provider !== "openai_compatible"
+        ? await load(nextProfile.id)
+        : [];
+      onChange(switchTranslationProfile(target, nextProfile, available));
     } finally {
       setSwitching(false);
     }
@@ -191,7 +190,7 @@ function TranslationRouteRow({
               disabled={disabled || switching}
               optionsDisabled={loading || !models.length}
               placeholder={t("settings.translation.manualModel")}
-              onChange={(model) => onChange({ ...target, model })}
+              onChange={(model) => onChange(updateTranslationModel(target, model))}
             />
             <button
               className="translation-route-icon-button"

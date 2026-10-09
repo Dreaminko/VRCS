@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 
 use super::GlossaryEntry;
@@ -26,6 +28,8 @@ pub struct TranslationTargetConfig {
     pub profile_id: Option<String>,
     #[serde(default = "default_translation_model")]
     pub model: String,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub model_by_profile: BTreeMap<String, String>,
     #[serde(default)]
     pub thinking_enabled: bool,
 }
@@ -99,6 +103,7 @@ impl TranslationTargetConfig {
             target_language: target_language.into(),
             profile_id: None,
             model: default_translation_model(),
+            model_by_profile: BTreeMap::new(),
             thinking_enabled: false,
         }
     }
@@ -122,6 +127,28 @@ impl Default for TranslationPromptConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn translation_profile_model_memory_survives_config_round_trip() {
+        let saved = serde_json::json!({
+            "target_language": "ja", "profile_id": "openai", "model": "gpt-5-mini",
+            "model_by_profile": {"deepseek": "deepseek-v4-pro", "openai": "gpt-5-mini"}
+        });
+        let target: TranslationTargetConfig = serde_json::from_value(saved.clone()).unwrap();
+        assert_eq!(
+            serde_json::to_value(target).unwrap()["model_by_profile"],
+            saved["model_by_profile"]
+        );
+    }
+
+    #[test]
+    fn legacy_translation_targets_load_without_model_memory() {
+        let target: TranslationTargetConfig = serde_json::from_value(serde_json::json!({
+            "target_language": "en", "profile_id": "openai", "model": "gpt-5-mini"
+        }))
+        .unwrap();
+        assert!(serde_json::to_value(target).unwrap().get("model_by_profile").is_none());
+    }
+
     #[test]
     fn existing_translation_settings_load_without_alignment_options() {
         let config: TranslationConfig = serde_json::from_str(r#"{"mode":"automatic"}"#).unwrap();

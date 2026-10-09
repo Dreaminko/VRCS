@@ -23,3 +23,14 @@ test("custom OpenAI-compatible profiles do not inherit branded parameters", () =
     "unsupported",
   );
 });
+
+test("Alibaba exposes thinking controls for DeepSeek V4.1 and Vanchin V4 models", () => {
+  for (const model of [
+    "deepseek-v4.1-flash",
+    "vanchin/deepseek-v4-flash",
+    "vanchin/deepseek-v4.1-flash",
+  ]) {
+    assert.equal(thinkingControlForModel("alibaba_cloud", model), "disable_supported");
+  }
+  assert.equal(thinkingControlForModel("alibaba_cloud", "unknown-model"), "unsupported");
+});

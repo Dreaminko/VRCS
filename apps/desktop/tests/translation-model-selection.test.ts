@@ -3,9 +3,12 @@ import test from "node:test";
 
 import {
   selectTranslationModel,
+  switchTranslationProfile,
+  updateTranslationModel,
   translationDiagnosticModel,
 } from "../src/translation-model-selection.ts";
 import type { ApiProfileView } from "../src/types.ts";
+import type { TranslationTargetSettings } from "../src/settings/types.ts";
 
 function profile(provider: string, supportsModelListing = true): ApiProfileView {
   return {
@@ -96,4 +99,46 @@ test("successful model catalogs only pass models they contain to diagnostics", (
     translationDiagnosticModel(deepseek, { models: ["deepseek-v4-flash"], loading: false, error: "" }, "deepseek-v4-flash"),
     "deepseek-v4-flash",
   );
+});
+
+test("switching away and back restores each profile's last model after saving", () => {
+  const original: TranslationTargetSettings = {
+    target_language: "ja", profile_id: "deepseek", model: "deepseek-v4-pro", thinking_enabled: false,
+  };
+  let target = switchTranslationProfile(original, profile("openai"), ["gpt-4.1-mini", "gpt-5-mini"]);
+  assert.equal(target.model, "gpt-4.1-mini");
+  target = updateTranslationModel(target, "gpt-5-mini");
+  target = JSON.parse(JSON.stringify(target));
+  target = switchTranslationProfile(target, profile("deepseek"), ["deepseek-v4-flash", "deepseek-v4-pro"]);
+  assert.equal(target.model, "deepseek-v4-pro");
+  target = switchTranslationProfile(target, profile("openai"), ["gpt-4.1-mini", "gpt-5-mini"]);
+  assert.equal(target.model, "gpt-5-mini");
+  assert.equal(original.model, "deepseek-v4-pro");
+  assert.equal(original.model_by_profile, undefined);
+});
+
+test("manual models survive unavailable catalogs and profiles of the same provider stay separate", () => {
+  const first = { ...profile("openai_compatible"), id: "custom-one" };
+  const second = { ...first, id: "custom-two" };
+  let target: TranslationTargetSettings = {
+    target_language: "en", profile_id: first.id, model: "manual-one", thinking_enabled: false,
+  };
+  target = switchTranslationProfile(target, second);
+  target = updateTranslationModel(target, "manual-two");
+  target = switchTranslationProfile(target, first);
+  assert.equal(target.model, "manual-one");
+  target = switchTranslationProfile(target, second);
+  assert.equal(target.model, "manual-two");
+});
+
+test("translation routes keep independent model choices for the same profile", () => {
+  const first: TranslationTargetSettings = {
+    target_language: "en", profile_id: "deepseek", model: "deepseek-v4-pro", thinking_enabled: false,
+  };
+  const second = { ...first, model: "deepseek-v4-flash" };
+  const next = profile("openai");
+  const firstAway = switchTranslationProfile(first, next, ["gpt-5-mini"]);
+  const secondAway = switchTranslationProfile(second, next, ["gpt-5-mini"]);
+  assert.equal(switchTranslationProfile(firstAway, profile("deepseek")).model, "deepseek-v4-pro");
+  assert.equal(switchTranslationProfile(secondAway, profile("deepseek")).model, "deepseek-v4-flash");
 });

@@ -261,7 +261,7 @@ impl TranslationService {
                     input: &prompt.input,
                     max_output_tokens: translation_output_token_limit(
                         text,
-                        profile.provider == OPENAI_PROVIDER,
+                        &profile.provider,
                         thinking_enabled,
                     ),
                     thinking_enabled,
@@ -284,10 +284,17 @@ impl TranslationService {
     }
 }
 
-fn translation_output_token_limit(text: &str, openai: bool, thinking_enabled: bool) -> u32 {
+fn translation_output_token_limit(text: &str, provider: &str, thinking_enabled: bool) -> u32 {
     let estimated = text.chars().count().saturating_mul(2).saturating_add(64);
     let visible = estimated.clamp(128, 8_192) as u32;
-    if !openai {
+    let openai = provider == OPENAI_PROVIDER;
+    let alibaba = matches!(
+        provider,
+        providers::ALIBABA_PROVIDER
+            | providers::QWEN_AI_PROVIDER
+            | providers::ALIBABA_TOKEN_PLAN_PROVIDER
+    );
+    if !openai && !(alibaba && thinking_enabled) {
         return visible;
     }
     let (minimum, reasoning_reserve) = if thinking_enabled {
@@ -409,20 +416,59 @@ mod tests {
 
     #[test]
     fn translation_output_limit_scales_without_unbounded_generation() {
-        assert_eq!(translation_output_token_limit("hello", false, false), 128);
         assert_eq!(
-            translation_output_token_limit(&"あ".repeat(200), false, false),
+            translation_output_token_limit("hello", providers::DEEPSEEK_PROVIDER, false),
+            128
+        );
+        assert_eq!(
+            translation_output_token_limit(&"あ".repeat(200), providers::DEEPSEEK_PROVIDER, false),
             464
         );
         assert_eq!(
-            translation_output_token_limit(&"あ".repeat(5_000), false, false),
+            translation_output_token_limit(
+                &"あ".repeat(5_000),
+                providers::DEEPSEEK_PROVIDER,
+                false
+            ),
             8_192
         );
-        assert_eq!(translation_output_token_limit("hello", true, false), 1_024);
-        assert_eq!(translation_output_token_limit("hello", true, true), 4_096);
         assert_eq!(
-            translation_output_token_limit(&"あ".repeat(5_000), true, true),
+            translation_output_token_limit("hello", OPENAI_PROVIDER, false),
+            1_024
+        );
+        assert_eq!(
+            translation_output_token_limit("hello", OPENAI_PROVIDER, true),
+            4_096
+        );
+        assert_eq!(
+            translation_output_token_limit(&"あ".repeat(5_000), OPENAI_PROVIDER, true),
             10_240
+        );
+    }
+
+    #[test]
+    fn alibaba_thinking_translation_has_a_bounded_reasoning_reserve() {
+        for provider in [
+            providers::ALIBABA_PROVIDER,
+            providers::QWEN_AI_PROVIDER,
+            providers::ALIBABA_TOKEN_PLAN_PROVIDER,
+        ] {
+            assert_eq!(
+                translation_output_token_limit("hello", provider, true),
+                4_096
+            );
+            assert_eq!(
+                translation_output_token_limit(&"a".repeat(5_000), provider, true),
+                10_240
+            );
+            assert_eq!(
+                translation_output_token_limit("hello", provider, false),
+                128
+            );
+        }
+        assert_eq!(
+            translation_output_token_limit("hello", providers::GROQ_PROVIDER, true),
+            128
         );
     }
 }
