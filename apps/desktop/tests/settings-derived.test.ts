@@ -2,28 +2,21 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
-  classifyModels,
   createAnkiOptions,
   recognitionSourceValue,
   selectRecognitionSource,
-  showsLocalRecognitionSettings,
 } from "../src/settings/settings-derived.ts";
 import { DEFAULT_OCR_SETTINGS, DEFAULT_VR_OVERLAY_SETTINGS } from "../src/settings/vr-overlay-settings.ts";
-import type {
-  ApiProfileView,
-  AsrCapabilities,
-  AsrModelRecord,
-  AnkiStatus,
-  ProviderDefinition,
-  Settings,
-} from "../src/types.ts";
+import type { ApiProfileView, ProviderDefinition } from "../src/providers/types.ts";
+import type { AnkiStatus } from "../src/anki/types.ts";
+import type { Settings } from "../src/settings/types.ts";
 
 const settings: Settings = {
-  schema_version: 28,
+  schema_version: 29,
   server: { host: "127.0.0.1", port: 8766 },
   storage: {
     database_path: "data/vrcs.db",
-    model_directory: "models/whisper",
+    model_directory: "models/asr",
     subtitle_history_max_bytes: 100 * 1024 * 1024,
   },
   audio: {
@@ -32,7 +25,7 @@ const settings: Settings = {
     microphone: { mode: "default", device_id: null, trigger_threshold_dbfs: -45 },
   },
   vad: { endpointing: "silence", silence_seconds: 0.4, max_speech_seconds: 6 },
-  asr: { backend: "local_whisper", language: "auto", local: { model: "small", device: "auto", compute_type: "int8" }, managed_qwen: { package_id: "qwen3-asr-0.6b-q8_0", device: "auto" }, active_profile_id: null, service_settings: {}, cloud_failure_policy: "reconnect" },
+  asr: { backend: "qwen_local_managed", language: "auto", managed_qwen: { package_id: "qwen3-asr-0.6b-q8_0", device: "auto" }, active_profile_id: null, service_settings: {} },
   translation: { mode: "disabled", speaker_targets: [{ target_language: "zh-Hans", profile_id: null, model: "gpt-5-mini", thinking_enabled: false }], microphone_targets: [{ target_language: "en", profile_id: null, model: "gpt-5-mini", thinking_enabled: false }], prompt: { system_prompt: "", context_enabled: false, include_speaker: true, include_microphone: true, include_chatbox: true, max_messages: 5, max_chars: 4000 } },
   language_presets: [],
   glossary: { llm_enabled: true, asr_enabled: true, sources: [] },
@@ -112,10 +105,6 @@ const profiles = [
   profile("translation-profile", "alpha", ["text_translation"]),
 ];
 
-test("only local ASR shows local recognition settings", () => {
-  assert.equal(showsLocalRecognitionSettings("local_whisper"), true);
-  assert.equal(showsLocalRecognitionSettings("alpha-live"), false);
-});
 
 test("recognition source selects a profile and service atomically", () => {
   const selected = selectRecognitionSource(settings.asr, "alpha-profile", profiles, definitions);
@@ -129,39 +118,12 @@ test("recognition source selects a profile and service atomically", () => {
     selected,
   );
 
-  const local = selectRecognitionSource(selected, "local", profiles, definitions);
-  assert.equal(local.backend, "local_whisper");
+  const local = selectRecognitionSource(selected, "managed_qwen", profiles, definitions);
+  assert.equal(local.backend, "qwen_local_managed");
   assert.equal(local.active_profile_id, null);
-  assert.equal(recognitionSourceValue(local), "local");
+  assert.equal(recognitionSourceValue(local), "managed_qwen");
 });
 
-test("model classification keeps the current model selectable", () => {
-  const capabilities: AsrCapabilities = {
-    runtime_available: true,
-    vulkan: { available: false, device_count: 0, error: null },
-    cuda: {
-      available: false,
-      device_count: 0,
-      error: null,
-    },
-    models: [
-      { id: "small", repository: "ggerganov/whisper.cpp", status: "not_downloaded" },
-      { id: "base", repository: "ggerganov/whisper.cpp", status: "ready" },
-    ],
-    compute_types: {
-      auto: ["int8"],
-      cpu: ["int8"],
-      cuda: [],
-      vulkan: [],
-    },
-  };
-  const managed: AsrModelRecord[] = [];
-  const result = classifyModels(managed, capabilities, "small", false);
-
-  assert.deepEqual(result.selectable.map((model) => model.id), ["small", "base"]);
-  assert.deepEqual(result.installed, []);
-  assert.deepEqual(result.downloading, []);
-});
 
 test("Anki options retain current values and prevent duplicate field mapping", () => {
   const options = createAnkiOptions(ankiStatus, settings.anki);

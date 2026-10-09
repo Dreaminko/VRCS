@@ -275,7 +275,6 @@ export function DesktopShell({
                   disabled={runtime.health?.capture_requested ?? false}
                   health={runtime.health}
                   modelStatus={runtime.health?.asr_status ?? "unknown"}
-                  asrCapabilities={settings.asr.capabilities}
                   onRefresh={settings.devices.refresh}
                   onRefreshSettings={settings.refresh}
                   onImportDictionary={dictionary.importFile}

@@ -25,13 +25,6 @@ const FIXTURE: PackageSpec = PackageSpec {
     files: &FILES,
 };
 
-const WHISPER_FIXTURE: super::ModelSpec = super::ModelSpec {
-    id: "fixture",
-    filename: "ggml-fixture.bin",
-    expected_bytes: 3,
-    sha256: "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
-};
-
 fn write_file(directory: &Path, name: &str, bytes: &[u8]) {
     std::fs::create_dir_all(directory).unwrap();
     std::fs::write(directory.join(name), bytes).unwrap();
@@ -77,14 +70,14 @@ fn qwen_package_does_not_activate_with_unmanaged_staging_files() {
 }
 
 #[test]
-fn qwen_download_respects_an_existing_whisper_download() {
+fn qwen_download_respects_an_existing_model_download() {
     use std::sync::Arc;
 
     let root = tempfile::tempdir().unwrap();
     let manager = Arc::new(super::ModelManager::new(root.path().to_path_buf()).unwrap());
     let (cancel, _) = tokio::sync::watch::channel(false);
     manager.jobs.lock().unwrap().insert(
-        "tiny".into(),
+        "existing-package".into(),
         super::DownloadJob {
             status: "downloading",
             downloaded_bytes: 0,
@@ -149,73 +142,63 @@ fn qwen_migration_keeps_the_source_until_commit_and_can_rollback() {
 }
 
 #[test]
-fn asr_directory_change_moves_whisper_and_qwen_together() {
+fn asr_directory_change_moves_qwen_and_preserves_legacy_files() {
     let source = tempfile::tempdir().unwrap();
     let target = tempfile::tempdir().unwrap();
-    write_file(source.path(), WHISPER_FIXTURE.filename, b"abc");
+    write_file(source.path(), "ggml-old.bin", b"legacy");
     let old_qwen = package_dir(source.path(), FIXTURE);
     write_file(&old_qwen, "main.gguf", b"abc");
     write_file(&old_qwen, "mmproj.gguf", b"abc");
-
     super::migration::move_model_dir_with_specs(
         source.path().to_path_buf(),
         target.path().to_path_buf(),
-        &[WHISPER_FIXTURE],
         &[FIXTURE],
     )
     .unwrap();
-
-    assert!(!source.path().join(WHISPER_FIXTURE.filename).exists());
     assert!(!old_qwen.exists());
-    assert_eq!(
-        std::fs::read(target.path().join(WHISPER_FIXTURE.filename)).unwrap(),
-        b"abc"
-    );
     assert!(is_installed(target.path(), FIXTURE, true).unwrap());
-
-    super::migration::move_model_dir_with_specs(
-        target.path().to_path_buf(),
-        source.path().to_path_buf(),
-        &[WHISPER_FIXTURE],
-        &[FIXTURE],
-    )
-    .unwrap();
-    assert!(is_installed(source.path(), FIXTURE, true).unwrap());
-    assert!(!package_dir(target.path(), FIXTURE).exists());
     assert_eq!(
-        std::fs::read(source.path().join(WHISPER_FIXTURE.filename)).unwrap(),
-        b"abc"
+        std::fs::read(source.path().join("ggml-old.bin")).unwrap(),
+        b"legacy"
     );
+    assert!(!target.path().join("ggml-old.bin").exists());
 }
 
 #[test]
-fn whisper_migration_failure_rolls_back_new_qwen_target() {
+fn qwen_migration_conflict_keeps_source_and_target_files() {
     let source = tempfile::tempdir().unwrap();
     let target = tempfile::tempdir().unwrap();
-    write_file(source.path(), WHISPER_FIXTURE.filename, b"abc");
-    write_file(target.path(), WHISPER_FIXTURE.filename, b"abd");
     let old_qwen = package_dir(source.path(), FIXTURE);
+    let new_qwen = package_dir(target.path(), FIXTURE);
     write_file(&old_qwen, "main.gguf", b"abc");
     write_file(&old_qwen, "mmproj.gguf", b"abc");
-
+    write_file(&new_qwen, "main.gguf", b"abd");
+    write_file(&new_qwen, "mmproj.gguf", b"abc");
     assert!(super::migration::move_model_dir_with_specs(
         source.path().to_path_buf(),
         target.path().to_path_buf(),
-        &[WHISPER_FIXTURE],
         &[FIXTURE],
     )
     .is_err());
-
-    assert_eq!(
-        std::fs::read(source.path().join(WHISPER_FIXTURE.filename)).unwrap(),
-        b"abc"
-    );
-    assert_eq!(
-        std::fs::read(target.path().join(WHISPER_FIXTURE.filename)).unwrap(),
-        b"abd"
-    );
     assert!(is_installed(source.path(), FIXTURE, true).unwrap());
-    assert!(!package_dir(target.path(), FIXTURE).exists());
+    assert_eq!(std::fs::read(new_qwen.join("main.gguf")).unwrap(), b"abd");
+}
+
+#[test]
+fn qwen_verification_detects_same_size_replacement_with_stale_cache() {
+    let root = tempfile::tempdir().unwrap();
+    let package = package_dir(root.path(), FIXTURE);
+    write_file(&package, "main.gguf", b"abc");
+    write_file(&package, "mmproj.gguf", b"abc");
+    assert!(is_installed(root.path(), FIXTURE, false).unwrap());
+    let model = package.join("main.gguf");
+    std::fs::write(&model, b"abd").unwrap();
+    let cache = super::verification::verification_path(&model);
+    let mut record: super::verification::VerificationRecord =
+        serde_json::from_slice(&std::fs::read(&cache).unwrap()).unwrap();
+    record.modified_nanos = record.modified_nanos.saturating_sub(1);
+    std::fs::write(&cache, serde_json::to_vec(&record).unwrap()).unwrap();
+    assert!(!is_installed(root.path(), FIXTURE, false).unwrap());
 }
 
 #[tokio::test]

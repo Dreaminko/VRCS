@@ -59,8 +59,6 @@ impl ConfigRuntime {
 pub(crate) struct CaptureRuntime {
     pub(crate) live_tx: broadcast::Sender<LiveTranscription>,
     pub(crate) vad_runtime: vad::VadRuntimeState,
-    pub(crate) asr: Arc<Mutex<asr::AsrService>>,
-    pub(crate) asr_runtime: asr::AsrRuntimeState,
     pub(crate) model_manager: Arc<asr::ModelManager>,
     pub(crate) qwen_runtime: Arc<asr::QwenRuntime>,
     pub(crate) capture_control: AsyncMutex<()>,
@@ -74,8 +72,6 @@ pub(crate) struct CaptureRuntimeInput {
     pub(crate) qwen_runtime_dir: PathBuf,
     pub(crate) live_tx: broadcast::Sender<LiveTranscription>,
     pub(crate) vad_runtime: vad::VadRuntimeState,
-    pub(crate) asr: Arc<Mutex<asr::AsrService>>,
-    pub(crate) asr_runtime: asr::AsrRuntimeState,
     pub(crate) model_manager: Arc<asr::ModelManager>,
     pub(crate) vad_model_path: PathBuf,
     pub(crate) shutdown: watch::Receiver<bool>,
@@ -91,8 +87,6 @@ impl CaptureRuntime {
         Self {
             live_tx: input.live_tx,
             vad_runtime: input.vad_runtime.clone(),
-            asr: input.asr,
-            asr_runtime: input.asr_runtime,
             model_manager: input.model_manager,
             qwen_runtime: Arc::new(asr::QwenRuntime::new(input.qwen_runtime_dir)),
             capture_control: AsyncMutex::new(()),
@@ -324,14 +318,12 @@ impl FromRef<Arc<AppState>> for ServiceContext {
 
 #[derive(Clone)]
 pub(crate) struct ModelContext {
-    pub(crate) config: Arc<ConfigRuntime>,
     pub(crate) capture: Arc<CaptureRuntime>,
 }
 
 impl FromRef<Arc<AppState>> for ModelContext {
     fn from_ref(state: &Arc<AppState>) -> Self {
         Self {
-            config: Arc::clone(&state.config),
             capture: Arc::clone(&state.capture),
         }
     }

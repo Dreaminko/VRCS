@@ -41,7 +41,6 @@ impl RuntimeAssembly {
 
         let (vad_runtime, vad_prepare_task) = prepare_vad(&plan).await;
         let model_manager = Arc::new(asr::ModelManager::new(plan.asr_model_dir.clone())?);
-        let asr_config = plan.config.asr.clone();
 
         let (subtitles_tx, _) = broadcast::channel(50);
         let (live_tx, _) = broadcast::channel(100);
@@ -86,10 +85,6 @@ impl RuntimeAssembly {
             subtitle_output.clone(),
             vrcx.clone(),
         );
-        let asr_service = asr::AsrService::new(asr_config, plan.asr_model_dir.clone());
-        let asr_runtime = asr_service.runtime_state();
-        let asr = Arc::new(Mutex::new(asr_service));
-
         let (external_api_server, external_api_status) =
             start_external_api(&plan, domain_events.clone(), shutdown_rx.clone()).await;
         let vrchat_mute_sync = vrchat_mute_sync::VrchatMuteSync::new(
@@ -109,8 +104,6 @@ impl RuntimeAssembly {
             qwen_runtime_dir,
             live_tx,
             vad_runtime: vad_runtime.clone(),
-            asr,
-            asr_runtime,
             model_manager: Arc::clone(&model_manager),
             vad_model_path: plan.vad_model_path,
             shutdown: shutdown_rx.clone(),

@@ -1,5 +1,9 @@
 [CmdletBinding()]
-param([switch]$Vulkan)
+param(
+    [switch]$Vulkan,
+    [ValidateSet("all", "format", "clippy", "test")]
+    [string]$Check = "all"
+)
 
 $ErrorActionPreference = "Stop"
 if ($env:OS -ne "Windows_NT") {
@@ -21,17 +25,24 @@ $featureArguments = if ($Vulkan) { @("--features", "vulkan") } else { @() }
 
 Push-Location $repoRoot
 try {
+    if ($Check -in @("all", "format")) {
+        foreach ($manifest in $manifests) {
+            Invoke-CargoCheck -CargoArguments @("fmt", "--manifest-path", $manifest, "--", "--check")
+        }
+    }
+    if ($Check -eq "format") { return }
     if ($Vulkan) {
-        & (Join-Path $PSScriptRoot "prepare-vulkan-sdk.ps1")
+        & (Join-Path $PSScriptRoot "prepare-vulkan-runtime.ps1")
     }
-    foreach ($manifest in $manifests) {
-        Invoke-CargoCheck -CargoArguments @("fmt", "--manifest-path", $manifest, "--", "--check")
+    if ($Check -in @("all", "clippy")) {
+        foreach ($manifest in $manifests) {
+            Invoke-CargoCheck -CargoArguments (@("clippy", "--manifest-path", $manifest, "--all-targets", "--locked") + $featureArguments + @("--", "-D", "warnings"))
+        }
     }
-    foreach ($manifest in $manifests) {
-        Invoke-CargoCheck -CargoArguments (@("clippy", "--manifest-path", $manifest, "--all-targets", "--locked") + $featureArguments + @("--", "-D", "warnings"))
-    }
-    foreach ($manifest in $manifests) {
-        Invoke-CargoCheck -CargoArguments (@("test", "--manifest-path", $manifest, "--locked") + $featureArguments)
+    if ($Check -in @("all", "test")) {
+        foreach ($manifest in $manifests) {
+            Invoke-CargoCheck -CargoArguments (@("test", "--manifest-path", $manifest, "--locked") + $featureArguments)
+        }
     }
 }
 finally {

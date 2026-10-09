@@ -23,6 +23,12 @@ pub fn load_config(path: &Path) -> Result<AppConfig, String> {
         .is_none_or(serde_json::Value::is_null);
     if version != SCHEMA_VERSION as u64 {
         let backup = path.with_extension(format!("v{version}.backup.json"));
+        if backup.exists() && !backup.is_file() {
+            return Err(format!(
+                "Configuration backup path is not a file: {}",
+                backup.display()
+            ));
+        }
         if !backup.exists() {
             fs::copy(path, &backup).map_err(|error| {
                 format!(

@@ -111,6 +111,7 @@ impl LocalOcrRuntime {
                 return Err("Invalid local OCR pixel buffer".into());
             }
         }
+        progress(Phase::WaitingWorker);
         let permit = self
             .inference_gate
             .clone()
@@ -291,7 +292,7 @@ impl Engine {
             return Err("Local OCR requires RGBA pixels".into());
         };
         let detecting = std::time::Instant::now();
-        let input = Value::from_array(processors::det_input(&pixels, image.width, image.height)?)
+        let input = Value::from_array(processors::det_input(pixels, image.width, image.height)?)
             .map_err(|_| "Could not create OCR detector input")?;
         let preparation_ms = detecting.elapsed().as_millis() as u64;
         check_cancelled(cancelled)?;
@@ -331,7 +332,7 @@ impl Engine {
         for polygon in polygons {
             check_cancelled(cancelled)?;
             let preparation = std::time::Instant::now();
-            let Some(input) = rec_input(&pixels, image.width, image.height, polygon)? else {
+            let Some(input) = rec_input(pixels, image.width, image.height, polygon)? else {
                 skipped += 1;
                 continue;
             };
@@ -960,14 +961,16 @@ mod tests {
         .unwrap();
         let snapshot = service.configuration().unwrap();
         let mut updates = Vec::new();
+        let mut snapshots = Vec::new();
         let stereo = service
-            .process_vr_scan(
+            .process_vr_scan_with_progress(
                 vec![sample(), sample_offset(30)],
                 &snapshot,
                 4,
                 tokio::time::Instant::now() + std::time::Duration::from_secs(30),
                 |_| {},
                 |update| updates.push(update),
+                |snapshot| snapshots.push(snapshot),
             )
             .await
             .unwrap();
@@ -977,6 +980,22 @@ mod tests {
         );
         assert_eq!(requests.load(Ordering::SeqCst), 1);
         assert_eq!(stereo.summary.success_count, 2);
+        assert!(snapshots
+            .iter()
+            .any(|snapshot| snapshot.recognition_phases.contains(&Phase::LoadingModel)));
+        assert!(snapshots.iter().any(|snapshot| snapshot.translation_started
+            && !snapshot.recognition_done
+            && snapshot.images_done == 1));
+        let last = snapshots.last().unwrap();
+        assert_eq!(
+            (
+                last.images_total,
+                last.images_done,
+                last.translation_total,
+                last.translation_completed
+            ),
+            (2, 2, 1, 1)
+        );
         assert_eq!((stereo.blocks[0].len(), stereo.blocks[1].len()), (1, 1));
         assert!(updates
             .iter()
@@ -984,14 +1003,16 @@ mod tests {
         assert!(updates
             .iter()
             .any(|update| update.eye == 1 && update.target_language.is_some()));
+        snapshots.clear();
         let mono = service
-            .process_vr_scan(
+            .process_vr_scan_with_progress(
                 vec![sample()],
                 &snapshot,
                 5,
                 tokio::time::Instant::now() + std::time::Duration::from_secs(30),
                 |_| {},
                 |_| {},
+                |snapshot| snapshots.push(snapshot),
             )
             .await
             .unwrap();
@@ -1000,6 +1021,19 @@ mod tests {
         assert!(mono.blocks[1].is_empty());
         assert_eq!(mono.summary.success_count, 1);
         assert_eq!(requests.load(Ordering::SeqCst), 1);
+        assert!(!snapshots
+            .iter()
+            .any(|snapshot| snapshot.recognition_phases.contains(&Phase::LoadingModel)));
+        let last = snapshots.last().unwrap();
+        assert_eq!(
+            (
+                last.images_total,
+                last.images_done,
+                last.translation_total,
+                last.translation_completed
+            ),
+            (1, 1, 1, 1)
+        );
     }
 
     #[tokio::test]

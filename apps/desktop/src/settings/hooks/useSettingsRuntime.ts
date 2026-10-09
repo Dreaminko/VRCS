@@ -4,8 +4,6 @@ import type { AudioDevice } from "../../capture/types";
 import type { CoreHealthController } from "../../core-client/useCoreRuntime";
 import type { ReportRuntimeError } from "../../core-client/useRuntimeErrors";
 import { integrationsApi } from "../../integrations/api";
-import { providersApi } from "../../providers/api";
-import type { AsrCapabilities } from "../../providers/types";
 import { captureApi } from "../../capture/api";
 import { settingsApi } from "../api";
 import { createSettingsAutosave } from "../settings-autosave";
@@ -30,7 +28,6 @@ export function useSettingsRuntime({
   const persistedSettingsRef = useRef<Settings | null>(null);
   const [devices, setDevices] = useState<AudioDevice[]>([]);
   const [devicesReady, setDevicesReady] = useState(false);
-  const [asrCapabilities, setAsrCapabilities] = useState<AsrCapabilities | null>(null);
 
   const loadSettings = useCallback(async () => {
     if (!coreConfigured) return;
@@ -53,21 +50,7 @@ export function useSettingsRuntime({
     }
   }, [clearErrorFrom, coreConfigured, reportError]);
 
-  const loadAsrCapabilities = useCallback(async () => {
-    if (!coreConfigured) return;
-    try {
-      setAsrCapabilities(await providersApi.asrCapabilities());
-      clearErrorFrom("asr");
-    } catch (reason) {
-      reportError(reason, "errors.asr.capabilities", "asr");
-    }
-  }, [clearErrorFrom, coreConfigured, reportError]);
-  const loadAsrCapabilitiesRef = useRef(loadAsrCapabilities);
-  loadAsrCapabilitiesRef.current = loadAsrCapabilities;
-
-  const refreshModels = useCallback(async () => {
-    await Promise.all([loadSettings(), loadAsrCapabilities()]);
-  }, [loadSettings, loadAsrCapabilities]);
+  const refreshModels = loadSettings;
 
   useEffect(() => {
     if (!coreConfigured || settings !== null) return;
@@ -75,14 +58,10 @@ export function useSettingsRuntime({
     let timer: number | null = null;
     const loadInitialResources = async () => {
       try {
-        const [nextSettings, nextCapabilities] = await Promise.all([
-          settingsApi.settings(),
-          providersApi.asrCapabilities(),
-        ]);
+        const nextSettings = await settingsApi.settings();
         if (cancelled) return;
         persistedSettingsRef.current = nextSettings;
         setSettings(nextSettings);
-        setAsrCapabilities(nextCapabilities);
         clearErrorFrom("settings-bootstrap");
       } catch (reason) {
         if (cancelled) return;
@@ -98,8 +77,8 @@ export function useSettingsRuntime({
   }, [clearErrorFrom, coreConfigured, reportError, settings]);
 
   useEffect(() => {
-    if (active) void Promise.all([loadDevices(), loadAsrCapabilities()]);
-  }, [active, loadAsrCapabilities, loadDevices]);
+    if (active) void loadDevices();
+  }, [active, loadDevices]);
 
   const persistSettings = useCallback(async (next: Settings): Promise<Settings> => {
     const previous = persistedSettingsRef.current;
@@ -125,7 +104,6 @@ export function useSettingsRuntime({
       onOptimistic: setSettings,
       onCommit: () => {
         clearErrorFrom("settings");
-        void loadAsrCapabilitiesRef.current();
       },
       onError: (reason) => {
         if (persistedSettingsRef.current) setSettings(persistedSettingsRef.current);
@@ -144,7 +122,7 @@ export function useSettingsRuntime({
   return {
     value: settings,
     devices: { items: devices, ready: devicesReady, refresh: loadDevices },
-    asr: { capabilities: asrCapabilities, refresh: refreshModels },
+    asr: { refresh: refreshModels },
     refresh: loadSettings,
     save: settingsAutosaveRef.current,
     testOsc,

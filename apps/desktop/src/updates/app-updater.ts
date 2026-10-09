@@ -2,7 +2,7 @@ import { Channel, invoke, isTauri } from "@tauri-apps/api/core";
 
 export interface AppBuildInfo {
   version: string;
-  variant: "standard" | "cuda";
+  variant: "standard";
   updaterAvailable: boolean;
 }
 

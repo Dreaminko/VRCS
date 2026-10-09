@@ -158,10 +158,6 @@
       "vrchat": {
         "title": "VRChat 未运行",
         "description": "VRCS 可以继续监听，但在 VRChat 启动前可能无法获取游戏音频。"
-      },
-      "cuda": {
-        "title": "CUDA 不可用",
-        "description": "所选 CUDA 运行环境不可用，请在设置中改用自动选择或 CPU。"
       }
     },
     "conversations": {
@@ -491,16 +487,13 @@
         "cloud_connect_failed": "无法连接云端识别服务。",
         "cloud_disconnected": "云端识别连接已断开。",
         "cloud_error": "云端识别服务返回错误。",
-        "cloud_reconnect_failed": "云端识别服务重连失败。",
-        "cudaUnavailable": "CUDA 预检失败，请改用自动选择或 CPU。",
-        "vulkanUnavailable": "Vulkan 不可用，请改用自动选择或 CPU。",
-        "invalidComputeType": "当前运行设备与计算类型组合无效。"
+        "cloud_reconnect_failed": "云端识别服务重连失败。"
       }
     },
     "updates": {
       "title": "软件更新",
       "currentVersion": "当前版本 {{version}}",
-      "variant": { "standard": "标准版", "cuda": "CUDA 版" },
+      "variant": { "standard": "标准版" },
       "automaticChecks": "自动检查更新",
       "checkNow": "立即检查",
       "availableTitle": "VRCS {{version}} 已发布",
@@ -1062,10 +1055,9 @@
       "recognition": {
         "title": "语音识别",
         "backend": "识别后端",
-        "backendDescription": "使用本地 Whisper 或低延迟云端流式识别。",
+        "backendDescription": "使用本地 Qwen 识别或云端服务。",
         "source": "识别来源",
         "sourceDescription": "选择本地识别，或直接选择一个已命名的 API 配置。",
-        "localSource": "本地 Whisper",
         "managedQwenSource": "本地 Qwen ASR",
         "qwenModels": "Qwen ASR 模型包",
         "verifyModel": "校验",
@@ -1102,9 +1094,6 @@
         },
         "selectedApiHint": "当前使用 API 配置“{{name}}”；连接详情和密钥请在“API 管理”中维护。",
         "selectedLocalQwenHint": "当前使用本机 Qwen ASR 连接“{{name}}”；服务地址可在“API 管理”中修改。VRCS 将音频发送给该服务，后续处理由服务决定。",
-        "failurePolicy": "识别失败时",
-        "reconnect": "重新连接",
-        "fallbackLocal": "切换本地 Whisper",
         "cloudDescription": "仅在本地检测到语音时上传音频。",
         "region": "服务区域",
         "context": "识别上下文",
@@ -1117,23 +1106,15 @@
         "status": "模型{{status}}",
         "stopToModify": "请先停止转写，再修改识别设置。",
         "applyImmediately": "更改会立即应用。",
-        "runtime": "运行环境",
-        "runtimeChecking": "正在检查可用运行环境…",
-        "cudaAvailable": "CUDA 可用，共检测到 {{count}} 个设备。",
-        "vulkanAvailable": "Vulkan 可用，共检测到 {{count}} 个设备。",
-        "cudaRuntimeMissing": "检测到 CUDA 设备，但运行环境不可用。",
-        "cudaUnavailable": "未检测到 CUDA；仍可使用 CPU。",
         "content": "识别内容",
         "contentDescription": "选择本地模型和语音语言。",
         "model": "模型",
         "language": "语音语言",
         "languageDescription": "选择固定语言可提高单语音频的识别稳定性；多语言对话建议使用自动检测。",
         "execution": "运行方式",
-        "executionDescription": "选择运行设备和计算精度。",
+        "executionDescription": "选择 CPU、GPU 或自动选择。",
         "device": "运行设备",
-        "deviceDescription": "自动选择会优先使用通过预检的 CUDA。",
-        "computeType": "计算类型",
-        "computeTypeDescription": "可用选项取决于所选运行设备。",
+        "deviceDescription": "自动选择在可用时使用 GPU，否则回退到 CPU。",
         "segmentation": "语音分段",
         "segmentationDescription": "控制语音片段结束时机和最大长度。",
         "smartTurn": "语义断句（实验性）",
@@ -1146,7 +1127,7 @@
         "downloadingCount": "正在下载 {{count}} 个模型",
         "installedCount": "已安装 {{count}} 个模型",
         "modelDirectory": "模型目录",
-        "modelDirectoryDescription": "下载的 Whisper 模型保存在这里。",
+        "modelDirectoryDescription": "下载的 Qwen 模型包存放在此目录。",
         "modelDirectoryRequired": "请先选择模型目录。",
         "chooseModelDirectory": "选择模型目录",
         "chooseFolder": "选择文件夹",
@@ -1155,31 +1136,9 @@
         "inUse": "使用中",
         "downloadProgress": "{{name}} 下载进度",
         "deleteModel": "删除 {{name}}",
-        "preparingDownload": "正在准备下载 {{name}}…",
-        "downloadQueued": "{{name}} 已开始下载。",
         "confirmDelete": "删除本地 {{name}} 模型？",
-        "deleting": "正在删除 {{name}}…",
-        "deleted": "{{name}} 已删除。",
-        "models": {
-          "tiny": "速度最快、体积最小，适合快速预览。",
-          "base": "兼顾体积与效果的轻量模型。",
-          "small": "速度与准确度平衡，推荐使用。",
-          "medium": "准确度更高，也会占用更多资源。",
-          "largeV3": "准确度最高，下载体积和资源占用也最大。"
-        },
         "modelStatus": {
-          "notSelected": "未选择模型",
-          "notDownloaded": "未下载",
-          "loading": "加载中",
-          "error": "异常",
-          "ready": "就绪",
-          "checking": "检查中"
-        },
-        "modelState": {
-          "notDownloaded": "未下载",
-          "loading": "加载中",
-          "error": "异常",
-          "ready": "就绪"
+          "notSelected": "未选择模型"
         }
       },
       "audio": {
@@ -1361,7 +1320,6 @@
         "maxSegment": "目标片段长度",
         "historyStorageLimit": "占用空间上限",
         "modelStatus": "模型状态",
-        "cuda": "CUDA",
         "availableDevices": "{{count}} 个设备",
         "transcription": "转写",
         "audioDevices": "音频设备",
@@ -1401,11 +1359,11 @@
         "realtimeDescription": "支持系统输出、VRChat 进程音频和自己的麦克风。"
       },
       "recognition": {
-        "description": "选择云端实时识别，或在本机运行 Whisper。云端模式延迟更低，本地模式不需要上传语音。",
+        "description": "选择云端识别或在本机运行 Qwen。本地识别不会上传语音。",
         "cloud": "云端实时识别",
         "cloudDescription": "使用 Qwen3、Fun-ASR 或 OpenAI Realtime，适合快速开始。",
-        "local": "本地 Whisper",
-        "localDescription": "在本机完成识别，需要先下载 Whisper 模型。",
+        "local": "本地 Qwen ASR",
+        "localDescription": "下载 Qwen 模型和运行时后，在本机识别语音。",
         "cloudSetup": "配置识别 API",
         "apiKeyRequired": "请输入 API Key",
         "addAnother": "添加其他 API",
@@ -1413,7 +1371,7 @@
         "addApiDescription": "API Key 将安全保存在 Windows 凭据管理器中。",
         "connectionReady": "连接测试成功，可以继续。",
         "testRequired": "请先测试连接。",
-        "downloadRequired": "请下载并选择一个本地模型后继续。",
+        "downloadRequired": "安装 Qwen 模型和运行时后才能继续。",
         "connectionReadyShort": "连接就绪"
       },
       "audio": {
@@ -1451,7 +1409,7 @@
         "title": "设置完成",
         "description": "基础识别和音频配置已经准备好。进入主界面后可按需开始转写。",
         "recognition": "语音识别",
-        "localReady": "本地 Whisper 模型已准备",
+        "localReady": "本地 Qwen 模型和运行时已就绪",
         "cloudReady": "云端 API 已通过连接测试",
         "audio": "音频来源",
         "audioReady": "音频来源和设备选择已保存",
@@ -1614,7 +1572,6 @@
         "not_found": "找不到该词典。"
       },
       "asr": {
-        "capabilities": "无法检查识别运行环境。",
         "alibaba_workspace_missing": "请先为 Alibaba Cloud 配置 Workspace ID。",
         "models": "无法加载本地模型。",
         "download": "无法下载模型。",

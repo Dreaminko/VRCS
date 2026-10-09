@@ -3,7 +3,7 @@ use std::time::Duration;
 use reqwest::multipart::{Form, Part};
 use serde::Deserialize;
 
-use super::engine::Transcription;
+use super::transcription::Transcription;
 use crate::config::{ApiAuthMode, ApiProfile, RecognitionServiceSettings};
 use crate::providers;
 

@@ -1,10 +1,6 @@
 $ErrorActionPreference = "Stop"
 
-# Keep GGML's nested shader build below the Windows path limit.
-if (-not $env:CARGO_TARGET_DIR) {
-    $env:CARGO_TARGET_DIR = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\core\target"))
-}
-# Prepare native GPU tools only when the requested Cargo features need them.
+# Stage the Vulkan loader when Qwen GPU support is requested.
 $features = @()
 $allFeatures = $args -contains "--all-features"
 for ($index = 0; $index -lt $args.Count; $index++) {
@@ -22,8 +18,8 @@ for ($index = 0; $index -lt $args.Count; $index++) {
         $features += $Matches[1] -split '[,\s]+'
     }
 }
-if ($allFeatures -or "vulkan" -in $features -or "cuda" -in $features) {
-    & (Join-Path $PSScriptRoot "prepare-vulkan-sdk.ps1")
+if ($allFeatures -or "vulkan" -in $features) {
+    & (Join-Path $PSScriptRoot "prepare-vulkan-runtime.ps1")
 }
 $tauriCli = Join-Path $PSScriptRoot "..\node_modules\@tauri-apps\cli\tauri.js"
 & node $tauriCli @args

@@ -8,20 +8,20 @@ use crate::config::AppConfig;
 
 use super::super::{api_error, ApiResult, SettingsContext};
 
-mod asr_runtime;
 mod capture;
 mod external_api;
 mod model_directory;
 mod persisted_config;
 mod post_commit;
+mod qwen_runtime;
 mod validation;
 
-use asr_runtime::AsrRuntimeChange;
 use capture::CaptureChange;
 use external_api::ExternalApiChange;
 use model_directory::ModelDirectoryChange;
 use persisted_config::PersistedConfigChange;
 use post_commit::PostCommitUpdates;
+use qwen_runtime::QwenRuntimeChange;
 
 type ApiError = (StatusCode, Json<Value>);
 
@@ -36,7 +36,7 @@ pub(super) struct SettingsChangePlan {
     effective_candidate: AppConfig,
     capture: CaptureChange,
     model_directory: ModelDirectoryChange,
-    asr_runtime: AsrRuntimeChange,
+    asr_runtime: QwenRuntimeChange,
     persisted_config: PersistedConfigChange,
     external_api: ExternalApiChange,
     post_commit: PostCommitUpdates,
@@ -49,6 +49,15 @@ impl SettingsChangePlan {
         has_current_revision: bool,
     ) -> ApiResult<Self> {
         let current = state.config.config.read().expect("config lock").clone();
+        if candidate.asr.backend != crate::config::QWEN_MANAGED_BACKEND
+            && crate::providers::recognition_service(&candidate.asr.backend).is_none()
+        {
+            return Err(api_error(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "settings.invalid",
+                format!("Unsupported recognition backend: {}", candidate.asr.backend),
+            ));
+        }
         super::protect_profile_owned_settings(&mut candidate, &current, has_current_revision);
         validation::validate_candidate(state, &mut candidate, &current).await?;
         Self::build(state, candidate, current).await
@@ -76,7 +85,7 @@ impl SettingsChangePlan {
         capture.prepare(state, &effective_candidate).await?;
 
         let model_directory = ModelDirectoryChange::between(state, &current, &candidate);
-        let asr_runtime = AsrRuntimeChange::between(
+        let asr_runtime = QwenRuntimeChange::between(
             &current,
             &candidate,
             model_directory.changed,
@@ -113,15 +122,7 @@ impl SettingsChangePlan {
             return Err(self.rollback_or(state, error).await);
         }
 
-        if let Err(detail) = self
-            .asr_runtime
-            .prepare(
-                state,
-                &self.candidate,
-                self.model_directory.candidate_path.clone(),
-            )
-            .await
-        {
+        if let Err(detail) = self.asr_runtime.prepare(state, &self.candidate).await {
             let error = api_error(
                 StatusCode::UNPROCESSABLE_ENTITY,
                 "settings.asr_preload_failed",
@@ -132,23 +133,6 @@ impl SettingsChangePlan {
 
         if let Err(detail) = self.persisted_config.apply(state, &self.candidate) {
             let error = api_error(StatusCode::UNPROCESSABLE_ENTITY, "settings.invalid", detail);
-            return Err(self.rollback_or(state, error).await);
-        }
-
-        if let Err(detail) = self
-            .asr_runtime
-            .apply(
-                state,
-                &self.candidate,
-                self.model_directory.candidate_path.clone(),
-            )
-            .await
-        {
-            let error = api_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "settings.asr_update_failed",
-                detail,
-            );
             return Err(self.rollback_or(state, error).await);
         }
 
@@ -193,7 +177,7 @@ impl SettingsChangePlan {
         if let Err(error) = self.persisted_config.rollback(state, &self.current) {
             errors.push(error);
         }
-        if let Err(error) = self.asr_runtime.rollback(state, &self.current).await {
+        if let Err(error) = self.asr_runtime.rollback(state).await {
             errors.push(error);
         }
         if let Err(error) = self.capture.restore(state, &self.current).await {

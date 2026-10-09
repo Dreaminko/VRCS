@@ -7,7 +7,7 @@ import {
   supportsCustomTranslationLanguage,
   translationLanguageCodesForProfile,
 } from "../src/translation-languages.ts";
-import type { ProviderCapabilities } from "../src/types.ts";
+import type { ProviderCapabilities } from "../src/providers/types.ts";
 
 function profileCapabilities(
   supportedLanguages: string[],

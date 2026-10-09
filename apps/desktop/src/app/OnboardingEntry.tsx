@@ -51,8 +51,6 @@ export function OnboardingEntry({
             health={runtime.health}
             devices={settings.devices.items}
             devicesReady={settings.devices.ready}
-            asrCapabilities={settings.asr.capabilities}
-            modelStatus={runtime.health?.asr_status ?? "unknown"}
             onRefreshDevices={settings.devices.refresh}
             onRefreshSettings={settings.refresh}
             onModelsChanged={settings.asr.refresh}

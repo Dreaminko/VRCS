@@ -16,17 +16,14 @@ import {
 } from "../../recognition-services";
 import { useAsrModels } from "../../settings/hooks/useAsrModels";
 import { useSettingsDraft } from "../../settings/hooks/useSettingsDraft";
-import { asrSelectionError } from "../../settings/settings-validation";
+import { managedQwenReady } from "../../settings/settings-derived";
 import { useApiProfiles } from "../../settings/useApiProfiles";
-import type { AsrCapabilities } from "../../providers/types";
 import type { Settings } from "../../settings/types";
 import type { RecognitionMode } from "../onboarding-types";
 
 export function useOnboardingRecognition({
   active,
   settings,
-  asrCapabilities,
-  modelStatus,
   onRefreshSettings,
   onModelsChanged,
   onSave,
@@ -37,8 +34,6 @@ export function useOnboardingRecognition({
 }: {
   active: boolean;
   settings: Settings;
-  asrCapabilities: AsrCapabilities | null;
-  modelStatus: string;
   onRefreshSettings: () => Promise<void>;
   onModelsChanged: () => Promise<void>;
   onSave: (settings: Settings) => Promise<Settings>;
@@ -49,13 +44,13 @@ export function useOnboardingRecognition({
 }) {
   const { t } = useTranslation();
   const [recognitionMode, setRecognitionMode] = useState<RecognitionMode>(
-    ["local_whisper", "qwen_local_managed"].includes(settings.asr.backend) ? "local" : "cloud",
+    settings.asr.backend === "qwen_local_managed" ? "local" : "cloud",
   );
   const [selectedProfileId, setSelectedProfileId] = useState(
     settings.asr.active_profile_id ?? "",
   );
   const [selectedServiceId, setSelectedServiceId] = useState(
-    ["local_whisper", "qwen_local_managed"].includes(settings.asr.backend) ? "" : settings.asr.backend,
+    settings.asr.backend === "qwen_local_managed" ? "" : settings.asr.backend,
   );
   const [testedSelectionId, setTestedSelectionId] = useState("");
   const [apiEditor, setApiEditor] = useState<ApiProfileEditorDraft | null>(null);
@@ -81,29 +76,18 @@ export function useOnboardingRecognition({
   const asr = useAsrModels({
     active: active && recognitionMode === "local",
     settings,
-    modelStatus,
-    asrCapabilities,
     onModelsChanged,
     draftController,
     apiProfiles: apiProfiles.profiles,
     providerDefinitions: apiProfiles.providerDefinitions,
   });
-  const selectedModel = asr.managedModels.find(
-    (model) => model.id === draftController.draft.asr.local.model,
-  );
-  const selectedQwen = asr.qwenModels.find(
-    (model) => model.id === draftController.draft.asr.managed_qwen.package_id,
-  );
-  const localSettingsError = asrSelectionError(
-    draftController.draft,
-    asrCapabilities,
-    (key) => t(key),
-  );
   const localReady = Boolean(
-    (draftController.draft.asr.backend === "qwen_local_managed"
-      ? selectedQwen?.status === "installed" && asr.qwenRuntime?.available
-      : selectedModel && ["downloaded", "loading", "ready"].includes(selectedModel.status))
-    && !localSettingsError
+    managedQwenReady(
+      draftController.draft.asr.managed_qwen,
+      asr.qwenModels,
+      asr.qwenRuntime,
+      asr.qwenModelsReady,
+    )
     && draftController.saveState !== "error",
   );
   const saveBusy = draftController.saveState === "saving";
@@ -205,10 +189,9 @@ export function useOnboardingRecognition({
         ...latest,
         asr: {
           ...latest.asr,
-          backend: draft.asr.backend === "qwen_local_managed" ? "qwen_local_managed" : "local_whisper",
+          backend: "qwen_local_managed",
           active_profile_id: null,
           language: draft.asr.language,
-          local: draft.asr.local,
           managed_qwen: draft.asr.managed_qwen,
         },
       });
@@ -243,7 +226,6 @@ export function useOnboardingRecognition({
     apiProfiles,
     draftController,
     asr,
-    localSettingsError,
     localReady,
     saveBusy,
     busy,

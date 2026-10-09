@@ -23,10 +23,6 @@ impl VadConfig {
 
 const ASR_LANGUAGES: [&str; 8] = ["auto", "en", "ja", "zh", "ko", "es", "fr", "de"];
 
-const ASR_DEVICES: [&str; 4] = ["auto", "cpu", "cuda", "vulkan"];
-const ASR_COMPUTE_TYPES: [&str; 1] = ["int8"];
-const CLOUD_FAILURE_POLICIES: [&str; 2] = ["reconnect", "local"];
-
 impl AppConfig {
     /// 配置文件与 PUT /api/settings 共用的完整结构校验。
     pub fn validate_settings(&self) -> Result<(), String> {
@@ -164,9 +160,7 @@ fn validate_audio(audio: &AudioConfig, vad: &VadConfig) -> Result<(), String> {
 }
 
 fn validate_recognition_options(asr: &AsrConfig) -> Result<(), String> {
-    if asr.backend != "local_whisper"
-        && asr.backend != QWEN_MANAGED_BACKEND
-        && providers::recognition_service(&asr.backend).is_none()
+    if asr.backend != QWEN_MANAGED_BACKEND && providers::recognition_service(&asr.backend).is_none()
     {
         return Err(format!("Unsupported recognition backend: {}", asr.backend));
     }
@@ -174,18 +168,6 @@ fn validate_recognition_options(asr: &AsrConfig) -> Result<(), String> {
         return Err(format!(
             "Unsupported recognition language: {}",
             asr.language
-        ));
-    }
-    if !ASR_DEVICES.contains(&asr.local.device.as_str()) {
-        return Err(format!(
-            "Unsupported recognition device: {}",
-            asr.local.device
-        ));
-    }
-    if !ASR_COMPUTE_TYPES.contains(&asr.local.compute_type.as_str()) {
-        return Err(format!(
-            "Unsupported compute type: {}",
-            asr.local.compute_type
         ));
     }
     if !asr.managed_qwen.package_id.is_empty()
@@ -202,16 +184,7 @@ fn validate_recognition_options(asr: &AsrConfig) -> Result<(), String> {
             asr.managed_qwen.device
         ));
     }
-    if !CLOUD_FAILURE_POLICIES.contains(&asr.cloud_failure_policy.as_str()) {
-        return Err(format!(
-            "Unsupported cloud failure policy: {}",
-            asr.cloud_failure_policy
-        ));
-    }
-    if asr.backend != "local_whisper"
-        && asr.backend != QWEN_MANAGED_BACKEND
-        && !asr.service_settings.contains_key(&asr.backend)
-    {
+    if asr.backend != QWEN_MANAGED_BACKEND && !asr.service_settings.contains_key(&asr.backend) {
         return Err(format!(
             "Recognition service settings are missing for backend: {}",
             asr.backend
@@ -448,7 +421,7 @@ fn validate_api_profiles(asr: &AsrConfig) -> Result<(), String> {
         providers::validate_profile(profile)?;
     }
 
-    if asr.backend == "local_whisper" || asr.backend == QWEN_MANAGED_BACKEND {
+    if asr.backend == QWEN_MANAGED_BACKEND {
         return Ok(());
     }
     let Some(active_id) = asr.active_profile_id.as_deref() else {

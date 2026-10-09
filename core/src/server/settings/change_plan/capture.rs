@@ -18,7 +18,6 @@ impl CaptureChange {
         candidate: &AppConfig,
     ) -> Self {
         let resume = match candidate.asr.backend.as_str() {
-            "local_whisper" => !candidate.asr.local.model.is_empty(),
             crate::config::QWEN_MANAGED_BACKEND => {
                 !candidate.asr.managed_qwen.package_id.is_empty()
             }

@@ -31,8 +31,8 @@ pub use language::LanguagePreset;
 pub use profile::{ApiAuthMode, ApiProfile, HttpHeaderConfig, DEFAULT_PROFILE_TIMEOUT_MS};
 #[allow(unused_imports)]
 pub use recognition::{
-    default_service_settings, AsrConfig, LocalAsrConfig, ManagedQwenConfig,
-    RecognitionServiceSettings, QWEN_MANAGED_BACKEND,
+    default_service_settings, AsrConfig, ManagedQwenConfig, RecognitionServiceSettings,
+    QWEN_MANAGED_BACKEND,
 };
 pub use runtime::{ExternalApiConfig, ServerConfig, StorageConfig, VrcxConfig};
 pub use schema::{AppConfig, SCHEMA_VERSION};

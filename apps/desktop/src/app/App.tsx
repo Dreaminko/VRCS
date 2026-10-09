@@ -57,9 +57,7 @@ function App() {
       {view}
       <RuntimeWarningDialogs
         vrchatWarningOpen={workspace.capture.vrchatWarningOpen}
-        cudaRuntimeWarningOpen={workspace.runtime.cudaWarning.open}
         onCloseVrchatWarning={workspace.capture.closeVrchatWarning}
-        onCloseCudaRuntimeWarning={workspace.runtime.cudaWarning.close}
       />
     </>
   );

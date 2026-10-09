@@ -3,6 +3,49 @@ use std::fs;
 use super::{load_config, AppConfig};
 
 #[test]
+fn whisper_upgrade_is_backed_up_and_preserves_existing_model_files() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("config.json");
+    let models = dir.path().join("models/whisper");
+    fs::create_dir_all(&models).unwrap();
+    let sentinel = models.join("ggml-old.bin");
+    fs::write(&sentinel, b"existing model").unwrap();
+    let raw = serde_json::json!({
+        "schema_version": 28,
+        "storage": {"model_directory": models.to_str().unwrap()},
+        "asr": {"backend": "local_whisper", "language": "ja",
+            "local": {"device": "cpu"}, "cloud_failure_policy": "local"}
+    });
+    let original = serde_json::to_vec_pretty(&raw).unwrap();
+    fs::write(&path, &original).unwrap();
+    let config = load_config(&path).unwrap();
+    assert_eq!(config.asr.backend, super::QWEN_MANAGED_BACKEND);
+    assert_eq!(config.asr.language, "ja");
+    assert_eq!(config.asr.managed_qwen.device, "cpu");
+    assert_eq!(
+        fs::read(path.with_extension("v28.backup.json")).unwrap(),
+        original
+    );
+    assert_eq!(fs::read(sentinel).unwrap(), b"existing model");
+    let saved: serde_json::Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+    assert_eq!(saved["schema_version"], super::SCHEMA_VERSION);
+    assert!(saved["asr"].get("local").is_none());
+    assert!(saved["asr"].get("cloud_failure_policy").is_none());
+    assert_eq!(load_config(&path).unwrap(), config);
+}
+
+#[test]
+fn whisper_upgrade_preserves_original_when_backup_path_is_unusable() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("config.json");
+    let original = br#"{"schema_version":28,"asr":{"backend":"local_whisper"}}"#;
+    fs::write(&path, original).unwrap();
+    fs::create_dir(path.with_extension("v28.backup.json")).unwrap();
+    assert!(load_config(&path).unwrap_err().contains("backup"));
+    assert_eq!(fs::read(path).unwrap(), original);
+}
+
+#[test]
 fn default_config_round_trips() {
     let dir = std::env::temp_dir().join(format!("vrcs-config-{}", std::process::id()));
     let path = dir.join("config.json");

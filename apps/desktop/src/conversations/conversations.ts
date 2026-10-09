@@ -20,11 +20,6 @@ export const CONVERSATION_ICON_KEYS = [
 
 export type ConversationIcon = typeof CONVERSATION_ICON_KEYS[number];
 
-export type ConversationCustomization = {
-  title?: string;
-  icon?: ConversationIcon;
-};
-
 export interface CoreConversation {
   id: string;
   started_at: string;

@@ -183,6 +183,15 @@ export interface VrOcrStatus {
   timed_out: boolean;
   wrist_state?: "hidden" | "visible" | "device_unavailable" | "error";
   wrist_error?: string | null;
+  progress?: {
+    scan_id: number;
+    status: string;
+    detail: string;
+    elapsed_seconds: number;
+    stages: ("pending" | "active" | "complete" | "skipped" | "failed")[];
+    translation_fraction: [number, number] | null;
+  } | null;
+  progress_error?: string | null;
   last_error_code: string | null;
   last_error: string | null;
 }

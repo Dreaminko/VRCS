@@ -7,7 +7,7 @@ import {
   supportsRecognition,
   supportsTranslation,
 } from "../src/api-profile-purpose.ts";
-import type { ApiCapability, ApiProfileView } from "../src/types.ts";
+import type { ApiCapability, ApiProfileView } from "../src/providers/types.ts";
 
 function profileView(
   enabledCapabilities: ApiCapability[],

@@ -19,8 +19,6 @@ pub struct AsrConfig {
     #[serde(default = "default_language")]
     pub language: String,
     #[serde(default)]
-    pub local: LocalAsrConfig,
-    #[serde(default)]
     pub managed_qwen: ManagedQwenConfig,
     #[serde(default)]
     pub api_profiles: Vec<ApiProfile>,
@@ -28,30 +26,12 @@ pub struct AsrConfig {
     pub active_profile_id: Option<String>,
     #[serde(default = "default_service_settings")]
     pub service_settings: BTreeMap<String, RecognitionServiceSettings>,
-    #[serde(default = "default_cloud_failure_policy")]
-    pub cloud_failure_policy: String,
     /// Resolved per audio source; never persisted.
     #[serde(skip)]
     pub live_translation_target: Option<String>,
     /// Native translation glossary resolved from enabled sources; never persisted.
     #[serde(skip)]
     pub live_translation_phrases: BTreeMap<String, String>,
-}
-
-impl AsrConfig {
-    pub(crate) fn local_fallback_enabled(&self) -> bool {
-        self.backend != QWEN_MANAGED_BACKEND && self.cloud_failure_policy == "local"
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct LocalAsrConfig {
-    #[serde(default = "default_asr_model")]
-    pub model: String,
-    #[serde(default = "default_device")]
-    pub device: String,
-    #[serde(default = "default_compute_type")]
-    pub compute_type: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -70,10 +50,6 @@ pub struct RecognitionServiceSettings {
     pub context: String,
 }
 
-pub(super) fn default_asr_model() -> String {
-    "small".into()
-}
-
 fn default_managed_qwen_package() -> String {
     "qwen3-asr-0.6b-q8_0".into()
 }
@@ -88,14 +64,6 @@ pub(super) fn default_language() -> String {
 
 pub(super) fn default_device() -> String {
     "auto".into()
-}
-
-pub(super) fn default_compute_type() -> String {
-    "int8".into()
-}
-
-fn default_cloud_failure_policy() -> String {
-    "reconnect".into()
 }
 
 pub fn default_service_settings() -> BTreeMap<String, RecognitionServiceSettings> {
@@ -181,24 +149,12 @@ impl Default for AsrConfig {
         Self {
             backend: default_asr_backend(),
             language: default_language(),
-            local: LocalAsrConfig::default(),
             managed_qwen: ManagedQwenConfig::default(),
             api_profiles: Vec::new(),
             active_profile_id: None,
             service_settings: default_service_settings(),
-            cloud_failure_policy: default_cloud_failure_policy(),
             live_translation_target: None,
             live_translation_phrases: BTreeMap::new(),
-        }
-    }
-}
-
-impl Default for LocalAsrConfig {
-    fn default() -> Self {
-        Self {
-            model: default_asr_model(),
-            device: default_device(),
-            compute_type: default_compute_type(),
         }
     }
 }

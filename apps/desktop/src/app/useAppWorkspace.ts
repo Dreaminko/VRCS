@@ -10,7 +10,6 @@ import { useChatboxWorkspace } from "../chatbox/useChatboxWorkspace";
 import { useConversationWorkspace } from "../conversations/useConversationWorkspace";
 import { useCaptureControl } from "../core-client/useCaptureControl";
 import { useCoreSession } from "../core-client/useCoreSession";
-import { useCudaRuntimeWarning } from "../core-client/useCudaRuntimeWarning";
 import { useLearningWorkspace } from "../learning/hooks/useLearningWorkspace";
 import { useSubtitleLearningActions } from "../learning/hooks/useSubtitleLearningActions";
 import { useOnboardingFlow } from "../onboarding/useOnboardingFlow";
@@ -85,10 +84,6 @@ export function useAppWorkspace({
     collapseCompactOverlay: compactWindow.collapseCompactOverlay,
     reportError: runtime.reportError,
   });
-  const cudaRuntimeWarning = useCudaRuntimeWarning(
-    settings.asr.capabilities,
-    onboardingFlow.status === "complete",
-  );
   const vrchatMuteToast = useVrchatMuteToast({
     settingsReady: settings.value !== null,
     enabled: settings.value?.osc.mute_status_toast_enabled ?? false,
@@ -142,7 +137,6 @@ export function useAppWorkspace({
     },
     runtime: {
       ...runtime,
-      cudaWarning: cudaRuntimeWarning,
       vrchatMuteToast,
     },
     capture: {

@@ -7,7 +7,7 @@ import {
   updateTranslationModel,
   translationDiagnosticModel,
 } from "../src/translation-model-selection.ts";
-import type { ApiProfileView } from "../src/types.ts";
+import type { ApiProfileView } from "../src/providers/types.ts";
 import type { TranslationTargetSettings } from "../src/settings/types.ts";
 
 function profile(provider: string, supportsModelListing = true): ApiProfileView {

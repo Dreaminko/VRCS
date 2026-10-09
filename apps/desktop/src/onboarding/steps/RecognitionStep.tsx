@@ -5,15 +5,12 @@ import type { ApiProfileEditorDraft } from "../../api-profile-draft";
 import { ApiProfileEditor } from "../../settings/api/ApiProfileEditor";
 import type { useAsrModels } from "../../settings/hooks/useAsrModels";
 import type { SettingsDraftController } from "../../settings/hooks/useSettingsDraft";
-import { LocalRecognitionSettings, LocalRuntimeStatus } from "../../settings/recognition/LocalRecognitionSettings";
 import { ManagedQwenSettings } from "../../settings/recognition/ManagedQwenSettings";
 import { ModelManagerPanel } from "../../settings/recognition/ModelManagerPanel";
 import { Select } from "../../settings/SettingsControls";
-import { validComputeTypes } from "../../settings/settings-validation";
 import type { useApiProfiles } from "../../settings/useApiProfiles";
 import type {
   ApiProfileView,
-  AsrCapabilities,
   ProviderServiceDefinition,
 } from "../../providers/types";
 import type { RecognitionMode } from "../onboarding-types";
@@ -35,8 +32,6 @@ export function RecognitionStep({
   apiProfiles,
   draftController,
   asr,
-  asrCapabilities,
-  localSettingsError,
   localReady,
   locale,
   busy,
@@ -62,8 +57,6 @@ export function RecognitionStep({
   apiProfiles: ApiProfilesController;
   draftController: SettingsDraftController;
   asr: AsrModelsController;
-  asrCapabilities: AsrCapabilities | null;
-  localSettingsError: string | null;
   localReady: boolean;
   locale: string;
   busy: boolean;
@@ -169,31 +162,7 @@ export function RecognitionStep({
         </div>
       ) : (
         <div className="onboarding-local-panel">
-          <Select
-            label={t("settings.recognition.source")}
-            value={draftController.draft.asr.backend === "qwen_local_managed" ? "managed_qwen" : "local"}
-            options={[
-              { value: "local", label: t("settings.recognition.localSource") },
-              { value: "managed_qwen", label: t("settings.recognition.managedQwenSource") },
-            ]}
-            disabled={operationBusy}
-            onChange={asr.updateRecognitionSource}
-          />
-          {draftController.draft.asr.backend !== "qwen_local_managed" && <>
-          <LocalRuntimeStatus capabilities={asrCapabilities} />
-          <LocalRecognitionSettings
-            draft={draftController.draft}
-            disabled={operationBusy}
-            capabilities={asrCapabilities}
-            asrError={localSettingsError}
-            modelStatusLabel={asr.modelStatusLabel}
-            computeTypes={validComputeTypes(asrCapabilities, draftController.draft.asr.local.device)}
-            selectableModels={asr.selectable}
-            onUpdateAsr={asr.updateAsr}
-            onUpdateLocalAsr={asr.updateLocalAsr}
-          />
-          </>}
-          {draftController.draft.asr.backend === "qwen_local_managed" && <ManagedQwenSettings
+          <ManagedQwenSettings
             draft={draftController.draft}
             models={asr.qwenModels}
             ready={asr.qwenModelsReady}
@@ -203,13 +172,13 @@ export function RecognitionStep({
             onUpdateQwen={asr.updateManagedQwen}
             onDownloadRuntime={asr.downloadQwenRuntime}
             onCancelRuntimeDownload={asr.cancelQwenRuntimeDownload}
-          />}
+          />
           <ModelManagerPanel
             qwen={{
               models: asr.qwenModels,
               ready: asr.qwenModelsReady,
               message: asr.qwenMessage,
-              selectedId: draftController.draft.asr.backend === "qwen_local_managed" ? draftController.draft.asr.managed_qwen.package_id : null,
+              selectedId: draftController.draft.asr.managed_qwen.package_id,
               onLoad: asr.loadQwenModels,
               onDownload: asr.downloadQwenModel,
               onCancel: asr.cancelQwenDownload,
@@ -217,19 +186,11 @@ export function RecognitionStep({
             }}
             locale={locale}
             disabled={operationBusy}
-            installedModels={asr.installed}
-            downloadingModels={asr.downloading}
-            managedModels={asr.managedModels}
-            modelsReady={asr.modelsReady}
-            message={asr.message}
             directoryText={asr.modelDirectoryText}
             saveState={draftController.saveState}
-            onLoad={asr.loadModels}
             onSetDirectoryText={asr.setModelDirectoryText}
             onUpdateDirectory={asr.updateModelDirectory}
             onChooseDirectory={asr.chooseModelDirectory}
-            onDownload={asr.downloadModel}
-            onRemove={asr.removeModel}
           />
           {!localReady && <p className="onboarding-feedback">{t("onboarding.recognition.downloadRequired")}</p>}
         </div>

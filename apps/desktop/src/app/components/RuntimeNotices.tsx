@@ -1,28 +1,18 @@
 import { useTranslation } from "react-i18next";
 
-import {
-  CudaRuntimeDialog,
-  VrchatNotRunningDialog,
-} from "../../shell/WarningDialogs";
+import { VrchatNotRunningDialog } from "../../shell/WarningDialogs";
 
 export function RuntimeWarningDialogs({
   vrchatWarningOpen,
-  cudaRuntimeWarningOpen,
   onCloseVrchatWarning,
-  onCloseCudaRuntimeWarning,
 }: {
   vrchatWarningOpen: boolean;
-  cudaRuntimeWarningOpen: boolean;
   onCloseVrchatWarning: () => void;
-  onCloseCudaRuntimeWarning: () => void;
 }) {
   return (
     <>
       {vrchatWarningOpen && (
         <VrchatNotRunningDialog onClose={onCloseVrchatWarning} />
-      )}
-      {cudaRuntimeWarningOpen && (
-        <CudaRuntimeDialog onClose={onCloseCudaRuntimeWarning} />
       )}
     </>
   );

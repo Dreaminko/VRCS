@@ -209,35 +209,21 @@ impl TranscriptionPipeline {
         })??;
         let audio_ms = startup_started.elapsed().as_millis();
         let cloud_started = Instant::now();
-        let cloud = if asr_config.backend == "local_whisper" {
-            None
+        let session = if asr_config.backend == crate::config::QWEN_MANAGED_BACKEND {
+            match dependencies.managed_qwen() {
+                Some((runtime, manager)) => {
+                    spawn_managed_qwen_session(asr_config.clone(), runtime, manager).await
+                }
+                None => Err("Managed Qwen ASR runtime is unavailable".into()),
+            }
         } else {
-            let session = if asr_config.backend == crate::config::QWEN_MANAGED_BACKEND {
-                match dependencies.managed_qwen() {
-                    Some((runtime, manager)) => {
-                        spawn_managed_qwen_session(asr_config.clone(), runtime, manager).await
-                    }
-                    None => Err("Managed Qwen ASR runtime is unavailable".into()),
-                }
-            } else {
-                spawn_cloud_recognition_session(asr_config.clone(), vad_config.silence_seconds)
-                    .await
-            };
-            match session {
-                Ok(session) => Some(session),
-                Err(error) if asr_config.local_fallback_enabled() => {
-                    dependencies.publish_live(LiveTranscription::Failed {
-                        utterance_id: None,
-                        source: self.source_name.into(),
-                        code: "asr.cloud_connect_failed".into(),
-                        detail: error,
-                    });
-                    None
-                }
-                Err(error) => {
-                    capture.shutdown().await;
-                    return Err(AudioError::with_code("asr.cloud_connect_failed", error));
-                }
+            spawn_cloud_recognition_session(asr_config.clone(), vad_config.silence_seconds).await
+        };
+        let cloud = match session {
+            Ok(session) => Some(session),
+            Err(error) => {
+                capture.shutdown().await;
+                return Err(AudioError::with_code("asr.cloud_connect_failed", error));
             }
         };
         let cloud_ms = cloud_started.elapsed().as_millis();
@@ -274,7 +260,6 @@ impl TranscriptionPipeline {
                     dependencies,
                     source,
                     cloud,
-                    local_fallback: asr_config.local_fallback_enabled(),
                     echo_guard: asr_echo_guard,
                     sample_rate,
                     trigger_threshold_dbfs,
@@ -330,7 +315,6 @@ struct PipelineRunContext {
     dependencies: PipelineDependencies,
     source: &'static str,
     cloud: Option<CloudRecognitionSession>,
-    local_fallback: bool,
     echo_guard: AsrEchoGuard,
     sample_rate: u32,
     trigger_threshold_dbfs: Option<f32>,
@@ -374,7 +358,6 @@ enum PipelineEvent {
     Cloud {
         event: CloudEvent,
         partial_publication: PartialPublication,
-        stop_cloud_on_failure: bool,
     },
     AudioAnalyzed {
         chunk: Vec<f32>,
@@ -394,7 +377,6 @@ enum PipelineEvent {
 
 #[derive(Clone, Copy)]
 enum RecognitionBackend {
-    Local,
     Cloud(SegmentationMode),
 }
 
@@ -423,7 +405,6 @@ enum PipelineEffect {
         peak_dbfs: f32,
         speech: bool,
     },
-    StopCloud,
     FlushPreRoll(Vec<(Vec<f32>, bool)>),
     ProcessAudio {
         chunk: Vec<f32>,
@@ -432,7 +413,6 @@ enum PipelineEffect {
     CommitCloud {
         has_segment: bool,
     },
-    TranscribeLocal(Vec<f32>),
 }
 
 fn reduce_pipeline_event(
@@ -444,14 +424,7 @@ fn reduce_pipeline_event(
         PipelineEvent::Cloud {
             event,
             partial_publication,
-            stop_cloud_on_failure,
-        } => reduce_cloud_event(
-            state,
-            event,
-            partial_publication,
-            stop_cloud_on_failure,
-            echo_guard,
-        ),
+        } => reduce_cloud_event(state, event, partial_publication, echo_guard),
         PipelineEvent::AudioAnalyzed {
             chunk,
             rms_dbfs,
@@ -489,10 +462,6 @@ fn reduce_pipeline_event(
                     ),
                     _,
                 ) => Vec::new(),
-                (RecognitionBackend::Local, Some(segment)) => {
-                    vec![PipelineEffect::TranscribeLocal(segment)]
-                }
-                (RecognitionBackend::Local, None) => Vec::new(),
             }
         }
         PipelineEvent::CloudCommitted(Some(utterance_id)) => {
@@ -507,7 +476,7 @@ fn reduce_cloud_event(
     state: &mut PipelineState,
     event: CloudEvent,
     partial_publication: PartialPublication,
-    stop_cloud_on_failure: bool,
+
     echo_guard: &AsrEchoGuard,
 ) -> Vec<PipelineEffect> {
     match event {
@@ -616,15 +585,11 @@ fn reduce_cloud_event(
                 }
                 utterance_id
             };
-            let mut effects = vec![PipelineEffect::PublishFailed {
+            vec![PipelineEffect::PublishFailed {
                 utterance_id,
                 code,
                 detail,
-            }];
-            if stop_cloud_on_failure {
-                effects.push(PipelineEffect::StopCloud);
-            }
-            effects
+            }]
         }
     }
 }
@@ -792,11 +757,6 @@ impl PipelineEffectRunner<'_> {
                     peak_dbfs,
                     speech,
                 }),
-            PipelineEffect::StopCloud => {
-                if let Some(session) = self.cloud.take() {
-                    session.stop().await;
-                }
-            }
             PipelineEffect::FlushPreRoll(chunks) => {
                 for (chunk, speech) in chunks {
                     if let Some(session) = self.cloud.as_ref() {
@@ -822,12 +782,10 @@ impl PipelineEffectRunner<'_> {
                     self.segmenter.push(&chunk, speech)
                 };
                 if was_active && !self.segmenter.is_active() {
-                    let backend = self
-                        .cloud
-                        .as_ref()
-                        .map_or(RecognitionBackend::Local, |session| {
-                            RecognitionBackend::Cloud(session.segmentation_mode())
-                        });
+                    let backend = self.cloud.as_ref().map_or(
+                        RecognitionBackend::Cloud(SegmentationMode::LocalCommit),
+                        |session| RecognitionBackend::Cloud(session.segmentation_mode()),
+                    );
                     return Ok(Some(PipelineEvent::SegmentEnded { segment, backend }));
                 }
                 if let Some((generation, audio)) = self.segmenter.take_candidate() {
@@ -858,11 +816,6 @@ impl PipelineEffectRunner<'_> {
                 };
                 return Ok(Some(PipelineEvent::CloudCommitted(utterance_id)));
             }
-            PipelineEffect::TranscribeLocal(segment) => {
-                self.dependencies
-                    .transcribe_and_publish(segment, self.source)
-                    .await?;
-            }
         }
         Ok(None)
     }
@@ -880,7 +833,6 @@ async fn run(
         dependencies,
         source,
         mut cloud,
-        local_fallback,
         echo_guard,
         sample_rate,
         trigger_threshold_dbfs,
@@ -910,10 +862,6 @@ async fn run(
             } => {
                 match event {
                     Some(event) => PipelineInput::Cloud(event),
-                    None if local_fallback => {
-                        cloud = None;
-                        continue;
-                    }
                     None => break Err("Cloud recognition session is closed".into()),
                 }
             }
@@ -930,7 +878,6 @@ async fn run(
             PipelineInput::Cloud(event) => PipelineEvent::Cloud {
                 event,
                 partial_publication: PartialPublication::Throttled(Instant::now()),
-                stop_cloud_on_failure: local_fallback,
             },
             PipelineInput::Audio(chunk) => {
                 let (rms_dbfs, peak_dbfs) = audio_level_dbfs(&chunk);
@@ -984,9 +931,10 @@ async fn run(
                 let Some(segment) = segmenter.complete_candidate(result.generation) else {
                     continue;
                 };
-                let backend = cloud.as_ref().map_or(RecognitionBackend::Local, |session| {
-                    RecognitionBackend::Cloud(session.segmentation_mode())
-                });
+                let backend = cloud.as_ref().map_or(
+                    RecognitionBackend::Cloud(SegmentationMode::LocalCommit),
+                    |session| RecognitionBackend::Cloud(session.segmentation_mode()),
+                );
                 PipelineEvent::SegmentEnded { segment, backend }
             }
         };
@@ -1017,7 +965,6 @@ async fn run(
                 PipelineEvent::Cloud {
                     event,
                     partial_publication: PartialPublication::Immediate,
-                    stop_cloud_on_failure: false,
                 },
                 &echo_guard,
             );
@@ -1149,13 +1096,9 @@ fn should_publish_at_interval(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::asr::{AsrEngine, AsrService, Transcription};
-    use crate::config::AsrConfig;
     use crate::db::Database;
     use crate::domain_events::DomainEventHub;
     use tokio::sync::broadcast;
-
-    struct FakeEngine;
 
     #[test]
     fn continuous_audio_does_not_commit_at_local_sentence_boundaries() {
@@ -1364,7 +1307,6 @@ mod tests {
                     finished_preview_ids: vec![],
                 },
                 partial_publication: PartialPublication::Throttled(Instant::now()),
-                stop_cloud_on_failure: false,
             };
             let effects = reduce_pipeline_event(&mut state, event, &AsrEchoGuard::default());
             assert!(
@@ -1412,7 +1354,6 @@ mod tests {
                 }],
             ),
             PartialPublication::Immediate,
-            false,
             &AsrEchoGuard::default(),
         );
         assert!(matches!(
@@ -1424,7 +1365,6 @@ mod tests {
             &mut state,
             event(snapshot, vec![]),
             PartialPublication::Immediate,
-            false,
             &AsrEchoGuard::default(),
         );
         assert!(
@@ -1470,7 +1410,6 @@ mod tests {
                     finished_preview_ids: vec![previous.utterance_id.clone()],
                 },
                 PartialPublication::Immediate,
-                false,
                 &guard,
             );
             assert!(matches!(effects.as_slice(), [
@@ -1494,7 +1433,6 @@ mod tests {
                 finished_preview_ids: vec![last.utterance_id.clone()],
             },
             PartialPublication::Immediate,
-            false,
             &guard,
         );
         assert!(
@@ -1515,7 +1453,6 @@ mod tests {
                 language: Some("en".into()),
             },
             partial_publication: PartialPublication::Throttled(now),
-            stop_cloud_on_failure: false,
         };
 
         let effects =
@@ -1552,7 +1489,6 @@ mod tests {
                 language: None,
             },
             partial_publication: PartialPublication::Immediate,
-            stop_cloud_on_failure: false,
         };
 
         assert_eq!(
@@ -1571,20 +1507,15 @@ mod tests {
                     detail: "reset".into(),
                 },
                 partial_publication: PartialPublication::Immediate,
-                stop_cloud_on_failure: true,
             },
             &guard,
         );
-        assert_eq!(effects.len(), 2);
         assert!(matches!(
             effects.as_slice(),
-            [
-                PipelineEffect::PublishFailed {
-                    utterance_id: None,
-                    ..
-                },
-                PipelineEffect::StopCloud
-            ]
+            [PipelineEffect::PublishFailed {
+                utterance_id: None,
+                ..
+            }]
         ));
         assert_eq!(state.lifecycle.failure_id(None), None);
     }
@@ -1619,10 +1550,6 @@ mod tests {
         let db = Arc::new(Mutex::new(
             Database::open(std::path::Path::new(":memory:")).unwrap(),
         ));
-        let asr = Arc::new(Mutex::new(AsrService::with_engine(
-            AsrConfig::default(),
-            Box::new(FakeEngine),
-        )));
         let (subtitles, _) = broadcast::channel(4);
         let (live, _) = broadcast::channel(4);
         let (catalog, _) = broadcast::channel(4);
@@ -1641,7 +1568,6 @@ mod tests {
             crate::vrcx::VrcxIntegration::new(tokio::sync::watch::channel(false).1),
         );
         PipelineDependencies::new(
-            asr,
             db,
             live,
             catalog,
@@ -1713,37 +1639,12 @@ mod tests {
         assert_eq!(event.payload["reason"], "filtered");
     }
 
-    impl AsrEngine for FakeEngine {
-        fn transcribe(
-            &mut self,
-            _samples: &[f32],
-            _language: Option<&str>,
-        ) -> Result<Transcription, String> {
-            Ok(Transcription {
-                text: "こんにちは".into(),
-                language: Some("ja".into()),
-            })
-        }
-    }
-
     #[tokio::test]
     async fn transcription_is_persisted_and_broadcast() {
         let directory = tempfile::tempdir().unwrap();
         let db = Arc::new(Mutex::new(
             Database::open(&directory.path().join("test.db")).unwrap(),
         ));
-        let config = AsrConfig {
-            local: crate::config::LocalAsrConfig {
-                model: "tiny".into(),
-                device: "cpu".into(),
-                compute_type: "int8".into(),
-            },
-            ..AsrConfig::default()
-        };
-        let asr = Arc::new(Mutex::new(AsrService::with_engine(
-            config,
-            Box::new(FakeEngine),
-        )));
         let (tx, mut rx) = broadcast::channel(4);
         let (live_tx, _) = broadcast::channel(4);
         let (catalog_tx, mut catalog_rx) = broadcast::channel(4);
@@ -1761,7 +1662,6 @@ mod tests {
             crate::vrcx::VrcxIntegration::new(tokio::sync::watch::channel(false).1),
         );
         let dependencies = PipelineDependencies::new(
-            asr,
             Arc::clone(&db),
             live_tx,
             catalog_tx,
@@ -1774,7 +1674,12 @@ mod tests {
         );
 
         dependencies
-            .transcribe_and_publish(vec![0.0; 512], "microphone")
+            .publish_text(
+                "こんにちは".into(),
+                Some("ja".into()),
+                "microphone",
+                "utterance-fixture".into(),
+            )
             .await
             .unwrap();
 

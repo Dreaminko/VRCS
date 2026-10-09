@@ -158,10 +158,6 @@
       "vrchat": {
         "title": "VRChat is not running",
         "description": "VRCS can continue listening, but game audio may not be available until VRChat starts."
-      },
-      "cuda": {
-        "title": "CUDA is unavailable",
-        "description": "The selected CUDA runtime is unavailable. Choose automatic selection or CPU in Settings."
       }
     },
     "conversations": {
@@ -491,16 +487,13 @@
         "cloud_connect_failed": "Could not connect to the cloud recognition service.",
         "cloud_disconnected": "The cloud recognition connection was closed.",
         "cloud_error": "The cloud recognition service returned an error.",
-        "cloud_reconnect_failed": "Could not reconnect to the cloud recognition service.",
-        "cudaUnavailable": "CUDA preflight failed. Choose automatic selection or CPU.",
-        "vulkanUnavailable": "Vulkan is unavailable. Choose automatic selection or CPU.",
-        "invalidComputeType": "This runtime device and compute type combination is invalid."
+        "cloud_reconnect_failed": "Could not reconnect to the cloud recognition service."
       }
     },
     "updates": {
       "title": "Software updates",
       "currentVersion": "Current version {{version}}",
-      "variant": { "standard": "Standard build", "cuda": "CUDA build" },
+      "variant": { "standard": "Standard build" },
       "automaticChecks": "Check for updates automatically",
       "checkNow": "Check now",
       "availableTitle": "VRCS {{version}} is available",
@@ -1062,10 +1055,9 @@
       "recognition": {
         "title": "Speech recognition",
         "backend": "Recognition backend",
-        "backendDescription": "Use local Whisper or a low-latency cloud stream.",
+        "backendDescription": "Use local Qwen recognition or a cloud service.",
         "source": "Recognition source",
         "sourceDescription": "Use local recognition or select a named API connection directly.",
-        "localSource": "Local Whisper",
         "managedQwenSource": "Local Qwen ASR",
         "qwenModels": "Qwen ASR model packages",
         "verifyModel": "Verify",
@@ -1102,9 +1094,6 @@
         },
         "selectedApiHint": "Using the “{{name}}” API connection. Manage its details and key under API access.",
         "selectedLocalQwenHint": "Using the local Qwen ASR connection “{{name}}”. Change its address under API access. VRCS sends audio to that service; the service controls any further processing.",
-        "failurePolicy": "If recognition fails",
-        "reconnect": "Reconnect",
-        "fallbackLocal": "Use local Whisper",
         "cloudDescription": "Audio is sent only while speech is detected.",
         "region": "Service region",
         "context": "Recognition context",
@@ -1117,23 +1106,15 @@
         "status": "Model {{status}}",
         "stopToModify": "Stop transcription before changing recognition settings.",
         "applyImmediately": "Changes are applied immediately.",
-        "runtime": "Runtime availability",
-        "runtimeChecking": "Checking available runtimes…",
-        "cudaAvailable": "CUDA is available on {{count}} device(s).",
-        "vulkanAvailable": "Vulkan is available on {{count}} device(s).",
-        "cudaRuntimeMissing": "A CUDA device was detected, but its runtime is unavailable.",
-        "cudaUnavailable": "CUDA was not detected; CPU remains available.",
         "content": "Recognition content",
         "contentDescription": "Select the local model and spoken language.",
         "model": "Model",
         "language": "Spoken language",
         "languageDescription": "Choose a fixed language for more consistent single-language recognition, or use auto detection for multilingual conversations.",
         "execution": "Execution",
-        "executionDescription": "Choose a runtime and numeric precision.",
+        "executionDescription": "Choose CPU, GPU, or automatic selection.",
         "device": "Runtime device",
-        "deviceDescription": "Automatic selection prefers CUDA when it passes preflight.",
-        "computeType": "Compute type",
-        "computeTypeDescription": "Available choices depend on the selected runtime.",
+        "deviceDescription": "Automatic selection uses GPU when available and falls back to CPU.",
         "segmentation": "Speech segmentation",
         "segmentationDescription": "Control when speech segments end and their maximum length.",
         "smartTurn": "Semantic endpointing (experimental)",
@@ -1146,7 +1127,7 @@
         "downloadingCount": "{{count}} download(s) in progress",
         "installedCount": "{{count}} model(s) installed",
         "modelDirectory": "Model directory",
-        "modelDirectoryDescription": "Downloaded Whisper models are stored here.",
+        "modelDirectoryDescription": "Downloaded Qwen model packages are stored here.",
         "modelDirectoryRequired": "Choose a model directory first.",
         "chooseModelDirectory": "Choose model directory",
         "chooseFolder": "Choose folder",
@@ -1155,31 +1136,9 @@
         "inUse": "In use",
         "downloadProgress": "Download progress for {{name}}",
         "deleteModel": "Delete {{name}}",
-        "preparingDownload": "Preparing {{name}} download…",
-        "downloadQueued": "{{name}} download started.",
         "confirmDelete": "Delete the local {{name}} model?",
-        "deleting": "Deleting {{name}}…",
-        "deleted": "{{name}} was deleted.",
-        "models": {
-          "tiny": "Fastest and smallest; useful for quick drafts.",
-          "base": "A balanced lightweight model.",
-          "small": "Recommended balance of speed and accuracy.",
-          "medium": "More accurate, with higher resource use.",
-          "largeV3": "Highest accuracy, with the largest download and resource use."
-        },
         "modelStatus": {
-          "notSelected": "No model selected",
-          "notDownloaded": "not downloaded",
-          "loading": "loading",
-          "error": "error",
-          "ready": "ready",
-          "checking": "checking"
-        },
-        "modelState": {
-          "notDownloaded": "Not downloaded",
-          "loading": "Loading",
-          "error": "Error",
-          "ready": "Ready"
+          "notSelected": "No model selected"
         }
       },
       "audio": {
@@ -1361,7 +1320,6 @@
         "maxSegment": "Target segment length",
         "historyStorageLimit": "Subtitle history space limit",
         "modelStatus": "Model status",
-        "cuda": "CUDA",
         "availableDevices": "{{count}} device(s)",
         "transcription": "Transcription",
         "audioDevices": "Audio devices",
@@ -1401,11 +1359,11 @@
         "realtimeDescription": "Capture system output, VRChat process audio, and your microphone."
       },
       "recognition": {
-        "description": "Choose low-latency cloud recognition or run Whisper locally. Local recognition does not upload speech.",
+        "description": "Choose cloud recognition or run Qwen locally. Local recognition does not upload speech.",
         "cloud": "Cloud recognition",
         "cloudDescription": "Use Qwen3, Fun-ASR, or OpenAI Realtime for a quick start.",
-        "local": "Local Whisper",
-        "localDescription": "Run recognition on this PC after downloading a Whisper model.",
+        "local": "Local Qwen ASR",
+        "localDescription": "Run recognition on this PC after downloading the Qwen model and runtime.",
         "cloudSetup": "Configure the recognition API",
         "apiKeyRequired": "Enter an API key",
         "addAnother": "Add another API",
@@ -1413,7 +1371,7 @@
         "addApiDescription": "The API key is stored securely in Windows Credential Manager.",
         "connectionReady": "The connection test succeeded. You can continue.",
         "testRequired": "Test the connection before continuing.",
-        "downloadRequired": "Download and select a local model before continuing.",
+        "downloadRequired": "Install the Qwen model and runtime before continuing.",
         "connectionReadyShort": "Connection ready"
       },
       "audio": {
@@ -1451,7 +1409,7 @@
         "title": "Setup is complete",
         "description": "Recognition and audio are ready. You can start transcription from the main interface when needed.",
         "recognition": "Speech recognition",
-        "localReady": "The local Whisper model is ready",
+        "localReady": "The local Qwen model and runtime are ready",
         "cloudReady": "The cloud API passed its connection test",
         "audio": "Audio sources",
         "audioReady": "Audio sources and device choices are saved",
@@ -1614,7 +1572,6 @@
         "not_found": "The dictionary was not found."
       },
       "asr": {
-        "capabilities": "Could not inspect recognition runtimes.",
         "alibaba_workspace_missing": "Configure an Alibaba Cloud Workspace ID first.",
         "models": "Could not load local models.",
         "download": "Could not download the model.",

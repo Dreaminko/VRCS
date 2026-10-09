@@ -8,8 +8,8 @@ import type { ApiProfileView } from "../src/providers/types.ts";
 import { VR_OVERLAY_POSITION_RANGES, type VrOverlayPositionField } from "../src/settings/vr-overlay-settings.ts";
 
 const settings = {
-  schema_version: 28,
-  asr: { backend: "local_whisper", language: "auto", local: { model: "small" } },
+  schema_version: 29,
+  asr: { backend: "qwen_local_managed", language: "auto", managed_qwen: { package_id: "qwen3-asr-0.6b-q8_0", device: "auto" } },
   translation: {
     mode: "automatic",
     speaker_targets: [
@@ -43,7 +43,7 @@ const profiles = [{
 test("dashboard language selection preserves the recognition engine and rejects invalid values", () => {
   const next = applyVrDashboardAction(settings, { set_recognition_language: "ja" }, profiles);
   assert.equal(next.asr.language, "ja");
-  assert.equal(next.asr.local, settings.asr.local);
+  assert.equal(next.asr.managed_qwen, settings.asr.managed_qwen);
   assert.equal(next.translation, settings.translation);
   assert.equal(applyVrDashboardAction(settings, { set_recognition_language: "invalid" }, profiles), settings);
   const live = { ...settings, asr: { ...settings.asr, backend: "gemini_live_translate" } };

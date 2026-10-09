@@ -45,13 +45,6 @@ export function defaultEnabledCapabilities(definition: ProviderDefinition | unde
   return available;
 }
 
-export function profileHasCapability(
-  profile: ApiProfile,
-  capability: ApiCapability,
-): boolean {
-  return profile.enabled_capabilities.includes(capability);
-}
-
 export function profileEnabledCapabilities(profile: ApiProfileView): ApiCapability[] {
   if (profile.enabled_capabilities.length > 0) return profile.enabled_capabilities;
   const capabilities: ApiCapability[] = [];

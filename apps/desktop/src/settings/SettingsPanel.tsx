@@ -1,15 +1,10 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 
-import {
-  asrSelectionError,
-  audioSelectionErrors,
-  validComputeTypes,
-} from "./settings-validation";
+import { audioSelectionErrors } from "./settings-validation";
 import type { AudioDevice } from "../capture/types";
 import type { Health } from "../core-client/types";
 import type { DictionarySource } from "../dictionary/types";
-import type { AsrCapabilities } from "../providers/types";
 import type { Settings } from "./types";
 import { SettingsTabBar } from "./components/SettingsTabBar";
 import { useAnkiSettings } from "./hooks/useAnkiSettings";
@@ -45,7 +40,6 @@ export function SettingsPanel({
   dictionaries,
   disabled,
   modelStatus,
-  asrCapabilities,
   onRefresh,
   onRefreshSettings,
   onImportDictionary,
@@ -68,7 +62,6 @@ export function SettingsPanel({
   dictionaries: DictionarySource[];
   disabled: boolean;
   modelStatus: string;
-  asrCapabilities: AsrCapabilities | null;
   onRefresh: () => Promise<void>;
   onRefreshSettings: () => Promise<void>;
   onImportDictionary: (
@@ -92,8 +85,6 @@ export function SettingsPanel({
   const asr = useAsrModels({
     active: activeCategory === "recognition",
     settings,
-    modelStatus,
-    asrCapabilities,
     onModelsChanged,
     draftController,
     apiProfiles: apiProfileCatalog.profiles,
@@ -117,14 +108,10 @@ export function SettingsPanel({
   const deviceErrors = devicesReady
     ? audioSelectionErrors(draft, devices, (key) => t(key))
     : [];
-  const asrError = asrSelectionError(draft, asrCapabilities, (key) => t(key));
-  const computeTypes = validComputeTypes(asrCapabilities, draft.asr.local.device);
-
 
   const debugRows = createDebugRows({
     draft,
     modelStatus,
-    asrCapabilities,
     disabled,
     outputDeviceCount: outputDevices.length,
     microphoneDeviceCount: microphoneDevices.length,
@@ -164,19 +151,7 @@ export function SettingsPanel({
           apiProfiles={apiProfileCatalog.profiles}
           providerDefinitions={apiProfileCatalog.providerDefinitions}
           modelStatus={modelStatus}
-          status={{
-            capabilities: asrCapabilities,
-            error: asrError,
-            modelStatusLabel: asr.modelStatusLabel,
-            computeTypes,
-            selectableModels: asr.selectable,
-          }}
           models={{
-            installed: asr.installed,
-            downloading: asr.downloading,
-            managed: asr.managedModels,
-            ready: asr.modelsReady,
-            message: asr.message,
             directoryText: asr.modelDirectoryText,
             qwen: asr.qwenModels,
             qwenReady: asr.qwenModelsReady,
@@ -188,15 +163,11 @@ export function SettingsPanel({
             updateAsr: asr.updateAsr,
             updateRecognitionSource: asr.updateRecognitionSource,
             updateRecognitionService: asr.updateRecognitionService,
-            updateLocalAsr: asr.updateLocalAsr,
             updateManagedQwen: asr.updateManagedQwen,
             updateVad: asr.updateVad,
-            loadModels: asr.loadModels,
             setModelDirectoryText: asr.setModelDirectoryText,
             updateModelDirectory: asr.updateModelDirectory,
             chooseModelDirectory: asr.chooseModelDirectory,
-            downloadModel: asr.downloadModel,
-            removeModel: asr.removeModel,
             loadQwenModels: asr.loadQwenModels,
             downloadQwenModel: asr.downloadQwenModel,
             downloadQwenRuntime: asr.downloadQwenRuntime,

@@ -190,7 +190,7 @@ fn profile_value(profile: &ApiProfile, config: &crate::config::AppConfig) -> Res
     let status = asr::credential_status(&profile.id, &profile.provider)?;
     let provider = providers::definition(&profile.provider)
         .ok_or_else(|| format!("Unsupported API provider: {}", profile.provider))?;
-    let active = config.asr.backend != "local_whisper"
+    let active = config.asr.backend != crate::config::QWEN_MANAGED_BACKEND
         && config.asr.active_profile_id.as_deref() == Some(profile.id.as_str())
         && providers::resolve_profile_service(profile, &config.asr.backend).is_ok();
     let translation_active = uses_global_translation_profile(config, &profile.id);
@@ -820,7 +820,7 @@ fn apply_profile_compatibility_fallbacks(
 }
 
 fn disable_cloud_recognition(config: &mut crate::config::AppConfig) {
-    config.asr.backend = "local_whisper".into();
+    config.asr.backend = crate::config::QWEN_MANAGED_BACKEND.into();
     config.asr.active_profile_id = None;
 }
 
@@ -981,7 +981,7 @@ mod tests {
 
         apply_profile_compatibility_fallbacks(&mut config, &profile);
 
-        assert_eq!(config.asr.backend, "local_whisper");
+        assert_eq!(config.asr.backend, crate::config::QWEN_MANAGED_BACKEND);
         assert_eq!(config.asr.active_profile_id, None);
         assert_eq!(config.translation.mode, "disabled");
         assert_eq!(config.translation.speaker_targets[0].profile_id, None);

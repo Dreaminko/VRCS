@@ -8,8 +8,7 @@ edition = "2021"
 
 [features]
 default = []
-cuda = ["vulkan", "whisper-rs/cuda"]
-vulkan = ["whisper-rs/vulkan"]
+vulkan = []
 
 [dependencies]
 axum = { version = "0.8", features = ["ws"] }
@@ -31,7 +30,6 @@ rustfft = "6.4.1"
 futures-util = "0.3"
 base64 = "0.22"
 tokio-tungstenite = { version = "0.29", features = ["rustls-tls-native-roots"] }
-whisper-rs = { version = "0.16", features = ["raw-api"] }
 sha2 = "0.10"
 serde_ignored = "0.1"
 uuid = { version = "1", features = ["v4"] }
@@ -54,7 +52,6 @@ windows = { version = "0.62", features = [
   "Win32_Media_Audio",
   "Win32_Security_Credentials",
   "Win32_System_Diagnostics_ToolHelp",
-  "Win32_System_LibraryLoader",
   "Win32_System_Threading",
   "Win32_System_WinRT_Direct3D11",
   "Win32_System_WinRT_Graphics_Capture",

@@ -1,7 +1,9 @@
 use std::path::{Path, PathBuf};
 
 use super::{AssetSpec, PackageSpec};
-use crate::asr::model::{file_sha256, modified_nanos, verification_path, VerificationRecord};
+use crate::asr::verification::{
+    file_sha256, modified_nanos, verification_path, VerificationRecord,
+};
 
 pub(crate) fn package_dir(root: &Path, spec: PackageSpec) -> PathBuf {
     root.join("qwen-asr").join(spec.id).join(spec.revision)

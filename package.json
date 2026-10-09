@@ -9,11 +9,8 @@
   "scripts": {
     "dev": "npm run dev:desktop",
     "dev:vulkan": "npm --workspace apps/desktop run tauri -- dev --features vulkan",
-    "dev:cuda": "npm run dev:desktop:cuda",
     "dev:core": "cargo run --manifest-path core/Cargo.toml",
-    "dev:core:cuda": "powershell -ExecutionPolicy Bypass -File scripts/run-cuda-dev.ps1 -Target core",
     "dev:desktop": "npm --workspace apps/desktop run tauri -- dev",
-    "dev:desktop:cuda": "powershell -ExecutionPolicy Bypass -File scripts/run-cuda-dev.ps1 -Target desktop",
     "check:i18n": "node scripts/check-i18n.mjs",
     "i18n:new": "node scripts/create-locale.mjs",
     "build:frontend": "npm --workspace apps/desktop run build",

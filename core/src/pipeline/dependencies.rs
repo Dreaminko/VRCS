@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex};
 
 use tokio::sync::broadcast;
 
-use crate::asr::{AsrService, ModelManager, QwenRuntime};
+use crate::asr::{ModelManager, QwenRuntime};
 use crate::config::{AppConfig, TranslationConfig};
 use crate::db::conversations::{publish_latest_catalog, ConversationCatalog};
 use crate::db::Database;
@@ -29,7 +29,6 @@ struct RecognizedText {
 
 #[derive(Clone)]
 pub(crate) struct PipelineDependencies {
-    asr: Arc<Mutex<AsrService>>,
     database: Arc<Mutex<Database>>,
     live: broadcast::Sender<LiveTranscription>,
     conversation_catalog: broadcast::Sender<ConversationCatalog>,
@@ -44,7 +43,6 @@ pub(crate) struct PipelineDependencies {
 impl PipelineDependencies {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
-        asr: Arc<Mutex<AsrService>>,
         database: Arc<Mutex<Database>>,
         live: broadcast::Sender<LiveTranscription>,
         conversation_catalog: broadcast::Sender<ConversationCatalog>,
@@ -54,7 +52,6 @@ impl PipelineDependencies {
         output: SubtitleLifecyclePublisher,
     ) -> Self {
         Self {
-            asr,
             database,
             live,
             conversation_catalog,
@@ -121,62 +118,6 @@ impl PipelineDependencies {
     pub(crate) fn reset_recognition(&self, source: &str) {
         self.fail_pending_native(source);
         self.output.asr_reset(source);
-    }
-
-    pub(crate) async fn transcribe_and_publish(
-        &self,
-        segment: Vec<f32>,
-        source: &'static str,
-    ) -> Result<(), String> {
-        let message_id = format!("utterance-{}", uuid::Uuid::new_v4());
-        let rms = (segment.iter().map(|sample| sample * sample).sum::<f32>()
-            / segment.len().max(1) as f32)
-            .sqrt();
-        let peak = segment.iter().copied().map(f32::abs).fold(0.0, f32::max);
-        tracing::debug!(
-            source,
-            samples = segment.len(),
-            duration_seconds = segment.len() as f64 / 16_000.0,
-            rms,
-            peak,
-            "sending speech segment to ASR"
-        );
-        let transcriber = Arc::clone(&self.asr);
-        let transcription = match tokio::task::spawn_blocking(move || {
-            transcriber.lock().expect("asr lock").transcribe(&segment)
-        })
-        .await
-        {
-            Ok(Ok(transcription)) => transcription,
-            Ok(Err(detail)) => {
-                self.output.asr_failed(
-                    Some(&message_id),
-                    source,
-                    "asr.transcription_failed",
-                    &detail,
-                );
-                return Err(detail);
-            }
-            Err(error) => {
-                let detail = format!("Recognition task exited unexpectedly: {error}");
-                self.output
-                    .asr_failed(Some(&message_id), source, "asr.task_failed", &detail);
-                return Err(detail);
-            }
-        };
-        tracing::debug!(
-            source,
-            text_length = transcription.text.chars().count(),
-            language = transcription.language.as_deref().unwrap_or("unknown"),
-            "ASR transcription completed"
-        );
-        self.publish_text(
-            transcription.text,
-            transcription.language,
-            source,
-            message_id,
-        )
-        .await
     }
 
     pub(crate) async fn publish_text(

@@ -66,5 +66,5 @@ function engineLabel(
 ): string {
   return settings
     ? recognitionEngineLabel(settings.asr, apiProfiles, providerDefinitions)
-    : "Whisper Small";
+    : "Qwen3-ASR 0.6B";
 }

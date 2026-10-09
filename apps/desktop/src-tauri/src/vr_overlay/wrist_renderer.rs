@@ -54,7 +54,7 @@ pub(super) fn render_text_box_with_colors(
     background: [u8; 3],
     foreground: [u8; 3],
 ) -> Result<Option<Vec<u8>>, String> {
-    let padding = 4;
+    let padding = (width.min(height) as i32 / 12).clamp(1, 4);
     if width < 12 || height < 12 || width > 4096 || height > 4096 {
         return Ok(None);
     }
@@ -286,6 +286,18 @@ mod tests {
         );
         let next = render(&messages, 768, 768, 36, 0.5).unwrap();
         assert_ne!(first, next);
+    }
+
+    #[test]
+    fn short_ocr_lines_fit_without_reducing_the_minimum_font_size() {
+        let mask = TextMask::new(1, 1, 12).unwrap();
+        let (text_width, text_height) = mask.measure_size("VR", 100, text_flags(MessageSide::Left));
+        let pixels =
+            render_text_box("VR", (text_width + 4) as u32, (text_height + 4) as u32, 0.6).unwrap();
+        assert!(
+            pixels.is_some(),
+            "small OCR boxes must not lose eight pixels to fixed padding"
+        );
     }
 
     #[test]

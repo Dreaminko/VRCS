@@ -59,9 +59,3 @@ jobs:
 
       - name: Validate locale resources
         run: npm run check:i18n
-
-      - name: Run desktop tests
-        run: npm --workspace apps/desktop test
-
-      - name: Build frontend
-        run: npm run build:frontend

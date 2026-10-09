@@ -5,7 +5,6 @@ import type {
   ChatboxPreview,
   ChatboxSendMode,
 } from "./types";
-import type { TranslationSettings } from "../settings/types";
 
 export const CHATBOX_LIMIT = 144;
 const SEND_MODES = new Set<ChatboxSendMode>(["original", "translation", "bilingual"]);

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { combineSubtitleText, subtitleCopyText, subtitleSelectionCopyText } from "../src/subtitle-actions.ts";
-import type { Subtitle } from "../src/types.ts";
+import type { Subtitle } from "../src/subtitles/types.ts";
 
 test("builds concise subtitle clipboard payloads", () => {
   assert.equal(subtitleCopyText("  原文  ", null, "original"), "原文");

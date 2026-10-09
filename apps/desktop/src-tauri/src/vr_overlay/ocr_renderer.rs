@@ -1,4 +1,4 @@
-use super::ocr_geometry::Homography;
+use super::ocr_geometry::{quads_intersect, Homography};
 use super::{ocr_capture::EyeCapture, renderer::Texture};
 use vrcs_core::ocr::TranslatedBlock;
 
@@ -43,14 +43,14 @@ pub fn render_eye(
         return Err("OCR render exceeds the block limit".into());
     }
     let mut pixels = vec![0; (width * height * 4) as usize];
-    let mut occupied: Vec<Bounds> = blocks
+    let mut occupied: Vec<_> = blocks
         .iter()
         .chain(excluded)
         .flat_map(|block| block.fragments())
-        .map(|fragment| Bounds::from_quad(fragment.polygon, width, height))
+        .map(|fragment| fragment.polygon)
         .collect();
     let mut unplaced = Vec::new();
-    let mut cards_used = 0;
+    let mut pending_cards = Vec::new();
     let patches: Vec<_> = blocks
         .iter()
         .flat_map(|block| {
@@ -113,25 +113,16 @@ pub fn render_eye(
         } else {
             Vec::new()
         };
-        let member_area: u64 = block
-            .fragments()
-            .iter()
-            .map(|fragment| {
-                let (w, h) = tile_size(fragment.polygon);
-                w as u64 * h as u64
-            })
-            .sum();
-        let compact = !grouped || member_area * 10 >= tile_width as u64 * tile_height as u64 * 6;
         let obstructed = grouped
             && blocks
                 .iter()
                 .chain(excluded)
                 .filter(|other| other.source.id != block.source.id)
-                .flat_map(|other| other.fragments())
-                .any(|fragment| {
-                    bounds.intersects(Bounds::from_quad(fragment.polygon, width, height))
+                .any(|other| {
+                    bounds.intersects(Bounds::from_quad(other.source.polygon, width, height))
+                        && quads_intersect(*polygon, other.source.polygon)
                 });
-        let tile = if compact && !obstructed {
+        let tile = if !obstructed {
             super::wrist_renderer::render_text_box_with_colors(
                 &text,
                 tile_width,
@@ -144,38 +135,18 @@ pub fn render_eye(
             None
         };
         let Some(tile) = tile else {
-            if cards_used < 8 {
-                if let Some((card, tile)) =
-                    place_card(&text, bounds, &occupied, width, height, opacity)?
-                {
-                    for y in card.top..card.bottom {
-                        for x in card.left..card.right {
-                            let offset =
-                                (((y - card.top) * card.width() + x - card.left) * 4) as usize;
-                            blend(
-                                &mut pixels[((y * width + x) * 4) as usize..][..4],
-                                tile[offset..offset + 4].try_into().unwrap(),
-                            );
-                        }
-                    }
-                    let center = [
-                        (bounds.left + bounds.right) as f32 * 0.5,
-                        (bounds.top + bounds.bottom) as f32 * 0.5,
-                    ];
-                    let nearest = [
-                        center[0].clamp(card.left as f32, card.right as f32),
-                        center[1].clamp(card.top as f32, card.bottom as f32),
-                    ];
-                    line(&mut pixels, width, height, center, nearest);
-                    for i in 0..4 {
-                        line(&mut pixels, width, height, polygon[i], polygon[(i + 1) % 4]);
-                    }
-                    occupied.push(card);
-                    cards_used += 1;
-                    continue;
-                }
-            }
-            unplaced.push(block.source.id);
+            tracing::debug!(
+                block_id = block.source.id,
+                reason = if obstructed {
+                    "overlap"
+                } else {
+                    "text_overflow"
+                },
+                tile_width,
+                tile_height,
+                "OCR in-place layout unavailable"
+            );
+            pending_cards.push((block.source.id, text, *polygon, bounds));
             continue;
         };
         for y in bounds.top..bounds.bottom {
@@ -208,6 +179,52 @@ pub fn render_eye(
                 blend(destination, color);
             }
         }
+        occupied.push(*polygon);
+    }
+    // Reserve every in-place translation before finding space for connected cards.
+    let mut cards_used = 0;
+    for (id, text, polygon, bounds) in pending_cards {
+        let card = if cards_used < 8 {
+            place_card(&text, bounds, &occupied, width, height, opacity)?
+        } else {
+            None
+        };
+        let Some((card, tile)) = card else {
+            tracing::debug!(
+                block_id = id,
+                reason = if cards_used >= 8 {
+                    "card_limit"
+                } else {
+                    "no_card_space"
+                },
+                "OCR translation sent to wrist"
+            );
+            unplaced.push(id);
+            continue;
+        };
+        for y in card.top..card.bottom {
+            for x in card.left..card.right {
+                let offset = (((y - card.top) * card.width() + x - card.left) * 4) as usize;
+                blend(
+                    &mut pixels[((y * width + x) * 4) as usize..][..4],
+                    tile[offset..offset + 4].try_into().unwrap(),
+                );
+            }
+        }
+        let center = [
+            (bounds.left + bounds.right) as f32 * 0.5,
+            (bounds.top + bounds.bottom) as f32 * 0.5,
+        ];
+        let nearest = [
+            center[0].clamp(card.left as f32, card.right as f32),
+            center[1].clamp(card.top as f32, card.bottom as f32),
+        ];
+        line(&mut pixels, width, height, center, nearest);
+        for i in 0..4 {
+            line(&mut pixels, width, height, polygon[i], polygon[(i + 1) % 4]);
+        }
+        occupied.push(card.quad());
+        cards_used += 1;
     }
     Ok((
         Texture {
@@ -286,6 +303,14 @@ impl Bounds {
             && self.top < other.bottom
             && other.top < self.bottom
     }
+    fn quad(self) -> [[f32; 2]; 4] {
+        [
+            [self.left as f32, self.top as f32],
+            [self.right as f32, self.top as f32],
+            [self.right as f32, self.bottom as f32],
+            [self.left as f32, self.bottom as f32],
+        ]
+    }
     fn from_quad(quad: [[f32; 2]; 4], width: u32, height: u32) -> Self {
         Self {
             left: quad
@@ -319,7 +344,7 @@ impl Bounds {
 fn place_card(
     text: &str,
     source: Bounds,
-    occupied: &[Bounds],
+    occupied: &[[[f32; 2]; 4]],
     width: u32,
     height: u32,
     opacity: f32,
@@ -331,7 +356,9 @@ fn place_card(
     let (right_edge, bottom_edge) = (width - margin, height - margin);
     let max_width = (width - margin * 2).min(960);
     let max_height = (height - margin * 2).min(720);
-    for candidate_width in [160, 320, 480, 960] {
+    let preferred_width = source.width().clamp(160, 960).min(max_width);
+    let mut best = None;
+    for candidate_width in [preferred_width, 160, 320, 480, 960] {
         let Some((card_width, card_height)) = super::wrist_renderer::compact_text_box_size(
             text,
             candidate_width.min(max_width),
@@ -381,18 +408,29 @@ fn place_card(
                 || card.top < margin
                 || card.right > right_edge
                 || card.bottom > bottom_edge
-                || occupied.iter().any(|other| card.intersects(*other))
+                || occupied.iter().any(|other| {
+                    card.intersects(Bounds::from_quad(*other, width, height))
+                        && quads_intersect(card.quad(), *other)
+                })
             {
                 continue;
             }
-            if let Some(tile) =
-                super::wrist_renderer::render_text_box(text, card.width(), card.height(), opacity)?
-            {
-                return Ok(Some((card, tile)));
+            let distance = (card.left + card.right).abs_diff(source.left + source.right) / 2
+                + (card.top + card.bottom).abs_diff(source.top + source.bottom) / 2;
+            // Prefer nearby, readable paragraphs over narrow, tall columns.
+            let score = distance + card.height() + card.width().abs_diff(preferred_width) / 2;
+            if best.is_none_or(|(_, previous)| score < previous) {
+                best = Some((card, score));
             }
         }
     }
-    Ok(None)
+    let Some((card, _)) = best else {
+        return Ok(None);
+    };
+    Ok(
+        super::wrist_renderer::render_text_box(text, card.width(), card.height(), opacity)?
+            .map(|tile| (card, tile)),
+    )
 }
 
 fn line(pixels: &mut [u8], width: u32, height: u32, from: [f32; 2], to: [f32; 2]) {
@@ -716,7 +754,19 @@ mod tests {
         let (texture, limited) = render_eye(&eye, &[block.clone()], &[], 0.6, false).unwrap();
         assert!(limited.is_empty());
         assert_eq!(texture.pixels[(55 * 512 + 50) * 4 + 3], 0);
-        assert!(texture.pixels[(100 * 512 + 200) * 4 + 3] >= 153);
+        assert!(
+            texture
+                .pixels
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .enumerate()
+                .any(|(index, pixel)| {
+                    let (x, y) = (index as u32 % 512, index as u32 / 512);
+                    pixel[3] >= 153 && !(40..=160).contains(&x) && !(50..=74).contains(&y)
+                }),
+            "the connected card must remain visible outside the original text"
+        );
         let mut excluded = block.clone();
         excluded.source.id = 1;
         excluded.source.polygon = [[0., 0.], [512., 0.], [512., 320.], [0., 320.]];
@@ -761,7 +811,7 @@ mod tests {
             },
         ];
 
-        let card = place_card("VR", source, &occupied, 512, 320, 0.6).unwrap();
+        let card = place_card("VR", source, &occupied.map(Bounds::quad), 512, 320, 0.6).unwrap();
 
         let (bounds, pixels) = card.expect("Short text must fit a compact card");
         assert!(bounds.width() < 160 && bounds.height() < 100);
@@ -769,6 +819,195 @@ mod tests {
         assert_eq!(
             pixels.len(),
             (bounds.width() * bounds.height() * 4) as usize
+        );
+    }
+
+    #[test]
+    fn tilted_paragraph_stays_in_place_beside_a_disjoint_text_line() {
+        let (mut eye, mut group) = background_fixture([10, 30, 50, 255]);
+        eye.image = Texture {
+            width: 512,
+            height: 320,
+            pixels: [10, 30, 50, 255].repeat(512 * 320),
+        };
+        group.source.polygon = [[40., 100.], [440., 40.], [446., 80.], [46., 140.]];
+        group.fragments = [
+            [[40., 100.], [440., 40.], [442.4, 56.], [42.4, 116.]],
+            [[43.6, 124.], [443.6, 64.], [446., 80.], [46., 140.]],
+        ]
+        .into_iter()
+        .enumerate()
+        .map(|(id, polygon)| TextBlock {
+            id,
+            polygon,
+            ..group.source.clone()
+        })
+        .collect();
+        group.translations[0].text = Some("VR".into());
+        let mut neighbor = group.clone();
+        neighbor.source.id = 1;
+        neighbor.source.polygon = [[47.2, 148.], [447.2, 88.], [449.6, 104.], [49.6, 164.]];
+        neighbor.fragments.clear();
+        let (texture, unplaced) = render_eye(&eye, &[group], &[neighbor], 0.6, false).unwrap();
+        assert!(unplaced.is_empty());
+        assert!(
+            texture.pixels[(102 * 512 + 80) * 4 + 3] >= 153,
+            "the translation must cover its source instead of moving to a card"
+        );
+    }
+
+    #[test]
+    fn a_short_translation_uses_a_sparse_paragraph_envelope() {
+        let (mut eye, mut group) = background_fixture([10, 30, 50, 255]);
+        eye.image = Texture {
+            width: 320,
+            height: 160,
+            pixels: [10, 30, 50, 255].repeat(320 * 160),
+        };
+        group.source.polygon = [[10., 10.], [300., 10.], [300., 70.], [10., 70.]];
+        group.fragments = [
+            [[10., 10.], [300., 10.], [300., 30.], [10., 30.]],
+            [[10., 50.], [70., 50.], [70., 70.], [10., 70.]],
+        ]
+        .into_iter()
+        .enumerate()
+        .map(|(id, polygon)| TextBlock {
+            id,
+            polygon,
+            ..group.source.clone()
+        })
+        .collect();
+        group.translations[0].text = Some("VR".into());
+        let (texture, unplaced) = render_eye(&eye, &[group], &[], 0.6, false).unwrap();
+        assert!(unplaced.is_empty());
+        assert!(texture.pixels[(20 * 320 + 280) * 4 + 3] >= 153);
+        assert_eq!(
+            texture.pixels[(40 * 320 + 280) * 4 + 3],
+            0,
+            "unused paragraph gaps stay transparent"
+        );
+    }
+
+    #[test]
+    fn long_translation_cards_use_the_available_width_near_a_wide_source() {
+        let source = Bounds {
+            left: 200,
+            top: 220,
+            right: 800,
+            bottom: 260,
+        };
+        let text = "This translation describes the aquarium and its exhibits. ".repeat(4);
+        let (card, _) = place_card(&text, source, &[source.quad()], 1024, 720, 0.6)
+            .unwrap()
+            .unwrap();
+        assert!(
+            card.width() >= 320,
+            "long paragraphs must not become narrow columns when a wide card fits"
+        );
+        assert!(card.height() < card.width());
+        assert!(!card.intersects(source));
+    }
+
+    #[test]
+    fn a_translation_card_uses_space_outside_a_tilted_source_polygon() {
+        let (mut eye, mut block) = background_fixture([10, 30, 50, 255]);
+        eye.image = Texture {
+            width: 512,
+            height: 320,
+            pixels: [10, 30, 50, 255].repeat(512 * 320),
+        };
+        block.source.polygon = [[200., 200.], [210., 200.], [210., 210.], [200., 210.]];
+        block.translations[0].text = Some("VR".into());
+        let mut neighbor = block.clone();
+        neighbor.source.id = 1;
+        neighbor.source.polygon = [[10., 0.], [512., 300.], [502., 320.], [0., 20.]];
+        let (texture, unplaced) = render_eye(&eye, &[block], &[neighbor], 0.6, false).unwrap();
+        assert!(
+            unplaced.is_empty(),
+            "a tilted polygon must not reserve its entire axis-aligned bounding box"
+        );
+        assert!(texture
+            .pixels
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .any(|pixel| pixel[3] >= 153));
+    }
+
+    #[test]
+    fn translation_cards_do_not_overwrite_in_place_paragraphs_when_block_order_changes() {
+        let (mut eye, mut group) = background_fixture([10, 30, 50, 255]);
+        eye.image = Texture {
+            width: 640,
+            height: 360,
+            pixels: [10, 30, 50, 255].repeat(640 * 360),
+        };
+        group.source.polygon = [[200., 100.], [500., 100.], [500., 250.], [200., 250.]];
+        group.fragments = [
+            [[200., 100.], [500., 100.], [500., 130.], [200., 130.]],
+            [[200., 220.], [260., 220.], [260., 250.], [200., 250.]],
+        ]
+        .into_iter()
+        .enumerate()
+        .map(|(id, polygon)| TextBlock {
+            id,
+            polygon,
+            ..group.source.clone()
+        })
+        .collect();
+        group.translations[0].text =
+            Some("The aquarium contains many fish and several exhibits. ".repeat(3));
+        let mut short = group.clone();
+        short.source.id = 1;
+        short.source.polygon = [[180., 180.], [190., 180.], [190., 190.], [180., 190.]];
+        short.fragments.clear();
+        short.translations[0].text = Some("VR".into());
+        let (first, unplaced) =
+            render_eye(&eye, &[short.clone(), group.clone()], &[], 0.6, false).unwrap();
+        let (second, other_unplaced) = render_eye(&eye, &[group, short], &[], 0.6, false).unwrap();
+        assert!(unplaced.is_empty() && other_unplaced.is_empty());
+        assert!(
+            first.pixels == second.pixels,
+            "card placement must reserve the full in-place translation before drawing cards"
+        );
+    }
+
+    #[test]
+    fn in_place_paragraphs_do_not_cover_another_text_region_inside_their_envelope() {
+        let (mut eye, mut group) = background_fixture([10, 30, 50, 255]);
+        eye.image = Texture {
+            width: 320,
+            height: 160,
+            pixels: [10, 30, 50, 255].repeat(320 * 160),
+        };
+        group.source.polygon = [[10., 10.], [300., 10.], [300., 70.], [10., 70.]];
+        group.fragments = [
+            [[10., 10.], [300., 10.], [300., 30.], [10., 30.]],
+            [[10., 50.], [70., 50.], [70., 70.], [10., 70.]],
+        ]
+        .into_iter()
+        .enumerate()
+        .map(|(id, polygon)| TextBlock {
+            id,
+            polygon,
+            ..group.source.clone()
+        })
+        .collect();
+        group.translations[0].text = Some("VR".into());
+        let mut neighbor = group.clone();
+        neighbor.source.id = 1;
+        neighbor.source.polygon = [[100., 35.], [180., 35.], [180., 45.], [100., 45.]];
+        neighbor.fragments.clear();
+        let (texture, unplaced) = render_eye(&eye, &[group], &[neighbor], 0.6, false).unwrap();
+        assert!(
+            unplaced.is_empty(),
+            "the translation can still use a card below its source"
+        );
+        assert_eq!(texture.pixels[(20 * 320 + 280) * 4 + 3], 0);
+        assert_eq!(
+            texture.pixels[(40 * 320 + 140) * 4 + 3],
+            0,
+            "the neighboring source must stay visible"
         );
     }
 

@@ -8,10 +8,12 @@ mod cache;
 mod layout;
 mod local;
 mod processors;
+mod progress;
 mod tasks;
 
 pub use assets::{ModelState, ModelStatus};
 pub(crate) use local::{LocalOcrRuntime, OcrExecutionStatus};
+pub use progress::PipelineProgress;
 pub use tasks::{
     source_view, BlockUpdate, ScanConfiguration, ScanOutcome, ScanResult, ScanSummary,
 };
@@ -169,6 +171,29 @@ impl VrOcrService {
         progress: impl FnMut(Phase),
         completed: impl FnMut(BlockUpdate),
     ) -> Result<ScanResult, String> {
+        self.process_vr_scan_with_progress(
+            images,
+            config,
+            scan_id,
+            deadline,
+            progress,
+            completed,
+            |_| {},
+        )
+        .await
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub async fn process_vr_scan_with_progress(
+        &self,
+        images: Vec<OcrImage>,
+        config: &ScanConfiguration,
+        scan_id: u64,
+        deadline: tokio::time::Instant,
+        progress: impl FnMut(Phase),
+        completed: impl FnMut(BlockUpdate),
+        pipeline_progress: impl FnMut(PipelineProgress),
+    ) -> Result<ScanResult, String> {
         use tracing::Instrument;
         let span = tracing::info_span!("ocr_scan", scan_id);
         let started = std::time::Instant::now();
@@ -183,8 +208,14 @@ impl VrOcrService {
                 return Err("OCR configuration changed".into());
             }
             let state = std::sync::Mutex::new((progress, 0usize));
+            let pipeline = std::sync::Mutex::new(progress::Reporter::new(
+                scan_id,
+                images.len(),
+                pipeline_progress,
+            ));
             let report = |phase| {
                 let rank = match phase {
+                    Phase::WaitingWorker => 0,
                     Phase::LoadingModel | Phase::Submitting => 1,
                     Phase::Recognizing | Phase::Pending => 2,
                     Phase::Running => 3,
@@ -197,6 +228,13 @@ impl VrOcrService {
                     (state.0)(phase);
                 }
             };
+            let report_eye = |eye, phase| {
+                report(phase);
+                pipeline
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner())
+                    .phase(eye, phase);
+            };
             // At most two results are queued. Both futures remain owned by this scan.
             let (sender, receiver) = tokio::sync::mpsc::unbounded_channel();
             let recognize = async {
@@ -205,13 +243,24 @@ impl VrOcrService {
                 };
                 if config.ocr().backend == crate::config::VrOcrBackend::Local {
                     self.local
-                        .recognize_each(images, config.ocr().device, &report, recognized)
+                        .recognize_each(
+                            images,
+                            config.ocr().device,
+                            |phase| report_eye(None, phase),
+                            recognized,
+                        )
                         .await?;
                 } else {
                     let token = crate::credentials::read_ocr_token()?
                         .ok_or("OCR access token is not configured")?;
-                    self.recognize_cloud_each(&token, images, deadline, &report, recognized)
-                        .await?;
+                    self.recognize_cloud_each_with_progress(
+                        &token,
+                        images,
+                        deadline,
+                        |eye, phase| report_eye(Some(eye), phase),
+                        recognized,
+                    )
+                    .await?;
                 }
                 drop(sender);
                 Ok::<(), String>(())
@@ -219,8 +268,20 @@ impl VrOcrService {
             let results = futures_util::stream::unfold(receiver, |mut receiver| async {
                 receiver.recv().await.map(|result| (result, receiver))
             });
-            let translate =
-                self.translate_stream(&config.0, results, scan_id, deadline, &report, completed);
+            let translate = self.translate_stream_with_progress(
+                &config.0,
+                results,
+                scan_id,
+                deadline,
+                &report,
+                completed,
+                |event| {
+                    pipeline
+                        .lock()
+                        .unwrap_or_else(|error| error.into_inner())
+                        .translation(event)
+                },
+            );
             tokio::pin!(recognize, translate);
             tokio::select! {
                 biased;
@@ -262,11 +323,42 @@ impl VrOcrService {
         token: &str,
         images: Vec<OcrImage>,
         deadline: tokio::time::Instant,
-        progress: impl FnMut(Phase),
+        mut progress: impl FnMut(Phase),
+        recognized: impl FnMut(usize, Vec<TextBlock>),
+    ) -> Result<(), String> {
+        let mut highest = 0;
+        self.recognize_cloud_each_with_progress(
+            token,
+            images,
+            deadline,
+            |_, phase| {
+                let rank = match phase {
+                    Phase::Submitting => 1,
+                    Phase::Pending => 2,
+                    Phase::Running => 3,
+                    Phase::Downloading => 4,
+                    _ => return,
+                };
+                if rank > highest {
+                    highest = rank;
+                    progress(phase);
+                }
+            },
+            recognized,
+        )
+        .await
+    }
+
+    async fn recognize_cloud_each_with_progress(
+        &self,
+        token: &str,
+        images: Vec<OcrImage>,
+        deadline: tokio::time::Instant,
+        progress: impl FnMut(usize, Phase),
         recognized: impl FnMut(usize, Vec<TextBlock>),
     ) -> Result<(), String> {
         use tracing::Instrument;
-        let state = std::sync::Mutex::new((progress, recognized, 0usize));
+        let state = std::sync::Mutex::new((progress, recognized));
         let recognize = |eye, image: OcrImage| {
             let state = &state;
             async move {
@@ -282,18 +374,8 @@ impl VrOcrService {
                         image.height,
                         deadline.saturating_duration_since(tokio::time::Instant::now()),
                         |phase| {
-                            let rank = match phase {
-                                Phase::Submitting => 1,
-                                Phase::Pending => 2,
-                                Phase::Running => 3,
-                                Phase::Downloading => 4,
-                                _ => return,
-                            };
                             let mut state = state.lock().unwrap_or_else(|error| error.into_inner());
-                            if rank > state.2 {
-                                state.2 = rank;
-                                (state.0)(phase);
-                            }
+                            (state.0)(eye, phase);
                         },
                     )
                     .await?;
@@ -334,6 +416,7 @@ const JOB_URL: &str = "https://paddleocr.aistudio-app.com/api/v2/ocr/jobs";
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Phase {
+    WaitingWorker,
     LoadingModel,
     Recognizing,
     Submitting,

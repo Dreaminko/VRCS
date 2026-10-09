@@ -11,7 +11,7 @@ if ([string]::IsNullOrWhiteSpace($env:CARGO_TARGET_DIR)) {
 
 $featureArguments = @()
 if ($Vulkan) {
-    & (Join-Path $PSScriptRoot "prepare-vulkan-sdk.ps1")
+    & (Join-Path $PSScriptRoot "prepare-vulkan-runtime.ps1")
     $featureArguments = @("--features", "vulkan")
 }
 & cargo test --manifest-path $coreManifestPath @featureArguments

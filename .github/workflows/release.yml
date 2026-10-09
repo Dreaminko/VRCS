@@ -9,10 +9,17 @@ permissions:
   contents: write
 
 jobs:
+  validate:
+    uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
+
   windows-x64:
+    needs: validate
     runs-on: windows-2022
     env:
       CMAKE_GENERATOR: Visual Studio 17 2022
+      CARGO_TARGET_DIR: ${{ github.workspace }}/.build
     steps:
       - uses: actions/checkout@v7
 
@@ -25,135 +32,11 @@ jobs:
         shell: pwsh
         run: rustup show
 
-      - name: Prepare Vulkan SDK
-        shell: pwsh
-        run: |
-          & ./scripts/prepare-vulkan-sdk.ps1
-          "VULKAN_SDK=$env:VULKAN_SDK" >> $env:GITHUB_ENV
-          "CMAKE_GENERATOR=$env:CMAKE_GENERATOR" >> $env:GITHUB_ENV
-          "$env:VULKAN_SDK\Bin" >> $env:GITHUB_PATH
-
-      - name: Install CUDA Toolkit
-        uses: Jimver/cuda-toolkit@v0.2.36
-        with:
-          cuda: "13.2.0"
-          method: network
-          sub-packages: '["nvcc", "crt", "cudart", "cublas", "cublas_dev", "cuobjdump", "nvvm", "thrust", "visual_studio_integration"]'
-
-      - name: Verify CUDA toolchain
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = "Stop"
-          $nvccVersion = nvcc --version | Out-String
-          if ($LASTEXITCODE -ne 0) {
-            throw "nvcc is unavailable"
-          }
-          Write-Host $nvccVersion
-          $versionMatch = [regex]::Match($nvccVersion, 'release\s+(13\.\d+)')
-          if (-not $versionMatch.Success) {
-            throw "CUDA 13.x is required"
-          }
-          if (-not $env:CUDA_PATH) {
-            throw "CUDA_PATH is not set"
-          }
-
-          Write-Host "CUDA_PATH=$env:CUDA_PATH"
-          $cudaVisualStudioVersion = $versionMatch.Groups[1].Value
-          $cudaBuildCustomizations = Join-Path `
-            $env:CUDA_PATH `
-            "extras\visual_studio_integration\MSBuildExtensions"
-          $cudaProps = Join-Path $cudaBuildCustomizations "CUDA $cudaVisualStudioVersion.props"
-          if (-not (Test-Path -LiteralPath $cudaProps -PathType Leaf)) {
-            throw "CUDA $cudaVisualStudioVersion build customization was not found at $cudaProps"
-          }
-
-          $vswhere = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer\vswhere.exe"
-          if (-not (Test-Path -LiteralPath $vswhere -PathType Leaf)) {
-            throw "vswhere.exe is unavailable"
-          }
-          $visualStudioPath = & $vswhere `
-            -latest `
-            -products * `
-            -version "[17.0,18.0)" `
-            -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 `
-            -property installationPath
-          if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($visualStudioPath)) {
-            throw "Visual Studio 2022 with C++ tools was not found"
-          }
-          $visualStudioBuildCustomizations = Join-Path `
-            $visualStudioPath.Trim() `
-            "MSBuild\Microsoft\VC\v170\BuildCustomizations"
-          if (-not (Test-Path -LiteralPath $visualStudioBuildCustomizations -PathType Container)) {
-            throw "Visual Studio BuildCustomizations directory was not found at $visualStudioBuildCustomizations"
-          }
-          # The network installer can leave these files under CUDA_PATH without
-          # registering them in the Visual Studio instance used by CMake.
-          Get-ChildItem -LiteralPath $cudaBuildCustomizations -File | Copy-Item `
-            -Destination $visualStudioBuildCustomizations `
-            -Force
-          $installedProps = Join-Path $visualStudioBuildCustomizations "CUDA $cudaVisualStudioVersion.props"
-          if (-not (Test-Path -LiteralPath $installedProps -PathType Leaf)) {
-            throw "Failed to install CUDA $cudaVisualStudioVersion build customization at $installedProps"
-          }
-
-          $requiredCudaFiles = [ordered]@{
-            "CUDA runtime header" = "include\cuda_runtime.h"
-            "CUDA compiler runtime header" = "include\crt\host_config.h"
-            "cuBLAS header" = "include\cublas_v2.h"
-            "Thrust header" = "include\cccl\thrust\version.h"
-            "cuBLAS import library" = "lib\x64\cublas.lib"
-            "CUDA runtime import library" = "lib\x64\cudart.lib"
-            "CUDA compiler" = "bin\nvcc.exe"
-            "CUDA binary inspector" = "bin\cuobjdump.exe"
-            "NVVM compiler" = "nvvm\bin\cicc.exe"
-            "NVVM device library" = "nvvm\libdevice\libdevice.10.bc"
-          }
-          foreach ($requirement in $requiredCudaFiles.GetEnumerator()) {
-            $requiredPath = Join-Path $env:CUDA_PATH $requirement.Value
-            if (-not (Test-Path -LiteralPath $requiredPath -PathType Leaf)) {
-              throw "$($requirement.Key) is unavailable at $requiredPath"
-            }
-          }
-
-          $msvcToolsPath = Join-Path $visualStudioPath.Trim() "VC\Tools\MSVC"
-          $msvcToolset = Get-ChildItem -LiteralPath $msvcToolsPath -Directory |
-            Sort-Object Name -Descending |
-            Select-Object -First 1
-          if (-not $msvcToolset) {
-            throw "No MSVC toolset was found below $msvcToolsPath"
-          }
-          $hostCompilerDirectory = Join-Path $msvcToolset.FullName "bin\Hostx64\x64"
-          $hostCompiler = Join-Path $hostCompilerDirectory "cl.exe"
-          if (-not (Test-Path -LiteralPath $hostCompiler -PathType Leaf)) {
-            throw "MSVC host compiler is unavailable at $hostCompiler"
-          }
-
-          $probeDirectory = Join-Path $env:RUNNER_TEMP "vrcs-cuda-compiler-probe-$PID"
-          New-Item -ItemType Directory -Path $probeDirectory -Force | Out-Null
-          $probeSource = Join-Path $probeDirectory "probe.cu"
-          $probeObject = Join-Path $probeDirectory "probe.obj"
-          [System.IO.File]::WriteAllText(
-            $probeSource,
-            'extern "C" __global__ void vrcs_cuda_probe() {}',
-            [System.Text.UTF8Encoding]::new($false)
-          )
-          & (Join-Path $env:CUDA_PATH "bin\nvcc.exe") `
-            -allow-unsupported-compiler `
-            -ccbin $hostCompilerDirectory `
-            -arch=sm_75 `
-            -c $probeSource `
-            -o $probeObject
-          if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $probeObject -PathType Leaf)) {
-            throw "CUDA compiler probe failed"
-          }
-          Write-Host "Installed CUDA build customization: $installedProps"
-          Write-Host "CUDA compiler probe succeeded: $probeObject"
-
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: |
-            core
-            apps/desktop/src-tauri
+            core -> ../.build
+            apps/desktop/src-tauri -> ../../../.build
 
       - name: Verify release version
         shell: pwsh
@@ -166,14 +49,7 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
-      - name: Run tests
-        shell: pwsh
-        run: |
-          .\scripts\test-core.ps1
-          npm --workspace apps/desktop test
-          cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml
-
-      - name: Build standard and CUDA release packages
+      - name: Build standard release package
         shell: pwsh
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -181,7 +57,7 @@ jobs:
           TAURI_UPDATER_PUBLIC_KEY: ${{ secrets.TAURI_UPDATER_PUBLIC_KEY }}
         run: |
           $version = (Get-Content -LiteralPath "apps/desktop/src-tauri/tauri.conf.json" -Raw | ConvertFrom-Json).version
-          .\scripts\build-release.ps1 -Version $version -SkipInstall -SkipTests -IncludeCuda
+          .\scripts\build-release.ps1 -Version $version -SkipInstall -SkipTests
 
       - name: Ensure GitHub release exists
         shell: pwsh
@@ -190,21 +66,27 @@ jobs:
         run: |
           $tag = "${{ github.ref_name }}"
           $version = $tag
-          $notes = @"
+          $notes = @'
           Windows 10/11 x64 release for VRCS.
 
-          - `VRCS-$version-windows-x64.exe` is the recommended unified client. It supports cloud recognition and local CPU Whisper without requiring CUDA.
-          - `VRCS-$version-windows-x64-CUDA.exe` adds NVIDIA CUDA acceleration. CUDA 13.x Runtime, cuBLAS, and a compatible NVIDIA driver must be installed separately.
+          - `VRCS-$version-windows-x64.exe` supports cloud recognition and managed local Qwen ASR on CPU or Vulkan. A compatible GPU and graphics driver are required for Vulkan.
+          - Existing local Whisper selections migrate to managed Qwen. Install the Qwen model and runtime in recognition settings before starting local recognition.
+          - Cloud recognition failures use reconnection and no longer fall back to Whisper.
+          - Existing Whisper files remain on disk. You can remove them manually after you confirm that older versions no longer need them. Keep any Qwen packages in the same directory.
+          - Older standard and CUDA clients receive this same standard installer through the updater.
           - Local recognition models and the Qwen runtime are downloaded through recognition settings. Cloud recognition does not require the Qwen runtime.
-          "@
+          '@
+          $notes = $notes.Replace('$version', $version)
+          $notesPath = Join-Path $env:RUNNER_TEMP "vrcs-release-notes.md"
+          [System.IO.File]::WriteAllText($notesPath, $notes, [System.Text.UTF8Encoding]::new($false))
 
           $releaseJson = gh release view $tag --json isDraft 2> $null
           if ($LASTEXITCODE -eq 0) {
             $isDraft = ($releaseJson | ConvertFrom-Json).isDraft
             Write-Host $(if ($isDraft) { "Updating existing draft release $tag" } else { "Updating published release $tag without changing its state" })
-            gh release edit $tag --title "VRCS $tag" --notes $notes
+            gh release edit $tag --title "VRCS $tag" --notes-file $notesPath
           } else {
-            gh release create $tag --draft --title "VRCS $tag" --notes $notes
+            gh release create $tag --draft --title "VRCS $tag" --notes-file $notesPath
           }
           if ($LASTEXITCODE -ne 0) {
             throw "Failed to create or update release $tag"
@@ -220,9 +102,6 @@ jobs:
             "release-artifacts/VRCS-$version-windows-x64.exe",
             "release-artifacts/VRCS-$version-windows-x64.exe.sig",
             "release-artifacts/VRCS-$version-windows-x64.exe.sha256",
-            "release-artifacts/VRCS-$version-windows-x64-CUDA.exe",
-            "release-artifacts/VRCS-$version-windows-x64-CUDA.exe.sig",
-            "release-artifacts/VRCS-$version-windows-x64-CUDA.exe.sha256",
             "release-artifacts/latest.json"
           )
           gh release upload "${{ github.ref_name }}" @assets --clobber

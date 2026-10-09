@@ -67,7 +67,7 @@ fn default_database_path() -> String {
 }
 
 fn default_model_directory() -> String {
-    "models/whisper".into()
+    "models/asr".into()
 }
 
 pub(super) const DEFAULT_HISTORY_MAX_BYTES: u64 = 512 * 1024 * 1024;

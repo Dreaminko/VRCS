@@ -1,6 +1,31 @@
 #[derive(Clone, Copy)]
 pub struct Homography(pub [[f32; 3]; 3]);
 
+/// Tests convex quadrilaterals on the separating axes of both polygons.
+pub(super) fn quads_intersect(a: [[f32; 2]; 4], b: [[f32; 2]; 4]) -> bool {
+    for quad in [a, b] {
+        for i in 0..4 {
+            let axis = [
+                quad[(i + 1) % 4][1] - quad[i][1],
+                quad[i][0] - quad[(i + 1) % 4][0],
+            ];
+            let project = |points: [[f32; 2]; 4]| {
+                points
+                    .iter()
+                    .fold([f32::INFINITY, f32::NEG_INFINITY], |[min, max], p| {
+                        let value = p[0] * axis[0] + p[1] * axis[1];
+                        [min.min(value), max.max(value)]
+                    })
+            };
+            let (a, b) = (project(a), project(b));
+            if a[1] <= b[0] || b[1] <= a[0] {
+                return false;
+            }
+        }
+    }
+    true
+}
+
 impl Homography {
     /// Maps a unit square to an ordered convex image quadrilateral.
     pub fn from_quad(quad: [[f32; 2]; 4]) -> Option<Self> {

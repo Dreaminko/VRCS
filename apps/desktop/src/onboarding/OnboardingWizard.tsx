@@ -15,7 +15,6 @@ import type { UiLanguagePreference } from "../app/ui-language";
 import { changeUiLanguage, currentUiLanguagePreference } from "../i18n";
 import type { AudioDevice } from "../capture/types";
 import type { Health } from "../core-client/types";
-import type { AsrCapabilities } from "../providers/types";
 import type { Settings } from "../settings/types";
 import { useOnboardingAudio } from "./hooks/useOnboardingAudio";
 import { useOnboardingMicrophone } from "./hooks/useOnboardingMicrophone";
@@ -34,8 +33,6 @@ export function OnboardingWizard({
   health,
   devices,
   devicesReady,
-  asrCapabilities,
-  modelStatus,
   onRefreshDevices,
   onRefreshSettings,
   onModelsChanged,
@@ -51,8 +48,6 @@ export function OnboardingWizard({
   health: Health | null;
   devices: AudioDevice[];
   devicesReady: boolean;
-  asrCapabilities: AsrCapabilities | null;
-  modelStatus: string;
   onRefreshDevices: () => Promise<void>;
   onRefreshSettings: () => Promise<void>;
   onModelsChanged: () => Promise<void>;
@@ -103,8 +98,6 @@ export function OnboardingWizard({
   const recognition = useOnboardingRecognition({
     active: step === 1,
     settings,
-    asrCapabilities,
-    modelStatus,
     onRefreshSettings,
     onModelsChanged,
     onSave,
@@ -257,8 +250,6 @@ export function OnboardingWizard({
                 apiProfiles={recognition.apiProfiles}
                 draftController={recognition.draftController}
                 asr={recognition.asr}
-                asrCapabilities={asrCapabilities}
-                localSettingsError={recognition.localSettingsError}
                 localReady={recognition.localReady}
                 locale={locale}
                 busy={recognition.busy}

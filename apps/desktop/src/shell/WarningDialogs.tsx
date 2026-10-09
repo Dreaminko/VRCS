@@ -14,18 +14,6 @@ export function VrchatNotRunningDialog({ onClose }: { onClose: () => void }) {
   );
 }
 
-export function CudaRuntimeDialog({ onClose }: { onClose: () => void }) {
-  const { t } = useTranslation();
-  return (
-    <WarningDialog
-      id="cuda-runtime-warning"
-      title={t("warnings.cuda.title")}
-      description={t("warnings.cuda.description")}
-      onClose={onClose}
-    />
-  );
-}
-
 function WarningDialog({ id, title, description, onClose }: {
   id: string;
   title: string;

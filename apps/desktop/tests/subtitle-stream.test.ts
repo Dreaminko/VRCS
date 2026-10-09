@@ -11,7 +11,7 @@ import {
   parseSubtitleStreamMessage,
   upsertSubtitleHistory,
 } from "../src/subtitle-stream.ts";
-import type { Subtitle } from "../src/types.ts";
+import type { Subtitle } from "../src/subtitles/types.ts";
 
 function subtitle(id: number, text: string): Subtitle {
   return {

@@ -8,18 +8,12 @@ export interface RecognitionServiceSettings {
 export interface AsrSettings {
   backend: string;
   language: "auto" | "en" | "ja" | "zh" | "ko" | "es" | "fr" | "de";
-  local: {
-    model: "" | "tiny" | "base" | "small" | "medium" | "large-v3";
-    device: "auto" | "cpu" | "cuda" | "vulkan";
-    compute_type: "int8";
-  };
   managed_qwen: {
     package_id: string;
     device: "auto" | "cpu" | "gpu";
   };
   active_profile_id: string | null;
   service_settings: Record<string, RecognitionServiceSettings>;
-  cloud_failure_policy: "reconnect" | "local";
 }
 
 export type ApiProvider = string;
@@ -152,31 +146,6 @@ export interface ConnectionDiagnostic {
   checks?: ConnectionDiagnosticCheck[];
 }
 
-export interface AsrModelCapability {
-  id: Exclude<AsrSettings["local"]["model"], "">;
-  repository: string;
-  status: "not_downloaded" | "downloaded" | "loading" | "ready" | "error";
-}
-
-export type AsrModelStatus =
-  | "not_downloaded"
-  | "downloading"
-  | "downloaded"
-  | "loading"
-  | "ready"
-  | "error";
-
-export interface AsrModelRecord {
-  id: Exclude<AsrSettings["local"]["model"], "">;
-  repository: string;
-  status: AsrModelStatus;
-  active: boolean;
-  downloaded_bytes: number;
-  total_bytes: number;
-  progress: number;
-  error: string | null;
-}
-
 export interface QwenModelRecord {
   id: string;
   engine: string;
@@ -204,20 +173,4 @@ export interface QwenRuntimeStatus {
     progress: number;
     error: string | null;
   };
-}
-
-export interface AsrCapabilities {
-  runtime_available: boolean;
-  cuda: {
-    available: boolean;
-    device_count: number;
-    error: string | null;
-  };
-  vulkan: {
-    available: boolean;
-    device_count: number;
-    error: string | null;
-  };
-  compute_types: Record<AsrSettings["local"]["device"], AsrSettings["local"]["compute_type"][]>;
-  models: AsrModelCapability[];
 }

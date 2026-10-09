@@ -10,7 +10,6 @@ mod dictionary;
 mod external;
 mod glossaries;
 mod learning;
-mod models;
 mod ocr;
 mod osc;
 mod provider_diagnostics;
@@ -270,7 +269,6 @@ pub fn router(state: Arc<AppState>) -> Router {
                 .put(ocr::token_write)
                 .delete(ocr::token_delete),
         )
-        .route("/api/asr/capabilities", get(models::asr_capabilities))
         .route(
             "/api/ocr/models",
             get(ocr::model_status).delete(ocr::model_delete),
@@ -306,12 +304,6 @@ pub fn router(state: Arc<AppState>) -> Router {
             "/api/asr/profiles/{profile_id}/services/{service_id}/models",
             get(cloud::profile_service_models),
         )
-        .route("/api/asr/models", get(models::asr_models))
-        .route(
-            "/api/asr/models/{model}/download",
-            post(models::asr_model_download),
-        )
-        .route("/api/asr/models/{model}", delete(models::asr_model_delete))
         .route("/api/asr/local-models/qwen", get(qwen_models::list))
         .route(
             "/api/asr/local-models/qwen/runtime",
@@ -416,7 +408,7 @@ async fn health(State(state): State<HealthContext>) -> Json<Value> {
         let snapshot = state.capture.qwen_runtime.snapshot().await;
         (snapshot.status, snapshot.error)
     } else {
-        state.capture.asr_runtime.snapshot()
+        ("not_loaded", None)
     };
     let (speaker_running, audio_device, speaker_error) = {
         let pipeline = state.capture.speaker_pipeline.lock().await;

@@ -1,7 +1,7 @@
 use axum::http::StatusCode;
 
 use crate::config::AppConfig;
-use crate::{asr, audio, credentials};
+use crate::{audio, credentials};
 
 use super::super::super::{api_error, ApiResult, SettingsContext};
 
@@ -51,7 +51,6 @@ pub(super) async fn validate_candidate(
             ));
         }
     }
-    asr::validate_config(&mut candidate.asr).map_err(invalid)?;
     if candidate.audio != current.audio {
         validate_audio_devices(current.audio.clone(), candidate.audio.clone()).await?;
     }

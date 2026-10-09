@@ -5,8 +5,6 @@ import type {
   ApiProfile,
   ApiProfileInput,
   ApiProfileView,
-  AsrCapabilities,
-  AsrModelRecord,
   QwenModelRecord,
   QwenRuntimeStatus,
   ConnectionDiagnostic,
@@ -14,8 +12,6 @@ import type {
 } from "./types";
 
 export const providersApi = {
-  asrCapabilities: () => request<AsrCapabilities>("/api/asr/capabilities"),
-  asrModels: () => request<AsrModelRecord[]>("/api/asr/models"),
   apiProfiles: () => request<{ profiles: ApiProfileView[] }>("/api/asr/profiles"),
   providers: () => request<{ providers: ProviderDefinition[] }>("/api/providers"),
   createApiProfile: (profile: ApiProfileInput & { api_key?: string }) => request<ApiProfileView>(
@@ -81,14 +77,6 @@ export const providersApi = {
   ),
   recognitionServiceModels: (profileId: string, serviceId: string) => request<ApiModelCatalog>(
     `/api/asr/profiles/${profileId}/services/${serviceId}/models`,
-  ),
-  downloadAsrModel: (model: AsrModelRecord["id"]) => request<AsrModelRecord>(
-    `/api/asr/models/${model}/download`,
-    { method: "POST", body: JSON.stringify({}) },
-  ),
-  deleteAsrModel: (model: AsrModelRecord["id"]) => request<{ deleted: boolean }>(
-    `/api/asr/models/${model}`,
-    { method: "DELETE" },
   ),
   qwenModels: () => request<QwenModelRecord[]>("/api/asr/local-models/qwen"),
   qwenRuntime: () => request<QwenRuntimeStatus>("/api/asr/local-models/qwen/runtime"),

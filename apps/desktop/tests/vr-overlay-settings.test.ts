@@ -14,7 +14,7 @@ import {
   resetVrOverlayWrist,
   setVrOverlayHeadsetDisplaySeconds,
 } from "../src/settings/vr-overlay-settings.ts";
-import type { Settings } from "../src/types.ts";
+import type { Settings } from "../src/settings/types.ts";
 import {
   getVrOverlayStatus,
   hideVrOverlaySample,
@@ -27,7 +27,7 @@ import {
 } from "../src/vr-overlay-native.ts";
 
 const settings = {
-  schema_version: 28,
+  schema_version: 29,
   vr_overlay: DEFAULT_VR_OVERLAY_SETTINGS,
   ocr: DEFAULT_OCR_SETTINGS,
 } as unknown as Settings;

@@ -2,15 +2,15 @@ use super::validation::validate_glossary;
 use super::*;
 
 #[test]
-fn whisper_vulkan_device_is_accepted_and_persisted() {
+fn managed_qwen_gpu_device_is_accepted_and_persisted() {
     let mut config = AppConfig::default();
-    config.asr.backend = "local_whisper".into();
-    config.asr.local.device = "vulkan".into();
+    config.asr.backend = QWEN_MANAGED_BACKEND.into();
+    config.asr.managed_qwen.device = "gpu".into();
     assert!(config.validate_settings().is_ok());
 
     let restored: AppConfig =
         serde_json::from_str(&serde_json::to_string(&config).unwrap()).unwrap();
-    assert_eq!(restored.asr.local.device, "vulkan");
+    assert_eq!(restored.asr.managed_qwen.device, "gpu");
 }
 
 #[test]
@@ -804,7 +804,7 @@ fn legacy_alignment_settings_do_not_affect_other_services_or_translation_modes()
     });
     let mut config: AppConfig = serde_json::from_value(value).unwrap();
     for service in [
-        "local_whisper",
+        QWEN_MANAGED_BACKEND,
         providers::SERVICE_OPENAI_REALTIME,
         providers::SERVICE_QWEN_REALTIME,
         providers::SERVICE_FUN_ASR_REALTIME,

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { TFunction } from "i18next";
 
-import type { GlossaryEntry } from "../src/types.ts";
+import type { GlossaryEntry } from "../src/settings/types.ts";
 import {
   emptyGlossaryEntry,
   parsePublicGlossaryFile,

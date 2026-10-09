@@ -6,7 +6,6 @@ import type {
   ProviderServiceDefinition,
 } from "./providers/types";
 
-export const LOCAL_RECOGNITION_SOURCE = "local";
 export const MANAGED_QWEN_RECOGNITION_SOURCE = "managed_qwen";
 
 export function recognitionProfiles(profiles: ApiProfileView[]): ApiProfileView[] {
@@ -25,7 +24,6 @@ export function recognitionServicesForProfile(
 }
 
 export function recognitionSourceValue(asr: AsrSettings): string {
-  if (asr.backend === "local_whisper") return LOCAL_RECOGNITION_SOURCE;
   if (asr.backend === "qwen_local_managed") return MANAGED_QWEN_RECOGNITION_SOURCE;
   return asr.active_profile_id ?? "";
 }
@@ -36,9 +34,6 @@ export function selectRecognitionProfile(
   profiles: ApiProfileView[],
   definitions: ProviderDefinition[],
 ): AsrSettings {
-  if (source === LOCAL_RECOGNITION_SOURCE) {
-    return { ...asr, backend: "local_whisper", active_profile_id: null };
-  }
   if (source === MANAGED_QWEN_RECOGNITION_SOURCE) {
     return { ...asr, backend: "qwen_local_managed", active_profile_id: null };
   }
@@ -112,14 +107,9 @@ export function recognitionEngineLabel(
   profiles: ApiProfileView[],
   definitions: ProviderDefinition[],
 ): string {
-  if (asr.backend === "local_whisper") return `Whisper ${capitalize(asr.local.model)}`;
   if (asr.backend === "qwen_local_managed") return "Qwen3-ASR 0.6B";
   const profile = currentRecognitionProfile(asr, profiles);
   return currentRecognitionService(asr, profile, definitions)?.display_name || asr.backend;
-}
-
-function capitalize(value: string): string {
-  return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
 export function liveTranslationServiceName(serviceId: string | undefined): string | undefined {

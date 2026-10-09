@@ -87,11 +87,7 @@ impl Serialize for UpdateError {
 }
 
 fn variant() -> &'static str {
-    if cfg!(feature = "cuda") {
-        "cuda"
-    } else {
-        "standard"
-    }
+    "standard"
 }
 
 fn target() -> String {
@@ -229,12 +225,7 @@ mod tests {
 
     #[test]
     fn updater_target_matches_build_variant() {
-        let expected_variant = if cfg!(feature = "cuda") {
-            "cuda"
-        } else {
-            "standard"
-        };
-        assert_eq!(variant(), expected_variant);
-        assert_eq!(target(), format!("windows-x86_64-{expected_variant}"));
+        assert_eq!(variant(), "standard");
+        assert_eq!(target(), "windows-x86_64-standard");
     }
 }

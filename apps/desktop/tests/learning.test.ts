@@ -9,7 +9,8 @@ import {
   mergeLearningItemPages,
   normalizeLearningCardDraft,
 } from "../src/learning.ts";
-import type { LearningItem, Subtitle } from "../src/types.ts";
+import type { LearningItem } from "../src/learning/types.ts";
+import type { Subtitle } from "../src/subtitles/types.ts";
 
 function subtitle(overrides: Partial<Subtitle> & Pick<Subtitle, "id" | "text" | "created_at">): Subtitle {
   return {

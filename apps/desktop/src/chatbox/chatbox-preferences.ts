@@ -1,9 +1,6 @@
 import { isTauri } from "@tauri-apps/api/core";
 
-import {
-  chatboxPreferencesFromDraft,
-  normalizeChatboxPreferences,
-} from "./chatbox";
+import { normalizeChatboxPreferences } from "./chatbox";
 import type { ChatboxPreferences } from "./chatbox";
 import { LatestWriteQueue } from "../shared/lib/latest-write-queue";
 

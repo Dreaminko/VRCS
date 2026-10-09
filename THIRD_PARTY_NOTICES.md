@@ -7,7 +7,6 @@ notices and license terms remain applicable.
 - React and React DOM — MIT
 - Axum and Tokio — MIT
 - rusqlite and SQLite — MIT / Public Domain
-- whisper.cpp and whisper-rs — MIT
 - Vulkan Loader — Apache-2.0
 - llama.cpp (Qwen ASR runtime) — MIT
 - LLVM OpenMP runtime — Apache-2.0 WITH LLVM-exception
@@ -21,8 +20,6 @@ notices and license terms remain applicable.
 - rust-openvr and openvr-sys — MIT
 - Valve OpenVR SDK — BSD-3-Clause
 
-The standard installer does not redistribute a Whisper model. The selected
-model is downloaded on first use and remains subject to its upstream license.
 The Qwen ASR model and audio projector are downloaded through recognition settings
 and remain subject to their upstream Apache-2.0 license. The llama.cpp runtime
 is downloaded on demand through recognition settings. It includes its MIT

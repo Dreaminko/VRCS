@@ -337,10 +337,7 @@ async fn run_with_reconnect(
                     match connection {
                         Ok(connection) => break Ok(connection),
                         Err(error) => {
-                            if config.cloud_failure_policy != "reconnect"
-                                || *stop.borrow()
-                                || !resume.has_capacity()
-                            {
+                            if *stop.borrow() || !resume.has_capacity() {
                                 break Err(error);
                             }
                             let _ = events
@@ -409,9 +406,6 @@ async fn run_with_reconnect(
                 detail,
             })
             .await;
-        if config.cloud_failure_policy != "reconnect" {
-            break;
-        }
         tokio::select! {
             _ = tokio::time::sleep(backoff) => {}
             _ = stop.changed() => break,
@@ -1875,7 +1869,12 @@ mod tests {
 
         let openai = asr_profile(OPENAI_PROVIDER);
         assert_eq!(
-            resolve_test_service(&openai, "local_whisper", Some(SERVICE_OPENAI_REALTIME)).unwrap(),
+            resolve_test_service(
+                &openai,
+                crate::config::QWEN_MANAGED_BACKEND,
+                Some(SERVICE_OPENAI_REALTIME)
+            )
+            .unwrap(),
             SERVICE_OPENAI_REALTIME
         );
         assert!(resolve_test_service(

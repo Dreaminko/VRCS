@@ -158,10 +158,6 @@
       "vrchat": {
         "title": "VRChat が起動していません",
         "description": "VRCS は待機を続けますが、VRChat を起動するまでゲーム音声を取得できない場合があります。"
-      },
-      "cuda": {
-        "title": "CUDA を利用できません",
-        "description": "選択した CUDA ランタイムを利用できません。設定で自動選択または CPU を選んでください。"
       }
     },
     "conversations": {
@@ -491,16 +487,13 @@
         "cloud_connect_failed": "クラウド音声認識サービスに接続できませんでした。",
         "cloud_disconnected": "クラウド音声認識の接続が切断されました。",
         "cloud_error": "クラウド音声認識サービスからエラーが返されました。",
-        "cloud_reconnect_failed": "クラウド音声認識サービスへの再接続に失敗しました。",
-        "cudaUnavailable": "CUDA の事前確認に失敗しました。自動選択または CPU を選んでください。",
-        "vulkanUnavailable": "Vulkan を利用できません。自動選択または CPU を選んでください。",
-        "invalidComputeType": "実行デバイスと計算タイプの組み合わせが無効です。"
+        "cloud_reconnect_failed": "クラウド音声認識サービスへの再接続に失敗しました。"
       }
     },
     "updates": {
       "title": "ソフトウェア更新",
       "currentVersion": "現在のバージョン {{version}}",
-      "variant": { "standard": "標準版", "cuda": "CUDA 版" },
+      "variant": { "standard": "標準版" },
       "automaticChecks": "更新を自動確認する",
       "checkNow": "今すぐ確認",
       "availableTitle": "VRCS {{version}} を利用できます",
@@ -1062,10 +1055,9 @@
       "recognition": {
         "title": "音声認識",
         "backend": "認識バックエンド",
-        "backendDescription": "ローカル Whisper または低遅延クラウドストリームを使用します。",
+        "backendDescription": "ローカル Qwen 認識またはクラウドサービスを使用します。",
         "source": "認識ソース",
         "sourceDescription": "ローカル認識、または名前を付けた API 接続を直接選択します。",
-        "localSource": "ローカル Whisper",
         "managedQwenSource": "ローカル Qwen ASR",
         "qwenModels": "Qwen ASR モデルパッケージ",
         "verifyModel": "検証",
@@ -1102,9 +1094,6 @@
         },
         "selectedApiHint": "API 接続「{{name}}」を使用中です。接続情報とキーは「API 管理」で管理できます。",
         "selectedLocalQwenHint": "ローカル Qwen ASR 接続「{{name}}」を使用中です。アドレスは「API 管理」で変更できます。VRCS は音声をこのサービスに送信し、その後の処理はサービス側で決まります。",
-        "failurePolicy": "認識に失敗した場合",
-        "reconnect": "再接続",
-        "fallbackLocal": "ローカル Whisper を使用",
         "cloudDescription": "ローカルで音声を検出した間だけ音声を送信します。",
         "region": "サービス地域",
         "context": "認識コンテキスト",
@@ -1117,23 +1106,15 @@
         "status": "モデル：{{status}}",
         "stopToModify": "音声認識の設定を変更する前に、文字起こしを停止してください。",
         "applyImmediately": "変更はすぐに適用されます。",
-        "runtime": "ランタイム",
-        "runtimeChecking": "利用可能なランタイムを確認中…",
-        "cudaAvailable": "{{count}} 台のデバイスで CUDA を利用できます。",
-        "vulkanAvailable": "{{count}} 台のデバイスで Vulkan を利用できます。",
-        "cudaRuntimeMissing": "CUDA デバイスは検出されましたが、ランタイムを利用できません。",
-        "cudaUnavailable": "CUDA は検出されませんでした。CPU は利用できます。",
         "content": "認識内容",
         "contentDescription": "ローカルモデルと音声言語を選択します。",
         "model": "モデル",
         "language": "音声言語",
         "languageDescription": "単一言語の音声では言語を固定すると認識が安定します。多言語の会話には自動検出がおすすめです。",
         "execution": "実行方法",
-        "executionDescription": "実行デバイスと計算精度を選択します。",
+        "executionDescription": "CPU、GPU、または自動選択を選びます。",
         "device": "実行デバイス",
-        "deviceDescription": "自動選択では、事前確認に成功した CUDA を優先します。",
-        "computeType": "計算タイプ",
-        "computeTypeDescription": "選択肢は実行デバイスによって変わります。",
+        "deviceDescription": "自動選択では利用可能な GPU を使用し、失敗時は CPU に切り替えます。",
         "segmentation": "音声の分割",
         "segmentationDescription": "発話区間の終了タイミングと最大長を調整します。",
         "smartTurn": "意味ベースの区切り（実験的）",
@@ -1146,7 +1127,7 @@
         "downloadingCount": "{{count}} 件をダウンロード中",
         "installedCount": "{{count}} 個のモデルをインストール済み",
         "modelDirectory": "モデルフォルダー",
-        "modelDirectoryDescription": "ダウンロードした Whisper モデルの保存先です。",
+        "modelDirectoryDescription": "ダウンロードした Qwen モデルパッケージはここに保存されます。",
         "modelDirectoryRequired": "先にモデルフォルダーを選んでください。",
         "chooseModelDirectory": "モデルフォルダーを選択",
         "chooseFolder": "フォルダーを選択",
@@ -1155,31 +1136,9 @@
         "inUse": "使用中",
         "downloadProgress": "{{name}} のダウンロード進捗",
         "deleteModel": "{{name}} を削除",
-        "preparingDownload": "{{name}} のダウンロードを準備中…",
-        "downloadQueued": "{{name}} のダウンロードを開始しました。",
         "confirmDelete": "ローカルの {{name}} モデルを削除しますか？",
-        "deleting": "{{name}} を削除中…",
-        "deleted": "{{name}} を削除しました。",
-        "models": {
-          "tiny": "最速・最小。簡単な確認に適しています。",
-          "base": "軽量でバランスのよいモデルです。",
-          "small": "速度と精度のバランスがよく、おすすめです。",
-          "medium": "より高精度ですが、多くのリソースを使用します。",
-          "largeV3": "最高精度。ダウンロードサイズとリソース使用量も最大です。"
-        },
         "modelStatus": {
-          "notSelected": "モデル未選択",
-          "notDownloaded": "未ダウンロード",
-          "loading": "読み込み中",
-          "error": "エラー",
-          "ready": "準備完了",
-          "checking": "確認中"
-        },
-        "modelState": {
-          "notDownloaded": "未ダウンロード",
-          "loading": "読み込み中",
-          "error": "エラー",
-          "ready": "準備完了"
+          "notSelected": "モデル未選択"
         }
       },
       "audio": {
@@ -1361,7 +1320,6 @@
         "maxSegment": "区間の目標長",
         "historyStorageLimit": "字幕履歴の容量上限",
         "modelStatus": "モデルの状態",
-        "cuda": "CUDA",
         "availableDevices": "{{count}} 台",
         "transcription": "文字起こし",
         "audioDevices": "音声デバイス",
@@ -1401,11 +1359,11 @@
         "realtimeDescription": "システム出力、VRChat のプロセス音声、自分のマイクを取得できます。"
       },
       "recognition": {
-        "description": "低遅延のクラウド認識か、ローカル Whisper を選択します。ローカル認識では音声をアップロードしません。",
+        "description": "クラウド認識またはローカル Qwen を選択します。ローカル認識では音声をアップロードしません。",
         "cloud": "クラウド音声認識",
         "cloudDescription": "Qwen3、Fun-ASR、OpenAI Realtime を使用してすぐに開始できます。",
-        "local": "ローカル Whisper",
-        "localDescription": "Whisper モデルをダウンロードし、この PC で音声認識を実行します。",
+        "local": "ローカル Qwen ASR",
+        "localDescription": "Qwen モデルとランタイムをダウンロードして、この PC で音声認識を実行します。",
         "cloudSetup": "音声認識 API の設定",
         "apiKeyRequired": "API キーを入力",
         "addAnother": "別の API を追加",
@@ -1413,7 +1371,7 @@
         "addApiDescription": "API キーは Windows 資格情報マネージャーに安全に保存されます。",
         "connectionReady": "接続テストに成功しました。次へ進めます。",
         "testRequired": "次へ進む前に接続をテストしてください。",
-        "downloadRequired": "ローカルモデルをダウンロードして選択してください。",
+        "downloadRequired": "Qwen モデルとランタイムをインストールしてから続行してください。",
         "connectionReadyShort": "接続準備完了"
       },
       "audio": {
@@ -1451,7 +1409,7 @@
         "title": "セットアップが完了しました",
         "description": "音声認識と音声入力の準備ができました。メイン画面から必要なときに文字起こしを開始できます。",
         "recognition": "音声認識",
-        "localReady": "ローカル Whisper モデルの準備完了",
+        "localReady": "ローカル Qwen モデルとランタイムの準備ができました",
         "cloudReady": "クラウド API の接続テストに成功",
         "audio": "音声ソース",
         "audioReady": "音声ソースとデバイスの選択を保存済み",
@@ -1614,7 +1572,6 @@
         "not_found": "辞書が見つかりません。"
       },
       "asr": {
-        "capabilities": "音声認識ランタイムを確認できませんでした。",
         "alibaba_workspace_missing": "先に Alibaba Cloud の Workspace ID を設定してください。",
         "models": "ローカルモデルを読み込めませんでした。",
         "download": "モデルをダウンロードできませんでした。",

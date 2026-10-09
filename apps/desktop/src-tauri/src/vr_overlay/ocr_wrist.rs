@@ -162,12 +162,11 @@ impl Reader {
 pub fn state_label(state: OcrState) -> &'static str {
     match state {
         OcrState::Capturing => "Capturing…",
-        OcrState::Submitting
-        | OcrState::Pending
-        | OcrState::Running
-        | OcrState::Downloading
-        | OcrState::LoadingModel
-        | OcrState::Recognizing => "Recognizing…",
+        OcrState::Submitting => "Uploading image…",
+        OcrState::Pending => "Waiting for cloud OCR…",
+        OcrState::Downloading => "Fetching OCR results…",
+        OcrState::LoadingModel => "Loading local models…",
+        OcrState::Running | OcrState::Recognizing => "Recognizing…",
         OcrState::Recognized | OcrState::Translating => "Translating…",
         OcrState::NoText => "No text detected",
         OcrState::LowConfidence => "No readable text detected",

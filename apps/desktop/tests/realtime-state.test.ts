@@ -9,7 +9,7 @@ import {
   publishLivePartial,
   resetLivePartial,
 } from "../src/realtime-state.ts";
-import type { LiveTranscription } from "../src/types.ts";
+import type { LiveTranscription } from "../src/capture/types.ts";
 import { mergeSubtitleHistory } from "../src/subtitle-stream.ts";
 import type { Subtitle } from "../src/subtitles/types.ts";
 

@@ -16,22 +16,17 @@ VRCS 是面向 VRChat 场景的 Windows 实时字幕与语言学习工具。它�
 
 ## 下载与安装
 
-请从 [GitHub Releases](https://github.com/Dreaminko/VRCS/releases) 下载对应安装包：
+请从 [GitHub Releases](https://github.com/Dreaminko/VRCS/releases) 下载 `VRCS-<version>-windows-x64.exe`。标准安装包支持云端识别，以及由应用管理的本地 Qwen ASR，使用 CPU 或 Vulkan 运行。
 
-| 安装包 | 适用场景 | 额外要求 |
-|---|---|---|
-| `VRCS-<version>-windows-x64.exe` | 推荐给大多数用户；支持云端识别、本地 Whisper 和本地 Qwen ASR | 无需 CUDA |
-| `VRCS-<version>-windows-x64-CUDA.exe` | 为本地 Whisper 增加 NVIDIA CUDA 加速 | [CUDA 13.x Runtime](https://developer.nvidia.com/cuda-downloads?target_os=Windows)、cuBLAS、兼容的 NVIDIA GPU 与驱动 |
+安装包已包含 Vulkan 加载器。Vulkan 加速需要兼容的 GPU 和显卡驱动，无需安装 Vulkan SDK 或 CUDA。开始托管本地识别前，请通过识别设置下载 Qwen 运行组件和模型；云端识别不需要这些组件。
 
-标准版和 CUDA 版共用同一套配置、数据库和模型目录，可以直接互换安装。
-
-两个版本的本地 Whisper 和本地 Qwen ASR 都支持 CPU 和 Vulkan 加速。安装包已包含 Vulkan 加载器，用户无需安装 Vulkan SDK。本地 Qwen 的运行组件和模型通过识别设置按需下载，仅使用云端识别时不需要这些组件。Vulkan 加速需要兼容的 GPU 和显卡驱动。本地 Qwen 在两个版本中均使用 CPU 或 Vulkan；CUDA 版仅为 Whisper 增加 CUDA 支持。
+旧标准版和旧 CUDA 版客户端均通过更新器升级到同一标准安装包。旧本地 Whisper 选择会迁移为托管 Qwen，云端故障继续重连，不再回退到 Whisper。已有 Whisper 文件保留在磁盘上，确认旧版不再需要后可手动删除；请保留同一目录中的 Qwen 包。已有 Qwen 包、模型目录和配置保持原位。
 
 运行环境：
 
 - [Microsoft Visual C++ v14 Redistributable（x64）](https://aka.ms/vs/17/release/vc_redist.x64.exe)
 - 首次启动时需要联网下载固定版本的 Silero VAD 模型；启用语义断句时会下载固定版本的 Smart Turn 模型
-- 使用本地 Whisper 或本地 Qwen ASR 时，需要按所选模型完成首次下载
+- 使用托管本地 Qwen ASR 时，需要首次下载模型和运行组件
 - 使用云端识别、翻译或学习分析时，需要对应服务商的 API 凭据；服务商可能产生费用
 
 ## 首次使用
@@ -41,7 +36,7 @@ VRCS 是面向 VRChat 场景的 Windows 实时字幕与语言学习工具。它�
 首次启动会进入设置向导：
 
 1. 选择简体中文、日语、英语或跟随系统语言。
-2. 选择云端实时识别、本地 Whisper 或本地 Qwen ASR。
+2. 选择云端实时识别或托管本地 Qwen ASR。
 3. 配置系统音频、VRChat 进程音频和麦克风。
 4. 测试麦克风并校准语音触发阈值。
 5. 完成设置并开始转写。
@@ -61,12 +56,10 @@ VRCS 是面向 VRChat 场景的 Windows 实时字幕与语言学习工具。它�
 
 ### 语音识别
 
-- 本地 `whisper.cpp`，支持 CPU、Vulkan 和可选 CUDA 加速
-- 本地 Whisper 模型下载、完整性校验、迁移和删除
 - 由应用管理的本地 Qwen3 ASR，支持模型下载、完整性校验，以及 CPU 或 Vulkan 运行
 - Alibaba Cloud Qwen3 ASR 与 Fun-ASR 实时流式识别
 - OpenAI Realtime Transcription
-- 云端断线重连和可配置的失败处理策略
+- 云端断线自动重连
 
 ### 翻译与上下文
 
@@ -99,7 +92,7 @@ VRCS 是面向 VRChat 场景的 Windows 实时字幕与语言学习工具。它�
 
 VRCS 不保存原始音频。字幕历史、会话、学习项目、词典和配置默认保存在本机。
 
-使用本地 Whisper 或由应用管理的本地 Qwen ASR 时，语音不会发送到云端。使用云端识别时，检测到的语音片段会发送给所选识别服务商；使用云端翻译、学习分析或“问 AI”时，相关文本、用户明确选择的上下文以及提交的问题会发送给对应服务商。
+使用由应用管理的本地 Qwen ASR 时，语音不会发送到云端。使用云端识别时，检测到的语音片段会发送给所选识别服务商；使用云端翻译、学习分析或“问 AI”时，相关文本、用户明确选择的上下文以及提交的问题会发送给对应服务商。
 
 ## 从源码运行
 
@@ -110,8 +103,6 @@ VRCS 不保存原始音频。字幕历史、会话、学习项目、词典和配
 - Rustup，使用 `rust-toolchain.toml` 指定的 Rust 版本和组件
 - Visual Studio Build Tools，并安装“使用 C++ 的桌面开发”工作负载
 - CMake，并加入 `PATH`
-- 可选：Vulkan SDK 和已加入 `PATH` 的 Ninja，仅开发 Vulkan 加速或构建发布包时需要
-- 仅 CUDA 开发需要 NVIDIA CUDA 13.x Toolkit，并设置 `CUDA_PATH`
 
 在仓库根目录的 PowerShell 中运行：
 
@@ -120,7 +111,7 @@ npm install
 npm run dev
 ```
 
-默认开发构建支持云端功能和本地 CPU 识别，不启用 Vulkan 或 CUDA，也不会准备 Vulkan SDK。仅修改云端识别、翻译或界面的贡献者无需安装 GPU SDK。
+默认开发构建支持云端功能和托管本地 Qwen CPU 识别。CPU 和 Vulkan 构建均无需 GPU SDK 或着色器编译器。
 
 启用 Vulkan 加速：
 
@@ -128,36 +119,27 @@ npm run dev
 npm run dev:vulkan
 ```
 
-启用 Vulkan 或 CUDA 的桌面开发命令，以及发布命令，会自动准备 Vulkan SDK 和 Vulkan 加载器。SDK 脚本会复用 `VULKAN_SDK` 指向且包含 `Bin/glslc.exe` 的 SDK，否则下载并校验 SDK `1.4.309.0`，存放到 `core/.cache/vulkan-sdk/1.4.309.0`。首次准备需要联网，Ninja 必须已加入 `PATH`。
+桌面 Vulkan 开发命令和发布命令会自动准备 Vulkan 加载器。应用通过识别设置按需下载 Qwen 运行组件和模型。
 
-CUDA 开发构建同时启用 Vulkan，需要 Vulkan 工具和 CUDA Toolkit：
-
-```powershell
-npm run dev:cuda
-```
-
-只运行独立 Rust Core 时，默认无需 Vulkan SDK：
+只运行独立 Rust Core：
 
 ```powershell
 npm run dev:core
 
-# Optional Vulkan acceleration, in the same PowerShell session:
-& .\scripts\prepare-vulkan-sdk.ps1
+# Optional Vulkan acceleration:
+& .\scripts\prepare-vulkan-runtime.ps1
 cargo run --manifest-path core/Cargo.toml --features vulkan
-
-# Or, with CUDA Toolkit installed and CUDA_PATH set:
-npm run dev:core:cuda
 ```
 
-准备脚本设置的 `VULKAN_SDK`、`PATH` 和 `CMAKE_GENERATOR` 仅对当前终端有效。新开终端后，直接调用 Cargo 启用 Vulkan 前需重新执行；`npm run dev:core:cuda` 会自动准备 SDK。桌面端可按需下载 Qwen 运行组件；独立 Core 开发时也可手动准备，启动前运行 `& .\scripts\prepare-qwen-runtime.ps1`。
+独立 Core 开发时可手动准备 Qwen 运行组件，启动前运行 `& .\scripts\prepare-qwen-runtime.ps1`。模型包可通过识别设置或 Qwen 模型 API 安装。
 
-构建 Whisper 和本地 Qwen 均仅使用 CPU 的 Core：
+仅使用 CPU 的 Core 构建：
 
 ```powershell
 cargo run --manifest-path core/Cargo.toml --no-default-features
 ```
 
-这与默认 Core 构建一致：Whisper 和本地 Qwen 仅使用 CPU。Qwen 自动设备模式使用 CPU；显式选择 GPU 时会报告 Vulkan 后端不可用。
+这与默认 Core 构建一致。Qwen 自动设备模式使用 CPU；显式选择 GPU 时会报告 Vulkan 后端不可用。启用 `--features vulkan` 后，自动设备模式优先使用兼容的 Vulkan GPU，GPU 启动失败时可回退到 CPU。
 
 独立 Core 默认监听 `http://127.0.0.1:8766`，字幕 WebSocket 为 `ws://127.0.0.1:8766/ws`。桌面应用会自动生成并管理本地会话令牌；如果单独运行 Core 并监听非回环地址，必须显式设置非空的 `VRCS_SESSION_TOKEN`。
 
@@ -170,11 +152,11 @@ npm run build:frontend
 .\scripts\check-rust.ps1
 ```
 
-Rust 检查脚本默认无需 Vulkan SDK，在 Windows 上对两个 Rust crate 执行格式检查、Clippy（`-D warnings`）和测试。修改 Vulkan 相关代码时运行 `.\scripts\check-rust.ps1 -Vulkan`，脚本会准备 SDK 并检查启用 Vulkan 的构建。
+Rust 检查脚本在 Windows 上对两个 Rust crate 执行格式检查、Clippy（`-D warnings`）和测试。修改 Vulkan 相关代码时也运行 `.\scripts\check-rust.ps1 -Vulkan`，脚本会准备 Vulkan 加载器并检查启用 Vulkan 的两个 crate，无需 Vulkan SDK。
 
 ## 构建 Release
 
-发布包继续包含 Vulkan 支持，发布脚本会自动准备 Vulkan SDK 和加载器；Ninja 必须已加入 `PATH`。
+发布脚本只构建一个支持 CPU 和 Vulkan 的标准安装包，并自动准备 Vulkan 加载器，同时生成更新器签名、SHA-256 校验文件和 `latest.json`。标准版和旧 CUDA 版的更新目标使用同一标准安装包及签名。
 
 Release 构建必须设置 `TAURI_SIGNING_PRIVATE_KEY` 和 `TAURI_UPDATER_PUBLIC_KEY`；私钥有密码时还需设置 `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`。私钥不得提交到仓库，并应安全备份。
 
@@ -182,12 +164,6 @@ Release 构建必须设置 `TAURI_SIGNING_PRIVATE_KEY` 和 `TAURI_UPDATER_PUBLIC
 
 ```powershell
 npm run build
-```
-
-同时构建标准版和 CUDA 版：
-
-```powershell
-.\scripts\build-release.ps1 -Version 0.1.0 -IncludeCuda
 ```
 
 ## 参与贡献

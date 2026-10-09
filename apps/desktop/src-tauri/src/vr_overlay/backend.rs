@@ -35,6 +35,7 @@ mod platform {
         headset: Option<OverlayHandle>,
         wrist: Option<OverlayHandle>,
         ocr_wrist: Option<OverlayHandle>,
+        ocr_progress: Option<OverlayHandle>,
         ocr_wrist_device: Option<u32>,
         ocr_frame: Option<OverlayHandle>,
         ocr_result: Option<OverlayHandle>,
@@ -43,6 +44,7 @@ mod platform {
         headset_state: SubmittedState,
         wrist_state: SubmittedState,
         ocr_wrist_state: SubmittedState,
+        ocr_progress_state: SubmittedState,
         ocr_frame_state: SubmittedState,
         ocr_result_state: SubmittedState,
         dashboard_state: SubmittedState,
@@ -385,6 +387,7 @@ mod platform {
                 headset: None,
                 wrist: None,
                 ocr_wrist: None,
+                ocr_progress: None,
                 ocr_wrist_device: None,
                 ocr_frame: None,
                 ocr_result: None,
@@ -393,6 +396,7 @@ mod platform {
                 headset_state: SubmittedState::default(),
                 wrist_state: SubmittedState::default(),
                 ocr_wrist_state: SubmittedState::default(),
+                ocr_progress_state: SubmittedState::default(),
                 ocr_frame_state: SubmittedState::default(),
                 ocr_result_state: SubmittedState::default(),
                 dashboard_state: SubmittedState::default(),
@@ -531,6 +535,36 @@ mod platform {
             self.overlay
                 .set_transform_tracked_device_relative(handle, tracked_device_index::HMD, &matrix)
                 .map_err(|error| format!("Position headset overlay failed: {error:?}"))
+        }
+
+        pub fn ensure_ocr_progress(&mut self) -> Result<(), String> {
+            if self.ocr_progress.is_none() {
+                self.ocr_progress = Some(
+                    self.overlay
+                        .create_overlay("org.vrcs.overlay.ocr.progress\0", "VRCS OCR Progress\0")
+                        .map_err(|error| {
+                            format!("Create OCR progress overlay failed: {error:?}")
+                        })?,
+                );
+                let handle = self.ocr_progress.expect("OCR progress overlay exists");
+                self.overlay
+                    .set_width(handle, 0.32)
+                    .map_err(|error| format!("Configure OCR progress overlay failed: {error:?}"))?;
+                let matrix = Matrix3x4(transform::headset(&VrOverlayHeadsetConfig {
+                    distance_m: 1.2,
+                    offset_y_m: -0.42,
+                    pitch_deg: -19.,
+                    ..Default::default()
+                }));
+                self.overlay
+                    .set_transform_tracked_device_relative(
+                        handle,
+                        tracked_device_index::HMD,
+                        &matrix,
+                    )
+                    .map_err(|error| format!("Position OCR progress overlay failed: {error:?}"))?;
+            }
+            Ok(())
         }
 
         pub fn ensure_ocr_plane(
@@ -825,6 +859,7 @@ mod platform {
             self.hide(OverlayKind::Headset);
             self.hide(OverlayKind::Wrist);
             self.hide(OverlayKind::OcrWrist);
+            self.hide(OverlayKind::OcrProgress);
             self.hide(OverlayKind::OcrFrame);
             self.hide(OverlayKind::OcrResult);
         }
@@ -839,6 +874,7 @@ mod platform {
                 OverlayKind::Headset => self.headset,
                 OverlayKind::Wrist => self.wrist,
                 OverlayKind::OcrWrist => self.ocr_wrist,
+                OverlayKind::OcrProgress => self.ocr_progress,
                 OverlayKind::OcrFrame => self.ocr_frame,
                 OverlayKind::OcrResult => self.ocr_result,
                 OverlayKind::Dashboard => self.dashboard,
@@ -851,6 +887,7 @@ mod platform {
                 OverlayKind::Headset => &self.headset_state,
                 OverlayKind::Wrist => &self.wrist_state,
                 OverlayKind::OcrWrist => &self.ocr_wrist_state,
+                OverlayKind::OcrProgress => &self.ocr_progress_state,
                 OverlayKind::OcrFrame => &self.ocr_frame_state,
                 OverlayKind::OcrResult => &self.ocr_result_state,
                 OverlayKind::Dashboard => &self.dashboard_state,
@@ -863,6 +900,7 @@ mod platform {
                 OverlayKind::Headset => &mut self.headset_state,
                 OverlayKind::Wrist => &mut self.wrist_state,
                 OverlayKind::OcrWrist => &mut self.ocr_wrist_state,
+                OverlayKind::OcrProgress => &mut self.ocr_progress_state,
                 OverlayKind::OcrFrame => &mut self.ocr_frame_state,
                 OverlayKind::OcrResult => &mut self.ocr_result_state,
                 OverlayKind::Dashboard => &mut self.dashboard_state,
@@ -879,6 +917,7 @@ mod platform {
                     self.ocr_wrist.take()
                 }
                 OverlayKind::OcrFrame => self.ocr_frame.take(),
+                OverlayKind::OcrProgress => self.ocr_progress.take(),
                 OverlayKind::OcrResult => self.ocr_result.take(),
                 OverlayKind::Dashboard => self.dashboard.take(),
                 OverlayKind::DashboardThumbnail => self.dashboard_thumbnail.take(),
@@ -905,6 +944,7 @@ mod platform {
             self.destroy(OverlayKind::Headset);
             self.destroy(OverlayKind::Wrist);
             self.destroy(OverlayKind::OcrWrist);
+            self.destroy(OverlayKind::OcrProgress);
             self.destroy(OverlayKind::OcrFrame);
             self.destroy(OverlayKind::OcrResult);
             self.destroy(OverlayKind::Dashboard);
@@ -1151,6 +1191,10 @@ mod platform {
         pub fn runtime_installed() -> bool {
             false
         }
+        #[allow(dead_code)]
+        pub fn ensure_ocr_progress(&mut self) -> Result<(), String> {
+            Err("VR Overlay is only supported on Windows".into())
+        }
         pub fn hmd_present() -> bool {
             false
         }
@@ -1199,6 +1243,7 @@ pub enum OverlayKind {
     Headset,
     Wrist,
     OcrWrist,
+    OcrProgress,
     OcrFrame,
     OcrResult,
     Dashboard,

@@ -652,7 +652,7 @@ mod tests {
             .is_empty());
 
         let mut local = AsrConfig {
-            backend: "local_whisper".into(),
+            backend: crate::config::QWEN_MANAGED_BACKEND.into(),
             ..Default::default()
         };
         assert_eq!(

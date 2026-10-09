@@ -2,6 +2,8 @@ use super::{
     backend::{OpenVrBackend, OverlayKind},
     ocr_capture::{center_crop, encode_png, CropTransform, StereoCapture},
     ocr_input::install_manifest,
+    ocr_progress::{Feedback, ProgressView},
+    ocr_progress_renderer,
     ocr_selection::Selection,
     ocr_status::{failure_code, OcrState, OcrStatus, OcrWristState},
     ocr_wrist::{Action, LaserEvent, Pointer, Reader, View},
@@ -11,11 +13,11 @@ use std::{
     path::PathBuf,
     sync::{Arc, Mutex},
 };
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, watch};
 use vrcs_core::{
     ocr::{
-        source_view, BlockUpdate, OcrImage, OcrImageData, Phase, ScanConfiguration, ScanOutcome,
-        ScanResult, ScanSummary, TranslatedBlock, VrOcrService,
+        source_view, BlockUpdate, OcrImage, OcrImageData, Phase, PipelineProgress,
+        ScanConfiguration, ScanOutcome, ScanResult, ScanSummary, TranslatedBlock, VrOcrService,
     },
     VrOcrConfig, VrOcrDisplayMode,
 };
@@ -91,6 +93,9 @@ pub struct OcrRuntime {
     result_dirty: bool,
     summary: Option<ScanSummary>,
     progress: Option<Arc<Mutex<ScanProgress>>>,
+    pipeline: Option<watch::Receiver<Option<PipelineProgress>>>,
+    feedback: Option<Feedback>,
+    feedback_view: Option<(ProgressView, u8)>,
     configuration: Option<Arc<ScanConfiguration>>,
     selecting: bool,
     selection: Option<Selection>,
@@ -123,6 +128,9 @@ impl OcrRuntime {
             result_dirty: false,
             summary: None,
             progress: None,
+            pipeline: None,
+            feedback: None,
+            feedback_view: None,
             configuration: None,
             selecting: false,
             selection: None,
@@ -183,6 +191,11 @@ impl OcrRuntime {
         self.result_dirty = false;
         self.summary = None;
         self.progress = None;
+        self.pipeline = None;
+        self.feedback = None;
+        self.feedback_view = None;
+        self.status.progress = None;
+        self.status.progress_error = None;
         self.configuration = None;
         self.selecting = false;
         self.selection = None;
@@ -222,6 +235,19 @@ impl OcrRuntime {
         self.status.gesture_available = false;
     }
 
+    fn invalidate(&mut self, config: &VrOcrConfig) {
+        let feedback = self.feedback.take();
+        self.clear();
+        self.status.state = OcrState::Invalid;
+        let now = std::time::Instant::now();
+        let mut feedback = feedback
+            .unwrap_or_else(|| Feedback::new(self.status.scan_id, source_view(config), now));
+        feedback.results_changed();
+        feedback.fail(OcrState::Invalid, "view_changed", now);
+        self.feedback = Some(feedback);
+        self.displayed_at = Some(now);
+    }
+
     pub fn tick(
         &mut self,
         backend: &mut OpenVrBackend,
@@ -234,6 +260,7 @@ impl OcrRuntime {
         if !config.enabled {
             backend.reset_ocr();
             backend.reset(OverlayKind::OcrWrist);
+            backend.reset(OverlayKind::OcrProgress);
             backend.reset_ocr_input();
             self.unavailable(false);
             return;
@@ -248,6 +275,7 @@ impl OcrRuntime {
             Ok(())
         });
         if let Err(error) = result {
+            let feedback = self.feedback.take();
             self.clear();
             backend.reset_ocr();
             let code = failure_code(&error);
@@ -260,6 +288,12 @@ impl OcrRuntime {
             self.status.last_error_code = Some(code.into());
             self.status.timed_out = code == "timeout";
             self.displayed_at = Some(std::time::Instant::now());
+            let now = std::time::Instant::now();
+            let mut feedback = feedback
+                .unwrap_or_else(|| Feedback::new(self.status.scan_id, source_view(config), now));
+            feedback.results_changed();
+            feedback.fail(self.status.state, code, now);
+            self.feedback = Some(feedback);
         }
         if let Err(error) = self.update_wrist(backend, config, wrist) {
             backend.reset(OverlayKind::OcrWrist);
@@ -267,6 +301,63 @@ impl OcrRuntime {
             self.status.wrist_state = OcrWristState::Error;
             self.status.wrist_error = Some(error);
         }
+        if self.task.is_none() && self.summary.is_some() {
+            if let Some(feedback) = &mut self.feedback {
+                let state = if self.status.timed_out {
+                    OcrState::TimedOut
+                } else {
+                    self.status.state
+                };
+                feedback.finish(state, std::time::Instant::now());
+            }
+        }
+        if let Err(error) = self.update_feedback(backend) {
+            tracing::warn!(error, "OCR progress overlay unavailable");
+            backend.reset(OverlayKind::OcrProgress);
+            self.feedback_view = None;
+            self.status.progress_error = Some(error);
+        }
+    }
+
+    fn sync_pipeline(&mut self) {
+        if let Some(receiver) = &mut self.pipeline {
+            // The worker can close the channel before this tick; its final value is still valid.
+            if let (Some(snapshot), Some(feedback)) =
+                (receiver.borrow_and_update().clone(), &mut self.feedback)
+            {
+                feedback.apply(snapshot, std::time::Instant::now());
+            }
+        }
+    }
+
+    fn update_feedback(&mut self, backend: &mut OpenVrBackend) -> Result<(), String> {
+        let now = std::time::Instant::now();
+        self.status.progress = self
+            .feedback
+            .as_ref()
+            .and_then(|feedback| feedback.view(now));
+        let Some(view) = &self.status.progress else {
+            backend.hide(OverlayKind::OcrProgress);
+            self.feedback_view = None;
+            return Ok(());
+        };
+        if self.status.progress_error.is_some() {
+            return Ok(());
+        }
+        let animation = self
+            .feedback
+            .as_ref()
+            .map(|feedback| feedback.animation(now))
+            .unwrap_or(0);
+        let next = (view.clone(), animation);
+        backend.ensure_ocr_progress()?;
+        if self.feedback_view.as_ref() != Some(&next) {
+            let texture = ocr_progress_renderer::render(view, animation)?;
+            backend.upload(OverlayKind::OcrProgress, &texture)?;
+            self.feedback_view = Some(next);
+        }
+        backend.set_opacity(OverlayKind::OcrProgress, 0.94)?;
+        backend.show(OverlayKind::OcrProgress)
     }
 
     fn update_wrist_pointer(&mut self, events: &[LaserEvent], focused: bool) -> bool {
@@ -341,9 +432,8 @@ impl OcrRuntime {
                 self.clear();
                 backend.reset_ocr();
             } else if !valid {
-                self.clear();
+                self.invalidate(config);
                 backend.reset_ocr();
-                self.status.state = OcrState::Invalid;
             }
         }
         if input.frame_cancelled && self.selecting {
@@ -364,9 +454,8 @@ impl OcrRuntime {
                     selection.scene_pid != pid || selection.origin != origin
                 })
             {
-                self.clear();
+                self.invalidate(config);
                 backend.reset_ocr();
-                self.status.state = OcrState::Invalid;
                 return Ok(());
             }
             let selection = if let Some(selection) = &self.selection {
@@ -380,8 +469,7 @@ impl OcrRuntime {
                 backend.reset_ocr();
                 self.status.state = OcrState::Selecting;
                 if input.frame_confirmed {
-                    self.clear();
-                    self.status.state = OcrState::Invalid;
+                    self.invalidate(config);
                 }
                 return Ok(());
             };
@@ -392,8 +480,7 @@ impl OcrRuntime {
                 backend.reset_ocr();
                 self.status.state = OcrState::Selecting;
                 if input.frame_confirmed {
-                    self.clear();
-                    self.status.state = OcrState::Invalid;
+                    self.invalidate(config);
                 }
                 return Ok(());
             }
@@ -421,6 +508,7 @@ impl OcrRuntime {
             capture_requested = true;
         }
         if capture_requested {
+            backend.hide(OverlayKind::OcrProgress);
             let started = std::time::Instant::now();
             let capture = Arc::new(backend.capture_ocr(config, self.selection.as_ref())?);
             if self.selection.as_ref().is_some_and(|selection| {
@@ -435,10 +523,12 @@ impl OcrRuntime {
             );
             self.start(capture, config)?;
         }
+        self.sync_pipeline();
         while let Some(update) = self.next_current_update() {
             match update {
                 Update::Phase(id, phase) if id == self.status.scan_id => {
                     self.status.state = match phase {
+                        Phase::WaitingWorker => OcrState::Recognizing,
                         Phase::Submitting => OcrState::Submitting,
                         Phase::Pending => OcrState::Pending,
                         Phase::Running => OcrState::Running,
@@ -449,6 +539,7 @@ impl OcrRuntime {
                     }
                 }
                 Update::Finished(id, result) if id == self.status.scan_id => {
+                    self.sync_pipeline();
                     self.finish_frame(result?);
                 }
                 _ => {}
@@ -475,6 +566,10 @@ impl OcrRuntime {
     fn finish_frame(&mut self, frame: OcrFrame) {
         self.task = None;
         self.progress = None;
+        self.pipeline = None;
+        if let Some(feedback) = &mut self.feedback {
+            feedback.results_changed();
+        }
         self.blocks = frame.blocks;
         self.summary = Some(frame.summary.clone());
         self.result_dirty = true;
@@ -548,6 +643,7 @@ impl OcrRuntime {
             return Ok(());
         }
         view.hovered = self.wrist_hovered;
+        let has_blocks = view.block_count > 0;
         if self.wrist_view.as_ref() != Some(&view) {
             let rendered = ocr_wrist_renderer::render(
                 &view,
@@ -562,6 +658,11 @@ impl OcrRuntime {
         }
         backend.set_opacity(OverlayKind::OcrWrist, config_wrist.opacity)?;
         backend.show(OverlayKind::OcrWrist)?;
+        if has_blocks {
+            if let Some(feedback) = &mut self.feedback {
+                feedback.displayed();
+            }
+        }
         self.status.wrist_state = OcrWristState::Visible;
         self.status.wrist_error = None;
         Ok(())
@@ -656,6 +757,9 @@ impl OcrRuntime {
             backend.upload(OverlayKind::OcrResult, &plane.texture)?;
             backend.set_opacity(OverlayKind::OcrResult, 1.0)?;
             backend.show(OverlayKind::OcrResult)?;
+            if let Some(feedback) = &mut self.feedback {
+                feedback.displayed();
+            }
             visible = true;
             self.status.layout_limited = limited;
         } else {
@@ -721,6 +825,11 @@ impl OcrRuntime {
         self.configuration = Some(settings.clone());
         let metadata = CaptureMetadata::from(capture.as_ref());
         let scan_started = metadata.captured_at;
+        self.feedback = Some(Feedback::new(
+            self.status.scan_id,
+            source_view(config),
+            scan_started,
+        ));
         self.capture = Some(metadata);
         // Keep source pixels while visible so each translated patch can match its background.
         self.source_capture =
@@ -730,6 +839,8 @@ impl OcrRuntime {
         let sender = self.sender.clone();
         let encoder = self.encoder.clone();
         let completed_blocks = Arc::new(Mutex::new(ScanProgress::new(id)));
+        let (pipeline_sender, pipeline_receiver) = watch::channel(None);
+        self.pipeline = Some(pipeline_receiver);
         self.progress = Some(completed_blocks.clone());
         let deadline = tokio::time::Instant::from_std(
             scan_started + std::time::Duration::from_secs(config.timeout_seconds as u64),
@@ -758,7 +869,7 @@ impl OcrRuntime {
                 let progress_sender = sender.clone();
                 let completed_crops = &crops;
                 let mut result = service
-                    .process_vr_scan(
+                    .process_vr_scan_with_progress(
                         images,
                         &settings,
                         id,
@@ -775,6 +886,9 @@ impl OcrRuntime {
                                 .lock()
                                 .unwrap_or_else(|error| error.into_inner());
                             saved.apply(update);
+                        },
+                        move |snapshot| {
+                            pipeline_sender.send_replace(Some(snapshot));
                         },
                     )
                     .await?;
@@ -934,6 +1048,56 @@ impl Drop for OcrRuntime {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn invalid_view_ends_feedback_and_clear_removes_it() {
+        let now = std::time::Instant::now();
+        let mut runtime = super::OcrRuntime::new(None, None);
+        let id = runtime.status.scan_id;
+        runtime.feedback = Some(super::Feedback::new(id, false, now));
+        runtime.invalidate(&vrcs_core::VrOcrConfig::default());
+        let view = runtime.feedback.as_ref().unwrap().view(now).unwrap();
+        assert!(!view
+            .stages
+            .contains(&super::super::ocr_progress::Stage::Active));
+        assert!(view.status.contains("View changed"));
+        runtime.clear();
+        assert!(runtime.feedback.is_none());
+        assert!(runtime.pipeline.is_none());
+        assert!(runtime.status.progress.is_none());
+    }
+
+    #[test]
+    fn latest_pipeline_snapshot_survives_sender_drop() {
+        let mut runtime = super::OcrRuntime::new(None, None);
+        let id = runtime.status.scan_id;
+        runtime.feedback = Some(super::Feedback::new(id, false, std::time::Instant::now()));
+        let (sender, receiver) = tokio::sync::watch::channel(None);
+        runtime.pipeline = Some(receiver);
+        sender.send_replace(Some(super::PipelineProgress {
+            scan_id: id,
+            images_total: 1,
+            images_done: 1,
+            recognition_done: true,
+            translation_started: true,
+            translation_total: 3,
+            translation_completed: 2,
+            translation_total_final: true,
+            ..Default::default()
+        }));
+        drop(sender);
+        runtime.sync_pipeline();
+        assert_eq!(
+            runtime
+                .feedback
+                .as_ref()
+                .unwrap()
+                .view(std::time::Instant::now())
+                .unwrap()
+                .translation_fraction,
+            Some((2, 3))
+        );
+    }
+
     use super::super::{ocr_capture::EyeCapture, renderer::Texture, transform};
     use super::*;
     use vrcs_core::ocr::{BlockTranslation, TextBlock};

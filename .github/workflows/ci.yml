@@ -1,6 +1,7 @@
 name: CI
 
 on:
+  workflow_call:
   pull_request:
   push:
     branches:
@@ -13,9 +14,9 @@ jobs:
   frontend:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: "24"
           cache: npm
@@ -32,28 +33,42 @@ jobs:
       - name: Build frontend
         run: npm run build:frontend
 
-  rust:
+  rustfmt:
     runs-on: windows-latest
-    env:
-      CARGO_TARGET_DIR: ${{ github.workspace }}/.build
-    strategy:
-      matrix:
-        backend: [cpu, vulkan]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install pinned Rust toolchain
         shell: pwsh
         run: rustup show
 
-      - name: Prepare Vulkan SDK
-        if: matrix.backend == 'vulkan'
+      - name: Test Rust check script
         shell: pwsh
-        run: |
-          & ./scripts/prepare-vulkan-sdk.ps1
-          "VULKAN_SDK=$env:VULKAN_SDK" >> $env:GITHUB_ENV
-          "CMAKE_GENERATOR=$env:CMAKE_GENERATOR" >> $env:GITHUB_ENV
-          "$env:VULKAN_SDK\Bin" >> $env:GITHUB_PATH
+        run: ./scripts/test-check-rust.ps1
+
+      - name: Test release metadata
+        shell: pwsh
+        run: ./scripts/test-release-metadata.ps1
+
+      - name: Check Rust formatting
+        shell: pwsh
+        run: ./scripts/check-rust.ps1 -Check format
+
+  rust:
+    needs: rustfmt
+    runs-on: windows-latest
+    env:
+      CARGO_TARGET_DIR: ${{ github.workspace }}/.build
+    strategy:
+      fail-fast: false
+      matrix:
+        backend: [cpu, vulkan]
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install pinned Rust toolchain
+        shell: pwsh
+        run: rustup show
 
       - uses: Swatinem/rust-cache@v2
         with:
@@ -61,6 +76,10 @@ jobs:
             core -> ../.build
             apps/desktop/src-tauri -> ../../../.build
 
-      - name: Check Rust
+      - name: Lint Rust
         shell: pwsh
-        run: ./scripts/check-rust.ps1 -Vulkan:('${{ matrix.backend }}' -eq 'vulkan')
+        run: ./scripts/check-rust.ps1 -Check clippy -Vulkan:('${{ matrix.backend }}' -eq 'vulkan')
+
+      - name: Test Rust
+        shell: pwsh
+        run: ./scripts/check-rust.ps1 -Check test -Vulkan:('${{ matrix.backend }}' -eq 'vulkan')

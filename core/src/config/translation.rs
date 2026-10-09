@@ -146,7 +146,10 @@ mod tests {
             "target_language": "en", "profile_id": "openai", "model": "gpt-5-mini"
         }))
         .unwrap();
-        assert!(serde_json::to_value(target).unwrap().get("model_by_profile").is_none());
+        assert!(serde_json::to_value(target)
+            .unwrap()
+            .get("model_by_profile")
+            .is_none());
     }
 
     #[test]

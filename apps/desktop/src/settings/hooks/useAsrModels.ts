@@ -4,11 +4,8 @@ import { open } from "@tauri-apps/plugin-dialog";
 
 import { providersApi } from "../../providers/api";
 import { localizedError } from "../../app/app-utils";
-import { validComputeTypes } from "../settings-validation";
 import type {
   ApiProfileView,
-  AsrCapabilities,
-  AsrModelRecord,
   QwenModelRecord,
   QwenRuntimeStatus,
   ProviderDefinition,
@@ -18,19 +15,12 @@ import {
   recognitionServicesForProfile,
   selectRecognitionService,
 } from "../../recognition-services";
-import {
-  classifyModels,
-  MODEL_PRESENTATION,
-  modelStatusLabel,
-  selectRecognitionSource,
-} from "../settings-derived";
+import { selectRecognitionSource } from "../settings-derived";
 import type { SettingsDraftController } from "./useSettingsDraft";
 
 export function useAsrModels({
   active,
   settings,
-  modelStatus,
-  asrCapabilities,
   onModelsChanged,
   draftController,
   apiProfiles,
@@ -38,60 +28,34 @@ export function useAsrModels({
 }: {
   active: boolean;
   settings: Settings;
-  modelStatus: string;
-  asrCapabilities: AsrCapabilities | null;
   onModelsChanged: () => Promise<void>;
   draftController: SettingsDraftController;
   apiProfiles: ApiProfileView[];
   providerDefinitions: ProviderDefinition[];
 }) {
   const { t } = useTranslation();
-  const [managedModels, setManagedModels] = useState<AsrModelRecord[]>([]);
   const [qwenModels, setQwenModels] = useState<QwenModelRecord[]>([]);
-  const [modelsReady, setModelsReady] = useState(false);
+  const qwenModelsRef = useRef(qwenModels);
+  qwenModelsRef.current = qwenModels;
   const [qwenModelsReady, setQwenModelsReady] = useState(false);
   const [qwenRuntime, setQwenRuntime] = useState<QwenRuntimeStatus | null>(null);
-  const [message, setMessage] = useState("");
   const [qwenMessage, setQwenMessage] = useState("");
   const [modelDirectoryText, setModelDirectoryText] = useState(settings.storage.model_directory);
-  const managedModelsRef = useRef(managedModels);
-  managedModelsRef.current = managedModels;
 
   useEffect(() => {
     setModelDirectoryText(settings.storage.model_directory);
   }, [settings.storage.model_directory]);
 
-  const fetchModels = useCallback(async (isCancelled: () => boolean) => {
-    try {
-      const previous = managedModelsRef.current;
-      const next = await providersApi.asrModels();
-      if (isCancelled()) return;
-      managedModelsRef.current = next;
-      setManagedModels(next);
-      setModelsReady(true);
-      if (
-        previous.some((model) => model.status === "downloading")
-        && !next.some((model) => model.status === "downloading")
-      ) {
-        void onModelsChanged();
-      }
-    } catch (reason) {
-      if (isCancelled()) return;
-      setModelsReady(false);
-      setMessage(localizedError(reason, t, "errors.asr.models"));
-    }
-  }, [onModelsChanged]);
-
-  const loadModels = useCallback(
-    () => fetchModels(() => false),
-    [fetchModels],
-  );
-
   const fetchQwenModels = useCallback(async (isCancelled: () => boolean) => {
     try {
       const [next, runtime] = await Promise.all([providersApi.qwenModels(), providersApi.qwenRuntime()]);
       if (isCancelled()) return;
+      const wasBusy = qwenModelsRef.current.some((model) => ["downloading", "verifying"].includes(model.status));
+      qwenModelsRef.current = next;
       setQwenModels(next);
+      if (wasBusy && !next.some((model) => ["downloading", "verifying"].includes(model.status))) {
+        void onModelsChanged();
+      }
       setQwenRuntime(runtime);
       setQwenModelsReady(true);
     } catch (reason) {
@@ -99,7 +63,7 @@ export function useAsrModels({
       setQwenModelsReady(false);
       setQwenMessage(localizedError(reason, t, "errors.asr.models"));
     }
-  }, [t]);
+  }, [onModelsChanged, t]);
   const loadQwenModels = useCallback(
     () => fetchQwenModels(() => false),
     [fetchQwenModels],
@@ -109,7 +73,7 @@ export function useAsrModels({
     let cancelled = false;
     let timer: number | null = null;
     const poll = async () => {
-      await Promise.all([fetchModels(() => cancelled), fetchQwenModels(() => cancelled)]);
+      await fetchQwenModels(() => cancelled);
       if (!cancelled && active) timer = window.setTimeout(() => void poll(), 750);
     };
     void poll();
@@ -117,7 +81,7 @@ export function useAsrModels({
       cancelled = true;
       if (timer !== null) window.clearTimeout(timer);
     };
-  }, [active, fetchModels, fetchQwenModels]);
+  }, [active, fetchQwenModels]);
 
   const updateAsr = <K extends keyof Settings["asr"]>(
     key: K,
@@ -144,20 +108,6 @@ export function useAsrModels({
       return service
         ? { ...current, asr: selectRecognitionService(current.asr, service) }
         : current;
-    });
-  };
-
-  const updateLocalAsr = <K extends keyof Settings["asr"]["local"]>(
-    key: K,
-    value: Settings["asr"]["local"][K],
-  ) => {
-    draftController.applySettings((current) => {
-      const local = { ...current.asr.local, [key]: value };
-      if (key === "device") {
-        const allowed = validComputeTypes(asrCapabilities, local.device);
-        if (!allowed.includes(local.compute_type)) local.compute_type = allowed[0] ?? "int8";
-      }
-      return { ...current, asr: { ...current.asr, local } };
     });
   };
 
@@ -195,7 +145,7 @@ export function useAsrModels({
         storage: { ...current.storage, model_directory: directory },
       }),
       () => {
-        void loadModels();
+        void loadQwenModels();
         void onModelsChanged();
       },
     );
@@ -211,34 +161,6 @@ export function useAsrModels({
       if (typeof directory === "string") updateModelDirectory(directory);
     } catch (reason) {
       draftController.setFailure(localizedError(reason, t, "errors.dialog.folder"));
-    }
-  };
-
-  const downloadModel = async (model: AsrModelRecord) => {
-    setMessage(t("settings.recognition.preparingDownload", {
-      name: MODEL_PRESENTATION[model.id].name,
-    }));
-    try {
-      await providersApi.downloadAsrModel(model.id);
-      setMessage(t("settings.recognition.downloadQueued", {
-        name: MODEL_PRESENTATION[model.id].name,
-      }));
-      await loadModels();
-    } catch (reason) {
-      setMessage(localizedError(reason, t, "errors.asr.download"));
-    }
-  };
-
-  const removeModel = async (model: AsrModelRecord) => {
-    const name = MODEL_PRESENTATION[model.id].name;
-    setMessage(t("settings.recognition.deleting", { name }));
-    try {
-      await providersApi.deleteAsrModel(model.id);
-      await loadModels();
-      await onModelsChanged();
-      setMessage(t("settings.recognition.deleted", { name }));
-    } catch (reason) {
-      setMessage(localizedError(reason, t, "errors.asr.delete"));
     }
   };
 
@@ -269,53 +191,26 @@ export function useAsrModels({
     }
   };
 
-  const selectedModelCapability = asrCapabilities?.models.find(
-    (model) => model.id === draftController.draft.asr.local.model,
-  );
-  const selectedModelStatus = (
-    draftController.draft.asr.local.model === settings.asr.local.model
-    && ["loading", "ready", "error"].includes(modelStatus)
-  )
-    ? modelStatus
-    : selectedModelCapability?.status;
-  const classified = classifyModels(
-    managedModels,
-    asrCapabilities,
-    draftController.draft.asr.local.model,
-    modelsReady,
-  );
-
   return {
-    managedModels,
     qwenModels,
-    modelsReady,
     qwenModelsReady,
     qwenRuntime,
-    message,
     qwenMessage,
     modelDirectoryText,
     setModelDirectoryText,
-    loadModels,
     loadQwenModels,
     updateAsr,
     updateRecognitionSource,
     updateRecognitionService,
-    updateLocalAsr,
     updateManagedQwen,
     updateVad,
     updateModelDirectory,
     chooseModelDirectory,
-    downloadModel,
-    removeModel,
     downloadQwenModel: (model: QwenModelRecord) => runQwenAction(model, providersApi.downloadQwenModel),
     downloadQwenRuntime: () => runQwenRuntimeAction(providersApi.downloadQwenRuntime),
     cancelQwenRuntimeDownload: () => runQwenRuntimeAction(providersApi.cancelQwenRuntimeDownload),
     cancelQwenDownload: (model: QwenModelRecord) => runQwenAction(model, providersApi.cancelQwenDownload),
     verifyQwenModel: (model: QwenModelRecord) => runQwenAction(model, providersApi.verifyQwenModel),
     removeQwenModel,
-    modelStatusLabel: draftController.draft.asr.local.model
-      ? modelStatusLabel(selectedModelStatus, t)
-      : t("settings.recognition.modelStatus.notSelected"),
-    ...classified,
   };
 }

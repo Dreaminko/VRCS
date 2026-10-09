@@ -8,6 +8,58 @@ use crate::providers::{
 };
 
 #[test]
+fn removed_whisper_migrates_to_qwen_without_changing_storage_or_language() {
+    for device in ["cpu", "auto", "cuda", "vulkan"] {
+        let raw = serde_json::json!({
+            "schema_version": 28,
+            "storage": {"model_directory": "custom/models"},
+            "asr": {
+                "backend": "local_whisper", "language": "ja",
+                "active_profile_id": "old-profile",
+                "local": {"model": "small", "device": device, "compute_type": "int8"},
+                "cloud_failure_policy": "local"
+            }
+        });
+        let migrated = config_from_value(&raw).unwrap();
+        assert_eq!(migrated.asr.backend, QWEN_MANAGED_BACKEND);
+        assert_eq!(migrated.asr.active_profile_id, None);
+        assert_eq!(migrated.asr.language, "ja");
+        assert_eq!(migrated.storage.model_directory, "custom/models");
+        assert_eq!(
+            migrated.asr.managed_qwen.device,
+            if device == "cpu" { "cpu" } else { "auto" }
+        );
+        let saved = serde_json::to_value(&migrated).unwrap();
+        assert!(saved["asr"].get("local").is_none());
+        assert!(saved["asr"].get("cloud_failure_policy").is_none());
+        assert_eq!(config_from_value(&saved).unwrap(), migrated);
+    }
+}
+
+#[test]
+fn removed_whisper_migration_preserves_existing_qwen_and_legacy_default_directory() {
+    let raw = serde_json::json!({
+        "schema_version": 28,
+        "asr": {"backend": "local_whisper", "local": {"device": "cpu"},
+                "managed_qwen": {"package_id": "qwen3-asr-0.6b-q8_0", "device": "gpu"}}
+    });
+    let migrated = config_from_value(&raw).unwrap();
+    assert_eq!(migrated.asr.managed_qwen.device, "gpu");
+    assert_eq!(migrated.storage.model_directory, "models/whisper");
+    assert_eq!(AppConfig::default().storage.model_directory, "models/asr");
+}
+
+#[test]
+fn removed_whisper_backend_is_rejected_in_current_settings() {
+    let mut config = AppConfig::default();
+    config.asr.backend = "local_whisper".into();
+    assert!(config
+        .validate_settings()
+        .unwrap_err()
+        .contains("Unsupported recognition backend"));
+}
+
+#[test]
 fn legacy_ocr_moves_to_root_without_losing_vr_settings() {
     let raw = serde_json::json!({
         "schema_version": 27,
@@ -19,7 +71,7 @@ fn legacy_ocr_moves_to_root_without_losing_vr_settings() {
     });
     let migrated = config_from_value(&raw).unwrap();
     let saved = serde_json::to_value(&migrated).unwrap();
-    assert_eq!(saved["schema_version"], 28);
+    assert_eq!(saved["schema_version"], SCHEMA_VERSION);
     assert_eq!(saved["ocr"]["enabled"], true);
     assert_eq!(saved["ocr"]["desktop_enabled"], false);
     assert_eq!(saved["ocr"]["shortcut"], "Ctrl+Alt+O");
@@ -61,11 +113,11 @@ fn schema_v3_without_model_directory_uses_the_default() {
 
     assert_eq!(config.storage.model_directory, "models/whisper");
     assert_eq!(config.schema_version, SCHEMA_VERSION);
-    assert_eq!(config.asr.backend, "local_whisper");
+    assert_eq!(config.asr.backend, QWEN_MANAGED_BACKEND);
 }
 
 #[test]
-fn schema_v26_adds_managed_qwen_defaults_without_changing_whisper_settings() {
+fn schema_v26_migrates_whisper_to_managed_qwen() {
     let mut raw = serde_json::to_value(AppConfig::default()).unwrap();
     raw["schema_version"] = serde_json::json!(26);
     raw["asr"].as_object_mut().unwrap().remove("managed_qwen");
@@ -74,9 +126,9 @@ fn schema_v26_adds_managed_qwen_defaults_without_changing_whisper_settings() {
 
     let config = config_from_value(&raw).unwrap();
     assert_eq!(config.schema_version, SCHEMA_VERSION);
-    assert_eq!(config.asr.backend, "local_whisper");
-    assert_eq!(config.asr.local.model, "tiny");
+    assert_eq!(config.asr.backend, QWEN_MANAGED_BACKEND);
     assert_eq!(config.asr.managed_qwen.package_id, "qwen3-asr-0.6b-q8_0");
+    assert_eq!(config.asr.managed_qwen.device, "auto");
 }
 
 #[test]
@@ -157,9 +209,9 @@ fn migrates_v1_layout() {
     assert_eq!(config.audio.output.device_id, Some(3));
     assert_eq!(config.audio.microphone.mode, "device");
     assert_eq!(config.audio.microphone.device_id, Some(7));
-    assert_eq!(config.asr.local.model, "tiny");
+    assert_eq!(config.asr.managed_qwen.package_id, "qwen3-asr-0.6b-q8_0");
     assert_eq!(config.asr.language, "ja");
-    assert_eq!(config.asr.local.device, "auto");
+    assert_eq!(config.asr.managed_qwen.device, "auto");
 }
 
 #[test]

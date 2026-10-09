@@ -17,6 +17,9 @@ mod ocr_input;
 mod ocr_input_state;
 #[cfg(windows)]
 mod ocr_plane;
+mod ocr_progress;
+#[cfg(windows)]
+mod ocr_progress_renderer;
 #[cfg(windows)]
 mod ocr_renderer;
 #[cfg(windows)]

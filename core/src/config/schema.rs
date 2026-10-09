@@ -6,7 +6,7 @@ use super::{
     VrOcrConfig, VrOverlayConfig, VrcxConfig,
 };
 
-pub const SCHEMA_VERSION: u32 = 28;
+pub const SCHEMA_VERSION: u32 = 29;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AppConfig {
@@ -131,14 +131,11 @@ mod tests {
                 "active_profile_id",
                 "api_profiles",
                 "backend",
-                "cloud_failure_policy",
                 "language",
-                "local",
                 "managed_qwen",
                 "service_settings",
             ],
         );
-        assert_keys(&value["asr"]["local"], ["compute_type", "device", "model"]);
         assert_keys(&value["asr"]["managed_qwen"], ["device", "package_id"]);
         assert_keys(
             &value["asr"]["service_settings"]["qwen_realtime"],

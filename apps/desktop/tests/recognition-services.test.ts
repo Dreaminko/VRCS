@@ -10,7 +10,7 @@ import {
   selectRecognitionService,
   updateRecognitionServiceSettings,
 } from "../src/recognition-services.ts";
-import type { ApiProfileView, AsrSettings, ProviderDefinition } from "../src/types.ts";
+import type { ApiProfileView, AsrSettings, ProviderDefinition } from "../src/providers/types.ts";
 
 const profile: ApiProfileView = {
   id: "profile",
@@ -46,13 +46,11 @@ const definitions: ProviderDefinition[] = [{
 }];
 
 const asr: AsrSettings = {
-  backend: "local_whisper",
+  backend: "qwen_local_managed",
   language: "auto",
-  local: { model: "small", device: "auto", compute_type: "int8" },
   managed_qwen: { package_id: "qwen3-asr-0.6b-q8_0", device: "auto" },
   active_profile_id: "profile",
   service_settings: {},
-  cloud_failure_policy: "reconnect",
 };
 
 test("recognition services are selected from provider service metadata", () => {
@@ -107,11 +105,40 @@ test("engine labels use catalog display names and safely fall back to service ID
 });
 
 test("managed Qwen is a local source without an API profile", () => {
-  const selected = selectRecognitionProfile(asr, "managed_qwen", [profile], definitions);
+  const configured: AsrSettings = {
+    ...asr,
+    language: "ja",
+    managed_qwen: { ...asr.managed_qwen, device: "cpu" },
+    service_settings: { "groq-transcribe": { model: "whisper-large-v3", context: "saved context" } },
+  };
+  const selected = selectRecognitionProfile(configured, "managed_qwen", [profile], definitions);
   assert.equal(selected.backend, "qwen_local_managed");
   assert.equal(selected.active_profile_id, null);
   assert.equal(recognitionSourceValue(selected), "managed_qwen");
   assert.equal(recognitionEngineLabel(selected, [], []), "Qwen3-ASR 0.6B");
+  assert.equal(selected.language, "ja");
+  assert.deepEqual(selected.managed_qwen, configured.managed_qwen);
+  assert.deepEqual(selected.service_settings, configured.service_settings);
+});
+
+test("external local Qwen remains an API profile source", () => {
+  const localProfile = {
+    ...profile,
+    id: "qwen-local",
+    provider: "local-qwen",
+    capabilities: { ...profile.capabilities, is_local: true, requires_api_key: false },
+  };
+  const localDefinition: ProviderDefinition = {
+    ...definitions[0],
+    id: "local-qwen",
+    category: "local_service",
+    services: [{ ...definitions[0].services[0], id: "qwen_local_transcription", models: [] }],
+  };
+  const selected = selectRecognitionProfile(asr, localProfile.id, [localProfile], [localDefinition]);
+  assert.equal(selected.backend, "qwen_local_transcription");
+  assert.equal(selected.active_profile_id, localProfile.id);
+  assert.equal(recognitionSourceValue(selected), localProfile.id);
+  assert.deepEqual(selected.managed_qwen, asr.managed_qwen);
 });
 
 test("native translation services keep their own labels and model settings", () => {
@@ -187,8 +214,8 @@ test("ordinary recognition selection and providers without native translation re
     { ...asr, backend: "openai_realtime_translate", active_profile_id: "oai" }, "profile", [...liveProfiles, profile], [...liveDefinitions, ...definitions],
   );
   assert.equal(groq.backend, "groq-transcribe");
-  const local = selectRecognitionProfile(gemini, "local", liveProfiles, liveDefinitions);
-  assert.equal(local.backend, "local_whisper");
+  const local = selectRecognitionProfile(gemini, "managed_qwen", liveProfiles, liveDefinitions);
+  assert.equal(local.backend, "qwen_local_managed");
   assert.equal(local.active_profile_id, null);
 });
 

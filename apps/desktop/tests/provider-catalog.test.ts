@@ -6,7 +6,7 @@ import {
   groupedProviderOptions,
   providerCapabilities,
 } from "../src/provider-catalog.ts";
-import type { ApiCapability, ProviderDefinition } from "../src/types.ts";
+import type { ApiCapability, ProviderDefinition } from "../src/providers/types.ts";
 
 function definition(
   id: string,

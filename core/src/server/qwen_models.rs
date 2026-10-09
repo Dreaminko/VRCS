@@ -180,7 +180,7 @@ pub(super) async fn delete(
     let mut candidate = state.config.config.read().expect("config lock").clone();
     if candidate.asr.managed_qwen.package_id == package {
         candidate.asr.managed_qwen.package_id.clear();
-        candidate = super::models::fallback_after_delete(&state, candidate, &package).await?;
+        candidate = fallback_after_delete(&state, candidate, &package).await?;
         super::settings::commit_candidate(&state, candidate).await?;
     }
     let running = state
@@ -226,4 +226,39 @@ pub(super) async fn delete(
             )
         })?;
     Ok(Json(json!({ "deleted": true })))
+}
+
+async fn fallback_after_delete(
+    state: &SettingsContext,
+    mut candidate: crate::config::AppConfig,
+    removed: &str,
+) -> ApiResult<crate::config::AppConfig> {
+    let manager = Arc::clone(&state.capture.model_manager);
+    let removed = removed.to_owned();
+    let replacement = tokio::task::spawn_blocking(move || {
+        manager.list_qwen().map(|models| {
+            models
+                .into_iter()
+                .find(|model| model.id != removed && model.status == "installed")
+                .map(|model| model.id)
+                .unwrap_or_default()
+        })
+    })
+    .await
+    .map_err(|error| {
+        super::api_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "asr.qwen_model.inspect_task_failed",
+            error.to_string(),
+        )
+    })?
+    .map_err(|error| {
+        super::api_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "asr.qwen_model.inspect_failed",
+            error,
+        )
+    })?;
+    candidate.asr.managed_qwen.package_id = replacement;
+    Ok(candidate)
 }

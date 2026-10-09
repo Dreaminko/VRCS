@@ -1,20 +1,19 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  asrSelectionError,
   audioSelectionErrors,
   hasEnabledAudioSource,
-  validComputeTypes,
 } from "../src/settings/settings-validation.ts";
 import { DEFAULT_OCR_SETTINGS, DEFAULT_VR_OVERLAY_SETTINGS } from "../src/settings/vr-overlay-settings.ts";
-import type { AsrCapabilities, AudioDevice, Settings } from "../src/types.ts";
+import type { AudioDevice } from "../src/capture/types.ts";
+import type { Settings } from "../src/settings/types.ts";
 
 const settings: Settings = {
-  schema_version: 28,
+  schema_version: 29,
   server: { host: "127.0.0.1", port: 8766 },
   storage: {
     database_path: "data/vrcs.db",
-    model_directory: "models/whisper",
+    model_directory: "models/asr",
     subtitle_history_max_bytes: 100 * 1024 * 1024,
   },
   audio: {
@@ -23,7 +22,7 @@ const settings: Settings = {
     microphone: { mode: "device", device_id: 20, trigger_threshold_dbfs: -45 },
   },
   vad: { endpointing: "silence", silence_seconds: 0.4, max_speech_seconds: 6 },
-  asr: { backend: "local_whisper", language: "auto", local: { model: "small", device: "auto", compute_type: "int8" }, managed_qwen: { package_id: "qwen3-asr-0.6b-q8_0", device: "auto" }, active_profile_id: null, service_settings: {}, cloud_failure_policy: "reconnect" },
+  asr: { backend: "qwen_local_managed", language: "auto", managed_qwen: { package_id: "qwen3-asr-0.6b-q8_0", device: "auto" }, active_profile_id: null, service_settings: {} },
   translation: { mode: "disabled", speaker_targets: [{ target_language: "zh-Hans", profile_id: null, model: "gpt-5-mini", thinking_enabled: false }], microphone_targets: [{ target_language: "en", profile_id: null, model: "gpt-5-mini", thinking_enabled: false }], prompt: { system_prompt: "", context_enabled: false, include_speaker: true, include_microphone: true, include_chatbox: true, max_messages: 5, max_chars: 4000 } },
   language_presets: [],
   glossary: { llm_enabled: true, asr_enabled: true, sources: [] },
@@ -40,14 +39,6 @@ const devices: AudioDevice[] = [
   { id: 10, name: "output", is_default: true, is_loopback: true, sample_rate: 48_000, channels: 2 },
   { id: 20, name: "microphone", is_default: true, is_loopback: false, sample_rate: 48_000, channels: 1 },
 ];
-
-const capabilities: AsrCapabilities = {
-  runtime_available: true,
-  cuda: { available: false, device_count: 0, error: null },
-  vulkan: { available: true, device_count: 1, error: null },
-  compute_types: { auto: ["int8"], cpu: ["int8"], cuda: [], vulkan: ["int8"] },
-  models: [],
-};
 
 test("accepts available output and microphone selections", () => {
   assert.deepEqual(audioSelectionErrors(settings, devices), []);
@@ -70,30 +61,4 @@ test("requires at least one enabled audio source", () => {
       microphone: { ...settings.audio.microphone, mode: "disabled", device_id: null },
     },
   }), false);
-});
-
-test("filters compute types and rejects unavailable CUDA", () => {
-  assert.deepEqual(validComputeTypes(capabilities, "cpu"), ["int8"]);
-  assert.equal(
-    asrSelectionError(
-      { ...settings, asr: { ...settings.asr, local: { ...settings.asr.local, device: "cuda" } } },
-      capabilities,
-    ),
-    "CUDA preflight failed; use automatic selection or CPU",
-  );
-});
-
-test("accepts Vulkan with its supported compute type", () => {
-  assert.deepEqual(validComputeTypes(capabilities, "vulkan"), ["int8"]);
-  assert.equal(asrSelectionError(
-    { ...settings, asr: { ...settings.asr, local: { ...settings.asr.local, device: "vulkan" } } },
-    capabilities,
-  ), null);
-});
-
-test("reports unavailable Vulkan before compute type validation", () => {
-  assert.equal(asrSelectionError(
-    { ...settings, asr: { ...settings.asr, local: { ...settings.asr.local, device: "vulkan" } } },
-    { ...capabilities, vulkan: { available: false, device_count: 0, error: null } },
-  ), "Vulkan is unavailable; use automatic selection or CPU");
 });

@@ -1,11 +1,9 @@
 use serde::Deserialize;
 
-use super::recognition::{
-    default_asr_model, default_compute_type, default_device, default_language,
-};
+use super::recognition::{default_device, default_language};
 use super::{
-    default_service_settings, AppConfig, AsrConfig, AudioConfig, LocalAsrConfig, MicrophoneConfig,
-    OutputConfig, ServerConfig, StorageConfig, SCHEMA_VERSION,
+    default_service_settings, AppConfig, AsrConfig, AudioConfig, ManagedQwenConfig,
+    MicrophoneConfig, OutputConfig, ServerConfig, StorageConfig, SCHEMA_VERSION,
 };
 use crate::providers::{
     self, ALIBABA_TOKEN_PLAN_PROVIDER, CAPABILITY_SPEECH_TO_TEXT, CAPABILITY_TEXT_GENERATION,
@@ -16,23 +14,17 @@ use crate::providers::{
 
 #[derive(Debug, Clone, Deserialize)]
 struct LegacyAsrConfig {
-    #[serde(default = "default_asr_model")]
-    model: String,
     #[serde(default = "default_language")]
     language: String,
     #[serde(default = "default_device")]
     device: String,
-    #[serde(default = "default_compute_type")]
-    compute_type: String,
 }
 
 impl Default for LegacyAsrConfig {
     fn default() -> Self {
         Self {
-            model: default_asr_model(),
             language: default_language(),
             device: default_device(),
-            compute_type: default_compute_type(),
         }
     }
 }
@@ -76,7 +68,7 @@ fn migrate_v1(raw: &serde_json::Value) -> AppConfig {
                 .get("model_directory")
                 .and_then(|value| value.as_str())
                 .map(str::to_owned)
-                .unwrap_or_else(|| defaults.storage.model_directory.clone()),
+                .unwrap_or_else(|| "models/whisper".into()),
             subtitle_history_max_bytes: defaults.storage.subtitle_history_max_bytes,
         },
         audio: AudioConfig {
@@ -117,12 +109,16 @@ fn migrate_v1(raw: &serde_json::Value) -> AppConfig {
 
 fn asr_from_legacy(legacy: LegacyAsrConfig) -> AsrConfig {
     AsrConfig {
-        backend: "local_whisper".into(),
+        backend: super::QWEN_MANAGED_BACKEND.into(),
         language: legacy.language,
-        local: LocalAsrConfig {
-            model: legacy.model,
-            device: legacy.device,
-            compute_type: legacy.compute_type,
+        managed_qwen: ManagedQwenConfig {
+            device: if legacy.device == "cpu" {
+                "cpu"
+            } else {
+                "auto"
+            }
+            .into(),
+            ..ManagedQwenConfig::default()
         },
         ..AsrConfig::default()
     }
@@ -773,9 +769,55 @@ pub(super) fn config_version(raw: &serde_json::Value) -> Result<u64, String> {
     }
 }
 
+fn normalize_removed_whisper(value: &mut serde_json::Value) -> Result<(), String> {
+    let object = value
+        .as_object_mut()
+        .ok_or("Configuration root must be an object")?;
+    let storage = object
+        .entry("storage")
+        .or_insert_with(|| serde_json::json!({}))
+        .as_object_mut()
+        .ok_or("Configuration storage must be an object")?;
+    storage
+        .entry("model_directory")
+        .or_insert_with(|| serde_json::json!("models/whisper"));
+    if let Some(asr) = object
+        .get_mut("asr")
+        .and_then(serde_json::Value::as_object_mut)
+    {
+        if asr.get("backend").and_then(serde_json::Value::as_str) == Some("local_whisper") {
+            if !asr.contains_key("managed_qwen") {
+                let device = asr
+                    .get("local")
+                    .and_then(|local| local.get("device"))
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("auto");
+                asr.insert(
+                    "managed_qwen".into(),
+                    serde_json::json!({
+                        "package_id": "qwen3-asr-0.6b-q8_0",
+                        "device": if device == "cpu" { "cpu" } else { "auto" }
+                    }),
+                );
+            }
+            asr.insert(
+                "backend".into(),
+                serde_json::json!(super::QWEN_MANAGED_BACKEND),
+            );
+            asr.insert("active_profile_id".into(), serde_json::Value::Null);
+        }
+        asr.remove("local");
+        asr.remove("cloud_failure_policy");
+    }
+    Ok(())
+}
+
 pub fn config_from_value(raw: &serde_json::Value) -> Result<AppConfig, String> {
     let version = config_version(raw)?;
     let mut normalized = raw.clone();
+    if version < SCHEMA_VERSION as u64 {
+        normalize_removed_whisper(&mut normalized)?;
+    }
     let legacy_ocr = normalized
         .get_mut("vr_overlay")
         .and_then(serde_json::Value::as_object_mut)
@@ -802,7 +844,7 @@ pub fn config_from_value(raw: &serde_json::Value) -> Result<AppConfig, String> {
         version if version == SCHEMA_VERSION as u64 => {
             serde_json::from_value(raw.clone()).map_err(|error| error.to_string())?
         }
-        26 | 27 => serde_json::from_value(raw.clone()).map_err(|error| error.to_string())?,
+        26..=28 => serde_json::from_value(raw.clone()).map_err(|error| error.to_string())?,
         23..=25 => deserialize_v24(raw.clone())?,
         22 => migrate_v22(raw)?,
         21 => migrate_v21(raw)?,

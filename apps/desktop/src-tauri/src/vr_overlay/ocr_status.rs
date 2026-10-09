@@ -80,6 +80,8 @@ pub struct OcrStatus {
     pub last_error: Option<String>,
     pub wrist_state: OcrWristState,
     pub wrist_error: Option<String>,
+    pub progress: Option<super::ocr_progress::ProgressView>,
+    pub progress_error: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
@@ -108,6 +110,8 @@ impl Default for OcrStatus {
             last_error: None,
             wrist_state: OcrWristState::Hidden,
             wrist_error: None,
+            progress: None,
+            progress_error: None,
         }
     }
 }

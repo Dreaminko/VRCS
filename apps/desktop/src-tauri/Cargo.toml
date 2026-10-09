@@ -9,7 +9,6 @@ default-run = "vrcs-desktop"
 
 [features]
 default = []
-cuda = ["vulkan", "vrcs-core/cuda"]
 vulkan = ["vrcs-core/vulkan"]
 
 [lib]

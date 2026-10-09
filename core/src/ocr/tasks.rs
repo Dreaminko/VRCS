@@ -46,6 +46,14 @@ pub struct BlockUpdate {
     pub block: TranslatedBlock,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub(super) enum TranslationProgress {
+    ImageDone(usize),
+    InputDone,
+    Registered,
+    Finished(bool),
+}
+
 #[derive(Clone)]
 struct TranslationRequest {
     key: [u8; 32],
@@ -214,8 +222,31 @@ impl VrOcrService {
         images: impl Stream<Item = Result<(usize, Vec<TextBlock>), String>>,
         scan_id: u64,
         deadline: tokio::time::Instant,
+        progress: impl FnMut(super::Phase),
+        completed: impl FnMut(BlockUpdate),
+    ) -> Result<ScanResult, String> {
+        self.translate_stream_with_progress(
+            config,
+            images,
+            scan_id,
+            deadline,
+            progress,
+            completed,
+            |_| {},
+        )
+        .await
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(super) async fn translate_stream_with_progress(
+        &self,
+        config: &crate::config::AppConfig,
+        images: impl Stream<Item = Result<(usize, Vec<TextBlock>), String>>,
+        scan_id: u64,
+        deadline: tokio::time::Instant,
         mut progress: impl FnMut(super::Phase),
         mut completed: impl FnMut(BlockUpdate),
+        mut pipeline: impl FnMut(TranslationProgress),
     ) -> Result<ScanResult, String> {
         use sha2::{Digest, Sha256};
         let started = std::time::Instant::now();
@@ -267,6 +298,7 @@ impl VrOcrService {
                     }
                     let request = &mut requests[request_index];
                     request.translation = Some(translation.clone());
+                    pipeline(TranslationProgress::Finished(translation.text.as_ref().is_none_or(|text| text.trim().is_empty())));
                     for &(eye, index) in &request.subscribers {
                         let block = &mut blocks[eye][index];
                         block.translations[request.target_index] = translation.clone();
@@ -281,7 +313,11 @@ impl VrOcrService {
                     break;
                 }
                 next = images.next(), if !images_done => {
-                    let Some(next) = next else { images_done = true; continue; };
+                    let Some(next) = next else {
+                        images_done = true;
+                        pipeline(TranslationProgress::InputDone);
+                        continue;
+                    };
                     let (eye, image) = next?;
                     if eye >= 2 { return Err("Invalid OCR eye result".into()); }
                     had_text |= !image.is_empty();
@@ -336,9 +372,11 @@ impl VrOcrService {
                                     target_index, target: target.clone(),
                                     subscribers: vec![(eye, index)], translation: None,
                                 });
+                                pipeline(TranslationProgress::Registered);
                             }
                         }
                     }
+                    pipeline(TranslationProgress::ImageDone(eye));
                 }
                 _ = config_check.tick() => {}
             }
@@ -434,6 +472,74 @@ mod tests {
     use serde_json::json;
     use std::sync::{Arc, RwLock};
     use std::time::Duration;
+
+    #[tokio::test]
+    async fn progress_counts_target_slots_and_cached_requests_without_double_counting_eyes() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let calls = Arc::new(AtomicUsize::new(0));
+        let counted = calls.clone();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let origin = format!("http://{}", listener.local_addr().unwrap());
+        let server = tokio::spawn(async move {
+            axum::serve(
+                listener,
+                Router::new().route(
+                    "/chat/completions",
+                    post(move || {
+                        let counted = counted.clone();
+                        async move {
+                            counted.fetch_add(1, Ordering::SeqCst);
+                            Json(json!({"choices":[{"message":{"content":"translated"}}]}))
+                        }
+                    }),
+                ),
+            )
+            .await
+            .unwrap();
+        });
+        let (service, mut config) = service(Some(origin));
+        config.ocr.targets.push(config.ocr.targets[0].clone());
+        *service.config.write().unwrap() = config.clone();
+        for scan_id in [1, 2] {
+            let mut snapshots = Vec::new();
+            let mut reporter = super::super::progress::Reporter::new(scan_id, 2, |snapshot| {
+                snapshots.push(snapshot)
+            });
+            let result = service
+                .translate_stream_with_progress(
+                    &config,
+                    stream::iter([
+                        Ok((0, vec![block(0, "same")])),
+                        Ok((1, vec![block(0, "same")])),
+                    ]),
+                    scan_id,
+                    tokio::time::Instant::now() + Duration::from_secs(2),
+                    |_| {},
+                    |_| {},
+                    |event| reporter.translation(event),
+                )
+                .await
+                .unwrap();
+            let last = snapshots.last().unwrap();
+            assert_eq!(
+                (
+                    last.translation_total,
+                    last.translation_completed,
+                    last.translation_failed
+                ),
+                (2, 2, 0)
+            );
+            assert!(last.translation_total_final && last.recognition_done);
+            assert_eq!(last.images_done, 2);
+            assert_eq!(result.summary.success_count, 4);
+            assert_eq!(
+                calls.load(Ordering::SeqCst),
+                2,
+                "The second scan must use cached translations"
+            );
+        }
+        server.abort();
+    }
 
     fn block(id: usize, text: &str) -> TextBlock {
         TextBlock {
@@ -651,8 +757,9 @@ mod tests {
                 Ok((1, vec![positioned(0, "same", 100., 10., 70.)]))
             }));
         let mut updates = Vec::new();
+        let mut progress = Vec::new();
         let result = service
-            .translate_stream(
+            .translate_stream_with_progress(
                 &config,
                 eyes,
                 81,
@@ -664,6 +771,7 @@ mod tests {
                     }
                     updates.push(update);
                 },
+                |event| progress.push(event),
             )
             .await
             .unwrap();
@@ -673,6 +781,47 @@ mod tests {
             "Eye 1 can finish only after translation starts"
         );
         assert_eq!(requests.load(Ordering::SeqCst), 1);
+        assert_eq!(
+            progress
+                .iter()
+                .filter(|event| matches!(event, TranslationProgress::Registered))
+                .count(),
+            1
+        );
+        assert_eq!(
+            progress
+                .iter()
+                .filter(|event| matches!(event, TranslationProgress::Finished(false)))
+                .count(),
+            1
+        );
+        assert!(
+            progress
+                .iter()
+                .position(|event| matches!(event, TranslationProgress::ImageDone(0)))
+                .unwrap()
+                < progress
+                    .iter()
+                    .position(|event| matches!(event, TranslationProgress::ImageDone(1)))
+                    .unwrap()
+        );
+        assert_eq!(
+            progress
+                .iter()
+                .filter(|event| matches!(event, TranslationProgress::InputDone))
+                .count(),
+            1
+        );
+        assert!(
+            progress
+                .iter()
+                .position(|event| matches!(event, TranslationProgress::InputDone))
+                .unwrap()
+                > progress
+                    .iter()
+                    .position(|event| matches!(event, TranslationProgress::ImageDone(1)))
+                    .unwrap()
+        );
         assert_eq!(result.summary.success_count, 2);
         assert_eq!(result.blocks[1][0].source.polygon[0][0], 100.);
         let translated: Vec<_> = updates

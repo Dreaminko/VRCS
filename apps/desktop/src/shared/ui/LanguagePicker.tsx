@@ -5,7 +5,6 @@ import {
   canonicalLanguageTag,
   languageSearchText,
   localizedLanguageName,
-  TRANSLATION_LANGUAGES,
   translationLanguage,
 } from "../../translation-languages";
 import { DropdownField } from "./DropdownField";

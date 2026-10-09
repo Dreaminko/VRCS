@@ -11,7 +11,7 @@ use crate::config::{AppConfig, AsrConfig, QWEN_MANAGED_BACKEND};
 use crate::error::AppError;
 use crate::pipeline::{AsrEchoGuard, PipelineDependencies};
 
-use super::{api_domain_error, api_error, api_error_with_params, ApiResult, CaptureContext};
+use super::{api_domain_error, api_error, ApiResult, CaptureContext};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct CaptureReloadPlan {
@@ -100,16 +100,7 @@ fn glossary_used_by_capture(config: &AppConfig) -> bool {
 }
 
 fn asr_config_runtime_changed(current: &AsrConfig, candidate: &AsrConfig) -> bool {
-    if current.backend != candidate.backend
-        || current.language != candidate.language
-        || current.cloud_failure_policy != candidate.cloud_failure_policy
-    {
-        return true;
-    }
-
-    let local_required =
-        |config: &AsrConfig| config.backend == "local_whisper" || config.local_fallback_enabled();
-    if (local_required(current) || local_required(candidate)) && current.local != candidate.local {
+    if current.backend != candidate.backend || current.language != candidate.language {
         return true;
     }
 
@@ -119,8 +110,7 @@ fn asr_config_runtime_changed(current: &AsrConfig, candidate: &AsrConfig) -> boo
         return true;
     }
 
-    let backend_config_changed = current.backend != "local_whisper"
-        && current.backend != QWEN_MANAGED_BACKEND
+    let backend_config_changed = current.backend != QWEN_MANAGED_BACKEND
         && current.service_settings.get(&current.backend)
             != candidate.service_settings.get(&current.backend);
     backend_config_changed
@@ -135,7 +125,7 @@ fn asr_profile_runtime_config(profile: &crate::config::ApiProfile) -> crate::con
 }
 
 fn active_asr_profile(config: &AsrConfig) -> Option<&crate::config::ApiProfile> {
-    if config.backend == "local_whisper" || config.backend == QWEN_MANAGED_BACKEND {
+    if config.backend == QWEN_MANAGED_BACKEND {
         return None;
     }
     let profile_id = config.active_profile_id.as_deref()?;
@@ -149,8 +139,7 @@ fn active_asr_profile(config: &AsrConfig) -> Option<&crate::config::ApiProfile> 
 }
 
 pub(crate) fn uses_asr_profile(config: &AppConfig, profile_id: &str) -> bool {
-    config.asr.backend != "local_whisper"
-        && config.asr.backend != QWEN_MANAGED_BACKEND
+    config.asr.backend != QWEN_MANAGED_BACKEND
         && config.asr.active_profile_id.as_deref() == Some(profile_id)
 }
 
@@ -242,12 +231,11 @@ pub(crate) async fn validate_capture_config(
         ));
     }
     if crate::providers::is_live_translation(&config.asr.backend) {
-        if config.translation.mode != "automatic" || config.asr.cloud_failure_policy != "reconnect"
-        {
+        if config.translation.mode != "automatic" {
             return Err(api_error(
                 StatusCode::CONFLICT,
                 "asr.live_translation_config",
-                "Live translation requires automatic translation and reconnect failure handling",
+                "Live translation requires automatic translation",
             ));
         }
         for targets in [
@@ -296,43 +284,9 @@ pub(crate) async fn validate_capture_config(
                 "The selected Qwen ASR package is not installed",
             ));
         }
-    } else if config.asr.backend != "local_whisper" {
+    } else {
         crate::asr::validate_cloud_connection(&config.asr)
             .map_err(|error| api_error(StatusCode::CONFLICT, "asr.cloud_profile_invalid", error))?;
-    }
-    let manager = Arc::clone(&state.capture.model_manager);
-    let model = config.asr.local.model.clone();
-    let local_required =
-        config.asr.backend == "local_whisper" || config.asr.local_fallback_enabled();
-    if local_required
-        && !tokio::task::spawn_blocking(move || manager.is_downloaded(&model))
-            .await
-            .map_err(|error| {
-                api_error_with_params(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "asr.model.inspect_task_failed",
-                    json!({ "model": config.asr.local.model }),
-                    format!("Model validation task failed: {error}"),
-                )
-            })?
-            .map_err(|error| {
-                api_error_with_params(
-                    StatusCode::UNPROCESSABLE_ENTITY,
-                    "asr.model.inspect_failed",
-                    json!({ "model": config.asr.local.model }),
-                    error,
-                )
-            })?
-    {
-        return Err(api_error_with_params(
-            StatusCode::CONFLICT,
-            "asr.model.not_downloaded",
-            json!({ "model": config.asr.local.model }),
-            format!(
-                "Recognition model {} has not been downloaded",
-                config.asr.local.model
-            ),
-        ));
     }
     Ok(())
 }
@@ -374,7 +328,6 @@ fn effective_asr_config(
 
 fn pipeline_dependencies(state: &CaptureContext) -> PipelineDependencies {
     PipelineDependencies::new(
-        Arc::clone(&state.capture.asr),
         Arc::clone(&state.content.db),
         state.capture.live_tx.clone(),
         state.content.conversation_catalog_tx.clone(),
@@ -772,7 +725,7 @@ mod tests {
     fn inactive_asr_settings_do_not_reload_capture() {
         let current = AppConfig::default();
         let mut candidate = current.clone();
-        candidate.asr.local.model = "tiny".into();
+        candidate.asr.managed_qwen.device = "cpu".into();
         candidate.asr.active_profile_id = Some("unused-profile".into());
         candidate
             .asr
