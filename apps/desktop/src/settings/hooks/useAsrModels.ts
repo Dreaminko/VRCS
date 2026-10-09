@@ -231,7 +231,6 @@ export function useAsrModels({
 
   const removeModel = async (model: AsrModelRecord) => {
     const name = MODEL_PRESENTATION[model.id].name;
-    if (!window.confirm(t("settings.recognition.confirmDelete", { name }))) return;
     setMessage(t("settings.recognition.deleting", { name }));
     try {
       await providersApi.deleteAsrModel(model.id);
@@ -257,7 +256,6 @@ export function useAsrModels({
     }
   };
   const removeQwenModel = async (model: QwenModelRecord) => {
-    if (!window.confirm(t("settings.recognition.confirmDelete", { name: model.id }))) return;
     await runQwenAction(model, providersApi.deleteQwenModel);
   };
 

@@ -34,6 +34,24 @@ impl LocalOcrRuntime {
         self.assets.start_download()
     }
 
+    pub async fn delete_models(&self) -> Result<ModelStatus, String> {
+        let permit = self
+            .inference_gate
+            .clone()
+            .try_acquire_owned()
+            .map_err(|_| "Local OCR is recognizing; try deleting the models again later")?;
+        let engine = self.engine.clone();
+        let assets = self.assets.clone();
+        tokio::task::spawn_blocking(move || {
+            let _permit = permit;
+            let mut engine = engine.lock().map_err(|_| "Local OCR engine lock failed")?;
+            *engine = None;
+            assets.delete()
+        })
+        .await
+        .map_err(|_| "OCR model deletion worker failed")?
+    }
+
     pub async fn recognize<const N: usize>(
         &self,
         images: [OcrImage; N],
@@ -303,6 +321,24 @@ fn characters(text: &str) -> Result<Vec<String>, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn ocr_model_delete_rejects_active_recognition_and_allows_retry() {
+        let directory = tempfile::tempdir().unwrap();
+        let runtime = LocalOcrRuntime::new(directory.path().into());
+        let path = directory.path().join("det.onnx");
+        std::fs::write(&path, b"model").unwrap();
+        let inference = runtime.inference_gate.acquire().await.unwrap();
+        assert!(runtime.delete_models().await.is_err());
+        assert!(path.exists());
+        drop(inference);
+        assert_eq!(
+            runtime.delete_models().await.unwrap().state,
+            super::super::ModelState::Missing
+        );
+        assert!(!path.exists());
+        assert_eq!(runtime.inference_gate.available_permits(), 1);
+    }
 
     #[test]
     fn ocr_local_skips_geometry_errors_but_rejects_invalid_images() {

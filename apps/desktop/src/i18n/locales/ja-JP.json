@@ -572,6 +572,7 @@
         "localDescription": "ゲームの文字をローカルで認識し、選択した API で翻訳します。",
         "modelStates": { "missing": "ダウンロードが必要", "downloading": "ダウンロード中", "ready": "準備完了", "error": "ダウンロード失敗" },
         "modelFailed": "OCR モデルを準備できません。接続を確認して再試行してください。",
+        "modelDeleteFailed": "OCR モデルを削除できません。ダウンロードや文字認識が完了してから再試行してください。",
         "controls": "割り当て済みのスキャンまたはクリア操作を 0.65 秒保持してください",
         "states": {"disabled": "無効", "waiting_vr": "SteamVR を待機中", "ready": "認識できます", "unbound": "SteamVR で OCR の操作を割り当ててください", "capturing": "画像取得中", "selecting": "範囲を調整し、右トリガーを長押しして確定", "waiting_hands": "両手を移動すると認識を開始します", "submitting": "アップロード中", "pending": "待機中", "running": "認識中", "downloading": "結果取得中", "loading_model": "ローカルモデル読込中", "recognizing": "ローカル認識中", "translating": "翻訳中", "recognized": "認識完了", "visible": "訳文表示中", "invalid": "視野が変わりました。再認識してください", "error": "OCR を利用できません", "no_text": "文字が見つかりません", "low_confidence": "文字の信頼度がしきい値未満です", "source_visible": "認識した原文を表示中", "partial_visible": "完了した翻訳を表示中", "translation_failed": "すべての翻訳に失敗しました", "timed_out": "OCR 処理がタイムアウトしました"},
         "title": "OCR",

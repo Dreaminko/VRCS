@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { ScanText, Save, Trash2, Gamepad2, Download, RefreshCw, Monitor, Glasses, Check } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { ScanText, Save, Trash2, Gamepad2, Download, RefreshCw, Monitor, Glasses } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { request } from "../../core-client/transport";
 import type { CredentialStatus } from "../../shared/protocol/credentials";
@@ -11,6 +11,7 @@ import { DEFAULT_OCR_WRIST_SETTINGS, isVrOcrBackendReady, VR_OVERLAY_POSITION_RA
 import { TranslationRouteList } from "../translation/TranslationRouteList";
 import type { DesktopOcrStatus } from "../../ocr/status";
 import { openVrOcrBindings } from "../../vr-overlay-native";
+import { ModelDeleteDialog } from "../components/ModelDeleteDialog";
 
 export function OcrSettingsCard({ config, profiles, disabled, runtime, desktopStatus, onChange }: {
   config: VrOcrSettings;
@@ -31,6 +32,9 @@ export function OcrSettingsCard({ config, profiles, disabled, runtime, desktopSt
   const [models, setModels] = useState<VrOcrModelStatus | null>(null);
   const [modelBusy, setModelBusy] = useState(false);
   const [modelError, setModelError] = useState("");
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [modelRemoving, setModelRemoving] = useState(false);
+  const deleteButtonRef = useRef<HTMLButtonElement>(null);
   const locale = i18n.resolvedLanguage ?? "en-US";
   useEffect(() => {
     if (config.backend !== "cloud") return;
@@ -74,6 +78,20 @@ export function OcrSettingsCard({ config, profiles, disabled, runtime, desktopSt
       setModelError(t("settings.vrOcr.modelFailed"));
     } finally {
       setModelBusy(false);
+    }
+  };
+
+  const deleteModels = async () => {
+    if (modelRemoving) return;
+    setModelRemoving(true);
+    setModelError("");
+    try {
+      setModels(await request<VrOcrModelStatus>("/api/ocr/models", { method: "DELETE" }));
+    } catch {
+      setModelError(t("settings.vrOcr.modelDeleteFailed"));
+    } finally {
+      setModelRemoving(false);
+      setConfirmDelete(false);
     }
   };
 
@@ -131,7 +149,9 @@ export function OcrSettingsCard({ config, profiles, disabled, runtime, desktopSt
               {(modelError || models?.error) && <p className="vr-overlay-native-error" role="alert">{modelError || models?.error}</p>}
             </div>
             <div className="model-row-action">
-              {models?.state === "ready" ? <span className="model-ready-state"><Check size={15} />{t("common.ready")}</span>
+              {models?.state === "ready" ? <button className="model-delete-button" type="button" ref={deleteButtonRef}
+                disabled={disabled || modelRemoving} aria-label={t("settings.recognition.deleteModel", { name: "PP-OCRv6 small (CPU)" })}
+                onClick={() => setConfirmDelete(true)}><Trash2 size={16} />{t("common.delete")}</button>
                 : modelBusy || models?.state === "downloading" ? <span className="model-download-state"><RefreshCw size={15} />{t("common.downloading")}</span>
                   : <button className="model-download-button" type="button" disabled={disabled}
                     onClick={() => void prepareModels()}>
@@ -270,6 +290,8 @@ export function OcrSettingsCard({ config, profiles, disabled, runtime, desktopSt
           </div>
         </details>
       </section>}
+      {confirmDelete && <ModelDeleteDialog name="PP-OCRv6 small (CPU)" removing={modelRemoving}
+        returnFocusRef={deleteButtonRef} onClose={() => setConfirmDelete(false)} onConfirm={deleteModels} />}
     </div>
   );
 }

@@ -7,6 +7,24 @@
   line-height: var(--settings-leading-tight);
 }
 .recognition-models { margin-top: 24px; }
+.model-delete-dialog { width: min(440px, 100%); }
+.model-delete-dialog .api-profile-editor-actions { border-top: 0; }
+.model-delete-dialog .api-danger-button {
+  border-color: #e8c9c5;
+  color: var(--error);
+  background: var(--error-soft);
+}
+.model-delete-dialog .api-danger-button:hover:not(:disabled) {
+  border-color: var(--error);
+  background: var(--error-soft);
+}
+.model-delete-dialog-description {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--settings-text-body);
+  line-height: var(--settings-leading-copy);
+  overflow-wrap: anywhere;
+}
 .model-directory-setting {
   display: grid;
   gap: 9px;

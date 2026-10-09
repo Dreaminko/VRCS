@@ -271,7 +271,10 @@ pub fn router(state: Arc<AppState>) -> Router {
                 .delete(ocr::token_delete),
         )
         .route("/api/asr/capabilities", get(models::asr_capabilities))
-        .route("/api/ocr/models", get(ocr::model_status))
+        .route(
+            "/api/ocr/models",
+            get(ocr::model_status).delete(ocr::model_delete),
+        )
         .route("/api/ocr/models/download", post(ocr::model_download))
         .route("/api/providers", get(cloud::provider_list))
         .route(

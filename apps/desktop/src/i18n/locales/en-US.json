@@ -572,6 +572,7 @@
         "localDescription": "Recognize game text locally and translate it with the selected API.",
         "modelStates": { "missing": "Download required", "downloading": "Downloading", "ready": "Ready", "error": "Download failed" },
         "modelFailed": "Could not prepare the OCR models. Check the connection and try again.",
+        "modelDeleteFailed": "Could not delete the OCR models. Wait for any download or recognition to finish, then try again.",
         "controls": "Hold the bound Scan or Clear action for 0.65 seconds",
         "states": {"disabled": "Disabled", "waiting_vr": "Waiting for SteamVR", "ready": "Ready to scan", "unbound": "Bind the OCR controller actions in SteamVR", "capturing": "Capturing", "selecting": "Adjust the frame; hold the right trigger to confirm", "waiting_hands": "Move your hands away to start recognition", "submitting": "Uploading", "pending": "Queued", "running": "Recognizing", "downloading": "Fetching results", "loading_model": "Loading local models", "recognizing": "Recognizing locally", "translating": "Translating", "recognized": "Recognition complete", "visible": "Translations displayed", "invalid": "View changed; scan again", "error": "OCR unavailable", "no_text": "No text found", "low_confidence": "Text confidence is below the threshold", "source_visible": "Recognized text displayed", "partial_visible": "Completed translations displayed", "translation_failed": "All translations failed", "timed_out": "OCR task timed out"},
         "title": "OCR",

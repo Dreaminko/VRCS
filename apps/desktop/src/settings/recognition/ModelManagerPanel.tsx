@@ -1,10 +1,12 @@
 import { Download, FolderOpen, HardDrive, RefreshCw, Trash2 } from "lucide-react";
+import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { NATIVE_APP } from "../../app/app-environment";
 import type { AsrModelRecord, QwenModelRecord } from "../../providers/types";
 import { formatBytes, MODEL_PRESENTATION } from "../settings-derived";
 import type { SaveState } from "../settings-types";
+import { ModelDeleteDialog } from "../components/ModelDeleteDialog";
 
 export function ModelManagerPanel({
   locale,
@@ -51,6 +53,26 @@ export function ModelManagerPanel({
   onRemove: (model: AsrModelRecord) => Promise<void>;
 }) {
   const { t } = useTranslation();
+  const [pendingRemoval, setPendingRemoval] = useState<{
+    name: string;
+    remove: () => Promise<void>;
+  } | null>(null);
+  const [removing, setRemoving] = useState(false);
+  const returnFocusRef = useRef<HTMLButtonElement>(null);
+  const requestRemoval = (name: string, remove: () => Promise<void>, button: HTMLButtonElement) => {
+    returnFocusRef.current = button;
+    setPendingRemoval({ name, remove });
+  };
+  const confirmRemoval = async () => {
+    if (!pendingRemoval || removing) return;
+    setRemoving(true);
+    try {
+      await pendingRemoval.remove();
+    } finally {
+      setRemoving(false);
+      setPendingRemoval(null);
+    }
+  };
   const downloadingCount = downloadingModels.length + qwen.models.filter(
     (model) => model.status === "downloading" || model.status === "verifying",
   ).length;
@@ -154,7 +176,7 @@ export function ModelManagerPanel({
                   {downloading ? (
                     <span className="model-download-state"><RefreshCw size={15} />{t("common.downloading")}</span>
                   ) : downloaded ? (
-                    <button className="model-delete-button" type="button" disabled={disabled || saveState === "saving"} aria-label={t("settings.recognition.deleteModel", { name: presentation.name })} onClick={() => void onRemove(model)}><Trash2 size={16} /><span>{t("common.delete")}</span></button>
+                    <button className="model-delete-button" type="button" disabled={disabled || saveState === "saving"} aria-label={t("settings.recognition.deleteModel", { name: presentation.name })} onClick={(event) => requestRemoval(presentation.name, () => onRemove(model), event.currentTarget)}><Trash2 size={16} /><span>{t("common.delete")}</span></button>
                   ) : (
                     <button className="model-download-button" type="button" onClick={() => void onDownload(model)}><Download size={16} />{model.status === "error" ? t("common.retry") : t("common.download")}</button>
                   )}
@@ -186,7 +208,7 @@ export function ModelManagerPanel({
               <div className="model-row-action">
                 {busy ? <button className="secondary-button" type="button" onClick={() => void qwen.onCancel(model)}>{t("common.cancel")}</button>
                   : model.status === "installed" || model.status === "corrupt" ? (
-                    <button className="model-delete-button" type="button" disabled={disabled || saveState === "saving"} aria-label={t("settings.recognition.deleteModel", { name: model.id })} onClick={() => void qwen.onRemove(model)}><Trash2 size={16} />{t("common.delete")}</button>
+                    <button className="model-delete-button" type="button" disabled={disabled || saveState === "saving"} aria-label={t("settings.recognition.deleteModel", { name: model.id })} onClick={(event) => requestRemoval("Qwen3-ASR 0.6B Q8_0", () => qwen.onRemove(model), event.currentTarget)}><Trash2 size={16} />{t("common.delete")}</button>
                   )
                     : <button className="model-download-button" type="button" onClick={() => void qwen.onDownload(model)}><Download size={16} />{t(model.status === "error" ? "common.retry" : "common.download")}</button>}
               </div>
@@ -196,6 +218,13 @@ export function ModelManagerPanel({
       )}
       {message && <p className="model-manager-feedback" role="status">{message}</p>}
       {qwen.message && <p className="model-manager-feedback" role="status">{qwen.message}</p>}
+      {pendingRemoval && <ModelDeleteDialog
+        name={pendingRemoval.name}
+        removing={removing}
+        returnFocusRef={returnFocusRef}
+        onClose={() => setPendingRemoval(null)}
+        onConfirm={confirmRemoval}
+      />}
     </section>
   );
 }

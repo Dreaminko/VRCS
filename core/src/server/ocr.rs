@@ -38,6 +38,18 @@ pub(super) async fn model_download(
         .map_err(|error| api_error(StatusCode::CONFLICT, "ocr.model_download_failed", error))
 }
 
+pub(super) async fn model_delete(
+    State(state): State<ServiceContext>,
+) -> ApiResult<Json<crate::ocr::ModelStatus>> {
+    state
+        .config
+        .local_ocr
+        .delete_models()
+        .await
+        .map(Json)
+        .map_err(|error| api_error(StatusCode::CONFLICT, "ocr.model_delete_failed", error))
+}
+
 pub(super) async fn token_status() -> ApiResult<Json<credentials::CredentialStatus>> {
     credentials::ocr_token_status().map(Json).map_err(|error| {
         api_error(

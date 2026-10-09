@@ -135,6 +135,33 @@ impl ModelAssets {
         Ok(self.snapshot())
     }
 
+    pub fn delete(&self) -> Result<ModelStatus, String> {
+        let _guard = self
+            .prepare_lock
+            .try_lock()
+            .map_err(|_| "OCR models are being downloaded or verified")?;
+        {
+            let mut status = self
+                .status
+                .write()
+                .unwrap_or_else(|error| error.into_inner());
+            status.state = ModelState::Missing;
+            status.downloaded_bytes = 0;
+            status.error = None;
+        }
+        for asset in &ASSETS {
+            let path = self.directory.join(asset.name);
+            for file in [&path, &path.with_extension("download.tmp")] {
+                match std::fs::remove_file(file) {
+                    Ok(()) => {}
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                    Err(_) => return Err(format!("Could not delete OCR asset {}", asset.name)),
+                }
+            }
+        }
+        Ok(self.snapshot())
+    }
+
     fn verified_bytes(&self) -> Result<u64, String> {
         let mut bytes = 0;
         for asset in &ASSETS {
@@ -272,6 +299,48 @@ fn verify_file(path: &Path, asset: &Asset) -> Result<bool, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn ocr_model_delete_clears_assets_and_status_but_preserves_other_files() {
+        let directory = tempfile::tempdir().unwrap();
+        let assets = ModelAssets::new(directory.path().into());
+        for asset in &ASSETS {
+            let path = directory.path().join(asset.name);
+            std::fs::write(&path, b"model").unwrap();
+            std::fs::write(path.with_extension("download.tmp"), b"partial").unwrap();
+        }
+        let unrelated = directory.path().join("keep.txt");
+        std::fs::write(&unrelated, b"keep").unwrap();
+        {
+            let mut status = assets.status.write().unwrap();
+            status.state = ModelState::Ready;
+            status.downloaded_bytes = status.total_bytes;
+            status.error = Some("previous failure".into());
+        }
+        let deleted = assets.delete().unwrap();
+        assert_eq!(deleted.state, ModelState::Missing);
+        assert_eq!(deleted.downloaded_bytes, 0);
+        assert!(deleted.error.is_none());
+        for asset in &ASSETS {
+            let path = directory.path().join(asset.name);
+            assert!(!path.exists());
+            assert!(!path.with_extension("download.tmp").exists());
+        }
+        assert_eq!(std::fs::read(unrelated).unwrap(), b"keep");
+        assert_eq!(assets.status().await.unwrap().state, ModelState::Missing);
+        assert!(assets.delete().is_ok());
+    }
+
+    #[test]
+    fn ocr_model_delete_rejects_an_active_download() {
+        let directory = tempfile::tempdir().unwrap();
+        let assets = ModelAssets::new(directory.path().into());
+        let path = directory.path().join(ASSETS[0].name);
+        std::fs::write(&path, b"model").unwrap();
+        let _download = assets.prepare_lock.try_lock().unwrap();
+        assert!(assets.delete().is_err());
+        assert_eq!(std::fs::read(path).unwrap(), b"model");
+    }
 
     #[test]
     fn ocr_model_verification_checks_digest_not_only_size() {
