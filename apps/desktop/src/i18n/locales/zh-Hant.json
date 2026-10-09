@@ -130,6 +130,7 @@
       "maximize": "最大化或還原視窗",
       "maximizeShort": "最大化 / 還原",
       "restore": "還原完整視窗",
+      "resize": "拖曳調整字幕視窗大小",
       "close": "關閉視窗"
     },
     "status": {
@@ -1639,6 +1640,7 @@
         "warningExpand": "無法調整警告視窗大小。",
         "compactCollapse": "無法進入字幕模式。",
         "compactToggle": "無法切換字幕模式。",
+        "compactResize": "無法調整字幕視窗大小。",
         "interfaceScale": "無法調整介面大小。",
         "alwaysOnTop": "無法更新視窗置頂狀態。"
       },

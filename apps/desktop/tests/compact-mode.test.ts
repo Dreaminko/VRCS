@@ -4,6 +4,7 @@ import {
   COMPACT_PANEL_WINDOW_SIZE,
   COMPACT_PREVIEW_MAX_CHARS,
   COMPACT_SUBTITLE_MAX_ITEMS,
+  COMPACT_SUBTITLE_HEIGHT_STEP,
   COMPACT_WINDOW_MAX_HEIGHT,
   COMPACT_WINDOW_MIN_WIDTH,
   COMPACT_WINDOW_SIZE,
@@ -168,23 +169,24 @@ test("compact height is clamped to the supported range", () => {
 });
 
 test("compact subtitle count increases at stable height steps", () => {
-  assert.equal(compactSubtitleCount(120), 1);
-  assert.equal(compactSubtitleCount(179), 1);
-  assert.equal(compactSubtitleCount(180), 2);
-  assert.equal(compactSubtitleCount(239), 2);
-  assert.equal(compactSubtitleCount(240), 3);
-  assert.equal(compactSubtitleCount(299), 3);
-  assert.equal(compactSubtitleCount(300), COMPACT_SUBTITLE_MAX_ITEMS);
-  assert.equal(compactSubtitleCount(360), COMPACT_SUBTITLE_MAX_ITEMS);
+  assert.equal(compactSubtitleCount(160), 1);
+  assert.equal(compactSubtitleCount(259), 1);
+  assert.equal(compactSubtitleCount(260), 2);
+  assert.equal(compactSubtitleCount(359), 2);
+  assert.equal(compactSubtitleCount(360), 3);
+  assert.equal(compactSubtitleCount(459), 3);
+  assert.equal(compactSubtitleCount(460), COMPACT_SUBTITLE_MAX_ITEMS);
+  assert.ok(COMPACT_SUBTITLE_HEIGHT_STEP >= 2 * 24 + 2 * 20 + 4,
+    "each extra entry needs room for two original and two translated lines");
 });
 
 test("compact subtitle context is chronological and bounded by height", () => {
   assert.deepEqual(
-    subtitlesForCompactView(subtitles, 240).map((subtitle) => subtitle.text),
+    subtitlesForCompactView(subtitles, 360).map((subtitle) => subtitle.text),
     ["older subtitle", "selected subtitle", "latest subtitle"],
   );
   assert.deepEqual(
-    subtitlesForCompactView([...subtitles, { ...subtitles[3], text: "beyond limit" }], 360)
+    subtitlesForCompactView([...subtitles, { ...subtitles[3], text: "beyond limit" }], 460)
       .map((subtitle) => subtitle.text),
     ["oldest subtitle", "older subtitle", "selected subtitle", "latest subtitle"],
   );

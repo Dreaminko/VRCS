@@ -18,6 +18,9 @@
         "minWidth": 860,
         "minHeight": 620,
         "decorations": false,
+        "transparent": true,
+        "backgroundColor": "#00000000",
+        "shadow": false,
         "resizable": true
       }
     ],

@@ -130,6 +130,7 @@
       "maximize": "ウィンドウを最大化または元に戻す",
       "maximizeShort": "最大化 / 元に戻す",
       "restore": "通常ウィンドウに戻す",
+      "resize": "ドラッグして字幕ウィンドウのサイズを変更",
       "close": "ウィンドウを閉じる"
     },
     "status": {
@@ -1639,6 +1640,7 @@
         "warningExpand": "警告ウィンドウのサイズを変更できませんでした。",
         "compactCollapse": "字幕モードに切り替えられませんでした。",
         "compactToggle": "字幕モードを変更できませんでした。",
+        "compactResize": "字幕ウィンドウのサイズを変更できませんでした。",
         "interfaceScale": "表示サイズを変更できませんでした。",
         "alwaysOnTop": "最前面表示を変更できませんでした。"
       },

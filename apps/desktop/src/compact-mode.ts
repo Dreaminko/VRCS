@@ -2,11 +2,11 @@ import type { Subtitle } from "./subtitles/types";
 import type { LiveTranscription } from "./capture/types";
 import { livePartialHasSubtitle } from "./realtime-state.ts";
 
-export const COMPACT_WINDOW_SIZE = { width: 720, height: 120 } as const;
+export const COMPACT_WINDOW_SIZE = { width: 720, height: 160 } as const;
 export const COMPACT_PANEL_WINDOW_SIZE = { width: 720, height: 520 } as const;
 export const COMPACT_WINDOW_MIN_WIDTH = 480;
-export const COMPACT_WINDOW_MAX_HEIGHT = 360;
-export const COMPACT_SUBTITLE_HEIGHT_STEP = 60;
+export const COMPACT_WINDOW_MAX_HEIGHT = 460;
+export const COMPACT_SUBTITLE_HEIGHT_STEP = 100;
 export const COMPACT_SUBTITLE_MAX_ITEMS = 4;
 export const COMPACT_PREVIEW_MAX_CHARS = 600;
 

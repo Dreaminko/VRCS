@@ -34,6 +34,7 @@ export function CompactEntry({
         onCapture={() => void capture.toggleCapture()}
         onRestore={() => void compact.exitCompact(selection.clear)}
         onClose={() => void compact.closeWindow()}
+        onResize={() => void compact.startCompactResize()}
       />
       <SelectionToolOverlays
         selection={selection}

@@ -150,6 +150,16 @@ export function useCompactWindow({
     [compact, enterCompact, exitCompact],
   );
 
+  const startCompactResize = useCallback(async () => {
+    if (!NATIVE_APP) return;
+    try {
+      const { getCurrentWindow } = await import("@tauri-apps/api/window");
+      await getCurrentWindow().startResizeDragging("SouthEast");
+    } catch (reason) {
+      reportError(reason, "errors.window.compactResize", "window");
+    }
+  }, [reportError]);
+
   const closeWindow = useCallback(async () => {
     try {
       const { getCurrentWindow } = await import("@tauri-apps/api/window");
@@ -168,5 +178,6 @@ export function useCompactWindow({
     exitCompact,
     toggleCompact,
     closeWindow,
+    startCompactResize,
   };
 }
