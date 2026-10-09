@@ -34,6 +34,8 @@ jobs:
 
   rust:
     runs-on: windows-latest
+    env:
+      CARGO_TARGET_DIR: ${{ github.workspace }}/.build
     steps:
       - uses: actions/checkout@v4
 
@@ -52,8 +54,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: |
-            core
-            apps/desktop/src-tauri
+            core -> ../.build
+            apps/desktop/src-tauri -> ../../../.build
 
       - name: Check Rust
         shell: pwsh
