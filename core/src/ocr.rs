@@ -11,7 +11,7 @@ mod processors;
 mod tasks;
 
 pub use assets::{ModelState, ModelStatus};
-pub(crate) use local::LocalOcrRuntime;
+pub(crate) use local::{LocalOcrRuntime, OcrExecutionStatus};
 pub use tasks::{
     source_view, BlockUpdate, ScanConfiguration, ScanOutcome, ScanResult, ScanSummary,
 };
@@ -131,7 +131,7 @@ impl VrOcrService {
             let blocks = tokio::time::timeout_at(deadline, async {
                 let blocks = if ocr.backend == crate::config::VrOcrBackend::Local {
                     self.local
-                        .recognize(images, &mut progress)
+                        .recognize(images, ocr.device, &mut progress)
                         .await?
                         .into_iter()
                         .collect()
@@ -205,7 +205,7 @@ impl VrOcrService {
                 };
                 if config.ocr().backend == crate::config::VrOcrBackend::Local {
                     self.local
-                        .recognize_each(images, &report, recognized)
+                        .recognize_each(images, config.ocr().device, &report, recognized)
                         .await?;
                 } else {
                     let token = crate::credentials::read_ocr_token()?

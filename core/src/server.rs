@@ -276,6 +276,7 @@ pub fn router(state: Arc<AppState>) -> Router {
             get(ocr::model_status).delete(ocr::model_delete),
         )
         .route("/api/ocr/models/download", post(ocr::model_download))
+        .route("/api/ocr/runtime", get(ocr::runtime_status))
         .route("/api/providers", get(cloud::provider_list))
         .route(
             "/api/asr/profiles",

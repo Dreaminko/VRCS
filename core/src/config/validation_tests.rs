@@ -873,6 +873,25 @@ fn ocr_backend_preserves_cloud_defaults_and_accepts_local() {
 }
 
 #[test]
+fn ocr_device_preserves_cpu_defaults_and_round_trips_directml() {
+    let legacy: crate::config::VrOcrConfig = serde_json::from_value(serde_json::json!({})).unwrap();
+    assert_eq!(serde_json::to_value(legacy).unwrap()["device"], "cpu");
+    let gpu: crate::config::VrOcrConfig =
+        serde_json::from_value(serde_json::json!({"backend":"local", "device":"directml"}))
+            .unwrap();
+    let serialized = serde_json::to_value(&gpu).unwrap();
+    assert_eq!(serialized["device"], "directml");
+    assert_eq!(
+        serde_json::from_value::<crate::config::VrOcrConfig>(serialized).unwrap(),
+        gpu
+    );
+    assert!(serde_json::from_value::<crate::config::VrOcrConfig>(
+        serde_json::json!({"device":"invalid"})
+    )
+    .is_err());
+}
+
+#[test]
 fn rejects_invalid_ocr_wrist_settings() {
     let default = serde_json::to_value(AppConfig::default()).unwrap();
     for (field, value) in [

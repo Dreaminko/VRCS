@@ -90,6 +90,7 @@ export interface VrOcrSettings {
   desktop_enabled: boolean;
   shortcut: string;
   backend: "cloud" | "local";
+  device: "cpu" | "directml";
   display_mode: "wrist" | "stereo";
   timeout_seconds: number;
   minimum_confidence: number;
@@ -110,6 +111,12 @@ export interface VrOcrModelStatus {
   downloaded_bytes: number;
   total_bytes: number;
   error: string | null;
+}
+
+export interface OcrExecutionStatus {
+  requested_device: VrOcrSettings["device"];
+  active_device: VrOcrSettings["device"] | null;
+  fallback_reason: string | null;
 }
 
 export type VrOverlayRuntimeState =

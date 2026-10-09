@@ -92,6 +92,8 @@ Finger poses require full skeletal tracking. Grip selection uses controller pose
 
 This is a snapshot overlay for text on a common plane. Depth and surface tilt are estimates; a single matched word provides depth only. It does not track moving objects or movement within VRChat, so scan again when the source moves. Cloud OCR sends the selected image region to the configured OCR provider. Local OCR keeps image recognition on the device; translation follows the selected translation service.
 
+Local OCR uses CPU by default. Select **GPU (DirectML)** under OCR settings to use a compatible DirectX 12 GPU on Windows. Both Windows editions support this option without a CUDA installation. If GPU model loading or recognition fails, OCR retries on CPU and shows the fallback in settings. The device display reports the most recent local OCR engine. GPU performance depends on the selected region and other GPU workloads, including VRChat.
+
 ### Dictionary lookup, learning, and Anki
 
 - Import and manage Yomitan dictionary packages

@@ -25,6 +25,15 @@ test("local OCR requires prepared models and does not require a cloud credential
   }
 });
 
+test("OCR acceleration is opt-in and does not change the recognition backend", () => {
+  const settings = { ocr: DEFAULT_OCR_SETTINGS } as Settings;
+  assert.equal(settings.ocr.device, "cpu");
+  const patched = patchOcr(settings, { device: "directml" });
+  assert.equal(patched.ocr.device, "directml");
+  assert.equal(patched.ocr.backend, "cloud");
+  assert.equal(settings.ocr.device, "cpu");
+});
+
 test("cloud OCR readiness requires a credential regardless of local model state", () => {
   assert.equal(isVrOcrBackendReady("cloud", true, "missing"), true);
   assert.equal(isVrOcrBackendReady("cloud", false, "ready"), false);

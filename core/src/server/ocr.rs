@@ -9,6 +9,12 @@ pub(super) struct TokenInput {
     token: String,
 }
 
+pub(super) async fn runtime_status(
+    State(state): State<ServiceContext>,
+) -> Json<crate::ocr::OcrExecutionStatus> {
+    Json(state.config.local_ocr.execution_status())
+}
+
 pub(super) async fn model_status(
     State(state): State<ServiceContext>,
 ) -> ApiResult<Json<crate::ocr::ModelStatus>> {

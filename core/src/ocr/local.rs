@@ -1,15 +1,25 @@
 use super::assets::{ModelAssets, ModelStatus};
 use super::{processors, OcrImage, OcrImageData, Phase, TextBlock};
+use crate::config::OcrDevice;
 use ort::session::{RunOptions, Session};
 use ort::value::Value;
+use serde::Serialize;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
+
+#[derive(Debug, Clone, Default, Serialize)]
+pub(crate) struct OcrExecutionStatus {
+    pub requested_device: OcrDevice,
+    pub active_device: Option<OcrDevice>,
+    pub fallback_reason: Option<String>,
+}
 
 pub(crate) struct LocalOcrRuntime {
     assets: ModelAssets,
     engine: Arc<Mutex<Option<Engine>>>,
     inference_gate: Arc<tokio::sync::Semaphore>,
+    execution: Arc<RwLock<OcrExecutionStatus>>,
 }
 
 enum InferenceUpdate {
@@ -23,7 +33,15 @@ impl LocalOcrRuntime {
             assets: ModelAssets::new(directory),
             engine: Arc::new(Mutex::new(None)),
             inference_gate: Arc::new(tokio::sync::Semaphore::new(1)),
+            execution: Arc::new(RwLock::new(OcrExecutionStatus::default())),
         }
+    }
+
+    pub fn execution_status(&self) -> OcrExecutionStatus {
+        self.execution
+            .read()
+            .unwrap_or_else(|error| error.into_inner())
+            .clone()
     }
 
     pub async fn model_status(&self) -> Result<ModelStatus, String> {
@@ -42,10 +60,13 @@ impl LocalOcrRuntime {
             .map_err(|_| "Local OCR is recognizing; try deleting the models again later")?;
         let engine = self.engine.clone();
         let assets = self.assets.clone();
+        let execution = self.execution.clone();
         tokio::task::spawn_blocking(move || {
             let _permit = permit;
             let mut engine = engine.lock().map_err(|_| "Local OCR engine lock failed")?;
             *engine = None;
+            *execution.write().unwrap_or_else(|error| error.into_inner()) =
+                OcrExecutionStatus::default();
             assets.delete()
         })
         .await
@@ -55,12 +76,16 @@ impl LocalOcrRuntime {
     pub async fn recognize<const N: usize>(
         &self,
         images: [OcrImage; N],
+        device: OcrDevice,
         progress: impl FnMut(Phase),
     ) -> Result<[Vec<TextBlock>; N], String> {
         let mut results = std::array::from_fn(|_| Vec::new());
-        self.recognize_each(images.into_iter().collect(), progress, |eye, blocks| {
-            results[eye] = blocks
-        })
+        self.recognize_each(
+            images.into_iter().collect(),
+            device,
+            progress,
+            |eye, blocks| results[eye] = blocks,
+        )
         .await?;
         Ok(results)
     }
@@ -68,6 +93,7 @@ impl LocalOcrRuntime {
     pub(super) async fn recognize_each(
         &self,
         images: Vec<OcrImage>,
+        device: OcrDevice,
         mut progress: impl FnMut(Phase),
         mut recognized: impl FnMut(usize, Vec<TextBlock>),
     ) -> Result<(), String> {
@@ -100,6 +126,7 @@ impl LocalOcrRuntime {
         };
         let engine = self.engine.clone();
         let assets = self.assets.clone();
+        let execution = self.execution.clone();
         let (sender, mut receiver) = tokio::sync::mpsc::channel(4);
         let span = tracing::Span::current();
         let mut worker = tokio::task::spawn_blocking(move || {
@@ -107,11 +134,26 @@ impl LocalOcrRuntime {
             let _permit = permit;
             let mut engine = engine.lock().map_err(|_| "Local OCR engine lock failed")?;
             check_cancelled(&cancelled)?;
-            if engine.is_none() {
+            if engine
+                .as_ref()
+                .is_none_or(|engine| engine.execution.requested_device != device)
+            {
                 let started = std::time::Instant::now();
                 let _ = sender.try_send(InferenceUpdate::Phase(Phase::LoadingModel));
                 assets.verify()?;
-                *engine = Some(Engine::load(&assets.directory)?);
+                // Release the previous sessions before loading another GPU backend.
+                *engine = None;
+                *execution.write().unwrap_or_else(|error| error.into_inner()) =
+                    OcrExecutionStatus {
+                        requested_device: device,
+                        ..Default::default()
+                    };
+                *engine = Some(Engine::load(&assets.directory, device)?);
+                let status = engine.as_ref().unwrap().execution.clone();
+                if let Some(reason) = &status.fallback_reason {
+                    tracing::warn!(reason, "OCR DirectML loading failed; using CPU");
+                }
+                *execution.write().unwrap_or_else(|error| error.into_inner()) = status;
                 tracing::info!(
                     elapsed_ms = started.elapsed().as_millis() as u64,
                     "OCR local model loaded"
@@ -122,7 +164,29 @@ impl LocalOcrRuntime {
             let engine = engine.as_mut().ok_or("Local OCR engine is unavailable")?;
             for (index, image) in images.into_iter().enumerate() {
                 let _eye = tracing::info_span!("ocr_image", index).entered();
-                let blocks = engine.recognize(image, &options, &cancelled)?;
+                let blocks = match engine.recognize(&image, &options, &cancelled) {
+                    Err(error)
+                        if engine.execution.active_device == Some(OcrDevice::Directml)
+                            && !cancelled.load(Ordering::Acquire) =>
+                    {
+                        tracing::warn!(
+                            reason = error,
+                            "OCR DirectML inference failed; retrying on CPU"
+                        );
+                        *engine = Engine::load(&assets.directory, OcrDevice::Cpu).map_err(
+                            |cpu_error| {
+                                format!("DirectML failed: {error}; CPU loading failed: {cpu_error}")
+                            },
+                        )?;
+                        engine.execution.requested_device = device;
+                        engine.execution.fallback_reason = Some(error);
+                        *execution.write().unwrap_or_else(|error| error.into_inner()) =
+                            engine.execution.clone();
+                        check_cancelled(&cancelled)?;
+                        engine.recognize(&image, &options, &cancelled)?
+                    }
+                    result => result?,
+                };
                 sender
                     .blocking_send(InferenceUpdate::Eye(index, blocks))
                     .map_err(|_| "Local OCR was cancelled")?;
@@ -166,40 +230,64 @@ struct Engine {
     detector: Session,
     recognizer: Session,
     characters: Vec<String>,
+    execution: OcrExecutionStatus,
 }
 
 impl Engine {
-    fn load(directory: &std::path::Path) -> Result<Self, String> {
-        let load = |filename: &str| {
+    fn load(directory: &std::path::Path, device: OcrDevice) -> Result<Self, String> {
+        let load = |filename: &str, device: OcrDevice| {
             let session = || -> ort::Result<Session> {
-                Session::builder()?
+                let builder = Session::builder()?
                     .with_intra_threads(2)?
                     .with_inter_threads(1)?
                     .with_parallel_execution(false)?
                     .with_intra_op_spinning(false)?
-                    .with_inter_op_spinning(false)?
-                    .commit_from_file(directory.join(filename))
+                    .with_inter_op_spinning(false)?;
+                let mut builder = if device == OcrDevice::Directml {
+                    #[cfg(windows)]
+                    {
+                        builder
+                            .with_memory_pattern(false)?
+                            .with_execution_providers([ort::ep::DirectML::default()
+                                .with_performance_preference(
+                                    ort::ep::directml::PerformancePreference::HighPerformance,
+                                )
+                                .build()
+                                .error_on_failure()])?
+                    }
+                    #[cfg(not(windows))]
+                    {
+                        return Err(ort::Error::new("DirectML OCR requires Windows"));
+                    }
+                } else {
+                    builder
+                };
+                builder.commit_from_file(directory.join(filename))
             };
             session().map_err(|error| format!("Could not load OCR model {filename}: {error}"))
         };
+        let ((detector, recognizer), execution) = load_with_device_fallback(device, |device| {
+            Ok((load("det.onnx", device)?, load("rec.onnx", device)?))
+        })?;
         Ok(Self {
-            detector: load("det.onnx")?,
-            recognizer: load("rec.onnx")?,
+            detector,
+            recognizer,
             characters: characters(
                 &std::fs::read_to_string(directory.join("dict.txt"))
                     .map_err(|_| "Could not read the OCR dictionary")?,
             )?,
+            execution,
         })
     }
 
     fn recognize(
         &mut self,
-        image: OcrImage,
+        image: &OcrImage,
         options: &RunOptions,
         cancelled: &AtomicBool,
     ) -> Result<Vec<TextBlock>, String> {
         check_cancelled(cancelled)?;
-        let OcrImageData::Rgba(pixels) = image.data else {
+        let OcrImageData::Rgba(pixels) = &image.data else {
             return Err("Local OCR requires RGBA pixels".into());
         };
         let detecting = std::time::Instant::now();
@@ -292,6 +380,36 @@ impl Engine {
     }
 }
 
+fn load_with_device_fallback<T>(
+    requested_device: OcrDevice,
+    mut load: impl FnMut(OcrDevice) -> Result<T, String>,
+) -> Result<(T, OcrExecutionStatus), String> {
+    match load(requested_device) {
+        Ok(loaded) => Ok((
+            loaded,
+            OcrExecutionStatus {
+                requested_device,
+                active_device: Some(requested_device),
+                fallback_reason: None,
+            },
+        )),
+        Err(reason) if requested_device == OcrDevice::Directml => {
+            let loaded = load(OcrDevice::Cpu).map_err(|cpu_error| {
+                format!("DirectML failed: {reason}; CPU loading failed: {cpu_error}")
+            })?;
+            Ok((
+                loaded,
+                OcrExecutionStatus {
+                    requested_device,
+                    active_device: Some(OcrDevice::Cpu),
+                    fallback_reason: Some(reason),
+                },
+            ))
+        }
+        Err(error) => Err(error),
+    }
+}
+
 fn rec_input(
     pixels: &[u8],
     width: u32,
@@ -321,6 +439,47 @@ fn characters(text: &str) -> Result<Vec<String>, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn device_loading_reports_gpu_success_and_cpu_fallback() {
+        let (loaded, status) =
+            load_with_device_fallback(OcrDevice::Directml, |device| match device {
+                OcrDevice::Directml => Ok("gpu engine"),
+                OcrDevice::Cpu => Err("CPU must not replace a working GPU".into()),
+            })
+            .unwrap();
+        assert_eq!(loaded, "gpu engine");
+        assert_eq!(status.active_device, Some(OcrDevice::Directml));
+        assert_eq!(status.fallback_reason, None);
+
+        let (loaded, status) =
+            load_with_device_fallback(OcrDevice::Directml, |device| match device {
+                OcrDevice::Directml => Err("GPU unavailable".into()),
+                OcrDevice::Cpu => Ok("cpu engine"),
+            })
+            .unwrap();
+        assert_eq!(loaded, "cpu engine");
+        assert_eq!(status.requested_device, OcrDevice::Directml);
+        assert_eq!(status.active_device, Some(OcrDevice::Cpu));
+        assert_eq!(status.fallback_reason.as_deref(), Some("GPU unavailable"));
+    }
+
+    #[test]
+    fn cpu_selection_does_not_try_gpu_and_failed_fallback_keeps_both_errors() {
+        let error = load_with_device_fallback(OcrDevice::Cpu, |device| match device {
+            OcrDevice::Cpu => Err("CPU load failed".into()),
+            OcrDevice::Directml => Ok("gpu engine"),
+        })
+        .unwrap_err();
+        assert_eq!(error, "CPU load failed");
+        let error = load_with_device_fallback::<()>(OcrDevice::Directml, |device| match device {
+            OcrDevice::Directml => Err("GPU unavailable".into()),
+            OcrDevice::Cpu => Err("CPU load failed".into()),
+        })
+        .unwrap_err();
+        assert!(error.contains("GPU unavailable"));
+        assert!(error.contains("CPU load failed"));
+    }
 
     #[tokio::test]
     async fn ocr_model_delete_rejects_active_recognition_and_allows_retry() {
@@ -386,7 +545,7 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let runtime = LocalOcrRuntime::new(directory.path().into());
         let error = runtime
-            .recognize([sample(), sample()], |_| {})
+            .recognize([sample(), sample()], OcrDevice::Cpu, |_| {})
             .await
             .unwrap_err();
         assert!(error.contains("models are missing"), "{error}");
@@ -491,7 +650,11 @@ mod tests {
             height: 2,
             data: OcrImageData::Rgba(vec![255; 5120 * 2 * 4]),
         };
-        let error = runtime.recognize([image], |_| {}).await.err().unwrap();
+        let error = runtime
+            .recognize([image], OcrDevice::Cpu, |_| {})
+            .await
+            .err()
+            .unwrap();
         assert!(error.contains("models are missing"), "{error}");
     }
 
@@ -510,7 +673,7 @@ mod tests {
         );
         let started = std::time::Instant::now();
         let result = runtime
-            .recognize([sample(), sample_offset(30)], |_| {})
+            .recognize([sample(), sample_offset(30)], OcrDevice::Cpu, |_| {})
             .await
             .unwrap();
         println!("Cold stereo OCR: {:?}", started.elapsed());
@@ -540,11 +703,116 @@ mod tests {
         }
         let started = std::time::Instant::now();
         let warm = runtime
-            .recognize([sample(), sample_offset(30)], |_| {})
+            .recognize([sample(), sample_offset(30)], OcrDevice::Cpu, |_| {})
             .await
             .unwrap();
         assert_eq!(warm, result);
         println!("Warm stereo OCR: {:?}", started.elapsed());
+    }
+
+    #[cfg(windows)]
+    #[tokio::test]
+    #[ignore = "requires official PP-OCRv6 small weights and a DirectML GPU"]
+    async fn ocr_directml_matches_cpu_supports_dynamic_widths_and_switches_devices() {
+        let directory = std::env::var_os("VRCS_TEST_OCR_MODELS")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| {
+                PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("models/ocr/ppocrv6-small")
+            });
+        let runtime = LocalOcrRuntime::new(directory);
+        let cpu = runtime
+            .recognize([sample()], OcrDevice::Cpu, |_| {})
+            .await
+            .unwrap();
+        let started = std::time::Instant::now();
+        let gpu = runtime
+            .recognize([sample()], OcrDevice::Directml, |_| {})
+            .await
+            .unwrap();
+        println!("Cold DirectML OCR: {:?}", started.elapsed());
+        let status = runtime.execution_status();
+        assert_eq!(
+            status.active_device,
+            Some(OcrDevice::Directml),
+            "{status:?}"
+        );
+        assert!(status.fallback_reason.is_none());
+        assert_eq!(
+            gpu[0].iter().map(|block| &block.text).collect::<Vec<_>>(),
+            cpu[0].iter().map(|block| &block.text).collect::<Vec<_>>()
+        );
+        let started = std::time::Instant::now();
+        let warm = runtime
+            .recognize([sample_offset(30)], OcrDevice::Directml, |_| {})
+            .await
+            .unwrap();
+        println!("Warm DirectML OCR: {:?}", started.elapsed());
+        assert_eq!(warm[0].len(), gpu[0].len());
+        {
+            let mut engine = runtime.engine.lock().unwrap();
+            let recognizer = &mut engine.as_mut().unwrap().recognizer;
+            for width in [320, 640, 320] {
+                let input =
+                    Value::from_array(ndarray::Array4::<f32>::zeros((1, 3, 48, width))).unwrap();
+                let output = recognizer.run(ort::inputs![input]).unwrap();
+                let (shape, _) = output[0].try_extract_tensor::<f32>().unwrap();
+                assert_eq!(shape.len(), 3);
+                assert_eq!(shape[0], 1);
+                assert!(shape[1] > 0 && shape[2] > 0);
+            }
+        }
+        runtime
+            .recognize([sample()], OcrDevice::Cpu, |_| {})
+            .await
+            .unwrap();
+        let status = runtime.execution_status();
+        assert_eq!(status.active_device, Some(OcrDevice::Cpu));
+        assert_eq!(status.requested_device, OcrDevice::Cpu);
+        assert!(status.fallback_reason.is_none());
+    }
+
+    #[cfg(windows)]
+    #[tokio::test]
+    #[ignore = "requires official PP-OCRv6 small weights and a DirectML GPU"]
+    async fn ocr_directml_inference_failure_retries_on_cpu_and_keeps_fallback() {
+        let directory = std::env::var_os("VRCS_TEST_OCR_MODELS")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| {
+                PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("models/ocr/ppocrv6-small")
+            });
+        let runtime = LocalOcrRuntime::new(directory.clone());
+        runtime
+            .recognize([sample()], OcrDevice::Directml, |_| {})
+            .await
+            .unwrap();
+        assert_eq!(
+            runtime.execution_status().active_device,
+            Some(OcrDevice::Directml)
+        );
+        // A detector in the recognizer slot forces a real session/output failure.
+        runtime.engine.lock().unwrap().as_mut().unwrap().recognizer = Session::builder()
+            .unwrap()
+            .commit_from_file(directory.join("det.onnx"))
+            .unwrap();
+        let result = runtime
+            .recognize([sample()], OcrDevice::Directml, |_| {})
+            .await
+            .unwrap();
+        assert!(result[0]
+            .iter()
+            .any(|block| block.text == "LOCAL OCR TEST 123"));
+        let status = runtime.execution_status();
+        assert_eq!(status.active_device, Some(OcrDevice::Cpu));
+        assert_eq!(status.requested_device, OcrDevice::Directml);
+        assert!(status.fallback_reason.is_some());
+        runtime
+            .recognize([sample()], OcrDevice::Directml, |_| {})
+            .await
+            .unwrap();
+        assert_eq!(
+            runtime.execution_status().fallback_reason,
+            status.fallback_reason
+        );
     }
 
     #[tokio::test]
@@ -748,7 +1016,7 @@ mod tests {
         let worker_recognizing = recognizing.clone();
         let task = tokio::spawn(async move {
             worker_runtime
-                .recognize([sample(), sample()], move |phase| {
+                .recognize([sample(), sample()], OcrDevice::Cpu, move |phase| {
                     if phase == Phase::Recognizing {
                         worker_recognizing.notify_one();
                     }
@@ -769,7 +1037,7 @@ mod tests {
         .unwrap();
         drop(permit);
         let blocks = runtime
-            .recognize([sample(), sample()], |_| {})
+            .recognize([sample(), sample()], OcrDevice::Cpu, |_| {})
             .await
             .unwrap();
         assert_eq!(blocks[0][0].text, "LOCAL OCR TEST 123");

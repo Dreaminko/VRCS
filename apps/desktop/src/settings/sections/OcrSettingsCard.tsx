@@ -4,7 +4,7 @@ import { useTranslation } from "react-i18next";
 import { request } from "../../core-client/transport";
 import type { CredentialStatus } from "../../shared/protocol/credentials";
 import type { ApiProfileView } from "../../providers/types";
-import type { VrOcrModelStatus, VrOcrSettings, VrOcrStatus, VrOcrWristSettings } from "../../integrations/types";
+import type { OcrExecutionStatus, VrOcrModelStatus, VrOcrSettings, VrOcrStatus, VrOcrWristSettings } from "../../integrations/types";
 import { PreferenceToggle, RangeField, Select } from "../SettingsControls";
 import { formatBytes } from "../settings-derived";
 import { DEFAULT_OCR_WRIST_SETTINGS, isVrOcrBackendReady, VR_OVERLAY_POSITION_RANGES } from "../vr-overlay-settings";
@@ -30,6 +30,7 @@ export function OcrSettingsCard({ config, profiles, disabled, runtime, desktopSt
   const [error, setError] = useState("");
   const [tokenError, setTokenError] = useState("");
   const [models, setModels] = useState<VrOcrModelStatus | null>(null);
+  const [execution, setExecution] = useState<OcrExecutionStatus | null>(null);
   const [modelBusy, setModelBusy] = useState(false);
   const [modelError, setModelError] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -68,6 +69,25 @@ export function OcrSettingsCard({ config, profiles, disabled, runtime, desktopSt
     void load();
     return () => { disposed = true; clearTimeout(timer); controller.abort(); };
   }, [config.backend, models?.state, t]);
+
+  useEffect(() => {
+    if (config.backend !== "local") return;
+    let disposed = false;
+    let timer: ReturnType<typeof setTimeout>;
+    const controller = new AbortController();
+    const load = async () => {
+      try {
+        const next = await request<OcrExecutionStatus>("/api/ocr/runtime", { signal: controller.signal });
+        if (!disposed) setExecution(next);
+      } catch {
+        if (!disposed) setExecution(null);
+      } finally {
+        if (!disposed && (config.enabled || config.desktop_enabled)) timer = setTimeout(() => void load(), 2000);
+      }
+    };
+    void load();
+    return () => { disposed = true; clearTimeout(timer); controller.abort(); };
+  }, [config.backend, config.device, config.enabled, config.desktop_enabled]);
 
   const prepareModels = async () => {
     setModelBusy(true);
@@ -129,11 +149,26 @@ export function OcrSettingsCard({ config, profiles, disabled, runtime, desktopSt
             { value: "local", label: t("settings.vrOcr.backends.local") },
           ]}
           disabled={disabled} onChange={(backend) => onChange({ backend: backend as VrOcrSettings["backend"] })} />
+        {local && <>
+          <Select label={t("settings.vrOcr.device")} value={config.device}
+            helper={t("settings.vrOcr.deviceDescription")}
+            options={[
+              { value: "cpu", label: "CPU" },
+              { value: "directml", label: "GPU (DirectML)" },
+            ]}
+            disabled={disabled} onChange={(device) => onChange({ device: device as VrOcrSettings["device"] })} />
+          {execution?.active_device && <p role="status">
+            {t("settings.vrOcr.activeDevice", { device: execution.active_device === "directml" ? "GPU (DirectML)" : "CPU" })}
+          </p>}
+          {execution?.fallback_reason && <p className="vr-overlay-native-error" role="status" title={execution.fallback_reason}>
+            {t("settings.vrOcr.cpuFallback")}
+          </p>}
+        </>}
         {local ? <div className="model-list">
           <div className="model-row">
             <div className="model-row-body">
               <div className="model-row-title">
-                <strong>PP-OCRv6 small (CPU)</strong>
+                <strong>PP-OCRv6 small</strong>
                 {models && <span className="model-size">{formatBytes(models.downloaded_bytes, locale)} / {formatBytes(models.total_bytes, locale)}</span>}
               </div>
               <p role="status">
@@ -150,7 +185,7 @@ export function OcrSettingsCard({ config, profiles, disabled, runtime, desktopSt
             </div>
             <div className="model-row-action">
               {models?.state === "ready" ? <button className="model-delete-button" type="button" ref={deleteButtonRef}
-                disabled={disabled || modelRemoving} aria-label={t("settings.recognition.deleteModel", { name: "PP-OCRv6 small (CPU)" })}
+                disabled={disabled || modelRemoving} aria-label={t("settings.recognition.deleteModel", { name: "PP-OCRv6 small" })}
                 onClick={() => setConfirmDelete(true)}><Trash2 size={16} />{t("common.delete")}</button>
                 : modelBusy || models?.state === "downloading" ? <span className="model-download-state"><RefreshCw size={15} />{t("common.downloading")}</span>
                   : <button className="model-download-button" type="button" disabled={disabled}
@@ -290,7 +325,7 @@ export function OcrSettingsCard({ config, profiles, disabled, runtime, desktopSt
           </div>
         </details>
       </section>}
-      {confirmDelete && <ModelDeleteDialog name="PP-OCRv6 small (CPU)" removing={modelRemoving}
+      {confirmDelete && <ModelDeleteDialog name="PP-OCRv6 small" removing={modelRemoving}
         returnFocusRef={deleteButtonRef} onClose={() => setConfirmDelete(false)} onConfirm={deleteModels} />}
     </div>
   );

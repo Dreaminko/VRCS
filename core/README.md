@@ -28,6 +28,8 @@ Core 默认构建支持云端功能和本地 CPU 识别，无需 Vulkan SDK。`-
 
 应用管理的本地 Qwen3 ASR 使用独立的 `llama-server` 运行时，支持 CPU 或 Vulkan，与 Whisper 共用 `vulkan` Cargo 功能开关。启用该功能时，自动设备模式会优先使用可用的 Vulkan GPU；GPU 启动失败且启动时限仍有剩余时会尝试 CPU。关闭该功能时，不探测 GPU，自动设备模式使用 CPU，显式选择 GPU 会报告 Vulkan 后端不可用。模型包由应用负责下载和完整性校验，语音在本机处理。
 
+Windows 构建的本地 PP-OCRv6 small 支持 ONNX Runtime DirectML，无需 CUDA 或 Vulkan SDK。`ocr.device` 默认为 `cpu`，设为 `directml` 时会优先选择高性能兼容 GPU；模型加载或推理失败后回退 CPU。回退后的 CPU 会话保持使用，直到切换推理设备或重新启动服务。`GET /api/ocr/runtime` 返回最近请求的设备、实际加载的设备和回退原因。其他平台会回退 CPU。
+
 ## 运行与测试
 
 在 Windows 上安装 Rustup、Visual Studio C++ Build Tools，并将 CMake 加入 `PATH`。Rustup 会使用仓库根目录 `rust-toolchain.toml` 指定的版本和组件。Vulkan SDK 和 Ninja 为可选项，仅启用 Vulkan 加速时需要。从仓库根目录的 PowerShell 开始：
