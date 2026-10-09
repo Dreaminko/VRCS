@@ -130,6 +130,8 @@
       "maximize": "最大化或还原窗口",
       "maximizeShort": "最大化 / 还原",
       "restore": "恢复完整窗口",
+      "transparentBackground": "透明背景",
+      "restoreBackground": "恢复背景",
       "resize": "拖动调整字幕窗口大小",
       "close": "关闭窗口"
     },

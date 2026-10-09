@@ -1,6 +1,6 @@
 import { useTranslation } from "react-i18next";
 import { useLayoutEffect, useMemo, useRef } from "react";
-import { Maximize2, Mic, Square, X } from "lucide-react";
+import { createLucideIcon, Maximize2, Mic, Square, X, type LucideIcon } from "lucide-react";
 
 import type { LookupOrigin } from "../app/app-types";
 import { livePartialHasSubtitle, useLivePartial, useTranslationPartials } from "../realtime-state";
@@ -9,7 +9,14 @@ import { contentLanguageTag } from "../app/ui-language";
 import { compactLivePreview, compactPreviewText } from "../compact-mode";
 import { useBatchedPreview } from "../streaming-preview";
 
-export function CompactView({ subtitles, subtitleHistory, subtitleLimit, selectionActive, running, vrchatMuted, captureDisabled, onSelect, onCapture, onRestore, onClose, onResize }: {
+const BackgroundIcon = createLucideIcon("CompactBackground", [
+  ["circle", { cx: "12", cy: "12", r: "9", key: "circle" }],
+  ["path", { d: "M12 3a9 9 0 0 1 0 18Z", fill: "currentColor", stroke: "none", key: "half" }],
+]);
+
+export function CompactView({ transparentBackground, onToggleBackground, subtitles, subtitleHistory, subtitleLimit, selectionActive, running, vrchatMuted, captureDisabled, onSelect, onCapture, onRestore, onClose, onResize }: {
+  transparentBackground: boolean;
+  onToggleBackground: () => void;
   subtitles: Subtitle[];
   subtitleHistory: Subtitle[];
   subtitleLimit: number;
@@ -45,6 +52,7 @@ export function CompactView({ subtitles, subtitleHistory, subtitleLimit, selecti
   const latestSubtitle = subtitles.at(-1);
   const statusLabel = vrchatMuted ? t("status.pausedVrchatMuted") : partial?.language?.toUpperCase() ?? latestSubtitle?.language?.toUpperCase() ?? "AUTO";
   const captureLabel = t(running ? "capture.pause" : "capture.start");
+  const backgroundLabel = t(transparentBackground ? "window.restoreBackground" : "window.transparentBackground");
   return (
     <div className="compact-shell">
       <header className="compact-header" data-tauri-drag-region>
@@ -53,8 +61,9 @@ export function CompactView({ subtitles, subtitleHistory, subtitleLimit, selecti
           <span data-tauri-drag-region>{statusLabel}</span>
         </div>
         <div className="compact-window-actions">
-          <button type="button" aria-label={t("window.restore")} title={t("window.restore")} onClick={onRestore}><Maximize2 size={15} /></button>
-          <button className="compact-close-button" type="button" aria-label={t("window.close")} title={t("window.close")} onClick={onClose}><X size={15} /></button>
+          <button type="button" aria-label={backgroundLabel} aria-pressed={transparentBackground} title={backgroundLabel} onClick={onToggleBackground}><CompactWindowIcon icon={BackgroundIcon} /></button>
+          <button type="button" aria-label={t("window.restore")} title={t("window.restore")} onClick={onRestore}><CompactWindowIcon icon={Maximize2} /></button>
+          <button className="compact-close-button" type="button" aria-label={t("window.close")} title={t("window.close")} onClick={onClose}><CompactWindowIcon icon={X} /></button>
         </div>
       </header>
       <div className="compact-body">
@@ -102,6 +111,16 @@ export function CompactView({ subtitles, subtitleHistory, subtitleLimit, selecti
         </svg>
       </div>
     </div>
+  );
+}
+
+// Paint a wider white copy behind the original strokes only in transparent mode.
+function CompactWindowIcon({ icon: Icon }: { icon: LucideIcon }) {
+  return (
+    <span className="compact-window-icon" aria-hidden="true">
+      <Icon className="compact-icon-outline" size={15} strokeWidth={5.2} />
+      <Icon className="compact-icon-foreground" size={15} />
+    </span>
   );
 }
 

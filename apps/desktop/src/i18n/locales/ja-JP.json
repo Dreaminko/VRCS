@@ -130,6 +130,8 @@
       "maximize": "ウィンドウを最大化または元に戻す",
       "maximizeShort": "最大化 / 元に戻す",
       "restore": "通常ウィンドウに戻す",
+      "transparentBackground": "背景を透明にする",
+      "restoreBackground": "背景を戻す",
       "resize": "ドラッグして字幕ウィンドウのサイズを変更",
       "close": "ウィンドウを閉じる"
     },

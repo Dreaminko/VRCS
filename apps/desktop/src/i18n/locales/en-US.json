@@ -130,6 +130,8 @@
       "maximize": "Maximize or restore window",
       "maximizeShort": "Maximize / restore",
       "restore": "Restore full window",
+      "transparentBackground": "Transparent background",
+      "restoreBackground": "Restore background",
       "resize": "Drag to resize the subtitle window",
       "close": "Close window"
     },

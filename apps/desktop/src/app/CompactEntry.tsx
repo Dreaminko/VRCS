@@ -21,8 +21,10 @@ export function CompactEntry({
   const overlayOpen = selectionPanelOpen || capture.vrchatWarningOpen;
 
   return (
-    <div className={`compact-root ${overlayOpen ? "compact-root-overlay" : ""} ${selectionPanelOpen ? "compact-root-selection" : ""}`}>
+    <div className={`compact-root ${compact.transparentBackground ? "compact-root-transparent" : ""} ${overlayOpen ? "compact-root-overlay" : ""} ${selectionPanelOpen ? "compact-root-selection" : ""}`}>
       <CompactView
+        transparentBackground={compact.transparentBackground}
+        onToggleBackground={compact.toggleCompactBackground}
         subtitles={compact.subtitles}
         subtitleHistory={compact.subtitleHistory}
         subtitleLimit={overlayOpen ? 1 : compact.subtitleLimit}

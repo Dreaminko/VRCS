@@ -67,6 +67,10 @@ html:has(.compact-root) #root {
   transition: color 140ms ease-out, background-color 140ms ease-out, opacity 140ms ease-out, transform 140ms ease-out;
 }
 .compact-window-actions button { width: 26px; height: 26px; border-radius: var(--radius-sm); }
+.compact-window-icon { display: grid; pointer-events: none; }
+.compact-window-icon svg { grid-area: 1 / 1; }
+.compact-icon-outline { display: none; color: #ffffff; }
+.compact-icon-foreground { position: relative; }
 .compact-window-actions button:hover { color: var(--primary-ink); background: var(--primary-softer); }
 .compact-window-actions .compact-close-button:hover { color: var(--error); background: var(--error-soft); }
 .compact-window-actions button:active,
@@ -115,11 +119,13 @@ html:has(.compact-root) #root {
 }
 /* Keep both languages visible and avoid cropping half a line after resizing. */
 .compact-subtitle-bilingual p { max-height: round(down, calc((100% - 4px) / 2), 1lh); }
-.compact-content .compact-original {
+.compact-content .compact-original,
+.compact-content .compact-translation {
   max-height: min(3lh, round(down, 100%, 1lh));
-  overflow-y: hidden;
 }
-.compact-subtitle-bilingual .compact-original {
+.compact-content .compact-original { overflow-y: hidden; }
+.compact-subtitle-bilingual .compact-original,
+.compact-subtitle-bilingual .compact-translation {
   max-height: min(3lh, round(down, calc((100% - 4px) / 2), 1lh));
 }
 .compact-original { cursor: text; color: var(--text); font-size: 17px; font-weight: 500; line-height: 24px; user-select: text; }
@@ -147,3 +153,52 @@ html:has(.compact-root) #root {
   animation: compact-dictionary-in 150ms ease-out both;
 }
 .compact-inline-selection .dictionary-header { margin-bottom: 12px; }
+
+/* Retain border widths so switching the background never moves the content. */
+.compact-root-transparent {
+  border-color: transparent;
+  background: transparent;
+}
+.compact-root-transparent .compact-shell { background: transparent; }
+.compact-root-transparent .compact-header,
+.compact-root-transparent .compact-subtitle-row + .compact-subtitle-row,
+.compact-root-transparent .compact-actions { border-color: transparent; }
+
+/* Larger solid lettering with a dark shadow keeps dense strokes open. */
+.compact-root-transparent .compact-content p {
+  color: #ffffff;
+  -webkit-text-stroke: 0;
+  text-shadow:
+    -0.75px 0 0 rgba(0, 0, 0, 0.95),
+    0.75px 0 0 rgba(0, 0, 0, 0.95),
+    0 -0.75px 0 rgba(0, 0, 0, 0.95),
+    0 0.75px 0 rgba(0, 0, 0, 0.95),
+    0 1px 2px rgba(0, 0, 0, 0.45);
+}
+.compact-root-transparent .compact-original { font-size: 19px; }
+.compact-root-transparent .compact-subtitle-history .compact-original { font-size: 17px; }
+.compact-root-transparent .compact-translation { font-size: 17px; line-height: 22px; }
+.compact-root-transparent .compact-subtitle-history .compact-translation { font-size: 16px; }
+.compact-root-transparent .compact-translation:lang(zh) { font-weight: 500; }
+.compact-root-transparent .compact-status span { paint-order: stroke fill; text-shadow: none; }
+.compact-root-transparent .compact-status span { -webkit-text-stroke: 2px #ffffff; }
+.compact-root-transparent .compact-status i { box-shadow: 0 0 0 1px #ffffff; }
+.compact-root-transparent .compact-status.running i { box-shadow: 0 0 0 1px #ffffff, 0 0 0 3px rgba(116, 214, 255, 0.22); }
+.compact-root-transparent .compact-status.muted i { box-shadow: 0 0 0 1px #ffffff, 0 0 0 3px rgba(213, 153, 57, 0.16); }
+
+/* 15px icons use a 24-unit viewBox: (5.2 - 2) * 15 / 24 / 2 = 1px. */
+.compact-root-transparent .compact-icon-outline { display: block; }
+.compact-root-transparent .compact-window-actions button { color: var(--text); }
+.compact-root-transparent .compact-window-actions button:is(:hover, :focus-visible) {
+  color: var(--text);
+  background: var(--surface);
+}
+.compact-root-transparent .compact-window-actions .compact-close-button:is(:hover, :focus-visible) {
+  color: var(--error);
+  background: var(--error-soft);
+}
+.compact-root-transparent .compact-resize-grip svg {
+  stroke: #ffffff;
+  stroke-width: 2px;
+  paint-order: stroke fill;
+}
