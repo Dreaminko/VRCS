@@ -130,6 +130,9 @@
       "maximize": "Maximize or restore window",
       "maximizeShort": "Maximize / restore",
       "restore": "Restore full window",
+      "transparentBackground": "Transparent background",
+      "restoreBackground": "Restore background",
+      "resize": "Drag to resize the subtitle window",
       "close": "Close window"
     },
     "status": {
@@ -1600,6 +1603,7 @@
         "warningExpand": "Could not resize the warning window.",
         "compactCollapse": "Could not enter subtitle mode.",
         "compactToggle": "Could not change subtitle mode.",
+        "compactResize": "Could not resize the subtitle window.",
         "interfaceScale": "Could not adjust the interface size.",
         "alwaysOnTop": "Could not update always-on-top mode."
       },

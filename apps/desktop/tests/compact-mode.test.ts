@@ -4,6 +4,7 @@ import {
   COMPACT_PANEL_WINDOW_SIZE,
   COMPACT_PREVIEW_MAX_CHARS,
   COMPACT_SUBTITLE_MAX_ITEMS,
+  COMPACT_SUBTITLE_HEIGHT_STEP,
   COMPACT_WINDOW_MAX_HEIGHT,
   COMPACT_WINDOW_MIN_WIDTH,
   COMPACT_WINDOW_SIZE,
@@ -164,27 +165,42 @@ test("compact mode constrains width and normal subtitle height", () => {
 test("compact height is clamped to the supported range", () => {
   assert.equal(clampCompactWindowHeight(80), COMPACT_WINDOW_SIZE.height);
   assert.equal(clampCompactWindowHeight(241.6), 242);
-  assert.equal(clampCompactWindowHeight(500), COMPACT_WINDOW_MAX_HEIGHT);
+  assert.equal(clampCompactWindowHeight(700), 700);
+  assert.equal(clampCompactWindowHeight(900), COMPACT_WINDOW_MAX_HEIGHT);
 });
 
-test("compact subtitle count increases at stable height steps", () => {
-  assert.equal(compactSubtitleCount(120), 1);
-  assert.equal(compactSubtitleCount(179), 1);
-  assert.equal(compactSubtitleCount(180), 2);
-  assert.equal(compactSubtitleCount(239), 2);
-  assert.equal(compactSubtitleCount(240), 3);
-  assert.equal(compactSubtitleCount(299), 3);
-  assert.equal(compactSubtitleCount(300), COMPACT_SUBTITLE_MAX_ITEMS);
-  assert.equal(compactSubtitleCount(360), COMPACT_SUBTITLE_MAX_ITEMS);
+test("compact subtitle count adds history only when two complete lines fit in both languages", () => {
+  for (const [height, count] of [
+    [160, 1], [269, 1], [270, 2], [377, 2],
+    [378, 3], [460, 3], [485, 3], [486, 4], [720, 4],
+  ]) {
+    assert.equal(compactSubtitleCount(height), count, 'height ' + height);
+  }
+  assert.equal(compactSubtitleCount(COMPACT_WINDOW_MAX_HEIGHT), COMPACT_SUBTITLE_MAX_ITEMS);
+  assert.ok(COMPACT_SUBTITLE_HEIGHT_STEP >= 2 * 24 * 2 + 4 + 6 + 1,
+    "each entry needs room for two lines in each language plus its spacing");
+});
+
+test("compact subtitle capacity stays stable as originals and translations grow", () => {
+  const growing = subtitles.map((subtitle) => ({
+    ...subtitle,
+    text: subtitle.text.repeat(100),
+    translation_partial: { text: "不断更新的译文。".repeat(100), target_language: "zh-Hans" },
+  }));
+  assert.deepEqual(
+    subtitlesForCompactView(growing, 460).map((subtitle) => subtitle.id),
+    subtitlesForCompactView(subtitles, 460).map((subtitle) => subtitle.id),
+  );
+  assert.equal(subtitlesForCompactView(growing, 460).length, 3);
 });
 
 test("compact subtitle context is chronological and bounded by height", () => {
   assert.deepEqual(
-    subtitlesForCompactView(subtitles, 240).map((subtitle) => subtitle.text),
+    subtitlesForCompactView(subtitles, 460).map((subtitle) => subtitle.text),
     ["older subtitle", "selected subtitle", "latest subtitle"],
   );
   assert.deepEqual(
-    subtitlesForCompactView([...subtitles, { ...subtitles[3], text: "beyond limit" }], 360)
+    subtitlesForCompactView([...subtitles, { ...subtitles[3], text: "beyond limit" }], 720)
       .map((subtitle) => subtitle.text),
     ["oldest subtitle", "older subtitle", "selected subtitle", "latest subtitle"],
   );

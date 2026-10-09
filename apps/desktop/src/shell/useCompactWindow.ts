@@ -18,6 +18,10 @@ export function useCompactWindow({
   reportError: (reason: unknown, fallbackKey: string, source?: string) => void;
 }) {
   const [compact, setCompact] = useState(false);
+  const [transparentBackground, setTransparentBackground] = useState(false);
+  const toggleCompactBackground = useCallback(() => {
+    setTransparentBackground((previous) => !previous);
+  }, []);
   const [height, setHeight] = useState<number>(COMPACT_WINDOW_SIZE.height);
   const compactModeRef = useRef(false);
   const panelStateRef = useRef<CompactPanelState>(false);
@@ -150,6 +154,16 @@ export function useCompactWindow({
     [compact, enterCompact, exitCompact],
   );
 
+  const startCompactResize = useCallback(async () => {
+    if (!NATIVE_APP) return;
+    try {
+      const { getCurrentWindow } = await import("@tauri-apps/api/window");
+      await getCurrentWindow().startResizeDragging("SouthEast");
+    } catch (reason) {
+      reportError(reason, "errors.window.compactResize", "window");
+    }
+  }, [reportError]);
+
   const closeWindow = useCallback(async () => {
     try {
       const { getCurrentWindow } = await import("@tauri-apps/api/window");
@@ -161,6 +175,8 @@ export function useCompactWindow({
 
   return {
     compact,
+    transparentBackground,
+    toggleCompactBackground,
     height,
     resizeCompactWindow,
     collapseCompactOverlay,
@@ -168,5 +184,6 @@ export function useCompactWindow({
     exitCompact,
     toggleCompact,
     closeWindow,
+    startCompactResize,
   };
 }

@@ -2,11 +2,16 @@ import type { Subtitle } from "./subtitles/types";
 import type { LiveTranscription } from "./capture/types";
 import { livePartialHasSubtitle } from "./realtime-state.ts";
 
-export const COMPACT_WINDOW_SIZE = { width: 720, height: 120 } as const;
+export const COMPACT_WINDOW_SIZE = { width: 720, height: 160 } as const;
 export const COMPACT_PANEL_WINDOW_SIZE = { width: 720, height: 520 } as const;
 export const COMPACT_WINDOW_MIN_WIDTH = 480;
-export const COMPACT_WINDOW_MAX_HEIGHT = 360;
-export const COMPACT_SUBTITLE_HEIGHT_STEP = 60;
+export const COMPACT_WINDOW_MAX_HEIGHT = 720;
+// Root borders, header, and body vertical padding; keep in sync with compact.css.
+const COMPACT_CONTENT_VERTICAL_INSET = 2 + 32 + 8 + 12;
+// Add history only when two lines per language fit using the largest line
+// height in either mode. Three lines is a scroll limit, not a minimum reserve.
+// Include the gap, row padding, and separator in the whole-pixel budget.
+export const COMPACT_SUBTITLE_HEIGHT_STEP = 2 * 24 * 2 + 4 + 6 + 2;
 export const COMPACT_SUBTITLE_MAX_ITEMS = 4;
 export const COMPACT_PREVIEW_MAX_CHARS = 600;
 
@@ -66,11 +71,13 @@ export function clampCompactWindowHeight(height: number): number {
 }
 
 export function compactSubtitleCount(height: number): number {
-  const steps = Math.floor(
-    (clampCompactWindowHeight(height) - COMPACT_WINDOW_SIZE.height)
+  const capacity = Math.floor(
+    (clampCompactWindowHeight(height) - COMPACT_CONTENT_VERTICAL_INSET)
       / COMPACT_SUBTITLE_HEIGHT_STEP,
   );
-  return Math.min(COMPACT_SUBTITLE_MAX_ITEMS, steps + 1);
+  // Capacity depends on viewport height, so streaming text and mode changes
+  // cannot repeatedly add and remove a history row as their content grows.
+  return Math.min(COMPACT_SUBTITLE_MAX_ITEMS, Math.max(1, capacity));
 }
 
 export function subtitlesForCompactView(

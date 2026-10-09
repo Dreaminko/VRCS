@@ -1,6 +1,6 @@
 import { useTranslation } from "react-i18next";
 import { useLayoutEffect, useMemo, useRef } from "react";
-import { Maximize2, Mic, Square, X } from "lucide-react";
+import { createLucideIcon, Maximize2, Mic, Square, X, type LucideIcon } from "lucide-react";
 
 import type { LookupOrigin } from "../app/app-types";
 import { livePartialHasSubtitle, useLivePartial, useTranslationPartials } from "../realtime-state";
@@ -9,7 +9,14 @@ import { contentLanguageTag } from "../app/ui-language";
 import { compactLivePreview, compactPreviewText } from "../compact-mode";
 import { useBatchedPreview } from "../streaming-preview";
 
-export function CompactView({ subtitles, subtitleHistory, subtitleLimit, selectionActive, running, vrchatMuted, captureDisabled, onSelect, onCapture, onRestore, onClose }: {
+const BackgroundIcon = createLucideIcon("CompactBackground", [
+  ["circle", { cx: "12", cy: "12", r: "9", key: "circle" }],
+  ["path", { d: "M12 3a9 9 0 0 1 0 18Z", fill: "currentColor", stroke: "none", key: "half" }],
+]);
+
+export function CompactView({ transparentBackground, onToggleBackground, subtitles, subtitleHistory, subtitleLimit, selectionActive, running, vrchatMuted, captureDisabled, onSelect, onCapture, onRestore, onClose, onResize }: {
+  transparentBackground: boolean;
+  onToggleBackground: () => void;
   subtitles: Subtitle[];
   subtitleHistory: Subtitle[];
   subtitleLimit: number;
@@ -21,6 +28,7 @@ export function CompactView({ subtitles, subtitleHistory, subtitleLimit, selecti
   onCapture: () => void;
   onRestore: () => void;
   onClose: () => void;
+  onResize: () => void;
 }) {
   const { t } = useTranslation();
   const microphonePartial = useLivePartial("microphone");
@@ -42,48 +50,77 @@ export function CompactView({ subtitles, subtitleHistory, subtitleLimit, selecti
     ? subtitles.filter((subtitle) => !partial || !livePartialHasSubtitle(partial, [subtitle])).slice(-historyLimit)
     : [];
   const latestSubtitle = subtitles.at(-1);
+  const statusLabel = vrchatMuted ? t("status.pausedVrchatMuted") : partial?.language?.toUpperCase() ?? latestSubtitle?.language?.toUpperCase() ?? "AUTO";
   const captureLabel = t(running ? "capture.pause" : "capture.start");
+  const backgroundLabel = t(transparentBackground ? "window.restoreBackground" : "window.transparentBackground");
   return (
     <div className="compact-shell">
-      <div className="compact-drag-region" data-tauri-drag-region />
-      <div className={`compact-status ${running ? "running" : ""} ${vrchatMuted ? "muted" : ""}`}>
-        <i aria-hidden="true" />
-        <span>{vrchatMuted ? t("status.pausedVrchatMuted") : partial?.language?.toUpperCase() ?? latestSubtitle?.language?.toUpperCase() ?? "AUTO"}</span>
-      </div>
-      <div className="compact-content">
-        {visibleSubtitles.map((subtitle, index) => (
-          <CompactSubtitleRow
-            key={subtitle.id ?? subtitle.created_at}
-            subtitle={subtitle}
-            current={!partial && index === visibleSubtitles.length - 1}
-            onSelect={onSelect}
-          />
-        ))}
-        {partial && (
-          <div className={`compact-subtitle-row compact-subtitle-current ${partial.translation ? "compact-subtitle-bilingual" : ""}`}>
-            <CompactText
-              className="compact-original"
-              lang={contentLanguageTag(partial.language)}
-              text={partial.text}
-              onMouseUp={() => void onSelect(partial.text)}
+      <header className="compact-header" data-tauri-drag-region>
+        <div className={`compact-status ${running ? "running" : ""} ${vrchatMuted ? "muted" : ""}`} title={statusLabel} data-tauri-drag-region>
+          <i aria-hidden="true" data-tauri-drag-region />
+          <span data-tauri-drag-region>{statusLabel}</span>
+        </div>
+        <div className="compact-window-actions">
+          <button type="button" aria-label={backgroundLabel} aria-pressed={transparentBackground} title={backgroundLabel} onClick={onToggleBackground}><CompactWindowIcon icon={BackgroundIcon} /></button>
+          <button type="button" aria-label={t("window.restore")} title={t("window.restore")} onClick={onRestore}><CompactWindowIcon icon={Maximize2} /></button>
+          <button className="compact-close-button" type="button" aria-label={t("window.close")} title={t("window.close")} onClick={onClose}><CompactWindowIcon icon={X} /></button>
+        </div>
+      </header>
+      <div className="compact-body">
+        <div className="compact-content">
+          {visibleSubtitles.map((subtitle, index) => (
+            <CompactSubtitleRow
+              key={subtitle.id ?? subtitle.created_at}
+              subtitle={subtitle}
+              current={!partial && index === visibleSubtitles.length - 1}
+              onSelect={onSelect}
             />
-            {partial.translation && <CompactText className="compact-translation" lang={contentLanguageTag(partial.target_language)} text={partial.translation} />}
-          </div>
-        )}
-        {!partial && visibleSubtitles.length === 0 && (
-          <div className="compact-subtitle-row compact-subtitle-current">
-            <p className="compact-original">{t("live.waiting")}</p>
-          </div>
-        )}
+          ))}
+          {partial && (
+            <div className={`compact-subtitle-row compact-subtitle-current ${partial.translation ? "compact-subtitle-bilingual" : ""}`}>
+              <CompactText
+                className="compact-original"
+                lang={contentLanguageTag(partial.language)}
+                text={partial.text}
+                onMouseUp={() => void onSelect(partial.text)}
+              />
+              {partial.translation && <CompactText className="compact-translation" lang={contentLanguageTag(partial.target_language)} text={partial.translation} />}
+            </div>
+          )}
+          {!partial && visibleSubtitles.length === 0 && (
+            <div className="compact-subtitle-row compact-subtitle-current">
+              <p className="compact-original">{t("live.waiting")}</p>
+            </div>
+          )}
+        </div>
+        <div className="compact-actions">
+          <button className="compact-capture-button" type="button" aria-label={captureLabel} aria-pressed={running} title={captureLabel} disabled={captureDisabled} onClick={onCapture}>
+            {running ? <Square size={15} /> : <Mic size={16} />}
+          </button>
+        </div>
       </div>
-      <div className="compact-actions">
-        <button className="compact-capture-button" type="button" aria-label={captureLabel} aria-pressed={running} title={captureLabel} disabled={captureDisabled} onClick={onCapture}>
-          {running ? <Square size={15} /> : <Mic size={16} />}
-        </button>
-        <button className="compact-secondary-action" type="button" aria-label={t("window.restore")} title={t("window.restore")} onClick={onRestore}><Maximize2 size={17} /></button>
-        <button className="compact-secondary-action compact-close-button" type="button" aria-label={t("window.close")} title={t("window.close")} onClick={onClose}><X size={17} /></button>
+      <div className="compact-resize-grip" title={t("window.resize")} onPointerDown={(event) => {
+        if (event.button !== 0 || !event.isPrimary) return;
+        event.preventDefault();
+        event.stopPropagation();
+        onResize();
+      }}>
+        <svg viewBox="0 0 16 16" aria-hidden="true">
+          <circle cx="12" cy="4" r="1" /><circle cx="8" cy="8" r="1" /><circle cx="12" cy="8" r="1" />
+          <circle cx="4" cy="12" r="1" /><circle cx="8" cy="12" r="1" /><circle cx="12" cy="12" r="1" />
+        </svg>
       </div>
     </div>
+  );
+}
+
+// Paint a wider white copy behind the original strokes only in transparent mode.
+function CompactWindowIcon({ icon: Icon }: { icon: LucideIcon }) {
+  return (
+    <span className="compact-window-icon" aria-hidden="true">
+      <Icon className="compact-icon-outline" size={15} strokeWidth={5.2} />
+      <Icon className="compact-icon-foreground" size={15} />
+    </span>
   );
 }
 
@@ -145,9 +182,7 @@ function CompactText({ className, lang, text, streaming = false, onMouseUp }: {
       if (selection && !selection.isCollapsed
         && (element.contains(selection.anchorNode) || element.contains(selection.focusNode))) return;
       element.scrollTop = element.scrollHeight;
-      element.scrollLeft = getComputedStyle(element).direction === "rtl"
-        ? -element.scrollWidth
-        : element.scrollWidth;
+      element.scrollLeft = 0;
     };
     followTail();
     const observer = new ResizeObserver(followTail);
