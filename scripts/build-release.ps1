@@ -81,7 +81,8 @@ function Get-CudaReleaseTargetRoot {
     if (-not $cudaToolkitVersion) {
         throw "CUDA toolchain validation must run before selecting the CUDA release target"
     }
-    $identity = "$cudaToolkitVersion|$cudaArchitectures"
+    # Isolate caches that still reference a deleted per-process toolchain file.
+    $identity = "$cudaToolkitVersion|$cudaArchitectures|persistent-toolchain-v1"
     $bytes = [System.Text.Encoding]::UTF8.GetBytes($identity)
     $sha256 = [System.Security.Cryptography.SHA256]::Create()
     try {
@@ -162,14 +163,15 @@ function Invoke-ReleaseBuild {
     $previousCudaArchitectures = [Environment]::GetEnvironmentVariable("CUDAARCHS", "Process")
     $previousCmakeToolchainFile = [Environment]::GetEnvironmentVariable("CMAKE_TOOLCHAIN_FILE", "Process")
     $previousCargoTargetDir = [Environment]::GetEnvironmentVariable("CARGO_TARGET_DIR", "Process")
-    $cudaToolchainFile = $null
     try {
         $env:CARGO_TARGET_DIR = $buildTargetRoot
         if ($isCudaBuild) {
             $env:CUDAARCHS = $cudaArchitectures
             # ggml selects its native GPU before CMake initializes CUDAARCHS. An early
             # toolchain assignment overrides that default and makes the release portable.
-            $cudaToolchainFile = Join-Path ([System.IO.Path]::GetTempPath()) "vrcs-cuda-release-$PID.cmake"
+            # CMake caches this path, so the file must live as long as the build cache.
+            New-Item -ItemType Directory -Path $buildTargetRoot -Force | Out-Null
+            $cudaToolchainFile = Join-Path $buildTargetRoot "cuda-release-toolchain.cmake"
             $toolchainContents = "set(CMAKE_CUDA_ARCHITECTURES `"$cudaArchitectures`" CACHE STRING `"VRCS release CUDA architectures`" FORCE)"
             [System.IO.File]::WriteAllText($cudaToolchainFile, $toolchainContents, [System.Text.UTF8Encoding]::new($false))
             $env:CMAKE_TOOLCHAIN_FILE = $cudaToolchainFile
@@ -188,9 +190,6 @@ function Invoke-ReleaseBuild {
         [Environment]::SetEnvironmentVariable("CUDAARCHS", $previousCudaArchitectures, "Process")
         [Environment]::SetEnvironmentVariable("CMAKE_TOOLCHAIN_FILE", $previousCmakeToolchainFile, "Process")
         [Environment]::SetEnvironmentVariable("CARGO_TARGET_DIR", $previousCargoTargetDir, "Process")
-        if ($cudaToolchainFile -and (Test-Path -LiteralPath $cudaToolchainFile -PathType Leaf)) {
-            Remove-Item -LiteralPath $cudaToolchainFile -Force
-        }
     }
 
     $desktopExecutable = Join-Path $buildTargetRoot "release\vrcs-desktop.exe"
