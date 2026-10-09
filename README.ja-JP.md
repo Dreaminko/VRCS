@@ -106,8 +106,8 @@ VRCS は元の音声を保存しません。字幕履歴、セッション、学
 - Node.js 24+
 - Rustup と `rust-toolchain.toml` で指定された Rust バージョンおよびコンポーネント
 - Visual Studio Build Tools と「C++ によるデスクトップ開発」ワークロード
-- `PATH` に追加された CMake と Ninja
-- Vulkan SDK。以下のデスクトップコマンドまたは `scripts/prepare-vulkan-sdk.ps1` で自動準備
+- `PATH` に追加された CMake
+- 任意：Vulkan SDK と `PATH` に追加された Ninja。Vulkan アクセラレーションの開発またはリリースパッケージのビルド時のみ必要
 - CUDA 開発の場合のみ、NVIDIA CUDA 13.x Toolkit と設定済みの `CUDA_PATH`
 
 リポジトリのルートで PowerShell を開き、次のコマンドを実行します。
@@ -117,25 +117,36 @@ npm install
 npm run dev
 ```
 
-デスクトップの開発およびリリースコマンドは、Vulkan SDK と Vulkan ローダーを自動準備します。SDK スクリプトは `VULKAN_SDK` が指す SDK に `Bin/glslc.exe` があれば再利用し、それ以外の場合は SDK `1.4.309.0` をダウンロードして検証し、`core/.cache/vulkan-sdk/1.4.309.0` に配置します。初回の準備にはインターネット接続が必要です。Ninja は事前に `PATH` に追加してください。
+デフォルトの開発ビルドはクラウド機能とローカル CPU 認識に対応します。Vulkan と CUDA は無効で、Vulkan SDK の準備も行いません。クラウド認識、翻訳、UI のみを変更する場合、GPU SDK は不要です。
 
-デフォルトのビルドには Vulkan が含まれます。Whisper の自動デバイスモードは CUDA、Vulkan、CPU の順に利用可能なバックエンドを試します。CUDA 対応を追加する場合：
+Vulkan アクセラレーションを有効にする場合：
+
+```powershell
+npm run dev:vulkan
+```
+
+Vulkan または CUDA を有効にするデスクトップ開発コマンド、およびリリースコマンドは、Vulkan SDK と Vulkan ローダーを自動準備します。SDK スクリプトは `VULKAN_SDK` が指す SDK に `Bin/glslc.exe` があれば再利用し、それ以外の場合は SDK `1.4.309.0` をダウンロードして検証し、`core/.cache/vulkan-sdk/1.4.309.0` に配置します。初回の準備にはインターネット接続が必要です。Ninja は事前に `PATH` に追加してください。
+
+CUDA 開発ビルドは Vulkan も有効にするため、Vulkan ツールと CUDA Toolkit が必要です。
 
 ```powershell
 npm run dev:cuda
 ```
 
-スタンドアロンの Rust Core のみを実行する場合は、同じ PowerShell セッションで先に SDK を準備します。
+スタンドアロンの Rust Core のみを実行する場合、デフォルトでは Vulkan SDK は不要です。
 
 ```powershell
-& .\scripts\prepare-vulkan-sdk.ps1
 npm run dev:core
+
+# Optional Vulkan acceleration, in the same PowerShell session:
+& .\scripts\prepare-vulkan-sdk.ps1
+cargo run --manifest-path core/Cargo.toml --features vulkan
 
 # Or, with CUDA Toolkit installed and CUDA_PATH set:
 npm run dev:core:cuda
 ```
 
-準備スクリプトが設定する `VULKAN_SDK`、`PATH`、`CMAKE_GENERATOR` は現在のシェルでのみ有効です。新しいシェルでは、スタンドアロン Core や Cargo コマンドを実行する前に再度実行してください。デスクトップでは Qwen ランタイムを必要に応じてダウンロードできます。スタンドアロン Core の開発で手動準備する場合は、起動前に `& .\scripts\prepare-qwen-runtime.ps1` も実行します。
+準備スクリプトが設定する `VULKAN_SDK`、`PATH`、`CMAKE_GENERATOR` は現在のシェルでのみ有効です。新しいシェルでは、Vulkan を有効にする Cargo コマンドの前に再度実行してください。`npm run dev:core:cuda` は SDK を自動準備します。デスクトップでは Qwen ランタイムを必要に応じてダウンロードできます。スタンドアロン Core の開発で手動準備する場合は、起動前に `& .\scripts\prepare-qwen-runtime.ps1` も実行します。
 
 Whisper とローカル Qwen を CPU のみで実行する Core ビルド：
 
@@ -143,7 +154,7 @@ Whisper とローカル Qwen を CPU のみで実行する Core ビルド：
 cargo run --manifest-path core/Cargo.toml --no-default-features
 ```
 
-このオプションは Whisper とローカル Qwen の Vulkan アクセラレーションを無効にします。Qwen の自動デバイスモードは CPU を使用し、GPU を明示的に選択すると Vulkan バックエンドを利用できないことを報告します。
+これはデフォルトの Core ビルドと同じです。Whisper とローカル Qwen は CPU のみを使用します。Qwen の自動デバイスモードは CPU を使用し、GPU を明示的に選択すると Vulkan バックエンドを利用できないことを報告します。
 
 スタンドアロン Core はデフォルトで `http://127.0.0.1:8766` をリッスンし、字幕 WebSocket は `ws://127.0.0.1:8766/ws` で利用できます。デスクトップアプリはローカルセッショントークンを自動的に生成して管理します。Core を単独で実行し、ループバック以外のアドレスでリッスンする場合は、空でない `VRCS_SESSION_TOKEN` を明示的に設定する必要があります。
 
@@ -156,9 +167,11 @@ npm run build:frontend
 .\scripts\check-rust.ps1
 ```
 
-Rust チェックスクリプトは Vulkan SDK を準備し、Windows 上で両方の Rust crate のフォーマットチェック、Clippy（`-D warnings`）、テストを実行します。
+Rust チェックスクリプトはデフォルトでは Vulkan SDK を必要とせず、Windows 上で両方の Rust crate のフォーマットチェック、Clippy（`-D warnings`）、テストを実行します。Vulkan 関連の変更には `.\scripts\check-rust.ps1 -Vulkan` を実行してください。SDK を準備して Vulkan を有効にしたビルドを検証します。
 
 ## Release のビルド
+
+リリースパッケージは引き続き Vulkan に対応します。リリーススクリプトは Vulkan SDK とローダーを自動準備するため、Ninja を `PATH` に追加してください。
 
 Release ビルドには `TAURI_SIGNING_PRIVATE_KEY` と `TAURI_UPDATER_PUBLIC_KEY` が必要です。秘密鍵を暗号化している場合は `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` も設定します。秘密鍵はリポジトリに保存せず、安全にバックアップしてください。
 

@@ -8,6 +8,7 @@
   "workspaces": ["apps/desktop"],
   "scripts": {
     "dev": "npm run dev:desktop",
+    "dev:vulkan": "npm --workspace apps/desktop run tauri -- dev --features vulkan",
     "dev:cuda": "npm run dev:desktop:cuda",
     "dev:core": "cargo run --manifest-path core/Cargo.toml",
     "dev:core:cuda": "powershell -ExecutionPolicy Bypass -File scripts/run-cuda-dev.ps1 -Target core",

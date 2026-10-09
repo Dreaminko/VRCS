@@ -24,36 +24,45 @@ Core 首次启动时会从 Silero 官方仓库下载固定的 v6.2.1 模型到�
 
 Whisper GGML 模型默认存放在配置文件同目录的 `models/whisper/`，可通过设置页或配置项 `storage.model_directory` 自定义；相对路径以配置文件目录为基准。修改保存位置时，Core 会自动迁移已下载的有效模型；跨磁盘时采用复制完成后再删除源文件，迁移失败则保留原设置和原目录。`VRCS_ASR_MODEL_DIR` 可用于启动时强制覆盖该设置。`/api/asr/models` 会报告模型大小与下载进度，下载文件完成前使用 `.part` 后缀；下载源固定到已知仓库版本，完成后校验精确大小与 SHA-256。运行前会按文件大小和修改时间复用校验记录，首次发现、文件变化或模型加载失败时重新计算 SHA-256；删除下载中的模型会取消任务。
 
-Core 默认构建包含 GGML Vulkan 后端；`--features cuda` 会额外编译 CUDA 后端，`--no-default-features` 则同时关闭 Whisper 和本地 Qwen 的 Vulkan 加速，两者仅使用 CPU。`local.device=auto` 会按 CUDA、Vulkan、CPU 的顺序尝试可用后端；GPU 模型加载失败时会记录原因并尝试下一后端。显式选择 CUDA 或 Vulkan 时会检查后端与设备是否可用；当前识别后端为本地 Whisper 且所选 GPU 不可用时，配置会恢复自动选择模式。`/api/asr/capabilities` 返回 CUDA 和 Vulkan 的可用状态与设备数量。
+Core 默认构建支持云端功能和本地 CPU 识别，无需 Vulkan SDK。`--features vulkan` 启用 GGML Vulkan 后端；`--features cuda` 同时启用 Vulkan 和 CUDA 后端；`--no-default-features` 与默认构建一致，Whisper 和本地 Qwen 仅使用 CPU。`local.device=auto` 会按 CUDA、Vulkan、CPU 的顺序尝试可用后端；GPU 模型加载失败时会记录原因并尝试下一后端。显式选择 CUDA 或 Vulkan 时会检查后端与设备是否可用；当前识别后端为本地 Whisper 且所选 GPU 不可用时，配置会恢复自动选择模式。`/api/asr/capabilities` 返回 CUDA 和 Vulkan 的可用状态与设备数量。
 
 应用管理的本地 Qwen3 ASR 使用独立的 `llama-server` 运行时，支持 CPU 或 Vulkan，与 Whisper 共用 `vulkan` Cargo 功能开关。启用该功能时，自动设备模式会优先使用可用的 Vulkan GPU；GPU 启动失败且启动时限仍有剩余时会尝试 CPU。关闭该功能时，不探测 GPU，自动设备模式使用 CPU，显式选择 GPU 会报告 Vulkan 后端不可用。模型包由应用负责下载和完整性校验，语音在本机处理。
 
 ## 运行与测试
 
-在 Windows 上安装 Rustup、Visual Studio C++ Build Tools，并将 CMake 和 Ninja 加入 `PATH`。Rustup 会使用仓库根目录 `rust-toolchain.toml` 指定的版本和组件。默认 Vulkan 构建还需要 SDK；从仓库根目录的 PowerShell 开始：
+在 Windows 上安装 Rustup、Visual Studio C++ Build Tools，并将 CMake 加入 `PATH`。Rustup 会使用仓库根目录 `rust-toolchain.toml` 指定的版本和组件。Vulkan SDK 和 Ninja 为可选项，仅启用 Vulkan 加速时需要。从仓库根目录的 PowerShell 开始：
 
 ```powershell
-& .\scripts\prepare-vulkan-sdk.ps1
 cd core
 cargo test
 cargo run
 ```
 
-此时 Core 监听 `127.0.0.1:8766`，配置写入 `core/config.json`。准备脚本会复用 `VULKAN_SDK` 指向且包含 `Bin/glslc.exe` 的 SDK，否则下载并校验固定版本 `1.4.309.0`，放入 `core/.cache/vulkan-sdk/1.4.309.0`。脚本同时准备 Vulkan 加载器，并在当前终端设置 `VULKAN_SDK`、`PATH` 和 `CMAKE_GENERATOR=Ninja`。新开终端后需重新执行准备脚本。
+此时 Core 监听 `127.0.0.1:8766`，配置写入 `core/config.json`。默认运行和测试均不会准备 Vulkan SDK。
 
-若要使用应用管理的本地 Qwen，先在仓库根目录准备其运行时；桌面开发和发布命令会自动执行此步骤：
+若要启用 Vulkan，请先将 Ninja 加入 `PATH`，然后从仓库根目录在同一终端中运行：
+
+```powershell
+& .\scripts\prepare-vulkan-sdk.ps1
+cargo test --manifest-path core/Cargo.toml --features vulkan
+cargo run --manifest-path core/Cargo.toml --features vulkan
+```
+
+准备脚本会复用 `VULKAN_SDK` 指向且包含 `Bin/glslc.exe` 的 SDK，否则下载并校验固定版本 `1.4.309.0`，放入 `core/.cache/vulkan-sdk/1.4.309.0`。脚本同时准备 Vulkan 加载器，并在当前终端设置 `VULKAN_SDK`、`PATH` 和 `CMAKE_GENERATOR=Ninja`。新开终端后，直接调用 Cargo 启用 Vulkan 前需重新执行准备脚本。
+
+若要使用应用管理的本地 Qwen，先在仓库根目录准备其运行时；桌面应用会按需下载：
 
 ```powershell
 & .\scripts\prepare-qwen-runtime.ps1
 ```
 
-CUDA Toolkit 已安装并设置 `CUDA_PATH` 时，在完成 SDK 准备后从仓库根目录运行：
+CUDA Toolkit 已安装并设置 `CUDA_PATH`，且 Ninja 已加入 `PATH` 时，从仓库根目录运行：
 
 ```powershell
 npm run dev:core:cuda
 ```
 
-该命令还会将 CUDA 运行时目录加入进程的 `PATH`。若 Whisper 和本地 Qwen 均仅使用 CPU，可在仓库根目录运行，无需准备 Vulkan SDK：
+该命令会自动准备 Vulkan SDK，并将 CUDA 运行时目录加入进程的 `PATH`。若 Whisper 和本地 Qwen 均仅使用 CPU，可使用默认构建，或在仓库根目录显式运行，无需准备 Vulkan SDK：
 
 ```powershell
 cargo run --manifest-path core/Cargo.toml --no-default-features
@@ -64,6 +73,8 @@ cargo run --manifest-path core/Cargo.toml --no-default-features
 ```powershell
 .\scripts\check-rust.ps1
 ```
+
+该命令默认无需 Vulkan SDK。修改 Vulkan 相关代码时，运行 `.\scripts\check-rust.ps1 -Vulkan`，同时准备 SDK 并检查启用 Vulkan 的两个 crate。标准版和 CUDA 发布包继续包含 Vulkan 支持。
 
 ## 音频实现要点
 

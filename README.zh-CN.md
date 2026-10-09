@@ -109,8 +109,8 @@ VRCS 不保存原始音频。字幕历史、会话、学习项目、词典和配
 - Node.js 24+
 - Rustup，使用 `rust-toolchain.toml` 指定的 Rust 版本和组件
 - Visual Studio Build Tools，并安装“使用 C++ 的桌面开发”工作负载
-- CMake 和 Ninja，并加入 `PATH`
-- Vulkan SDK，可由下方桌面命令或 `scripts/prepare-vulkan-sdk.ps1` 自动准备
+- CMake，并加入 `PATH`
+- 可选：Vulkan SDK 和已加入 `PATH` 的 Ninja，仅开发 Vulkan 加速或构建发布包时需要
 - 仅 CUDA 开发需要 NVIDIA CUDA 13.x Toolkit，并设置 `CUDA_PATH`
 
 在仓库根目录的 PowerShell 中运行：
@@ -120,25 +120,36 @@ npm install
 npm run dev
 ```
 
-桌面开发和发布命令会自动准备 Vulkan SDK 和 Vulkan 加载器。SDK 脚本会复用 `VULKAN_SDK` 指向且包含 `Bin/glslc.exe` 的 SDK，否则下载并校验 SDK `1.4.309.0`，存放到 `core/.cache/vulkan-sdk/1.4.309.0`。首次准备需要联网，Ninja 必须已加入 `PATH`。
+默认开发构建支持云端功能和本地 CPU 识别，不启用 Vulkan 或 CUDA，也不会准备 Vulkan SDK。仅修改云端识别、翻译或界面的贡献者无需安装 GPU SDK。
 
-默认构建包含 Vulkan。Whisper 使用自动设备模式时，会按 CUDA、Vulkan、CPU 的顺序尝试可用后端。增加 CUDA 支持：
+启用 Vulkan 加速：
+
+```powershell
+npm run dev:vulkan
+```
+
+启用 Vulkan 或 CUDA 的桌面开发命令，以及发布命令，会自动准备 Vulkan SDK 和 Vulkan 加载器。SDK 脚本会复用 `VULKAN_SDK` 指向且包含 `Bin/glslc.exe` 的 SDK，否则下载并校验 SDK `1.4.309.0`，存放到 `core/.cache/vulkan-sdk/1.4.309.0`。首次准备需要联网，Ninja 必须已加入 `PATH`。
+
+CUDA 开发构建同时启用 Vulkan，需要 Vulkan 工具和 CUDA Toolkit：
 
 ```powershell
 npm run dev:cuda
 ```
 
-只运行独立 Rust Core 时，先在同一个 PowerShell 会话中准备 SDK：
+只运行独立 Rust Core 时，默认无需 Vulkan SDK：
 
 ```powershell
-& .\scripts\prepare-vulkan-sdk.ps1
 npm run dev:core
+
+# Optional Vulkan acceleration, in the same PowerShell session:
+& .\scripts\prepare-vulkan-sdk.ps1
+cargo run --manifest-path core/Cargo.toml --features vulkan
 
 # Or, with CUDA Toolkit installed and CUDA_PATH set:
 npm run dev:core:cuda
 ```
 
-准备脚本设置的 `VULKAN_SDK`、`PATH` 和 `CMAKE_GENERATOR` 仅对当前终端有效。新开终端后，运行独立 Core 或直接调用 Cargo 前需重新执行。桌面端可按需下载 Qwen 运行组件；独立 Core 开发时也可手动准备，启动前运行 `& .\scripts\prepare-qwen-runtime.ps1`。
+准备脚本设置的 `VULKAN_SDK`、`PATH` 和 `CMAKE_GENERATOR` 仅对当前终端有效。新开终端后，直接调用 Cargo 启用 Vulkan 前需重新执行；`npm run dev:core:cuda` 会自动准备 SDK。桌面端可按需下载 Qwen 运行组件；独立 Core 开发时也可手动准备，启动前运行 `& .\scripts\prepare-qwen-runtime.ps1`。
 
 构建 Whisper 和本地 Qwen 均仅使用 CPU 的 Core：
 
@@ -146,7 +157,7 @@ npm run dev:core:cuda
 cargo run --manifest-path core/Cargo.toml --no-default-features
 ```
 
-该选项同时关闭 Whisper 和本地 Qwen 的 Vulkan 加速。Qwen 自动设备模式使用 CPU；显式选择 GPU 时会报告 Vulkan 后端不可用。
+这与默认 Core 构建一致：Whisper 和本地 Qwen 仅使用 CPU。Qwen 自动设备模式使用 CPU；显式选择 GPU 时会报告 Vulkan 后端不可用。
 
 独立 Core 默认监听 `http://127.0.0.1:8766`，字幕 WebSocket 为 `ws://127.0.0.1:8766/ws`。桌面应用会自动生成并管理本地会话令牌；如果单独运行 Core 并监听非回环地址，必须显式设置非空的 `VRCS_SESSION_TOKEN`。
 
@@ -159,9 +170,11 @@ npm run build:frontend
 .\scripts\check-rust.ps1
 ```
 
-Rust 检查脚本会准备 Vulkan SDK，并在 Windows 上对两个 Rust crate 执行格式检查、Clippy（`-D warnings`）和测试。
+Rust 检查脚本默认无需 Vulkan SDK，在 Windows 上对两个 Rust crate 执行格式检查、Clippy（`-D warnings`）和测试。修改 Vulkan 相关代码时运行 `.\scripts\check-rust.ps1 -Vulkan`，脚本会准备 SDK 并检查启用 Vulkan 的构建。
 
 ## 构建 Release
+
+发布包继续包含 Vulkan 支持，发布脚本会自动准备 Vulkan SDK 和加载器；Ninja 必须已加入 `PATH`。
 
 Release 构建必须设置 `TAURI_SIGNING_PRIVATE_KEY` 和 `TAURI_UPDATER_PUBLIC_KEY`；私钥有密码时还需设置 `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`。私钥不得提交到仓库，并应安全备份。
 

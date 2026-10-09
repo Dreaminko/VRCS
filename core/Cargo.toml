@@ -7,8 +7,8 @@ license = "AGPL-3.0-only"
 edition = "2021"
 
 [features]
-default = ["vulkan"]
-cuda = ["whisper-rs/cuda"]
+default = []
+cuda = ["vulkan", "whisper-rs/cuda"]
 vulkan = ["whisper-rs/vulkan"]
 
 [dependencies]

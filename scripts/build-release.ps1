@@ -251,11 +251,11 @@ try {
     }
 
     if (-not $SkipTests) {
-        & (Join-Path $PSScriptRoot "test-core.ps1")
+        & (Join-Path $PSScriptRoot "test-core.ps1") -Vulkan
         if ($LASTEXITCODE -ne 0) { throw "Rust Core tests failed" }
         & npm --workspace apps/desktop test
         if ($LASTEXITCODE -ne 0) { throw "Frontend tests failed" }
-        & cargo test --manifest-path $cargoManifestPath
+        & cargo test --manifest-path $cargoManifestPath --features vulkan
         if ($LASTEXITCODE -ne 0) { throw "Desktop Rust tests failed" }
     }
 
@@ -263,7 +263,7 @@ try {
         Assert-Cuda13Toolchain
     }
 
-    $releaseBuilds = @(Invoke-ReleaseBuild -Label "standard")
+    $releaseBuilds = @(Invoke-ReleaseBuild -Label "standard" -Features @("vulkan"))
     if ($IncludeCuda) {
         $releaseBuilds += Invoke-ReleaseBuild -Label "CUDA" -Features @("cuda") -FileSuffix "-CUDA"
     }

@@ -23,6 +23,7 @@ $repoRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot ".."))
 Push-Location $repoRoot
 try {
     if ($Target -eq "core") {
+        & (Join-Path $PSScriptRoot "prepare-vulkan-sdk.ps1")
         & cargo run --manifest-path core\Cargo.toml --features cuda
     }
     else {

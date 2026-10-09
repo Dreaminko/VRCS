@@ -8,8 +8,8 @@ edition = "2021"
 default-run = "vrcs-desktop"
 
 [features]
-default = ["vulkan"]
-cuda = ["vrcs-core/cuda"]
+default = []
+cuda = ["vulkan", "vrcs-core/cuda"]
 vulkan = ["vrcs-core/vulkan"]
 
 [lib]

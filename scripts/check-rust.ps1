@@ -1,5 +1,5 @@
 [CmdletBinding()]
-param()
+param([switch]$Vulkan)
 
 $ErrorActionPreference = "Stop"
 if ($env:OS -ne "Windows_NT") {
@@ -17,18 +17,21 @@ function Invoke-CargoCheck {
 
 $repoRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot ".."))
 $manifests = @("core/Cargo.toml", "apps/desktop/src-tauri/Cargo.toml")
+$featureArguments = if ($Vulkan) { @("--features", "vulkan") } else { @() }
 
 Push-Location $repoRoot
 try {
-    & (Join-Path $PSScriptRoot "prepare-vulkan-sdk.ps1")
+    if ($Vulkan) {
+        & (Join-Path $PSScriptRoot "prepare-vulkan-sdk.ps1")
+    }
     foreach ($manifest in $manifests) {
         Invoke-CargoCheck -CargoArguments @("fmt", "--manifest-path", $manifest, "--", "--check")
     }
     foreach ($manifest in $manifests) {
-        Invoke-CargoCheck -CargoArguments @("clippy", "--manifest-path", $manifest, "--all-targets", "--locked", "--", "-D", "warnings")
+        Invoke-CargoCheck -CargoArguments (@("clippy", "--manifest-path", $manifest, "--all-targets", "--locked") + $featureArguments + @("--", "-D", "warnings"))
     }
     foreach ($manifest in $manifests) {
-        Invoke-CargoCheck -CargoArguments @("test", "--manifest-path", $manifest, "--locked")
+        Invoke-CargoCheck -CargoArguments (@("test", "--manifest-path", $manifest, "--locked") + $featureArguments)
     }
 }
 finally {

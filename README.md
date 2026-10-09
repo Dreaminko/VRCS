@@ -116,8 +116,8 @@ Development requirements:
 - Node.js 24+
 - Rustup with the Rust version and components specified in `rust-toolchain.toml`
 - Visual Studio Build Tools with the **Desktop development with C++** workload
-- CMake and Ninja available on `PATH`
-- Vulkan SDK, prepared automatically by the desktop commands below or with `scripts/prepare-vulkan-sdk.ps1`
+- CMake available on `PATH`
+- Optional: Vulkan SDK and Ninja on `PATH`, required only for Vulkan acceleration development or release packages
 - NVIDIA CUDA 13.x Toolkit with `CUDA_PATH` configured, only for CUDA development
 
 Run the following commands in PowerShell from the repository root:
@@ -127,25 +127,36 @@ npm install
 npm run dev
 ```
 
-Desktop development and release commands automatically prepare the Vulkan SDK and Vulkan loader. The SDK script reuses the SDK at `VULKAN_SDK` if `Bin/glslc.exe` exists there; otherwise it downloads and verifies SDK `1.4.309.0` into `core/.cache/vulkan-sdk/1.4.309.0`. Initial preparation requires internet access. Ninja must already be on `PATH`.
+The default development build supports cloud features and local CPU recognition. It does not enable Vulkan or CUDA and does not prepare the Vulkan SDK. Contributors who work on cloud recognition, translation, or the interface do not need GPU SDKs.
 
-The default build includes Vulkan. Whisper in automatic device mode tries CUDA, then Vulkan, then CPU, using the available backends. To add CUDA support:
+To enable Vulkan acceleration:
+
+```powershell
+npm run dev:vulkan
+```
+
+Desktop commands that enable Vulkan or CUDA, and release commands, automatically prepare the Vulkan SDK and Vulkan loader. The SDK script reuses the SDK at `VULKAN_SDK` if `Bin/glslc.exe` exists there; otherwise it downloads and verifies SDK `1.4.309.0` into `core/.cache/vulkan-sdk/1.4.309.0`. Initial preparation requires internet access. Ninja must already be on `PATH`.
+
+CUDA development builds also enable Vulkan. They need Vulkan tools and the CUDA Toolkit:
 
 ```powershell
 npm run dev:cuda
 ```
 
-To run only the standalone Rust Core, prepare the SDK in the same PowerShell session first:
+To run only the standalone Rust Core, no Vulkan SDK is required by default:
 
 ```powershell
-& .\scripts\prepare-vulkan-sdk.ps1
 npm run dev:core
+
+# Optional Vulkan acceleration, in the same PowerShell session:
+& .\scripts\prepare-vulkan-sdk.ps1
+cargo run --manifest-path core/Cargo.toml --features vulkan
 
 # Or, with CUDA Toolkit installed and CUDA_PATH set:
 npm run dev:core:cuda
 ```
 
-The preparation script sets `VULKAN_SDK`, `PATH`, and `CMAKE_GENERATOR` for the current shell. Run it again in each new shell before standalone Core or direct Cargo commands. The desktop client downloads the Qwen runtime on demand. To stage it manually for standalone Core development, run `& .\scripts\prepare-qwen-runtime.ps1` before starting it.
+The preparation script sets `VULKAN_SDK`, `PATH`, and `CMAKE_GENERATOR` for the current shell. Run it again in each new shell before direct Cargo commands that enable Vulkan. `npm run dev:core:cuda` prepares the SDK automatically. The desktop client downloads the Qwen runtime on demand. To stage it manually for standalone Core development, run `& .\scripts\prepare-qwen-runtime.ps1` before starting it.
 
 For a Core build that uses only CPU for Whisper and local Qwen:
 
@@ -153,7 +164,7 @@ For a Core build that uses only CPU for Whisper and local Qwen:
 cargo run --manifest-path core/Cargo.toml --no-default-features
 ```
 
-This disables Vulkan acceleration for both Whisper and local Qwen. Qwen in automatic device mode uses CPU; an explicit GPU selection reports that the Vulkan backend is unavailable.
+This is also the default Core build: Whisper and local Qwen use CPU only. Qwen in automatic device mode uses CPU; an explicit GPU selection reports that the Vulkan backend is unavailable.
 
 The standalone Core listens on `http://127.0.0.1:8766` by default, and its subtitle WebSocket is available at `ws://127.0.0.1:8766/ws`. The desktop application automatically generates and manages a local session token. If you run the Core separately and bind it to a non-loopback address, you must explicitly set a non-empty `VRCS_SESSION_TOKEN`.
 
@@ -166,9 +177,11 @@ npm run build:frontend
 .\scripts\check-rust.ps1
 ```
 
-The Rust check script prepares the Vulkan SDK and runs formatting checks, Clippy with `-D warnings`, and tests for both Rust crates on Windows.
+The Rust check script needs no Vulkan SDK by default. It runs formatting checks, Clippy with `-D warnings`, and tests for both Rust crates on Windows. For Vulkan changes, run `.\scripts\check-rust.ps1 -Vulkan` to prepare the SDK and check builds with Vulkan enabled.
 
 ## Build a release
+
+Release packages retain Vulkan support. The release script prepares the Vulkan SDK and loader automatically; Ninja must be on `PATH`.
 
 Release builds require `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_UPDATER_PUBLIC_KEY`; set `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` when the private key is encrypted. Keep the private key outside the repository and back it up securely.
 

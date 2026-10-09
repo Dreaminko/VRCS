@@ -36,6 +36,9 @@ jobs:
     runs-on: windows-latest
     env:
       CARGO_TARGET_DIR: ${{ github.workspace }}/.build
+    strategy:
+      matrix:
+        backend: [cpu, vulkan]
     steps:
       - uses: actions/checkout@v4
 
@@ -44,6 +47,7 @@ jobs:
         run: rustup show
 
       - name: Prepare Vulkan SDK
+        if: matrix.backend == 'vulkan'
         shell: pwsh
         run: |
           & ./scripts/prepare-vulkan-sdk.ps1
@@ -59,4 +63,4 @@ jobs:
 
       - name: Check Rust
         shell: pwsh
-        run: ./scripts/check-rust.ps1
+        run: ./scripts/check-rust.ps1 -Vulkan:('${{ matrix.backend }}' -eq 'vulkan')
