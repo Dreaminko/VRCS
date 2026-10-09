@@ -651,84 +651,84 @@ mod tests {
             routing::{get, post},
             Json, Router,
         };
-        use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-        let counts = Arc::new([AtomicUsize::new(0), AtomicUsize::new(0)]);
-        let fail = Arc::new(AtomicBool::new(false));
-        let polled = Arc::new(tokio::sync::Notify::new());
-        let poll_counts = counts.clone();
-        let failed = fail.clone();
-        let notified = polled.clone();
+        use tokio::sync::{mpsc, oneshot};
+        let (polled, mut polls) =
+            mpsc::unbounded_channel::<(usize, oneshot::Sender<&'static str>)>();
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let origin = format!("http://{}", listener.local_addr().unwrap());
         let router = Router::new().route("/jobs", post(|body: Bytes| async move {
             Json(json!({"data":{"jobId":if body.windows(4).any(|bytes| bytes == b"left") {"left"} else {"right"}}}))
         })).route("/jobs/{eye}", get(move |Path(eye): Path<String>| {
-            let counts = poll_counts.clone(); let fail = failed.clone(); let polled = notified.clone();
+            let polled = polled.clone();
             async move {
-                counts[usize::from(eye == "right")].fetch_add(1, Ordering::SeqCst);
-                polled.notify_one();
-                Json(json!({"data":{"state":if eye == "left" && fail.load(Ordering::SeqCst) {"failed"} else {"pending"}}}))
+                let (reply, response) = oneshot::channel();
+                polled.send((usize::from(eye == "right"), reply)).unwrap();
+                let state = response.await.unwrap_or("pending");
+                Json(json!({"data":{"state":state}}))
             }
         }));
         let server = tokio::spawn(async move {
             axum::serve(listener, router).await.unwrap();
         });
         let service = cloud_service(&origin);
-        let error = service
-            .recognize_cloud(
-                "token",
-                cloud_images(),
-                tokio::time::Instant::now() + Duration::from_millis(80),
-                &mut |_| {},
-            )
+        for scenario in ["deadline", "cancellation", "failure"] {
+            let task_service = service.clone();
+            let task = tokio::spawn(async move {
+                task_service
+                    .recognize_cloud(
+                        "token",
+                        cloud_images(),
+                        tokio::time::Instant::now() + Duration::from_secs(10),
+                        &mut |_| {},
+                    )
+                    .await
+            });
+            // Hold both responses so cancellation cannot race with a new request in transit.
+            let mut replies = tokio::time::timeout(Duration::from_secs(5), async {
+                let mut replies = [None, None];
+                for _ in 0..2 {
+                    let (eye, reply) = polls.recv().await.unwrap();
+                    assert!(replies[eye].replace(reply).is_none());
+                }
+                replies
+            })
             .await
-            .unwrap_err();
-        assert_eq!(error, "OCR task timed out");
-        assert!(counts.iter().all(|count| count.load(Ordering::SeqCst) > 0));
-        let snapshot = || counts.each_ref().map(|count| count.load(Ordering::SeqCst));
-        let before = snapshot();
-        tokio::time::sleep(Duration::from_millis(25)).await;
-        assert_eq!(snapshot(), before);
-        let task_service = service.clone();
-        let task = tokio::spawn(async move {
-            task_service
-                .recognize_cloud(
-                    "token",
-                    cloud_images(),
-                    tokio::time::Instant::now() + Duration::from_secs(2),
-                    &mut |_| {},
-                )
-                .await
-        });
-        tokio::time::timeout(Duration::from_secs(1), async {
-            while counts[1].load(Ordering::SeqCst) == before[1] {
-                polled.notified().await;
+            .expect("both eyes must start polling");
+
+            match scenario {
+                "deadline" => {
+                    // Advance time only after real HTTP requests have reached the server.
+                    tokio::time::pause();
+                    tokio::time::advance(Duration::from_secs(11)).await;
+                    let result = task.await;
+                    tokio::time::resume();
+                    assert_eq!(result.unwrap().unwrap_err(), "OCR task timed out");
+                }
+                "cancellation" => {
+                    task.abort();
+                    assert!(task.await.unwrap_err().is_cancelled());
+                }
+                "failure" => {
+                    replies[0].take().unwrap().send("failed").unwrap();
+                    let result = tokio::time::timeout(Duration::from_secs(5), task)
+                        .await
+                        .expect("one failed eye must stop the pair");
+                    assert_eq!(result.unwrap().unwrap_err(), "Cloud OCR job failed");
+                }
+                _ => unreachable!(),
             }
-        })
-        .await
-        .unwrap();
-        task.abort();
-        assert!(task.await.unwrap_err().is_cancelled());
-        // Allow requests already received by the mock server to finish before counting.
-        tokio::time::sleep(Duration::from_millis(25)).await;
-        let before = snapshot();
-        tokio::time::sleep(Duration::from_millis(25)).await;
-        assert_eq!(snapshot(), before);
-        fail.store(true, Ordering::SeqCst);
-        let error = service
-            .recognize_cloud(
-                "token",
-                cloud_images(),
-                tokio::time::Instant::now() + Duration::from_secs(1),
-                &mut |_| {},
-            )
-            .await
-            .unwrap_err();
-        assert_eq!(error, "Cloud OCR job failed");
-        tokio::time::sleep(Duration::from_millis(25)).await;
-        let before = snapshot();
-        tokio::time::sleep(Duration::from_millis(25)).await;
-        assert_eq!(snapshot(), before);
+
+            // Release in-flight responses. A surviving poller would request another update.
+            for reply in replies.into_iter().flatten() {
+                let _ = reply.send("pending");
+            }
+            assert!(
+                tokio::time::timeout(Duration::from_millis(50), polls.recv())
+                    .await
+                    .is_err(),
+                "both pollers must stop after {scenario}"
+            );
+        }
         server.abort();
     }
 

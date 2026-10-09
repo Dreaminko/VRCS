@@ -201,6 +201,8 @@ export function RecognitionStep({
             disabled={operationBusy}
             onUpdateAsr={asr.updateAsr}
             onUpdateQwen={asr.updateManagedQwen}
+            onDownloadRuntime={asr.downloadQwenRuntime}
+            onCancelRuntimeDownload={asr.cancelQwenRuntimeDownload}
           />}
           <ModelManagerPanel
             qwen={{

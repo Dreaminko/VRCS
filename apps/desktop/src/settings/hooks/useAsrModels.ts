@@ -261,6 +261,16 @@ export function useAsrModels({
     await runQwenAction(model, providersApi.deleteQwenModel);
   };
 
+  const runQwenRuntimeAction = async (action: () => Promise<unknown>) => {
+    try {
+      await action();
+      setQwenMessage("");
+      await loadQwenModels();
+    } catch (reason) {
+      setQwenMessage(localizedError(reason, t, "errors.asr.download"));
+    }
+  };
+
   const selectedModelCapability = asrCapabilities?.models.find(
     (model) => model.id === draftController.draft.asr.local.model,
   );
@@ -300,10 +310,14 @@ export function useAsrModels({
     downloadModel,
     removeModel,
     downloadQwenModel: (model: QwenModelRecord) => runQwenAction(model, providersApi.downloadQwenModel),
+    downloadQwenRuntime: () => runQwenRuntimeAction(providersApi.downloadQwenRuntime),
+    cancelQwenRuntimeDownload: () => runQwenRuntimeAction(providersApi.cancelQwenRuntimeDownload),
     cancelQwenDownload: (model: QwenModelRecord) => runQwenAction(model, providersApi.cancelQwenDownload),
     verifyQwenModel: (model: QwenModelRecord) => runQwenAction(model, providersApi.verifyQwenModel),
     removeQwenModel,
-    modelStatusLabel: modelStatusLabel(selectedModelStatus, t),
+    modelStatusLabel: draftController.draft.asr.local.model
+      ? modelStatusLabel(selectedModelStatus, t)
+      : t("settings.recognition.modelStatus.notSelected"),
     ...classified,
   };
 }

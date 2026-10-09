@@ -4,7 +4,17 @@ use super::{launch_args, probe_ready, QwenRuntime};
 
 #[tokio::test]
 async fn managed_qwen_gpu_discovery_respects_the_vulkan_feature() {
-    let runtime = QwenRuntime::new();
+    let root = tempfile::tempdir().unwrap();
+    let runtime = QwenRuntime::new(root.path().to_path_buf());
+    std::fs::create_dir_all(&runtime.directory).unwrap();
+    for name in super::super::qwen_runtime_download::REQUIRED_FILES {
+        std::fs::write(runtime.directory.join(name), b"fixture").unwrap();
+    }
+    std::fs::write(
+        runtime.directory.join("version.txt"),
+        super::super::qwen_runtime_download::SHA256,
+    )
+    .unwrap();
     runtime
         .devices
         .set(vec!["Vulkan0: test GPU".into()])
@@ -22,7 +32,7 @@ async fn managed_qwen_gpu_discovery_respects_the_vulkan_feature() {
 #[cfg(not(feature = "vulkan"))]
 #[tokio::test]
 async fn managed_qwen_explicit_gpu_is_rejected_without_vulkan() {
-    let runtime = QwenRuntime::new();
+    let runtime = QwenRuntime::new(std::path::PathBuf::new());
     runtime
         .devices
         .set(vec!["Vulkan0: test GPU".into()])
@@ -71,7 +81,7 @@ fn managed_qwen_gpu_arguments_respect_the_vulkan_feature() {
 
 #[tokio::test]
 async fn loading_status_and_cancellation_do_not_wait_for_the_startup_lock() {
-    let runtime = QwenRuntime::new();
+    let runtime = QwenRuntime::new(std::path::PathBuf::new());
     let _startup = runtime.startup.lock().await;
     runtime.state.lock().await.status = "loading";
     let snapshot = tokio::time::timeout(std::time::Duration::from_millis(100), runtime.snapshot())
@@ -90,7 +100,7 @@ async fn loading_status_and_cancellation_do_not_wait_for_the_startup_lock() {
 
 #[tokio::test]
 async fn explicit_stop_prevents_reconnecting_an_old_session() {
-    let runtime = QwenRuntime::new();
+    let runtime = QwenRuntime::new(std::path::PathBuf::new());
     let previous = super::QwenConnection {
         base_url: String::new(),
         token: String::new(),
@@ -115,7 +125,7 @@ async fn real_managed_qwen_transcribes_both_channels_and_recovers_after_exit() {
     use std::time::Duration;
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("models");
     let manager = Arc::new(ModelManager::new(root.clone()).unwrap());
-    let runtime = Arc::new(QwenRuntime::new());
+    let runtime = Arc::new(QwenRuntime::new(std::path::PathBuf::new()));
     let mut reader = hound::WavReader::open(root.join("qwen-asr/jfk.wav")).unwrap();
     assert_eq!(reader.spec().sample_rate, 16_000);
     let samples = Arc::new(
@@ -351,7 +361,7 @@ async fn managed_qwen_readiness_checks_the_session_token() {
 
 #[tokio::test]
 async fn managed_qwen_rejects_missing_assets_before_starting_a_process() {
-    let runtime = QwenRuntime::new();
+    let runtime = QwenRuntime::new(std::path::PathBuf::new());
     let root = tempfile::tempdir().unwrap();
     let missing = root.path().join("missing.gguf");
     assert!(runtime

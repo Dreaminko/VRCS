@@ -10,12 +10,15 @@ mod model;
 mod openai_audio_transcriptions;
 mod qwen_models;
 mod qwen_runtime;
+mod qwen_runtime_download;
 mod segmented_upload;
 mod session;
 mod streaming;
 
 #[cfg(test)]
 mod qwen_models_tests;
+#[cfg(test)]
+mod qwen_runtime_download_tests;
 
 pub(crate) use crate::credentials::read_stored_credential;
 pub use crate::credentials::{
@@ -28,7 +31,6 @@ pub use gpu::vulkan_capability;
 pub use manager::ModelManager;
 pub use model::is_supported_model;
 pub(crate) use qwen_models::is_supported as is_supported_qwen_package;
-pub(crate) use qwen_runtime::executable_path as qwen_executable_path;
 pub(crate) use qwen_runtime::QwenRuntime;
 pub(crate) use session::{prepare_managed_qwen, spawn_managed_qwen_session};
 pub use session::{
@@ -50,7 +52,9 @@ pub(crate) fn share_audio(samples: Vec<f32>) -> SharedAudio {
 }
 
 pub fn validate_config(config: &mut AsrConfig) -> Result<(), String> {
-    model_spec(&config.local.model)?;
+    if !config.local.model.is_empty() {
+        model_spec(&config.local.model)?;
+    }
     let local_required = config.backend == "local_whisper" || config.local_fallback_enabled();
     if local_required && ["cuda", "vulkan"].contains(&config.local.device.as_str()) {
         let error = if config.local.device == "cuda" {

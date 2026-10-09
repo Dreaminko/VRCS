@@ -1053,6 +1053,261 @@ async fn settings_update_switches_the_live_model_directory() {
 }
 
 #[tokio::test]
+async fn deleting_selected_whisper_model_falls_back_then_clears_selection() {
+    let directory = tempfile::tempdir().unwrap();
+    let config_path = directory.path().join("config.json");
+    let port = std::net::TcpListener::bind(("127.0.0.1", 0))
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .port();
+    let options = || CoreOptions {
+        config_path: config_path.clone(),
+        host: Some("127.0.0.1".into()),
+        port: Some(port),
+        session_token: Some("test-token".into()),
+        vad_model_path: Some(directory.path().join("missing-silero.onnx")),
+        asr_model_dir: None,
+    };
+    let handle = start(options()).await.unwrap();
+    for model in ["tiny", "base"] {
+        let record = handle
+            .model_manager
+            .describe(model, "", "not_loaded")
+            .unwrap();
+        let path = handle
+            .model_manager
+            .model_dir()
+            .join(format!("ggml-{model}.bin"));
+        std::fs::File::create(&path)
+            .unwrap()
+            .set_len(record.total_bytes)
+            .unwrap();
+        asr::cache_model_verification_for_test(&path, model);
+    }
+    let client = reqwest::Client::new();
+    let base_url = format!("http://{}", handle.address());
+    let response = client
+        .get(format!("{base_url}/api/settings"))
+        .bearer_auth("test-token")
+        .send()
+        .await
+        .unwrap();
+    let revision = response.headers()["X-VRCS-Config-Revision"]
+        .to_str()
+        .unwrap()
+        .to_owned();
+    let mut settings: serde_json::Value = response.json().await.unwrap();
+    settings["asr"]["backend"] = serde_json::json!("local_whisper");
+    settings["asr"]["local"]["model"] = serde_json::json!("tiny");
+    let response = client
+        .put(format!("{base_url}/api/settings"))
+        .bearer_auth("test-token")
+        .header("X-VRCS-Config-Revision", revision)
+        .json(&settings)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        response.status(),
+        reqwest::StatusCode::OK,
+        "{}",
+        response.text().await.unwrap()
+    );
+    for (removed, selected) in [("tiny", "base"), ("base", "")] {
+        if selected.is_empty() {
+            handle
+                .state
+                .capture
+                .capture_requested
+                .store(true, std::sync::atomic::Ordering::SeqCst);
+        }
+        let response = client
+            .delete(format!("{base_url}/api/asr/models/{removed}"))
+            .bearer_auth("test-token")
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(
+            response.status(),
+            reqwest::StatusCode::OK,
+            "{}",
+            response.text().await.unwrap()
+        );
+        assert!(!handle
+            .model_manager
+            .model_dir()
+            .join(format!("ggml-{removed}.bin"))
+            .exists());
+        let saved: serde_json::Value = client
+            .get(format!("{base_url}/api/settings"))
+            .bearer_auth("test-token")
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert_eq!(saved["asr"]["local"]["model"], selected);
+        let persisted: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&config_path).unwrap()).unwrap();
+        assert_eq!(persisted["asr"]["local"]["model"], selected);
+        if selected.is_empty() {
+            assert!(!handle
+                .state
+                .capture
+                .capture_requested
+                .load(std::sync::atomic::Ordering::SeqCst));
+        }
+    }
+    handle.shutdown().await.unwrap();
+    let restarted = start(options()).await.unwrap();
+    restarted.shutdown().await.unwrap();
+}
+
+#[tokio::test]
+async fn deleting_selected_qwen_package_clears_selection() {
+    let directory = tempfile::tempdir().unwrap();
+    let port = std::net::TcpListener::bind(("127.0.0.1", 0))
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .port();
+    let handle = start(CoreOptions {
+        config_path: directory.path().join("config.json"),
+        host: Some("127.0.0.1".into()),
+        port: Some(port),
+        session_token: Some("test-token".into()),
+        vad_model_path: Some(directory.path().join("missing-silero.onnx")),
+        asr_model_dir: None,
+    })
+    .await
+    .unwrap();
+    let client = reqwest::Client::new();
+    let base_url = format!("http://{}", handle.address());
+    let response = client
+        .get(format!("{base_url}/api/settings"))
+        .bearer_auth("test-token")
+        .send()
+        .await
+        .unwrap();
+    let revision = response.headers()["X-VRCS-Config-Revision"]
+        .to_str()
+        .unwrap()
+        .to_owned();
+    let mut settings: serde_json::Value = response.json().await.unwrap();
+    settings["asr"]["backend"] = serde_json::json!(crate::config::QWEN_MANAGED_BACKEND);
+    let response = client
+        .put(format!("{base_url}/api/settings"))
+        .bearer_auth("test-token")
+        .header("X-VRCS-Config-Revision", revision)
+        .json(&settings)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        response.status(),
+        reqwest::StatusCode::OK,
+        "{}",
+        response.text().await.unwrap()
+    );
+    let package = settings["asr"]["managed_qwen"]["package_id"]
+        .as_str()
+        .unwrap();
+    handle
+        .state
+        .capture
+        .capture_requested
+        .store(true, std::sync::atomic::Ordering::SeqCst);
+    let response = client
+        .delete(format!("{base_url}/api/asr/local-models/qwen/{package}"))
+        .bearer_auth("test-token")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        response.status(),
+        reqwest::StatusCode::OK,
+        "{}",
+        response.text().await.unwrap()
+    );
+    let saved: serde_json::Value = client
+        .get(format!("{base_url}/api/settings"))
+        .bearer_auth("test-token")
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(saved["asr"]["managed_qwen"]["package_id"], "");
+    assert!(!handle
+        .state
+        .capture
+        .capture_requested
+        .load(std::sync::atomic::Ordering::SeqCst));
+    assert_eq!(
+        client
+            .put(format!("{base_url}/api/settings"))
+            .bearer_auth("test-token")
+            .json(&saved)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        reqwest::StatusCode::OK
+    );
+    let tiny = handle
+        .model_manager
+        .describe("tiny", "", "not_loaded")
+        .unwrap();
+    let path = handle.model_manager.model_dir().join("ggml-tiny.bin");
+    std::fs::File::create(&path)
+        .unwrap()
+        .set_len(tiny.total_bytes)
+        .unwrap();
+    asr::cache_model_verification_for_test(&path, "tiny");
+    let mut saved = saved;
+    saved["asr"]["managed_qwen"]["package_id"] = serde_json::json!(package);
+    assert_eq!(
+        client
+            .put(format!("{base_url}/api/settings"))
+            .bearer_auth("test-token")
+            .json(&saved)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        reqwest::StatusCode::OK
+    );
+    let response = client
+        .delete(format!("{base_url}/api/asr/local-models/qwen/{package}"))
+        .bearer_auth("test-token")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        response.status(),
+        reqwest::StatusCode::OK,
+        "{}",
+        response.text().await.unwrap()
+    );
+    let saved: serde_json::Value = client
+        .get(format!("{base_url}/api/settings"))
+        .bearer_auth("test-token")
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(saved["asr"]["backend"], "local_whisper");
+    assert_eq!(saved["asr"]["local"]["model"], "tiny");
+    assert_eq!(saved["asr"]["managed_qwen"]["package_id"], "");
+    handle.shutdown().await.unwrap();
+}
+
+#[tokio::test]
 async fn websocket_accepts_query_token_without_authorization_header() {
     let directory = tempfile::tempdir().unwrap();
     let handle = start(CoreOptions {

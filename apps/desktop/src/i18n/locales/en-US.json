@@ -1065,7 +1065,8 @@
         "qwenModels": "Qwen ASR model packages",
         "verifyModel": "Verify",
         "qwenInstallRequired": "Download and verify this Qwen ASR package before starting recognition.",
-        "qwenRuntimeMissing": "The Qwen runtime is unavailable. Reinstall VRCS. In a development environment, prepare the Qwen runtime first.",
+        "qwenRuntimeComponents": "Qwen runtime components",
+        "qwenRuntimeMissing": "Download the runtime components to use local Qwen recognition.",
         "qwenRuntimeState": {
           "not_loaded": "Qwen model is not loaded",
           "loading": "Loading Qwen model…",
@@ -1162,6 +1163,7 @@
           "largeV3": "Highest accuracy, with the largest download and resource use."
         },
         "modelStatus": {
+          "notSelected": "No model selected",
           "notDownloaded": "not downloaded",
           "loading": "loading",
           "error": "error",

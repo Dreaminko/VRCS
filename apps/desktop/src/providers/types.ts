@@ -9,7 +9,7 @@ export interface AsrSettings {
   backend: string;
   language: "auto" | "en" | "ja" | "zh" | "ko" | "es" | "fr" | "de";
   local: {
-    model: "tiny" | "base" | "small" | "medium" | "large-v3";
+    model: "" | "tiny" | "base" | "small" | "medium" | "large-v3";
     device: "auto" | "cpu" | "cuda" | "vulkan";
     compute_type: "int8";
   };
@@ -153,7 +153,7 @@ export interface ConnectionDiagnostic {
 }
 
 export interface AsrModelCapability {
-  id: AsrSettings["local"]["model"];
+  id: Exclude<AsrSettings["local"]["model"], "">;
   repository: string;
   status: "not_downloaded" | "downloaded" | "loading" | "ready" | "error";
 }
@@ -167,7 +167,7 @@ export type AsrModelStatus =
   | "error";
 
 export interface AsrModelRecord {
-  id: AsrSettings["local"]["model"];
+  id: Exclude<AsrSettings["local"]["model"], "">;
   repository: string;
   status: AsrModelStatus;
   active: boolean;
@@ -197,6 +197,13 @@ export interface QwenRuntimeStatus {
   device: "cpu" | "gpu" | null;
   fallback: string | null;
   gpu_devices: string[];
+  installation: {
+    status: "not_downloaded" | "downloading" | "verifying" | "installed" | "error";
+    downloaded_bytes: number;
+    total_bytes: number;
+    progress: number;
+    error: string | null;
+  };
 }
 
 export interface AsrCapabilities {

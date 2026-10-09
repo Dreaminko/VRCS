@@ -80,7 +80,7 @@ impl SettingsChangePlan {
             &current,
             &candidate,
             model_directory.changed,
-            capture.reload,
+            capture.reload && capture.resume,
         );
         let external_api = ExternalApiChange::between(&current, &candidate);
         let post_commit = PostCommitUpdates::between(&current, &candidate);

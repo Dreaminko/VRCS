@@ -188,7 +188,9 @@ fn validate_recognition_options(asr: &AsrConfig) -> Result<(), String> {
             asr.local.compute_type
         ));
     }
-    if !crate::asr::is_supported_qwen_package(&asr.managed_qwen.package_id) {
+    if !asr.managed_qwen.package_id.is_empty()
+        && !crate::asr::is_supported_qwen_package(&asr.managed_qwen.package_id)
+    {
         return Err(format!(
             "Unsupported managed Qwen ASR package: {}",
             asr.managed_qwen.package_id

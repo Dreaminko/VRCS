@@ -25,7 +25,7 @@ VRCS は、VRChat 向けの Windows リアルタイム字幕・言語学習ツ�
 
 標準版と CUDA 版は同じ設定、データベース、モデルディレクトリを共有するため、データを移行せずに切り替えられます。
 
-両方のエディションで、ローカル Whisper とローカル Qwen ASR は CPU と Vulkan アクセラレーションに対応しています。インストーラーには Vulkan ローダーと Qwen ランタイムが含まれるため、ユーザーによる Vulkan SDK のインストールは不要です。Vulkan アクセラレーションには互換性のある GPU とグラフィックスドライバーが必要です。ローカル Qwen は両方のエディションで CPU または Vulkan を使用し、CUDA 版は Whisper にのみ CUDA 対応を追加します。
+両方のエディションで、ローカル Whisper とローカル Qwen ASR は CPU と Vulkan アクセラレーションに対応しています。インストーラーには Vulkan ローダーが含まれるため、ユーザーによる Vulkan SDK のインストールは不要です。ローカル Qwen のランタイムとモデルは認識設定から必要に応じてダウンロードします。クラウド認識のみを使う場合、このランタイムは不要です。Vulkan アクセラレーションには互換性のある GPU とグラフィックスドライバーが必要です。ローカル Qwen は両方のエディションで CPU または Vulkan を使用し、CUDA 版は Whisper にのみ CUDA 対応を追加します。
 
 動作要件：
 
@@ -117,7 +117,7 @@ npm install
 npm run dev
 ```
 
-デスクトップの開発およびリリースコマンドは、Vulkan SDK、Vulkan ローダー、固定バージョンの Qwen ランタイムを自動準備します。SDK スクリプトは `VULKAN_SDK` が指す SDK に `Bin/glslc.exe` があれば再利用し、それ以外の場合は SDK `1.4.309.0` をダウンロードして検証し、`core/.cache/vulkan-sdk/1.4.309.0` に配置します。初回の準備にはインターネット接続が必要です。Ninja は事前に `PATH` に追加してください。
+デスクトップの開発およびリリースコマンドは、Vulkan SDK と Vulkan ローダーを自動準備します。SDK スクリプトは `VULKAN_SDK` が指す SDK に `Bin/glslc.exe` があれば再利用し、それ以外の場合は SDK `1.4.309.0` をダウンロードして検証し、`core/.cache/vulkan-sdk/1.4.309.0` に配置します。初回の準備にはインターネット接続が必要です。Ninja は事前に `PATH` に追加してください。
 
 デフォルトのビルドには Vulkan が含まれます。Whisper の自動デバイスモードは CUDA、Vulkan、CPU の順に利用可能なバックエンドを試します。CUDA 対応を追加する場合：
 
@@ -135,7 +135,7 @@ npm run dev:core
 npm run dev:core:cuda
 ```
 
-準備スクリプトが設定する `VULKAN_SDK`、`PATH`、`CMAKE_GENERATOR` は現在のシェルでのみ有効です。新しいシェルでは、スタンドアロン Core や Cargo コマンドを実行する前に再度実行してください。スタンドアロン Core でアプリ管理のローカル Qwen を使う場合は、起動前に `& .\scripts\prepare-qwen-runtime.ps1` も実行します。
+準備スクリプトが設定する `VULKAN_SDK`、`PATH`、`CMAKE_GENERATOR` は現在のシェルでのみ有効です。新しいシェルでは、スタンドアロン Core や Cargo コマンドを実行する前に再度実行してください。デスクトップでは Qwen ランタイムを必要に応じてダウンロードできます。スタンドアロン Core の開発で手動準備する場合は、起動前に `& .\scripts\prepare-qwen-runtime.ps1` も実行します。
 
 Whisper とローカル Qwen を CPU のみで実行する Core ビルド：
 

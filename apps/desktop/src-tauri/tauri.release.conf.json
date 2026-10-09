@@ -6,7 +6,6 @@
     "targets": ["nsis"],
     "createUpdaterArtifacts": true,
     "resources": {
-      "resources/qwen-runtime/": "qwen-runtime/",
       "resources/vulkan-runtime/vulkan-1.dll": "vulkan-1.dll",
       "resources/vulkan-runtime/VulkanRT-License.txt": "VulkanRT-License.txt",
       "../../../LICENSE": "LICENSE",

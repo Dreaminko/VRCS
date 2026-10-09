@@ -195,7 +195,7 @@ jobs:
 
           - `VRCS-$version-windows-x64.exe` is the recommended unified client. It supports cloud recognition and local CPU Whisper without requiring CUDA.
           - `VRCS-$version-windows-x64-CUDA.exe` adds NVIDIA CUDA acceleration. CUDA 13.x Runtime, cuBLAS, and a compatible NVIDIA driver must be installed separately.
-          - Whisper models are downloaded only when local recognition is used.
+          - Local recognition models and the Qwen runtime are downloaded through recognition settings. Cloud recognition does not require the Qwen runtime.
           "@
 
           $releaseJson = gh release view $tag --json isDraft 2> $null

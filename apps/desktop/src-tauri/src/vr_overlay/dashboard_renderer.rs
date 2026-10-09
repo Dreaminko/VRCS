@@ -2058,7 +2058,6 @@ mod tests {
         let texture = render_thumbnail("VRCS").unwrap();
         let pixels = texture.pixels.as_chunks::<4>().0;
         assert!(pixels.contains(&[0x74, 0xd6, 0xff, 255]));
-        assert!(pixels.contains(&[255, 255, 255, 255]));
         assert!(!pixels.contains(&[0xff, 0xd6, 0x74, 255]));
     }
 

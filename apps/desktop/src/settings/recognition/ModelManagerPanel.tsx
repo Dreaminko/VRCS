@@ -1,4 +1,4 @@
-import { Check, Download, FolderOpen, HardDrive, RefreshCw, Trash2 } from "lucide-react";
+import { Download, FolderOpen, HardDrive, RefreshCw, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { NATIVE_APP } from "../../app/app-environment";
@@ -115,7 +115,8 @@ export function ModelManagerPanel({
         <div className="model-list">
           {managedModels.map((model) => {
             const presentation = MODEL_PRESENTATION[model.id];
-            const downloaded = ["downloaded", "loading", "ready"].includes(model.status);
+            const downloaded = ["downloaded", "loading", "ready"].includes(model.status)
+              || (model.total_bytes > 0 && model.downloaded_bytes === model.total_bytes);
             const downloading = model.status === "downloading";
             const percentage = Math.round(model.progress * 100);
             const sizeLabel = downloading
@@ -129,7 +130,6 @@ export function ModelManagerPanel({
                     {model.active && <span className="model-active-chip">{t("settings.recognition.inUse")}</span>}
                     <span className="model-size">{sizeLabel}</span>
                   </div>
-                  <p>{t(presentation.descriptionKey)}</p>
                   <code>{model.repository}</code>
                   {downloading && (
                     <div className="model-progress-wrap">
@@ -154,11 +154,7 @@ export function ModelManagerPanel({
                   {downloading ? (
                     <span className="model-download-state"><RefreshCw size={15} />{t("common.downloading")}</span>
                   ) : downloaded ? (
-                    model.active ? (
-                      <span className="model-ready-state"><Check size={15} />{t("common.ready")}</span>
-                    ) : (
-                      <button className="model-delete-button" type="button" aria-label={t("settings.recognition.deleteModel", { name: presentation.name })} onClick={() => void onRemove(model)}><Trash2 size={16} /><span>{t("common.delete")}</span></button>
-                    )
+                    <button className="model-delete-button" type="button" disabled={disabled || saveState === "saving"} aria-label={t("settings.recognition.deleteModel", { name: presentation.name })} onClick={() => void onRemove(model)}><Trash2 size={16} /><span>{t("common.delete")}</span></button>
                   ) : (
                     <button className="model-download-button" type="button" onClick={() => void onDownload(model)}><Download size={16} />{model.status === "error" ? t("common.retry") : t("common.download")}</button>
                   )}
@@ -177,7 +173,7 @@ export function ModelManagerPanel({
                   {selectedModel && <span className="model-active-chip">{t("settings.recognition.inUse")}</span>}
                   <span className="model-size">{formatBytes(model.total_bytes, locale)}</span>
                 </div>
-                <p>{t(`settings.recognition.qwenStatus.${model.status}`)}</p>
+                {model.status !== "installed" && <p>{t(`settings.recognition.qwenStatus.${model.status}`)}</p>}
                 <code>{model.repository}</code>
                 {busy && <div className="model-progress-wrap">
                   <div className="model-progress-track" role="progressbar" aria-label={t("settings.recognition.downloadProgress", { name: model.id })} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(model.progress * 100)}>
@@ -189,13 +185,9 @@ export function ModelManagerPanel({
               </div>
               <div className="model-row-action">
                 {busy ? <button className="secondary-button" type="button" onClick={() => void qwen.onCancel(model)}>{t("common.cancel")}</button>
-                  : model.status === "installed" ? (
-                    selectedModel ? (
-                      <span className="model-ready-state"><Check size={15} />{t("common.ready")}</span>
-                    ) : (
-                      <button className="model-delete-button" type="button" aria-label={t("settings.recognition.deleteModel", { name: model.id })} onClick={() => void qwen.onRemove(model)}><Trash2 size={16} />{t("common.delete")}</button>
-                    )
-                  ) : model.status === "corrupt" ? <button className="model-delete-button" type="button" onClick={() => void qwen.onRemove(model)}><Trash2 size={16} />{t("common.delete")}</button>
+                  : model.status === "installed" || model.status === "corrupt" ? (
+                    <button className="model-delete-button" type="button" disabled={disabled || saveState === "saving"} aria-label={t("settings.recognition.deleteModel", { name: model.id })} onClick={() => void qwen.onRemove(model)}><Trash2 size={16} />{t("common.delete")}</button>
+                  )
                     : <button className="model-download-button" type="button" onClick={() => void qwen.onDownload(model)}><Download size={16} />{t(model.status === "error" ? "common.retry" : "common.download")}</button>}
               </div>
             </article>;

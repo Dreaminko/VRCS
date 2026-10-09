@@ -1065,7 +1065,8 @@
         "qwenModels": "Qwen ASR 模型包",
         "verifyModel": "校验",
         "qwenInstallRequired": "开始识别前，请下载并校验此 Qwen ASR 模型包。",
-        "qwenRuntimeMissing": "Qwen 运行时程序不可用，请重新安装 VRCS。开发环境请先准备 Qwen 运行时。",
+        "qwenRuntimeComponents": "Qwen 运行组件",
+        "qwenRuntimeMissing": "下载运行组件后即可使用本地 Qwen 识别。",
         "qwenRuntimeState": {
           "not_loaded": "Qwen 模型未加载",
           "loading": "正在加载 Qwen 模型…",
@@ -1162,6 +1163,7 @@
           "largeV3": "准确度最高，下载体积和资源占用也最大。"
         },
         "modelStatus": {
+          "notSelected": "未选择模型",
           "notDownloaded": "未下载",
           "loading": "加载中",
           "error": "异常",

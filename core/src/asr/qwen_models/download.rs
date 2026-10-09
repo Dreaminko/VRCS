@@ -52,9 +52,14 @@ pub(crate) async fn download_into_staging(
             continue;
         }
         let temporary = stage.join(format!(".{}.part", asset.name));
+        let mut url = reqwest::Url::parse(base_url)
+            .map_err(|error| format!("Invalid Qwen ASR download URL: {error}"))?;
+        url.path_segments_mut()
+            .map_err(|_| "Invalid Qwen ASR download URL".to_string())?
+            .push(asset.name);
         let result = download_file(
             client,
-            base_url,
+            url,
             *asset,
             &path,
             &temporary,
@@ -74,20 +79,15 @@ pub(crate) async fn download_into_staging(
     activate_staging(root, spec)
 }
 
-async fn download_file(
+pub(crate) async fn download_file(
     client: &reqwest::Client,
-    base_url: &str,
+    url: reqwest::Url,
     asset: AssetSpec,
     path: &Path,
     temporary: &PathBuf,
     cancel: &mut watch::Receiver<bool>,
     mut on_progress: impl FnMut(u64),
 ) -> Result<(), String> {
-    let mut url = reqwest::Url::parse(base_url)
-        .map_err(|error| format!("Invalid Qwen ASR download URL: {error}"))?;
-    url.path_segments_mut()
-        .map_err(|_| "Invalid Qwen ASR download URL".to_string())?
-        .push(asset.name);
     let request = client.get(url).send();
     let response = tokio::select! {
         _ = cancel.changed() => return Err("Qwen ASR download was cancelled".into()),

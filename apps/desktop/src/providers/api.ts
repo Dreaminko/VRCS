@@ -92,6 +92,14 @@ export const providersApi = {
   ),
   qwenModels: () => request<QwenModelRecord[]>("/api/asr/local-models/qwen"),
   qwenRuntime: () => request<QwenRuntimeStatus>("/api/asr/local-models/qwen/runtime"),
+  downloadQwenRuntime: () => request<{ started: boolean }>(
+    "/api/asr/local-models/qwen/runtime/download",
+    { method: "POST" },
+  ),
+  cancelQwenRuntimeDownload: () => request<{ cancelled: boolean }>(
+    "/api/asr/local-models/qwen/runtime/cancel",
+    { method: "POST" },
+  ),
   downloadQwenModel: (id: string) => request<QwenModelRecord>(
     `/api/asr/local-models/qwen/${encodeURIComponent(id)}/download`,
     { method: "POST" },

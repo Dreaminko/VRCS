@@ -4,6 +4,8 @@ mod manifest;
 mod migration;
 mod package;
 
+pub(super) use download::download_file;
+
 pub(super) use manifest::{package_spec, PACKAGES};
 pub(super) use manifest::{AssetSpec, PackageSpec};
 pub(super) use migration::prepare_migration;

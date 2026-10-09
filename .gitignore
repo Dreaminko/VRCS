@@ -80,6 +80,7 @@ Desktop.ini
 /config.json
 /data/
 /models/
+/runtimes/
 
 # Automatically generated config migration backups
 *.v*.backup.json

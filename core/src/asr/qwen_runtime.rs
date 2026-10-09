@@ -67,14 +67,16 @@ impl Default for RuntimeState {
 }
 
 pub(crate) struct QwenRuntime {
+    pub(super) directory: PathBuf,
     state: Mutex<RuntimeState>,
     startup: Mutex<()>,
     devices: OnceCell<Vec<String>>,
     http: reqwest::Client,
 }
 impl QwenRuntime {
-    pub(crate) fn new() -> Self {
+    pub(crate) fn new(directory: PathBuf) -> Self {
         Self {
+            directory: directory.join(super::qwen_runtime_download::VERSION),
             state: Mutex::new(RuntimeState::default()),
             startup: Mutex::new(()),
             devices: OnceCell::new(),
@@ -91,11 +93,12 @@ impl QwenRuntime {
         if !cfg!(feature = "vulkan") {
             return Vec::new();
         }
+        // A missing runtime must not cache an empty result before its download.
+        let Ok(executable) = self.executable_path().and_then(|path| checked_file(&path)) else {
+            return Vec::new();
+        };
         self.devices
             .get_or_init(|| async {
-                let Ok(executable) = executable_path().and_then(|path| checked_file(&path)) else {
-                    return Vec::new();
-                };
                 let mut command = runtime_command(&executable);
                 command.arg("--list-devices").kill_on_drop(true);
                 let Ok(Ok(output)) =
@@ -111,6 +114,15 @@ impl QwenRuntime {
             })
             .await
             .clone()
+    }
+
+    pub(crate) fn executable_path(&self) -> Result<PathBuf, String> {
+        if std::env::var_os("VRCS_LLAMA_SERVER").is_none()
+            && super::qwen_runtime_download::installed(&self.directory)
+        {
+            return Ok(self.directory.join("llama-server.exe"));
+        }
+        executable_path()
     }
 
     pub(crate) async fn ensure_started(
@@ -422,7 +434,7 @@ pub(crate) fn executable_path() -> Result<PathBuf, String> {
     }
     Ok(bundled)
 }
-fn runtime_command(executable: &Path) -> Command {
+pub(super) fn runtime_command(executable: &Path) -> Command {
     let mut command = Command::new(executable);
     if let Some(parent) = executable.parent() {
         command.current_dir(parent);
@@ -431,6 +443,18 @@ fn runtime_command(executable: &Path) -> Command {
     {
         use std::os::windows::process::CommandExt;
         command.as_std_mut().creation_flags(0x0800_0000);
+        // The installer keeps its Vulkan loader beside the desktop executable.
+        if let Ok(current) = std::env::current_exe() {
+            if let Some(parent) = current.parent() {
+                let mut paths = vec![parent.to_path_buf()];
+                if let Some(path) = std::env::var_os("PATH") {
+                    paths.extend(std::env::split_paths(&path));
+                }
+                if let Ok(path) = std::env::join_paths(paths) {
+                    command.env("PATH", path);
+                }
+            }
+        }
     }
     command
 }

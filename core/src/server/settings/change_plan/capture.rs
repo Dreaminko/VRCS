@@ -8,6 +8,7 @@ use super::super::super::{capture, ApiResult, SettingsContext};
 pub(super) struct CaptureChange {
     plan: capture::CaptureReloadPlan,
     pub(super) reload: bool,
+    pub(super) resume: bool,
 }
 
 impl CaptureChange {
@@ -16,10 +17,22 @@ impl CaptureChange {
         current: &AppConfig,
         candidate: &AppConfig,
     ) -> Self {
-        let plan = capture::CaptureReloadPlan::between(current, candidate);
+        let resume = match candidate.asr.backend.as_str() {
+            "local_whisper" => !candidate.asr.local.model.is_empty(),
+            crate::config::QWEN_MANAGED_BACKEND => {
+                !candidate.asr.managed_qwen.package_id.is_empty()
+            }
+            _ => true,
+        };
+        let plan = if resume {
+            capture::CaptureReloadPlan::between(current, candidate)
+        } else {
+            capture::CaptureReloadPlan::all()
+        };
         Self {
             plan,
             reload: state.capture.capture_requested.load(Ordering::SeqCst) && !plan.is_empty(),
+            resume,
         }
     }
 
@@ -28,7 +41,7 @@ impl CaptureChange {
         state: &SettingsContext,
         candidate: &AppConfig,
     ) -> ApiResult<()> {
-        if self.reload {
+        if self.reload && self.resume {
             capture::validate_capture_config(state, candidate).await?;
         }
         Ok(())
@@ -50,7 +63,14 @@ impl CaptureChange {
         candidate: &AppConfig,
     ) -> ApiResult<()> {
         if self.reload {
-            capture::start_pipelines(state, candidate, self.plan).await?;
+            if self.resume {
+                capture::start_pipelines(state, candidate, self.plan).await?;
+            } else {
+                state
+                    .capture
+                    .capture_requested
+                    .store(false, Ordering::SeqCst);
+            }
         }
         Ok(())
     }
@@ -60,7 +80,11 @@ impl CaptureChange {
         state: &SettingsContext,
         previous: &AppConfig,
     ) -> Result<(), String> {
-        if state.capture.capture_requested.load(Ordering::SeqCst) {
+        if self.reload {
+            state
+                .capture
+                .capture_requested
+                .store(true, Ordering::SeqCst);
             capture::start_pipelines(state, previous, self.plan)
                 .await
                 .map_err(|error| super::api_detail(&error))?;

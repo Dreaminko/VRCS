@@ -61,6 +61,8 @@ type RecognitionActions = {
   removeModel: (model: AsrModelRecord) => Promise<void>;
   loadQwenModels: () => Promise<void>;
   downloadQwenModel: (model: QwenModelRecord) => Promise<void>;
+  downloadQwenRuntime: () => Promise<void>;
+  cancelQwenRuntimeDownload: () => Promise<void>;
   cancelQwenDownload: (model: QwenModelRecord) => Promise<void>;
   verifyQwenModel: (model: QwenModelRecord) => Promise<void>;
   removeQwenModel: (model: QwenModelRecord) => Promise<void>;
@@ -172,6 +174,8 @@ export function RecognitionSettingsSection({
           disabled={false}
           onUpdateAsr={actions.updateAsr}
           onUpdateQwen={actions.updateManagedQwen}
+          onDownloadRuntime={actions.downloadQwenRuntime}
+          onCancelRuntimeDownload={actions.cancelQwenRuntimeDownload}
         />}
         <VadSettings vad={draft.vad} disabled={false} onUpdate={actions.updateVad} />
       </div>

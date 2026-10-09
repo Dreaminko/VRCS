@@ -1065,7 +1065,8 @@
         "qwenModels": "Qwen ASR モデルパッケージ",
         "verifyModel": "検証",
         "qwenInstallRequired": "認識を開始する前に Qwen ASR モデルをダウンロードして検証してください。",
-        "qwenRuntimeMissing": "Qwen ランタイムを利用できません。VRCS を再インストールしてください。開発環境では、先に Qwen ランタイムを準備してください。",
+        "qwenRuntimeComponents": "Qwen ランタイム",
+        "qwenRuntimeMissing": "ローカル Qwen 認識を使うには、ランタイムをダウンロードしてください。",
         "qwenRuntimeState": {
           "not_loaded": "Qwen モデル未読み込み",
           "loading": "Qwen モデルを読み込み中…",
@@ -1162,6 +1163,7 @@
           "largeV3": "最高精度。ダウンロードサイズとリソース使用量も最大です。"
         },
         "modelStatus": {
+          "notSelected": "モデル未選択",
           "notDownloaded": "未ダウンロード",
           "loading": "読み込み中",
           "error": "エラー",

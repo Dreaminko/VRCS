@@ -199,6 +199,8 @@ export function SettingsPanel({
             removeModel: asr.removeModel,
             loadQwenModels: asr.loadQwenModels,
             downloadQwenModel: asr.downloadQwenModel,
+            downloadQwenRuntime: asr.downloadQwenRuntime,
+            cancelQwenRuntimeDownload: asr.cancelQwenRuntimeDownload,
             cancelQwenDownload: asr.cancelQwenDownload,
             verifyQwenModel: asr.verifyQwenModel,
             removeQwenModel: asr.removeQwenModel,

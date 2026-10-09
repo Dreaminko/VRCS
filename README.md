@@ -25,7 +25,7 @@ Download the appropriate installer from [GitHub Releases](https://github.com/Dre
 
 The standard and CUDA editions share the same configuration, database, and model directories, so you can switch between them without migrating data.
 
-Both editions support CPU and Vulkan acceleration for local Whisper and local Qwen ASR. The installer includes the Vulkan loader and Qwen runtime, so users do not need to install the Vulkan SDK. Vulkan acceleration requires a compatible GPU and graphics driver. Local Qwen uses CPU or Vulkan in both editions; the CUDA edition adds CUDA only for Whisper.
+Both editions support CPU and Vulkan acceleration for local Whisper and local Qwen ASR. The installer includes the Vulkan loader, so users do not need to install the Vulkan SDK. Download the Qwen runtime and model through recognition settings when you use local Qwen; cloud recognition does not need this runtime. Vulkan acceleration requires a compatible GPU and graphics driver. Local Qwen uses CPU or Vulkan in both editions; the CUDA edition adds CUDA only for Whisper.
 
 Runtime requirements:
 
@@ -127,7 +127,7 @@ npm install
 npm run dev
 ```
 
-Desktop development and release commands automatically prepare the Vulkan SDK, Vulkan loader, and pinned Qwen runtime. The SDK script reuses the SDK at `VULKAN_SDK` if `Bin/glslc.exe` exists there; otherwise it downloads and verifies SDK `1.4.309.0` into `core/.cache/vulkan-sdk/1.4.309.0`. Initial preparation requires internet access. Ninja must already be on `PATH`.
+Desktop development and release commands automatically prepare the Vulkan SDK and Vulkan loader. The SDK script reuses the SDK at `VULKAN_SDK` if `Bin/glslc.exe` exists there; otherwise it downloads and verifies SDK `1.4.309.0` into `core/.cache/vulkan-sdk/1.4.309.0`. Initial preparation requires internet access. Ninja must already be on `PATH`.
 
 The default build includes Vulkan. Whisper in automatic device mode tries CUDA, then Vulkan, then CPU, using the available backends. To add CUDA support:
 
@@ -145,7 +145,7 @@ npm run dev:core
 npm run dev:core:cuda
 ```
 
-The preparation script sets `VULKAN_SDK`, `PATH`, and `CMAKE_GENERATOR` for the current shell. Run it again in each new shell before standalone Core or direct Cargo commands. To use managed local Qwen with the standalone Core, also run `& .\scripts\prepare-qwen-runtime.ps1` before starting it.
+The preparation script sets `VULKAN_SDK`, `PATH`, and `CMAKE_GENERATOR` for the current shell. Run it again in each new shell before standalone Core or direct Cargo commands. The desktop client downloads the Qwen runtime on demand. To stage it manually for standalone Core development, run `& .\scripts\prepare-qwen-runtime.ps1` before starting it.
 
 For a Core build that uses only CPU for Whisper and local Qwen:
 

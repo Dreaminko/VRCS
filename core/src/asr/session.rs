@@ -6,7 +6,7 @@ use crate::providers::{self, RecognitionTransport, ServiceAdapter};
 
 use super::openai_audio_transcriptions;
 use super::qwen_models::{is_installed, package_dir, package_spec};
-use super::qwen_runtime::{executable_path, QwenConnection, QwenRuntime};
+use super::qwen_runtime::{QwenConnection, QwenRuntime};
 use super::read_credential;
 use super::segmented_upload::SegmentedUploadSession;
 use super::streaming::{self, CloudEvent, SegmentationMode, StreamingSession};
@@ -176,7 +176,7 @@ pub(crate) async fn prepare_managed_qwen(
     };
     runtime
         .ensure_started(
-            &executable_path()?,
+            &runtime.executable_path()?,
             &directory.join(model.name),
             &directory.join(mmproj.name),
             spec.id,
@@ -281,7 +281,8 @@ mod tests {
         let manager = std::sync::Arc::new(
             super::super::ModelManager::new(root.path().to_path_buf()).unwrap(),
         );
-        let runtime = std::sync::Arc::new(super::super::QwenRuntime::new());
+        let runtime =
+            std::sync::Arc::new(super::super::QwenRuntime::new(std::path::PathBuf::new()));
         let mut config = AsrConfig::default();
         config.backend = crate::config::QWEN_MANAGED_BACKEND.into();
         config.active_profile_id = None;

@@ -99,12 +99,14 @@ impl RuntimeAssembly {
         let (vr_overlay_config_tx, _) =
             watch::channel((plan.config.vr_overlay.clone(), plan.config.ocr.clone()));
 
+        let qwen_runtime_dir = plan.config_path.with_file_name("runtimes").join("qwen");
         let config_runtime = ConfigRuntime::new(ConfigRuntimeInput {
             config_path: plan.config_path,
             asr_model_dir_override: plan.asr_model_dir_override,
             config: plan.config,
         });
         let capture_runtime = CaptureRuntime::new(CaptureRuntimeInput {
+            qwen_runtime_dir,
             live_tx,
             vad_runtime: vad_runtime.clone(),
             asr,

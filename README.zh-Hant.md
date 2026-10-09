@@ -25,7 +25,7 @@ VRCS 是一款專為 VRChat 設計的 Windows 即時字幕與語言學習工具�
 
 標準版與 CUDA 版共用相同的設定、資料庫及模型目錄，因此切換版本時不必遷移資料。
 
-兩個版本的本機 Whisper 及本機 Qwen ASR 都支援 CPU 及 Vulkan 加速。安裝程式已包含 Vulkan 載入器及 Qwen 執行階段，使用者不必安裝 Vulkan SDK。Vulkan 加速需要相容的 GPU 及顯示卡驅動程式。本機 Qwen 在兩個版本中均使用 CPU 或 Vulkan；CUDA 版僅為 Whisper 增加 CUDA 支援。
+兩個版本的本機 Whisper 及本機 Qwen ASR 都支援 CPU 及 Vulkan 加速。安裝程式已包含 Vulkan 載入器，使用者不必安裝 Vulkan SDK。本機 Qwen 的執行元件及模型透過辨識設定按需下載，僅使用雲端辨識時不需要這些元件。Vulkan 加速需要相容的 GPU 及顯示卡驅動程式。本機 Qwen 在兩個版本中均使用 CPU 或 Vulkan；CUDA 版僅為 Whisper 增加 CUDA 支援。
 
 執行環境需求：
 
@@ -117,7 +117,7 @@ npm install
 npm run dev
 ```
 
-桌面開發及發行指令會自動準備 Vulkan SDK、Vulkan 載入器及固定版本的 Qwen 執行階段。SDK 指令碼會重用 `VULKAN_SDK` 指向且包含 `Bin/glslc.exe` 的 SDK，否則下載並驗證 SDK `1.4.309.0`，存放至 `core/.cache/vulkan-sdk/1.4.309.0`。首次準備需要網際網路連線，Ninja 必須已加入 `PATH`。
+桌面開發及發行指令會自動準備 Vulkan SDK 及 Vulkan 載入器。SDK 指令碼會重用 `VULKAN_SDK` 指向且包含 `Bin/glslc.exe` 的 SDK，否則下載並驗證 SDK `1.4.309.0`，存放至 `core/.cache/vulkan-sdk/1.4.309.0`。首次準備需要網際網路連線，Ninja 必須已加入 `PATH`。
 
 預設組建包含 Vulkan。Whisper 使用自動裝置模式時，會依 CUDA、Vulkan、CPU 的順序嘗試可用後端。若要增加 CUDA 支援：
 
@@ -135,7 +135,7 @@ npm run dev:core
 npm run dev:core:cuda
 ```
 
-準備指令碼設定的 `VULKAN_SDK`、`PATH` 及 `CMAKE_GENERATOR` 僅對目前終端機有效。開啟新終端機後，執行獨立 Core 或直接呼叫 Cargo 前需重新執行。若要在獨立 Core 中使用應用程式管理的本機 Qwen，啟動前還需執行 `& .\scripts\prepare-qwen-runtime.ps1`。
+準備指令碼設定的 `VULKAN_SDK`、`PATH` 及 `CMAKE_GENERATOR` 僅對目前終端機有效。開啟新終端機後，執行獨立 Core 或直接呼叫 Cargo 前需重新執行。桌面端可按需下載 Qwen 執行元件；獨立 Core 開發時也可手動準備，啟動前執行 `& .\scripts\prepare-qwen-runtime.ps1`。
 
 若要組建 Whisper 及本機 Qwen 均僅使用 CPU 的 Core：
 

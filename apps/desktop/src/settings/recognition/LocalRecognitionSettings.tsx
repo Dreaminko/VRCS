@@ -62,7 +62,9 @@ export function LocalRecognitionSettings({
           label={t("settings.recognition.model")}
           helper={modelStatusLabel}
           value={draft.asr.local.model}
-          options={selectableModels.map((model) => ({
+          options={[
+            ...(!draft.asr.local.model ? [{ value: "", label: t("settings.recognition.modelStatus.notSelected") }] : []),
+            ...selectableModels.map((model) => ({
             value: model.id,
             label: `${model.id} · ${
               model.status === "not_downloaded"
@@ -73,7 +75,8 @@ export function LocalRecognitionSettings({
                     ? t("settings.recognition.modelState.error")
                     : t("settings.recognition.modelState.ready")
             }`,
-          }))}
+          })),
+          ]}
           disabled={disabled}
           onChange={(value) => onUpdateLocalAsr("model", value as Settings["asr"]["local"]["model"])}
         />

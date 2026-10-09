@@ -8,7 +8,9 @@ use serde_json::{json, Value};
 use crate::asr;
 use crate::error::AppError;
 
-use super::{api_domain_error_with_params, api_error_with_params, ApiResult, ModelContext};
+use super::{
+    api_domain_error_with_params, api_error_with_params, ApiResult, ModelContext, SettingsContext,
+};
 
 pub(super) async fn asr_capabilities(State(state): State<ModelContext>) -> Json<Value> {
     let cuda = asr::cuda_capability();
@@ -128,18 +130,11 @@ pub(super) async fn asr_model_download(
 }
 
 pub(super) async fn asr_model_delete(
-    State(state): State<ModelContext>,
+    State(state): State<SettingsContext>,
     axum::extract::Path(model): axum::extract::Path<String>,
 ) -> ApiResult<Json<Value>> {
-    let active_model = state
-        .config
-        .config
-        .read()
-        .expect("config lock")
-        .asr
-        .local
-        .model
-        .clone();
+    let _control = state.config.config_control.lock().await;
+    let mut candidate = state.config.config.read().expect("config lock").clone();
     if !asr::is_supported_model(&model) {
         return Err(api_error_with_params(
             StatusCode::NOT_FOUND,
@@ -148,18 +143,15 @@ pub(super) async fn asr_model_delete(
             format!("Unsupported recognition model: {model}"),
         ));
     }
-    if model == active_model {
-        return Err(api_error_with_params(
-            StatusCode::CONFLICT,
-            "asr.model.in_use",
-            json!({ "model": model }),
-            "This model is currently in use; select another model first",
-        ));
+    if model == candidate.asr.local.model {
+        candidate.asr.local.model.clear();
+        candidate = fallback_after_delete(&state, candidate, &model).await?;
+        super::settings::commit_candidate(&state, candidate.clone()).await?;
     }
     state
         .capture
         .model_manager
-        .delete(&model, &active_model)
+        .delete(&model, &candidate.asr.local.model)
         .await
         .map_err(|error| {
             api_error_with_params(
@@ -170,4 +162,75 @@ pub(super) async fn asr_model_delete(
             )
         })?;
     Ok(Json(json!({ "deleted": true })))
+}
+
+pub(super) async fn fallback_after_delete(
+    state: &SettingsContext,
+    mut candidate: crate::config::AppConfig,
+    removed: &str,
+) -> ApiResult<crate::config::AppConfig> {
+    let manager = Arc::clone(&state.capture.model_manager);
+    let removed = removed.to_owned();
+    tokio::task::spawn_blocking(move || {
+        let whisper_models = manager
+            .list("", "not_loaded")
+            .into_iter()
+            .filter(|model| model.id != removed && model.status == "downloaded")
+            .collect::<Vec<_>>();
+        let whisper = whisper_models
+            .iter()
+            .find(|model| model.id == candidate.asr.local.model)
+            .or_else(|| whisper_models.first())
+            .cloned()
+            .map(|model| model.id);
+        let qwen = manager
+            .list_qwen()?
+            .into_iter()
+            .find(|model| model.id != removed && model.status == "installed")
+            .map(|model| model.id);
+        match candidate.asr.backend.as_str() {
+            "local_whisper" if asr::is_supported_model(&removed) => {
+                candidate.asr.local.model = whisper.unwrap_or_default();
+                if candidate.asr.local.model.is_empty() {
+                    if let Some(package) = qwen {
+                        candidate.asr.backend = crate::config::QWEN_MANAGED_BACKEND.into();
+                        candidate.asr.managed_qwen.package_id = package;
+                    }
+                }
+            }
+            crate::config::QWEN_MANAGED_BACKEND if !asr::is_supported_model(&removed) => {
+                candidate.asr.managed_qwen.package_id = qwen.unwrap_or_default();
+                if candidate.asr.managed_qwen.package_id.is_empty() {
+                    if let Some(model) = whisper {
+                        candidate.asr.backend = "local_whisper".into();
+                        candidate.asr.local.model = model;
+                    }
+                }
+            }
+            _ => {
+                if candidate.asr.local.model.is_empty() {
+                    candidate.asr.local.model = whisper.unwrap_or_default();
+                }
+                if candidate.asr.managed_qwen.package_id.is_empty() {
+                    candidate.asr.managed_qwen.package_id = qwen.unwrap_or_default();
+                }
+            }
+        }
+        Ok::<_, String>(candidate)
+    })
+    .await
+    .map_err(|error| {
+        super::api_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "asr.model.inspect_task_failed",
+            error.to_string(),
+        )
+    })?
+    .map_err(|error| {
+        super::api_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "asr.model.inspect_failed",
+            error,
+        )
+    })
 }

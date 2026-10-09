@@ -71,6 +71,7 @@ pub(crate) struct CaptureRuntime {
 }
 
 pub(crate) struct CaptureRuntimeInput {
+    pub(crate) qwen_runtime_dir: PathBuf,
     pub(crate) live_tx: broadcast::Sender<LiveTranscription>,
     pub(crate) vad_runtime: vad::VadRuntimeState,
     pub(crate) asr: Arc<Mutex<asr::AsrService>>,
@@ -93,7 +94,7 @@ impl CaptureRuntime {
             asr: input.asr,
             asr_runtime: input.asr_runtime,
             model_manager: input.model_manager,
-            qwen_runtime: Arc::new(asr::QwenRuntime::new()),
+            qwen_runtime: Arc::new(asr::QwenRuntime::new(input.qwen_runtime_dir)),
             capture_control: AsyncMutex::new(()),
             capture_requested: AtomicBool::new(false),
             speaker_pipeline: AsyncMutex::new(TranscriptionPipeline::new(

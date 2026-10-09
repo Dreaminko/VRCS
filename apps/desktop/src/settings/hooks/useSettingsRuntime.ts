@@ -65,6 +65,10 @@ export function useSettingsRuntime({
   const loadAsrCapabilitiesRef = useRef(loadAsrCapabilities);
   loadAsrCapabilitiesRef.current = loadAsrCapabilities;
 
+  const refreshModels = useCallback(async () => {
+    await Promise.all([loadSettings(), loadAsrCapabilities()]);
+  }, [loadSettings, loadAsrCapabilities]);
+
   useEffect(() => {
     if (!coreConfigured || settings !== null) return;
     let cancelled = false;
@@ -140,7 +144,7 @@ export function useSettingsRuntime({
   return {
     value: settings,
     devices: { items: devices, ready: devicesReady, refresh: loadDevices },
-    asr: { capabilities: asrCapabilities, refresh: loadAsrCapabilities },
+    asr: { capabilities: asrCapabilities, refresh: refreshModels },
     refresh: loadSettings,
     save: settingsAutosaveRef.current,
     testOsc,

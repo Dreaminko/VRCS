@@ -314,6 +314,14 @@ pub fn router(state: Arc<AppState>) -> Router {
             get(qwen_models::runtime_status),
         )
         .route(
+            "/api/asr/local-models/qwen/runtime/download",
+            post(qwen_models::download_runtime),
+        )
+        .route(
+            "/api/asr/local-models/qwen/runtime/cancel",
+            post(qwen_models::cancel_runtime),
+        )
+        .route(
             "/api/asr/local-models/qwen/{package}/download",
             post(qwen_models::download),
         )
