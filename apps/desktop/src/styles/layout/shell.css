@@ -1,6 +1,14 @@
 body { zoom: var(--interface-scale, 1); }
 .compact-root { zoom: var(--interface-scale-inverse, 1); }
 
+/* Clip the viewport so dialogs and body portals share the window corners. */
+html:has(.app-shell) {
+  background: transparent;
+  clip-path: inset(0 round var(--radius-md));
+}
+html:has(.app-shell) body { background: transparent; }
+html:has(.window-chrome[data-maximized="true"]) { clip-path: none; }
+
 .app-shell {
   --dock-sidebar-offset: 0px;
   position: relative;
@@ -9,6 +17,7 @@ body { zoom: var(--interface-scale, 1); }
   height: 100%;
   grid-template-rows: 40px minmax(0, 1fr);
   overflow: hidden;
+  background: var(--canvas);
 }
 .app-shell.live-shell.sidebar-open { --dock-sidebar-offset: calc(var(--conversation-sidebar-width, 268px) * 0.5 + 14px); }
 .app-shell.live-shell.sidebar-collapsed { --dock-sidebar-offset: 42px; }
