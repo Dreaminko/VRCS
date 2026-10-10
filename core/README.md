@@ -73,7 +73,7 @@ cargo run --manifest-path core/Cargo.toml --no-default-features
 .\scripts\check-rust.ps1 -Vulkan
 ```
 
-可用 `-Check format`、`-Check clippy` 或 `-Check test` 单独执行一个阶段。Vulkan 检查会准备 loader，无需 SDK。发布包仅有标准版，保留 CPU/Vulkan 支持；旧 CUDA 客户端更新至同一标准版。
+可用 `-Check format`、`-Check clippy` 或 `-Check test` 单独执行一个阶段。Vulkan 检查会准备 loader，无需 SDK。发布包支持 CPU/Vulkan。
 
 ## 音频实现要点
 

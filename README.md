@@ -8,151 +8,62 @@
 
 ![](./screenshots/01.png)
 
-VRCS is a Windows real-time subtitle and language-learning tool designed for VRChat. It captures system output, VRChat process audio, and microphone input, displays subtitles on the desktop or in SteamVR, and uses those subtitles for translation, dictionary lookup, learning analysis, Anki card creation, and VRChat Chatbox output.
+VRCS is a Windows real-time subtitle, translation, and language-learning tool for VRChat. Capture system audio and microphone input for desktop or SteamVR subtitles, translate text in images with OCR, and use subtitles for dictionary lookup, learning analysis, and Anki cards.
 
-[Download the latest release](https://github.com/Dreaminko/VRCS/releases/latest) · [Report an issue](https://github.com/Dreaminko/VRCS/issues) · [Contribute](CONTRIBUTING.md)
+[Download](https://github.com/Dreaminko/VRCS/releases/latest) · [Report an issue](https://github.com/Dreaminko/VRCS/issues) · [Contribute](CONTRIBUTING.md) · [Discord](https://discord.gg/53H872eYq) · [QQ Group](https://qm.qq.com/q/i9kOOxFn44)
 
-[Discord](https://discord.gg/53H872eYq) · [QQ Group](https://qm.qq.com/q/i9kOOxFn44)
+## Installation
 
-## Download and installation
+Download `VRCS-<version>-windows-x64.exe` from [GitHub Releases](https://github.com/Dreaminko/VRCS/releases).
 
-Download `VRCS-<version>-windows-x64.exe` from [GitHub Releases](https://github.com/Dreaminko/VRCS/releases). This standard installer supports cloud recognition and managed local Qwen ASR on CPU or Vulkan.
-
-The installer includes the Vulkan loader. Vulkan acceleration requires a compatible GPU and graphics driver; neither the Vulkan SDK nor CUDA is required. Download the Qwen runtime and model through recognition settings before starting managed local recognition. Cloud recognition does not need this runtime.
-
-Older standard and CUDA clients receive the same standard installer through the updater. Existing local Whisper selections migrate to managed Qwen, and cloud failures reconnect without a Whisper fallback. Existing Whisper files remain on disk. You can remove them manually after you confirm that older versions no longer need them; keep any Qwen packages in the same directory. Existing Qwen packages, model directories, and configuration remain in place.
-
-Runtime requirements:
-
-- [Microsoft Visual C++ v14 Redistributable (x64)](https://aka.ms/vs/17/release/vc_redist.x64.exe)
-- An internet connection on first launch to download the pinned Silero VAD model; enabling semantic endpointing downloads the pinned Smart Turn model
-- An initial model and runtime download when using managed local Qwen ASR
-- API credentials for the selected providers when using cloud recognition, translation, or learning analysis; provider charges may apply
+- Windows 10 or 11 with [Microsoft Visual C++ v14 Redistributable (x64)](https://aka.ms/vs/17/release/vc_redist.x64.exe).
+- Local Qwen ASR supports CPU or Vulkan. Download its runtime and model in recognition settings.
+- An internet connection is needed for the initial Silero VAD download and, if enabled, Smart Turn semantic endpointing.
+- Cloud recognition, translation, and learning analysis require the selected provider's API credentials. Provider charges may apply.
+- For OCR, download local models or configure a PaddleOCR cloud access token.
 
 ## Getting started
-The setup wizard opens on first launch:
 
-1. Select Simplified Chinese, Japanese, English, or the system language.
-2. Select cloud-based real-time recognition or managed local Qwen ASR.
-3. Configure system audio, VRChat process audio, and the microphone.
-4. Test the microphone and calibrate the voice activation threshold.
-5. Complete setup and start transcription.
+1. Follow the setup wizard to select a language and local or cloud recognition.
+2. Select system audio, VRChat process audio, or microphone input, then test the microphone and adjust the voice activation threshold.
+3. Start transcription. Enable translation, Chatbox output, or the SteamVR overlay as needed.
 
-You can change the configuration at any time in the application. To run the setup wizard again, open **Settings → System**.
+To run the wizard again, open **Settings › System**. For cloud recognition, see the [Alibaba Cloud free-quota guide (Chinese)](./docs/AlibabaCloud_Free.md).
 
 ## Features
 
-### Real-time subtitles and audio
+- Real-time subtitles from system or VRChat process audio alongside microphone input, with separate controls for the two audio streams, compact window mode, and local session history.
+- Local Qwen3 ASR on CPU or Vulkan, plus cloud recognition with Qwen3 ASR, Fun-ASR, OpenAI Realtime, Gemini, and Groq. Silero VAD and optional Smart Turn control speech segmentation.
+- Manual or automatic translation with DeepL, Microsoft Translator, OpenAI, Gemini, Alibaba Cloud LLM, and OpenAI-compatible services. Configure up to three target languages per audio stream, each with its own service and model.
+- Qwen Live Translate, Gemini Live Translate (Preview), and OpenAI Realtime Translation produce live source text and translations for each stream's first target language. Qwen also distinguishes speakers.
+- Custom prompts, local glossaries, online glossary subscriptions, recent subtitle context, and optional world and member information from [VRCX-0](https://vrcx-0.dev/). Save language presets to switch recognition language, translation targets, and Chatbox sending strategies.
+- Send final microphone subtitles and translations to the VRChat OSC Chatbox, with quick input, translation preview, and multilingual output. With OSCQuery mute synchronization enabled, automatic sending stops when muted or when mute status is unknown.
+- SteamVR headset subtitles and a wrist conversation view, with source text, translations, and multilingual display. Adjust languages, subtitle position, size, opacity, and Chatbox settings from the dashboard.
+- Desktop OCR: when VRChat is in the foreground, use a configurable shortcut to select a text region. View source text and multilingual translations in a result window, copy them, or scan again.
+- VR OCR: select text with hand gestures or controllers and display translations on a wrist panel or over the source in both eyes.
+- PaddleOCR cloud recognition or local PP-OCRv6 for OCR. Download local models in Settings and use CPU or a DirectML GPU.
+- Import Yomitan dictionaries, look up subtitle text or Ask AI, collect learning material, and review definitions, sentence patterns, and conversations. Edit vocabulary, sentence-pattern, or cloze card drafts and create cards through AnkiConnect.
 
-- Windows WASAPI system loopback, dedicated VRChat process loopback, and microphone capture
-- Dual-stream transcription for system audio and microphone input, with independent audio source and device controls
-- Silero ONNX VAD with automatic fallback to energy-based detection when the model is unavailable
-- Optional Smart Turn semantic endpointing for locally controlled speech segments
-- Incremental real-time subtitles, final subtitles, session history, and compact window mode
-- Local SQLite subtitle history with session organization, renaming, and cleanup
+## Privacy
 
-### Speech recognition
+VRCS does not store raw audio. Subtitle history, learning items, dictionaries, and settings are stored locally by default. Local Qwen ASR and local OCR process audio and images on the device; cloud recognition sends speech segments or selected images to the chosen provider.
 
-- Managed local Qwen3 ASR with model download, integrity verification, and CPU or Vulkan execution
-- Alibaba Cloud Qwen3 ASR and Fun-ASR real-time streaming recognition
-- OpenAI Realtime Transcription
-- Automatic reconnection for cloud services
+Translation, learning analysis, and Ask AI send relevant text, explicitly selected context, and submitted questions to the configured service. Whether text from local recognition is sent to the cloud depends on the selected translation and AI services.
 
-### Translation and context
+## Development
 
-- Manual or automatic translation
-- DeepL, Microsoft Translator, OpenAI, Gemini, and Alibaba Cloud LLM
-- OpenAI-compatible Chat Completions services, including DeepSeek, Groq, OpenRouter, LM Studio, Ollama, and custom endpoints
-- Custom system prompts, local glossaries, online glossary subscriptions, and recent subtitle context
-- Optional access to the current world name, member display names, and member languages from the local [VRCX-0](https://vrcx-0.dev/) instance to enrich supported ASR or LLM requests with context
+Requirements: Windows 10 or 11, Node.js 24+, Rustup with the version and components in `rust-toolchain.toml`, Visual Studio Build Tools with **Desktop development with C++**, and CMake on `PATH`.
 
-### VRChat and SteamVR
-
-- Send final microphone subtitles and translations to the VRChat OSC Chatbox
-- Quick Chatbox input, translation preview, formatting, and 144-character handling
-- Synchronize VRChat's `MuteSelf` state through OSCQuery and block automatic sending when muted or when the state is unknown
-- SteamVR VR Overlay with headset subtitles and a wrist-mounted conversation view
-- Open VRCS quick settings from the SteamVR dashboard bottom bar while VRCS is running
-- Configure the overlay to show original text, translations, or both; select system audio, microphone, and Chatbox sources; and adjust position, size, opacity, and display duration
-
-### OCR in SteamVR
-
-Enable VR OCR in Settings and select **Original text position (both eyes)** to place translated text over its source. New configurations use this mode with an opaque background; saved display preferences remain in effect.
-
-Hold a camera-frame finger pose, or both controller grip buttons, for 0.65 seconds. Move the hands to opposite corners to adjust the cyan selection frame. The frame is a 3D overlay anchored to both hands; SteamVR renders both eye views. Hold the right trigger to confirm, then move both hands out of view within five seconds. Release the pose or grips before confirmation to cancel. Hold the left trigger to clear results. Without a hand frame, the right trigger scans the configured center region. SteamVR bindings can change these controls.
-
-Finger poses require full skeletal tracking. Grip selection uses controller poses and works without full finger tracking. Translated patches match the sampled source background and use black or white text for contrast. Matching text blocks in the two screenshots provide an estimated source plane. The translation uses one texture on a 3D overlay; SteamVR handles both eye views and head movement. Long translations can use a nearby card on the same plane if they do not fit the source block. Results that cannot be placed appear on the wrist panel.
-
-This is a snapshot overlay for text on a common plane. Depth and surface tilt are estimates; a single matched word provides depth only. It does not track moving objects or movement within VRChat, so scan again when the source moves. Cloud OCR sends the selected image region to the configured OCR provider. Local OCR keeps image recognition on the device; translation follows the selected translation service.
-
-Local OCR uses CPU by default. Select **GPU (DirectML)** under OCR settings to use a compatible DirectX 12 GPU on Windows. The Windows installer supports this option without a GPU SDK installation. If GPU model loading or recognition fails, OCR retries on CPU and shows the fallback in settings. The device display reports the most recent local OCR engine. GPU performance depends on the selected region and other GPU workloads, including VRChat.
-
-### Dictionary lookup, learning, and Anki
-
-- Import and manage Yomitan dictionary packages
-- Select words in subtitles for lookup while preserving the original sentence and translation context
-- Ask the configured AI about selected subtitle text through an independent, explicit action
-- Collect learning material from live subtitles, subtitle history, and lookup results
-- Use the selected LLM for contextual definitions, sentence-pattern analysis, and conversation reviews
-- Edit drafts for vocabulary, sentence-pattern, and cloze cards
-- Create cards through AnkiConnect after selecting a deck, note type, and field mapping
-
-## Privacy and data
-
-VRCS does not store raw audio. Subtitle history, sessions, learning items, dictionaries, and configuration are stored locally by default.
-
-When using managed local Qwen ASR, speech is not sent to the cloud. When using cloud recognition, detected speech segments are sent to the selected recognition provider. When using cloud translation, learning analysis, or Ask AI, the relevant text, the context explicitly selected by the user, and any submitted question are sent to the corresponding provider.
-
-## Run from source
-
-Development requirements:
-
-- Windows 10 or 11
-- Node.js 24+
-- Rustup with the Rust version and components specified in `rust-toolchain.toml`
-- Visual Studio Build Tools with the **Desktop development with C++** workload
-- CMake available on `PATH`
-
-Run the following commands in PowerShell from the repository root:
+Run from the repository root in PowerShell:
 
 ```powershell
 npm install
 npm run dev
 ```
 
-The default development build supports cloud features and managed local Qwen on CPU. CPU and Vulkan builds require no GPU SDK or shader compiler.
+The default build uses CPU for local Qwen ASR. Use `npm run dev:vulkan` for Vulkan acceleration; the loader is prepared automatically, with no GPU SDK or shader compiler needed. Download the Qwen runtime and model in recognition settings. For standalone backend development, see [Core README](core/README.md).
 
-To enable Vulkan acceleration:
-
-```powershell
-npm run dev:vulkan
-```
-
-Desktop Vulkan commands and release commands automatically stage the Vulkan loader. The application downloads the Qwen runtime and model on demand through recognition settings.
-
-To run only the standalone Rust Core:
-
-```powershell
-npm run dev:core
-
-# Optional Vulkan acceleration:
-& .\scripts\prepare-vulkan-runtime.ps1
-cargo run --manifest-path core/Cargo.toml --features vulkan
-```
-
-To stage the Qwen runtime manually for standalone Core development, run `& .\scripts\prepare-qwen-runtime.ps1` before starting it. Install the model package through recognition settings or the Qwen model API.
-
-For a CPU-only Core build:
-
-```powershell
-cargo run --manifest-path core/Cargo.toml --no-default-features
-```
-
-This is also the default Core build. Qwen in automatic device mode uses CPU; an explicit GPU selection reports that the Vulkan backend is unavailable. With `--features vulkan`, automatic device mode prefers a compatible Vulkan GPU and can fall back to CPU if GPU startup fails.
-
-The standalone Core listens on `http://127.0.0.1:8766` by default, and its subtitle WebSocket is available at `ws://127.0.0.1:8766/ws`. The desktop application automatically generates and manages a local session token. If you run the Core separately and bind it to a non-loopback address, you must explicitly set a non-empty `VRCS_SESSION_TOKEN`.
-
-## Testing
+Run checks relevant to your changes:
 
 ```powershell
 npm run check:i18n
@@ -161,24 +72,16 @@ npm run build:frontend
 .\scripts\check-rust.ps1
 ```
 
-The Rust check script runs formatting checks, Clippy with `-D warnings`, and tests for both Rust crates on Windows. For Vulkan changes, also run `.\scripts\check-rust.ps1 -Vulkan`. It stages the Vulkan loader and checks both crates with Vulkan enabled; no Vulkan SDK is required.
+The Rust script checks formatting, Clippy, and tests for both crates. Add `-Vulkan` for Vulkan changes.
 
-## Build a release
-
-The release script builds one standard installer with CPU and Vulkan support and stages the Vulkan loader automatically. It also creates an updater signature, a SHA-256 checksum, and `latest.json`. Both the standard and legacy CUDA updater targets use the same standard installer and signature.
-
-Release builds require `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_UPDATER_PUBLIC_KEY`; set `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` when the private key is encrypted. Keep the private key outside the repository and back it up securely.
-
-Build the standard Windows installer:
+Build the Windows installer with CPU and Vulkan support:
 
 ```powershell
 npm run build
 ```
 
-## Contributing
-
-Read [CONTRIBUTING.md](CONTRIBUTING.md) before contributing. To add or update an interface language, see [LOCALIZATION.md](LOCALIZATION.md). Run the tests relevant to your changes before submitting, and do not commit generated build artifacts.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines and [LOCALIZATION.md](LOCALIZATION.md) for interface translations.
 
 ## License
 
-VRCS is licensed under the [GNU Affero General Public License v3.0](LICENSE) (`AGPL-3.0-only`). See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for third-party components and their licenses.
+[GNU Affero General Public License v3.0](LICENSE) (`AGPL-3.0-only`). Third-party licenses are listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
