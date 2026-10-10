@@ -4,7 +4,7 @@ body { zoom: var(--interface-scale, 1); }
 /* Clip the viewport so dialogs and body portals share the window corners. */
 html:has(.app-shell) {
   background: transparent;
-  clip-path: inset(0 round var(--radius-md));
+  clip-path: inset(0 round var(--radius-sm));
 }
 html:has(.app-shell) body { background: transparent; }
 html:has(.window-chrome[data-maximized="true"]) { clip-path: none; }

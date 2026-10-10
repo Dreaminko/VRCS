@@ -13,7 +13,7 @@ html:has(.compact-root) #root {
   height: 100vh;
   overflow: hidden;
   border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-sm);
   background: var(--surface);
 }
 .compact-root-overlay { grid-template-rows: 160px minmax(0, 1fr); }

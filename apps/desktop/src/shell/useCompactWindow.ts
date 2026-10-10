@@ -125,6 +125,7 @@ export function useCompactWindow({
         onExitCompact();
       }
 
+      await appWindow.setShadow(!next);
       setCompact(next);
       clearErrorFrom("window");
       return true;
