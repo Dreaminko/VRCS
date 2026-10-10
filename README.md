@@ -28,8 +28,7 @@ Download `VRCS-<version>-windows-x64.exe` from [GitHub Releases](https://github.
 2. Select system audio, VRChat process audio, or microphone input, then test the microphone and adjust the voice activation threshold.
 3. Start transcription. Enable translation, Chatbox output, or the SteamVR overlay as needed.
 
-To run the wizard again, open **Settings › System**. For cloud recognition, see the [Alibaba Cloud free-quota guide (Chinese)](./docs/AlibabaCloud_Free.md).
-
+To run the wizard again, open **Settings › System**.
 Open **Settings › System › Features** to turn off optional features. The feature stops and its settings and actions disappear. Your configuration and data are kept and restored when you turn it back on.
 
 ## Features
