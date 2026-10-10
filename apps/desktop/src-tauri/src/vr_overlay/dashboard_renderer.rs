@@ -5,6 +5,71 @@ use super::dashboard::{
     PICKER_PREVIOUS_RECT,
 };
 use super::renderer::Texture;
+use std::collections::HashMap;
+
+const MAX_TEXT_CACHE_BYTES: usize = 4 * 1024 * 1024;
+
+#[derive(Default)]
+pub struct RasterCache {
+    text: HashMap<TextKey, Vec<u8>>,
+    text_bytes: usize,
+    icon: Option<(u32, u32, Vec<u8>)>,
+}
+
+#[derive(Clone, PartialEq, Eq, Hash)]
+struct TextKey {
+    text: String,
+    width: i32,
+    height: i32,
+    style: TextStyle,
+    font_face: &'static str,
+}
+
+impl RasterCache {
+    fn text_mask(
+        &mut self,
+        text: &str,
+        rect: Rect,
+        style: TextStyle,
+        font_face: &'static str,
+    ) -> Result<&[u8], String> {
+        let key = TextKey {
+            text: text.into(),
+            width: rect.right - rect.left,
+            height: rect.bottom - rect.top,
+            style,
+            font_face,
+        };
+        if !self.text.contains_key(&key) {
+            let bgra = render_text_mask(text, rect, style, font_face)?;
+            // Store coverage only; the text color and position may change on hover.
+            let mask: Vec<u8> = bgra
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .map(|pixel| pixel[0])
+                .collect();
+            if self.text_bytes + mask.len() > MAX_TEXT_CACHE_BYTES {
+                self.text.clear();
+                self.text_bytes = 0;
+            }
+            self.text_bytes += mask.len();
+            self.text.insert(key.clone(), mask);
+        }
+        Ok(self.text.get(&key).expect("text mask exists"))
+    }
+
+    fn icon(&mut self, width: u32, height: u32) -> Result<&[u8], String> {
+        if self
+            .icon
+            .as_ref()
+            .is_none_or(|(w, h, _)| (*w, *h) != (width, height))
+        {
+            self.icon = Some((width, height, render_app_icon(width, height)?));
+        }
+        Ok(&self.icon.as_ref().expect("icon was rendered").2)
+    }
+}
 
 // The GDI canvas uses BGRA; into_texture converts the complete image to RGBA.
 // Colors match the desktop theme in styles/base.css.
@@ -24,8 +89,13 @@ const PRIMARY_INK: [u8; 4] = [0x7d, 0x61, 0x17, 255];
 const ERROR: [u8; 4] = [0x44, 0x44, 0xc9, 255];
 const ERROR_SOFT: [u8; 4] = [0xee, 0xf0, 0xfd, 255];
 
-pub fn render(view: &DashboardViewModel, state: &DashboardState) -> Result<Texture, String> {
+pub fn render(
+    view: &DashboardViewModel,
+    state: &DashboardState,
+    cache: &mut RasterCache,
+) -> Result<Texture, String> {
     let mut canvas = Canvas::new(DASHBOARD_WIDTH, DASHBOARD_HEIGHT, CANVAS);
+    canvas.cache = Some(cache);
     canvas.font_face = if view
         .labels
         .title
@@ -710,13 +780,13 @@ impl From<super::dashboard::Rect> for Rect {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
 enum Align {
     Left,
     Center,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
 struct TextStyle {
     size: i32,
     align: Align,
@@ -975,14 +1045,15 @@ impl ControlIcon {
     }
 }
 
-struct Canvas {
+struct Canvas<'a> {
     pixels: Vec<u8>,
     width: u32,
     height: u32,
     font_face: &'static str,
+    cache: Option<&'a mut RasterCache>,
 }
 
-impl Canvas {
+impl Canvas<'_> {
     fn into_texture(mut self) -> Texture {
         for pixel in self.pixels.as_chunks_mut::<4>().0 {
             pixel.swap(0, 2);
@@ -1004,6 +1075,7 @@ impl Canvas {
             width,
             height,
             font_face: "Segoe UI\0",
+            cache: None,
         }
     }
 
@@ -1399,7 +1471,13 @@ impl Canvas {
     fn icon(&mut self, rect: Rect) -> Result<(), String> {
         let width = (rect.right - rect.left).max(0) as u32;
         let height = (rect.bottom - rect.top).max(0) as u32;
-        let icon = render_app_icon(width, height)?;
+        let uncached;
+        let icon = if let Some(cache) = self.cache.as_deref_mut() {
+            cache.icon(width, height)?
+        } else {
+            uncached = render_app_icon(width, height)?;
+            &uncached
+        };
         for y in 0..height {
             for x in 0..width {
                 let source_offset = ((y * width + x) * 4) as usize;
@@ -1504,11 +1582,23 @@ impl Canvas {
         if text.is_empty() || rect.right <= rect.left || rect.bottom <= rect.top {
             return Ok(());
         }
-        let mask = render_text_mask(text, rect, style, self.font_face)?;
+        let uncached;
+        let mask = if let Some(cache) = self.cache.as_deref_mut() {
+            cache.text_mask(text, rect, style, self.font_face)?
+        } else {
+            let bgra = render_text_mask(text, rect, style, self.font_face)?;
+            uncached = bgra
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .map(|pixel| pixel[0])
+                .collect::<Vec<_>>();
+            &uncached
+        };
         let mask_width = (rect.right - rect.left) as usize;
         for y in rect.top.max(0)..rect.bottom.min(self.height as i32) {
             for x in rect.left.max(0)..rect.right.min(self.width as i32) {
-                let source = ((y - rect.top) as usize * mask_width + (x - rect.left) as usize) * 4;
+                let source = (y - rect.top) as usize * mask_width + (x - rect.left) as usize;
                 let alpha = mask[source] as u16;
                 if alpha == 0 {
                     continue;
@@ -1773,6 +1863,10 @@ mod tests {
         DashboardViewModel, DashboardWrist, DASHBOARD_HEIGHT, DASHBOARD_WIDTH,
     };
 
+    fn render(view: &DashboardViewModel, state: &DashboardState) -> Result<Texture, String> {
+        super::render(view, state, &mut RasterCache::default())
+    }
+
     fn view(error: Option<String>) -> DashboardViewModel {
         DashboardViewModel {
             labels: DashboardLabels {
@@ -1826,6 +1920,55 @@ mod tests {
             status: "Ready".into(),
             save_state: DashboardSaveState::Idle,
             error,
+        }
+    }
+
+    #[test]
+    fn cached_rendering_preserves_pixels_across_interaction_and_label_changes() {
+        let mut view = view(None);
+        let mut state = DashboardState::default();
+        let mut cache = RasterCache::default();
+        for step in 0..5 {
+            match step {
+                1 => {
+                    state.pointer_move(650., 510.);
+                }
+                2 => {
+                    state.pointer_down(650., 510.);
+                }
+                3 => {
+                    view.labels.title = "VRCS 快捷设置".into();
+                }
+                4 => {
+                    view.headset.width = "1.30 m".into();
+                }
+                _ => {}
+            }
+            let cached = super::render(&view, &state, &mut cache).unwrap();
+            let fresh = super::render(&view, &state, &mut RasterCache::default()).unwrap();
+            assert_eq!(cached.pixels, fresh.pixels);
+        }
+    }
+
+    #[test]
+    fn text_cache_eviction_preserves_the_requested_mask() {
+        let mut cache = RasterCache::default();
+        let rect = Rect::new(0, 0, 600, 64);
+        let style = TextStyle {
+            size: 24,
+            align: Align::Left,
+            strong: false,
+        };
+        for index in 0..160 {
+            let text = format!("Width {index}");
+            let actual = cache.text_mask(&text, rect, style, "Segoe UI\0").unwrap();
+            let expected = render_text_mask(&text, rect, style, "Segoe UI\0").unwrap();
+            assert!(actual.iter().copied().eq(expected
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .map(|pixel| pixel[0])));
+            assert!(cache.text_bytes <= MAX_TEXT_CACHE_BYTES);
         }
     }
 

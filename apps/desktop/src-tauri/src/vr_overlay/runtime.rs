@@ -357,6 +357,7 @@ struct WorkerState {
     backend: Option<OpenVrBackend>,
     dashboard_view: Option<DashboardViewModel>,
     dashboard: DashboardState,
+    dashboard_cache: dashboard_renderer::RasterCache,
     dashboard_dirty: bool,
     dashboard_thumbnail_uploaded: bool,
     next_reconnect: Instant,
@@ -396,6 +397,7 @@ fn worker_loop(
         backend: None,
         dashboard_view: None,
         dashboard: DashboardState::default(),
+        dashboard_cache: dashboard_renderer::RasterCache::default(),
         dashboard_dirty: true,
         dashboard_thumbnail_uploaded: false,
         next_reconnect: Instant::now(),
@@ -711,7 +713,7 @@ fn update_dashboard(
         }
     }
     if state.dashboard_dirty {
-        match dashboard_renderer::render(view, &state.dashboard)
+        match dashboard_renderer::render(view, &state.dashboard, &mut state.dashboard_cache)
             .and_then(|texture| backend.upload(OverlayKind::Dashboard, &texture))
         {
             Ok(()) => state.dashboard_dirty = false,

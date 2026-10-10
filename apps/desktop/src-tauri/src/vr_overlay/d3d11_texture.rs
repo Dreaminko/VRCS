@@ -16,7 +16,7 @@ const RELEASE_INDEX: usize = 2;
 const ENUM_ADAPTERS_1_INDEX: usize = 12;
 const CREATE_TEXTURE_2D_INDEX: usize = 5;
 const GET_SHARED_HANDLE_INDEX: usize = 8;
-const COPY_RESOURCE_INDEX: usize = 47;
+const UPDATE_SUBRESOURCE_INDEX: usize = 48;
 const FLUSH_INDEX: usize = 111;
 
 const IID_IDXGI_FACTORY_1: Guid = Guid {
@@ -56,7 +56,15 @@ type CreateTexture2d = unsafe extern "system" fn(
     *mut *mut c_void,
 ) -> i32;
 type GetSharedHandle = unsafe extern "system" fn(*mut c_void, *mut *mut c_void) -> i32;
-type CopyResource = unsafe extern "system" fn(*mut c_void, *mut c_void, *mut c_void);
+type UpdateSubresource = unsafe extern "system" fn(
+    *mut c_void,
+    *mut c_void,
+    u32,
+    *const c_void,
+    *const c_void,
+    u32,
+    u32,
+);
 type Flush = unsafe extern "system" fn(*mut c_void);
 type Release = unsafe extern "system" fn(*mut c_void) -> u32;
 
@@ -355,10 +363,22 @@ impl Device {
             return Err("Overlay texture dimensions changed unexpectedly".into());
         }
 
-        let upload = self.create_texture_resource(source, 0)?;
-        let copy: CopyResource =
-            unsafe { std::mem::transmute(method(self.context.0, COPY_RESOURCE_INDEX)) };
-        unsafe { copy(self.context.0, destination.texture.0, upload.0) };
+        let pixels = rgba_to_bgra(&source.pixels);
+        let update: UpdateSubresource =
+            unsafe { std::mem::transmute(method(self.context.0, UPDATE_SUBRESOURCE_INDEX)) };
+        // Update the existing shared resource without allocating a temporary GPU texture.
+        // The immediate context copies the CPU bytes before returning.
+        unsafe {
+            update(
+                self.context.0,
+                destination.texture.0,
+                0,
+                null(),
+                pixels.as_ptr().cast(),
+                source.width * 4,
+                0,
+            )
+        };
         self.flush();
         Ok(())
     }
@@ -506,7 +526,7 @@ mod tests {
     #[ignore = "requires a Windows D3D11 adapter"]
     fn ocr_readback_preserves_rgba_and_row_pitch() {
         let device = Device::create(0).unwrap();
-        let source = Texture {
+        let mut source = Texture {
             width: 3,
             height: 2,
             pixels: vec![
@@ -540,6 +560,28 @@ mod tests {
         assert!(
             unsafe { device.read_shader_resource_region(view.0, |_, _| Ok([2, 0, 4, 2])) }.is_err()
         );
+        let shared_handle = texture.shared_handle();
+        for value in [20, 180, 60] {
+            source.pixels = [value, 90, 240, 255].repeat(6);
+            device.copy_texture(&texture, &source).unwrap();
+            let (captured, _, _) = unsafe {
+                device
+                    .read_shader_resource_region(view.0, |width, height| Ok([0, 0, width, height]))
+            }
+            .unwrap();
+            assert_eq!(captured.pixels, source.pixels);
+            assert_eq!(texture.shared_handle(), shared_handle);
+        }
+        assert!(device
+            .copy_texture(
+                &texture,
+                &Texture {
+                    width: 1,
+                    height: 1,
+                    pixels: vec![0; 4],
+                }
+            )
+            .is_err());
     }
 
     #[test]
