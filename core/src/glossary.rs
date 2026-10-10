@@ -504,7 +504,9 @@ impl GlossaryStore {
                     .subscriptions
                     .write()
                     .expect("glossary subscription lock");
-                let Some(state) = matching_state_mut(&mut subscriptions, id, &url) else {
+                let Some(state) =
+                    matching_state_mut(&mut subscriptions, id, &url).filter(|state| state.enabled)
+                else {
                     return Ok(false);
                 };
                 state.state = "ready".into();
@@ -523,7 +525,9 @@ impl GlossaryStore {
                     .subscriptions
                     .write()
                     .expect("glossary subscription lock");
-                let Some(state) = matching_state_mut(&mut subscriptions, id, &url) else {
+                let Some(state) =
+                    matching_state_mut(&mut subscriptions, id, &url).filter(|state| state.enabled)
+                else {
                     return Ok(false);
                 };
                 let entries_changed = state.entries != entries;
@@ -545,7 +549,9 @@ impl GlossaryStore {
                     .subscriptions
                     .write()
                     .expect("glossary subscription lock");
-                let Some(state) = matching_state_mut(&mut subscriptions, id, &url) else {
+                let Some(state) =
+                    matching_state_mut(&mut subscriptions, id, &url).filter(|state| state.enabled)
+                else {
                     return Ok(false);
                 };
                 state.state = if state.last_success_at.is_some() {

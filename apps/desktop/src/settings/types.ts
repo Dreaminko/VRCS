@@ -9,7 +9,8 @@ import type {
 import type { AsrSettings } from "../providers/types";
 
 export interface Settings {
-  schema_version: 29;
+  schema_version: 30;
+  features: FeatureSettings;
   server: {
     host: string;
     port: number;
@@ -46,6 +47,19 @@ export interface Settings {
   vr_overlay: VrOverlaySettings;
   ocr: VrOcrSettings;
 }
+
+export interface FeatureSettings {
+  glossary: boolean;
+  learning: boolean;
+  anki: boolean;
+  osc_chatbox: boolean;
+  vrcx: boolean;
+  ocr: boolean;
+  vr_overlay: boolean;
+  external_api: boolean;
+}
+
+export type FeatureKey = keyof FeatureSettings;
 
 export interface TranslationSettings {
   mode: "disabled" | "manual" | "automatic";

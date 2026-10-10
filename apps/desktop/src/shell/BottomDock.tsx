@@ -4,7 +4,9 @@ import { GraduationCap, MessageSquare, MessageSquarePlus, Mic, Shrink, SlidersHo
 
 import type { Page } from "../app/app-types";
 
-export function BottomDock({ page, running, chatboxOpen, captureDisabled, chatboxDisabled, chatboxButtonRef, onPageChange, onPageIntent, onCompact, onChatbox, onCapture }: {
+export function BottomDock({ learningAvailable, chatboxAvailable, page, running, chatboxOpen, captureDisabled, chatboxDisabled, chatboxButtonRef, onPageChange, onPageIntent, onCompact, onChatbox, onCapture }: {
+  learningAvailable: boolean;
+  chatboxAvailable: boolean;
   page: Page;
   running: boolean;
   captureDisabled: boolean;
@@ -21,18 +23,18 @@ export function BottomDock({ page, running, chatboxOpen, captureDisabled, chatbo
   return (
     <nav className={`bottom-dock ${chatboxOpen ? "chatbox-open" : ""}`} aria-label={t("navigation.main")}>
       <DockButton label={t("navigation.live")} active={page === "live"} onClick={() => onPageChange("live")}><MessageSquare /></DockButton>
-      <DockButton label={t("navigation.learning")} active={page === "learning"} onIntent={() => onPageIntent?.("learning")} onClick={() => onPageChange("learning")}><GraduationCap /></DockButton>
+      {learningAvailable && <DockButton label={t("navigation.learning")} active={page === "learning"} onIntent={() => onPageIntent?.("learning")} onClick={() => onPageChange("learning")}><GraduationCap /></DockButton>}
       <DockButton label={t("navigation.settings")} active={page === "settings"} onIntent={() => onPageIntent?.("settings")} onClick={() => onPageChange("settings")}><SlidersHorizontal /></DockButton>
       <i className="dock-divider" aria-hidden="true" />
       <DockButton label={t("navigation.compact")} tonal onClick={onCompact}><Shrink /></DockButton>
-      <DockButton
+      {chatboxAvailable && <DockButton
         label={t("navigation.chatbox")}
         active={chatboxOpen}
         disabled={chatboxDisabled}
         buttonRef={chatboxButtonRef}
         expanded={chatboxOpen}
         onClick={onChatbox}
-      ><MessageSquarePlus /></DockButton>
+      ><MessageSquarePlus /></DockButton>}
       <DockButton label={t(running ? "capture.stop" : "capture.start")} primary disabled={captureDisabled} onClick={onCapture}>{running ? <Square /> : <Mic />}</DockButton>
     </nav>
   );

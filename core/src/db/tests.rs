@@ -640,13 +640,43 @@ fn escaped_prefix_lookup_uses_the_term_index() {
 }
 
 #[test]
+fn feature_switches_cancel_dictionary_replacement_without_losing_existing_entries() {
+    let (_path, mut database) = open_temp_db("cancel-import");
+    let archive = dictionary_archive(INSERT_BATCH_SIZE + 1);
+    let original = database.import_yomitan(&archive).unwrap();
+    let cancelled = std::cell::Cell::new(false);
+    let result = database.import_yomitan_with_progress(
+        &archive,
+        |progress| {
+            if progress > 0.0 {
+                cancelled.set(true);
+            }
+        },
+        || cancelled.get(),
+    );
+    assert!(matches!(result, Err(crate::error::AppError::Conflict(_))));
+    let sources = database.dictionary_sources().unwrap();
+    assert_eq!(sources.len(), 1);
+    assert_eq!(sources[0].id, original.id);
+    assert_eq!(sources[0].entry_count, original.entry_count);
+    assert_eq!(
+        database
+            .conn
+            .query_row("SELECT COUNT(*) FROM dictionary_entries", [], |row| row
+                .get::<_, i64>(0))
+            .unwrap(),
+        501
+    );
+}
+
+#[test]
 fn dictionary_import_flushes_full_and_partial_batches() {
     let (_path, mut database) = open_temp_db("batch-import");
     let archive = dictionary_archive(INSERT_BATCH_SIZE + 1);
 
     let mut progress = Vec::new();
     let imported = database
-        .import_yomitan_with_progress(&archive, |value| progress.push(value))
+        .import_yomitan_with_progress(&archive, |value| progress.push(value), || false)
         .unwrap();
     assert_eq!(imported.entry_count, 501);
     assert_eq!(progress.first(), Some(&0.0));

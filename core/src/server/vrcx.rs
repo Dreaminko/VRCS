@@ -55,13 +55,8 @@ pub(super) async fn token_write(
             error,
         )
     })?;
-    let config = state
-        .config
-        .config
-        .read()
-        .expect("config lock")
-        .vrcx
-        .clone();
+    let config =
+        crate::config::apply_feature_gates(&state.config.config.read().expect("config lock")).vrcx;
     state
         .integrations
         .vrcx
@@ -95,13 +90,8 @@ pub(super) async fn token_delete(
             error,
         )
     })?;
-    let config = state
-        .config
-        .config
-        .read()
-        .expect("config lock")
-        .vrcx
-        .clone();
+    let config =
+        crate::config::apply_feature_gates(&state.config.config.read().expect("config lock")).vrcx;
     state.integrations.vrcx.reconfigure(config, None).await;
     token_status().await
 }
@@ -109,13 +99,8 @@ pub(super) async fn token_delete(
 pub(super) async fn test_connection(
     State(state): State<ServiceContext>,
 ) -> ApiResult<Json<crate::vrcx::VrcxRuntimeStatus>> {
-    let config = state
-        .config
-        .config
-        .read()
-        .expect("config lock")
-        .vrcx
-        .clone();
+    let config =
+        crate::config::apply_feature_gates(&state.config.config.read().expect("config lock")).vrcx;
     let token = credentials::read_vrcx_token()
         .map_err(|error| {
             api_error(

@@ -38,11 +38,7 @@ pub(super) fn render(view: &ProgressView, animation: u8) -> Result<Texture, Stri
         Rect::new(24, 16, 744, 54),
         [29, 40, 52],
     )?;
-    for (index, (label, stage)) in ["Prepare", "Recognize", "Translate", "Display"]
-        .into_iter()
-        .zip(view.stages)
-        .enumerate()
-    {
+    for (index, (label, stage)) in view.stage_labels.iter().zip(view.stages).enumerate() {
         let left = 24 + index as i32 * 182;
         let color = match stage {
             Stage::Active | Stage::Complete => PRIMARY,
@@ -146,6 +142,55 @@ mod tests {
     use super::*;
     use std::time::Instant;
     use vrcs_core::ocr::{Phase, PipelineProgress};
+
+    #[test]
+    fn localized_progress_fits_existing_panel() {
+        let now = Instant::now();
+        let mut feedback = Feedback::new(1, false, now);
+        feedback.apply(
+            PipelineProgress {
+                scan_id: 1,
+                recognition_phases: vec![Phase::LoadingModel],
+                ..Default::default()
+            },
+            now,
+        );
+        let mask = TextMask::new(WIDTH, HEIGHT, 26).unwrap();
+        for (locale, labels) in super::super::ocr_progress::tests::locale_labels() {
+            let view = feedback
+                .view_with_labels(now + std::time::Duration::from_secs(6), &labels)
+                .unwrap();
+            for label in &view.stage_labels {
+                assert!(
+                    mask.measure_size(&format!("● {label}"), 174, DT_SINGLELINE)
+                        .0
+                        <= 174,
+                    "{locale}: {label}"
+                );
+            }
+            assert!(
+                mask.measure_size(&format!("OCR · {}", view.status), 720, DT_SINGLELINE)
+                    .0
+                    <= 720,
+                "{locale}: {}",
+                view.status
+            );
+            assert!(
+                mask.measure_size(&view.detail, 720, DT_SINGLELINE).0 <= 720,
+                "{locale}: {}",
+                view.detail
+            );
+            let texture = render(&view, 1).unwrap();
+            assert!(texture.pixels.iter().any(|pixel| *pixel != 0));
+            if let Ok(directory) = std::env::var("VRCS_OCR_PROGRESS_PREVIEW_DIR") {
+                std::fs::write(
+                    std::path::Path::new(&directory).join(format!("{locale}.png")),
+                    super::super::ocr_capture::encode_png(texture).unwrap(),
+                )
+                .unwrap();
+            }
+        }
+    }
 
     #[test]
     fn renders_actual_translation_fraction_and_terminal_error() {

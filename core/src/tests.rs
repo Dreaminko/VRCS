@@ -1,6 +1,163 @@
 use super::*;
 
 #[tokio::test]
+async fn feature_switches_project_runtime_and_block_business_routes() {
+    let directory = tempfile::tempdir().unwrap();
+    let config_path = directory.path().join("config.json");
+    let port = std::net::TcpListener::bind("127.0.0.1:0")
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .port();
+    let mut config = config::AppConfig::default();
+    config.osc.enabled = true;
+    config.vr_overlay.enabled = true;
+    config.ocr.enabled = true;
+    config.ocr.desktop_enabled = true;
+    config.external_api.port = std::net::TcpListener::bind("127.0.0.1:0")
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .port();
+    config.external_api.enabled = true;
+    config.external_api.require_token = false;
+    let mut value = serde_json::to_value(&config).unwrap();
+    for flag in value["features"].as_object_mut().unwrap().values_mut() {
+        *flag = serde_json::json!(false);
+    }
+    config = serde_json::from_value(value).unwrap();
+    config::save_config(&config_path, &config).unwrap();
+    let handle = start(CoreOptions {
+        config_path: config_path.clone(),
+        host: Some("127.0.0.1".into()),
+        port: Some(port),
+        session_token: Some("feature-test".into()),
+        vad_model_path: Some(directory.path().join("missing-silero.onnx")),
+        asr_model_dir: None,
+    })
+    .await
+    .unwrap();
+    let updates = handle.subscribe_vr_overlay_config();
+    assert!(!updates.borrow().0.enabled);
+    assert!(!updates.borrow().1.enabled);
+    assert!(!updates.borrow().1.desktop_enabled);
+    assert!(handle.external_api_address().is_none());
+    let client = reqwest::Client::new();
+    let base = format!("http://{}", handle.address());
+    for (method, path, feature) in [
+        ("GET", "/api/dictionary?text=test", "learning"),
+        ("GET", "/api/learning/items", "learning"),
+        ("POST", "/api/learning/selection-query", "learning"),
+        ("GET", "/api/anki/status", "anki"),
+        ("POST", "/api/learning/items/1/export", "learning"),
+        ("POST", "/api/chatbox/preview", "osc_chatbox"),
+        ("POST", "/api/chatbox/messages", "osc_chatbox"),
+        ("POST", "/api/osc/test", "osc_chatbox"),
+        ("POST", "/api/vrcx/test", "vrcx"),
+        ("POST", "/api/glossaries/test/refresh", "glossary"),
+        ("POST", "/api/ocr/models/download", "ocr"),
+    ] {
+        let response = client
+            .request(method.parse().unwrap(), format!("{base}{path}"))
+            .bearer_auth("feature-test")
+            .json(&serde_json::json!({}))
+            .send()
+            .await
+            .unwrap();
+        let status = response.status();
+        let body: serde_json::Value = response.json().await.unwrap();
+        assert_eq!(status, reqwest::StatusCode::CONFLICT, "{path}: {body}");
+        assert_eq!(body["code"], "feature.disabled", "{path}");
+        assert_eq!(body["params"]["feature"], feature, "{path}");
+    }
+    for path in [
+        "/api/settings",
+        "/api/subtitles",
+        "/api/storage/stats",
+        "/health",
+    ] {
+        assert_eq!(
+            client
+                .get(format!("{base}{path}"))
+                .bearer_auth("feature-test")
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            reqwest::StatusCode::OK,
+            "{path}"
+        );
+    }
+    let saved: config::AppConfig = client
+        .get(format!("{base}/api/settings"))
+        .bearer_auth("feature-test")
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert!(saved.osc.enabled);
+    assert!(saved.ocr.desktop_enabled);
+    assert!(saved.vr_overlay.enabled);
+    let mut saved = saved;
+    saved.features = FeatureConfig::default();
+    saved.external_api.enabled = false;
+    for (vr_available, ocr_available, vr_enabled, desktop_enabled) in [
+        (true, true, true, true),
+        (false, true, false, true),
+        (true, false, false, false),
+        (true, true, true, true),
+    ] {
+        saved.features.vr_overlay = vr_available;
+        saved.features.ocr = ocr_available;
+        let response = client
+            .put(format!("{base}/api/settings"))
+            .bearer_auth("feature-test")
+            .json(&saved)
+            .send()
+            .await
+            .unwrap();
+        let status = response.status();
+        let body: serde_json::Value = response.json().await.unwrap();
+        assert_eq!(status, reqwest::StatusCode::OK, "{body}");
+        saved = serde_json::from_value(body).unwrap();
+        assert_eq!(updates.borrow().0.enabled, vr_available);
+        assert_eq!(updates.borrow().1.enabled, vr_enabled);
+        assert_eq!(updates.borrow().1.desktop_enabled, desktop_enabled);
+        assert!(saved.ocr.enabled && saved.ocr.desktop_enabled && saved.vr_overlay.enabled);
+    }
+    assert_eq!(
+        client
+            .get(format!("{base}/api/dictionary?q=test"))
+            .bearer_auth("feature-test")
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        reqwest::StatusCode::OK
+    );
+    saved.external_api.enabled = true;
+    for available in [true, false, true] {
+        saved.features.external_api = available;
+        let response = client
+            .put(format!("{base}/api/settings"))
+            .bearer_auth("feature-test")
+            .json(&saved)
+            .send()
+            .await
+            .unwrap();
+        let status = response.status();
+        let body: serde_json::Value = response.json().await.unwrap();
+        assert_eq!(status, reqwest::StatusCode::OK, "{body}");
+        saved = serde_json::from_value(body).unwrap();
+        assert!(saved.external_api.enabled);
+        assert_eq!(handle.external_api_address().is_some(), available);
+    }
+    handle.shutdown().await.unwrap();
+}
+
+#[tokio::test]
 async fn local_recognition_sources_can_be_saved_without_an_api_profile() {
     let directory = tempfile::tempdir().unwrap();
     let config_path = directory.path().join("config.json");

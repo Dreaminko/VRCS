@@ -8,6 +8,38 @@ use crate::providers::{
 };
 
 #[test]
+fn feature_switches_default_on_when_upgrading_v29() {
+    let raw = serde_json::json!({"schema_version": 29});
+    let config = config_from_value(&raw).unwrap();
+    let value = serde_json::to_value(config).unwrap();
+    assert_eq!(value["schema_version"], 30);
+    for key in [
+        "glossary",
+        "learning",
+        "anki",
+        "osc_chatbox",
+        "vrcx",
+        "ocr",
+        "vr_overlay",
+        "external_api",
+    ] {
+        assert_eq!(value["features"][key], true, "{key}");
+    }
+}
+
+#[test]
+fn feature_switches_preserve_explicit_off_and_default_missing_fields() {
+    let raw =
+        serde_json::json!({"schema_version": 29, "features": {"learning": false, "ocr": false}});
+    let config = config_from_value(&raw).unwrap();
+    let value = serde_json::to_value(&config).unwrap();
+    assert_eq!(value["features"]["learning"], false);
+    assert_eq!(value["features"]["ocr"], false);
+    assert_eq!(value["features"]["vr_overlay"], true);
+    assert_eq!(config_from_value(&value).unwrap(), config);
+}
+
+#[test]
 fn removed_whisper_migrates_to_qwen_without_changing_storage_or_language() {
     for device in ["cpu", "auto", "cuda", "vulkan"] {
         let raw = serde_json::json!({

@@ -1,3 +1,4 @@
+import { DEFAULT_FEATURE_SETTINGS } from "../src/settings/feature-availability.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -27,7 +28,8 @@ import {
 } from "../src/vr-overlay-native.ts";
 
 const settings = {
-  schema_version: 29,
+  schema_version: 30,
+  features: { ...DEFAULT_FEATURE_SETTINGS },
   vr_overlay: DEFAULT_VR_OVERLAY_SETTINGS,
   ocr: DEFAULT_OCR_SETTINGS,
 } as unknown as Settings;

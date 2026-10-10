@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useCallback, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 
 import type { Page } from "./app-types";
@@ -39,17 +39,22 @@ export function useAppWorkspace({
   const updater = useAppUpdater(onboardingFlow.status === "complete");
   const core = useCoreSession(page === "settings" || onboardingFlow.status !== "complete");
   const { runtime, capture: captureRuntime, settings, dictionary, subtitles } = core;
+  const learningAvailable = settings.value?.features.learning ?? false;
+  useEffect(() => {
+    if (settings.value && !learningAvailable && page === "learning") setPage("live");
+  }, [learningAvailable, page, setPage, settings.value]);
   const compactWindow = useCompactWindow({
     clearErrorFrom: runtime.clearErrorFrom,
     reportError: runtime.reportError,
   });
   const selection = useSelectionTools({
     compact: compactWindow.compact,
+    enabled: learningAvailable,
     dictionaryLookupEnabled: settings.value?.dictionary.selection_lookup_enabled ?? true,
     resizeCompactWindow: compactWindow.resizeCompactWindow,
     reportError: runtime.reportError,
   });
-  const learningWorkspace = useLearningWorkspace(page === "learning" && runtime.ready, runtime.ready);
+  const learningWorkspace = useLearningWorkspace(page === "learning" && runtime.ready && learningAvailable, runtime.ready && learningAvailable);
   const openLearningPage = useCallback(() => setPage("learning"), [setPage]);
   const learningActions = useSubtitleLearningActions({
     workspace: learningWorkspace,
@@ -86,7 +91,7 @@ export function useAppWorkspace({
   });
   const vrchatMuteToast = useVrchatMuteToast({
     settingsReady: settings.value !== null,
-    enabled: settings.value?.osc.mute_status_toast_enabled ?? false,
+    enabled: Boolean(settings.value?.features.osc_chatbox && settings.value.osc.mute_status_toast_enabled),
     status: runtime.vrchatMuteStatus,
   });
   const { interfaceScale, setInterfaceScale } = useInterfaceScale(runtime.reportError);

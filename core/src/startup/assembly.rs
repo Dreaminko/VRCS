@@ -29,6 +29,7 @@ pub(crate) struct RuntimeAssembly {
 
 impl RuntimeAssembly {
     pub(crate) async fn build(plan: StartupPlan) -> Result<Self, String> {
+        let effective = crate::config::apply_feature_gates(&plan.config);
         let mut database = Database::open(&plan.database_path).map_err(|error| {
             format!(
                 "Failed to open database {}: {error}",
@@ -49,7 +50,7 @@ impl RuntimeAssembly {
         let domain_events = domain_events::DomainEventHub::new();
         let db = Arc::new(Mutex::new(database));
         let osc = osc::OscChatboxDispatcher::new_with_db_and_events(
-            plan.config.osc.clone(),
+            effective.osc.clone(),
             Arc::clone(&db),
             domain_events.clone(),
         );
@@ -61,7 +62,7 @@ impl RuntimeAssembly {
         );
         let glossary = Arc::new(glossary::GlossaryStore::new(
             plan.glossary_cache_path.clone(),
-            plan.config.glossary.clone(),
+            effective.glossary.clone(),
         )?);
         let translation_service = Arc::new(translation::TranslationService::with_glossary(
             Arc::clone(&glossary),
@@ -77,7 +78,7 @@ impl RuntimeAssembly {
                 None
             }
         };
-        vrcx.reconfigure(plan.config.vrcx.clone(), vrcx_token).await;
+        vrcx.reconfigure(effective.vrcx.clone(), vrcx_token).await;
         let translation_dispatcher = translation::TranslationDispatcher::new(
             Arc::clone(&translation_service),
             Arc::clone(&db),
@@ -88,11 +89,11 @@ impl RuntimeAssembly {
         let (external_api_server, external_api_status) =
             start_external_api(&plan, domain_events.clone(), shutdown_rx.clone()).await;
         let vrchat_mute_sync = vrchat_mute_sync::VrchatMuteSync::new(
-            plan.config.osc.mute_sync_enabled,
+            effective.osc.mute_sync_enabled,
             shutdown_rx.clone(),
         );
         let (vr_overlay_config_tx, _) =
-            watch::channel((plan.config.vr_overlay.clone(), plan.config.ocr.clone()));
+            watch::channel((effective.vr_overlay.clone(), effective.ocr.clone()));
 
         let qwen_runtime_dir = plan.config_path.with_file_name("runtimes").join("qwen");
         let config_runtime = ConfigRuntime::new(ConfigRuntimeInput {
@@ -188,11 +189,10 @@ async fn start_external_api(
     Option<external_api::ExternalApiServer>,
     external_api::ExternalApiRuntimeStatus,
 ) {
-    let result = if plan.config.external_api.enabled {
+    let config = crate::config::apply_feature_gates(&plan.config).external_api;
+    let result = if config.enabled {
         match credentials::read_external_api_token() {
-            Ok(token) => {
-                external_api::start(&plan.config.external_api, domain_events, token, shutdown).await
-            }
+            Ok(token) => external_api::start(&config, domain_events, token, shutdown).await,
             Err(error) => Err(format!("Failed to read the External API token: {error}")),
         }
     } else {

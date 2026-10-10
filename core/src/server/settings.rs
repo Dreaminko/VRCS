@@ -36,6 +36,7 @@ pub(super) async fn update_settings(
     }
     let candidate = AppConfig {
         schema_version: update.schema_version,
+        features: update.features,
         server: update.server,
         storage: update.storage,
         audio: update.audio,
@@ -182,6 +183,26 @@ fn valid_active_selection(asr: &crate::config::AsrConfig) -> bool {
 }
 
 pub(super) fn parse_settings_update(body: &[u8]) -> Result<SettingsUpdate, String> {
+    let raw: Value = serde_json::from_slice(body)
+        .map_err(|error| format!("Invalid settings payload: {error}"))?;
+    let features = raw
+        .get("features")
+        .and_then(Value::as_object)
+        .ok_or("Settings payload must contain all feature switches")?;
+    for key in [
+        "glossary",
+        "learning",
+        "anki",
+        "osc_chatbox",
+        "vrcx",
+        "ocr",
+        "vr_overlay",
+        "external_api",
+    ] {
+        if !features.contains_key(key) {
+            return Err(format!("Settings payload is missing features.{key}"));
+        }
+    }
     let mut ignored = Vec::new();
     let mut deserializer = serde_json::Deserializer::from_slice(body);
     let update = serde_ignored::deserialize(&mut deserializer, |path| {
@@ -212,6 +233,17 @@ mod tests {
             enabled_capabilities: vec![CAPABILITY_SPEECH_TO_TEXT.into()],
             ..ApiProfile::default()
         }
+    }
+
+    #[test]
+    fn feature_switches_reject_partial_settings_payloads() {
+        let mut raw = serde_json::to_value(AppConfig::default()).unwrap();
+        raw["features"] = serde_json::json!({ "ocr": false });
+        assert!(parse_settings_update(&serde_json::to_vec(&raw).unwrap())
+            .unwrap_err()
+            .contains("features.glossary"));
+        raw.as_object_mut().unwrap().remove("features");
+        assert!(parse_settings_update(&serde_json::to_vec(&raw).unwrap()).is_err());
     }
 
     #[test]

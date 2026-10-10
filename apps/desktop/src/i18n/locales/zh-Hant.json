@@ -514,6 +514,9 @@
         "installing": "正在安裝更新…"
       },
       "errors": {
+    "feature": {
+      "disabled": "此功能已關閉，可在系統設定的功能選項中重新開啟。"
+    },
         "unavailable": "此版本未設定更新功能。",
         "busy": "更新正在進行中。",
         "no_pending": "請重新檢查更新後再安裝。",
@@ -521,6 +524,17 @@
       }
     },
     "settings": {
+    "features": {
+      "title": "功能選項",
+      "glossary": "術語表",
+      "learning": "字典與學習",
+      "anki": "Anki",
+      "osc_chatbox": "OSC Chatbox",
+      "vrcx": "VRCX-0 聯動",
+      "ocr": "OCR",
+      "vr_overlay": "VR Overlay",
+      "external_api": "外部 API"
+    },
       "vrDashboard": {
         "resetPosition": "恢復預設位置與旋轉",
         "displayTab": "顯示與 OCR",
@@ -555,6 +569,48 @@
         "vr": "VR 模式"
       },
       "vrOcr": {
+        "progress": {
+          "prepare": "準備",
+          "recognize": "辨識",
+          "translate": "翻譯",
+          "display": "顯示",
+          "preparing": "正在準備影像…",
+          "elapsed": "已用時 {{seconds}} 秒",
+          "tasks": "任務 {{completed}} / {{total}}",
+          "processed": "已處理 {{completed}} 個任務",
+          "failed": "{{failed}} 個失敗",
+          "recognizingTranslating": "正在辨識並翻譯…",
+          "waitingWorker": "正在等候本機辨識…",
+          "loadingModels": "正在載入本機模型…",
+          "waitingCloud": "正在等候雲端辨識…",
+          "uploading": "正在上傳影像…",
+          "downloading": "正在取得辨識結果…",
+          "recognizing": "正在辨識文字…",
+          "translating": "正在翻譯文字…",
+          "displaying": "正在顯示結果…",
+          "firstScan": "首次掃描可能需要較長時間",
+          "waitingService": "正在等候辨識服務回應",
+          "noText": "未偵測到文字",
+          "lowConfidence": "未偵測到可讀文字",
+          "translationFailed": "翻譯失敗",
+          "partial": "部分翻譯無法使用",
+          "displayUnavailable": "結果已就緒，暫時無法顯示",
+          "sourceDisplayed": "已顯示原文",
+          "complete": "完成 · 已顯示結果",
+          "timeoutPartial": "處理逾時 · 已顯示部分結果",
+          "timeout": "處理逾時",
+          "viewChanged": "視圖已變更，請重新掃描",
+          "unavailable": "文字辨識無法使用",
+          "authentication": "身分驗證失敗",
+          "credentialsMissing": "缺少文字辨識服務憑證",
+          "rateLimit": "已達服務請求頻率限制",
+          "modelsMissing": "缺少本機文字辨識模型",
+          "network": "網路請求失敗",
+          "localFailed": "本機文字辨識失敗",
+          "trackingLost": "頭戴裝置追蹤無法使用",
+          "configurationChanged": "設定已變更，請重新掃描",
+          "retry": "請重新掃描"
+        },
         "wristTitle": "OCR 手腕面板",
         "wristDescription": "對照閱讀原文與譯文，以下設定只影響 OCR 面板。",
         "wristPosition": "位置與角度",

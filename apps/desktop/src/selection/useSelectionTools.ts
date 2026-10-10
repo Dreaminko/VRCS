@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { LookupOrigin } from "../app/app-types";
 import type { ReportRuntimeError } from "../core-client/useRuntimeErrors";
@@ -7,15 +7,19 @@ import { useTextSelection } from "./useTextSelection";
 
 export function useSelectionTools({
   compact,
+  enabled,
   dictionaryLookupEnabled,
   resizeCompactWindow,
   reportError,
 }: {
   compact: boolean;
+  enabled: boolean;
   dictionaryLookupEnabled: boolean;
   resizeCompactWindow: (expanded: boolean) => Promise<void>;
   reportError: ReportRuntimeError;
 }) {
+  const enabledRef = useRef(enabled);
+  enabledRef.current = enabled;
   const [tool, setTool] = useState<"dictionary" | "ai" | null>(null);
   const dictionary = useDictionaryLookup({ reportError });
   const textSelection = useTextSelection({ compact, resizeCompactWindow, reportError });
@@ -35,11 +39,16 @@ export function useSelectionTools({
     }
   }, [clear, compact, reportError, resizeCompactWindow]);
 
+  useEffect(() => {
+    if (!enabled) close();
+  }, [enabled, close]);
+
   const selectText = useCallback(async (context: string, origin?: LookupOrigin) => {
+    if (!enabledRef.current) return;
     setTool(null);
     dictionary.clearLookup();
     const target = await textSelection.captureSelection(context, origin);
-    if (!target) return;
+    if (!target || !enabledRef.current) return;
 
     if (!dictionaryLookupEnabled) {
       setTool("ai");
@@ -51,6 +60,7 @@ export function useSelectionTools({
   }, [dictionary, dictionaryLookupEnabled, textSelection.captureSelection]);
 
   const openAi = useCallback(async () => {
+    if (!enabledRef.current) return;
     if (compact) {
       try {
         await resizeCompactWindow(true);
@@ -58,7 +68,7 @@ export function useSelectionTools({
         reportError(reason, "errors.window.compactToggle", "window");
       }
     }
-    setTool("ai");
+    if (enabledRef.current) setTool("ai");
   }, [compact, reportError, resizeCompactWindow]);
 
   const returnToDictionary = useCallback(() => {
@@ -66,8 +76,8 @@ export function useSelectionTools({
   }, [dictionary.lookup]);
 
   return {
-    tool,
-    target: textSelection.target,
+    tool: enabled ? tool : null,
+    target: enabled ? textSelection.target : null,
     lookup: dictionary.lookup,
     lookupLoading: dictionary.loading,
     clear,

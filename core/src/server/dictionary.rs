@@ -171,6 +171,7 @@ pub(super) async fn dictionary_list(State(state): State<ContentState>) -> ApiRes
 
 pub(super) async fn dictionary_import(
     State(state): State<ContentState>,
+    State(context): State<super::CaptureContext>,
     Extension(import_permit): Extension<Arc<OwnedSemaphorePermit>>,
     headers: HeaderMap,
     body: axum::body::Bytes,
@@ -206,15 +207,21 @@ pub(super) async fn dictionary_import(
             ));
         }
     };
+    let features = context.config.features_tx.subscribe();
     let worker_progress = progress.clone();
     let result = db_call(Arc::clone(&state.db), move |db| {
         let _import_permit = import_permit;
-        db.import_yomitan_with_progress(&body, |value| {
-            if let Some(progress) = &worker_progress {
-                let scaled = (value.clamp(0.0, 1.0) * IMPORT_PROGRESS_SCALE as f64).round() as u32;
-                progress.store(scaled, Ordering::Relaxed);
-            }
-        })
+        db.import_yomitan_with_progress(
+            &body,
+            |value| {
+                if let Some(progress) = &worker_progress {
+                    let scaled =
+                        (value.clamp(0.0, 1.0) * IMPORT_PROGRESS_SCALE as f64).round() as u32;
+                    progress.store(scaled, Ordering::Relaxed);
+                }
+            },
+            || !features.borrow().learning,
+        )
     })
     .await;
     match result {
@@ -228,6 +235,10 @@ pub(super) async fn dictionary_import(
             if let Some(import_id) = import_id {
                 remove_import(&import_id);
             }
+            super::feature_gate::require_feature(
+                &context.config.config.read().expect("config lock"),
+                crate::config::FeatureKey::Learning,
+            )?;
             Err(dictionary_import_error(error))
         }
     }

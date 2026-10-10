@@ -88,13 +88,21 @@ fn spawn_glossary_refresh(
     capture: CaptureContext,
     mut shutdown: watch::Receiver<bool>,
 ) -> JoinHandle<()> {
+    let mut features = capture.config.features_tx.subscribe();
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(std::time::Duration::from_secs(24 * 60 * 60));
         interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         loop {
             tokio::select! {
                 _ = interval.tick() => {
-                    if capture.content.glossary.refresh_all().await {
+                    if !features.borrow().glossary { continue; }
+                    let refreshed = tokio::select! {
+                        biased;
+                        _ = features.wait_for(|features| !features.glossary) => false,
+                        _ = shutdown.changed() => break,
+                        refreshed = capture.content.glossary.refresh_all() => refreshed,
+                    };
+                    if refreshed {
                         if let Err((_, body)) = server::capture::reload_glossary_asr_context(&capture).await {
                             tracing::warn!(detail = ?body, "ASR glossary context could not be reloaded");
                         }

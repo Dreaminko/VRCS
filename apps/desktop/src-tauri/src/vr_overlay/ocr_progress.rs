@@ -1,10 +1,26 @@
 #[cfg(any(windows, test))]
 use super::ocr_status::OcrState;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 #[cfg(any(windows, test))]
 use std::time::{Duration, Instant};
 #[cfg(any(windows, test))]
 use vrcs_core::ocr::{Phase, PipelineProgress};
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct ProgressLabels(BTreeMap<String, String>);
+
+#[cfg(any(windows, test))]
+impl ProgressLabels {
+    fn text<'a>(&'a self, key: &str, fallback: &'a str) -> &'a str {
+        self.0
+            .get(key)
+            .filter(|text| !text.is_empty())
+            .map(String::as_str)
+            .unwrap_or(fallback)
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -23,6 +39,7 @@ pub struct ProgressView {
     pub detail: String,
     pub elapsed_seconds: u64,
     pub stages: [Stage; 4],
+    pub stage_labels: [String; 4],
     pub translation_fraction: Option<(usize, usize)>,
 }
 
@@ -35,7 +52,7 @@ pub(super) struct Feedback {
     pipeline: Option<PipelineProgress>,
     terminal: Option<(OcrState, Instant)>,
     displayed: bool,
-    error: Option<&'static str>,
+    error: Option<(&'static str, &'static str)>,
 }
 
 #[cfg(any(windows, test))]
@@ -70,6 +87,11 @@ impl Feedback {
     pub fn displayed(&mut self) {
         self.displayed = true;
     }
+
+    pub fn plane_displayed(&mut self, needs_wrist: bool) {
+        self.displayed = !needs_wrist;
+    }
+
     pub fn results_changed(&mut self) {
         self.displayed = false;
     }
@@ -82,16 +104,16 @@ impl Feedback {
 
     pub fn fail(&mut self, state: OcrState, code: &str, now: Instant) {
         self.error = Some(match code {
-            "authentication" => "Authentication failed",
-            "credentials_missing" => "OCR credentials are missing",
-            "rate_limit" => "Service rate limit reached",
-            "models_missing" => "Local OCR models are missing",
-            "network" => "Network request failed",
-            "local_failed" => "Local OCR failed",
-            "tracking_lost" => "Headset tracking unavailable",
-            "view_changed" => "View changed; scan again",
-            "configuration_changed" => "Settings changed; scan again",
-            _ => "Try scanning again",
+            "authentication" => ("authentication", "Authentication failed"),
+            "credentials_missing" => ("credentialsMissing", "OCR credentials are missing"),
+            "rate_limit" => ("rateLimit", "Service rate limit reached"),
+            "models_missing" => ("modelsMissing", "Local OCR models are missing"),
+            "network" => ("network", "Network request failed"),
+            "local_failed" => ("localFailed", "Local OCR failed"),
+            "tracking_lost" => ("trackingLost", "Headset tracking unavailable"),
+            "view_changed" => ("viewChanged", "View changed; scan again"),
+            "configuration_changed" => ("configurationChanged", "Settings changed; scan again"),
+            _ => ("retry", "Try scanning again"),
         });
         self.terminal = Some((state, now));
     }
@@ -104,7 +126,12 @@ impl Feedback {
         }
     }
 
+    #[cfg(test)]
     pub fn view(&self, now: Instant) -> Option<ProgressView> {
+        self.view_with_labels(now, &ProgressLabels::default())
+    }
+
+    pub fn view_with_labels(&self, now: Instant, labels: &ProgressLabels) -> Option<ProgressView> {
         let end = self.terminal.map(|(_, ended)| ended).unwrap_or(now);
         let elapsed_seconds = end.saturating_duration_since(self.started).as_secs();
         let mut stages = [
@@ -117,8 +144,10 @@ impl Feedback {
             },
             Stage::Pending,
         ];
-        let mut status = "Preparing image…";
-        let mut detail = format!("Elapsed {elapsed_seconds}s");
+        let mut status = labels.text("preparing", "Preparing image…");
+        let mut detail = labels
+            .text("elapsed", "Elapsed {{seconds}}s")
+            .replace("{{seconds}}", &elapsed_seconds.to_string());
         let mut translation_fraction = None;
         if let Some(pipeline) = &self.pipeline {
             stages[0] = Stage::Complete;
@@ -138,48 +167,60 @@ impl Feedback {
                 if pipeline.translation_total_final && pipeline.translation_total > 0 {
                     translation_fraction =
                         Some((pipeline.translation_completed, pipeline.translation_total));
-                    detail.push_str(&format!(
-                        " · Tasks {} / {}",
-                        pipeline.translation_completed, pipeline.translation_total
-                    ));
+                    detail.push_str(" · ");
+                    detail.push_str(
+                        &labels
+                            .text("tasks", "Tasks {{completed}} / {{total}}")
+                            .replace("{{completed}}", &pipeline.translation_completed.to_string())
+                            .replace("{{total}}", &pipeline.translation_total.to_string()),
+                    );
                 } else {
-                    detail.push_str(&format!(
-                        " · {} tasks processed",
-                        pipeline.translation_completed
-                    ));
+                    detail.push_str(" · ");
+                    detail.push_str(
+                        &labels
+                            .text("processed", "{{completed}} tasks processed")
+                            .replace("{{completed}}", &pipeline.translation_completed.to_string()),
+                    );
                 }
                 if pipeline.translation_failed > 0 {
-                    detail.push_str(&format!(" · {} failed", pipeline.translation_failed));
+                    detail.push_str(" · ");
+                    detail.push_str(
+                        &labels
+                            .text("failed", "{{failed}} failed")
+                            .replace("{{failed}}", &pipeline.translation_failed.to_string()),
+                    );
                 }
             }
             status = if !pipeline.recognition_done {
                 if pipeline.translation_started {
-                    "Recognizing and translating…"
+                    labels.text("recognizingTranslating", "Recognizing and translating…")
                 } else if pipeline.recognition_phases.contains(&Phase::WaitingWorker) {
-                    "Waiting for local OCR…"
+                    labels.text("waitingWorker", "Waiting for local OCR…")
                 } else if pipeline.recognition_phases.contains(&Phase::LoadingModel) {
-                    "Loading local models…"
+                    labels.text("loadingModels", "Loading local models…")
                 } else if pipeline.recognition_phases.contains(&Phase::Pending) {
-                    "Waiting for cloud OCR…"
+                    labels.text("waitingCloud", "Waiting for cloud OCR…")
                 } else if pipeline.recognition_phases.contains(&Phase::Submitting) {
-                    "Uploading image…"
+                    labels.text("uploading", "Uploading image…")
                 } else if pipeline.recognition_phases.contains(&Phase::Downloading) {
-                    "Fetching OCR results…"
+                    labels.text("downloading", "Fetching OCR results…")
                 } else {
-                    "Recognizing text…"
+                    labels.text("recognizing", "Recognizing text…")
                 }
             } else if stages[2] == Stage::Active {
-                "Translating text…"
+                labels.text("translating", "Translating text…")
             } else {
-                "Displaying results…"
+                labels.text("displaying", "Displaying results…")
             };
             if self.terminal.is_none()
                 && now.saturating_duration_since(self.phase_started) >= Duration::from_secs(5)
             {
                 if pipeline.recognition_phases.contains(&Phase::LoadingModel) {
-                    detail.push_str(" · First scan may take longer");
+                    detail.push_str(" · ");
+                    detail.push_str(labels.text("firstScan", "First scan may take longer"));
                 } else if pipeline.recognition_phases.contains(&Phase::Pending) {
-                    detail.push_str(" · Waiting for the OCR service");
+                    detail.push_str(" · ");
+                    detail.push_str(labels.text("waitingService", "Waiting for the OCR service"));
                 }
             }
         }
@@ -206,9 +247,9 @@ impl Feedback {
                         Stage::Skipped,
                     ];
                     status = if state == OcrState::NoText {
-                        "No text detected"
+                        labels.text("noText", "No text detected")
                     } else {
-                        "No readable text detected"
+                        labels.text("lowConfidence", "No readable text detected")
                     };
                 }
                 OcrState::Visible
@@ -236,15 +277,15 @@ impl Feedback {
                         },
                     ];
                     status = if state == OcrState::TranslationFailed {
-                        "Translation failed"
+                        labels.text("translationFailed", "Translation failed")
                     } else if state == OcrState::PartialVisible {
-                        "Some translations unavailable"
+                        labels.text("partial", "Some translations unavailable")
                     } else if !self.displayed {
-                        "Results ready; display unavailable"
+                        labels.text("displayUnavailable", "Results ready; display unavailable")
                     } else if self.source_only {
-                        "Original text displayed"
+                        labels.text("sourceDisplayed", "Original text displayed")
                     } else {
-                        "Complete · Results displayed"
+                        labels.text("complete", "Complete · Results displayed")
                     };
                 }
                 _ => {
@@ -263,16 +304,18 @@ impl Feedback {
                     }
                     status = match state {
                         OcrState::TimedOut if self.displayed => {
-                            "Timed out · Partial results displayed"
+                            labels.text("timeoutPartial", "Timed out · Partial results displayed")
                         }
-                        OcrState::TimedOut => "Processing timed out",
-                        OcrState::Invalid => "View changed; scan again",
-                        _ => "OCR unavailable",
+                        OcrState::TimedOut => labels.text("timeout", "Processing timed out"),
+                        OcrState::Invalid => labels.text("viewChanged", "View changed; scan again"),
+                        _ => labels
+                            .text("unavailable", labels.text("unavailable", "OCR unavailable")),
                     };
                 }
             }
-            if let Some(error) = self.error {
-                detail.push_str(&format!(" · {error}"));
+            if let Some((key, fallback)) = self.error {
+                detail.push_str(" · ");
+                detail.push_str(labels.text(key, fallback));
             }
         }
         Some(ProgressView {
@@ -281,14 +324,143 @@ impl Feedback {
             detail,
             elapsed_seconds,
             stages,
+            stage_labels: [
+                labels.text("prepare", "Prepare").into(),
+                labels.text("recognize", "Recognize").into(),
+                labels.text("translate", "Translate").into(),
+                labels.text("display", "Display").into(),
+            ],
             translation_fraction,
         })
     }
 }
 
 #[cfg(test)]
-mod tests {
+pub(super) mod tests {
     use super::*;
+
+    pub(crate) fn locale_labels() -> Vec<(&'static str, ProgressLabels)> {
+        [
+            (
+                "en-US",
+                include_str!("../../../src/i18n/locales/en-US.json"),
+            ),
+            (
+                "zh-CN",
+                include_str!("../../../src/i18n/locales/zh-CN.json"),
+            ),
+            (
+                "zh-Hant",
+                include_str!("../../../src/i18n/locales/zh-Hant.json"),
+            ),
+            (
+                "ja-JP",
+                include_str!("../../../src/i18n/locales/ja-JP.json"),
+            ),
+        ]
+        .into_iter()
+        .map(|(locale, resource)| {
+            let resource: serde_json::Value = serde_json::from_str(resource).unwrap();
+            let labels = serde_json::from_value(
+                resource["translation"]["settings"]["vrOcr"]["progress"].clone(),
+            )
+            .unwrap();
+            (locale, labels)
+        })
+        .collect()
+    }
+
+    #[test]
+    fn locale_switch_updates_labels_and_counters_without_changing_progress() {
+        let now = Instant::now();
+        let mut feedback = Feedback::new(9, false, now);
+        feedback.apply(
+            PipelineProgress {
+                scan_id: 9,
+                recognition_done: true,
+                translation_started: true,
+                translation_total_final: true,
+                translation_total: 8,
+                translation_completed: 3,
+                translation_failed: 1,
+                ..Default::default()
+            },
+            now,
+        );
+        let current = now + Duration::from_secs(7);
+        let english = feedback.view(current).unwrap();
+        for (locale, labels) in locale_labels() {
+            let view = feedback.view_with_labels(current, &labels).unwrap();
+            assert_eq!(view.status, labels.0["translating"]);
+            assert_eq!(view.stage_labels[0], labels.0["prepare"]);
+            assert_eq!(
+                view.detail,
+                format!(
+                    "{} · {} · {}",
+                    labels.0["elapsed"].replace("{{seconds}}", "7"),
+                    labels.0["tasks"]
+                        .replace("{{completed}}", "3")
+                        .replace("{{total}}", "8"),
+                    labels.0["failed"].replace("{{failed}}", "1")
+                )
+            );
+            assert_eq!(view.scan_id, english.scan_id);
+            assert_eq!(view.stages, english.stages);
+            assert_eq!(view.translation_fraction, Some((3, 8)));
+            if locale != "en-US" {
+                assert_ne!(view.status, english.status);
+            }
+        }
+        assert_eq!(feedback.view(current).unwrap(), english);
+    }
+
+    #[test]
+    fn waiting_and_terminal_messages_use_current_locale() {
+        let now = Instant::now();
+        for (_, labels) in locale_labels() {
+            let mut feedback = Feedback::new(10, false, now);
+            feedback.apply(
+                PipelineProgress {
+                    scan_id: 10,
+                    recognition_phases: vec![Phase::LoadingModel],
+                    ..Default::default()
+                },
+                now,
+            );
+            let view = feedback
+                .view_with_labels(now + Duration::from_secs(6), &labels)
+                .unwrap();
+            assert_eq!(view.status, labels.0["loadingModels"]);
+            assert!(view.detail.ends_with(&labels.0["firstScan"]));
+            for (state, key) in [
+                (OcrState::NoText, "noText"),
+                (OcrState::LowConfidence, "lowConfidence"),
+                (OcrState::Visible, "displayUnavailable"),
+                (OcrState::PartialVisible, "partial"),
+                (OcrState::TranslationFailed, "translationFailed"),
+                (OcrState::TimedOut, "timeout"),
+                (OcrState::Invalid, "viewChanged"),
+                (OcrState::Error, "unavailable"),
+            ] {
+                let mut terminal = Feedback::new(11, false, now);
+                terminal.fail(state, "network", now);
+                let view = terminal.view_with_labels(now, &labels).unwrap();
+                assert_eq!(view.status, labels.0[key]);
+                assert!(view.detail.ends_with(&labels.0["network"]));
+            }
+        }
+    }
+
+    #[test]
+    fn partial_stereo_plane_requires_wrist_fallback_before_success() {
+        let now = Instant::now();
+        let mut feedback = Feedback::new(12, false, now);
+        feedback.plane_displayed(true);
+        feedback.finish(OcrState::Visible, now);
+        assert_eq!(feedback.view(now).unwrap().stages[3], Stage::Failed);
+        feedback.displayed();
+        assert_eq!(feedback.view(now).unwrap().stages[3], Stage::Complete);
+    }
 
     #[test]
     fn completed_results_require_display_confirmation_before_success() {

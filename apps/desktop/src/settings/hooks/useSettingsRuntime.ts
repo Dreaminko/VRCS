@@ -101,8 +101,11 @@ export function useSettingsRuntime({
   if (settingsAutosaveRef.current === null) {
     settingsAutosaveRef.current = createSettingsAutosave<Settings>({
       persist: (next) => persistSettingsRef.current(next),
-      onOptimistic: setSettings,
-      onCommit: () => {
+      onOptimistic: (next) => setSettings({
+        ...next, features: persistedSettingsRef.current?.features ?? next.features,
+      }),
+      onCommit: (saved) => {
+        setSettings(saved);
         clearErrorFrom("settings");
       },
       onError: (reason) => {

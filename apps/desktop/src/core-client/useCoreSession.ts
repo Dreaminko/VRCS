@@ -28,8 +28,8 @@ export function useCoreSession(resourcesActive: boolean) {
     reportError: errors.reportError,
   });
   const dictionary = useDictionaryRuntime({
-    active: resourcesActive,
-    coreConfigured: runtime.coreConfigured,
+    active: resourcesActive && Boolean(settings.value?.features.learning),
+    coreConfigured: runtime.coreConfigured && Boolean(settings.value?.features.learning),
     clearErrorFrom: errors.clearErrorFrom,
     reportError: errors.reportError,
   });

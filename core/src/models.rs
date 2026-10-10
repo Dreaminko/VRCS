@@ -93,6 +93,7 @@ pub struct DictionarySource {
 #[derive(Debug, Deserialize)]
 pub struct SettingsUpdate {
     pub schema_version: u32,
+    pub features: crate::config::FeatureConfig,
     pub server: ServerConfig,
     pub storage: StorageConfig,
     pub audio: AudioConfig,

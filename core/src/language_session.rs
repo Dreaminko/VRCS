@@ -58,7 +58,7 @@ impl ActiveLanguageSession {
         effective.asr.language = runtime.recognition_language;
         effective.translation = runtime.translation;
         effective.osc.translation_strategy = runtime.osc_translation_strategy;
-        effective
+        crate::config::apply_feature_gates(&effective)
     }
 }
 

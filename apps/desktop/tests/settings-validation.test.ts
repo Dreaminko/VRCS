@@ -1,3 +1,4 @@
+import { DEFAULT_FEATURE_SETTINGS } from "../src/settings/feature-availability.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
@@ -9,7 +10,8 @@ import type { AudioDevice } from "../src/capture/types.ts";
 import type { Settings } from "../src/settings/types.ts";
 
 const settings: Settings = {
-  schema_version: 29,
+  schema_version: 30,
+  features: { ...DEFAULT_FEATURE_SETTINGS },
   server: { host: "127.0.0.1", port: 8766 },
   storage: {
     database_path: "data/vrcs.db",

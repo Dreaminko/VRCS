@@ -35,7 +35,10 @@ pub(super) async fn validate_candidate(
         ));
     }
     candidate.validate_settings().map_err(invalid)?;
-    if candidate.external_api.enabled && candidate.external_api.require_token {
+    if candidate.features.external_api
+        && candidate.external_api.enabled
+        && candidate.external_api.require_token
+    {
         let token = credentials::read_external_api_token().map_err(|error| {
             api_error(
                 StatusCode::INTERNAL_SERVER_ERROR,

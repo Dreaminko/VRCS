@@ -41,7 +41,7 @@ export function CompactEntry({
       <SelectionToolOverlays
         selection={selection}
         learning={learning}
-        ankiEnabled={settings.value?.anki.enabled ?? true}
+        ankiEnabled={Boolean(settings.value?.features.anki && settings.value.anki.enabled)}
         compact
       />
     </div>

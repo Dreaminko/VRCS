@@ -52,6 +52,10 @@ impl LocalOcrRuntime {
         self.assets.start_download()
     }
 
+    pub async fn cancel_download(&self) {
+        self.assets.cancel_download().await;
+    }
+
     pub async fn delete_models(&self) -> Result<ModelStatus, String> {
         let permit = self
             .inference_gate

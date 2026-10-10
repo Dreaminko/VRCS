@@ -25,6 +25,9 @@ import type { Settings } from "../settings/types";
 
 export function useChatboxWorkspace(settings: Settings | null) {
   const { t } = useTranslation();
+  const available = settings?.features.osc_chatbox ?? false;
+  const availableRef = useRef(available);
+  availableRef.current = available;
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState<ChatboxComposeInput>(() => createChatboxDraft());
   const [translationBasis, setTranslationBasis] = useState<{
@@ -55,7 +58,7 @@ export function useChatboxWorkspace(settings: Settings | null) {
     const local = previewChatboxLocally(draft);
     setPreview(local);
     const requestId = ++previewRequest.current;
-    if (draft.send_mode !== "original" && !translationFresh) return;
+    if (!available || !open || (draft.send_mode !== "original" && !translationFresh)) return;
     const timer = window.setTimeout(() => {
       void chatboxApi.previewChatbox(draft).then(
         (value) => {
@@ -65,7 +68,7 @@ export function useChatboxWorkspace(settings: Settings | null) {
       );
     }, 180);
     return () => window.clearTimeout(timer);
-  }, [draft, translationFresh]);
+  }, [available, open, draft, translationFresh]);
 
   const changeDraft = useCallback((next: ChatboxComposeInput) => {
     if (next.translation !== draft.translation) {
@@ -84,9 +87,17 @@ export function useChatboxWorkspace(settings: Settings | null) {
   }, [draft.translation]);
 
   const show = useCallback(() => {
+    if (!availableRef.current) return;
     setOpen(true);
     setFeedback(null);
   }, []);
+
+  useEffect(() => {
+    if (!available) {
+      setOpen(false);
+      ++previewRequest.current;
+    }
+  }, [available]);
 
   const close = useCallback(() => setOpen(false), []);
 
@@ -105,6 +116,7 @@ export function useChatboxWorkspace(settings: Settings | null) {
   }, []);
 
   const rememberTranslation = useCallback((input: ChatboxComposeInput) => {
+    if (!availableRef.current) return;
     setDraft(input);
     setTranslationBasis({
       original: input.original,
@@ -113,7 +125,7 @@ export function useChatboxWorkspace(settings: Settings | null) {
   }, []);
 
   const translate = useCallback(async () => {
-    if (!draft.original.trim() || busy !== null) return;
+    if (!availableRef.current || !draft.original.trim() || busy !== null) return;
     setBusy("translate");
     setFeedback(null);
     try {
@@ -126,7 +138,7 @@ export function useChatboxWorkspace(settings: Settings | null) {
   }, [busy, draft, rememberTranslation, requestTranslation, t]);
 
   const send = useCallback(async () => {
-    if (!draft.original.trim() || busy !== null) return false;
+    if (!availableRef.current || !draft.original.trim() || busy !== null) return false;
     let outgoing = draft;
     let stage: "translate" | "send" = "send";
     setFeedback(null);
@@ -137,6 +149,7 @@ export function useChatboxWorkspace(settings: Settings | null) {
         outgoing = await requestTranslation(draft);
         rememberTranslation(outgoing);
       }
+      if (!availableRef.current) return false;
       stage = "send";
       setBusy(stage);
       await chatboxApi.sendChatbox(outgoing);
@@ -159,7 +172,7 @@ export function useChatboxWorkspace(settings: Settings | null) {
   }, [busy, draft, rememberTranslation, requestTranslation, t, translationFresh]);
 
   return {
-    open,
+    open: available && open,
     draft,
     setDraft: changeDraft,
     preview,

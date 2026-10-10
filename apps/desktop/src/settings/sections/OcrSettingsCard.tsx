@@ -13,7 +13,8 @@ import type { DesktopOcrStatus } from "../../ocr/status";
 import { openVrOcrBindings } from "../../vr-overlay-native";
 import { ModelDeleteDialog } from "../components/ModelDeleteDialog";
 
-export function OcrSettingsCard({ config, profiles, disabled, runtime, desktopStatus, onChange }: {
+export function OcrSettingsCard({ vrAvailable, config, profiles, disabled, runtime, desktopStatus, onChange }: {
+  vrAvailable: boolean;
   config: VrOcrSettings;
   profiles: ApiProfileView[];
   disabled: boolean;
@@ -82,12 +83,12 @@ export function OcrSettingsCard({ config, profiles, disabled, runtime, desktopSt
       } catch {
         if (!disposed) setExecution(null);
       } finally {
-        if (!disposed && (config.enabled || config.desktop_enabled)) timer = setTimeout(() => void load(), 2000);
+        if (!disposed && ((vrAvailable && config.enabled) || config.desktop_enabled)) timer = setTimeout(() => void load(), 2000);
       }
     };
     void load();
     return () => { disposed = true; clearTimeout(timer); controller.abort(); };
-  }, [config.backend, config.device, config.enabled, config.desktop_enabled]);
+  }, [vrAvailable, config.backend, config.device, config.enabled, config.desktop_enabled]);
 
   const prepareModels = async () => {
     setModelBusy(true);
@@ -246,7 +247,7 @@ export function OcrSettingsCard({ config, profiles, disabled, runtime, desktopSt
           {t(`ocrWindow.errors.${desktopStatus.shortcut_error.replace("desktop_ocr.", "")}`, { defaultValue: t("ocrWindow.errors.failed") })}
         </p>}
       </section>
-      <section className="vr-overlay-card" aria-labelledby="ocr-vr-heading">
+      {vrAvailable && <section className="vr-overlay-card" aria-labelledby="ocr-vr-heading">
         <header className="vr-overlay-card-heading">
           <div><Glasses size={18} /><span><strong id="ocr-vr-heading">{t("settings.ocr.vr")}</strong></span></div>
         </header>
@@ -291,8 +292,8 @@ export function OcrSettingsCard({ config, profiles, disabled, runtime, desktopSt
         </div>
         <PreferenceToggle title={t("settings.vrOcr.gesture")} checked={config.hand_gesture_enabled}
           disabled={disabled} onChange={(hand_gesture_enabled) => onChange({ hand_gesture_enabled })} />
-      </section>
-      {config.display_mode === "wrist" && <section className="vr-overlay-card" aria-labelledby="ocr-wrist-heading">
+      </section>}
+      {vrAvailable && config.display_mode === "wrist" && <section className="vr-overlay-card" aria-labelledby="ocr-wrist-heading">
         <header className="vr-overlay-card-heading">
           <div><Glasses size={18} /><span><strong id="ocr-wrist-heading">{t("settings.vrOcr.wristTitle")}</strong>
             <small>{t("settings.vrOcr.wristDescription")}</small></span></div>

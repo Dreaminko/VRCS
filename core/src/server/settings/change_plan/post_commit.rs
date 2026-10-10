@@ -33,8 +33,18 @@ impl PostCommitUpdates {
         let glossary_refresh_ids = state
             .content
             .glossary
-            .set_config(candidate.glossary.clone());
+            .set_config(effective_candidate.glossary.clone());
         *state.config.config.write().expect("config lock") = candidate.clone();
+        state.config.features_tx.send_if_modified(|features| {
+            if *features == candidate.features {
+                return false;
+            }
+            *features = candidate.features.clone();
+            true
+        });
+        if !candidate.features.ocr {
+            state.config.local_ocr.cancel_download().await;
+        }
 
         if self.storage_quota_changed {
             apply_storage_quota(state, candidate.storage.subtitle_history_max_bytes).await;
@@ -43,13 +53,13 @@ impl PostCommitUpdates {
             if state.capture.capture_requested.load(Ordering::SeqCst) {
                 effective_candidate.osc.clone()
             } else {
-                candidate.osc.clone()
+                crate::config::apply_feature_gates(candidate).osc
             },
         );
         state
             .integrations
             .vrchat_mute_sync
-            .update_enabled(candidate.osc.mute_sync_enabled);
+            .update_enabled(effective_candidate.osc.mute_sync_enabled);
         if self.vrcx_changed {
             let token = credentials::read_vrcx_token().unwrap_or_else(|error| {
                 tracing::warn!(%error, "VRCX-0 token could not be read after settings update");
@@ -58,15 +68,15 @@ impl PostCommitUpdates {
             state
                 .integrations
                 .vrcx
-                .reconfigure(candidate.vrcx.clone(), token)
+                .reconfigure(effective_candidate.vrcx.clone(), token)
                 .await;
         }
         refresh_glossaries(state, glossary_refresh_ids);
         if self.vr_overlay_changed {
-            state
-                .integrations
-                .vr_overlay_config_tx
-                .send_replace((candidate.vr_overlay.clone(), candidate.ocr.clone()));
+            state.integrations.vr_overlay_config_tx.send_replace((
+                effective_candidate.vr_overlay.clone(),
+                effective_candidate.ocr.clone(),
+            ));
         }
     }
 }
@@ -90,11 +100,17 @@ fn refresh_glossaries(state: &SettingsContext, glossary_refresh_ids: Vec<String>
         return;
     }
     let glossary = Arc::clone(&state.content.glossary);
+    let mut features = state.config.features_tx.subscribe();
     let state = state.clone();
     tokio::spawn(async move {
         let mut refreshed = false;
         for id in glossary_refresh_ids {
-            match glossary.refresh(&id).await {
+            let result = tokio::select! {
+                biased;
+                _ = features.wait_for(|features| !features.glossary) => return,
+                result = glossary.refresh(&id) => result,
+            };
+            match result {
                 Ok(updated) => refreshed |= updated,
                 Err(error) => {
                     tracing::warn!(subscription_id = %id, code = error.code, detail = %error.detail, "glossary subscription refresh failed");

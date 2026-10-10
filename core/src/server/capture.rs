@@ -22,6 +22,8 @@ pub(crate) struct CaptureReloadPlan {
 impl CaptureReloadPlan {
     pub(crate) fn between(current: &AppConfig, candidate: &AppConfig) -> Self {
         let shared = current.vad != candidate.vad
+            || (current.vrcx.include_in_asr_context || candidate.vrcx.include_in_asr_context)
+                && current.vrcx.enabled != candidate.vrcx.enabled
             || asr_runtime_changed(current, candidate)
             || glossary_asr_runtime_changed(current, candidate)
             || current.storage.model_directory != candidate.storage.model_directory;
@@ -174,7 +176,8 @@ pub(super) async fn microphone_test_start(
             "Stop transcription before testing the microphone",
         ));
     }
-    let config = state.config.config.read().expect("config lock").clone();
+    let config =
+        crate::config::apply_feature_gates(&state.config.config.read().expect("config lock"));
     if config.audio.microphone.mode == "disabled" {
         return Err(api_error(
             StatusCode::UNPROCESSABLE_ENTITY,
@@ -498,7 +501,13 @@ pub(crate) async fn start_pipelines(
 
 pub(crate) async fn reload_glossary_asr_context(state: &CaptureContext) -> ApiResult<()> {
     let _control = state.capture.capture_control.lock().await;
-    let config = state.config.config.read().expect("config lock").clone();
+    let global = state.config.config.read().expect("config lock").clone();
+    let config = state
+        .config
+        .language_session
+        .read()
+        .expect("language session lock")
+        .apply_to(&global);
     if !state.capture.capture_requested.load(Ordering::SeqCst) || !glossary_used_by_capture(&config)
     {
         return Ok(());
@@ -554,7 +563,10 @@ pub(super) async fn capture_start(
                 .write()
                 .expect("language session lock") =
                 crate::language_session::ActiveLanguageSession::Global;
-            state.integrations.osc.update_config(global.osc);
+            state
+                .integrations
+                .osc
+                .update_config(crate::config::apply_feature_gates(&global).osc);
             return Err(error);
         }
     };
@@ -589,7 +601,8 @@ pub(super) async fn capture_stop(State(state): State<CaptureContext>) -> Json<Va
         .language_session
         .write()
         .expect("language session lock") = crate::language_session::ActiveLanguageSession::Global;
-    let osc = state.config.config.read().expect("config lock").osc.clone();
+    let osc =
+        crate::config::apply_feature_gates(&state.config.config.read().expect("config lock")).osc;
     state.integrations.osc.update_config(osc);
     Json(json!({ "running": false }))
 }

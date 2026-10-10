@@ -514,6 +514,9 @@
         "installing": "正在安装更新…"
       },
       "errors": {
+    "feature": {
+      "disabled": "此功能已关闭，可在系统设置的功能选项中重新开启。"
+    },
         "unavailable": "当前构建未配置更新功能。",
         "busy": "已有更新操作正在进行。",
         "no_pending": "请重新检查更新后再安装。",
@@ -521,6 +524,17 @@
       }
     },
     "settings": {
+    "features": {
+      "title": "功能选项",
+      "glossary": "术语表",
+      "learning": "词典与学习",
+      "anki": "Anki",
+      "osc_chatbox": "OSC Chatbox",
+      "vrcx": "VRCX-0 联动",
+      "ocr": "OCR",
+      "vr_overlay": "VR Overlay",
+      "external_api": "外部 API"
+    },
       "vrDashboard": {
         "resetPosition": "恢复默认位置与旋转",
         "displayTab": "显示与 OCR",
@@ -555,6 +569,48 @@
         "vr": "VR 模式"
       },
       "vrOcr": {
+        "progress": {
+          "prepare": "准备",
+          "recognize": "识别",
+          "translate": "翻译",
+          "display": "显示",
+          "preparing": "正在准备图像…",
+          "elapsed": "已用时 {{seconds}} 秒",
+          "tasks": "任务 {{completed}} / {{total}}",
+          "processed": "已处理 {{completed}} 个任务",
+          "failed": "{{failed}} 个失败",
+          "recognizingTranslating": "正在识别并翻译…",
+          "waitingWorker": "正在等待本地识别…",
+          "loadingModels": "正在加载本地模型…",
+          "waitingCloud": "正在等待云端识别…",
+          "uploading": "正在上传图像…",
+          "downloading": "正在获取识别结果…",
+          "recognizing": "正在识别文字…",
+          "translating": "正在翻译文字…",
+          "displaying": "正在显示结果…",
+          "firstScan": "首次扫描可能需要更长时间",
+          "waitingService": "正在等待识别服务响应",
+          "noText": "未检测到文字",
+          "lowConfidence": "未检测到可读文字",
+          "translationFailed": "翻译失败",
+          "partial": "部分翻译不可用",
+          "displayUnavailable": "结果已就绪，暂时无法显示",
+          "sourceDisplayed": "已显示原文",
+          "complete": "完成 · 已显示结果",
+          "timeoutPartial": "处理超时 · 已显示部分结果",
+          "timeout": "处理超时",
+          "viewChanged": "视图已变化，请重新扫描",
+          "unavailable": "文字识别不可用",
+          "authentication": "身份验证失败",
+          "credentialsMissing": "缺少文字识别服务凭据",
+          "rateLimit": "已达到服务请求频率限制",
+          "modelsMissing": "缺少本地文字识别模型",
+          "network": "网络请求失败",
+          "localFailed": "本地文字识别失败",
+          "trackingLost": "头显追踪不可用",
+          "configurationChanged": "设置已变化，请重新扫描",
+          "retry": "请重新扫描"
+        },
         "wristTitle": "OCR 手腕面板",
         "wristDescription": "对照阅读原文与译文，以下设置只影响 OCR 面板。",
         "wristPosition": "位置与角度",

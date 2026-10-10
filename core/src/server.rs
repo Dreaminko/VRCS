@@ -8,6 +8,7 @@ mod cloud;
 mod conversations;
 mod dictionary;
 mod external;
+mod feature_gate;
 mod glossaries;
 mod learning;
 mod ocr;
@@ -388,6 +389,10 @@ pub fn router(state: Arc<AppState>) -> Router {
             post(learning::learning_item_export),
         )
         .route("/ws", get(ws::ws_handler))
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            feature_gate::enforce,
+        ))
         .layer(middleware::from_fn_with_state(state.clone(), authenticate))
         .layer(cors)
         .with_state(state)

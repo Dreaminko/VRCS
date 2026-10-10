@@ -90,6 +90,7 @@ export function DesktopShell({
     onboarding,
     locale,
   } = workspace;
+  const features = settings.value?.features;
   const [sidebarResizing, setSidebarResizing] = useState(false);
   const chatboxButtonRef = useRef<HTMLButtonElement | null>(null);
   useVrDashboardBridge(settings.value, settings.save, providers.catalog.profiles);
@@ -226,13 +227,13 @@ export function DesktopShell({
                   onLoadOlder={subtitles.loadOlder}
                   onSelect={selection.selectText}
                   onTranslate={subtitles.translationHandler}
-                  onAddLearning={learning.workspace.collectSubtitle}
-                  onOpenLearning={learning.actions.openSubtitleLearning}
-                  onAnalyzeSentence={learning.actions.analyzeSubtitleSentence}
-                  onAddLearningSelection={learning.actions.collectSubtitleSelection}
-                  onOpenLearningSelection={learning.actions.openSubtitleSelectionLearning}
-                  onAnalyzeSelection={learning.actions.analyzeSubtitleSelection}
-                  onOpenLearningItem={learning.actions.openLearningItem}
+                  onAddLearning={features?.learning ? learning.workspace.collectSubtitle : undefined}
+                  onOpenLearning={features?.learning ? learning.actions.openSubtitleLearning : undefined}
+                  onAnalyzeSentence={features?.learning ? learning.actions.analyzeSubtitleSentence : undefined}
+                  onAddLearningSelection={features?.learning ? learning.actions.collectSubtitleSelection : undefined}
+                  onOpenLearningSelection={features?.learning ? learning.actions.openSubtitleSelectionLearning : undefined}
+                  onAnalyzeSelection={features?.learning ? learning.actions.analyzeSubtitleSelection : undefined}
+                  onOpenLearningItem={features?.learning ? learning.actions.openLearningItem : undefined}
                   isLearningBusy={learning.actions.isSubtitleLearningBusy}
                   isLearningCaptured={learning.actions.isSubtitleLearningCaptured}
                   isLearningSelectionBusy={learning.actions.isSubtitleSelectionLearningBusy}
@@ -243,13 +244,14 @@ export function DesktopShell({
               </>
             )}
 
-            {page === "learning" && (
+            {page === "learning" && features?.learning && (
               <Suspense fallback={<PageLoading />}>
                 <LearningWorkspace
                   conversation={conversations.selectedConversation}
                   subtitles={conversations.selectedSubtitles}
                   workspace={learning.workspace}
-                  ankiEnabled={settings.value?.anki.enabled ?? true}
+                  ankiAvailable={features?.anki ?? false}
+                  ankiEnabled={Boolean(features?.anki && settings.value?.anki.enabled)}
                   onSelect={selection.selectText}
                   onTranslate={subtitles.translationHandler}
                   translatingSubtitleIds={subtitles.translatingIds}
@@ -318,6 +320,8 @@ export function DesktopShell({
       )}
 
       <BottomDock
+        learningAvailable={features?.learning ?? false}
+        chatboxAvailable={features?.osc_chatbox ?? false}
         page={page}
         running={runtime.health?.capture_requested ?? false}
         captureDisabled={!runtime.ready || capture.pending}
@@ -362,7 +366,7 @@ export function DesktopShell({
       <SelectionToolOverlays
         selection={selection}
         learning={learning}
-        ankiEnabled={settings.value?.anki.enabled ?? true}
+        ankiEnabled={Boolean(features?.anki && settings.value?.anki.enabled)}
       />
       <UpdateNotice
         updater={integrations.updater}

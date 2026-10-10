@@ -30,6 +30,8 @@ Download `VRCS-<version>-windows-x64.exe` from [GitHub Releases](https://github.
 
 To run the wizard again, open **Settings › System**. For cloud recognition, see the [Alibaba Cloud free-quota guide (Chinese)](./docs/AlibabaCloud_Free.md).
 
+Open **Settings › System › Features** to turn off optional features. The feature stops and its settings and actions disappear. Your configuration and data are kept and restored when you turn it back on.
+
 ## Features
 
 - Real-time subtitles from system or VRChat process audio alongside microphone input, with separate controls for the two audio streams, compact window mode, and local session history.

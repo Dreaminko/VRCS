@@ -32,15 +32,18 @@ pub(super) async fn anki_add_card(
         .expect("config lock")
         .anki
         .clone();
-    let note_id = anki_service::create_card(&state.integrations.http, &card, &config)
-        .await
-        .map_err(|e| {
-            api_error_with_params(
-                StatusCode::from_u16(e.status_code).unwrap_or(StatusCode::BAD_GATEWAY),
-                format!("anki.{}", e.code),
-                e.params,
-                e.message,
-            )
-        })?;
+    let mut features = state.config.features_tx.subscribe();
+    let note_id = anki_service::create_card(&state.integrations.http, &card, &config, async move {
+        let _ = features.wait_for(|features| !features.anki).await;
+    })
+    .await
+    .map_err(|e| {
+        api_error_with_params(
+            StatusCode::from_u16(e.status_code).unwrap_or(StatusCode::BAD_GATEWAY),
+            format!("anki.{}", e.code),
+            e.params,
+            e.message,
+        )
+    })?;
     Ok(Json(json!({ "note_id": note_id })))
 }

@@ -514,6 +514,9 @@
         "installing": "Installing update…"
       },
       "errors": {
+    "feature": {
+      "disabled": "This feature is turned off. Turn it on in System settings → Features."
+    },
         "unavailable": "Updates are not configured for this build.",
         "busy": "An update operation is already running.",
         "no_pending": "Check for updates again before installing.",
@@ -521,6 +524,17 @@
       }
     },
     "settings": {
+    "features": {
+      "title": "Features",
+      "glossary": "Glossary",
+      "learning": "Dictionary and learning",
+      "anki": "Anki",
+      "osc_chatbox": "OSC Chatbox",
+      "vrcx": "VRCX-0 integration",
+      "ocr": "OCR",
+      "vr_overlay": "VR Overlay",
+      "external_api": "External API"
+    },
       "vrDashboard": {
         "resetPosition": "Reset position and rotation",
         "displayTab": "Display & OCR",
@@ -555,6 +569,48 @@
         "vr": "VR mode"
       },
       "vrOcr": {
+        "progress": {
+          "prepare": "Prepare",
+          "recognize": "Recognize",
+          "translate": "Translate",
+          "display": "Display",
+          "preparing": "Preparing image…",
+          "elapsed": "Elapsed {{seconds}}s",
+          "tasks": "Tasks {{completed}} / {{total}}",
+          "processed": "{{completed}} tasks processed",
+          "failed": "{{failed}} failed",
+          "recognizingTranslating": "Recognizing and translating…",
+          "waitingWorker": "Waiting for local OCR…",
+          "loadingModels": "Loading local models…",
+          "waitingCloud": "Waiting for cloud OCR…",
+          "uploading": "Uploading image…",
+          "downloading": "Fetching OCR results…",
+          "recognizing": "Recognizing text…",
+          "translating": "Translating text…",
+          "displaying": "Displaying results…",
+          "firstScan": "First scan may take longer",
+          "waitingService": "Waiting for the OCR service",
+          "noText": "No text detected",
+          "lowConfidence": "No readable text detected",
+          "translationFailed": "Translation failed",
+          "partial": "Some translations unavailable",
+          "displayUnavailable": "Results ready; display unavailable",
+          "sourceDisplayed": "Original text displayed",
+          "complete": "Complete · Results displayed",
+          "timeoutPartial": "Timed out · Partial results displayed",
+          "timeout": "Processing timed out",
+          "viewChanged": "View changed; scan again",
+          "unavailable": "OCR unavailable",
+          "authentication": "Authentication failed",
+          "credentialsMissing": "OCR credentials are missing",
+          "rateLimit": "Service rate limit reached",
+          "modelsMissing": "Local OCR models are missing",
+          "network": "Network request failed",
+          "localFailed": "Local OCR failed",
+          "trackingLost": "Headset tracking unavailable",
+          "configurationChanged": "Settings changed; scan again",
+          "retry": "Try scanning again"
+        },
         "wristTitle": "OCR wrist panel",
         "wristDescription": "Compare original text and translations. These settings apply only to the OCR panel.",
         "wristPosition": "Position and rotation",

@@ -72,13 +72,9 @@ pub(super) async fn token_write(
         )
     })?;
 
-    let config = state
-        .config
-        .config
-        .read()
-        .expect("config lock")
-        .external_api
-        .clone();
+    let config =
+        crate::config::apply_feature_gates(&state.config.config.read().expect("config lock"))
+            .external_api;
     if config.enabled && config.require_token {
         if let Err(error) =
             super::settings::reload_external_api_runtime(&state, &config, Some(token)).await
@@ -106,7 +102,9 @@ pub(super) async fn token_delete(
     let _config_control = state.config.config_control.lock().await;
     let token_required = {
         let config = state.config.config.read().expect("config lock");
-        config.external_api.enabled && config.external_api.require_token
+        config.features.external_api
+            && config.external_api.enabled
+            && config.external_api.require_token
     };
     if token_required {
         return Err(api_error(

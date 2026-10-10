@@ -11,6 +11,10 @@ pub fn pointer_from_openvr(x: f32, y: f32) -> (f32, f32) {
 pub struct DashboardViewModel {
     pub labels: DashboardLabels,
     pub enabled: bool,
+    #[serde(default = "available_by_default")]
+    pub ocr_available: bool,
+    #[serde(default = "available_by_default")]
+    pub osc_available: bool,
     pub headset: DashboardHeadset,
     pub wrist: DashboardWrist,
     pub ocr: DashboardOcr,
@@ -21,8 +25,14 @@ pub struct DashboardViewModel {
     pub error: Option<String>,
 }
 
+fn available_by_default() -> bool {
+    true
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 pub struct DashboardLabels {
+    #[serde(default)]
+    pub ocr_progress: super::ocr_progress::ProgressLabels,
     pub title: String,
     pub subtitle: String,
     pub master: String,
@@ -657,6 +667,8 @@ fn control_page(control: DashboardControl) -> Option<DashboardPage> {
 #[derive(Debug)]
 pub struct DashboardState {
     interactive: bool,
+    ocr_available: bool,
+    osc_available: bool,
     hovered: Option<DashboardControl>,
     pressed: Option<DashboardControl>,
     page: DashboardPage,
@@ -671,6 +683,8 @@ impl DashboardState {
     pub fn new() -> Self {
         Self {
             interactive: true,
+            ocr_available: true,
+            osc_available: true,
             hovered: None,
             pressed: None,
             page: DashboardPage::Display,
@@ -685,6 +699,13 @@ impl DashboardState {
     pub fn update_view(&mut self, view: &DashboardViewModel) {
         // The frontend serializes saves, so pending persistence must not block input.
         self.set_interactive(true);
+        self.ocr_available = view.ocr_available;
+        self.osc_available = view.osc_available;
+        if !view.osc_available && self.page == DashboardPage::Osc {
+            self.page = DashboardPage::Display;
+            self.hovered = None;
+            self.pressed = None;
+        }
         if self.language != view.language {
             self.language = view.language.clone();
             self.pressed = None;
@@ -815,6 +836,22 @@ impl DashboardState {
     }
 
     pub(super) fn control_enabled(&self, control: DashboardControl) -> bool {
+        if !self.ocr_available
+            && matches!(
+                control,
+                DashboardControl::OcrEnabled
+                    | DashboardControl::OcrGesture
+                    | DashboardControl::OcrBindings
+            )
+        {
+            return false;
+        }
+        if !self.osc_available
+            && (control == DashboardControl::OscTab
+                || control_page(control) == Some(DashboardPage::Osc))
+        {
+            return false;
+        }
         if !self.interactive {
             return false;
         }
@@ -1034,6 +1071,26 @@ mod tests {
     fn click(state: &mut DashboardState, x: f32, y: f32) -> Option<DashboardAction> {
         state.pointer_down(x, y);
         state.pointer_up(x, y)
+    }
+
+    #[test]
+    fn feature_switches_remove_ocr_and_osc_controls() {
+        let mut state = DashboardState {
+            ocr_available: false,
+            osc_available: false,
+            ..DashboardState::default()
+        };
+        assert_eq!(click(&mut state, 380., 784.), None);
+        assert_eq!(click(&mut state, 880., 168.), None);
+        assert_eq!(state.page(), DashboardPage::Display);
+        state.ocr_available = true;
+        state.osc_available = true;
+        assert_eq!(
+            click(&mut state, 380., 784.),
+            Some(DashboardAction::ToggleOcr)
+        );
+        click(&mut state, 880., 168.);
+        assert_eq!(state.page(), DashboardPage::Osc);
     }
 
     #[test]

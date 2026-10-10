@@ -2,7 +2,7 @@ use super::{
     backend::{OpenVrBackend, OverlayKind},
     ocr_capture::{center_crop, encode_png, CropTransform, StereoCapture},
     ocr_input::install_manifest,
-    ocr_progress::{Feedback, ProgressView},
+    ocr_progress::{Feedback, ProgressLabels, ProgressView},
     ocr_progress_renderer,
     ocr_selection::Selection,
     ocr_status::{failure_code, OcrState, OcrStatus, OcrWristState},
@@ -95,6 +95,7 @@ pub struct OcrRuntime {
     progress: Option<Arc<Mutex<ScanProgress>>>,
     pipeline: Option<watch::Receiver<Option<PipelineProgress>>>,
     feedback: Option<Feedback>,
+    pub progress_labels: ProgressLabels,
     feedback_view: Option<(ProgressView, u8)>,
     configuration: Option<Arc<ScanConfiguration>>,
     selecting: bool,
@@ -130,6 +131,7 @@ impl OcrRuntime {
             progress: None,
             pipeline: None,
             feedback: None,
+            progress_labels: ProgressLabels::default(),
             feedback_view: None,
             configuration: None,
             selecting: false,
@@ -335,7 +337,7 @@ impl OcrRuntime {
         self.status.progress = self
             .feedback
             .as_ref()
-            .and_then(|feedback| feedback.view(now));
+            .and_then(|feedback| feedback.view_with_labels(now, &self.progress_labels));
         let Some(view) = &self.status.progress else {
             backend.hide(OverlayKind::OcrProgress);
             self.feedback_view = None;
@@ -758,7 +760,7 @@ impl OcrRuntime {
             backend.set_opacity(OverlayKind::OcrResult, 1.0)?;
             backend.show(OverlayKind::OcrResult)?;
             if let Some(feedback) = &mut self.feedback {
-                feedback.displayed();
+                feedback.plane_displayed(limited);
             }
             visible = true;
             self.status.layout_limited = limited;

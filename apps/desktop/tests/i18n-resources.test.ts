@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
+import { createInstance } from "i18next";
 
 import { validateLocalization } from "../../../scripts/check-i18n.mjs";
 
@@ -82,13 +83,39 @@ test("repository localization validator accepts every locale", () => {
   );
 });
 
+test("VR OCR progress labels follow the UI language and preserve runtime placeholders", async () => {
+  const i18n = createInstance();
+  await i18n.init({
+    resources: Object.fromEntries(localeNames.map((name) => [name, {
+      translation: loadLocale(name).translation as JsonObject,
+    }])),
+    lng: "en-US",
+    fallbackLng: "en-US",
+    interpolation: { escapeValue: false },
+  });
+
+  for (const locale of localeNames) {
+    await i18n.changeLanguage(locale);
+    const labels = i18n.t("settings.vrOcr.progress", { returnObjects: true }) as Record<string, string>;
+    const expected = ((loadLocale(locale).translation as JsonObject).settings as JsonObject).vrOcr as JsonObject;
+    assert.deepEqual(labels, expected.progress, `${locale} progress labels differ`);
+    assert.ok(labels.elapsed.includes("{{seconds}}"));
+    assert.ok(labels.tasks.includes("{{completed}}"));
+    assert.ok(labels.tasks.includes("{{total}}"));
+    assert.ok(labels.failed.includes("{{failed}}"));
+    assert.notEqual(labels.recognizing, "settings.vrOcr.progress.recognizing");
+  }
+});
+
 test("every statically referenced translation key exists", () => {
   const english = leaves(loadLocale("en-US").translation);
   for (const sourceFile of sourceFiles(new URL("../src/", import.meta.url))) {
     const source = readFileSync(sourceFile, "utf8");
-    for (const match of source.matchAll(/\bt\("([^"]+)"/g)) {
+    for (const match of source.matchAll(/\bt\("([^"]+)"([^)]*)\)/g)) {
+      const objectResource = match[2].includes("returnObjects: true")
+        && [...english.keys()].some((key) => key.startsWith(`${match[1]}.`));
       assert.ok(
-        english.has(match[1]),
+        english.has(match[1]) || objectResource,
         `${fileURLToPath(sourceFile)} references missing key ${match[1]}`,
       );
     }

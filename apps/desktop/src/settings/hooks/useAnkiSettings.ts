@@ -31,7 +31,7 @@ export function useAnkiSettings({
   const getCurrent = draftController.getCurrent;
 
   const loadStatus = useCallback(async () => {
-    if (!getCurrent().anki.enabled) {
+    if ((!getCurrent().features.anki || !getCurrent().anki.enabled)) {
       setStatus(null);
       setMessage("");
       setBusy(false);
@@ -41,14 +41,14 @@ export function useAnkiSettings({
     setMessage("");
     try {
       const next = await ankiApi.ankiStatus();
-      if (!getCurrent().anki.enabled) return;
+      if ((!getCurrent().features.anki || !getCurrent().anki.enabled)) return;
       setStatus(next);
       setMessage(t(`apiStatus.${next.status_code}`, {
         ...next.params,
         defaultValue: next.detail,
       }));
     } catch (reason) {
-      if (!getCurrent().anki.enabled) return;
+      if ((!getCurrent().features.anki || !getCurrent().anki.enabled)) return;
       setStatus(null);
       setMessage(localizedError(reason, t, "errors.anki.status"));
     } finally {
@@ -57,14 +57,14 @@ export function useAnkiSettings({
   }, [getCurrent, t]);
 
   useEffect(() => {
-    if (active && draftController.draft.anki.enabled) void loadStatus();
-    else if (!draftController.draft.anki.enabled) {
+    if (active && draftController.draft.features.anki && draftController.draft.anki.enabled) void loadStatus();
+    else if (!draftController.draft.features.anki || !draftController.draft.anki.enabled) {
       setStatus(null);
       setMessage("");
       setPortError("");
       setBusy(false);
     }
-  }, [active, draftController.draft.anki.enabled, loadStatus]);
+  }, [active, draftController.draft.features.anki, draftController.draft.anki.enabled, loadStatus]);
 
   const update = <K extends keyof Settings["anki"]>(
     key: K,
@@ -73,7 +73,7 @@ export function useAnkiSettings({
     draftController.applySettings(
       (current) => ({ ...current, anki: { ...current.anki, [key]: value } }),
       () => {
-        if (getCurrent().anki.enabled) void loadStatus();
+        if (getCurrent().features.anki && getCurrent().anki.enabled) void loadStatus();
         else {
           setStatus(null);
           setMessage("");

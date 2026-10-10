@@ -209,6 +209,7 @@ impl Manager {
         &self,
         mut events: broadcast::Receiver<PresentationEvent>,
         mut config: watch::Receiver<(VrOverlayConfig, VrOcrConfig)>,
+        features: watch::Receiver<vrcs_core::FeatureConfig>,
         ocr_service: Option<vrcs_core::ocr::VrOcrService>,
     ) -> Result<(), String> {
         tracing::info!("Starting VR Overlay manager");
@@ -235,6 +236,7 @@ impl Manager {
                     latest_dashboard,
                     stopping,
                     initial_config,
+                    features,
                     ocr_service,
                 )
             })
@@ -376,6 +378,7 @@ fn worker_loop(
     latest_dashboard: Arc<Mutex<Option<DashboardViewModel>>>,
     stopping: Arc<AtomicBool>,
     config: (VrOverlayConfig, VrOcrConfig),
+    features: watch::Receiver<vrcs_core::FeatureConfig>,
     ocr_service: Option<vrcs_core::ocr::VrOcrService>,
 ) {
     #[cfg(windows)]
@@ -444,6 +447,10 @@ fn worker_loop(
         if let Ok(mut pending) = latest_dashboard.lock() {
             if let Some(view) = pending.take() {
                 if state.dashboard_view.as_ref() != Some(&view) {
+                    #[cfg(windows)]
+                    {
+                        state.ocr.progress_labels = view.labels.ocr_progress.clone();
+                    }
                     state.dashboard.update_view(&view);
                     state.dashboard_view = Some(view);
                     state.dashboard_dirty = true;
@@ -489,9 +496,10 @@ fn worker_loop(
             state.wrist.apply(event, now, &state.config.wrist);
         }
 
-        tick(&app, &mut state, &mut status);
+        let available = features.borrow().vr_overlay;
+        tick(&app, &mut state, &mut status, available);
         #[cfg(windows)]
-        if open_ocr_bindings {
+        if open_ocr_bindings && available && features.borrow().ocr {
             state.ocr.clear();
             let result = state
                 .backend
@@ -521,7 +529,32 @@ fn worker_loop(
     }
 }
 
-fn tick(app: &AppHandle, state: &mut WorkerState, status: &mut VrOverlayStatus) {
+fn tick(app: &AppHandle, state: &mut WorkerState, status: &mut VrOverlayStatus, available: bool) {
+    if !available {
+        #[cfg(windows)]
+        state.ocr.unavailable(false);
+        if let Some(mut backend) = state.backend.take() {
+            backend.hide_all();
+        }
+        state.headset_sample = false;
+        state.wrist_sample = false;
+        state.headset = HeadsetPresentation::default();
+        state.wrist = WristPresentation::default();
+        state.headset_hash = None;
+        state.wrist_hash = None;
+        state.dashboard_dirty = true;
+        state.dashboard_thumbnail_uploaded = false;
+        status.state = RuntimeState::Disabled;
+        status.headset.state = ResourceState::Disabled;
+        status.wrist.state = ResourceState::Disabled;
+        status.dashboard.state = ResourceState::Disabled;
+        status.dashboard.visible = false;
+        status.headset.sample_visible = false;
+        status.wrist.sample_visible = false;
+        status.wrist.tracked_device_available = false;
+        status.wrist.bound_role = None;
+        return;
+    }
     status.runtime_installed = OpenVrBackend::runtime_installed();
     status.hmd_present = OpenVrBackend::hmd_present();
     status.headset.sample_visible = state.headset_sample;

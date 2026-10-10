@@ -14,6 +14,8 @@ export function useSettingsDraft(
   const [saveState, setSaveState] = useState<SaveState>("idle");
   const [saveMessage, setSaveMessage] = useState("");
   const draftRef = useRef(settings);
+  const settingsRef = useRef(settings);
+  settingsRef.current = settings;
   const saveVersionRef = useRef(0);
   const savingRef = useRef(false);
 
@@ -43,6 +45,8 @@ export function useSettingsDraft(
       (reason) => {
         if (version !== saveVersionRef.current) return;
         savingRef.current = false;
+        draftRef.current = settingsRef.current;
+        setDraft(settingsRef.current);
         setSaveMessage(localizedError(reason, t, "errors.settings.apply"));
         setSaveState("error");
         afterError?.();

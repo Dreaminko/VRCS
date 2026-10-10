@@ -514,6 +514,9 @@
         "installing": "更新をインストールしています…"
       },
       "errors": {
+    "feature": {
+      "disabled": "この機能はオフです。システム設定の機能の選択からオンにできます。"
+    },
         "unavailable": "このビルドには更新機能が設定されていません。",
         "busy": "別の更新操作が実行中です。",
         "no_pending": "もう一度更新を確認してからインストールしてください。",
@@ -521,6 +524,17 @@
       }
     },
     "settings": {
+    "features": {
+      "title": "機能の選択",
+      "glossary": "用語集",
+      "learning": "辞書と学習",
+      "anki": "Anki",
+      "osc_chatbox": "OSC Chatbox",
+      "vrcx": "VRCX-0 連携",
+      "ocr": "OCR",
+      "vr_overlay": "VR Overlay",
+      "external_api": "外部 API"
+    },
       "vrDashboard": {
         "resetPosition": "位置と回転をリセット",
         "displayTab": "表示と OCR",
@@ -555,6 +569,48 @@
         "vr": "VR モード"
       },
       "vrOcr": {
+        "progress": {
+          "prepare": "準備",
+          "recognize": "認識",
+          "translate": "翻訳",
+          "display": "表示",
+          "preparing": "画像を準備中…",
+          "elapsed": "経過 {{seconds}} 秒",
+          "tasks": "タスク {{completed}} / {{total}}",
+          "processed": "{{completed}} 件処理済み",
+          "failed": "{{failed}} 件失敗",
+          "recognizingTranslating": "認識・翻訳中…",
+          "waitingWorker": "ローカル OCR の処理待ち…",
+          "loadingModels": "ローカルモデルを読み込み中…",
+          "waitingCloud": "クラウド OCR の応答待ち…",
+          "uploading": "画像をアップロード中…",
+          "downloading": "認識結果を取得中…",
+          "recognizing": "文字を認識中…",
+          "translating": "文字を翻訳中…",
+          "displaying": "結果を表示中…",
+          "firstScan": "初回は時間がかかる場合があります",
+          "waitingService": "OCR サービスの応答を待っています",
+          "noText": "文字が見つかりませんでした",
+          "lowConfidence": "読み取れる文字が見つかりませんでした",
+          "translationFailed": "翻訳に失敗しました",
+          "partial": "一部の翻訳を取得できませんでした",
+          "displayUnavailable": "結果の準備ができましたが、表示できません",
+          "sourceDisplayed": "原文を表示しました",
+          "complete": "完了 · 結果を表示しました",
+          "timeoutPartial": "タイムアウト · 一部の結果を表示しました",
+          "timeout": "処理がタイムアウトしました",
+          "viewChanged": "視点が変わりました。再スキャンしてください",
+          "unavailable": "OCR を利用できません",
+          "authentication": "認証に失敗しました",
+          "credentialsMissing": "OCR の認証情報が設定されていません",
+          "rateLimit": "サービスのリクエスト上限に達しました",
+          "modelsMissing": "ローカル OCR モデルがありません",
+          "network": "ネットワークリクエストに失敗しました",
+          "localFailed": "ローカル OCR に失敗しました",
+          "trackingLost": "ヘッドセットのトラッキングを利用できません",
+          "configurationChanged": "設定が変わりました。再スキャンしてください",
+          "retry": "再スキャンしてください"
+        },
         "wristTitle": "OCR 手首パネル",
         "wristDescription": "原文と訳文を比較できます。この設定は OCR パネルにのみ適用されます。",
         "wristPosition": "位置と角度",

@@ -125,41 +125,50 @@ pub async fn create_card(
     client: &reqwest::Client,
     card: &CardRequest,
     config: &AnkiConfig,
+    disabled: impl std::future::Future<Output = ()>,
 ) -> Result<i64, AnkiError> {
     if !config.enabled {
         return Err(AnkiError::disabled());
     }
-    let discovery = discover(client, config).await?;
-    if !discovery.configuration_valid {
-        return Err(AnkiError::configuration(
-            discovery.error_code.unwrap_or("invalid_configuration"),
-            discovery.params,
-            discovery.message,
-        ));
-    }
-    let note = build_note(card, config);
-    let can_add = invoke(
-        client,
-        config,
-        "canAddNotes",
-        Some(json!({ "notes": [note] })),
-    )
-    .await?;
-    let Some(flags) = can_add.as_array() else {
-        return Err(AnkiError::protocol(
-            "AnkiConnect returned an invalid card validation result".into(),
-        ));
-    };
-    if flags.len() != 1 || flags[0].as_bool() != Some(true) {
-        if flags.len() == 1 && flags[0].as_bool() == Some(false) {
-            return Err(AnkiError::duplicate(
-                "This note already exists and was not added again".into(),
+    let prepare = async {
+        let discovery = discover(client, config).await?;
+        if !discovery.configuration_valid {
+            return Err(AnkiError::configuration(
+                discovery.error_code.unwrap_or("invalid_configuration"),
+                discovery.params,
+                discovery.message,
             ));
         }
-        return Err(AnkiError::protocol(
-            "AnkiConnect returned an invalid card validation result".into(),
-        ));
-    }
+        let note = build_note(card, config);
+        let can_add = invoke(
+            client,
+            config,
+            "canAddNotes",
+            Some(json!({ "notes": [note] })),
+        )
+        .await?;
+        let Some(flags) = can_add.as_array() else {
+            return Err(AnkiError::protocol(
+                "AnkiConnect returned an invalid card validation result".into(),
+            ));
+        };
+        if flags.len() != 1 || flags[0].as_bool() != Some(true) {
+            if flags.len() == 1 && flags[0].as_bool() == Some(false) {
+                return Err(AnkiError::duplicate(
+                    "This note already exists and was not added again".into(),
+                ));
+            }
+            return Err(AnkiError::protocol(
+                "AnkiConnect returned an invalid card validation result".into(),
+            ));
+        }
+        Ok::<_, AnkiError>(note)
+    };
+    let note = tokio::select! {
+        biased;
+        _ = disabled => return Err(AnkiError::disabled()),
+        note = prepare => note?,
+    };
     let result = match invoke(client, config, "addNote", Some(json!({ "note": note }))).await {
         Ok(result) => result,
         Err(error)
@@ -206,8 +215,97 @@ mod tests {
             language: None,
             labels: None,
         };
-        let error = create_card(&http, &card, &config).await.unwrap_err();
+        let error = create_card(&http, &card, &config, std::future::pending())
+            .await
+            .unwrap_err();
         assert_eq!(error.code, "disabled");
         assert_eq!(error.status_code, 403);
+    }
+    #[tokio::test]
+    async fn feature_switches_stop_anki_preparation_but_keep_a_sent_note_receipt() {
+        use axum::{routing::post, Json, Router};
+        use std::sync::{
+            atomic::{AtomicUsize, Ordering},
+            Arc,
+        };
+        for stop_at in ["canAddNotes", "addNote"] {
+            let reached = Arc::new(tokio::sync::Notify::new());
+            let release = Arc::new(tokio::sync::Notify::new());
+            let added = Arc::new(AtomicUsize::new(0));
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let config = AnkiConfig {
+                enabled: true,
+                port: listener.local_addr().unwrap().port(),
+                ..AnkiConfig::default()
+            };
+            let handler_config = config.clone();
+            let handler_reached = reached.clone();
+            let handler_release = release.clone();
+            let handler_added = added.clone();
+            let router = Router::new().route(
+                "/",
+                post(move |Json(body): Json<Value>| {
+                    let config = handler_config.clone();
+                    let reached = handler_reached.clone();
+                    let release = handler_release.clone();
+                    let added = handler_added.clone();
+                    async move {
+                        let action = body["action"].as_str().unwrap();
+                        if action == "addNote" {
+                            added.fetch_add(1, Ordering::SeqCst);
+                        }
+                        if action == stop_at {
+                            reached.notify_one();
+                            release.notified().await;
+                        }
+                        let result = match action {
+                            "version" => json!(6),
+                            "multi" => json!([[config.deck], [config.model]]),
+                            "modelFieldNames" => json!([config.front_field, config.back_field]),
+                            "canAddNotes" => json!([true]),
+                            "addNote" => json!(123),
+                            _ => panic!("Unexpected Anki action: {action}"),
+                        };
+                        Json(json!({"result": result, "error": null}))
+                    }
+                }),
+            );
+            let server = tokio::spawn(async move {
+                axum::serve(listener, router).await.unwrap();
+            });
+            let (disabled_tx, mut disabled_rx) = tokio::sync::watch::channel(false);
+            let task = tokio::spawn(async move {
+                let card = CardRequest {
+                    term: "test".into(),
+                    definition: "definition".into(),
+                    context: String::new(),
+                    reading: None,
+                    dictionary: None,
+                    language: None,
+                    labels: None,
+                };
+                create_card(&client(), &card, &config, async move {
+                    let _ = disabled_rx.wait_for(|disabled| *disabled).await;
+                })
+                .await
+            });
+            tokio::time::timeout(std::time::Duration::from_secs(5), reached.notified())
+                .await
+                .unwrap();
+            disabled_tx.send_replace(true);
+            release.notify_one();
+            let result = tokio::time::timeout(std::time::Duration::from_secs(5), task)
+                .await
+                .unwrap()
+                .unwrap();
+            if stop_at == "canAddNotes" {
+                assert_eq!(result.unwrap_err().code, "disabled");
+                assert_eq!(added.load(Ordering::SeqCst), 0);
+            } else {
+                assert_eq!(result.unwrap(), 123);
+                assert_eq!(added.load(Ordering::SeqCst), 1);
+            }
+            server.abort();
+        }
     }
 }

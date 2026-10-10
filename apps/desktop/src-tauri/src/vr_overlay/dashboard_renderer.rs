@@ -154,6 +154,9 @@ pub fn render(
             &view.labels.osc_tab,
         ),
     ] {
+        if control == DashboardControl::OscTab && !view.osc_available {
+            continue;
+        }
         let feedback = visual(state, control);
         canvas.button(
             control_rect(control).into(),
@@ -299,6 +302,9 @@ fn render_display(
         state.control_enabled(DashboardControl::WristPosition),
     )?;
 
+    if !view.ocr_available {
+        return Ok(());
+    }
     canvas.card(Rect::new(48, 724, 1392, 852));
     canvas.heading(&view.labels.ocr, Rect::new(78, 738, 320, 790), 24)?;
     canvas.text(
@@ -1869,6 +1875,8 @@ mod tests {
 
     fn view(error: Option<String>) -> DashboardViewModel {
         DashboardViewModel {
+            ocr_available: true,
+            osc_available: true,
             labels: DashboardLabels {
                 title: "VRCS".into(),
                 subtitle: "SteamVR quick settings".into(),

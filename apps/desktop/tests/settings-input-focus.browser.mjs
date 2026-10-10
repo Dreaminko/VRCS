@@ -31,7 +31,7 @@ before(async () => {
         window.modelUpdates = [];
         const profile = { id: 'p1', name: 'Test', provider_display_name: 'Test', provider: 'openai_compatible', is_local: true, enabled_capabilities: ['text_generation', 'text_translation'], capabilities: { supports_streaming: false, requires_api_key: false, is_local: true, supports_model_listing: true, supports_context: true, supports_translation: true, supports_text_generation: true, supports_asr: false, supported_languages: ['en', 'ja'], supports_custom_translation_language: false } };
         const target = { target_language: 'ja', profile_id: 'p1', model: 'gpt-5-mini', thinking_enabled: false };
-        const initial = { asr: { backend: 'qwen_local_managed', language: 'auto', managed_qwen: { package_id: 'qwen3-asr-0.6b-q8_0', device: 'auto' }, active_profile_id: null, service_settings: {} }, translation: { mode: 'manual', speaker_targets: [target], microphone_targets: [target], prompt: { system_prompt: 'Translate.{glossary}{context}', context_enabled: true, include_speaker: true, include_microphone: true, include_chatbox: true, max_messages: 2, max_chars: 1000 } }, language_presets: [{ id: 'preset1', name: 'Original', recognition_language: 'en', speaker_targets: [target], microphone_targets: [target], translation_mode: 'manual', osc_translation_strategy: 'preferred_only' }], ocr: { ...DEFAULT_OCR_SETTINGS, targets: [target] } };
+        const initial = { features: { vr_overlay: true, ocr: true }, asr: { backend: 'qwen_local_managed', language: 'auto', managed_qwen: { package_id: 'qwen3-asr-0.6b-q8_0', device: 'auto' }, active_profile_id: null, service_settings: {} }, translation: { mode: 'manual', speaker_targets: [target], microphone_targets: [target], prompt: { system_prompt: 'Translate.{glossary}{context}', context_enabled: true, include_speaker: true, include_microphone: true, include_chatbox: true, max_messages: 2, max_chars: 1000 } }, language_presets: [{ id: 'preset1', name: 'Original', recognition_language: 'en', speaker_targets: [target], microphone_targets: [target], translation_mode: 'manual', osc_translation_strategy: 'preferred_only' }], ocr: { ...DEFAULT_OCR_SETTINGS, targets: [target] } };
         const onSave = async (settings) => {
           window.savedSettings.push(settings);
           await new Promise(resolve => setTimeout(resolve, 30));
@@ -42,7 +42,7 @@ before(async () => {
           const [model, setModel] = useState('original');
           return <>
             <TranslationSettingsSection draft={draft} saveState={saveState} applySettings={applySettings} apiProfiles={[profile]} />
-            <OcrSettingsSection draft={draft} saveState={saveState} applySettings={applySettings} profiles={[profile]} />
+            <OcrSettingsSection vrAvailable={true} draft={draft} saveState={saveState} applySettings={applySettings} profiles={[profile]} />
             <div id="immediate-model"><EditableDropdownField label="Immediate model" value={model} options={[]} onChange={(next) => { window.modelUpdates.push(next); setModel(next); }} /></div>
           </>;
         }

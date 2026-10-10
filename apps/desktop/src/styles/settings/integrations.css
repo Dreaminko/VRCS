@@ -10,6 +10,19 @@
 .system-settings-group > .section-heading,
 .learning-settings-group > .section-heading,
 .connections-settings-group > .section-heading { margin-bottom: 14px; }
+.system-features-group { interpolate-size: allow-keywords; }
+.system-features-group > summary.section-heading { min-height: 40px; margin-bottom: 0; list-style: none; cursor: pointer; }
+.system-features-group > summary::-webkit-details-marker { display: none; }
+.system-features-group > summary:focus-visible { outline: 3px solid var(--primary); outline-offset: 2px; border-radius: var(--radius-sm); }
+.system-features-group > summary > svg { color: var(--text-secondary); transition: transform 220ms cubic-bezier(0.16, 1, 0.3, 1); }
+.system-features-group::details-content { block-size: 0; overflow: clip; opacity: 0; transition: block-size 220ms cubic-bezier(0.16, 1, 0.3, 1), opacity 160ms cubic-bezier(0.16, 1, 0.3, 1), content-visibility 220ms allow-discrete; }
+.system-features-group[open]::details-content { block-size: auto; opacity: 1; }
+.system-features-group > .settings-toggle-list { padding-top: 14px; }
+.system-features-group[open] > summary > svg { transform: rotate(180deg); }
+
+@media (prefers-reduced-motion: reduce) {
+  .system-features-group::details-content { transition-duration: 0.01ms; }
+}
 
 .anki-section > .settings-feature-toggle,
 .dictionary-section > .settings-feature-toggle { margin-top: 0; }

@@ -173,14 +173,23 @@ impl Database {
     /// 导入 Yomitan 词典包；同名词典整体替换。
     #[cfg(test)]
     pub fn import_yomitan(&mut self, archive: &[u8]) -> AppResult<DictionarySource> {
-        self.import_yomitan_with_progress(archive, |_| {})
+        self.import_yomitan_with_progress(archive, |_| {}, || false)
     }
 
     pub fn import_yomitan_with_progress(
         &mut self,
         archive: &[u8],
         mut report_progress: impl FnMut(f64),
+        should_cancel: impl Fn() -> bool,
     ) -> AppResult<DictionarySource> {
+        let check_cancelled = || {
+            if should_cancel() {
+                Err(AppError::Conflict("Dictionary import was cancelled".into()))
+            } else {
+                Ok(())
+            }
+        };
+        check_cancelled()?;
         report_progress(0.0);
         let importer = YomitanImporter::new(archive).map_err(AppError::validation)?;
         let imported_at = crate::models::now_iso8601();
@@ -219,6 +228,7 @@ impl Database {
             let mut statement = transaction.prepare(&sql)?;
             importer.for_each_entry_with_progress(
                 |record| {
+                    check_cancelled()?;
                     records.push(record);
                     if records.len() == INSERT_BATCH_SIZE {
                         insert_batch(&mut statement, source_id, &mut records)?;
@@ -242,6 +252,7 @@ impl Database {
             "UPDATE dictionary_sources SET entry_count = ? WHERE id = ?",
             params![count, source_id],
         )?;
+        check_cancelled()?;
         transaction.commit()?;
         report_progress(1.0);
         self.dictionary_source(source_id)

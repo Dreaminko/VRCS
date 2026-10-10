@@ -1,3 +1,4 @@
+import { DEFAULT_FEATURE_SETTINGS } from "../src/settings/feature-availability.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -8,7 +9,8 @@ import type { ApiProfileView } from "../src/providers/types.ts";
 import { VR_OVERLAY_POSITION_RANGES, type VrOverlayPositionField } from "../src/settings/vr-overlay-settings.ts";
 
 const settings = {
-  schema_version: 29,
+  schema_version: 30,
+  features: { ...DEFAULT_FEATURE_SETTINGS },
   asr: { backend: "qwen_local_managed", language: "auto", managed_qwen: { package_id: "qwen3-asr-0.6b-q8_0", device: "auto" } },
   translation: {
     mode: "automatic",
@@ -242,4 +244,16 @@ test("dashboard OCR toggles change root VR settings without enabling desktop mod
   assert.equal(enabled.vr_overlay, settings.vr_overlay);
   assert.equal(gesture.ocr.hand_gesture_enabled, false);
   assert.equal(gesture.ocr.enabled, true);
+});
+
+
+test("dashboard actions cannot reactivate unavailable modules", () => {
+  const disabledVr = { ...settings, features: { ...settings.features, vr_overlay: false } };
+  assert.equal(applyVrDashboardAction(disabledVr, "toggle_master"), disabledVr);
+  assert.equal(applyVrDashboardAction(disabledVr, { set_recognition_language: "en" }), disabledVr);
+  const disabledModules = { ...settings, features: { ...settings.features, ocr: false, osc_chatbox: false } };
+  for (const action of ["toggle_ocr", "toggle_ocr_gesture", "toggle_osc", "toggle_osc_mute_sync", "cycle_osc_strategy"] as const) {
+    assert.equal(applyVrDashboardAction(disabledModules, action), disabledModules);
+  }
+  assert.notEqual(applyVrDashboardAction(disabledModules, "toggle_headset"), disabledModules);
 });

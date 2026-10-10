@@ -20,6 +20,7 @@ import type { UiLanguagePreference } from "../../app/ui-language";
 import type { ApplySettings, SaveState } from "../settings-types";
 import { PreferenceToggle, Select } from "../SettingsControls";
 import { StorageSettingsSection } from "./StorageSettingsSection";
+import { FeatureSettingsCard } from "../system/FeatureSettingsCard";
 import { SoftwareUpdateSettings } from "../../updates/SoftwareUpdateSettings";
 import type { AppUpdaterState } from "../../updates/useAppUpdater";
 
@@ -220,6 +221,10 @@ export function SystemSettingsSection({
             </button>
           </div>
         </section>
+        <FeatureSettingsCard features={draft.features} disabled={saveState === "saving"}
+          onChange={(key, enabled) => applySettings((current) => ({
+            ...current, features: { ...current.features, [key]: enabled },
+          }))} />
         <SoftwareUpdateSettings updater={updater} />
         <StorageSettingsSection
           locale={locale}

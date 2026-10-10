@@ -62,6 +62,9 @@ export function useVrDashboardBridge(
     let disposed = false;
     let unlisten: () => void = () => undefined;
     const handleAction = async (action: VrDashboardAction) => {
+      const current = settingsRef.current;
+      if (!current?.features.vr_overlay) return;
+      if (action === "open_ocr_bindings" && !current.features.ocr) return;
       if (action === "preview_headset" || action === "preview_wrist") {
         const kind = action === "preview_headset" ? "headset" : "wrist";
         const visible = statusRef.current?.[kind].sample_visible ?? false;
@@ -73,8 +76,7 @@ export function useVrDashboardBridge(
         return;
       }
 
-      const current = settingsRef.current;
-      if (!current) return;
+
       if (typeof action === "object" && "save_language_preset" in action) {
         action = { save_language_preset: t("settings.translation.presetDefaultName", { count: current.language_presets.length + 1 }) };
       }
@@ -111,7 +113,7 @@ export function useVrDashboardBridge(
   }, [t]);
 
   useEffect(() => {
-    if (!settings) return;
+    if (!settings?.features.vr_overlay) return;
     const overlay = settings.vr_overlay;
     const positionFields = (kind: VrOverlayDisplayKind) => Object.entries(VR_OVERLAY_POSITION_RANGES[kind]).map(([name, range]) => {
       const field = name as VrOverlayPositionField;
@@ -132,6 +134,7 @@ export function useVrDashboardBridge(
     const strategyKeys = { preferred_only: "preferredOnly", round_robin: "roundRobin", all_languages: "allLanguages" };
     const model: VrDashboardViewModel = {
       labels: {
+        ocr_progress: i18n.t("settings.vrOcr.progress", { returnObjects: true }) as Record<string, string>,
         title: t("settings.vrDashboard.title"),
         subtitle: t("settings.vrDashboard.subtitle"),
         master: t("settings.vrDashboard.master"),
@@ -172,6 +175,8 @@ export function useVrDashboardBridge(
         close: t("common.close"),
       },
       enabled: overlay.enabled,
+      ocr_available: settings.features.ocr,
+      osc_available: settings.features.osc_chatbox,
       headset: {
         enabled: overlay.headset.enabled,
         content: t(overlay.translation_display === "all_languages"

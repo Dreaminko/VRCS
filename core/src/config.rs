@@ -2,6 +2,7 @@
 //! 与 Python 版 `app/config.py` 行为保持一致。
 
 mod audio;
+mod features;
 mod glossary;
 mod integrations;
 mod io;
@@ -24,6 +25,7 @@ mod migration_tests;
 mod validation_tests;
 
 pub use audio::{AudioConfig, MicrophoneConfig, OutputConfig, VadConfig};
+pub use features::{apply_feature_gates, FeatureConfig, FeatureKey};
 pub use glossary::{GlossaryCategory, GlossaryConfig, GlossaryEntry, GlossarySource};
 pub use integrations::{AnkiConfig, DictionaryConfig, OscConfig};
 pub use io::{load_config, save_config};

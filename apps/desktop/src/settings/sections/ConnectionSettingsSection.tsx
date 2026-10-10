@@ -13,6 +13,7 @@ import { AnkiSettingsSection } from "./AnkiSettingsSection";
 
 export function ConnectionSettingsSection({
   draft,
+  features,
   health,
   saveState,
   applySettings,
@@ -20,6 +21,7 @@ export function ConnectionSettingsSection({
   anki,
 }: {
   draft: Settings;
+  features: Settings["features"];
   health: Health | null;
   saveState: SaveState;
   applySettings: ApplySettings;
@@ -113,7 +115,7 @@ export function ConnectionSettingsSection({
         </div>
       </div>
       <div className="connections-settings-list">
-        <section className="connections-settings-group osc-section" aria-labelledby="connections-osc-title">
+        {features.osc_chatbox && <section className="connections-settings-group osc-section" aria-labelledby="connections-osc-title">
           <div className="section-heading">
             <div>
               <RadioTower size={18} />
@@ -229,8 +231,8 @@ export function ConnectionSettingsSection({
               </div>
             )}
           </div>
-        </section>
-        <AnkiSettingsSection
+        </section>}
+        {features.anki && <AnkiSettingsSection
           draft={draft}
           status={anki.status}
           busy={anki.busy}
@@ -246,17 +248,17 @@ export function ConnectionSettingsSection({
           onSetPortText={anki.onSetPortText}
           onCommitPort={anki.onCommitPort}
           onUpdate={anki.onUpdate}
-        />
-        <VrcxIntegrationSettingsCard
+        />}
+        {features.vrcx && <VrcxIntegrationSettingsCard
           config={draft.vrcx}
           saveState={saveState}
           onChange={updateVrcx}
-        />
-        <ExternalApiSettingsCard
+        />}
+        {features.external_api && <ExternalApiSettingsCard
           config={draft.external_api}
           saveState={saveState}
           onChange={updateExternalApi}
-        />
+        />}
       </div>
     </div>
   );

@@ -88,6 +88,11 @@ function step(value: number, delta: number, minimum: number, maximum: number): n
 }
 
 export function applyVrDashboardAction(settings: Settings, action: VrDashboardAction, profiles: ApiProfileView[] = []): Settings {
+  if (!settings.features.vr_overlay) return settings;
+  if (typeof action === "string") {
+    if (action.includes("osc") && !settings.features.osc_chatbox) return settings;
+    if (action.includes("ocr") && !settings.features.ocr) return settings;
+  }
   if (typeof action === "object") {
     if ("adjust_display_position" in action) {
       const { kind, field, direction } = action.adjust_display_position;

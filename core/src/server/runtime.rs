@@ -18,6 +18,7 @@ use crate::translation::{TranslationDispatcher, TranslationService};
 use crate::{asr, smart_turn, vad};
 
 pub(crate) struct ConfigRuntime {
+    pub(crate) features_tx: watch::Sender<crate::config::FeatureConfig>,
     pub(crate) local_ocr: Arc<crate::ocr::LocalOcrRuntime>,
     pub(crate) config_path: PathBuf,
     pub(crate) asr_model_dir_override: Option<PathBuf>,
@@ -42,6 +43,7 @@ impl ConfigRuntime {
             .unwrap_or_else(|| std::path::Path::new("."))
             .join("models/ocr/ppocrv6-small");
         Self {
+            features_tx: watch::channel(input.config.features.clone()).0,
             local_ocr: Arc::new(crate::ocr::LocalOcrRuntime::new(ocr_directory)),
             config_path: input.config_path,
             asr_model_dir_override: input.asr_model_dir_override,

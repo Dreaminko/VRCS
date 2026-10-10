@@ -1,17 +1,19 @@
 use serde::{Deserialize, Serialize};
 
 use super::{
-    AnkiConfig, AsrConfig, AudioConfig, DictionaryConfig, ExternalApiConfig, GlossaryConfig,
-    LanguagePreset, OscConfig, ServerConfig, StorageConfig, TranslationConfig, VadConfig,
-    VrOcrConfig, VrOverlayConfig, VrcxConfig,
+    AnkiConfig, AsrConfig, AudioConfig, DictionaryConfig, ExternalApiConfig, FeatureConfig,
+    GlossaryConfig, LanguagePreset, OscConfig, ServerConfig, StorageConfig, TranslationConfig,
+    VadConfig, VrOcrConfig, VrOverlayConfig, VrcxConfig,
 };
 
-pub const SCHEMA_VERSION: u32 = 29;
+pub const SCHEMA_VERSION: u32 = 30;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AppConfig {
     #[serde(default = "schema_version")]
     pub schema_version: u32,
+    #[serde(default)]
+    pub features: FeatureConfig,
     #[serde(default)]
     pub server: ServerConfig,
     #[serde(default)]
@@ -52,6 +54,7 @@ impl Default for AppConfig {
     fn default() -> Self {
         Self {
             schema_version: SCHEMA_VERSION,
+            features: FeatureConfig::default(),
             server: ServerConfig::default(),
             storage: StorageConfig::default(),
             audio: AudioConfig::default(),
@@ -90,6 +93,7 @@ mod tests {
                 "audio",
                 "dictionary",
                 "external_api",
+                "features",
                 "glossary",
                 "language_presets",
                 "ocr",

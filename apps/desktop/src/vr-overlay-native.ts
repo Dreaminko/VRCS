@@ -25,6 +25,7 @@ export interface VrDashboardNumberField {
 
 export interface VrDashboardViewModel {
   labels: {
+    ocr_progress: Record<string, string>;
     title: string;
     subtitle: string;
     master: string;
@@ -65,6 +66,8 @@ export interface VrDashboardViewModel {
     close: string;
   };
   enabled: boolean;
+  ocr_available: boolean;
+  osc_available: boolean;
   headset: { enabled: boolean; content: string; width: string; opacity: string; position: VrDashboardNumberField[] };
   wrist: { enabled: boolean; hand: string; content: string; width: string; opacity: string; position: VrDashboardNumberField[] };
   ocr: { enabled: boolean; backend: string; gesture: boolean };

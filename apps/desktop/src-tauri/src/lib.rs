@@ -54,6 +54,20 @@ struct CoreRuntime {
     stop_requested: AtomicBool,
 }
 
+impl CoreRuntime {
+    fn require_feature(&self, feature: vrcs_core::FeatureKey) -> Result<(), String> {
+        let handle = self.handle.lock().map_err(|error| error.to_string())?;
+        if handle
+            .as_ref()
+            .is_some_and(|core| core.feature_enabled(feature))
+        {
+            Ok(())
+        } else {
+            Err("feature.disabled".into())
+        }
+    }
+}
+
 struct NativeUiState {
     show_item: Mutex<Option<MenuItem<tauri::Wry>>>,
     quit_item: Mutex<Option<MenuItem<tauri::Wry>>>,
@@ -179,6 +193,7 @@ fn launch_core(app: &tauri::AppHandle) -> Result<(), String> {
                 if let Err(error) = app.state::<vr_overlay::Manager>().start(
                     presentation_events,
                     vr_overlay_config,
+                    core.subscribe_features(),
                     ocr_service,
                 ) {
                     tracing::warn!(%error, "VR Overlay startup failed");

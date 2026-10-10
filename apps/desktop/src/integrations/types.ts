@@ -189,6 +189,7 @@ export interface VrOcrStatus {
     detail: string;
     elapsed_seconds: number;
     stages: ("pending" | "active" | "complete" | "skipped" | "failed")[];
+      stage_labels: string[];
     translation_fraction: [number, number] | null;
   } | null;
   progress_error?: string | null;

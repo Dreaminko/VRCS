@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { audioSelectionErrors } from "./settings-validation";
@@ -7,6 +7,7 @@ import type { Health } from "../core-client/types";
 import type { DictionarySource } from "../dictionary/types";
 import type { Settings } from "./types";
 import { SettingsTabBar } from "./components/SettingsTabBar";
+import { resolveSettingsCategory, visibleSettingsCategories } from "./feature-availability";
 import { useAnkiSettings } from "./hooks/useAnkiSettings";
 import { useApiProfileViews } from "./hooks/useApiProfileViews";
 import { useAsrModels } from "./hooks/useAsrModels";
@@ -78,7 +79,11 @@ export function SettingsPanel({
 }) {
   const { t, i18n } = useTranslation();
   const locale = i18n.resolvedLanguage ?? "en-US";
-  const [activeCategory, setActiveCategory] = useState<SettingsCategory>(initialCategory);
+  const [requestedCategory, setActiveCategory] = useState<SettingsCategory>(initialCategory);
+  const activeCategory = resolveSettingsCategory(requestedCategory, settings.features);
+  useEffect(() => {
+    if (activeCategory !== requestedCategory) setActiveCategory(activeCategory);
+  }, [activeCategory, requestedCategory]);
   const apiProfileCatalog = useApiProfileViews(`${settings.asr.active_profile_id ?? "local"}:${settings.asr.backend}`);
   const draftController = useSettingsDraft(settings, onSave);
   const desktop = useDesktopPreferences();
@@ -91,7 +96,7 @@ export function SettingsPanel({
     providerDefinitions: apiProfileCatalog.providerDefinitions,
   });
   const anki = useAnkiSettings({
-    active: activeCategory === "connections",
+    active: activeCategory === "connections" && settings.features.anki,
     settings,
     draftController,
   });
@@ -122,7 +127,7 @@ export function SettingsPanel({
 
   return (
     <section className="settings-surface">
-      <SettingsTabBar activeCategory={activeCategory} onChange={setActiveCategory} />
+      <SettingsTabBar activeCategory={activeCategory} visibleCategories={visibleSettingsCategories(settings.features)} onChange={setActiveCategory} />
 
       {activeCategory === "system" && (
         <SystemSettingsSection
@@ -246,6 +251,7 @@ export function SettingsPanel({
 
       {activeCategory === "connections" && (
         <ConnectionSettingsSection
+          features={settings.features}
           draft={draft}
           health={health}
           saveState={saveState}
@@ -270,7 +276,7 @@ export function SettingsPanel({
       )}
 
       {activeCategory === "ocr" && (
-        <OcrSettingsSection draft={draft} profiles={apiProfileCatalog.profiles}
+        <OcrSettingsSection vrAvailable={settings.features.vr_overlay} draft={draft} profiles={apiProfileCatalog.profiles}
           saveState={saveState} applySettings={applySettings} />
       )}
 

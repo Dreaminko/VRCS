@@ -105,6 +105,9 @@ export const SubtitleBubble = memo(function SubtitleBubble({
   const [analysisState, setAnalysisState] = useState<"idle" | "analyzing" | "completed" | "error">("idle");
   const [analysisResult, setAnalysisResult] = useState<Extract<SubtitleAnalysisOutcome, { status: "completed" }> | null>(null);
   const [analysisPopoverOpen, setAnalysisPopoverOpen] = useState(false);
+  const analysisAvailable = Boolean(selectionMode ? onAnalyzeSelection : onAnalyzeSentence);
+  const analysisAvailableRef = useRef(analysisAvailable);
+  analysisAvailableRef.current = analysisAvailable;
   const analysisTargetRef = useRef(actionTargetKey);
   analysisTargetRef.current = actionTargetKey;
   const origin: LookupOrigin = {
@@ -122,7 +125,7 @@ export const SubtitleBubble = memo(function SubtitleBubble({
     setAnalysisState("idle");
     setAnalysisResult(null);
     setAnalysisPopoverOpen(false);
-  }, [actionTargetKey]);
+  }, [actionTargetKey, analysisAvailable]);
 
   const copyText = async (text: string) => {
     try {
@@ -156,7 +159,7 @@ export const SubtitleBubble = memo(function SubtitleBubble({
     setAnalysisState("analyzing");
     try {
       const outcome = await analyze();
-      if (analysisTargetRef.current !== targetKey) return;
+      if (!analysisAvailableRef.current || analysisTargetRef.current !== targetKey) return;
       if (!outcome) {
         setAnalysisState("error");
         return;
@@ -169,7 +172,7 @@ export const SubtitleBubble = memo(function SubtitleBubble({
         setAnalysisState("idle");
       }
     } catch {
-      if (analysisTargetRef.current === targetKey) setAnalysisState("error");
+      if (analysisAvailableRef.current && analysisTargetRef.current === targetKey) setAnalysisState("error");
     }
   };
 
@@ -240,12 +243,12 @@ export const SubtitleBubble = memo(function SubtitleBubble({
         )}
       </div>
       <div className="subtitle-actions">
-        {analysisState === "analyzing" && (
+        {analysisAvailable && analysisState === "analyzing" && (
           <span className="subtitle-analysis-feedback analyzing" role="status">
             <LoaderCircle className="spinning" size={13} />{t("live.contextMenu.analyzing")}
           </span>
         )}
-        {analysisState === "completed" && analysisResult && (
+        {analysisAvailable && analysisState === "completed" && analysisResult && (
           <button className="subtitle-analysis-feedback success" type="button" onClick={() => setAnalysisPopoverOpen(true)}>
             <Check size={13} />{t("live.contextMenu.analysisComplete")}
           </button>
@@ -256,7 +259,7 @@ export const SubtitleBubble = memo(function SubtitleBubble({
           </button>
         )}
       </div>
-      {analysisPopoverOpen && analysisResult && (
+      {analysisAvailable && analysisPopoverOpen && analysisResult && (
         <SubtitleAnalysisPopover
           anchorRef={bubbleRef}
           analysis={analysisResult.analysis}

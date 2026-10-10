@@ -42,8 +42,8 @@ use crate::server::AppState;
 use crate::startup::{RuntimeAssembly, RuntimeTasks, StartupPlan};
 
 pub use crate::config::{
-    VrOcrBackend, VrOcrConfig, VrOcrDisplayMode, VrOcrWristConfig, VrOverlayConfig,
-    VrOverlayHeadsetConfig, VrOverlayWristConfig,
+    FeatureConfig, FeatureKey, VrOcrBackend, VrOcrConfig, VrOcrDisplayMode, VrOcrWristConfig,
+    VrOverlayConfig, VrOverlayHeadsetConfig, VrOverlayWristConfig,
 };
 pub use crate::models::{
     LiveTranslation, LiveTranslationPreview, SpeakerIdentity, Subtitle, SubtitleTranslation,
@@ -96,6 +96,22 @@ impl CoreHandle {
 
     pub fn session_token(&self) -> &str {
         &self.session_token
+    }
+
+    pub fn subscribe_features(&self) -> watch::Receiver<FeatureConfig> {
+        self.state.config.features_tx.subscribe()
+    }
+
+    pub fn feature_enabled(&self, feature: FeatureKey) -> bool {
+        feature.enabled(
+            &self
+                .state
+                .config
+                .config
+                .read()
+                .expect("config lock")
+                .features,
+        )
     }
 
     pub fn external_api_address(&self) -> Option<SocketAddr> {

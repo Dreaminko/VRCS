@@ -16,6 +16,7 @@ export const LearningWorkspace = memo(function LearningWorkspace({
   subtitles,
   workspace,
   ankiEnabled,
+  ankiAvailable,
   onSelect,
   onTranslate,
   translatingSubtitleIds = [],
@@ -28,6 +29,7 @@ export const LearningWorkspace = memo(function LearningWorkspace({
   subtitles: Subtitle[];
   workspace: LearningWorkspaceController;
   ankiEnabled: boolean;
+  ankiAvailable: boolean;
   onSelect: (context: string, origin?: LookupOrigin) => Promise<void>;
   onTranslate?: (subtitleId: number) => void;
   translatingSubtitleIds?: number[];
@@ -49,7 +51,7 @@ export const LearningWorkspace = memo(function LearningWorkspace({
         </div>
       </header>
       {tab === "inbox" ? (
-        <LearningInbox workspace={workspace} ankiEnabled={ankiEnabled} />
+        <LearningInbox workspace={workspace} ankiEnabled={ankiEnabled} ankiAvailable={ankiAvailable} />
       ) : (
         <LearningSourceBrowser
           conversation={conversation}

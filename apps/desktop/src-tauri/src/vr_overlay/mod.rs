@@ -60,7 +60,11 @@ pub fn vr_overlay_status(manager: State<'_, Manager>) -> Result<VrOverlayStatus,
 }
 
 #[tauri::command]
-pub fn vr_overlay_retry(manager: State<'_, Manager>) -> Result<(), String> {
+pub fn vr_overlay_retry(
+    manager: State<'_, Manager>,
+    runtime: State<'_, crate::CoreRuntime>,
+) -> Result<(), String> {
+    runtime.require_feature(vrcs_core::FeatureKey::VrOverlay)?;
     manager.retry()
 }
 
@@ -73,12 +77,22 @@ pub fn vr_dashboard_update_view(
 }
 
 #[tauri::command]
-pub fn vr_ocr_open_bindings(manager: State<'_, Manager>) -> Result<(), String> {
+pub fn vr_ocr_open_bindings(
+    manager: State<'_, Manager>,
+    runtime: State<'_, crate::CoreRuntime>,
+) -> Result<(), String> {
+    runtime.require_feature(vrcs_core::FeatureKey::VrOverlay)?;
+    runtime.require_feature(vrcs_core::FeatureKey::Ocr)?;
     manager.open_ocr_bindings()
 }
 
 #[tauri::command]
-pub fn vr_overlay_show_sample(kind: String, manager: State<'_, Manager>) -> Result<(), String> {
+pub fn vr_overlay_show_sample(
+    kind: String,
+    manager: State<'_, Manager>,
+    runtime: State<'_, crate::CoreRuntime>,
+) -> Result<(), String> {
+    runtime.require_feature(vrcs_core::FeatureKey::VrOverlay)?;
     manager.set_sample(SampleKind::parse(&kind)?, true)
 }
 

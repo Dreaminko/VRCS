@@ -91,8 +91,8 @@ impl SettingsChangePlan {
             model_directory.changed,
             capture.reload && capture.resume,
         );
-        let external_api = ExternalApiChange::between(&current, &candidate);
-        let post_commit = PostCommitUpdates::between(&current, &candidate);
+        let external_api = ExternalApiChange::between(&effective_current, &effective_candidate);
+        let post_commit = PostCommitUpdates::between(&effective_current, &effective_candidate);
 
         Ok(Self {
             current,
@@ -144,7 +144,11 @@ impl SettingsChangePlan {
             return Err(self.rollback_or(state, error).await);
         }
 
-        if let Err(error) = self.external_api.apply(state, &self.candidate).await {
+        if let Err(error) = self
+            .external_api
+            .apply(state, &self.effective_candidate)
+            .await
+        {
             return Err(self.rollback_or(state, error).await);
         }
 

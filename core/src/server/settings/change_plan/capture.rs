@@ -84,7 +84,13 @@ impl CaptureChange {
                 .capture
                 .capture_requested
                 .store(true, Ordering::SeqCst);
-            capture::start_pipelines(state, previous, self.plan)
+            let effective = state
+                .config
+                .language_session
+                .read()
+                .expect("language session lock")
+                .apply_to(previous);
+            capture::start_pipelines(state, &effective, self.plan)
                 .await
                 .map_err(|error| super::api_detail(&error))?;
         }

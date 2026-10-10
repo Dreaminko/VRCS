@@ -114,6 +114,9 @@ impl Manager {
             }
             self.publish(&state.status);
         }
+        if !config.desktop_enabled {
+            self.close();
+        }
         #[cfg(windows)]
         if let Some(hotkey) = self.hotkey.lock().unwrap().as_ref() {
             if let Err(error) =

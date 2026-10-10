@@ -82,7 +82,7 @@ fn append_vrcx_context(
 ) {
     let enabled = {
         let config = state.config.config.read().expect("config lock");
-        config.vrcx.enabled && config.vrcx.include_in_llm_context
+        config.features.vrcx && config.vrcx.enabled && config.vrcx.include_in_llm_context
     };
     if enabled {
         if let Some(entry) = state.integrations.vrcx.translation_context_entry() {

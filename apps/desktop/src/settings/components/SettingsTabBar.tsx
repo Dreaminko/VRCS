@@ -18,9 +18,11 @@ import type { SettingsCategory } from "../settings-types";
 
 export function SettingsTabBar({
   activeCategory,
+  visibleCategories,
   onChange,
 }: {
   activeCategory: SettingsCategory;
+  visibleCategories: SettingsCategory[];
   onChange: (category: SettingsCategory) => void;
 }) {
   const { t } = useTranslation();
@@ -41,7 +43,7 @@ export function SettingsTabBar({
   return (
     <div className="settings-tabbar-wrap">
       <div className="settings-tabbar" role="tablist" aria-label={t("settings.categories.label")}>
-        {categories.map((category) => {
+        {categories.filter((category) => visibleCategories.includes(category.id)).map((category) => {
           const active = activeCategory === category.id;
           return (
             <button

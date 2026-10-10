@@ -13,12 +13,14 @@ export function LearningCardEditor({
   item,
   workspace,
   ankiEnabled,
+  ankiAvailable,
   workingText,
   prepareWorkingText,
 }: {
   item: LearningItem;
   workspace: LearningWorkspaceController;
   ankiEnabled: boolean;
+  ankiAvailable: boolean;
   workingText: string;
   prepareWorkingText: () => Promise<boolean>;
 }) {
@@ -79,13 +81,13 @@ export function LearningCardEditor({
             <button className="secondary-button" type="button" disabled={disabled || !draftDirty || !draft.term.trim() || !draft.definition.trim()} onClick={() => void save()}>
               <Save size={15} />{t("learning.card.save")}
             </button>
-            <button className="primary-button" type="button" disabled={disabled || draftDirty || !ankiEnabled || item.anki_note_id !== null || !draft.term.trim() || !draft.definition.trim()} onClick={() => void workspace.exportItem(item.id)}>
+            {ankiAvailable && <button className="primary-button" type="button" disabled={disabled || draftDirty || !ankiEnabled || item.anki_note_id !== null || !draft.term.trim() || !draft.definition.trim()} onClick={() => void workspace.exportItem(item.id)}>
               {item.anki_note_id === null ? <PlusCircle size={15} /> : <Check size={15} />}
               {t(item.anki_note_id === null ? "learning.card.export" : "learning.card.exported")}
-            </button>
+            </button>}
           </div>
-          {draftDirty && <p className="learning-inline-hint">{t("learning.card.saveBeforeExport")}</p>}
-          {!ankiEnabled && <p className="learning-inline-hint">{t("learning.card.ankiDisabled")}</p>}
+          {ankiAvailable && draftDirty && <p className="learning-inline-hint">{t("learning.card.saveBeforeExport")}</p>}
+          {ankiAvailable && !ankiEnabled && <p className="learning-inline-hint">{t("learning.card.ankiDisabled")}</p>}
         </div>
       ) : (
         <p className="learning-inline-hint">{t("learning.card.empty")}</p>

@@ -163,7 +163,7 @@ impl VrOcrService {
     pub fn configuration(&self) -> Result<ScanConfiguration, String> {
         self.config
             .read()
-            .map(|config| ScanConfiguration(config.clone()))
+            .map(|config| ScanConfiguration(crate::config::apply_feature_gates(&config)))
             .map_err(|_| "OCR config lock failed".into())
     }
 
@@ -173,6 +173,7 @@ impl VrOcrService {
 
     pub(super) fn matches_config(&self, snapshot: &crate::config::AppConfig) -> bool {
         self.config.read().is_ok_and(|current| {
+            let current = crate::config::apply_feature_gates(&current);
             current.ocr == snapshot.ocr
                 && current.translation.prompt == snapshot.translation.prompt
                 && current.asr.api_profiles == snapshot.asr.api_profiles

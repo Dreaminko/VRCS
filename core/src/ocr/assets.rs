@@ -3,7 +3,7 @@ use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
 use tokio::io::AsyncWriteExt;
 
 struct Asset {
@@ -56,6 +56,7 @@ pub(super) struct ModelAssets {
     pub directory: PathBuf,
     status: Arc<RwLock<ModelStatus>>,
     prepare_lock: Arc<tokio::sync::Mutex<()>>,
+    download_task: Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>,
 }
 
 impl ModelAssets {
@@ -69,6 +70,7 @@ impl ModelAssets {
                 error: None,
             })),
             prepare_lock: Arc::new(tokio::sync::Mutex::new(())),
+            download_task: Default::default(),
         }
     }
 
@@ -114,7 +116,7 @@ impl ModelAssets {
             status.error = None;
         }
         let assets = self.clone();
-        tokio::spawn(async move {
+        let task = tokio::spawn(async move {
             let _guard = guard;
             let result = assets.download().await;
             let mut status = assets
@@ -132,7 +134,22 @@ impl ModelAssets {
                 }
             }
         });
+        *self.download_task.lock().expect("OCR download lock") = Some(task);
         Ok(self.snapshot())
+    }
+
+    pub async fn cancel_download(&self) {
+        let task = self.download_task.lock().expect("OCR download lock").take();
+        if let Some(task) = task.filter(|task| !task.is_finished()) {
+            task.abort();
+            let _ = task.await;
+            let mut status = self
+                .status
+                .write()
+                .unwrap_or_else(|error| error.into_inner());
+            status.state = ModelState::Missing;
+            status.error = None;
+        }
     }
 
     pub fn delete(&self) -> Result<ModelStatus, String> {
@@ -299,6 +316,26 @@ fn verify_file(path: &Path, asset: &Asset) -> Result<bool, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn feature_switches_cancel_model_download_and_release_the_prepare_lock() {
+        let directory = tempfile::tempdir().unwrap();
+        let assets = ModelAssets::new(directory.path().into());
+        let guard = assets.prepare_lock.clone().try_lock_owned().unwrap();
+        let task = tokio::spawn(async move {
+            let _guard = guard;
+            std::future::pending::<()>().await;
+        });
+        *assets.download_task.lock().unwrap() = Some(task);
+        assets.status.write().unwrap().state = ModelState::Downloading;
+        assets.cancel_download().await;
+        assert_eq!(assets.snapshot().state, ModelState::Missing);
+        assert!(assets.prepare_lock.try_lock().is_ok());
+        assets.cancel_download().await;
+        assets.status.write().unwrap().state = ModelState::Ready;
+        assets.cancel_download().await;
+        assert_eq!(assets.snapshot().state, ModelState::Ready);
+    }
 
     #[tokio::test]
     async fn ocr_model_delete_clears_assets_and_status_but_preserves_other_files() {

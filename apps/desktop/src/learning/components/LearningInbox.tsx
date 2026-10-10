@@ -25,9 +25,11 @@ import { LearningCardEditor } from "./LearningCardEditor";
 export function LearningInbox({
   workspace,
   ankiEnabled,
+  ankiAvailable,
 }: {
   workspace: LearningWorkspaceController;
   ankiEnabled: boolean;
+  ankiAvailable: boolean;
 }) {
   const { t } = useTranslation();
   const item = workspace.selectedItem;
@@ -76,7 +78,7 @@ export function LearningInbox({
       </aside>
       <main className="learning-detail-pane">
         {item ? (
-          <LearningItemDetail item={item} workspace={workspace} ankiEnabled={ankiEnabled} />
+          <LearningItemDetail item={item} workspace={workspace} ankiEnabled={ankiEnabled} ankiAvailable={ankiAvailable} />
         ) : (
           <div className="learning-empty"><BookOpenText size={22} /><p>{t("learning.inbox.selectHint")}</p></div>
         )}
@@ -114,10 +116,12 @@ function LearningItemDetail({
   item,
   workspace,
   ankiEnabled,
+  ankiAvailable,
 }: {
   item: LearningItem;
   workspace: LearningWorkspaceController;
   ankiEnabled: boolean;
+  ankiAvailable: boolean;
 }) {
   const { t } = useTranslation();
   const [workingText, setWorkingText] = useState(item.working_text);
@@ -219,7 +223,7 @@ function LearningItemDetail({
       <LearningCardEditor
         item={item}
         workspace={workspace}
-        ankiEnabled={ankiEnabled}
+        ankiEnabled={ankiEnabled} ankiAvailable={ankiAvailable}
         workingText={workingText}
         prepareWorkingText={prepareWorkingText}
       />
