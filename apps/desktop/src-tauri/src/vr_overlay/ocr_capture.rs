@@ -273,8 +273,8 @@ pub fn encode_png(image: Texture) -> Result<Vec<u8>, String> {
         .and_then(|size| size.checked_mul(4));
     if image.width == 0
         || image.height == 0
-        || image.width > 4096
-        || image.height > 4096
+        || image.width > 16384
+        || image.height > 16384
         || expected.map(|size| size as usize) != Some(image.pixels.len())
     {
         return Err("Invalid OCR image".into());

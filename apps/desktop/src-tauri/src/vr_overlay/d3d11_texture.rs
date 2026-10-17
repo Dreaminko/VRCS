@@ -183,8 +183,8 @@ impl Device {
         };
         if desc.width == 0
             || desc.height == 0
-            || desc.width > 4096
-            || desc.height > 4096
+            || desc.width > 16384
+            || desc.height > 16384
             || desc.array_size != 1
             || desc.sample_desc.count != 1
         {

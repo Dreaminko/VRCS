@@ -256,6 +256,11 @@ impl OcrRuntime {
 
     fn invalidate(&mut self, config: &VrOcrConfig) {
         let feedback = self.feedback.take();
+        // Otherwise a dropped frame is only visible as a wrist message.
+        tracing::warn!(
+            scan_id = self.status.scan_id,
+            "VR OCR frame invalidated: source view changed"
+        );
         self.clear();
         self.status.state = OcrState::Invalid;
         let now = std::time::Instant::now();
@@ -314,9 +319,16 @@ impl OcrRuntime {
         });
         if let Err(error) = result {
             let feedback = self.feedback.take();
+            // clear() bumps the scan id and drops the previous error, so read both first.
+            let scan_id = self.status.scan_id;
+            // A failure that persists across frames must not repeat once per poll.
+            let repeated = self.status.last_error.as_deref() == Some(error.as_str());
             self.clear();
             backend.reset_ocr();
             let code = failure_code(&error);
+            if !repeated {
+                tracing::warn!(scan_id, code, %error, "VR OCR failed");
+            }
             self.status.state = if code == "timeout" {
                 OcrState::TimedOut
             } else {
@@ -350,6 +362,9 @@ impl OcrRuntime {
             backend.reset(OverlayKind::OcrWrist);
             self.vision.invalidate_render();
             self.wrist_view = None;
+            if self.status.wrist_error.as_deref() != Some(error.as_str()) {
+                tracing::warn!(%error, "VR OCR result overlay unavailable");
+            }
             self.status.wrist_state = OcrWristState::Error;
             self.status.wrist_error = Some(error);
         }
@@ -599,7 +614,14 @@ impl OcrRuntime {
         if capture_requested {
             backend.hide(OverlayKind::OcrProgress);
             let started = std::time::Instant::now();
-            let capture = Arc::new(backend.capture_ocr(config, self.selection.as_ref())?);
+            let scan_id = self.status.scan_id;
+            let capture = match backend.capture_ocr(config, self.selection.as_ref()) {
+                Ok(capture) => Arc::new(capture),
+                Err(error) => {
+                    tracing::warn!(scan_id, %error, "VR OCR capture failed");
+                    return Err(error);
+                }
+            };
             if self.selection.as_ref().is_some_and(|selection| {
                 selection.scene_pid != capture.scene_pid || selection.origin != capture.origin
             }) {
