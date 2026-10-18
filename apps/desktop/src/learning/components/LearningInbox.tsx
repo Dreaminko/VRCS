@@ -16,6 +16,7 @@ import { timestamp } from "../../app/app-utils";
 import { ConfirmDialog } from "../../app/components/ConfirmDialog";
 import type { LearningWorkspaceController } from "../hooks/useLearningWorkspace";
 import { learningTaskForKind } from "../learning";
+import { learningItemEditor } from "../learning-edits";
 import type {
   LearningItem,
   LearningItemKind,
@@ -189,7 +190,7 @@ function LearningItemDetail({
   ankiAvailable: boolean;
 }) {
   const { t } = useTranslation();
-  const [workingText, setWorkingText] = useState(item.working_text);
+  const { workingText } = learningItemEditor(item, workspace.itemEdits[item.id]);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const busy = workspace.isItemBusy(item.id);
@@ -198,12 +199,12 @@ function LearningItemDetail({
   const canUseAi = Boolean(workspace.preferences.profileId && workspace.preferences.model.trim());
   const itemError = workspace.itemErrors[item.id];
 
-  useEffect(() => setWorkingText(item.working_text), [item.id, item.working_text]);
-
   const prepareWorkingText = async (): Promise<boolean> => {
     if (archived) return false;
     if (workingText === item.working_text) return true;
-    return Boolean(await workspace.updateWorkingText(item.id, workingText));
+    const saved = await workspace.updateWorkingText(item.id, workingText);
+    if (saved) workspace.editItem(item.id, { workingText: undefined });
+    return Boolean(saved);
   };
   const analyze = async (taskType: LearningTaskType, focus?: "simpler" | "examples" | "compare") => {
     if (!workingText.trim() || !await prepareWorkingText()) return;
@@ -251,7 +252,7 @@ function LearningItemDetail({
         </label>
         <label className="learning-field learning-field-wide">
           <span>{t("learning.detail.workingText")}</span>
-          <textarea value={workingText} disabled={busy || archived} onChange={(event) => setWorkingText(event.target.value)} />
+          <textarea value={workingText} disabled={busy || archived} onChange={(event) => workspace.editItem(item.id, { workingText: event.target.value })} />
         </label>
         <div className="learning-copy-actions">
           <button className="secondary-button" type="button" disabled={busy || archived || workingText === item.working_text || !workingText.trim()} onClick={() => void prepareWorkingText()}>

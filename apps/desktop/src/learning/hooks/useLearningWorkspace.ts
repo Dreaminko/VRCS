@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useCallback, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import type {
@@ -8,6 +8,7 @@ import type {
 import { useLearningAiConfiguration } from "./useLearningAiConfiguration";
 import { useLearningCapture } from "./useLearningCapture";
 import { useLearningInbox } from "./useLearningInbox";
+import { updateLearningItemEdits, type LearningItemEdits } from "../learning-edits";
 
 export type { LearningPreferences } from "./useLearningAiConfiguration";
 export type { LearningBusyAction, LearningStatusFilter } from "./useLearningInbox";
@@ -17,6 +18,10 @@ export function useLearningWorkspace(active: boolean, ready = active) {
   const inbox = useLearningInbox(ready);
   const capture = useLearningCapture(ready, inbox.applyItem);
   const ai = useLearningAiConfiguration(ready, false);
+  const [itemEdits, setItemEdits] = useState<Record<number, LearningItemEdits>>({});
+  const editItem = useCallback((itemId: number, patch: LearningItemEdits) => {
+    setItemEdits((current) => updateLearningItemEdits(current, itemId, patch));
+  }, []);
 
   const analyze = useCallback((
     itemId: number,
@@ -41,11 +46,18 @@ export function useLearningWorkspace(active: boolean, ready = active) {
   const deleteItem = useCallback(async (itemId: number): Promise<boolean> => {
     const result = await inbox.deleteItem(itemId);
     if (!result.deleted) return false;
+    setItemEdits((current) => {
+      const next = { ...current };
+      delete next[itemId];
+      return next;
+    });
     await capture.refreshAfterDelete(result.item);
     return true;
   }, [capture.refreshAfterDelete, inbox.deleteItem]);
 
   return {
+    itemEdits,
+    editItem,
     items: inbox.items,
     selectedItem: inbox.selectedItem,
     selectedId: inbox.selectedId,

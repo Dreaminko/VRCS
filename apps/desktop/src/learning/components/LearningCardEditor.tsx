@@ -25,7 +25,7 @@ export function LearningCardEditor({
   prepareWorkingText: () => Promise<boolean>;
 }) {
   const { t } = useTranslation();
-  const editor = useLearningCardDraftEditor(item);
+  const editor = useLearningCardDraftEditor(item, workspace);
   const { cardType, draft, dirty: draftDirty } = editor;
   const busy = workspace.isItemBusy(item.id);
   const disabled = busy || item.status === "archived";
