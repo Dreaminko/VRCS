@@ -669,6 +669,7 @@ fn dictionary_lookup_ranks_shorter_prefixes_first_and_deinflects_queries() {
         ["書く", "かく", "", "", 10, ["to write"]],
         ["高い", "たかい", "", "", 10, ["high; expensive"]],
         ["猫", "ねこ", "", "", 10, ["cat"]],
+        ["食", "しょく", "", "", 10, ["meal"]],
         ["書き", "かき", "", "", 10, ["writing"]],
         ["高く", "たかく", "", "", 10, ["highly"]],
         ["話", "はなし", "", "", 10, ["story"]],

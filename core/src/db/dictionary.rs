@@ -55,7 +55,7 @@ fn insert_batch(
 }
 
 impl Database {
-    /// 分级查词：精确词条 → 内置精确 → 精确读音 → 词形还原精确 → 词条前缀 → 内置前缀 → 读音前缀。
+    /// 分级查词：精确词条 → 内置精确 → 精确读音 → 词形还原精确 → 词条前缀 → 内置前缀 → 读音前缀 → 截短前缀精确。
     pub fn lookup(&self, term: &str, limit: u32) -> AppResult<Vec<DictionaryEntry>> {
         let query = term.trim();
         if query.is_empty() {
@@ -82,13 +82,19 @@ impl Database {
         if !legacy_prefix.is_empty() {
             return Ok(legacy_prefix);
         }
-        Ok(self
-            .lookup_imported(
-                "entries.reading LIKE ? ESCAPE '\\' COLLATE NOCASE",
-                &prefix,
-                limit,
-            )?
-            .unwrap_or_default())
+        if let Some(entries) = self.lookup_imported(
+            "entries.reading LIKE ? ESCAPE '\\' COLLATE NOCASE",
+            &prefix,
+            limit,
+        )? {
+            return Ok(entries);
+        }
+        for candidate in truncated_prefixes(query) {
+            if let Some(entries) = self.lookup_exact(&candidate, limit)? {
+                return Ok(entries);
+            }
+        }
+        Ok(Vec::new())
     }
 
     fn lookup_exact(&self, query: &str, limit: u32) -> AppResult<Option<Vec<DictionaryEntry>>> {
@@ -427,17 +433,23 @@ fn deinflect_candidates(query: &str) -> Vec<String> {
                 }
             }
         }
-    } else if !query.is_ascii() {
-        let chars: Vec<char> = query.chars().collect();
-        for len in (1..chars.len()).rev().take(3) {
-            let prefix: String = chars[..len].iter().collect();
-            if len >= 2 || prefix.chars().all(is_kanji) {
-                push(prefix);
-            }
-        }
     }
 
     candidates
+}
+
+/// 非 ASCII 查询截短后的前缀（最多 3 个），仅在所有前缀搜索都无结果时使用。
+fn truncated_prefixes(query: &str) -> Vec<String> {
+    if query.is_ascii() {
+        return Vec::new();
+    }
+    let chars: Vec<char> = query.chars().collect();
+    (1..chars.len())
+        .rev()
+        .take(3)
+        .map(|len| chars[..len].iter().collect::<String>())
+        .filter(|prefix| prefix.chars().count() >= 2 || prefix.chars().all(is_kanji))
+        .collect()
 }
 
 fn push_godan_bases(stem: &str, push: &mut impl FnMut(String)) {
