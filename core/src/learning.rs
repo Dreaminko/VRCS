@@ -916,7 +916,7 @@ pub fn generate_draft(
             })?;
             CardRequest {
                 term: source.replacen(target, "____", 1),
-                reading,
+                reading: fill_blank_reading(item, target),
                 definition: format!("{target}\n{meaning}"),
                 context: source.to_owned(),
                 dictionary: dictionary_name,
@@ -943,11 +943,14 @@ fn fill_blank_target(item: &LearningItem) -> Option<(&str, &str)> {
                 .into_iter()
                 .flat_map(|value| value.grammar_points.iter().map(|point| point.form.as_str())),
         )
-        .chain(
-            analysis
-                .into_iter()
-                .flat_map(|value| value.segments.iter().map(|segment| segment.text.as_str())),
-        );
+        .chain(analysis.into_iter().flat_map(|value| {
+            // 只挖空谓语 / 用言，避免把「猫が」这类主语片段当成学习目标。
+            value
+                .segments
+                .iter()
+                .filter(|segment| is_content_segment_role(&segment.role))
+                .map(|segment| segment.text.as_str())
+        }));
     for candidate in candidates.filter_map(|value| non_empty(Some(value))) {
         for source in [item.working_text.as_str(), item.source_text.as_str()] {
             if source.trim() != candidate && source.contains(candidate) {
@@ -956,6 +959,33 @@ fn fill_blank_target(item: &LearningItem) -> Option<(&str, &str)> {
         }
     }
     None
+}
+
+fn is_content_segment_role(role: &str) -> bool {
+    let role = role.to_lowercase();
+    ["predicate", "verb", "adjective"]
+        .iter()
+        .any(|keyword| role.contains(keyword))
+}
+
+/// 读音必须对应挖空的目标词，而不是条目里的第一个词典结果。
+fn fill_blank_reading(item: &LearningItem, target: &str) -> Option<String> {
+    if let Some(entry) = item
+        .dictionary_entries
+        .iter()
+        .find(|entry| entry.term.trim() == target)
+    {
+        return entry.reading.clone();
+    }
+    let analysis = item.analysis.as_ref()?;
+    let analyzed_word = non_empty(analysis.base_form.as_deref()).or_else(|| {
+        (item.kind == LearningKind::Word)
+            .then(|| non_empty(item.selected_text.as_deref()))
+            .flatten()
+    });
+    (analyzed_word == Some(target))
+        .then(|| non_empty(analysis.reading.as_deref()).map(str::to_owned))
+        .flatten()
 }
 
 fn analysis_prompt(
@@ -1522,6 +1552,7 @@ mod tests {
         let fill = generate_draft(&item, LearningCardType::FillBlank).unwrap();
         assert_eq!(fill.term, "猫が魚を____");
         assert!(fill.definition.contains("食べる"));
+        assert_eq!(fill.reading.as_deref(), Some("たべる"));
 
         let mut inflected = item;
         inflected.source_text = "猫が魚を食べました".into();
@@ -1529,15 +1560,33 @@ mod tests {
         inflected.selected_text = None;
         inflected.dictionary_entries.clear();
         if let Some(analysis) = &mut inflected.analysis {
-            analysis.segments = vec![LearningSegment {
-                text: "食べました".into(),
-                role: "predicate".into(),
-                explanation: "polite past".into(),
-            }];
+            analysis.segments = vec![
+                LearningSegment {
+                    text: "猫が".into(),
+                    role: "subject".into(),
+                    explanation: "The subject.".into(),
+                },
+                LearningSegment {
+                    text: "食べました".into(),
+                    role: "predicate".into(),
+                    explanation: "polite past".into(),
+                },
+            ];
         }
         let inflected_fill = generate_draft(&inflected, LearningCardType::FillBlank).unwrap();
         assert_eq!(inflected_fill.term, "猫が魚を____");
         assert!(inflected_fill.definition.starts_with("食べました\n"));
+        assert_eq!(inflected_fill.reading, None);
+
+        if let Some(analysis) = &mut inflected.analysis {
+            analysis.segments.truncate(1);
+        }
+        assert_eq!(
+            generate_draft(&inflected, LearningCardType::FillBlank)
+                .unwrap_err()
+                .code,
+            "learning.draft_unavailable"
+        );
 
         inflected.analysis = None;
         assert_eq!(
