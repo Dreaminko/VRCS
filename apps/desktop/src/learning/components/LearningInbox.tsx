@@ -61,6 +61,21 @@ export function LearningInbox({
   const item = filteredItems.find((candidate) => candidate.id === workspace.selectedId)
     ?? filteredItems[0]
     ?? null;
+  const filtersActive = query.trim() !== "" || kindFilter !== "all";
+  const selectionHidden = workspace.selectedId !== null
+    && !filteredItems.some((candidate) => candidate.id === workspace.selectedId);
+
+  // 从外部打开（例如字幕里的「打开学习条目」）被本地筛选隐藏的条目时，清空筛选让它可见。
+  useEffect(() => {
+    if (!selectionHidden || !workspace.items.some((candidate) => candidate.id === workspace.selectedId)) return;
+    setQuery("");
+    setKindFilter("all");
+  }, [workspace.selectedId]);
+
+  // 用户修改筛选后，把选中状态同步到详情区实际显示的条目。
+  useEffect(() => {
+    if (selectionHidden && filteredItems[0]) workspace.setSelectedId(filteredItems[0].id);
+  }, [query, kindFilter]);
 
   return (
     <div className="learning-inbox">
@@ -92,7 +107,7 @@ export function LearningInbox({
             </div>
             <DropdownField
               compact
-              label={t("learning.inbox.title")}
+              label={t("learning.inbox.kindFilter")}
               value={kindFilter}
               options={kindOptions(t)}
               onChange={(value) => setKindFilter(value as LearningItemKind | "all")}
@@ -117,6 +132,7 @@ export function LearningInbox({
         ) : (
           <div className="learning-empty"><BookOpenText size={22} /><p>{t("learning.inbox.empty")}</p></div>
         )}
+        {workspace.hasMore && filtersActive && <p className="learning-inline-hint">{t("learning.inbox.searchLoadedOnly")}</p>}
         {workspace.hasMore && (
           <div className="learning-load-more">
             <button className="secondary-button" type="button" disabled={workspace.loadingMore} onClick={() => void workspace.loadMore()}>

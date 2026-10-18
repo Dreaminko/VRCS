@@ -319,6 +319,8 @@
         "title": "收集箱",
         "count": "{{count}} 个项目",
         "statusFilter": "项目状态",
+        "kindFilter": "项目类型",
+        "searchLoadedOnly": "搜索和类型筛选只覆盖已加载的项目。加载更多后可包含更早的项目。",
         "empty": "此状态下没有学习项目。",
         "selectHint": "选择一个项目继续处理。",
         "loadMore": "加载更多项目",

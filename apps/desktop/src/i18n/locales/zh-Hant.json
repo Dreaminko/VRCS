@@ -319,6 +319,8 @@
         "title": "收件匣",
         "count": "{{count}} 個學習項目",
         "statusFilter": "學習項目狀態",
+        "kindFilter": "學習項目類型",
+        "searchLoadedOnly": "搜尋與類型篩選只涵蓋已載入的項目。載入更多後即可包含較早的項目。",
         "empty": "沒有符合此狀態的學習項目。",
         "selectHint": "選取一個項目以繼續處理。",
         "loadMore": "載入更多學習項目",

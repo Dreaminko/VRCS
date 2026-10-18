@@ -319,6 +319,8 @@
         "title": "Inbox",
         "count": "{{count}} items",
         "statusFilter": "Item status",
+        "kindFilter": "Item type",
+        "searchLoadedOnly": "Search and type filters only cover loaded items. Load more to include older items.",
         "empty": "No learning items match this status.",
         "selectHint": "Select an item to continue working.",
         "loadMore": "Load more items",
