@@ -5,6 +5,7 @@ import { providersApi } from "../../providers/api";
 import { localizedError } from "../../app/app-utils";
 import { explanationLanguageForUiLocale } from "../learning";
 import type { ApiModelDetails, ApiProfileView } from "../../providers/types";
+import { API_PROFILES_CHANGED_EVENT } from "../../settings/hooks/useApiProfileViews";
 import { normalizeReasoningControlForModel } from "../../translation/translation-thinking";
 import type { ReasoningSetting } from "../../translation/translation-thinking";
 import {
@@ -17,7 +18,7 @@ import {
 
 export type { LearningPreferences } from "../preferences";
 
-export function useLearningAiConfiguration(active: boolean) {
+export function useLearningAiConfiguration(active: boolean, loadModelCatalog = active) {
   const { t, i18n } = useTranslation();
   const [error, setError] = useState("");
   const [profiles, setProfiles] = useState<ApiProfileView[]>([]);
@@ -68,11 +69,18 @@ export function useLearningAiConfiguration(active: boolean) {
 
   useEffect(() => {
     if (!active) return;
-    void loadProfiles();
+    const reload = () => {
+      void loadProfiles();
+    };
+    reload();
+    window.addEventListener(API_PROFILES_CHANGED_EVENT, reload);
+    return () => {
+      window.removeEventListener(API_PROFILES_CHANGED_EVENT, reload);
+    };
   }, [active, loadProfiles]);
 
   useEffect(() => {
-    if (!active || !selectedProfile) {
+    if (!active || !loadModelCatalog || !selectedProfile) {
       setModels([]);
       setModelDetails({});
       setModelsError("");
@@ -108,7 +116,7 @@ export function useLearningAiConfiguration(active: boolean) {
         if (requestId === modelRequestRef.current) setModelsLoading(false);
       });
     return () => { modelRequestRef.current += 1; };
-  }, [active, selectedProfile?.id, selectedProfile?.capabilities.supports_model_listing, t]);
+  }, [active, loadModelCatalog, selectedProfile?.id, selectedProfile?.capabilities.supports_model_listing, t]);
 
   useEffect(() => () => {
     profileRequestRef.current += 1;

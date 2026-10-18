@@ -16,7 +16,7 @@ export function useLearningWorkspace(active: boolean, ready = active) {
   const { i18n } = useTranslation();
   const inbox = useLearningInbox(ready);
   const capture = useLearningCapture(ready, inbox.applyItem);
-  const ai = useLearningAiConfiguration(active);
+  const ai = useLearningAiConfiguration(ready, false);
 
   const analyze = useCallback((
     itemId: number,
