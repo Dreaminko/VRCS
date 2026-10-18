@@ -175,6 +175,9 @@ impl Database {
             item.working_text = working_text;
         }
         if let Some(draft) = patch.draft {
+            if item.draft != draft {
+                item.anki_note_id = None;
+            }
             item.draft = draft;
         }
         item.status = item.active_status();
@@ -214,6 +217,9 @@ impl Database {
             return Ok(None);
         };
         ensure_learning_item_editable(&item)?;
+        if item.draft.as_ref() != Some(&draft) {
+            item.anki_note_id = None;
+        }
         item.draft = Some(draft);
         item.status = item.active_status();
         item.updated_at = now_iso8601();
@@ -561,6 +567,21 @@ mod tests {
         let restored = database.restore_learning_item(item.id).unwrap().unwrap();
         assert_eq!(restored.status, LearningStatus::Exported);
         assert_eq!(restored.anki_note_id, Some(42));
+
+        let mut updated_draft = restored.draft.unwrap();
+        updated_draft.definition = "updated definition".into();
+        let redrafted = database
+            .patch_learning_item(
+                item.id,
+                PatchLearningItem {
+                    working_text: None,
+                    draft: Some(Some(updated_draft)),
+                },
+            )
+            .unwrap()
+            .unwrap();
+        assert_eq!(redrafted.status, LearningStatus::CardDraft);
+        assert_eq!(redrafted.anki_note_id, None);
     }
 
     #[test]

@@ -124,3 +124,10 @@ export interface SelectionQueryResponse {
 export interface LearningDraftInput {
   card_type: LearningCardType;
 }
+
+export interface LearningExportInput {
+  labels?: {
+    definition: string;
+    context: string;
+  };
+}

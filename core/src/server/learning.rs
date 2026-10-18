@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use axum::body::Bytes;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::Json;
@@ -10,7 +11,8 @@ use crate::anki as anki_service;
 use crate::error::AppError;
 use crate::learning::{
     generate_draft, AnalyzeLearningItemRequest, CreateLearningDraftRequest, CreateLearningItem,
-    LearningError, LearningItem, LearningStatus, PatchLearningItem, SelectionQueryRequest,
+    ExportLearningItemRequest, LearningError, LearningItem, LearningStatus, PatchLearningItem,
+    SelectionQueryRequest,
 };
 
 use super::{api_error, api_error_with_params, db_call, ApiResult, ServiceContext};
@@ -194,8 +196,16 @@ pub(super) async fn learning_item_draft(
 pub(super) async fn learning_item_export(
     State(state): State<ServiceContext>,
     Path(id): Path<i64>,
+    body: Bytes,
 ) -> ApiResult<Json<Value>> {
     validate_id(id)?;
+    let request: ExportLearningItemRequest = if body.is_empty() {
+        ExportLearningItemRequest::default()
+    } else {
+        serde_json::from_slice(&body).map_err(|_| {
+            learning_validation_error("Export request body must be a valid JSON object".into())
+        })?
+    };
     let item = load_editable_item(&state, id).await?;
     if item.anki_note_id.is_some() {
         return Ok(Json(json!(item)));
@@ -208,6 +218,8 @@ pub(super) async fn learning_item_export(
             "Create and save a learning card draft before export",
         )
     })?;
+    let card = draft.card_request_with_labels(request.labels);
+    card.validate().map_err(learning_validation_error)?;
     let anki_config = state
         .config
         .config
@@ -215,7 +227,6 @@ pub(super) async fn learning_item_export(
         .expect("config lock")
         .anki
         .clone();
-    let card = draft.card_request();
     let mut features = state.config.features_tx.subscribe();
     let note_id =
         anki_service::create_card(&state.integrations.http, &card, &anki_config, async move {

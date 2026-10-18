@@ -2,6 +2,7 @@ import { request } from "../core-client/transport";
 import type {
   LearningAnalysisInput,
   LearningDraftInput,
+  LearningExportInput,
   LearningItem,
   LearningItemCreateInput,
   LearningItemPatchInput,
@@ -70,8 +71,11 @@ export const learningApi = {
     `/api/learning/items/${itemId}/draft`,
     { method: "POST", body: JSON.stringify(input) },
   ),
-  exportLearningItem: (itemId: number) => request<LearningItem>(
+  exportLearningItem: (itemId: number, input?: LearningExportInput) => request<LearningItem>(
     `/api/learning/items/${itemId}/export`,
-    { method: "POST" },
+    {
+      method: "POST",
+      body: input ? JSON.stringify(input) : undefined,
+    },
   ),
 };

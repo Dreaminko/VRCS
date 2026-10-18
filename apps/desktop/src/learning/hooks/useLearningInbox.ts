@@ -156,9 +156,14 @@ export function useLearningInbox(ready: boolean) {
   const exportItem = useCallback((itemId: number) => runItemAction(
     itemId,
     "export",
-    () => learningApi.exportLearningItem(itemId),
+    () => learningApi.exportLearningItem(itemId, {
+      labels: {
+        definition: t("anki.card.definition"),
+        context: t("anki.card.context"),
+      },
+    }),
     "errors.learning.export",
-  ), [runItemAction]);
+  ), [runItemAction, t]);
 
   const archiveItem = useCallback((itemId: number) => runItemAction(
     itemId,

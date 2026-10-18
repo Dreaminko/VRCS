@@ -6,7 +6,7 @@ use serde_json::json;
 use crate::config::{ApiProfile, ReasoningSetting};
 use crate::credentials;
 use crate::llm::{LlmClient, LlmError, LlmRequest};
-use crate::models::{CardRequest, DictionaryEntry};
+use crate::models::{CardLabels, CardRequest, DictionaryEntry};
 use crate::providers;
 
 pub const PROMPT_VERSION: &str = "learning-v2";
@@ -330,6 +330,10 @@ impl LearningCardDraft {
     }
 
     pub fn card_request(&self) -> CardRequest {
+        self.card_request_with_labels(None)
+    }
+
+    pub fn card_request_with_labels(&self, labels: Option<CardLabels>) -> CardRequest {
         CardRequest {
             term: self.term.clone(),
             reading: self.reading.clone(),
@@ -337,7 +341,7 @@ impl LearningCardDraft {
             context: self.context.clone(),
             dictionary: self.dictionary.clone(),
             language: self.language.clone(),
-            labels: None,
+            labels,
         }
     }
 
@@ -646,6 +650,13 @@ impl AnalyzeLearningItemRequest {
 #[serde(deny_unknown_fields)]
 pub struct CreateLearningDraftRequest {
     pub card_type: LearningCardType,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ExportLearningItemRequest {
+    #[serde(default)]
+    pub labels: Option<CardLabels>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
