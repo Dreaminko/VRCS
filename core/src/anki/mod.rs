@@ -1,4 +1,4 @@
-//! AnkiConnect facade: status probing and card creation.
+//! AnkiConnect facade: status probing, card creation and note updates.
 //! The HTTP protocol and note rendering live in focused child modules while
 //! this module keeps the public API stable.
 
@@ -186,6 +186,37 @@ pub async fn create_card(
         .ok_or_else(|| AnkiError::protocol("AnkiConnect did not return a valid note ID".into()))
 }
 
+/// 用卡片内容覆盖已导出笔记的字段；笔记已在 Anki 中被删除时返回 `Ok(false)`。
+pub async fn update_card(
+    client: &reqwest::Client,
+    card: &CardRequest,
+    config: &AnkiConfig,
+    note_id: i64,
+) -> Result<bool, AnkiError> {
+    if !config.enabled {
+        return Err(AnkiError::disabled());
+    }
+    let info = invoke(
+        client,
+        config,
+        "notesInfo",
+        Some(json!({ "notes": [note_id] })),
+    )
+    .await?;
+    if info[0].get("noteId").is_none() {
+        return Ok(false);
+    }
+    let fields = build_note(card, config)["fields"].clone();
+    invoke(
+        client,
+        config,
+        "updateNoteFields",
+        Some(json!({ "note": { "id": note_id, "fields": fields } })),
+    )
+    .await?;
+    Ok(true)
+}
+
 pub fn client() -> reqwest::Client {
     client::http_client()
 }
@@ -307,5 +338,61 @@ mod tests {
             }
             server.abort();
         }
+    }
+
+    #[tokio::test]
+    async fn update_card_overwrites_existing_notes_and_reports_deleted_ones() {
+        use axum::{routing::post, Json, Router};
+        use std::sync::{Arc, Mutex};
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let config = AnkiConfig {
+            enabled: true,
+            port: listener.local_addr().unwrap().port(),
+            ..AnkiConfig::default()
+        };
+        let updates = Arc::new(Mutex::new(Vec::<Value>::new()));
+        let handler_updates = updates.clone();
+        let router = Router::new().route(
+            "/",
+            post(move |Json(body): Json<Value>| {
+                let updates = handler_updates.clone();
+                async move {
+                    let result = match body["action"].as_str().unwrap() {
+                        "notesInfo" if body["params"]["notes"][0] == 7 => {
+                            json!([{ "noteId": 7, "fields": {} }])
+                        }
+                        "notesInfo" => json!([{}]),
+                        "updateNoteFields" => {
+                            updates.lock().unwrap().push(body["params"]["note"].clone());
+                            Value::Null
+                        }
+                        action => panic!("Unexpected Anki action: {action}"),
+                    };
+                    Json(json!({"result": result, "error": null}))
+                }
+            }),
+        );
+        let server = tokio::spawn(async move {
+            axum::serve(listener, router).await.unwrap();
+        });
+        let card = CardRequest {
+            term: "学ぶ".into(),
+            definition: "updated definition".into(),
+            context: String::new(),
+            reading: None,
+            dictionary: None,
+            language: None,
+            labels: None,
+        };
+        let http = client();
+
+        assert!(update_card(&http, &card, &config, 7).await.unwrap());
+        assert!(!update_card(&http, &card, &config, 8).await.unwrap());
+        let updates = updates.lock().unwrap().clone();
+        assert_eq!(updates.len(), 1);
+        assert_eq!(updates[0]["id"], 7);
+        assert_eq!(updates[0]["fields"], build_note(&card, &config)["fields"]);
+        server.abort();
     }
 }

@@ -452,6 +452,7 @@
         "save": "Save draft",
         "export": "Add to Anki",
         "exported": "Added to Anki",
+        "update": "Update in Anki",
         "noteId": "Anki note #{{id}}",
         "saveBeforeExport": "Save draft changes before adding the card to Anki.",
         "ankiDisabled": "Enable AnkiConnect in Settings before exporting.",

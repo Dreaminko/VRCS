@@ -207,7 +207,7 @@ pub(super) async fn learning_item_export(
         })?
     };
     let item = load_editable_item(&state, id).await?;
-    if item.anki_note_id.is_some() {
+    if item.anki_note_id.is_some() && !item.anki_sync_pending {
         return Ok(Json(json!(item)));
     }
     let draft = item.draft.as_ref().ok_or_else(|| {
@@ -227,22 +227,37 @@ pub(super) async fn learning_item_export(
         .expect("config lock")
         .anki
         .clone();
-    let mut features = state.config.features_tx.subscribe();
-    let note_id =
-        anki_service::create_card(&state.integrations.http, &card, &anki_config, async move {
-            let _ = features
-                .wait_for(|features| !features.anki || !features.learning)
-                .await;
-        })
-        .await
-        .map_err(|error| {
-            api_error_with_params(
-                StatusCode::from_u16(error.status_code).unwrap_or(StatusCode::BAD_GATEWAY),
-                format!("anki.{}", error.code),
-                error.params,
-                error.message,
-            )
-        })?;
+    let anki_error = |error: anki_service::AnkiError| {
+        api_error_with_params(
+            StatusCode::from_u16(error.status_code).unwrap_or(StatusCode::BAD_GATEWAY),
+            format!("anki.{}", error.code),
+            error.params,
+            error.message,
+        )
+    };
+    // 已导出且有待同步修改：覆盖原笔记；原笔记已在 Anki 中被删除时再新建。
+    let mut updated_note_id = None;
+    if let Some(note_id) = item.anki_note_id {
+        if anki_service::update_card(&state.integrations.http, &card, &anki_config, note_id)
+            .await
+            .map_err(anki_error)?
+        {
+            updated_note_id = Some(note_id);
+        }
+    }
+    let note_id = match updated_note_id {
+        Some(note_id) => note_id,
+        None => {
+            let mut features = state.config.features_tx.subscribe();
+            anki_service::create_card(&state.integrations.http, &card, &anki_config, async move {
+                let _ = features
+                    .wait_for(|features| !features.anki || !features.learning)
+                    .await;
+            })
+            .await
+            .map_err(anki_error)?
+        }
+    };
     let saved = db_call(Arc::clone(&state.content.db), move |db| {
         db.save_learning_export(id, note_id)
     })

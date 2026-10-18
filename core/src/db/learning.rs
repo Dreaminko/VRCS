@@ -175,9 +175,7 @@ impl Database {
             item.working_text = working_text;
         }
         if let Some(draft) = patch.draft {
-            if item.draft != draft {
-                item.anki_note_id = None;
-            }
+            item.mark_anki_sync_pending_if_changed(draft.as_ref());
             item.draft = draft;
         }
         item.status = item.active_status();
@@ -217,9 +215,7 @@ impl Database {
             return Ok(None);
         };
         ensure_learning_item_editable(&item)?;
-        if item.draft.as_ref() != Some(&draft) {
-            item.anki_note_id = None;
-        }
+        item.mark_anki_sync_pending_if_changed(Some(&draft));
         item.draft = Some(draft);
         item.status = item.active_status();
         item.updated_at = now_iso8601();
@@ -242,6 +238,7 @@ impl Database {
         };
         ensure_learning_item_editable(&item)?;
         item.anki_note_id = Some(anki_note_id);
+        item.anki_sync_pending = false;
         item.status = LearningStatus::Exported;
         item.updated_at = now_iso8601();
         self.persist_learning_item(&item)?;
@@ -303,7 +300,7 @@ impl Database {
                  kind = ?, status = ?, source_text = ?, working_text = ?, selected_text = ?,
                  source_translation = ?, source_language = ?, source_subtitle_ids = ?,
                  dictionary_entries = ?, analysis = ?, draft = ?, anki_note_id = ?,
-                 created_at = ?, updated_at = ?
+                 anki_sync_pending = ?, created_at = ?, updated_at = ?
              WHERE id = ?",
             params![
                 item.kind.as_str(),
@@ -318,6 +315,7 @@ impl Database {
                 analysis,
                 draft,
                 item.anki_note_id,
+                item.anki_sync_pending,
                 item.created_at,
                 item.updated_at,
                 item.id,
@@ -339,7 +337,8 @@ fn ensure_learning_item_editable(item: &LearningItem) -> AppResult<()> {
 fn learning_item_select() -> &'static str {
     "SELECT id, kind, status, source_text, working_text, selected_text,
             source_translation, source_language, source_subtitle_ids,
-            dictionary_entries, analysis, draft, anki_note_id, created_at, updated_at
+            dictionary_entries, analysis, draft, anki_note_id, created_at, updated_at,
+            anki_sync_pending
      FROM learning_items"
 }
 
@@ -374,6 +373,7 @@ fn learning_item_from_row(row: &Row<'_>) -> rusqlite::Result<LearningItem> {
         anki_note_id: row.get(12)?,
         created_at: row.get(13)?,
         updated_at: row.get(14)?,
+        anki_sync_pending: row.get(15)?,
     };
     item.validate().map_err(|error| data_error(0, error))?;
     Ok(item)
@@ -580,8 +580,26 @@ mod tests {
             )
             .unwrap()
             .unwrap();
-        assert_eq!(redrafted.status, LearningStatus::CardDraft);
-        assert_eq!(redrafted.anki_note_id, None);
+        assert_eq!(redrafted.status, LearningStatus::Exported);
+        assert_eq!(redrafted.anki_note_id, Some(42));
+        assert!(redrafted.anki_sync_pending);
+
+        let unchanged = database
+            .save_learning_draft(item.id, redrafted.draft.clone().unwrap())
+            .unwrap()
+            .unwrap();
+        assert!(unchanged.anki_sync_pending);
+
+        let synced = database.save_learning_export(item.id, 42).unwrap().unwrap();
+        assert!(!synced.anki_sync_pending);
+        let reloaded = database.learning_item(item.id).unwrap().unwrap();
+        assert_eq!(reloaded.anki_note_id, Some(42));
+        assert!(!reloaded.anki_sync_pending);
+        let same = database
+            .save_learning_draft(item.id, reloaded.draft.unwrap())
+            .unwrap()
+            .unwrap();
+        assert!(!same.anki_sync_pending);
     }
 
     #[test]

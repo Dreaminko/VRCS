@@ -452,6 +452,7 @@
         "save": "儲存草稿",
         "export": "新增至 Anki",
         "exported": "已新增至 Anki",
+        "update": "更新 Anki 卡片",
         "noteId": "Anki 筆記 #{{id}}",
         "saveBeforeExport": "請先儲存草稿變更，再將卡片新增至 Anki。",
         "ankiDisabled": "請先在設定中啟用 AnkiConnect。",

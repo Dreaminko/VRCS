@@ -373,11 +373,21 @@ pub struct LearningItem {
     pub analysis: Option<LearningAnalysis>,
     pub draft: Option<LearningCardDraft>,
     pub anki_note_id: Option<i64>,
+    /// 已导出到 Anki 后草稿又被修改，等待重新导出覆盖原笔记。
+    #[serde(default)]
+    pub anki_sync_pending: bool,
     pub created_at: String,
     pub updated_at: String,
 }
 
 impl LearningItem {
+    /// 已导出条目的草稿发生变化时标记为待同步，保留原 note ID 以便覆盖更新。
+    pub fn mark_anki_sync_pending_if_changed(&mut self, draft: Option<&LearningCardDraft>) {
+        if self.anki_note_id.is_some() && self.draft.as_ref() != draft {
+            self.anki_sync_pending = true;
+        }
+    }
+
     pub fn active_status(&self) -> LearningStatus {
         if self.anki_note_id.is_some() {
             LearningStatus::Exported
@@ -1333,6 +1343,7 @@ mod tests {
             analysis: None,
             draft: None,
             anki_note_id: None,
+            anki_sync_pending: false,
             created_at: "2026-01-01T00:00:00Z".into(),
             updated_at: "2026-01-01T00:00:00Z".into(),
         }

@@ -69,6 +69,7 @@ export interface LearningItem {
   analysis: LearningAnalysis | null;
   draft: LearningCardDraft | null;
   anki_note_id: number | null;
+  anki_sync_pending: boolean;
   created_at: string;
   updated_at: string;
 }

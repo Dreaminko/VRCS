@@ -40,6 +40,7 @@ function item(id: number, status: LearningItem["status"], createdAt: string, wor
     analysis: null,
     draft: null,
     anki_note_id: null,
+    anki_sync_pending: false,
     created_at: createdAt,
     updated_at: createdAt,
   };

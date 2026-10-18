@@ -858,7 +858,7 @@ fn version_4_preserves_existing_version_3_subtitles() {
     let original = db.add_subtitle(&subtitle("Keep existing history")).unwrap();
     db.conn
         .execute_batch(
-            "ALTER TABLE subtitle_translations DROP COLUMN source_group; ALTER TABLE subtitles DROP COLUMN speaker; PRAGMA user_version = 3;",
+            "ALTER TABLE subtitle_translations DROP COLUMN source_group; ALTER TABLE subtitles DROP COLUMN speaker; ALTER TABLE learning_items DROP COLUMN anki_sync_pending; PRAGMA user_version = 3;",
         )
         .unwrap();
     drop(db);
@@ -876,13 +876,47 @@ fn version_4_preserves_existing_version_3_subtitles() {
 }
 
 #[test]
+fn version_6_adds_anki_sync_pending_without_touching_exported_items() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("anki-sync.db");
+    let db = Database::open(&path).unwrap();
+    db.conn
+        .execute(
+            "INSERT INTO learning_items(
+                kind, status, source_text, working_text, anki_note_id, created_at, updated_at
+             ) VALUES ('word', 'exported', '学ぶ', '学ぶ', 42, 'now', 'now')",
+            [],
+        )
+        .unwrap();
+    db.conn
+        .execute_batch(
+            "ALTER TABLE learning_items DROP COLUMN anki_sync_pending; PRAGMA user_version = 5;",
+        )
+        .unwrap();
+    drop(db);
+    let db = Database::open(&path).unwrap();
+    let (note_id, pending) = db
+        .conn
+        .query_row(
+            "SELECT anki_note_id, anki_sync_pending FROM learning_items",
+            [],
+            |row| Ok((row.get::<_, i64>(0)?, row.get::<_, bool>(1)?)),
+        )
+        .unwrap();
+    assert_eq!(note_id, 42);
+    assert!(!pending);
+}
+
+#[test]
 fn version_5_preserves_history_and_round_trips_session_scoped_speakers() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("speakers.db");
     let db = Database::open(&path).unwrap();
     let legacy = db.add_subtitle(&subtitle("Legacy history")).unwrap();
     db.conn
-        .execute_batch("ALTER TABLE subtitles DROP COLUMN speaker; PRAGMA user_version = 4;")
+        .execute_batch(
+            "ALTER TABLE subtitles DROP COLUMN speaker; ALTER TABLE learning_items DROP COLUMN anki_sync_pending; PRAGMA user_version = 4;",
+        )
         .unwrap();
     drop(db);
     let db = Database::open(&path).unwrap();

@@ -24,7 +24,7 @@ const SEED_ENTRIES: [(&str, &str, &str); 4] = [
     ("ありがとう", "ja", "谢谢"),
 ];
 
-const LATEST_SCHEMA_VERSION: u32 = 5;
+const LATEST_SCHEMA_VERSION: u32 = 6;
 
 const MIGRATION_1_SCHEMA: &str = "
 CREATE TABLE IF NOT EXISTS subtitles (
@@ -184,6 +184,17 @@ impl Database {
             let transaction = self.conn.transaction()?;
             transaction.execute("ALTER TABLE subtitles ADD COLUMN speaker TEXT", [])?;
             transaction.pragma_update(None, "user_version", 5)?;
+            transaction.commit()?;
+        }
+
+        if version < 6 {
+            let transaction = self.conn.transaction()?;
+            transaction.execute(
+                "ALTER TABLE learning_items
+                 ADD COLUMN anki_sync_pending INTEGER NOT NULL DEFAULT 0",
+                [],
+            )?;
+            transaction.pragma_update(None, "user_version", 6)?;
             transaction.commit()?;
         }
 

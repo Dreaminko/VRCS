@@ -452,6 +452,7 @@
         "save": "下書きを保存",
         "export": "Anki に追加",
         "exported": "Anki に追加済み",
+        "update": "Anki のカードを更新",
         "noteId": "Anki ノート #{{id}}",
         "saveBeforeExport": "Anki に追加する前に下書きの変更を保存してください。",
         "ankiDisabled": "エクスポートする前に設定で AnkiConnect を有効にしてください。",

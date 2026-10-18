@@ -29,6 +29,7 @@ export function LearningCardEditor({
   const { cardType, draft, dirty: draftDirty } = editor;
   const busy = workspace.isItemBusy(item.id);
   const disabled = busy || item.status === "archived";
+  const ankiSynced = item.anki_note_id !== null && !item.anki_sync_pending;
 
   const generate = async () => {
     if (!await prepareWorkingText()) return;
@@ -81,9 +82,9 @@ export function LearningCardEditor({
             <button className="secondary-button" type="button" disabled={disabled || !draftDirty || !draft.term.trim() || !draft.definition.trim()} onClick={() => void save()}>
               <Save size={15} />{t("learning.card.save")}
             </button>
-            {ankiAvailable && <button className="primary-button" type="button" disabled={disabled || draftDirty || !ankiEnabled || item.anki_note_id !== null || !draft.term.trim() || !draft.definition.trim()} onClick={() => void workspace.exportItem(item.id)}>
-              {item.anki_note_id === null ? <PlusCircle size={15} /> : <Check size={15} />}
-              {t(item.anki_note_id === null ? "learning.card.export" : "learning.card.exported")}
+            {ankiAvailable && <button className="primary-button" type="button" disabled={disabled || draftDirty || !ankiEnabled || ankiSynced || !draft.term.trim() || !draft.definition.trim()} onClick={() => void workspace.exportItem(item.id)}>
+              {ankiSynced ? <Check size={15} /> : <PlusCircle size={15} />}
+              {t(item.anki_note_id === null ? "learning.card.export" : ankiSynced ? "learning.card.exported" : "learning.card.update")}
             </button>}
           </div>
           {ankiAvailable && draftDirty && <p className="learning-inline-hint">{t("learning.card.saveBeforeExport")}</p>}
