@@ -856,7 +856,7 @@ fn version_4_preserves_existing_version_3_subtitles() {
     let original = db.add_subtitle(&subtitle("Keep existing history")).unwrap();
     db.conn
         .execute_batch(
-            "ALTER TABLE subtitle_translations DROP COLUMN source_group; ALTER TABLE subtitles DROP COLUMN speaker; ALTER TABLE learning_items DROP COLUMN anki_sync_pending; PRAGMA user_version = 3;",
+            "ALTER TABLE subtitle_translations DROP COLUMN source_group; ALTER TABLE subtitles DROP COLUMN speaker; ALTER TABLE learning_items DROP COLUMN anki_sync_pending; ALTER TABLE learning_items DROP COLUMN analysis_stale; ALTER TABLE learning_items DROP COLUMN draft_stale; PRAGMA user_version = 3;",
         )
         .unwrap();
     drop(db);
@@ -888,7 +888,7 @@ fn version_6_adds_anki_sync_pending_without_touching_exported_items() {
         .unwrap();
     db.conn
         .execute_batch(
-            "ALTER TABLE learning_items DROP COLUMN anki_sync_pending; PRAGMA user_version = 5;",
+            "ALTER TABLE learning_items DROP COLUMN anki_sync_pending; ALTER TABLE learning_items DROP COLUMN analysis_stale; ALTER TABLE learning_items DROP COLUMN draft_stale; PRAGMA user_version = 5;",
         )
         .unwrap();
     drop(db);
@@ -913,7 +913,7 @@ fn version_5_preserves_history_and_round_trips_session_scoped_speakers() {
     let legacy = db.add_subtitle(&subtitle("Legacy history")).unwrap();
     db.conn
         .execute_batch(
-            "ALTER TABLE subtitles DROP COLUMN speaker; ALTER TABLE learning_items DROP COLUMN anki_sync_pending; PRAGMA user_version = 4;",
+            "ALTER TABLE subtitles DROP COLUMN speaker; ALTER TABLE learning_items DROP COLUMN anki_sync_pending; ALTER TABLE learning_items DROP COLUMN analysis_stale; ALTER TABLE learning_items DROP COLUMN draft_stale; PRAGMA user_version = 4;",
         )
         .unwrap();
     drop(db);

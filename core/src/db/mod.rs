@@ -24,7 +24,7 @@ const SEED_ENTRIES: [(&str, &str, &str); 4] = [
     ("ありがとう", "ja", "谢谢"),
 ];
 
-const LATEST_SCHEMA_VERSION: u32 = 6;
+const LATEST_SCHEMA_VERSION: u32 = 7;
 
 const MIGRATION_1_SCHEMA: &str = "
 CREATE TABLE IF NOT EXISTS subtitles (
@@ -195,6 +195,16 @@ impl Database {
                 [],
             )?;
             transaction.pragma_update(None, "user_version", 6)?;
+            transaction.commit()?;
+        }
+
+        if version < 7 {
+            let transaction = self.conn.transaction()?;
+            transaction.execute_batch(
+                "ALTER TABLE learning_items ADD COLUMN analysis_stale INTEGER NOT NULL DEFAULT 0;
+                 ALTER TABLE learning_items ADD COLUMN draft_stale INTEGER NOT NULL DEFAULT 0;",
+            )?;
+            transaction.pragma_update(None, "user_version", 7)?;
             transaction.commit()?;
         }
 

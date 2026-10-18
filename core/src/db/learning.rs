@@ -177,11 +177,16 @@ impl Database {
         };
         ensure_learning_item_editable(&item)?;
         if let Some(working_text) = patch.working_text {
+            if working_text != item.working_text {
+                item.analysis_stale = item.analysis.is_some();
+                item.draft_stale = item.draft.is_some();
+            }
             item.working_text = working_text;
         }
         if let Some(draft) = patch.draft {
             item.mark_anki_sync_pending_if_changed(draft.as_ref());
             item.draft = draft;
+            item.draft_stale = false;
         }
         item.status = item.active_status();
         item.updated_at = now_iso8601();
@@ -202,6 +207,7 @@ impl Database {
         };
         ensure_learning_item_editable(&item)?;
         item.analysis = Some(analysis);
+        item.analysis_stale = false;
         item.status = item.active_status();
         item.updated_at = now_iso8601();
         self.persist_learning_item(&item)?;
@@ -222,6 +228,7 @@ impl Database {
         ensure_learning_item_editable(&item)?;
         item.mark_anki_sync_pending_if_changed(Some(&draft));
         item.draft = Some(draft);
+        item.draft_stale = false;
         item.status = item.active_status();
         item.updated_at = now_iso8601();
         self.persist_learning_item(&item)?;
@@ -305,7 +312,8 @@ impl Database {
                  kind = ?, status = ?, source_text = ?, working_text = ?, selected_text = ?,
                  source_translation = ?, source_language = ?, source_subtitle_ids = ?,
                  dictionary_entries = ?, analysis = ?, draft = ?, anki_note_id = ?,
-                 anki_sync_pending = ?, created_at = ?, updated_at = ?
+                 anki_sync_pending = ?, created_at = ?, updated_at = ?,
+                 analysis_stale = ?, draft_stale = ?
              WHERE id = ?",
             params![
                 item.kind.as_str(),
@@ -323,6 +331,8 @@ impl Database {
                 item.anki_sync_pending,
                 item.created_at,
                 item.updated_at,
+                item.analysis_stale,
+                item.draft_stale,
                 item.id,
             ],
         )?;
@@ -343,7 +353,7 @@ fn learning_item_select() -> &'static str {
     "SELECT id, kind, status, source_text, working_text, selected_text,
             source_translation, source_language, source_subtitle_ids,
             dictionary_entries, analysis, draft, anki_note_id, created_at, updated_at,
-            anki_sync_pending
+            anki_sync_pending, analysis_stale, draft_stale
      FROM learning_items"
 }
 
@@ -379,6 +389,8 @@ fn learning_item_from_row(row: &Row<'_>) -> rusqlite::Result<LearningItem> {
         created_at: row.get(13)?,
         updated_at: row.get(14)?,
         anki_sync_pending: row.get(15)?,
+        analysis_stale: row.get(16)?,
+        draft_stale: row.get(17)?,
     };
     item.validate().map_err(|error| data_error(0, error))?;
     Ok(item)
@@ -504,6 +516,108 @@ mod tests {
         let loaded = database.learning_item(item.id).unwrap().unwrap();
         assert_eq!(loaded.source_text, "source snapshot");
         assert_eq!(loaded.source_subtitle_ids, vec![subtitle.id.unwrap()]);
+    }
+
+    #[test]
+    fn version_7_preserves_existing_learning_items() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("migration.db");
+        let mut database = Database::open(&path).unwrap();
+        let item = database
+            .create_learning_item(create_input(Vec::new()))
+            .unwrap();
+        database
+            .conn
+            .execute_batch(
+                "ALTER TABLE learning_items DROP COLUMN analysis_stale;
+             ALTER TABLE learning_items DROP COLUMN draft_stale;
+             PRAGMA user_version = 6;",
+            )
+            .unwrap();
+        drop(database);
+        let database = Database::open(&path).unwrap();
+        let restored = database.learning_item(item.id).unwrap().unwrap();
+        assert_eq!(restored.working_text, item.working_text);
+        assert!(!restored.analysis_stale);
+        assert!(!restored.draft_stale);
+    }
+
+    #[test]
+    fn text_changes_preserve_results_but_mark_them_stale() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("stale.db");
+        let mut database = Database::open(&path).unwrap();
+        let item = database
+            .create_learning_item(create_input(Vec::new()))
+            .unwrap();
+        let analyzed = database
+            .save_learning_analysis(item.id, analysis())
+            .unwrap()
+            .unwrap();
+        let draft =
+            crate::learning::generate_draft(&analyzed, LearningCardType::Vocabulary).unwrap();
+        let drafted = database
+            .save_learning_draft(item.id, draft.clone())
+            .unwrap()
+            .unwrap();
+        let unchanged = database
+            .patch_learning_item(
+                item.id,
+                PatchLearningItem {
+                    working_text: Some(item.working_text.clone()),
+                    draft: None,
+                },
+            )
+            .unwrap()
+            .unwrap();
+        assert!(!unchanged.analysis_stale);
+        assert!(!unchanged.draft_stale);
+        let changed = database
+            .patch_learning_item(
+                item.id,
+                PatchLearningItem {
+                    working_text: Some("New working text".into()),
+                    draft: None,
+                },
+            )
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            changed.analysis.as_ref().unwrap().summary,
+            analyzed.analysis.unwrap().summary
+        );
+        assert_eq!(changed.draft, drafted.draft);
+        let json = serde_json::to_value(&changed).unwrap();
+        assert_eq!(json["analysis_stale"], true);
+        assert_eq!(json["draft_stale"], true);
+        drop(database);
+
+        let database = Database::open(&path).unwrap();
+        let reloaded =
+            serde_json::to_value(database.learning_item(item.id).unwrap().unwrap()).unwrap();
+        assert_eq!(reloaded["analysis_stale"], true);
+        assert_eq!(reloaded["draft_stale"], true);
+        let analyzed = database
+            .save_learning_analysis(item.id, analysis())
+            .unwrap()
+            .unwrap();
+        let json = serde_json::to_value(&analyzed).unwrap();
+        assert_eq!(json["analysis_stale"], false);
+        assert_eq!(json["draft_stale"], true);
+        let reviewed = database
+            .patch_learning_item(
+                item.id,
+                PatchLearningItem {
+                    working_text: None,
+                    draft: Some(Some(draft)),
+                },
+            )
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            serde_json::to_value(reviewed).unwrap()["draft_stale"],
+            false
+        );
     }
 
     #[test]

@@ -420,6 +420,7 @@
         }
       },
       "analysis": {
+        "stale": "正文已修改，请重新分析以更新结果。",
         "title": "分析结果",
         "summary": "摘要",
         "currentMeaning": "当前义",
@@ -457,6 +458,7 @@
         "update": "更新 Anki 卡片",
         "noteId": "Anki 笔记 #{{id}}",
         "saveBeforeExport": "请先保存草稿修改，再添加到 Anki。",
+        "stale": "正文已修改，请先保存正文，再重新生成草稿，或检查并编辑保存草稿后导出。",
         "ankiDisabled": "请先在设置中启用 AnkiConnect。",
         "empty": "工作副本和分析确认后，可生成卡片草稿。"
       }

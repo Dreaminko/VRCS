@@ -80,7 +80,8 @@ function item(id: number, status: LearningItem["status"] = "collected"): Learnin
   return {
     id, kind: "sentence", status, source_text: "Text", working_text: "Text", selected_text: null,
     source_translation: null, source_language: "en", source_subtitle_ids: [], dictionary_entries: [],
-    analysis: null, draft: null, anki_note_id: null, anki_sync_pending: false, created_at: "", updated_at: "",
+    analysis: null, draft: null, analysis_stale: false, draft_stale: false,
+    anki_note_id: null, anki_sync_pending: false, created_at: "", updated_at: "",
   };
 }
 

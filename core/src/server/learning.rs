@@ -207,6 +207,13 @@ pub(super) async fn learning_item_export(
         })?
     };
     let item = load_editable_item(&state, id).await?;
+    if item.draft_stale {
+        return Err(api_error(
+            StatusCode::CONFLICT,
+            "learning.conflict",
+            "Working text changed. Regenerate or review and save the card draft before export",
+        ));
+    }
     if item.anki_note_id.is_some() && !item.anki_sync_pending {
         return Ok(Json(json!(item)));
     }

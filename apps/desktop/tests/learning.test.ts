@@ -39,6 +39,8 @@ function item(id: number, status: LearningItem["status"], createdAt: string, wor
     dictionary_entries: [],
     analysis: null,
     draft: null,
+    analysis_stale: false,
+    draft_stale: false,
     anki_note_id: null,
     anki_sync_pending: false,
     created_at: createdAt,

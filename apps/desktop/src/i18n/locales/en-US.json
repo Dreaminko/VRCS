@@ -421,6 +421,7 @@
       },
       "analysis": {
         "title": "Analysis result",
+        "stale": "The working text has changed. Run analysis again to update this result.",
         "summary": "Summary",
         "currentMeaning": "Meaning in context",
         "baseForm": "Base form",
@@ -457,6 +458,7 @@
         "update": "Update in Anki",
         "noteId": "Anki note #{{id}}",
         "saveBeforeExport": "Save draft changes before adding the card to Anki.",
+        "stale": "The working text has changed. Save the text, then regenerate or review and save the draft before exporting.",
         "ankiDisabled": "Enable AnkiConnect in Settings before exporting.",
         "empty": "Generate a draft when the analysis and working text are ready."
       }

@@ -9,7 +9,7 @@ function item(id: number): LearningItem {
   return {
     id, kind: "sentence", status: "card_draft", source_text: "Original", working_text: "Original",
     selected_text: null, source_translation: null, source_language: "en", source_subtitle_ids: [],
-    dictionary_entries: [], analysis: null,
+    dictionary_entries: [], analysis: null, analysis_stale: false, draft_stale: false,
     draft: { card_type: "sentence", term: "Original", definition: "Meaning", context: "Original" },
     anki_note_id: null, anki_sync_pending: false, created_at: "", updated_at: "",
   };

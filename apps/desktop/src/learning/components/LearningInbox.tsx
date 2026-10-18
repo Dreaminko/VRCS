@@ -295,7 +295,10 @@ function LearningItemDetail({
         </div>
       </section>
 
-      {item.analysis && <LearningAnalysisView analysis={item.analysis} />}
+      {item.analysis && <>
+        {(item.analysis_stale || workingText !== item.working_text) && <p className="learning-inline-hint" role="status">{t("learning.analysis.stale")}</p>}
+        <LearningAnalysisView analysis={item.analysis} />
+      </>}
       <LearningCardEditor
         item={item}
         workspace={workspace}

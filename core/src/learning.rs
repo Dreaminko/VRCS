@@ -376,6 +376,10 @@ pub struct LearningItem {
     pub dictionary_entries: Vec<DictionaryEntry>,
     pub analysis: Option<LearningAnalysis>,
     pub draft: Option<LearningCardDraft>,
+    #[serde(default)]
+    pub analysis_stale: bool,
+    #[serde(default)]
+    pub draft_stale: bool,
     pub anki_note_id: Option<i64>,
     /// 已导出到 Anki 后草稿又被修改，等待重新导出覆盖原笔记。
     #[serde(default)]
@@ -385,6 +389,10 @@ pub struct LearningItem {
 }
 
 impl LearningItem {
+    fn current_analysis(&self) -> Option<&LearningAnalysis> {
+        self.analysis.as_ref().filter(|_| !self.analysis_stale)
+    }
+
     /// 已导出条目的草稿发生变化时标记为待同步，保留原 note ID 以便覆盖更新。
     pub fn mark_anki_sync_pending_if_changed(&mut self, draft: Option<&LearningCardDraft>) {
         if self.anki_note_id.is_some() && self.draft.as_ref() != draft {
@@ -839,8 +847,7 @@ pub fn generate_draft(
 ) -> Result<LearningCardDraft, LearningError> {
     let selected = non_empty(item.selected_text.as_deref())
         .or_else(|| {
-            item.analysis
-                .as_ref()
+            item.current_analysis()
                 .and_then(|analysis| non_empty(analysis.base_form.as_deref()))
         })
         .unwrap_or(item.working_text.trim());
@@ -853,8 +860,7 @@ pub fn generate_draft(
     let reading = dictionary
         .and_then(|entry| entry.reading.clone())
         .or_else(|| {
-            item.analysis
-                .as_ref()
+            item.current_analysis()
                 .filter(|_| item.kind == LearningKind::Word)
                 .and_then(|analysis| non_empty(analysis.reading.as_deref()))
                 .map(str::to_owned)
@@ -865,14 +871,12 @@ pub fn generate_draft(
         .or_else(|| dictionary.map(|entry| entry.language.clone()));
     let dictionary_name = dictionary.and_then(|entry| entry.dictionary.clone());
     let meaning = item
-        .analysis
-        .as_ref()
+        .current_analysis()
         .and_then(|analysis| non_empty(analysis.current_meaning.as_deref()))
         .map(str::to_owned)
         .or_else(|| dictionary.map(|entry| entry.definition.clone()))
         .or_else(|| {
-            item.analysis
-                .as_ref()
+            item.current_analysis()
                 .map(|analysis| analysis.summary.clone())
         })
         .or_else(|| item.source_translation.clone())
@@ -895,8 +899,7 @@ pub fn generate_draft(
                 .source_translation
                 .clone()
                 .or_else(|| {
-                    item.analysis
-                        .as_ref()
+                    item.current_analysis()
                         .map(|analysis| analysis.summary.clone())
                 })
                 .unwrap_or(meaning),
@@ -930,7 +933,7 @@ pub fn generate_draft(
 }
 
 fn fill_blank_target(item: &LearningItem) -> Option<(&str, &str)> {
-    let analysis = item.analysis.as_ref();
+    let analysis = item.current_analysis();
     let candidates = item
         .selected_text
         .as_deref()
@@ -983,7 +986,7 @@ fn fill_blank_reading(item: &LearningItem, target: &str) -> Option<String> {
     if item.kind != LearningKind::Word {
         return None;
     }
-    let analysis = item.analysis.as_ref()?;
+    let analysis = item.current_analysis()?;
     let analyzed_word = non_empty(analysis.base_form.as_deref())
         .or_else(|| non_empty(item.selected_text.as_deref()));
     (analyzed_word == Some(target))
@@ -1390,11 +1393,27 @@ mod tests {
             }],
             analysis: None,
             draft: None,
+            analysis_stale: false,
+            draft_stale: false,
             anki_note_id: None,
             anki_sync_pending: false,
             created_at: "2026-01-01T00:00:00Z".into(),
             updated_at: "2026-01-01T00:00:00Z".into(),
         }
+    }
+
+    #[test]
+    fn draft_generation_ignores_stale_analysis() {
+        let mut item = item();
+        item.source_translation = None;
+        let output = r#"{"summary":"Old summary","current_meaning":"Old meaning","reading":"old reading","base_form":"old base form","confidence":"high"}"#;
+        item.analysis = Some(parse_analysis_response(output, &request(), &profile()).unwrap());
+        item.analysis_stale = true;
+        let draft = generate_draft(&item, LearningCardType::Vocabulary).unwrap();
+        assert_eq!(draft.definition, "to eat");
+        assert_eq!(draft.reading.as_deref(), Some("たべる"));
+        let sentence = generate_draft(&item, LearningCardType::Sentence).unwrap();
+        assert_eq!(sentence.definition, "to eat");
     }
 
     #[test]

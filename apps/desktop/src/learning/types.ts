@@ -68,6 +68,8 @@ export interface LearningItem {
   dictionary_entries: DictionaryEntry[];
   analysis: LearningAnalysis | null;
   draft: LearningCardDraft | null;
+  analysis_stale: boolean;
+  draft_stale: boolean;
   anki_note_id: number | null;
   anki_sync_pending: boolean;
   created_at: string;
