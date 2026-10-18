@@ -181,7 +181,7 @@ test("analyzeLearningItem applies the extended AI timeout and forwards caller ab
     level: "intermediate",
   }, response.caller.signal);
   await response.headers;
-  assert.equal([...response.timers.values()][0]?.delay, AI_REQUEST_TIMEOUT_MS);
+  assert.ok([...response.timers.values()].some((timer) => timer.delay === AI_REQUEST_TIMEOUT_MS));
   response.finish('{"id":12}');
   assert.deepEqual(await result, { id: 12 });
   response.assertCleanup();

@@ -5,7 +5,7 @@ import { providersApi } from "../../providers/api";
 import { localizedError } from "../../app/app-utils";
 import { explanationLanguageForUiLocale } from "../learning";
 import type { ApiModelDetails, ApiProfileView } from "../../providers/types";
-import { API_PROFILES_CHANGED_EVENT } from "../../settings/hooks/useApiProfileViews";
+import { API_PROFILES_CHANGED_EVENT } from "../../providers/api-profile-events";
 import { normalizeReasoningControlForModel } from "../../translation/translation-thinking";
 import type { ReasoningSetting } from "../../translation/translation-thinking";
 import {

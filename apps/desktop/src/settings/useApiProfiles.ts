@@ -4,7 +4,7 @@ import { useTranslation } from "react-i18next";
 import { providersApi } from "../providers/api";
 import { supportsLlmModels } from "../providers/api-profile-purpose";
 import { localizedError } from "../app/app-utils";
-import { notifyApiProfilesChanged } from "./hooks/useApiProfileViews";
+import { notifyApiProfilesChanged } from "../providers/api-profile-events";
 import type {
   ApiCapability,
   ApiProfile,

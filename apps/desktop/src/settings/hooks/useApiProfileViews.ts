@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 
 import { providersApi } from "../../providers/api";
+import { API_PROFILES_CHANGED_EVENT } from "../../providers/api-profile-events";
 import type {
   ApiProfileView,
   ProviderDefinition,
@@ -12,11 +13,6 @@ export interface ApiProfileCatalog {
 }
 
 const EMPTY_CATALOG: ApiProfileCatalog = { profiles: [], providerDefinitions: [] };
-export const API_PROFILES_CHANGED_EVENT = "vrcs:api-profiles-changed";
-
-export function notifyApiProfilesChanged(): void {
-  window.dispatchEvent(new Event(API_PROFILES_CHANGED_EVENT));
-}
 
 export function useApiProfileViews(refreshKey: unknown): ApiProfileCatalog {
   const [catalog, setCatalog] = useState<ApiProfileCatalog>(EMPTY_CATALOG);
