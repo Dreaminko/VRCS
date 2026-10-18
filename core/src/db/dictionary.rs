@@ -352,8 +352,14 @@ fn deinflect_candidates(query: &str) -> Vec<String> {
         }
     };
 
+    // 形容词规则必须排在 った/た/て 之前；去掉后缀的裸词干（如 書き、休み）常是独立名词，放到最后尝试。
+    let mut bare_stems = Vec::new();
     for (suffix, replacements) in [
-        ("ませんでした", &["る", ""][..]),
+        ("かった", &["い"][..]),
+        ("くない", &["い"]),
+        ("くて", &["い"]),
+        ("ければ", &["い"]),
+        ("ませんでした", &["る", ""]),
         ("ました", &["る", ""]),
         ("ません", &["る", ""]),
         ("ます", &["る", ""]),
@@ -382,19 +388,22 @@ fn deinflect_candidates(query: &str) -> Vec<String> {
         ("した", &["す", "する", ""]),
         ("て", &["る", ""]),
         ("た", &["る", ""]),
-        ("かった", &["い"]),
-        ("くない", &["い"]),
-        ("くて", &["い"]),
-        ("ければ", &["い"]),
     ] {
         if let Some(stem) = query.strip_suffix(suffix) {
             if !stem.is_empty() {
                 for replacement in replacements {
-                    push(format!("{stem}{replacement}"));
+                    if replacement.is_empty() {
+                        bare_stems.push(stem.to_owned());
+                    } else {
+                        push(format!("{stem}{replacement}"));
+                    }
                 }
                 push_godan_bases(stem, &mut push);
             }
         }
+    }
+    for stem in bare_stems {
+        push(stem);
     }
 
     if query.is_ascii() && query.len() >= 4 {
@@ -447,10 +456,6 @@ fn push_godan_bases(stem: &str, push: &mut impl FnMut(String)) {
     if root.is_empty() {
         return;
     }
-    if last == 'し' {
-        push(format!("{root}する"));
-        push(root.to_owned());
-    }
     let mapped = match last {
         'き' | 'か' => Some('く'),
         'ぎ' | 'が' => Some('ぐ'),
@@ -465,6 +470,10 @@ fn push_godan_bases(stem: &str, push: &mut impl FnMut(String)) {
     };
     if let Some(ending) = mapped {
         push(format!("{root}{ending}"));
+    }
+    if last == 'し' {
+        push(format!("{root}する"));
+        push(root.to_owned());
     }
 }
 

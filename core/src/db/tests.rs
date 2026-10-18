@@ -669,6 +669,10 @@ fn dictionary_lookup_ranks_shorter_prefixes_first_and_deinflects_queries() {
         ["書く", "かく", "", "", 10, ["to write"]],
         ["高い", "たかい", "", "", 10, ["high; expensive"]],
         ["猫", "ねこ", "", "", 10, ["cat"]],
+        ["書き", "かき", "", "", 10, ["writing"]],
+        ["高く", "たかく", "", "", 10, ["highly"]],
+        ["話", "はなし", "", "", 10, ["story"]],
+        ["話す", "はなす", "", "", 10, ["to speak"]],
         ["run", "run", "", "", 10, ["to move quickly"]]
     ]);
     writer
@@ -685,6 +689,7 @@ fn dictionary_lookup_ranks_shorter_prefixes_first_and_deinflects_queries() {
     assert_eq!(database.lookup("食べました", 5).unwrap()[0].term, "食べる");
     assert_eq!(database.lookup("走っている", 5).unwrap()[0].term, "走る");
     assert_eq!(database.lookup("書きました", 5).unwrap()[0].term, "書く");
+    assert_eq!(database.lookup("話しました", 5).unwrap()[0].term, "話す");
     assert_eq!(database.lookup("高かった", 5).unwrap()[0].term, "高い");
     assert_eq!(database.lookup("猫が", 5).unwrap()[0].term, "猫");
     assert_eq!(database.lookup("running", 5).unwrap()[0].term, "run");
