@@ -8,6 +8,7 @@ import type { Settings } from "../types";
 import type { CredentialStatus } from "../../shared/protocol/credentials";
 import type { SaveState } from "../settings-types";
 import { PreferenceToggle } from "../SettingsControls";
+import { SettingsDisclosure } from "../components/SettingsDisclosure";
 
 export function ExternalApiSettingsCard({ config, saveState, onChange }: {
   config: Settings["external_api"];
@@ -144,13 +145,13 @@ export function ExternalApiSettingsCard({ config, saveState, onChange }: {
         <PreferenceToggle title={t("settings.system.externalApi.enabled")} hideLabel checked={config.enabled}
           disabled={false} onChange={(enabled) => onChange({ enabled })} />
       </div>
-      {config.enabled && (
+      <SettingsDisclosure open={config.enabled}>
         <p className={`external-api-runtime-status ${runtimeState}`} role="status" aria-live="polite">
           <span className="external-api-status-dot" aria-hidden="true" />
           <span>{runtimeMessage}</span>
         </p>
-      )}
-      {config.enabled && (
+      </SettingsDisclosure>
+      <SettingsDisclosure open={config.enabled}>
         <div className="external-api-panel">
           <div className="external-api-address-row">
             <div className="external-api-address-grid">
@@ -234,7 +235,7 @@ export function ExternalApiSettingsCard({ config, saveState, onChange }: {
             {tokenMessage && <p className="external-api-feedback" role="status" aria-live="polite">{tokenMessage}</p>}
           </div>
         </div>
-      )}
+      </SettingsDisclosure>
     </section>
   );
 }

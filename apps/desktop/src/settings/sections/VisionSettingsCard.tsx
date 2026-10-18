@@ -18,6 +18,7 @@ import { supportsVision, visionModels, VISION_LIMITS } from "../vision-settings"
 import { formatBytes } from "../settings-derived";
 import { openDesktopVision } from "../../vision/api";
 import { useDesktopVisionSession } from "../../vision/useDesktopVisionSession";
+import { SettingsDisclosure } from "../components/SettingsDisclosure";
 
 export function VisionSettingsCard({ config, profiles, vrAvailable, disabled, onChange, onSelectProfile }: {
   config: VisionSettings;
@@ -98,7 +99,10 @@ export function VisionSettingsCard({ config, profiles, vrAvailable, disabled, on
         ...(config.profile_id && !selected ? [{ value: config.profile_id, label: t("settings.vision.unavailableProfile") }] : []),
       ]}
       onChange={(value) => { setReasoningReset(Boolean(config.reasoning_control)); onSelectProfile(value || null); }} />
-    <div className="field">
+    <LanguagePicker label={t("settings.vision.answerLanguage")} value={config.answer_language}
+      languageCodes={TRANSLATION_LANGUAGE_CODES} disabled={disabled}
+      onChange={(answer_language) => onChange({ answer_language })} />
+    <div className="field vision-settings-model-field">
       <span>{t("settings.vision.model")}</span>
       <div className="translation-model-input-row">
         <DropdownField label={t("settings.vision.model")} value={config.model} options={modelOptions}
@@ -128,14 +132,16 @@ export function VisionSettingsCard({ config, profiles, vrAvailable, disabled, on
       {selected && !loading && !error && !models.length && <small>{t("settings.vision.noModels")}</small>}
       {selected && !loading && !error && config.model && !models.includes(config.model)
         && <small>{t("settings.vision.savedModelUnavailable")}</small>}
+      {testResult && <p className="vision-settings-note vision-settings-result" role="status">{testResult}</p>}
+      {testError && <p className="vr-overlay-native-error" role="alert">{testError}</p>}
+    </div>
+    <div className="field vision-settings-reasoning-field">
       <ReasoningControlField provider={selected?.provider} model={config.model} details={catalog.modelDetails[config.model]}
         thinkingEnabled={config.thinking_enabled} value={config.reasoning_control} disabled={disabled}
         onChange={(patch) => { setReasoningReset(false); onChange(patch); }} />
       {reasoningReset && <small>{t("settings.reasoning.reset")}</small>}
       {config.reasoning_control?.type === "budget_tokens" && config.reasoning_control.value > 0
         && <small>{t("settings.reasoning.remainingTokens", { count: Math.max(0, config.max_output_tokens - config.reasoning_control.value) })}</small>}
-      {testResult && <p className="vision-settings-note vision-settings-result" role="status">{testResult}</p>}
-      {testError && <p className="vr-overlay-native-error" role="alert">{testError}</p>}
     </div>
   </>;
   return <section className="vr-overlay-card vision-settings-card" id="vision-question-answering" aria-labelledby="vision-heading">
@@ -147,12 +153,9 @@ export function VisionSettingsCard({ config, profiles, vrAvailable, disabled, on
       <PreferenceToggle title={t("settings.vision.enable")} hideLabel checked={config.enabled}
         disabled={disabled} onChange={(enabled) => onChange({ enabled })} />
     </header>
-    {config.enabled && <>
+    <SettingsDisclosure open={config.enabled}>
       <div className="vr-overlay-field-grid">
         {connectionSettings}
-        <LanguagePicker label={t("settings.vision.answerLanguage")} value={config.answer_language}
-          languageCodes={TRANSLATION_LANGUAGE_CODES} disabled={disabled}
-          onChange={(answer_language) => onChange({ answer_language })} />
       </div>
       <details className="vision-settings-details">
         <summary><span>{t("settings.vision.systemPrompt")}</span><ChevronDown size={16} /></summary>
@@ -178,7 +181,7 @@ export function VisionSettingsCard({ config, profiles, vrAvailable, disabled, on
           <PreferenceToggle title={t("settings.vision.desktopEnable")} hideLabel checked={config.desktop_enabled}
             disabled={disabled || !config.enabled} onChange={(desktop_enabled) => onChange({ desktop_enabled })} />
         </header>
-        {config.desktop_enabled && <>
+        <SettingsDisclosure open={config.desktop_enabled}>
           <p className="vision-settings-note">{t("settings.vision.desktopDescription")}</p>
           <ShortcutField label={t("settings.vision.desktopShortcut")} value={config.desktop_shortcut} disabled={disabled}
 
@@ -195,7 +198,7 @@ export function VisionSettingsCard({ config, profiles, vrAvailable, disabled, on
               <Eye size={15} />{t("settings.vision.openDesktop")}
             </button>
           </div>
-        </>}
+        </SettingsDisclosure>
       </section>
       <section className="vision-settings-group" aria-labelledby="vision-wrist-heading">
         <header className="vr-overlay-card-heading vr-overlay-feature-heading">
@@ -206,7 +209,7 @@ export function VisionSettingsCard({ config, profiles, vrAvailable, disabled, on
           <PreferenceToggle title={t("settings.vision.vrEnable")} hideLabel checked={config.vr_enabled}
             disabled={disabled || !config.enabled || !vrAvailable} onChange={(vr_enabled) => onChange({ vr_enabled })} />
         </header>
-        {config.vr_enabled && <>
+        <SettingsDisclosure open={config.vr_enabled}>
           <RangeField label={t("settings.vision.display_seconds")} value={config.display_seconds}
             {...VISION_LIMITS.display_seconds} disabled={disabled || !vrAvailable} formatValue={(value) => `${value}s`}
             onCommit={(display_seconds) => onChange({ display_seconds })} />
@@ -236,8 +239,8 @@ export function VisionSettingsCard({ config, profiles, vrAvailable, disabled, on
                 onCommit={(value) => updateWrist({ [field]: value })} />)}
             </div>
           </details>
-        </>}
+        </SettingsDisclosure>
       </section>
-    </>}
+    </SettingsDisclosure>
   </section>;
 }

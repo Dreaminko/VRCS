@@ -899,6 +899,7 @@
         "theme": "主题",
         "themeLight": "浅色",
         "themeDark": "深色",
+        "reduceMotion": "减少动画效果",
         "interfaceScale": "界面大小",
         "interfaceScaleDescription": "调整界面显示比例，也可按 Ctrl + 或 Ctrl - 以 5% 为步进快速调整。",
         "transcriptionStartBehavior": "开始转写时",

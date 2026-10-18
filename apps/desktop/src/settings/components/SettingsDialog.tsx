@@ -69,7 +69,7 @@ export function SettingsDialog({
 
       const focusable = Array.from(
         dialogRef.current.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR),
-      ).filter((element) => element.getClientRects().length > 0);
+      ).filter((element) => element.getClientRects().length > 0 && !element.closest("[inert]"));
       if (!focusable.length) return;
 
       const first = focusable[0];

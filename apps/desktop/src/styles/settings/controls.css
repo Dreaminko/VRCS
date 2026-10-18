@@ -231,3 +231,10 @@
   font-size: var(--settings-text-body);
   line-height: var(--settings-leading-copy);
 }
+.settings-disclosure { display: grid; min-width: 0; align-content: start; gap: inherit; }
+/* Flex layout lets a collapsing region also remove its surrounding gap. */
+:is(.vr-overlay-card, .ocr-settings-group, .vision-settings-group,
+    .vr-overlay-runtime-card, .vr-overlay-section, .connections-settings-group):has(> .settings-disclosure) {
+  display: flex;
+  flex-direction: column;
+}

@@ -113,7 +113,7 @@ for (const width of [1200, 380]) {
           const microphone = document.querySelector('.microphone-level-setting');
           const microphoneGap = rect(microphone.querySelector('.range-field-header')).top - rect(microphone.querySelector('.microphone-test-control')).bottom;
           check(microphoneGap >= 8 && microphoneGap <= 16, 'Microphone slider does not have duplicate spacing');
-          const ocrGroups = [...document.querySelectorAll('#ocr-layout .vr-overlay-card > .ocr-settings-group')];
+          const ocrGroups = [...document.querySelectorAll('#ocr-layout .vr-overlay-card > .settings-disclosure > .ocr-settings-group')];
           for (let index = 1; index < ocrGroups.length; index++) {
             const gap = rect(ocrGroups[index].querySelector('.vr-overlay-card-heading')).top - rect(ocrGroups[index - 1]).bottom;
             check(gap >= 16 && gap <= 28, 'OCR group spacing is compact and keeps a visible section boundary');
@@ -139,10 +139,13 @@ for (const width of [1200, 380]) {
           check(rect(model).right <= rect(refresh).left, 'Model controls do not overlap');
           check(rect(refresh).right <= rect(imageTest).left, 'Vision image test stays to the right of refresh');
           check(imageTest.textContent.trim() === '' && imageTest.getAttribute('aria-label') && imageTest.title, 'Vision image test has only an icon with an accessible label and tooltip');
-          const visionGrid = document.querySelector('.vision-settings-card > .vr-overlay-field-grid');
+          const visionGrid = document.querySelector('.vision-settings-card .vr-overlay-field-grid');
+          const answerLanguage = visionGrid.querySelector('.language-picker-field .dropdown-trigger');
           if (getComputedStyle(visionGrid).gridTemplateColumns.split(' ').length === 2) {
-            sameTop(visionGrid.querySelector('.dropdown-trigger'), model, 'Vision fields remain aligned during catalog errors');
+            sameTop(visionGrid.querySelector('.dropdown-trigger'), answerLanguage, 'Vision profile and answer language remain aligned during catalog errors');
           }
+          check(rect(model).top > rect(answerLanguage).bottom, 'Vision model settings stay below the answer language');
+          check(Math.abs(rect(modelRow).width - rect(visionGrid.firstElementChild).width) <= 1, 'Vision model controls keep a single field width');
           check(document.documentElement.scrollWidth <= innerWidth + 1, 'Settings do not overflow horizontally');
           root.unmount();
           document.getElementById('result').textContent = 'PASS';

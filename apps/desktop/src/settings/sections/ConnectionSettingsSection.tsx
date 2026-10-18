@@ -7,6 +7,7 @@ import type { Health } from "../../core-client/types";
 import type { Settings } from "../types";
 import type { ApplySettings, SaveState, SettingOption } from "../settings-types";
 import { PreferenceToggle, Select } from "../SettingsControls";
+import { SettingsDisclosure } from "../components/SettingsDisclosure";
 import { ExternalApiSettingsCard } from "../system/ExternalApiSettingsCard";
 import { VrcxIntegrationSettingsCard } from "../system/VrcxIntegrationSettingsCard";
 import { AnkiSettingsSection } from "./AnkiSettingsSection";
@@ -136,7 +137,7 @@ export function ConnectionSettingsSection({
             </div>
           </div>
 
-          {draft.osc.enabled && (
+          <SettingsDisclosure open={draft.osc.enabled}>
             <div className={`osc-connection ${state}`} aria-live="polite">
               <span className="osc-connection-dot" aria-hidden="true" />
               <div>
@@ -145,9 +146,9 @@ export function ConnectionSettingsSection({
               </div>
               <code>{runtime?.target || `127.0.0.1:${draft.osc.port}`}</code>
             </div>
-          )}
+          </SettingsDisclosure>
 
-          {draft.osc.enabled && (
+          <SettingsDisclosure open={draft.osc.enabled}>
             <div className="osc-panel enabled">
               <div className="settings-toggle-list settings-feature-toggle">
                 <div className="osc-strategy-setting">
@@ -227,7 +228,7 @@ export function ConnectionSettingsSection({
                 </label>
               </div>
             </div>
-          )}
+          </SettingsDisclosure>
         </section>}
         {features.anki && <AnkiSettingsSection
           draft={draft}

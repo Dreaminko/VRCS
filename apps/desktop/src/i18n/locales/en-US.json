@@ -899,6 +899,7 @@
         "theme": "Theme",
         "themeLight": "Light",
         "themeDark": "Dark",
+        "reduceMotion": "Reduce motion",
         "interfaceScale": "Interface size",
         "interfaceScaleDescription": "Adjust the interface scale, or press Ctrl + or Ctrl - to change it in 5% steps.",
         "transcriptionStartBehavior": "When transcription starts",

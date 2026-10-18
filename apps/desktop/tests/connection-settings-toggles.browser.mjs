@@ -58,7 +58,10 @@ test(`connection heading switches hide dependent controls and retain configurati
         const settle = () => new Promise(resolve => setTimeout(resolve, 20));
         const wait = async predicate => {
           for (let attempt = 0; attempt < 200; attempt++) {
-            if (predicate()) return;
+            for (const animation of document.getAnimations()) {
+              if (animation.effect.getTiming().iterations !== Infinity) animation.finish();
+            }
+            if (predicate()) { await settle(); return; }
             await settle();
           }
           throw new Error('Timed out waiting for the frontend');

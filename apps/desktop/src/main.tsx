@@ -11,6 +11,7 @@ import {
   reportFrontendError,
 } from "./app/diagnostics";
 import { initializeI18n } from "./i18n";
+import { initializeMotionPreference } from "./app/app-motion";
 import "./styles.css";
 
 const rootElement = document.getElementById("root")!;
@@ -31,6 +32,7 @@ async function render() {
 }
 
 installGlobalErrorReporting();
+initializeMotionPreference();
 void render().catch(async (reason) => {
   const error = normalizeFrontendError(reason);
   const reportId = await reportFrontendError({

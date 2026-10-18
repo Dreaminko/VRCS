@@ -1,3 +1,5 @@
+import { prefersReducedMotion } from "./app-motion.ts";
+
 export type ThemePreference = "system" | "light" | "dark";
 export type AppTheme = "light" | "dark";
 
@@ -46,13 +48,10 @@ function crossFade(update: () => void): void {
     update();
     return;
   }
-  const prefersReducedMotion
-    = typeof matchMedia === "function"
-      && matchMedia("(prefers-reduced-motion: reduce)").matches;
   const startViewTransition = (document as Document & {
     startViewTransition?: (update: () => void) => unknown;
   }).startViewTransition;
-  if (!prefersReducedMotion && typeof startViewTransition === "function") {
+  if (!prefersReducedMotion() && typeof startViewTransition === "function") {
     startViewTransition.call(document, update);
   } else {
     update();

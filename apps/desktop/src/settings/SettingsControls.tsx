@@ -12,6 +12,7 @@ import {
 } from "../anki/anki-decks";
 import type { AudioDevice } from "../capture/types";
 import { useDismissibleLayer } from "../shared/hooks/use-dismissible-layer";
+import { useDropdownMenuMotion } from "../shared/hooks/use-dropdown-menu-motion";
 import { DropdownField } from "../shared/ui/DropdownField";
 import type { DropdownOption } from "../shared/ui/DropdownField";
 
@@ -162,6 +163,7 @@ export function DeckTreeSelect({ label, helper, value, decks, disabled, onChange
   const [activeName, setActiveName] = useState(value);
   const rootRef = useRef<HTMLDivElement | null>(null);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const { menuRef, mounted: menuMounted } = useDropdownMenuMotion(open);
   const itemRefs = useRef(new Map<string, HTMLButtonElement>());
   const tree = useMemo(() => buildAnkiDeckTree(decks, locale), [decks, locale]);
   const visibleNodes = useMemo(
@@ -213,7 +215,7 @@ export function DeckTreeSelect({ label, helper, value, decks, disabled, onChange
   return (
     <div className="field">
       <span>{label}</span>
-      <div className={`deck-tree-field ${open ? "open" : ""}`} ref={rootRef}>
+      <div className={`deck-tree-field ${open ? "open" : ""} ${menuMounted ? "menu-visible" : ""}`} ref={rootRef}>
         <button
           className="dropdown-trigger deck-tree-trigger"
           type="button"
@@ -236,8 +238,8 @@ export function DeckTreeSelect({ label, helper, value, decks, disabled, onChange
           <span className="dropdown-value">{ankiDeckDisplayName(value)}</span>
           <ChevronDown className="dropdown-chevron" size={16} />
         </button>
-        {open && (
-          <div className="deck-tree-menu">
+        {menuMounted && (
+          <div className="deck-tree-menu" ref={menuRef} aria-hidden={!open} inert={!open}>
             <div
               className="deck-tree-list"
               id="anki-deck-tree"

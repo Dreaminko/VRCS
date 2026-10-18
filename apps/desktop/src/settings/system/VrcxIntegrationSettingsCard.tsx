@@ -9,6 +9,7 @@ import type { Settings } from "../types";
 import type { CredentialStatus } from "../../shared/protocol/credentials";
 import type { SaveState } from "../settings-types";
 import { PreferenceToggle } from "../SettingsControls";
+import { SettingsDisclosure } from "../components/SettingsDisclosure";
 
 export function VrcxIntegrationSettingsCard({ config, saveState, onChange }: {
   config: Settings["vrcx"];
@@ -245,7 +246,7 @@ export function VrcxIntegrationSettingsCard({ config, saveState, onChange }: {
         </div>
       </div>
 
-      {config.enabled && (
+      <SettingsDisclosure open={config.enabled}>
         <div className={`external-api-runtime-status ${runtimeClass}`} role="status" aria-live="polite">
           <span className="external-api-status-dot" aria-hidden="true" />
           <span className="vrcx-runtime-copy">
@@ -253,9 +254,9 @@ export function VrcxIntegrationSettingsCard({ config, saveState, onChange }: {
             {runtimeDetail && <small>{runtimeDetail}</small>}
           </span>
         </div>
-      )}
+      </SettingsDisclosure>
 
-      {config.enabled && (
+      <SettingsDisclosure open={config.enabled}>
         <div className="external-api-panel">
           <div className="external-api-address-row">
             <div className="external-api-address-grid vrcx-port-grid">
@@ -347,7 +348,7 @@ export function VrcxIntegrationSettingsCard({ config, saveState, onChange }: {
             {tokenMessage && <p className="external-api-feedback" role="status" aria-live="polite">{tokenMessage}</p>}
           </div>
         </div>
-      )}
+      </SettingsDisclosure>
     </section>
   );
 }

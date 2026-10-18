@@ -5,6 +5,7 @@ import type { AnkiStatus } from "../../anki/types";
 import type { Settings } from "../types";
 import type { SettingOption } from "../settings-types";
 import { DeckTreeSelect, PreferenceToggle, Select } from "../SettingsControls";
+import { SettingsDisclosure } from "../components/SettingsDisclosure";
 
 export function AnkiSettingsSection({
   draft,
@@ -70,7 +71,7 @@ export function AnkiSettingsSection({
         </div>
       </div>
 
-      {draft.anki.enabled && (
+      <SettingsDisclosure open={draft.anki.enabled}>
         <div className={`anki-connection ${ankiBusy ? "checking" : ankiStatus?.connected ? (ankiStatus.configuration_valid ? "ready" : "needs-setup") : "offline"}`} role="status" aria-live="polite">
           <span className="anki-connection-dot" aria-hidden="true" />
           <div>
@@ -89,9 +90,9 @@ export function AnkiSettingsSection({
             {ankiStatus?.version ? `API v${ankiStatus.version}` : `127.0.0.1:${draft.anki.port}`}
           </code>
         </div>
-      )}
+      </SettingsDisclosure>
 
-      {draft.anki.enabled && (
+      <SettingsDisclosure open={draft.anki.enabled}>
         <div className="anki-panel enabled">
           <div className="anki-endpoint-row">
             <div className="anki-endpoint-field">
@@ -152,7 +153,7 @@ export function AnkiSettingsSection({
             />
           </div>
         </div>
-      )}
+      </SettingsDisclosure>
     </section>
   );
 }

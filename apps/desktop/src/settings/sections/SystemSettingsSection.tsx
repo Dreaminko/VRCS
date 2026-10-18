@@ -1,10 +1,15 @@
 import { ChevronDown, ChevronUp, Settings2, SlidersHorizontal } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { useTranslation } from "react-i18next";
 
 import type { DesktopPreferences } from "../../shell/desktop-preferences";
 import { localeCatalog } from "../../i18n/catalog";
 import { useAppTheme } from "../../app/useAppTheme";
+import {
+  currentReducedMotionPreference,
+  subscribeReducedMotionPreference,
+  updateReducedMotionPreference,
+} from "../../app/app-motion";
 import {
   INTERFACE_SCALE_MAX,
   INTERFACE_SCALE_MIN,
@@ -60,6 +65,7 @@ export function SystemSettingsSection({
 }) {
   const { t } = useTranslation();
   const { themePreference, setThemePreference } = useAppTheme();
+  const reducedMotion = useSyncExternalStore(subscribeReducedMotionPreference, currentReducedMotionPreference);
   const [transcriptionStartBehavior, setTranscriptionStartBehavior] = useState(
     readTranscriptionStartBehavior,
   );
@@ -224,6 +230,12 @@ export function SystemSettingsSection({
             </div>
           </div>
           <div className="settings-toggle-list">
+            <PreferenceToggle
+              title={t("settings.system.reduceMotion")}
+              checked={reducedMotion}
+              disabled={false}
+              onChange={updateReducedMotionPreference}
+            />
             <PreferenceToggle
               title={t("settings.system.launchAtStartup")}
               checked={desktopPreferences.launchAtStartup}

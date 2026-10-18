@@ -10,6 +10,7 @@ import {
 } from "../../app/interface-scale";
 import { placeLookupPopover } from "../lib/popover-placement";
 import { useDismissibleLayer } from "../hooks/use-dismissible-layer";
+import { useDropdownMenuMotion } from "../hooks/use-dropdown-menu-motion";
 
 type FloatingMenuPosition = Pick<CSSProperties, "bottom" | "left" | "maxHeight" | "right" | "top" | "width">;
 
@@ -44,9 +45,10 @@ export function DropdownField({ label, value, options, disabled = false, compact
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [floatingPosition, setFloatingPosition] = useState<FloatingMenuPosition | null>(null);
+  const [floatingSide, setFloatingSide] = useState<"above" | "below">("below");
   const rootRef = useRef<HTMLDivElement | null>(null);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
-  const menuRef = useRef<HTMLDivElement | null>(null);
+  const { menuRef, mounted: menuMounted } = useDropdownMenuMotion(open, !floating || floatingPosition !== null);
   const searchRef = useRef<HTMLInputElement | null>(null);
   const focusMenuOnOpenRef = useRef(false);
   const menuId = useId();
@@ -69,9 +71,15 @@ export function DropdownField({ label, value, options, disabled = false, compact
     if (disabled) setOpen(false);
   }, [disabled]);
 
+  useEffect(() => {
+    if (!menuMounted) {
+      setQuery("");
+      setFloatingPosition(null);
+    }
+  }, [menuMounted]);
+
   const choose = (next: string) => {
     onChange(next);
-    setQuery("");
     setOpen(false);
     requestAnimationFrame(() => triggerRef.current?.focus({ preventScroll: true }));
   };
@@ -115,6 +123,7 @@ export function DropdownField({ label, value, options, disabled = false, compact
       margin: FLOATING_MENU_MARGIN,
     });
 
+    setFloatingSide(placement.side);
     setFloatingPosition({
       bottom: "auto",
       left,
@@ -126,10 +135,11 @@ export function DropdownField({ label, value, options, disabled = false, compact
   }, [floating, floatingWidth, open]);
 
   useLayoutEffect(() => {
-    if (!floating || !open) {
+    if (!floating) {
       setFloatingPosition(null);
       return;
     }
+    if (!open) return;
 
     updateFloatingPosition();
     window.addEventListener(INTERFACE_LAYOUT_CHANGE_EVENT, updateFloatingPosition);
@@ -158,7 +168,6 @@ export function DropdownField({ label, value, options, disabled = false, compact
   }, [floatingPosition, open, searchable]);
 
   const closeMenu = () => {
-    setQuery("");
     setOpen(false);
     requestAnimationFrame(() => triggerRef.current?.focus({ preventScroll: true }));
   };
@@ -176,7 +185,7 @@ export function DropdownField({ label, value, options, disabled = false, compact
       if (!dialog || !triggerRef.current) return;
       const focusable = Array.from(dialog.querySelectorAll<HTMLElement>(
         'button:not(:disabled), input:not(:disabled), [tabindex]:not([tabindex="-1"])',
-      )).filter((element) => element.getClientRects().length > 0);
+      )).filter((element) => element.getClientRects().length > 0 && !element.closest("[inert]"));
       const triggerIndex = focusable.indexOf(triggerRef.current);
       if (triggerIndex < 0 || focusable.length < 2) return;
       event.preventDefault();
@@ -238,6 +247,9 @@ export function DropdownField({ label, value, options, disabled = false, compact
       ref={menuRef}
       role={searchable ? undefined : "listbox"}
       aria-label={searchable ? undefined : label}
+      aria-hidden={!open}
+      inert={!open}
+      data-side={floating ? floatingSide : undefined}
       style={floating ? floatingPosition ?? undefined : undefined}
       onKeyDown={handleMenuKeyDown}
     >
@@ -270,7 +282,7 @@ export function DropdownField({ label, value, options, disabled = false, compact
 
   return (
     <div
-      className={`dropdown-field ${compact ? "dropdown-field-compact" : ""} ${open ? "open" : ""}`}
+      className={`dropdown-field ${compact ? "dropdown-field-compact" : ""} ${open ? "open" : ""} ${menuMounted ? "menu-visible" : ""}`}
       ref={rootRef}
       onBlurCapture={(event) => {
         const next = event.relatedTarget as Node | null;
@@ -297,7 +309,6 @@ export function DropdownField({ label, value, options, disabled = false, compact
         onClick={() => setOpen((current) => {
           const next = !current;
           if (next && searchable) focusMenuOnOpenRef.current = true;
-          if (!next) setQuery("");
           return next;
         })}
         onKeyDown={(event) => {
@@ -312,7 +323,7 @@ export function DropdownField({ label, value, options, disabled = false, compact
         <span className="dropdown-value">{selected?.label ?? value}</span>
         <ChevronDown className="dropdown-chevron" size={16} />
       </button>
-      {open && (!floating || floatingPosition) && (
+      {menuMounted && (!floating || floatingPosition) && (
         floating ? createPortal(menu, document.body) : menu
       )}
     </div>
@@ -351,6 +362,7 @@ export function EditableDropdownField({
   const submittedValueRef = useRef(value);
   const rootRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const { menuRef, mounted: menuMounted } = useDropdownMenuMotion(open);
   const menuId = useId();
   const listDisabled = disabled || optionsDisabled || options.length === 0;
 
@@ -375,7 +387,7 @@ export function EditableDropdownField({
 
   return (
     <div
-      className={`dropdown-field editable-dropdown-field ${open ? "open" : ""}`}
+      className={`dropdown-field editable-dropdown-field ${open ? "open" : ""} ${menuMounted ? "menu-visible" : ""}`}
       ref={rootRef}
       onBlur={(event) => {
         if (!commitOnBlur || event.currentTarget.contains(event.relatedTarget)) return;
@@ -423,8 +435,9 @@ export function EditableDropdownField({
           <ChevronDown className="dropdown-chevron" size={16} />
         </button>
       </div>
-      {open && (
-        <div className="dropdown-menu" id={menuId} role="listbox" aria-label={label}>
+      {menuMounted && (
+        <div className="dropdown-menu" id={menuId} ref={menuRef} role="listbox" aria-label={label}
+          aria-hidden={!open} inert={!open}>
           {options.map((option) => {
             const current = option.value === value;
             return (

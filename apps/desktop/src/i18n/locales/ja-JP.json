@@ -899,6 +899,7 @@
         "theme": "テーマ",
         "themeLight": "ライト",
         "themeDark": "ダーク",
+        "reduceMotion": "アニメーションを減らす",
         "interfaceScale": "表示サイズ",
         "interfaceScaleDescription": "表示倍率を調整します。Ctrl + または Ctrl - でも 5% ずつ変更できます。",
         "transcriptionStartBehavior": "文字起こし開始時",

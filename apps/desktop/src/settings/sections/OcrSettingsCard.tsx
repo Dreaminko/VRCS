@@ -13,6 +13,7 @@ import type { DesktopOcrStatus } from "../../ocr/status";
 import { openVrOcrBindings } from "../../integrations/vr-overlay-native";
 import { ConfirmDialog } from "../../app/components/ConfirmDialog";
 import { ShortcutField } from "../../shared/ui/ShortcutField";
+import { SettingsDisclosure } from "../components/SettingsDisclosure";
 
 export function OcrSettingsCard({ vrAvailable, config, profiles, disabled: saving, runtime, desktopStatus, onChange }: {
   vrAvailable: boolean;
@@ -147,7 +148,7 @@ export function OcrSettingsCard({ vrAvailable, config, profiles, disabled: savin
         <PreferenceToggle title={t("settings.ocr.enable")} hideLabel checked={config.master_enabled}
           disabled={saving} onChange={(master_enabled) => onChange({ master_enabled })} />
       </header>
-      {config.master_enabled && <>
+      <SettingsDisclosure open={config.master_enabled}>
         <section className="ocr-settings-group" aria-labelledby="ocr-common-heading">
           <header className="vr-overlay-card-heading">
             <div><span><strong id="ocr-common-heading">{t("settings.ocr.common")}</strong></span></div>
@@ -240,13 +241,13 @@ export function OcrSettingsCard({ vrAvailable, config, profiles, disabled: savin
               disabled={disabled || (!config.desktop_enabled && !isVrOcrBackendReady(config.backend, Boolean(status?.configured), models?.state))}
               onChange={(desktop_enabled) => onChange({ desktop_enabled })} />
           </header>
-          {config.desktop_enabled && <>
+          <SettingsDisclosure open={config.desktop_enabled}>
             <ShortcutField label={t("settings.ocr.shortcut")} value={config.shortcut} disabled={disabled}
               onChange={(shortcut) => onChange({ shortcut })} />
             {desktopStatus?.shortcut_error && <p className="vr-overlay-native-error" role="alert">
               {t(`ocrWindow.errors.${desktopStatus.shortcut_error.replace("desktop_ocr.", "")}`, { defaultValue: t("ocrWindow.errors.failed") })}
             </p>}
-          </>}
+          </SettingsDisclosure>
         </section>
         {vrAvailable && <section className="ocr-settings-group" aria-labelledby="ocr-vr-heading">
           <header className="vr-overlay-card-heading vr-overlay-feature-heading">
@@ -255,7 +256,7 @@ export function OcrSettingsCard({ vrAvailable, config, profiles, disabled: savin
               disabled={disabled || (!config.enabled && !isVrOcrBackendReady(config.backend, Boolean(status?.configured), models?.state))}
               onChange={(enabled) => onChange({ enabled })} />
           </header>
-          {config.enabled && <>
+          <SettingsDisclosure open={config.enabled}>
             <Select label={t("settings.vrOcr.displayMode")} value={config.display_mode}
               options={[
                 { value: "wrist", label: t("settings.vrOcr.displayModes.wrist") },
@@ -321,7 +322,7 @@ export function OcrSettingsCard({ vrAvailable, config, profiles, disabled: savin
                 </div>
               </details>
             </section>}
-          </>}
+          </SettingsDisclosure>
         </section>}
         {confirmDelete && <ConfirmDialog
           title={t("common.delete")}
@@ -332,7 +333,7 @@ export function OcrSettingsCard({ vrAvailable, config, profiles, disabled: savin
           returnFocusRef={deleteButtonRef}
           onClose={() => setConfirmDelete(false)}
           onConfirm={deleteModels} />}
-      </>}
+      </SettingsDisclosure>
     </section>
   );
 }

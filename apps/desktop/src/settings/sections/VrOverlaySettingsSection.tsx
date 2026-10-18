@@ -28,6 +28,7 @@ import {
 } from "../../integrations/vr-overlay-native";
 import type { ApplySettings, SaveState } from "../settings-types";
 import { PreferenceToggle, RangeField, Select } from "../SettingsControls";
+import { SettingsDisclosure } from "../components/SettingsDisclosure";
 import {
   patchVrOverlay,
   patchVrOverlayHeadset,
@@ -216,7 +217,7 @@ export function VrOverlaySettingsSection({
       </div>
 
       <div className="vr-overlay-runtime-card">
-        {draft.vr_overlay.enabled && <>
+        <SettingsDisclosure open={draft.vr_overlay.enabled}>
           <div className="vr-overlay-runtime-main">
             <div>
               <strong>{t("settings.vrOverlay.runtimeTitle")}</strong>
@@ -232,7 +233,7 @@ export function VrOverlaySettingsSection({
             <span>{t("settings.vrOverlay.hmdPresent")}: <strong>{t(status?.hmd_present ? "common.available" : "common.unavailable")}</strong></span>
             {(status?.reconnect_attempt ?? 0) > 0 && <span>{t("settings.vrOverlay.reconnectAttempt", { count: status?.reconnect_attempt })}</span>}
           </div>
-        </>}
+        </SettingsDisclosure>
         <div className="vr-overlay-runtime-actions">
           <div className="settings-toggle-list">
             <PreferenceToggle
@@ -251,7 +252,7 @@ export function VrOverlaySettingsSection({
             <RefreshCw size={15} />{t("common.retry")}
           </button>}
         </div>
-        {draft.vr_overlay.enabled && <>
+        <SettingsDisclosure open={draft.vr_overlay.enabled}>
           <Select
             label={t("settings.vrOverlay.translationDisplay")}
             value={draft.vr_overlay.translation_display}
@@ -269,10 +270,10 @@ export function VrOverlaySettingsSection({
               <TriangleAlert size={15} />{statusError || status?.last_error_detail}
             </p>
           )}
-        </>}
+        </SettingsDisclosure>
       </div>
 
-      {draft.vr_overlay.enabled && <div className="vr-overlay-card-list">
+      <SettingsDisclosure open={draft.vr_overlay.enabled} className="vr-overlay-card-list">
         <section className="vr-overlay-card" aria-labelledby="vr-overlay-headset-title">
           <div className="vr-overlay-card-heading">
             <div>
@@ -297,7 +298,7 @@ export function VrOverlaySettingsSection({
             />
           </div>
 
-          {draft.vr_overlay.headset.enabled && <>
+          <SettingsDisclosure open={draft.vr_overlay.headset.enabled}>
             <div className="vr-overlay-field-grid">
               <MeterRange label={t("settings.vrOverlay.linesPerLanguage")} value={draft.vr_overlay.headset.lines_per_language} min={1} max={4} step={1} unit="" disabled={headsetDisabled} onCommit={(value) => updateHeadset("lines_per_language", value)} />
               <MeterRange label={t("settings.vrOverlay.displaySeconds")} value={draft.vr_overlay.headset.display_seconds} min={1} max={30} step={0.5} digits={1} unit=" s" disabled={headsetDisabled} onCommit={(value) => applySettings((current) => setVrOverlayHeadsetDisplaySeconds(current, value))} />
@@ -353,7 +354,7 @@ export function VrOverlaySettingsSection({
                 <RotateCcw size={15} />{t("settings.vrOverlay.restoreDefaults")}
               </button>
             </div>
-          </>}
+          </SettingsDisclosure>
         </section>
 
         <section className="vr-overlay-card" aria-labelledby="vr-overlay-wrist-title">
@@ -380,7 +381,7 @@ export function VrOverlaySettingsSection({
             />
           </div>
 
-          {draft.vr_overlay.wrist.enabled && <>
+          <SettingsDisclosure open={draft.vr_overlay.wrist.enabled}>
             <div className="vr-overlay-field-grid">
               <Select
                 label={t("settings.vrOverlay.hand")}
@@ -463,9 +464,9 @@ export function VrOverlaySettingsSection({
                 <RotateCcw size={15} />{t("settings.vrOverlay.restoreDefaults")}
               </button>
             </div>
-          </>}
+          </SettingsDisclosure>
         </section>
-      </div>}
+      </SettingsDisclosure>
     </div>
   );
 }
