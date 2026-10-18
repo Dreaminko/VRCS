@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import {
   ArrowLeft,
+  BookOpenText,
   Check,
   Copy,
   LoaderCircle,
@@ -8,6 +9,7 @@ import {
   Send,
   Settings2,
   Sparkles,
+  TriangleAlert,
   X,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -25,6 +27,7 @@ export function SelectionAiPopover({
   preferences,
   compact = false,
   onBack,
+  onAddLearning,
   onConfigure,
   onClose,
 }: {
@@ -32,6 +35,7 @@ export function SelectionAiPopover({
   preferences: LearningPreferences;
   compact?: boolean;
   onBack?: () => void;
+  onAddLearning?: () => Promise<unknown>;
   onConfigure: () => void;
   onClose: () => void;
 }) {
@@ -41,13 +45,26 @@ export function SelectionAiPopover({
   const [question, setQuestion] = useState("");
   const [lastQuestion, setLastQuestion] = useState("");
   const [copied, setCopied] = useState(false);
+  const [learningState, setLearningState] = useState<"idle" | "adding" | "success" | "error">("idle");
 
   useEffect(() => {
     setQuestion("");
     setLastQuestion("");
     setCopied(false);
+    setLearningState("idle");
     query.reset();
   }, [target, query.reset]);
+
+  const addLearning = async () => {
+    if (!onAddLearning || learningState === "adding" || learningState === "success") return;
+    setLearningState("adding");
+    try {
+      const result = await onAddLearning();
+      setLearningState(result ? "success" : "error");
+    } catch {
+      setLearningState("error");
+    }
+  };
 
   const ask = (nextQuestion = question) => {
     const normalized = nextQuestion.trim();
@@ -99,7 +116,20 @@ export function SelectionAiPopover({
         <>
           <div className="selection-ai-scroll">
             <div className="selection-ai-context">
-              <span>{t("selection.ai.selectedText")}</span>
+              <div className="selection-ai-context-header">
+                <span>{t("selection.ai.selectedText")}</span>
+                {onAddLearning && (
+                  <button
+                    type="button"
+                    className="selection-ai-learning-button"
+                    disabled={learningState === "adding" || learningState === "success"}
+                    onClick={() => void addLearning()}
+                  >
+                    {learningState === "success" ? <Check size={13} /> : learningState === "error" ? <TriangleAlert size={13} /> : <BookOpenText size={13} />}
+                    {t(learningState === "success" ? "dictionary.learning.savedAction" : learningState === "adding" ? "dictionary.learning.saving" : learningState === "error" ? "dictionary.learning.retry" : "dictionary.learning.add")}
+                  </button>
+                )}
+              </div>
               <q>{target.selectedText}</q>
             </div>
 

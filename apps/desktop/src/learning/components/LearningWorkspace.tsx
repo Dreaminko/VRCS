@@ -65,8 +65,9 @@ export const LearningWorkspace = memo(function LearningWorkspace({
           loadingOlder={loadingOlder}
           onLoadOlder={onLoadOlder}
           onCollected={() => {
-            workspace.setStatusFilter("all");
-            setTab("inbox");
+            if (workspace.statusFilter !== "all" && workspace.statusFilter !== "collected") {
+              workspace.setStatusFilter("all");
+            }
           }}
         />
       )}

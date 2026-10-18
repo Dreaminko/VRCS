@@ -62,13 +62,35 @@
   font-size: 12px;
   line-height: 1.55;
 }
+.selection-ai-context-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+}
 .selection-ai-context span {
   display: block;
-  margin-bottom: 3px;
   color: var(--primary-ink);
   font-size: 10px;
   font-weight: 650;
 }
+.selection-ai-learning-button {
+  display: inline-flex;
+  min-height: 24px;
+  align-items: center;
+  gap: 4px;
+  padding: 0 7px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  background: var(--surface);
+  cursor: pointer;
+  font-size: 10px;
+  font-weight: 600;
+  transition: color 120ms ease-out, border-color 120ms ease-out, background-color 120ms ease-out, transform 120ms ease-out;
+}
+.selection-ai-learning-button:disabled { opacity: 0.7; cursor: default; }
 .selection-ai-answer {
   padding: 11px 12px;
   border: 1px solid var(--border);

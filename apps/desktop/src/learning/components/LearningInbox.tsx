@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   Archive,
@@ -7,6 +7,7 @@ import {
   RefreshCw,
   RotateCcw,
   Save,
+  Search,
   Sparkles,
   Trash2,
 } from "lucide-react";
@@ -17,6 +18,7 @@ import type { LearningWorkspaceController } from "../hooks/useLearningWorkspace"
 import { learningTaskForKind } from "../learning";
 import type {
   LearningItem,
+  LearningItemKind,
   LearningTaskType,
 } from "../types";
 import { DropdownField } from "../../shared/ui/DropdownField";
@@ -33,34 +35,80 @@ export function LearningInbox({
   ankiAvailable: boolean;
 }) {
   const { t } = useTranslation();
-  const item = workspace.selectedItem;
+  const [query, setQuery] = useState("");
+  const [kindFilter, setKindFilter] = useState<LearningItemKind | "all">("all");
+  const filteredItems = useMemo(() => {
+    const normalizedQuery = query.trim().toLocaleLowerCase();
+    return workspace.items.filter((candidate) => {
+      if (kindFilter !== "all" && candidate.kind !== kindFilter) return false;
+      if (normalizedQuery) {
+        const searchable = [
+          candidate.selected_text,
+          candidate.working_text,
+          candidate.source_text,
+          candidate.source_translation,
+          candidate.analysis?.summary,
+          candidate.analysis?.current_meaning,
+        ]
+          .filter(Boolean)
+          .join("\n")
+          .toLocaleLowerCase();
+        if (!searchable.includes(normalizedQuery)) return false;
+      }
+      return true;
+    });
+  }, [kindFilter, query, workspace.items]);
+  const item = filteredItems.find((candidate) => candidate.id === workspace.selectedId)
+    ?? filteredItems[0]
+    ?? null;
 
   return (
     <div className="learning-inbox">
       <aside className="learning-item-pane">
         <div className="learning-pane-toolbar">
-          <div>
-            <h2>{t("learning.inbox.title")}</h2>
-            <span>{t("learning.inbox.count", { count: workspace.items.length })}</span>
+          <div className="learning-pane-toolbar-top">
+            <div>
+              <h2>{t("learning.inbox.title")}</h2>
+              <span>{t("learning.inbox.count", { count: filteredItems.length })}</span>
+            </div>
+            <DropdownField
+              compact
+              label={t("learning.inbox.statusFilter")}
+              value={workspace.statusFilter}
+              options={statusOptions(t)}
+              onChange={(value) => workspace.setStatusFilter(value as typeof workspace.statusFilter)}
+            />
           </div>
-          <DropdownField
-            compact
-            label={t("learning.inbox.statusFilter")}
-            value={workspace.statusFilter}
-            options={statusOptions(t)}
-            onChange={(value) => workspace.setStatusFilter(value as typeof workspace.statusFilter)}
-          />
+          <div className="learning-pane-filters">
+            <div className="learning-material-search">
+              <Search size={15} />
+              <input
+                value={query}
+                type="search"
+                placeholder={t("learning.materials.searchPlaceholder")}
+                aria-label={t("learning.materials.search")}
+                onChange={(event) => setQuery(event.target.value)}
+              />
+            </div>
+            <DropdownField
+              compact
+              label={t("learning.inbox.title")}
+              value={kindFilter}
+              options={kindOptions(t)}
+              onChange={(value) => setKindFilter(value as LearningItemKind | "all")}
+            />
+          </div>
         </div>
         {workspace.error && <p className="learning-error" role="alert">{workspace.error}</p>}
         {workspace.loading ? (
           <div className="learning-empty"><RefreshCw className="learning-spin" size={20} /><p>{t("common.loading")}</p></div>
-        ) : workspace.items.length ? (
+        ) : filteredItems.length ? (
           <div className="learning-item-list">
-            {workspace.items.map((candidate) => (
+            {filteredItems.map((candidate) => (
               <LearningItemRow
                 key={candidate.id}
                 item={candidate}
-                active={candidate.id === workspace.selectedId}
+                active={candidate.id === item?.id}
                 locale={workspace.locale}
                 onSelect={() => workspace.setSelectedId(candidate.id)}
               />
@@ -278,5 +326,14 @@ function statusOptions(t: (key: string) => string) {
     { value: "card_draft", label: t("learning.filters.cardDraft") },
     { value: "exported", label: t("learning.filters.exported") },
     { value: "archived", label: t("learning.filters.archived") },
+  ];
+}
+
+function kindOptions(t: (key: string) => string) {
+  return [
+    { value: "all", label: t("learning.filters.all") },
+    { value: "word", label: t("learning.kinds.word") },
+    { value: "sentence", label: t("learning.kinds.sentence") },
+    { value: "excerpt", label: t("learning.kinds.excerpt") },
   ];
 }

@@ -60,16 +60,26 @@
   border-radius: 20px 0 0 20px;
 }
 .learning-pane-toolbar {
+  display: grid;
+  gap: 10px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+}
+.learning-pane-toolbar-top {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  padding: 16px;
-  border-bottom: 1px solid var(--border);
 }
 .learning-pane-toolbar h2 { margin: 0; font-size: 14px; }
-.learning-pane-toolbar > div > span { color: var(--text-quiet); font-size: 10px; }
-.learning-pane-toolbar .dropdown-field { width: 126px; }
+.learning-pane-toolbar-top > div > span { color: var(--text-quiet); font-size: 10px; }
+.learning-pane-toolbar-top .dropdown-field { width: 126px; }
+.learning-pane-filters {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 98px;
+  gap: 8px;
+  align-items: center;
+}
 .learning-item-list { display: grid; }
 .learning-item-row {
   position: relative;

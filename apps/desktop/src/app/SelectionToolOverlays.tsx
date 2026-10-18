@@ -32,6 +32,13 @@ export function SelectionToolOverlays({
           preferences={learning.workspace.preferences}
           compact={compact || undefined}
           onBack={selection.lookup ? selection.returnToDictionary : undefined}
+          onAddLearning={() => learning.workspace.collectLookup(
+            selection.lookup ?? {
+              ...selection.target!,
+              term: selection.target!.selectedText,
+              entries: [],
+            },
+          )}
           onConfigure={() => void selection.openAiSettings()}
           onClose={selection.close}
         />
