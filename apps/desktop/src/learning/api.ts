@@ -10,7 +10,7 @@ import type {
   SelectionQueryResponse,
 } from "./types";
 
-const AI_REQUEST_TIMEOUT_MS = 125_000;
+export const AI_REQUEST_TIMEOUT_MS = 125_000;
 
 export const learningApi = {
   learningItems: ({
@@ -48,9 +48,14 @@ export const learningApi = {
     `/api/learning/items/${itemId}`,
     { method: "DELETE" },
   ),
-  analyzeLearningItem: (itemId: number, input: LearningAnalysisInput) => request<LearningItem>(
+  analyzeLearningItem: (itemId: number, input: LearningAnalysisInput, signal?: AbortSignal) => request<LearningItem>(
     `/api/learning/items/${itemId}/analysis`,
-    { method: "POST", body: JSON.stringify(input) },
+    {
+      method: "POST",
+      body: JSON.stringify(input),
+      signal,
+      timeoutMs: AI_REQUEST_TIMEOUT_MS,
+    },
   ),
   querySelection: (input: SelectionQueryInput, signal?: AbortSignal) => request<SelectionQueryResponse>(
     "/api/learning/selection-query",

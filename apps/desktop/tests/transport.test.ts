@@ -6,16 +6,22 @@ import { build } from "esbuild";
 
 // Bundle the browser entry so Node can load extensionless imports and Vite's env.
 const bundle = await build({
-  entryPoints: [fileURLToPath(new URL("../src/core-client/transport.ts", import.meta.url))],
+  stdin: {
+    contents: `
+      export * from "./src/core-client/transport.ts";
+      export * from "./src/learning/api.ts";
+    `,
+    resolveDir: fileURLToPath(new URL("..", import.meta.url)),
+  },
   bundle: true,
   write: false,
   format: "esm",
   platform: "node",
   define: { "import.meta.env.VITE_VRCS_SESSION_TOKEN": '""' },
 });
-const { request, timedCoreFetch } = await import(
+const { AI_REQUEST_TIMEOUT_MS, learningApi, request, timedCoreFetch } = await import(
   `data:text/javascript;base64,${Buffer.from(bundle.outputFiles[0].text).toString("base64")}`
-) as typeof import("../src/core-client/transport.ts");
+) as typeof import("../src/core-client/transport.ts") & typeof import("../src/learning/api.ts");
 
 async function stalledResponse(t: TestContext, status = 200) {
   let body!: ServerResponse;
@@ -163,6 +169,22 @@ test("timedCoreFetch still releases timeout and caller abort at headers for body
   assert.equal(response.signal.aborted, false);
   response.finish("download body");
   assert.equal(await raw.text(), "download body");
+});
+
+test("analyzeLearningItem applies the extended AI timeout and forwards caller abort", { timeout: 5000 }, async (t) => {
+  const response = await stalledResponse(t);
+  const result = learningApi.analyzeLearningItem(12, {
+    task_type: "sentence_analysis",
+    profile_id: "profile-one",
+    model: "model-one",
+    explanation_language: "en-US",
+    level: "intermediate",
+  }, response.caller.signal);
+  await response.headers;
+  assert.equal([...response.timers.values()][0]?.delay, AI_REQUEST_TIMEOUT_MS);
+  response.finish('{"id":12}');
+  assert.deepEqual(await result, { id: 12 });
+  response.assertCleanup();
 });
 
 test("a fetch failure cleans up and preserves the original error", async (t) => {
