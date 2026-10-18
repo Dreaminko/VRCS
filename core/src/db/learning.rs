@@ -11,8 +11,10 @@ use crate::learning::{
 use crate::models::now_iso8601;
 
 impl Database {
-    pub(super) fn initialize_learning_storage(&self) -> AppResult<()> {
-        self.conn.execute(
+    pub(super) fn initialize_learning_storage(&mut self) -> AppResult<()> {
+        // 单个事务内重建，避免逐条 autocommit 的 fsync 开销，也不会在中断时丢失 keys。
+        let transaction = self.conn.transaction()?;
+        transaction.execute(
             "UPDATE learning_items
              SET status = CASE
                  WHEN anki_note_id IS NOT NULL THEN 'exported'
@@ -25,19 +27,22 @@ impl Database {
         )?;
         let items = {
             let sql = format!("{} ORDER BY id ASC", learning_item_select());
-            let mut statement = self.conn.prepare(&sql)?;
+            let mut statement = transaction.prepare(&sql)?;
             let rows = statement.query_map([], learning_item_from_row)?;
             rows.collect::<Result<Vec<_>, _>>()?
         };
-        self.conn.execute("DELETE FROM learning_capture_keys", [])?;
-        for item in items {
-            for key in item.capture_keys() {
-                self.conn.execute(
-                    "INSERT OR IGNORE INTO learning_capture_keys(key, item_id) VALUES (?, ?)",
-                    params![key, item.id],
-                )?;
+        transaction.execute("DELETE FROM learning_capture_keys", [])?;
+        {
+            let mut insert = transaction.prepare(
+                "INSERT OR IGNORE INTO learning_capture_keys(key, item_id) VALUES (?, ?)",
+            )?;
+            for item in items {
+                for key in item.capture_keys() {
+                    insert.execute(params![key, item.id])?;
+                }
             }
         }
+        transaction.commit()?;
         Ok(())
     }
 
