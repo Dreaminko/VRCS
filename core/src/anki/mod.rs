@@ -196,6 +196,16 @@ pub async fn update_card(
     if !config.enabled {
         return Err(AnkiError::disabled());
     }
+    if config.front_field == config.back_field {
+        return Err(AnkiError::configuration(
+            "duplicate_field_mapping",
+            json!({
+                "front_field": config.front_field,
+                "back_field": config.back_field,
+            }),
+            "Front and back cannot map to the same field".into(),
+        ));
+    }
     let info = invoke(
         client,
         config,
@@ -205,6 +215,25 @@ pub async fn update_card(
     .await?;
     if info[0].get("noteId").is_none() {
         return Ok(false);
+    }
+    let note_fields = info[0]["fields"]
+        .as_object()
+        .ok_or_else(|| AnkiError::protocol("AnkiConnect returned invalid note fields".into()))?;
+    let missing: Vec<&str> = [&config.front_field, &config.back_field]
+        .into_iter()
+        .filter(|name| !note_fields.contains_key(name.as_str()))
+        .map(String::as_str)
+        .collect();
+    if !missing.is_empty() {
+        let model = info[0]["modelName"].as_str().unwrap_or(&config.model);
+        return Err(AnkiError::configuration(
+            "missing_field",
+            json!({ "model": model, "fields": missing }),
+            format!(
+                "Note type '{model}' is missing fields: {}",
+                missing.join(", ")
+            ),
+        ));
     }
     let fields = build_note(card, config)["fields"].clone();
     invoke(
@@ -341,7 +370,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn update_card_overwrites_existing_notes_and_reports_deleted_ones() {
+    async fn update_card_validates_existing_fields_before_writing() {
         use axum::{routing::post, Json, Router};
         use std::sync::{Arc, Mutex};
 
@@ -360,7 +389,14 @@ mod tests {
                 async move {
                     let result = match body["action"].as_str().unwrap() {
                         "notesInfo" if body["params"]["notes"][0] == 7 => {
-                            json!([{ "noteId": 7, "fields": {} }])
+                            json!([{
+                                "noteId": 7,
+                                "modelName": "Basic",
+                                "fields": {
+                                    "Front": { "value": "old front", "order": 0 },
+                                    "Back": { "value": "old back", "order": 1 }
+                                }
+                            }])
                         }
                         "notesInfo" => json!([{}]),
                         "updateNoteFields" => {
@@ -389,6 +425,23 @@ mod tests {
 
         assert!(update_card(&http, &card, &config, 7).await.unwrap());
         assert!(!update_card(&http, &card, &config, 8).await.unwrap());
+        for (front, back, code) in [
+            ("Prompt", "Back", "missing_field"),
+            ("Front", "Answer", "missing_field"),
+            ("Front", "Front", "duplicate_field_mapping"),
+        ] {
+            let changed = AnkiConfig {
+                front_field: front.into(),
+                back_field: back.into(),
+                ..config.clone()
+            };
+            let error = update_card(&http, &card, &changed, 7).await.unwrap_err();
+            assert_eq!(error.code, code);
+            assert_eq!(error.status_code, 422);
+            if code == "missing_field" {
+                assert_eq!(error.params["model"], "Basic");
+            }
+        }
         let updates = updates.lock().unwrap().clone();
         assert_eq!(updates.len(), 1);
         assert_eq!(updates[0]["id"], 7);
