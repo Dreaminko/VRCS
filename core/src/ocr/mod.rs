@@ -156,8 +156,11 @@ impl VrOcrService {
         }
         .instrument(span.clone())
         .await;
-        tracing::info!(parent: &span, elapsed_ms = started.elapsed().as_millis() as u64,
-            success = result.is_ok(), "OCR scan processed");
+        let elapsed_ms = started.elapsed().as_millis() as u64;
+        tracing::info!(parent: &span, elapsed_ms, success = result.is_ok(), "OCR scan processed");
+        if let Err(error) = &result {
+            tracing::warn!(parent: &span, elapsed_ms, %error, "OCR scan failed");
+        }
         result
     }
 
@@ -294,8 +297,11 @@ impl VrOcrService {
         }
         .instrument(span.clone())
         .await;
-        tracing::info!(parent: &span, elapsed_ms = started.elapsed().as_millis() as u64,
-            success = result.is_ok(), "OCR scan processed");
+        let elapsed_ms = started.elapsed().as_millis() as u64;
+        tracing::info!(parent: &span, elapsed_ms, success = result.is_ok(), "OCR scan processed");
+        if let Err(error) = &result {
+            tracing::warn!(parent: &span, elapsed_ms, %error, "OCR scan failed");
+        }
         result
     }
 

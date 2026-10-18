@@ -173,8 +173,8 @@ fn offset_score(image: &Texture, patches: &[FeaturePatch], dx: f32, dy: f32) -> 
 }
 
 fn valid_eye(eye: &EyeCapture) -> bool {
-    (1..=4096).contains(&eye.image.width)
-        && (1..=4096).contains(&eye.image.height)
+    (1..=16384).contains(&eye.image.width)
+        && (1..=16384).contains(&eye.image.height)
         && eye.image.pixels.len() == eye.image.width as usize * eye.image.height as usize * 4
         && eye.projection.iter().all(|v| v.is_finite())
         && eye.projection[0] < eye.projection[1]
