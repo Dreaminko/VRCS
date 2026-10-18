@@ -84,6 +84,76 @@ function item(id: number, status: LearningItem["status"] = "collected"): Learnin
   };
 }
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => { resolve = done; });
+  return { promise, resolve };
+}
+
+test("a delayed item action preserves the user's current selection", async () => {
+  const analysis = deferred<LearningItem>();
+  const inbox = await inboxHarness({
+    async learningItems() { return [item(2), item(1)]; },
+    analyzeLearningItem() { return analysis.promise; },
+  });
+  inbox.flush();
+  await inbox.current.reload();
+  inbox.flush();
+  inbox.current.setSelectedId(1);
+  inbox.flush();
+  const pending = inbox.current.analyze(1, {
+    task_type: "sentence_analysis", profile_id: "profile", model: "model",
+    explanation_language: "en", level: "beginner",
+  });
+  inbox.current.setSelectedId(2);
+  inbox.flush();
+  analysis.resolve(item(1, "analyzed"));
+  await pending;
+  inbox.flush();
+  assert.equal(inbox.current.selectedId, 2);
+  assert.equal(inbox.current.items.find((entry) => entry.id === 1)?.status, "analyzed");
+  inbox.current.applyItem(item(1, "analyzed"));
+  inbox.flush();
+  assert.equal(inbox.current.selectedId, 1, "an explicit open still selects the item");
+});
+
+test("a delayed action uses the current status filter", async () => {
+  const analysis = deferred<LearningItem>();
+  const inbox = await inboxHarness({
+    async learningItems(options) { return options?.status === "archived" ? [item(2, "archived")] : [item(1)]; },
+    analyzeLearningItem() { return analysis.promise; },
+  });
+  inbox.flush();
+  await inbox.current.reload();
+  inbox.flush();
+  const pending = inbox.current.analyze(1, {
+    task_type: "sentence_analysis", profile_id: "profile", model: "model",
+    explanation_language: "en", level: "beginner",
+  });
+  inbox.current.setStatusFilter("archived");
+  inbox.flush();
+  await inbox.current.reload();
+  inbox.flush();
+  analysis.resolve(item(1, "analyzed"));
+  await pending;
+  inbox.flush();
+  assert.deepEqual(inbox.current.items.map((entry) => entry.id), [2]);
+  assert.equal(inbox.current.selectedId, 2);
+});
+
+test("changing the filter invalidates a pending page immediately", async () => {
+  const page = deferred<LearningItem[]>();
+  const inbox = await inboxHarness({ learningItems() { return page.promise; } });
+  inbox.flush();
+  const pending = inbox.current.reload();
+  inbox.current.setStatusFilter("archived");
+  inbox.flush();
+  page.resolve([item(1)]);
+  await pending;
+  inbox.flush();
+  assert.deepEqual(inbox.current.items, []);
+});
+
 test("opening an old item does not move the server page cursor", async () => {
   const cursors: (number | undefined)[] = [];
   const inbox = await inboxHarness({

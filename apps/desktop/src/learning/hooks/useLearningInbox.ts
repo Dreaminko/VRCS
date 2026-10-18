@@ -34,6 +34,7 @@ export function useLearningInbox(ready: boolean) {
   const itemBusyRef = useRef(new Map<number, LearningBusyAction>());
   const listRequestRef = useRef(0);
   const pageCursorRef = useRef<number | undefined>(undefined);
+  const statusFilterRef = useRef(statusFilter);
 
   const selectedItem = useMemo(
     () => items.find((item) => item.id === selectedId) ?? null,
@@ -41,7 +42,15 @@ export function useLearningInbox(ready: boolean) {
   );
 
   const setStatusFilter = useCallback((status: LearningStatusFilter) => {
+    if (status === statusFilterRef.current) return;
+    statusFilterRef.current = status;
+    listRequestRef.current += 1;
+    pageCursorRef.current = undefined;
     setStatusFilterState(status);
+    setItems([]);
+    setHasMore(false);
+    setLoading(false);
+    setLoadingMore(false);
     setSelectedId(null);
   }, []);
 
@@ -90,17 +99,17 @@ export function useLearningInbox(ready: boolean) {
     listRequestRef.current += 1;
   }, []);
 
-  const applyItem = useCallback((item: LearningItem) => {
+  const applyItem = useCallback((item: LearningItem, select = true) => {
     setItems((current) => {
-      if (!learningItemMatchesStatus(item, statusFilter)) {
+      if (!learningItemMatchesStatus(item, statusFilterRef.current)) {
         return current.filter((candidate) => candidate.id !== item.id);
       }
       return mergeLearningItemPages(current, [item]);
     });
-    setSelectedId(item.id);
+    if (select) setSelectedId(item.id);
     setItemErrors((current) => removeRecordKey(current, item.id));
     return item;
-  }, [statusFilter]);
+  }, []);
 
   const runItemAction = useCallback(async (
     itemId: number,
@@ -113,7 +122,7 @@ export function useLearningInbox(ready: boolean) {
     setBusyByItem((current) => ({ ...current, [itemId]: action }));
     setItemErrors((current) => removeRecordKey(current, itemId));
     try {
-      return applyItem(await request());
+      return applyItem(await request(), false);
     } catch (reason) {
       setItemErrors((current) => ({
         ...current,
