@@ -11,6 +11,7 @@ use crate::yomitan::{DictionaryMetadata, DictionaryRecord, YomitanImporter};
 
 pub(super) const INSERT_BATCH_SIZE: usize = 500;
 const STAGED_TITLE_PREFIX: &str = "\0importing:";
+const MAX_DEINFLECT_CANDIDATES: usize = 24;
 
 pub(super) fn like_prefix(value: &str) -> String {
     let mut escaped = String::with_capacity(value.len() + 1);
@@ -425,7 +426,17 @@ fn deinflect_candidates(query: &str) -> Vec<String> {
             if let Some(stem) = lower.strip_suffix(suffix) {
                 if stem.len() >= 2 {
                     for replacement in replacements {
-                        push(format!("{stem}{replacement}"));
+                        // glass→glas、makes→mak 这类候选不可能是词条，直接跳过以减少 SQL 查询。
+                        let implausible = match (suffix, *replacement) {
+                            ("es", "") => !["s", "x", "z", "ch", "sh", "o"]
+                                .iter()
+                                .any(|ending| stem.ends_with(ending)),
+                            ("s", "") => stem.ends_with('s'),
+                            _ => false,
+                        };
+                        if !implausible {
+                            push(format!("{stem}{replacement}"));
+                        }
                     }
                     if matches!(suffix, "ing" | "ed") && has_doubled_trailing_consonant(stem) {
                         push(stem[..stem.len() - 1].to_owned());
@@ -435,6 +446,8 @@ fn deinflect_candidates(query: &str) -> Vec<String> {
         }
     }
 
+    // 每个候选最多触发 3 次精确查询，限制总量以免未命中时执行数十次 SQL。
+    candidates.truncate(MAX_DEINFLECT_CANDIDATES);
     candidates
 }
 
@@ -502,4 +515,26 @@ fn has_doubled_trailing_consonant(stem: &str) -> bool {
 
 fn is_kanji(character: char) -> bool {
     matches!(character, '\u{4E00}'..='\u{9FFF}' | '\u{3400}'..='\u{4DBF}')
+}
+
+#[cfg(test)]
+mod deinflect_tests {
+    use super::*;
+
+    #[test]
+    fn english_rules_skip_implausible_stems() {
+        assert_eq!(deinflect_candidates("glasses"), ["glass", "glasse"]);
+        assert_eq!(deinflect_candidates("makes"), ["make"]);
+        assert_eq!(deinflect_candidates("goes"), ["go", "goe"]);
+        assert!(deinflect_candidates("glass").is_empty());
+    }
+
+    #[test]
+    fn candidate_count_is_bounded() {
+        for query in ["書きました", "食べませんでした", "高かった", "studied"] {
+            let candidates = deinflect_candidates(query);
+            assert!(!candidates.is_empty());
+            assert!(candidates.len() <= MAX_DEINFLECT_CANDIDATES);
+        }
+    }
 }
