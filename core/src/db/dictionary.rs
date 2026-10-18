@@ -55,25 +55,19 @@ fn insert_batch(
 }
 
 impl Database {
-    /// 分级查词：精确词条 → 内置精确 → 精确读音 → 词条前缀 → 内置前缀 → 读音前缀。
+    /// 分级查词：精确词条 → 内置精确 → 精确读音 → 词形还原精确 → 词条前缀 → 内置前缀 → 读音前缀。
     pub fn lookup(&self, term: &str, limit: u32) -> AppResult<Vec<DictionaryEntry>> {
         let query = term.trim();
         if query.is_empty() {
             return Ok(Vec::new());
         }
-        if let Some(entries) =
-            self.lookup_imported("entries.term = ? COLLATE NOCASE", query, limit)?
-        {
+        if let Some(entries) = self.lookup_exact(query, limit)? {
             return Ok(entries);
         }
-        let legacy = self.lookup_legacy("term = ? COLLATE NOCASE", query, limit)?;
-        if !legacy.is_empty() {
-            return Ok(legacy);
-        }
-        if let Some(entries) =
-            self.lookup_imported("entries.reading = ? COLLATE NOCASE", query, limit)?
-        {
-            return Ok(entries);
+        for candidate in deinflect_candidates(query) {
+            if let Some(entries) = self.lookup_exact(&candidate, limit)? {
+                return Ok(entries);
+            }
         }
         let prefix = like_prefix(query);
         if let Some(entries) = self.lookup_imported(
@@ -97,6 +91,19 @@ impl Database {
             .unwrap_or_default())
     }
 
+    fn lookup_exact(&self, query: &str, limit: u32) -> AppResult<Option<Vec<DictionaryEntry>>> {
+        if let Some(entries) =
+            self.lookup_imported("entries.term = ? COLLATE NOCASE", query, limit)?
+        {
+            return Ok(Some(entries));
+        }
+        let legacy = self.lookup_legacy("term = ? COLLATE NOCASE", query, limit)?;
+        if !legacy.is_empty() {
+            return Ok(Some(legacy));
+        }
+        self.lookup_imported("entries.reading = ? COLLATE NOCASE", query, limit)
+    }
+
     /// 查询导入的 Yomitan 词条；无结果时返回 None 以便进入下一级回退。
     /// predicate 只允许传入 lookup 中的固定字符串，不做外部拼接。
     fn lookup_imported(
@@ -113,7 +120,7 @@ impl Database {
              WHERE sources.entry_count > 0 AND ({predicate})
              GROUP BY entries.source_id, entries.term, entries.reading,
                       entries.language, entries.definition, sources.title
-             ORDER BY MAX(entries.score) DESC, MIN(entries.id)
+             ORDER BY LENGTH(entries.term) ASC, MAX(entries.score) DESC, MIN(entries.id)
              LIMIT ?"
         );
         let mut statement = self.conn.prepare(&sql)?;
@@ -158,8 +165,12 @@ impl Database {
         value: &str,
         limit: u32,
     ) -> AppResult<Vec<DictionaryEntry>> {
-        let sql =
-            format!("SELECT term, language, definition FROM dictionary WHERE {predicate} LIMIT ?");
+        let sql = format!(
+            "SELECT term, language, definition FROM dictionary
+             WHERE {predicate}
+             ORDER BY LENGTH(term) ASC
+             LIMIT ?"
+        );
         let mut statement = self.conn.prepare(&sql)?;
         let rows = statement.query_map(params![value, limit], |row| {
             Ok(DictionaryEntry {
@@ -329,4 +340,145 @@ impl Database {
         )?;
         Ok(affected > 0)
     }
+}
+
+fn deinflect_candidates(query: &str) -> Vec<String> {
+    let mut candidates = Vec::new();
+    let mut seen = HashSet::new();
+    seen.insert(query.to_owned());
+    let mut push = |candidate: String| {
+        if !candidate.is_empty() && seen.insert(candidate.clone()) {
+            candidates.push(candidate);
+        }
+    };
+
+    for (suffix, replacements) in [
+        ("ませんでした", &["る", ""][..]),
+        ("ました", &["る", ""]),
+        ("ません", &["る", ""]),
+        ("ます", &["る", ""]),
+        ("ないで", &["る", ""]),
+        ("なかった", &["る", "い", ""]),
+        ("ない", &["る", "い", ""]),
+        ("たかった", &["る", ""]),
+        ("たい", &["る", ""]),
+        ("ている", &["る", ""]),
+        ("てる", &["る", ""]),
+        ("ていた", &["る", ""]),
+        ("てた", &["る", ""]),
+        ("てしまう", &["る", ""]),
+        ("ちゃう", &["る", ""]),
+        ("られる", &["る", ""]),
+        ("させる", &["る", ""]),
+        ("って", &["う", "つ", "る"]),
+        ("った", &["う", "つ", "る"]),
+        ("いて", &["く", "る"]),
+        ("いた", &["く", "る"]),
+        ("いで", &["ぐ", "る"]),
+        ("いだ", &["ぐ", "る"]),
+        ("んで", &["む", "ぶ", "ぬ"]),
+        ("んだ", &["む", "ぶ", "ぬ"]),
+        ("して", &["す", "する", ""]),
+        ("した", &["す", "する", ""]),
+        ("て", &["る", ""]),
+        ("た", &["る", ""]),
+        ("かった", &["い"]),
+        ("くない", &["い"]),
+        ("くて", &["い"]),
+        ("ければ", &["い"]),
+    ] {
+        if let Some(stem) = query.strip_suffix(suffix) {
+            if !stem.is_empty() {
+                for replacement in replacements {
+                    push(format!("{stem}{replacement}"));
+                }
+                push_godan_bases(stem, &mut push);
+            }
+        }
+    }
+
+    if query.is_ascii() && query.len() >= 4 {
+        let lower = query.to_ascii_lowercase();
+        for (suffix, replacements) in [
+            ("ies", &["y"][..]),
+            ("ied", &["y"]),
+            ("ing", &["", "e"]),
+            ("ed", &["", "e"]),
+            ("es", &["", "e"]),
+            ("s", &[""]),
+        ] {
+            if let Some(stem) = lower.strip_suffix(suffix) {
+                if stem.len() >= 2 {
+                    for replacement in replacements {
+                        push(format!("{stem}{replacement}"));
+                    }
+                    if matches!(suffix, "ing" | "ed") && has_doubled_trailing_consonant(stem) {
+                        push(stem[..stem.len() - 1].to_owned());
+                    }
+                }
+            }
+        }
+    } else if !query.is_ascii() {
+        let chars: Vec<char> = query.chars().collect();
+        for len in (1..chars.len()).rev().take(3) {
+            let prefix: String = chars[..len].iter().collect();
+            if len >= 2 || prefix.chars().all(is_kanji) {
+                push(prefix);
+            }
+        }
+    }
+
+    candidates
+}
+
+fn push_godan_bases(stem: &str, push: &mut impl FnMut(String)) {
+    if let Some(root) = stem.strip_suffix('っ') {
+        if !root.is_empty() {
+            for ending in ['る', 'う', 'つ'] {
+                push(format!("{root}{ending}"));
+            }
+        }
+        return;
+    }
+    let Some(last) = stem.chars().last() else {
+        return;
+    };
+    let root = &stem[..stem.len() - last.len_utf8()];
+    if root.is_empty() {
+        return;
+    }
+    if last == 'し' {
+        push(format!("{root}する"));
+        push(root.to_owned());
+    }
+    let mapped = match last {
+        'き' | 'か' => Some('く'),
+        'ぎ' | 'が' => Some('ぐ'),
+        'し' | 'さ' => Some('す'),
+        'ち' | 'た' => Some('つ'),
+        'に' | 'な' => Some('ぬ'),
+        'び' | 'ば' => Some('ぶ'),
+        'み' | 'ま' => Some('む'),
+        'り' | 'ら' => Some('る'),
+        'い' | 'わ' => Some('う'),
+        _ => None,
+    };
+    if let Some(ending) = mapped {
+        push(format!("{root}{ending}"));
+    }
+}
+
+fn has_doubled_trailing_consonant(stem: &str) -> bool {
+    let bytes = stem.as_bytes();
+    if bytes.len() < 3 {
+        return false;
+    }
+    let last = bytes[bytes.len() - 1];
+    last == bytes[bytes.len() - 2]
+        && last.is_ascii_alphabetic()
+        && !matches!(last, b'a' | b'e' | b'i' | b'o' | b'u')
+}
+
+fn is_kanji(character: char) -> bool {
+    matches!(character, '\u{4E00}'..='\u{9FFF}' | '\u{3400}'..='\u{4DBF}')
 }

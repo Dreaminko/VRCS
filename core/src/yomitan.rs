@@ -403,7 +403,14 @@ fn append_text_content(value: &Value, output: &mut String) {
             } else if tag == Some("br") {
                 output.push('\n');
             } else if let Some(content) = map.get("content") {
+                let is_block = matches!(tag, Some("div" | "p" | "li" | "tr"));
+                if is_block && !output.is_empty() && !output.ends_with('\n') {
+                    output.push('\n');
+                }
                 append_text_content(content, output);
+                if is_block && !output.is_empty() && !output.ends_with('\n') {
+                    output.push('\n');
+                }
             }
         }
         _ => {}
@@ -478,6 +485,21 @@ mod tests {
         // 与 Python 版一致：text_content(br) 产生 "\n"，join 后再叠加换行，strip 只去首尾
         assert_eq!(records[0].definition, "吃\n\n\n食用");
         assert_eq!(records[0].score, 5.0);
+    }
+
+    #[test]
+    fn preserves_line_breaks_between_structured_block_tags() {
+        let glossary = vec![serde_json::json!({
+            "type": "structured-content",
+            "content": [
+                {"tag": "div", "content": "第一义项"},
+                {"tag": "ul", "content": [
+                    {"tag": "li", "content": "例句一"},
+                    {"tag": "li", "content": "例句二"}
+                ]}
+            ]
+        })];
+        assert_eq!(glossary_text(&glossary), "第一义项\n例句一\n例句二");
     }
 
     #[test]

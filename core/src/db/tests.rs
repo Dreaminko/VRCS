@@ -652,6 +652,45 @@ fn dictionary_prefix_treats_like_wildcards_as_text() {
 }
 
 #[test]
+fn dictionary_lookup_ranks_shorter_prefixes_first_and_deinflects_queries() {
+    let (_path, database) = open_temp_db("deinflect-lookup");
+    let db = std::sync::Mutex::new(database);
+    let mut writer = zip::ZipWriter::new(Cursor::new(Vec::new()));
+    let options = zip::write::SimpleFileOptions::default();
+    writer.start_file("index.json", options).unwrap();
+    writer
+        .write_all(br#"{"title":"LookupDict","revision":"1","format":3,"sourceLanguage":"ja","targetLanguage":"en"}"#)
+        .unwrap();
+    writer.start_file("term_bank_1.json", options).unwrap();
+    let entries = serde_json::json!([
+        ["食べ放題", "たべほうだい", "", "", 100, ["all-you-can-eat"]],
+        ["食べる", "たべる", "", "", 10, ["to eat"]],
+        ["走る", "はしる", "", "", 10, ["to run"]],
+        ["書く", "かく", "", "", 10, ["to write"]],
+        ["高い", "たかい", "", "", 10, ["high; expensive"]],
+        ["猫", "ねこ", "", "", 10, ["cat"]],
+        ["run", "run", "", "", 10, ["to move quickly"]]
+    ]);
+    writer
+        .write_all(entries.to_string().as_bytes())
+        .unwrap();
+    let archive = writer.finish().unwrap().into_inner();
+    import_yomitan(&db, &archive);
+    let database = db.into_inner().unwrap();
+
+    let prefix_hits = database.lookup("食べ", 10).unwrap();
+    assert_eq!(prefix_hits[0].term, "食べる");
+    assert_eq!(prefix_hits[1].term, "食べ放題");
+
+    assert_eq!(database.lookup("食べました", 5).unwrap()[0].term, "食べる");
+    assert_eq!(database.lookup("走っている", 5).unwrap()[0].term, "走る");
+    assert_eq!(database.lookup("書きました", 5).unwrap()[0].term, "書く");
+    assert_eq!(database.lookup("高かった", 5).unwrap()[0].term, "高い");
+    assert_eq!(database.lookup("猫が", 5).unwrap()[0].term, "猫");
+    assert_eq!(database.lookup("running", 5).unwrap()[0].term, "run");
+}
+
+#[test]
 fn escaped_prefix_lookup_uses_the_term_index() {
     let (_path, database) = open_temp_db("like-plan");
     let plan = database
