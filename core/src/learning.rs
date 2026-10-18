@@ -2,6 +2,7 @@ use std::time::Duration;
 
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{json, Value};
+use tokio::time::Instant;
 
 use crate::config::{ApiProfile, ReasoningSetting};
 use crate::credentials;
@@ -710,6 +711,7 @@ impl LearningService {
             .validate()
             .map_err(|detail| learning_error("learning.invalid_request", detail, false))?;
         let (profile, api_key) = resolve_generation_profile(profiles, &request.profile_id)?;
+        let deadline = Instant::now() + Duration::from_millis(profile.timeout_ms);
         let (instructions, input) = analysis_prompt(item, request, profile);
         let llm_request = LlmRequest {
             model: &request.model,
@@ -720,7 +722,7 @@ impl LearningService {
             reasoning_control: request.reasoning_control.clone(),
         };
         let output = self
-            .generate(profile, &api_key, llm_request.clone())
+            .generate(profile, &api_key, llm_request.clone(), deadline)
             .await?;
         match parse_analysis_response(&output, request, profile) {
             Ok(analysis) => Ok(analysis),
@@ -742,6 +744,7 @@ impl LearningService {
                             input: &repair_input,
                             ..llm_request
                         },
+                        deadline,
                     )
                     .await?;
                 parse_analysis_response(&repaired, request, profile)
@@ -759,6 +762,7 @@ impl LearningService {
             .validate()
             .map_err(|detail| learning_error("learning.invalid_request", detail, false))?;
         let (profile, api_key) = resolve_generation_profile(profiles, &request.profile_id)?;
+        let deadline = Instant::now() + Duration::from_millis(profile.timeout_ms);
         let (instructions, input) = selection_query_prompt(request);
         let output = self
             .generate(
@@ -772,6 +776,7 @@ impl LearningService {
                     thinking_enabled: request.thinking_enabled,
                     reasoning_control: request.reasoning_control.clone(),
                 },
+                deadline,
             )
             .await?;
         let answer = parse_selection_answer(&output)
@@ -789,9 +794,10 @@ impl LearningService {
         profile: &ApiProfile,
         api_key: &str,
         request: LlmRequest<'_>,
+        deadline: Instant,
     ) -> Result<String, LearningError> {
         let future = self.llm.generate(profile, api_key, request, None);
-        tokio::time::timeout(Duration::from_millis(profile.timeout_ms), future)
+        tokio::time::timeout_at(deadline, future)
             .await
             .map_err(|_| {
                 learning_error(
@@ -1307,6 +1313,56 @@ mod tests {
             provider: OPENAI_PROVIDER.into(),
             enabled_capabilities: vec![providers::CAPABILITY_TEXT_GENERATION.into()],
             ..ApiProfile::default()
+        }
+    }
+
+    #[tokio::test]
+    async fn analysis_and_format_repair_share_one_timeout_budget() {
+        use axum::{routing::post, Json, Router};
+        use std::sync::{
+            atomic::{AtomicUsize, Ordering},
+            Arc,
+        };
+
+        for (delay_ms, should_timeout) in [(1_200, true), (20, false)] {
+            let attempts = Arc::new(AtomicUsize::new(0));
+            let handler_attempts = attempts.clone();
+            let app = Router::new().route("/v1/chat/completions", post(move || {
+                let attempts = handler_attempts.clone();
+                async move {
+                    let attempt = attempts.fetch_add(1, Ordering::SeqCst);
+                    tokio::time::sleep(Duration::from_millis(delay_ms)).await;
+                    let content = if attempt == 0 {
+                        "Invalid analysis".to_owned()
+                    } else {
+                        json!({"summary": "Repaired analysis", "confidence": "high"}).to_string()
+                    };
+                    Json(json!({"choices": [{"finish_reason": "stop", "message": {"content": content}}]}))
+                }
+            }));
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let profile = ApiProfile {
+                provider: providers::OPENAI_COMPATIBLE_PROVIDER.into(),
+                base_url: Some(format!("http://{}/v1", listener.local_addr().unwrap())),
+                auth_mode: crate::config::ApiAuthMode::None,
+                timeout_ms: 2_000,
+                ..profile()
+            };
+            let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+            let result = LearningService::new()
+                .unwrap()
+                .analyze(&item(), &[profile], &request())
+                .await;
+            server.abort();
+
+            assert_eq!(attempts.load(Ordering::SeqCst), 2);
+            if should_timeout {
+                let error = result.unwrap_err();
+                assert_eq!(error.code, "learning.timeout");
+                assert!(error.retryable);
+            } else {
+                assert_eq!(result.unwrap().summary, "Repaired analysis");
+            }
         }
     }
 
