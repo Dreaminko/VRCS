@@ -12,6 +12,7 @@ export function LearningAnalysisView({
   const { t } = useTranslation();
   const facts = [
     [t("learning.analysis.currentMeaning"), analysis.current_meaning],
+    [t("learning.card.reading"), analysis.reading],
     [t("learning.analysis.baseForm"), analysis.base_form],
     [t("learning.analysis.partOfSpeech"), analysis.part_of_speech],
     [t("learning.analysis.register"), analysis.register],

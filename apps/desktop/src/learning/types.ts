@@ -30,6 +30,7 @@ export interface LearningAnalysis {
   task_type: LearningTaskType;
   summary: string;
   current_meaning?: string | null;
+  reading?: string | null;
   base_form?: string | null;
   part_of_speech?: string | null;
   register?: string | null;

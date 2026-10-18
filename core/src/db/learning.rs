@@ -394,6 +394,7 @@ mod tests {
             task_type: AnalysisTaskType::SentenceAnalysis,
             summary: "A test analysis".into(),
             current_meaning: None,
+            reading: None,
             base_form: None,
             part_of_speech: None,
             register: None,
