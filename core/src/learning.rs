@@ -859,21 +859,17 @@ pub fn generate_draft(
             labels: None,
         },
         LearningCardType::FillBlank => {
-            let source = if item.working_text.contains(selected) {
-                item.working_text.as_str()
-            } else if item.source_text.contains(selected) {
-                item.source_text.as_str()
-            } else {
-                return Err(learning_error(
+            let (source, target) = fill_blank_target(item).ok_or_else(|| {
+                learning_error(
                     "learning.draft_unavailable",
                     "The selected text is not present in the learning item",
                     false,
-                ));
-            };
+                )
+            })?;
             CardRequest {
-                term: source.replacen(selected, "____", 1),
+                term: source.replacen(target, "____", 1),
                 reading,
-                definition: format!("{selected}\n{meaning}"),
+                definition: format!("{target}\n{meaning}"),
                 context: source.to_owned(),
                 dictionary: dictionary_name,
                 language,
@@ -884,6 +880,34 @@ pub fn generate_draft(
     card.validate()
         .map_err(|detail| learning_error("learning.draft_invalid", detail, false))?;
     Ok(LearningCardDraft::from_card(card_type, card))
+}
+
+fn fill_blank_target(item: &LearningItem) -> Option<(&str, &str)> {
+    let analysis = item.analysis.as_ref();
+    let candidates = item
+        .selected_text
+        .as_deref()
+        .into_iter()
+        .chain(analysis.and_then(|value| value.base_form.as_deref()))
+        .chain(item.dictionary_entries.iter().map(|entry| entry.term.as_str()))
+        .chain(
+            analysis
+                .into_iter()
+                .flat_map(|value| value.grammar_points.iter().map(|point| point.form.as_str())),
+        )
+        .chain(
+            analysis
+                .into_iter()
+                .flat_map(|value| value.segments.iter().map(|segment| segment.text.as_str())),
+        );
+    for candidate in candidates.filter_map(|value| non_empty(Some(value))) {
+        for source in [item.working_text.as_str(), item.source_text.as_str()] {
+            if source.trim() != candidate && source.contains(candidate) {
+                return Some((source, candidate));
+            }
+        }
+    }
+    None
 }
 
 fn analysis_prompt(
@@ -1410,6 +1434,30 @@ mod tests {
         let fill = generate_draft(&item, LearningCardType::FillBlank).unwrap();
         assert_eq!(fill.term, "猫が魚を____");
         assert!(fill.definition.contains("食べる"));
+
+        let mut inflected = item;
+        inflected.source_text = "猫が魚を食べました".into();
+        inflected.working_text = "猫が魚を食べました".into();
+        inflected.selected_text = None;
+        inflected.dictionary_entries.clear();
+        if let Some(analysis) = &mut inflected.analysis {
+            analysis.segments = vec![LearningSegment {
+                text: "食べました".into(),
+                role: "predicate".into(),
+                explanation: "polite past".into(),
+            }];
+        }
+        let inflected_fill = generate_draft(&inflected, LearningCardType::FillBlank).unwrap();
+        assert_eq!(inflected_fill.term, "猫が魚を____");
+        assert!(inflected_fill.definition.starts_with("食べました\n"));
+
+        inflected.analysis = None;
+        assert_eq!(
+            generate_draft(&inflected, LearningCardType::FillBlank)
+                .unwrap_err()
+                .code,
+            "learning.draft_unavailable"
+        );
     }
 
     #[test]
