@@ -531,10 +531,7 @@ fn learning_capture_keys(
         [id] => vec![format!("subtitle:{id}")],
         ids => vec![format!(
             "subtitles:{}",
-            ids.iter()
-                .map(i64::to_string)
-                .collect::<Vec<_>>()
-                .join(",")
+            ids.iter().map(i64::to_string).collect::<Vec<_>>().join(",")
         )],
     }
 }
@@ -939,7 +936,11 @@ fn fill_blank_target(item: &LearningItem) -> Option<(&str, &str)> {
         .as_deref()
         .into_iter()
         .chain(analysis.and_then(|value| value.base_form.as_deref()))
-        .chain(item.dictionary_entries.iter().map(|entry| entry.term.as_str()))
+        .chain(
+            item.dictionary_entries
+                .iter()
+                .map(|entry| entry.term.as_str()),
+        )
         .chain(
             analysis
                 .into_iter()
@@ -999,12 +1000,8 @@ fn analysis_prompt(
         AnalysisFocus::Default => {
             "Provide a balanced breakdown of meaning, pronunciation/reading, structure, and usage."
         }
-        AnalysisFocus::Simpler => {
-            "Use plain, everyday wording and avoid dense linguistic jargon."
-        }
-        AnalysisFocus::Examples => {
-            "Prioritize natural example sentences and common collocations."
-        }
+        AnalysisFocus::Simpler => "Use plain, everyday wording and avoid dense linguistic jargon.",
+        AnalysisFocus::Examples => "Prioritize natural example sentences and common collocations.",
         AnalysisFocus::Compare => {
             "Contrast the expression with near-synonyms or easily confused alternatives."
         }

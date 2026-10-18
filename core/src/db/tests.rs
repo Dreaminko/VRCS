@@ -676,9 +676,7 @@ fn dictionary_lookup_ranks_shorter_prefixes_first_and_deinflects_queries() {
         ["話す", "はなす", "", "", 10, ["to speak"]],
         ["run", "run", "", "", 10, ["to move quickly"]]
     ]);
-    writer
-        .write_all(entries.to_string().as_bytes())
-        .unwrap();
+    writer.write_all(entries.to_string().as_bytes()).unwrap();
     let archive = writer.finish().unwrap().into_inner();
     import_yomitan(&db, &archive);
     let database = db.into_inner().unwrap();

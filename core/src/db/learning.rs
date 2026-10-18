@@ -611,8 +611,12 @@ mod tests {
     fn capture_creation_is_idempotent_and_delete_cascades_keys() {
         let directory = tempfile::tempdir().unwrap();
         let mut database = Database::open(&directory.path().join("capture.db")).unwrap();
-        let first_word = database.create_learning_item(create_input(vec![8])).unwrap();
-        let duplicate_word = database.create_learning_item(create_input(vec![8])).unwrap();
+        let first_word = database
+            .create_learning_item(create_input(vec![8]))
+            .unwrap();
+        let duplicate_word = database
+            .create_learning_item(create_input(vec![8]))
+            .unwrap();
         assert_eq!(duplicate_word.id, first_word.id);
 
         let second_word = database
