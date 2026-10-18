@@ -69,7 +69,6 @@ export function DictionaryPopover({ lookup, loading = false, ankiEnabled, compac
         return;
       }
       setLearningState("success");
-      setLearningFeedback(t("dictionary.learning.saved"));
     } catch {
       setLearningState("error");
       setLearningFeedback(t("dictionary.learning.failed"));

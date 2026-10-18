@@ -331,7 +331,7 @@ pub struct LearningCardDraft {
 
 impl LearningCardDraft {
     pub fn validate(&self) -> Result<(), String> {
-        self.card_request().validate()
+        self.card_request().validate_draft()
     }
 
     pub fn card_request(&self) -> CardRequest {
@@ -880,20 +880,24 @@ pub fn generate_draft(
         .current_analysis()
         .and_then(|analysis| non_empty(analysis.current_meaning.as_deref()))
         .map(str::to_owned)
-        .or_else(|| dictionary.map(|entry| entry.definition.clone()))
+        .or_else(|| {
+            dictionary
+                .and_then(|entry| non_empty(Some(&entry.definition)))
+                .map(str::to_owned)
+        })
         .or_else(|| {
             item.current_analysis()
                 .map(|analysis| analysis.summary.clone())
         })
-        .or_else(|| item.source_translation.clone())
-        .unwrap_or_else(|| item.working_text.clone());
+        .or_else(|| non_empty(item.source_translation.as_deref()).map(str::to_owned))
+        .unwrap_or_default();
 
     let card = match card_type {
         LearningCardType::Vocabulary => CardRequest {
             term: selected.to_owned(),
             reading,
             definition: meaning,
-            context: item.source_text.clone(),
+            context: item.working_text.clone(),
             dictionary: dictionary_name,
             language,
             labels: None,
@@ -901,15 +905,14 @@ pub fn generate_draft(
         LearningCardType::Sentence => CardRequest {
             term: item.working_text.clone(),
             reading: None,
-            definition: item
-                .source_translation
-                .clone()
+            definition: non_empty(item.source_translation.as_deref())
+                .map(str::to_owned)
                 .or_else(|| {
                     item.current_analysis()
                         .map(|analysis| analysis.summary.clone())
                 })
                 .unwrap_or(meaning),
-            context: item.source_text.clone(),
+            context: item.working_text.clone(),
             dictionary: dictionary_name,
             language,
             labels: None,
@@ -925,7 +928,11 @@ pub fn generate_draft(
             CardRequest {
                 term: source.replacen(target, "____", 1),
                 reading: fill_blank_reading(item, target),
-                definition: format!("{target}\n{meaning}"),
+                definition: if meaning.is_empty() {
+                    target.to_owned()
+                } else {
+                    format!("{target}\n{meaning}")
+                },
                 context: source.to_owned(),
                 dictionary: dictionary_name,
                 language,
@@ -933,7 +940,7 @@ pub fn generate_draft(
             }
         }
     };
-    card.validate()
+    card.validate_draft()
         .map_err(|detail| learning_error("learning.draft_invalid", detail, false))?;
     Ok(LearningCardDraft::from_card(card_type, card))
 }
@@ -1470,6 +1477,43 @@ mod tests {
         assert_eq!(draft.reading.as_deref(), Some("たべる"));
         let sentence = generate_draft(&item, LearningCardType::Sentence).unwrap();
         assert_eq!(sentence.definition, "to eat");
+    }
+
+    #[test]
+    fn missing_meaning_stays_empty_in_drafts_and_blocks_export() {
+        let mut item = item();
+        item.dictionary_entries.clear();
+        item.source_translation = Some("  ".into());
+        let output =
+            r#"{"summary":"Old summary","current_meaning":"Old meaning","confidence":"high"}"#;
+        item.analysis = Some(parse_analysis_response(output, &request(), &profile()).unwrap());
+        item.analysis_stale = true;
+
+        for card_type in [LearningCardType::Vocabulary, LearningCardType::Sentence] {
+            let mut draft = generate_draft(&item, card_type).unwrap();
+            assert!(draft.definition.is_empty());
+            assert!(draft.validate().is_ok());
+            assert!(draft.card_request().validate().is_err());
+            item.draft = Some(draft.clone());
+            assert!(item.validate().is_ok());
+
+            draft.definition = "A supplied translation".into();
+            assert!(draft.card_request().validate().is_ok());
+            draft.definition = "x".repeat(20_001);
+            assert!(draft.validate().is_err());
+        }
+    }
+
+    #[test]
+    fn drafts_use_corrected_context_and_keep_the_collected_original() {
+        let mut item = item();
+        let original = item.source_text.clone();
+        item.working_text = "犬が魚を食べる".into();
+        for card_type in [LearningCardType::Vocabulary, LearningCardType::Sentence] {
+            let draft = generate_draft(&item, card_type).unwrap();
+            assert_eq!(draft.context, item.working_text);
+            assert_eq!(item.source_text, original);
+        }
     }
 
     #[test]

@@ -116,18 +116,9 @@
       "targetLanguage": "目标语言",
       "translate": "翻译",
       "sendMode": "发送内容",
-      "modes": {
-        "original": "原文",
-        "translation": "译文",
-        "bilingual": "双语"
-      },
+      "modes": { "original": "原文", "translation": "译文", "bilingual": "双语" },
       "format": "消息格式",
-      "formats": {
-        "originalFirst": "原文换行译文",
-        "translationFirst": "译文换行原文",
-        "slash": "斜线分隔",
-        "custom": "自定义"
-      },
+      "formats": { "originalFirst": "原文换行译文", "translationFirst": "译文换行原文", "slash": "斜线分隔", "custom": "自定义" },
       "customFormat": "自定义消息格式",
       "preview": "发送预览",
       "previewEmpty": "输入消息后将在这里显示最终效果",
@@ -135,10 +126,7 @@
       "send": "发送到 VRChat",
       "sending": "正在发送…",
       "oscDisabled": "请先在设置中启用 OSC。",
-      "errors": {
-        "translate": "无法翻译这条消息。",
-        "send": "无法发送 Chatbox 消息。"
-      }
+      "errors": { "translate": "无法翻译这条消息。", "send": "无法发送 Chatbox 消息。" }
     },
     "capture": {
       "start": "开始转写",
@@ -331,11 +319,13 @@
         "count": "{{count}} 个项目",
         "statusFilter": "项目状态",
         "kindFilter": "项目类型",
-        "searchLoadedOnly": "搜索和类型筛选只覆盖已加载的项目。加载更多后可包含更早的项目。",
+        "searchLoadedOnly": "仅搜索已加载项目；加载更多可查找更早内容。",
         "empty": "此状态下没有学习项目。",
         "selectHint": "选择一个项目继续处理。",
         "loadMore": "加载更多项目",
-        "loadingMore": "正在加载…"
+        "loadingMore": "正在加载…",
+        "back": "返回收集箱",
+        "search": "搜索学习项目"
       },
       "materials": {
         "title": "会话素材",
@@ -351,9 +341,11 @@
         "selectionHint": "可任意多选；按住 Shift 可连续选择。",
         "conversationCount": "{{count}} 条字幕",
         "selected": "已选择 {{count}} 条字幕",
-        "selectAll": "选择当前列表",
+        "selectAll": "全选",
         "clearSelection": "清除",
-        "selectSubtitle": "选择字幕"
+        "selectSubtitle": "选择字幕",
+        "collect": "从会话收集",
+        "openCollected": "打开条目"
       },
       "filters": {
         "all": "全部",
@@ -383,19 +375,42 @@
         "archive": "归档",
         "restore": "恢复",
         "delete": "删除",
-        "deleteConfirm": "删除此学习项目及其分析和草稿？来源字幕不会被删除。"
+        "deleteConfirm": "删除此学习项目及其分析和草稿？来源字幕不会被删除。",
+        "more": "更多操作"
       },
       "detail": {
         "sourceText": "原文 · 只读",
-        "workingText": "工作副本",
+        "textLabels": {
+          "word": "原句语境",
+          "sentence": "学习原句",
+          "excerpt": "会话片段"
+        },
+        "titles": {
+          "sentence": "句子研读",
+          "excerpt": "会话回顾"
+        },
+        "correctionHint": "校正后的文本用于分析和制卡，收集时的原文会保留。",
+        "moreDefinitions": "更多词典释义",
         "saveWorkingText": "保存修改",
-        "sourceTranslation": "保存的译文",
-        "dictionarySnapshot": "词典快照"
+        "sourceTranslation": "收集时译文",
+        "dictionarySnapshot": "词典释义",
+        "views": "项目视图",
+        "study": "研读",
+        "card": "卡片",
+        "unsaved": "未保存",
+        "edit": "校正文本",
+        "viewSource": "查看来源原文"
       },
       "ai": {
         "title": "AI 分析",
         "description": "仅在你点击操作时发起请求。",
-        "configureHint": "请先在设置 → 学习设置中配置 AI Profile 和模型。",
+        "configureHint": "设置 AI 后即可分析，当前仍可阅读内容和制作卡片。",
+        "openSettings": "前往学习设置",
+        "actions": {
+          "contextual_word_explanation": "解释这个词",
+          "sentence_analysis": "解析这个句子",
+          "session_review": "回顾这段会话"
+        },
         "profile": "AI Profile",
         "model": "模型",
         "modelPlaceholder": "选择或输入模型",
@@ -405,10 +420,10 @@
         "explanationLevel": "解释详细度",
         "profileMissing": "请选择支持文本生成的 AI Profile，并输入模型后再发送内容。",
         "cloudNoticeTitle": "第三方云服务",
-        "cloudNotice": "工作副本和保存的词典上下文将发送到 {{provider}}，使用模型 {{model}}。",
+        "cloudNotice": "学习内容和保存的词典语境将发送到 {{provider}}，使用模型 {{model}}。",
         "localNoticeTitle": "已配置的本地服务",
-        "localNotice": "工作副本将发送到本地服务 {{provider}}，使用模型 {{model}}。该服务可能有自己的转发规则。",
-        "quickFocus": "快捷追问",
+        "localNotice": "学习内容将发送到本地服务 {{provider}}，使用模型 {{model}}。该服务可能有自己的转发规则。",
+        "quickFocus": "补充分析",
         "focus": {
           "simpler": "解释得更简单",
           "examples": "补充例句",
@@ -428,33 +443,41 @@
           "beginner": "初级",
           "intermediate": "中级",
           "advanced": "高级"
-        }
+        },
+        "mode": "分析方式",
+        "analyze": "开始分析",
+        "reanalyze": "重新分析",
+        "analyzing": "正在分析…"
       },
       "analysis": {
         "stale": "正文已修改，请重新分析以更新结果。",
-        "title": "分析结果",
+        "title": "AI 分析结果",
         "summary": "摘要",
-        "currentMeaning": "当前义",
+        "currentMeaning": "在这句话中的意思",
         "baseForm": "原形",
         "partOfSpeech": "词性",
         "register": "语域",
-        "segments": "分块",
+        "segments": "句子拆解",
         "grammarPoints": "语法点",
-        "uncertainties": "不确定性",
+        "uncertainties": "需要留意",
         "memoryTip": "记忆提示",
         "examples": "例句",
         "confidence": "置信度 · {{value}}",
-        "metadata": "任务 {{task}} · Prompt {{prompt}}"
+        "metadata": "任务 {{task}} · Prompt {{prompt}}",
+        "details": "分析详情"
       },
       "card": {
         "title": "卡片草稿",
-        "description": "生成建议后编辑字段、保存，再通过现有 Anki 设置导出。",
+        "description": "编辑并预览卡片，保存后可添加到 Anki。",
         "type": "卡片类型",
         "types": {
           "vocabulary": "词汇卡",
           "sentence": "句型卡",
           "fillBlank": "完形填空卡"
         },
+        "create": "制作卡片",
+        "saveAndCreate": "保存并制作卡片",
+        "openDraft": "继续编辑卡片",
         "generate": "生成草稿",
         "regenerate": "重新生成",
         "term": "词语",
@@ -469,9 +492,14 @@
         "update": "更新 Anki 卡片",
         "noteId": "Anki 笔记 #{{id}}",
         "saveBeforeExport": "请先保存草稿修改，再添加到 Anki。",
-        "stale": "正文已修改，请先保存正文，再重新生成草稿，或检查并编辑保存草稿后导出。",
+        "stale": "正文已修改，请重新生成草稿，或检查内容后保存草稿。",
         "ankiDisabled": "请先在设置中启用 AnkiConnect。",
-        "empty": "工作副本和分析确认后，可生成卡片草稿。"
+        "empty": "可直接从当前正文生成草稿，无需先进行 AI 分析。",
+        "requiredFields": "请补充卡片正面和译文或释义，再添加到 Anki。",
+        "additionalFields": "补充字段",
+        "preview": "内容预览",
+        "front": "正面",
+        "back": "背面"
       }
     },
     "dictionary": {
@@ -485,7 +513,6 @@
         "saving": "正在加入…",
         "savedAction": "已加入",
         "retry": "重试",
-        "saved": "已将词语、语境和词典快照保存到学习工作台。",
         "failed": "无法将此词语加入学习工作台。"
       },
       "anki": {
@@ -547,9 +574,7 @@
     "updates": {
       "title": "软件更新",
       "currentVersion": "当前版本 {{version}}",
-      "variant": {
-        "standard": "标准版"
-      },
+      "variant": { "standard": "标准版" },
       "automaticChecks": "自动检查更新",
       "checkNow": "立即检查",
       "availableTitle": "VRCS {{version}} 已发布",
@@ -567,9 +592,9 @@
         "installing": "正在安装更新…"
       },
       "errors": {
-        "feature": {
-          "disabled": "此功能已关闭，可在系统设置的功能选项中重新开启。"
-        },
+    "feature": {
+      "disabled": "此功能已关闭，可在系统设置的功能选项中重新开启。"
+    },
         "unavailable": "当前构建未配置更新功能。",
         "busy": "已有更新操作正在进行。",
         "no_pending": "请重新检查更新后再安装。",
@@ -757,59 +782,18 @@
         "wristPosition": "位置与角度",
         "results": "区域译文：{{completed}} 项成功，{{failed}} 项失败",
         "sourceView": "原文与译文一同显示。",
-        "errors": {
-          "timeout": "任务已超时，请重新识别。",
-          "models_missing": "请在设置中准备本地 OCR 模型。",
-          "configuration_changed": "OCR 配置已变化，请重新识别。",
-          "tracking_lost": "请恢复头显追踪后重新识别。",
-          "view_changed": "原文字区域已变化，请重新识别。",
-          "network": "OCR 网络请求失败，请检查连接后重试。",
-          "local_failed": "本地 OCR 推理失败，请检查模型准备状态。",
-          "unavailable": "OCR 暂不可用，请检查 VR 连接和本地模型。",
-          "translation_failed": "全部翻译请求失败，请检查翻译服务。",
-          "partial_failure": "部分翻译失败，已完成的译文会被保留。",
-          "partial_timeout": "部分翻译超时，已完成的译文会被保留。"
-        },
+        "errors": {"timeout": "任务已超时，请重新识别。", "models_missing": "请在设置中准备本地 OCR 模型。", "configuration_changed": "OCR 配置已变化，请重新识别。", "tracking_lost": "请恢复头显追踪后重新识别。", "view_changed": "原文字区域已变化，请重新识别。", "network": "OCR 网络请求失败，请检查连接后重试。", "local_failed": "本地 OCR 推理失败，请检查模型准备状态。", "unavailable": "OCR 暂不可用，请检查 VR 连接和本地模型。", "translation_failed": "全部翻译请求失败，请检查翻译服务。", "partial_failure": "部分翻译失败，已完成的译文会被保留。", "partial_timeout": "部分翻译超时，已完成的译文会被保留。"},
         "displayMode": "VR 结果显示方式",
-        "displayModes": {
-          "wrist": "手腕面板",
-          "stereo": "原文字位置（左右眼）"
-        },
+        "displayModes": { "wrist": "手腕面板", "stereo": "原文字位置（左右眼）" },
         "device": "本地 OCR 推理设备",
         "deviceDescription": "DirectML 使用 Windows 上的兼容 GPU。GPU 加载或识别失败时，OCR 会自动回退 CPU。",
         "activeDevice": "最近使用的设备：{{device}}",
         "cpuFallback": "DirectML 失败，OCR 已切换到 CPU。",
-        "modelStates": {
-          "missing": "需要下载",
-          "downloading": "正在下载",
-          "ready": "已就绪",
-          "error": "下载失败"
-        },
+        "modelStates": { "missing": "需要下载", "downloading": "正在下载", "ready": "已就绪", "error": "下载失败" },
         "modelFailed": "无法准备 OCR 模型，请检查连接后重试。",
         "modelDeleteFailed": "无法删除 OCR 模型。请等待当前下载或识别完成后重试。",
         "controls": "选框出现后，长按右扳机 0.65 秒确认 OCR。若此前已按住扳机，需先松开再按。未框选时不会识别。长按左扳机可清除，启用视觉问答时用于提问。",
-        "states": {
-          "disabled": "已关闭",
-          "waiting_vr": "等待 SteamVR",
-          "ready": "可以识别",
-          "unbound": "请在 SteamVR 中绑定 OCR 控制器操作",
-          "capturing": "正在采集",
-          "selecting": "调整选框，长按右扳机确认",
-          "waiting_hands": "移开双手后开始识别",
-          "loading_model": "正在加载本地模型",
-          "recognizing": "正在本地识别",
-          "translating": "正在翻译",
-          "recognized": "识别完成",
-          "visible": "正在显示译文",
-          "invalid": "视野已变化，请重新识别",
-          "error": "OCR 不可用",
-          "no_text": "未发现文字",
-          "low_confidence": "文字置信度低于阈值",
-          "source_visible": "正在显示识别原文",
-          "partial_visible": "正在显示已完成的译文",
-          "translation_failed": "全部翻译失败",
-          "timed_out": "OCR 任务超时"
-        },
+        "states": {"disabled": "已关闭", "waiting_vr": "等待 SteamVR", "ready": "可以识别", "unbound": "请在 SteamVR 中绑定 OCR 控制器操作", "capturing": "正在采集", "selecting": "调整选框，长按右扳机确认", "waiting_hands": "移开双手后开始识别", "loading_model": "正在加载本地模型", "recognizing": "正在本地识别", "translating": "正在翻译", "recognized": "识别完成", "visible": "正在显示译文", "invalid": "视野已变化，请重新识别", "error": "OCR 不可用", "no_text": "未发现文字", "low_confidence": "文字置信度低于阈值", "source_visible": "正在显示识别原文", "partial_visible": "正在显示已完成的译文", "translation_failed": "全部翻译失败", "timed_out": "OCR 任务超时"},
         "title": "OCR",
         "description": "在本地识别选区文字，并通过所选 API 翻译。",
         "localModel": "本地 PP-OCRv6",
@@ -931,6 +915,7 @@
       "system": {
         "title": "系统",
         "general": "一般设置",
+
         "saveImmediately": "更改会立即保存。",
         "language": "界面语言",
         "languageDescription": "跟随系统语言，或单独指定 VRCS 使用的语言。",
@@ -955,6 +940,7 @@
         "runOnboardingStopFirst": "请先停止转写",
         "externalApi": {
           "title": "第三方输出 API",
+
           "enabled": "启用第三方输出 API",
           "enabledDescription": "默认关闭；仅开放健康检查、能力信息和事件订阅。",
           "host": "监听地址",
@@ -976,6 +962,7 @@
           "tokenLoadFailed": "无法读取 Token 状态。",
           "tokenSaveFailed": "无法保存 Token。",
           "tokenDeleteFailed": "无法删除 Token。",
+
           "statusLoadFailed": "无法读取第三方输出 API 的当前状态。",
           "runtime": {
             "checking": "正在读取当前运行状态。",
@@ -987,6 +974,7 @@
       },
       "storage": {
         "title": "存储",
+
         "databaseUsage": "数据库空间占用",
         "databaseUsageDescription": "有效占用不包含库内可复用的空闲页；已分配空间是数据库文件当前保留的磁盘空间。",
         "ofQuota": "/ {{quota}} 配额",
@@ -1007,6 +995,7 @@
         "liveTranslateHint": "每路音源翻译第一目标语言，需开启自动翻译。文本 Prompt 和思考设置不适用。Qwen 使用纯文本输出并识别讲话人；其他实时翻译服务生成译后音频，但应用不播放。",
         "liveTranslatePreview": "检测到语音后开始上传，译文回传即可预览。本地对齐支持历史记录、额外目标翻译及 OSC；同语言原文无需等待译文即可完成。",
         "title": "字幕翻译",
+
         "mode": "翻译方式",
         "modeDescription": "自动翻译会同时翻译其他人的声音和自己的麦克风；手动翻译仅在请求时执行。",
         "modes": {
@@ -1041,11 +1030,7 @@
         "contextEnabled": "附带最近原文",
         "contextEnabledDescription": "按时间顺序把选定来源的最近 final 原文加入 LLM Prompt。默认关闭。",
         "contextSourcesTitle": "原文来源",
-        "contextSources": {
-          "speaker": "扬声器",
-          "microphone": "麦克风",
-          "chatbox": "Chatbox"
-        },
+        "contextSources": { "speaker": "扬声器", "microphone": "麦克风", "chatbox": "Chatbox" },
         "contextLimitsTitle": "上下文范围",
         "maxMessages": "最近消息数（1–50）",
         "maxChars": "上下文字符上限（200–12000）",
@@ -1074,10 +1059,7 @@
         "editGlossary": "编辑术语表",
         "addSubscription": "添加订阅",
         "editSubscription": "编辑订阅",
-        "glossaryTypes": {
-          "local": "本地",
-          "subscription": "订阅"
-        },
+        "glossaryTypes": { "local": "本地", "subscription": "订阅" },
         "localGlossaryDetail": "保存在当前 VRCS 设置中",
         "glossaryEntryCount": "{{count}} 条",
         "glossaryEntriesOmitted": "另有 {{count}} 条因总上限被忽略",
@@ -1115,12 +1097,7 @@
         "glossarySource": "原词",
         "glossaryTarget": "固定译法",
         "glossaryCategory": "类别",
-        "glossaryCategories": {
-          "person": "人名",
-          "world": "VRChat 世界",
-          "game": "游戏术语",
-          "custom": "自定义"
-        },
+        "glossaryCategories": { "person": "人名", "world": "VRChat 世界", "game": "游戏术语", "custom": "自定义" },
         "keepOriginal": "保持原文",
         "caseSensitive": "区分大小写",
         "table": {
@@ -1175,6 +1152,7 @@
       },
       "apiManagement": {
         "title": "API 管理",
+
         "securityNotice": "API Key 保存在 Windows 凭据管理器中，不会写入配置文件。环境变量中的密钥会优先使用。",
         "alibabaDescription": "Qwen3 ASR 与 Fun-ASR 共用此连接",
         "openaiDescription": "OpenAI 官方 API，可用于 Realtime 云端识别和 LLM 翻译",
@@ -1278,20 +1256,8 @@
         "connectionSucceeded": "连接成功。",
         "connectionFailed": "连接诊断发现兼容性问题。",
         "diagnostics": {
-          "checks": {
-            "configuration": "配置",
-            "endpoint": "网络端点",
-            "authentication": "鉴权",
-            "models": "模型列表",
-            "completion": "普通生成",
-            "streaming": "流式生成"
-          },
-          "status": {
-            "passed": "通过",
-            "warning": "警告",
-            "failed": "失败",
-            "skipped": "未执行"
-          },
+          "checks": { "configuration": "配置", "endpoint": "网络端点", "authentication": "鉴权", "models": "模型列表", "completion": "普通生成", "streaming": "流式生成" },
+          "status": { "passed": "通过", "warning": "警告", "failed": "失败", "skipped": "未执行" },
           "codes": {
             "llm_timeout": "请求超时，请检查服务状态或增大超时时间。",
             "llm_dns_failed": "无法解析主机名，请检查 Base URL。",
@@ -1469,6 +1435,7 @@
       },
       "anki": {
         "title": "AnkiConnect",
+
         "enable": "启用 AnkiConnect",
         "enableDescription": "允许检查本地 Anki 连接，并在词典查询中创建卡片。",
         "invalidPort": "请输入 1 到 65535 之间的有效端口。",
@@ -1534,14 +1501,11 @@
       },
       "osc": {
         "title": "OSC",
+
         "enable": "启用 OSC",
         "enableDescription": "统一控制聊天框输出、VRChat 静音同步和静音状态提示。",
         "translationStrategy": "OSC 多语言发送",
-        "translationStrategies": {
-          "preferredOnly": "仅首选语言",
-          "roundRobin": "轮换发送",
-          "allLanguages": "同时显示多种语言"
-        },
+        "translationStrategies": { "preferredOnly": "仅首选语言", "roundRobin": "轮换发送", "allLanguages": "同时显示多种语言" },
         "preserveOriginal": "输出中保留原文",
         "preserveOriginalDescription": "有译文时同时发送原文和译文；关闭后仅发送译文。",
         "muteSync": "同步 VRChat 麦克风静音",
@@ -1705,24 +1669,13 @@
       "unknown": "发生未知错误。",
       "operation": "操作失败。",
       "chatbox": {
-        "missing_original": "请输入原文。",
-        "missing_translation": "请先填写或生成译文。",
-        "missing_bilingual_text": "双语发送需要原文和译文。",
-        "text_too_long": "消息最多可输入 5000 个字符。",
-        "invalid_language": "语言代码无效。",
-        "invalid_format": "自定义格式必须各包含一次 {original} 和 {translation}。",
-        "over_limit": "消息共 {{count}} 个字符，超过 {{limit}} 字符限制。",
-        "history_store_failed": "消息已处理，但无法保存发送记录。",
-        "conversation_store_failed": "消息已发送，但无法写入当前对话。"
+        "missing_original": "请输入原文。", "missing_translation": "请先填写或生成译文。", "missing_bilingual_text": "双语发送需要原文和译文。",
+        "text_too_long": "消息最多可输入 5000 个字符。", "invalid_language": "语言代码无效。", "invalid_format": "自定义格式必须各包含一次 {original} 和 {translation}。",
+        "over_limit": "消息共 {{count}} 个字符，超过 {{limit}} 字符限制。", "history_store_failed": "消息已处理，但无法保存发送记录。", "conversation_store_failed": "消息已发送，但无法写入当前对话。"
       },
       "osc": {
-        "disabled": "OSC 尚未启用。",
-        "blocked_vrchat_muted": "VRChat 当前处于静音状态，消息未发送。",
-        "blocked_mute_unknown": "正在确认 VRChat 静音状态，请稍后再试。",
-        "queue_full": "OSC 发送队列已满，请稍后再试。",
-        "send_timeout": "OSC 发送等待超时。",
-        "send_cancelled": "OSC 设置发生变化，发送已取消。",
-        "send_failed": "无法发送到本机 VRChat OSC 端口。"
+        "disabled": "OSC 尚未启用。", "blocked_vrchat_muted": "VRChat 当前处于静音状态，消息未发送。", "blocked_mute_unknown": "正在确认 VRChat 静音状态，请稍后再试。",
+        "queue_full": "OSC 发送队列已满，请稍后再试。", "send_timeout": "OSC 发送等待超时。", "send_cancelled": "OSC 设置发生变化，发送已取消。", "send_failed": "无法发送到本机 VRChat OSC 端口。"
       },
       "apiProfiles": {
         "operation": "API 配置操作失败。",
@@ -1754,7 +1707,7 @@
       "learning": {
         "load": "无法加载学习项目。",
         "collect": "无法将此素材加入学习工作台。",
-        "save": "无法保存工作副本。",
+        "save": "无法保存校正后的文本。",
         "saveDraft": "无法保存卡片草稿。",
         "analysis": "无法分析此学习项目。",
         "query": "无法回答这个问题。",

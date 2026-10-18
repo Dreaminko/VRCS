@@ -254,10 +254,17 @@ export function DesktopShell({
               <Suspense fallback={<PageLoading />}>
                 <LearningWorkspace
                   conversation={conversations.selectedConversation}
+                  conversations={conversations.conversations}
+                  activeConversationId={conversations.activeConversation?.id}
+                  onSelectConversation={selectConversation}
                   subtitles={conversations.selectedSubtitles}
                   workspace={learning.workspace}
                   ankiAvailable={features?.anki ?? false}
                   ankiEnabled={Boolean(features?.anki && settings.value?.anki.enabled)}
+                  onOpenAiSettings={() => {
+                    setSettingsInitialCategory("learning");
+                    setPage("settings");
+                  }}
                   onSelect={selection.selectText}
                   onTranslate={subtitles.translationHandler}
                   translatingSubtitleIds={subtitles.translatingIds}

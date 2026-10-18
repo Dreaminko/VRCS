@@ -116,18 +116,9 @@
       "targetLanguage": "翻訳先言語",
       "translate": "翻訳",
       "sendMode": "送信内容",
-      "modes": {
-        "original": "原文",
-        "translation": "翻訳",
-        "bilingual": "二言語"
-      },
+      "modes": { "original": "原文", "translation": "翻訳", "bilingual": "二言語" },
       "format": "メッセージ形式",
-      "formats": {
-        "originalFirst": "原文の下に翻訳",
-        "translationFirst": "翻訳の下に原文",
-        "slash": "スラッシュ区切り",
-        "custom": "カスタム"
-      },
+      "formats": { "originalFirst": "原文の下に翻訳", "translationFirst": "翻訳の下に原文", "slash": "スラッシュ区切り", "custom": "カスタム" },
       "customFormat": "カスタムメッセージ形式",
       "preview": "送信プレビュー",
       "previewEmpty": "入力したメッセージの送信結果がここに表示されます",
@@ -135,10 +126,7 @@
       "send": "VRChat に送信",
       "sending": "送信中…",
       "oscDisabled": "送信する前に設定で OSC を有効にしてください。",
-      "errors": {
-        "translate": "このメッセージを翻訳できませんでした。",
-        "send": "Chatbox メッセージを送信できませんでした。"
-      }
+      "errors": { "translate": "このメッセージを翻訳できませんでした。", "send": "Chatbox メッセージを送信できませんでした。" }
     },
     "capture": {
       "start": "文字起こしを開始",
@@ -331,11 +319,13 @@
         "count": "{{count}} 件",
         "statusFilter": "項目の状態",
         "kindFilter": "項目の種類",
-        "searchLoadedOnly": "検索と種類の絞り込みは読み込み済みの項目だけが対象です。古い項目も含めるには、さらに読み込んでください。",
+        "searchLoadedOnly": "検索対象は読み込み済みの項目です。古い項目は追加で読み込んでください。",
         "empty": "この状態の学習項目はありません。",
         "selectHint": "項目を選択して作業を続けてください。",
         "loadMore": "さらに読み込む",
-        "loadingMore": "読み込み中…"
+        "loadingMore": "読み込み中…",
+        "back": "収集箱に戻る",
+        "search": "学習項目を検索"
       },
       "materials": {
         "title": "会話素材",
@@ -353,7 +343,9 @@
         "selected": "字幕を {{count}} 件選択中",
         "selectAll": "表示中を選択",
         "clearSelection": "クリア",
-        "selectSubtitle": "字幕を選択"
+        "selectSubtitle": "字幕を選択",
+        "collect": "会話から収集",
+        "openCollected": "項目を開く"
       },
       "filters": {
         "all": "すべて",
@@ -383,19 +375,42 @@
         "archive": "アーカイブ",
         "restore": "復元",
         "delete": "削除",
-        "deleteConfirm": "この学習項目と分析・下書きを削除しますか？元の字幕は削除されません。"
+        "deleteConfirm": "この学習項目と分析・下書きを削除しますか？元の字幕は削除されません。",
+        "more": "その他の操作"
       },
       "detail": {
         "sourceText": "原文 · 読み取り専用",
-        "workingText": "作業用テキスト",
+        "textLabels": {
+          "word": "単語を含む原文",
+          "sentence": "学習する原文",
+          "excerpt": "会話の抜粋"
+        },
+        "titles": {
+          "sentence": "文の学習",
+          "excerpt": "会話の振り返り"
+        },
+        "correctionHint": "修正したテキストを分析とカード作成に使います。収集時の原文は保持されます。",
+        "moreDefinitions": "その他の辞書定義",
         "saveWorkingText": "変更を保存",
-        "sourceTranslation": "保存済み翻訳",
-        "dictionarySnapshot": "辞書スナップショット"
+        "sourceTranslation": "収集時の翻訳",
+        "dictionarySnapshot": "辞書の定義",
+        "views": "項目の表示",
+        "study": "学習",
+        "card": "カード",
+        "unsaved": "未保存",
+        "edit": "テキストを修正",
+        "viewSource": "元のテキストを表示"
       },
       "ai": {
         "title": "AI 分析",
         "description": "操作を選んだときだけリクエストします。",
-        "configureHint": "先に 設定 → 学習設定 で AI プロファイルとモデルを設定してください。",
+        "configureHint": "AI を設定すると分析できます。閲覧とカード作成は今すぐ使えます。",
+        "openSettings": "学習設定を開く",
+        "actions": {
+          "contextual_word_explanation": "この単語を説明",
+          "sentence_analysis": "この文を解析",
+          "session_review": "この会話を振り返る"
+        },
         "profile": "AI プロファイル",
         "model": "モデル",
         "modelPlaceholder": "モデルを選択または入力",
@@ -405,10 +420,10 @@
         "explanationLevel": "説明の詳しさ",
         "profileMissing": "テキスト生成に対応する AI プロファイルを選択し、モデルを入力してください。",
         "cloudNoticeTitle": "外部クラウドサービス",
-        "cloudNotice": "作業用テキストと保存済み辞書コンテキストを {{provider}} に送信し、{{model}} を使用します。",
+        "cloudNotice": "学習内容と保存済み辞書コンテキストを {{provider}} に送信し、{{model}} を使用します。",
         "localNoticeTitle": "設定済みローカルサービス",
-        "localNotice": "作業用テキストをローカルサービス {{provider}} に送信し、{{model}} を使用します。このサービス独自の転送設定が適用される場合があります。",
-        "quickFocus": "クイック追加分析",
+        "localNotice": "学習内容をローカルサービス {{provider}} に送信し、{{model}} を使用します。このサービス独自の転送設定が適用される場合があります。",
+        "quickFocus": "追加分析",
         "focus": {
           "simpler": "もっと簡単に説明",
           "examples": "例文を追加",
@@ -428,33 +443,41 @@
           "beginner": "初級",
           "intermediate": "中級",
           "advanced": "上級"
-        }
+        },
+        "mode": "分析方法",
+        "analyze": "分析する",
+        "reanalyze": "再分析",
+        "analyzing": "分析中…"
       },
       "analysis": {
         "stale": "本文が変更されています。再分析して結果を更新してください。",
-        "title": "分析結果",
+        "title": "AI 分析結果",
         "summary": "要約",
-        "currentMeaning": "文脈上の意味",
+        "currentMeaning": "この文での意味",
         "baseForm": "基本形",
         "partOfSpeech": "品詞",
         "register": "使用域",
-        "segments": "分割",
+        "segments": "文の構造",
         "grammarPoints": "文法ポイント",
-        "uncertainties": "不確実な点",
+        "uncertainties": "注意点",
         "memoryTip": "記憶のヒント",
         "examples": "例文",
         "confidence": "信頼度 · {{value}}",
-        "metadata": "タスク {{task}} · プロンプト {{prompt}}"
+        "metadata": "タスク {{task}} · プロンプト {{prompt}}",
+        "details": "分析の詳細"
       },
       "card": {
         "title": "カード下書き",
-        "description": "候補を生成して項目を編集・保存し、既存の Anki 設定でエクスポートします。",
+        "description": "カードを編集・確認し、保存して Anki に追加します。",
         "type": "カード種類",
         "types": {
           "vocabulary": "単語カード",
           "sentence": "文型カード",
           "fillBlank": "穴埋めカード"
         },
+        "create": "カードを作成",
+        "saveAndCreate": "保存してカードを作成",
+        "openDraft": "カードの編集を続ける",
         "generate": "下書きを生成",
         "regenerate": "再生成",
         "term": "語句",
@@ -469,9 +492,14 @@
         "update": "Anki のカードを更新",
         "noteId": "Anki ノート #{{id}}",
         "saveBeforeExport": "Anki に追加する前に下書きの変更を保存してください。",
-        "stale": "本文が変更されています。本文を保存し、下書きを再生成するか、内容を確認して編集・保存してからエクスポートしてください。",
+        "stale": "本文が変更されています。下書きを再生成するか、内容を確認して保存してください。",
         "ankiDisabled": "エクスポートする前に設定で AnkiConnect を有効にしてください。",
-        "empty": "作業用テキストと分析を確認したら、カード下書きを生成できます。"
+        "empty": "現在の本文から下書きを生成できます。AI 分析は任意です。",
+        "requiredFields": "Anki に追加する前に、カードの表面と翻訳または意味を入力してください。",
+        "additionalFields": "追加項目",
+        "preview": "内容プレビュー",
+        "front": "表面",
+        "back": "裏面"
       }
     },
     "dictionary": {
@@ -485,7 +513,6 @@
         "saving": "追加中…",
         "savedAction": "追加済み",
         "retry": "再試行",
-        "saved": "単語、文脈、辞書スナップショットを学習ワークスペースに保存しました。",
         "failed": "この単語を学習ワークスペースに追加できませんでした。"
       },
       "anki": {
@@ -547,9 +574,7 @@
     "updates": {
       "title": "ソフトウェア更新",
       "currentVersion": "現在のバージョン {{version}}",
-      "variant": {
-        "standard": "標準版"
-      },
+      "variant": { "standard": "標準版" },
       "automaticChecks": "更新を自動確認する",
       "checkNow": "今すぐ確認",
       "availableTitle": "VRCS {{version}} を利用できます",
@@ -567,9 +592,9 @@
         "installing": "更新をインストールしています…"
       },
       "errors": {
-        "feature": {
-          "disabled": "この機能はオフです。システム設定の機能の選択からオンにできます。"
-        },
+    "feature": {
+      "disabled": "この機能はオフです。システム設定の機能の選択からオンにできます。"
+    },
         "unavailable": "このビルドには更新機能が設定されていません。",
         "busy": "別の更新操作が実行中です。",
         "no_pending": "もう一度更新を確認してからインストールしてください。",
@@ -757,59 +782,18 @@
         "wristPosition": "位置と角度",
         "results": "領域の翻訳：完了 {{completed}} 件、失敗 {{failed}} 件",
         "sourceView": "原文と翻訳を一緒に表示します。",
-        "errors": {
-          "timeout": "処理がタイムアウトしました。再スキャンしてください。",
-          "models_missing": "設定でローカル OCR モデルを準備してください。",
-          "configuration_changed": "OCR 設定が変更されました。再スキャンしてください。",
-          "tracking_lost": "ヘッドセットの追跡を復旧して再スキャンしてください。",
-          "view_changed": "原文の領域が変化しました。再スキャンしてください。",
-          "network": "OCR のネットワーク接続を確認して再試行してください。",
-          "local_failed": "ローカル OCR の推論に失敗しました。モデルを確認してください。",
-          "unavailable": "VR 接続とローカル OCR モデルを確認してください。",
-          "translation_failed": "すべての翻訳に失敗しました。翻訳サービスを確認してください。",
-          "partial_failure": "一部の翻訳に失敗しました。完了した翻訳は保持されます。",
-          "partial_timeout": "一部の翻訳がタイムアウトしました。完了した翻訳は保持されます。"
-        },
+        "errors": {"timeout": "処理がタイムアウトしました。再スキャンしてください。", "models_missing": "設定でローカル OCR モデルを準備してください。", "configuration_changed": "OCR 設定が変更されました。再スキャンしてください。", "tracking_lost": "ヘッドセットの追跡を復旧して再スキャンしてください。", "view_changed": "原文の領域が変化しました。再スキャンしてください。", "network": "OCR のネットワーク接続を確認して再試行してください。", "local_failed": "ローカル OCR の推論に失敗しました。モデルを確認してください。", "unavailable": "VR 接続とローカル OCR モデルを確認してください。", "translation_failed": "すべての翻訳に失敗しました。翻訳サービスを確認してください。", "partial_failure": "一部の翻訳に失敗しました。完了した翻訳は保持されます。", "partial_timeout": "一部の翻訳がタイムアウトしました。完了した翻訳は保持されます。"},
         "displayMode": "VR 結果の表示方法",
-        "displayModes": {
-          "wrist": "手首パネル",
-          "stereo": "元の文字位置（両眼）"
-        },
+        "displayModes": { "wrist": "手首パネル", "stereo": "元の文字位置（両眼）" },
         "device": "ローカル OCR の推論デバイス",
         "deviceDescription": "DirectML は Windows 上の対応 GPU を使用します。GPU の読み込みや認識に失敗した場合、OCR は CPU に切り替わります。",
         "activeDevice": "最後に使用したデバイス：{{device}}",
         "cpuFallback": "DirectML に失敗したため、OCR は CPU に切り替わりました。",
-        "modelStates": {
-          "missing": "ダウンロードが必要",
-          "downloading": "ダウンロード中",
-          "ready": "準備完了",
-          "error": "ダウンロード失敗"
-        },
+        "modelStates": { "missing": "ダウンロードが必要", "downloading": "ダウンロード中", "ready": "準備完了", "error": "ダウンロード失敗" },
         "modelFailed": "OCR モデルを準備できません。接続を確認して再試行してください。",
         "modelDeleteFailed": "OCR モデルを削除できません。ダウンロードや文字認識が完了してから再試行してください。",
         "controls": "枠が表示されたら、右トリガーを 0.65 秒長押しすると OCR を確定します。すでに押していた場合は、一度放してから押してください。枠がないと認識しません。左トリガーの長押しでクリア、視覚質問が有効な場合は質問します。",
-        "states": {
-          "disabled": "無効",
-          "waiting_vr": "SteamVR を待機中",
-          "ready": "認識できます",
-          "unbound": "SteamVR で OCR の操作を割り当ててください",
-          "capturing": "画像取得中",
-          "selecting": "範囲を調整し、右トリガーを長押しして確定",
-          "waiting_hands": "両手を移動すると認識を開始します",
-          "loading_model": "ローカルモデル読込中",
-          "recognizing": "ローカル認識中",
-          "translating": "翻訳中",
-          "recognized": "認識完了",
-          "visible": "訳文表示中",
-          "invalid": "視野が変わりました。再認識してください",
-          "error": "OCR を利用できません",
-          "no_text": "文字が見つかりません",
-          "low_confidence": "文字の信頼度がしきい値未満です",
-          "source_visible": "認識した原文を表示中",
-          "partial_visible": "完了した翻訳を表示中",
-          "translation_failed": "すべての翻訳に失敗しました",
-          "timed_out": "OCR 処理がタイムアウトしました"
-        },
+        "states": {"disabled": "無効", "waiting_vr": "SteamVR を待機中", "ready": "認識できます", "unbound": "SteamVR で OCR の操作を割り当ててください", "capturing": "画像取得中", "selecting": "範囲を調整し、右トリガーを長押しして確定", "waiting_hands": "両手を移動すると認識を開始します", "loading_model": "ローカルモデル読込中", "recognizing": "ローカル認識中", "translating": "翻訳中", "recognized": "認識完了", "visible": "訳文表示中", "invalid": "視野が変わりました。再認識してください", "error": "OCR を利用できません", "no_text": "文字が見つかりません", "low_confidence": "文字の信頼度がしきい値未満です", "source_visible": "認識した原文を表示中", "partial_visible": "完了した翻訳を表示中", "translation_failed": "すべての翻訳に失敗しました", "timed_out": "OCR 処理がタイムアウトしました"},
         "title": "OCR",
         "description": "選択範囲の文字をローカルで認識し、選択した API で翻訳します。",
         "localModel": "ローカル PP-OCRv6",
@@ -931,6 +915,7 @@
       "system": {
         "title": "システム",
         "general": "一般設定",
+
         "saveImmediately": "変更はすぐに保存されます。",
         "language": "表示言語",
         "languageDescription": "システム言語に従うか、VRCS 用の言語を選びます。",
@@ -955,6 +940,7 @@
         "runOnboardingStopFirst": "先に文字起こしを停止してください",
         "externalApi": {
           "title": "サードパーティ出力 API",
+
           "enabled": "サードパーティ出力 API を有効にする",
           "enabledDescription": "初期状態では無効です。ヘルス、機能情報、イベント購読のみを公開します。",
           "host": "リッスンアドレス",
@@ -976,6 +962,7 @@
           "tokenLoadFailed": "Token の状態を読み込めませんでした。",
           "tokenSaveFailed": "Token を保存できませんでした。",
           "tokenDeleteFailed": "Token を削除できませんでした。",
+
           "statusLoadFailed": "外部出力 API の現在の状態を取得できませんでした。",
           "runtime": {
             "checking": "現在の実行状態を確認しています。",
@@ -987,6 +974,7 @@
       },
       "storage": {
         "title": "ストレージ",
+
         "databaseUsage": "データベース使用量",
         "databaseUsageDescription": "実効使用量には再利用可能な空きページを含みません。割り当て済み容量はデータベースファイルが現在確保しているディスク容量です。",
         "ofQuota": "/ 上限 {{quota}}",
@@ -1007,6 +995,7 @@
         "liveTranslateHint": "各音声ソースの最初の翻訳先を使用し、自動翻訳が必要です。テキストプロンプトと思考設定は適用されません。Qwen はテキストのみを出力し話者を識別します。他のリアルタイム翻訳サービスは翻訳音声を生成しますが、アプリでは再生しません。",
         "liveTranslatePreview": "音声検出後にアップロードを開始し、訳文が届くとプレビューできます。ローカル整列は履歴、追加の翻訳先、OSC に対応し、同じ言語の原文は訳文を待たずに確定できます。",
         "title": "字幕翻訳",
+
         "mode": "翻訳モード",
         "modeDescription": "自動モードでは他人の音声と自分のマイクの両方を翻訳します。手動モードではリクエスト時のみ翻訳します。",
         "modes": {
@@ -1041,11 +1030,7 @@
         "contextEnabled": "最近の原文を添付",
         "contextEnabledDescription": "選択したソースの最近の確定原文を時系列で LLM プロンプトに追加します。既定ではオフです。",
         "contextSourcesTitle": "原文のソース",
-        "contextSources": {
-          "speaker": "スピーカー",
-          "microphone": "マイク",
-          "chatbox": "Chatbox"
-        },
+        "contextSources": { "speaker": "スピーカー", "microphone": "マイク", "chatbox": "Chatbox" },
         "contextLimitsTitle": "コンテキスト範囲",
         "maxMessages": "最近のメッセージ数（1–50）",
         "maxChars": "コンテキスト文字数上限（200–12000）",
@@ -1074,10 +1059,7 @@
         "editGlossary": "用語集を編集",
         "addSubscription": "購読を追加",
         "editSubscription": "購読を編集",
-        "glossaryTypes": {
-          "local": "ローカル",
-          "subscription": "購読"
-        },
+        "glossaryTypes": { "local": "ローカル", "subscription": "購読" },
         "localGlossaryDetail": "現在の VRCS 設定に保存",
         "glossaryEntryCount": "{{count}} 件",
         "glossaryEntriesOmitted": "全体上限により、さらに {{count}} 件が省略されました",
@@ -1115,12 +1097,7 @@
         "glossarySource": "原語",
         "glossaryTarget": "固定訳",
         "glossaryCategory": "カテゴリ",
-        "glossaryCategories": {
-          "person": "人名",
-          "world": "VRChat ワールド",
-          "game": "ゲーム用語",
-          "custom": "カスタム"
-        },
+        "glossaryCategories": { "person": "人名", "world": "VRChat ワールド", "game": "ゲーム用語", "custom": "カスタム" },
         "keepOriginal": "原文を維持",
         "caseSensitive": "大文字と小文字を区別",
         "table": {
@@ -1175,6 +1152,7 @@
       },
       "apiManagement": {
         "title": "API 管理",
+
         "securityNotice": "API キーは Windows 資格情報マネージャーに保存され、設定ファイルには書き込まれません。環境変数のキーが優先されます。",
         "alibabaDescription": "Qwen3 ASR と Fun-ASR で共有します",
         "openaiDescription": "OpenAI 公式 API。Realtime 音声認識と LLM 翻訳で使用できます",
@@ -1278,20 +1256,8 @@
         "connectionSucceeded": "接続に成功しました。",
         "connectionFailed": "接続診断で互換性の問題が見つかりました。",
         "diagnostics": {
-          "checks": {
-            "configuration": "設定",
-            "endpoint": "ネットワークエンドポイント",
-            "authentication": "認証",
-            "models": "モデル一覧",
-            "completion": "通常生成",
-            "streaming": "ストリーミング生成"
-          },
-          "status": {
-            "passed": "成功",
-            "warning": "警告",
-            "failed": "失敗",
-            "skipped": "未実行"
-          },
+          "checks": { "configuration": "設定", "endpoint": "ネットワークエンドポイント", "authentication": "認証", "models": "モデル一覧", "completion": "通常生成", "streaming": "ストリーミング生成" },
+          "status": { "passed": "成功", "warning": "警告", "failed": "失敗", "skipped": "未実行" },
           "codes": {
             "llm_timeout": "タイムアウトしました。サービス状態を確認するか時間を延長してください。",
             "llm_dns_failed": "ホスト名を解決できません。Base URL を確認してください。",
@@ -1469,6 +1435,7 @@
       },
       "anki": {
         "title": "AnkiConnect",
+
         "enable": "AnkiConnect を有効にする",
         "enableDescription": "ローカルの Anki 接続確認と辞書検索結果からのカード作成を許可します。",
         "invalidPort": "1～65535 の有効なポートを入力してください。",
@@ -1534,14 +1501,11 @@
       },
       "osc": {
         "title": "OSC",
+
         "enable": "OSC を有効にする",
         "enableDescription": "チャットボックス出力、VRChat のミュート同期、ミュート状態の通知をまとめて制御します。",
         "translationStrategy": "OSC多言語出力",
-        "translationStrategies": {
-          "preferredOnly": "優先言語のみ",
-          "roundRobin": "順番に送信",
-          "allLanguages": "複数言語を同時に表示"
-        },
+        "translationStrategies": { "preferredOnly": "優先言語のみ", "roundRobin": "順番に送信", "allLanguages": "複数言語を同時に表示" },
         "preserveOriginal": "出力に原文を残す",
         "preserveOriginalDescription": "翻訳がある場合は原文と翻訳を一緒に送信します。オフにすると翻訳だけを送信します。",
         "muteSync": "VRChat のマイクミュートと同期",
@@ -1705,24 +1669,13 @@
       "unknown": "不明なエラーが発生しました。",
       "operation": "操作に失敗しました。",
       "chatbox": {
-        "missing_original": "原文を入力してください。",
-        "missing_translation": "先に翻訳を入力または生成してください。",
-        "missing_bilingual_text": "二言語メッセージには原文と翻訳が必要です。",
-        "text_too_long": "メッセージは5,000文字以内で入力してください。",
-        "invalid_language": "言語コードが無効です。",
-        "invalid_format": "カスタム形式には {original} と {translation} を1回ずつ含めてください。",
-        "over_limit": "メッセージは {{count}} 文字です。上限は {{limit}} 文字です。",
-        "history_store_failed": "メッセージは処理されましたが、履歴を保存できませんでした。",
-        "conversation_store_failed": "メッセージは送信されましたが、現在の会話に追加できませんでした。"
+        "missing_original": "原文を入力してください。", "missing_translation": "先に翻訳を入力または生成してください。", "missing_bilingual_text": "二言語メッセージには原文と翻訳が必要です。",
+        "text_too_long": "メッセージは5,000文字以内で入力してください。", "invalid_language": "言語コードが無効です。", "invalid_format": "カスタム形式には {original} と {translation} を1回ずつ含めてください。",
+        "over_limit": "メッセージは {{count}} 文字です。上限は {{limit}} 文字です。", "history_store_failed": "メッセージは処理されましたが、履歴を保存できませんでした。", "conversation_store_failed": "メッセージは送信されましたが、現在の会話に追加できませんでした。"
       },
       "osc": {
-        "disabled": "OSC が無効です。",
-        "blocked_vrchat_muted": "VRChat がミュート中のため、メッセージは送信されませんでした。",
-        "blocked_mute_unknown": "VRChat のミュート状態を確認中です。しばらくしてから再試行してください。",
-        "queue_full": "OSC 送信キューがいっぱいです。しばらくしてから再試行してください。",
-        "send_timeout": "OSC 送信がタイムアウトしました。",
-        "send_cancelled": "OSC 設定が変更されたため、送信を中止しました。",
-        "send_failed": "ローカルの VRChat OSC ポートに送信できませんでした。"
+        "disabled": "OSC が無効です。", "blocked_vrchat_muted": "VRChat がミュート中のため、メッセージは送信されませんでした。", "blocked_mute_unknown": "VRChat のミュート状態を確認中です。しばらくしてから再試行してください。",
+        "queue_full": "OSC 送信キューがいっぱいです。しばらくしてから再試行してください。", "send_timeout": "OSC 送信がタイムアウトしました。", "send_cancelled": "OSC 設定が変更されたため、送信を中止しました。", "send_failed": "ローカルの VRChat OSC ポートに送信できませんでした。"
       },
       "apiProfiles": {
         "operation": "API プロファイルの操作に失敗しました。",
@@ -1754,7 +1707,7 @@
       "learning": {
         "load": "学習項目を読み込めませんでした。",
         "collect": "この素材を学習ワークスペースに追加できませんでした。",
-        "save": "作業用テキストを保存できませんでした。",
+        "save": "修正したテキストを保存できませんでした。",
         "saveDraft": "カード下書きを保存できませんでした。",
         "analysis": "この学習項目を分析できませんでした。",
         "query": "この質問に回答できませんでした。",

@@ -175,8 +175,16 @@ pub struct CardRequest {
 
 impl CardRequest {
     pub fn validate(&self) -> Result<(), String> {
+        self.validate_fields(1)
+    }
+
+    pub(crate) fn validate_draft(&self) -> Result<(), String> {
+        self.validate_fields(0)
+    }
+
+    fn validate_fields(&self, definition_minimum: usize) -> Result<(), String> {
         validate_text("term", &self.term, 1, 500)?;
-        validate_text("definition", &self.definition, 1, 20_000)?;
+        validate_text("definition", &self.definition, definition_minimum, 20_000)?;
         validate_text("context", &self.context, 0, 20_000)?;
         validate_optional_text("reading", self.reading.as_deref(), 500)?;
         validate_optional_text("dictionary", self.dictionary.as_deref(), 500)?;
