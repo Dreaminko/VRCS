@@ -90,6 +90,7 @@
   font-weight: 600;
   transition: color 120ms ease-out, border-color 120ms ease-out, background-color 120ms ease-out, transform 120ms ease-out;
 }
+.selection-ai-learning-button:active:not(:disabled) { transform: scale(0.97); }
 .selection-ai-learning-button:disabled { opacity: 0.7; cursor: default; }
 .selection-ai-answer {
   padding: 11px 12px;
@@ -224,7 +225,8 @@
   .selection-panel-header > button:hover { color: var(--text); background: var(--surface-subtle); }
   .selection-ai-answer-actions button:hover,
   .selection-ai-quick-actions button:hover:not(:disabled),
-  .selection-ai-unconfigured button:hover { color: var(--primary-ink); border-color: var(--primary); background: var(--primary-softer); }
+  .selection-ai-unconfigured button:hover,
+  .selection-ai-learning-button:hover:not(:disabled) { color: var(--primary-ink); border-color: var(--primary); background: var(--primary-softer); }
   .selection-ai-input-row > button:hover:not(:disabled) { background: var(--primary-hover); }
 }
 

@@ -32,13 +32,17 @@ export function SelectionToolOverlays({
           preferences={learning.workspace.preferences}
           compact={compact || undefined}
           onBack={selection.lookup ? selection.returnToDictionary : undefined}
-          onAddLearning={() => learning.workspace.collectLookup(
-            selection.lookup ?? {
-              ...selection.target!,
-              term: selection.target!.selectedText,
-              entries: [],
-            },
-          )}
+          onAddLearning={async () => {
+            // 在点击时捕获当前 target，并且只复用属于同一选区的查词结果。
+            const target = selection.target;
+            if (!target) return null;
+            const lookup = selection.lookup
+              && selection.lookup.selectedText === target.selectedText
+              && selection.lookup.context === target.context
+              ? selection.lookup
+              : null;
+            return learning.workspace.collectLookup(lookup ?? { ...target, term: target.selectedText, entries: [] });
+          }}
           onConfigure={() => void selection.openAiSettings()}
           onClose={selection.close}
         />
