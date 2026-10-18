@@ -9,7 +9,7 @@ use crate::llm::{LlmClient, LlmError, LlmRequest};
 use crate::models::{CardLabels, CardRequest, DictionaryEntry};
 use crate::providers;
 
-pub const PROMPT_VERSION: &str = "learning-v2";
+pub const PROMPT_VERSION: &str = "learning-v3";
 pub const SELECTION_QUERY_PROMPT_VERSION: &str = "selection-query-v2";
 const MAX_ITEM_TEXT_CHARS: usize = 20_000;
 const MAX_SHORT_TEXT_CHARS: usize = 500;
@@ -1386,7 +1386,7 @@ mod tests {
   "confidence":"high",
   "provider":"openai",
   "model":"gpt-test",
-  "prompt_version":"learning-v2"
+  "prompt_version":"learning-v3"
 }
 ```"#;
         let parsed = parse_analysis_response(output, &request(), &profile()).unwrap();
@@ -1407,7 +1407,7 @@ mod tests {
         let unknown = r#"{
           "task_type":"sentence_analysis","summary":"ok","segments":[],
           "grammar_points":[],"uncertainties":[],"examples":[],"confidence":"high",
-          "provider":"openai","model":"gpt-test","prompt_version":"learning-v2",
+          "provider":"openai","model":"gpt-test","prompt_version":"learning-v3",
           "unexpected":true
         }"#;
         assert!(parse_analysis_response(unknown, &request(), &profile()).is_err());
