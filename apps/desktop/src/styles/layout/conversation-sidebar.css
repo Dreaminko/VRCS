@@ -55,7 +55,7 @@
 }
 .conversation-sidebar-header { display: flex; min-width: 0; height: 42px; align-items: center; justify-content: space-between; padding-left: 10px; color: var(--text); }
 .conversation-sidebar-header > span { min-width: 0; overflow: hidden; font-size: 14px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
-.conversation-sidebar-header, .new-conversation-button, .conversation-search-field, .conversation-sidebar-list { animation: sidebar-content-in 170ms 35ms cubic-bezier(0.16, 1, 0.3, 1) both; }
+.conversation-sidebar-header, .new-conversation-button, .conversation-search-field, .conversation-sidebar-list { animation: sidebar-content-in 150ms cubic-bezier(0.19, 1, 0.22, 1); }
 .sidebar-icon-button {
   display: grid;
   width: 40px;

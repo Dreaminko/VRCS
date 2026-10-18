@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, RefObject } from "react";
 import { createPortal } from "react-dom";
 import { LoaderCircle } from "lucide-react";
@@ -114,14 +114,11 @@ export const LiveView = memo(function LiveView({
     if (multiSelectionActive) window.getSelection()?.removeAllRanges();
   }, [multiSelectionActive]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (focusedSubtitleId === null || loading) return;
-    const frame = window.requestAnimationFrame(() => {
-      containerRef.current
-        ?.querySelector<HTMLElement>(`[data-subtitle-id="${focusedSubtitleId}"]`)
-        ?.scrollIntoView({ block: "center" });
-    });
-    return () => window.cancelAnimationFrame(frame);
+    containerRef.current
+      ?.querySelector<HTMLElement>(`[data-subtitle-id="${focusedSubtitleId}"]`)
+      ?.scrollIntoView({ block: "center" });
   }, [containerRef, focusedSubtitleId, loading]);
 
   const showCopyFeedback = useCallback((tone: "success" | "error", text: string) => {

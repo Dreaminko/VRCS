@@ -64,7 +64,7 @@ export function useLiveConversationScroll({
     previousLiveScrollTopRef.current = 0;
   }, [page]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (
       page !== "live"
       || selectedConversationId === null
@@ -73,8 +73,7 @@ export function useLiveConversationScroll({
       || focusedSubtitleId !== null
     ) return;
     setFollowingLive(true);
-    const frame = window.requestAnimationFrame(autoScrollLiveViewToBottom);
-    return () => window.cancelAnimationFrame(frame);
+    autoScrollLiveViewToBottom();
   }, [
     loadingConversationSubtitles,
     openedConversationId,
