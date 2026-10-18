@@ -33,6 +33,7 @@ export function useLearningInbox(ready: boolean) {
   const [busyByItem, setBusyByItem] = useState<Record<number, LearningBusyAction | undefined>>({});
   const itemBusyRef = useRef(new Map<number, LearningBusyAction>());
   const listRequestRef = useRef(0);
+  const pageCursorRef = useRef<number | undefined>(undefined);
 
   const selectedItem = useMemo(
     () => items.find((item) => item.id === selectedId) ?? null,
@@ -50,15 +51,15 @@ export function useLearningInbox(ready: boolean) {
     else setLoading(true);
     setError("");
     try {
-      const beforeId = append && items.length
-        ? Math.min(...items.map((item) => item.id))
-        : undefined;
       const response = await learningApi.learningItems({
         status: statusFilter === "all" ? undefined : statusFilter,
         limit: LEARNING_PAGE_SIZE,
-        beforeId,
+        beforeId: append ? pageCursorRef.current : undefined,
       });
       if (requestId !== listRequestRef.current) return;
+      pageCursorRef.current = response.length
+        ? Math.min(...response.map((item) => item.id))
+        : undefined;
       setItems((current) => append
         ? mergeLearningItemPages(current, response)
         : mergeLearningItemPages([], response));
@@ -73,7 +74,7 @@ export function useLearningInbox(ready: boolean) {
         setLoadingMore(false);
       }
     }
-  }, [items, statusFilter, t]);
+  }, [statusFilter, t]);
 
   useEffect(() => {
     if (!ready) return;
