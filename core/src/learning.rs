@@ -1,4 +1,3 @@
-use std::collections::HashSet;
 use std::time::Duration;
 
 use serde::{Deserialize, Deserializer, Serialize};
@@ -480,35 +479,30 @@ fn learning_capture_keys(
     selected_text: Option<&str>,
     source_text: &str,
 ) -> Vec<String> {
-    let mut keys = subtitle_ids
-        .iter()
-        .map(|id| format!("subtitle:{id}"))
-        .collect::<Vec<_>>();
-    if subtitle_ids.len() > 1 {
-        let mut sorted_ids = subtitle_ids.to_vec();
-        sorted_ids.sort_unstable();
-        keys.push(format!(
-            "subtitles:{}",
-            sorted_ids
-                .iter()
-                .map(i64::to_string)
-                .collect::<Vec<_>>()
-                .join(",")
-        ));
-    }
     if kind == LearningKind::Word {
         let origin_id = subtitle_ids
             .first()
             .map(i64::to_string)
             .unwrap_or_else(|| "none".into());
-        keys.push(format!(
+        return vec![format!(
             "lookup:{origin_id}:{}:{source_text}",
             selected_text.unwrap_or("")
-        ));
+        )];
     }
-    let mut seen = HashSet::new();
-    keys.retain(|key| seen.insert(key.clone()));
-    keys
+    let mut sorted_ids = subtitle_ids.to_vec();
+    sorted_ids.sort_unstable();
+    sorted_ids.dedup();
+    match sorted_ids.as_slice() {
+        [] => Vec::new(),
+        [id] => vec![format!("subtitle:{id}")],
+        ids => vec![format!(
+            "subtitles:{}",
+            ids.iter()
+                .map(i64::to_string)
+                .collect::<Vec<_>>()
+                .join(",")
+        )],
+    }
 }
 
 fn deserialize_present_value<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>

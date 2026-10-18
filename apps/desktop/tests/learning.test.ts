@@ -118,20 +118,18 @@ test("preserves the resolved interface language and script for AI explanations",
 });
 
 test("restores captured source keys from persisted learning items", () => {
-  const sentence = item(8, "collected", "2026-01-01T00:00:00Z");
-  sentence.source_subtitle_ids = [8, 9];
-  assert.deepEqual(learningItemCaptureKeys(sentence), [
-    "subtitle:8",
-    "subtitle:9",
-    "subtitles:8,9",
-  ]);
+  const single = item(8, "collected", "2026-01-01T00:00:00Z");
+  assert.deepEqual(learningItemCaptureKeys(single), ["subtitle:8"]);
+
+  const excerpt = item(9, "collected", "2026-01-01T00:00:00Z");
+  excerpt.source_subtitle_ids = [9, 8];
+  assert.deepEqual(learningItemCaptureKeys(excerpt), ["subtitles:8,9"]);
 
   const word = item(10, "collected", "2026-01-01T00:00:00Z");
   word.kind = "word";
   word.source_text = "結果が気になる。";
   word.selected_text = "気になる";
   assert.deepEqual(learningItemCaptureKeys(word), [
-    "subtitle:10",
     "lookup:10:気になる:結果が気になる。",
   ]);
 });

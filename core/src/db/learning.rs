@@ -29,6 +29,7 @@ impl Database {
             let rows = statement.query_map([], learning_item_from_row)?;
             rows.collect::<Result<Vec<_>, _>>()?
         };
+        self.conn.execute("DELETE FROM learning_capture_keys", [])?;
         for item in items {
             for key in item.capture_keys() {
                 self.conn.execute(
@@ -565,21 +566,46 @@ mod tests {
     fn capture_creation_is_idempotent_and_delete_cascades_keys() {
         let directory = tempfile::tempdir().unwrap();
         let mut database = Database::open(&directory.path().join("capture.db")).unwrap();
-        let first = database
-            .create_learning_item(create_input(vec![8, 9]))
-            .unwrap();
-        let duplicate = database
-            .create_learning_item(create_input(vec![8, 9]))
-            .unwrap();
+        let first_word = database.create_learning_item(create_input(vec![8])).unwrap();
+        let duplicate_word = database.create_learning_item(create_input(vec![8])).unwrap();
+        assert_eq!(duplicate_word.id, first_word.id);
 
-        assert_eq!(duplicate.id, first.id);
+        let second_word = database
+            .create_learning_item(CreateLearningItem {
+                selected_text: Some("魚".into()),
+                ..create_input(vec![8])
+            })
+            .unwrap();
+        assert_ne!(second_word.id, first_word.id);
+
+        let sentence = database
+            .create_learning_item(CreateLearningItem {
+                kind: LearningKind::Sentence,
+                selected_text: None,
+                ..create_input(vec![8])
+            })
+            .unwrap();
+        assert_ne!(sentence.id, first_word.id);
+
+        let excerpt = database
+            .create_learning_item(CreateLearningItem {
+                kind: LearningKind::Excerpt,
+                selected_text: None,
+                ..create_input(vec![9, 8])
+            })
+            .unwrap();
+        assert_ne!(excerpt.id, sentence.id);
+
         let keys = database.learning_capture_keys().unwrap();
-        assert!(keys.contains(&"subtitle:8".into()));
-        assert!(keys.contains(&"subtitle:9".into()));
-        assert!(keys.contains(&"subtitles:8,9".into()));
         assert!(keys.contains(&"lookup:8:食べる:猫が魚を食べる".into()));
+        assert!(keys.contains(&"lookup:8:魚:猫が魚を食べる".into()));
+        assert!(keys.contains(&"subtitle:8".into()));
+        assert!(keys.contains(&"subtitles:8,9".into()));
 
-        assert!(database.delete_learning_item(first.id).unwrap());
+        assert!(database.delete_learning_item(first_word.id).unwrap());
+        assert!(database.delete_learning_item(second_word.id).unwrap());
+        assert!(database.delete_learning_item(sentence.id).unwrap());
+        assert!(database.delete_learning_item(excerpt.id).unwrap());
         assert!(database.learning_capture_keys().unwrap().is_empty());
     }
 }

@@ -106,7 +106,8 @@ export function subtitleLearningKey(subtitle: Subtitle): string {
 }
 
 export function subtitleSelectionLearningKey(ids: Iterable<number>): string {
-  return `subtitles:${[...ids].sort((left, right) => left - right).join(",")}`;
+  const uniqueIds = [...new Set(ids)].sort((left, right) => left - right);
+  return uniqueIds.length === 1 ? `subtitle:${uniqueIds[0]}` : `subtitles:${uniqueIds.join(",")}`;
 }
 
 export function lookupLearningKey(lookup: Lookup): string {
@@ -114,14 +115,12 @@ export function lookupLearningKey(lookup: Lookup): string {
 }
 
 export function learningItemCaptureKeys(item: LearningItem): string[] {
-  const keys = item.source_subtitle_ids.map((id) => `subtitle:${id}`);
-  if (item.source_subtitle_ids.length > 1) {
-    keys.push(subtitleSelectionLearningKey(item.source_subtitle_ids));
-  }
   if (item.kind === "word") {
-    keys.push(`lookup:${item.source_subtitle_ids[0] ?? "none"}:${item.selected_text ?? ""}:${item.source_text}`);
+    return [`lookup:${item.source_subtitle_ids[0] ?? "none"}:${item.selected_text ?? ""}:${item.source_text}`];
   }
-  return keys;
+  const uniqueIds = [...new Set(item.source_subtitle_ids)].sort((left, right) => left - right);
+  if (!uniqueIds.length) return [];
+  return [uniqueIds.length === 1 ? `subtitle:${uniqueIds[0]}` : `subtitles:${uniqueIds.join(",")}`];
 }
 
 function combineLearningSubtitleText(subtitles: Subtitle[]): string {
