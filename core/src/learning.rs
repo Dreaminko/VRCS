@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use serde::{Deserialize, Deserializer, Serialize};
-use serde_json::json;
+use serde_json::{json, Value};
 
 use crate::config::{ApiProfile, ReasoningSetting};
 use crate::credentials;
@@ -86,11 +86,10 @@ impl LearningStatus {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AnalysisTaskType {
     ContextualWordExplanation,
-    #[default]
     SentenceAnalysis,
     SessionReview,
 }
@@ -103,6 +102,10 @@ impl AnalysisTaskType {
             Self::SessionReview => "session_review",
         }
     }
+}
+
+fn omitted_analysis_task_type() -> AnalysisTaskType {
+    AnalysisTaskType::SentenceAnalysis
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -178,7 +181,8 @@ pub struct LearningExample {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct LearningAnalysis {
-    #[serde(default)]
+    /// 模型输出可能省略该字段；解析后总会被请求中的任务类型覆盖。
+    #[serde(default = "omitted_analysis_task_type")]
     pub task_type: AnalysisTaskType,
     pub summary: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1062,8 +1066,23 @@ fn parse_analysis_response(
         return Err("Learning analysis response is too large".into());
     }
     let json = strip_markdown_fence(output);
-    let mut analysis: LearningAnalysis = serde_json::from_str(json)
+    let value: Value = serde_json::from_str(json)
         .map_err(|_| "Learning analysis response is not valid strict JSON".to_string())?;
+    let reported_task_type = value
+        .get("task_type")
+        .and_then(Value::as_str)
+        .map(str::to_owned);
+    let mut analysis: LearningAnalysis = serde_json::from_value(value)
+        .map_err(|_| "Learning analysis response is not valid strict JSON".to_string())?;
+    if let Some(reported) =
+        reported_task_type.filter(|reported| reported != request.task_type.as_str())
+    {
+        tracing::warn!(
+            requested = request.task_type.as_str(),
+            reported = %reported,
+            "learning analysis response reported a different task type"
+        );
+    }
     analysis.task_type = request.task_type;
     analysis.provider = profile.provider.clone();
     analysis.model = request.model.clone();
