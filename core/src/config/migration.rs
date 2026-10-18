@@ -830,6 +830,12 @@ pub fn config_from_value(raw: &serde_json::Value) -> Result<AppConfig, String> {
             .entry("ocr")
             .or_insert(ocr);
     }
+    if let Some(ocr) = normalized
+        .get_mut("ocr")
+        .and_then(serde_json::Value::as_object_mut)
+    {
+        ocr.remove("backend");
+    }
     if let Some(overlay) = normalized.get_mut("vr_overlay") {
         for surface in ["headset", "wrist"] {
             if let Some(settings) = overlay

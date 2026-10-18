@@ -17,6 +17,7 @@ pub fn load_config(path: &Path) -> Result<AppConfig, String> {
         .map_err(|error| format!("Configuration JSON is invalid: {error}"))?;
     let version = config_version(&raw)?;
     let config = config_from_value(&raw)?;
+    let migrate_ocr_backend = raw.get("ocr").and_then(|ocr| ocr.get("backend")).is_some();
     let migrate_ocr_wrist = raw
         .get("ocr")
         .and_then(|ocr| ocr.get("wrist"))
@@ -42,7 +43,7 @@ pub fn load_config(path: &Path) -> Result<AppConfig, String> {
             })?;
         }
         save_config(path, &config)?;
-    } else if migrate_ocr_wrist || migrate_vision_wrist {
+    } else if migrate_ocr_backend || migrate_ocr_wrist || migrate_vision_wrist {
         save_config(path, &config)?;
     }
     Ok(config)

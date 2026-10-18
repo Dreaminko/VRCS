@@ -966,8 +966,7 @@ mod tests {
             Arc::new(super::super::LocalOcrRuntime::new(
                 std::env::temp_dir().join("unused-ocr-task-models"),
             )),
-        )
-        .unwrap();
+        );
         (service, config)
     }
 

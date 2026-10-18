@@ -105,9 +105,6 @@ impl Feedback {
     pub fn fail(&mut self, state: OcrState, code: &str, now: Instant) {
         self.error = Some(match code {
             "ocr_disabled" => ("enableOcr", "Enable OCR in Settings to scan text"),
-            "authentication" => ("authentication", "Authentication failed"),
-            "credentials_missing" => ("credentialsMissing", "OCR credentials are missing"),
-            "rate_limit" => ("rateLimit", "Service rate limit reached"),
             "models_missing" => ("modelsMissing", "Local OCR models are missing"),
             "network" => ("network", "Network request failed"),
             "local_failed" => ("localFailed", "Local OCR failed"),
@@ -199,12 +196,6 @@ impl Feedback {
                     labels.text("waitingWorker", "Waiting for local OCR…")
                 } else if pipeline.recognition_phases.contains(&Phase::LoadingModel) {
                     labels.text("loadingModels", "Loading local models…")
-                } else if pipeline.recognition_phases.contains(&Phase::Pending) {
-                    labels.text("waitingCloud", "Waiting for cloud OCR…")
-                } else if pipeline.recognition_phases.contains(&Phase::Submitting) {
-                    labels.text("uploading", "Uploading image…")
-                } else if pipeline.recognition_phases.contains(&Phase::Downloading) {
-                    labels.text("downloading", "Fetching OCR results…")
                 } else {
                     labels.text("recognizing", "Recognizing text…")
                 }
@@ -219,9 +210,6 @@ impl Feedback {
                 if pipeline.recognition_phases.contains(&Phase::LoadingModel) {
                     detail.push_str(" · ");
                     detail.push_str(labels.text("firstScan", "First scan may take longer"));
-                } else if pipeline.recognition_phases.contains(&Phase::Pending) {
-                    detail.push_str(" · ");
-                    detail.push_str(labels.text("waitingService", "Waiting for the OCR service"));
                 }
             }
         }

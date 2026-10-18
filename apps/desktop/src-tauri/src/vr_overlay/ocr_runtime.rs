@@ -1,6 +1,6 @@
 use super::{
     backend::{OpenVrBackend, OverlayKind},
-    ocr_capture::{center_crop, encode_png, CropTransform, StereoCapture},
+    ocr_capture::{center_crop, CropTransform, StereoCapture},
     ocr_input::{install_manifest, InputActions},
     ocr_progress::{Feedback, ProgressLabels, ProgressView},
     ocr_progress_renderer,
@@ -640,10 +640,6 @@ impl OcrRuntime {
                 Update::Phase(id, phase) if id == self.status.scan_id => {
                     self.status.state = match phase {
                         Phase::WaitingWorker => OcrState::Recognizing,
-                        Phase::Submitting => OcrState::Submitting,
-                        Phase::Pending => OcrState::Pending,
-                        Phase::Running => OcrState::Running,
-                        Phase::Downloading => OcrState::Downloading,
                         Phase::LoadingModel => OcrState::LoadingModel,
                         Phase::Recognizing => OcrState::Recognizing,
                         Phase::Translating => OcrState::Translating,
@@ -728,11 +724,7 @@ impl OcrRuntime {
                 view.block_count > 0
                     || matches!(
                         self.status.state,
-                        OcrState::Submitting
-                            | OcrState::Pending
-                            | OcrState::Running
-                            | OcrState::Downloading
-                            | OcrState::LoadingModel
+                        OcrState::LoadingModel
                             | OcrState::Recognizing
                             | OcrState::Translating
                             | OcrState::NoText
@@ -1071,20 +1063,11 @@ fn prepare_images(
         };
         let transform = crop.transform();
         let (width, height) = (crop.image.width, crop.image.height);
-        let data = if config.backend == vrcs_core::VrOcrBackend::Local {
-            OcrImageData::Rgba(crop.image.pixels)
-        } else {
-            OcrImageData::Encoded(encode_png(crop.image)?)
-        };
-        let upload_bytes = match &data {
-            OcrImageData::Encoded(bytes) => bytes.len(),
-            OcrImageData::Rgba(_) => 0,
-        };
+        let data = OcrImageData::Rgba(crop.image.pixels);
         tracing::debug!(
             scan_id,
             eye = index,
             elapsed_ms = eye_started.elapsed().as_millis() as u64,
-            upload_bytes,
             "OCR eye prepared"
         );
         Ok::<_, String>((
@@ -1327,7 +1310,6 @@ mod tests {
         capture.eyes[1].image.pixels.clear();
         let config = VrOcrConfig {
             display_mode: VrOcrDisplayMode::Wrist,
-            backend: vrcs_core::VrOcrBackend::Local,
             ..Default::default()
         };
         let (images, crops) = prepare_images(&capture, &config, None, 1).unwrap();
@@ -1347,7 +1329,6 @@ mod tests {
         capture.eyes[1].image.pixels = [40, 50, 60, 255].repeat(4);
         let config = VrOcrConfig {
             display_mode: VrOcrDisplayMode::Stereo,
-            backend: vrcs_core::VrOcrBackend::Local,
             ..Default::default()
         };
         let (images, crops) = prepare_images(&capture, &config, None, 1).unwrap();

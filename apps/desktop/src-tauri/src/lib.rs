@@ -186,12 +186,7 @@ fn launch_core(app: &tauri::AppHandle) -> Result<(), String> {
             Ok(core) => {
                 let presentation_events = core.subscribe_presentation_events();
                 let vr_overlay_config = core.subscribe_vr_overlay_config();
-                let ocr_service = core
-                    .vr_ocr_service()
-                    .map_err(|error| {
-                        tracing::warn!(%error,"Cloud OCR service initialization failed");
-                    })
-                    .ok();
+                let ocr_service = Some(core.vr_ocr_service());
                 app.state::<desktop_ocr::Manager>()
                     .start(ocr_service.clone(), vr_overlay_config.clone());
                 app.state::<desktop_vision::Manager>().start(

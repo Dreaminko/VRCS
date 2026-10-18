@@ -546,7 +546,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn ocr_local_missing_models_reports_preparation_not_cloud_credentials() {
+    async fn ocr_local_missing_models_reports_preparation() {
         let directory = tempfile::tempdir().unwrap();
         let runtime = LocalOcrRuntime::new(directory.path().into());
         let error = runtime
@@ -561,13 +561,11 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let mut config = crate::config::AppConfig::default();
         config.ocr.desktop_enabled = true;
-        config.ocr.backend = crate::config::VrOcrBackend::Local;
         let service = super::super::VrOcrService::new(
             Arc::new(std::sync::RwLock::new(config)),
             Arc::new(crate::translation::TranslationService::new().unwrap()),
             Arc::new(LocalOcrRuntime::new(directory.path().into())),
-        )
-        .unwrap();
+        );
         let snapshot = service.configuration().unwrap();
         assert!(!snapshot.ocr().enabled);
         let error = service
@@ -592,13 +590,11 @@ mod tests {
         let mut config = crate::config::AppConfig::default();
         config.ocr.enabled = true;
         config.ocr.desktop_enabled = false;
-        config.ocr.backend = crate::config::VrOcrBackend::Local;
         let service = super::super::VrOcrService::new(
             Arc::new(std::sync::RwLock::new(config)),
             Arc::new(crate::translation::TranslationService::new().unwrap()),
             Arc::new(LocalOcrRuntime::new(directory.path().into())),
-        )
-        .unwrap();
+        );
         let snapshot = service.configuration().unwrap();
         let error = service
             .process_vr_scan(
@@ -822,7 +818,7 @@ mod tests {
 
     #[tokio::test]
     #[ignore = "requires downloaded official PP-OCRv6 small weights"]
-    async fn ocr_local_service_verifies_both_eyes_before_translating_without_cloud_ocr() {
+    async fn ocr_local_service_verifies_both_eyes_before_translating() {
         use axum::{routing::post, Json, Router};
         use std::sync::atomic::AtomicUsize;
         let verified = Arc::new(AtomicBool::new(false));
@@ -845,7 +841,6 @@ mod tests {
         });
         let mut config = crate::config::AppConfig::default();
         config.ocr.enabled = true;
-        config.ocr.backend = crate::config::VrOcrBackend::Local;
         config.ocr.targets[0].profile_id = Some("ocr-test".into());
         config.asr.api_profiles.push(crate::config::ApiProfile {
             id: "ocr-test".into(),
@@ -865,8 +860,7 @@ mod tests {
             Arc::new(std::sync::RwLock::new(config)),
             Arc::new(crate::translation::TranslationService::new().unwrap()),
             Arc::new(LocalOcrRuntime::new(directory)),
-        )
-        .unwrap();
+        );
         let mut phases = Vec::new();
         let result = service
             .process(
@@ -885,7 +879,6 @@ mod tests {
         assert_eq!(requests.load(Ordering::Relaxed), 1);
         assert!(phases.contains(&Phase::Recognizing));
         assert!(phases.contains(&Phase::Translating));
-        assert!(!phases.contains(&Phase::Submitting));
         for eye in result {
             assert_eq!(eye.len(), 1);
             assert!(eye
@@ -946,7 +939,6 @@ mod tests {
         let mut config = crate::config::AppConfig::default();
         config.ocr.enabled = true;
         config.ocr.desktop_enabled = false;
-        config.ocr.backend = crate::config::VrOcrBackend::Local;
         config.ocr.targets[0].profile_id = Some("ocr-test".into());
         config.asr.api_profiles.push(crate::config::ApiProfile {
             id: "ocr-test".into(),
@@ -961,8 +953,7 @@ mod tests {
             Arc::new(std::sync::RwLock::new(config)),
             Arc::new(crate::translation::TranslationService::new().unwrap()),
             runtime,
-        )
-        .unwrap();
+        );
         let snapshot = service.configuration().unwrap();
         let mut updates = Vec::new();
         let mut snapshots = Vec::new();

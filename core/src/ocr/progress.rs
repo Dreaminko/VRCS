@@ -89,13 +89,13 @@ mod tests {
         let mut snapshots = Vec::new();
         {
             let mut report = Reporter::new(42, 2, |snapshot| snapshots.push(snapshot));
-            report.phase(Some(0), Phase::Downloading);
-            report.phase(Some(1), Phase::Pending);
+            report.phase(Some(0), Phase::Recognizing);
+            report.phase(Some(1), Phase::LoadingModel);
             report.translation(TranslationProgress::Registered);
             report.translation(TranslationProgress::ImageDone(0));
         }
         let progress = snapshots.last().unwrap();
-        assert_eq!(progress.recognition_phases, [Phase::Pending]);
+        assert_eq!(progress.recognition_phases, [Phase::LoadingModel]);
         assert_eq!(
             (
                 progress.scan_id,

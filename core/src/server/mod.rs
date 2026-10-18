@@ -266,12 +266,6 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/api/vrcx/status", get(vrcx::runtime_status))
         .route("/api/vrcx/test", post(vrcx::test_connection))
         .route(
-            "/api/ocr/token",
-            get(ocr::token_status)
-                .put(ocr::token_write)
-                .delete(ocr::token_delete),
-        )
-        .route(
             "/api/ocr/models",
             get(ocr::model_status).delete(ocr::model_delete),
         )

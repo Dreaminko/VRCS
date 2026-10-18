@@ -195,11 +195,8 @@ impl Reader {
 pub fn state_label(state: OcrState) -> &'static str {
     match state {
         OcrState::Capturing => "capturing",
-        OcrState::Submitting => "submitting",
-        OcrState::Pending => "pending",
-        OcrState::Downloading => "downloading",
         OcrState::LoadingModel => "loading_model",
-        OcrState::Running | OcrState::Recognizing => "recognizing",
+        OcrState::Recognizing => "recognizing",
         OcrState::Recognized | OcrState::Translating => "translating",
         OcrState::NoText => "no_text",
         OcrState::LowConfidence => "low_confidence",

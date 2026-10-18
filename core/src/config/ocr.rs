@@ -58,7 +58,6 @@ pub struct VrOcrConfig {
     pub enabled: bool,
     pub desktop_enabled: bool,
     pub shortcut: String,
-    pub backend: VrOcrBackend,
     pub device: OcrDevice,
     pub display_mode: VrOcrDisplayMode,
     pub timeout_seconds: u32,
@@ -132,14 +131,6 @@ impl VrOcrWristConfig {
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum VrOcrBackend {
-    #[default]
-    Cloud,
-    Local,
-}
-
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
 pub enum OcrDevice {
     #[default]
     Cpu,
@@ -161,7 +152,6 @@ impl Default for VrOcrConfig {
             enabled: false,
             desktop_enabled: false,
             shortcut: "Ctrl+Alt+O".into(),
-            backend: VrOcrBackend::Cloud,
             device: OcrDevice::Cpu,
             display_mode: VrOcrDisplayMode::Stereo,
             timeout_seconds: 30,

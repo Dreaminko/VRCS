@@ -43,8 +43,8 @@ use crate::server::AppState;
 use crate::startup::{RuntimeAssembly, RuntimeTasks, StartupPlan};
 
 pub use crate::config::{
-    FeatureConfig, FeatureKey, VisionConfig, VrOcrBackend, VrOcrConfig, VrOcrDisplayMode,
-    VrOcrWristConfig, VrOverlayConfig, VrOverlayHeadsetConfig, VrOverlayWristConfig,
+    FeatureConfig, FeatureKey, VisionConfig, VrOcrConfig, VrOcrDisplayMode, VrOcrWristConfig,
+    VrOverlayConfig, VrOverlayHeadsetConfig, VrOverlayWristConfig,
 };
 pub use crate::models::{
     LiveTranslation, LiveTranslationPreview, SpeakerIdentity, Subtitle, SubtitleTranslation,
@@ -137,7 +137,7 @@ impl CoreHandle {
         self.state.integrations.vr_overlay_config_tx.subscribe()
     }
 
-    pub fn vr_ocr_service(&self) -> Result<ocr::VrOcrService, String> {
+    pub fn vr_ocr_service(&self) -> ocr::VrOcrService {
         ocr::VrOcrService::new(
             self.state.config.config.clone(),
             self.state.content.translation_service.clone(),

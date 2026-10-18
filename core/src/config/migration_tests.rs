@@ -194,7 +194,7 @@ fn legacy_ocr_moves_to_root_without_losing_vr_settings() {
     assert_eq!(saved["ocr"]["enabled"], true);
     assert_eq!(saved["ocr"]["desktop_enabled"], false);
     assert_eq!(saved["ocr"]["shortcut"], "Ctrl+Alt+O");
-    assert_eq!(saved["ocr"]["backend"], "local");
+    assert!(saved["ocr"].get("backend").is_none());
     assert_eq!(saved["ocr"]["display_mode"], "stereo");
     assert_eq!(saved["ocr"]["timeout_seconds"], 45);
     assert_eq!(saved["ocr"]["targets"][0]["target_language"], "ja");

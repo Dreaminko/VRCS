@@ -116,9 +116,18 @@
       "targetLanguage": "Target language",
       "translate": "Translate",
       "sendMode": "Send content",
-      "modes": { "original": "Original", "translation": "Translation", "bilingual": "Bilingual" },
+      "modes": {
+        "original": "Original",
+        "translation": "Translation",
+        "bilingual": "Bilingual"
+      },
       "format": "Message format",
-      "formats": { "originalFirst": "Original, then translation", "translationFirst": "Translation, then original", "slash": "Slash separated", "custom": "Custom" },
+      "formats": {
+        "originalFirst": "Original, then translation",
+        "translationFirst": "Translation, then original",
+        "slash": "Slash separated",
+        "custom": "Custom"
+      },
       "customFormat": "Custom message format",
       "preview": "Send preview",
       "previewEmpty": "Your final message will appear here",
@@ -126,7 +135,10 @@
       "send": "Send to VRChat",
       "sending": "Sending…",
       "oscDisabled": "Enable OSC in Settings before sending.",
-      "errors": { "translate": "We couldn't translate this message.", "send": "We couldn't send the Chatbox message." }
+      "errors": {
+        "translate": "We couldn't translate this message.",
+        "send": "We couldn't send the Chatbox message."
+      }
     },
     "capture": {
       "start": "Start transcription",
@@ -302,7 +314,6 @@
     "learning": {
       "title": "Learning workspace",
       "description": "Collect subtitles, request focused analysis, and prepare editable Anki cards.",
-
       "language": "Language",
       "dateRange": "Date range",
       "allTime": "All time",
@@ -536,7 +547,9 @@
     "updates": {
       "title": "Software updates",
       "currentVersion": "Current version {{version}}",
-      "variant": { "standard": "Standard build" },
+      "variant": {
+        "standard": "Standard build"
+      },
       "automaticChecks": "Check for updates automatically",
       "checkNow": "Check now",
       "availableTitle": "VRCS {{version}} is available",
@@ -554,9 +567,9 @@
         "installing": "Installing update…"
       },
       "errors": {
-    "feature": {
-      "disabled": "This feature is turned off. Turn it on in System settings → Features."
-    },
+        "feature": {
+          "disabled": "This feature is turned off. Turn it on in System settings → Features."
+        },
         "unavailable": "Updates are not configured for this build.",
         "busy": "An update operation is already running.",
         "no_pending": "Check for updates again before installing.",
@@ -715,14 +728,10 @@
           "recognizingTranslating": "Recognizing and translating…",
           "waitingWorker": "Waiting for local OCR…",
           "loadingModels": "Loading local models…",
-          "waitingCloud": "Waiting for cloud OCR…",
-          "uploading": "Uploading image…",
-          "downloading": "Fetching OCR results…",
           "recognizing": "Recognizing text…",
           "translating": "Translating text…",
           "displaying": "Displaying results…",
           "firstScan": "First scan may take longer",
-          "waitingService": "Waiting for the OCR service",
           "noText": "No text detected",
           "lowConfidence": "No readable text detected",
           "translationFailed": "Translation failed",
@@ -736,9 +745,6 @@
           "unavailable": "OCR unavailable",
           "disabled": "OCR is disabled",
           "enableOcr": "Enable OCR in Settings to scan text",
-          "authentication": "Authentication failed",
-          "credentialsMissing": "OCR credentials are missing",
-          "rateLimit": "Service rate limit reached",
           "modelsMissing": "Local OCR models are missing",
           "network": "Network request failed",
           "localFailed": "Local OCR failed",
@@ -751,29 +757,63 @@
         "wristPosition": "Position and rotation",
         "results": "Region translations: {{completed}} completed, {{failed}} failed",
         "sourceView": "Original text is shown with translations.",
-        "errors": {"timeout": "The task timed out. Scan again.", "authentication": "OCR authentication failed. Check the access token.", "credentials_missing": "Configure an OCR access token.", "rate_limit": "OCR rate limit reached. Try again later.", "models_missing": "Prepare the local OCR models in settings.", "configuration_changed": "OCR settings changed. Scan again.", "tracking_lost": "Restore headset tracking and scan again.", "view_changed": "The source view changed. Scan again.", "network": "OCR network request failed. Check the connection and retry.", "local_failed": "Local OCR inference failed. Check model preparation and retry.", "invalid_result": "The OCR response has no valid text positions.", "unavailable": "OCR is unavailable. Check the VR connection and backend.", "translation_failed": "All translation requests failed. Check the translation service.", "partial_failure": "Some translations failed. Completed translations are retained.", "partial_timeout": "Some translations timed out. Completed translations are retained."},
-        "backend": "OCR service",
+        "errors": {
+          "timeout": "The task timed out. Scan again.",
+          "models_missing": "Prepare the local OCR models in settings.",
+          "configuration_changed": "OCR settings changed. Scan again.",
+          "tracking_lost": "Restore headset tracking and scan again.",
+          "view_changed": "The source view changed. Scan again.",
+          "network": "OCR network request failed. Check the connection and retry.",
+          "local_failed": "Local OCR inference failed. Check model preparation and retry.",
+          "unavailable": "OCR is unavailable. Check the VR connection and local models.",
+          "translation_failed": "All translation requests failed. Check the translation service.",
+          "partial_failure": "Some translations failed. Completed translations are retained.",
+          "partial_timeout": "Some translations timed out. Completed translations are retained."
+        },
         "displayMode": "VR result display",
-        "displayModes": { "wrist": "Wrist panel", "stereo": "Original text position (both eyes)" },
-        "backends": { "cloud": "PaddleOCR cloud", "local": "Local PP-OCRv6" },
-        "localDescription": "Recognize selected text locally and translate it with the selected API.",
+        "displayModes": {
+          "wrist": "Wrist panel",
+          "stereo": "Original text position (both eyes)"
+        },
         "device": "Local OCR device",
         "deviceDescription": "DirectML uses a compatible GPU on Windows. If GPU loading or recognition fails, OCR falls back to CPU.",
         "activeDevice": "Last used device: {{device}}",
         "cpuFallback": "DirectML failed. OCR has switched to CPU.",
-        "modelStates": { "missing": "Download required", "downloading": "Downloading", "ready": "Ready", "error": "Download failed" },
+        "modelStates": {
+          "missing": "Download required",
+          "downloading": "Downloading",
+          "ready": "Ready",
+          "error": "Download failed"
+        },
         "modelFailed": "Could not prepare the OCR models. Check the connection and try again.",
         "modelDeleteFailed": "Could not delete the OCR models. Wait for any download or recognition to finish, then try again.",
         "controls": "After the frame appears, hold the right trigger for 0.65 seconds to confirm OCR. If the trigger was already held, release it before pressing again. OCR requires a frame. Hold the left trigger to clear, or to ask when visual questions are enabled.",
-        "states": {"disabled": "Disabled", "waiting_vr": "Waiting for SteamVR", "ready": "Ready to scan", "unbound": "Bind the OCR controller actions in SteamVR", "capturing": "Capturing", "selecting": "Adjust the frame; hold the right trigger to confirm", "waiting_hands": "Move your hands away to start recognition", "submitting": "Uploading", "pending": "Queued", "running": "Recognizing", "downloading": "Fetching results", "loading_model": "Loading local models", "recognizing": "Recognizing locally", "translating": "Translating", "recognized": "Recognition complete", "visible": "Translations displayed", "invalid": "View changed; scan again", "error": "OCR unavailable", "no_text": "No text found", "low_confidence": "Text confidence is below the threshold", "source_visible": "Recognized text displayed", "partial_visible": "Completed translations displayed", "translation_failed": "All translations failed", "timed_out": "OCR task timed out"},
+        "states": {
+          "disabled": "Disabled",
+          "waiting_vr": "Waiting for SteamVR",
+          "ready": "Ready to scan",
+          "unbound": "Bind the OCR controller actions in SteamVR",
+          "capturing": "Capturing",
+          "selecting": "Adjust the frame; hold the right trigger to confirm",
+          "waiting_hands": "Move your hands away to start recognition",
+          "loading_model": "Loading local models",
+          "recognizing": "Recognizing locally",
+          "translating": "Translating",
+          "recognized": "Recognition complete",
+          "visible": "Translations displayed",
+          "invalid": "View changed; scan again",
+          "error": "OCR unavailable",
+          "no_text": "No text found",
+          "low_confidence": "Text confidence is below the threshold",
+          "source_visible": "Recognized text displayed",
+          "partial_visible": "Completed translations displayed",
+          "translation_failed": "All translations failed",
+          "timed_out": "OCR task timed out"
+        },
         "title": "OCR",
-        "description": "Recognize selected text with cloud OCR and translate it.",
+        "description": "Recognize selected text locally and translate it with the selected API.",
+        "localModel": "Local PP-OCRv6",
         "enable": "Enable VR OCR",
-        "token": "PaddleOCR access token",
-        "configured": "Configured",
-        "unconfigured": "Configure an OCR access token to enable cloud recognition",
-        "environment": "Managed by PADDLEOCR_ACCESS_TOKEN",
-        "tokenFailed": "Could not access the OCR credential. Check the connection and try again.",
         "translation": "OCR translation languages and services",
         "timeout": "Task timeout",
         "region": "Center capture region (without a hand frame)",
@@ -891,7 +931,6 @@
       "system": {
         "title": "System",
         "general": "General settings",
-
         "saveImmediately": "Changes are saved immediately.",
         "language": "Interface language",
         "languageDescription": "Use the system language or choose one for VRCS.",
@@ -916,7 +955,6 @@
         "runOnboardingStopFirst": "Stop transcription first",
         "externalApi": {
           "title": "Third-party output API",
-
           "enabled": "Enable third-party output API",
           "enabledDescription": "Off by default. It exposes only health, capabilities, and event subscription routes.",
           "host": "Listen address",
@@ -938,7 +976,6 @@
           "tokenLoadFailed": "Could not load the token status.",
           "tokenSaveFailed": "Could not save the token.",
           "tokenDeleteFailed": "Could not delete the token.",
-
           "statusLoadFailed": "Could not read the current External API status.",
           "runtime": {
             "checking": "Checking the current runtime status.",
@@ -950,7 +987,6 @@
       },
       "storage": {
         "title": "Storage",
-
         "databaseUsage": "Database usage",
         "databaseUsageDescription": "Effective usage excludes reusable free pages. Allocated space is the disk space currently reserved by the database file.",
         "ofQuota": "of {{quota}} quota",
@@ -971,7 +1007,6 @@
         "liveTranslateHint": "Each audio source translates its first target and requires automatic translation. Text prompts and thinking settings do not apply. Qwen uses text-only output and speaker diarization; other live translators generate audio that the app does not play.",
         "liveTranslatePreview": "Audio uploads begin after speech is detected. Translations can be previewed as they arrive. Local alignment supports history, extra targets and OSC; same-language source text can complete without waiting for a translation.",
         "title": "Subtitle translation",
-
         "mode": "Translation mode",
         "modeDescription": "Automatic mode translates both other voices and your microphone. Manual mode translates only on request.",
         "modes": {
@@ -1006,7 +1041,11 @@
         "contextEnabled": "Include recent source text",
         "contextEnabledDescription": "Add recent final source text from selected sources to the LLM prompt in chronological order. Off by default.",
         "contextSourcesTitle": "Source types",
-        "contextSources": { "speaker": "Speaker", "microphone": "Microphone", "chatbox": "Chatbox" },
+        "contextSources": {
+          "speaker": "Speaker",
+          "microphone": "Microphone",
+          "chatbox": "Chatbox"
+        },
         "contextLimitsTitle": "Context limits",
         "maxMessages": "Recent messages (1–50)",
         "maxChars": "Context character limit (200–12000)",
@@ -1035,7 +1074,10 @@
         "editGlossary": "Edit glossary",
         "addSubscription": "Add subscription",
         "editSubscription": "Edit subscription",
-        "glossaryTypes": { "local": "Local", "subscription": "Subscription" },
+        "glossaryTypes": {
+          "local": "Local",
+          "subscription": "Subscription"
+        },
         "localGlossaryDetail": "Stored in the current VRCS settings",
         "glossaryEntryCount": "{{count}} entries",
         "glossaryEntriesOmitted": "{{count}} more entries were omitted by the total limit",
@@ -1073,7 +1115,12 @@
         "glossarySource": "Source term",
         "glossaryTarget": "Fixed translation",
         "glossaryCategory": "Category",
-        "glossaryCategories": { "person": "Person", "world": "VRChat world", "game": "Game term", "custom": "Custom" },
+        "glossaryCategories": {
+          "person": "Person",
+          "world": "VRChat world",
+          "game": "Game term",
+          "custom": "Custom"
+        },
         "keepOriginal": "Keep original",
         "caseSensitive": "Case-sensitive",
         "table": {
@@ -1128,7 +1175,6 @@
       },
       "apiManagement": {
         "title": "API access",
-
         "securityNotice": "API keys are stored in Windows Credential Manager and are never written to the settings file. Keys from environment variables take priority.",
         "alibabaDescription": "Shared by Qwen3 ASR and Fun-ASR",
         "openaiDescription": "Official OpenAI API for Realtime transcription and LLM translation",
@@ -1232,8 +1278,20 @@
         "connectionSucceeded": "Connection succeeded.",
         "connectionFailed": "The connection diagnostic found compatibility problems.",
         "diagnostics": {
-          "checks": { "configuration": "Configuration", "endpoint": "Network endpoint", "authentication": "Authentication", "models": "Model list", "completion": "Standard generation", "streaming": "Streaming generation" },
-          "status": { "passed": "Passed", "warning": "Warning", "failed": "Failed", "skipped": "Skipped" },
+          "checks": {
+            "configuration": "Configuration",
+            "endpoint": "Network endpoint",
+            "authentication": "Authentication",
+            "models": "Model list",
+            "completion": "Standard generation",
+            "streaming": "Streaming generation"
+          },
+          "status": {
+            "passed": "Passed",
+            "warning": "Warning",
+            "failed": "Failed",
+            "skipped": "Skipped"
+          },
           "codes": {
             "llm_timeout": "The request timed out. Check the service or increase the timeout.",
             "llm_dns_failed": "The host name could not be resolved. Check the Base URL.",
@@ -1411,7 +1469,6 @@
       },
       "anki": {
         "title": "AnkiConnect",
-
         "enable": "Enable AnkiConnect",
         "enableDescription": "Allow local Anki connection checks and card creation from dictionary results.",
         "invalidPort": "Enter a valid port from 1 to 65535.",
@@ -1477,11 +1534,14 @@
       },
       "osc": {
         "title": "OSC",
-
         "enable": "Enable OSC",
         "enableDescription": "Control OSC chatbox output, VRChat mute sync, and mute status notifications.",
         "translationStrategy": "OSC multilingual output",
-        "translationStrategies": { "preferredOnly": "Preferred language only", "roundRobin": "Round robin", "allLanguages": "Show all languages together" },
+        "translationStrategies": {
+          "preferredOnly": "Preferred language only",
+          "roundRobin": "Round robin",
+          "allLanguages": "Show all languages together"
+        },
         "preserveOriginal": "Keep original text in output",
         "preserveOriginalDescription": "When a translation is available, send the original and translation together. Turn this off to send only the translation.",
         "muteSync": "Sync VRChat microphone mute",
@@ -1645,13 +1705,24 @@
       "unknown": "An unknown error occurred.",
       "operation": "The operation failed.",
       "chatbox": {
-        "missing_original": "Enter the original message.", "missing_translation": "Enter or generate a translation first.", "missing_bilingual_text": "Bilingual messages need both original and translated text.",
-        "text_too_long": "Messages can contain up to 5,000 characters.", "invalid_language": "The language code is invalid.", "invalid_format": "Custom formats must contain {original} and {translation} once each.",
-        "over_limit": "This message has {{count}} characters. The limit is {{limit}}.", "history_store_failed": "The message was handled, but its history could not be saved.", "conversation_store_failed": "The message was sent, but it could not be added to the current conversation."
+        "missing_original": "Enter the original message.",
+        "missing_translation": "Enter or generate a translation first.",
+        "missing_bilingual_text": "Bilingual messages need both original and translated text.",
+        "text_too_long": "Messages can contain up to 5,000 characters.",
+        "invalid_language": "The language code is invalid.",
+        "invalid_format": "Custom formats must contain {original} and {translation} once each.",
+        "over_limit": "This message has {{count}} characters. The limit is {{limit}}.",
+        "history_store_failed": "The message was handled, but its history could not be saved.",
+        "conversation_store_failed": "The message was sent, but it could not be added to the current conversation."
       },
       "osc": {
-        "disabled": "OSC is disabled.", "blocked_vrchat_muted": "VRChat is muted, so the message was not sent.", "blocked_mute_unknown": "VRCS is checking the VRChat mute state. Try again shortly.",
-        "queue_full": "The OSC send queue is full. Try again shortly.", "send_timeout": "The OSC send timed out.", "send_cancelled": "The OSC settings changed, so the send was cancelled.", "send_failed": "We couldn't send to the local VRChat OSC port."
+        "disabled": "OSC is disabled.",
+        "blocked_vrchat_muted": "VRChat is muted, so the message was not sent.",
+        "blocked_mute_unknown": "VRCS is checking the VRChat mute state. Try again shortly.",
+        "queue_full": "The OSC send queue is full. Try again shortly.",
+        "send_timeout": "The OSC send timed out.",
+        "send_cancelled": "The OSC settings changed, so the send was cancelled.",
+        "send_failed": "We couldn't send to the local VRChat OSC port."
       },
       "apiProfiles": {
         "operation": "The API profile operation failed.",

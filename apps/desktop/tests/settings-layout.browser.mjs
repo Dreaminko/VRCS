@@ -50,9 +50,11 @@ for (const width of [1200, 380]) {
           models: [], modelsLoading: false, modelsError: 'The model catalog could not be loaded. Check the connection and try again.',
           explanationLanguagePreference: 'ui', setProfileId: noop, setModel: noop,
           setExplanationLanguage: noop, setExplanationLevel: noop, setReasoningControl: noop };
-        window.fetch = async url => String(url).endsWith('/ocr/token')
-          ? new Response(JSON.stringify({ configured: true, stored_configured: true, environment_override: false }))
-          : new Response(JSON.stringify({ code: 'models.unavailable', detail: 'Catalog unavailable', params: {} }), { status: 503 });
+        window.fetch = async url => String(url).endsWith('/ocr/models')
+          ? new Response(JSON.stringify({ state: 'ready', downloaded_bytes: 100, total_bytes: 100, error: null }))
+          : String(url).endsWith('/ocr/runtime')
+            ? new Response(JSON.stringify({ requested_device: 'cpu', active_device: null, fallback_reason: null }))
+            : new Response(JSON.stringify({ code: 'models.unavailable', detail: 'Catalog unavailable', params: {} }), { status: 503 });
         const definition = { id: 'sample', display_name: 'Sample', category: 'cloud_provider',
           connection: { base_url: { mode: 'fixed', default: 'https://example.com/v1' },
             auth_modes: ['none'], default_auth_mode: 'none', fields: [

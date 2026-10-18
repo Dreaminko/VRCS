@@ -1,13 +1,12 @@
 import { useEffect, useRef, useState } from "react";
-import { ScanText, Save, Trash2, Gamepad2, Download, RefreshCw, Monitor, Glasses, RectangleGoggles } from "lucide-react";
+import { ScanText, Trash2, Gamepad2, Download, RefreshCw, Monitor, Glasses, RectangleGoggles } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { request } from "../../core-client/transport";
-import type { CredentialStatus } from "../../shared/protocol/credentials";
 import type { ApiProfileView } from "../../providers/types";
 import type { OcrExecutionStatus, VrOcrModelStatus, VrOcrSettings, VrOcrStatus, VrOcrWristSettings } from "../../integrations/types";
 import { PreferenceToggle, RangeField, Select } from "../SettingsControls";
 import { formatBytes } from "../settings-derived";
-import { DEFAULT_OCR_WRIST_SETTINGS, isVrOcrBackendReady, VR_OVERLAY_POSITION_RANGES } from "../vr-overlay-settings";
+import { DEFAULT_OCR_WRIST_SETTINGS, isOcrReady, VR_OVERLAY_POSITION_RANGES } from "../vr-overlay-settings";
 import { TranslationRouteList } from "../translation/TranslationRouteList";
 import type { DesktopOcrStatus } from "../../ocr/status";
 import { openVrOcrBindings } from "../../integrations/vr-overlay-native";
@@ -26,12 +25,7 @@ export function OcrSettingsCard({ vrAvailable, config, profiles, disabled: savin
 }) {
   const { t, i18n } = useTranslation();
   const disabled = saving || !config.master_enabled;
-  const [status, setStatus] = useState<CredentialStatus | null>(null);
-
-  const [token, setToken] = useState("");
-  const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [tokenError, setTokenError] = useState("");
   const [models, setModels] = useState<VrOcrModelStatus | null>(null);
   const [execution, setExecution] = useState<OcrExecutionStatus | null>(null);
   const [modelBusy, setModelBusy] = useState(false);
@@ -41,17 +35,6 @@ export function OcrSettingsCard({ vrAvailable, config, profiles, disabled: savin
   const deleteButtonRef = useRef<HTMLButtonElement>(null);
   const locale = i18n.resolvedLanguage ?? "en-US";
   useEffect(() => {
-    if (config.backend !== "cloud") return;
-    let disposed = false;
-    void request<CredentialStatus>("/api/ocr/token").then(
-      (next) => { if (!disposed) { setStatus(next); setTokenError(""); } },
-      () => { if (!disposed) setTokenError(t("settings.vrOcr.tokenFailed")); },
-    );
-    return () => { disposed = true; };
-  }, [config.backend, t]);
-
-  useEffect(() => {
-    if (config.backend !== "local") return;
     let disposed = false;
     let timer: ReturnType<typeof setTimeout>;
     const controller = new AbortController();
@@ -71,10 +54,9 @@ export function OcrSettingsCard({ vrAvailable, config, profiles, disabled: savin
     };
     void load();
     return () => { disposed = true; clearTimeout(timer); controller.abort(); };
-  }, [config.backend, models?.state, t]);
+  }, [models?.state, t]);
 
   useEffect(() => {
-    if (config.backend !== "local") return;
     let disposed = false;
     let timer: ReturnType<typeof setTimeout>;
     const controller = new AbortController();
@@ -90,7 +72,7 @@ export function OcrSettingsCard({ vrAvailable, config, profiles, disabled: savin
     };
     void load();
     return () => { disposed = true; clearTimeout(timer); controller.abort(); };
-  }, [vrAvailable, config.backend, config.device, config.master_enabled, config.enabled, config.desktop_enabled]);
+  }, [vrAvailable, config.device, config.master_enabled, config.enabled, config.desktop_enabled]);
 
   const prepareModels = async () => {
     setModelBusy(true);
@@ -118,23 +100,6 @@ export function OcrSettingsCard({ vrAvailable, config, profiles, disabled: savin
     }
   };
 
-  const editToken = async (remove: boolean) => {
-    setBusy(true);
-    setTokenError("");
-    try {
-      setStatus(await request<CredentialStatus>("/api/ocr/token", {
-        method: remove ? "DELETE" : "PUT",
-        ...(remove ? {} : { body: JSON.stringify({ token: token.trim() }) }),
-      }));
-      setToken("");
-    } catch {
-      setTokenError(t("settings.vrOcr.tokenFailed"));
-    } finally {
-      setBusy(false);
-    }
-  };
-  const credentialDisabled = disabled || busy || status === null || status.environment_override;
-  const local = config.backend === "local";
   const wrist = config.wrist ?? DEFAULT_OCR_WRIST_SETTINGS;
   const updateWrist = (patch: Partial<VrOcrWristSettings>) => onChange({ wrist: { ...wrist, ...patch } });
   const modelProgress = models?.total_bytes ? Math.min(1, Math.max(0, models.downloaded_bytes / models.total_bytes)) : 0;
@@ -144,7 +109,7 @@ export function OcrSettingsCard({ vrAvailable, config, profiles, disabled: savin
     <section className="vr-overlay-card" aria-labelledby="ocr-heading">
       <header className="vr-overlay-card-heading vr-overlay-feature-heading">
         <div><ScanText size={18} /><span><strong id="ocr-heading">{t("settings.vrOcr.title")}</strong>
-          <small>{t(local ? "settings.vrOcr.localDescription" : "settings.vrOcr.description")}</small></span></div>
+          <small>{t("settings.vrOcr.description")}</small></span></div>
         <PreferenceToggle title={t("settings.ocr.enable")} hideLabel checked={config.master_enabled}
           disabled={saving} onChange={(master_enabled) => onChange({ master_enabled })} />
       </header>
@@ -153,28 +118,20 @@ export function OcrSettingsCard({ vrAvailable, config, profiles, disabled: savin
           <header className="vr-overlay-card-heading">
             <div><span><strong id="ocr-common-heading">{t("settings.ocr.common")}</strong></span></div>
           </header>
-          <Select label={t("settings.vrOcr.backend")} value={config.backend}
+          <Select label={t("settings.vrOcr.device")} value={config.device}
+            helper={t("settings.vrOcr.deviceDescription")}
             options={[
-              { value: "cloud", label: t("settings.vrOcr.backends.cloud") },
-              { value: "local", label: t("settings.vrOcr.backends.local") },
+              { value: "cpu", label: "CPU" },
+              { value: "directml", label: "GPU (DirectML)" },
             ]}
-            disabled={disabled} onChange={(backend) => onChange({ backend: backend as VrOcrSettings["backend"] })} />
-          {local && <>
-            <Select label={t("settings.vrOcr.device")} value={config.device}
-              helper={t("settings.vrOcr.deviceDescription")}
-              options={[
-                { value: "cpu", label: "CPU" },
-                { value: "directml", label: "GPU (DirectML)" },
-              ]}
-              disabled={disabled} onChange={(device) => onChange({ device: device as VrOcrSettings["device"] })} />
-            {execution?.active_device && <p role="status">
-              {t("settings.vrOcr.activeDevice", { device: execution.active_device === "directml" ? "GPU (DirectML)" : "CPU" })}
-            </p>}
-            {execution?.fallback_reason && <p className="vr-overlay-native-error" role="status" title={execution.fallback_reason}>
-              {t("settings.vrOcr.cpuFallback")}
-            </p>}
-          </>}
-          {local ? <div className="model-list">
+            disabled={disabled} onChange={(device) => onChange({ device: device as VrOcrSettings["device"] })} />
+          {execution?.active_device && <p role="status">
+            {t("settings.vrOcr.activeDevice", { device: execution.active_device === "directml" ? "GPU (DirectML)" : "CPU" })}
+          </p>}
+          {execution?.fallback_reason && <p className="vr-overlay-native-error" role="status" title={execution.fallback_reason}>
+            {t("settings.vrOcr.cpuFallback")}
+          </p>}
+          <div className="model-list">
             <div className="model-row">
               <div className="model-row-body">
                 <div className="model-row-title">
@@ -205,26 +162,7 @@ export function OcrSettingsCard({ vrAvailable, config, profiles, disabled: savin
                     </button>}
               </div>
             </div>
-          </div> : <div className="external-api-token-section">
-            {tokenError && <p className="vr-overlay-native-error" role="alert">{tokenError}</p>}
-            <div className="external-api-token-row">
-              <strong>{t("settings.vrOcr.token")}</strong>
-              <span className={`external-api-token-status ${status?.configured ? "configured" : ""}`}>
-                {t(status?.environment_override ? "settings.vrOcr.environment" : status?.configured ? "settings.vrOcr.configured" : "settings.vrOcr.unconfigured")}
-              </span>
-            </div>
-            <label className="external-api-token-input">
-              <input type="password" autoComplete="new-password" maxLength={4096} value={token}
-                aria-label={t("settings.vrOcr.token")} disabled={credentialDisabled}
-                onChange={(event) => setToken(event.target.value)} />
-            </label>
-            <div className="vr-overlay-card-actions">
-              <button className="secondary-button" type="button" disabled={credentialDisabled || !token.trim()}
-                onClick={() => void editToken(false)}><Save size={15} />{t("common.save")}</button>
-              <button className="secondary-button" type="button" disabled={credentialDisabled || !status?.stored_configured}
-                onClick={() => void editToken(true)}><Trash2 size={15} />{t("common.delete")}</button>
-            </div>
-          </div>}
+          </div>
           <TranslationRouteList title={t("settings.vrOcr.translation")} targets={config.targets}
             profiles={profiles} disabled={disabled} onChange={(targets) => onChange({ targets })} />
           <div className="vr-overlay-range-grid">
@@ -238,7 +176,7 @@ export function OcrSettingsCard({ vrAvailable, config, profiles, disabled: savin
           <header className="vr-overlay-card-heading vr-overlay-feature-heading">
             <div><Monitor size={18} /><span><strong id="ocr-desktop-heading">{t("settings.ocr.desktop")}</strong></span></div>
             <PreferenceToggle title={t("settings.ocr.desktopEnabled")} hideLabel checked={config.desktop_enabled}
-              disabled={disabled || (!config.desktop_enabled && !isVrOcrBackendReady(config.backend, Boolean(status?.configured), models?.state))}
+              disabled={disabled || (!config.desktop_enabled && !isOcrReady(models?.state))}
               onChange={(desktop_enabled) => onChange({ desktop_enabled })} />
           </header>
           <SettingsDisclosure open={config.desktop_enabled}>
@@ -253,7 +191,7 @@ export function OcrSettingsCard({ vrAvailable, config, profiles, disabled: savin
           <header className="vr-overlay-card-heading vr-overlay-feature-heading">
             <div><RectangleGoggles size={18} /><span><strong id="ocr-vr-heading">{t("settings.ocr.vr")}</strong></span></div>
             <PreferenceToggle title={t("settings.vrOcr.enable")} hideLabel checked={config.enabled}
-              disabled={disabled || (!config.enabled && !isVrOcrBackendReady(config.backend, Boolean(status?.configured), models?.state))}
+              disabled={disabled || (!config.enabled && !isOcrReady(models?.state))}
               onChange={(enabled) => onChange({ enabled })} />
           </header>
           <SettingsDisclosure open={config.enabled}>

@@ -294,11 +294,10 @@ mod tests {
             "stereo"
         );
 
-        let value = serde_json::json!({"backend": "local", "display_mode": "stereo"});
+        let value = serde_json::json!({"display_mode": "stereo"});
         let config: VrOcrConfig = serde_json::from_value(value).unwrap();
         let saved = serde_json::to_value(config).unwrap();
         assert_eq!(saved["display_mode"], "stereo");
-        assert_eq!(saved["backend"], "local");
         let value = serde_json::json!({"display_mode":"wrist", "background_opacity":0.75});
         let config: VrOcrConfig = serde_json::from_value(value).unwrap();
         let saved = serde_json::to_value(config).unwrap();

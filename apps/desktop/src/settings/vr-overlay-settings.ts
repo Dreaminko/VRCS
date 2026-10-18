@@ -116,7 +116,6 @@ export const DEFAULT_OCR_SETTINGS: VrOcrSettings = {
   enabled: false,
   desktop_enabled: false,
   shortcut: "Ctrl+Alt+O",
-  backend: "cloud",
   device: "cpu",
   display_mode: "stereo",
   timeout_seconds: 30,
@@ -136,12 +135,10 @@ export const DEFAULT_VR_OVERLAY_SETTINGS: VrOverlaySettings = {
   wrist: { ...DEFAULT_VR_OVERLAY_WRIST_SETTINGS },
 };
 
-export function isVrOcrBackendReady(
-  backend: VrOcrSettings["backend"],
-  credentialConfigured: boolean,
+export function isOcrReady(
   modelState?: VrOcrModelStatus["state"],
 ): boolean {
-  return backend === "local" ? modelState === "ready" : credentialConfigured;
+  return modelState === "ready";
 }
 
 export function patchVrOverlay(

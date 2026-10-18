@@ -30,7 +30,7 @@ Download `VRCS-<version>-windows-x64.exe` from [GitHub Releases](https://github.
 - Local Qwen ASR supports CPU or Vulkan. Download its runtime and model in recognition settings.
 - An internet connection is needed for the initial Silero VAD download and, if enabled, Smart Turn semantic endpointing.
 - Cloud recognition, translation, and learning analysis require the selected provider's API credentials. Provider charges may apply.
-- For OCR, download local models or configure a PaddleOCR cloud access token.
+- For OCR, download the local PP-OCRv6 models.
 
 ## Getting started
 
@@ -51,13 +51,13 @@ Turn off unused features in **Settings › System › Features** to hide their s
 - Customize prompts, local and subscribed glossaries, and subtitle context. Add world and member context from [VRCX-0](https://vrcx-0.dev/), and switch recognition, translation, and Chatbox settings with language presets.
 - Send microphone subtitles and translations to the VRChat OSC Chatbox, with quick input, translation preview, multilingual output, and optional OSCQuery mute synchronization.
 - Read multilingual subtitles in your SteamVR headset or on your wrist. Adjust subtitle layout, languages, and Chatbox settings from the dashboard.
-- Select text on your desktop or in VR for OCR translation. Use PaddleOCR cloud or local PP-OCRv6 on CPU or DirectML GPU; view results in a desktop window, on your wrist, or over the source text in VR.
+- Select text on your desktop or in VR for OCR translation. Use local PP-OCRv6 on CPU or DirectML GPU; view results in a desktop window, on your wrist, or over the source text in VR.
 - Ask questions about selected images on your desktop or in VR. Type or dictate on the desktop; hold the left trigger to speak in VR. Answers appear in a separate window or a wrist panel with Markdown support. OCR is not required.
 - Import Yomitan dictionaries, look up words or Ask AI from subtitles, and review definitions, sentence patterns, and conversations. Edit vocabulary, sentence-pattern, or cloze cards and send them to Anki through AnkiConnect.
 
 ## Privacy
 
-VRCS does not store raw audio. Subtitle history, learning items, dictionaries, and settings are stored locally by default. Local Qwen ASR and local OCR process audio and images on the device; cloud recognition sends speech segments or selected images to the chosen provider.
+VRCS does not store raw audio. Subtitle history, learning items, dictionaries, and settings are stored locally by default. Local Qwen ASR and local OCR process audio and images on the device; cloud speech recognition sends speech segments to the chosen provider.
 
 Translation, learning analysis, and Ask AI send relevant text, explicitly selected context, and submitted questions to the configured service. Whether text from local recognition is sent to the cloud depends on the selected translation and AI services.
 

@@ -116,9 +116,18 @@
       "targetLanguage": "目标语言",
       "translate": "翻译",
       "sendMode": "发送内容",
-      "modes": { "original": "原文", "translation": "译文", "bilingual": "双语" },
+      "modes": {
+        "original": "原文",
+        "translation": "译文",
+        "bilingual": "双语"
+      },
       "format": "消息格式",
-      "formats": { "originalFirst": "原文换行译文", "translationFirst": "译文换行原文", "slash": "斜线分隔", "custom": "自定义" },
+      "formats": {
+        "originalFirst": "原文换行译文",
+        "translationFirst": "译文换行原文",
+        "slash": "斜线分隔",
+        "custom": "自定义"
+      },
       "customFormat": "自定义消息格式",
       "preview": "发送预览",
       "previewEmpty": "输入消息后将在这里显示最终效果",
@@ -126,7 +135,10 @@
       "send": "发送到 VRChat",
       "sending": "正在发送…",
       "oscDisabled": "请先在设置中启用 OSC。",
-      "errors": { "translate": "无法翻译这条消息。", "send": "无法发送 Chatbox 消息。" }
+      "errors": {
+        "translate": "无法翻译这条消息。",
+        "send": "无法发送 Chatbox 消息。"
+      }
     },
     "capture": {
       "start": "开始转写",
@@ -302,7 +314,6 @@
     "learning": {
       "title": "学习工作台",
       "description": "收集字幕、按需分析，并整理可编辑的 Anki 卡片。",
-
       "language": "语言",
       "dateRange": "日期范围",
       "allTime": "全部时间",
@@ -536,7 +547,9 @@
     "updates": {
       "title": "软件更新",
       "currentVersion": "当前版本 {{version}}",
-      "variant": { "standard": "标准版" },
+      "variant": {
+        "standard": "标准版"
+      },
       "automaticChecks": "自动检查更新",
       "checkNow": "立即检查",
       "availableTitle": "VRCS {{version}} 已发布",
@@ -554,9 +567,9 @@
         "installing": "正在安装更新…"
       },
       "errors": {
-    "feature": {
-      "disabled": "此功能已关闭，可在系统设置的功能选项中重新开启。"
-    },
+        "feature": {
+          "disabled": "此功能已关闭，可在系统设置的功能选项中重新开启。"
+        },
         "unavailable": "当前构建未配置更新功能。",
         "busy": "已有更新操作正在进行。",
         "no_pending": "请重新检查更新后再安装。",
@@ -715,14 +728,10 @@
           "recognizingTranslating": "正在识别并翻译…",
           "waitingWorker": "正在等待本地识别…",
           "loadingModels": "正在加载本地模型…",
-          "waitingCloud": "正在等待云端识别…",
-          "uploading": "正在上传图像…",
-          "downloading": "正在获取识别结果…",
           "recognizing": "正在识别文字…",
           "translating": "正在翻译文字…",
           "displaying": "正在显示结果…",
           "firstScan": "首次扫描可能需要更长时间",
-          "waitingService": "正在等待识别服务响应",
           "noText": "未检测到文字",
           "lowConfidence": "未检测到可读文字",
           "translationFailed": "翻译失败",
@@ -736,9 +745,6 @@
           "unavailable": "文字识别不可用",
           "disabled": "OCR 已关闭",
           "enableOcr": "请在设置中启用 OCR 后再识别文字",
-          "authentication": "身份验证失败",
-          "credentialsMissing": "缺少文字识别服务凭据",
-          "rateLimit": "已达到服务请求频率限制",
           "modelsMissing": "缺少本地文字识别模型",
           "network": "网络请求失败",
           "localFailed": "本地文字识别失败",
@@ -751,29 +757,63 @@
         "wristPosition": "位置与角度",
         "results": "区域译文：{{completed}} 项成功，{{failed}} 项失败",
         "sourceView": "原文与译文一同显示。",
-        "errors": {"timeout": "任务已超时，请重新识别。", "authentication": "OCR 鉴权失败，请检查访问令牌。", "credentials_missing": "请配置 OCR 访问令牌。", "rate_limit": "OCR 请求达到限额，请稍后重试。", "models_missing": "请在设置中准备本地 OCR 模型。", "configuration_changed": "OCR 配置已变化，请重新识别。", "tracking_lost": "请恢复头显追踪后重新识别。", "view_changed": "原文字区域已变化，请重新识别。", "network": "OCR 网络请求失败，请检查连接后重试。", "local_failed": "本地 OCR 推理失败，请检查模型准备状态。", "invalid_result": "OCR 响应缺少有效的文字位置。", "unavailable": "OCR 暂不可用，请检查 VR 连接和识别后端。", "translation_failed": "全部翻译请求失败，请检查翻译服务。", "partial_failure": "部分翻译失败，已完成的译文会被保留。", "partial_timeout": "部分翻译超时，已完成的译文会被保留。"},
-        "backend": "OCR 服务",
+        "errors": {
+          "timeout": "任务已超时，请重新识别。",
+          "models_missing": "请在设置中准备本地 OCR 模型。",
+          "configuration_changed": "OCR 配置已变化，请重新识别。",
+          "tracking_lost": "请恢复头显追踪后重新识别。",
+          "view_changed": "原文字区域已变化，请重新识别。",
+          "network": "OCR 网络请求失败，请检查连接后重试。",
+          "local_failed": "本地 OCR 推理失败，请检查模型准备状态。",
+          "unavailable": "OCR 暂不可用，请检查 VR 连接和本地模型。",
+          "translation_failed": "全部翻译请求失败，请检查翻译服务。",
+          "partial_failure": "部分翻译失败，已完成的译文会被保留。",
+          "partial_timeout": "部分翻译超时，已完成的译文会被保留。"
+        },
         "displayMode": "VR 结果显示方式",
-        "displayModes": { "wrist": "手腕面板", "stereo": "原文字位置（左右眼）" },
-        "backends": { "cloud": "PaddleOCR 云端", "local": "本地 PP-OCRv6" },
-        "localDescription": "在本地识别选区文字，并通过所选 API 翻译。",
+        "displayModes": {
+          "wrist": "手腕面板",
+          "stereo": "原文字位置（左右眼）"
+        },
         "device": "本地 OCR 推理设备",
         "deviceDescription": "DirectML 使用 Windows 上的兼容 GPU。GPU 加载或识别失败时，OCR 会自动回退 CPU。",
         "activeDevice": "最近使用的设备：{{device}}",
         "cpuFallback": "DirectML 失败，OCR 已切换到 CPU。",
-        "modelStates": { "missing": "需要下载", "downloading": "正在下载", "ready": "已就绪", "error": "下载失败" },
+        "modelStates": {
+          "missing": "需要下载",
+          "downloading": "正在下载",
+          "ready": "已就绪",
+          "error": "下载失败"
+        },
         "modelFailed": "无法准备 OCR 模型，请检查连接后重试。",
         "modelDeleteFailed": "无法删除 OCR 模型。请等待当前下载或识别完成后重试。",
         "controls": "选框出现后，长按右扳机 0.65 秒确认 OCR。若此前已按住扳机，需先松开再按。未框选时不会识别。长按左扳机可清除，启用视觉问答时用于提问。",
-        "states": {"disabled": "已关闭", "waiting_vr": "等待 SteamVR", "ready": "可以识别", "unbound": "请在 SteamVR 中绑定 OCR 控制器操作", "capturing": "正在采集", "selecting": "调整选框，长按右扳机确认", "waiting_hands": "移开双手后开始识别", "submitting": "正在上传", "pending": "正在排队", "running": "正在识别", "downloading": "正在获取结果", "loading_model": "正在加载本地模型", "recognizing": "正在本地识别", "translating": "正在翻译", "recognized": "识别完成", "visible": "正在显示译文", "invalid": "视野已变化，请重新识别", "error": "OCR 不可用", "no_text": "未发现文字", "low_confidence": "文字置信度低于阈值", "source_visible": "正在显示识别原文", "partial_visible": "正在显示已完成的译文", "translation_failed": "全部翻译失败", "timed_out": "OCR 任务超时"},
+        "states": {
+          "disabled": "已关闭",
+          "waiting_vr": "等待 SteamVR",
+          "ready": "可以识别",
+          "unbound": "请在 SteamVR 中绑定 OCR 控制器操作",
+          "capturing": "正在采集",
+          "selecting": "调整选框，长按右扳机确认",
+          "waiting_hands": "移开双手后开始识别",
+          "loading_model": "正在加载本地模型",
+          "recognizing": "正在本地识别",
+          "translating": "正在翻译",
+          "recognized": "识别完成",
+          "visible": "正在显示译文",
+          "invalid": "视野已变化，请重新识别",
+          "error": "OCR 不可用",
+          "no_text": "未发现文字",
+          "low_confidence": "文字置信度低于阈值",
+          "source_visible": "正在显示识别原文",
+          "partial_visible": "正在显示已完成的译文",
+          "translation_failed": "全部翻译失败",
+          "timed_out": "OCR 任务超时"
+        },
         "title": "OCR",
-        "description": "通过云端 OCR 识别选区文字并翻译。",
+        "description": "在本地识别选区文字，并通过所选 API 翻译。",
+        "localModel": "本地 PP-OCRv6",
         "enable": "启用 VR OCR",
-        "token": "PaddleOCR 访问令牌",
-        "configured": "已配置",
-        "unconfigured": "配置 OCR 访问令牌后可启用云端识别",
-        "environment": "由 PADDLEOCR_ACCESS_TOKEN 管理",
-        "tokenFailed": "无法访问 OCR 凭据，请检查连接后重试。",
         "translation": "OCR 翻译语言与服务",
         "timeout": "任务超时时间",
         "region": "中央截图区域（未使用双手选框时）",
@@ -891,7 +931,6 @@
       "system": {
         "title": "系统",
         "general": "一般设置",
-
         "saveImmediately": "更改会立即保存。",
         "language": "界面语言",
         "languageDescription": "跟随系统语言，或单独指定 VRCS 使用的语言。",
@@ -916,7 +955,6 @@
         "runOnboardingStopFirst": "请先停止转写",
         "externalApi": {
           "title": "第三方输出 API",
-
           "enabled": "启用第三方输出 API",
           "enabledDescription": "默认关闭；仅开放健康检查、能力信息和事件订阅。",
           "host": "监听地址",
@@ -938,7 +976,6 @@
           "tokenLoadFailed": "无法读取 Token 状态。",
           "tokenSaveFailed": "无法保存 Token。",
           "tokenDeleteFailed": "无法删除 Token。",
-
           "statusLoadFailed": "无法读取第三方输出 API 的当前状态。",
           "runtime": {
             "checking": "正在读取当前运行状态。",
@@ -950,7 +987,6 @@
       },
       "storage": {
         "title": "存储",
-
         "databaseUsage": "数据库空间占用",
         "databaseUsageDescription": "有效占用不包含库内可复用的空闲页；已分配空间是数据库文件当前保留的磁盘空间。",
         "ofQuota": "/ {{quota}} 配额",
@@ -971,7 +1007,6 @@
         "liveTranslateHint": "每路音源翻译第一目标语言，需开启自动翻译。文本 Prompt 和思考设置不适用。Qwen 使用纯文本输出并识别讲话人；其他实时翻译服务生成译后音频，但应用不播放。",
         "liveTranslatePreview": "检测到语音后开始上传，译文回传即可预览。本地对齐支持历史记录、额外目标翻译及 OSC；同语言原文无需等待译文即可完成。",
         "title": "字幕翻译",
-
         "mode": "翻译方式",
         "modeDescription": "自动翻译会同时翻译其他人的声音和自己的麦克风；手动翻译仅在请求时执行。",
         "modes": {
@@ -1006,7 +1041,11 @@
         "contextEnabled": "附带最近原文",
         "contextEnabledDescription": "按时间顺序把选定来源的最近 final 原文加入 LLM Prompt。默认关闭。",
         "contextSourcesTitle": "原文来源",
-        "contextSources": { "speaker": "扬声器", "microphone": "麦克风", "chatbox": "Chatbox" },
+        "contextSources": {
+          "speaker": "扬声器",
+          "microphone": "麦克风",
+          "chatbox": "Chatbox"
+        },
         "contextLimitsTitle": "上下文范围",
         "maxMessages": "最近消息数（1–50）",
         "maxChars": "上下文字符上限（200–12000）",
@@ -1035,7 +1074,10 @@
         "editGlossary": "编辑术语表",
         "addSubscription": "添加订阅",
         "editSubscription": "编辑订阅",
-        "glossaryTypes": { "local": "本地", "subscription": "订阅" },
+        "glossaryTypes": {
+          "local": "本地",
+          "subscription": "订阅"
+        },
         "localGlossaryDetail": "保存在当前 VRCS 设置中",
         "glossaryEntryCount": "{{count}} 条",
         "glossaryEntriesOmitted": "另有 {{count}} 条因总上限被忽略",
@@ -1073,7 +1115,12 @@
         "glossarySource": "原词",
         "glossaryTarget": "固定译法",
         "glossaryCategory": "类别",
-        "glossaryCategories": { "person": "人名", "world": "VRChat 世界", "game": "游戏术语", "custom": "自定义" },
+        "glossaryCategories": {
+          "person": "人名",
+          "world": "VRChat 世界",
+          "game": "游戏术语",
+          "custom": "自定义"
+        },
         "keepOriginal": "保持原文",
         "caseSensitive": "区分大小写",
         "table": {
@@ -1128,7 +1175,6 @@
       },
       "apiManagement": {
         "title": "API 管理",
-
         "securityNotice": "API Key 保存在 Windows 凭据管理器中，不会写入配置文件。环境变量中的密钥会优先使用。",
         "alibabaDescription": "Qwen3 ASR 与 Fun-ASR 共用此连接",
         "openaiDescription": "OpenAI 官方 API，可用于 Realtime 云端识别和 LLM 翻译",
@@ -1232,8 +1278,20 @@
         "connectionSucceeded": "连接成功。",
         "connectionFailed": "连接诊断发现兼容性问题。",
         "diagnostics": {
-          "checks": { "configuration": "配置", "endpoint": "网络端点", "authentication": "鉴权", "models": "模型列表", "completion": "普通生成", "streaming": "流式生成" },
-          "status": { "passed": "通过", "warning": "警告", "failed": "失败", "skipped": "未执行" },
+          "checks": {
+            "configuration": "配置",
+            "endpoint": "网络端点",
+            "authentication": "鉴权",
+            "models": "模型列表",
+            "completion": "普通生成",
+            "streaming": "流式生成"
+          },
+          "status": {
+            "passed": "通过",
+            "warning": "警告",
+            "failed": "失败",
+            "skipped": "未执行"
+          },
           "codes": {
             "llm_timeout": "请求超时，请检查服务状态或增大超时时间。",
             "llm_dns_failed": "无法解析主机名，请检查 Base URL。",
@@ -1411,7 +1469,6 @@
       },
       "anki": {
         "title": "AnkiConnect",
-
         "enable": "启用 AnkiConnect",
         "enableDescription": "允许检查本地 Anki 连接，并在词典查询中创建卡片。",
         "invalidPort": "请输入 1 到 65535 之间的有效端口。",
@@ -1477,11 +1534,14 @@
       },
       "osc": {
         "title": "OSC",
-
         "enable": "启用 OSC",
         "enableDescription": "统一控制聊天框输出、VRChat 静音同步和静音状态提示。",
         "translationStrategy": "OSC 多语言发送",
-        "translationStrategies": { "preferredOnly": "仅首选语言", "roundRobin": "轮换发送", "allLanguages": "同时显示多种语言" },
+        "translationStrategies": {
+          "preferredOnly": "仅首选语言",
+          "roundRobin": "轮换发送",
+          "allLanguages": "同时显示多种语言"
+        },
         "preserveOriginal": "输出中保留原文",
         "preserveOriginalDescription": "有译文时同时发送原文和译文；关闭后仅发送译文。",
         "muteSync": "同步 VRChat 麦克风静音",
@@ -1645,13 +1705,24 @@
       "unknown": "发生未知错误。",
       "operation": "操作失败。",
       "chatbox": {
-        "missing_original": "请输入原文。", "missing_translation": "请先填写或生成译文。", "missing_bilingual_text": "双语发送需要原文和译文。",
-        "text_too_long": "消息最多可输入 5000 个字符。", "invalid_language": "语言代码无效。", "invalid_format": "自定义格式必须各包含一次 {original} 和 {translation}。",
-        "over_limit": "消息共 {{count}} 个字符，超过 {{limit}} 字符限制。", "history_store_failed": "消息已处理，但无法保存发送记录。", "conversation_store_failed": "消息已发送，但无法写入当前对话。"
+        "missing_original": "请输入原文。",
+        "missing_translation": "请先填写或生成译文。",
+        "missing_bilingual_text": "双语发送需要原文和译文。",
+        "text_too_long": "消息最多可输入 5000 个字符。",
+        "invalid_language": "语言代码无效。",
+        "invalid_format": "自定义格式必须各包含一次 {original} 和 {translation}。",
+        "over_limit": "消息共 {{count}} 个字符，超过 {{limit}} 字符限制。",
+        "history_store_failed": "消息已处理，但无法保存发送记录。",
+        "conversation_store_failed": "消息已发送，但无法写入当前对话。"
       },
       "osc": {
-        "disabled": "OSC 尚未启用。", "blocked_vrchat_muted": "VRChat 当前处于静音状态，消息未发送。", "blocked_mute_unknown": "正在确认 VRChat 静音状态，请稍后再试。",
-        "queue_full": "OSC 发送队列已满，请稍后再试。", "send_timeout": "OSC 发送等待超时。", "send_cancelled": "OSC 设置发生变化，发送已取消。", "send_failed": "无法发送到本机 VRChat OSC 端口。"
+        "disabled": "OSC 尚未启用。",
+        "blocked_vrchat_muted": "VRChat 当前处于静音状态，消息未发送。",
+        "blocked_mute_unknown": "正在确认 VRChat 静音状态，请稍后再试。",
+        "queue_full": "OSC 发送队列已满，请稍后再试。",
+        "send_timeout": "OSC 发送等待超时。",
+        "send_cancelled": "OSC 设置发生变化，发送已取消。",
+        "send_failed": "无法发送到本机 VRChat OSC 端口。"
       },
       "apiProfiles": {
         "operation": "API 配置操作失败。",

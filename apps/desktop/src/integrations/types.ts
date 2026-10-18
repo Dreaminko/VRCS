@@ -90,7 +90,6 @@ export interface VrOcrSettings {
   enabled: boolean;
   desktop_enabled: boolean;
   shortcut: string;
-  backend: "cloud" | "local";
   device: "cpu" | "directml";
   display_mode: "wrist" | "stereo";
   timeout_seconds: number;
@@ -171,8 +170,8 @@ export interface VrOverlayStatus {
 }
 
 export interface VrOcrStatus {
-  state: "disabled" | "waiting_vr" | "ready" | "unbound" | "capturing" | "submitting" | "pending" | "running"
-    | "selecting" | "waiting_hands" | "downloading" | "loading_model" | "recognizing" | "translating" | "recognized" | "visible" | "invalid" | "error"
+  state: "disabled" | "waiting_vr" | "ready" | "unbound" | "capturing"
+    | "selecting" | "waiting_hands" | "loading_model" | "recognizing" | "translating" | "recognized" | "visible" | "invalid" | "error"
     | "no_text" | "low_confidence" | "source_visible" | "partial_visible" | "translation_failed" | "timed_out";
   scan_id: number;
   block_count: number;

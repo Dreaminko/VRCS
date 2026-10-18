@@ -48,10 +48,7 @@ fn required_features(path: &str, method: &Method) -> &'static [FeatureKey] {
     if path.starts_with("/api/vision/") {
         return &[VisualQuestionAnswering];
     }
-    if path.starts_with("/api/ocr/")
-        && path != "/api/ocr/runtime"
-        && !(path == "/api/ocr/token" && method == Method::GET)
-    {
+    if path.starts_with("/api/ocr/") && path != "/api/ocr/runtime" {
         return &[Ocr];
     }
     if path.starts_with("/api/vrcx/")

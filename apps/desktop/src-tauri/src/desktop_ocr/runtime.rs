@@ -364,11 +364,7 @@ impl Manager {
                 // Time spent choosing the region does not consume the OCR deadline.
                 let deadline = tokio::time::Instant::now()
                     + std::time::Duration::from_secs(config.ocr().timeout_seconds as u64);
-                let backend = config.ocr().backend;
-                let image =
-                    tauri::async_runtime::spawn_blocking(move || prepare_image(capture, backend))
-                        .await
-                        .map_err(|_| "desktop_ocr.capture_failed".to_string())??;
+                let image = prepare_image(capture);
                 service
                     .process_scan(
                         [image],
@@ -451,36 +447,12 @@ fn sort_blocks(blocks: &mut [TranslatedBlock]) {
 #[cfg(windows)]
 fn prepare_image(
     capture: vrcs_core::ocr::desktop_capture::DesktopCapture,
-    backend: vrcs_core::VrOcrBackend,
-) -> Result<vrcs_core::ocr::OcrImage, String> {
-    use crate::vr_overlay::{
-        ocr_capture::{center_crop, encode_png},
-        renderer::Texture,
-    };
-    use vrcs_core::ocr::{OcrImage, OcrImageData};
-    if backend == vrcs_core::VrOcrBackend::Local {
-        return Ok(OcrImage {
-            data: OcrImageData::Rgba(capture.pixels),
-            width: capture.width,
-            height: capture.height,
-        });
+) -> vrcs_core::ocr::OcrImage {
+    vrcs_core::ocr::OcrImage {
+        data: vrcs_core::ocr::OcrImageData::Rgba(capture.pixels),
+        width: capture.width,
+        height: capture.height,
     }
-    let image = center_crop(
-        &Texture {
-            width: capture.width,
-            height: capture.height,
-            pixels: capture.pixels,
-        },
-        1.0,
-    )?
-    .image;
-    let (width, height) = (image.width, image.height);
-    let data = OcrImageData::Encoded(encode_png(image)?);
-    Ok(OcrImage {
-        data,
-        width,
-        height,
-    })
 }
 
 #[cfg(test)]
@@ -505,16 +477,12 @@ mod tests {
     fn local_desktop_ocr_keeps_original_pixels_for_recognition() {
         use vrcs_core::ocr::{desktop_capture::DesktopCapture, OcrImageData};
         let pixels = vec![42; 3840 * 2 * 4];
-        let image = prepare_image(
-            DesktopCapture {
-                origin: (0, 0),
-                width: 3840,
-                height: 2,
-                pixels: pixels.clone(),
-            },
-            vrcs_core::VrOcrBackend::Local,
-        )
-        .unwrap();
+        let image = prepare_image(DesktopCapture {
+            origin: (0, 0),
+            width: 3840,
+            height: 2,
+            pixels: pixels.clone(),
+        });
         assert_eq!((image.width, image.height), (3840, 2));
         let OcrImageData::Rgba(actual) = image.data else {
             panic!("Local OCR needs original RGBA pixels")

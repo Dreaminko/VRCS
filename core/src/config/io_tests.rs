@@ -3,6 +3,28 @@ use std::fs;
 use super::{load_config, AppConfig};
 
 #[test]
+fn legacy_ocr_backend_is_removed_on_load_without_losing_preferences() {
+    for backend in ["cloud", "local"] {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.json");
+        let mut expected = AppConfig::default();
+        expected.ocr.enabled = true;
+        expected.ocr.desktop_enabled = true;
+        expected.ocr.device = super::OcrDevice::Directml;
+        expected.ocr.timeout_seconds = 45;
+        let mut raw = serde_json::to_value(&expected).unwrap();
+        raw["ocr"]["backend"] = serde_json::json!(backend);
+        fs::write(&path, serde_json::to_vec(&raw).unwrap()).unwrap();
+
+        let config = load_config(&path).unwrap();
+        assert_eq!(config, expected);
+        let saved: serde_json::Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        assert!(saved["ocr"].get("backend").is_none());
+        assert_eq!(load_config(&path).unwrap(), config);
+    }
+}
+
+#[test]
 fn whisper_upgrade_is_backed_up_and_preserves_existing_model_files() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("config.json");

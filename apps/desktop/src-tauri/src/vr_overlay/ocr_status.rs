@@ -3,12 +3,6 @@ use serde::Serialize;
 pub fn failure_code(error: &str) -> &'static str {
     if error.contains("timed out") {
         "timeout"
-    } else if error.contains("authentication") {
-        "authentication"
-    } else if error.contains("token") {
-        "credentials_missing"
-    } else if error.contains("rate limit") {
-        "rate_limit"
     } else if error.contains("models are missing") {
         "models_missing"
     } else if error.contains("configuration changed") {
@@ -27,11 +21,6 @@ pub fn failure_code(error: &str) -> &'static str {
         || error.contains("detection failed")
     {
         "local_failed"
-    } else if error.contains("OCR result")
-        || error.contains("JSONL")
-        || error.contains("structured")
-    {
-        "invalid_result"
     } else {
         "unavailable"
     }
@@ -46,10 +35,6 @@ pub enum OcrState {
     Unbound,
     Selecting,
     Capturing,
-    Submitting,
-    Pending,
-    Running,
-    Downloading,
     LoadingModel,
     Recognizing,
     Translating,

@@ -240,7 +240,7 @@ export function useVrDashboardBridge(
       },
       ocr: {
         enabled: settings.ocr.master_enabled && settings.ocr.enabled,
-        backend: t(`settings.vrOcr.backends.${settings.ocr.backend}`),
+        backend: t("settings.vrOcr.localModel"),
         available: settings.ocr.master_enabled,
         gesture: settings.ocr.hand_gesture_enabled,
       },

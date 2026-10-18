@@ -43,7 +43,7 @@ test("VR Overlay defaults keep OCR settings separate", () => {
   ]);
   assert.equal(DEFAULT_VR_OVERLAY_SETTINGS.translation_display, "all_languages");
   assert.equal(DEFAULT_OCR_SETTINGS.enabled, false);
-  assert.equal(DEFAULT_OCR_SETTINGS.backend, "cloud");
+  assert.equal(DEFAULT_OCR_SETTINGS.device, "cpu");
   assert.deepEqual(Object.keys(DEFAULT_VR_OVERLAY_HEADSET_SETTINGS).sort(), [
     "background_opacity",
     "display_seconds",
@@ -111,10 +111,10 @@ test("VR Overlay patches are immutable and scoped to the requested branch", () =
   assert.equal(wrist.vr_overlay.headset, headset.vr_overlay.headset);
 });
 
-test("selecting local OCR preserves translation routes and other overlay settings", () => {
-  const local = patchOcr(settings, { backend: "local" });
-  assert.equal(settings.ocr.backend, "cloud");
-  assert.equal(local.ocr.backend, "local");
+test("selecting OCR acceleration preserves translation routes and other overlay settings", () => {
+  const local = patchOcr(settings, { device: "directml" });
+  assert.equal(settings.ocr.device, "cpu");
+  assert.equal(local.ocr.device, "directml");
   assert.equal(local.ocr.targets, settings.ocr.targets);
   assert.equal(local.ocr.enabled, false);
   assert.equal(local.vr_overlay.headset, settings.vr_overlay.headset);

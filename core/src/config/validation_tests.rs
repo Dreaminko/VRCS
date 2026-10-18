@@ -999,14 +999,9 @@ fn ocr_source_view_can_be_enabled_without_a_translation_profile() {
 }
 
 #[test]
-fn ocr_backend_preserves_cloud_defaults_and_accepts_local() {
-    let legacy: crate::config::VrOcrConfig = serde_json::from_value(serde_json::json!({})).unwrap();
-    assert_eq!(serde_json::to_value(legacy).unwrap()["backend"], "cloud");
-    let local: crate::config::VrOcrConfig =
-        serde_json::from_value(serde_json::json!({"backend":"local"})).unwrap();
-    assert_eq!(serde_json::to_value(local).unwrap()["backend"], "local");
+fn ocr_settings_reject_backend_selection() {
     assert!(serde_json::from_value::<crate::config::VrOcrConfig>(
-        serde_json::json!({"backend":"invalid"})
+        serde_json::json!({"backend":"cloud"})
     )
     .is_err());
 }
@@ -1016,8 +1011,7 @@ fn ocr_device_preserves_cpu_defaults_and_round_trips_directml() {
     let legacy: crate::config::VrOcrConfig = serde_json::from_value(serde_json::json!({})).unwrap();
     assert_eq!(serde_json::to_value(legacy).unwrap()["device"], "cpu");
     let gpu: crate::config::VrOcrConfig =
-        serde_json::from_value(serde_json::json!({"backend":"local", "device":"directml"}))
-            .unwrap();
+        serde_json::from_value(serde_json::json!({"device":"directml"})).unwrap();
     let serialized = serde_json::to_value(&gpu).unwrap();
     assert_eq!(serialized["device"], "directml");
     assert_eq!(
