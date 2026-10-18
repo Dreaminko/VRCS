@@ -196,16 +196,24 @@ impl Database {
 
     pub fn save_learning_analysis(
         &self,
-        id: i64,
+        expected: &LearningItem,
         analysis: LearningAnalysis,
     ) -> AppResult<Option<LearningItem>> {
         analysis
             .validate()
             .map_err(crate::error::AppError::validation)?;
-        let Some(mut item) = self.learning_item(id)? else {
+        let Some(mut item) = self.learning_item(expected.id)? else {
             return Ok(None);
         };
         ensure_learning_item_editable(&item)?;
+        if item.working_text != expected.working_text
+            || item.analysis != expected.analysis
+            || item.analysis_stale != expected.analysis_stale
+        {
+            return Err(AppError::Conflict(
+                "Learning text or analysis changed during analysis; run it again".into(),
+            ));
+        }
         item.analysis = Some(analysis);
         item.analysis_stale = false;
         item.status = item.active_status();
@@ -216,16 +224,27 @@ impl Database {
 
     pub fn save_learning_draft(
         &self,
-        id: i64,
+        expected: &LearningItem,
         draft: LearningCardDraft,
     ) -> AppResult<Option<LearningItem>> {
         draft
             .validate()
             .map_err(crate::error::AppError::validation)?;
-        let Some(mut item) = self.learning_item(id)? else {
+        let Some(mut item) = self.learning_item(expected.id)? else {
             return Ok(None);
         };
         ensure_learning_item_editable(&item)?;
+        if item.working_text != expected.working_text
+            || item.analysis != expected.analysis
+            || item.analysis_stale != expected.analysis_stale
+            || item.draft != expected.draft
+            || item.draft_stale != expected.draft_stale
+        {
+            return Err(AppError::Conflict(
+                "Learning text, analysis, or draft changed during generation; generate it again"
+                    .into(),
+            ));
+        }
         item.mark_anki_sync_pending_if_changed(Some(&draft));
         item.draft = Some(draft);
         item.draft_stale = false;
@@ -237,7 +256,7 @@ impl Database {
 
     pub fn save_learning_export(
         &self,
-        id: i64,
+        expected: &LearningItem,
         anki_note_id: i64,
     ) -> AppResult<Option<LearningItem>> {
         if anki_note_id <= 0 {
@@ -245,13 +264,19 @@ impl Database {
                 "Anki note ID must be positive",
             ));
         }
-        let Some(mut item) = self.learning_item(id)? else {
+        let Some(mut item) = self.learning_item(expected.id)? else {
             return Ok(None);
         };
-        ensure_learning_item_editable(&item)?;
+        if item.anki_note_id != expected.anki_note_id && item.anki_note_id != Some(anki_note_id) {
+            return Err(AppError::Conflict(
+                "Another export changed the linked Anki note".into(),
+            ));
+        }
         item.anki_note_id = Some(anki_note_id);
-        item.anki_sync_pending = false;
-        item.status = LearningStatus::Exported;
+        item.anki_sync_pending = item.draft != expected.draft || item.draft_stale;
+        if item.status != LearningStatus::Archived {
+            item.status = item.active_status();
+        }
         item.updated_at = now_iso8601();
         self.persist_learning_item(&item)?;
         Ok(Some(item))
@@ -551,13 +576,13 @@ mod tests {
             .create_learning_item(create_input(Vec::new()))
             .unwrap();
         let analyzed = database
-            .save_learning_analysis(item.id, analysis())
+            .save_learning_analysis(&item, analysis())
             .unwrap()
             .unwrap();
         let draft =
             crate::learning::generate_draft(&analyzed, LearningCardType::Vocabulary).unwrap();
         let drafted = database
-            .save_learning_draft(item.id, draft.clone())
+            .save_learning_draft(&analyzed, draft.clone())
             .unwrap()
             .unwrap();
         let unchanged = database
@@ -598,7 +623,7 @@ mod tests {
         assert_eq!(reloaded["analysis_stale"], true);
         assert_eq!(reloaded["draft_stale"], true);
         let analyzed = database
-            .save_learning_analysis(item.id, analysis())
+            .save_learning_analysis(&changed, analysis())
             .unwrap()
             .unwrap();
         let json = serde_json::to_value(&analyzed).unwrap();
@@ -628,10 +653,7 @@ mod tests {
             .create_learning_item(create_input(Vec::new()))
             .unwrap();
         let draft = crate::learning::generate_draft(&item, LearningCardType::Vocabulary).unwrap();
-        let saved = database
-            .save_learning_draft(item.id, draft)
-            .unwrap()
-            .unwrap();
+        let saved = database.save_learning_draft(&item, draft).unwrap().unwrap();
         assert_eq!(saved.status, LearningStatus::CardDraft);
         assert!(saved.draft.is_some());
     }
@@ -645,7 +667,7 @@ mod tests {
             .unwrap();
 
         let analyzed = database
-            .save_learning_analysis(item.id, analysis())
+            .save_learning_analysis(&item, analysis())
             .unwrap()
             .unwrap();
         assert_eq!(analyzed.status, LearningStatus::Analyzed);
@@ -653,24 +675,27 @@ mod tests {
         let draft =
             crate::learning::generate_draft(&analyzed, LearningCardType::Vocabulary).unwrap();
         let drafted = database
-            .save_learning_draft(item.id, draft)
+            .save_learning_draft(&analyzed, draft)
             .unwrap()
             .unwrap();
         assert_eq!(drafted.status, LearningStatus::CardDraft);
         assert_eq!(
             database
-                .save_learning_analysis(item.id, analysis())
+                .save_learning_analysis(&drafted, analysis())
                 .unwrap()
                 .unwrap()
                 .status,
             LearningStatus::CardDraft
         );
 
-        let exported = database.save_learning_export(item.id, 42).unwrap().unwrap();
+        let exported = database
+            .save_learning_export(&drafted, 42)
+            .unwrap()
+            .unwrap();
         assert_eq!(exported.status, LearningStatus::Exported);
         assert_eq!(
             database
-                .save_learning_analysis(item.id, analysis())
+                .save_learning_analysis(&exported, analysis())
                 .unwrap()
                 .unwrap()
                 .status,
@@ -680,7 +705,7 @@ mod tests {
         let archived = database.archive_learning_item(item.id).unwrap().unwrap();
         assert_eq!(archived.status, LearningStatus::Archived);
         assert!(matches!(
-            database.save_learning_analysis(item.id, analysis()),
+            database.save_learning_analysis(&archived, analysis()),
             Err(AppError::Conflict(_))
         ));
         let restored = database.restore_learning_item(item.id).unwrap().unwrap();
@@ -704,21 +729,171 @@ mod tests {
         assert!(redrafted.anki_sync_pending);
 
         let unchanged = database
-            .save_learning_draft(item.id, redrafted.draft.clone().unwrap())
+            .save_learning_draft(&redrafted, redrafted.draft.clone().unwrap())
             .unwrap()
             .unwrap();
         assert!(unchanged.anki_sync_pending);
 
-        let synced = database.save_learning_export(item.id, 42).unwrap().unwrap();
+        let synced = database
+            .save_learning_export(&unchanged, 42)
+            .unwrap()
+            .unwrap();
         assert!(!synced.anki_sync_pending);
         let reloaded = database.learning_item(item.id).unwrap().unwrap();
         assert_eq!(reloaded.anki_note_id, Some(42));
         assert!(!reloaded.anki_sync_pending);
         let same = database
-            .save_learning_draft(item.id, reloaded.draft.unwrap())
+            .save_learning_draft(&reloaded, reloaded.draft.clone().unwrap())
             .unwrap()
             .unwrap();
         assert!(!same.anki_sync_pending);
+    }
+
+    #[test]
+    fn delayed_analysis_rejects_changed_text_and_newer_analysis() {
+        let directory = tempfile::tempdir().unwrap();
+        let mut database = Database::open(&directory.path().join("analysis-race.db")).unwrap();
+        let item = database
+            .create_learning_item(create_input(Vec::new()))
+            .unwrap();
+        let mut newer = analysis();
+        newer.summary = "Newer analysis".into();
+        let analyzed = database
+            .save_learning_analysis(&item, newer.clone())
+            .unwrap()
+            .unwrap();
+        assert!(matches!(
+            database.save_learning_analysis(&item, analysis()),
+            Err(AppError::Conflict(_))
+        ));
+        let changed = database
+            .patch_learning_item(
+                item.id,
+                PatchLearningItem {
+                    working_text: Some("Updated text".into()),
+                    draft: None,
+                },
+            )
+            .unwrap()
+            .unwrap();
+        assert!(matches!(
+            database.save_learning_analysis(&analyzed, analysis()),
+            Err(AppError::Conflict(_))
+        ));
+        let current = database.learning_item(item.id).unwrap().unwrap();
+        assert_eq!(current.working_text, changed.working_text);
+        assert_eq!(current.analysis, Some(newer));
+        assert!(current.analysis_stale);
+    }
+
+    #[test]
+    fn delayed_draft_preserves_manual_edits() {
+        let directory = tempfile::tempdir().unwrap();
+        let mut database = Database::open(&directory.path().join("draft-race.db")).unwrap();
+        let item = database
+            .create_learning_item(create_input(Vec::new()))
+            .unwrap();
+        let draft = crate::learning::generate_draft(&item, LearningCardType::Vocabulary).unwrap();
+        let mut edited = draft.clone();
+        edited.definition = "Manually reviewed definition".into();
+        database
+            .patch_learning_item(
+                item.id,
+                PatchLearningItem {
+                    working_text: None,
+                    draft: Some(Some(edited.clone())),
+                },
+            )
+            .unwrap();
+        assert!(matches!(
+            database.save_learning_draft(&item, draft),
+            Err(AppError::Conflict(_))
+        ));
+        assert_eq!(
+            database.learning_item(item.id).unwrap().unwrap().draft,
+            Some(edited)
+        );
+    }
+
+    #[test]
+    fn delayed_export_preserves_note_id_and_pending_edits() {
+        let directory = tempfile::tempdir().unwrap();
+        let mut database = Database::open(&directory.path().join("export-race.db")).unwrap();
+        let item = database
+            .create_learning_item(create_input(Vec::new()))
+            .unwrap();
+        let draft = crate::learning::generate_draft(&item, LearningCardType::Vocabulary).unwrap();
+        let drafted = database
+            .save_learning_draft(&item, draft.clone())
+            .unwrap()
+            .unwrap();
+        let mut edited = draft;
+        edited.definition = "New definition".into();
+        database
+            .patch_learning_item(
+                item.id,
+                PatchLearningItem {
+                    working_text: None,
+                    draft: Some(Some(edited.clone())),
+                },
+            )
+            .unwrap();
+        let receipt = database
+            .save_learning_export(&drafted, 42)
+            .unwrap()
+            .unwrap();
+        assert_eq!(receipt.anki_note_id, Some(42));
+        assert_eq!(receipt.draft, Some(edited));
+        assert!(receipt.anki_sync_pending);
+        let synced = database
+            .save_learning_export(&receipt, 42)
+            .unwrap()
+            .unwrap();
+        assert!(!synced.anki_sync_pending);
+
+        database
+            .patch_learning_item(
+                item.id,
+                PatchLearningItem {
+                    working_text: Some("Changed during export".into()),
+                    draft: None,
+                },
+            )
+            .unwrap();
+        let stale = database.save_learning_export(&synced, 42).unwrap().unwrap();
+        assert!(stale.draft_stale);
+        assert!(stale.anki_sync_pending);
+    }
+
+    #[test]
+    fn delayed_export_preserves_archived_status_and_existing_note() {
+        let directory = tempfile::tempdir().unwrap();
+        let mut database =
+            Database::open(&directory.path().join("archive-export-race.db")).unwrap();
+        let item = database
+            .create_learning_item(create_input(Vec::new()))
+            .unwrap();
+        let draft = crate::learning::generate_draft(&item, LearningCardType::Vocabulary).unwrap();
+        let drafted = database.save_learning_draft(&item, draft).unwrap().unwrap();
+        database.archive_learning_item(item.id).unwrap();
+        let receipt = database
+            .save_learning_export(&drafted, 42)
+            .unwrap()
+            .unwrap();
+        assert_eq!(receipt.anki_note_id, Some(42));
+        assert_eq!(receipt.status, LearningStatus::Archived);
+        assert!(matches!(
+            database.save_learning_export(&drafted, 43),
+            Err(AppError::Conflict(_))
+        ));
+        assert_eq!(
+            database
+                .learning_item(item.id)
+                .unwrap()
+                .unwrap()
+                .anki_note_id,
+            Some(42)
+        );
     }
 
     #[test]

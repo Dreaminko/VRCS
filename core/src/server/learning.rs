@@ -149,7 +149,7 @@ pub(super) async fn learning_item_analyze(
         .analyze(&item, &profiles, &request)
         .await
         .map_err(learning_service_error)?;
-    let saved = learning_db_call(&state, move |db| db.save_learning_analysis(id, analysis))
+    let saved = learning_db_call(&state, move |db| db.save_learning_analysis(&item, analysis))
         .await
         .map_err(learning_db_error)?
         .ok_or_else(|| learning_not_found(id))?;
@@ -186,7 +186,7 @@ pub(super) async fn learning_item_draft(
     validate_id(id)?;
     let item = load_editable_item(&state, id).await?;
     let draft = generate_draft(&item, request.card_type).map_err(learning_service_error)?;
-    let saved = learning_db_call(&state, move |db| db.save_learning_draft(id, draft))
+    let saved = learning_db_call(&state, move |db| db.save_learning_draft(&item, draft))
         .await
         .map_err(learning_db_error)?
         .ok_or_else(|| learning_not_found(id))?;
@@ -266,7 +266,7 @@ pub(super) async fn learning_item_export(
         }
     };
     let saved = db_call(Arc::clone(&state.content.db), move |db| {
-        db.save_learning_export(id, note_id)
+        db.save_learning_export(&item, note_id)
     })
     .await
     .map_err(learning_db_error)?
