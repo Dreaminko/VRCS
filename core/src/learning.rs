@@ -852,11 +852,13 @@ pub fn generate_draft(
         .iter()
         .find(|entry| entry.term.trim() == selected)
         .or_else(|| item.dictionary_entries.first());
+    // 句子类条目的 analysis.reading 是整句注音，不能作为单词卡的读音兜底。
     let reading = dictionary
         .and_then(|entry| entry.reading.clone())
         .or_else(|| {
             item.analysis
                 .as_ref()
+                .filter(|_| item.kind == LearningKind::Word)
                 .and_then(|analysis| non_empty(analysis.reading.as_deref()))
                 .map(str::to_owned)
         });
@@ -977,12 +979,12 @@ fn fill_blank_reading(item: &LearningItem, target: &str) -> Option<String> {
     {
         return entry.reading.clone();
     }
+    if item.kind != LearningKind::Word {
+        return None;
+    }
     let analysis = item.analysis.as_ref()?;
-    let analyzed_word = non_empty(analysis.base_form.as_deref()).or_else(|| {
-        (item.kind == LearningKind::Word)
-            .then(|| non_empty(item.selected_text.as_deref()))
-            .flatten()
-    });
+    let analyzed_word = non_empty(analysis.base_form.as_deref())
+        .or_else(|| non_empty(item.selected_text.as_deref()));
     (analyzed_word == Some(target))
         .then(|| non_empty(analysis.reading.as_deref()).map(str::to_owned))
         .flatten()
@@ -1553,6 +1555,22 @@ mod tests {
         assert_eq!(fill.term, "猫が魚を____");
         assert!(fill.definition.contains("食べる"));
         assert_eq!(fill.reading.as_deref(), Some("たべる"));
+
+        let mut undictionaried = item.clone();
+        undictionaried.dictionary_entries.clear();
+        if let Some(analysis) = &mut undictionaried.analysis {
+            analysis.reading = Some("ねこがさかなをたべる".into());
+        }
+        let sentence_vocabulary =
+            generate_draft(&undictionaried, LearningCardType::Vocabulary).unwrap();
+        assert_eq!(sentence_vocabulary.reading, None);
+        undictionaried.kind = LearningKind::Word;
+        if let Some(analysis) = &mut undictionaried.analysis {
+            analysis.reading = Some("たべる".into());
+        }
+        let word_vocabulary =
+            generate_draft(&undictionaried, LearningCardType::Vocabulary).unwrap();
+        assert_eq!(word_vocabulary.reading.as_deref(), Some("たべる"));
 
         let mut inflected = item;
         inflected.source_text = "猫が魚を食べました".into();
