@@ -73,7 +73,7 @@ npm run build:frontend
 - matching interpolation variables;
 - translation coverage for statically referenced UI keys and required runtime error/status keys.
 
-The Localization GitHub Actions workflow runs the same validator, desktop tests, and frontend build for localization pull requests.
+CI runs the same validator, desktop tests, and frontend build for localization pull requests.
 
 ## Review in the application
 

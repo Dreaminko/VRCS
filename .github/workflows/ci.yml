@@ -7,11 +7,48 @@ on:
     branches:
       - main
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 permissions:
   contents: read
 
 jobs:
+  changes:
+    if: github.event_name != 'workflow_call'
+    runs-on: ubuntu-latest
+    outputs:
+      rust: ${{ steps.filter.outputs.rust }}
+      frontend: ${{ steps.filter.outputs.frontend }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: droidshiny/diff-paths@v4
+        id: filter
+        with:
+          filters: |
+            rust:
+              - "core/**"
+              - "apps/desktop/src-tauri/**"
+              - "rust-toolchain.toml"
+              - "scripts/check-rust.ps1"
+              - "scripts/test-check-rust.ps1"
+              - "scripts/test-release-metadata.ps1"
+              - "scripts/write-release-metadata.ps1"
+              - "scripts/prepare-vulkan-runtime.ps1"
+              - ".github/workflows/ci.yml"
+            frontend:
+              - "apps/desktop/**"
+              - "package.json"
+              - "package-lock.json"
+              - "scripts/check-i18n.mjs"
+              - ".github/workflows/ci.yml"
+
   frontend:
+    needs: changes
+    if: ${{ github.event_name == 'workflow_call' || github.event_name == 'push' || needs.changes.outputs.frontend == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -34,6 +71,8 @@ jobs:
         run: npm run build:frontend
 
   rustfmt:
+    needs: changes
+    if: github.event_name == 'workflow_call' || needs.changes.outputs.rust == 'true'
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v7
@@ -55,7 +94,8 @@ jobs:
         run: ./scripts/check-rust.ps1 -Check format
 
   rust:
-    needs: rustfmt
+    needs: [changes, rustfmt]
+    if: github.event_name == 'workflow_call' || needs.changes.outputs.rust == 'true'
     runs-on: windows-latest
     env:
       CARGO_TARGET_DIR: ${{ github.workspace }}/.build
@@ -83,3 +123,12 @@ jobs:
       - name: Test Rust
         shell: pwsh
         run: ./scripts/check-rust.ps1 -Check test -Vulkan:('${{ matrix.backend }}' -eq 'vulkan')
+
+  gate:
+    needs: [changes, frontend, rustfmt, rust]
+    if: ${{ always() && !cancelled() }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fail if a required check did not succeed
+        if: ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}
+        run: exit 1

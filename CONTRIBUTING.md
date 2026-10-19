@@ -55,7 +55,7 @@ both crates with Vulkan enabled. CI checks both CPU and Vulkan builds.
 Use `-Check format`, `-Check clippy`, or `-Check test` to run one Rust check
 stage. Formatting does not prepare runtime files.
 Release tags run the full CI workflow before packaging the standard installer.
-Localization runs validate locale resources; CI runs the frontend tests and build.
+CI validates locale resources, then runs the frontend tests and build.
 
 Please keep commits focused and do not include generated build output.
 

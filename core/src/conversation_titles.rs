@@ -198,6 +198,16 @@ fn normalize_title(response: &str) -> Option<String> {
     {
         return None;
     }
+    // Models often label the answer even when told not to.
+    for label in ["Title", "title", "TITLE", "标题", "標題", "タイトル"] {
+        if let Some(rest) = title
+            .strip_prefix(label)
+            .and_then(|value| value.trim_start().strip_prefix([':', '：']))
+        {
+            title = rest.trim();
+            break;
+        }
+    }
     for (open, close) in [
         ('"', '"'),
         ('\'', '\''),
@@ -220,7 +230,6 @@ fn normalize_title(response: &str) -> Option<String> {
             .iter()
             .any(|prefix| title.starts_with(prefix))
         || title.contains("**")
-        || title.contains("__")
         || title.contains('`')
     {
         return None;
@@ -700,10 +709,20 @@ mod tests {
             Some("Project planning")
         );
         assert!(normalize_title(&"界".repeat(40)).is_some());
+        for (labelled, expected) in [
+            ("标题：日语面试练习", "日语面试练习"),
+            ("Title: \"Project planning\"", "Project planning"),
+            ("タイトル: 面接練習", "面接練習"),
+            ("Fixing snake__case names", "Fixing snake__case names"),
+            ("Titles of anime", "Titles of anime"),
+        ] {
+            assert_eq!(normalize_title(labelled).as_deref(), Some(expected));
+        }
         for invalid in [
             "",
             "  ",
             "\"\"",
+            "Title:",
             "Topic\nExplanation",
             "```title```",
             "bad\0title",
