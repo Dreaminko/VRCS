@@ -25,26 +25,36 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - uses: droidshiny/diff-paths@v4
+      - name: Detect changed areas
         id: filter
-        with:
-          filters: |
-            rust:
-              - "core/**"
-              - "apps/desktop/src-tauri/**"
-              - "rust-toolchain.toml"
-              - "scripts/check-rust.ps1"
-              - "scripts/test-check-rust.ps1"
-              - "scripts/test-release-metadata.ps1"
-              - "scripts/write-release-metadata.ps1"
-              - "scripts/prepare-vulkan-runtime.ps1"
-              - ".github/workflows/ci.yml"
-            frontend:
-              - "apps/desktop/**"
-              - "package.json"
-              - "package-lock.json"
-              - "scripts/check-i18n.mjs"
-              - ".github/workflows/ci.yml"
+        env:
+          BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          base="${BASE_SHA}"
+          rust=false
+          frontend=false
+
+          # A new history or a changed workflow must preserve a full check.
+          if [[ -z "$base" || "$base" =~ ^0+$ ]]; then
+            rust=true
+            frontend=true
+          else
+            while IFS= read -r file; do
+              case "$file" in
+                core/*|apps/desktop/src-tauri/*|rust-toolchain.toml|scripts/check-rust.ps1|scripts/test-check-rust.ps1|scripts/test-release-metadata.ps1|scripts/write-release-metadata.ps1|scripts/prepare-vulkan-runtime.ps1|.github/workflows/ci.yml)
+                  rust=true
+                  ;;
+              esac
+              case "$file" in
+                apps/desktop/*|package.json|package-lock.json|scripts/check-i18n.mjs|.github/workflows/ci.yml)
+                  frontend=true
+                  ;;
+              esac
+            done < <(git diff --name-only "$base"...HEAD)
+          fi
+
+          echo "rust=$rust" >> "$GITHUB_OUTPUT"
+          echo "frontend=$frontend" >> "$GITHUB_OUTPUT"
 
   frontend:
     needs: changes
