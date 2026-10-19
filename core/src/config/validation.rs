@@ -42,37 +42,7 @@ impl AppConfig {
         validate_anki(&self.anki)?;
         validate_vr_overlay(&self.vr_overlay)?;
         validate_vision(self)?;
-        let titles = &self.conversation_titles;
-        if titles.model.len() > 256 || contains_control(&titles.model) {
-            return Err(
-                "conversation_titles.model must not exceed 256 bytes or contain control characters"
-                    .into(),
-            );
-        }
-        if titles.output_language != "auto"
-            && !TITLE_OUTPUT_LANGUAGES
-                .iter()
-                .any(|(code, _)| *code == titles.output_language)
-        {
-            return Err("Unsupported conversation_titles.output_language".into());
-        }
-        if let Some(id) = &titles.profile_id {
-            if id.is_empty() || id.len() > 64 || contains_control(id) {
-                return Err("Invalid conversation_titles.profile_id".into());
-            }
-        }
-        if titles.auto_generate {
-            let profile = self
-                .asr
-                .api_profiles
-                .iter()
-                .find(|profile| Some(&profile.id) == titles.profile_id.as_ref())
-                .ok_or("Select a text generation profile for conversation titles")?;
-            providers::resolve_profile_capability(profile, providers::CAPABILITY_TEXT_GENERATION)?;
-            if titles.model.trim().is_empty() {
-                return Err("Select a model for conversation titles".into());
-            }
-        }
+        validate_conversation_titles(self)?;
         let ocr = &self.ocr;
         if !(5..=120).contains(&ocr.timeout_seconds)
             || !ocr.minimum_confidence.is_finite()
@@ -122,6 +92,41 @@ impl AppConfig {
         }
         Ok(())
     }
+}
+
+fn validate_conversation_titles(config: &AppConfig) -> Result<(), String> {
+    let titles = &config.conversation_titles;
+    if titles.model.len() > 256 || contains_control(&titles.model) {
+        return Err(
+            "conversation_titles.model must not exceed 256 bytes or contain control characters"
+                .into(),
+        );
+    }
+    if titles.output_language != "auto"
+        && !TITLE_OUTPUT_LANGUAGES
+            .iter()
+            .any(|(code, _)| *code == titles.output_language)
+    {
+        return Err("Unsupported conversation_titles.output_language".into());
+    }
+    if let Some(id) = &titles.profile_id {
+        if id.is_empty() || id.len() > 64 || contains_control(id) {
+            return Err("Invalid conversation_titles.profile_id".into());
+        }
+    }
+    if titles.auto_generate {
+        let profile = config
+            .asr
+            .api_profiles
+            .iter()
+            .find(|profile| Some(&profile.id) == titles.profile_id.as_ref())
+            .ok_or("Select a text generation profile for conversation titles")?;
+        providers::resolve_profile_capability(profile, providers::CAPABILITY_TEXT_GENERATION)?;
+        if titles.model.trim().is_empty() {
+            return Err("Select a model for conversation titles".into());
+        }
+    }
+    Ok(())
 }
 
 fn validate_vision(config: &AppConfig) -> Result<(), String> {
