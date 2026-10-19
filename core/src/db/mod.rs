@@ -24,7 +24,7 @@ const SEED_ENTRIES: [(&str, &str, &str); 4] = [
     ("ありがとう", "ja", "谢谢"),
 ];
 
-const LATEST_SCHEMA_VERSION: u32 = 8;
+const LATEST_SCHEMA_VERSION: u32 = 9;
 
 const MIGRATION_1_SCHEMA: &str = "
 CREATE TABLE IF NOT EXISTS subtitles (
@@ -223,6 +223,14 @@ impl Database {
                  END;",
             )?;
             transaction.pragma_update(None, "user_version", 8)?;
+            transaction.commit()?;
+        }
+
+        if version < 9 {
+            // Quota trimming must not erase summaries; user deletions invalidate them explicitly.
+            let transaction = self.conn.transaction()?;
+            transaction.execute_batch("DROP TRIGGER IF EXISTS subtitles_title_deleted;")?;
+            transaction.pragma_update(None, "user_version", 9)?;
             transaction.commit()?;
         }
 

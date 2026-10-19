@@ -354,7 +354,7 @@ fn conversation_titles_are_deduplicated_and_preserve_custom_titles_and_previous_
 }
 
 #[test]
-fn subtitle_deletion_and_conversation_deletion_invalidate_title_jobs() {
+fn user_deletions_invalidate_title_jobs_but_quota_trimming_keeps_them() {
     for deletion in ["subtitle", "conversation", "clear", "quota"] {
         let (_path, mut database) = open_temp_db("title-deletion");
         let saved = database.add_subtitle(&subtitle("First excerpt")).unwrap();
@@ -384,8 +384,7 @@ fn subtitle_deletion_and_conversation_deletion_invalidate_title_jobs() {
             }
             _ => {
                 database
-                    .conn
-                    .execute("DELETE FROM subtitles WHERE id = ?1", [saved.id])
+                    .delete_subtitle_range(&saved.created_at, None)
                     .unwrap();
             }
         }
@@ -396,12 +395,19 @@ fn subtitle_deletion_and_conversation_deletion_invalidate_title_jobs() {
                 .iter()
                 .find(|item| item.id == job.conversation_id)
                 .unwrap();
-            assert_eq!(item.title_generation_status, "idle");
-            assert!(item.summary_title.is_none());
+            let kept = deletion == "quota";
+            assert_eq!(
+                item.title_generation_status,
+                if kept { "running" } else { "idle" }
+            );
+            assert_eq!(item.summary_title.is_some(), kept);
         }
-        assert!(!database
-            .finish_conversation_title(&job, Ok("Late title"))
-            .unwrap());
+        assert_eq!(
+            database
+                .finish_conversation_title(&job, Ok("Late title"))
+                .unwrap(),
+            deletion == "quota"
+        );
     }
 }
 
@@ -466,8 +472,7 @@ fn version_8_adds_idle_title_state_without_changing_existing_conversations() {
     database
         .conn
         .execute_batch(
-            "DROP TRIGGER subtitles_title_deleted;
-         ALTER TABLE conversations DROP COLUMN summary_title;
+            "ALTER TABLE conversations DROP COLUMN summary_title;
          ALTER TABLE conversations DROP COLUMN title_generation_status;
          ALTER TABLE conversations DROP COLUMN title_generation_error_code;
          ALTER TABLE conversations DROP COLUMN title_generation_request_id;
@@ -499,7 +504,7 @@ fn version_8_adds_idle_title_state_without_changing_existing_conversations() {
             .conn
             .query_row("PRAGMA user_version", [], |row| row.get::<_, u32>(0))
             .unwrap(),
-        8
+        super::LATEST_SCHEMA_VERSION
     );
 }
 
@@ -1115,7 +1120,7 @@ fn version_4_preserves_existing_version_3_subtitles() {
     let original = db.add_subtitle(&subtitle("Keep existing history")).unwrap();
     db.conn
         .execute_batch(
-            "ALTER TABLE subtitle_translations DROP COLUMN source_group; ALTER TABLE subtitles DROP COLUMN speaker; ALTER TABLE learning_items DROP COLUMN anki_sync_pending; ALTER TABLE learning_items DROP COLUMN analysis_stale; ALTER TABLE learning_items DROP COLUMN draft_stale; DROP TRIGGER subtitles_title_deleted; ALTER TABLE conversations DROP COLUMN summary_title; ALTER TABLE conversations DROP COLUMN title_generation_status; ALTER TABLE conversations DROP COLUMN title_generation_error_code; ALTER TABLE conversations DROP COLUMN title_generation_request_id; PRAGMA user_version = 3;",
+            "ALTER TABLE subtitle_translations DROP COLUMN source_group; ALTER TABLE subtitles DROP COLUMN speaker; ALTER TABLE learning_items DROP COLUMN anki_sync_pending; ALTER TABLE learning_items DROP COLUMN analysis_stale; ALTER TABLE learning_items DROP COLUMN draft_stale; ALTER TABLE conversations DROP COLUMN summary_title; ALTER TABLE conversations DROP COLUMN title_generation_status; ALTER TABLE conversations DROP COLUMN title_generation_error_code; ALTER TABLE conversations DROP COLUMN title_generation_request_id; PRAGMA user_version = 3;",
         )
         .unwrap();
     drop(db);
@@ -1147,7 +1152,7 @@ fn version_6_adds_anki_sync_pending_without_touching_exported_items() {
         .unwrap();
     db.conn
         .execute_batch(
-            "ALTER TABLE learning_items DROP COLUMN anki_sync_pending; ALTER TABLE learning_items DROP COLUMN analysis_stale; ALTER TABLE learning_items DROP COLUMN draft_stale; DROP TRIGGER subtitles_title_deleted; ALTER TABLE conversations DROP COLUMN summary_title; ALTER TABLE conversations DROP COLUMN title_generation_status; ALTER TABLE conversations DROP COLUMN title_generation_error_code; ALTER TABLE conversations DROP COLUMN title_generation_request_id; PRAGMA user_version = 5;",
+            "ALTER TABLE learning_items DROP COLUMN anki_sync_pending; ALTER TABLE learning_items DROP COLUMN analysis_stale; ALTER TABLE learning_items DROP COLUMN draft_stale; ALTER TABLE conversations DROP COLUMN summary_title; ALTER TABLE conversations DROP COLUMN title_generation_status; ALTER TABLE conversations DROP COLUMN title_generation_error_code; ALTER TABLE conversations DROP COLUMN title_generation_request_id; PRAGMA user_version = 5;",
         )
         .unwrap();
     drop(db);
@@ -1172,7 +1177,7 @@ fn version_5_preserves_history_and_round_trips_session_scoped_speakers() {
     let legacy = db.add_subtitle(&subtitle("Legacy history")).unwrap();
     db.conn
         .execute_batch(
-            "ALTER TABLE subtitles DROP COLUMN speaker; ALTER TABLE learning_items DROP COLUMN anki_sync_pending; ALTER TABLE learning_items DROP COLUMN analysis_stale; ALTER TABLE learning_items DROP COLUMN draft_stale; DROP TRIGGER subtitles_title_deleted; ALTER TABLE conversations DROP COLUMN summary_title; ALTER TABLE conversations DROP COLUMN title_generation_status; ALTER TABLE conversations DROP COLUMN title_generation_error_code; ALTER TABLE conversations DROP COLUMN title_generation_request_id; PRAGMA user_version = 4;",
+            "ALTER TABLE subtitles DROP COLUMN speaker; ALTER TABLE learning_items DROP COLUMN anki_sync_pending; ALTER TABLE learning_items DROP COLUMN analysis_stale; ALTER TABLE learning_items DROP COLUMN draft_stale; ALTER TABLE conversations DROP COLUMN summary_title; ALTER TABLE conversations DROP COLUMN title_generation_status; ALTER TABLE conversations DROP COLUMN title_generation_error_code; ALTER TABLE conversations DROP COLUMN title_generation_request_id; PRAGMA user_version = 4;",
         )
         .unwrap();
     drop(db);
