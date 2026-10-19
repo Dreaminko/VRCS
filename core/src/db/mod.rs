@@ -24,7 +24,7 @@ const SEED_ENTRIES: [(&str, &str, &str); 4] = [
     ("ありがとう", "ja", "谢谢"),
 ];
 
-const LATEST_SCHEMA_VERSION: u32 = 7;
+const LATEST_SCHEMA_VERSION: u32 = 8;
 
 const MIGRATION_1_SCHEMA: &str = "
 CREATE TABLE IF NOT EXISTS subtitles (
@@ -208,6 +208,31 @@ impl Database {
             transaction.commit()?;
         }
 
+        if version < 8 {
+            let transaction = self.conn.transaction()?;
+            transaction.execute_batch(
+                "ALTER TABLE conversations ADD COLUMN summary_title TEXT;
+                 ALTER TABLE conversations ADD COLUMN title_generation_status TEXT NOT NULL DEFAULT 'idle';
+                 ALTER TABLE conversations ADD COLUMN title_generation_error_code TEXT;
+                 ALTER TABLE conversations ADD COLUMN title_generation_request_id TEXT;
+                 CREATE TRIGGER subtitles_title_deleted AFTER DELETE ON subtitles BEGIN
+                     UPDATE conversations SET summary_title = NULL,
+                         title_generation_status = 'idle', title_generation_error_code = NULL,
+                         title_generation_request_id = NULL
+                     WHERE id = old.conversation_id;
+                 END;",
+            )?;
+            transaction.pragma_update(None, "user_version", 8)?;
+            transaction.commit()?;
+        }
+
+        self.conn.execute(
+            "UPDATE conversations SET title_generation_status = 'failed',
+                 title_generation_error_code = 'conversations.title_interrupted',
+                 title_generation_request_id = NULL
+             WHERE title_generation_status IN ('pending', 'running')",
+            [],
+        )?;
         self.initialize_learning_storage()?;
         self.initialize_subtitle_search()?;
         conversations::initialize_conversations(&self.conn)?;

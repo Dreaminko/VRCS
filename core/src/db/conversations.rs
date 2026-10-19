@@ -7,7 +7,7 @@ use serde::Serialize;
 use tokio::sync::broadcast;
 
 use super::Database;
-use crate::error::AppResult;
+use crate::error::{AppError, AppResult};
 use crate::models::now_iso8601;
 
 #[derive(Debug, Clone, Serialize)]
@@ -21,6 +21,9 @@ pub struct Conversation {
     pub started_at: String,
     pub ended_at: Option<String>,
     pub automatic_title: Option<String>,
+    pub summary_title: Option<String>,
+    pub title_generation_status: String,
+    pub title_generation_error_code: Option<String>,
     pub custom_title: Option<String>,
     pub icon: Option<String>,
     pub subtitle_count: u64,
@@ -28,25 +31,175 @@ pub struct Conversation {
     pub active: bool,
 }
 
+#[derive(Debug, Clone)]
+pub(crate) struct TitleJob {
+    pub conversation_id: String,
+    pub request_id: String,
+}
+
 impl Database {
     pub fn conversation_catalog(&self) -> AppResult<ConversationCatalog> {
         catalog(&self.conn)
     }
 
+    #[cfg(test)]
     pub fn create_conversation(&mut self) -> AppResult<ConversationCatalog> {
+        self.create_conversation_with_title(false)
+            .map(|(catalog, _)| catalog)
+    }
+
+    pub(crate) fn create_conversation_with_title(
+        &mut self,
+        auto_generate: bool,
+    ) -> AppResult<(ConversationCatalog, Option<TitleJob>)> {
         let transaction = self.conn.transaction()?;
         let active = active_conversation(&transaction)?;
+        let mut job = None;
         if active.subtitle_count > 0 {
             let now = now_iso8601();
             transaction.execute(
                 "UPDATE conversations SET ended_at = ?1 WHERE id = ?2",
                 params![now, active.id],
             )?;
+            if auto_generate {
+                job = register_title(&transaction, &active.id, false)?;
+            }
             insert_active(&transaction, &now)?;
         }
         let result = catalog(&transaction)?;
         transaction.commit()?;
-        Ok(result)
+        Ok((result, job))
+    }
+
+    pub(crate) fn request_conversation_title(
+        &mut self,
+        id: &str,
+        regenerate: bool,
+        configured: bool,
+    ) -> AppResult<Option<(ConversationCatalog, Option<TitleJob>)>> {
+        let transaction = self.conn.transaction()?;
+        let state = transaction.query_row(
+            "SELECT ended_at IS NOT NULL, custom_title IS NOT NULL, summary_title IS NOT NULL,
+                    title_generation_status IN ('pending', 'running'),
+                    EXISTS(SELECT 1 FROM subtitles WHERE conversation_id = ?1 AND trim(text, char(9, 10, 13, 32)) <> '')
+             FROM conversations WHERE id = ?1",
+            [id],
+            |row| Ok((row.get::<_, bool>(0)?, row.get::<_, bool>(1)?, row.get::<_, bool>(2)?, row.get::<_, bool>(3)?, row.get::<_, bool>(4)?)),
+        ).optional()?;
+        let Some((ended, custom, ready, busy, has_text)) = state else {
+            return Ok(None);
+        };
+        if !ended || custom {
+            return Err(AppError::Conflict(
+                "End the conversation and clear its custom title first".into(),
+            ));
+        }
+        let job = if busy || (ready && !regenerate) {
+            None
+        } else {
+            if !has_text {
+                return Err(AppError::validation(
+                    "The conversation has no text to summarize",
+                ));
+            }
+            if !configured {
+                return Err(AppError::validation(
+                    "Select a valid text generation profile and model in conversation settings",
+                ));
+            }
+            register_title(&transaction, id, regenerate)?
+        };
+        let catalog = catalog(&transaction)?;
+        transaction.commit()?;
+        Ok(Some((catalog, job)))
+    }
+
+    pub(crate) fn start_conversation_title(&self, job: &TitleJob) -> AppResult<bool> {
+        Ok(self.conn.execute(
+            "UPDATE conversations SET title_generation_status = 'running'
+             WHERE id = ?1 AND title_generation_request_id = ?2
+               AND title_generation_status = 'pending' AND ended_at IS NOT NULL",
+            params![job.conversation_id, job.request_id],
+        )? > 0)
+    }
+
+    pub(crate) fn finish_conversation_title(
+        &self,
+        job: &TitleJob,
+        result: Result<&str, &str>,
+    ) -> AppResult<bool> {
+        let (title, status, error) = match result {
+            Ok(title) => (Some(title), "ready", None),
+            Err(error) => (None, "failed", Some(error)),
+        };
+        Ok(self.conn.execute(
+            "UPDATE conversations SET summary_title = COALESCE(?3, summary_title),
+                 title_generation_status = ?4, title_generation_error_code = ?5,
+                 title_generation_request_id = NULL
+             WHERE id = ?1 AND title_generation_request_id = ?2
+               AND title_generation_status = 'running' AND ended_at IS NOT NULL",
+            params![job.conversation_id, job.request_id, title, status, error],
+        )? > 0)
+    }
+
+    pub(crate) fn cancel_conversation_title(&self, job: &TitleJob) -> AppResult<()> {
+        self.conn.execute(
+            "UPDATE conversations SET title_generation_status = CASE WHEN summary_title IS NULL THEN 'idle' ELSE 'ready' END,
+                 title_generation_request_id = NULL, title_generation_error_code = NULL
+             WHERE id = ?1 AND title_generation_request_id = ?2 AND title_generation_status = 'pending'",
+            params![job.conversation_id, job.request_id],
+        )?;
+        Ok(())
+    }
+
+    pub(crate) fn conversation_title_input(&self, id: &str) -> AppResult<String> {
+        let count: i64 = self.conn.query_row(
+            "SELECT COUNT(*) FROM subtitles WHERE conversation_id = ?1 AND trim(text, char(9, 10, 13, 32)) <> ''",
+            [id], |row| row.get(0),
+        )?;
+        if count == 0 {
+            return Ok(String::new());
+        }
+        let samples = count.min(200);
+        let line_budget = 24_000 / samples as usize;
+        let mut statement = self.conn.prepare(
+            "WITH RECURSIVE samples(n) AS (
+                 VALUES(0) UNION ALL SELECT n + 1 FROM samples WHERE n + 1 < ?2
+             ), ranked AS (
+                 SELECT id, ROW_NUMBER() OVER (ORDER BY id) - 1 AS rank
+                 FROM subtitles WHERE conversation_id = ?1 AND trim(text, char(9, 10, 13, 32)) <> ''
+             )
+             SELECT substr(s.source, 1, 16),
+                    CASE WHEN json_valid(s.speaker) THEN json_extract(s.speaker, '$.index') END,
+                    substr(s.text, 1, ?4)
+             FROM subtitles AS s JOIN ranked AS r ON r.id = s.id
+             WHERE r.rank IN (SELECT n * (?3 - 1) / max(?2 - 1, 1) FROM samples)
+             ORDER BY s.id",
+        )?;
+        let rows = statement.query_map(params![id, samples, count, line_budget], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, Option<u64>>(1)?,
+                row.get::<_, String>(2)?,
+            ))
+        })?;
+        let mut input = String::new();
+        for row in rows {
+            let (source, speaker, text) = row?;
+            if text.trim().is_empty() {
+                continue;
+            }
+            let source = source.split_whitespace().collect::<Vec<_>>().join(" ");
+            let label = speaker
+                .map(|index| format!(" speaker-{}", index.saturating_add(1)))
+                .unwrap_or_default();
+            let prefix = format!("[{source}{label}] ");
+            let text_budget = line_budget.saturating_sub(prefix.chars().count() + 1);
+            input.push_str(&prefix);
+            input.extend(text.chars().take(text_budget));
+            input.push('\n');
+        }
+        Ok(input)
     }
 
     pub fn update_conversation(
@@ -241,7 +394,8 @@ fn catalog(conn: &Connection) -> AppResult<ConversationCatalog> {
     let mut statement = conn.prepare(
         "SELECT c.id, c.started_at, c.ended_at, c.automatic_title, c.custom_title,
                 c.icon, COUNT(s.id), COALESCE(MAX(s.created_at), c.started_at),
-                c.ended_at IS NULL
+                c.ended_at IS NULL, c.summary_title, c.title_generation_status,
+                c.title_generation_error_code
          FROM conversations AS c
          LEFT JOIN subtitles AS s ON s.conversation_id = c.id
          GROUP BY c.id
@@ -259,10 +413,30 @@ fn catalog(conn: &Connection) -> AppResult<ConversationCatalog> {
                 subtitle_count: row.get(6)?,
                 updated_at: row.get(7)?,
                 active: row.get(8)?,
+                summary_title: row.get(9)?,
+                title_generation_status: row.get(10)?,
+                title_generation_error_code: row.get(11)?,
             })
         })?
         .collect::<Result<Vec<_>, _>>()?;
     Ok(ConversationCatalog { conversations })
+}
+
+fn register_title(conn: &Connection, id: &str, regenerate: bool) -> AppResult<Option<TitleJob>> {
+    let request_id = new_public_id("title");
+    let updated = conn.execute(
+        "UPDATE conversations SET title_generation_status = 'pending',
+             title_generation_error_code = NULL, title_generation_request_id = ?2
+         WHERE id = ?1 AND ended_at IS NOT NULL AND custom_title IS NULL
+           AND (summary_title IS NULL OR ?3)
+           AND title_generation_status NOT IN ('pending', 'running')
+           AND EXISTS(SELECT 1 FROM subtitles WHERE conversation_id = ?1 AND trim(text, char(9, 10, 13, 32)) <> '')",
+        params![id, request_id, regenerate],
+    )?;
+    Ok((updated > 0).then(|| TitleJob {
+        conversation_id: id.into(),
+        request_id,
+    }))
 }
 
 struct ActiveConversation {

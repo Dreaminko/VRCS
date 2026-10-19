@@ -556,7 +556,7 @@ mod tests {
             .execute_batch(
                 "ALTER TABLE learning_items DROP COLUMN analysis_stale;
              ALTER TABLE learning_items DROP COLUMN draft_stale;
-             PRAGMA user_version = 6;",
+             DROP TRIGGER subtitles_title_deleted; ALTER TABLE conversations DROP COLUMN summary_title; ALTER TABLE conversations DROP COLUMN title_generation_status; ALTER TABLE conversations DROP COLUMN title_generation_error_code; ALTER TABLE conversations DROP COLUMN title_generation_request_id; PRAGMA user_version = 6;",
             )
             .unwrap();
         drop(database);

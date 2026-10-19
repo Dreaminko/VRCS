@@ -199,6 +199,12 @@
       }
     },
     "conversations": {
+      "titleGenerate": "產生摘要標題",
+      "titleRegenerate": "重新產生摘要標題",
+      "titleGenerating": "正在產生標題…",
+      "titleSettings": "對話標題設定",
+      "titleClearCustom": "請先還原預設標題，再產生摘要標題。",
+      "titleMatchCount": "對話標題 · {{count}} 筆",
       "untitled": "未命名對話",
       "new": "新對話",
       "title": "對話",
@@ -215,15 +221,15 @@
       "loadOnOpen": "開啟後載入",
       "loadOlderMessages": "載入較早的訊息",
       "loadingOlderMessages": "正在載入較早的訊息…",
-      "search": "搜尋字幕",
-      "searchPlaceholder": "搜尋原文或譯文",
+      "search": "搜尋對話",
+      "searchPlaceholder": "搜尋標題、原文或譯文",
       "clearSearch": "清除搜尋",
       "searchHint": "輸入關鍵字搜尋全部對話",
       "searching": "正在搜尋…",
       "searchFailed": "無法載入搜尋結果，請重試。",
-      "searchEmpty": "找不到相符的字幕",
-      "searchResults": "字幕搜尋結果",
-      "searchResultCount": "顯示 {{count}} 筆結果",
+      "searchEmpty": "找不到相關對話或字幕",
+      "searchResults": "對話搜尋結果",
+      "searchResultCount": "字幕內容 · 已顯示 {{count}} 筆",
       "searchMore": "載入更多結果",
       "viewingPast": "正在查看 {{time}} 的對話",
       "returnCurrent": "回到目前對話",
@@ -592,6 +598,15 @@
         "installing": "正在安裝更新…"
       },
       "errors": {
+      "conversations": {
+        "title_interrupted": "上次生成已中斷，請重試。",
+        "title_service_failed": "無法產生標題，請檢查模型服務後重試。",
+        "title_not_configured": "請在對話標題設定中檢查 API 設定檔、憑證和模型。",
+        "title_timeout": "標題生成逾時，請重試。",
+        "title_empty": "此對話沒有可用於摘要的字幕原文。",
+        "title_invalid_output": "模型未傳回有效的單行標題，請重試。",
+        "title_unavailable": "請先結束對話，並還原預設標題後再產生。"
+      },
     "feature": {
       "disabled": "此功能已關閉，可在系統設定的功能選項中重新開啟。"
     },
@@ -911,6 +926,23 @@
         "showSample": "顯示範例",
         "hideSample": "隱藏範例",
         "restoreDefaults": "還原預設"
+      },
+      "conversationTitles": {
+        "title": "對話管理",
+        "autoGenerate": "自動產生對話標題",
+        "description": "新增對話結束舊對話後，根據字幕原文產生摘要標題。停止轉寫僅暫停，不會觸發產生。",
+        "configureFirst": "請先選擇可用的文字生成 API 設定檔並設定模型。",
+        "modelSettings": "標題生成模型",
+        "profile": "API 設定檔",
+        "noProfiles": "目前沒有支援文字生成的 API 設定檔。",
+        "selectProfile": "選擇 API 設定檔",
+        "unavailableProfile": "原設定檔無法使用，請重新選擇",
+        "language": "標題語言",
+        "autoLanguage": "跟隨對話主要語言",
+        "model": "模型",
+        "selectModel": "選擇或輸入模型名稱",
+        "privacy": "產生標題會將本次對話的部分或全部字幕原文傳送至所選模型服務，可能產生費用。",
+        "manageProfiles": "管理 API 設定檔"
       },
       "system": {
         "title": "系統",

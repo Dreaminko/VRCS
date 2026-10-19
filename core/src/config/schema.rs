@@ -6,7 +6,7 @@ use super::{
     VadConfig, VrOcrConfig, VrOverlayConfig, VrcxConfig,
 };
 
-pub const SCHEMA_VERSION: u32 = 33;
+pub const SCHEMA_VERSION: u32 = 34;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AppConfig {
@@ -18,6 +18,8 @@ pub struct AppConfig {
     pub server: ServerConfig,
     #[serde(default)]
     pub storage: StorageConfig,
+    #[serde(default)]
+    pub conversation_titles: super::ConversationTitleConfig,
     #[serde(default)]
     pub audio: AudioConfig,
     #[serde(default)]
@@ -59,6 +61,7 @@ impl Default for AppConfig {
             features: FeatureConfig::default(),
             server: ServerConfig::default(),
             storage: StorageConfig::default(),
+            conversation_titles: super::ConversationTitleConfig::default(),
             audio: AudioConfig::default(),
             vad: VadConfig::default(),
             asr: AsrConfig::default(),
@@ -94,6 +97,7 @@ mod tests {
                 "anki",
                 "asr",
                 "audio",
+                "conversation_titles",
                 "dictionary",
                 "external_api",
                 "features",

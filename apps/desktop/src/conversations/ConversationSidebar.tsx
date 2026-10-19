@@ -36,6 +36,9 @@ type SidebarProps = {
   onIconChange: (id: string, icon: ConversationIcon | null) => void;
   onResetCustomization: (id: string) => void;
   onDelete: (id: string) => Promise<void>;
+  onGenerateTitle: (id: string, regenerate: boolean) => Promise<void>;
+  titleConfigured: boolean;
+  onOpenTitleSettings: () => void;
   onSelectAt: (conversationId: string, subtitleId: number) => void;
   onFocusSearch: () => void;
   search: {
@@ -70,6 +73,9 @@ export const ConversationSidebar = memo(function ConversationSidebar({
   onIconChange,
   onResetCustomization,
   onDelete,
+  onGenerateTitle,
+  titleConfigured,
+  onOpenTitleSettings,
   onSelectAt,
   onFocusSearch,
   search,
@@ -221,6 +227,7 @@ export const ConversationSidebar = memo(function ConversationSidebar({
             searchable={search.searchable}
             onLoadMore={search.loadMore}
             onSelect={onSelectAt}
+            onSelectConversation={selectConversation}
           />
         ) : <>
         {active && (
@@ -281,6 +288,15 @@ export const ConversationSidebar = memo(function ConversationSidebar({
           onResetCustomization={() => {
             onResetCustomization(menuConversation.id);
             closeActions();
+          }}
+          titleConfigured={titleConfigured}
+          onGenerateTitle={() => {
+            void onGenerateTitle(menuConversation.id, Boolean(menuConversation.summaryTitle));
+            closeActions();
+          }}
+          onOpenTitleSettings={() => {
+            closeActions();
+            onOpenTitleSettings();
           }}
           onDelete={() => {
             closeActions();

@@ -6,6 +6,9 @@ import {
   Pencil,
   RotateCcw,
   Shapes,
+  Sparkles,
+  LoaderCircle,
+  Settings2,
   Trash2,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -35,7 +38,7 @@ export function conversationActionsPosition(
   const viewportWidth = interfaceLayoutPixels(window.innerWidth, scale);
   const viewportHeight = interfaceLayoutPixels(window.innerHeight, scale);
   const width = 186;
-  const expectedHeight = 260;
+  const expectedHeight = 360;
   const gap = 4;
   const side = viewportHeight - y >= expectedHeight ? "below" : "above";
   return {
@@ -66,6 +69,9 @@ export function ConversationActionsPopover({
   onStartRename,
   onShowIconPicker,
   onResetCustomization,
+  titleConfigured,
+  onGenerateTitle,
+  onOpenTitleSettings,
   onDelete,
   onClose,
 }: {
@@ -76,11 +82,15 @@ export function ConversationActionsPopover({
   onStartRename: () => void;
   onShowIconPicker: () => void;
   onResetCustomization: () => void;
+  titleConfigured: boolean;
+  onGenerateTitle: () => void;
+  onOpenTitleSettings: () => void;
   onDelete: () => void;
   onClose: (restoreFocus?: boolean) => void;
 }) {
   const { t } = useTranslation();
   const layerRef = useRef<HTMLDivElement>(null);
+  const generating = conversation.titleStatus === "pending" || conversation.titleStatus === "running";
   useDismissibleLayer(true, layerRef, () => onClose(true));
 
   useEffect(() => {
@@ -135,6 +145,23 @@ export function ConversationActionsPopover({
           {conversation.customized && (
             <button type="button" role="menuitem" onClick={onResetCustomization}><RotateCcw size={16} />{t("conversations.resetCustomization")}</button>
           )}
+          {!conversation.active && conversation.subtitleCount > 0 && <>
+            <button type="button" role="menuitem"
+              disabled={generating || conversation.hasCustomTitle}
+              title={conversation.hasCustomTitle ? t("conversations.titleClearCustom") : undefined}
+              onClick={titleConfigured ? onGenerateTitle : onOpenTitleSettings}>
+              {generating ? <LoaderCircle className="spinning" size={16} /> : <Sparkles size={16} />}
+              {t(generating ? "conversations.titleGenerating" : conversation.summaryTitle
+                ? "conversations.titleRegenerate" : "conversations.titleGenerate")}
+            </button>
+            {conversation.hasCustomTitle && <p className="conversation-action-note">{t("conversations.titleClearCustom")}</p>}
+            {conversation.titleStatus === "failed" && <p className="conversation-action-note" role="status">
+              {t(`errors.${conversation.titleError ?? "conversations.title_service_failed"}`)}
+            </p>}
+            {(!titleConfigured || conversation.titleStatus === "failed") && <button type="button" role="menuitem" onClick={onOpenTitleSettings}>
+              <Settings2 size={16} />{t("conversations.titleSettings")}
+            </button>}
+          </>}
           <button
             className="conversation-action-delete"
             type="button"

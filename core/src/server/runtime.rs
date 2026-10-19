@@ -123,6 +123,7 @@ impl CaptureRuntime {
 }
 
 pub(crate) struct ContentServices {
+    pub(crate) conversation_title_slots: tokio::sync::Semaphore,
     pub(crate) db: Arc<Mutex<Database>>,
     pub(crate) conversation_catalog_tx: broadcast::Sender<ConversationCatalog>,
     pub(crate) subtitle_output: SubtitleLifecyclePublisher,
@@ -145,6 +146,7 @@ pub(crate) struct ContentServicesInput {
 impl ContentServices {
     pub(crate) fn new(input: ContentServicesInput) -> Self {
         Self {
+            conversation_title_slots: tokio::sync::Semaphore::new(1),
             db: input.db,
             conversation_catalog_tx: input.conversation_catalog_tx,
             subtitle_output: input.subtitle_output,

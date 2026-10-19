@@ -8,6 +8,7 @@ import {
   Heart,
   Headphones,
   Languages,
+  LoaderCircle,
   MessageSquareText,
   Mic,
   Music,
@@ -144,6 +145,8 @@ export function ConversationRow({
           <span className="conversation-button-title">
             <ConversationIconView icon={conversation.icon} size={16} />
             <strong>{conversation.title}</strong>
+            {(conversation.titleStatus === "pending" || conversation.titleStatus === "running") &&
+              <LoaderCircle className="spinning" size={14} role="status" aria-label={t("conversations.titleGenerating")} />}
             {active && <i aria-label={t("conversations.current")} />}
           </span>
           <span className="conversation-button-meta">
@@ -181,15 +184,17 @@ export function RailConversationButton({
 }) {
   const { t } = useTranslation();
   const time = conversationTime(conversation.startedAt, locale, t("date.today"), t("date.yesterday"));
+  const generating = conversation.titleStatus === "pending" || conversation.titleStatus === "running";
+  const detail = generating ? `${time} · ${t("conversations.titleGenerating")}` : time;
   return (
     <button
       className={`sidebar-icon-button sidebar-rail-conversation ${selected ? "active" : ""}`}
       type="button"
-      aria-label={t("conversations.viewNamed", { title: conversation.title, time })}
+      aria-label={t("conversations.viewNamed", { title: conversation.title, time: detail })}
       aria-current={selected ? "true" : undefined}
-      onPointerEnter={(event) => onShowTooltip(event.currentTarget, conversation.title, time, active)}
+      onPointerEnter={(event) => onShowTooltip(event.currentTarget, conversation.title, detail, active)}
       onPointerLeave={onHideTooltip}
-      onFocus={(event) => onShowTooltip(event.currentTarget, conversation.title, time, active, event.currentTarget.matches(":focus-visible"))}
+      onFocus={(event) => onShowTooltip(event.currentTarget, conversation.title, detail, active, event.currentTarget.matches(":focus-visible"))}
       onBlur={onHideTooltip}
       onClick={() => onSelect(conversation.id)}
     >

@@ -96,6 +96,8 @@ pub struct SettingsUpdate {
     pub features: crate::config::FeatureConfig,
     pub server: ServerConfig,
     pub storage: StorageConfig,
+    #[serde(default)]
+    pub conversation_titles: crate::config::ConversationTitleConfig,
     pub audio: AudioConfig,
     #[serde(default)]
     pub vad: VadConfig,

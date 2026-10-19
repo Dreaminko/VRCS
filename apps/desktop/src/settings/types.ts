@@ -9,7 +9,8 @@ import type {
 import type { AsrSettings } from "../providers/types";
 
 export interface Settings {
-  schema_version: 32;
+  schema_version: 34;
+  conversation_titles: ConversationTitleSettings;
   features: FeatureSettings;
   server: {
     host: string;
@@ -47,6 +48,13 @@ export interface Settings {
   vr_overlay: VrOverlaySettings;
   ocr: VrOcrSettings;
   vision: VisionSettings;
+}
+
+export interface ConversationTitleSettings {
+  auto_generate: boolean;
+  profile_id: string | null;
+  model: string;
+  output_language: string;
 }
 
 export interface FeatureSettings {

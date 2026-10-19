@@ -23,6 +23,10 @@ export const conversationsApi = {
     `/api/conversations/${encodeURIComponent(conversationId)}`,
     { method: "DELETE" },
   ),
+  generateTitle: (conversationId: string, regenerate = false) => request<ConversationCatalog>(
+    `/api/conversations/${encodeURIComponent(conversationId)}/title`,
+    { method: "POST", body: JSON.stringify({ regenerate }) },
+  ),
   conversationSubtitles: (
     conversationId: string,
     {

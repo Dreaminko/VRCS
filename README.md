@@ -45,6 +45,7 @@ Turn off unused features in **Settings › System › Features** to hide their s
 ## Features
 
 - Capture system or VRChat process audio alongside your microphone for real-time subtitles, with separate audio controls, a compact window, and local session history.
+- Generate AI summary titles for completed conversations and search history by title. Configure a model and enable automatic generation in **Settings › System › Conversation management**; it is off by default. A new conversation ends the previous one; stopping transcription only pauses it. Generate or regenerate titles from a history item's menu. Custom names take priority.
 - Choose local Qwen3 ASR on CPU or Vulkan, or cloud services including Qwen3 ASR, Fun-ASR, OpenAI Realtime, Gemini, Groq, and OpenRouter. Use Silero VAD and optional Smart Turn for speech segmentation.
 - Translate manually or automatically into up to three languages per audio stream. Choose a service and model for each language, with support for DeepL, Microsoft Translator, OpenAI, Gemini, Alibaba Cloud LLM, and OpenAI-compatible services.
 - Get live source text and translations with Qwen Live Translate, Gemini Live Translate, or OpenAI Realtime Translation.
@@ -60,6 +61,8 @@ Turn off unused features in **Settings › System › Features** to hide their s
 VRCS does not store raw audio. Subtitle history, learning items, dictionaries, and settings are stored locally by default. Local Qwen ASR and local OCR process audio and images on the device; cloud speech recognition sends speech segments to the chosen provider.
 
 Translation, learning analysis, and Ask AI send relevant text, explicitly selected context, and submitted questions to the configured service. Whether text from local recognition is sent to the cloud depends on the selected translation and AI services.
+
+Conversation titles send some or all of the conversation's original transcript to the selected model service. Charges may apply. Translations, raw audio, and other conversations are excluded. Long transcripts are sampled; existing history is not processed automatically in bulk.
 
 Desktop OCR and visual questions process only the selected region. Visual questions send the selected image and question text to the configured model service; cloud speech recognition also receives the spoken question. Images and answers are not saved to disk or a question history by default. Speech recognition and image requests may incur separate charges.
 

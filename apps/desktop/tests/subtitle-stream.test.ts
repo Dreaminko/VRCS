@@ -219,6 +219,22 @@ test("complete conversation catalogs pass protocol validation", () => {
     })),
     { type: "conversation_catalog", catalog },
   );
+  const parse = (patch: Record<string, unknown>) => parseSubtitleStreamMessage(JSON.stringify({
+    type: "conversation_catalog",
+    catalog: { conversations: [{ ...catalog.conversations[0], ...patch }] },
+  }));
+  for (const status of ["idle", "pending", "running", "ready", "failed"]) {
+    assert.ok(parse({ summary_title: "Interview practice", title_generation_status: status,
+      title_generation_error_code: status === "failed" ? "conversations.title_timeout" : null }));
+  }
+  assert.ok(parse({ summary_title: null }));
+  for (const patch of [
+    { summary_title: 1 }, { summary_title: {} },
+    { title_generation_status: "unknown" }, { title_generation_status: null },
+    { title_generation_error_code: false },
+  ]) {
+    assert.equal(parse(patch), null);
+  }
 });
 
 test("malformed conversation catalogs are rejected", () => {

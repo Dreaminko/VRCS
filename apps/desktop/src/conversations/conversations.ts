@@ -25,6 +25,9 @@ export interface CoreConversation {
   started_at: string;
   ended_at: string | null;
   automatic_title: string | null;
+  summary_title?: string | null;
+  title_generation_status?: "idle" | "pending" | "running" | "ready" | "failed";
+  title_generation_error_code?: string | null;
   custom_title: string | null;
   icon: string | null;
   subtitle_count: number;
@@ -41,6 +44,10 @@ export type ConversationSummary = {
   title: string;
   icon: ConversationIcon;
   customized: boolean;
+  hasCustomTitle: boolean;
+  summaryTitle: string | null;
+  titleStatus: NonNullable<CoreConversation["title_generation_status"]>;
+  titleError: string | null;
   startedAt: string;
   endedAt: string | null;
   updatedAt: string;
@@ -71,6 +78,8 @@ function catalogTitle(
 ): string {
   const customTitle = conversation.custom_title?.trim();
   if (customTitle) return customTitle;
+  const summaryTitle = conversation.summary_title?.trim();
+  if (summaryTitle) return summaryTitle;
   const automaticTitle = conversation.automatic_title?.trim();
   if (automaticTitle) return automaticTitle;
   return conversation.active && conversation.subtitle_count === 0
@@ -88,10 +97,22 @@ export function conversationsFromCatalog(
     title: catalogTitle(conversation, labels),
     icon: isConversationIcon(conversation.icon) ? conversation.icon : "message",
     customized: Boolean(conversation.custom_title?.trim() || conversation.icon),
+    hasCustomTitle: Boolean(conversation.custom_title?.trim()),
+    summaryTitle: conversation.summary_title ?? null,
+    titleStatus: conversation.title_generation_status ?? "idle",
+    titleError: conversation.title_generation_error_code ?? null,
     startedAt: conversation.started_at,
     endedAt: conversation.ended_at,
     updatedAt: conversation.updated_at,
     subtitleCount: conversation.subtitle_count,
     active: conversation.active,
   }));
+}
+
+export function matchingConversationTitles(
+  conversations: ConversationSummary[],
+  query: string,
+): ConversationSummary[] {
+  const keyword = query.trim().toLocaleLowerCase();
+  return keyword ? conversations.filter((item) => item.title.toLocaleLowerCase().includes(keyword)) : [];
 }

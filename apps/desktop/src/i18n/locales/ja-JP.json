@@ -199,6 +199,12 @@
       }
     },
     "conversations": {
+      "titleGenerate": "要約タイトルを生成",
+      "titleRegenerate": "要約タイトルを再生成",
+      "titleGenerating": "タイトルを生成中…",
+      "titleSettings": "会話タイトルの設定",
+      "titleClearCustom": "既定のタイトルに戻してから要約タイトルを生成してください。",
+      "titleMatchCount": "会話タイトル · {{count}} 件",
       "untitled": "無題の会話",
       "new": "新しい会話",
       "title": "会話",
@@ -215,15 +221,15 @@
       "loadOnOpen": "開いたときに読み込む",
       "loadOlderMessages": "以前のメッセージを読み込む",
       "loadingOlderMessages": "以前のメッセージを読み込み中…",
-      "search": "字幕を検索",
-      "searchPlaceholder": "原文または翻訳を検索",
+      "search": "会話を検索",
+      "searchPlaceholder": "タイトル・原文・訳文を検索",
       "clearSearch": "検索をクリア",
       "searchHint": "キーワードを入力してすべての会話を検索",
       "searching": "検索中…",
       "searchFailed": "検索結果を読み込めませんでした。もう一度お試しください。",
-      "searchEmpty": "一致する字幕はありません",
-      "searchResults": "字幕の検索結果",
-      "searchResultCount": "{{count}}件の結果を表示中",
+      "searchEmpty": "該当する会話や字幕はありません",
+      "searchResults": "会話の検索結果",
+      "searchResultCount": "字幕の内容 · {{count}} 件を表示",
       "searchMore": "さらに読み込む",
       "viewingPast": "{{time}} の会話を表示中",
       "returnCurrent": "現在の会話に戻る",
@@ -592,6 +598,15 @@
         "installing": "更新をインストールしています…"
       },
       "errors": {
+      "conversations": {
+        "title_interrupted": "前回の生成が中断されました。再試行してください。",
+        "title_service_failed": "タイトルを生成できませんでした。モデルサービスを確認して再試行してください。",
+        "title_not_configured": "会話タイトルの設定で API プロファイル、認証情報、モデルを確認してください。",
+        "title_timeout": "タイトル生成がタイムアウトしました。再試行してください。",
+        "title_empty": "この会話には要約できる字幕原文がありません。",
+        "title_invalid_output": "モデルが有効な1行のタイトルを返しませんでした。再試行してください。",
+        "title_unavailable": "会話を終了し、既定のタイトルに戻してから生成してください。"
+      },
     "feature": {
       "disabled": "この機能はオフです。システム設定の機能の選択からオンにできます。"
     },
@@ -911,6 +926,23 @@
         "showSample": "サンプルを表示",
         "hideSample": "サンプルを非表示",
         "restoreDefaults": "既定値に戻す"
+      },
+      "conversationTitles": {
+        "title": "会話管理",
+        "autoGenerate": "会話タイトルを自動生成",
+        "description": "新しい会話を作成して前の会話を終了すると、字幕の原文から要約タイトルを生成します。文字起こしの停止は一時停止として扱います。",
+        "configureFirst": "利用可能なテキスト生成 API プロファイルとモデルを先に設定してください。",
+        "modelSettings": "タイトル生成モデル",
+        "profile": "API プロファイル",
+        "noProfiles": "テキスト生成に対応する API プロファイルがありません。",
+        "selectProfile": "API プロファイルを選択",
+        "unavailableProfile": "以前のプロファイルは利用できません。再選択してください",
+        "language": "タイトルの言語",
+        "autoLanguage": "会話の主な言語に合わせる",
+        "model": "モデル",
+        "selectModel": "モデル名を選択または入力",
+        "privacy": "タイトル生成では、この会話の字幕原文の一部または全部を選択したモデルサービスに送信します。料金が発生する場合があります。",
+        "manageProfiles": "API プロファイルを管理"
       },
       "system": {
         "title": "システム",

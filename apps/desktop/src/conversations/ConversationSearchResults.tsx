@@ -4,7 +4,7 @@ import { useTranslation } from "react-i18next";
 import { timestamp } from "../app/app-utils";
 import { contentLanguageTag } from "../app/ui-language";
 import type { SubtitleSearchHit } from "../subtitles/types";
-import type { ConversationSummary } from "./conversations";
+import { matchingConversationTitles, type ConversationSummary } from "./conversations";
 import { subtitleSearchMatchRange } from "../subtitles/subtitle-search";
 
 export function ConversationSearchResults({
@@ -18,6 +18,7 @@ export function ConversationSearchResults({
   searchable,
   onLoadMore,
   onSelect,
+  onSelectConversation,
 }: {
   query: string;
   items: SubtitleSearchHit[];
@@ -29,87 +30,85 @@ export function ConversationSearchResults({
   searchable: boolean;
   onLoadMore: () => Promise<void>;
   onSelect: (conversationId: string, subtitleId: number) => void;
+  onSelectConversation: (conversationId: string) => void;
 }) {
   const { t, i18n } = useTranslation();
   const locale = i18n.resolvedLanguage ?? "en-US";
 
-  if (!searchable) {
-    return <p className="conversation-search-status">{t("conversations.searchHint")}</p>;
-  }
-  if (loading) {
-    return (
-      <p className="conversation-search-status" role="status">
-        <LoaderCircle className="spinning" size={15} />
-        {t("conversations.searching")}
-      </p>
-    );
-  }
-  if (failed && !items.length) {
-    return <p className="conversation-search-status error" role="alert">{t("conversations.searchFailed")}</p>;
-  }
-  if (!items.length) {
-    return (
-      <p className="conversation-search-status">
-        <SearchX size={16} />
-        {t("conversations.searchEmpty")}
-      </p>
-    );
-  }
+  const titleMatches = matchingConversationTitles(conversations, query);
 
   return (
     <div className="conversation-search-results" aria-label={t("conversations.searchResults")}>
-      <p className="conversation-search-summary">{t("conversations.searchResultCount", { count: items.length })}</p>
-      {items.map((hit) => {
-        const subtitleId = hit.subtitle.id;
-        const conversationId = hit.subtitle.conversation_id;
-        const conversation = conversations.find((item) => item.id === conversationId);
-        const matchedTranslation = hit.subtitle.translations.find(
-          (translation) => translation.text === hit.matched_text,
-        );
-        return (
-          <button
-            className="conversation-search-result"
-            type="button"
-            key={`${conversationId}:${subtitleId}`}
-            disabled={subtitleId === null || !conversationId}
-            onClick={() => {
-              if (subtitleId !== null && conversationId) onSelect(conversationId, subtitleId);
-            }}
-          >
-            <span className="conversation-search-result-meta">
-              <strong>{conversation?.title ?? t("conversations.untitled")}</strong>
-              <time>{timestamp(hit.subtitle.created_at, locale)}</time>
-            </span>
-            <span
-              className="conversation-search-result-match"
-              lang={contentLanguageTag(
-                hit.matched_field === "original"
-                  ? hit.subtitle.language
-                  : matchedTranslation?.target_language,
-              )}
+      {titleMatches.length > 0 && <>
+        <p className="conversation-search-summary">{t("conversations.titleMatchCount", { count: titleMatches.length })}</p>
+        {titleMatches.map((conversation) => <button className="conversation-search-result" type="button"
+          key={conversation.id} onClick={() => onSelectConversation(conversation.id)}>
+          <span className="conversation-search-result-meta"><strong>
+            <HighlightedText text={conversation.title} query={query.trim()} />
+          </strong></span>
+        </button>)}
+      </>}
+      {!searchable && <p className="conversation-search-status">{t("conversations.searchHint")}</p>}
+      {searchable && loading && <p className="conversation-search-status" role="status">
+        <LoaderCircle className="spinning" size={15} />{t("conversations.searching")}
+      </p>}
+      {searchable && !loading && <>
+        {items.length > 0 && <p className="conversation-search-summary">{t("conversations.searchResultCount", { count: items.length })}</p>}
+        {items.map((hit) => {
+          const subtitleId = hit.subtitle.id;
+          const conversationId = hit.subtitle.conversation_id;
+          const conversation = conversations.find((item) => item.id === conversationId);
+          const matchedTranslation = hit.subtitle.translations.find(
+            (translation) => translation.text === hit.matched_text,
+          );
+          return (
+            <button
+              className="conversation-search-result"
+              type="button"
+              key={`${conversationId}:${subtitleId}`}
+              disabled={subtitleId === null || !conversationId}
+              onClick={() => {
+                if (subtitleId !== null && conversationId) onSelect(conversationId, subtitleId);
+              }}
             >
-              <HighlightedText text={hit.matched_text} query={query.trim()} />
-            </span>
-            {hit.matched_field === "translation" && (
-              <span className="conversation-search-result-original" lang={contentLanguageTag(hit.subtitle.language)}>
-                {hit.subtitle.text}
+              <span className="conversation-search-result-meta">
+                <strong>{conversation?.title ?? t("conversations.untitled")}</strong>
+                <time>{timestamp(hit.subtitle.created_at, locale)}</time>
               </span>
-            )}
+              <span
+                className="conversation-search-result-match"
+                lang={contentLanguageTag(
+                  hit.matched_field === "original"
+                    ? hit.subtitle.language
+                    : matchedTranslation?.target_language,
+                )}
+              >
+                <HighlightedText text={hit.matched_text} query={query.trim()} />
+              </span>
+              {hit.matched_field === "translation" && (
+                <span className="conversation-search-result-original" lang={contentLanguageTag(hit.subtitle.language)}>
+                  {hit.subtitle.text}
+                </span>
+              )}
+            </button>
+          );
+        })}
+        {!items.length && !titleMatches.length && !failed && <p className="conversation-search-status">
+          <SearchX size={16} />{t("conversations.searchEmpty")}
+        </p>}
+        {failed && <p className="conversation-search-inline-error" role="alert">{t("conversations.searchFailed")}</p>}
+        {hasMore && (
+          <button
+            className="conversation-search-load-more"
+            type="button"
+            disabled={loadingMore}
+            onClick={() => void onLoadMore()}
+          >
+            {loadingMore && <LoaderCircle className="spinning" size={14} />}
+            {t(loadingMore ? "conversations.searching" : "conversations.searchMore")}
           </button>
-        );
-      })}
-      {failed && <p className="conversation-search-inline-error" role="alert">{t("conversations.searchFailed")}</p>}
-      {hasMore && (
-        <button
-          className="conversation-search-load-more"
-          type="button"
-          disabled={loadingMore}
-          onClick={() => void onLoadMore()}
-        >
-          {loadingMore && <LoaderCircle className="spinning" size={14} />}
-          {t(loadingMore ? "conversations.searching" : "conversations.searchMore")}
-        </button>
-      )}
+        )}
+      </>}
     </div>
   );
 }

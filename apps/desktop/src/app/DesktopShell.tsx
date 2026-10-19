@@ -91,6 +91,10 @@ export function DesktopShell({
     locale,
   } = workspace;
   const features = settings.value?.features;
+  const titleConfig = settings.value?.conversation_titles;
+  const titleConfigured = Boolean(titleConfig?.model.trim()
+    && providers.catalog.profiles.some((profile) => profile.id === titleConfig.profile_id
+      && profile.capabilities.supports_text_generation));
   const [sidebarResizing, setSidebarResizing] = useState(false);
   const [visionOpenError, setVisionOpenError] = useState(false);
   const openVision = () => {
@@ -165,6 +169,12 @@ export function DesktopShell({
             onIconChange={conversations.setConversationIcon}
             onResetCustomization={conversations.resetConversationCustomization}
             onDelete={conversations.deleteConversation}
+            onGenerateTitle={conversations.generateTitle}
+            titleConfigured={titleConfigured}
+            onOpenTitleSettings={() => {
+              setSettingsInitialCategory("system");
+              setPage("settings");
+            }}
             onSelectAt={selectConversationAt}
             onFocusSearch={conversations.search.focus}
             search={conversations.search}

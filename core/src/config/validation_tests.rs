@@ -2,6 +2,44 @@ use super::validation::validate_glossary;
 use super::*;
 
 #[test]
+fn conversation_titles_require_text_generation_only_when_automatic() {
+    let mut config = AppConfig::default();
+    config.conversation_titles.profile_id = Some("titles".into());
+    config.conversation_titles.model = "title-model".into();
+    assert!(config.validate_settings().is_ok());
+    config.conversation_titles.auto_generate = true;
+    assert!(config.validate_settings().is_err());
+    config.asr.api_profiles.push(ApiProfile {
+        id: "titles".into(),
+        name: "Titles".into(),
+        provider: "openai_compatible".into(),
+        base_url: Some("http://127.0.0.1:1234/v1".into()),
+        auth_mode: ApiAuthMode::None,
+        enabled_capabilities: vec!["text_generation".into()],
+        ..ApiProfile::default()
+    });
+    assert!(config.validate_settings().is_ok());
+    config.asr.api_profiles[0].enabled_capabilities = vec!["text_translation".into()];
+    assert!(config.validate_settings().is_err());
+    config.conversation_titles.auto_generate = false;
+    for language in ["auto", "zh-CN", "zh-Hant", "en-US", "ja-JP"] {
+        config.conversation_titles.output_language = language.into();
+        assert!(config.validate_settings().is_ok());
+    }
+    config.conversation_titles.output_language = "unknown".into();
+    assert!(config.validate_settings().is_err());
+    config.conversation_titles.output_language = "auto".into();
+    for model in ["x".repeat(257), "invalid\nmodel".into()] {
+        config.conversation_titles.model = model;
+        assert!(config.validate_settings().is_err());
+    }
+    assert!(serde_json::from_value::<ConversationTitleConfig>(
+        serde_json::json!({"unknown": true})
+    )
+    .is_err());
+}
+
+#[test]
 fn vision_defaults_and_limits_are_validated_even_when_disabled() {
     let mut config = AppConfig::default();
     assert!(config.validate_settings().is_ok());

@@ -283,6 +283,256 @@ fn creating_a_conversation_switches_subsequent_subtitle_ownership() {
 }
 
 #[test]
+fn conversation_titles_are_deduplicated_and_preserve_custom_titles_and_previous_results() {
+    let (_path, mut database) = open_temp_db("conversation-titles");
+    assert!(database
+        .create_conversation_with_title(true)
+        .unwrap()
+        .1
+        .is_none());
+    database
+        .add_subtitle(&subtitle("Japanese interview practice"))
+        .unwrap();
+    let (_, job) = database.create_conversation_with_title(true).unwrap();
+    let job = job.unwrap();
+    let id = &job.conversation_id;
+    assert!(database
+        .request_conversation_title(id, true, true)
+        .unwrap()
+        .unwrap()
+        .1
+        .is_none());
+    assert!(database.start_conversation_title(&job).unwrap());
+    assert!(!database.start_conversation_title(&job).unwrap());
+    database
+        .update_conversation(id, Some(Some("My title")), Some(Some("star")))
+        .unwrap();
+    assert!(database
+        .finish_conversation_title(&job, Ok("Interview practice"))
+        .unwrap());
+    let catalog = database.conversation_catalog().unwrap();
+    let saved = catalog
+        .conversations
+        .iter()
+        .find(|item| &item.id == id)
+        .unwrap();
+    assert_eq!(saved.custom_title.as_deref(), Some("My title"));
+    assert_eq!(saved.summary_title.as_deref(), Some("Interview practice"));
+    assert_eq!(saved.icon.as_deref(), Some("star"));
+    assert!(matches!(
+        database.request_conversation_title(id, true, true),
+        Err(crate::error::AppError::Conflict(_))
+    ));
+    database.update_conversation(id, Some(None), None).unwrap();
+    assert!(database
+        .request_conversation_title(id, false, false)
+        .unwrap()
+        .unwrap()
+        .1
+        .is_none());
+    let retry = database
+        .request_conversation_title(id, true, true)
+        .unwrap()
+        .unwrap()
+        .1
+        .unwrap();
+    assert!(database.start_conversation_title(&retry).unwrap());
+    assert!(!database
+        .finish_conversation_title(&job, Ok("Stale result"))
+        .unwrap());
+    assert!(database
+        .finish_conversation_title(&retry, Err("conversations.title_timeout"))
+        .unwrap());
+    let catalog = database.conversation_catalog().unwrap();
+    let saved = catalog
+        .conversations
+        .iter()
+        .find(|item| &item.id == id)
+        .unwrap();
+    assert_eq!(saved.summary_title.as_deref(), Some("Interview practice"));
+    assert_eq!(saved.title_generation_status, "failed");
+}
+
+#[test]
+fn subtitle_deletion_and_conversation_deletion_invalidate_title_jobs() {
+    for deletion in ["subtitle", "conversation", "clear", "quota"] {
+        let (_path, mut database) = open_temp_db("title-deletion");
+        let saved = database.add_subtitle(&subtitle("First excerpt")).unwrap();
+        database.add_subtitle(&subtitle("Last excerpt")).unwrap();
+        let (_, job) = database.create_conversation_with_title(true).unwrap();
+        let job = job.unwrap();
+        assert!(database.start_conversation_title(&job).unwrap());
+        database
+            .finish_conversation_title(&job, Ok("Saved title"))
+            .unwrap();
+        let job = database
+            .request_conversation_title(&job.conversation_id, true, true)
+            .unwrap()
+            .unwrap()
+            .1
+            .unwrap();
+        assert!(database.start_conversation_title(&job).unwrap());
+        match deletion {
+            "conversation" => {
+                database.delete_conversation(&job.conversation_id).unwrap();
+            }
+            "clear" => {
+                database.clear_subtitle_history().unwrap();
+            }
+            "quota" => {
+                assert!(database.set_subtitle_history_max_bytes(1).unwrap());
+            }
+            _ => {
+                database
+                    .conn
+                    .execute("DELETE FROM subtitles WHERE id = ?1", [saved.id])
+                    .unwrap();
+            }
+        }
+        if matches!(deletion, "subtitle" | "quota") {
+            let catalog = database.conversation_catalog().unwrap();
+            let item = catalog
+                .conversations
+                .iter()
+                .find(|item| item.id == job.conversation_id)
+                .unwrap();
+            assert_eq!(item.title_generation_status, "idle");
+            assert!(item.summary_title.is_none());
+        }
+        assert!(!database
+            .finish_conversation_title(&job, Ok("Late title"))
+            .unwrap());
+    }
+}
+
+#[test]
+fn title_input_samples_first_and_last_originals_with_a_strict_unicode_budget() {
+    let (_path, mut database) = open_temp_db("title-input");
+    let mut source = subtitle("");
+    source.speaker = Some(crate::models::SpeakerIdentity {
+        id: "private-session-id".into(),
+        index: 0,
+    });
+    for index in 0..250 {
+        source.text = format!("excerpt-{index} {}", "界".repeat(400));
+        database.add_subtitle(&source).unwrap();
+    }
+    let (_, job) = database.create_conversation_with_title(true).unwrap();
+    let input = database
+        .conversation_title_input(&job.unwrap().conversation_id)
+        .unwrap();
+    assert_eq!(input.lines().count(), 200);
+    assert!(input.contains("excerpt-0 ") && input.contains("excerpt-249 "));
+    assert!(input.contains("[speaker speaker-1]"));
+    assert!(!input.contains("private-session-id"));
+    assert!(input.chars().count() <= 24_000);
+}
+
+#[test]
+fn empty_transcripts_never_register_title_requests() {
+    let (_path, mut database) = open_temp_db("title-empty");
+    database.add_subtitle(&subtitle(" \t\n\r ")).unwrap();
+    let (catalog, job) = database.create_conversation_with_title(true).unwrap();
+    assert!(job.is_none());
+    let ended = catalog
+        .conversations
+        .iter()
+        .find(|item| !item.active)
+        .unwrap();
+    assert!(database
+        .conversation_title_input(&ended.id)
+        .unwrap()
+        .is_empty());
+    assert!(matches!(
+        database.request_conversation_title(&ended.id, false, true),
+        Err(crate::error::AppError::Validation(_))
+    ));
+}
+
+#[test]
+fn version_8_adds_idle_title_state_without_changing_existing_conversations() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("version-7.db");
+    let mut database = Database::open(&path).unwrap();
+    let saved = database
+        .add_subtitle(&subtitle("Original transcript"))
+        .unwrap();
+    let id = saved.conversation_id.as_deref().unwrap();
+    database
+        .update_conversation(id, Some(Some("My title")), Some(Some("star")))
+        .unwrap();
+    database.create_conversation().unwrap();
+    let before = database.conversation_catalog().unwrap();
+    database
+        .conn
+        .execute_batch(
+            "DROP TRIGGER subtitles_title_deleted;
+         ALTER TABLE conversations DROP COLUMN summary_title;
+         ALTER TABLE conversations DROP COLUMN title_generation_status;
+         ALTER TABLE conversations DROP COLUMN title_generation_error_code;
+         ALTER TABLE conversations DROP COLUMN title_generation_request_id;
+         PRAGMA user_version = 7;",
+        )
+        .unwrap();
+    drop(database);
+
+    let database = Database::open(&path).unwrap();
+    let after = database.conversation_catalog().unwrap();
+    assert_eq!(after.conversations.len(), before.conversations.len());
+    for (after, before) in after.conversations.iter().zip(&before.conversations) {
+        assert_eq!(after.id, before.id);
+        assert_eq!(after.custom_title, before.custom_title);
+        assert_eq!(after.automatic_title, before.automatic_title);
+        assert_eq!(after.icon, before.icon);
+        assert_eq!(after.ended_at, before.ended_at);
+        assert_eq!(after.subtitle_count, before.subtitle_count);
+        assert!(after.summary_title.is_none());
+        assert_eq!(after.title_generation_status, "idle");
+        assert!(after.title_generation_error_code.is_none());
+    }
+    assert_eq!(
+        database.subtitle(saved.id.unwrap()).unwrap().unwrap().text,
+        saved.text
+    );
+    assert_eq!(
+        database
+            .conn
+            .query_row("PRAGMA user_version", [], |row| row.get::<_, u32>(0))
+            .unwrap(),
+        8
+    );
+}
+
+#[test]
+fn restarting_marks_title_jobs_interrupted_without_removing_successful_titles() {
+    let (path, mut database) = open_temp_db("title-restart");
+    database.add_subtitle(&subtitle("Original")).unwrap();
+    let (_, job) = database.create_conversation_with_title(true).unwrap();
+    let job = job.unwrap();
+    database.start_conversation_title(&job).unwrap();
+    database
+        .finish_conversation_title(&job, Ok("Saved title"))
+        .unwrap();
+    database
+        .request_conversation_title(&job.conversation_id, true, true)
+        .unwrap();
+    drop(database);
+    let database = Database::open(&path).unwrap();
+    let catalog = database.conversation_catalog().unwrap();
+    let item = catalog
+        .conversations
+        .iter()
+        .find(|item| item.id == job.conversation_id)
+        .unwrap();
+    assert_eq!(item.summary_title.as_deref(), Some("Saved title"));
+    assert_eq!(item.title_generation_status, "failed");
+    assert_eq!(
+        item.title_generation_error_code.as_deref(),
+        Some("conversations.title_interrupted")
+    );
+}
+
+#[test]
 fn deleting_active_creates_replacement_before_waiting_writes_continue() {
     let (_path, database) = open_temp_db("conversation-delete-active");
     let shared = std::sync::Arc::new(std::sync::Mutex::new(database));
@@ -865,7 +1115,7 @@ fn version_4_preserves_existing_version_3_subtitles() {
     let original = db.add_subtitle(&subtitle("Keep existing history")).unwrap();
     db.conn
         .execute_batch(
-            "ALTER TABLE subtitle_translations DROP COLUMN source_group; ALTER TABLE subtitles DROP COLUMN speaker; ALTER TABLE learning_items DROP COLUMN anki_sync_pending; ALTER TABLE learning_items DROP COLUMN analysis_stale; ALTER TABLE learning_items DROP COLUMN draft_stale; PRAGMA user_version = 3;",
+            "ALTER TABLE subtitle_translations DROP COLUMN source_group; ALTER TABLE subtitles DROP COLUMN speaker; ALTER TABLE learning_items DROP COLUMN anki_sync_pending; ALTER TABLE learning_items DROP COLUMN analysis_stale; ALTER TABLE learning_items DROP COLUMN draft_stale; DROP TRIGGER subtitles_title_deleted; ALTER TABLE conversations DROP COLUMN summary_title; ALTER TABLE conversations DROP COLUMN title_generation_status; ALTER TABLE conversations DROP COLUMN title_generation_error_code; ALTER TABLE conversations DROP COLUMN title_generation_request_id; PRAGMA user_version = 3;",
         )
         .unwrap();
     drop(db);
@@ -897,7 +1147,7 @@ fn version_6_adds_anki_sync_pending_without_touching_exported_items() {
         .unwrap();
     db.conn
         .execute_batch(
-            "ALTER TABLE learning_items DROP COLUMN anki_sync_pending; ALTER TABLE learning_items DROP COLUMN analysis_stale; ALTER TABLE learning_items DROP COLUMN draft_stale; PRAGMA user_version = 5;",
+            "ALTER TABLE learning_items DROP COLUMN anki_sync_pending; ALTER TABLE learning_items DROP COLUMN analysis_stale; ALTER TABLE learning_items DROP COLUMN draft_stale; DROP TRIGGER subtitles_title_deleted; ALTER TABLE conversations DROP COLUMN summary_title; ALTER TABLE conversations DROP COLUMN title_generation_status; ALTER TABLE conversations DROP COLUMN title_generation_error_code; ALTER TABLE conversations DROP COLUMN title_generation_request_id; PRAGMA user_version = 5;",
         )
         .unwrap();
     drop(db);
@@ -922,7 +1172,7 @@ fn version_5_preserves_history_and_round_trips_session_scoped_speakers() {
     let legacy = db.add_subtitle(&subtitle("Legacy history")).unwrap();
     db.conn
         .execute_batch(
-            "ALTER TABLE subtitles DROP COLUMN speaker; ALTER TABLE learning_items DROP COLUMN anki_sync_pending; ALTER TABLE learning_items DROP COLUMN analysis_stale; ALTER TABLE learning_items DROP COLUMN draft_stale; PRAGMA user_version = 4;",
+            "ALTER TABLE subtitles DROP COLUMN speaker; ALTER TABLE learning_items DROP COLUMN anki_sync_pending; ALTER TABLE learning_items DROP COLUMN analysis_stale; ALTER TABLE learning_items DROP COLUMN draft_stale; DROP TRIGGER subtitles_title_deleted; ALTER TABLE conversations DROP COLUMN summary_title; ALTER TABLE conversations DROP COLUMN title_generation_status; ALTER TABLE conversations DROP COLUMN title_generation_error_code; ALTER TABLE conversations DROP COLUMN title_generation_request_id; PRAGMA user_version = 4;",
         )
         .unwrap();
     drop(db);

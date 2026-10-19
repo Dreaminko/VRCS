@@ -39,6 +39,7 @@ pub(super) async fn update_settings(
         features: update.features,
         server: update.server,
         storage: update.storage,
+        conversation_titles: update.conversation_titles,
         audio: update.audio,
         vad: update.vad,
         asr: update.asr,

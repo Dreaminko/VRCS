@@ -9,7 +9,8 @@ use serde_json::{json, Value};
 
 use crate::db::conversations::publish_catalog;
 
-use super::{api_error, db_call, ApiResult, ContentState};
+use super::{api_domain_error, api_error, db_call, ApiResult, ContentState, ServiceContext};
+use crate::conversation_titles;
 
 const ICONS: [&str; 16] = [
     "message",
@@ -33,6 +34,13 @@ const ICONS: [&str; 16] = [
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct EmptyRequest {}
+
+#[derive(Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+pub(super) struct GenerateTitleRequest {
+    #[serde(default)]
+    regenerate: bool,
+}
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -62,18 +70,80 @@ pub(super) async fn catalog(State(state): State<ContentState>) -> ApiResult<Json
 }
 
 pub(super) async fn create(
-    State(state): State<ContentState>,
+    State(state): State<ServiceContext>,
     Json(_input): Json<EmptyRequest>,
 ) -> ApiResult<Json<Value>> {
-    let conversation_catalog = state.conversation_catalog_tx.clone();
-    let catalog = db_call(Arc::clone(&state.db), move |db| {
-        let catalog = db.create_conversation()?;
+    let config = state.config.config.read().ok().and_then(|config| {
+        config
+            .conversation_titles
+            .auto_generate
+            .then(|| conversation_titles::configuration(&config))
+            .flatten()
+    });
+    let auto_generate = config.is_some();
+    let conversation_catalog = state.content.conversation_catalog_tx.clone();
+    let (catalog, job) = db_call(Arc::clone(&state.content.db), move |db| {
+        let (catalog, job) = db.create_conversation_with_title(auto_generate)?;
         publish_catalog(&conversation_catalog, &catalog);
-        Ok(catalog)
+        Ok((catalog, job))
     })
     .await
     .map_err(conversation_error("conversations.create_failed"))?;
+    if let (Some(job), Some(config)) = (job, config) {
+        conversation_titles::spawn(state, job, config, true);
+    }
     Ok(Json(json!(catalog)))
+}
+
+pub(super) async fn generate_title(
+    State(state): State<ServiceContext>,
+    Path(id): Path<String>,
+    Json(input): Json<GenerateTitleRequest>,
+) -> ApiResult<(StatusCode, Json<Value>)> {
+    validate_path_id(&id)?;
+    let config = state
+        .config
+        .config
+        .read()
+        .ok()
+        .and_then(|config| conversation_titles::configuration(&config));
+    let configured = config.is_some();
+    let requested_id = id.clone();
+    let sender = state.content.conversation_catalog_tx.clone();
+    let (catalog, job) = db_call(state.content.db.clone(), move |db| {
+        let result = db.request_conversation_title(&id, input.regenerate, configured)?;
+        if let Some((catalog, _)) = &result {
+            publish_catalog(&sender, catalog);
+        }
+        Ok(result)
+    })
+    .await
+    .map_err(|error| {
+        let code = match &error {
+            crate::error::AppError::Conflict(_) => "conversations.title_unavailable",
+            crate::error::AppError::Validation(_) if configured => "conversations.title_empty",
+            crate::error::AppError::Validation(_) => "conversations.title_not_configured",
+            _ => "conversations.title_service_failed",
+        };
+        api_domain_error(error, code)
+    })?
+    .ok_or_else(conversation_not_found)?;
+    let pending = job.is_some()
+        || catalog.conversations.iter().any(|item| {
+            item.id == requested_id
+                && matches!(item.title_generation_status.as_str(), "pending" | "running")
+        });
+    if let (Some(job), Some(config)) = (job, config) {
+        conversation_titles::spawn(state, job, config, false);
+    }
+    Ok((
+        if pending {
+            StatusCode::ACCEPTED
+        } else {
+            StatusCode::OK
+        },
+        Json(json!(catalog)),
+    ))
 }
 
 pub(super) async fn update(

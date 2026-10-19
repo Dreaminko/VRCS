@@ -8,6 +8,21 @@ use crate::providers::{
 };
 
 #[test]
+fn v33_conversation_titles_default_off_without_changing_existing_settings() {
+    let original = AppConfig::default();
+    let mut raw = serde_json::to_value(&original).unwrap();
+    raw["schema_version"] = serde_json::json!(33);
+    raw.as_object_mut().unwrap().remove("conversation_titles");
+    let migrated = config_from_value(&raw).unwrap();
+    assert_eq!(migrated, original);
+    assert!(!migrated.conversation_titles.auto_generate);
+    assert_eq!(
+        config_from_value(&serde_json::to_value(&migrated).unwrap()).unwrap(),
+        migrated
+    );
+}
+
+#[test]
 fn feature_switches_default_on_when_upgrading_v29() {
     let raw = serde_json::json!({"schema_version": 29});
     let config = config_from_value(&raw).unwrap();

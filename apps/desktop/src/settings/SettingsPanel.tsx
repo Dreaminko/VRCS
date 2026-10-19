@@ -146,6 +146,8 @@ export function SettingsPanel({
           draft={draft}
           applySettings={applySettings}
           updater={updater}
+          profiles={apiProfileCatalog.profiles}
+          onManageProfiles={() => setActiveCategory("api")}
         />
       )}
 

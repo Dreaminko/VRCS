@@ -111,7 +111,7 @@ fn dictionary_import_error(error: AppError) -> (StatusCode, Json<Value>) {
     api_domain_error(error, code)
 }
 
-async fn db_call<T, F>(db: Arc<Mutex<Database>>, operation: F) -> AppResult<T>
+pub(crate) async fn db_call<T, F>(db: Arc<Mutex<Database>>, operation: F) -> AppResult<T>
 where
     T: Send + 'static,
     F: FnOnce(&mut Database) -> AppResult<T> + Send + 'static,
@@ -206,6 +206,10 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route(
             "/api/conversations/{id}",
             patch(conversations::update).delete(conversations::delete_conversation),
+        )
+        .route(
+            "/api/conversations/{id}/title",
+            post(conversations::generate_title),
         )
         .route(
             "/api/conversations/{id}/subtitles",

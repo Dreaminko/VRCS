@@ -5,6 +5,7 @@ mod asr;
 mod audio;
 mod chatbox;
 mod config;
+mod conversation_titles;
 mod credentials;
 mod db;
 mod domain_events;

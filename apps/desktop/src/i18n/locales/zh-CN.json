@@ -199,6 +199,12 @@
       }
     },
     "conversations": {
+      "titleGenerate": "生成总结标题",
+      "titleRegenerate": "重新生成总结标题",
+      "titleGenerating": "正在生成标题…",
+      "titleSettings": "会话标题设置",
+      "titleClearCustom": "先恢复默认标题，再生成总结标题。",
+      "titleMatchCount": "会话标题 · {{count}} 条",
       "untitled": "未命名对话",
       "new": "新对话",
       "title": "对话",
@@ -215,15 +221,15 @@
       "loadOnOpen": "打开后加载",
       "loadOlderMessages": "加载更早消息",
       "loadingOlderMessages": "正在加载更早消息…",
-      "search": "搜索字幕",
-      "searchPlaceholder": "搜索原文或译文",
+      "search": "搜索对话",
+      "searchPlaceholder": "搜索标题、原文或译文",
       "clearSearch": "清除搜索",
       "searchHint": "输入关键词搜索全部对话",
       "searching": "正在搜索…",
       "searchFailed": "无法加载搜索结果，请重试。",
-      "searchEmpty": "没有找到相关字幕",
-      "searchResults": "字幕搜索结果",
-      "searchResultCount": "已显示 {{count}} 条结果",
+      "searchEmpty": "没有找到相关对话或字幕",
+      "searchResults": "对话搜索结果",
+      "searchResultCount": "字幕内容 · 已显示 {{count}} 条",
       "searchMore": "加载更多结果",
       "viewingPast": "正在查看 {{time}} 的对话",
       "returnCurrent": "返回当前对话",
@@ -592,6 +598,15 @@
         "installing": "正在安装更新…"
       },
       "errors": {
+      "conversations": {
+        "title_interrupted": "上次生成被中断，请重试。",
+        "title_service_failed": "标题生成失败，请检查模型服务后重试。",
+        "title_not_configured": "请在会话标题设置中检查 API 档案、凭据和模型。",
+        "title_timeout": "标题生成超时，请重试。",
+        "title_empty": "此会话没有可用于总结的字幕原文。",
+        "title_invalid_output": "模型未返回有效的单行标题，请重试。",
+        "title_unavailable": "请先结束会话，并恢复默认标题后再生成。"
+      },
     "feature": {
       "disabled": "此功能已关闭，可在系统设置的功能选项中重新开启。"
     },
@@ -911,6 +926,23 @@
         "showSample": "显示样本",
         "hideSample": "隐藏样本",
         "restoreDefaults": "恢复默认"
+      },
+      "conversationTitles": {
+        "title": "会话管理",
+        "autoGenerate": "自动生成会话标题",
+        "description": "新建对话结束旧会话后，根据字幕原文生成总结标题。停止转写仅暂停，不触发生成。",
+        "configureFirst": "请先选择可用的文本生成 API 档案并设置模型。",
+        "modelSettings": "标题生成模型",
+        "profile": "API 档案",
+        "noProfiles": "暂无支持文本生成的 API 档案。",
+        "selectProfile": "选择 API 档案",
+        "unavailableProfile": "原档案不可用，请重新选择",
+        "language": "标题语言",
+        "autoLanguage": "跟随对话主要语言",
+        "model": "模型",
+        "selectModel": "选择或输入模型名称",
+        "privacy": "生成标题会将本次会话的部分或全部字幕原文发送给所选模型服务，可能产生费用。",
+        "manageProfiles": "管理 API 档案"
       },
       "system": {
         "title": "系统",

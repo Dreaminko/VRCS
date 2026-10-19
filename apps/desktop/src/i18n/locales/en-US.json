@@ -199,6 +199,12 @@
       }
     },
     "conversations": {
+      "titleGenerate": "Generate summary title",
+      "titleRegenerate": "Regenerate summary title",
+      "titleGenerating": "Generating title…",
+      "titleSettings": "Conversation title settings",
+      "titleClearCustom": "Restore the default title before generating a summary title.",
+      "titleMatchCount": "Conversation titles · {{count}}",
       "untitled": "Untitled conversation",
       "new": "New conversation",
       "title": "Conversations",
@@ -215,15 +221,15 @@
       "loadOnOpen": "Load when opened",
       "loadOlderMessages": "Load earlier messages",
       "loadingOlderMessages": "Loading earlier messages…",
-      "search": "Search subtitles",
-      "searchPlaceholder": "Search originals or translations",
+      "search": "Search conversations",
+      "searchPlaceholder": "Search titles, originals, or translations",
       "clearSearch": "Clear search",
       "searchHint": "Enter a keyword to search all conversations",
       "searching": "Searching…",
       "searchFailed": "We couldn't load search results. Try again.",
-      "searchEmpty": "No matching subtitles",
-      "searchResults": "Subtitle search results",
-      "searchResultCount": "Showing {{count}} results",
+      "searchEmpty": "No matching conversations or subtitles",
+      "searchResults": "Conversation search results",
+      "searchResultCount": "Subtitle content · {{count}} shown",
       "searchMore": "Load more results",
       "viewingPast": "Viewing a conversation from {{time}}",
       "returnCurrent": "Return to current conversation",
@@ -592,6 +598,15 @@
         "installing": "Installing update…"
       },
       "errors": {
+      "conversations": {
+        "title_interrupted": "The previous title request was interrupted. Try again.",
+        "title_service_failed": "Title generation failed. Check the model service and try again.",
+        "title_not_configured": "Check the API profile, credentials, and model in conversation title settings.",
+        "title_timeout": "Title generation timed out. Try again.",
+        "title_empty": "This conversation has no original transcript to summarize.",
+        "title_invalid_output": "The model did not return a valid single-line title. Try again.",
+        "title_unavailable": "End the conversation and restore its default title before generating a title."
+      },
     "feature": {
       "disabled": "This feature is turned off. Turn it on in System settings → Features."
     },
@@ -911,6 +926,23 @@
         "showSample": "Show sample",
         "hideSample": "Hide sample",
         "restoreDefaults": "Restore defaults"
+      },
+      "conversationTitles": {
+        "title": "Conversation management",
+        "autoGenerate": "Generate conversation titles automatically",
+        "description": "Generate a summary title from the transcript when a new conversation ends the previous one. Stopping transcription only pauses it.",
+        "configureFirst": "Select an available text generation API profile and set a model first.",
+        "modelSettings": "Title generation model",
+        "profile": "API profile",
+        "noProfiles": "No API profiles support text generation.",
+        "selectProfile": "Select an API profile",
+        "unavailableProfile": "Previous profile unavailable; select another",
+        "language": "Title language",
+        "autoLanguage": "Use the main conversation language",
+        "model": "Model",
+        "selectModel": "Select or enter a model name",
+        "privacy": "Title generation sends some or all of this conversation’s original transcript to the selected model service. Charges may apply.",
+        "manageProfiles": "Manage API profiles"
       },
       "system": {
         "title": "System",

@@ -129,6 +129,11 @@ function isCoreConversation(value: unknown): value is CoreConversation {
     && isText(value.started_at)
     && isNullableText(value.ended_at)
     && isNullableText(value.automatic_title)
+    && (value.summary_title === undefined || isNullableText(value.summary_title))
+    && (value.title_generation_status === undefined
+      || (typeof value.title_generation_status === "string"
+        && ["idle", "pending", "running", "ready", "failed"].includes(value.title_generation_status)))
+    && (value.title_generation_error_code === undefined || isNullableText(value.title_generation_error_code))
     && isNullableText(value.custom_title)
     && isNullableText(value.icon)
     && Number.isSafeInteger(value.subtitle_count)

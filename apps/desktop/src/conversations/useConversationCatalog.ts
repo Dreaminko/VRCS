@@ -173,6 +173,17 @@ export function useConversationCatalog({
     }
   }, [applyCatalog, authoritativeResponse, catalog, clearErrorFrom, reportError]);
 
+  const generateTitle = useCallback(async (id: string, regenerate: boolean) => {
+    const requestStartSequence = latestCatalogEventRef.current?.sequence ?? 0;
+    try {
+      const response = await conversationsApi.generateTitle(id, regenerate);
+      await applyCatalog(authoritativeResponse(response, requestStartSequence), "preserve");
+      clearErrorFrom("conversation-title");
+    } catch (reason) {
+      reportError(reason, "errors.operation", "conversation-title");
+    }
+  }, [applyCatalog, authoritativeResponse, clearErrorFrom, reportError]);
+
   return {
     catalog,
     selectedConversationId,
@@ -181,5 +192,6 @@ export function useConversationCatalog({
     createConversation,
     updateConversation,
     deleteConversation,
+    generateTitle,
   };
 }

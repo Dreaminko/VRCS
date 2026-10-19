@@ -16,11 +16,7 @@ import {
   INTERFACE_SCALE_STEP,
   normalizeInterfaceScale,
 } from "../../app/interface-scale";
-import {
-  readTranscriptionStartBehavior,
-  writeTranscriptionStartBehavior,
-  type TranscriptionStartBehavior,
-} from "../../capture/transcription-start";
+import type { ApiProfileView } from "../../providers/types";
 import type { Settings } from "../types";
 import type { UiLanguagePreference } from "../../app/ui-language";
 import type { ApplySettings, SaveState } from "../settings-types";
@@ -29,6 +25,7 @@ import { StorageSettingsSection } from "./StorageSettingsSection";
 import { FeatureSettingsCard } from "../system/FeatureSettingsCard";
 import { SoftwareUpdateSettings } from "../../updates/SoftwareUpdateSettings";
 import type { AppUpdaterState } from "../../updates/useAppUpdater";
+import { ConversationTitleSettingsSection } from "./ConversationTitleSettingsSection";
 
 export function SystemSettingsSection({
   desktopPreferences,
@@ -46,6 +43,8 @@ export function SystemSettingsSection({
   draft,
   applySettings,
   updater,
+  profiles,
+  onManageProfiles,
 }: {
   desktopPreferences: DesktopPreferences;
   desktopPreferencesReady: boolean;
@@ -62,13 +61,12 @@ export function SystemSettingsSection({
   draft: Settings;
   applySettings: ApplySettings;
   updater: AppUpdaterState;
+  profiles: ApiProfileView[];
+  onManageProfiles: () => void;
 }) {
   const { t } = useTranslation();
   const { themePreference, setThemePreference } = useAppTheme();
   const reducedMotion = useSyncExternalStore(subscribeReducedMotionPreference, currentReducedMotionPreference);
-  const [transcriptionStartBehavior, setTranscriptionStartBehavior] = useState(
-    readTranscriptionStartBehavior,
-  );
   const [interfaceScaleText, setInterfaceScaleText] = useState(() => String(interfaceScale));
 
   useEffect(() => {
@@ -142,32 +140,6 @@ export function SystemSettingsSection({
                 </button>
               ))}
             </div>
-          </div>
-          <div className="system-select-setting">
-            <div>
-              <strong>{t("settings.system.transcriptionStartBehavior")}</strong>
-            </div>
-            <Select
-              label={t("settings.system.transcriptionStartBehavior")}
-              value={transcriptionStartBehavior}
-              options={[
-                {
-                  value: "continue_current",
-                  label: t("settings.system.continueCurrentConversation"),
-                },
-                {
-                  value: "new_conversation",
-                  label: t("settings.system.createNewConversation"),
-                },
-              ]}
-              disabled={false}
-              hideLabel
-              onChange={(value) => {
-                const behavior = value as TranscriptionStartBehavior;
-                setTranscriptionStartBehavior(behavior);
-                writeTranscriptionStartBehavior(behavior);
-              }}
-            />
           </div>
           <div className="system-scale-setting">
             <div>
@@ -258,6 +230,11 @@ export function SystemSettingsSection({
             </button>
           </div>
         </section>
+        <ConversationTitleSettingsSection config={draft.conversation_titles} profiles={profiles}
+          onManageProfiles={onManageProfiles}
+          onChange={(patch) => applySettings((current) => ({
+            ...current, conversation_titles: { ...current.conversation_titles, ...patch },
+          }))} />
         <FeatureSettingsCard features={draft.features} disabled={false}
           onChange={(key, enabled) => applySettings((current) => ({
             ...current, features: { ...current.features, [key]: enabled },

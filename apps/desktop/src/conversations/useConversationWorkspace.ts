@@ -152,6 +152,7 @@ export function useConversationWorkspace({
     setConversationIcon,
     resetConversationCustomization,
     deleteConversation: catalogState.deleteConversation,
+    generateTitle: catalogState.generateTitle,
     liveScrollRef: liveScroll.liveScrollRef,
     followingLiveSubtitles: liveScroll.followingLiveSubtitles,
     selectedConversationHasOlder,

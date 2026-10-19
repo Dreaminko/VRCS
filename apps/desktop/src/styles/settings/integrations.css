@@ -21,7 +21,13 @@
 .learning-settings-group + .learning-settings-group { padding-top: var(--settings-group-gap); }
 .system-settings-group > .section-heading,
 .learning-settings-group > .section-heading { margin-bottom: 14px; }
-.system-features-group { interpolate-size: allow-keywords; }
+.system-settings-group.system-features-group {
+  margin-top: var(--settings-group-gap);
+  padding: var(--settings-card-padding);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  interpolate-size: allow-keywords;
+}
 .system-features-group > summary.section-heading { min-height: var(--settings-control-height); margin-bottom: 0; list-style: none; cursor: pointer; }
 .system-features-group > summary::-webkit-details-marker { display: none; }
 .system-features-group > summary:focus-visible { outline: 3px solid var(--primary); outline-offset: 2px; border-radius: var(--radius-sm); }
