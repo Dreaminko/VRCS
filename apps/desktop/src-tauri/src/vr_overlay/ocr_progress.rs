@@ -206,11 +206,10 @@ impl Feedback {
             };
             if self.terminal.is_none()
                 && now.saturating_duration_since(self.phase_started) >= Duration::from_secs(5)
+                && pipeline.recognition_phases.contains(&Phase::LoadingModel)
             {
-                if pipeline.recognition_phases.contains(&Phase::LoadingModel) {
-                    detail.push_str(" · ");
-                    detail.push_str(labels.text("firstScan", "First scan may take longer"));
-                }
+                detail.push_str(" · ");
+                detail.push_str(labels.text("firstScan", "First scan may take longer"));
             }
         }
         if self.displayed {
