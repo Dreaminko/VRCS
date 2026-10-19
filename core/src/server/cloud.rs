@@ -366,6 +366,7 @@ pub(super) async fn profile_delete(
         disable_translation_profile(&mut candidate, &profile_id);
     }
     disable_vision_profile(&mut candidate, &profile_id);
+    disable_title_profile(&mut candidate, &profile_id);
     let previous_credential = asr::read_stored_credential(&profile.id, &profile.provider)
         .map_err(|error| credential_error(&profile_id, error))?;
     commit_profile_config(&state, candidate).await?;
@@ -846,12 +847,23 @@ fn apply_profile_compatibility_fallbacks(
     if providers::resolve_profile_capability(profile, CAPABILITY_IMAGE_UNDERSTANDING).is_err() {
         disable_vision_profile(config, &profile.id);
     }
+    if providers::resolve_profile_capability(profile, CAPABILITY_TEXT_GENERATION).is_err() {
+        disable_title_profile(config, &profile.id);
+    }
 }
 
 fn disable_vision_profile(config: &mut crate::config::AppConfig, profile_id: &str) {
     if config.vision.profile_id.as_deref() == Some(profile_id) {
         config.vision.enabled = false;
         config.vision.profile_id = None;
+    }
+}
+
+fn disable_title_profile(config: &mut crate::config::AppConfig, profile_id: &str) {
+    let titles = &mut config.conversation_titles;
+    if titles.profile_id.as_deref() == Some(profile_id) {
+        titles.auto_generate = false;
+        titles.profile_id = None;
     }
 }
 
@@ -1047,6 +1059,29 @@ mod tests {
         assert!(config.vision.profile_id.is_some());
         disable_vision_profile(&mut config, "image");
         assert!(config.vision.profile_id.is_none());
+    }
+
+    #[test]
+    fn losing_or_deleting_text_profile_disables_conversation_titles() {
+        let mut config = crate::config::AppConfig::default();
+        config.conversation_titles.auto_generate = true;
+        config.conversation_titles.profile_id = Some("text".into());
+        config.conversation_titles.model = "title-model".into();
+        let profile = ApiProfile {
+            id: "text".into(),
+            provider: providers::OPENAI_COMPATIBLE_PROVIDER.into(),
+            enabled_capabilities: vec![CAPABILITY_IMAGE_UNDERSTANDING.into()],
+            ..Default::default()
+        };
+        apply_profile_compatibility_fallbacks(&mut config, &profile);
+        assert!(!config.conversation_titles.auto_generate);
+        assert!(config.conversation_titles.profile_id.is_none());
+        assert_eq!(config.conversation_titles.model, "title-model");
+        config.conversation_titles.profile_id = Some("text".into());
+        disable_title_profile(&mut config, "unrelated");
+        assert!(config.conversation_titles.profile_id.is_some());
+        disable_title_profile(&mut config, "text");
+        assert!(config.conversation_titles.profile_id.is_none());
     }
 
     #[test]
