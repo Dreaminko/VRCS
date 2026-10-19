@@ -53,7 +53,13 @@ Turn off unused features in **Settings › System › Features** to hide their s
 - Send microphone subtitles and translations to the VRChat OSC Chatbox, with quick input, translation preview, multilingual output, and optional OSCQuery mute synchronization.
 - Read multilingual subtitles in your SteamVR headset or on your wrist. Adjust subtitle layout, languages, and Chatbox settings from the dashboard.
 - Select text on your desktop or in VR for OCR translation. Use local PP-OCRv6 on CPU or DirectML GPU; view results in a desktop window, on your wrist, or over the source text in VR.
-- Ask questions about selected images on your desktop or in VR. Type or dictate on the desktop; hold the left trigger to speak in VR. Answers appear in a separate window or a wrist panel with Markdown support. OCR is not required.
+
+https://github.com/user-attachments/assets/aa57a9d3-def5-47ad-ba5b-2af792f54349
+
+- Ask questions about selected images on your desktop or in VR. Type or dictate on the desktop; hold the left trigger to speak in VR. Answers appear in a separate window or a wrist panel with Markdown support.
+
+https://github.com/user-attachments/assets/2c898c18-ffa3-4c00-849e-b7c00a182a2a
+
 - Import Yomitan dictionaries, look up words or Ask AI from subtitles, and review definitions, sentence patterns, and conversations. Edit vocabulary, sentence-pattern, or cloze cards and send them to Anki through AnkiConnect.
 
 ## Privacy
