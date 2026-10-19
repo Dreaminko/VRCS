@@ -7,7 +7,7 @@ use axum::Json;
 use serde::{Deserialize, Deserializer};
 use serde_json::{json, Value};
 
-use crate::db::conversations::publish_catalog;
+use crate::db::conversations::{publish_catalog, TitleRequestError};
 
 use super::{api_domain_error, api_error, db_call, ApiResult, ContentState, ServiceContext};
 use crate::conversation_titles;
@@ -106,7 +106,7 @@ pub(super) async fn generate_title(
     let sender = state.content.conversation_catalog_tx.clone();
     let (catalog, job) = db_call(state.content.db.clone(), move |db| {
         let result = db.request_conversation_title(&id, input.regenerate, configured)?;
-        if let Some((catalog, _)) = &result {
+        if let Some(Ok((catalog, _))) = &result {
             publish_catalog(&sender, catalog);
         }
         Ok(result)
@@ -115,13 +115,23 @@ pub(super) async fn generate_title(
     .map_err(|error| {
         let code = match &error {
             crate::error::AppError::Conflict(_) => "conversations.title_unavailable",
-            crate::error::AppError::Validation(_) if configured => "conversations.title_empty",
-            crate::error::AppError::Validation(_) => "conversations.title_not_configured",
             _ => "conversations.title_service_failed",
         };
         api_domain_error(error, code)
     })?
-    .ok_or_else(conversation_not_found)?;
+    .ok_or_else(conversation_not_found)?
+    .map_err(|error| match error {
+        TitleRequestError::Empty => api_error(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "conversations.title_empty",
+            "The conversation has no text to summarize",
+        ),
+        TitleRequestError::NotConfigured => api_error(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "conversations.title_not_configured",
+            "Select a valid text generation profile and model in conversation settings",
+        ),
+    })?;
     let pending = job.is_some()
         || catalog.conversations.iter().any(|item| {
             item.id == requested_id

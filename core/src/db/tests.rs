@@ -1,3 +1,4 @@
+use super::conversations::TitleRequestError;
 use super::dictionary::{like_prefix, INSERT_BATCH_SIZE};
 use super::*;
 use crate::models::{now_iso8601, DictionarySource, Subtitle, SubtitleTranslation};
@@ -300,6 +301,7 @@ fn conversation_titles_are_deduplicated_and_preserve_custom_titles_and_previous_
         .request_conversation_title(id, true, true)
         .unwrap()
         .unwrap()
+        .unwrap()
         .1
         .is_none());
     assert!(database.start_conversation_title(&job).unwrap());
@@ -328,10 +330,12 @@ fn conversation_titles_are_deduplicated_and_preserve_custom_titles_and_previous_
         .request_conversation_title(id, false, false)
         .unwrap()
         .unwrap()
+        .unwrap()
         .1
         .is_none());
     let retry = database
         .request_conversation_title(id, true, true)
+        .unwrap()
         .unwrap()
         .unwrap()
         .1
@@ -357,6 +361,7 @@ fn conversation_titles_are_deduplicated_and_preserve_custom_titles_and_previous_
         .request_conversation_title(id, true, true)
         .unwrap()
         .unwrap()
+        .unwrap()
         .1
         .unwrap();
     assert!(database
@@ -371,6 +376,7 @@ fn conversation_titles_are_deduplicated_and_preserve_custom_titles_and_previous_
     assert_eq!(saved.title_generation_status, "failed");
     assert!(database
         .request_conversation_title(id, true, true)
+        .unwrap()
         .unwrap()
         .unwrap()
         .1
@@ -391,6 +397,7 @@ fn user_deletions_invalidate_title_jobs_but_quota_trimming_keeps_them() {
             .unwrap();
         let job = database
             .request_conversation_title(&job.conversation_id, true, true)
+            .unwrap()
             .unwrap()
             .unwrap()
             .1
@@ -505,7 +512,11 @@ fn empty_transcripts_never_register_title_requests() {
         .is_empty());
     assert!(matches!(
         database.request_conversation_title(&ended.id, false, true),
-        Err(crate::error::AppError::Validation(_))
+        Ok(Some(Err(TitleRequestError::Empty)))
+    ));
+    assert!(matches!(
+        database.request_conversation_title(&ended.id, false, false),
+        Ok(Some(Err(TitleRequestError::Empty)))
     ));
 }
 

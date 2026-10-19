@@ -37,6 +37,14 @@ pub(crate) struct TitleJob {
     pub request_id: String,
 }
 
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum TitleRequestError {
+    Empty,
+    NotConfigured,
+}
+
+pub(crate) type TitleRequest = Result<(ConversationCatalog, Option<TitleJob>), TitleRequestError>;
+
 impl Database {
     pub fn conversation_catalog(&self) -> AppResult<ConversationCatalog> {
         catalog(&self.conn)
@@ -76,7 +84,7 @@ impl Database {
         id: &str,
         regenerate: bool,
         configured: bool,
-    ) -> AppResult<Option<(ConversationCatalog, Option<TitleJob>)>> {
+    ) -> AppResult<Option<TitleRequest>> {
         let transaction = self.conn.transaction()?;
         let state = transaction.query_row(
             "SELECT ended_at IS NOT NULL, custom_title IS NOT NULL, summary_title IS NOT NULL,
@@ -98,20 +106,16 @@ impl Database {
             None
         } else {
             if !has_text {
-                return Err(AppError::validation(
-                    "The conversation has no text to summarize",
-                ));
+                return Ok(Some(Err(TitleRequestError::Empty)));
             }
             if !configured {
-                return Err(AppError::validation(
-                    "Select a valid text generation profile and model in conversation settings",
-                ));
+                return Ok(Some(Err(TitleRequestError::NotConfigured)));
             }
             register_title(&transaction, id, regenerate)?
         };
         let catalog = catalog(&transaction)?;
         transaction.commit()?;
-        Ok(Some((catalog, job)))
+        Ok(Some(Ok((catalog, job))))
     }
 
     pub(crate) fn start_conversation_title(&self, job: &TitleJob) -> AppResult<bool> {
