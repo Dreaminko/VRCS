@@ -851,45 +851,34 @@ pub fn generate_draft(
     item: &LearningItem,
     card_type: LearningCardType,
 ) -> Result<LearningCardDraft, LearningError> {
+    let analysis = item.current_analysis();
+    let base_form = analysis.and_then(|value| non_empty(value.base_form.as_deref()));
     let selected = non_empty(item.selected_text.as_deref())
-        .or_else(|| {
-            item.current_analysis()
-                .and_then(|analysis| non_empty(analysis.base_form.as_deref()))
-        })
+        .or(base_form)
         .unwrap_or(item.working_text.trim());
-    let dictionary = item
-        .dictionary_entries
-        .iter()
-        .find(|entry| entry.term.trim() == selected)
-        .or_else(|| item.dictionary_entries.first());
+    let dictionary = select_dictionary_entry(&item.dictionary_entries, selected, base_form);
     // 句子类条目的 analysis.reading 是整句注音，不能作为单词卡的读音兜底。
     let reading = dictionary
-        .and_then(|entry| entry.reading.clone())
+        .and_then(|entry| non_empty(entry.reading.as_deref()))
         .or_else(|| {
-            item.current_analysis()
+            analysis
                 .filter(|_| item.kind == LearningKind::Word)
-                .and_then(|analysis| non_empty(analysis.reading.as_deref()))
-                .map(str::to_owned)
-        });
+                .and_then(|value| non_empty(value.reading.as_deref()))
+        })
+        .map(str::to_owned);
     let language = item
         .source_language
         .clone()
         .or_else(|| dictionary.map(|entry| entry.language.clone()));
-    let dictionary_name = dictionary.and_then(|entry| entry.dictionary.clone());
-    let meaning = item
-        .current_analysis()
-        .and_then(|analysis| non_empty(analysis.current_meaning.as_deref()))
+    let dictionary_name = dictionary
+        .and_then(|entry| non_empty(entry.dictionary.as_deref()))
+        .map(str::to_owned);
+    let meaning = dictionary
+        .and_then(|entry| non_empty(Some(&entry.definition)))
+        .or_else(|| analysis.and_then(|value| non_empty(value.current_meaning.as_deref())))
+        .or_else(|| analysis.and_then(|value| non_empty(Some(&value.summary))))
+        .or_else(|| non_empty(item.source_translation.as_deref()))
         .map(str::to_owned)
-        .or_else(|| {
-            dictionary
-                .and_then(|entry| non_empty(Some(&entry.definition)))
-                .map(str::to_owned)
-        })
-        .or_else(|| {
-            item.current_analysis()
-                .map(|analysis| analysis.summary.clone())
-        })
-        .or_else(|| non_empty(item.source_translation.as_deref()).map(str::to_owned))
         .unwrap_or_default();
 
     let card = match card_type {
@@ -907,10 +896,7 @@ pub fn generate_draft(
             reading: None,
             definition: non_empty(item.source_translation.as_deref())
                 .map(str::to_owned)
-                .or_else(|| {
-                    item.current_analysis()
-                        .map(|analysis| analysis.summary.clone())
-                })
+                .or_else(|| analysis.map(|value| value.summary.clone()))
                 .unwrap_or(meaning),
             context: item.working_text.clone(),
             dictionary: dictionary_name,
@@ -945,6 +931,34 @@ pub fn generate_draft(
     Ok(LearningCardDraft::from_card(card_type, card))
 }
 
+fn is_imported_dictionary_entry(entry: &DictionaryEntry) -> bool {
+    non_empty(entry.dictionary.as_deref()).is_some()
+}
+
+fn select_dictionary_entry<'a>(
+    entries: &'a [DictionaryEntry],
+    selected: &str,
+    base_form: Option<&str>,
+) -> Option<&'a DictionaryEntry> {
+    for imported in [true, false] {
+        let mut tier = entries
+            .iter()
+            .filter(|entry| is_imported_dictionary_entry(entry) == imported);
+        if let Some(entry) = tier.clone().find(|entry| entry.term.trim() == selected) {
+            return Some(entry);
+        }
+        if let Some(base) = base_form {
+            if let Some(entry) = tier.clone().find(|entry| entry.term.trim() == base) {
+                return Some(entry);
+            }
+        }
+        if let Some(entry) = tier.next() {
+            return Some(entry);
+        }
+    }
+    None
+}
+
 fn fill_blank_target(item: &LearningItem) -> Option<(&str, &str)> {
     let analysis = item.current_analysis();
     let candidates = item
@@ -955,6 +969,12 @@ fn fill_blank_target(item: &LearningItem) -> Option<(&str, &str)> {
         .chain(
             item.dictionary_entries
                 .iter()
+                .filter(|entry| is_imported_dictionary_entry(entry))
+                .chain(
+                    item.dictionary_entries
+                        .iter()
+                        .filter(|entry| !is_imported_dictionary_entry(entry)),
+                )
                 .map(|entry| entry.term.as_str()),
         )
         .chain(
@@ -989,12 +1009,17 @@ fn is_content_segment_role(role: &str) -> bool {
 
 /// 读音必须对应挖空的目标词，而不是条目里的第一个词典结果。
 fn fill_blank_reading(item: &LearningItem, target: &str) -> Option<String> {
-    if let Some(entry) = item
-        .dictionary_entries
-        .iter()
-        .find(|entry| entry.term.trim() == target)
-    {
-        return entry.reading.clone();
+    for imported in [true, false] {
+        if let Some(reading) = item
+            .dictionary_entries
+            .iter()
+            .filter(|entry| {
+                is_imported_dictionary_entry(entry) == imported && entry.term.trim() == target
+            })
+            .find_map(|entry| non_empty(entry.reading.as_deref()))
+        {
+            return Some(reading.to_owned());
+        }
     }
     if item.kind != LearningKind::Word {
         return None;
@@ -1729,6 +1754,61 @@ mod tests {
                 .code,
             "learning.draft_unavailable"
         );
+    }
+
+    #[test]
+    fn draft_generation_prioritizes_imported_dictionary_over_builtin_and_ai_analysis() {
+        let mut item = item();
+        item.kind = LearningKind::Word;
+        item.selected_text = Some("食べました".into());
+        item.dictionary_entries = vec![
+            DictionaryEntry {
+                term: "食べました".into(),
+                language: "ja".into(),
+                definition: "built-in definition".into(),
+                reading: None,
+                dictionary: None,
+            },
+            DictionaryEntry {
+                term: "食べる".into(),
+                language: "ja".into(),
+                definition: "imported dictionary definition".into(),
+                reading: Some("".into()),
+                dictionary: Some("ImportedDict".into()),
+            },
+        ];
+        item.analysis = Some(LearningAnalysis {
+            task_type: AnalysisTaskType::ContextualWordExplanation,
+            summary: "AI summary".into(),
+            current_meaning: Some("AI contextual meaning".into()),
+            reading: Some("たべました".into()),
+            base_form: Some("食べる".into()),
+            part_of_speech: Some("verb".into()),
+            register: None,
+            segments: Vec::new(),
+            grammar_points: Vec::new(),
+            uncertainties: Vec::new(),
+            memory_tip: None,
+            examples: Vec::new(),
+            confidence: AnalysisConfidence::High,
+            provider: OPENAI_PROVIDER.into(),
+            model: "gpt-test".into(),
+            prompt_version: PROMPT_VERSION.into(),
+        });
+
+        let vocabulary = generate_draft(&item, LearningCardType::Vocabulary).unwrap();
+        assert_eq!(vocabulary.definition, "imported dictionary definition");
+        assert_eq!(vocabulary.dictionary.as_deref(), Some("ImportedDict"));
+        assert_eq!(vocabulary.reading.as_deref(), Some("たべました"));
+
+        item.dictionary_entries.retain(|entry| entry.dictionary.is_none());
+        let builtin_vocabulary = generate_draft(&item, LearningCardType::Vocabulary).unwrap();
+        assert_eq!(builtin_vocabulary.definition, "built-in definition");
+        assert_eq!(builtin_vocabulary.dictionary, None);
+
+        item.dictionary_entries.clear();
+        let ai_fallback = generate_draft(&item, LearningCardType::Vocabulary).unwrap();
+        assert_eq!(ai_fallback.definition, "AI contextual meaning");
     }
 
     #[test]

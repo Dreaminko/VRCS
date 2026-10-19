@@ -674,6 +674,7 @@ fn dictionary_lookup_ranks_shorter_prefixes_first_and_deinflects_queries() {
         ["高く", "たかく", "", "", 10, ["highly"]],
         ["話", "はなし", "", "", 10, ["story"]],
         ["話す", "はなす", "", "", 10, ["to speak"]],
+        ["今日は", "こんにちは", "", "", 10, ["imported greeting"]],
         ["run", "run", "", "", 10, ["to move quickly"]]
     ]);
     writer.write_all(entries.to_string().as_bytes()).unwrap();
@@ -684,6 +685,11 @@ fn dictionary_lookup_ranks_shorter_prefixes_first_and_deinflects_queries() {
     let prefix_hits = database.lookup("食べ", 10).unwrap();
     assert_eq!(prefix_hits[0].term, "食べる");
     assert_eq!(prefix_hits[1].term, "食べ放題");
+
+    let imported_reading_hit = &database.lookup("こんにちは", 5).unwrap()[0];
+    assert_eq!(imported_reading_hit.term, "今日は");
+    assert_eq!(imported_reading_hit.dictionary.as_deref(), Some("LookupDict"));
+    assert_eq!(database.lookup("こんに", 5).unwrap()[0].term, "今日は");
 
     assert_eq!(database.lookup("食べました", 5).unwrap()[0].term, "食べる");
     assert_eq!(database.lookup("走っている", 5).unwrap()[0].term, "走る");

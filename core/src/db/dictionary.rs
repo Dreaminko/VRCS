@@ -56,7 +56,7 @@ fn insert_batch(
 }
 
 impl Database {
-    /// 分级查词：精确词条 → 内置精确 → 精确读音 → 词形还原精确 → 词条前缀 → 内置前缀 → 读音前缀 → 截短前缀精确。
+    /// 分级查词：精确词条 → 精确读音 → 内置精确 → 词形还原精确 → 词条前缀 → 读音前缀 → 内置前缀 → 截短前缀精确。
     pub fn lookup(&self, term: &str, limit: u32) -> AppResult<Vec<DictionaryEntry>> {
         let query = term.trim();
         if query.is_empty() {
@@ -78,17 +78,17 @@ impl Database {
         )? {
             return Ok(entries);
         }
-        let legacy_prefix =
-            self.lookup_legacy("term LIKE ? ESCAPE '\\' COLLATE NOCASE", &prefix, limit)?;
-        if !legacy_prefix.is_empty() {
-            return Ok(legacy_prefix);
-        }
         if let Some(entries) = self.lookup_imported(
             "entries.reading LIKE ? ESCAPE '\\' COLLATE NOCASE",
             &prefix,
             limit,
         )? {
             return Ok(entries);
+        }
+        let legacy_prefix =
+            self.lookup_legacy("term LIKE ? ESCAPE '\\' COLLATE NOCASE", &prefix, limit)?;
+        if !legacy_prefix.is_empty() {
+            return Ok(legacy_prefix);
         }
         for candidate in truncated_prefixes(query) {
             if let Some(entries) = self.lookup_exact(&candidate, limit)? {
@@ -104,11 +104,13 @@ impl Database {
         {
             return Ok(Some(entries));
         }
-        let legacy = self.lookup_legacy("term = ? COLLATE NOCASE", query, limit)?;
-        if !legacy.is_empty() {
-            return Ok(Some(legacy));
+        if let Some(entries) =
+            self.lookup_imported("entries.reading = ? COLLATE NOCASE", query, limit)?
+        {
+            return Ok(Some(entries));
         }
-        self.lookup_imported("entries.reading = ? COLLATE NOCASE", query, limit)
+        let legacy = self.lookup_legacy("term = ? COLLATE NOCASE", query, limit)?;
+        Ok((!legacy.is_empty()).then_some(legacy))
     }
 
     /// 查询导入的 Yomitan 词条；无结果时返回 None 以便进入下一级回退。

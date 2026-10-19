@@ -56,7 +56,11 @@ export function LearningItemDetail({
   const analyzing = workspace.busyByItem[item.id] === "analysis";
   const generating = workspace.busyByItem[item.id] === "draft";
   const textLabel = t(`learning.detail.textLabels.${item.kind}`);
-  const primaryEntry = item.dictionary_entries.find((entry) => entry.term.trim() === item.selected_text?.trim())
+  const selectedTerm = item.selected_text?.trim();
+  const importedEntries = item.dictionary_entries.filter((entry) => Boolean(entry.dictionary?.trim()));
+  const primaryEntry = importedEntries.find((entry) => entry.term.trim() === selectedTerm)
+    ?? importedEntries[0]
+    ?? item.dictionary_entries.find((entry) => entry.term.trim() === selectedTerm)
     ?? item.dictionary_entries[0];
   const otherEntries = item.dictionary_entries.filter((entry) => entry !== primaryEntry);
   const collapsedEntries = item.kind === "word" ? otherEntries : item.dictionary_entries;
