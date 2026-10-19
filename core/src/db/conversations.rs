@@ -170,7 +170,9 @@ impl Database {
                  FROM subtitles WHERE conversation_id = ?1 AND trim(text, char(9, 10, 13, 32)) <> ''
              )
              SELECT substr(s.source, 1, 16),
-                    CASE WHEN json_valid(s.speaker) THEN json_extract(s.speaker, '$.index') END,
+                    CASE WHEN json_valid(s.speaker) AND json_type(s.speaker, '$.index') = 'integer'
+                              AND json_extract(s.speaker, '$.index') >= 0
+                         THEN json_extract(s.speaker, '$.index') END,
                     substr(s.text, 1, ?4)
              FROM subtitles AS s JOIN ranked AS r ON r.id = s.id
              WHERE r.rank IN (SELECT n * (?3 - 1) / max(?2 - 1, 1) FROM samples)

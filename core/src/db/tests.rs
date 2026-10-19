@@ -459,6 +459,36 @@ fn title_input_samples_first_and_last_originals_with_a_strict_unicode_budget() {
 }
 
 #[test]
+fn title_input_ignores_malformed_speaker_indexes() {
+    let (_path, mut database) = open_temp_db("title-speakers");
+    for speaker in [
+        r#"{"id":"a","index":-1}"#,
+        r#"{"id":"b","index":1.5}"#,
+        r#"{"id":"c","index":"2"}"#,
+        r#"{"id":"d","index":3}"#,
+    ] {
+        let id = database
+            .add_subtitle(&subtitle(speaker))
+            .unwrap()
+            .id
+            .unwrap();
+        database
+            .conn
+            .execute(
+                "UPDATE subtitles SET speaker = ?1 WHERE id = ?2",
+                params![speaker, id],
+            )
+            .unwrap();
+    }
+    let (_, job) = database.create_conversation_with_title(true).unwrap();
+    let input = database
+        .conversation_title_input(&job.unwrap().conversation_id)
+        .unwrap();
+    assert_eq!(input.matches("[speaker] ").count(), 3);
+    assert!(input.contains("[speaker speaker-4] "));
+}
+
+#[test]
 fn empty_transcripts_never_register_title_requests() {
     let (_path, mut database) = open_temp_db("title-empty");
     database.add_subtitle(&subtitle(" \t\n\r ")).unwrap();
