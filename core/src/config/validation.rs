@@ -49,8 +49,10 @@ impl AppConfig {
                     .into(),
             );
         }
-        if !["auto", "zh-CN", "zh-Hant", "en-US", "ja-JP"]
-            .contains(&titles.output_language.as_str())
+        if titles.output_language != "auto"
+            && !TITLE_OUTPUT_LANGUAGES
+                .iter()
+                .any(|(code, _)| *code == titles.output_language)
         {
             return Err("Unsupported conversation_titles.output_language".into());
         }

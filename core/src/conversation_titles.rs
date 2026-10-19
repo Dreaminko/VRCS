@@ -2,7 +2,7 @@
 
 use std::time::{Duration, Instant};
 
-use crate::config::{ApiProfile, AppConfig};
+use crate::config::{ApiProfile, AppConfig, TITLE_OUTPUT_LANGUAGES};
 use crate::db::conversations::{publish_latest_catalog, TitleJob};
 use crate::error::AppResult;
 use crate::llm::{LlmClient, LlmRequest};
@@ -153,13 +153,10 @@ async fn generate(
     key: &str,
     input: &str,
 ) -> Result<String, &'static str> {
-    let language = match config.language.as_str() {
-        "zh-CN" => "Simplified Chinese",
-        "zh-Hant" => "Traditional Chinese",
-        "en-US" => "English",
-        "ja-JP" => "Japanese",
-        _ => "the main language of the conversation",
-    };
+    let language = TITLE_OUTPUT_LANGUAGES
+        .iter()
+        .find(|(code, _)| *code == config.language)
+        .map_or("the main language of the conversation", |(_, name)| *name);
     let instructions = format!(
         "Summarize the conversation as one useful, specific sidebar title in {language}. \
          Describe its main topic, activity, or purpose. Aim for 6–20 characters; never exceed 40 Unicode characters. \

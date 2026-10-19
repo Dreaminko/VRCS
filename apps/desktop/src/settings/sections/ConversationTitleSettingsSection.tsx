@@ -10,6 +10,9 @@ import { PreferenceToggle, Select } from "../SettingsControls";
 import { useTranslationProfileModels } from "../hooks/useTranslationProfileModels";
 import type { ConversationTitleSettings } from "../types";
 
+// Mirrors TITLE_OUTPUT_LANGUAGES in core; new UI locales must be added there first.
+const TITLE_OUTPUT_LANGUAGES = new Set(["en-US", "ja-JP", "zh-CN", "zh-Hant"]);
+
 export function ConversationTitleSettingsSection({ config, profiles, onChange, onManageProfiles }: {
   config: ConversationTitleSettings;
   profiles: ApiProfileView[];
@@ -61,7 +64,9 @@ export function ConversationTitleSettingsSection({ config, profiles, onChange, o
         <Select label={t("settings.conversationTitles.language")} value={config.output_language} disabled={false}
           options={[
             { value: "auto", label: t("settings.conversationTitles.autoLanguage") },
-            ...localeCatalog.map(({ _meta }) => ({ value: _meta.locale, label: _meta.name })),
+            ...localeCatalog
+              .filter(({ _meta }) => TITLE_OUTPUT_LANGUAGES.has(_meta.locale))
+              .map(({ _meta }) => ({ value: _meta.locale, label: _meta.name })),
           ]}
           onChange={(output_language) => onChange({ output_language })} />
         <div className="field">

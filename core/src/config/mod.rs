@@ -26,7 +26,7 @@ mod migration_tests;
 mod validation_tests;
 
 pub use audio::{AudioConfig, MicrophoneConfig, OutputConfig, VadConfig};
-pub use conversation_titles::ConversationTitleConfig;
+pub use conversation_titles::{ConversationTitleConfig, TITLE_OUTPUT_LANGUAGES};
 pub use features::{apply_feature_gates, FeatureConfig, FeatureKey};
 pub use glossary::{GlossaryCategory, GlossaryConfig, GlossaryEntry, GlossarySource};
 pub use integrations::{AnkiConfig, DictionaryConfig, OscConfig};
