@@ -1,7 +1,8 @@
+import { useMemo } from "react";
 import { LoaderCircle, SearchX } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
-import { timestamp } from "../app/app-utils";
+import { conversationTime, timestamp } from "../app/app-utils";
 import { contentLanguageTag } from "../app/ui-language";
 import type { SubtitleSearchHit } from "../subtitles/types";
 import { matchingConversationTitles, type ConversationSummary } from "./conversations";
@@ -35,7 +36,7 @@ export function ConversationSearchResults({
   const { t, i18n } = useTranslation();
   const locale = i18n.resolvedLanguage ?? "en-US";
 
-  const titleMatches = matchingConversationTitles(conversations, query);
+  const titleMatches = useMemo(() => matchingConversationTitles(conversations, query), [conversations, query]);
 
   return (
     <div className="conversation-search-results" aria-label={t("conversations.searchResults")}>
@@ -45,7 +46,9 @@ export function ConversationSearchResults({
           key={conversation.id} onClick={() => onSelectConversation(conversation.id)}>
           <span className="conversation-search-result-meta"><strong>
             <HighlightedText text={conversation.title} query={query.trim()} />
-          </strong></span>
+          </strong>
+            <time>{conversationTime(conversation.startedAt, locale, t("date.today"), t("date.yesterday"))}</time>
+          </span>
         </button>)}
       </>}
       {!searchable && <p className="conversation-search-status">{t("conversations.searchHint")}</p>}
