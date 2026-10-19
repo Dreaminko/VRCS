@@ -1801,7 +1801,8 @@ mod tests {
         assert_eq!(vocabulary.dictionary.as_deref(), Some("ImportedDict"));
         assert_eq!(vocabulary.reading.as_deref(), Some("たべました"));
 
-        item.dictionary_entries.retain(|entry| entry.dictionary.is_none());
+        item.dictionary_entries
+            .retain(|entry| entry.dictionary.is_none());
         let builtin_vocabulary = generate_draft(&item, LearningCardType::Vocabulary).unwrap();
         assert_eq!(builtin_vocabulary.definition, "built-in definition");
         assert_eq!(builtin_vocabulary.dictionary, None);

@@ -688,7 +688,10 @@ fn dictionary_lookup_ranks_shorter_prefixes_first_and_deinflects_queries() {
 
     let imported_reading_hit = &database.lookup("こんにちは", 5).unwrap()[0];
     assert_eq!(imported_reading_hit.term, "今日は");
-    assert_eq!(imported_reading_hit.dictionary.as_deref(), Some("LookupDict"));
+    assert_eq!(
+        imported_reading_hit.dictionary.as_deref(),
+        Some("LookupDict")
+    );
     assert_eq!(database.lookup("こんに", 5).unwrap()[0].term, "今日は");
 
     assert_eq!(database.lookup("食べました", 5).unwrap()[0].term, "食べる");
