@@ -32,17 +32,12 @@ pub(crate) fn configuration(config: &AppConfig) -> Option<TitleConfiguration> {
     })
 }
 
-pub(crate) fn spawn(
-    state: ServiceContext,
-    job: TitleJob,
-    config: TitleConfiguration,
-    automatic: bool,
-) {
+pub(crate) fn spawn(state: ServiceContext, job: TitleJob, automatic: bool) {
     tokio::spawn(async move {
         // A nested task lets a panic still release the pending or running state.
         let task = tokio::spawn({
             let (state, job) = (state.clone(), job.clone());
-            async move { run(&state, job, config, automatic).await }
+            async move { run(&state, job, automatic).await }
         });
         let error = match task.await {
             Ok(Ok(())) => return,
@@ -61,31 +56,36 @@ pub(crate) fn spawn(
     });
 }
 
-async fn run(
-    state: &ServiceContext,
-    job: TitleJob,
-    config: TitleConfiguration,
-    automatic: bool,
-) -> AppResult<()> {
+async fn run(state: &ServiceContext, job: TitleJob, automatic: bool) -> AppResult<()> {
     let _permit = state
         .content
         .conversation_title_slots
         .acquire()
         .await
         .map_err(|_| crate::error::AppError::internal("Title task queue is closed"))?;
-    let cancelled = automatic
-        && !state
-            .config
-            .config
-            .read()
-            .map(|config| config.conversation_titles.auto_generate)
-            .unwrap_or(false);
+    // Settings may change while queued, so read them only once the slot is ours.
+    let (enabled, config) = state
+        .config
+        .config
+        .read()
+        .map(|config| {
+            let enabled = !automatic || config.conversation_titles.auto_generate;
+            (enabled, enabled.then(|| configuration(&config)).flatten())
+        })
+        .unwrap_or((!automatic, None));
+    let configured = config.is_some();
     let sender = state.content.conversation_catalog_tx.clone();
     let task = job.clone();
     let input = db_call(state.content.db.clone(), move |db| {
-        if cancelled {
+        if !enabled {
             db.cancel_conversation_title(&task)?;
             publish_latest_catalog(db, &sender);
+            return Ok(None);
+        }
+        if !configured {
+            if db.finish_conversation_title(&task, Err("conversations.title_not_configured"))? {
+                publish_latest_catalog(db, &sender);
+            }
             return Ok(None);
         }
         if !db.start_conversation_title(&task)? {
@@ -96,7 +96,7 @@ async fn run(
         Ok(Some(input))
     })
     .await?;
-    let Some(input) = input else {
+    let (Some(input), Some(config)) = (input, config) else {
         return Ok(());
     };
     let started = Instant::now();
@@ -570,9 +570,54 @@ mod tests {
         title_state(&mut events, &next, "idle").await;
         assert!(received.try_recv().is_err());
 
+        // A queued manual request checks the settings again once it can run.
+        let next_path = format!("/api/conversations/{next}/title");
+        let permit = handle
+            .state
+            .content
+            .conversation_title_slots
+            .acquire()
+            .await
+            .unwrap();
+        assert_eq!(
+            api(
+                &client,
+                &handle,
+                reqwest::Method::POST,
+                &next_path,
+                json!({})
+            )
+            .await
+            .status(),
+            StatusCode::ACCEPTED
+        );
+        handle
+            .state
+            .config
+            .config
+            .write()
+            .unwrap()
+            .conversation_titles
+            .model
+            .clear();
+        drop(permit);
+        let failed = title_state(&mut events, &next, "failed").await;
+        assert_eq!(
+            failed.title_generation_error_code.as_deref(),
+            Some("conversations.title_not_configured")
+        );
+        assert!(received.try_recv().is_err());
+        handle
+            .state
+            .config
+            .config
+            .write()
+            .unwrap()
+            .conversation_titles
+            .model = "title-model".into();
+
         // Manual generation remains available when automatic generation is off.
         handle.state.config.config.write().unwrap().asr.api_profiles[0].timeout_ms = 500;
-        let next_path = format!("/api/conversations/{next}/title");
         assert_eq!(
             api(
                 &client,

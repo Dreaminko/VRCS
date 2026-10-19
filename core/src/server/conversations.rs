@@ -73,14 +73,10 @@ pub(super) async fn create(
     State(state): State<ServiceContext>,
     Json(_input): Json<EmptyRequest>,
 ) -> ApiResult<Json<Value>> {
-    let config = state.config.config.read().ok().and_then(|config| {
-        config
-            .conversation_titles
-            .auto_generate
-            .then(|| conversation_titles::configuration(&config))
-            .flatten()
+    let auto_generate = state.config.config.read().is_ok_and(|config| {
+        config.conversation_titles.auto_generate
+            && conversation_titles::configuration(&config).is_some()
     });
-    let auto_generate = config.is_some();
     let conversation_catalog = state.content.conversation_catalog_tx.clone();
     let (catalog, job) = db_call(Arc::clone(&state.content.db), move |db| {
         let (catalog, job) = db.create_conversation_with_title(auto_generate)?;
@@ -89,8 +85,8 @@ pub(super) async fn create(
     })
     .await
     .map_err(conversation_error("conversations.create_failed"))?;
-    if let (Some(job), Some(config)) = (job, config) {
-        conversation_titles::spawn(state, job, config, true);
+    if let Some(job) = job {
+        conversation_titles::spawn(state, job, true);
     }
     Ok(Json(json!(catalog)))
 }
@@ -101,13 +97,11 @@ pub(super) async fn generate_title(
     Json(input): Json<GenerateTitleRequest>,
 ) -> ApiResult<(StatusCode, Json<Value>)> {
     validate_path_id(&id)?;
-    let config = state
+    let configured = state
         .config
         .config
         .read()
-        .ok()
-        .and_then(|config| conversation_titles::configuration(&config));
-    let configured = config.is_some();
+        .is_ok_and(|config| conversation_titles::configuration(&config).is_some());
     let requested_id = id.clone();
     let sender = state.content.conversation_catalog_tx.clone();
     let (catalog, job) = db_call(state.content.db.clone(), move |db| {
@@ -133,8 +127,8 @@ pub(super) async fn generate_title(
             item.id == requested_id
                 && matches!(item.title_generation_status.as_str(), "pending" | "running")
         });
-    if let (Some(job), Some(config)) = (job, config) {
-        conversation_titles::spawn(state, job, config, false);
+    if let Some(job) = job {
+        conversation_titles::spawn(state, job, false);
     }
     Ok((
         if pending {
