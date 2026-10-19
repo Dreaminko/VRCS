@@ -39,17 +39,25 @@ pub(crate) fn spawn(
     automatic: bool,
 ) {
     tokio::spawn(async move {
-        if let Err(error) = run(&state, job.clone(), config, automatic).await {
-            tracing::warn!(conversation_id = job.conversation_id, %error, "Conversation title task failed");
-            let sender = state.content.conversation_catalog_tx.clone();
-            let _ = db_call(state.content.db.clone(), move |db| {
-                if db.finish_conversation_title(&job, Err("conversations.title_service_failed"))? {
-                    publish_latest_catalog(db, &sender);
-                }
-                Ok(())
-            })
-            .await;
-        }
+        // A nested task lets a panic still release the pending or running state.
+        let task = tokio::spawn({
+            let (state, job) = (state.clone(), job.clone());
+            async move { run(&state, job, config, automatic).await }
+        });
+        let error = match task.await {
+            Ok(Ok(())) => return,
+            Ok(Err(error)) => error.to_string(),
+            Err(error) => error.to_string(),
+        };
+        tracing::warn!(conversation_id = job.conversation_id, %error, "Conversation title task failed");
+        let sender = state.content.conversation_catalog_tx.clone();
+        let _ = db_call(state.content.db.clone(), move |db| {
+            if db.finish_conversation_title(&job, Err("conversations.title_service_failed"))? {
+                publish_latest_catalog(db, &sender);
+            }
+            Ok(())
+        })
+        .await;
     });
 }
 

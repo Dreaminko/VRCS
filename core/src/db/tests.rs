@@ -351,6 +351,30 @@ fn conversation_titles_are_deduplicated_and_preserve_custom_titles_and_previous_
         .unwrap();
     assert_eq!(saved.summary_title.as_deref(), Some("Interview practice"));
     assert_eq!(saved.title_generation_status, "failed");
+
+    // Tasks that fail before starting must not leave the conversation pending.
+    let queued = database
+        .request_conversation_title(id, true, true)
+        .unwrap()
+        .unwrap()
+        .1
+        .unwrap();
+    assert!(database
+        .finish_conversation_title(&queued, Err("conversations.title_service_failed"))
+        .unwrap());
+    let catalog = database.conversation_catalog().unwrap();
+    let saved = catalog
+        .conversations
+        .iter()
+        .find(|item| &item.id == id)
+        .unwrap();
+    assert_eq!(saved.title_generation_status, "failed");
+    assert!(database
+        .request_conversation_title(id, true, true)
+        .unwrap()
+        .unwrap()
+        .1
+        .is_some());
 }
 
 #[test]

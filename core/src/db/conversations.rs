@@ -137,7 +137,7 @@ impl Database {
                  title_generation_status = ?4, title_generation_error_code = ?5,
                  title_generation_request_id = NULL
              WHERE id = ?1 AND title_generation_request_id = ?2
-               AND title_generation_status = 'running' AND ended_at IS NOT NULL",
+               AND title_generation_status IN ('pending', 'running') AND ended_at IS NOT NULL",
             params![job.conversation_id, job.request_id, title, status, error],
         )? > 0)
     }
