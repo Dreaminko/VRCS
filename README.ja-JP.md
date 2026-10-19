@@ -53,7 +53,13 @@
 - マイク字幕と訳文をVRChat OSC Chatboxに送信。クイック入力、翻訳プレビュー、多言語出力、任意のOSCQueryミュート同期に対応。
 - SteamVRのヘッドセットや手首に多言語字幕を表示。ダッシュボードから字幕のレイアウト、言語、Chatbox設定を調整可能。
 - デスクトップやVRで文字を範囲選択してOCR翻訳。ローカルPP-OCRv6（CPU / DirectML GPU）を使い、結果をデスクトップウィンドウ、手首パネル、VRの原文位置に表示可能。
+
+https://github.com/user-attachments/assets/aa57a9d3-def5-47ad-ba5b-2af792f54349
+
 - デスクトップやVRで選択した画像について質問。デスクトップでは文字・音声入力、VRでは左トリガーを押しながら音声入力。回答は専用ウィンドウやMarkdown対応の手首パネルに表示され、OCRは不要。
+
+https://github.com/user-attachments/assets/2c898c18-ffa3-4c00-849e-b7c00a182a2a
+
 - Yomitan辞書をインポートし、字幕から辞書検索や「AIに質問」、語義説明、文型分析、会話レビューを利用可能。単語・文型・穴埋めカードを編集し、AnkiConnect経由でAnkiに送信。
 
 ## プライバシー

@@ -53,7 +53,13 @@
 - 将麦克风字幕和译文发送到 VRChat OSC Chatbox，支持快速输入、翻译预览、多语言输出和可选的 OSCQuery 静音同步。
 - 在 SteamVR 头显或手腕上阅读多语言字幕，通过仪表盘调整字幕布局、语言和 Chatbox 设置。
 - 在桌面或 VR 中框选文字进行 OCR 翻译，使用本地 PP-OCRv6（CPU / DirectML GPU），结果可显示在桌面窗口、手腕面板或 VR 原文位置。
+
+https://github.com/user-attachments/assets/aa57a9d3-def5-47ad-ba5b-2af792f54349
+
 - 对桌面或 VR 中的选区图片提问：桌面支持键入或语音输入，VR 中按住左扳机讲话。回答显示在独立窗口或支持 Markdown 的手腕面板上，无需启用 OCR。
+
+https://github.com/user-attachments/assets/2c898c18-ffa3-4c00-849e-b7c00a182a2a
+
 - 导入 Yomitan 词典，在字幕中查词或“问 AI”，进行词义解释、句型分析和会话回顾；编辑词汇、句型或完形填空卡，通过 AnkiConnect 发送到 Anki。
 
 ## 隐私
