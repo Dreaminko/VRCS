@@ -823,7 +823,7 @@
         "gestureDescription": "By default, press both grip buttons at the same time to start selection. Hold the left trigger to start Visual Q&A, then speak your question. Hold the right trigger to start OCR translation.",
         "gestureReady": "Hold a finger frame or both grips for 0.65 seconds. After the frame appears, move your hands to resize it, then hold the right trigger to confirm. If the trigger was already held, release it before pressing again. Release the pose or grips before confirmation to cancel.",
         "gestureUnavailable": "Hand and controller frame tracking is unavailable. VR OCR cannot start. Check tracking and the SteamVR frame bindings.",
-        "bindings": "Open SteamVR OCR bindings",
+        "bindings": "Open SteamVR controller bindings",
         "bindingFailed": "Could not open the SteamVR bindings. Check the VR connection.",
         "layoutLimited": "Some translations could not be displayed in full. Select a smaller region and scan again."
       },

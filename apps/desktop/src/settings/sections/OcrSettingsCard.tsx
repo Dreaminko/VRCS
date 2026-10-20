@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { ScanText, Trash2, Gamepad2, Download, RefreshCw, Monitor, Glasses, RectangleGoggles } from "lucide-react";
+import { ScanText, Trash2, Download, RefreshCw, Monitor, Glasses, RectangleGoggles } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { request } from "../../core-client/transport";
 import type { ApiProfileView } from "../../providers/types";
@@ -9,7 +9,6 @@ import { formatBytes } from "../settings-derived";
 import { DEFAULT_OCR_WRIST_SETTINGS, isOcrReady, VR_OVERLAY_POSITION_RANGES } from "../vr-overlay-settings";
 import { TranslationRouteList } from "../translation/TranslationRouteList";
 import type { DesktopOcrStatus } from "../../ocr/status";
-import { openVrOcrBindings } from "../../integrations/vr-overlay-native";
 import { ConfirmDialog } from "../../app/components/ConfirmDialog";
 import { ShortcutField } from "../../shared/ui/ShortcutField";
 import { SettingsDisclosure } from "../components/SettingsDisclosure";
@@ -25,7 +24,6 @@ export function OcrSettingsCard({ vrAvailable, config, profiles, disabled: savin
 }) {
   const { t, i18n } = useTranslation();
   const disabled = saving || !config.master_enabled;
-  const [error, setError] = useState("");
   const [models, setModels] = useState<VrOcrModelStatus | null>(null);
   const [execution, setExecution] = useState<OcrExecutionStatus | null>(null);
   const [modelBusy, setModelBusy] = useState(false);
@@ -213,14 +211,6 @@ export function OcrSettingsCard({ vrAvailable, config, profiles, disabled: savin
               {t("settings.vrOcr.results", { completed: runtime.completed_translations, failed: runtime.failed_translations })}
             </p>}
             {runtime?.layout_limited && <p className="vr-overlay-native-error" role="status">{t("settings.vrOcr.layoutLimited")}</p>}
-            <div className="vr-overlay-card-actions">
-              <button className="secondary-button" type="button"
-                disabled={disabled || !config.enabled || !runtime || runtime.state === "waiting_vr" || runtime.state === "disabled"}
-                onClick={() => { void openVrOcrBindings().catch(() => setError(t("settings.vrOcr.bindingFailed"))); }}>
-                <Gamepad2 size={15} />{t("settings.vrOcr.bindings")}
-              </button>
-            </div>
-            {error && <p className="vr-overlay-native-error" role="alert">{error}</p>}
             <div className="vr-overlay-range-grid">
               <RangeField label={t("settings.vrOcr.lifetime")} value={config.display_seconds} min={1} max={120} step={1}
                 disabled={disabled} formatValue={(value) => `${value}s`} onCommit={(display_seconds) => onChange({ display_seconds })} />

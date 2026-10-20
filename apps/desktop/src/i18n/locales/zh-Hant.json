@@ -823,7 +823,7 @@
         "gestureDescription": "預設同時按下雙手握持鍵啟動框選。長按左扳機觸發視覺問答，直接說出問題；長按右扳機觸發 OCR 翻譯。",
         "gestureReady": "保持拍照手勢或同時按住雙握持鍵 0.65 秒，待選框出現後移動雙手調整範圍，再長按右扳機確認。若此前已按住扳機，需先放開再按。確認前放開手勢或握持鍵可取消。",
         "gestureUnavailable": "目前未取得雙手或控制器選框追蹤，無法啟動 VR OCR。請檢查追蹤與 SteamVR 選框綁定。",
-        "bindings": "開啟 SteamVR OCR 綁定設定",
+        "bindings": "開啟 SteamVR 控制器綁定設定",
         "bindingFailed": "無法開啟 SteamVR 綁定設定，請檢查 VR 連線。",
         "layoutLimited": "部分譯文未能完整顯示，請縮小辨識範圍後重試。"
       },

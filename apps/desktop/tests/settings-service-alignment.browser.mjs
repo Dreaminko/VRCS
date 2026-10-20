@@ -167,10 +167,17 @@ test("settings follow the configured translation, recognition, network and VR se
           check(toggle.disabled === !loopback && draft.external_api.require_token === !loopback, 'Token policy matches the Core IP rules: ' + host);
         }
 
+        const bindings = () => [...document.querySelectorAll('#settings-panel-vision button')]
+          .filter(button => button.textContent.includes('settings.vrOcr.bindings'));
+        check(bindings().length === 1 && !bindings()[0].disabled && !document.querySelector('#vision-ocr'), 'Vision-only mode exposes one shared controller binding entry');
         document.querySelector('[role=switch][aria-label="settings.vrOcr.gesture"]').click();
         await settle();
         check(!draft.ocr.hand_gesture_enabled && draft.vision.enabled, 'Frame selection can be disabled while vision stays enabled');
-
+        await update({ features: { ...draft.features, vr_overlay: false } });
+        check(bindings()[0].disabled, 'Bindings require the VR runtime feature');
+        await update({ features: { ...draft.features, vr_overlay: true, ocr: true, visual_question_answering: false },
+          ocr: { ...draft.ocr, master_enabled: true, enabled: true } });
+        check(bindings().length === 1 && !bindings()[0].disabled, 'OCR uses the same binding entry');
         root.unmount();
         document.getElementById('result').textContent = 'PASS';
       } catch (error) { document.getElementById('result').textContent = 'FAIL: ' + error.message; }
