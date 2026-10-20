@@ -2,12 +2,14 @@ import { ArrowDown, ArrowUp, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 
+import { localizedError } from "../../app/app-utils";
+import { providersApi } from "../../providers/api";
 import { liveTranslationServiceName } from "../../providers/recognition-services";
 import { supportsLlmModels, supportsTranslation } from "../../providers/api-profile-purpose";
 import { EditableDropdownField } from "../../shared/ui/DropdownField";
 import { LanguagePicker } from "../../shared/ui/LanguagePicker";
 import { TRANSLATION_LANGUAGE_CODES } from "../../translation/translation-languages";
-import { switchTranslationProfile, translationModels, updateTranslationModel } from "../../translation/translation-model-selection";
+import { selectTranslationModel, switchTranslationProfile, translationModels, updateTranslationModel } from "../../translation/translation-model-selection";
 import { normalizeReasoningControlForModel } from "../../translation/translation-thinking";
 import type { ApiProfileView } from "../../providers/types";
 import type { TranslationTargetSettings } from "../types";
@@ -38,24 +40,44 @@ export function TranslationRouteList({
   onChange: (targets: TranslationTargetSettings[]) => void;
 }) {
   const { t } = useTranslation();
+  const [adding, setAdding] = useState(false);
+  const [addError, setAddError] = useState("");
   const translationProfiles = profiles.filter(supportsTranslation);
-  const addTarget = () => {
-    if (targets.length >= 3) return;
+  const addTarget = async () => {
+    if (adding || targets.length >= 3) return;
+    const profile = translationProfiles.find((item) => item.id === targets[0]?.profile_id) ?? translationProfiles[0];
+    if (!profile) return;
     const used = new Set(targets.map((target) => target.target_language));
-    const profile = translationProfiles[0];
-    const targetLanguage = (profile?.capabilities.supported_languages.length
+    const targetLanguage = (profile.capabilities.supported_languages.length
       ? profile.capabilities.supported_languages
       : TRANSLATION_LANGUAGE_CODES
     ).find((code) => !used.has(code)) ?? "en";
-    onChange([
-      ...targets,
-      {
-        target_language: targetLanguage,
-        profile_id: profile?.id ?? null,
-        model: "gpt-5-mini",
-        thinking_enabled: false,
-      },
-    ]);
+    setAdding(true);
+    setAddError("");
+    try {
+      let model = targets.find((target) => target.profile_id === profile.id && target.model.trim())?.model ?? "";
+      if (supportsLlmModels(profile) && !model) {
+        const catalog = await providersApi.apiProfileModels(profile.id);
+        model = selectTranslationModel(profile.provider, catalog.models, "", catalog.model_details) ?? "";
+        if (!model) {
+          setAddError(t("settings.translation.manualModel"));
+          return;
+        }
+      }
+      onChange([
+        ...targets,
+        {
+          target_language: targetLanguage,
+          profile_id: profile.id,
+          model,
+          thinking_enabled: false,
+        },
+      ]);
+    } catch (reason) {
+      setAddError(localizedError(reason, t, "errors.apiProfiles.models"));
+    } finally {
+      setAdding(false);
+    }
   };
   const move = (index: number, offset: number) => {
     const nextIndex = index + offset;
@@ -81,7 +103,7 @@ export function TranslationRouteList({
             target={target}
             profiles={translationProfiles}
             usedLanguages={targets.map((item) => item.target_language)}
-            disabled={disabled}
+            disabled={disabled || adding}
             canDelete={targets.length > 1}
             canMoveDown={index < targets.length - 1}
             onChange={(nextTarget) => {
@@ -98,12 +120,13 @@ export function TranslationRouteList({
       <button
         className="secondary-button translation-route-add"
         type="button"
-        disabled={disabled || targets.length >= 3 || !translationProfiles.length}
-        onClick={addTarget}
+        disabled={disabled || adding || targets.length >= 3 || !translationProfiles.length}
+        onClick={() => void addTarget()}
       >
         <Plus size={14} />
         {t("settings.translation.addRoute")}
       </button>
+      {addError && <small className="api-model-catalog-error" role="alert">{addError}</small>}
     </section>
   );
 }
