@@ -15,7 +15,6 @@ import { useTranslation } from "react-i18next";
 import { translationSettingsApi } from "../translation-api";
 import { localizedError } from "../../app/app-utils";
 import { ConfirmDialog } from "../../app/components/ConfirmDialog";
-import type { ApiProfileView } from "../../providers/types";
 import type {
   TranslationPromptPreview,
   TranslationSettings,
@@ -74,13 +73,13 @@ function ContextLimitInput({ value, min, max, step, disabled, onCommit }: {
 export function TranslationEnhancementSettings({
   translation,
   preferredTarget,
-  profile,
+  localContextOnly,
   disabled,
   onChange,
 }: {
   translation: TranslationSettings;
   preferredTarget: string;
-  profile: ApiProfileView;
+  localContextOnly: boolean;
   disabled: boolean;
   onChange: (patch: Partial<TranslationSettings["prompt"]>) => void;
 }) {
@@ -331,7 +330,7 @@ export function TranslationEnhancementSettings({
 
               <div className="translation-privacy-notice">
                 <ShieldCheck size={16} />
-                <span>{t(profile.is_local
+                <span>{t(localContextOnly
                   ? "settings.translation.contextPrivacyLocal"
                   : "settings.translation.contextPrivacyCloud")}</span>
               </div>

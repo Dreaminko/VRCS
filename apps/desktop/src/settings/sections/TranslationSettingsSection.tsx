@@ -2,7 +2,7 @@ import { Languages, Workflow } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { liveTranslationServiceName } from "../../providers/recognition-services";
-import { supportsContext, supportsTranslation } from "../../providers/api-profile-purpose";
+import { supportsContext, supportsLlmModels, supportsTranslation } from "../../providers/api-profile-purpose";
 import type { ApiProfileView } from "../../providers/types";
 import type {
   Settings,
@@ -22,10 +22,14 @@ export function TranslationSettingsSection({ draft, apiProfiles, applySettings }
   const { t } = useTranslation();
   const liveTranslate = Boolean(liveTranslationServiceName(draft.asr.backend));
   const translationProfiles = apiProfiles.filter(supportsTranslation);
-  const preferred = draft.translation.speaker_targets[0];
-  const enhancementProfile = translationProfiles.find(
-    (profile) => profile.id === preferred?.profile_id,
-  );
+  const nativeFirstRoute = liveTranslate && draft.translation.mode === "automatic";
+  const enhancementRoutes = [draft.translation.speaker_targets, draft.translation.microphone_targets]
+    .flatMap((targets) => nativeFirstRoute ? targets.slice(1) : targets)
+    .filter((target) => translationProfiles.some((profile) => profile.id === target.profile_id && supportsLlmModels(profile) && supportsContext(profile)));
+  const localContextOnly = enhancementRoutes.every((target) => {
+    const profile = translationProfiles.find((item) => item.id === target.profile_id);
+    return profile?.is_local ?? profile?.capabilities.is_local ?? false;
+  });
   const updateTranslation = (translation: TranslationSettings) => applySettings((current) => ({
     ...current,
     translation,
@@ -104,11 +108,11 @@ export function TranslationSettingsSection({ draft, apiProfiles, applySettings }
           </div>
         </div>
 
-        {!liveTranslate && enhancementProfile && supportsContext(enhancementProfile) && (
+        {enhancementRoutes.length > 0 && (
           <TranslationEnhancementSettings
             translation={draft.translation}
-            preferredTarget={preferred?.target_language ?? "zh-Hans"}
-            profile={enhancementProfile}
+            preferredTarget={enhancementRoutes[0].target_language}
+            localContextOnly={localContextOnly}
             disabled={false}
             onChange={(patch) => updateTranslation({
               ...draft.translation,

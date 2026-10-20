@@ -109,6 +109,7 @@ test("settings follow the configured translation, recognition, network and VR se
       };
       try {
         await wait(() => document.querySelectorAll('.api-profile-row').length === 4);
+        check(enhancement(), 'A microphone LLM route exposes global enhancement even when the speaker uses DeepL');
         failCatalogs = true;
         addRoute();
         await wait(() => draft.translation.microphone_targets.length === 2);
@@ -118,9 +119,12 @@ test("settings follow the configured translation, recognition, network and VR se
         addRoute();
         await wait(() => draft.translation.microphone_targets.length === 2);
         check(draft.translation.microphone_targets[1].model === 'custom-local-model', 'Compatible providers retain manually configured models');
+        check(document.querySelector('.translation-privacy-notice').textContent.includes('contextPrivacyLocal'), 'Local routes show local privacy scope');
         await setRoutes([target('local')], [target('deepseek')]);
+        check(document.querySelector('.translation-privacy-notice').textContent.includes('contextPrivacyCloud'), 'A cloud route prevents a local-only privacy claim');
         const native = target(null, 'ja', '');
         await setRoutes([native], [native], 'automatic', 'qwen_live_translate');
+        check(!enhancement(), 'Native Live routes do not expose LLM enhancement');
         addRoute();
         await wait(() => document.querySelector('.translation-route-group > [role=alert]'));
         check(draft.translation.microphone_targets.length === 1, 'Catalog failures never save an empty LLM route');
@@ -128,7 +132,9 @@ test("settings follow the configured translation, recognition, network and VR se
         addRoute();
         await wait(() => draft.translation.microphone_targets.length === 2);
         check(draft.translation.microphone_targets[1].model === 'deepseek-v4-flash', 'An unconfigured route selects a text model from its provider catalog');
+        check(enhancement(), 'Extra LLM routes expose enhancement alongside native Live translation');
         await setRoutes([target('deepseek')], [target('deepl')], 'manual', 'qwen_live_translate');
+        check(enhancement(), 'Manual translation exposes enhancement with a Live ASR backend');
 
         root.unmount();
         document.getElementById('result').textContent = 'PASS';
