@@ -1502,6 +1502,7 @@
         "invalidPort": "请输入 1 到 65535 之间的有效端口。",
         "includeInLlmContext": "将 VRCX 世界信息加入 LLM 上下文",
         "includeInAsrContext": "将 VRCX 成员名加入语音识别上下文",
+        "includeInAsrContextDescription": "仅对支持上下文的语音识别服务生效。",
         "test": "测试连接",
         "testing": "正在测试…",
         "testFailed": "VRCX-0 连接测试失败。",

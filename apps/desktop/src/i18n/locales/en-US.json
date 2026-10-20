@@ -1502,6 +1502,7 @@
         "invalidPort": "Enter a valid port from 1 to 65535.",
         "includeInLlmContext": "Include VRCX world data in LLM context",
         "includeInAsrContext": "Include VRCX member names in ASR context",
+        "includeInAsrContextDescription": "Only applies to speech recognition services that support context.",
         "test": "Test connection",
         "testing": "Testing…",
         "testFailed": "The VRCX-0 connection test failed.",

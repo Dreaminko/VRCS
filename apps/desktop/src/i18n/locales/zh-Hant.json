@@ -1502,6 +1502,7 @@
         "invalidPort": "請輸入 1 到 65535 之間的有效連線埠。",
         "includeInLlmContext": "將 VRCX 世界資訊加入 LLM 上下文",
         "includeInAsrContext": "將 VRCX 成員名稱加入 ASR 上下文",
+        "includeInAsrContextDescription": "僅對支援上下文的語音辨識服務生效。",
         "test": "測試連線",
         "testing": "正在測試…",
         "testFailed": "VRCX-0 連線測試失敗。",

@@ -1502,6 +1502,7 @@
         "invalidPort": "1～65535 の有効なポートを入力してください。",
         "includeInLlmContext": "VRCX のワールド情報を LLM コンテキストに含める",
         "includeInAsrContext": "VRCX のメンバー名を音声認識コンテキストに含める",
+        "includeInAsrContextDescription": "コンテキストに対応した音声認識サービスにのみ適用されます。",
         "test": "接続をテスト",
         "testing": "テスト中…",
         "testFailed": "VRCX-0 の接続テストに失敗しました。",

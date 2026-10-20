@@ -289,6 +289,7 @@ export function VrcxIntegrationSettingsCard({ config, saveState, onChange }: {
           />
           <PreferenceToggle
             title={t("settings.vrcx.includeInAsrContext")}
+            description={t("settings.vrcx.includeInAsrContextDescription")}
             checked={config.include_in_asr_context}
             disabled={false}
             onChange={(include_in_asr_context) => onChange({ include_in_asr_context })}
