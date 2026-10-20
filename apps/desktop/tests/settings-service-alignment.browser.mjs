@@ -149,6 +149,11 @@ test("settings follow the configured translation, recognition, network and VR se
         asrActions.updateRecognitionService('qwen_realtime');
         await wait(() => draft.asr.backend === 'qwen_realtime');
         check(draft.vad.silence_seconds === 0.5 && document.querySelector('input[type=range]').min === '0.1', 'Switching services preserves valid user thresholds');
+        [...document.querySelectorAll('.api-profile-row[aria-label=asr] button')]
+          .find(button => button.textContent.includes('testAsr')).click();
+        await wait(() => diagnostics.length > 0);
+        check(new URL(diagnostics[0]).searchParams.get('service_id') === 'qwen_realtime', 'ASR diagnostics test the selected service instead of the first service');
+
         root.unmount();
         document.getElementById('result').textContent = 'PASS';
       } catch (error) { document.getElementById('result').textContent = 'FAIL: ' + error.message; }

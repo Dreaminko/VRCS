@@ -256,7 +256,7 @@ export function ApiManagementSettingsSection({
                       {t("settings.apiManagement.refreshModels")}
                     </button>
                   )}
-                  {recognitionCapable && <button className="secondary-button" type="button" disabled={profiles.busy !== null || !credentialReady} onClick={() => void profiles.test(profile.id, "speech_to_text", recognitionServices[0].id)}>{t("settings.apiManagement.testAsr")}</button>}
+                  {recognitionCapable && <button className="secondary-button" type="button" disabled={profiles.busy !== null || !credentialReady} onClick={() => void profiles.test(profile.id, "speech_to_text", activationServiceId)}>{t("settings.apiManagement.testAsr")}</button>}
                   {translationCapable && <button className="secondary-button" type="button" disabled={profiles.busy !== null || !credentialReady} onClick={() => void profiles.test(profile.id, "text_translation", undefined, translationTestModel)}>{t("settings.apiManagement.testTranslation")}</button>}
                   <button
                     className="api-row-icon-button"
