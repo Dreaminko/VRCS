@@ -1007,12 +1007,12 @@
       "storage": {
         "title": "儲存",
 
-        "databaseUsage": "資料庫使用空間",
-        "databaseUsageDescription": "實際使用量不包含資料庫中可重用的閒置頁面；已分配空間則是資料庫檔案目前保留的磁碟空間。",
+        "databaseUsage": "字幕歷史使用空間",
+        "databaseUsageDescription": "字幕歷史使用量包含字幕及其索引，用於計算配額。已分配空間和可回收空間統計整個資料庫。",
         "ofQuota": "／{{quota}} 配額",
         "allocated": "已分配空間",
         "reclaimable": "可重用空間",
-        "overLimit": "資料庫實際使用量已超過配額。Core 會在寫入新記錄時刪除最舊字幕；若其他資料本身已超過配額，只清除字幕仍無法將使用量降至上限以下。",
+        "overLimit": "字幕歷史使用量已超過配額。Core 會在寫入字幕時刪除最舊記錄，並一律保留最新一筆。",
         "quota": "字幕記錄空間上限",
         "quotaDescription": "達到上限時自動刪除最舊字幕，並一律保留最新一筆記錄。範圍：10 MiB 至 10 GiB。",
         "quotaInvalid": "請輸入 {{min}} 至 {{max}} MiB 之間的空間上限。",

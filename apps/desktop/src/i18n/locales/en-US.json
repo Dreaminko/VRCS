@@ -1007,12 +1007,12 @@
       "storage": {
         "title": "Storage",
 
-        "databaseUsage": "Database usage",
-        "databaseUsageDescription": "Effective usage excludes reusable free pages. Allocated space is the disk space currently reserved by the database file.",
+        "databaseUsage": "Subtitle history usage",
+        "databaseUsageDescription": "Subtitle history usage includes subtitles and their indexes and counts toward the quota. Allocated and reclaimable space cover the entire database.",
         "ofQuota": "of {{quota}} quota",
         "allocated": "Allocated space",
         "reclaimable": "Reusable space",
-        "overLimit": "Effective database usage is above the quota. Core deletes the oldest subtitles when writing new records. If other data already exceeds the quota, clearing subtitles alone cannot bring usage below it.",
+        "overLimit": "Subtitle history usage is above the quota. Core deletes the oldest subtitles when writing new records and always retains the latest record.",
         "quota": "Subtitle history space limit",
         "quotaDescription": "Delete the oldest subtitles automatically at the limit while always retaining the latest record. Range: 10 MiB to 10 GiB.",
         "quotaInvalid": "Enter a space limit between {{min}} and {{max}} MiB.",

@@ -1007,13 +1007,13 @@
       "storage": {
         "title": "存储",
 
-        "databaseUsage": "数据库空间占用",
-        "databaseUsageDescription": "有效占用不包含库内可复用的空闲页；已分配空间是数据库文件当前保留的磁盘空间。",
+        "databaseUsage": "字幕历史空间占用",
+        "databaseUsageDescription": "字幕历史占用包含字幕及其索引，用于计算配额。已分配空间和可回收空间统计整个数据库。",
         "ofQuota": "/ {{quota}} 配额",
         "allocated": "已分配空间",
         "reclaimable": "库内可复用空间",
-        "overLimit": "数据库有效占用已超过配额。Core 会在写入字幕时删除最旧记录；如果其他数据本身超过配额，仅清理字幕也无法降到上限以下。",
-        "quota": "占用空间上限",
+        "overLimit": "字幕历史占用已超过配额。Core 会在写入字幕时删除最旧记录，并始终保留最新一条。",
+        "quota": "字幕历史空间上限",
         "quotaDescription": "达到上限后自动删除最旧字幕，始终保留最新一条。可设置 10 MiB 至 10 GiB。",
         "quotaInvalid": "请输入 {{min}} 至 {{max}} MiB 之间的空间上限。",
         "clearHistory": "清理字幕历史",
