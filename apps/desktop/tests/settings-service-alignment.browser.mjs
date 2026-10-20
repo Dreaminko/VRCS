@@ -136,6 +136,19 @@ test("settings follow the configured translation, recognition, network and VR se
         await setRoutes([target('deepseek')], [target('deepl')], 'manual', 'qwen_live_translate');
         check(enhancement(), 'Manual translation exposes enhancement with a Live ASR backend');
 
+        await update({ asr: { ...draft.asr, backend: 'qwen_realtime' } });
+        asrActions.updateRecognitionService('fun_asr_realtime');
+        await wait(() => draft.asr.backend === 'fun_asr_realtime');
+        check(draft.vad.silence_seconds === 0.2, 'Service selection raises the silence threshold to the Fun-ASR minimum');
+        check(document.querySelector('input[type=range]').min === '0.2', 'The Fun-ASR slider cannot select an invalid threshold');
+        await update({ asr: { ...draft.asr, backend: 'qwen_local_managed', active_profile_id: null }, vad: { ...draft.vad, silence_seconds: 0.1 } });
+        asrActions.updateRecognitionSource('asr');
+        await wait(() => draft.asr.backend === 'fun_asr_realtime');
+        check(draft.vad.silence_seconds === 0.2, 'Profile selection also raises the Fun-ASR minimum');
+        await update({ vad: { ...draft.vad, silence_seconds: 0.5 } });
+        asrActions.updateRecognitionService('qwen_realtime');
+        await wait(() => draft.asr.backend === 'qwen_realtime');
+        check(draft.vad.silence_seconds === 0.5 && document.querySelector('input[type=range]').min === '0.1', 'Switching services preserves valid user thresholds');
         root.unmount();
         document.getElementById('result').textContent = 'PASS';
       } catch (error) { document.getElementById('result').textContent = 'FAIL: ' + error.message; }

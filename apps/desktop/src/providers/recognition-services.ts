@@ -8,6 +8,10 @@ import type {
 
 export const MANAGED_QWEN_RECOGNITION_SOURCE = "managed_qwen";
 
+export function recognitionSilenceMinimum(backend: string): number {
+  return backend === "fun_asr_realtime" ? 0.2 : 0.1;
+}
+
 export function recognitionProfiles(profiles: ApiProfileView[]): ApiProfileView[] {
   return profiles.filter((profile) => profileSupportsCapability(profile, "speech_to_text"));
 }

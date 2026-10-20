@@ -1,15 +1,18 @@
 import { Clock3 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
+import { recognitionSilenceMinimum } from "../../providers/recognition-services";
 import type { Settings } from "../types";
 import { PreferenceToggle, RangeField } from "../SettingsControls";
 
 export function VadSettings({
   vad,
+  backend,
   disabled,
   onUpdate,
 }: {
   vad: Settings["vad"];
+  backend: string;
   disabled: boolean;
   onUpdate: <K extends keyof Settings["vad"]>(key: K, value: Settings["vad"][K]) => void;
 }) {
@@ -24,7 +27,7 @@ export function VadSettings({
         <RangeField
           label={t("settings.recognition.silence")}
           value={vad.silence_seconds}
-          min={0.1}
+          min={recognitionSilenceMinimum(backend)}
           max={2}
           step={0.1}
           disabled={disabled}

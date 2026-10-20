@@ -499,6 +499,9 @@ pub(super) async fn profile_activate(
     }
     candidate.asr.active_profile_id = Some(input.profile_id);
     candidate.asr.backend = input.service_id;
+    if candidate.asr.backend == providers::SERVICE_FUN_ASR_REALTIME {
+        candidate.vad.silence_seconds = candidate.vad.silence_seconds.max(0.2);
+    }
     commit_profile_config(&state, candidate).await?;
     profile_list_response(&state)
 }

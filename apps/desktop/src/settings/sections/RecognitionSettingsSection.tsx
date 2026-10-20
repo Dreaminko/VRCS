@@ -126,7 +126,7 @@ export function RecognitionSettingsSection({
           onDownloadRuntime={actions.downloadQwenRuntime}
           onCancelRuntimeDownload={actions.cancelQwenRuntimeDownload}
         />}
-        <VadSettings vad={draft.vad} disabled={false} onUpdate={actions.updateVad} />
+        <VadSettings vad={draft.vad} backend={draft.asr.backend} disabled={false} onUpdate={actions.updateVad} />
       </div>
       {usesManagedQwen && (
         <ModelManagerPanel

@@ -13,6 +13,7 @@ import type {
 import type { Settings } from "../types";
 import {
   recognitionServicesForProfile,
+  recognitionSilenceMinimum,
   selectRecognitionService,
 } from "../../providers/recognition-services";
 import { selectRecognitionSource } from "../settings-derived";
@@ -93,21 +94,27 @@ export function useAsrModels({
     });
   };
 
+  const applyAsrSelection = (select: (asr: Settings["asr"]) => Settings["asr"]) => {
+    draftController.applySettings((current) => {
+      const asr = select(current.asr);
+      return {
+        ...current,
+        asr,
+        vad: { ...current.vad, silence_seconds: Math.max(current.vad.silence_seconds, recognitionSilenceMinimum(asr.backend)) },
+      };
+    });
+  };
+
   const updateRecognitionSource = (source: string) => {
-    draftController.applySettings((current) => ({
-      ...current,
-      asr: selectRecognitionSource(current.asr, source, apiProfiles, providerDefinitions),
-    }));
+    applyAsrSelection((asr) => selectRecognitionSource(asr, source, apiProfiles, providerDefinitions));
   };
 
   const updateRecognitionService = (serviceId: string) => {
-    draftController.applySettings((current) => {
-      const profile = apiProfiles.find((item) => item.id === current.asr.active_profile_id);
+    applyAsrSelection((asr) => {
+      const profile = apiProfiles.find((item) => item.id === asr.active_profile_id);
       const service = recognitionServicesForProfile(profile, providerDefinitions)
         .find((item) => item.id === serviceId);
-      return service
-        ? { ...current, asr: selectRecognitionService(current.asr, service) }
-        : current;
+      return service ? selectRecognitionService(asr, service) : asr;
     });
   };
 
