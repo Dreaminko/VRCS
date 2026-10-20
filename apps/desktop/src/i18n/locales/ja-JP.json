@@ -936,13 +936,11 @@
         "profile": "API プロファイル",
         "noProfiles": "テキスト生成に対応する API プロファイルがありません。",
         "selectProfile": "API プロファイルを選択",
-        "unavailableProfile": "以前のプロファイルは利用できません。再選択してください",
+        "unavailableProfile": "利用不可",
         "language": "タイトルの言語",
         "autoLanguage": "会話の主な言語に合わせる",
         "model": "モデル",
-        "selectModel": "モデル名を選択または入力",
-        "privacy": "タイトル生成では、この会話の字幕原文の一部または全部を選択したモデルサービスに送信します。料金が発生する場合があります。",
-        "manageProfiles": "API プロファイルを管理"
+        "selectModel": "モデル名を選択または入力"
       },
       "system": {
         "title": "システム",

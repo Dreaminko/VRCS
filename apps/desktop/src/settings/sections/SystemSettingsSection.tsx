@@ -231,7 +231,6 @@ export function SystemSettingsSection({
           </div>
         </section>
         <ConversationTitleSettingsSection config={draft.conversation_titles} profiles={profiles}
-          onManageProfiles={onManageProfiles}
           onChange={(patch) => applySettings((current) => ({
             ...current, conversation_titles: { ...current.conversation_titles, ...patch },
           }))} />

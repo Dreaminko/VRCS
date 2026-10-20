@@ -66,6 +66,7 @@
   font: 13px/18px var(--font-mono);
   transition: border-color 140ms ease-out, background-color 140ms ease-out, box-shadow 140ms ease-out;
 }
+.editable-dropdown-control input:placeholder-shown { font-family: inherit; }
 .editable-dropdown-control input::placeholder { color: var(--text-quiet); }
 .editable-dropdown-control input:hover:not(:disabled) { border-color: var(--border-strong); background: var(--surface-elevated); }
 .editable-dropdown-control input:focus,
@@ -92,8 +93,7 @@
 .editable-dropdown-toggle:focus-visible { outline: 3px solid var(--focus-ring); outline-offset: -3px; }
 .editable-dropdown-toggle:active:not(:disabled) { transform: scale(0.96); }
 .editable-dropdown-toggle:disabled { color: var(--text-quiet); cursor: not-allowed; }
-.editable-dropdown-field .dropdown-menu { max-height: min(216px, 40vh); overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; }
-.editable-dropdown-field .dropdown-option > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.editable-dropdown-menu { max-height: min(216px, 40vh); overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; }
 .deck-tree-field {
   position: relative;
   min-width: 0;
@@ -221,6 +221,7 @@
   overflow-y: auto;
   overscroll-behavior: contain;
 }
+.dropdown-menu-floating .dropdown-option > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dropdown-menu-floating-dialog { z-index: 1700; }
 .dropdown-menu-searchable {
   display: flex;
@@ -256,7 +257,8 @@
   text-align: left;
   transition: color 120ms ease-out, background-color 120ms ease-out, transform 120ms ease-out;
 }
-.dropdown-option:hover { color: var(--text); background: var(--surface-subtle); }
+.dropdown-option:hover,
+.dropdown-option[data-active="true"] { color: var(--text); background: var(--surface-subtle); }
 .dropdown-option:focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 1px; }
 .dropdown-option:active { transform: scale(0.985); }
 .dropdown-option.selected { color: var(--primary-ink); background: var(--primary-softer); font-weight: 600; }

@@ -1,18 +1,10 @@
-import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
-import type { CSSProperties, KeyboardEvent as ReactKeyboardEvent, ReactNode } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import type { KeyboardEvent as ReactKeyboardEvent, ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Check, ChevronDown, Search } from "lucide-react";
 
-import {
-  INTERFACE_LAYOUT_CHANGE_EVENT,
-  interfaceLayoutPixels,
-  readAppliedInterfaceScaleFactor,
-} from "../../app/interface-scale";
-import { placeLookupPopover } from "../lib/popover-placement";
 import { useDismissibleLayer } from "../hooks/use-dismissible-layer";
-import { useDropdownMenuMotion } from "../hooks/use-dropdown-menu-motion";
-
-type FloatingMenuPosition = Pick<CSSProperties, "bottom" | "left" | "maxHeight" | "right" | "top" | "width">;
+import { useDropdownMenu } from "../hooks/use-dropdown-menu";
 
 export interface DropdownOption {
   value: string;
@@ -22,11 +14,7 @@ export interface DropdownOption {
   group?: string;
 }
 
-const FLOATING_MENU_GAP = 6;
-const FLOATING_MENU_MARGIN = 12;
-const FLOATING_MENU_MAX_HEIGHT = 216;
-
-export function DropdownField({ label, value, options, disabled = false, compact = false, floating = false, floatingLayer = "page", floatingWidth, searchable = false, searchPlaceholder, emptyLabel, createOption, icon, onChange }: {
+export function DropdownField({ label, value, options, disabled = false, compact = false, floating = false, floatingLayer = "page", floatingWidth, searchable = false, searchPlaceholder, emptyLabel, createOption, icon, placeholder, onChange }: {
   label: string;
   value: string;
   options: DropdownOption[];
@@ -40,25 +28,27 @@ export function DropdownField({ label, value, options, disabled = false, compact
   emptyLabel?: string;
   createOption?: (query: string) => DropdownOption | null;
   icon?: ReactNode;
+  placeholder?: string;
   onChange: (value: string) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
-  const [floatingPosition, setFloatingPosition] = useState<FloatingMenuPosition | null>(null);
-  const [floatingSide, setFloatingSide] = useState<"above" | "below">("below");
   const rootRef = useRef<HTMLDivElement | null>(null);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
-  const { menuRef, mounted: menuMounted } = useDropdownMenuMotion(open, !floating || floatingPosition !== null);
+  const {
+    menuRef,
+    menuMounted,
+    floatingMenuMounted,
+    floatingPosition,
+    floatingSide,
+  } = useDropdownMenu(open, { floating, floatingWidth, anchorRef: triggerRef, onClose: () => setOpen(false) });
   const searchRef = useRef<HTMLInputElement | null>(null);
   const focusMenuOnOpenRef = useRef(false);
   const menuId = useId();
-  const selected = options.find((option) => option.value === value) ?? options[0];
-  const normalizedQuery = normalizeSearch(query);
-  const filteredOptions = normalizedQuery
-    ? options.filter((option) => normalizeSearch(
-        `${option.label} ${option.description ?? ""} ${option.searchText ?? ""} ${option.value}`,
-      ).includes(normalizedQuery))
-    : options;
+  const matched = options.find((option) => option.value === value);
+  // With a placeholder, an unmatched value shows placeholder text instead of the first option.
+  const selected = placeholder ? matched : matched ?? options[0];
+  const filteredOptions = filterDropdownOptions(options, query);
   const createdOption = createOption?.(query) ?? null;
   const visibleOptions = createdOption
     && !filteredOptions.some((option) => option.value === createdOption.value)
@@ -72,10 +62,7 @@ export function DropdownField({ label, value, options, disabled = false, compact
   }, [disabled]);
 
   useEffect(() => {
-    if (!menuMounted) {
-      setQuery("");
-      setFloatingPosition(null);
-    }
+    if (!menuMounted) setQuery("");
   }, [menuMounted]);
 
   const choose = (next: string) => {
@@ -83,78 +70,6 @@ export function DropdownField({ label, value, options, disabled = false, compact
     setOpen(false);
     requestAnimationFrame(() => triggerRef.current?.focus({ preventScroll: true }));
   };
-
-  const updateFloatingPosition = useCallback(() => {
-    if (!floating || !open || !triggerRef.current) return;
-
-    const scale = readAppliedInterfaceScaleFactor();
-    const rect = triggerRef.current.getBoundingClientRect();
-    const boundary = triggerRef.current.closest<HTMLElement>("[data-floating-boundary]");
-    if (boundary) {
-      const boundaryRect = boundary.getBoundingClientRect();
-      if (rect.bottom <= boundaryRect.top || rect.top >= boundaryRect.bottom) {
-        setOpen(false);
-        return;
-      }
-    }
-    const viewportWidth = interfaceLayoutPixels(window.innerWidth, scale);
-    const viewportHeight = interfaceLayoutPixels(window.innerHeight, scale);
-    const width = Math.min(
-      Math.max(interfaceLayoutPixels(rect.width, scale), floatingWidth ?? 0),
-      viewportWidth - FLOATING_MENU_MARGIN * 2,
-    );
-    const triggerLeft = interfaceLayoutPixels(rect.left, scale);
-    const left = Math.min(
-      Math.max(FLOATING_MENU_MARGIN, triggerLeft),
-      viewportWidth - FLOATING_MENU_MARGIN - width,
-    );
-    const menuHeight = menuRef.current
-      ? Math.min(menuRef.current.scrollHeight, FLOATING_MENU_MAX_HEIGHT)
-      : FLOATING_MENU_MAX_HEIGHT;
-    const placement = placeLookupPopover({
-      anchor: {
-        top: interfaceLayoutPixels(rect.top, scale),
-        bottom: interfaceLayoutPixels(rect.bottom, scale),
-        centerX: triggerLeft + width / 2,
-      },
-      popoverHeight: menuHeight,
-      viewportHeight,
-      gap: FLOATING_MENU_GAP,
-      margin: FLOATING_MENU_MARGIN,
-    });
-
-    setFloatingSide(placement.side);
-    setFloatingPosition({
-      bottom: "auto",
-      left,
-      maxHeight: placement.maxHeight,
-      right: "auto",
-      top: placement.top,
-      width,
-    });
-  }, [floating, floatingWidth, open]);
-
-  useLayoutEffect(() => {
-    if (!floating) {
-      setFloatingPosition(null);
-      return;
-    }
-    if (!open) return;
-
-    updateFloatingPosition();
-    window.addEventListener(INTERFACE_LAYOUT_CHANGE_EVENT, updateFloatingPosition);
-    document.addEventListener("scroll", updateFloatingPosition, true);
-    return () => {
-      window.removeEventListener(INTERFACE_LAYOUT_CHANGE_EVENT, updateFloatingPosition);
-      document.removeEventListener("scroll", updateFloatingPosition, true);
-    };
-  }, [floating, open, updateFloatingPosition]);
-
-  const floatingMenuMounted = floatingPosition !== null;
-  useLayoutEffect(() => {
-    if (!floating || !open || !floatingMenuMounted || !menuRef.current) return;
-    updateFloatingPosition();
-  }, [floating, floatingMenuMounted, open, updateFloatingPosition]);
 
   useLayoutEffect(() => {
     if (!open || !focusMenuOnOpenRef.current || !menuRef.current) return;
@@ -320,7 +235,7 @@ export function DropdownField({ label, value, options, disabled = false, compact
         }}
       >
         {icon && <span className="dropdown-icon">{icon}</span>}
-        <span className="dropdown-value">{selected?.label ?? value}</span>
+        <span className="dropdown-value">{selected?.label ?? placeholder ?? value}</span>
         <ChevronDown className="dropdown-chevron" size={16} />
       </button>
       {menuMounted && (!floating || floatingPosition) && (
@@ -338,6 +253,15 @@ function normalizeSearch(value: string): string {
     .trim();
 }
 
+function filterDropdownOptions(options: DropdownOption[], query: string): DropdownOption[] {
+  const normalizedQuery = normalizeSearch(query);
+  return normalizedQuery
+    ? options.filter((option) => normalizeSearch(
+        `${option.label} ${option.description ?? ""} ${option.searchText ?? ""} ${option.value}`,
+      ).includes(normalizedQuery))
+    : options;
+}
+
 export function EditableDropdownField({
   label,
   value,
@@ -346,81 +270,166 @@ export function EditableDropdownField({
   optionsDisabled = false,
   placeholder,
   commitOnBlur = false,
+  floating = true,
   onChange,
 }: {
   label: string;
   value: string;
-  options: Array<{ value: string; label: string }>;
+  options: DropdownOption[];
   disabled?: boolean;
   optionsDisabled?: boolean;
   placeholder?: string;
   commitOnBlur?: boolean;
+  floating?: boolean;
   onChange: (value: string) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [activeValue, setActiveValue] = useState<string | null>(null);
   const [draftValue, setDraftValue] = useState(value);
   const submittedValueRef = useRef(value);
   const rootRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
-  const { menuRef, mounted: menuMounted } = useDropdownMenuMotion(open);
+  const controlRef = useRef<HTMLDivElement | null>(null);
+  const { menuRef, menuMounted, floatingPosition, floatingSide } = useDropdownMenu(open, {
+    floating,
+    anchorRef: controlRef,
+    onClose: () => setOpen(false),
+  });
   const menuId = useId();
   const listDisabled = disabled || optionsDisabled || options.length === 0;
+  const visibleOptions = filterDropdownOptions(options, query);
+  const activeIndex = visibleOptions.findIndex((option) => option.value === activeValue);
+  const activeId = open && activeIndex >= 0 ? `${menuId}-option-${activeIndex}` : undefined;
+
+  const closeMenu = () => {
+    setOpen(false);
+    setActiveValue(null);
+  };
 
   useEffect(() => {
     setDraftValue(value);
     submittedValueRef.current = value;
   }, [value]);
 
-  useDismissibleLayer(open, rootRef, () => setOpen(false));
+  useDismissibleLayer(open, rootRef, closeMenu, menuRef);
 
   useEffect(() => {
-    if (listDisabled) setOpen(false);
-  }, [listDisabled]);
+    if (listDisabled || !visibleOptions.length) closeMenu();
+  }, [listDisabled, visibleOptions.length]);
+
+  useLayoutEffect(() => {
+    if (activeId) document.getElementById(activeId)?.scrollIntoView({ block: "nearest" });
+  }, [activeId, floatingPosition]);
 
   const choose = (next: string) => {
     setDraftValue(next);
     submittedValueRef.current = next;
     onChange(next);
-    setOpen(false);
-    inputRef.current?.focus();
+    closeMenu();
+    inputRef.current?.focus({ preventScroll: true });
   };
+
+  const menu = (
+    <div
+      className={`dropdown-menu editable-dropdown-menu ${floating ? "dropdown-menu-floating" : ""}`}
+      id={menuId}
+      ref={menuRef}
+      role="listbox"
+      aria-label={label}
+      aria-hidden={!open}
+      inert={!open}
+      data-side={floating ? floatingSide : undefined}
+      style={floating ? floatingPosition ?? undefined : undefined}
+    >
+      {visibleOptions.map((option, index) => {
+        const current = option.value === value;
+        return (
+          <button
+            className={`dropdown-option ${current ? "selected" : ""}`}
+            id={`${menuId}-option-${index}`}
+            key={option.value}
+            type="button"
+            role="option"
+            tabIndex={-1}
+            aria-selected={current}
+            data-active={index === activeIndex ? "true" : undefined}
+            onMouseDown={(event) => {
+              if (event.button === 0) event.preventDefault();
+            }}
+            onClick={() => choose(option.value)}
+          >
+            <span className="dropdown-option-copy">
+              <span>{option.label}</span>
+              {option.description && <small>{option.description}</small>}
+            </span>
+            {current && <Check size={15} />}
+          </button>
+        );
+      })}
+    </div>
+  );
 
   return (
     <div
       className={`dropdown-field editable-dropdown-field ${open ? "open" : ""} ${menuMounted ? "menu-visible" : ""}`}
       ref={rootRef}
       onBlur={(event) => {
-        if (!commitOnBlur || event.currentTarget.contains(event.relatedTarget)) return;
+        if (event.currentTarget.contains(event.relatedTarget)) return;
+        if (menuRef.current?.contains(event.relatedTarget)) return;
+        closeMenu();
+        if (!commitOnBlur) return;
         if (draftValue === submittedValueRef.current) return;
         submittedValueRef.current = draftValue;
         onChange(draftValue);
       }}
+      onKeyDownCapture={(event) => {
+        if (event.key !== "Escape" || !open) return;
+        event.stopPropagation();
+        if (event.nativeEvent.isComposing) return;
+        event.preventDefault();
+        closeMenu();
+      }}
     >
-      <div className="editable-dropdown-control">
+      <div className="editable-dropdown-control" ref={controlRef}>
         <input
           ref={inputRef}
           role="combobox"
           aria-autocomplete="list"
           aria-expanded={open}
           aria-controls={menuId}
+          aria-activedescendant={activeId}
           aria-label={label}
           value={commitOnBlur ? draftValue : value}
           placeholder={placeholder}
           disabled={disabled}
+          autoComplete="off"
+          spellCheck={false}
           onChange={(event) => {
-            if (commitOnBlur) setDraftValue(event.target.value);
-            else onChange(event.target.value);
+            const next = event.target.value;
+            setDraftValue(next);
+            setQuery(next);
+            setActiveValue(null);
+            setOpen(!listDisabled && filterDropdownOptions(options, next).length > 0);
+            if (!commitOnBlur) onChange(next);
           }}
           onKeyDown={(event) => {
-            if (commitOnBlur && event.key === "Enter" && !event.nativeEvent.isComposing) {
+            if (event.nativeEvent.isComposing) return;
+            if ((event.key === "ArrowDown" || event.key === "ArrowUp") && !listDisabled && visibleOptions.length) {
+              event.preventDefault();
+              const current = open ? activeIndex : -1;
+              const next = event.key === "ArrowDown"
+                ? (current + 1) % visibleOptions.length
+                : (current < 0 ? visibleOptions.length - 1 : (current - 1 + visibleOptions.length) % visibleOptions.length);
+              setActiveValue(visibleOptions[next].value);
+              setOpen(true);
+            } else if (event.key === "Enter" && open && activeIndex >= 0) {
+              event.preventDefault();
+              choose(visibleOptions[activeIndex].value);
+            } else if (commitOnBlur && event.key === "Enter") {
               event.preventDefault();
               event.currentTarget.blur();
             }
-            if (event.key === "ArrowDown" && !listDisabled) {
-              event.preventDefault();
-              setOpen(true);
-            }
-            if (event.key === "Escape") setOpen(false);
           }}
         />
         <button
@@ -430,31 +439,19 @@ export function EditableDropdownField({
           aria-label={label}
           aria-haspopup="listbox"
           aria-expanded={open}
-          onClick={() => setOpen((current) => !current)}
+          aria-controls={menuId}
+          onClick={() => {
+            setQuery("");
+            setActiveValue(null);
+            setOpen((current) => !current);
+            inputRef.current?.focus({ preventScroll: true });
+          }}
         >
           <ChevronDown className="dropdown-chevron" size={16} />
         </button>
       </div>
-      {menuMounted && (
-        <div className="dropdown-menu" id={menuId} ref={menuRef} role="listbox" aria-label={label}
-          aria-hidden={!open} inert={!open}>
-          {options.map((option) => {
-            const current = option.value === value;
-            return (
-              <button
-                className={`dropdown-option ${current ? "selected" : ""}`}
-                key={option.value}
-                type="button"
-                role="option"
-                aria-selected={current}
-                onClick={() => choose(option.value)}
-              >
-                <span>{option.label}</span>
-                {current && <Check size={15} />}
-              </button>
-            );
-          })}
-        </div>
+      {menuMounted && (!floating || floatingPosition) && (
+        floating ? createPortal(menu, document.body) : menu
       )}
     </div>
   );

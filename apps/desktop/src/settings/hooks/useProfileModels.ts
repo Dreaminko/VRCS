@@ -7,7 +7,7 @@ import type { ApiProfileView, ApiModelCatalog } from "../../providers/types";
 
 const EMPTY_CATALOG: ApiModelCatalog = { models: [], model_details: {} };
 
-export function useTranslationProfileModels(
+export function useProfileModels(
   profile: ApiProfileView | undefined,
   enabled: boolean,
   loadModels = providersApi.apiProfileModels,

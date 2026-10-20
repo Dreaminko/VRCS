@@ -72,7 +72,7 @@ async function openPage(t) {
 for (const [label, selector, suffix, savedValue] of [
   ["self translation model", "#settings-panel-translation input[role=combobox] >> nth=0", "-custom", (s) => s.translation.microphone_targets[0].model],
   ["other-party translation model", "#settings-panel-translation input[role=combobox] >> nth=1", "-custom", (s) => s.translation.speaker_targets[0].model],
-  ["OCR translation model", "#settings-panel-ocr input[role=combobox]", "-custom", (s) => s.ocr.targets[0].model],
+  ["OCR translation model", "#vision-ocr input[role=combobox]", "-custom", (s) => s.ocr.targets[0].model],
   ["context message limit", "#settings-panel-translation input[type=number] >> nth=0", "0", (s) => s.translation.prompt.max_messages],
   ["context character limit", "#settings-panel-translation input[type=number] >> nth=1", "0", (s) => s.translation.prompt.max_chars],
   ["preset name", ".translation-preset-row input", "New", (s) => s.language_presets[0].name],
@@ -104,7 +104,7 @@ test("model selection commits the selected option without saving an unfinished d
   const input = field.locator("input");
   await input.fill("unfinished");
   await field.locator(".editable-dropdown-toggle").click();
-  await field.getByRole("option", { name: "gpt-5", exact: true }).click();
+  await page.getByRole("option", { name: "gpt-5", exact: true }).click();
   const saved = await page.evaluate(() => window.savedSettings);
   assert.equal(saved.length, 1);
   assert.equal(saved[0].translation.microphone_targets[0].model, "gpt-5");

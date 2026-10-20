@@ -45,15 +45,16 @@ export function PreferenceToggle({ title, description, hideLabel = false, checke
   );
 }
 
-export function Select({ label, helper, value, values = [], options, disabled, floating, hideLabel = false, onChange }: {
+export function Select({ label, helper, value, values = [], options, disabled = false, floating, hideLabel = false, placeholder, onChange }: {
   label: string;
   helper?: string;
   value: string;
   values?: readonly string[];
   options?: DropdownOption[];
-  disabled: boolean;
+  disabled?: boolean;
   floating?: "page" | "dialog";
   hideLabel?: boolean;
+  placeholder?: string;
   onChange: (value: string) => void;
 }) {
   return (
@@ -66,6 +67,7 @@ export function Select({ label, helper, value, values = [], options, disabled, f
         disabled={disabled}
         floating={Boolean(floating)}
         floatingLayer={floating}
+        placeholder={placeholder}
         onChange={onChange}
       />
       {helper && <small>{helper}</small>}

@@ -936,13 +936,11 @@
         "profile": "API 档案",
         "noProfiles": "暂无支持文本生成的 API 档案。",
         "selectProfile": "选择 API 档案",
-        "unavailableProfile": "原档案不可用，请重新选择",
+        "unavailableProfile": "不可用",
         "language": "标题语言",
         "autoLanguage": "跟随对话主要语言",
         "model": "模型",
-        "selectModel": "选择或输入模型名称",
-        "privacy": "生成标题会将本次会话的部分或全部字幕原文发送给所选模型服务，可能产生费用。",
-        "manageProfiles": "管理 API 档案"
+        "selectModel": "选择或输入模型名称"
       },
       "system": {
         "title": "系统",

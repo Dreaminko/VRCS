@@ -936,13 +936,11 @@
         "profile": "API 設定檔",
         "noProfiles": "目前沒有支援文字生成的 API 設定檔。",
         "selectProfile": "選擇 API 設定檔",
-        "unavailableProfile": "原設定檔無法使用，請重新選擇",
+        "unavailableProfile": "無法使用",
         "language": "標題語言",
         "autoLanguage": "跟隨對話主要語言",
         "model": "模型",
-        "selectModel": "選擇或輸入模型名稱",
-        "privacy": "產生標題會將本次對話的部分或全部字幕原文傳送至所選模型服務，可能產生費用。",
-        "manageProfiles": "管理 API 設定檔"
+        "selectModel": "選擇或輸入模型名稱"
       },
       "system": {
         "title": "系統",

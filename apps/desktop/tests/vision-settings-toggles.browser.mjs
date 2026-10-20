@@ -164,8 +164,8 @@ for (const backend of ["cloud", "local"]) {
             await new Promise(requestAnimationFrame);
           };
           const selectModel = async label => {
-            await wait(() => !visionCard.querySelector('.translation-model-input-row .dropdown-trigger').disabled);
-            visionCard.querySelector('.translation-model-input-row .dropdown-trigger').click();
+            await wait(() => !visionCard.querySelector('.translation-model-input-row .editable-dropdown-toggle').disabled);
+            visionCard.querySelector('.translation-model-input-row .editable-dropdown-toggle').click();
             await wait(() => [...document.querySelectorAll('[role=option]')].some(option => option.textContent === label));
             [...document.querySelectorAll('[role=option]')].find(option => option.textContent === label).click();
             await settle();

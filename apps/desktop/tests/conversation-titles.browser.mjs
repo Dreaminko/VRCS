@@ -33,7 +33,7 @@ for (const width of [1200, 380]) {
         await i18next.use(initReactI18next).init({ lng: 'en-US', resources: { 'en-US': { translation: en.translation } } });
         window.requestAnimationFrame = callback => window.setTimeout(() => callback(performance.now()), 16);
         window.cancelAnimationFrame = id => window.clearTimeout(id);
-        window.fetch = async () => new Response(JSON.stringify({ models: ['title-model'], model_details: {} }));
+        window.fetch = async () => new Response(JSON.stringify({ models: ['title-model', 'deepseek-v3', 'provider/deepseek-r1'], model_details: {} }));
         const t = key => i18next.t(key);
         const check = (condition, message) => { if (!condition) throw new Error(message); };
         const settle = () => new Promise(resolve => setTimeout(resolve, 30));
@@ -46,14 +46,14 @@ for (const width of [1200, 380]) {
         };
         const noop = () => {};
         const profile = { id: 'titles', name: 'Title service', provider: 'openai_compatible',
-          capabilities: { supports_text_generation: true } };
+          provider_display_name: 'OpenAI Compatible', capabilities: { supports_text_generation: true } };
         let config;
         function Settings() {
           const [value, setValue] = useState({ auto_generate: false, profile_id: null, model: '', output_language: 'auto' });
           config = value;
           return <div className="settings-section settings-section-active system-section">
             <ConversationTitleSettingsSection config={value} profiles={[profile]}
-              onChange={patch => setValue(current => ({ ...current, ...patch }))} onManageProfiles={noop} />
+              onChange={patch => setValue(current => ({ ...current, ...patch }))} />
           </div>;
         }
         const root = createRoot(document.getElementById('root'));
@@ -86,15 +86,16 @@ for (const width of [1200, 380]) {
         try {
           render(<Settings />);
           await settle();
+          const group = document.querySelector('[aria-labelledby="system-conversations-title"]');
+          const modelSettings = group.querySelector('.conversation-title-model-settings');
           const toggle = () => document.querySelector('[role=switch]');
           check(toggle().disabled, 'Automatic titles require a profile and model');
-          check(document.querySelector('details').open, 'Unconfigured model settings are discoverable');
-          await choose(t('settings.conversationTitles.profile'), 'Title service');
+          check(Boolean(modelSettings.querySelector('input[role=combobox]')), 'Model settings are always visible');
+          await choose(t('settings.conversationTitles.profile'), 'Title service · OpenAI Compatible');
           check(toggle().disabled, 'A profile alone does not enable automatic titles');
           await wait(() => !buttonNamed(t('settings.conversationTitles.model')).disabled);
           await choose(t('settings.conversationTitles.model'), 'title-model');
           check(!toggle().disabled, 'A configured model enables the automatic title switch');
-          check(document.querySelector('details').open, 'Choosing a model does not collapse its settings');
           toggle().click();
           await settle();
           check(config.auto_generate, 'The switch enables automatic generation');
@@ -102,11 +103,6 @@ for (const width of [1200, 380]) {
           await settle();
           check(!config.auto_generate && config.profile_id === 'titles' && config.model === 'title-model',
             'Disabling automatic titles preserves manual generation configuration');
-          document.querySelector('summary').click();
-          await settle();
-          check(!document.querySelector('details').open, 'Model settings can be collapsed');
-          document.querySelector('summary').click();
-          await settle();
           const input = document.querySelector('input[role=combobox]');
           const refresh = buttonNamed(t('settings.apiManagement.refreshModels'));
           const inputRect = input.getBoundingClientRect();
@@ -115,11 +111,25 @@ for (const width of [1200, 380]) {
             'The model input and refresh button align without overlap');
           check(innerWidth === ${width}, 'The test uses the expected CSS viewport');
           check(document.documentElement.scrollWidth <= innerWidth + 1, 'Conversation settings do not overflow horizontally');
+          flushSync(() => {
+            input.focus();
+            Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, 'deeps');
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+          });
+          await wait(() => input.getAttribute('aria-expanded') === 'true');
+          const suggestions = () => document.getElementById(input.getAttribute('aria-controls'));
+          await wait(() => suggestions());
+          check(suggestions().querySelectorAll('[role=option]').length === 2, 'Title model input filters its provider catalog while typing');
+          check(config.model === 'title-model' && document.activeElement === input, 'Model filtering preserves the saved title model and input focus');
+          for (const key of ['ArrowDown', 'ArrowDown', 'Enter']) {
+            flushSync(() => input.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true })));
+          }
+          check(config.model === 'provider/deepseek-r1', 'Title models use the shared keyboard selection behavior');
 
           for (const state of [{ loading: true }, { failed: true }, { searchable: false }]) {
             render(search(state));
             const hit = document.querySelector('.conversation-search-result');
-            check(hit?.textContent === conversation.title, 'Title hits remain visible independently of subtitle search state');
+            check(hit?.querySelector('strong')?.textContent === conversation.title, 'Title hits remain visible independently of subtitle search state');
             hit.click();
           }
           check(titleSelections === 3 && subtitleSelections === 0, 'Title hits open the conversation without a subtitle target');

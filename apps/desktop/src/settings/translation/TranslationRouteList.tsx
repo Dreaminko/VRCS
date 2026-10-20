@@ -13,7 +13,7 @@ import { selectTranslationModel, switchTranslationProfile, translationModels, up
 import { normalizeReasoningControlForModel } from "../../translation/translation-thinking";
 import type { ApiProfileView } from "../../providers/types";
 import type { TranslationTargetSettings } from "../types";
-import { useTranslationProfileModels } from "../hooks/useTranslationProfileModels";
+import { useProfileModels } from "../hooks/useProfileModels";
 import { Select } from "../SettingsControls";
 import { ReasoningControlField } from "../ReasoningControlField";
 import { targetLanguageCodes } from "./language-settings";
@@ -163,7 +163,7 @@ function TranslationRouteRow({
   const [switching, setSwitching] = useState(false);
   const profile = profiles.find((item) => item.id === target.profile_id);
   const usesModels = Boolean(!native && profile && supportsLlmModels(profile));
-  const { models, modelDetails, loading, error, refresh, load } = useTranslationProfileModels(profile, usesModels);
+  const { models, modelDetails, loading, error, refresh, load } = useProfileModels(profile, usesModels);
   const languageCodes = targetLanguageCodes(target, usedLanguages, profiles, liveService);
   const [reasoningReset, setReasoningReset] = useState(false);
   const selectProfile = async (profileId: string) => {

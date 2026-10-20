@@ -936,13 +936,11 @@
         "profile": "API profile",
         "noProfiles": "No API profiles support text generation.",
         "selectProfile": "Select an API profile",
-        "unavailableProfile": "Previous profile unavailable; select another",
+        "unavailableProfile": "unavailable",
         "language": "Title language",
         "autoLanguage": "Use the main conversation language",
         "model": "Model",
-        "selectModel": "Select or enter a model name",
-        "privacy": "Title generation sends some or all of this conversation’s original transcript to the selected model service. Charges may apply.",
-        "manageProfiles": "Manage API profiles"
+        "selectModel": "Select or enter a model name"
       },
       "system": {
         "title": "System",

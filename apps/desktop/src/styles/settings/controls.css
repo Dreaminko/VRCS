@@ -53,6 +53,20 @@
 .system-theme-setting strong { color: var(--text); font-size: var(--settings-text-label); font-weight: var(--settings-weight-heading); line-height: var(--settings-leading-label); }
 
 .system-select-setting .field { min-width: 0; }
+.conversation-title-model-settings {
+  display: grid;
+  /* Match the 4px content inset of system-select-setting and settings-toggle-row rows. */
+  padding: 12px 4px 0;
+  border-top: 1px solid var(--border);
+}
+.conversation-title-model-settings > strong {
+  color: var(--text);
+  font-size: var(--settings-text-label);
+  font-weight: var(--settings-weight-heading);
+  line-height: var(--settings-leading-label);
+}
+.conversation-title-model-settings > .vr-overlay-field-grid { margin-top: 12px; }
+.conversation-title-model-field { grid-column: 1 / -1; }
 .theme-toggle-group {
   display: inline-flex;
   justify-self: end;

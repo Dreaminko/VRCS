@@ -72,50 +72,53 @@ test("vision model selection uses provider catalogs and preserves saved models o
   page.on("pageerror", error => errors.push(error.message));
   await page.setContent('<div id="root"></div>');
   await page.addScriptTag({ type: "module", content: bundle.outputFiles[0].text });
-  const model = page.locator(".translation-model-input-row .dropdown-trigger");
-  const profile = page.locator(".vision-settings-card > .vr-overlay-field-grid > .field:first-child .dropdown-trigger");
+  const model = page.getByRole("combobox", { name: "settings.vision.model", exact: true });
+  const modelToggle = page.locator(".translation-model-input-row .editable-dropdown-toggle");
+  const profile = page.getByRole("button", { name: "settings.vision.profile", exact: true });
   const refresh = page.getByRole("button", { name: "settings.apiManagement.refreshModels", exact: true });
   await page.waitForFunction(() => window.requests.length === 1);
   await page.getByRole("switch", { name: "settings.vision.enable", exact: true }).click();
-  await page.waitForFunction(() => !document.querySelector('.translation-model-input-row .dropdown-trigger').disabled);
-  assert.equal(await page.locator('input[role="combobox"]').count(), 0);
+  await page.waitForFunction(() => !document.querySelector('.translation-model-input-row .editable-dropdown-toggle').disabled);
+  assert.equal(await page.locator('input[role="combobox"]').count(), 1);
 
-  const thinking = page.getByRole("switch", { name: "settings.vision.thinkingMode", exact: true });
+  const thinking = page.getByRole("switch", { name: "settings.translation.thinkingMode", exact: true });
   await thinking.waitFor();
   assert.equal(await thinking.getAttribute("aria-checked"), "false");
   await thinking.click();
   await page.waitForFunction(() => window.config.thinking_enabled === true);
   await page.evaluate(() => window.setDisabled(true));
-  await page.waitForFunction(() => document.querySelector('[aria-label="settings.vision.thinkingMode"]').disabled);
+  await page.waitForFunction(() => document.querySelector('[aria-label="settings.translation.thinkingMode"]').disabled);
   await page.evaluate(() => window.setDisabled(false));
-  await page.waitForFunction(() => !document.querySelector('[aria-label="settings.vision.thinkingMode"]').disabled);
+  await page.waitForFunction(() => !document.querySelector('[aria-label="settings.translation.thinkingMode"]').disabled);
 
-  await model.click();
+  await modelToggle.click();
   assert.equal(await page.getByRole("option", { name: "text-only", exact: true }).count(), 0);
-  await page.getByRole("searchbox", { name: "settings.vision.selectModel", exact: true }).fill("alternate");
+  await model.fill("alternate");
   await page.getByRole("option", { name: "alternate-model", exact: true }).click();
   await page.waitForFunction(() => window.config.model === "alternate-model");
   assert.equal(await thinking.count(), 0);
   assert.equal(await page.evaluate(() => window.config.thinking_enabled), true);
-  assert.equal(await model.innerText(), "alternate-model");
+  assert.equal(await model.inputValue(), "alternate-model");
 
   await page.evaluate(() => { window.failCatalog = true; });
   await refresh.click();
   await page.getByRole("alert").waitFor();
   assert.equal(await page.evaluate(() => window.config.model), "alternate-model");
-  assert.equal(await model.isDisabled(), true);
-  assert.equal(await model.innerText(), "alternate-model");
+  assert.equal(await model.isDisabled(), false);
+  assert.equal(await modelToggle.isDisabled(), true);
+  assert.equal(await model.inputValue(), "alternate-model");
 
   await page.evaluate(() => { window.failCatalog = false; window.catalogs.first = []; });
   await refresh.click();
   await page.getByText("settings.vision.noModels", { exact: true }).waitFor();
   assert.equal(await page.evaluate(() => window.config.model), "alternate-model");
-  assert.equal(await model.isDisabled(), true);
+  assert.equal(await model.isDisabled(), false);
+  assert.equal(await modelToggle.isDisabled(), true);
 
   await page.evaluate(() => { window.catalogs.first = ['first-model']; });
   await refresh.click();
   await page.getByText("settings.vision.savedModelUnavailable", { exact: true }).waitFor();
-  await page.waitForFunction(() => !document.querySelector('.translation-model-input-row .dropdown-trigger').disabled);
+  await page.waitForFunction(() => !document.querySelector('.translation-model-input-row .editable-dropdown-toggle').disabled);
   assert.equal(await page.evaluate(() => window.config.model), "alternate-model");
 
   await page.evaluate(() => { window.delaySecond = true; });
@@ -123,13 +126,13 @@ test("vision model selection uses provider catalogs and preserves saved models o
   await page.getByRole("option", { name: "second · OpenAI", exact: true }).click();
   await page.waitForFunction(() => Boolean(window.finishSecond));
   assert.equal(await page.evaluate(() => window.config.model), "");
-  assert.equal(await model.isDisabled(), true);
+  assert.equal(await modelToggle.isDisabled(), true);
   await profile.click();
   await page.getByRole("option", { name: "first · OpenAI", exact: true }).click();
-  await page.waitForFunction(() => !document.querySelector('.translation-model-input-row .dropdown-trigger').disabled);
+  await page.waitForFunction(() => !document.querySelector('.translation-model-input-row .editable-dropdown-toggle').disabled);
   await page.evaluate(() => window.finishSecond());
   await page.evaluate(() => new Promise(resolve => setTimeout(resolve, 0)));
-  await model.click();
+  await modelToggle.click();
   assert.equal(await page.getByRole("option", { name: "second-model", exact: true }).count(), 0);
   await page.getByRole("option", { name: "first-model", exact: true }).click();
   await page.waitForFunction(() => window.config.model === "first-model");
@@ -138,7 +141,7 @@ test("vision model selection uses provider catalogs and preserves saved models o
   await thinking.click();
   await page.waitForFunction(() => window.config.thinking_enabled === false);
 
-  await model.click();
+  await modelToggle.click();
   await page.getByRole("option", { name: "settings.vision.selectModel", exact: true }).click();
   await page.waitForFunction(() => window.config.model === "");
   assert.equal(await page.getByRole("switch", { name: "settings.vision.enable", exact: true }).isDisabled(), false);
@@ -156,10 +159,13 @@ test("vision model selection uses provider catalogs and preserves saved models o
     window.details.first = { 'first-model': { input_modalities: ['text'], output_modalities: ['text'] } };
     window.setRegion('china_beijing');
   });
-  await page.waitForFunction(() => !document.querySelector('.translation-model-input-row .dropdown-trigger').disabled);
+  await page.waitForFunction(() => !document.querySelector('.translation-model-input-row .editable-dropdown-toggle').disabled);
   await page.evaluate(() => window.finishFirst());
   await page.evaluate(() => new Promise(resolve => setTimeout(resolve, 0)));
-  await model.click();
+  await modelToggle.click();
   assert.equal(await page.getByRole("option", { name: "first-model", exact: true }).count(), 0);
+  await model.fill("  custom-vision-model  ");
+  await model.press("Enter");
+  await page.waitForFunction(() => window.config.model === "custom-vision-model");
   assert.deepEqual(errors, []);
 });

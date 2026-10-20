@@ -7,12 +7,12 @@ import type { VrOcrWristSettings } from "../../integrations/types";
 import { TRANSLATION_LANGUAGE_CODES } from "../../translation/translation-languages";
 import { normalizeReasoningControlForModel } from "../../translation/translation-thinking";
 import { ReasoningControlField } from "../ReasoningControlField";
-import { DropdownField } from "../../shared/ui/DropdownField";
+import { EditableDropdownField } from "../../shared/ui/DropdownField";
 import { LanguagePicker } from "../../shared/ui/LanguagePicker";
 import { ShortcutField } from "../../shared/ui/ShortcutField";
 import type { VisionSettings } from "../types";
 import { PreferenceToggle, RangeField, Select } from "../SettingsControls";
-import { useTranslationProfileModels } from "../hooks/useTranslationProfileModels";
+import { useProfileModels } from "../hooks/useProfileModels";
 import { DEFAULT_OCR_WRIST_SETTINGS, VR_OVERLAY_POSITION_RANGES } from "../vr-overlay-settings";
 import { supportsVision, visionModels, VISION_LIMITS } from "../vision-settings";
 import { formatBytes } from "../settings-derived";
@@ -74,7 +74,7 @@ export function VisionSettingsCard({ config, profiles, vrAvailable, disabled, on
   };
   const compatibleProfiles = profiles.filter(supportsVision);
   const selected = compatibleProfiles.find((profile) => profile.id === config.profile_id);
-  const catalog = useTranslationProfileModels(selected, Boolean(selected));
+  const catalog = useProfileModels(selected, Boolean(selected));
   const { loading, error, refresh } = catalog;
   const [reasoningReset, setReasoningReset] = useState(false);
   const models = visionModels(selected?.provider, { models: catalog.models, model_details: catalog.modelDetails });
@@ -105,14 +105,14 @@ export function VisionSettingsCard({ config, profiles, vrAvailable, disabled, on
     <div className="field vision-settings-model-field">
       <span>{t("settings.vision.model")}</span>
       <div className="translation-model-input-row">
-        <DropdownField label={t("settings.vision.model")} value={config.model} options={modelOptions}
-          searchable searchPlaceholder={t("settings.vision.selectModel")}
-          emptyLabel={t("settings.vision.noModels")}
-          disabled={disabled || !selected || loading || !models.length}
+        <EditableDropdownField label={t("settings.vision.model")} value={config.model} options={modelOptions}
+          commitOnBlur placeholder={t("settings.vision.selectModel")}
+          disabled={disabled || !selected} optionsDisabled={loading || !models.length}
           onChange={(model) => {
-            const reasoning_control = normalizeReasoningControlForModel(selected?.provider, model, config.reasoning_control, catalog.modelDetails[model]);
+            const nextModel = model.trim();
+            const reasoning_control = normalizeReasoningControlForModel(selected?.provider, nextModel, config.reasoning_control, catalog.modelDetails[nextModel]);
             setReasoningReset(Boolean(config.reasoning_control && !reasoning_control));
-            onChange({ model, reasoning_control });
+            onChange({ model: nextModel, reasoning_control });
           }} />
         <button className="secondary-button" type="button" aria-label={t("settings.apiManagement.refreshModels")}
           title={t("settings.apiManagement.refreshModels")} disabled={disabled || !selected || loading}
