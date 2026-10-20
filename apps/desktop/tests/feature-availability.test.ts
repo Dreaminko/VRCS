@@ -5,7 +5,7 @@ import { DEFAULT_FEATURE_SETTINGS, resolveSettingsCategory, visibleSettingsCateg
 
 test("all modules retain the existing settings categories by default", () => {
   assert.deepEqual(visibleSettingsCategories(DEFAULT_FEATURE_SETTINGS), [
-    "system", "audio", "recognition", "translation", "glossary", "api", "learning", "connections", "vision", "vr_overlay", "debug",
+    "system", "audio", "recognition", "translation", "vr_overlay", "vision", "glossary", "api", "learning", "connections", "debug",
   ]);
 });
 

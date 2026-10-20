@@ -48,8 +48,8 @@ for (const [width, systemReduced] of [[1200, false], [380, false], [1200, true]]
               desktopPreferencesReady={true} desktopSaveState="saved" desktopMessage="" uiLanguagePreference="en-US"
               interfaceScale={100} onUpdateDesktop={async () => {}} onInterfaceScaleChange={noop}
               onUpdateUiLanguage={async () => {}} onboardingDisabled={false} onStartOnboarding={noop}
-              locale="en-US" draft={{ features: {}, storage: { subtitle_history_max_bytes: 10485760 } }}
-              applySettings={noop} updater={{ phase: 'idle', automaticChecks: false }} />
+              locale="en-US" draft={{ features: {}, conversation_titles: { auto_generate: false, profile_id: null, model: '', output_language: 'auto' }, storage: { subtitle_history_max_bytes: 10485760 } }}
+              profiles={[]} onManageProfiles={noop} applySettings={noop} updater={{ phase: 'idle', automaticChecks: false }} />
             <VisionSettingsCard config={vision} profiles={[]} disabled={false} vrAvailable={true}
               onChange={patch => setVision(current => ({ ...current, ...patch }))} onSelectProfile={noop} />
           </>;
@@ -77,6 +77,16 @@ for (const [width, systemReduced] of [[1200, false], [380, false], [1200, true]]
         };
         try {
           await settle();
+          const groups = [...document.querySelectorAll('.system-settings-list > .system-settings-group:not(.software-update-settings)')];
+          check(groups.length === 4, 'All system settings groups are available');
+          check(document.querySelector('.system-settings-list > :last-child').classList.contains('software-update-settings'),
+            'Software updates appear last in system settings');
+          for (const group of groups) {
+            const control = group.querySelector('button, input');
+            check(control?.checkVisibility(), 'System settings are visible without expanding a group: ' + group.getAttribute('aria-labelledby'));
+            click(group.querySelector(':scope > .section-heading'));
+            check(control.checkVisibility(), 'Clicking a system settings heading does not hide its controls');
+          }
           const card = document.querySelector('.vision-settings-card');
           const master = card.querySelector('[role=switch]');
           const collapsedHeight = height(card);
@@ -130,7 +140,8 @@ for (const [width, systemReduced] of [[1200, false], [380, false], [1200, true]]
             if (!${systemReduced}) await wait(() => height(details) > closedHeight + 1 && height(details) < openedHeight - 1);
             await wait(() => Math.abs(height(details) - closedHeight) <= 0.1);
           }
-          const reduce = document.querySelector('[aria-labelledby=system-general-title] button[aria-label="Reduce motion"]');
+          const general = document.querySelector('[aria-labelledby=system-general-title]');
+          const reduce = general.querySelector('button[aria-label="Reduce motion"]');
           check(reduce && reduce.getAttribute('aria-checked') === 'false', 'General settings expose the app preference');
           if (!${systemReduced}) {
             click(master);

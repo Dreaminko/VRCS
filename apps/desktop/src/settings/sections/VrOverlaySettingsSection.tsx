@@ -275,7 +275,7 @@ export function VrOverlaySettingsSection({
 
       <SettingsDisclosure open={draft.vr_overlay.enabled} className="vr-overlay-card-list">
         <section className="vr-overlay-card" aria-labelledby="vr-overlay-headset-title">
-          <div className="vr-overlay-card-heading">
+          <header className="vr-overlay-card-heading vr-overlay-feature-heading">
             <div>
               <RectangleGoggles size={18} />
               <span>
@@ -287,16 +287,14 @@ export function VrOverlaySettingsSection({
               state={headsetState}
               label={t(`settings.vrOverlay.resourceStates.${headsetStateKey}`)}
             />}
-          </div>
-
-          <div className="settings-toggle-list vr-overlay-card-toggles">
             <PreferenceToggle
               title={t("settings.vrOverlay.enableHeadset")}
+              hideLabel
               checked={draft.vr_overlay.headset.enabled}
               disabled={overlayDisabled}
               onChange={(enabled) => updateHeadset("enabled", enabled)}
             />
-          </div>
+          </header>
 
           <SettingsDisclosure open={draft.vr_overlay.headset.enabled}>
             <div className="vr-overlay-field-grid">
@@ -358,7 +356,7 @@ export function VrOverlaySettingsSection({
         </section>
 
         <section className="vr-overlay-card" aria-labelledby="vr-overlay-wrist-title">
-          <div className="vr-overlay-card-heading">
+          <header className="vr-overlay-card-heading vr-overlay-feature-heading">
             <div>
               <Hand size={18} />
               <span>
@@ -370,16 +368,14 @@ export function VrOverlaySettingsSection({
               state={wristState}
               label={t(`settings.vrOverlay.resourceStates.${wristStateKey}`)}
             />}
-          </div>
-
-          <div className="settings-toggle-list vr-overlay-card-toggles">
             <PreferenceToggle
               title={t("settings.vrOverlay.enableWrist")}
+              hideLabel
               checked={draft.vr_overlay.wrist.enabled}
               disabled={overlayDisabled}
               onChange={(enabled) => updateWrist("enabled", enabled)}
             />
-          </div>
+          </header>
 
           <SettingsDisclosure open={draft.vr_overlay.wrist.enabled}>
             <div className="vr-overlay-field-grid">

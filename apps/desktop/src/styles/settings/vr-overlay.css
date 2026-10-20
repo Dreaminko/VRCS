@@ -77,7 +77,6 @@
 
 .vr-overlay-feature-heading .settings-toggle-row { min-height: 0; flex: 0 0 auto; align-items: center; padding: 0; }
 .vr-overlay-feature-heading .switch-track { display: flex; gap: 0; }
-.vr-overlay-card-toggles:not(:last-child) { padding-bottom: 4px; border-bottom: 1px solid var(--border); }
 .vr-overlay-field-grid,
 .vr-overlay-range-grid {
   display: grid;

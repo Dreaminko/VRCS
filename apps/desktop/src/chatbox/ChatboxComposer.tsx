@@ -93,11 +93,7 @@ export function ChatboxComposer({
       {expanded && (
         <div className="chatbox-details" id="chatbox-details">
           <header className="chatbox-details-header">
-            <div>
-              <span className="chatbox-eyebrow">VRChat</span>
-              <h2>{t("chatbox.detailsTitle")}</h2>
-            </div>
-            <span>{t("chatbox.translationOnSend")}</span>
+            <h2>{t("chatbox.detailsTitle")}</h2>
           </header>
 
           <div className="chatbox-controls">

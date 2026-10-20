@@ -133,7 +133,7 @@ for (const width of [1200, 380]) {
             }
           }
           const modelRow = document.querySelector('.vision-settings-card .translation-model-input-row');
-          const model = modelRow.querySelector('.dropdown-trigger');
+          const model = modelRow.querySelector('input[role=combobox]');
           const refresh = modelRow.querySelector('button.secondary-button');
           const imageTest = refresh.nextElementSibling;
           sameTop(model, refresh, 'Vision model selector and refresh button stay on one row');

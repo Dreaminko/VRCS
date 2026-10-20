@@ -8,12 +8,12 @@ export const DEFAULT_FEATURE_SETTINGS: FeatureSettings = {
 
 export function visibleSettingsCategories(features: FeatureSettings): SettingsCategory[] {
   const categories: SettingsCategory[] = ["system", "audio", "recognition", "translation"];
+  if (features.vr_overlay) categories.push("vr_overlay");
+  if (features.ocr || features.visual_question_answering) categories.push("vision");
   if (features.glossary) categories.push("glossary");
   categories.push("api");
   if (features.learning) categories.push("learning");
   if (features.anki || features.osc_chatbox || features.vrcx || features.external_api) categories.push("connections");
-  if (features.ocr || features.visual_question_answering) categories.push("vision");
-  if (features.vr_overlay) categories.push("vr_overlay");
   categories.push("debug");
   return categories;
 }

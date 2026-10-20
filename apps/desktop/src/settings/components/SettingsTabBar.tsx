@@ -67,12 +67,12 @@ export function SettingsTabBar({
     { id: "audio", label: t("settings.categories.audio"), icon: <Volume2 size={18} /> },
     { id: "recognition", label: t("settings.categories.recognition"), icon: <AudioLines size={18} /> },
     { id: "translation", label: t("settings.categories.translation"), icon: <Languages size={18} /> },
+    { id: "vr_overlay", label: t("settings.categories.vrOverlay"), icon: <Layers3 size={18} /> },
+    { id: "vision", label: t("settings.categories.vision"), icon: <ScanEye size={18} /> },
     { id: "glossary", label: t("settings.categories.glossary"), icon: <BookOpenText size={18} /> },
     { id: "api", label: t("settings.categories.api"), icon: <KeyRound size={18} /> },
     { id: "learning", label: t("settings.categories.learning"), icon: <GraduationCap size={18} /> },
     { id: "connections", label: t("settings.categories.connections"), icon: <Link size={18} /> },
-    { id: "vision", label: t("settings.categories.vision"), icon: <ScanEye size={18} /> },
-    { id: "vr_overlay", label: t("settings.categories.vrOverlay"), icon: <Layers3 size={18} /> },
     { id: "debug", label: "Debug", icon: <Wrench size={18} /> },
   ] satisfies Array<{ id: SettingsCategory; label: string; icon: ReactNode }>;
   const visibleTabs = categories.filter((category) => visibleCategories.includes(category.id));

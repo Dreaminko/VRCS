@@ -238,12 +238,12 @@ export function SystemSettingsSection({
           onChange={(key, enabled) => applySettings((current) => ({
             ...current, features: { ...current.features, [key]: enabled },
           }))} />
-        <SoftwareUpdateSettings updater={updater} />
         <StorageSettingsSection
           locale={locale}
           draft={draft}
           applySettings={applySettings}
         />
+        <SoftwareUpdateSettings updater={updater} />
       </div>
     </div>
   );

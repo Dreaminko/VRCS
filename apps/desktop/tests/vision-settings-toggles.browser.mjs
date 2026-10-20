@@ -132,11 +132,11 @@ for (const backend of ["cloud", "local"]) {
                 await wait(() => toggle.getAttribute('aria-checked') === String(enabled));
                 check(card.querySelector('strong[id]'), kind + ': title remains visible');
                 check(!toggle.disabled, kind + ': mode switch remains available');
+                checkMasterHeading(card, toggle, kind);
                 if (enabled) {
                   check(card.querySelector('input'), kind + ': settings are restored');
                   check(card.querySelector('.vr-overlay-status-badge'), kind + ': status is restored');
                   check(card.querySelector('.vr-overlay-card-actions'), kind + ': actions are restored');
-                  check(getComputedStyle(card.querySelector('.vr-overlay-card-toggles')).borderBottomWidth === '1px', kind + ': divider is restored with settings');
                 } else {
                   collapsed(card, kind);
                   check(card.querySelectorAll('button').length === 1, kind + ': only the mode switch remains');

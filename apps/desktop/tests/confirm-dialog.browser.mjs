@@ -64,6 +64,7 @@ async function runBrowserCheck({ contents, fixtureSource }) {
       + errorCapture + '<script type="module">' + javascript.replace(/<\/script/gi, "<\\/script") + '</script>');
     const result = spawnSync(browser, [
       "--headless=new", "--dump-dom", "--virtual-time-budget=10000", "--disable-gpu", "--no-first-run",
+      "--force-prefers-reduced-motion=reduce",
       "--disable-background-networking", "--disable-extensions", "--disable-software-rasterizer",
       "--no-sandbox", "--enable-logging=stderr", "--window-size=1200,900",
       "--user-data-dir=" + join(directory, "profile"), pathToFileURL(content).href,
@@ -110,6 +111,7 @@ test("settings confirmations replace the native dialog and restore focus", {
       try {
         await wait(() => document.querySelector('.storage-clear-button'), 'storage clear button');
         const trigger = document.querySelector('.storage-clear-button');
+        check(trigger.checkVisibility(), 'storage controls are visible without expanding');
         const clearDialog = () => dialogByLabel('settings.storage.clearHistory');
 
         trigger.focus();

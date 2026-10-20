@@ -23,7 +23,7 @@
 .chatbox-text-field textarea {
   width: 100%;
   min-height: 70px;
-  resize: vertical;
+  resize: none;
   padding: 10px 12px;
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
