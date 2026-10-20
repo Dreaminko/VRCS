@@ -195,7 +195,6 @@ export function useVrDashboardBridge(
         osc_original: t("settings.osc.preserveOriginal"),
         osc_enabled: t("settings.osc.enable"),
         osc_mute_sync: t("settings.osc.muteSync"),
-        osc_mute_toast: t("settings.osc.muteToast"),
         osc_strategy: t("settings.osc.translationStrategy"),
         osc_hint: t("settings.vrDashboard.oscHint"),
         close: t("common.close"),
@@ -269,7 +268,6 @@ export function useVrDashboardBridge(
         enabled: settings.osc.enabled,
         original: settings.osc.preserve_original_text,
         mute_sync: settings.osc.mute_sync_enabled,
-        mute_toast: settings.osc.mute_status_toast_enabled,
         strategy: {
           value: t(`settings.osc.translationStrategies.${strategyKeys[settings.osc.translation_strategy]}`),
           options: (Object.keys(strategyKeys) as Array<keyof typeof strategyKeys>).map((value) => ({ value, label: t(`settings.osc.translationStrategies.${strategyKeys[value]}`) })),

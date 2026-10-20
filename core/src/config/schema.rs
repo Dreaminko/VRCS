@@ -194,7 +194,6 @@ mod tests {
             &value["osc"],
             [
                 "enabled",
-                "mute_status_toast_enabled",
                 "mute_sync_enabled",
                 "port",
                 "preserve_original_text",

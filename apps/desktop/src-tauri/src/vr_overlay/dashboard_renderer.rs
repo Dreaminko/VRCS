@@ -815,7 +815,7 @@ fn render_osc(
     view: &DashboardViewModel,
     state: &DashboardState,
 ) -> Result<(), String> {
-    canvas.card(Rect::new(48, 236, 1392, 852));
+    canvas.card(Rect::new(48, 236, 1392, 752));
     canvas.text(
         &view.osc.endpoint,
         Rect::new(78, 244, 1362, 274),
@@ -838,11 +838,6 @@ fn render_osc(
             DashboardControl::OscMuteSync,
             &view.labels.osc_mute_sync,
             view.osc.mute_sync,
-        ),
-        (
-            DashboardControl::OscMuteToast,
-            &view.labels.osc_mute_toast,
-            view.osc.mute_toast,
         ),
     ] {
         let rect: Rect = control_rect(control).into();
@@ -870,11 +865,11 @@ fn render_osc(
             checked,
             feedback,
         );
-        if control != DashboardControl::OscMuteToast {
+        if control != DashboardControl::OscMuteSync {
             canvas.divider(Rect::new(78, rect.bottom + 9, 1362, rect.bottom + 10));
         }
     }
-    canvas.heading(&view.labels.osc_strategy, Rect::new(78, 684, 1362, 720), 24)?;
+    canvas.heading(&view.labels.osc_strategy, Rect::new(78, 584, 1362, 620), 24)?;
     render_segments(
         canvas,
         state,
@@ -883,7 +878,7 @@ fn render_osc(
     )?;
     canvas.text(
         &view.labels.osc_hint,
-        Rect::new(78, 796, 1362, 836),
+        Rect::new(78, 696, 1362, 736),
         18,
         TEXT_SECONDARY,
         Align::Left,
@@ -2344,7 +2339,6 @@ mod tests {
                 enabled: true,
                 original: true,
                 mute_sync: true,
-                mute_toast: true,
                 strategy: super::super::dashboard::DashboardChoice::default(),
                 endpoint: "127.0.0.1:9000".into(),
             },

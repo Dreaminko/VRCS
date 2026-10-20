@@ -6,7 +6,6 @@ import { ChevronDown, LoaderCircle } from "lucide-react";
 import type { Page } from "./app-types";
 import { ErrorBanner } from "./components/ErrorBanner";
 import { PastConversationNotice } from "./components/PastConversationNotice";
-import { VrchatMuteToast } from "./components/RuntimeNotices";
 import { ChatboxComposer } from "../chatbox/ChatboxComposer";
 import { ConversationSidebar } from "../conversations/ConversationSidebar";
 
@@ -397,12 +396,6 @@ export function DesktopShell({
         updater={integrations.updater}
         transcriptionRunning={runtime.health?.capture_requested ?? false}
       />
-      {runtime.vrchatMuteToast && (
-        <VrchatMuteToast
-          muted={runtime.vrchatMuteToast.muted}
-          messageKey={runtime.vrchatMuteToast.messageKey}
-        />
-      )}
     </div>
   );
 }

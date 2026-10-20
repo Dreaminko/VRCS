@@ -33,7 +33,7 @@ test(`connection heading switches hide dependent controls and retain configurati
         }), { status: 200 });
         const initial = {
           osc: { enabled: false, port: 9001, translation_strategy: 'round_robin',
-            preserve_original_text: true, mute_sync_enabled: true, mute_status_toast_enabled: false },
+            preserve_original_text: true, mute_sync_enabled: true },
           anki: { enabled: false, port: 8766, deck: 'Saved deck', model: 'Basic', front_field: 'Front', back_field: 'Back' },
           vrcx: { enabled: false, port: 9002, include_in_llm_context: true, include_in_asr_context: false },
           external_api: { enabled: false, host: '127.0.0.1', port: 9003, require_token: true },
@@ -69,7 +69,7 @@ test(`connection heading switches hide dependent controls and retain configurati
         try {
           await wait(() => document.querySelector('#connections-external-api-title'));
           const cases = [
-            { key: 'osc', selector: '.osc-section', fields: 1, switches: 4, operations: 1 },
+            { key: 'osc', selector: '.osc-section', fields: 1, switches: 3, operations: 1 },
             { key: 'anki', selector: '.anki-section', fields: 1, switches: 1, operations: 1 },
             { key: 'vrcx', selector: '.vrcx-settings', fields: 2, switches: 3, operations: 1 },
             { key: 'external_api', selector: '.external-api-settings:not(.vrcx-settings)', fields: 3, switches: 2, operations: 0 },

@@ -46,7 +46,6 @@ export type VrDashboardAction =
   | "toggle_osc"
   | "toggle_osc_original"
   | "toggle_osc_mute_sync"
-  | "toggle_osc_mute_toast"
   | "cycle_osc_strategy"
   | { set_display_content: string }
   | { set_wrist_hand: string }
@@ -179,12 +178,11 @@ export function applyVrDashboardAction(settings: Settings, action: VrDashboardAc
   switch (action) {
     case "toggle_osc":
     case "toggle_osc_original":
-    case "toggle_osc_mute_sync":
-    case "toggle_osc_mute_toast": {
+    case "toggle_osc_mute_sync": {
       const key = {
         toggle_osc: "enabled", toggle_osc_original: "preserve_original_text",
-        toggle_osc_mute_sync: "mute_sync_enabled", toggle_osc_mute_toast: "mute_status_toast_enabled",
-      }[action] as "enabled" | "preserve_original_text" | "mute_sync_enabled" | "mute_status_toast_enabled";
+        toggle_osc_mute_sync: "mute_sync_enabled",
+      }[action] as "enabled" | "preserve_original_text" | "mute_sync_enabled";
       return { ...settings, osc: { ...settings.osc, [key]: !settings.osc[key] } };
     }
     case "cycle_osc_strategy":

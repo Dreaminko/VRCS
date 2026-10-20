@@ -82,7 +82,6 @@ pub struct DashboardLabels {
     pub osc_original: String,
     pub osc_enabled: String,
     pub osc_mute_sync: String,
-    pub osc_mute_toast: String,
     pub osc_strategy: String,
     pub osc_hint: String,
     pub close: String,
@@ -149,7 +148,6 @@ pub struct DashboardOsc {
     pub enabled: bool,
     pub original: bool,
     pub mute_sync: bool,
-    pub mute_toast: bool,
     pub strategy: DashboardChoice,
     pub endpoint: String,
 }
@@ -258,7 +256,6 @@ pub enum DashboardAction {
     ToggleOsc,
     ToggleOscOriginal,
     ToggleOscMuteSync,
-    ToggleOscMuteToast,
     SetDisplayContent(String),
     SetWristHand(String),
     SetOscStrategy(String),
@@ -317,7 +314,6 @@ pub(super) enum DashboardControl {
     OscEnabled,
     OscOriginal,
     OscMuteSync,
-    OscMuteToast,
     OscStrategy(usize),
     PickerClose,
     PickerPrevious,
@@ -422,10 +418,6 @@ const CONTROLS: &[(DashboardControl, Rect)] = &[
         Rect::new(78., 480., 1362., 560.),
     ),
     (
-        DashboardControl::OscMuteToast,
-        Rect::new(78., 580., 1362., 660.),
-    ),
-    (
         DashboardControl::Master,
         Rect::new(1056., 124., 1392., 212.),
     ),
@@ -520,7 +512,7 @@ pub(super) fn control_rect(control: DashboardControl) -> Rect {
     match control {
         DisplayContent(index) => return segment_rect(Rect::new(568., 250., 1362., 306.), 2, index),
         WristHand(index) => return segment_rect(Rect::new(924., 416., 1362., 472.), 3, index),
-        OscStrategy(index) => return segment_rect(Rect::new(78., 732., 1362., 788.), 3, index),
+        OscStrategy(index) => return segment_rect(Rect::new(78., 632., 1362., 688.), 3, index),
         ConfirmDelete => return Rect::new(752., 592., 1032., 656.),
         CancelDelete => return Rect::new(408., 592., 688., 656.),
         PositionStep(field, direction) => {
@@ -614,7 +606,6 @@ fn control_page(control: DashboardControl) -> Option<DashboardPage> {
         DashboardControl::OscEnabled
         | DashboardControl::OscOriginal
         | DashboardControl::OscMuteSync
-        | DashboardControl::OscMuteToast
         | DashboardControl::OscStrategy(_) => Some(DashboardPage::Osc),
         _ => Some(DashboardPage::Display),
     }
@@ -1091,7 +1082,6 @@ fn action_for(control: DashboardControl) -> Option<DashboardAction> {
         DashboardControl::OscEnabled => DashboardAction::ToggleOsc,
         DashboardControl::OscOriginal => DashboardAction::ToggleOscOriginal,
         DashboardControl::OscMuteSync => DashboardAction::ToggleOscMuteSync,
-        DashboardControl::OscMuteToast => DashboardAction::ToggleOscMuteToast,
         DashboardControl::Master => DashboardAction::ToggleMaster,
         DashboardControl::Capture => DashboardAction::ToggleCapture,
         DashboardControl::HeadsetEnabled => DashboardAction::ToggleHeadset,
@@ -1562,7 +1552,7 @@ mod tests {
         click(&mut state, 800., 168.);
         assert_eq!(click(&mut state, 1200., 278.), None);
         assert_eq!(
-            click(&mut state, 700., 760.),
+            click(&mut state, 700., 660.),
             Some(DashboardAction::SetOscStrategy("all_languages".into()))
         );
     }

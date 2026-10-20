@@ -47,6 +47,27 @@ fn recent_text_preferences_default_on_and_preserve_saved_choices() {
 }
 
 #[test]
+fn retired_mute_toast_preference_is_ignored_without_changing_mute_sync() {
+    for enabled in [false, true] {
+        let config = config_from_value(&serde_json::json!({
+            "schema_version": SCHEMA_VERSION,
+            "osc": {
+                "enabled": true, "port": 9001,
+                "mute_status_toast_enabled": enabled,
+                "mute_sync_enabled": enabled
+            }
+        }))
+        .unwrap();
+        assert!(config.osc.enabled);
+        assert_eq!(config.osc.port, 9001);
+        assert_eq!(config.osc.mute_sync_enabled, enabled);
+        assert!(serde_json::to_value(config).unwrap()["osc"]
+            .get("mute_status_toast_enabled")
+            .is_none());
+    }
+}
+
+#[test]
 fn v33_conversation_titles_default_off_without_changing_existing_settings() {
     let original = AppConfig::default();
     let mut raw = serde_json::to_value(&original).unwrap();
@@ -706,7 +727,6 @@ fn migrates_v7_with_osc_disabled_by_default() {
     assert!(!config.osc.enabled);
     assert_eq!(config.osc.port, 9000);
     assert!(config.osc.mute_sync_enabled);
-    assert!(!config.osc.mute_status_toast_enabled);
     assert!(config.osc.preserve_original_text);
 }
 
@@ -725,7 +745,6 @@ fn migrates_v9_with_mute_sync_enabled_by_default() {
     assert!(config.osc.enabled);
     assert_eq!(config.osc.port, 9001);
     assert!(config.osc.mute_sync_enabled);
-    assert!(!config.osc.mute_status_toast_enabled);
     assert!(config.osc.preserve_original_text);
 }
 

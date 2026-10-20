@@ -30,8 +30,6 @@ pub struct OscConfig {
     pub port: u16,
     #[serde(default = "default_enabled")]
     pub mute_sync_enabled: bool,
-    #[serde(default)]
-    pub mute_status_toast_enabled: bool,
     #[serde(default = "default_enabled")]
     pub preserve_original_text: bool,
     #[serde(default = "super::language::default_translation_strategy")]
@@ -93,7 +91,6 @@ impl Default for OscConfig {
             enabled: false,
             port: default_osc_port(),
             mute_sync_enabled: default_enabled(),
-            mute_status_toast_enabled: false,
             preserve_original_text: default_enabled(),
             translation_strategy: super::language::default_translation_strategy(),
         }

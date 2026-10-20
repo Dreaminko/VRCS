@@ -1238,7 +1238,6 @@ mod tests {
                 enabled: true,
                 port: 9000,
                 mute_sync_enabled: false,
-                mute_status_toast_enabled: false,
                 preserve_original_text: true,
                 translation_strategy: "preferred_only".into(),
             },
@@ -1745,7 +1744,6 @@ mod tests {
             enabled: true,
             port: receiver.local_addr().unwrap().port(),
             mute_sync_enabled: true,
-            mute_status_toast_enabled: false,
             preserve_original_text: true,
             translation_strategy: "preferred_only".into(),
         });
@@ -1773,7 +1771,6 @@ mod tests {
             enabled: true,
             port: receiver.local_addr().unwrap().port(),
             mute_sync_enabled: false,
-            mute_status_toast_enabled: false,
             preserve_original_text: true,
             translation_strategy: "preferred_only".into(),
         });
@@ -1820,7 +1817,6 @@ mod tests {
             enabled: true,
             port: receiver.local_addr().unwrap().port(),
             mute_sync_enabled: false,
-            mute_status_toast_enabled: false,
             preserve_original_text: false,
             translation_strategy: "preferred_only".into(),
         });
@@ -1859,7 +1855,6 @@ mod tests {
             enabled: true,
             port: receiver.local_addr().unwrap().port(),
             mute_sync_enabled: false,
-            mute_status_toast_enabled: false,
             preserve_original_text: true,
             translation_strategy: "all_languages".into(),
         });
@@ -1908,7 +1903,6 @@ mod tests {
             enabled: true,
             port: receiver.local_addr().unwrap().port(),
             mute_sync_enabled: false,
-            mute_status_toast_enabled: false,
             preserve_original_text: true,
             translation_strategy: "preferred_only".into(),
         };
@@ -1939,7 +1933,6 @@ mod tests {
             enabled: true,
             port: receiver.local_addr().unwrap().port(),
             mute_sync_enabled: true,
-            mute_status_toast_enabled: false,
             preserve_original_text: true,
             translation_strategy: "preferred_only".into(),
         });

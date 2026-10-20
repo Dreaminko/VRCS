@@ -30,7 +30,7 @@ const settings: Settings = {
   translation: { mode: "disabled", speaker_targets: [{ target_language: "zh-Hans", profile_id: null, model: "gpt-5-mini", thinking_enabled: false }], microphone_targets: [{ target_language: "en", profile_id: null, model: "gpt-5-mini", thinking_enabled: false }], prompt: { system_prompt: "", context_enabled: false, include_speaker: true, include_microphone: true, include_chatbox: true, max_messages: 5, max_chars: 4000 } },
   language_presets: [],
   glossary: { llm_enabled: true, asr_enabled: true, sources: [] },
-  osc: { enabled: false, port: 9000, mute_sync_enabled: true, mute_status_toast_enabled: false, preserve_original_text: true, translation_strategy: "preferred_only" },
+  osc: { enabled: false, port: 9000, mute_sync_enabled: true, preserve_original_text: true, translation_strategy: "preferred_only" },
   dictionary: { selection_lookup_enabled: true },
   anki: { enabled: true, port: 8765, deck: "VRCS", model: "Basic", front_field: "Front", back_field: "Back" },
   external_api: { enabled: false, host: "127.0.0.1", port: 8767, require_token: false },

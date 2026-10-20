@@ -35,7 +35,6 @@ export interface Settings {
     enabled: boolean;
     port: number;
     mute_sync_enabled: boolean;
-    mute_status_toast_enabled: boolean;
     preserve_original_text: boolean;
     translation_strategy: OscTranslationStrategy;
   };

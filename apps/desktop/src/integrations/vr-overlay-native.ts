@@ -64,7 +64,6 @@ export interface VrDashboardViewModel {
     osc_original: string;
     osc_enabled: string;
     osc_mute_sync: string;
-    osc_mute_toast: string;
     osc_strategy: string;
     osc_hint: string;
     close: string;
@@ -95,7 +94,7 @@ export interface VrDashboardViewModel {
     speaker_targets: VrDashboardChoice[]; microphone_targets: VrDashboardChoice[];
     can_add: boolean; presets: VrDashboardChoice; can_save_preset: boolean;
   };
-  osc: { enabled: boolean; original: boolean; mute_sync: boolean; mute_toast: boolean; strategy: VrDashboardChoice; endpoint: string };
+  osc: { enabled: boolean; original: boolean; mute_sync: boolean; strategy: VrDashboardChoice; endpoint: string };
   status: string;
   save_state: "idle" | "saving" | "saved" | "error";
   error: string | null;

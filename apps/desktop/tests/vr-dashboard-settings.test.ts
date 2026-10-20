@@ -26,7 +26,7 @@ const settings = {
     prompt: { system_prompt: "Keep this prompt" },
   },
   osc: {
-    enabled: false, port: 9001, mute_sync_enabled: true, mute_status_toast_enabled: true,
+    enabled: false, port: 9001, mute_sync_enabled: true,
     preserve_original_text: true, translation_strategy: "preferred_only",
   },
   language_presets: [],
@@ -159,7 +159,7 @@ test("live translation language selection uses the live service's supported targ
 test("dashboard OSC settings preserve the endpoint and cycle all translation strategies", () => {
   const fields = [
     ["toggle_osc", "enabled"], ["toggle_osc_original", "preserve_original_text"],
-    ["toggle_osc_mute_sync", "mute_sync_enabled"], ["toggle_osc_mute_toast", "mute_status_toast_enabled"],
+    ["toggle_osc_mute_sync", "mute_sync_enabled"],
   ] as const;
   for (const [action, key] of fields) {
     const next = applyVrDashboardAction(settings, action);

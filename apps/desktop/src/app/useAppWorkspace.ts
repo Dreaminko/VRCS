@@ -23,7 +23,6 @@ import {
 } from "../translation/translation-languages";
 import { useAppUpdater } from "../updates/useAppUpdater";
 import { useInterfaceScale } from "./useInterfaceScale";
-import { useVrchatMuteToast } from "./useVrchatMuteToast";
 
 export function useAppWorkspace({
   page,
@@ -89,11 +88,6 @@ export function useAppWorkspace({
     collapseCompactOverlay: compactWindow.collapseCompactOverlay,
     reportError: runtime.reportError,
   });
-  const vrchatMuteToast = useVrchatMuteToast({
-    settingsReady: settings.value !== null,
-    enabled: Boolean(settings.value?.features.osc_chatbox && settings.value.osc.enabled && settings.value.osc.mute_status_toast_enabled),
-    status: runtime.vrchatMuteStatus,
-  });
   const { interfaceScale, setInterfaceScale } = useInterfaceScale(runtime.reportError);
   const chatboxRoute = settings.value?.translation.microphone_targets[0];
   const providerCatalog = useApiProfileViews(
@@ -140,10 +134,7 @@ export function useAppWorkspace({
       ...onboardingFlow,
       finish: finishOnboarding,
     },
-    runtime: {
-      ...runtime,
-      vrchatMuteToast,
-    },
+    runtime,
     capture: {
       ...captureRuntime,
       ...captureControl,
