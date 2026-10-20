@@ -89,6 +89,68 @@ export function useLiveConversationScroll({
   }, [focusedSubtitleId, setFollowingLive]);
 
   useEffect(() => {
+    if (page !== "live") return;
+    const scrollRegion = liveScrollRef.current;
+    if (!scrollRegion) return;
+
+    const pauseFollowing = () => {
+      if (scrollRegion.scrollTop > 0) setFollowingLive(false);
+    };
+    const onWheel = (event: WheelEvent) => {
+      if (!event.defaultPrevented && !event.ctrlKey && event.deltaY < 0) pauseFollowing();
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.altKey || event.metaKey) return;
+      const target = event.target instanceof Element ? event.target : null;
+      if (target && target !== document.body && target !== document.documentElement && !scrollRegion.contains(target)) return;
+      if (target?.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="textbox"]')) return;
+      if (event.ctrlKey && event.key !== "Home") return;
+      const reverseSpace = event.key === " " && event.shiftKey
+        && !target?.closest('button, a[href], [role="button"]');
+      if (event.key === "ArrowUp" || event.key === "PageUp" || event.key === "Home" || reverseSpace) pauseFollowing();
+    };
+    const onPointerDown = (event: PointerEvent) => {
+      if (event.button !== 0 || event.target !== scrollRegion) return;
+      const bounds = scrollRegion.getBoundingClientRect();
+      const scale = bounds.width / scrollRegion.offsetWidth;
+      const contentLeft = bounds.left + scrollRegion.clientLeft * scale;
+      const contentRight = contentLeft + scrollRegion.clientWidth * scale;
+      if (event.clientX < contentLeft || event.clientX >= contentRight) pauseFollowing();
+    };
+    let touch: { x: number; y: number } | null = null;
+    const onTouchStart = (event: TouchEvent) => {
+      const point = event.touches.length === 1 ? event.touches[0] : null;
+      touch = point ? { x: point.clientX, y: point.clientY } : null;
+    };
+    const onTouchMove = (event: TouchEvent) => {
+      const point = event.touches.length === 1 ? event.touches[0] : null;
+      if (touch && point && !event.defaultPrevented) {
+        const deltaY = point.clientY - touch.y;
+        if (deltaY > 1 && deltaY > Math.abs(point.clientX - touch.x)) pauseFollowing();
+      }
+      touch = point ? { x: point.clientX, y: point.clientY } : null;
+    };
+    const onTouchEnd = () => { touch = null; };
+
+    scrollRegion.addEventListener("wheel", onWheel, { passive: true });
+    scrollRegion.addEventListener("pointerdown", onPointerDown);
+    scrollRegion.addEventListener("touchstart", onTouchStart, { passive: true });
+    scrollRegion.addEventListener("touchmove", onTouchMove, { passive: true });
+    scrollRegion.addEventListener("touchend", onTouchEnd);
+    scrollRegion.addEventListener("touchcancel", onTouchEnd);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      scrollRegion.removeEventListener("wheel", onWheel);
+      scrollRegion.removeEventListener("pointerdown", onPointerDown);
+      scrollRegion.removeEventListener("touchstart", onTouchStart);
+      scrollRegion.removeEventListener("touchmove", onTouchMove);
+      scrollRegion.removeEventListener("touchend", onTouchEnd);
+      scrollRegion.removeEventListener("touchcancel", onTouchEnd);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [page, setFollowingLive]);
+
+  useEffect(() => {
     if (!liveAutoScrollActive || !followingLiveSubtitles) return;
     let frame = window.requestAnimationFrame(autoScrollLiveViewToBottom);
     // Delta updates grow the preview without changing the saved conversation.
@@ -114,12 +176,16 @@ export function useLiveConversationScroll({
   const onLiveScroll = useCallback((event: UIEvent<HTMLDivElement>) => {
     if (page !== "live") return;
     const scrollRegion = event.currentTarget;
-    setFollowingLive(shouldFollowLiveScroll(followingLiveSubtitlesRef.current, {
-      scrollTop: scrollRegion.scrollTop,
-      previousScrollTop: previousLiveScrollTopRef.current,
-      scrollHeight: scrollRegion.scrollHeight,
-      clientHeight: scrollRegion.clientHeight,
-    }));
+    // Layout can clamp the offset before another translation grows the content.
+    // Input pauses following; only movement back toward the bottom resumes it.
+    if (!followingLiveSubtitlesRef.current && scrollRegion.scrollTop > previousLiveScrollTopRef.current) {
+      setFollowingLive(shouldFollowLiveScroll(false, {
+        scrollTop: scrollRegion.scrollTop,
+        previousScrollTop: previousLiveScrollTopRef.current,
+        scrollHeight: scrollRegion.scrollHeight,
+        clientHeight: scrollRegion.clientHeight,
+      }));
+    }
     previousLiveScrollTopRef.current = scrollRegion.scrollTop;
   }, [page, setFollowingLive]);
 
