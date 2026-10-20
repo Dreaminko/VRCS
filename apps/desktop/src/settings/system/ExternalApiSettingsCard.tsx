@@ -10,6 +10,20 @@ import type { SaveState } from "../settings-types";
 import { PreferenceToggle } from "../SettingsControls";
 import { SettingsDisclosure } from "../components/SettingsDisclosure";
 
+function isLoopbackAddress(host: string): boolean {
+  if (host.includes(":")) {
+    if (!/^[\da-f:]+$/i.test(host)) return false;
+    try {
+      return new URL(`http://[${host}]/`).hostname === "[::1]";
+    } catch {
+      return false;
+    }
+  }
+  const octets = host.split(".");
+  return octets.length === 4 && octets[0] === "127"
+    && octets.every((part) => /^(0|[1-9]\d{0,2})$/.test(part) && Number(part) <= 255);
+}
+
 export function ExternalApiSettingsCard({ config, saveState, onChange }: {
   config: Settings["external_api"];
   saveState: SaveState;
@@ -163,7 +177,7 @@ export function ExternalApiSettingsCard({ config, saveState, onChange }: {
                   onBlur={(event) => {
                     const host = event.currentTarget.value.trim();
                     if (!host || host === config.host) return;
-                    const loopback = host === "127.0.0.1" || host === "::1";
+                    const loopback = isLoopbackAddress(host);
                     onChange({ host, require_token: loopback ? config.require_token : true });
                   }}
                 />
@@ -187,7 +201,7 @@ export function ExternalApiSettingsCard({ config, saveState, onChange }: {
           <PreferenceToggle
             title={t("settings.system.externalApi.requireToken")}
             checked={config.require_token}
-            disabled={!["127.0.0.1", "::1"].includes(config.host)}
+            disabled={!isLoopbackAddress(config.host)}
             onChange={(require_token) => onChange({ require_token })}
           />
           <div className="external-api-token-section">

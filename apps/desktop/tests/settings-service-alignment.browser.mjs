@@ -154,6 +154,19 @@ test("settings follow the configured translation, recognition, network and VR se
         await wait(() => diagnostics.length > 0);
         check(new URL(diagnostics[0]).searchParams.get('service_id') === 'qwen_realtime', 'ASR diagnostics test the selected service instead of the first service');
 
+        for (const [host, loopback] of [
+          ['127.0.0.2', true], ['127.255.255.255', true], ['::1', true], ['0:0:0:0:0:0:0:1', true], ['0000::0001', true],
+          ['127.256.0.1', false], ['127.00.0.1', false], ['127.1', false], ['localhost', false], ['[::1]', false],
+          ['::2', false], ['192.168.0.1', false], ['0.0.0.0', false], ['::ffff:127.0.0.1', false],
+        ]) {
+          await update({ external_api: { ...initial.external_api } });
+          const input = document.querySelector('.external-api-address-grid input');
+          input.focus(); input.value = host; input.blur();
+          await wait(() => draft.external_api.host === host);
+          const toggle = document.querySelector('[aria-label="settings.system.externalApi.requireToken"]');
+          check(toggle.disabled === !loopback && draft.external_api.require_token === !loopback, 'Token policy matches the Core IP rules: ' + host);
+        }
+
         root.unmount();
         document.getElementById('result').textContent = 'PASS';
       } catch (error) { document.getElementById('result').textContent = 'FAIL: ' + error.message; }
