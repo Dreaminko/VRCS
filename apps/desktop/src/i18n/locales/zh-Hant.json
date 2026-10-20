@@ -1543,7 +1543,7 @@
         "muteSync": "同步 VRChat 麥克風靜音",
         "muteSyncDescription": "VRChat 靜音時暫停麥克風轉錄並阻止 Chatbox 傳送；取消靜音後自動恢復。",
         "muteToast": "顯示靜音狀態提示",
-        "muteToastDescription": "VRChat 靜音狀態變化時顯示簡短的應用程式內提示。",
+        "muteToastDescription": "開啟靜音同步後，VRChat 靜音狀態變化時顯示簡短的應用程式內提示。",
         "muteToastMuted": "VRChat 已靜音，傳送已暫停",
         "muteToastUnmuted": "VRChat 已取消靜音，傳送已恢復",
         "invalidPort": "請輸入 1 到 65535 之間的有效連線埠。",

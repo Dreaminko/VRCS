@@ -1543,7 +1543,7 @@
         "muteSync": "VRChat のマイクミュートと同期",
         "muteSyncDescription": "VRChat がミュート中はマイク文字起こしとチャットボックス送信を停止し、解除後に自動で再開します。",
         "muteToast": "ミュート状態の通知を表示",
-        "muteToastDescription": "VRChat のミュート状態が変わったときに短いアプリ内通知を表示します。",
+        "muteToastDescription": "ミュート同期が有効な場合、VRChat のミュート状態が変わると短いアプリ内通知を表示します。",
         "muteToastMuted": "VRChat がミュート中のため送信を一時停止",
         "muteToastUnmuted": "VRChat のミュート解除により送信を再開",
         "invalidPort": "1～65535 の有効なポートを入力してください。",

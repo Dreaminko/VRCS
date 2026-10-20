@@ -1543,7 +1543,7 @@
         "muteSync": "Sync VRChat microphone mute",
         "muteSyncDescription": "Pause microphone transcription and block chatbox output while VRChat is muted, then resume automatically.",
         "muteToast": "Show mute status notifications",
-        "muteToastDescription": "Show a brief in-app notice when the VRChat mute state changes.",
+        "muteToastDescription": "With mute sync enabled, show a brief in-app notice when the VRChat mute state changes.",
         "muteToastMuted": "VRChat muted, sending paused",
         "muteToastUnmuted": "VRChat unmuted, sending resumed",
         "invalidPort": "Enter a valid port from 1 to 65535.",

@@ -193,6 +193,7 @@ export function ConnectionSettingsSection({
                 />
                 <PreferenceToggle
                   title={t("settings.osc.muteToast")}
+                  description={t("settings.osc.muteToastDescription")}
                   checked={draft.osc.mute_status_toast_enabled}
                   disabled={false}
                   onChange={(mute_status_toast_enabled) => applySettings((current) => ({

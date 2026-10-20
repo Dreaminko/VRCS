@@ -1543,7 +1543,7 @@
         "muteSync": "同步 VRChat 麦克风静音",
         "muteSyncDescription": "VRChat 静音时暂停麦克风转写并阻止聊天框发送；取消静音后自动恢复。",
         "muteToast": "显示静音状态提示",
-        "muteToastDescription": "VRChat 静音状态变化时显示简短的应用内提示。",
+        "muteToastDescription": "开启静音同步后，VRChat 静音状态变化时显示简短的应用内提示。",
         "muteToastMuted": "VRChat 已静音，发送已暂停",
         "muteToastUnmuted": "VRChat 已取消静音，发送已恢复",
         "invalidPort": "请输入 1 到 65535 之间的有效端口。",
