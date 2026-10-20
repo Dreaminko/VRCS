@@ -167,6 +167,10 @@ test("settings follow the configured translation, recognition, network and VR se
           check(toggle.disabled === !loopback && draft.external_api.require_token === !loopback, 'Token policy matches the Core IP rules: ' + host);
         }
 
+        document.querySelector('[role=switch][aria-label="settings.vrOcr.gesture"]').click();
+        await settle();
+        check(!draft.ocr.hand_gesture_enabled && draft.vision.enabled, 'Frame selection can be disabled while vision stays enabled');
+
         root.unmount();
         document.getElementById('result').textContent = 'PASS';
       } catch (error) { document.getElementById('result').textContent = 'FAIL: ' + error.message; }

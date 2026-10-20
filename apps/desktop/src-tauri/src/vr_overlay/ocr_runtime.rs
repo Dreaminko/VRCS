@@ -474,7 +474,7 @@ impl OcrRuntime {
             self.update_wrist_pointer(&events, focused)
         };
         let input = backend.ocr_input(
-            config.hand_gesture_enabled || self.vision.enabled(),
+            config.hand_gesture_enabled,
             reading_focus,
             self.vision.enabled(),
         )?;
