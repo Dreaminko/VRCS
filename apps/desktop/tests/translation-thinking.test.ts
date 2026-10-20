@@ -85,6 +85,24 @@ test("DeepSeek and Alibaba distinguish toggleable and thinking-only models", () 
   assert.equal(thinkingControlForModel("alibaba_token_plan", "qwen3.8-max"), "disable_supported");
 });
 
+test("native DeepSeek aliases expose effort without a matching catalog entry", () => {
+  for (const model of ["deepseek-flash", "deepseek-v4-flash", "deepseek-v4-flash-vision-exp", "deepseek-v4-pro"]) {
+    const options = reasoningOptionsForModel("deepseek", model);
+    assert.equal(options.thinking, "disable_supported", model);
+    assert.deepEqual(options.efforts, ["low", "high", "max"], model);
+    for (const value of options.efforts) {
+      assert.deepEqual(normalizeReasoningControlForModel("deepseek", model, { type: "effort", value }), { type: "effort", value });
+    }
+    assert.equal(normalizeReasoningControlForModel("deepseek", model, { type: "effort", value: "medium" }), null);
+  }
+  assert.deepEqual(reasoningOptionsForModel("deepseek", "deepseek-reasoner").efforts, []);
+  assert.deepEqual(reasoningOptionsForModel("openai_compatible", "deepseek-v4-flash").efforts, []);
+  assert.deepEqual(reasoningOptionsForModel("deepseek", "deepseek-v4-flash", { reasoning: { supported: false } }).efforts, []);
+  assert.deepEqual(reasoningOptionsForModel("deepseek", "deepseek-v4-flash", {
+    reasoning: { supported: true, supported_efforts: ["low", "high"] },
+  }).efforts, ["low", "high"]);
+});
+
 test("custom OpenAI-compatible profiles do not inherit branded parameters", () => {
   assert.equal(
     thinkingControlForModel("openai_compatible", "qwen/qwen3.6-27b"),

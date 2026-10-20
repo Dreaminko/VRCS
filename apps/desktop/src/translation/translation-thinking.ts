@@ -33,6 +33,10 @@ export function reasoningOptionsForModel(provider: string | undefined, model: st
     dynamic: provider === "gemini" && confirmed("reasoning.supports_dynamic_budget") && options?.supports_dynamic_budget === true,
   } : undefined;
   let available = [...new Set(values.filter((value) => value !== "none"))];
+  if (!details?.reasoning && provider === "deepseek"
+    && ["deepseek-flash", "deepseek-v4-flash", "deepseek-v4-flash-vision-exp", "deepseek-v4-pro"].includes(model)) {
+    available = ["low", "high", "max"];
+  }
   if (!details?.reasoning && provider === "groq" && /^openai\/gpt-oss-(20b|120b)$/.test(model)) {
     available = ["low", "medium", "high"];
   }

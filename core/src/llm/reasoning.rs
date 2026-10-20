@@ -62,6 +62,13 @@ pub(super) fn builtin_options(provider: &str, model: &str) -> Option<ReasoningOp
                 return None;
             }
         }
+        "deepseek" => match model {
+            "deepseek-flash"
+            | "deepseek-v4-flash"
+            | "deepseek-v4-flash-vision-exp"
+            | "deepseek-v4-pro" => &["low", "high", "max"],
+            _ => return None,
+        },
         "groq" => match model {
             "openai/gpt-oss-20b" | "openai/gpt-oss-120b" => &["low", "medium", "high"],
             "qwen/qwen3.6-27b" => &["none", "default"],
@@ -100,7 +107,7 @@ pub(super) fn builtin_options(provider: &str, model: &str) -> Option<ReasoningOp
         }
         _ => return None,
     };
-    let can_disable = efforts.contains(&"none");
+    let can_disable = provider == "deepseek" || efforts.contains(&"none");
     let values = efforts
         .iter()
         .map(|value| (*value).to_owned())
@@ -701,6 +708,47 @@ fn partial_tag_suffix_len(text: &str, tag: &str) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn deepseek_alias_efforts_work_without_catalog_metadata_and_preserve_the_toggle() {
+        for model in [
+            "deepseek-flash",
+            "deepseek-v4-flash",
+            "deepseek-v4-flash-vision-exp",
+            "deepseek-v4-pro",
+        ] {
+            for effort in ["low", "high", "max"] {
+                let mut request = LlmRequest {
+                    model,
+                    instructions: "Answer",
+                    input: "Hello",
+                    max_output_tokens: 1024,
+                    thinking_enabled: true,
+                    reasoning_control: Some(ReasoningSetting::Effort(effort.into())),
+                };
+                let mut body = json!({"max_tokens": 1024, "temperature": 0.7});
+                assert!(apply_explicit_control(&mut body, "deepseek", &request, None).unwrap());
+                assert_eq!(body["reasoning_effort"], effort, "{model}");
+                assert_eq!(body["thinking"]["type"], "enabled");
+                assert!(body.get("temperature").is_none());
+
+                request.thinking_enabled = false;
+                let original = json!({"max_tokens": 1024, "thinking": {"type": "disabled"}});
+                let mut body = original.clone();
+                assert!(!apply_explicit_control(&mut body, "deepseek", &request, None).unwrap());
+                assert_eq!(body, original, "{model}");
+
+                request.thinking_enabled = true;
+                request.reasoning_control = Some(ReasoningSetting::Effort("medium".into()));
+                assert_eq!(
+                    apply_explicit_control(&mut body, "deepseek", &request, None)
+                        .unwrap_err()
+                        .code,
+                    "llm.reasoning_unsupported"
+                );
+            }
+        }
+    }
 
     #[test]
     fn explicit_controls_use_native_fields_and_keep_mandatory_reasoning_active() {

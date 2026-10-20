@@ -25,9 +25,15 @@ for (const width of [1200, 500]) {
         import { initReactI18next } from 'react-i18next';
         import './src/styles.css';
         import en from './src/i18n/locales/en-US.json';
+        import { updateReducedMotionPreference } from './src/app/app-motion';
+        import { learningPreferencesSnapshot, readLearningPreferences, updateLearningPreferences } from './src/learning/preferences';
+        import { providersApi } from './src/providers/api';
+        import { notifyApiProfilesChanged } from './src/providers/api-profile-events';
         import { ReasoningControlField } from './src/settings/ReasoningControlField';
+        import { LearningAiSettingsSection } from './src/settings/sections/LearningAiSettingsSection';
 
         await i18next.use(initReactI18next).init({ lng: 'en-US', resources: { 'en-US': { translation: en.translation } } });
+        updateReducedMotionPreference(true);
         window.requestAnimationFrame = callback => window.setTimeout(() => callback(performance.now()), 16);
         window.cancelAnimationFrame = id => window.clearTimeout(id);
         const storageKey = 'vrcs.reasoning-controls.browser-test';
@@ -75,7 +81,7 @@ for (const width of [1200, 500]) {
           throw new Error('Timed out waiting for: ' + predicate.toString());
         };
         const section = id => document.getElementById(id);
-        const trigger = id => section(id).querySelector('.dropdown-trigger');
+        const trigger = id => section(id)?.querySelector('.dropdown-trigger[aria-label="' + label('strength') + '"]');
         const key = (element, value) => element.dispatchEvent(new KeyboardEvent('keydown', {
           key: value, bubbles: true, cancelable: true,
         }));
@@ -178,10 +184,73 @@ for (const width of [1200, 500]) {
           check(settings.budget.reasoning_control === null, 'Application default clears explicit control');
           checkLayout();
           root.unmount();
+
+          let profile = { id: 'learning-profile', name: 'DeepSeek', provider: 'deepseek', region: 'old',
+            capabilities: { supports_text_generation: true, supports_model_listing: true } };
+          let loadedRegion;
+          providersApi.apiProfiles = async () => ({ profiles: [profile] });
+          providersApi.apiProfileModels = async () => {
+            loadedRegion = profile.region;
+            const model = profile.region === 'new' ? 'deepseek-v4-flash' : 'deepseek-flash';
+            return { models: [model], model_details: {
+              [model]: { reasoning: { supported: true, can_disable: true,
+                supported_efforts: profile.region === 'new' ? ['low', 'high'] : ['low', 'high', 'max'] } },
+            } };
+          };
+          updateLearningPreferences(current => ({ ...current, profileId: profile.id, model: 'deepseek-v4-flash',
+            thinkingEnabled: false, reasoningControl: null }));
+          const learningPreferences = () => readLearningPreferences(learningPreferencesSnapshot());
+          const mountLearning = () => {
+            root = createRoot(document.getElementById('root'));
+            root.render(<section id="learning"><LearningAiSettingsSection /></section>);
+          };
+          mountLearning();
+          await wait(() => loadedRegion === 'old' && section('learning')?.querySelector('[role=switch]'));
+          check(!trigger('learning'), 'Learning hides strength while thinking is off');
+          section('learning').querySelector('[role=switch]').click();
+          await wait(() => learningPreferences().thinkingEnabled && trigger('learning'));
+          trigger('learning').click();
+          await wait(() => section('learning').querySelector('[role=listbox]'));
+          check(JSON.stringify([...section('learning').querySelectorAll('[role=option]')].map(option => option.textContent.trim()))
+            === JSON.stringify([label('applicationDefault'), ...['low', 'high', 'max'].map(value => label('efforts.' + value))]),
+            'Saved DeepSeek alias exposes low, high and max even when only the current name is listed');
+          key(document.activeElement, 'Escape');
+          await wait(() => !section('learning').querySelector('[role=listbox]'));
+          await choose('learning', label('efforts.max'));
+          check(learningPreferences().reasoningControl?.value === 'max', 'Learning saves the selected effort');
+          section('learning').querySelector('[role=switch]').click();
+          await wait(() => !trigger('learning'));
+          check(learningPreferences().reasoningControl?.value === 'max', 'Learning retains strength when thinking is off');
+          section('learning').querySelector('[role=switch]').click();
+          await wait(() => trigger('learning')?.textContent.includes(label('efforts.max')));
+          checkLayout();
+          root.unmount();
+          mountLearning();
+          await wait(() => trigger('learning')?.textContent.includes(label('efforts.max')));
+          check(learningPreferences().thinkingEnabled, 'Learning restores thinking and strength after remount');
+
+          profile = { ...profile, region: 'new' };
+          notifyApiProfilesChanged();
+          await wait(() => loadedRegion === 'new');
+          await choose('learning', label('efforts.high'));
+          check(learningPreferences().reasoningControl?.value === 'high', 'Learning accepts effort after a profile refresh');
+          trigger('learning').click();
+          await wait(() => section('learning').querySelector('[role=listbox]'));
+          check(![...section('learning').querySelectorAll('[role=option]')]
+            .some(option => option.textContent.trim() === label('efforts.max')), 'Refreshed catalog overrides the fallback');
+          root.unmount();
+          localStorage.removeItem('vrcs.learning.preferences.v1');
           localStorage.removeItem(storageKey);
           document.getElementById('result').textContent = 'PASS';
         } catch (error) { document.getElementById('result').textContent = 'FAIL: ' + error.message; }
       ` },
+      plugins: [{ name: "locale-catalog-fixture", setup(build) {
+        build.onResolve({ filter: /i18n\/catalog$/ }, () => ({ path: "locale-catalog", namespace: "fixture" }));
+        build.onLoad({ filter: /.*/, namespace: "fixture" }, () => ({
+          resolveDir: join(testDirectory, ".."),
+          contents: 'import en from "./src/i18n/locales/en-US.json"; export const localeCatalog = [en];',
+        }));
+      } }],
       bundle: true, write: false, outfile: "reasoning-controls-test.js", format: "esm", platform: "browser", jsx: "automatic",
       define: { "import.meta.env.VITE_VRCS_SESSION_TOKEN": '""' },
     });
