@@ -25,7 +25,7 @@ export interface DesktopPreferencesRuntime {
 
 export const defaultDesktopPreferences: DesktopPreferences = {
   launchAtStartup: false,
-  minimizeToTray: false,
+  minimizeToTray: true,
 };
 
 const runtime: DesktopPreferencesRuntime = {
@@ -62,7 +62,9 @@ export async function loadDesktopPreferences(
   ]);
   return {
     launchAtStartup,
-    minimizeToTray: minimizeToTray === true,
+    minimizeToTray: typeof minimizeToTray === "boolean"
+      ? minimizeToTray
+      : defaultDesktopPreferences.minimizeToTray,
   };
 }
 

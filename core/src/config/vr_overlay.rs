@@ -18,9 +18,9 @@ pub struct VrOverlayConfig {
 pub struct VrOverlayHeadsetConfig {
     #[serde(default = "default_true")]
     pub enabled: bool,
-    #[serde(default)]
+    #[serde(default = "default_true")]
     pub show_partials: bool,
-    #[serde(default)]
+    #[serde(default = "default_true")]
     pub show_translation_partials: bool,
     #[serde(default = "default_true")]
     pub include_speaker: bool,
@@ -67,9 +67,9 @@ pub struct VrOverlayWristConfig {
     pub hand: String,
     #[serde(default = "default_dominant_hand")]
     pub dominant_hand: String,
-    #[serde(default)]
+    #[serde(default = "default_true")]
     pub show_partials: bool,
-    #[serde(default)]
+    #[serde(default = "default_true")]
     pub show_translation_partials: bool,
     #[serde(default = "default_true")]
     pub include_speaker: bool,
@@ -214,8 +214,8 @@ impl Default for VrOverlayHeadsetConfig {
     fn default() -> Self {
         Self {
             enabled: default_true(),
-            show_partials: false,
-            show_translation_partials: false,
+            show_partials: default_true(),
+            show_translation_partials: default_true(),
             include_speaker: default_true(),
             include_microphone: false,
             include_chatbox: false,
@@ -243,8 +243,8 @@ impl Default for VrOverlayWristConfig {
             enabled: default_true(),
             hand: default_wrist_hand(),
             dominant_hand: default_dominant_hand(),
-            show_partials: false,
-            show_translation_partials: false,
+            show_partials: default_true(),
+            show_translation_partials: default_true(),
             include_speaker: default_true(),
             include_microphone: false,
             include_chatbox: false,

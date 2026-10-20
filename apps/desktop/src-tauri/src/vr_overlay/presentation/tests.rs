@@ -294,6 +294,8 @@ fn wrist_ignored_events_do_not_extend_idle_deadline() {
     let now = Instant::now();
     let config = VrOverlayWristConfig {
         idle_hide_seconds: 15,
+        show_partials: false,
+        show_translation_partials: false,
         ..Default::default()
     };
     let mut excluded = subtitle(2, "local");
@@ -345,6 +347,7 @@ fn wrist_empty_live_preview_does_not_extend_idle_deadline() {
     let config = VrOverlayWristConfig {
         idle_hide_seconds: 15,
         show_partials: true,
+        show_translation_partials: false,
         ..Default::default()
     };
     let mut wrist = WristPresentation::default();
@@ -545,7 +548,7 @@ fn multilingual_translation_display_can_show_preferred_or_all_languages() {
             .unwrap()
             .content,
         PresentationContent::Wrist(vec![WristMessage {
-            text: "你好".into(),
+            text: "hello\n你好".into(),
             side: MessageSide::Left,
         }])
     );
@@ -555,7 +558,7 @@ fn multilingual_translation_display_can_show_preferred_or_all_languages() {
             .unwrap()
             .content,
         PresentationContent::Wrist(vec![WristMessage {
-            text: "你好\nこんにちは".into(),
+            text: "hello\n你好\nこんにちは".into(),
             side: MessageSide::Left,
         }])
     );
@@ -595,7 +598,7 @@ fn interleaved_wrist_translation_partials_keep_each_language_current() {
             .unwrap()
             .content,
         PresentationContent::Wrist(vec![WristMessage {
-            text: "你好\nこんにちは".into(),
+            text: "hello\n你好\nこんにちは".into(),
             side: MessageSide::Left,
         }])
     );
@@ -627,7 +630,7 @@ fn later_non_preferred_update_preserves_preferred_translation() {
             .frame_with_translation_display(now, &config, "preferred_only")
             .unwrap()
             .content,
-        PresentationContent::Headset("你好".into())
+        PresentationContent::Headset("hello\n你好".into())
     );
 }
 
@@ -765,7 +768,10 @@ fn wrist_places_remote_left_and_local_sources_right() {
 #[test]
 fn recognition_partials_are_visible_only_when_enabled() {
     let now = Instant::now();
-    let mut headset_config = VrOverlayHeadsetConfig::default();
+    let mut headset_config = VrOverlayHeadsetConfig {
+        show_partials: false,
+        ..Default::default()
+    };
     let mut headset = HeadsetPresentation::default();
     headset.apply(partial_event("u1", "speaker", "hel"), now, &headset_config);
     assert!(headset.frame(now, &headset_config).is_none());

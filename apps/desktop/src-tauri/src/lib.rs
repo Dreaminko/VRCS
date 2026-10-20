@@ -369,7 +369,7 @@ fn minimize_to_tray_enabled(app: &tauri::AppHandle) -> bool {
         .ok()
         .and_then(|store| store.get("minimizeToTray"))
         .and_then(|value| value.as_bool())
-        .unwrap_or(false)
+        .unwrap_or(true)
 }
 
 pub(crate) fn prepare_for_exit(app: &tauri::AppHandle) {

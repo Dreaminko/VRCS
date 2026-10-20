@@ -31,9 +31,19 @@ function fakeRuntime(initial?: {
   return { events, runtime };
 }
 
-test("uses quiet defaults outside the native app", async () => {
+test("uses desktop defaults outside the native app", async () => {
   const { runtime } = fakeRuntime({ native: false, launchAtStartup: true, minimizeToTray: true });
   assert.deepEqual(await loadDesktopPreferences(runtime), defaultDesktopPreferences);
+});
+
+test("missing tray preferences default to enabled while saved choices are preserved", async () => {
+  for (const [saved, expected] of [[undefined, true], [null, true], [true, true], [false, false]] as const) {
+    const { runtime } = fakeRuntime({ minimizeToTray: saved });
+    assert.deepEqual(await loadDesktopPreferences(runtime), {
+      launchAtStartup: false,
+      minimizeToTray: expected,
+    });
+  }
 });
 
 test("loads autostart from Windows and tray behavior from the preference store", async () => {

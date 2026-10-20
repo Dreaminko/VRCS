@@ -53,8 +53,8 @@ export function resetVrOverlayPosition(settings: Settings, kind: VrOverlayDispla
 
 export const DEFAULT_VR_OVERLAY_HEADSET_SETTINGS: VrOverlayHeadsetSettings = {
   enabled: true,
-  show_partials: false,
-  show_translation_partials: false,
+  show_partials: true,
+  show_translation_partials: true,
   include_speaker: true,
   include_microphone: false,
   include_chatbox: false,
@@ -78,8 +78,8 @@ export const DEFAULT_VR_OVERLAY_WRIST_SETTINGS: VrOverlayWristSettings = {
   enabled: true,
   hand: "left",
   dominant_hand: "right",
-  show_partials: false,
-  show_translation_partials: false,
+  show_partials: true,
+  show_translation_partials: true,
   include_speaker: true,
   include_microphone: false,
   include_chatbox: false,

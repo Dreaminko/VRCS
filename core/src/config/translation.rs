@@ -74,7 +74,7 @@ pub struct TranslationTargetConfig {
 pub struct TranslationPromptConfig {
     #[serde(default = "default_translation_system_prompt")]
     pub system_prompt: String,
-    #[serde(default)]
+    #[serde(default = "default_enabled")]
     pub context_enabled: bool,
     #[serde(default = "default_enabled")]
     pub include_speaker: bool,
@@ -150,7 +150,7 @@ impl Default for TranslationPromptConfig {
     fn default() -> Self {
         Self {
             system_prompt: default_translation_system_prompt(),
-            context_enabled: false,
+            context_enabled: default_enabled(),
             include_speaker: default_enabled(),
             include_microphone: default_enabled(),
             include_chatbox: default_enabled(),

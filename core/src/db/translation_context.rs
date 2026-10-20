@@ -131,9 +131,11 @@ mod tests {
             })
             .unwrap();
 
-        let entries = database
-            .recent_translation_context(&TranslationPromptConfig::default(), None)
-            .unwrap();
+        let config = TranslationPromptConfig {
+            context_enabled: false,
+            ..Default::default()
+        };
+        let entries = database.recent_translation_context(&config, None).unwrap();
 
         assert!(entries.is_empty());
     }

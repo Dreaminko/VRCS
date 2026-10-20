@@ -8,6 +8,45 @@ use crate::providers::{
 };
 
 #[test]
+fn recent_text_preferences_default_on_and_preserve_saved_choices() {
+    let defaults = AppConfig::default();
+    assert!(defaults.translation.prompt.context_enabled);
+    assert!(defaults.vr_overlay.headset.show_partials);
+    assert!(defaults.vr_overlay.headset.show_translation_partials);
+    assert!(defaults.vr_overlay.wrist.show_partials);
+    assert!(defaults.vr_overlay.wrist.show_translation_partials);
+
+    for version in [33, SCHEMA_VERSION] {
+        for saved in [None, Some(false), Some(true)] {
+            let mut raw = serde_json::json!({
+                "schema_version": version,
+                "translation": {"prompt": {}},
+                "vr_overlay": {"headset": {}, "wrist": {}}
+            });
+            if let Some(enabled) = saved {
+                raw["translation"]["prompt"]["context_enabled"] = enabled.into();
+                for surface in ["headset", "wrist"] {
+                    raw["vr_overlay"][surface]["show_partials"] = enabled.into();
+                    raw["vr_overlay"][surface]["show_translation_partials"] = enabled.into();
+                }
+            }
+            let config = config_from_value(&raw).unwrap();
+            let expected = saved.unwrap_or(true);
+            assert_eq!(config.translation.prompt.context_enabled, expected);
+            assert_eq!(config.vr_overlay.headset.show_partials, expected);
+            assert_eq!(
+                config.vr_overlay.headset.show_translation_partials,
+                expected
+            );
+            assert_eq!(config.vr_overlay.wrist.show_partials, expected);
+            assert_eq!(config.vr_overlay.wrist.show_translation_partials, expected);
+            let restored = config_from_value(&serde_json::to_value(&config).unwrap()).unwrap();
+            assert_eq!(restored, config);
+        }
+    }
+}
+
+#[test]
 fn v33_conversation_titles_default_off_without_changing_existing_settings() {
     let original = AppConfig::default();
     let mut raw = serde_json::to_value(&original).unwrap();
@@ -717,7 +756,7 @@ fn migrates_v8_automatic_translation_target_for_microphone() {
 }
 
 #[test]
-fn migrates_v12_with_translation_context_disabled() {
+fn migrates_v12_with_translation_context_enabled() {
     let config = config_from_value(&serde_json::json!({
         "schema_version": 12,
         "translation": {
@@ -729,7 +768,7 @@ fn migrates_v12_with_translation_context_disabled() {
     .unwrap();
 
     assert_eq!(config.schema_version, SCHEMA_VERSION);
-    assert!(!config.translation.prompt.context_enabled);
+    assert!(config.translation.prompt.context_enabled);
     assert!(config.translation.prompt.include_speaker);
     assert!(config.translation.prompt.include_microphone);
     assert!(config.translation.prompt.include_chatbox);
