@@ -2,14 +2,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   COMPACT_PANEL_WINDOW_SIZE,
-  COMPACT_PREVIEW_MAX_CHARS,
-  COMPACT_SUBTITLE_MAX_ITEMS,
-  COMPACT_SUBTITLE_HEIGHT_STEP,
   COMPACT_WINDOW_MAX_HEIGHT,
   COMPACT_WINDOW_MIN_WIDTH,
   COMPACT_WINDOW_SIZE,
   clampCompactWindowHeight,
-  compactSubtitleCount,
+  compactPartialMatchesSubtitle,
   compactPreviewText,
   compactLivePreview,
   compactWindowConstraints,
@@ -88,8 +85,13 @@ test("compact translation preview keeps a completed original even without source
   assert.equal(compactLivePreview(null, [completed]), null);
 });
 
-test("compact mode follows the latest subtitle when the selection panel is closed", () => {
-  assert.deepEqual(subtitlesForCompactView(subtitles, 120), [subtitles[0]]);
+test("compact mode supplies chronological candidates without mutating history", () => {
+  const history = [...subtitles];
+  const candidates = subtitlesForCompactView(history);
+  assert.deepEqual(candidates, [...subtitles].reverse());
+  assert.equal(candidates.at(-1), subtitles[0]);
+  assert.deepEqual(history, subtitles);
+  assert.notEqual(candidates, history);
 });
 
 test("compact previews recover originals after loaded history has been evicted", () => {
@@ -103,11 +105,11 @@ test("compact previews recover originals after loaded history has been evicted",
   assert.equal(compactLivePreview(delta, []), delta);
 });
 
-test("late compact translation finds its original outside the visible history", () => {
+test("late compact translation finds its original without changing candidate order", () => {
   const older = { ...subtitles[1], utterance_id: "qwen-source-older" };
   const history = [subtitles[0], older];
-  const visible = subtitlesForCompactView(history, COMPACT_WINDOW_SIZE.height);
-  assert.deepEqual(visible, [subtitles[0]]);
+  const candidates = subtitlesForCompactView(history);
+  assert.deepEqual(candidates, [older, subtitles[0]]);
   const preview = {
     type: "partial" as const,
     source: "speaker" as const,
@@ -120,12 +122,12 @@ test("late compact translation finds its original outside the visible history", 
   const resolved = compactLivePreview(preview, history);
   assert.equal(resolved?.text, older.text);
   assert.equal(resolved?.translation, preview.translation);
-  assert.deepEqual(visible, [subtitles[0]]);
+  assert.deepEqual(candidates, [older, subtitles[0]]);
 });
 
 test("compact mode freezes the selected subtitle while the selection panel is open", () => {
   assert.deepEqual(
-    subtitlesForCompactView(subtitles, 360, "selected subtitle"),
+    subtitlesForCompactView(subtitles, "selected subtitle"),
     [subtitles[1]],
   );
 });
@@ -169,58 +171,62 @@ test("compact height is clamped to the supported range", () => {
   assert.equal(clampCompactWindowHeight(900), COMPACT_WINDOW_MAX_HEIGHT);
 });
 
-test("compact subtitle count adds history only when two complete lines fit in both languages", () => {
-  for (const [height, count] of [
-    [160, 1], [269, 1], [270, 2], [377, 2],
-    [378, 3], [460, 3], [485, 3], [486, 4], [720, 4],
-  ]) {
-    assert.equal(compactSubtitleCount(height), count, 'height ' + height);
-  }
-  assert.equal(compactSubtitleCount(COMPACT_WINDOW_MAX_HEIGHT), COMPACT_SUBTITLE_MAX_ITEMS);
-  assert.ok(COMPACT_SUBTITLE_HEIGHT_STEP >= 2 * 24 * 2 + 4 + 6 + 1,
-    "each entry needs room for two lines in each language plus its spacing");
+test("compact selection falls back to the latest subtitle when history no longer contains its context", () => {
+  assert.deepEqual(subtitlesForCompactView(subtitles, "evicted selection"), [subtitles[0]]);
+  assert.deepEqual(subtitlesForCompactView([], "evicted selection"), []);
+  assert.deepEqual(subtitlesForCompactView([]), []);
 });
 
-test("compact subtitle capacity stays stable as originals and translations grow", () => {
+test("compact candidates retain growing text for the measurement layer", () => {
   const growing = subtitles.map((subtitle) => ({
     ...subtitle,
     text: subtitle.text.repeat(100),
     translation_partial: { text: "不断更新的译文。".repeat(100), target_language: "zh-Hans" },
   }));
   assert.deepEqual(
-    subtitlesForCompactView(growing, 460).map((subtitle) => subtitle.id),
-    subtitlesForCompactView(subtitles, 460).map((subtitle) => subtitle.id),
+    subtitlesForCompactView(growing).map((subtitle) => subtitle.id),
+    subtitlesForCompactView(subtitles).map((subtitle) => subtitle.id),
   );
-  assert.equal(subtitlesForCompactView(growing, 460).length, 3);
+  assert.equal(subtitlesForCompactView(growing).at(-1), growing[0]);
 });
 
-test("compact subtitle context is chronological and bounded by height", () => {
+test("compact candidates are not capped at the former four-entry limit", () => {
+  const history = [...subtitles, { ...subtitles[3], text: "fifth subtitle" }];
   assert.deepEqual(
-    subtitlesForCompactView(subtitles, 460).map((subtitle) => subtitle.text),
-    ["older subtitle", "selected subtitle", "latest subtitle"],
-  );
-  assert.deepEqual(
-    subtitlesForCompactView([...subtitles, { ...subtitles[3], text: "beyond limit" }], 720)
-      .map((subtitle) => subtitle.text),
-    ["oldest subtitle", "older subtitle", "selected subtitle", "latest subtitle"],
+    subtitlesForCompactView(history).map((subtitle) => subtitle.text),
+    ["fifth subtitle", "oldest subtitle", "older subtitle", "selected subtitle", "latest subtitle"],
   );
 });
 
-test("long compact text retains its newest end without changing full history", () => {
+test("long compact text remains complete for measurement and selection", () => {
   const text = "A long paragraph with detailed explanations. ".repeat(200) + "The latest sentence.";
   const item = { ...subtitles[0], text };
   const preview = compactPreviewText(item.text);
-  assert.equal(Array.from(preview).length, COMPACT_PREVIEW_MAX_CHARS);
-  assert.ok(preview.endsWith("The latest sentence."));
-  assert.equal(subtitlesForCompactView([item], 120)[0].text, text);
+  assert.equal(preview, text);
+  assert.equal(subtitlesForCompactView([item])[0].text, text);
 });
 
 test("compact windows keep unicode characters and ignore trailing blank lines", () => {
-  const text = "🙂".repeat(COMPACT_PREVIEW_MAX_CHARS + 1) + "\n\n ";
+  const text = "🙂".repeat(601) + "\n\n ";
   const preview = compactPreviewText(text);
-  assert.equal(preview, "🙂".repeat(COMPACT_PREVIEW_MAX_CHARS));
+  assert.equal(preview, "🙂".repeat(601));
   assert.equal(compactPreviewText("短句。\n\n"), "短句。");
   assert.equal(compactPreviewText(" \n "), "");
+  assert.equal(compactPreviewText("  first\nsecond\n"), "  first\nsecond");
+});
+
+test("compact partials match their source utterance and audio source", () => {
+  const completed = { ...subtitles[0], utterance_id: "source-1" };
+  const partial = {
+    type: "partial" as const, source: "speaker" as const,
+    utterance_id: "source-1", text: "preview",
+  };
+  assert.equal(compactPartialMatchesSubtitle(partial, completed), true);
+  assert.equal(compactPartialMatchesSubtitle(partial, { ...completed, source: undefined }), true);
+  assert.equal(compactPartialMatchesSubtitle(partial, { ...completed, source: "microphone" }), false);
+  assert.equal(compactPartialMatchesSubtitle(partial, { ...completed, utterance_id: undefined }), false);
+  assert.equal(compactPartialMatchesSubtitle({ ...partial, utterance_id: "preview-1", source_utterance_id: "source-1" }, completed), true);
+  assert.equal(compactPartialMatchesSubtitle({ ...partial, source_utterance_id: "other-source" }, completed), false);
 });
 
 test("streaming and complete compact text both retain the latest translated tail", () => {
