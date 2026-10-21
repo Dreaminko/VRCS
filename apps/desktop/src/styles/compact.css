@@ -161,7 +161,7 @@ html:has(.compact-root) #root {
 .compact-measurements { position: absolute; top: 0; left: 0; width: 100%; visibility: hidden; pointer-events: none; user-select: none; }
 .compact-measurements .compact-subtitle-row { overflow: visible; }
 .compact-measurements p { height: auto; overflow: visible; user-select: none; }
-.compact-actions { display: flex; align-self: center; align-items: center; justify-content: center; border-left: 1px solid var(--border); }
+.compact-actions { display: flex; align-self: center; align-items: center; justify-content: center; }
 .compact-actions button { width: var(--compact-capture-button-size); height: var(--compact-capture-button-size); border-radius: 50%; }
 .compact-actions button:disabled { opacity: 0.45; pointer-events: none; }
 .compact-actions .compact-capture-button { color: #ffffff; background: var(--primary); }
