@@ -170,8 +170,10 @@
       "subtitleFontSizeSmall": "小",
       "subtitleFontSizeMedium": "中",
       "subtitleFontSizeLarge": "大",
-      "transparentBackground": "透明背景",
-      "restoreBackground": "還原背景",
+      "backgroundOpacity": "背景濃度",
+      "backgroundOpacityCurrent": "背景濃度：{{percent}}%",
+      "subtitleOnlyMode": "切換至純字幕模式",
+      "backgroundMode": "切換至有底模式",
       "resize": "拖曳調整字幕視窗大小",
       "close": "關閉視窗"
     },

@@ -1,6 +1,6 @@
 import { useTranslation } from "react-i18next";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Check, createLucideIcon, Maximize2, Mic, Square, X, type LucideIcon } from "lucide-react";
+import { Check, Maximize2, Mic, Square, X } from "lucide-react";
 
 import type { LookupOrigin, SelectionTarget } from "../app/app-types";
 import { useLivePartial } from "../core-client/realtime-state";
@@ -10,15 +10,13 @@ import { compactLivePreview } from "./compact-mode";
 import { useBatchedPreview } from "../shared/hooks/streaming-preview";
 import { type CompactFontSize, type CompactTextBudget } from "./compact-layout";
 import { useCompactLayout, type CompactGroup } from "./useCompactLayout";
+import { CompactBackgroundControls, CompactWindowIcon } from "./CompactBackgroundControls";
 
-const BackgroundIcon = createLucideIcon("CompactBackground", [
-  ["circle", { cx: "12", cy: "12", r: "9", key: "circle" }],
-  ["path", { d: "M12 3a9 9 0 0 1 0 18Z", fill: "currentColor", stroke: "none", key: "half" }],
-]);
-
-export function CompactView({ transparentBackground, onToggleBackground, fontSize, onFontSizeChange, subtitles, subtitleHistory, selectionTarget, running, vrchatMuted, captureDisabled, onSelect, onCapture, onRestore, onClose, onResize }: {
+export function CompactView({ transparentBackground, onToggleBackground, backgroundOpacity, onBackgroundOpacityChange, fontSize, onFontSizeChange, subtitles, subtitleHistory, selectionTarget, running, vrchatMuted, captureDisabled, onSelect, onCapture, onRestore, onClose, onResize }: {
   transparentBackground: boolean;
   onToggleBackground: () => void;
+  backgroundOpacity: number;
+  onBackgroundOpacityChange: (value: number) => void;
   fontSize: CompactFontSize;
   onFontSizeChange: (size: CompactFontSize) => void;
   subtitles: Subtitle[];
@@ -50,7 +48,6 @@ export function CompactView({ transparentBackground, onToggleBackground, fontSiz
   const latest = layout.visibleGroups.at(-1);
   const statusLabel = vrchatMuted ? t("status.pausedVrchatMuted") : latest?.language?.toUpperCase() ?? "AUTO";
   const captureLabel = t(running ? "capture.pause" : "capture.start");
-  const backgroundLabel = t(transparentBackground ? "window.restoreBackground" : "window.transparentBackground");
   return (
     <div className="compact-shell">
       <header className="compact-header" data-tauri-drag-region>
@@ -60,7 +57,8 @@ export function CompactView({ transparentBackground, onToggleBackground, fontSiz
         </div>
         <div className="compact-window-actions">
           <CompactFontMenu value={fontSize} onChange={onFontSizeChange} />
-          <button type="button" aria-label={backgroundLabel} aria-pressed={transparentBackground} title={backgroundLabel} onClick={onToggleBackground}><CompactWindowIcon icon={BackgroundIcon} /></button>
+          <CompactBackgroundControls transparentBackground={transparentBackground} onToggleBackground={onToggleBackground}
+            opacity={backgroundOpacity} onOpacityChange={onBackgroundOpacityChange} />
           <button type="button" aria-label={t("window.restore")} title={t("window.restore")} onClick={onRestore}><CompactWindowIcon icon={Maximize2} /></button>
           <button className="compact-close-button" type="button" aria-label={t("window.close")} title={t("window.close")} onClick={onClose}><CompactWindowIcon icon={X} /></button>
         </div>
@@ -177,16 +175,6 @@ function CompactFontMenu({ value, onChange }: { value: CompactFontSize; onChange
         </button>)}
       </div>}
     </div>
-  );
-}
-
-// Paint a wider white copy behind the original strokes only in transparent mode.
-function CompactWindowIcon({ icon: Icon }: { icon: LucideIcon }) {
-  return (
-    <span className="compact-window-icon" aria-hidden="true">
-      <Icon className="compact-icon-outline" size={15} strokeWidth={5.2} />
-      <Icon className="compact-icon-foreground" size={15} />
-    </span>
   );
 }
 

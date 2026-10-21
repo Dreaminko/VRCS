@@ -21,6 +21,7 @@ export function useCompactWindow({
   const [compact, setCompact] = useState(false);
   const [fontSize, setFontSize] = useState<CompactFontSize>("medium");
   const [transparentBackground, setTransparentBackground] = useState(false);
+  const [backgroundOpacity, setBackgroundOpacity] = useState(100);
   const toggleCompactBackground = useCallback(() => {
     setTransparentBackground((previous) => !previous);
   }, []);
@@ -227,6 +228,8 @@ export function useCompactWindow({
     fontSize,
     setFontSize,
     transparentBackground,
+    backgroundOpacity,
+    setBackgroundOpacity,
     toggleCompactBackground,
     height,
     resizeCompactWindow,

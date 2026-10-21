@@ -7,6 +7,7 @@ html:has(.compact-root) #root {
 
 .compact-root {
   position: relative;
+  isolation: isolate;
   display: grid;
   grid-template-rows: minmax(0, 1fr);
   width: 100vw;
@@ -14,10 +15,19 @@ html:has(.compact-root) #root {
   overflow: hidden;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
+  background: transparent;
+}
+/* A single background layer keeps opacity independent of text and controls. */
+.compact-root::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
   background: var(--surface);
+  opacity: var(--compact-background-opacity, 1);
 }
 .compact-root-overlay { grid-template-rows: 160px minmax(0, 1fr); }
-.compact-root-selection { background: var(--canvas); }
 .compact-shell {
   display: grid;
   grid-template-rows: var(--compact-header-height) minmax(0, 1fr);
@@ -26,7 +36,7 @@ html:has(.compact-root) #root {
   min-width: 0;
   min-height: 0;
   overflow: hidden;
-  background: var(--surface);
+  background: transparent;
 }
 .compact-header {
   position: relative;
@@ -71,9 +81,11 @@ html:has(.compact-root) #root {
   transition: color 140ms ease-out, background-color 140ms ease-out, opacity 140ms ease-out, transform 140ms ease-out;
 }
 .compact-window-actions button { width: var(--compact-header-button-size); height: var(--compact-header-button-size); border-radius: var(--radius-sm); }
-.compact-font-control { position: relative; }
+.compact-font-control,
+.compact-opacity-control { position: relative; }
 .compact-font-button { font-size: 13px; font-weight: 600; }
-.compact-font-menu {
+.compact-font-menu,
+.compact-opacity-popover {
   position: absolute;
   top: calc(100% + var(--compact-menu-gap));
   right: 0;
@@ -85,6 +97,11 @@ html:has(.compact-root) #root {
   background: var(--surface);
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
 }
+.compact-opacity-popover { width: 210px; padding: 10px 12px; color: var(--text); font-size: 12px; }
+.compact-opacity-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.compact-opacity-heading output { flex: 0 0 auto; color: var(--primary-ink); font-variant-numeric: tabular-nums; }
+.compact-opacity-slider { display: block; margin: 8px 0 4px; }
+.compact-opacity-bounds { display: flex; justify-content: space-between; color: var(--text-secondary); font-size: 11px; font-variant-numeric: tabular-nums; }
 .compact-window-actions .compact-font-menu button {
   display: flex;
   align-items: center;
@@ -188,7 +205,6 @@ html:has(.compact-root) #root {
   border-color: transparent;
   background: transparent;
 }
-.compact-root-transparent .compact-shell { background: transparent; }
 .compact-root-transparent .compact-header,
 .compact-root-transparent .compact-actions { border-color: transparent; }
 

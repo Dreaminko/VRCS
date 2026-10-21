@@ -27,6 +27,7 @@ export function CompactEntry({
   const preset = COMPACT_FONT_PRESETS[compact.fontSize];
   const style = {
     ...layoutVariables,
+    "--compact-background-opacity": compact.transparentBackground ? 0 : compact.backgroundOpacity / 100,
     "--compact-original-size": `${preset.original}px`,
     "--compact-original-line": `${preset.originalLine}px`,
     "--compact-translation-size": `${preset.translation}px`,
@@ -38,6 +39,8 @@ export function CompactEntry({
       <CompactView
         transparentBackground={compact.transparentBackground}
         onToggleBackground={compact.toggleCompactBackground}
+        backgroundOpacity={compact.backgroundOpacity}
+        onBackgroundOpacityChange={compact.setBackgroundOpacity}
         fontSize={compact.fontSize}
         onFontSizeChange={compact.setFontSize}
         subtitles={compact.subtitles}
