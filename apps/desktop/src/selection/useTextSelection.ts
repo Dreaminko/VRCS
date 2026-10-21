@@ -1,27 +1,18 @@
 import { useCallback, useState } from "react";
 
 import type { LookupOrigin, SelectionTarget } from "../app/app-types";
-import type { CompactPanelState } from "../shell/compact-mode";
 
 const SELECTION_BOUNDARY_PUNCTUATION = (
   /^[\s.,!?;:，。！？；：“”'"「」『』（）()]+|[\s.,!?;:，。！？；：“”'"「」『』（）()]+$/g
 );
 
-export function useTextSelection({
-  compact,
-  resizeCompactWindow,
-  reportError,
-}: {
-  compact: boolean;
-  resizeCompactWindow: (panelState: CompactPanelState) => Promise<void>;
-  reportError: (reason: unknown, fallbackKey: string) => void;
-}) {
+export function useTextSelection() {
   const [target, setTarget] = useState<SelectionTarget | null>(null);
 
-  const captureSelection = useCallback(async (
+  const captureSelection = useCallback((
     context: string,
     origin?: LookupOrigin,
-  ): Promise<SelectionTarget | null> => {
+  ): SelectionTarget | null => {
     const selection = window.getSelection();
     const selectedText = selection
       ?.toString()
@@ -46,15 +37,8 @@ export function useTextSelection({
     } satisfies SelectionTarget;
     setTarget(next);
 
-    if (compact) {
-      try {
-        await resizeCompactWindow(true);
-      } catch (reason) {
-        reportError(reason, "errors.window.compactToggle");
-      }
-    }
     return next;
-  }, [compact, reportError, resizeCompactWindow]);
+  }, []);
 
   const clearSelection = useCallback(() => {
     setTarget(null);

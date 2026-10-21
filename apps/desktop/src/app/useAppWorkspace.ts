@@ -44,10 +44,8 @@ export function useAppWorkspace({
     reportError: runtime.reportError,
   });
   const selection = useSelectionTools({
-    compact: compactWindow.compact,
     enabled: learningAvailable,
     dictionaryLookupEnabled: settings.value?.dictionary.selection_lookup_enabled ?? true,
-    resizeCompactWindow: compactWindow.resizeCompactWindow,
     reportError: runtime.reportError,
   });
   const learningWorkspace = useLearningWorkspace(page === "learning" && runtime.ready && learningAvailable, runtime.ready && learningAvailable);
@@ -76,15 +74,24 @@ export function useAppWorkspace({
     coreReady: runtime.ready,
     running: runtime.health?.capture_requested ?? false,
     outputMode: settings.value?.audio.output.mode,
-    compact: compactWindow.compact,
     createConversation: conversation.createConversation,
     clearLookup: selection.clear,
     toggleCoreCapture: captureRuntime.toggle,
     clearErrorFrom: runtime.clearErrorFrom,
-    resizeCompactWindow: compactWindow.resizeCompactWindow,
-    collapseCompactOverlay: compactWindow.collapseCompactOverlay,
     reportError: runtime.reportError,
   });
+  const selectionPanelOpen = Boolean(selection.target && selection.tool);
+  const overlayOpen = selectionPanelOpen || captureControl.vrchatWarningOpen;
+  const { compact, resizeCompactWindow } = compactWindow;
+  const { reportError } = runtime;
+  useEffect(() => {
+    if (!compact) return;
+    void resizeCompactWindow(overlayOpen).catch((reason) => {
+      reportError(reason, overlayOpen
+        ? "errors.window.compactToggle"
+        : "errors.window.compactCollapse", "window");
+    });
+  }, [compact, overlayOpen, resizeCompactWindow, reportError]);
   const { interfaceScale, setInterfaceScale } = useInterfaceScale(runtime.reportError);
   const chatboxRoute = settings.value?.translation.microphone_targets[0];
   const providerCatalog = useApiProfileViews(
@@ -137,6 +144,8 @@ export function useAppWorkspace({
     },
     compact: {
       ...compactWindow,
+      selectionPanelOpen,
+      overlayOpen,
       subtitles: compactSubtitles,
       subtitleHistory: subtitles.items,
     },

@@ -6,23 +6,19 @@ import { useDictionaryLookup } from "../dictionary/useDictionaryLookup";
 import { useTextSelection } from "./useTextSelection";
 
 export function useSelectionTools({
-  compact,
   enabled,
   dictionaryLookupEnabled,
-  resizeCompactWindow,
   reportError,
 }: {
-  compact: boolean;
   enabled: boolean;
   dictionaryLookupEnabled: boolean;
-  resizeCompactWindow: (expanded: boolean) => Promise<void>;
   reportError: ReportRuntimeError;
 }) {
   const enabledRef = useRef(enabled);
   enabledRef.current = enabled;
   const [tool, setTool] = useState<"dictionary" | "ai" | null>(null);
   const dictionary = useDictionaryLookup({ reportError });
-  const textSelection = useTextSelection({ compact, resizeCompactWindow, reportError });
+  const textSelection = useTextSelection();
 
   const clear = useCallback(() => {
     setTool(null);
@@ -30,46 +26,27 @@ export function useSelectionTools({
     textSelection.clearSelection();
   }, [dictionary.clearLookup, textSelection.clearSelection]);
 
-  const close = useCallback(() => {
-    clear();
-    if (compact) {
-      void resizeCompactWindow(false).catch((reason) => {
-        reportError(reason, "errors.window.compactCollapse", "window");
-      });
-    }
-  }, [clear, compact, reportError, resizeCompactWindow]);
-
   useEffect(() => {
-    if (!enabled) close();
-  }, [enabled, close]);
+    if (!enabled) clear();
+  }, [enabled, clear]);
 
   const selectText = useCallback(async (context: string, origin?: LookupOrigin) => {
     if (!enabledRef.current) return;
-    setTool(null);
-    dictionary.clearLookup();
-    const target = await textSelection.captureSelection(context, origin);
-    if (!target || !enabledRef.current) return;
-
-    if (!dictionaryLookupEnabled) {
-      setTool("ai");
+    const target = textSelection.captureSelection(context, origin);
+    if (!target) {
+      clear();
       return;
     }
 
-    setTool("dictionary");
-    await dictionary.lookupSelection(target);
-  }, [dictionary, dictionaryLookupEnabled, textSelection.captureSelection]);
+    dictionary.clearLookup();
+    setTool(dictionaryLookupEnabled ? "dictionary" : "ai");
+    if (dictionaryLookupEnabled) await dictionary.lookupSelection(target);
+  }, [clear, dictionary, dictionaryLookupEnabled, textSelection.captureSelection]);
 
   const openAi = useCallback(async () => {
     if (!enabledRef.current) return;
-    if (compact) {
-      try {
-        await resizeCompactWindow(true);
-      } catch (reason) {
-        reportError(reason, "errors.window.compactToggle", "window");
-      }
-    }
-    if (enabledRef.current) setTool("ai");
-  }, [compact, reportError, resizeCompactWindow]);
+    setTool("ai");
+  }, []);
 
   const returnToDictionary = useCallback(() => {
     if (dictionary.lookup) setTool("dictionary");
@@ -81,7 +58,7 @@ export function useSelectionTools({
     lookup: dictionary.lookup,
     lookupLoading: dictionary.loading,
     clear,
-    close,
+    close: clear,
     selectText,
     openAi,
     returnToDictionary,

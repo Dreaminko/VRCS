@@ -23,8 +23,7 @@ export function CompactEntry({
   selection: AppWorkspace["selection"];
   learning: AppWorkspace["learning"];
 }) {
-  const selectionPanelOpen = Boolean(selection.target && selection.tool);
-  const overlayOpen = selectionPanelOpen || capture.vrchatWarningOpen;
+  const { selectionPanelOpen, overlayOpen } = compact;
   const preset = COMPACT_FONT_PRESETS[compact.fontSize];
   const style = {
     ...layoutVariables,
