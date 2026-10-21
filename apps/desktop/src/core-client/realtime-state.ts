@@ -1,4 +1,4 @@
-import { useSyncExternalStore } from "react";
+import { useMemo, useSyncExternalStore } from "react";
 
 import type {
   AudioLevel,
@@ -201,4 +201,27 @@ export function useTranslationPartials(
       : translationPartials.get(subtitleId) ?? EMPTY_TRANSLATION_PARTIALS,
     () => EMPTY_TRANSLATION_PARTIALS,
   );
+}
+
+/** A stable snapshot for a bounded set of compact-layout candidates. */
+export function useTranslationPartialsForSubtitles(subtitleIds: readonly (number | null)[]) {
+  const store = useMemo(() => {
+    const read = () => subtitleIds.map((id) => id === null
+      ? EMPTY_TRANSLATION_PARTIALS
+      : translationPartials.get(id) ?? EMPTY_TRANSLATION_PARTIALS);
+    let snapshot = read();
+    return {
+      subscribe(listener: Listener) {
+        const unsubscribes = [...new Set(subtitleIds)].flatMap((id) => id === null
+          ? [] : [subscribeKey(translationPartialListeners, id, listener)]);
+        return () => unsubscribes.forEach((unsubscribe) => unsubscribe());
+      },
+      getSnapshot() {
+        const next = read();
+        if (next.some((partials, index) => partials !== snapshot[index])) snapshot = next;
+        return snapshot;
+      },
+    };
+  }, [subtitleIds]);
+  return useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
 }

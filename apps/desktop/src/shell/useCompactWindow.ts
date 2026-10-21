@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 
 import { NATIVE_APP } from "../app/app-environment";
+import type { CompactFontSize } from "./compact-layout";
 import {
   clampCompactWindowHeight,
   compactWindowConstraints,
@@ -18,72 +19,115 @@ export function useCompactWindow({
   reportError: (reason: unknown, fallbackKey: string, source?: string) => void;
 }) {
   const [compact, setCompact] = useState(false);
+  const [fontSize, setFontSize] = useState<CompactFontSize>("medium");
   const [transparentBackground, setTransparentBackground] = useState(false);
+  const [backgroundOpacity, setBackgroundOpacity] = useState(100);
   const toggleCompactBackground = useCallback(() => {
     setTransparentBackground((previous) => !previous);
   }, []);
   const [height, setHeight] = useState<number>(COMPACT_WINDOW_SIZE.height);
   const compactModeRef = useRef(false);
-  const panelStateRef = useRef<CompactPanelState>(false);
+  // null means a native adjustment was interrupted or only partially applied.
+  const panelStateRef = useRef<CompactPanelState | null>(false);
+  const requestedPanelStateRef = useRef<CompactPanelState>(false);
+  const panelTaskRef = useRef<{ promise: Promise<void>; running: boolean } | null>(null);
   const heightRef = useRef<number>(COMPACT_WINDOW_SIZE.height);
 
   useEffect(() => {
     if (!NATIVE_APP || !compact) return;
 
-    const syncHeight = () => {
-      if (!compactModeRef.current || panelStateRef.current) return;
-      const nextHeight = clampCompactWindowHeight(window.innerHeight);
-      heightRef.current = nextHeight;
-      setHeight(nextHeight);
+    let disposed = false;
+    let heightReadId = 0;
+    const syncHeight = async () => {
+      const task = panelTaskRef.current;
+      if (!compactModeRef.current || panelStateRef.current !== false || task?.running) return;
+      const readId = ++heightReadId;
+      try {
+        const { getCurrentWindow } = await import("@tauri-apps/api/window");
+        const appWindow = getCurrentWindow();
+        const [innerSize, scaleFactor] = await Promise.all([
+          appWindow.innerSize(),
+          appWindow.scaleFactor(),
+        ]);
+        // Read native geometry for delayed resize events, and discard reads
+        // that overlap a panel adjustment, even if that task already finished.
+        if (disposed || readId !== heightReadId || !compactModeRef.current || panelStateRef.current !== false
+          || task !== panelTaskRef.current || task?.running) return;
+        const nextHeight = clampCompactWindowHeight(innerSize.toLogical(scaleFactor).height);
+        heightRef.current = nextHeight;
+        setHeight(nextHeight);
+      } catch (reason) {
+        if (!disposed && compactModeRef.current) {
+          reportError(reason, "errors.window.compactResize", "window");
+        }
+      }
     };
-    syncHeight();
-    window.addEventListener("resize", syncHeight);
-    return () => window.removeEventListener("resize", syncHeight);
-  }, [compact]);
+    const onResize = () => { void syncHeight(); };
+    onResize();
+    window.addEventListener("resize", onResize);
+    return () => {
+      disposed = true;
+      window.removeEventListener("resize", onResize);
+    };
+  }, [compact, reportError]);
 
-  const resizeCompactWindow = useCallback(async (panelState: CompactPanelState) => {
+  const resizeCompactWindow = useCallback((panelState: CompactPanelState): Promise<void> => {
+    if (!compactModeRef.current) return Promise.resolve();
+    requestedPanelStateRef.current = panelState;
+    const currentTask = panelTaskRef.current;
+    if (currentTask?.running) return currentTask.promise;
+    if (panelStateRef.current === panelState) return Promise.resolve();
     if (!NATIVE_APP) {
       panelStateRef.current = panelState;
-      return;
-    }
-    const { getCurrentWindow, LogicalSize } = await import(
-      "@tauri-apps/api/window"
-    );
-    const appWindow = getCurrentWindow();
-    const [innerSize, scaleFactor] = await Promise.all([
-      appWindow.innerSize(),
-      appWindow.scaleFactor(),
-    ]);
-    const currentSize = innerSize.toLogical(scaleFactor);
-    const previousPanelState = panelStateRef.current;
-    if (panelState && !previousPanelState) {
-      const currentHeight = clampCompactWindowHeight(currentSize.height);
-      heightRef.current = currentHeight;
-      setHeight(currentHeight);
+      return Promise.resolve();
     }
 
-    panelStateRef.current = true;
-    try {
-      const size = compactWindowSize(
-        panelState,
-        currentSize.width,
-        heightRef.current,
-      );
-      await appWindow.setSizeConstraints(compactWindowConstraints(panelState));
-      await appWindow.setSize(new LogicalSize(size.width, size.height));
-      panelStateRef.current = panelState;
-      if (!panelState) setHeight(size.height);
-    } catch (reason) {
-      panelStateRef.current = previousPanelState;
-      throw reason;
-    }
+    // Mark the task before the first asynchronous read so resize events cannot
+    // save the panel's height as the subtitle's restore height.
+    const task = { promise: Promise.resolve(), running: true };
+    panelTaskRef.current = task;
+    task.promise = (async () => {
+      let failure: { reason: unknown } | undefined;
+      try {
+        while (compactModeRef.current) {
+          const target = requestedPanelStateRef.current;
+          if (panelStateRef.current === target) break;
+          try {
+            const { getCurrentWindow, LogicalSize } = await import("@tauri-apps/api/window");
+            if (!compactModeRef.current) break;
+            const appWindow = getCurrentWindow();
+            const [innerSize, scaleFactor] = await Promise.all([
+              appWindow.innerSize(),
+              appWindow.scaleFactor(),
+            ]);
+            if (!compactModeRef.current) break;
+            const currentSize = innerSize.toLogical(scaleFactor);
+            if (target && panelStateRef.current === false) {
+              const currentHeight = clampCompactWindowHeight(currentSize.height);
+              heightRef.current = currentHeight;
+              setHeight(currentHeight);
+            }
+            const size = compactWindowSize(target, currentSize.width, heightRef.current);
+            panelStateRef.current = null;
+            await appWindow.setSizeConstraints(compactWindowConstraints(target));
+            if (!compactModeRef.current) break;
+            await appWindow.setSize(new LogicalSize(size.width, size.height));
+            if (!compactModeRef.current) break;
+            panelStateRef.current = target;
+            if (!target) setHeight(size.height);
+          } catch (reason) {
+            failure = { reason };
+            // Process a newer target after failure, but never retry indefinitely.
+            if (requestedPanelStateRef.current === target) break;
+          }
+        }
+        if (failure) throw failure.reason;
+      } finally {
+        task.running = false;
+      }
+    })();
+    return task.promise;
   }, []);
-
-  const collapseCompactOverlay = useCallback(() => {
-    void resizeCompactWindow(false).catch((reason) => {
-      reportError(reason, "errors.window.compactCollapse");
-    });
-  }, [reportError, resizeCompactWindow]);
 
   const setCompactMode = useCallback(async (
     next: boolean,
@@ -92,6 +136,11 @@ export function useCompactWindow({
     const previousMode = compactModeRef.current;
     compactModeRef.current = next;
     try {
+      if (!next) {
+        // Stop new panel work immediately and let any issued native call finish
+        // before restoring the main window. Its caller reports panel failures.
+        await panelTaskRef.current?.promise.catch(() => undefined);
+      }
       if (!NATIVE_APP) {
         panelStateRef.current = false;
         if (!next) onExitCompact();
@@ -176,11 +225,14 @@ export function useCompactWindow({
 
   return {
     compact,
+    fontSize,
+    setFontSize,
     transparentBackground,
+    backgroundOpacity,
+    setBackgroundOpacity,
     toggleCompactBackground,
     height,
     resizeCompactWindow,
-    collapseCompactOverlay,
     enterCompact,
     exitCompact,
     toggleCompact,

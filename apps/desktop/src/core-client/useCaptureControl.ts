@@ -1,7 +1,6 @@
 import { useCallback, useState } from "react";
 
 import { shouldShowVrchatNotRunningWarning } from "../capture/capture-warning";
-import type { CompactPanelState } from "../shell/compact-mode";
 import {
   readTranscriptionStartBehavior,
   shouldCreateConversationOnCaptureToggle,
@@ -17,25 +16,19 @@ export function useCaptureControl({
   coreReady,
   running,
   outputMode,
-  compact,
   createConversation,
   clearLookup,
   toggleCoreCapture,
   clearErrorFrom,
-  resizeCompactWindow,
-  collapseCompactOverlay,
   reportError,
 }: {
   coreReady: boolean;
   running: boolean;
   outputMode: string | undefined;
-  compact: boolean;
   createConversation: () => Promise<boolean>;
   clearLookup: () => void;
   toggleCoreCapture: () => Promise<unknown>;
   clearErrorFrom: (source: string) => void;
-  resizeCompactWindow: (panelState: CompactPanelState) => Promise<unknown>;
-  collapseCompactOverlay: () => void;
   reportError: ReportError;
 }) {
   const [vrchatWarningOpen, setVrchatWarningOpen] = useState(false);
@@ -57,13 +50,6 @@ export function useCaptureControl({
         clearErrorFrom("capture");
         clearLookup();
         setVrchatWarningOpen(true);
-        if (compact) {
-          try {
-            await resizeCompactWindow(true);
-          } catch (resizeError) {
-            reportError(resizeError, "errors.window.warningExpand", "window");
-          }
-        }
       } else {
         reportError(reason, "errors.operation", "capture");
       }
@@ -72,20 +58,17 @@ export function useCaptureControl({
   }, [
     clearErrorFrom,
     clearLookup,
-    compact,
     coreReady,
     createConversation,
     outputMode,
     reportError,
-    resizeCompactWindow,
     running,
     toggleCoreCapture,
   ]);
 
   const closeVrchatWarning = useCallback(() => {
     setVrchatWarningOpen(false);
-    if (compact) collapseCompactOverlay();
-  }, [collapseCompactOverlay, compact]);
+  }, []);
 
   return {
     vrchatWarningOpen,

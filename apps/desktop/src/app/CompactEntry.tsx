@@ -1,6 +1,12 @@
+import type { CSSProperties } from "react";
 import { CompactView } from "../shell/CompactView";
+import { COMPACT_FONT_PRESETS, COMPACT_LAYOUT } from "../shell/compact-layout";
 import { SelectionToolOverlays } from "./SelectionToolOverlays";
 import type { AppWorkspace } from "./useAppWorkspace";
+
+const layoutVariables = Object.fromEntries(Object.entries(COMPACT_LAYOUT).map(([name, value]) => [
+  `--compact-${name.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)}`, `${value}px`,
+]));
 
 export function CompactEntry({
   compact,
@@ -17,18 +23,29 @@ export function CompactEntry({
   selection: AppWorkspace["selection"];
   learning: AppWorkspace["learning"];
 }) {
-  const selectionPanelOpen = Boolean(selection.target && selection.tool);
-  const overlayOpen = selectionPanelOpen || capture.vrchatWarningOpen;
+  const { selectionPanelOpen, overlayOpen } = compact;
+  const preset = COMPACT_FONT_PRESETS[compact.fontSize];
+  const style = {
+    ...layoutVariables,
+    "--compact-background-opacity": compact.transparentBackground ? 0 : compact.backgroundOpacity / 100,
+    "--compact-original-size": `${preset.original}px`,
+    "--compact-original-line": `${preset.originalLine}px`,
+    "--compact-translation-size": `${preset.translation}px`,
+    "--compact-translation-line": `${preset.translationLine}px`,
+  } as CSSProperties;
 
   return (
-    <div className={`compact-root ${compact.transparentBackground ? "compact-root-transparent" : ""} ${overlayOpen ? "compact-root-overlay" : ""} ${selectionPanelOpen ? "compact-root-selection" : ""}`}>
+    <div style={style} className={`compact-root ${compact.transparentBackground ? "compact-root-transparent" : ""} ${overlayOpen ? "compact-root-overlay" : ""} ${selectionPanelOpen ? "compact-root-selection" : ""}`}>
       <CompactView
         transparentBackground={compact.transparentBackground}
         onToggleBackground={compact.toggleCompactBackground}
+        backgroundOpacity={compact.backgroundOpacity}
+        onBackgroundOpacityChange={compact.setBackgroundOpacity}
+        fontSize={compact.fontSize}
+        onFontSizeChange={compact.setFontSize}
         subtitles={compact.subtitles}
         subtitleHistory={compact.subtitleHistory}
-        subtitleLimit={overlayOpen ? 1 : compact.subtitleLimit}
-        selectionActive={Boolean(selection.target)}
+        selectionTarget={selection.target}
         running={runtime.health?.capture_requested ?? false}
         vrchatMuted={runtime.vrchatMuteStatus?.muted === true}
         captureDisabled={!runtime.ready || capture.pending}
