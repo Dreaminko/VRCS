@@ -20,7 +20,7 @@ html:has(.compact-root) #root {
 .compact-root-selection { background: var(--canvas); }
 .compact-shell {
   display: grid;
-  grid-template-rows: 32px minmax(0, 1fr);
+  grid-template-rows: var(--compact-header-height) minmax(0, 1fr);
   width: 100%;
   height: 100%;
   min-width: 0;
@@ -29,12 +29,16 @@ html:has(.compact-root) #root {
   background: var(--surface);
 }
 .compact-header {
+  position: relative;
+  z-index: 6;
   display: flex;
+  box-sizing: border-box;
+  height: var(--compact-header-height);
   min-width: 0;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 0 8px 0 16px;
+  padding: 0 var(--compact-header-padding-right) 0 var(--compact-header-padding-left);
   border-bottom: 1px solid var(--border);
   user-select: none;
 }
@@ -54,7 +58,7 @@ html:has(.compact-root) #root {
 .compact-status.running i { background: var(--primary); box-shadow: 0 0 0 3px rgba(116, 214, 255, 0.22); }
 .compact-status.muted { color: var(--warning); letter-spacing: 0; }
 .compact-status.muted i { background: var(--warning); box-shadow: 0 0 0 3px rgba(213, 153, 57, 0.16); }
-.compact-window-actions { display: flex; flex: 0 0 auto; gap: 4px; }
+.compact-window-actions { display: flex; flex: 0 0 auto; gap: var(--compact-header-button-gap); }
 .compact-window-actions button,
 .compact-actions button {
   display: grid;
@@ -66,7 +70,33 @@ html:has(.compact-root) #root {
   cursor: pointer;
   transition: color 140ms ease-out, background-color 140ms ease-out, opacity 140ms ease-out, transform 140ms ease-out;
 }
-.compact-window-actions button { width: 26px; height: 26px; border-radius: var(--radius-sm); }
+.compact-window-actions button { width: var(--compact-header-button-size); height: var(--compact-header-button-size); border-radius: var(--radius-sm); }
+.compact-font-control { position: relative; }
+.compact-font-button { font-size: 13px; font-weight: 600; }
+.compact-font-menu {
+  position: absolute;
+  top: calc(100% + var(--compact-menu-gap));
+  right: 0;
+  width: var(--compact-menu-width);
+  max-width: calc(100vw - 16px);
+  padding: var(--compact-menu-padding);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
+}
+.compact-window-actions .compact-font-menu button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  height: var(--compact-menu-item-height);
+  padding: 0 8px;
+  color: var(--text);
+  font-size: 13px;
+}
+.compact-font-menu button[aria-checked="true"] { background: var(--primary-softer); }
+.compact-window-actions button:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
 .compact-window-icon { display: grid; pointer-events: none; }
 .compact-window-icon svg { grid-area: 1 / 1; }
 .compact-icon-outline { display: none; color: #ffffff; }
@@ -77,13 +107,14 @@ html:has(.compact-root) #root {
 .compact-actions button:active { transform: scale(0.96); }
 .compact-body {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 56px;
+  grid-template-columns: minmax(0, 1fr) var(--compact-action-width);
   min-width: 0;
   min-height: 0;
-  gap: 12px;
-  padding: 8px 14px 12px 18px;
+  gap: var(--compact-column-gap);
+  padding: var(--compact-body-padding-top) var(--compact-body-padding-x) var(--compact-body-padding-bottom);
 }
 .compact-content {
+  position: relative;
   display: flex;
   min-width: 0;
   min-height: 0;
@@ -91,53 +122,51 @@ html:has(.compact-root) #root {
   overflow: hidden;
   text-align: center;
 }
+.compact-subtitle-stack {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  gap: var(--compact-group-gap);
+  margin-block: auto;
+}
 .compact-subtitle-row {
   display: flex;
-  flex: 1 1 0;
+  flex: 0 0 auto;
   min-width: 0;
   min-height: 0;
   flex-direction: column;
-  justify-content: center;
-  gap: 4px;
-  padding: 3px 0;
+  justify-content: flex-start;
+  gap: var(--compact-language-gap);
+  padding: 0;
   overflow: hidden;
 }
-.compact-subtitle-row + .compact-subtitle-row { border-top: 1px solid var(--border); }
 .compact-content p {
   flex: 0 0 auto;
   min-width: 0;
   min-height: 0;
-  max-height: round(down, 100%, 1lh);
+  max-height: none;
   margin: 0;
   overflow-x: hidden;
-  overflow-y: auto;
+  overflow-y: hidden;
   overscroll-behavior: contain;
   scroll-behavior: auto;
   overflow-wrap: anywhere;
   white-space: pre-wrap;
-  scrollbar-width: thin;
 }
-/* Keep both languages visible and avoid cropping half a line after resizing. */
-.compact-subtitle-bilingual p { max-height: round(down, calc((100% - 4px) / 2), 1lh); }
-.compact-content .compact-original,
-.compact-content .compact-translation {
-  max-height: min(3lh, round(down, 100%, 1lh));
-}
-.compact-content .compact-original { overflow-y: hidden; }
-.compact-subtitle-bilingual .compact-original,
-.compact-subtitle-bilingual .compact-translation {
-  max-height: min(3lh, round(down, calc((100% - 4px) / 2), 1lh));
-}
-.compact-original { cursor: text; color: var(--text); font-size: 17px; font-weight: 500; line-height: 24px; user-select: text; }
-.compact-translation { color: var(--text-secondary); font-size: 14px; font-weight: 400; line-height: 20px; }
-.compact-subtitle-history .compact-original { color: var(--text-secondary); font-size: 15px; font-weight: 400; line-height: 22px; }
-.compact-subtitle-history .compact-translation { color: var(--text-quiet); font-size: 13px; line-height: 18px; }
-.compact-actions { display: flex; height: 48px; align-self: center; align-items: center; justify-content: center; border-left: 1px solid var(--border); }
-.compact-actions button { width: 36px; height: 36px; border-radius: 50%; }
+.compact-original { cursor: text; color: var(--text); font-size: var(--compact-original-size); font-weight: 500; line-height: var(--compact-original-line); user-select: text; }
+.compact-translation { color: var(--text-secondary); font-size: var(--compact-translation-size); font-weight: 400; line-height: var(--compact-translation-line); }
+.compact-subtitle-history .compact-original { color: var(--text-secondary); font-weight: 400; }
+.compact-subtitle-history .compact-translation { color: var(--text-quiet); }
+/* Natural text only: never measure the clipped visible paragraphs. */
+.compact-measurements { position: absolute; top: 0; left: 0; width: 100%; visibility: hidden; pointer-events: none; user-select: none; }
+.compact-measurements .compact-subtitle-row { overflow: visible; }
+.compact-measurements p { height: auto; overflow: visible; user-select: none; }
+.compact-actions { display: flex; align-self: center; align-items: center; justify-content: center; border-left: 1px solid var(--border); }
+.compact-actions button { width: var(--compact-capture-button-size); height: var(--compact-capture-button-size); border-radius: 50%; }
 .compact-actions button:disabled { opacity: 0.45; pointer-events: none; }
 .compact-actions .compact-capture-button { color: #ffffff; background: var(--primary); }
 .compact-actions .compact-capture-button:hover { color: #ffffff; background: var(--primary-hover); }
-.compact-resize-grip { position: absolute; right: 2px; bottom: 2px; z-index: 5; display: grid; width: 20px; height: 20px; place-items: center; color: var(--text-quiet); cursor: nwse-resize; touch-action: none; user-select: none; }
+.compact-resize-grip { position: absolute; right: var(--compact-resize-grip-inset); bottom: var(--compact-resize-grip-inset); z-index: 5; display: grid; width: var(--compact-resize-grip-size); height: var(--compact-resize-grip-size); place-items: center; color: var(--text-quiet); cursor: nwse-resize; touch-action: none; user-select: none; }
 .compact-resize-grip:hover { color: var(--primary-ink); }
 .compact-resize-grip svg { width: 16px; height: 16px; fill: currentColor; pointer-events: none; }
 .compact-inline-selection {
@@ -161,10 +190,9 @@ html:has(.compact-root) #root {
 }
 .compact-root-transparent .compact-shell { background: transparent; }
 .compact-root-transparent .compact-header,
-.compact-root-transparent .compact-subtitle-row + .compact-subtitle-row,
 .compact-root-transparent .compact-actions { border-color: transparent; }
 
-/* Larger solid lettering with a dark shadow keeps dense strokes open. */
+/* Background changes preserve font geometry. */
 .compact-root-transparent .compact-content p {
   color: #ffffff;
   -webkit-text-stroke: 0;
@@ -175,10 +203,6 @@ html:has(.compact-root) #root {
     0 0.75px 0 rgba(0, 0, 0, 0.95),
     0 1px 2px rgba(0, 0, 0, 0.45);
 }
-.compact-root-transparent .compact-original { font-size: 19px; }
-.compact-root-transparent .compact-subtitle-history .compact-original { font-size: 17px; }
-.compact-root-transparent .compact-translation { font-size: 17px; line-height: 22px; }
-.compact-root-transparent .compact-subtitle-history .compact-translation { font-size: 16px; }
 .compact-root-transparent .compact-translation:lang(zh) { font-weight: 500; }
 .compact-root-transparent .compact-status span { paint-order: stroke fill; text-shadow: none; }
 .compact-root-transparent .compact-status span { -webkit-text-stroke: 2px #ffffff; }
@@ -189,6 +213,7 @@ html:has(.compact-root) #root {
 /* 15px icons use a 24-unit viewBox: (5.2 - 2) * 15 / 24 / 2 = 1px. */
 .compact-root-transparent .compact-icon-outline { display: block; }
 .compact-root-transparent .compact-window-actions button { color: var(--text); }
+.compact-root-transparent .compact-font-button { -webkit-text-stroke: 1.5px #ffffff; paint-order: stroke fill; }
 .compact-root-transparent .compact-window-actions button:is(:hover, :focus-visible) {
   color: var(--text);
   background: var(--surface);

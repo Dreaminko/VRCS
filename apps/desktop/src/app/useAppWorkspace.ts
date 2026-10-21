@@ -1,11 +1,8 @@
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 
 import type { Page } from "./app-types";
-import {
-  compactSubtitleCount,
-  subtitlesForCompactView,
-} from "../shell/compact-mode";
+import { subtitlesForCompactView } from "../shell/compact-mode";
 import { useChatboxWorkspace } from "../chatbox/useChatboxWorkspace";
 import { useConversationWorkspace } from "../conversations/useConversationWorkspace";
 import { useCaptureControl } from "../core-client/useCaptureControl";
@@ -106,11 +103,10 @@ export function useAppWorkspace({
     subtitles.loadingConversation
     && conversation.selectedConversation?.id === subtitles.openedConversationId,
   );
-  const compactSubtitles = subtitlesForCompactView(
+  const compactSubtitles = useMemo(() => subtitlesForCompactView(
     subtitles.items,
-    compactWindow.height,
     selection.target?.context,
-  );
+  ), [subtitles.items, selection.target?.context]);
 
   const openSelectionAiSettings = useCallback(async () => {
     if (compactWindow.compact && !(await compactWindow.exitCompact())) return;
@@ -143,7 +139,6 @@ export function useAppWorkspace({
       ...compactWindow,
       subtitles: compactSubtitles,
       subtitleHistory: subtitles.items,
-      subtitleLimit: compactSubtitleCount(compactWindow.height),
     },
     conversations: {
       ...conversation,

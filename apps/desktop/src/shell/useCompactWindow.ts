@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 
 import { NATIVE_APP } from "../app/app-environment";
+import type { CompactFontSize } from "./compact-layout";
 import {
   clampCompactWindowHeight,
   compactWindowConstraints,
@@ -18,6 +19,7 @@ export function useCompactWindow({
   reportError: (reason: unknown, fallbackKey: string, source?: string) => void;
 }) {
   const [compact, setCompact] = useState(false);
+  const [fontSize, setFontSize] = useState<CompactFontSize>("medium");
   const [transparentBackground, setTransparentBackground] = useState(false);
   const toggleCompactBackground = useCallback(() => {
     setTransparentBackground((previous) => !previous);
@@ -176,6 +178,8 @@ export function useCompactWindow({
 
   return {
     compact,
+    fontSize,
+    setFontSize,
     transparentBackground,
     toggleCompactBackground,
     height,
