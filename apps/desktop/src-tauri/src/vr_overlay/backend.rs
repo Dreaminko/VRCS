@@ -24,6 +24,8 @@ mod platform {
     const WRIST_NAME: &str = "VRCS Wrist Subtitles\0";
     const DASHBOARD_KEY: &str = "org.vrcs.dashboard.settings\0";
     const DASHBOARD_NAME: &str = "VRCS\0";
+    const DASHBOARD_THUMBNAIL: tauri::image::Image<'_> =
+        tauri::include_image!("icons/128x128@2x.png");
 
     pub struct OpenVrBackend {
         context: Context,
@@ -42,9 +44,7 @@ mod platform {
         ocr_wrist_device: Option<u32>,
         ocr_frame: Option<OverlayHandle>,
         ocr_result: Option<OverlayHandle>,
-        dashboard: Option<OverlayHandle>,
-        dashboard_thumbnail: Option<OverlayHandle>,
-        dashboard_height: u32,
+        dashboard: DashboardOverlay,
         headset_state: SubmittedState,
         wrist_state: SubmittedState,
         wrist_menu_state: SubmittedState,
@@ -53,7 +53,6 @@ mod platform {
         ocr_frame_state: SubmittedState,
         ocr_result_state: SubmittedState,
         dashboard_state: SubmittedState,
-        dashboard_thumbnail_state: SubmittedState,
         ocr_input: Option<crate::vr_overlay::ocr_input::OcrInput>,
     }
 
@@ -62,6 +61,115 @@ mod platform {
         visible: bool,
         opacity: Option<f32>,
         interactive: Option<bool>,
+    }
+
+    #[derive(Default)]
+    struct DashboardOverlay {
+        handles: Option<[OverlayHandle; 2]>,
+    }
+
+    impl DashboardOverlay {
+        fn main(&self) -> Option<OverlayHandle> {
+            self.handles.map(|handles| handles[0])
+        }
+
+        fn ensure(&mut self, table: &openvr_sys::VR_IVROverlay_FnTable) -> Result<(), String> {
+            if self.handles.is_some() {
+                return Ok(());
+            }
+            let check = |error, action| {
+                if error == openvr_sys::EVROverlayError_VROverlayError_None {
+                    Ok(())
+                } else {
+                    Err(format!("{action} failed with code {error}"))
+                }
+            };
+            let mut main = 0;
+            let mut thumbnail = 0;
+            unsafe {
+                check(
+                    table
+                        .CreateDashboardOverlay
+                        .ok_or("SteamVR dashboard overlays unavailable")?(
+                        DASHBOARD_KEY.as_ptr().cast_mut().cast(),
+                        DASHBOARD_NAME.as_ptr().cast_mut().cast(),
+                        &mut main,
+                        &mut thumbnail,
+                    ),
+                    "Create dashboard overlay",
+                )?;
+            }
+            self.handles = Some([OverlayHandle(main), OverlayHandle(thumbnail)]);
+            let result = (|| unsafe {
+                check(
+                    table
+                        .SetOverlayWidthInMeters
+                        .ok_or("SteamVR dashboard width unavailable")?(
+                        main, 2.25
+                    ),
+                    "Configure dashboard width",
+                )?;
+                check(
+                    table
+                        .SetOverlayInputMethod
+                        .ok_or("SteamVR dashboard input unavailable")?(
+                        main,
+                        openvr_sys::VROverlayInputMethod_Mouse,
+                    ),
+                    "Configure dashboard input",
+                )?;
+                let mut scale = openvr_sys::HmdVector2_t {
+                    v: [DASHBOARD_WIDTH as f32, DASHBOARD_HEIGHT as f32],
+                };
+                check(
+                    table
+                        .SetOverlayMouseScale
+                        .ok_or("SteamVR dashboard pointer scale unavailable")?(
+                        main, &mut scale
+                    ),
+                    "Configure dashboard pointer",
+                )?;
+                check(
+                    table
+                        .SetOverlayRaw
+                        .ok_or("SteamVR dashboard thumbnail unavailable")?(
+                        thumbnail,
+                        DASHBOARD_THUMBNAIL.rgba().as_ptr().cast_mut().cast(),
+                        DASHBOARD_THUMBNAIL.width(),
+                        DASHBOARD_THUMBNAIL.height(),
+                        4,
+                    ),
+                    "Submit dashboard thumbnail",
+                )
+            })();
+            if result.is_err() {
+                self.destroy(table);
+            }
+            result
+        }
+
+        fn clear_texture(&self, table: &openvr_sys::VR_IVROverlay_FnTable) {
+            if let (Some(main), Some(clear)) = (self.main(), table.ClearOverlayTexture) {
+                unsafe {
+                    let _ = clear(main.0);
+                }
+            }
+        }
+
+        fn destroy(&mut self, table: &openvr_sys::VR_IVROverlay_FnTable) {
+            if let Some(handles) = self.handles.take() {
+                for handle in handles {
+                    unsafe {
+                        if let Some(clear) = table.ClearOverlayTexture {
+                            let _ = clear(handle.0);
+                        }
+                        if let Some(destroy) = table.DestroyOverlay {
+                            let _ = destroy(handle.0);
+                        }
+                    }
+                }
+            }
+        }
     }
 
     struct Mirror {
@@ -408,9 +516,7 @@ mod platform {
                 ocr_wrist_device: None,
                 ocr_frame: None,
                 ocr_result: None,
-                dashboard: None,
-                dashboard_thumbnail: None,
-                dashboard_height: DASHBOARD_HEIGHT,
+                dashboard: DashboardOverlay::default(),
                 headset_state: SubmittedState::default(),
                 wrist_state: SubmittedState::default(),
                 wrist_menu_state: SubmittedState::default(),
@@ -419,7 +525,6 @@ mod platform {
                 ocr_frame_state: SubmittedState::default(),
                 ocr_result_state: SubmittedState::default(),
                 dashboard_state: SubmittedState::default(),
-                dashboard_thumbnail_state: SubmittedState::default(),
                 ocr_input: None,
             })
         }
@@ -431,74 +536,12 @@ mod platform {
         }
 
         pub fn ensure_dashboard(&mut self) -> Result<(), String> {
-            if self.dashboard.is_some() && self.dashboard_thumbnail.is_some() {
-                return Ok(());
-            }
-            self.reset(OverlayKind::Dashboard);
-            let table = unsafe { &*self.raw_overlay };
-            let create = table
-                .CreateDashboardOverlay
-                .ok_or("SteamVR dashboard overlays unavailable")?;
-            let mut main = 0;
-            let mut thumbnail = 0;
-            let error = unsafe {
-                create(
-                    DASHBOARD_KEY.as_ptr().cast_mut().cast(),
-                    DASHBOARD_NAME.as_ptr().cast_mut().cast(),
-                    &mut main,
-                    &mut thumbnail,
-                )
-            };
-            if error != openvr_sys::EVROverlayError_VROverlayError_None {
-                return Err(format!("Create dashboard overlay failed with code {error}"));
-            }
-            self.dashboard = Some(OverlayHandle(main));
-            self.dashboard_thumbnail = Some(OverlayHandle(thumbnail));
-
-            let handle = self.dashboard.expect("dashboard overlay exists");
-            self.overlay
-                .set_width(handle, 2.25)
-                .map_err(|error| format!("Configure dashboard width failed: {error:?}"))?;
-            let table = unsafe { &*self.raw_overlay };
-            let input = table
-                .SetOverlayInputMethod
-                .ok_or("SteamVR dashboard input unavailable")?;
-            let error = unsafe { input(handle.0, openvr_sys::VROverlayInputMethod_Mouse) };
-            if error != openvr_sys::EVROverlayError_VROverlayError_None {
-                return Err(format!(
-                    "Configure dashboard input failed with code {error}"
-                ));
-            }
-            self.configure_dashboard_pointer(handle, self.dashboard_height)
-        }
-
-        fn configure_dashboard_pointer(
-            &mut self,
-            handle: OverlayHandle,
-            height: u32,
-        ) -> Result<(), String> {
-            let table = unsafe { &*self.raw_overlay };
-            let mut scale = openvr_sys::HmdVector2_t {
-                v: [DASHBOARD_WIDTH as f32, height as f32],
-            };
-            let error = unsafe {
-                table
-                    .SetOverlayMouseScale
-                    .ok_or("SteamVR dashboard pointer scale unavailable")?(
-                    handle.0, &mut scale
-                )
-            };
-            if error != openvr_sys::EVROverlayError_VROverlayError_None {
-                return Err(format!(
-                    "Configure dashboard pointer failed with code {error}"
-                ));
-            }
-            self.dashboard_height = height;
-            Ok(())
+            self.dashboard.ensure(unsafe { &*self.raw_overlay })
         }
 
         pub fn dashboard_visible(&self) -> bool {
             self.dashboard
+                .main()
                 .and_then(|handle| unsafe {
                     (&*self.raw_overlay).IsOverlayVisible.map(|f| f(handle.0))
                 })
@@ -506,7 +549,7 @@ mod platform {
         }
 
         pub fn poll_dashboard_events(&self) -> Result<Vec<DashboardPointerEvent>, String> {
-            let Some(handle) = self.dashboard else {
+            let Some(handle) = self.dashboard.main() else {
                 return Ok(Vec::new());
             };
             let poll = unsafe { (&*self.raw_overlay).PollNextOverlayEvent }
@@ -526,18 +569,18 @@ mod platform {
                 let pointer = match event.eventType as i32 {
                     openvr_sys::EVREventType_VREvent_MouseMove => {
                         let mouse = unsafe { event.data.mouse };
-                        let (x, y) = pointer_from_openvr(mouse.x, mouse.y, self.dashboard_height);
+                        let (x, y) = pointer_from_openvr(mouse.x, mouse.y, DASHBOARD_HEIGHT);
                         Some(DashboardPointerEvent::Move { x, y })
                     }
                     openvr_sys::EVREventType_VREvent_MouseButtonDown => {
                         let mouse = unsafe { event.data.mouse };
-                        let (x, y) = pointer_from_openvr(mouse.x, mouse.y, self.dashboard_height);
+                        let (x, y) = pointer_from_openvr(mouse.x, mouse.y, DASHBOARD_HEIGHT);
                         (mouse.button & openvr_sys::EVRMouseButton_VRMouseButton_Left as u32 != 0)
                             .then_some(DashboardPointerEvent::Down { x, y })
                     }
                     openvr_sys::EVREventType_VREvent_MouseButtonUp => {
                         let mouse = unsafe { event.data.mouse };
-                        let (x, y) = pointer_from_openvr(mouse.x, mouse.y, self.dashboard_height);
+                        let (x, y) = pointer_from_openvr(mouse.x, mouse.y, DASHBOARD_HEIGHT);
                         (mouse.button & openvr_sys::EVRMouseButton_VRMouseButton_Left as u32 != 0)
                             .then_some(DashboardPointerEvent::Up { x, y })
                     }
@@ -981,14 +1024,10 @@ mod platform {
         }
 
         pub fn reset(&mut self, kind: OverlayKind) {
-            if matches!(
-                kind,
-                OverlayKind::Dashboard | OverlayKind::DashboardThumbnail
-            ) {
-                self.hide(OverlayKind::Dashboard);
-                self.hide(OverlayKind::DashboardThumbnail);
-                self.destroy(OverlayKind::Dashboard);
-                self.destroy(OverlayKind::DashboardThumbnail);
+            if kind == OverlayKind::Dashboard {
+                // Surface recovery must not unregister the SteamVR dashboard tab.
+                self.dashboard.clear_texture(unsafe { &*self.raw_overlay });
+                self.dashboard_state = SubmittedState::default();
                 return;
             }
             self.hide(kind);
@@ -1004,8 +1043,7 @@ mod platform {
                 OverlayKind::OcrProgress => self.ocr_progress,
                 OverlayKind::OcrFrame => self.ocr_frame,
                 OverlayKind::OcrResult => self.ocr_result,
-                OverlayKind::Dashboard => self.dashboard,
-                OverlayKind::DashboardThumbnail => self.dashboard_thumbnail,
+                OverlayKind::Dashboard => self.dashboard.main(),
             }
         }
 
@@ -1019,7 +1057,6 @@ mod platform {
                 OverlayKind::OcrFrame => &self.ocr_frame_state,
                 OverlayKind::OcrResult => &self.ocr_result_state,
                 OverlayKind::Dashboard => &self.dashboard_state,
-                OverlayKind::DashboardThumbnail => &self.dashboard_thumbnail_state,
             }
         }
 
@@ -1033,7 +1070,6 @@ mod platform {
                 OverlayKind::OcrFrame => &mut self.ocr_frame_state,
                 OverlayKind::OcrResult => &mut self.ocr_result_state,
                 OverlayKind::Dashboard => &mut self.dashboard_state,
-                OverlayKind::DashboardThumbnail => &mut self.dashboard_thumbnail_state,
             }
         }
 
@@ -1049,8 +1085,10 @@ mod platform {
                 OverlayKind::OcrFrame => self.ocr_frame.take(),
                 OverlayKind::OcrProgress => self.ocr_progress.take(),
                 OverlayKind::OcrResult => self.ocr_result.take(),
-                OverlayKind::Dashboard => self.dashboard.take(),
-                OverlayKind::DashboardThumbnail => self.dashboard_thumbnail.take(),
+                OverlayKind::Dashboard => {
+                    self.dashboard.destroy(unsafe { &*self.raw_overlay });
+                    None
+                }
             };
             if let Some(handle) = handle {
                 unsafe {
@@ -1079,7 +1117,6 @@ mod platform {
             self.destroy(OverlayKind::OcrFrame);
             self.destroy(OverlayKind::OcrResult);
             self.destroy(OverlayKind::Dashboard);
-            self.destroy(OverlayKind::DashboardThumbnail);
             // Detach while graphics resources are still alive; keep the desktop process running.
             unsafe { self.context.shutdown() };
         }
@@ -1293,6 +1330,167 @@ mod platform {
     mod tests {
         use super::Mirror;
         use std::sync::atomic::{AtomicBool, AtomicI32, AtomicUsize, Ordering};
+
+        mod dashboard {
+            use super::super::DashboardOverlay;
+            use std::cell::{Cell, RefCell};
+
+            thread_local! {
+                static CALLS: RefCell<Vec<(&'static str, u64)>> = const { RefCell::new(Vec::new()) };
+                static FAIL: Cell<&'static str> = const { Cell::new("") };
+            }
+
+            fn call(name: &'static str, handle: u64) -> i32 {
+                CALLS.with_borrow_mut(|calls| calls.push((name, handle)));
+                if FAIL.get() == name {
+                    10
+                } else {
+                    0
+                }
+            }
+
+            fn api() -> openvr_sys::VR_IVROverlay_FnTable {
+                unsafe extern "C" fn create(
+                    key: *mut std::ffi::c_char,
+                    name: *mut std::ffi::c_char,
+                    main: *mut u64,
+                    thumbnail: *mut u64,
+                ) -> i32 {
+                    assert_eq!(
+                        unsafe { std::ffi::CStr::from_ptr(key) }.to_bytes(),
+                        b"org.vrcs.dashboard.settings"
+                    );
+                    assert_eq!(
+                        unsafe { std::ffi::CStr::from_ptr(name) }.to_bytes(),
+                        b"VRCS"
+                    );
+                    unsafe {
+                        *main = 73;
+                        *thumbnail = 74;
+                    }
+                    call("create", 73)
+                }
+                unsafe extern "C" fn width(handle: u64, width: f32) -> i32 {
+                    assert_eq!(width, 2.25);
+                    call("width", handle)
+                }
+                unsafe extern "C" fn input(handle: u64, method: i32) -> i32 {
+                    assert_eq!(method, openvr_sys::VROverlayInputMethod_Mouse);
+                    call("input", handle)
+                }
+                unsafe extern "C" fn scale(
+                    handle: u64,
+                    scale: *mut openvr_sys::HmdVector2_t,
+                ) -> i32 {
+                    assert_eq!(unsafe { (*scale).v }, [1440., 900.]);
+                    call("scale", handle)
+                }
+                unsafe extern "C" fn thumbnail(
+                    handle: u64,
+                    data: *mut std::ffi::c_void,
+                    width: u32,
+                    height: u32,
+                    depth: u32,
+                ) -> i32 {
+                    assert_eq!((width, height, depth), (256, 256, 4));
+                    let pixels =
+                        unsafe { std::slice::from_raw_parts(data.cast::<u8>(), 256 * 256 * 4) };
+                    assert!(pixels.chunks_exact(4).any(|pixel| pixel[3] > 0));
+                    assert!(pixels.chunks_exact(4).any(|pixel| pixel[3] == 0));
+                    call("thumbnail", handle)
+                }
+                unsafe extern "C" fn clear(handle: u64) -> i32 {
+                    call("clear", handle)
+                }
+                unsafe extern "C" fn destroy(handle: u64) -> i32 {
+                    call("destroy", handle)
+                }
+
+                CALLS.with_borrow_mut(Vec::clear);
+                FAIL.set("");
+                let mut api: openvr_sys::VR_IVROverlay_FnTable = unsafe { std::mem::zeroed() };
+                api.CreateDashboardOverlay = Some(create);
+                api.SetOverlayWidthInMeters = Some(width);
+                api.SetOverlayInputMethod = Some(input);
+                api.SetOverlayMouseScale = Some(scale);
+                api.SetOverlayRaw = Some(thumbnail);
+                api.ClearOverlayTexture = Some(clear);
+                api.DestroyOverlay = Some(destroy);
+                api
+            }
+
+            fn calls() -> Vec<(&'static str, u64)> {
+                CALLS.with_borrow_mut(std::mem::take)
+            }
+
+            #[test]
+            fn registers_static_thumbnail_once_and_keeps_tab_during_surface_recovery() {
+                let api = api();
+                let mut dashboard = DashboardOverlay::default();
+                dashboard.ensure(&api).unwrap();
+                dashboard.ensure(&api).unwrap();
+                assert_eq!(
+                    calls(),
+                    [
+                        ("create", 73),
+                        ("width", 73),
+                        ("input", 73),
+                        ("scale", 73),
+                        ("thumbnail", 74)
+                    ]
+                );
+
+                dashboard.clear_texture(&api);
+                dashboard.ensure(&api).unwrap();
+                assert_eq!(dashboard.main().unwrap().0, 73);
+                assert_eq!(calls(), [("clear", 73)]);
+
+                dashboard.destroy(&api);
+                assert!(dashboard.main().is_none());
+                assert_eq!(
+                    calls(),
+                    [
+                        ("clear", 73),
+                        ("destroy", 73),
+                        ("clear", 74),
+                        ("destroy", 74)
+                    ]
+                );
+                dashboard.destroy(&api);
+                assert!(calls().is_empty());
+            }
+
+            #[test]
+            fn initialization_failures_release_both_handles_and_retry_registration() {
+                for step in ["width", "input", "scale", "thumbnail"] {
+                    let api = api();
+                    let mut dashboard = DashboardOverlay::default();
+                    FAIL.set(step);
+                    assert!(dashboard.ensure(&api).is_err());
+                    assert!(dashboard.main().is_none());
+                    assert!(calls().ends_with(&[
+                        ("clear", 73),
+                        ("destroy", 73),
+                        ("clear", 74),
+                        ("destroy", 74)
+                    ]));
+
+                    FAIL.set("");
+                    dashboard.ensure(&api).unwrap();
+                    assert_eq!(
+                        calls(),
+                        [
+                            ("create", 73),
+                            ("width", 73),
+                            ("input", 73),
+                            ("scale", 73),
+                            ("thumbnail", 74)
+                        ]
+                    );
+                    dashboard.destroy(&api);
+                }
+            }
+        }
 
         #[test]
         fn shared_textures_configure_alpha_before_submission() {
@@ -1576,7 +1774,6 @@ pub enum OverlayKind {
     OcrFrame,
     OcrResult,
     Dashboard,
-    DashboardThumbnail,
 }
 
 #[derive(Debug, Clone)]

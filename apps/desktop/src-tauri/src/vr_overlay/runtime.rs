@@ -415,8 +415,6 @@ struct WorkerState {
     #[cfg(windows)]
     dashboard_surface: super::surface::SurfaceRenderer,
     #[cfg(windows)]
-    thumbnail_surface: super::surface::SurfaceRenderer,
-    #[cfg(windows)]
     dashboard_pressed_key: Option<super::surface::SurfaceKey>,
     dashboard_retry_at: Option<Instant>,
     next_reconnect: Instant,
@@ -430,7 +428,6 @@ impl WorkerState {
         #[cfg(windows)]
         {
             self.dashboard_surface.reset();
-            self.thumbnail_surface.reset();
             self.dashboard_pressed_key = None;
         }
         self.dashboard.clear_pointer();
@@ -492,10 +489,6 @@ fn worker_loop(
         #[cfg(windows)]
         dashboard_surface: super::surface::SurfaceRenderer::new(
             super::surface::SurfaceId::Dashboard,
-        ),
-        #[cfg(windows)]
-        thumbnail_surface: super::surface::SurfaceRenderer::new(
-            super::surface::SurfaceId::DashboardThumbnail,
         ),
         #[cfg(windows)]
         dashboard_pressed_key: None,
@@ -987,15 +980,7 @@ fn update_dashboard(
                 _ => {}
             }
         }
-        let thumbnail = state.thumbnail_surface.present(
-            app,
-            backend,
-            OverlayKind::DashboardThumbnail,
-            SurfaceView::DashboardThumbnail { dark },
-            None,
-            None,
-        )?;
-        let dashboard = state.dashboard_surface.present(
+        state.dashboard_surface.present(
             app,
             backend,
             OverlayKind::Dashboard,
@@ -1006,8 +991,7 @@ fn update_dashboard(
             },
             state.dashboard.hovered,
             state.dashboard.pressed,
-        )?;
-        Ok(thumbnail && dashboard)
+        )
     })();
     match result {
         Ok(ready) => {
@@ -1022,9 +1006,8 @@ fn update_dashboard(
             status.dashboard.last_error_code = None;
         }
         Err(error) => {
-            // Dashboard and thumbnail handles have a shared OpenVR lifetime.
+            // Release the captured texture while keeping the registered dashboard tab.
             backend.reset(OverlayKind::Dashboard);
-            backend.reset(OverlayKind::DashboardThumbnail);
             state.reset_dashboard();
             state.dashboard_retry_at = Some(Instant::now() + Duration::from_secs(1));
             status.dashboard.visible = false;

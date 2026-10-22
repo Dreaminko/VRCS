@@ -670,8 +670,7 @@ pub fn smoke(app: AppHandle, views: Vec<(SurfaceId, SurfaceView)>) {
                                 block.text = "Updated OCR translation / 已更新".into();
                             }
                         }
-                        SurfaceView::DashboardThumbnail { dark }
-                        | SurfaceView::OcrSelection { dark } => {
+                        SurfaceView::OcrSelection { dark } => {
                             *dark = !*dark;
                         }
                         _ => return Err("Smoke surface has no content to update".into()),

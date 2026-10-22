@@ -1205,7 +1205,6 @@ pub fn setup(app: &tauri::AppHandle, live: bool) -> Result<(), Box<dyn std::erro
                 dashboard: preview.view.clone(),
                 ui: super::dashboard::DashboardUi::default(),
             }),
-            (SurfaceId::DashboardThumbnail, SurfaceView::DashboardThumbnail { dark }),
             (SurfaceId::OcrSelection, SurfaceView::OcrSelection { dark }),
             (SurfaceId::OcrResult, SurfaceView::OcrResult {
                 dark,

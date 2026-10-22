@@ -2,13 +2,14 @@ import type { ReactNode } from "react";
 import { ArrowDown, ArrowUp, Check, ChevronLeft, ChevronRight, Eye, Hand, Languages, Mic, Minus, Monitor, Pin, Plus, Power, Radio, RotateCcw, ScanEye, Settings2, Square, Trash2, X } from "lucide-react";
 import type { VrDashboardChoice, VrDashboardViewModel } from "../integrations/vr-overlay-native";
 import type { VrOverlayPositionField } from "../settings/vr-overlay-settings";
+import dashboardThumbnail from "../../src-tauri/icons/128x128@2x.png";
 import { DASHBOARD_PICKER_PAGE_SIZE, dashboardPickerChoice, type DashboardAction, type DashboardCommand, type DashboardPicker, type DashboardUi, type DisplayKind, type TargetGroup } from "./dashboard-protocol";
 import "./dashboard.css";
 
 type ButtonOptions = { active?: boolean; disabled?: boolean; icon?: boolean; primary?: boolean; danger?: boolean; label?: string; key?: string };
 
 export function DashboardThumbnail() {
-  return <div className="vr-dashboard-thumbnail"><img src="/logos/VRCS_Logo_Small.svg" alt="VRCS" /></div>;
+  return <img className="vr-dashboard-thumbnail" src={dashboardThumbnail} alt="VRCS" />;
 }
 
 export function DashboardSurface({ dashboard: view, ui, hovered, pressed }: {
