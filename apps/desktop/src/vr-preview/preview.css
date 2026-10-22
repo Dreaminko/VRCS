@@ -15,8 +15,6 @@
 .vr-preview .secondary-button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 36px; border-radius: var(--radius-pill); font-size: 12px; }
 .vr-preview-stage { position: relative; display: flex; align-items: center; justify-content: center; height: min(62vh, 660px); min-height: 340px; overflow: hidden; border-radius: var(--radius-md); background-color: var(--surface-subtle); }
 .vr-preview-stage.checker { background-image: conic-gradient(var(--border) 25%, transparent 0 50%, var(--border) 0 75%, transparent 0); background-size: 24px 24px; }
-.vr-preview-stage canvas { display: block; width: 100%; height: 100%; object-fit: contain; touch-action: none; }
-.vr-preview-stage canvas[hidden] { display: none; }
 .vr-preview-react-surface { position: relative; flex: none; touch-action: none; }
 .vr-preview-react-inner { position: absolute; inset: 0 auto auto 0; transform-origin: top left; }
 .vr-preview-hint { margin: 12px 0; }

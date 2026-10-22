@@ -14,15 +14,12 @@ use vrcs_core::{PresentationEvent, VrOcrConfig, VrOverlayConfig};
 use super::backend::{OpenVrBackend, OverlayKind};
 use super::control_protocol::{ControlAction, ControlHub, ControlSource};
 use super::dashboard::{DashboardPointerEvent, DashboardState, DashboardViewModel};
-use super::dashboard_renderer;
 use super::placement::{Mode, Placement};
 use super::presentation::{
     HeadsetPresentation, MessageSide, PresentationContent, PresentationFrame, WristMessage,
     WristPresentation,
 };
 use super::process::{steamvr_pid, SteamVrSession};
-#[cfg(not(windows))]
-use super::renderer::{self, Layout};
 
 pub const STATUS_EVENT: &str = "vr-overlay-status-changed";
 const UPDATE_INTERVAL: Duration = Duration::from_millis(50);
@@ -411,16 +408,17 @@ struct WorkerState {
     wrist_sample: bool,
     #[cfg(windows)]
     headset_surface: super::surface::SurfaceRenderer,
-    #[cfg(not(windows))]
-    headset_hash: Option<u64>,
-    wrist_hash: Option<u64>,
     backend: Option<OpenVrBackend>,
     session: SteamVrSession,
     dashboard_view: Option<DashboardViewModel>,
     dashboard: DashboardState,
-    dashboard_cache: dashboard_renderer::RasterCache,
-    dashboard_dirty: bool,
-    dashboard_thumbnail_uploaded: bool,
+    #[cfg(windows)]
+    dashboard_surface: super::surface::SurfaceRenderer,
+    #[cfg(windows)]
+    thumbnail_surface: super::surface::SurfaceRenderer,
+    #[cfg(windows)]
+    dashboard_pressed_key: Option<super::surface::SurfaceKey>,
+    dashboard_retry_at: Option<Instant>,
     next_reconnect: Instant,
     next_probe: Instant,
     #[cfg(windows)]
@@ -428,13 +426,20 @@ struct WorkerState {
 }
 
 impl WorkerState {
+    fn reset_dashboard(&mut self) {
+        #[cfg(windows)]
+        {
+            self.dashboard_surface.reset();
+            self.thumbnail_surface.reset();
+            self.dashboard_pressed_key = None;
+        }
+        self.dashboard.clear_pointer();
+        self.dashboard_retry_at = None;
+    }
+
     fn reset_headset(&mut self) {
         #[cfg(windows)]
         self.headset_surface.reset();
-        #[cfg(not(windows))]
-        {
-            self.headset_hash = None;
-        }
     }
 }
 
@@ -480,16 +485,21 @@ fn worker_loop(
         wrist_sample: false,
         #[cfg(windows)]
         headset_surface: super::surface::SurfaceRenderer::new(super::surface::SurfaceId::Headset),
-        #[cfg(not(windows))]
-        headset_hash: None,
-        wrist_hash: None,
         backend: None,
         session: SteamVrSession::default(),
         dashboard_view: None,
         dashboard: DashboardState::default(),
-        dashboard_cache: dashboard_renderer::RasterCache::default(),
-        dashboard_dirty: true,
-        dashboard_thumbnail_uploaded: false,
+        #[cfg(windows)]
+        dashboard_surface: super::surface::SurfaceRenderer::new(
+            super::surface::SurfaceId::Dashboard,
+        ),
+        #[cfg(windows)]
+        thumbnail_surface: super::surface::SurfaceRenderer::new(
+            super::surface::SurfaceId::DashboardThumbnail,
+        ),
+        #[cfg(windows)]
+        dashboard_pressed_key: None,
+        dashboard_retry_at: None,
         next_reconnect: Instant::now(),
         next_probe: Instant::now(),
         #[cfg(windows)]
@@ -544,7 +554,6 @@ fn worker_loop(
                     }
                     state.dashboard.update_view(&view);
                     state.dashboard_view = Some(view);
-                    state.dashboard_dirty = true;
                 }
             }
         }
@@ -568,9 +577,7 @@ fn worker_loop(
                     backend.hide_all();
                 }
                 state.reset_headset();
-                state.wrist_hash = None;
-                state.dashboard_dirty = true;
-                state.dashboard_thumbnail_uploaded = false;
+                state.reset_dashboard();
                 state.next_reconnect = Instant::now();
                 state.next_probe = Instant::now();
                 status.reconnect_attempt = 0;
@@ -581,7 +588,6 @@ fn worker_loop(
             }
             if let Some(visible) = control.wrist_sample {
                 state.wrist_sample = visible;
-                state.wrist_hash = None;
             }
         }
         for event in event_receiver.try_iter().take(EVENT_QUEUE_CAPACITY) {
@@ -666,9 +672,7 @@ fn recover_from_panic(state: &mut WorkerState, status: &mut VrOverlayStatus) {
     }
     drop(state.backend.take());
     state.reset_headset();
-    state.wrist_hash = None;
-    state.dashboard_dirty = true;
-    state.dashboard_thumbnail_uploaded = false;
+    state.reset_dashboard();
     state.next_reconnect = Instant::now() + RECONNECT_INTERVAL;
     status.state = RuntimeState::Reconnecting;
     status.reconnect_attempt = status.reconnect_attempt.saturating_add(1);
@@ -690,9 +694,7 @@ fn tick(app: &AppHandle, state: &mut WorkerState, status: &mut VrOverlayStatus, 
             state.ui.reset();
         }
         state.reset_headset();
-        state.wrist_hash = None;
-        state.dashboard_dirty = true;
-        state.dashboard_thumbnail_uploaded = false;
+        state.reset_dashboard();
         state.next_reconnect = Instant::now() + RECONNECT_INTERVAL;
         status.state = RuntimeState::WaitingRuntime;
         status.hmd_present = false;
@@ -732,9 +734,7 @@ fn tick(app: &AppHandle, state: &mut WorkerState, status: &mut VrOverlayStatus, 
         state.headset = HeadsetPresentation::default();
         state.wrist = WristPresentation::default();
         state.reset_headset();
-        state.wrist_hash = None;
-        state.dashboard_dirty = true;
-        state.dashboard_thumbnail_uploaded = false;
+        state.reset_dashboard();
         status.state = RuntimeState::Disabled;
         status.headset.state = ResourceState::Disabled;
         status.wrist.state = ResourceState::Disabled;
@@ -776,7 +776,7 @@ fn tick(app: &AppHandle, state: &mut WorkerState, status: &mut VrOverlayStatus, 
             backend.hide_all();
         }
         state.reset_headset();
-        state.wrist_hash = None;
+        state.reset_dashboard();
         status.state = RuntimeState::WaitingRuntime;
         status.headset.state = if state.config.headset.enabled {
             ResourceState::ReadyHidden
@@ -823,11 +823,9 @@ fn tick(app: &AppHandle, state: &mut WorkerState, status: &mut VrOverlayStatus, 
                 status.reconnect_attempt = 0;
                 status.last_error_detail = None;
                 state.reset_headset();
+                state.reset_dashboard();
                 #[cfg(windows)]
                 state.ocr.reset_surfaces();
-                state.wrist_hash = None;
-                state.dashboard_dirty = true;
-                state.dashboard_thumbnail_uploaded = false;
             }
             Err(error) => {
                 status.reconnect_attempt = status.reconnect_attempt.saturating_add(1);
@@ -904,140 +902,196 @@ fn tick(app: &AppHandle, state: &mut WorkerState, status: &mut VrOverlayStatus, 
     }
 }
 
+#[cfg(windows)]
 fn update_dashboard(
     app: &AppHandle,
     state: &mut WorkerState,
     status: &mut VrOverlayStatus,
     backend: &mut OpenVrBackend,
 ) {
-    let Some(view) = state.dashboard_view.as_ref() else {
+    use super::dashboard::{DASHBOARD_HEIGHT, DASHBOARD_WIDTH};
+    use super::surface::{SurfaceHub, SurfaceId, SurfaceView};
+    let Some(view) = state.dashboard_view.clone() else {
         status.dashboard.state = ResourceState::Disabled;
         status.dashboard.visible = false;
         return;
     };
-    status.dashboard.state = ResourceState::Creating;
-    if let Err(error) = backend.ensure_dashboard() {
-        backend.reset(OverlayKind::Dashboard);
-        backend.reset(OverlayKind::DashboardThumbnail);
-        status.dashboard.state = ResourceState::Error;
-        status.dashboard.last_error_code = Some("dashboard_setup".into());
-        tracing::warn!(%error, "SteamVR dashboard setup failed");
+    if state
+        .dashboard_retry_at
+        .is_some_and(|until| Instant::now() < until)
+    {
         return;
     }
-
-    match backend.poll_dashboard_events() {
-        Ok(events) => {
-            for event in events {
-                match event {
-                    DashboardPointerEvent::Move { x, y } => {
-                        state.dashboard_dirty |= state.dashboard.pointer_move(x, y);
-                    }
-                    DashboardPointerEvent::Down { x, y } => {
-                        state.dashboard_dirty |= state.dashboard.pointer_down(x, y);
-                    }
-                    DashboardPointerEvent::Up { x, y } => {
-                        let action = state.dashboard.pointer_up(x, y);
-                        state.dashboard_dirty = true;
-                        if let Some(action) = action {
-                            #[cfg(windows)]
-                            if matches!(
-                                action,
-                                super::dashboard::DashboardAction::RecenterDialogue
-                                    | super::dashboard::DashboardAction::AttachDialogue
-                            ) {
-                                let mode = if matches!(
-                                    action,
-                                    super::dashboard::DashboardAction::RecenterDialogue
-                                ) {
-                                    Mode::World
-                                } else {
-                                    Mode::Wrist
-                                };
-                                state.ui.place(app, backend, &state.controls, mode);
-                                continue;
-                            }
-                            let control = state.controls.lock().ok().and_then(|hub| {
-                                let view = hub.snapshot();
-                                match &action {
-                                    super::dashboard::DashboardAction::ToggleWrist => Some(
-                                        ControlAction::SetWristEnabled(!view.items[0].requested),
-                                    ),
-                                    super::dashboard::DashboardAction::ToggleHeadset => Some(
-                                        ControlAction::SetHeadsetEnabled(!view.items[1].requested),
-                                    ),
-                                    super::dashboard::DashboardAction::ToggleOsc => {
-                                        Some(ControlAction::SetOscEnabled(!view.items[2].requested))
-                                    }
-                                    super::dashboard::DashboardAction::ToggleCapture => Some(
-                                        ControlAction::SetCaptureRunning(!view.items[3].requested),
-                                    ),
-                                    _ => None,
-                                }
-                            });
-                            if let Some(control) = control {
-                                dispatch_control(
-                                    app,
-                                    &state.controls,
-                                    ControlSource::Dashboard,
-                                    control,
-                                );
-                                continue;
-                            }
-                            if let Err(error) = app.emit("vr-dashboard-action", action) {
-                                tracing::warn!(%error, "SteamVR dashboard action emit failed");
-                            }
+    state.dashboard_retry_at = None;
+    let result = (|| -> Result<bool, String> {
+        backend.ensure_dashboard()?;
+        let hub = app.state::<SurfaceHub>();
+        let dark = state
+            .controls
+            .lock()
+            .map(|hub| hub.snapshot().dark)
+            .unwrap_or(false);
+        // Publish first so a changed view revokes input from the preceding frame.
+        hub.publish(
+            app,
+            SurfaceId::Dashboard,
+            SurfaceView::Dashboard {
+                dark,
+                dashboard: view.clone(),
+                ui: state.dashboard.ui.clone(),
+            },
+            state.dashboard.hovered,
+            state.dashboard.pressed,
+        )?;
+        let mut layout = hub.layout(SurfaceId::Dashboard);
+        for event in backend.poll_dashboard_events()? {
+            let (x, y) = match event {
+                DashboardPointerEvent::Move { x, y }
+                | DashboardPointerEvent::Down { x, y }
+                | DashboardPointerEvent::Up { x, y } => (x, y),
+                DashboardPointerEvent::Shown | DashboardPointerEvent::Hidden => {
+                    state.dashboard.clear_pointer();
+                    state.dashboard_pressed_key = None;
+                    hub.point(app, SurfaceId::Dashboard, None)?;
+                    continue;
+                }
+            };
+            let point = [x / DASHBOARD_WIDTH as f32, y / DASHBOARD_HEIGHT as f32];
+            hub.point(app, SurfaceId::Dashboard, Some(point))?;
+            let hit = layout.as_ref().and_then(|layout| layout.hit(point));
+            state.dashboard.hovered = hit;
+            match event {
+                DashboardPointerEvent::Down { .. } => {
+                    state.dashboard.pressed = hit;
+                    state.dashboard_pressed_key = layout.as_ref().map(|layout| layout.key);
+                }
+                DashboardPointerEvent::Up { .. } => {
+                    let pressed = state.dashboard.pressed.take();
+                    let key = state.dashboard_pressed_key.take();
+                    let command = layout
+                        .as_ref()
+                        .filter(|layout| Some(layout.key) == key)
+                        .filter(|_| hit.is_some() && hit == pressed)
+                        .and_then(|layout| {
+                            layout.regions.iter().find(|region| Some(region.id) == hit)
+                        })
+                        .and_then(|region| region.dashboard.clone());
+                    if let Some(command) = command {
+                        if let Some(action) = state.dashboard.activate(command, &view) {
+                            dispatch_dashboard_action(app, state, backend, action);
                         }
-                    }
-                    DashboardPointerEvent::Shown => state.dashboard_dirty = true,
-                    DashboardPointerEvent::Hidden => {
-                        state.dashboard.pointer_move(-1.0, -1.0);
-                        state.dashboard.pointer_up(-1.0, -1.0);
-                        state.dashboard_dirty = true;
+                        // Any subsequent input must wait for the newly rendered layout.
+                        layout = None;
                     }
                 }
+                _ => {}
             }
+        }
+        let thumbnail = state.thumbnail_surface.present(
+            app,
+            backend,
+            OverlayKind::DashboardThumbnail,
+            SurfaceView::DashboardThumbnail { dark },
+            None,
+            None,
+        )?;
+        let dashboard = state.dashboard_surface.present(
+            app,
+            backend,
+            OverlayKind::Dashboard,
+            SurfaceView::Dashboard {
+                dark,
+                dashboard: view,
+                ui: state.dashboard.ui.clone(),
+            },
+            state.dashboard.hovered,
+            state.dashboard.pressed,
+        )?;
+        Ok(thumbnail && dashboard)
+    })();
+    match result {
+        Ok(ready) => {
+            status.dashboard.visible = ready && backend.dashboard_visible();
+            status.dashboard.state = if status.dashboard.visible {
+                ResourceState::Visible
+            } else if ready {
+                ResourceState::ReadyHidden
+            } else {
+                ResourceState::Creating
+            };
+            status.dashboard.last_error_code = None;
         }
         Err(error) => {
+            // Dashboard and thumbnail handles have a shared OpenVR lifetime.
+            backend.reset(OverlayKind::Dashboard);
+            backend.reset(OverlayKind::DashboardThumbnail);
+            state.reset_dashboard();
+            state.dashboard_retry_at = Some(Instant::now() + Duration::from_secs(1));
+            status.dashboard.visible = false;
             status.dashboard.state = ResourceState::Error;
-            status.dashboard.last_error_code = Some("dashboard_events".into());
-            tracing::warn!(%error, "SteamVR dashboard event polling failed");
-            return;
+            status.dashboard.last_error_code = Some("dashboard_surface".into());
+            if status.last_error_detail.as_deref() != Some(&error) {
+                tracing::warn!(%error, "SteamVR dashboard surface unavailable");
+            }
+            status.last_error_detail = Some(error);
         }
     }
+}
 
-    if !state.dashboard_thumbnail_uploaded {
-        match dashboard_renderer::render_thumbnail(&view.labels.title)
-            .and_then(|texture| backend.upload(OverlayKind::DashboardThumbnail, &texture))
-        {
-            Ok(()) => state.dashboard_thumbnail_uploaded = true,
-            Err(error) => {
-                status.dashboard.state = ResourceState::Error;
-                status.dashboard.last_error_code = Some("dashboard_thumbnail".into());
-                tracing::warn!(%error, "SteamVR dashboard thumbnail upload failed");
-                return;
-            }
-        }
+#[cfg(windows)]
+fn dispatch_dashboard_action(
+    app: &AppHandle,
+    state: &mut WorkerState,
+    backend: &OpenVrBackend,
+    action: super::dashboard::DashboardAction,
+) {
+    use super::dashboard::DashboardAction;
+    if matches!(
+        action,
+        DashboardAction::RecenterDialogue | DashboardAction::AttachDialogue
+    ) {
+        let mode = if action == DashboardAction::RecenterDialogue {
+            Mode::World
+        } else {
+            Mode::Wrist
+        };
+        state.ui.place(app, backend, &state.controls, mode);
+        return;
     }
-    if state.dashboard_dirty {
-        match dashboard_renderer::render(view, &state.dashboard, &mut state.dashboard_cache)
-            .and_then(|texture| backend.upload_bgra(OverlayKind::Dashboard, texture))
-        {
-            Ok(()) => state.dashboard_dirty = false,
-            Err(error) => {
-                status.dashboard.state = ResourceState::Error;
-                status.dashboard.last_error_code = Some("dashboard_render".into());
-                tracing::warn!(%error, "SteamVR dashboard render failed");
-                return;
+    let control = state.controls.lock().ok().and_then(|hub| {
+        let view = hub.snapshot();
+        match &action {
+            DashboardAction::ToggleWrist => {
+                Some(ControlAction::SetWristEnabled(!view.items[0].requested))
             }
+            DashboardAction::ToggleHeadset => {
+                Some(ControlAction::SetHeadsetEnabled(!view.items[1].requested))
+            }
+            DashboardAction::ToggleOsc => {
+                Some(ControlAction::SetOscEnabled(!view.items[2].requested))
+            }
+            DashboardAction::ToggleCapture => {
+                Some(ControlAction::SetCaptureRunning(!view.items[3].requested))
+            }
+            _ => None,
         }
+    });
+    if let Some(control) = control {
+        dispatch_control(app, &state.controls, ControlSource::Dashboard, control);
+    } else if let Err(error) = app.emit_to("main", "vr-dashboard-action", action) {
+        tracing::warn!(%error, "SteamVR dashboard action emit failed");
     }
-    status.dashboard.visible = backend.dashboard_visible();
-    status.dashboard.state = if status.dashboard.visible {
-        ResourceState::Visible
-    } else {
-        ResourceState::ReadyHidden
-    };
-    status.dashboard.last_error_code = None;
+}
+
+#[cfg(not(windows))]
+fn update_dashboard(
+    _app: &AppHandle,
+    _state: &mut WorkerState,
+    status: &mut VrOverlayStatus,
+    _backend: &mut OpenVrBackend,
+) {
+    status.dashboard.state = ResourceState::Disabled;
+    status.dashboard.visible = false;
 }
 
 fn question_draft_frame(draft: &str) -> PresentationFrame {
@@ -1147,19 +1201,7 @@ fn update_headset(
         Ok(visible)
     })();
     #[cfg(not(windows))]
-    let presented = render_and_show(
-        backend,
-        OverlayKind::Headset,
-        Layout::Headset {
-            lines_per_language: state.config.headset.lines_per_language,
-        },
-        &frame,
-        state.config.headset.font_size_px,
-        state.config.headset.background_opacity,
-        state.config.headset.opacity,
-        &mut state.headset_hash,
-    )
-    .map(|()| true);
+    let presented: Result<bool, String> = Err("VR Overlay is only supported on Windows".into());
     match presented {
         Ok(visible) => {
             status.headset.state = if !visible {
@@ -1193,7 +1235,6 @@ fn update_wrist(
     use super::surface::SurfaceView;
     if !state.config.enabled || !state.config.wrist.enabled {
         backend.reset(OverlayKind::Wrist);
-        state.wrist_hash = None;
         state.ui.dialogue_revision = None;
         status.wrist.state = ResourceState::Disabled;
         status.wrist.bound_role = None;
@@ -1243,7 +1284,6 @@ fn update_wrist(
             status.wrist.state = ResourceState::DeviceUnavailable;
         } else {
             backend.reset(OverlayKind::Wrist);
-            state.wrist_hash = None;
             wrist_error(status, "wrist_setup", error);
         }
         return;
@@ -1320,7 +1360,6 @@ fn update_wrist(
         Err(error) => {
             state.ui.dialogue_revision = None;
             backend.reset(OverlayKind::Wrist);
-            state.wrist_hash = None;
             wrist_error(status, "wrist_render", error);
         }
     }
@@ -1329,136 +1368,11 @@ fn update_wrist(
 #[cfg(not(windows))]
 fn update_wrist(
     _app: &AppHandle,
-    state: &mut WorkerState,
+    _state: &mut WorkerState,
     status: &mut VrOverlayStatus,
-    backend: &mut OpenVrBackend,
+    _backend: &mut OpenVrBackend,
 ) {
-    #[cfg(windows)]
-    if state.ocr.status.wrist_state == super::ocr_status::OcrWristState::Visible
-        && backend.ocr_wrist_on_same_hand(&state.config.wrist)
-    {
-        backend.hide(OverlayKind::Wrist);
-        status.wrist.state = ResourceState::ReadyHidden;
-        return;
-    }
-    if !state.config.enabled || !state.config.wrist.enabled {
-        backend.reset(OverlayKind::Wrist);
-        state.wrist_hash = None;
-        status.wrist.state = ResourceState::Disabled;
-        status.wrist.bound_role = None;
-        status.wrist.tracked_device_available = false;
-        status.wrist.last_error_code = None;
-        return;
-    }
-    status.wrist.state = ResourceState::Creating;
-    let binding = match backend.ensure_wrist(&state.config.wrist) {
-        Ok(binding) => binding,
-        Err(error) => {
-            backend.reset(OverlayKind::Wrist);
-            state.wrist_hash = None;
-            wrist_error(status, "wrist_setup", error);
-            return;
-        }
-    };
-    status.wrist.bound_role = binding.role;
-    status.wrist.tracked_device_available = binding.available;
-    if !binding.available {
-        status.wrist.state = ResourceState::DeviceUnavailable;
-        status.wrist.last_error_code = None;
-        return;
-    }
-
-    let frame = if state.wrist_sample {
-        Some(PresentationFrame::wrist(vec![
-            WristMessage {
-                text: "你好，欢迎使用 VRCS。".into(),
-                side: MessageSide::Left,
-            },
-            WristMessage {
-                text: "现在对话更容易分辨了。".into(),
-                side: MessageSide::Right,
-            },
-            WristMessage {
-                text: "对方在左侧，己方在右侧。".into(),
-                side: MessageSide::Left,
-            },
-        ]))
-    } else {
-        state.wrist.frame_with_translation_display(
-            Instant::now(),
-            &state.config.wrist,
-            &state.config.translation_display,
-        )
-    };
-    let Some(frame) = frame else {
-        backend.hide(OverlayKind::Wrist);
-        status.wrist.state = ResourceState::ReadyHidden;
-        status.wrist.last_error_code = None;
-        return;
-    };
-
-    match render_and_show(
-        backend,
-        OverlayKind::Wrist,
-        Layout::Wrist,
-        &frame,
-        state.config.wrist.font_size_px,
-        state.config.wrist.background_opacity,
-        state.config.wrist.opacity,
-        &mut state.wrist_hash,
-    ) {
-        Ok(()) => {
-            status.wrist.state = ResourceState::Visible;
-            status.wrist.last_error_code = None;
-        }
-        Err(error) => {
-            backend.reset(OverlayKind::Wrist);
-            state.wrist_hash = None;
-            wrist_error(status, "wrist_render", error);
-        }
-    }
-}
-
-#[allow(clippy::too_many_arguments)]
-#[cfg(not(windows))]
-fn render_and_show(
-    backend: &mut OpenVrBackend,
-    kind: OverlayKind,
-    layout: Layout,
-    frame: &PresentationFrame,
-    font_size_px: u32,
-    background_opacity: f32,
-    configured_opacity: f32,
-    last_hash: &mut Option<u64>,
-) -> Result<(), String> {
-    let content_hash =
-        renderer::content_hash(layout, &frame.content, font_size_px, background_opacity);
-    if *last_hash != Some(content_hash) {
-        let texture = renderer::render(layout, &frame.content, font_size_px, background_opacity)?;
-        let (message_count, line_count) = match &frame.content {
-            PresentationContent::Headset(text) => (1, text.lines().count()),
-            PresentationContent::Wrist(messages) => (
-                messages.len(),
-                messages
-                    .iter()
-                    .map(|message| message.text.lines().count())
-                    .sum(),
-            ),
-        };
-        tracing::debug!(
-            ?kind,
-            content_hash,
-            message_count,
-            line_count,
-            width = texture.width,
-            height = texture.height,
-            "VR Overlay diagnostic: frame rendered"
-        );
-        backend.upload(kind, &texture)?;
-        *last_hash = Some(content_hash);
-    }
-    backend.set_opacity(kind, configured_opacity * frame.opacity)?;
-    backend.show(kind)
+    status.wrist.state = ResourceState::Disabled;
 }
 
 fn resource_error(

@@ -7,7 +7,7 @@ mod platform {
     use vrcs_core::{VrOcrWristConfig, VrOverlayHeadsetConfig, VrOverlayWristConfig};
 
     use super::{menu_config, ControllerBinding, OverlayKind};
-    use crate::vr_overlay::d3d11_texture::{Device, OverlayTexture};
+    use crate::vr_overlay::d3d11_texture::Device;
     use crate::vr_overlay::dashboard::{
         pointer_from_openvr, DashboardPointerEvent, DASHBOARD_HEIGHT, DASHBOARD_WIDTH,
     };
@@ -15,7 +15,7 @@ mod platform {
         center_bounds, crop_projection, pose_within_translation_limit_m, projection_from_openvr,
         EyeCapture, StereoCapture, OCR_MOVEMENT_LIMIT_M,
     };
-    use crate::vr_overlay::renderer::{BgraTexture, Texture};
+    use crate::vr_overlay::renderer::Texture;
     use crate::vr_overlay::transform;
 
     const HEADSET_KEY: &str = "org.vrcs.overlay.headset\0";
@@ -62,8 +62,6 @@ mod platform {
         visible: bool,
         opacity: Option<f32>,
         interactive: Option<bool>,
-        texture: Option<OverlayTexture>,
-        d3d11_disabled: bool,
     }
 
     struct Mirror {
@@ -433,9 +431,10 @@ mod platform {
         }
 
         pub fn ensure_dashboard(&mut self) -> Result<(), String> {
-            if self.dashboard.is_some() {
+            if self.dashboard.is_some() && self.dashboard_thumbnail.is_some() {
                 return Ok(());
             }
+            self.reset(OverlayKind::Dashboard);
             let table = unsafe { &*self.raw_overlay };
             let create = table
                 .CreateDashboardOverlay
@@ -927,101 +926,7 @@ mod platform {
                 self.raw_overlay,
                 handle,
                 shared_handle as *mut std::ffi::c_void,
-                true,
             )
-        }
-
-        pub fn upload(&mut self, kind: OverlayKind, texture: &Texture) -> Result<(), String> {
-            if kind != OverlayKind::DashboardThumbnail
-                && self.texture_device.is_some()
-                && !self.state(kind).d3d11_disabled
-            {
-                return self.upload_bgra(kind, BgraTexture::from_rgba(texture));
-            }
-            let handle = self
-                .handle(kind)
-                .ok_or_else(|| "Overlay is not created".to_string())?;
-            // SteamVR copies dashboard icons into its UI; provide RGBA bytes directly.
-            self.upload_raw(handle, texture)
-        }
-
-        pub fn upload_bgra(
-            &mut self,
-            kind: OverlayKind,
-            texture: BgraTexture,
-        ) -> Result<(), String> {
-            let handle = self
-                .handle(kind)
-                .ok_or_else(|| "Overlay is not created".to_string())?;
-            let height = texture.height;
-            if kind != OverlayKind::DashboardThumbnail
-                && self.texture_device.is_some()
-                && !self.state(kind).d3d11_disabled
-            {
-                if let Err(error) = self.upload_d3d11(kind, handle, &texture) {
-                    tracing::warn!(error, "D3D11 overlay upload failed; using raw uploads");
-                    self.upload_raw(handle, &texture.into_rgba())?;
-                    let state = self.state_mut(kind);
-                    state.texture = None;
-                    state.d3d11_disabled = true;
-                }
-            } else {
-                self.upload_raw(handle, &texture.into_rgba())?;
-            }
-            if kind == OverlayKind::Dashboard && height != self.dashboard_height {
-                self.configure_dashboard_pointer(handle, height)?;
-            }
-            Ok(())
-        }
-
-        fn upload_d3d11(
-            &mut self,
-            kind: OverlayKind,
-            handle: OverlayHandle,
-            source: &BgraTexture,
-        ) -> Result<(), String> {
-            let device = self.texture_device.as_ref().expect("D3D11 device exists");
-            if let Some(texture) = self
-                .state(kind)
-                .texture
-                .as_ref()
-                .filter(|texture| texture.matches_dimensions(source))
-            {
-                device.copy_texture(texture, source)?;
-                tracing::debug!(
-                    ?kind,
-                    shared_handle = texture.shared_handle() as usize,
-                    submitted = false,
-                    "VR Overlay diagnostic: shared texture updated"
-                );
-            } else {
-                let texture = device.create_shared_texture(source)?;
-                submit_shared_texture(self.raw_overlay, handle, texture.shared_handle(), false)?;
-                let shared_handle = texture.shared_handle() as usize;
-                self.state_mut(kind).texture = Some(texture);
-                tracing::info!(
-                    ?kind,
-                    shared_handle,
-                    submitted = true,
-                    width = source.width,
-                    height = source.height,
-                    format = "BGRA8",
-                    "VR Overlay diagnostic: shared texture submitted"
-                );
-            }
-            Ok(())
-        }
-
-        fn upload_raw(&mut self, handle: OverlayHandle, texture: &Texture) -> Result<(), String> {
-            self.overlay
-                .set_raw_data(
-                    handle,
-                    &texture.pixels,
-                    texture.width as usize,
-                    texture.height as usize,
-                    4,
-                )
-                .map_err(|error| format!("Upload overlay texture failed: {error:?}"))
         }
 
         pub fn set_opacity(&mut self, kind: OverlayKind, opacity: f32) -> Result<(), String> {
@@ -1076,6 +981,16 @@ mod platform {
         }
 
         pub fn reset(&mut self, kind: OverlayKind) {
+            if matches!(
+                kind,
+                OverlayKind::Dashboard | OverlayKind::DashboardThumbnail
+            ) {
+                self.hide(OverlayKind::Dashboard);
+                self.hide(OverlayKind::DashboardThumbnail);
+                self.destroy(OverlayKind::Dashboard);
+                self.destroy(OverlayKind::DashboardThumbnail);
+                return;
+            }
             self.hide(kind);
             self.destroy(kind);
         }
@@ -1201,18 +1116,18 @@ mod platform {
         let adapter_index = match dxgi_adapter_index() {
             Ok(index) => index,
             Err(error) => {
-                tracing::warn!(error, "Unable to select SteamVR GPU; using raw uploads");
+                tracing::warn!(error, "Unable to select SteamVR GPU for OCR capture");
                 return None;
             }
         };
 
         match Device::create(adapter_index) {
             Ok(device) => {
-                tracing::info!(adapter_index, "VR Overlay D3D11 device initialized");
+                tracing::info!(adapter_index, "OCR capture D3D11 device initialized");
                 Some(device)
             }
             Err(error) => {
-                tracing::warn!(error, adapter_index, "D3D11 unavailable; using raw uploads");
+                tracing::warn!(error, adapter_index, "D3D11 OCR capture unavailable");
                 None
             }
         }
@@ -1306,7 +1221,6 @@ mod platform {
         raw_overlay: *const openvr_sys::VR_IVROverlay_FnTable,
         handle: OverlayHandle,
         shared_handle: *mut std::ffi::c_void,
-        premultiplied: bool,
     ) -> Result<(), String> {
         let api = unsafe { &*raw_overlay };
         let error = unsafe {
@@ -1314,7 +1228,7 @@ mod platform {
                 .ok_or("OpenVR overlay alpha mode is unavailable")?(
                 handle.0,
                 openvr_sys::VROverlayFlags_IsPremultiplied,
-                premultiplied,
+                true,
             )
         };
         if error != openvr_sys::EVROverlayError_VROverlayError_None {
@@ -1413,14 +1327,12 @@ mod platform {
             api.SetOverlayTexture = Some(submit);
             let handle = openvr::overlay::OverlayHandle(73);
             let texture = std::ptr::without_provenance_mut(42);
-            for premultiplied in [true, false] {
-                ALPHA.set(None);
-                super::submit_shared_texture(&api, handle, texture, premultiplied).unwrap();
-                assert_eq!(ALPHA.get(), Some(premultiplied));
-            }
+            ALPHA.set(None);
+            super::submit_shared_texture(&api, handle, texture).unwrap();
+            assert_eq!(ALPHA.get(), Some(true));
             api.SetOverlayFlag = Some(rejected);
-            assert!(super::submit_shared_texture(&api, handle, texture, true).is_err());
-            assert_eq!(SUBMITTED.get(), 2);
+            assert!(super::submit_shared_texture(&api, handle, texture).is_err());
+            assert_eq!(SUBMITTED.get(), 1);
         }
 
         #[test]
@@ -1583,7 +1495,6 @@ mod platform {
     use vrcs_core::{VrOverlayHeadsetConfig, VrOverlayWristConfig};
 
     use super::{ControllerBinding, OverlayKind};
-    use crate::vr_overlay::renderer::{BgraTexture, Texture};
 
     pub struct OpenVrBackend;
 
@@ -1612,12 +1523,6 @@ mod platform {
             &mut self,
             _: &VrOverlayWristConfig,
         ) -> Result<ControllerBinding, String> {
-            Err("VR Overlay is only supported on Windows".into())
-        }
-        pub fn upload(&mut self, _: OverlayKind, _: &Texture) -> Result<(), String> {
-            Err("VR Overlay is only supported on Windows".into())
-        }
-        pub fn upload_bgra(&mut self, _: OverlayKind, _: BgraTexture) -> Result<(), String> {
             Err("VR Overlay is only supported on Windows".into())
         }
         pub fn set_opacity(&mut self, _: OverlayKind, _: f32) -> Result<(), String> {

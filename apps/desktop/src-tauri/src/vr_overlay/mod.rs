@@ -3,7 +3,6 @@ mod control_protocol;
 #[cfg(windows)]
 mod d3d11_texture;
 mod dashboard;
-mod dashboard_renderer;
 mod dialogue;
 mod interaction;
 #[cfg(windows)]
@@ -20,23 +19,17 @@ mod ocr_input_state;
 mod ocr_plane;
 mod ocr_progress;
 #[cfg(windows)]
-mod ocr_renderer;
-#[cfg(windows)]
 mod ocr_runtime;
 #[cfg(windows)]
 mod ocr_selection;
 mod ocr_status;
 #[cfg(windows)]
 mod ocr_wrist;
-#[cfg(all(windows, debug_assertions, feature = "vr-preview"))]
-mod overlay_ui;
 mod placement;
 #[cfg(all(windows, debug_assertions, feature = "vr-preview"))]
 pub(crate) mod preview;
 #[cfg(windows)]
 pub(crate) mod surface;
-#[cfg(windows)]
-mod text_raster;
 #[cfg(windows)]
 mod ui_runtime;
 #[cfg(windows)]
@@ -51,8 +44,6 @@ pub(crate) mod renderer;
 mod runtime;
 mod transform;
 mod wrist_labels;
-#[cfg(windows)]
-mod wrist_renderer;
 
 use tauri::State;
 

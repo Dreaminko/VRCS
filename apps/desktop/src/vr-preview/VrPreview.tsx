@@ -2,22 +2,22 @@ import { useCallback, useEffect, useRef, useState, type PointerEvent } from "rea
 import { invoke } from "@tauri-apps/api/core";
 import { Hand, Layers3, RotateCcw, StepForward } from "lucide-react";
 import { DropdownField } from "../shared/ui/DropdownField";
-import { decodeFrame, texturePoint, type PreviewFrame } from "./frame";
+import { texturePoint } from "./coordinates";
 import { previewQueue, type PreviewOperation } from "./queue";
 import { VrSurface } from "../vr-surface/VrSurface";
 import { SurfacePointer } from "../vr-surface/SurfacePointer";
-import { SURFACE_SIZE, type SurfaceLayout, type SurfaceState } from "../vr-surface/protocol";
+import { hasPointer, SURFACE_SIZE, type SurfaceLayout, type SurfaceState } from "../vr-surface/protocol";
 import "./preview.css";
 
 interface Info {
   session: number; live: boolean; panels: string[]; panel: number; scene: string;
-  generation: number; revision: number; frame: number; dark: boolean;
+  generation: number; revision: number; dark: boolean;
   fail_save: boolean; tracking: boolean; mode: string; dragging: boolean; busy: boolean;
   pose: number[][] | null; last_action: string;
   surface: SurfaceState | null;
   closed: boolean;
 }
-const panels = ["手腕菜单", "SteamVR Dashboard", "手腕对话", "面前字幕", "OCR 阅读器", "视觉问答", "OCR 选区", "OCR 镜像", "OCR 进度", "问答录音 / 确认"];
+const panels = ["手腕菜单", "SteamVR Dashboard", "手腕对话", "面前字幕", "OCR 阅读器", "视觉问答", "OCR 选区", "空间 OCR 结果", "OCR 进度", "问答录音 / 确认", "Dashboard 缩略图"];
 const scenes = [["normal", "正常"], ["empty", "空内容"], ["long", "长文本"], ["partial", "流式 / 部分结果"], ["expired", "内容过期"], ["busy", "处理中"], ["unavailable", "不可用"], ["error", "错误"], ["timeout", "超时"]];
 
 export function VrPreview() {
@@ -30,8 +30,6 @@ export function VrPreview() {
   const [translation, setTranslation] = useState("操作面板时仍可在游戏中移动。");
   const [stageSize, setStageSize] = useState({ width: 0, height: 0 });
   const stage = useRef<HTMLDivElement>(null);
-  const canvas = useRef<HTMLCanvasElement>(null);
-  const frame = useRef<PreviewFrame | null>(null);
   const shown = useRef<{ width: number; height: number; panel: number; generation: number; revision: number } | null>(null);
   const queue = useRef<ReturnType<typeof previewQueue> | null>(null);
   const pointer = useRef<{ point: [number, number] | null; buttons: number }>({ point: null, buttons: 0 });
@@ -51,43 +49,29 @@ export function VrPreview() {
   useEffect(() => {
     let disposed = false;
     let session = 0;
-    async function display(next: Info) {
+    function display(next: Info) {
       if (disposed) return;
       if (next.surface) {
         const [width, height] = SURFACE_SIZE[next.surface.view.kind];
-        shown.current = { width, height, panel: next.panel, generation: next.generation, revision: next.revision };
-        frame.current = null;
-      } else if (frame.current?.sequence !== next.frame) {
-        const bytes = await invoke<ArrayBuffer>("vr_preview_frame", { session, sequence: next.frame });
-        if (disposed) return;
-        const decoded = decodeFrame(bytes);
-        if (decoded.generation !== next.generation || decoded.revision !== next.revision || decoded.panel !== next.panel) throw new Error("预览帧已失效");
-        const context = canvas.current?.getContext("2d");
-        if (context && canvas.current) {
-          canvas.current.width = decoded.width;
-          canvas.current.height = decoded.height;
-          context.putImageData(new ImageData(new Uint8ClampedArray(decoded.pixels), decoded.width, decoded.height), 0, 0);
-          frame.current = decoded;
-          shown.current = decoded;
-        }
-      }
+        shown.current = { width, height, panel: next.panel, ...next.surface.key };
+      } else shown.current = null;
       document.documentElement.dataset.theme = next.dark ? "dark" : "light";
       setInfo(next);
     }
     const transport = previewQueue(async (operation) => {
       try {
         const next = await invoke<Info>("vr_preview_update", { session, operation });
-        await display(next);
+        display(next);
         if (!disposed) setError("");
       } catch (reason) {
         if (!disposed) { pointer.current.buttons = 0; setError(String(reason)); }
       }
     });
-    void invoke<Info>("vr_preview_open").then(async (next) => {
+    void invoke<Info>("vr_preview_open").then((next) => {
       if (disposed) return;
       session = next.session;
       queue.current = transport;
-      await display(next);
+      display(next);
     }).catch((reason) => { if (!disposed) setError(String(reason)); });
     const timer = window.setInterval(() => { if (queue.current === transport) transport.push({ type: "refresh" }); }, 400);
     const cancel = () => { pointer.current.buttons = 0; transport.push({ type: "cancel" }); };
@@ -102,7 +86,6 @@ export function VrPreview() {
       transport.close();
       if (session) void invoke("vr_preview_update", { session, operation: { type: "cancel" } }).catch(() => {});
       if (queue.current === transport) queue.current = null;
-      frame.current = null;
       shown.current = null;
     };
   }, []);
@@ -139,7 +122,7 @@ export function VrPreview() {
   const ready = Boolean(info);
   return <main className="vr-preview">
     <header className="vr-preview-header">
-      <div className="vr-preview-title"><Layers3 size={22} /><div><h1>VR 功能预览</h1><p>{surface ? "React / WebView" : "Native texture"} · 合成姿态</p></div></div>
+      <div className="vr-preview-title"><Layers3 size={22} /><div><h1>VR 功能预览</h1><p>React / WebView · 合成姿态</p></div></div>
       <span className={`vr-preview-mode ${info?.live ? "live" : ""}`}>{info?.live ? "LIVE · 操作真实配置与服务" : "MOCK · 仅内存模拟"}</span>
     </header>
     <div className="vr-preview-layout">
@@ -152,14 +135,6 @@ export function VrPreview() {
           <button className="secondary-button" disabled={!ready} onClick={() => send({ type: "advance" })}><StepForward size={16} />推进状态</button>
         </div>
         <div ref={stage} className={`vr-preview-stage ${background}`}>
-          <canvas ref={canvas} hidden={Boolean(surface)} aria-label="VR 图层预览，左键点击，右键抓取字幕把手" tabIndex={0}
-            {...pointerHandlers}
-            onContextMenu={(event) => event.preventDefault()} onKeyDown={(event) => { if (event.key === "Escape") cancel(); }}
-            onWheel={(event) => {
-              if (!(pointer.current.buttons & 2)) return;
-              const next = Math.max(0.2, Math.min(3, pose.current.depth + event.deltaY * 0.001));
-              pose.current.depth = next; setDepth(next); input();
-            }} />
           {surface && <div className="vr-preview-react-surface" style={{ width: size[0] * scale, height: size[1] * scale, visibility: info?.closed ? "hidden" : "visible" }} tabIndex={0}
             aria-label="React VR 面板预览，左键点击，右键抓取字幕把手" {...pointerHandlers}
             onContextMenu={(event) => event.preventDefault()} onKeyDown={(event) => { if (event.key === "Escape") cancel(); }}
@@ -170,7 +145,7 @@ export function VrPreview() {
             }}>
             <div className="vr-preview-react-inner" style={{ width: size[0], height: size[1], transform: `scale(${scale})` }}>
               <VrSurface state={surface} onLayout={onSurfaceLayout} />
-              {surface.view.kind !== "headset" && surface.view.kind !== "ocr_progress" && <SurfacePointer point={surface.pointer} />}
+              {hasPointer(surface.view.kind) && <SurfacePointer point={surface.pointer} />}
             </div>
           </div>}
         </div>

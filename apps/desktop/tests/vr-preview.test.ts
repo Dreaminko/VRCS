@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { decodeFrame, texturePoint } from "../src/vr-preview/frame.ts";
+import { texturePoint } from "../src/vr-preview/coordinates.ts";
 import { previewQueue } from "../src/vr-preview/queue.ts";
 
 test("preview queue coalesces motion while preserving Down and Up order", async () => {
@@ -34,29 +34,6 @@ test("cancellation discards pending presses before changing panels", async () =>
   queue.close();
 });
 
-function frame(format = 1, alpha = 1) {
-  const buffer = new ArrayBuffer(44);
-  const view = new DataView(buffer);
-  [0x56524353, 1, 1, 1, format, alpha, 2, 3, 4, 5].forEach((v, i) => view.setUint32(i * 4, v, true));
-  new Uint8Array(buffer, 40).set([20, 40, 60, 128]);
-  return buffer;
-}
-
-test("preview decodes frame identity and straight RGBA without changing pixels", () => {
-  const decoded = decodeFrame(frame());
-  assert.deepEqual([decoded.width, decoded.height, decoded.generation, decoded.revision, decoded.panel, decoded.sequence], [1, 1, 2, 3, 4, 5]);
-  assert.deepEqual([...decoded.pixels], [20, 40, 60, 128]);
-});
-
-test("preview converts premultiplied BGRA for Canvas and rejects malformed frames", () => {
-  assert.deepEqual([...decodeFrame(frame(2, 2)).pixels], [120, 80, 40, 128]);
-  assert.throws(() => decodeFrame(frame().slice(0, 42)));
-  assert.throws(() => decodeFrame(frame(3)));
-  const broken = frame();
-  new DataView(broken).setUint32(8, 0xffffffff, true);
-  assert.throws(() => decodeFrame(broken));
-});
-
 test("equal-scale preview maps texture coordinates and rejects letterboxing", () => {
   const box = { width: 1000, height: 500 };
   const texture = { width: 768, height: 768 };
@@ -66,4 +43,12 @@ test("equal-scale preview maps texture coordinates and rejects letterboxing", ()
   assert.equal(texturePoint(750, 250, box, texture), null);
   assert.equal(texturePoint(500, 250, { width: 0, height: 0 }, texture), null);
   assert.equal(texturePoint(Number.NaN, 1, box, texture), null);
+});
+
+test("React preview maps wide menu and portrait subtitle surfaces at equal scale", () => {
+  const box = { width: 800, height: 600 };
+  assert.deepEqual(texturePoint(400, 300, box, { width: 1024, height: 256 }), [0.5, 0.5]);
+  assert.equal(texturePoint(400, 199, box, { width: 1024, height: 256 }), null);
+  assert.deepEqual(texturePoint(400, 300, box, { width: 1024, height: 1360 }), [0.5, 0.5]);
+  assert.equal(texturePoint(100, 300, box, { width: 1024, height: 1360 }), null);
 });

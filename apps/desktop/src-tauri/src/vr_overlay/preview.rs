@@ -1,25 +1,25 @@
-//! Development-only adapter for the production React surfaces and native textures.
+//! Development-only adapter for the production React surfaces.
 use super::control_protocol::{ControlAction, ControlSnapshot, ControlSource};
 use super::dashboard::{
     DashboardAction, DashboardChoice, DashboardOption, DashboardSaveState, DashboardState,
     DashboardViewModel, DisplayKind, TargetGroup,
 };
 use super::interaction::{Hit, Key, Kind, Router, Sample, Surface};
+use super::ocr_plane::{OcrScene, OcrSceneBlock};
 use super::ocr_wrist::{self, Action, LaserEvent, View, ViewMode};
 use super::placement::{Mode, Placement, Pose, Request};
 use super::presentation::{MessageSide, WristMessage};
-use super::renderer::Texture;
 use super::surface::{
     reader_action, SurfaceId, SurfaceKey, SurfaceLayout, SurfaceState, SurfaceView,
 };
-use super::{dashboard_renderer, dialogue, transform};
+use super::{dialogue, transform};
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tauri::{Emitter, Manager as _, State, WebviewWindow};
 use vrcs_core::ocr::{BlockTranslation, TextBlock, TranslatedBlock};
 
-const PANELS: [&str; 10] = [
+const PANELS: [&str; 11] = [
     "Wrist menu",
     "SteamVR Dashboard",
     "Dialogue",
@@ -27,9 +27,10 @@ const PANELS: [&str; 10] = [
     "OCR reader",
     "Vision answer",
     "OCR selection",
-    "OCR mirror",
+    "Spatial OCR result",
     "OCR progress",
     "Vision recording / confirmation",
+    "Dashboard thumbnail",
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -80,12 +81,11 @@ pub struct Input {
 pub struct Info {
     session: u32,
     live: bool,
-    panels: [&'static str; 10],
+    panels: [&'static str; 11],
     panel: u32,
     scene: Scene,
     generation: u32,
     revision: u32,
-    frame: u32,
     dark: bool,
     fail_save: bool,
     tracking: bool,
@@ -113,15 +113,12 @@ struct Preview {
     scene: Scene,
     generation: u32,
     revision: u32,
-    sequence: u32,
     dirty: bool,
-    texture: Option<Texture>,
     surface: Option<SurfaceState>,
     layout: Option<SurfaceLayout>,
     controls: ControlSnapshot,
     view: DashboardViewModel,
     dashboard: DashboardState,
-    cache: dashboard_renderer::RasterCache,
     router: Router,
     pointer: ocr_wrist::Pointer,
     hover: Option<u8>,
@@ -170,15 +167,12 @@ impl Preview {
             scene: Scene::Normal,
             generation: 1,
             revision: 1,
-            sequence: 0,
             dirty: true,
-            texture: None,
             surface: None,
             layout: None,
             controls,
             view,
             dashboard,
-            cache: Default::default(),
             router: Default::default(),
             pointer: Default::default(),
             hover: None,
@@ -227,7 +221,6 @@ impl Preview {
             scene: self.scene,
             generation: self.generation,
             revision: self.revision,
-            frame: self.sequence,
             dark: self.controls.dark,
             fail_save: self.fail_save,
             tracking: self.tracking,
@@ -244,8 +237,7 @@ impl Preview {
     fn cancel(&mut self) {
         self.router.cancel();
         self.pointer.event(LaserEvent::Leave, None);
-        self.dashboard.set_interactive(false);
-        self.dashboard.set_interactive(true);
+        self.dashboard.clear_pointer();
         self.placement
             .lock()
             .unwrap_or_else(|e| e.into_inner())
@@ -341,11 +333,9 @@ impl Preview {
                 }
                 let session = self.session;
                 let generation = self.generation + 1;
-                let sequence = self.sequence;
                 *self = Self::new(false, Arc::new(Mutex::new(Placement::default())));
                 self.session = session;
                 self.generation = generation;
-                self.sequence = sequence;
             }
             Operation::Advance => {
                 self.advance += 1;
@@ -442,10 +432,14 @@ impl Preview {
     fn surface_id(&self) -> Option<SurfaceId> {
         match self.panel {
             0 => Some(SurfaceId::Menu),
+            1 => Some(SurfaceId::Dashboard),
             2 => Some(SurfaceId::Dialogue),
             3 => Some(SurfaceId::Headset),
             4 | 5 | 9 => Some(SurfaceId::Reader),
+            6 => Some(SurfaceId::OcrSelection),
+            7 => Some(SurfaceId::OcrResult),
             8 => Some(SurfaceId::OcrProgress),
+            10 => Some(SurfaceId::DashboardThumbnail),
             _ => None,
         }
     }
@@ -485,21 +479,10 @@ impl Preview {
             self.cancel();
             return Ok(Vec::new());
         }
-        let point = input.point.filter(|[u, v]| {
-            self.surface_id().is_some()
-                || self.texture.as_ref().is_some_and(|texture| {
-                    let offset = ((*v * texture.height as f32) as usize * texture.width as usize
-                        + (*u * texture.width as f32) as usize)
-                        * 4;
-                    texture
-                        .pixels
-                        .get(offset + 3)
-                        .is_some_and(|alpha| *alpha > 0)
-                })
-        });
+        let point = input.point;
         let cursor = point.filter(|_| {
             !self.closed
-                && !matches!(self.panel, 3 | 8)
+                && matches!(self.panel, 0 | 1 | 2 | 4 | 5 | 9)
                 && self
                     .layout
                     .as_ref()
@@ -508,27 +491,6 @@ impl Preview {
         self.dirty |= self.cursor != cursor;
         self.cursor = cursor;
         let mut effects = Vec::new();
-        if self.panel == 1 {
-            let (x, y) = point
-                .zip(self.texture.as_ref())
-                .map(|(p, texture)| (p[0] * texture.width as f32, p[1] * texture.height as f32))
-                .unwrap_or((-1., -1.));
-            let was_pressed = self.pressed.is_some();
-            self.dirty |= self.dashboard.pointer_move(x, y);
-            if input.buttons & 1 != 0 && !was_pressed {
-                self.dashboard.pointer_down(x, y);
-                self.pressed = Some(0);
-                self.dirty = true;
-            }
-            if input.buttons & 1 == 0 && was_pressed {
-                self.pressed = None;
-                if let Some(action) = self.dashboard.pointer_up(x, y) {
-                    effects.extend(self.dashboard_action(action));
-                }
-                self.layout_changed();
-            }
-            return Ok(effects);
-        }
         let key = self.key();
         let hit = point.and_then(|point| {
             if self.closed && matches!(self.panel, 4 | 5 | 9) {
@@ -586,6 +548,30 @@ impl Preview {
                             index,
                             !self.controls.items[index].requested,
                         )));
+                    }
+                    _ => self.pressed = None,
+                },
+                1 => match event.kind {
+                    Kind::Down => self.pressed = Some(event.hit.region),
+                    Kind::Up => {
+                        self.pressed = None;
+                        let command = self
+                            .layout
+                            .as_ref()
+                            .filter(|layout| layout.key == self.surface_key())
+                            .and_then(|layout| {
+                                layout
+                                    .regions
+                                    .iter()
+                                    .find(|region| region.id == event.hit.region)
+                            })
+                            .and_then(|region| region.dashboard.clone());
+                        if let Some(command) = command {
+                            if let Some(action) = self.dashboard.activate(command, &self.view) {
+                                effects.extend(self.dashboard_action(action));
+                            }
+                            self.layout_changed();
+                        }
                     }
                     _ => self.pressed = None,
                 },
@@ -802,6 +788,11 @@ impl Preview {
             0 => SurfaceView::Menu {
                 controls: self.controls.clone(),
             },
+            1 => SurfaceView::Dashboard {
+                dark: self.controls.dark,
+                dashboard: self.view.clone(),
+                ui: self.dashboard.ui.clone(),
+            },
             2 => {
                 let p = self.placement.lock().unwrap_or_else(|e| e.into_inner());
                 let messages = if matches!(self.scene, Scene::Empty | Scene::Expired) {
@@ -874,6 +865,13 @@ impl Preview {
                     opacity: 0.94,
                 }
             }
+            6 => SurfaceView::OcrSelection {
+                dark: self.controls.dark,
+            },
+            7 => SurfaceView::OcrResult {
+                dark: self.controls.dark,
+                scene: sample_scene(self.scene),
+            },
             8 => {
                 use super::ocr_progress::{ProgressView, Stage};
                 let step = self.advance % 4;
@@ -920,6 +918,9 @@ impl Preview {
                     }),
                 }
             }
+            10 => SurfaceView::DashboardThumbnail {
+                dark: self.controls.dark,
+            },
             _ => return None,
         })
     }
@@ -933,75 +934,21 @@ impl Preview {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .revision;
-        if let Some(view) = self.surface_view() {
-            if self
-                .surface
-                .as_ref()
-                .is_some_and(|state| state.key == self.surface_key() && state.view != view)
-            {
-                self.layout_changed();
-            }
-            self.surface = Some(SurfaceState {
-                key: self.surface_key(),
-                view,
-                hovered: self.hover,
-                pressed: self.pressed,
-                pointer: self.cursor,
-            });
-            self.texture = None;
-            self.sequence += 1;
-            self.dirty = false;
-            self.placement_revision = placement_revision;
-            return Ok(());
+        let view = self.surface_view().ok_or("Unknown preview panel")?;
+        if self
+            .surface
+            .as_ref()
+            .is_some_and(|state| state.key == self.surface_key() && state.view != view)
+        {
+            self.layout_changed();
         }
-        self.surface = None;
-        self.layout = None;
-        let texture = match self.panel {
-            1 => dashboard_renderer::render(&self.view, &self.dashboard, &mut self.cache)?
-                .into_rgba(),
-            6 => {
-                super::ocr_selection::Selection::from_corners(
-                    [[-0.3, 0.2, -1.], [0.3, -0.2, -1.]],
-                    transform::matrix(0., 0., 0., [0.; 3]),
-                    0,
-                    0,
-                )
-                .expect("valid synthetic selection")
-                .preview()
-                .texture
-            }
-            7 => {
-                let eye = super::ocr_capture::EyeCapture {
-                    image: mirror_image()?,
-                    projection: [-1., 1., -1., 1.],
-                    eye_to_head: transform::matrix(0., 0., 0., [0.; 3]),
-                    head_pose: head_pose(),
-                };
-                let (mut overlay, _) =
-                    super::ocr_renderer::render_eye(&eye, &sample_blocks(false), &[], 0.65, false)?;
-                unpremultiply(&mut overlay.pixels);
-                for (base, over) in eye
-                    .image
-                    .pixels
-                    .as_chunks::<4>()
-                    .0
-                    .iter()
-                    .zip(overlay.pixels.as_chunks_mut::<4>().0.iter_mut())
-                {
-                    let alpha = u32::from(over[3]);
-                    for i in 0..3 {
-                        over[i] = ((u32::from(over[i]) * alpha
-                            + u32::from(base[i]) * (255 - alpha))
-                            / 255) as u8;
-                    }
-                    over[3] = 255;
-                }
-                overlay
-            }
-            _ => return Err("Unknown preview panel".into()),
-        };
-        self.texture = Some(texture);
-        self.sequence += 1;
+        self.surface = Some(SurfaceState {
+            key: self.surface_key(),
+            view,
+            hovered: self.hover,
+            pressed: self.pressed,
+            pointer: self.cursor,
+        });
         self.dirty = false;
         self.placement_revision = placement_revision;
         Ok(())
@@ -1026,17 +973,6 @@ fn synthetic_controller(input: Input) -> Pose {
             -input.depth.clamp(0.2, 3.),
         ],
     )
-}
-fn unpremultiply(pixels: &mut [u8]) {
-    for p in pixels.as_chunks_mut::<4>().0 {
-        let a = u32::from(p[3]);
-        for channel in &mut p[..3] {
-            *channel = (u32::from(*channel) * 255)
-                .checked_div(a)
-                .unwrap_or(0)
-                .min(255) as u8;
-        }
-    }
 }
 fn sample_answer(long: bool) -> String {
     let answer = "## VR overlay\n\nThe panel keeps recent **transcriptions** and translations visible.\n\n- Trigger: activate a button\n- Grip: move the dialogue panel\n\n| Mode | Anchor |\n| --- | --- |\n| Wrist | Controller |\n| World | Tracking space |\n\n```rust\nlet overlay = \"VRCS\";\n```\n\n> Game movement continues while you use the panel.\n\n";
@@ -1078,23 +1014,30 @@ fn sample_blocks(long: bool) -> Vec<TranslatedBlock> {
         })
         .collect()
 }
-fn mirror_image() -> Result<Texture, String> {
-    let mut canvas = super::overlay_ui::Canvas::new(768, 512);
-    canvas.round([0, 0, 768, 512], 0, [38, 44, 54, 255]);
-    canvas.round([40, 60, 728, 420], 20, [55, 64, 78, 255]);
-    canvas.text(
-        "Welcome to VRCS",
-        [80, 100, 680, 190],
-        36,
-        [245, 248, 255, 255],
-    )?;
-    canvas.text(
-        "Recent dialogue and translated text",
-        [80, 260, 680, 350],
-        28,
-        [190, 215, 235, 255],
-    )?;
-    Ok(canvas.texture)
+fn sample_scene(scene: Scene) -> OcrScene {
+    let blocks = if matches!(scene, Scene::Normal | Scene::Long | Scene::Partial) {
+        sample_blocks(scene == Scene::Long)
+            .into_iter()
+            .take(if scene == Scene::Partial { 1 } else { 2 })
+            .map(|block| {
+                let quad = block.source.polygon.map(|[x, y]| [x / 768., y / 512.]);
+                OcrSceneBlock {
+                    id: block.source.id,
+                    text: block.translations[0].text.clone().unwrap_or_default(),
+                    quad,
+                    masks: vec![quad],
+                }
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
+    OcrScene {
+        blocks,
+        excluded: Vec::new(),
+        opacity: 0.94,
+        aspect: 1.5,
+    }
 }
 
 fn apply_dashboard(view: &mut DashboardViewModel, action: DashboardAction) {
@@ -1255,6 +1198,38 @@ pub fn setup(app: &tauri::AppHandle, live: bool) -> Result<(), Box<dyn std::erro
                 preview.surface_view().unwrap(),
             ));
         }
+        let dark = preview.controls.dark;
+        views.extend([
+            (SurfaceId::Dashboard, SurfaceView::Dashboard {
+                dark,
+                dashboard: preview.view.clone(),
+                ui: super::dashboard::DashboardUi::default(),
+            }),
+            (SurfaceId::DashboardThumbnail, SurfaceView::DashboardThumbnail { dark }),
+            (SurfaceId::OcrSelection, SurfaceView::OcrSelection { dark }),
+            (SurfaceId::OcrResult, SurfaceView::OcrResult {
+                dark,
+                scene: super::ocr_plane::OcrScene {
+                    aspect: 1.6,
+                    opacity: 0.94,
+                    blocks: vec![
+                        super::ocr_plane::OcrSceneBlock {
+                            id: 0,
+                            text: "Open settings · 打开设置".into(),
+                            quad: [[0.12, 0.18], [0.54, 0.20], [0.52, 0.34], [0.11, 0.32]],
+                            masks: vec![[[0.12, 0.18], [0.54, 0.20], [0.52, 0.34], [0.11, 0.32]]],
+                        },
+                        super::ocr_plane::OcrSceneBlock {
+                            id: 1,
+                            text: "A longer translation can expand beside the original label without covering nearby text.".into(),
+                            quad: [[0.58, 0.58], [0.71, 0.58], [0.71, 0.63], [0.58, 0.63]],
+                            masks: vec![[[0.58, 0.58], [0.71, 0.58], [0.71, 0.63], [0.58, 0.63]]],
+                        },
+                    ],
+                    excluded: vec![[[0.78, 0.52], [0.90, 0.52], [0.90, 0.74], [0.78, 0.74]]],
+                },
+            }),
+        ]);
         super::surface::smoke(app.clone(), views);
         return Ok(());
     }
@@ -1393,81 +1368,9 @@ pub fn vr_preview_update(
     Ok(info)
 }
 
-#[tauri::command]
-pub fn vr_preview_frame(
-    window: WebviewWindow,
-    state: State<'_, PreviewState>,
-    session: u32,
-    sequence: u32,
-) -> Result<tauri::ipc::Response, String> {
-    require_window(&window)?;
-    let p = state.0.lock().map_err(|e| e.to_string())?;
-    if p.session != session || p.sequence != sequence {
-        return Err("Stale preview frame".into());
-    }
-    let texture = p.texture.as_ref().ok_or("Preview frame unavailable")?;
-    Ok(tauri::ipc::Response::new(encode_frame(
-        texture.clone(),
-        p.generation,
-        p.revision,
-        p.panel,
-        p.sequence,
-    )))
-}
-
-fn encode_frame(
-    texture: Texture,
-    generation: u32,
-    revision: u32,
-    panel: u32,
-    sequence: u32,
-) -> Vec<u8> {
-    let mut frame = Vec::with_capacity(40 + texture.pixels.len());
-    for value in [
-        0x56524353,
-        1,
-        texture.width,
-        texture.height,
-        1,
-        1,
-        generation,
-        revision,
-        panel,
-        sequence,
-    ] {
-        frame.extend_from_slice(&value.to_le_bytes());
-    }
-    frame.extend_from_slice(&texture.pixels);
-    frame
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn binary_frame_has_explicit_pixel_contract_and_layout_identity() {
-        let data = encode_frame(
-            Texture {
-                width: 1,
-                height: 1,
-                pixels: vec![10, 20, 30, 128],
-            },
-            2,
-            3,
-            4,
-            5,
-        );
-        assert_eq!(data.len(), 44);
-        let fields: Vec<_> = data[..40]
-            .as_chunks::<4>()
-            .0
-            .iter()
-            .map(|v| u32::from_le_bytes(*v))
-            .collect();
-        assert_eq!(fields, [0x56524353, 1, 1, 1, 1, 1, 2, 3, 4, 5]);
-        assert_eq!(data[40..], [10, 20, 30, 128]);
-    }
 
     fn mock() -> Preview {
         Preview::new(false, Arc::new(Mutex::new(Placement::default())))
@@ -1498,18 +1401,29 @@ mod tests {
                 id: 0,
                 bounds: [0.1, 0.2, 0.26, 0.84],
                 circle: false,
+                dashboard: None,
+            }],
+            1 => vec![Region {
+                id: 17,
+                bounds: [0.2, 0.3, 0.4, 0.5],
+                circle: false,
+                dashboard: Some(super::super::dashboard::DashboardCommand::Action(
+                    DashboardAction::ToggleOcr,
+                )),
             }],
             2 => vec![Region {
                 id: 0,
                 bounds: [0.1, 0.02, 0.6, 0.1],
                 circle: false,
+                dashboard: None,
             }],
             4 | 5 | 9 => vec![Region {
                 id: 7,
                 bounds: [0.85, 0.88, 0.92, 0.95],
                 circle: true,
+                dashboard: None,
             }],
-            3 | 8 => vec![],
+            3 | 6 | 7 | 8 | 10 => vec![],
             _ => return,
         };
         p.update(Operation::Layout {
@@ -1517,6 +1431,7 @@ mod tests {
                 key: p.surface_key(),
                 regions,
                 page_count: 1,
+                unplaced: Vec::new(),
             },
         })
         .unwrap();
@@ -1531,7 +1446,6 @@ mod tests {
             let view = serde_json::to_value(surface.view).unwrap();
             assert_eq!(view["kind"], kind);
             assert!(!view[content].is_null());
-            assert!(p.texture.is_none());
             let pointer = input(&p, [0.5, 0.5], 1);
             assert!(p.input(pointer).unwrap().is_empty());
             p.render().unwrap();
@@ -1554,32 +1468,22 @@ mod tests {
     }
 
     #[test]
-    fn every_panel_renders_and_reset_invalidates_old_input_and_frame() {
+    fn every_panel_uses_react_and_reset_invalidates_old_input() {
         let mut p = mock();
-        for panel in 0..10 {
+        for panel in 0..PANELS.len() as u32 {
             apply(&mut p, Operation::Select { panel });
-            if p.surface_id().is_some() {
-                assert!(p.info().surface.is_some());
-                assert!(p.texture.is_none());
-            } else {
-                let texture = p.texture.as_ref().unwrap();
-                assert_eq!(
-                    texture.pixels.len(),
-                    (texture.width * texture.height * 4) as usize
-                );
-            }
+            assert!(p.surface_id().is_some());
+            assert!(p.info().surface.is_some());
         }
         let old = input(&p, [0.5, 0.5], 0);
-        let sequence = p.sequence;
         apply(&mut p, Operation::Reset);
-        assert!(p.sequence > sequence);
         assert!(p.input(old).is_err());
     }
 
     #[test]
     fn react_pointer_tracks_panel_background_and_clears_on_leave_or_tracking_loss() {
         let mut p = mock();
-        for panel in [0, 2, 4, 5, 9] {
+        for panel in [0, 1, 2, 4, 5, 9] {
             apply(&mut p, Operation::Select { panel });
             let key = p.surface_key();
             let idle = input(&p, [0.5, 0.5], 0);
@@ -1588,11 +1492,9 @@ mod tests {
             assert_eq!(surface.pointer, Some([0.5, 0.5]));
             assert_eq!(surface.hovered, None);
             assert_eq!(surface.key, key);
-            let sequence = p.sequence;
             let moved = input(&p, [0.6, 0.6], 0);
             apply(&mut p, Operation::Pointer { input: moved });
             assert_eq!(p.info().surface.unwrap().pointer, Some([0.6, 0.6]));
-            assert!(p.sequence > sequence);
             let mut leave = moved;
             leave.point = None;
             apply(&mut p, Operation::Pointer { input: leave });
@@ -1627,23 +1529,32 @@ mod tests {
     }
 
     #[test]
-    fn dashboard_input_matches_the_displayed_texture_height() {
-        for footer in [false, true] {
-            let mut p = mock();
-            p.panel = 1;
-            if footer {
-                p.view.save_state = DashboardSaveState::Saving;
-            }
-            p.render().unwrap();
-            let texture = p.texture.as_ref().unwrap();
-            assert!(texture.height < 900);
-            let point = [342. / texture.width as f32, 790. / texture.height as f32];
-            p.input(input(&p, point, 1)).unwrap();
-            let effects = p.input(input(&p, point, 0)).unwrap();
-            assert!(effects
-                .iter()
-                .any(|effect| matches!(effect, Effect::Dashboard(DashboardAction::ToggleOcr))));
-        }
+    fn dashboard_activates_current_dom_command_only_after_a_matching_release() {
+        let mut p = mock();
+        apply(&mut p, Operation::Select { panel: 1 });
+        let point = [0.3, 0.4];
+        assert!(p.input(input(&p, point, 1)).unwrap().is_empty());
+        assert!(p.input(input(&p, point, 0)).unwrap().is_empty());
+        assert!(p.input(input(&p, point, 1)).unwrap().is_empty());
+        assert_eq!(p.pressed, Some(17));
+        let effects = p.input(input(&p, point, 0)).unwrap();
+        assert!(effects
+            .iter()
+            .any(|effect| matches!(effect, Effect::Dashboard(DashboardAction::ToggleOcr))));
+        assert!(p.layout.is_none());
+
+        p.render().unwrap();
+        measure(&mut p);
+        assert!(p.input(input(&p, point, 0)).unwrap().is_empty());
+        assert!(p.input(input(&p, point, 1)).unwrap().is_empty());
+        let old_release = input(&p, point, 0);
+        let old_layout = p.layout.take().unwrap();
+        p.layout_changed();
+        p.render().unwrap();
+        p.update(Operation::Layout { layout: old_layout }).unwrap();
+        assert!(p.layout.is_none());
+        assert!(p.input(old_release).is_err());
+        assert!(p.pressed.is_none());
     }
 
     #[test]
@@ -1655,7 +1566,6 @@ mod tests {
         };
         p.refresh();
         p.render().unwrap();
-        let sequence = p.sequence;
         let view = serde_json::to_value(p.info().surface).unwrap();
         p.placement
             .lock()
@@ -1664,7 +1574,6 @@ mod tests {
         p.refresh();
         p.render().unwrap();
         assert!(!p.info().busy);
-        assert!(p.sequence > sequence);
         assert_ne!(serde_json::to_value(p.info().surface).unwrap(), view);
     }
 

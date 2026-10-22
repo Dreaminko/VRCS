@@ -481,7 +481,7 @@
     },
     "endpoint": "127.0.0.1:9000"
   },
-  "status": "Native renderer · synthetic content",
+  "status": "Ready",
   "save_state": "idle",
   "error": null
 }

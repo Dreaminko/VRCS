@@ -48,8 +48,6 @@ const COMMANDS: &[&str] = &[
     "vr_preview_open",
     #[cfg(all(windows, debug_assertions, feature = "vr-preview"))]
     "vr_preview_update",
-    #[cfg(all(windows, debug_assertions, feature = "vr-preview"))]
-    "vr_preview_frame",
 ];
 
 fn main() {

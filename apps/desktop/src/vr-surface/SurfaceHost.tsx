@@ -3,7 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { VrSurface } from "./VrSurface";
 import { SurfacePointer } from "./SurfacePointer";
-import { markerBits, newerKey, sameKey, type Surface, type SurfaceKey, type SurfaceLayout, type SurfacePointerState, type SurfaceState } from "./protocol";
+import { hasPointer, markerBits, newerKey, sameKey, type Surface, type SurfaceKey, type SurfaceLayout, type SurfacePointerState, type SurfaceState } from "./protocol";
 
 function LivePointer({ state }: { state: SurfaceState | null }) {
   const [pointer, setPointer] = useState<SurfacePointerState | null>(null);
@@ -53,7 +53,7 @@ export function SurfaceHost({ surface }: { surface: Surface }) {
 
   return <main className="vr-surface-host">
     {state && <VrSurface state={state} onLayout={onLayout} />}
-    {surface !== "headset" && surface !== "ocr_progress" && <LivePointer state={state} />}
+    {hasPointer(surface) && <LivePointer state={state} />}
     {state && sameKey(measured, state.key) && <div className="vr-surface-marker" aria-hidden="true">
       {markerBits(state.key).map((bit, index) => <i key={index} style={{ background: bit ? "#ffffff" : "#000000" }} />)}
     </div>}

@@ -10,6 +10,8 @@ use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindow, Webvi
 
 use super::backend::{OpenVrBackend, OverlayKind};
 use super::control_protocol::ControlSnapshot;
+use super::dashboard::{DashboardCommand, DashboardUi, DashboardViewModel};
+use super::ocr_plane::OcrScene;
 use super::ocr_progress::ProgressView;
 use super::ocr_wrist::{Action, Button, View};
 use super::placement::Mode;
@@ -24,6 +26,10 @@ pub enum SurfaceId {
     Reader,
     Headset,
     OcrProgress,
+    Dashboard,
+    DashboardThumbnail,
+    OcrSelection,
+    OcrResult,
 }
 
 impl SurfaceId {
@@ -37,6 +43,10 @@ impl SurfaceId {
             Self::Reader => "reader",
             Self::Headset => "headset",
             Self::OcrProgress => "ocr_progress",
+            Self::Dashboard => "dashboard",
+            Self::DashboardThumbnail => "dashboard_thumbnail",
+            Self::OcrSelection => "ocr_selection",
+            Self::OcrResult => "ocr_result",
         }
     }
     fn label(self) -> String {
@@ -50,6 +60,9 @@ impl SurfaceId {
             // A centered card can grow to four languages with four lines each.
             Self::Headset => (1024, 1360),
             Self::OcrProgress => (768, 224),
+            Self::Dashboard => (1440, 900),
+            Self::DashboardThumbnail | Self::OcrSelection => (256, 256),
+            Self::OcrResult => (2048, 2048),
         }
     }
     fn region_count(self) -> usize {
@@ -57,7 +70,12 @@ impl SurfaceId {
             Self::Menu => 4,
             Self::Dialogue => 3,
             Self::Reader => 8,
-            Self::Headset | Self::OcrProgress => 0,
+            Self::Dashboard => 192,
+            Self::Headset
+            | Self::OcrProgress
+            | Self::DashboardThumbnail
+            | Self::OcrSelection
+            | Self::OcrResult => 0,
         }
     }
 }
@@ -101,6 +119,21 @@ pub enum SurfaceView {
         dark: bool,
         progress: Option<ProgressView>,
     },
+    Dashboard {
+        dark: bool,
+        dashboard: DashboardViewModel,
+        ui: DashboardUi,
+    },
+    DashboardThumbnail {
+        dark: bool,
+    },
+    OcrSelection {
+        dark: bool,
+    },
+    OcrResult {
+        dark: bool,
+        scene: OcrScene,
+    },
 }
 
 #[derive(Clone, Serialize)]
@@ -124,6 +157,8 @@ pub struct Region {
     pub bounds: [f32; 4],
     #[serde(default)]
     pub circle: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dashboard: Option<DashboardCommand>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -131,6 +166,8 @@ pub struct SurfaceLayout {
     pub key: SurfaceKey,
     pub regions: Vec<Region>,
     pub page_count: usize,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub unplaced: Vec<usize>,
 }
 
 impl SurfaceLayout {
@@ -141,6 +178,16 @@ impl SurfaceLayout {
         {
             return Err("Invalid surface layout size".into());
         }
+        if self.unplaced.len() > 256
+            || surface != SurfaceId::OcrResult && !self.unplaced.is_empty()
+            || self
+                .unplaced
+                .iter()
+                .enumerate()
+                .any(|(i, id)| self.unplaced[..i].contains(id))
+        {
+            return Err("Invalid OCR overflow layout".into());
+        }
         for (i, region) in self.regions.iter().enumerate() {
             let [l, t, r, b] = region.bounds;
             if usize::from(region.id) >= surface.region_count()
@@ -149,6 +196,7 @@ impl SurfaceLayout {
                     .all(|v| v.is_finite() && (0.0..=1.0).contains(v))
                 || l >= r
                 || t >= b
+                || (surface == SurfaceId::Dashboard) != region.dashboard.is_some()
             {
                 return Err("Invalid surface hit region".into());
             }
@@ -344,6 +392,19 @@ impl Entry {
         {
             return Ok(false);
         }
+        if let Some(SurfaceState {
+            view: SurfaceView::OcrResult { scene, .. },
+            ..
+        }) = &self.state
+        {
+            if layout
+                .unplaced
+                .iter()
+                .any(|id| !scene.blocks.iter().any(|block| block.id == *id))
+            {
+                return Err("Unknown OCR overflow block".into());
+            }
+        }
         self.layout = Some(layout);
         Ok(true)
     }
@@ -373,7 +434,7 @@ impl Entry {
 }
 
 #[derive(Default)]
-pub struct SurfaceHub(Mutex<[Entry; 5]>);
+pub struct SurfaceHub(Mutex<[Entry; 9]>);
 
 impl SurfaceHub {
     pub fn generation(&self, surface: SurfaceId) -> u32 {
@@ -410,7 +471,7 @@ impl SurfaceHub {
         Ok(())
     }
 
-    fn publish(
+    pub(super) fn publish(
         &self,
         app: &AppHandle,
         surface: SurfaceId,
@@ -593,6 +654,15 @@ pub fn smoke(app: AppHandle, views: Vec<(SurfaceId, SurfaceView)>) {
                         } => {
                             progress.status = "Updated OCR progress".into();
                             progress.translation_fraction = Some((2, 3));
+                        }
+                        SurfaceView::OcrResult { scene, .. } => {
+                            for block in &mut scene.blocks {
+                                block.text = "Updated OCR translation / 已更新".into();
+                            }
+                        }
+                        SurfaceView::DashboardThumbnail { dark }
+                        | SurfaceView::OcrSelection { dark } => {
+                            *dark = !*dark;
                         }
                         _ => return Err("Smoke surface has no content to update".into()),
                     }
@@ -951,8 +1021,10 @@ mod tests {
                 id: 0,
                 bounds: [0., 0., 0.2, 0.8],
                 circle: true,
+                dashboard: None,
             }],
             page_count: 1,
+            unplaced: vec![],
         }
     }
     #[test]
@@ -1064,12 +1136,19 @@ mod tests {
             generation: 1,
             revision: 1,
         };
-        for name in ["headset", "ocr_progress"] {
+        for name in [
+            "headset",
+            "ocr_progress",
+            "dashboard_thumbnail",
+            "ocr_selection",
+            "ocr_result",
+        ] {
             let surface: SurfaceId = serde_json::from_value(serde_json::json!(name)).unwrap();
             let mut value = SurfaceLayout {
                 key,
                 regions: vec![],
                 page_count: 1,
+                unplaced: vec![],
             };
             assert!(value.validate(surface).is_ok());
             assert_eq!(value.hit([0.5, 0.5]), None);
@@ -1079,6 +1158,70 @@ mod tests {
             value.regions = layout(key).regions;
             assert!(value.validate(surface).is_err());
         }
+    }
+
+    #[test]
+    fn dashboard_regions_keep_their_dom_ids_and_require_dashboard_commands() {
+        let mut value = layout(SurfaceKey {
+            generation: 1,
+            revision: 1,
+        });
+        value.regions[0].id = 42;
+        value.regions[0].circle = false;
+        assert!(value.validate(SurfaceId::Dashboard).is_err());
+        value.regions[0].dashboard = Some(DashboardCommand::Page(
+            super::super::dashboard::DashboardPage::Language,
+        ));
+        assert!(value.validate(SurfaceId::Dashboard).is_ok());
+        assert_eq!(value.hit([0.1, 0.4]), Some(42));
+        assert!(value.validate(SurfaceId::Menu).is_err());
+    }
+
+    #[test]
+    fn overflow_requires_current_scene_ids_and_a_committed_frame() {
+        let mut entry = Entry::default();
+        entry.publish(
+            SurfaceView::OcrResult {
+                dark: false,
+                scene: OcrScene {
+                    blocks: vec![super::super::ocr_plane::OcrSceneBlock {
+                        id: 7,
+                        text: "translation".into(),
+                        quad: [[0.1, 0.1], [0.9, 0.1], [0.9, 0.8], [0.1, 0.8]],
+                        masks: vec![],
+                    }],
+                    excluded: vec![],
+                    opacity: 0.5,
+                    aspect: 1.,
+                },
+            },
+            None,
+            None,
+        );
+        let key = entry.state.as_ref().unwrap().key;
+        let mut value = SurfaceLayout {
+            key,
+            regions: vec![],
+            page_count: 1,
+            unplaced: vec![9],
+        };
+        assert!(entry
+            .accept_layout(SurfaceId::OcrResult, value.clone())
+            .is_err());
+        value.unplaced = vec![7, 7];
+        assert!(entry
+            .accept_layout(SurfaceId::OcrResult, value.clone())
+            .is_err());
+        value.unplaced = vec![7];
+        assert!(entry
+            .accept_layout(SurfaceId::OcrResult, value.clone())
+            .unwrap());
+        assert!(entry.active_layout().is_none());
+        assert!(entry.commit(key));
+        assert_eq!(entry.active_layout().unwrap().unplaced, vec![7]);
+        entry.reload();
+        assert!(!entry.accept_layout(SurfaceId::OcrResult, value).unwrap());
+        assert!(entry.active_layout().is_none());
     }
 
     #[test]

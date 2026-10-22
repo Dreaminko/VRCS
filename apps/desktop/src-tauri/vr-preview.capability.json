@@ -4,7 +4,6 @@
   "permissions": [
     "core:window:allow-is-focused",
     "allow-vr-preview-open",
-    "allow-vr-preview-update",
-    "allow-vr-preview-frame"
+    "allow-vr-preview-update"
   ]
 }

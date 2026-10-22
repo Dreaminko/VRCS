@@ -2,6 +2,8 @@ import { useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode }
 import { ArrowLeft, ArrowRight, ChevronLeft, ChevronRight, GripHorizontal, Hand, Languages, MessageSquare, Mic, Monitor, Pin, PinOff, Radio, ScanEye, Square, X } from "lucide-react";
 import { VisionAnswerMarkdown } from "../vision/VisionAnswerMarkdown";
 import { Headset, OcrProgress } from "./PassiveSurfaces";
+import { DashboardSurface, DashboardThumbnail } from "./DashboardSurface";
+import { OcrResultSurface, OcrSelectionSurface } from "./OcrSurfaces";
 import { menuStatus, pageGeometry, SURFACE_SIZE, type SurfaceLayout, type SurfaceState, type SurfaceView } from "./protocol";
 
 import "./surface.css";
@@ -105,7 +107,7 @@ export function VrSurface({ state, onLayout }: { state: SurfaceState; onLayout?:
     if (!element) return;
     let disposed = false;
     const measure = () => {
-      if (disposed) return;
+      if (disposed || element.querySelector("[data-vr-pending]")) return;
       const viewport = element.querySelector<HTMLElement>("[data-vr-page-viewport]");
       const content = element.querySelector<HTMLElement>("[data-vr-page-content]");
       const next = viewport && content && state.view.kind === "reader"
@@ -116,9 +118,10 @@ export function VrSurface({ state, onLayout }: { state: SurfaceState; onLayout?:
       if (!bounds.width || !bounds.height) return;
       const regions = [...element.querySelectorAll<HTMLButtonElement>("[data-vr-region]")].filter((button) => !button.disabled).map((button) => {
         const rect = button.getBoundingClientRect();
-        return { id: Number(button.dataset.vrRegion), bounds: [(rect.left - bounds.left) / bounds.width, (rect.top - bounds.top) / bounds.height, (rect.right - bounds.left) / bounds.width, (rect.bottom - bounds.top) / bounds.height] as [number, number, number, number], ...(button.dataset.vrCircle ? { circle: true } : {}) };
+        return { id: Number(button.dataset.vrRegion), bounds: [(rect.left - bounds.left) / bounds.width, (rect.top - bounds.top) / bounds.height, (rect.right - bounds.left) / bounds.width, (rect.bottom - bounds.top) / bounds.height] as [number, number, number, number], ...(button.dataset.vrCircle ? { circle: true } : {}), ...(button.dataset.vrCommand ? { dashboard: JSON.parse(button.dataset.vrCommand) } : {}) };
       });
-      const layout = { key: state.key, regions, page_count: next.count };
+      const unplaced = element.querySelector<HTMLElement>("[data-vr-unplaced]")?.dataset.vrUnplaced;
+      const layout = { key: state.key, regions, page_count: next.count, ...(unplaced ? { unplaced: JSON.parse(unplaced) as number[] } : {}) };
       const signature = JSON.stringify(layout);
       if (lastLayout.current !== signature) { lastLayout.current = signature; onLayout?.(layout); }
     };
@@ -128,7 +131,8 @@ export function VrSurface({ state, onLayout }: { state: SurfaceState; onLayout?:
     const content = element.querySelector("[data-vr-page-content]");
     if (content) observer.observe(content);
     void document.fonts.ready.then(measure);
-    return () => { disposed = true; observer.disconnect(); };
+    element.addEventListener("vr-surface-layout", measure);
+    return () => { disposed = true; observer.disconnect(); element.removeEventListener("vr-surface-layout", measure); };
   }, [state, onLayout, fontSize, paging.count, paging.page]);
 
   const style = { width, height, "--vr-font-size": `${fontSize}px`, "--vr-background-opacity": opacity } as CSSProperties;
@@ -136,6 +140,11 @@ export function VrSurface({ state, onLayout }: { state: SurfaceState; onLayout?:
     {state.view.kind === "menu" ? <Menu state={state} view={state.view} />
       : state.view.kind === "dialogue" ? <Dialogue state={state} view={state.view} />
         : state.view.kind === "reader" ? <Reader state={state} view={state.view} paging={paging} />
-          : state.view.kind === "headset" ? <Headset view={state.view} /> : <OcrProgress view={state.view} />}
+          : state.view.kind === "headset" ? <Headset view={state.view} />
+            : state.view.kind === "ocr_progress" ? <OcrProgress view={state.view} />
+              : state.view.kind === "dashboard" ? <DashboardSurface dashboard={state.view.dashboard} ui={state.view.ui} hovered={state.hovered} pressed={state.pressed} />
+                : state.view.kind === "dashboard_thumbnail" ? <DashboardThumbnail />
+                  : state.view.kind === "ocr_selection" ? <OcrSelectionSurface />
+                    : state.view.kind === "ocr_result" ? <OcrResultSurface scene={state.view.scene} /> : null}
   </div>;
 }

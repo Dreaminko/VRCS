@@ -2,12 +2,13 @@ use super::{
     backend::{OpenVrBackend, OverlayKind},
     ocr_capture::{center_crop, CropTransform, StereoCapture},
     ocr_input::{install_manifest, InputActions},
+    ocr_plane::OcrPresentation,
     ocr_progress::{Feedback, ProgressLabels},
     ocr_selection::Selection,
     ocr_status::{failure_code, OcrState, OcrStatus, OcrWristState},
     ocr_wrist::Button,
     ocr_wrist::{Action, LaserEvent, Pointer, Reader, View},
-    surface::{SurfaceHub, SurfaceId, SurfaceRenderer, SurfaceView},
+    surface::{SurfaceHub, SurfaceId, SurfaceKey, SurfaceLayout, SurfaceRenderer, SurfaceView},
 };
 use std::{
     path::PathBuf,
@@ -95,6 +96,10 @@ pub struct OcrRuntime {
     source_capture: Option<Arc<StereoCapture>>,
     fallback_blocks: Vec<TranslatedBlock>,
     result_dirty: bool,
+    result_presentation: Option<OcrPresentation>,
+    result_layout: Option<SurfaceKey>,
+    result_surface: SurfaceRenderer,
+    selection_surface: SurfaceRenderer,
     summary: Option<ScanSummary>,
     progress: Option<Arc<Mutex<ScanProgress>>>,
     pipeline: Option<watch::Receiver<Option<PipelineProgress>>>,
@@ -137,6 +142,10 @@ impl OcrRuntime {
             source_capture: None,
             fallback_blocks: Vec::new(),
             result_dirty: false,
+            result_presentation: None,
+            result_layout: None,
+            result_surface: SurfaceRenderer::new(SurfaceId::OcrResult),
+            selection_surface: SurfaceRenderer::new(SurfaceId::OcrSelection),
             summary: None,
             progress: None,
             pipeline: None,
@@ -213,6 +222,8 @@ impl OcrRuntime {
         self.source_capture = None;
         self.fallback_blocks.clear();
         self.result_dirty = false;
+        self.result_presentation = None;
+        self.result_layout = None;
         self.summary = None;
         self.progress = None;
         self.pipeline = None;
@@ -264,6 +275,8 @@ impl OcrRuntime {
     pub fn reset_surfaces(&mut self) {
         self.reader_surface.reset();
         self.progress_surface.reset();
+        self.result_surface.reset();
+        self.selection_surface.reset();
     }
 
     fn invalidate(&mut self, config: &VrOcrConfig) {
@@ -321,10 +334,8 @@ impl OcrRuntime {
             self.unavailable(false);
             return;
         }
-        let result = self.update(backend, config).and_then(|_| {
-            let changed = self.result_dirty;
-            self.update_result(backend, config)?;
-            if changed {
+        let result = self.update(app, backend, config).and_then(|_| {
+            if self.update_result(app, backend, config)? {
                 let blocks = self.reading_blocks(config.display_mode);
                 self.reader.sync(self.status.scan_id, &blocks);
             }
@@ -524,7 +535,12 @@ impl OcrRuntime {
         }
     }
 
-    fn update(&mut self, backend: &mut OpenVrBackend, config: &VrOcrConfig) -> Result<(), String> {
+    fn update(
+        &mut self,
+        app: &AppHandle,
+        backend: &mut OpenVrBackend,
+        config: &VrOcrConfig,
+    ) -> Result<(), String> {
         let events = std::mem::take(&mut self.ui_events);
         let focused = self.ui_focus;
         let reading_focus = if self.vision.visible() {
@@ -666,9 +682,26 @@ impl OcrRuntime {
                     .ok_or("Invalid OCR frame position")?
                     .preview();
                 backend.ensure_ocr_plane(OverlayKind::OcrFrame, &plane, origin)?;
-                backend.upload(OverlayKind::OcrFrame, &plane.texture)?;
+                let dark = app
+                    .state::<super::runtime::Manager>()
+                    .controls
+                    .lock()
+                    .map(|hub| hub.snapshot().dark)
+                    .unwrap_or(false);
+                let ready = self.selection_surface.present(
+                    app,
+                    backend,
+                    OverlayKind::OcrFrame,
+                    SurfaceView::OcrSelection { dark },
+                    None,
+                    None,
+                )?;
                 backend.set_opacity(OverlayKind::OcrFrame, 1.)?;
-                backend.show(OverlayKind::OcrFrame)?;
+                if ready {
+                    backend.show(OverlayKind::OcrFrame)?;
+                } else {
+                    backend.hide(OverlayKind::OcrFrame);
+                }
             }
         }
         if capture_requested {
@@ -885,10 +918,7 @@ impl OcrRuntime {
         None
     }
 
-    fn result_frame(
-        &mut self,
-        config: &VrOcrConfig,
-    ) -> Result<Option<(super::ocr_plane::PlaneOverlay, bool)>, String> {
+    fn result_frame(&mut self, config: &VrOcrConfig) -> Result<Option<OcrPresentation>, String> {
         self.fallback_blocks.clear();
         if config.display_mode != VrOcrDisplayMode::Stereo || self.blocks.iter().all(Vec::is_empty)
         {
@@ -910,60 +940,115 @@ impl OcrRuntime {
         };
         if let Some((plane, fallback)) = result {
             self.fallback_blocks = fallback;
-            Ok(plane.map(|plane| (plane, !self.fallback_blocks.is_empty())))
+            Ok(plane)
         } else {
             self.fallback_blocks = self.preferred_blocks().to_vec();
             Ok(None)
         }
     }
 
+    fn apply_result_layout(&mut self, layout: &SurfaceLayout) -> bool {
+        if self.result_layout == Some(layout.key) {
+            return false;
+        }
+        let Some(presentation) = &self.result_presentation else {
+            return false;
+        };
+        // Replace browser overflow, preserving the geometry fallback from both eyes.
+        self.fallback_blocks.retain(|block| {
+            !presentation
+                .blocks
+                .iter()
+                .any(|placed| placed.source.id == block.source.id)
+        });
+        self.fallback_blocks.extend(
+            presentation
+                .blocks
+                .iter()
+                .filter(|block| layout.unplaced.contains(&block.source.id))
+                .cloned(),
+        );
+        self.result_layout = Some(layout.key);
+        true
+    }
+
     fn update_result(
         &mut self,
+        app: &AppHandle,
         backend: &mut OpenVrBackend,
         config: &VrOcrConfig,
-    ) -> Result<(), String> {
+    ) -> Result<bool, String> {
         if self.selecting {
-            return Ok(());
+            return Ok(false);
         }
         if config.display_mode != VrOcrDisplayMode::Stereo || self.capture.is_none() {
             backend.reset_ocr();
+            self.result_presentation = None;
+            self.result_layout = None;
+            return Ok(std::mem::take(&mut self.result_dirty));
+        }
+        // A partial update may contain one eye. Wait before choosing the fallback.
+        if self.result_dirty && self.task.is_some() && self.blocks.iter().any(Vec::is_empty) {
+            return Ok(false);
+        }
+        let changed = self.result_dirty;
+        if changed {
+            backend.hide(OverlayKind::OcrResult);
+            backend.reset(OverlayKind::OcrFrame);
+            self.result_presentation = self.result_frame(config)?;
+            self.result_layout = None;
             self.result_dirty = false;
-            return Ok(());
         }
-        if !self.result_dirty {
-            return Ok(());
-        }
-        // A partial recognition update can contain only one eye. Wait before choosing a fallback.
-        if self.task.is_some() && self.blocks.iter().any(Vec::is_empty) {
-            return Ok(());
-        }
-        backend.reset(OverlayKind::OcrFrame);
-        let visible;
-        if let Some((plane, limited)) = self.result_frame(config)? {
-            let origin = self
-                .capture
-                .as_ref()
-                .ok_or("OCR capture is missing")?
-                .origin;
-            backend.ensure_ocr_plane(OverlayKind::OcrResult, &plane, origin)?;
-            backend.upload(OverlayKind::OcrResult, &plane.texture)?;
-            backend.set_opacity(OverlayKind::OcrResult, 1.0)?;
-            backend.show(OverlayKind::OcrResult)?;
-            if let Some(feedback) = &mut self.feedback {
-                feedback.plane_displayed(limited);
-            }
-            visible = true;
-            self.status.layout_limited = limited;
-        } else {
-            backend.reset_ocr();
+        let Some(presentation) = &self.result_presentation else {
+            backend.reset(OverlayKind::OcrResult);
             self.status.layout_limited = !self.blocks.iter().all(Vec::is_empty);
-            visible = !self.fallback_texts().is_empty();
+            if let Some(summary) = self.summary.clone() {
+                self.complete_status(&summary, !self.fallback_texts().is_empty());
+            }
+            return Ok(changed);
+        };
+        let origin = self
+            .capture
+            .as_ref()
+            .ok_or("OCR capture is missing")?
+            .origin;
+        backend.ensure_ocr_plane(OverlayKind::OcrResult, &presentation.plane, origin)?;
+        let dark = app
+            .state::<super::runtime::Manager>()
+            .controls
+            .lock()
+            .map(|hub| hub.snapshot().dark)
+            .unwrap_or(false);
+        let ready = self.result_surface.present(
+            app,
+            backend,
+            OverlayKind::OcrResult,
+            SurfaceView::OcrResult {
+                dark,
+                scene: presentation.scene.clone(),
+            },
+            None,
+            None,
+        )?;
+        // present can retain the previous texture while the new scene is pending.
+        let layout = app.state::<SurfaceHub>().layout(SurfaceId::OcrResult);
+        let Some(layout) = layout.filter(|_| ready) else {
+            backend.hide(OverlayKind::OcrResult);
+            return Ok(changed);
+        };
+        let layout_changed = self.apply_result_layout(&layout);
+        self.status.layout_limited = !self.fallback_blocks.is_empty();
+        backend.set_opacity(OverlayKind::OcrResult, 1.)?;
+        backend.show(OverlayKind::OcrResult)?;
+        if layout_changed {
+            if let Some(feedback) = &mut self.feedback {
+                feedback.plane_displayed(self.status.layout_limited);
+            }
+            if let Some(summary) = self.summary.clone() {
+                self.complete_status(&summary, true);
+            }
         }
-        if let Some(summary) = self.summary.clone() {
-            self.complete_status(&summary, visible);
-        }
-        self.result_dirty = false;
-        Ok(())
+        Ok(changed || layout_changed)
     }
 
     pub fn fallback_texts(&self) -> Vec<String> {
@@ -1023,7 +1108,7 @@ impl OcrRuntime {
             scan_started,
         ));
         self.capture = Some(metadata);
-        // Keep source pixels while visible so each translated patch can match its background.
+        // Keep stereo calibration and source bounds for spatial results.
         self.source_capture =
             (config.display_mode == VrOcrDisplayMode::Stereo).then(|| capture.clone());
         let id = self.status.scan_id;
@@ -1607,27 +1692,19 @@ mod tests {
     }
 
     #[test]
-    fn result_display_uses_one_plane_and_ocr_background() {
+    fn result_display_keeps_geometry_and_sends_background_to_the_browser() {
         let (mut runtime, config) = result_fixture();
-        let (plane, limited) = runtime.result_frame(&config).unwrap().unwrap();
-        assert!(!limited);
-        assert!(plane.texture.width < 320);
-        assert!((plane.pose[2][3] + 2.).abs() < 0.01);
-        assert!((plane.texel_aspect - 0.75).abs() < 0.01);
-        assert!(plane
-            .texture
-            .pixels
-            .as_chunks::<4>()
-            .0
+        let presentation = runtime.result_frame(&config).unwrap().unwrap();
+        assert!((presentation.plane.pose[2][3] + 2.).abs() < 0.01);
+        assert!(presentation.plane.texel_aspect > 0.);
+        assert_eq!(presentation.scene.opacity, 0.4);
+        assert_eq!(presentation.scene.blocks.len(), 1);
+        assert_eq!(presentation.scene.blocks[0].text, "VR");
+        assert!(presentation.scene.blocks[0]
+            .quad
             .iter()
-            .any(|p| p[3] == 102));
-        assert!(plane
-            .texture
-            .pixels
-            .as_chunks::<4>()
-            .0
-            .iter()
-            .any(|p| p[0] > 0));
+            .flatten()
+            .all(|v| v.is_finite() && (0.0..=1.0).contains(v)));
         assert!(runtime
             .result_frame(&VrOcrConfig {
                 display_mode: VrOcrDisplayMode::Wrist,
@@ -1642,7 +1719,7 @@ mod tests {
     #[test]
     fn cropped_capture_preserves_stereo_overlay_position() {
         let (mut runtime, config) = result_fixture();
-        let original = runtime.result_frame(&config).unwrap().unwrap().0;
+        let original = runtime.result_frame(&config).unwrap().unwrap().plane;
         let capture = Arc::make_mut(runtime.source_capture.as_mut().unwrap());
         for (index, eye) in capture.eyes.iter_mut().enumerate() {
             let bounds @ [x, y, right, bottom] = [60, 40, 260, 200];
@@ -1660,7 +1737,7 @@ mod tests {
                 }
             }
         }
-        let cropped = runtime.result_frame(&config).unwrap().unwrap().0;
+        let cropped = runtime.result_frame(&config).unwrap().unwrap().plane;
         for (actual, expected) in cropped
             .pose
             .iter()
@@ -1676,12 +1753,12 @@ mod tests {
     #[test]
     fn result_display_uses_ready_translation_from_either_eye() {
         let (mut runtime, config) = result_fixture();
-        let (left_ready, _) = runtime.result_frame(&config).unwrap().unwrap();
+        let left_ready = runtime.result_frame(&config).unwrap().unwrap();
         runtime.blocks[0][0].translations[0].text = None;
         runtime.blocks[1][0].translations[0].text = Some("VR".into());
-        let (right_ready, _) = runtime.result_frame(&config).unwrap().unwrap();
-        assert_eq!(left_ready.texture.pixels, right_ready.texture.pixels);
-        assert_eq!(left_ready.pose, right_ready.pose);
+        let right_ready = runtime.result_frame(&config).unwrap().unwrap();
+        assert!(left_ready.scene == right_ready.scene);
+        assert_eq!(left_ready.plane.pose, right_ready.plane.pose);
     }
 
     #[test]
@@ -1744,7 +1821,7 @@ mod tests {
     }
 
     #[test]
-    fn unplaceable_translation_keeps_other_results_on_the_source_plane() {
+    fn browser_overflow_preserves_the_selected_translation_and_does_not_duplicate() {
         let (mut runtime, config) = result_fixture();
         let long = "More text ".repeat(2000);
         let mut extra = block(1, "extra", Some(&long));
@@ -1754,11 +1831,33 @@ mod tests {
         other.source.polygon = extra.source.polygon.map(|[x, y]| [x - 4.8, y]);
         runtime.blocks[0].push(extra);
         runtime.blocks[1].push(other);
-        assert!(runtime.result_frame(&config).unwrap().is_some());
+        // The right eye has the ready translation; overflow must retain the merged group.
+        runtime.blocks[0][1].translations[0].text = None;
+        runtime.result_presentation = runtime.result_frame(&config).unwrap();
+        assert!(runtime.result_presentation.is_some());
+        assert!(runtime.fallback_texts().is_empty());
+        let mut layout = SurfaceLayout {
+            key: SurfaceKey {
+                generation: 1,
+                revision: 1,
+            },
+            regions: vec![],
+            page_count: 1,
+            unplaced: vec![1],
+        };
+        assert!(runtime.apply_result_layout(&layout));
+        assert!(!runtime.apply_result_layout(&layout));
         assert_eq!(runtime.fallback_texts().len(), 1);
         assert_eq!(runtime.fallback_texts()[0], long.trim());
-        runtime.clear();
+        layout.key.revision += 1;
+        assert!(runtime.apply_result_layout(&layout));
+        assert_eq!(runtime.fallback_texts().len(), 1);
+        layout.key.revision += 1;
+        layout.unplaced.clear();
+        assert!(runtime.apply_result_layout(&layout));
         assert!(runtime.fallback_texts().is_empty());
+        runtime.clear();
+        assert!(runtime.result_presentation.is_none());
     }
 
     #[test]

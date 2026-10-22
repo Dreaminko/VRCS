@@ -1,7 +1,4 @@
-use super::{
-    ocr_capture::{region_crop, CaptureCrop, EyeCapture},
-    renderer::Texture,
-};
+use super::ocr_capture::{region_crop, CaptureCrop, EyeCapture};
 
 #[derive(Clone)]
 pub struct Selection {
@@ -146,22 +143,7 @@ impl Selection {
                 (self.world[0][i] + self.world[2][i]) * 0.5,
             ]
         });
-        let (width, height) = (256, 256);
-        let mut pixels = vec![0; width as usize * height as usize * 4];
-        for y in 0..height {
-            for x in 0..width {
-                if x < 2 || x >= width - 2 || y < 2 || y >= height - 2 {
-                    let offset = ((y * width + x) * 4) as usize;
-                    pixels[offset..offset + 4].copy_from_slice(&[40, 220, 255, 255]);
-                }
-            }
-        }
         super::ocr_plane::PlaneOverlay {
-            texture: Texture {
-                width,
-                height,
-                pixels,
-            },
             pose,
             width_m,
             texel_aspect: width_m / height_m,
@@ -200,6 +182,7 @@ impl Selection {
 
 #[cfg(test)]
 mod tests {
+    use super::super::renderer::Texture;
     use super::super::transform;
     use super::*;
 
@@ -355,7 +338,7 @@ mod tests {
     }
 
     #[test]
-    fn preview_plane_retains_both_hand_anchors_and_has_a_transparent_center() {
+    fn preview_plane_retains_both_hand_anchors() {
         for head in [
             transform::matrix(0., 0., 0., [0.; 3]),
             transform::matrix(25., -30., 15., [1., 1.6, -2.]),
@@ -367,8 +350,7 @@ mod tests {
                 let selection =
                     Selection::from_corners(world_corners(corners, head), head, 7, 1).unwrap();
                 let plane = selection.preview();
-                let height_m = plane.width_m * plane.texture.height as f32
-                    / (plane.texture.width as f32 * plane.texel_aspect);
+                let height_m = plane.width_m / plane.texel_aspect;
                 for ([u, v], expected) in [[-0.5, 0.5], [0.5, 0.5], [0.5, -0.5], [-0.5, -0.5]]
                     .into_iter()
                     .zip(selection.world)
@@ -378,11 +360,6 @@ mod tests {
                         assert!((actual - expected).abs() < 0.0001, "{actual} != {expected}");
                     }
                 }
-                let texture = plane.texture;
-                assert_eq!(&texture.pixels[..4], &[40, 220, 255, 255]);
-                let center =
-                    ((texture.height / 2 * texture.width + texture.width / 2) * 4) as usize;
-                assert_eq!(&texture.pixels[center..center + 4], &[0; 4]);
             }
         }
     }

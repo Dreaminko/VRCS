@@ -1,13 +1,36 @@
-use super::{
-    ocr_capture::EyeCapture, ocr_geometry::Homography, ocr_renderer, renderer::Texture, transform,
-};
+use super::{ocr_capture::EyeCapture, ocr_geometry::Homography, transform};
+use serde::Serialize;
 use vrcs_core::ocr::{TextBlock, TranslatedBlock};
 
+#[derive(Clone)]
 pub struct PlaneOverlay {
-    pub texture: Texture,
     pub pose: [[f32; 4]; 3],
     pub width_m: f32,
     pub texel_aspect: f32,
+}
+
+pub type Quad = [[f32; 2]; 4];
+
+#[derive(Clone, PartialEq, Serialize)]
+pub struct OcrSceneBlock {
+    pub id: usize,
+    pub text: String,
+    pub quad: Quad,
+    pub masks: Vec<Quad>,
+}
+
+#[derive(Clone, PartialEq, Serialize)]
+pub struct OcrScene {
+    pub blocks: Vec<OcrSceneBlock>,
+    pub excluded: Vec<Quad>,
+    pub opacity: f32,
+    pub aspect: f32,
+}
+
+pub struct OcrPresentation {
+    pub plane: PlaneOverlay,
+    pub scene: OcrScene,
+    pub blocks: Vec<TranslatedBlock>,
 }
 
 pub fn render(
@@ -15,7 +38,7 @@ pub fn render(
     blocks: &[Vec<TranslatedBlock>; 2],
     opacity: f32,
     source_view: bool,
-) -> Result<(Option<PlaneOverlay>, Vec<TranslatedBlock>), String> {
+) -> Result<(Option<OcrPresentation>, Vec<TranslatedBlock>), String> {
     if blocks.iter().any(|eye| eye.len() > 256) {
         return Err("OCR render exceeds the block limit".into());
     }
@@ -163,7 +186,7 @@ pub fn render(
                 block
             }),
     );
-    // Layout happens once. Only blocks that cannot be placed go to the wrist.
+    // Keep scene geometry in Rust. The surface reports text that does not fit.
     let excluded: Vec<_> = blocks[0]
         .iter()
         .filter(|group| {
@@ -173,29 +196,22 @@ pub fn render(
         })
         .cloned()
         .collect();
-    let (texture, unplaced) =
-        ocr_renderer::render_eye(eye, &selected, &excluded, opacity, source_view)?;
-    tracing::debug!(
-        placed_groups = selected
-            .iter()
-            .filter(|group| !unplaced.contains(&group.source.id))
-            .count(),
-        fallback_groups = fallback.len()
-            + selected
-                .iter()
-                .filter(|group| unplaced.contains(&group.source.id))
-                .count(),
-        "OCR groups laid out"
+    let (presentation, unplaced) = build_scene(
+        eye,
+        eye_pose,
+        &selected,
+        &excluded,
+        center,
+        normal,
+        opacity,
+        source_view,
     );
     fallback.extend(
         selected
             .into_iter()
             .filter(|block| unplaced.contains(&block.source.id)),
     );
-    Ok((
-        place_texture(eye, eye_pose, texture, center, normal),
-        fallback,
-    ))
+    Ok((presentation, fallback))
 }
 
 fn match_blocks(
@@ -406,122 +422,163 @@ fn least_squares_plane(points: &[[f32; 3]], error_per_m2: f32) -> Option<([f32; 
     Some((center, normal))
 }
 
-fn place_texture(
+fn display_text(block: &TranslatedBlock, source_view: bool) -> String {
+    let translated = if source_view {
+        String::new()
+    } else {
+        block
+            .translations
+            .iter()
+            .filter_map(|translation| translation.text.as_deref())
+            .filter(|text| !text.trim().is_empty())
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+    if translated.is_empty() {
+        block.source.text.clone()
+    } else {
+        translated
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn build_scene(
     eye: &EyeCapture,
     eye_pose: [[f32; 4]; 3],
-    texture: Texture,
+    selected: &[TranslatedBlock],
+    excluded: &[TranslatedBlock],
     center: [f32; 3],
     normal: [f32; 3],
-) -> Option<PlaneOverlay> {
-    let mut bounds = [texture.width, texture.height, 0, 0];
-    for (index, pixel) in texture.pixels.as_chunks::<4>().0.iter().enumerate() {
-        if pixel[3] == 0 {
-            continue;
-        }
-        let (x, y) = (index as u32 % texture.width, index as u32 / texture.width);
-        bounds = [
-            bounds[0].min(x),
-            bounds[1].min(y),
-            bounds[2].max(x + 1),
-            bounds[3].max(y + 1),
-        ];
-    }
-    if bounds[0] >= bounds[2] || bounds[1] >= bounds[3] {
-        return None;
-    }
-    let [left, top, right, bottom] = [
-        bounds[0].saturating_sub(2),
-        bounds[1].saturating_sub(2),
-        (bounds[2] + 2).min(texture.width),
-        (bounds[3] + 2).min(texture.height),
-    ];
-    let axis_x = normalize([normal[2], 0., -normal[0]])?;
+    opacity: f32,
+    source_view: bool,
+) -> (Option<OcrPresentation>, Vec<usize>) {
+    let Some(axis_x) = normalize([normal[2], 0., -normal[0]]) else {
+        return (None, selected.iter().map(|block| block.source.id).collect());
+    };
     let axis_y = [
         normal[1] * axis_x[2] - normal[2] * axis_x[1],
         normal[2] * axis_x[0] - normal[0] * axis_x[2],
         normal[0] * axis_x[1] - normal[1] * axis_x[0],
     ];
+    let project = |quad: Quad| -> Option<Quad> {
+        Homography::from_quad(quad).and_then(Homography::inverse)?;
+        let mut projected = [[0.; 2]; 4];
+        for (pixel, point) in quad.into_iter().zip(&mut projected) {
+            let direction = ray(eye, pixel)?;
+            let distance = dot(normal, center) / dot(normal, direction);
+            if !distance.is_finite() || distance <= 0. {
+                return None;
+            }
+            let relative = sub(direction.map(|v| v * distance), center);
+            *point = [dot(relative, axis_x), dot(relative, axis_y)];
+        }
+        Some(projected)
+    };
+    let mut blocks = Vec::new();
+    let mut unplaced = Vec::new();
+    for block in selected {
+        let projected = project(block.source.polygon).zip(
+            block
+                .fragments()
+                .iter()
+                .map(|fragment| project(fragment.polygon))
+                .collect::<Option<Vec<_>>>(),
+        );
+        let Some((quad, masks)) = projected else {
+            unplaced.push(block.source.id);
+            continue;
+        };
+        blocks.push(OcrSceneBlock {
+            id: block.source.id,
+            text: display_text(block, source_view),
+            quad,
+            masks,
+        });
+    }
+    if blocks.is_empty() {
+        return (None, unplaced);
+    }
     let mut extent = [
         f32::INFINITY,
         f32::INFINITY,
         f32::NEG_INFINITY,
         f32::NEG_INFINITY,
     ];
-    for pixel in [[left, top], [right, top], [right, bottom], [left, bottom]] {
-        let direction = ray(eye, pixel.map(|v| v as f32))?;
-        let distance = dot(normal, center) / dot(normal, direction);
-        if !distance.is_finite() || distance <= 0. {
-            return None;
-        }
-        let point = sub(direction.map(|v| v * distance), center);
-        let (x, y) = (dot(point, axis_x), dot(point, axis_y));
+    for point in blocks
+        .iter()
+        .flat_map(|block| std::iter::once(&block.quad).chain(&block.masks))
+        .flatten()
+    {
         extent = [
-            extent[0].min(x),
-            extent[1].min(y),
-            extent[2].max(x),
-            extent[3].max(y),
+            extent[0].min(point[0]),
+            extent[1].min(point[1]),
+            extent[2].max(point[0]),
+            extent[3].max(point[1]),
         ];
     }
-    let [x0, y0, x1, y1] = extent;
+    let width = extent[2] - extent[0];
+    let height = extent[3] - extent[1];
+    if !width.is_finite() || !height.is_finite() || width <= 0.001 || height <= 0.001 {
+        unplaced.extend(blocks.iter().map(|block| block.id));
+        return (None, unplaced);
+    }
+    // Leave nearby space for readable cards without changing source positions.
+    let margin_x = (width * 0.15).max(height / 8.).max(0.04);
+    let margin_y = (height * 0.2).max(width / 8.).max(0.035);
+    let [x0, y0, x1, y1] = [
+        extent[0] - margin_x,
+        extent[1] - margin_y,
+        extent[2] + margin_x,
+        extent[3] + margin_y,
+    ];
     let (width_m, height_m) = (x1 - x0, y1 - y0);
-    if !width_m.is_finite() || !height_m.is_finite() || width_m <= 0.001 || height_m <= 0.001 {
-        return None;
-    }
-    let [l, r, t, b] = eye.projection;
-    let corners = [[x0, y1], [x1, y1], [x1, y0], [x0, y0]]
-        .map(|[x, y]| scaled_add(scaled_add(center, axis_x, x), axis_y, y));
-    if corners.iter().any(|p| p[2] >= -0.01) {
-        return None;
-    }
-    let quad = corners.map(|p| {
-        [
-            (p[0] / -p[2] - l) / (r - l) * eye.image.width as f32,
-            (-p[1] / -p[2] - t) / (b - t) * eye.image.height as f32,
-        ]
-    });
-    let mapping = Homography::from_quad(quad)?;
-    let (width, height) = (right - left, bottom - top);
-    let mut pixels = vec![0; (width * height * 4) as usize];
-    for y in 0..height {
-        for x in 0..width {
-            let [sx, sy] = mapping.map([
-                (x as f32 + 0.5) / width as f32,
-                (y as f32 + 0.5) / height as f32,
-            ])?;
-            if sx < 0. || sy < 0. || sx >= texture.width as f32 || sy >= texture.height as f32 {
-                continue;
-            }
-            pixels[((y * width + x) * 4) as usize..][..4].copy_from_slice(&ocr_renderer::sample(
-                &texture.pixels,
-                texture.width,
-                texture.height,
-                sx / texture.width as f32,
-                sy / texture.height as f32,
-            ));
+    let normalize_quad = |quad: Quad| quad.map(|[x, y]| [(x - x0) / width_m, (y1 - y) / height_m]);
+    for block in &mut blocks {
+        block.quad = normalize_quad(block.quad);
+        for mask in &mut block.masks {
+            *mask = normalize_quad(*mask);
         }
     }
+    let excluded = excluded
+        .iter()
+        .flat_map(TranslatedBlock::fragments)
+        .filter_map(|fragment| project(fragment.polygon))
+        .map(normalize_quad)
+        .collect();
     let position = scaled_add(
         scaled_add(center, axis_x, (x0 + x1) * 0.5),
         axis_y,
         (y0 + y1) * 0.5,
     );
     let local_pose = std::array::from_fn(|r| [axis_x[r], axis_y[r], normal[r], position[r]]);
-    Some(PlaneOverlay {
-        texture: Texture {
-            width,
-            height,
-            pixels,
-        },
-        pose: transform::compose(eye_pose, local_pose),
-        width_m,
-        texel_aspect: width_m / height_m * height as f32 / width as f32,
-    })
+    let aspect = width_m / height_m;
+    (
+        Some(OcrPresentation {
+            plane: PlaneOverlay {
+                pose: transform::compose(eye_pose, local_pose),
+                width_m,
+                texel_aspect: aspect,
+            },
+            blocks: selected
+                .iter()
+                .filter(|source| blocks.iter().any(|block| block.id == source.source.id))
+                .cloned()
+                .collect(),
+            scene: OcrScene {
+                blocks,
+                excluded,
+                opacity: opacity.clamp(0., 1.),
+                aspect,
+            },
+        }),
+        unplaced,
+    )
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::vr_overlay::transform;
+    use crate::vr_overlay::{renderer::Texture, transform};
     use vrcs_core::ocr::{BlockTranslation, TextBlock};
 
     fn fixture(depth: f32, head: [[f32; 4]; 3]) -> ([EyeCapture; 2], [Vec<TranslatedBlock>; 2]) {
@@ -637,7 +694,7 @@ mod tests {
         });
         let (overlay, fallback) = render(&eyes, &groups, 0.8, false).unwrap();
         let overlay = overlay.expect("source plane");
-        assert!((overlay.pose[2][3] + 2.).abs() < 0.01);
+        assert!((overlay.plane.pose[2][3] + 2.).abs() < 0.01);
         assert!(fallback.is_empty());
     }
 
@@ -698,7 +755,7 @@ mod tests {
             ),
         ] {
             let (plane, fallback) = render(eyes, groups, 0.8, false).unwrap();
-            assert!((plane.expect("source plane").pose[2][3] + 2.).abs() < 0.01);
+            assert!((plane.expect("source plane").plane.pose[2][3] + 2.).abs() < 0.01);
             assert!(fallback.is_empty());
         }
     }
@@ -710,9 +767,9 @@ mod tests {
             let (overlay, limited) = render(&eyes, &blocks, 1., false).unwrap();
             let overlay = overlay.expect("source plane");
             assert!(limited.is_empty());
-            assert!((overlay.pose[2][3] + depth).abs() < 0.01);
-            assert!(overlay.width_m > 0. && overlay.texel_aspect > 0.);
-            let position = overlay.pose.map(|r| r[3]);
+            assert!((overlay.plane.pose[2][3] + depth).abs() < 0.01);
+            assert!(overlay.plane.width_m > 0. && overlay.plane.texel_aspect > 0.);
+            let position = overlay.plane.pose.map(|r| r[3]);
             let tangents = eyes.each_ref().map(|eye| {
                 let view = eye.tracking_to_eye();
                 let local: [f32; 3] = std::array::from_fn(|r| {
@@ -730,7 +787,7 @@ mod tests {
         let (eyes, blocks) = fixture(2., head);
         let (overlay, _) = render(&eyes, &blocks, 1., false).unwrap();
         let overlay = overlay.expect("source plane");
-        let local = transform::compose(transform::inverse(head), overlay.pose);
+        let local = transform::compose(transform::inverse(head), overlay.plane.pose);
         assert!((local[2][3] + 2.).abs() < 0.01);
         assert!((local[0][0] - 1.).abs() < 0.01);
     }
@@ -742,56 +799,56 @@ mod tests {
         let (overlay, _) = render(&eyes, &blocks, 1., false).unwrap();
         let overlay = overlay.expect("source plane");
         let expected = normalize([-0.5, -0.2, 1.]).unwrap();
-        let actual = overlay.pose.map(|r| r[2]);
+        let actual = overlay.plane.pose.map(|r| r[2]);
         assert!(dot(expected, actual) > 0.999);
-        let [x, y, z] = overlay.pose.map(|r| r[3]);
+        let [x, y, z] = overlay.plane.pose.map(|r| r[3]);
         assert!((z - 0.5 * x - 0.2 * y + 2.).abs() < 0.01);
     }
 
     #[test]
-    fn planar_texture_keeps_source_coordinates_and_physical_aspect() {
-        let (eyes, _) = fixture(2., transform::matrix(0., 0., 0., [0.; 3]));
-        let eye = &eyes[0];
-        let mut texture = Texture {
-            width: 320,
-            height: 240,
-            pixels: vec![0; 320 * 240 * 4],
-        };
-        for y in 60..180 {
-            for x in 80..240 {
-                texture.pixels[(y * 320 + x) * 4..][..4]
-                    .copy_from_slice(&[x as u8, y as u8, 80, 255]);
+    fn scene_quads_keep_source_coordinates_and_physical_aspect() {
+        let (eyes, blocks) =
+            fixture_with_tilt(2., transform::matrix(0., 0., 0., [0.; 3]), [0.5, 0.2]);
+        let (presentation, fallback) = render(&eyes, &blocks, 0.8, false).unwrap();
+        let presentation = presentation.unwrap();
+        assert!(fallback.is_empty());
+        let plane = &presentation.plane;
+        let scene = &presentation.scene;
+        assert!((scene.aspect - plane.texel_aspect).abs() < 0.00001);
+        let height_m = plane.width_m / plane.texel_aspect;
+        let to_eye = eyes[0].tracking_to_eye();
+        for block in &scene.blocks {
+            for ([u, v], expected) in block
+                .quad
+                .into_iter()
+                .zip(blocks[0][block.id].source.polygon)
+            {
+                let local = [(u - 0.5) * plane.width_m, (0.5 - v) * height_m, 0.];
+                let world: [f32; 3] = std::array::from_fn(|r| {
+                    plane.pose[r][3] + (0..3).map(|c| plane.pose[r][c] * local[c]).sum::<f32>()
+                });
+                let eye: [f32; 3] = std::array::from_fn(|r| {
+                    to_eye[r][3] + (0..3).map(|c| to_eye[r][c] * world[c]).sum::<f32>()
+                });
+                let [l, r, t, b] = eyes[0].projection;
+                let actual = [
+                    (eye[0] / -eye[2] - l) / (r - l) * 320.,
+                    (-eye[1] / -eye[2] - t) / (b - t) * 240.,
+                ];
+                for (actual, expected) in actual.into_iter().zip(expected) {
+                    assert!((actual - expected).abs() < 0.001, "{actual} != {expected}");
+                }
             }
         }
-        let eye_pose = transform::compose(eye.head_pose, eye.eye_to_head);
-        let center = [0., 0., -2.];
-        let normal = normalize([-0.5, -0.2, 1.]).unwrap();
-        let overlay = place_texture(eye, eye_pose, texture, center, normal).unwrap();
-        let to_plane = transform::inverse(transform::compose(
-            transform::inverse(eye_pose),
-            overlay.pose,
-        ));
-        let height_m = overlay.width_m * overlay.texture.height as f32
-            / overlay.texture.width as f32
-            / overlay.texel_aspect;
-        for pixel in [[100., 80.], [160., 120.], [220., 160.]] {
-            // Expected rays come from native OpenVR bounds, independent of the inverse mapping.
-            let direction = [-1.2 + 2. * pixel[0] / 320., 1.1 - 2. * pixel[1] / 240., -1.];
-            let point = direction.map(|v| v * dot(normal, center) / dot(normal, direction));
-            let local: [f32; 3] = std::array::from_fn(|r| {
-                to_plane[r][3] + (0..3).map(|c| to_plane[r][c] * point[c]).sum::<f32>()
-            });
-            let sampled = ocr_renderer::sample(
-                &overlay.texture.pixels,
-                overlay.texture.width,
-                overlay.texture.height,
-                local[0] / overlay.width_m + 0.5,
-                0.5 - local[1] / height_m,
-            );
-            assert!((sampled[0] as f32 - (pixel[0] - 0.5)).abs() <= 2.);
-            assert!((sampled[1] as f32 - (pixel[1] - 0.5)).abs() <= 2.);
-            assert_eq!(sampled[3], 255);
-        }
+    }
+
+    #[test]
+    fn invalid_scene_quad_falls_back_without_losing_the_translation() {
+        let (eyes, mut blocks) = fixture(2., transform::matrix(0., 0., 0., [0.; 3]));
+        blocks[0][0].source.polygon[0][0] = -20.;
+        let (presentation, fallback) = render(&eyes, &blocks, 1., false).unwrap();
+        assert!(presentation.is_some());
+        assert!(fallback.iter().any(|block| block.source.id == 0));
     }
 
     #[test]
@@ -812,7 +869,7 @@ mod tests {
         blocks[1].reverse();
         let (plane, _) = render(&eyes, &blocks, 1., false).unwrap();
         let plane = plane.expect("source plane");
-        assert!((plane.pose[2][3] + 2.).abs() < 0.01);
+        assert!((plane.plane.pose[2][3] + 2.).abs() < 0.01);
     }
 
     #[test]
@@ -853,7 +910,7 @@ mod tests {
         }
         let (plane, fallback) = render(&eyes, &blocks, 1., false).unwrap();
         let plane = plane.expect("noisy plane");
-        assert!((plane.pose[2][3] + 2.).abs() < 0.06);
+        assert!((plane.plane.pose[2][3] + 2.).abs() < 0.06);
         assert!(fallback.is_empty());
     }
 
@@ -867,7 +924,7 @@ mod tests {
         blocks[0].push(unmatched);
         let (plane, fallback) = render(&eyes, &blocks, 1., false).unwrap();
         let plane = plane.expect("source plane");
-        assert!((plane.pose[2][3] + 2.).abs() < 0.01);
+        assert!((plane.plane.pose[2][3] + 2.).abs() < 0.01);
         assert_eq!(fallback.len(), 1);
         assert_eq!(fallback[0].source.id, 10);
     }

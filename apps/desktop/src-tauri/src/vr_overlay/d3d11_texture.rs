@@ -1,36 +1,22 @@
 use std::ffi::c_void;
 use std::ptr::{null, null_mut};
 
-use super::renderer::{BgraTexture, Texture};
+use super::renderer::Texture;
 
 const D3D_DRIVER_TYPE_UNKNOWN: u32 = 0;
 const D3D11_SDK_VERSION: u32 = 7;
 const D3D11_CREATE_DEVICE_BGRA_SUPPORT: u32 = 0x20;
-const D3D11_USAGE_DEFAULT: u32 = 0;
-const D3D11_BIND_SHADER_RESOURCE: u32 = 0x8;
-const D3D11_RESOURCE_MISC_SHARED: u32 = 0x2;
-const DXGI_FORMAT_B8G8R8A8_UNORM: u32 = 87;
 
 const QUERY_INTERFACE_INDEX: usize = 0;
 const RELEASE_INDEX: usize = 2;
 const ENUM_ADAPTERS_1_INDEX: usize = 12;
 const CREATE_TEXTURE_2D_INDEX: usize = 5;
-const GET_SHARED_HANDLE_INDEX: usize = 8;
-const UPDATE_SUBRESOURCE_INDEX: usize = 48;
-const FLUSH_INDEX: usize = 111;
 
 const IID_IDXGI_FACTORY_1: Guid = Guid {
     data1: 0x770a_ae78,
     data2: 0xf26f,
     data3: 0x4dba,
     data4: [0xa8, 0x29, 0x25, 0x3c, 0x83, 0xd1, 0xb3, 0x87],
-};
-
-const IID_IDXGI_RESOURCE: Guid = Guid {
-    data1: 0x035f_3ab4,
-    data2: 0x482e,
-    data3: 0x4e50,
-    data4: [0xb4, 0x1f, 0x8a, 0x7f, 0x8b, 0xd8, 0x96, 0x0b],
 };
 
 const IID_TEXTURE_2D: Guid = Guid {
@@ -55,17 +41,6 @@ type CreateTexture2d = unsafe extern "system" fn(
     *const SubresourceData,
     *mut *mut c_void,
 ) -> i32;
-type GetSharedHandle = unsafe extern "system" fn(*mut c_void, *mut *mut c_void) -> i32;
-type UpdateSubresource = unsafe extern "system" fn(
-    *mut c_void,
-    *mut c_void,
-    u32,
-    *const c_void,
-    *const c_void,
-    u32,
-    u32,
-);
-type Flush = unsafe extern "system" fn(*mut c_void);
 type Release = unsafe extern "system" fn(*mut c_void) -> u32;
 
 #[repr(C)]
@@ -127,13 +102,6 @@ unsafe extern "system" {
 pub struct Device {
     device: ComPtr,
     context: ComPtr,
-}
-
-pub struct OverlayTexture {
-    texture: ComPtr,
-    shared_handle: *mut c_void,
-    width: u32,
-    height: u32,
 }
 
 impl Device {
@@ -329,113 +297,6 @@ impl Device {
             context: ComPtr(context),
         })
     }
-
-    pub fn create_shared_texture(&self, source: &BgraTexture) -> Result<OverlayTexture, String> {
-        validate(source)?;
-        let texture = self.create_texture_resource(source, D3D11_RESOURCE_MISC_SHARED)?;
-        let resource = query_interface(texture.0, &IID_IDXGI_RESOURCE)?;
-        let get_shared_handle: GetSharedHandle =
-            unsafe { std::mem::transmute(method(resource.0, GET_SHARED_HANDLE_INDEX)) };
-        let mut shared_handle = null_mut();
-        let result = unsafe { get_shared_handle(resource.0, &mut shared_handle) };
-        if result < 0 || shared_handle.is_null() {
-            return Err(format!(
-                "IDXGIResource::GetSharedHandle failed with HRESULT 0x{result:08x}"
-            ));
-        }
-
-        self.flush();
-        Ok(OverlayTexture {
-            texture,
-            shared_handle,
-            width: source.width,
-            height: source.height,
-        })
-    }
-
-    pub fn copy_texture(
-        &self,
-        destination: &OverlayTexture,
-        source: &BgraTexture,
-    ) -> Result<(), String> {
-        validate(source)?;
-        if !destination.matches_dimensions(source) {
-            return Err("Overlay texture dimensions changed unexpectedly".into());
-        }
-
-        let update: UpdateSubresource =
-            unsafe { std::mem::transmute(method(self.context.0, UPDATE_SUBRESOURCE_INDEX)) };
-        // Update the existing shared resource without allocating a temporary GPU texture.
-        // The immediate context copies the CPU bytes before returning.
-        unsafe {
-            update(
-                self.context.0,
-                destination.texture.0,
-                0,
-                null(),
-                source.pixels.as_ptr().cast(),
-                source.width * 4,
-                0,
-            )
-        };
-        self.flush();
-        Ok(())
-    }
-
-    fn create_texture_resource(
-        &self,
-        source: &BgraTexture,
-        misc_flags: u32,
-    ) -> Result<ComPtr, String> {
-        let pitch = source.width * 4;
-        let desc = Texture2dDesc {
-            width: source.width,
-            height: source.height,
-            mip_levels: 1,
-            array_size: 1,
-            format: DXGI_FORMAT_B8G8R8A8_UNORM,
-            sample_desc: SampleDesc {
-                count: 1,
-                quality: 0,
-            },
-            usage: D3D11_USAGE_DEFAULT,
-            bind_flags: D3D11_BIND_SHADER_RESOURCE,
-            cpu_access_flags: 0,
-            misc_flags,
-        };
-        let initial = SubresourceData {
-            system_memory: source.pixels.as_ptr().cast(),
-            system_memory_pitch: pitch,
-            system_memory_slice_pitch: pitch * source.height,
-        };
-        let create: CreateTexture2d =
-            unsafe { std::mem::transmute(method(self.device.0, CREATE_TEXTURE_2D_INDEX)) };
-        let mut texture = null_mut();
-        let result = unsafe { create(self.device.0, &desc, &initial, &mut texture) };
-        if result < 0 || texture.is_null() {
-            unsafe { release(texture) };
-            return Err(format!(
-                "ID3D11Device::CreateTexture2D failed with HRESULT 0x{result:08x}"
-            ));
-        }
-
-        Ok(ComPtr(texture))
-    }
-
-    fn flush(&self) {
-        let flush: Flush = unsafe { std::mem::transmute(method(self.context.0, FLUSH_INDEX)) };
-        unsafe { flush(self.context.0) };
-    }
-}
-
-impl OverlayTexture {
-    pub fn matches_dimensions(&self, source: &BgraTexture) -> bool {
-        self.width == source.width && self.height == source.height
-    }
-
-    pub fn shared_handle(&self) -> *mut c_void {
-        self.shared_handle
-    }
 }
 
 struct ComPtr(*mut c_void);
@@ -484,19 +345,6 @@ fn query_interface(object: *mut c_void, iid: &Guid) -> Result<ComPtr, String> {
     Ok(ComPtr(interface))
 }
 
-fn validate(texture: &BgraTexture) -> Result<(), String> {
-    let expected = texture
-        .width
-        .checked_mul(texture.height)
-        .and_then(|pixels| pixels.checked_mul(4))
-        .ok_or_else(|| "Overlay texture dimensions overflow".to_string())?
-        as usize;
-    if texture.width == 0 || texture.height == 0 || texture.pixels.len() != expected {
-        return Err("Overlay texture has invalid dimensions or pixel data".into());
-    }
-    Ok(())
-}
-
 unsafe fn method(object: *mut c_void, index: usize) -> *const c_void {
     let vtable = unsafe { *(object as *const *const *const c_void) };
     unsafe { *vtable.add(index) }
@@ -516,11 +364,44 @@ unsafe fn release(object: *mut c_void) {
 mod tests {
     use super::*;
 
+    fn capture_test_texture(device: &Device, source: &Texture) -> ComPtr {
+        let desc = Texture2dDesc {
+            width: source.width,
+            height: source.height,
+            mip_levels: 1,
+            array_size: 1,
+            format: 87, // DXGI_FORMAT_B8G8R8A8_UNORM
+            sample_desc: SampleDesc {
+                count: 1,
+                quality: 0,
+            },
+            usage: 0,      // D3D11_USAGE_DEFAULT
+            bind_flags: 8, // D3D11_BIND_SHADER_RESOURCE
+            cpu_access_flags: 0,
+            misc_flags: 0,
+        };
+        let mut pixels = source.pixels.clone();
+        for pixel in pixels.as_chunks_mut::<4>().0 {
+            pixel.swap(0, 2);
+        }
+        let initial = SubresourceData {
+            system_memory: pixels.as_ptr().cast(),
+            system_memory_pitch: source.width * 4,
+            system_memory_slice_pitch: source.width * source.height * 4,
+        };
+        let create: CreateTexture2d =
+            unsafe { std::mem::transmute(method(device.device.0, CREATE_TEXTURE_2D_INDEX)) };
+        let mut texture = null_mut();
+        assert!(unsafe { create(device.device.0, &desc, &initial, &mut texture) } >= 0);
+        assert!(!texture.is_null());
+        ComPtr(texture)
+    }
+
     #[test]
     #[ignore = "requires a Windows D3D11 adapter"]
     fn ocr_readback_preserves_rgba_and_row_pitch() {
         let device = Device::create(0).unwrap();
-        let mut source = Texture {
+        let source = Texture {
             width: 3,
             height: 2,
             pixels: vec![
@@ -528,9 +409,7 @@ mod tests {
                 150, 255, 160, 170, 180, 255,
             ],
         };
-        let texture = device
-            .create_shared_texture(&BgraTexture::from_rgba(&source))
-            .unwrap();
+        let texture = capture_test_texture(&device, &source);
         type CreateView = unsafe extern "system" fn(
             *mut c_void,
             *mut c_void,
@@ -539,7 +418,7 @@ mod tests {
         ) -> i32;
         let create: CreateView = unsafe { std::mem::transmute(method(device.device.0, 7)) };
         let mut view = null_mut();
-        assert!(unsafe { create(device.device.0, texture.texture.0, null(), &mut view) } >= 0);
+        assert!(unsafe { create(device.device.0, texture.0, null(), &mut view) } >= 0);
         let view = ComPtr(view);
         let (captured, _, _) = unsafe {
             device.read_shader_resource_region(view.0, |width, height| Ok([0, 0, width, height]))
@@ -556,63 +435,5 @@ mod tests {
         assert!(
             unsafe { device.read_shader_resource_region(view.0, |_, _| Ok([2, 0, 4, 2])) }.is_err()
         );
-        let shared_handle = texture.shared_handle();
-        for value in [20, 180, 60] {
-            source.pixels = [value, 90, 240, 255].repeat(6);
-            device
-                .copy_texture(&texture, &BgraTexture::from_rgba(&source))
-                .unwrap();
-            let (captured, _, _) = unsafe {
-                device
-                    .read_shader_resource_region(view.0, |width, height| Ok([0, 0, width, height]))
-            }
-            .unwrap();
-            assert_eq!(captured.pixels, source.pixels);
-            assert_eq!(texture.shared_handle(), shared_handle);
-        }
-        assert!(device
-            .copy_texture(
-                &texture,
-                &BgraTexture {
-                    width: 1,
-                    height: 1,
-                    pixels: vec![0; 4],
-                }
-            )
-            .is_err());
-    }
-
-    #[test]
-    fn dashboard_thumbnail_keeps_desktop_colors_after_bgra_upload_conversion() {
-        let source = crate::vr_overlay::dashboard_renderer::render_thumbnail("VRCS").unwrap();
-        let uploaded = BgraTexture::from_rgba(&source);
-        assert_eq!(&uploaded.pixels[..4], &[0xff, 0xfb, 0xf0, 255]);
-    }
-
-    #[test]
-    fn converts_rgba_pixels_to_bgra_without_changing_alpha() {
-        let source = Texture {
-            width: 2,
-            height: 1,
-            pixels: vec![10, 20, 30, 40, 50, 60, 70, 80],
-        };
-        assert_eq!(
-            BgraTexture::from_rgba(&source).pixels,
-            vec![30, 20, 10, 40, 70, 60, 50, 80]
-        );
-    }
-
-    #[test]
-    fn raw_fallback_restores_rgba_in_the_existing_buffer() {
-        let bgra = BgraTexture {
-            width: 2,
-            height: 1,
-            pixels: vec![30, 20, 10, 40, 70, 60, 50, 80],
-        };
-        let buffer = bgra.pixels.as_ptr();
-        let rgba = bgra.into_rgba();
-        assert_eq!(rgba.pixels, [10, 20, 30, 40, 50, 60, 70, 80]);
-        assert_eq!((rgba.width, rgba.height), (2, 1));
-        assert_eq!(rgba.pixels.as_ptr(), buffer);
     }
 }

@@ -506,8 +506,6 @@ pub fn run() {
             vr_overlay::preview::vr_preview_open,
             #[cfg(all(windows, debug_assertions, feature = "vr-preview"))]
             vr_overlay::preview::vr_preview_update,
-            #[cfg(all(windows, debug_assertions, feature = "vr-preview"))]
-            vr_overlay::preview::vr_preview_frame,
             desktop_capture::set_shortcut_recording,
             desktop_ocr::desktop_ocr_status,
             desktop_ocr::desktop_ocr_scan,

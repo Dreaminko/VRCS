@@ -131,7 +131,7 @@ pub struct DashboardLanguage {
     pub can_save_preset: bool,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum TargetGroup {
     Speaker,
@@ -238,7 +238,7 @@ pub enum DashboardSaveState {
     Error,
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum DashboardAction {
     ToggleMaster,
@@ -304,774 +304,337 @@ pub enum DashboardPointerEvent {
     Hidden,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum DashboardControl {
-    DisplayTab,
-    LanguageTab,
-    OscTab,
-    RecognitionLanguage,
-    TranslationMode,
-    TargetLanguage(TargetGroup, usize),
-    TargetUp(TargetGroup, usize),
-    TargetDown(TargetGroup, usize),
-    TargetDelete(TargetGroup, usize),
-    TargetAdd(TargetGroup),
-    PresetApply,
-    PresetSave,
-    PresetDelete,
-    OscEnabled,
-    OscOriginal,
-    OscMuteSync,
-    OscStrategy(usize),
-    PickerClose,
-    PickerPrevious,
-    PickerNext,
-    PickerOption(usize),
-    Master,
-    Capture,
-    HeadsetEnabled,
-    DisplayContent(usize),
-    HeadsetWidthDown,
-    HeadsetWidthUp,
-    HeadsetOpacityDown,
-    HeadsetOpacityUp,
-    HeadsetPreview,
-    HeadsetPosition,
-    WristEnabled,
-    WristHand(usize),
-    WristWidthDown,
-    WristWidthUp,
-    WristOpacityDown,
-    WristOpacityUp,
-    WristPreview,
-    WristPosition,
-    PositionStep(PositionField, i32),
-    PositionClose,
-    PositionPreview,
-    PositionReset,
-    RecenterDialogue,
-    AttachDialogue,
-    OcrEnabled,
-    VisionEnabled,
-    OcrGesture,
-    OcrBindings,
-    ConfirmDelete,
-    CancelDelete,
+/// Commands come from the hit map of the currently submitted React frame.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "type", content = "value", rename_all = "snake_case")]
+pub enum DashboardCommand {
+    Page(DashboardPage),
+    Picker(DashboardPicker),
+    PickerPage(i32),
+    Select(usize),
+    Position(DisplayKind),
+    Close,
+    Confirm,
+    Cancel,
+    Action(DashboardAction),
 }
 
-#[derive(Debug, Clone, Copy)]
-pub(super) struct Rect {
-    pub left: f32,
-    pub top: f32,
-    pub right: f32,
-    pub bottom: f32,
-}
-
-impl Rect {
-    const fn new(left: f32, top: f32, right: f32, bottom: f32) -> Self {
-        Self {
-            left,
-            top,
-            right,
-            bottom,
-        }
-    }
-    fn contains(self, x: f32, y: f32) -> bool {
-        x >= self.left && x <= self.right && y >= self.top && y <= self.bottom
-    }
-}
-
-const CONTROLS: &[(DashboardControl, Rect)] = &[
-    (
-        DashboardControl::Capture,
-        Rect::new(1282., 26., 1358., 102.),
-    ),
-    (
-        DashboardControl::DisplayTab,
-        Rect::new(48., 124., 368., 212.),
-    ),
-    (
-        DashboardControl::LanguageTab,
-        Rect::new(384., 124., 704., 212.),
-    ),
-    (DashboardControl::OscTab, Rect::new(720., 124., 1040., 212.)),
-    (
-        DashboardControl::RecognitionLanguage,
-        Rect::new(78., 246., 678., 336.),
-    ),
-    (
-        DashboardControl::TranslationMode,
-        Rect::new(762., 246., 1362., 336.),
-    ),
-    (
-        DashboardControl::PresetApply,
-        Rect::new(306., 774., 684., 834.),
-    ),
-    (
-        DashboardControl::PresetSave,
-        Rect::new(704., 774., 1142., 834.),
-    ),
-    (
-        DashboardControl::PresetDelete,
-        Rect::new(1162., 774., 1362., 834.),
-    ),
-    (
-        DashboardControl::OscEnabled,
-        Rect::new(78., 280., 1362., 360.),
-    ),
-    (
-        DashboardControl::OscOriginal,
-        Rect::new(78., 380., 1362., 460.),
-    ),
-    (
-        DashboardControl::OscMuteSync,
-        Rect::new(78., 480., 1362., 560.),
-    ),
-    (
-        DashboardControl::Master,
-        Rect::new(1056., 124., 1392., 212.),
-    ),
-    (
-        DashboardControl::HeadsetEnabled,
-        Rect::new(590., 346., 688., 404.),
-    ),
-    (
-        DashboardControl::HeadsetWidthDown,
-        Rect::new(78., 522., 140., 578.),
-    ),
-    (
-        DashboardControl::HeadsetWidthUp,
-        Rect::new(304., 522., 366., 578.),
-    ),
-    (
-        DashboardControl::HeadsetOpacityDown,
-        Rect::new(390., 522., 452., 578.),
-    ),
-    (
-        DashboardControl::HeadsetOpacityUp,
-        Rect::new(616., 522., 678., 578.),
-    ),
-    (
-        DashboardControl::HeadsetPreview,
-        Rect::new(458., 600., 678., 656.),
-    ),
-    (
-        DashboardControl::HeadsetPosition,
-        Rect::new(78., 600., 438., 656.),
-    ),
-    (
-        DashboardControl::WristEnabled,
-        Rect::new(1274., 346., 1372., 404.),
-    ),
-    (
-        DashboardControl::WristWidthDown,
-        Rect::new(762., 522., 824., 578.),
-    ),
-    (
-        DashboardControl::WristWidthUp,
-        Rect::new(988., 522., 1050., 578.),
-    ),
-    (
-        DashboardControl::WristOpacityDown,
-        Rect::new(1074., 522., 1136., 578.),
-    ),
-    (
-        DashboardControl::WristOpacityUp,
-        Rect::new(1300., 522., 1362., 578.),
-    ),
-    (
-        DashboardControl::WristPreview,
-        Rect::new(1142., 600., 1362., 656.),
-    ),
-    (
-        DashboardControl::WristPosition,
-        Rect::new(762., 600., 1122., 656.),
-    ),
-    (
-        DashboardControl::OcrEnabled,
-        Rect::new(294., 748., 390., 804.),
-    ),
-    (
-        DashboardControl::OcrGesture,
-        Rect::new(642., 748., 738., 804.),
-    ),
-    (
-        DashboardControl::VisionEnabled,
-        Rect::new(994., 748., 1094., 804.),
-    ),
-    (
-        DashboardControl::OcrBindings,
-        Rect::new(1114., 744., 1362., 808.),
-    ),
-];
-
-pub(super) const PICKER_PAGE_SIZE: usize = 32;
-pub(super) const PICKER_CLOSE_RECT: Rect = Rect::new(1180., 250., 1362., 306.);
-pub(super) const PICKER_PREVIOUS_RECT: Rect = Rect::new(864., 250., 994., 306.);
-pub(super) const PICKER_NEXT_RECT: Rect = Rect::new(1010., 250., 1140., 306.);
-
-pub(super) fn picker_option_rect(index: usize) -> Rect {
-    let slot = index % PICKER_PAGE_SIZE;
-    let left = 78. + (slot % 4) as f32 * 325.;
-    let top = 334. + (slot / 4) as f32 * 64.;
-    Rect::new(left, top, left + 309., top + 56.)
-}
-
-pub(super) fn control_rect(control: DashboardControl) -> Rect {
-    use DashboardControl::*;
-    match control {
-        DisplayContent(index) => return segment_rect(Rect::new(568., 250., 1362., 306.), 2, index),
-        WristHand(index) => return segment_rect(Rect::new(924., 416., 1362., 472.), 3, index),
-        OscStrategy(index) => return segment_rect(Rect::new(78., 632., 1362., 688.), 3, index),
-        ConfirmDelete => return Rect::new(752., 592., 1032., 656.),
-        CancelDelete => return Rect::new(408., 592., 688., 656.),
-        PositionStep(field, direction) => {
-            let rect = position_field_rect(field);
-            return if direction < 0 {
-                Rect::new(rect.left, rect.top + 44., rect.left + 62., rect.bottom)
-            } else {
-                Rect::new(rect.right - 62., rect.top + 44., rect.right, rect.bottom)
-            };
-        }
-        PositionClose => return PICKER_CLOSE_RECT,
-        PositionPreview => return Rect::new(880., 250., 1160., 306.),
-        PositionReset => return Rect::new(78., 762., 598., 824.),
-        RecenterDialogue => return Rect::new(630., 762., 988., 824.),
-        AttachDialogue => return Rect::new(1004., 762., 1362., 824.),
-        _ => {}
-    }
-    let (group, index) = match control {
-        TargetLanguage(group, index)
-        | TargetUp(group, index)
-        | TargetDown(group, index)
-        | TargetDelete(group, index) => (group, index),
-        TargetAdd(group) => (group, 0),
-        _ => {
-            return CONTROLS
-                .iter()
-                .find(|(candidate, _)| *candidate == control)
-                .unwrap()
-                .1
-        }
-    };
-    let left = if group == TargetGroup::Microphone {
-        78.
-    } else {
-        762.
-    };
-    let top = 430. + index as f32 * 78.;
-    match control {
-        TargetLanguage(..) => Rect::new(left, top, left + 400., top + 64.),
-        TargetUp(..) => Rect::new(left + 412., top, left + 468., top + 64.),
-        TargetDown(..) => Rect::new(left + 478., top, left + 534., top + 64.),
-        TargetDelete(..) => Rect::new(left + 544., top, left + 600., top + 64.),
-        TargetAdd(..) => Rect::new(left, 666., left + 600., 726.),
-        _ => unreachable!(),
-    }
-}
-
-fn segment_rect(rect: Rect, count: usize, index: usize) -> Rect {
-    let width = (rect.right - rect.left - 8. * (count - 1) as f32) / count as f32;
-    let left = rect.left + index as f32 * (width + 8.);
-    Rect::new(left, rect.top, left + width, rect.bottom)
-}
-
-pub(super) fn position_field_rect(field: PositionField) -> Rect {
-    let index = match field {
-        PositionField::Horizontal => 0,
-        PositionField::Vertical => 1,
-        PositionField::Distance | PositionField::Depth => 2,
-        PositionField::Pitch => 3,
-        PositionField::Yaw => 4,
-        PositionField::Roll => 5,
-    };
-    let left = 78. + (index % 3) as f32 * 442.;
-    let top = if index < 3 { 370. } else { 568. };
-    Rect::new(left, top, left + 400., top + 118.)
-}
-
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub(super) enum DashboardPage {
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum DashboardPage {
     #[default]
     Display,
     Language,
     Osc,
 }
 
-fn control_page(control: DashboardControl) -> Option<DashboardPage> {
-    match control {
-        DashboardControl::Master
-        | DashboardControl::Capture
-        | DashboardControl::DisplayTab
-        | DashboardControl::LanguageTab
-        | DashboardControl::OscTab => None,
-        DashboardControl::RecognitionLanguage
-        | DashboardControl::TranslationMode
-        | DashboardControl::TargetLanguage(..)
-        | DashboardControl::TargetUp(..)
-        | DashboardControl::TargetDown(..)
-        | DashboardControl::TargetDelete(..)
-        | DashboardControl::TargetAdd(..)
-        | DashboardControl::PresetApply
-        | DashboardControl::PresetSave
-        | DashboardControl::PresetDelete => Some(DashboardPage::Language),
-        DashboardControl::OscEnabled
-        | DashboardControl::OscOriginal
-        | DashboardControl::OscMuteSync
-        | DashboardControl::OscStrategy(_) => Some(DashboardPage::Osc),
-        _ => Some(DashboardPage::Display),
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "type", content = "value", rename_all = "snake_case")]
+pub enum DashboardPicker {
+    Recognition,
+    Mode,
+    Target { group: TargetGroup, index: usize },
+    ApplyPreset,
+    DeletePreset,
+}
+
+pub const PICKER_PAGE_SIZE: usize = 32;
+
+impl DashboardPicker {
+    fn choice(self, view: &DashboardViewModel) -> Option<&DashboardChoice> {
+        Some(match self {
+            Self::Recognition => &view.language.recognition,
+            Self::Mode => &view.language.mode,
+            Self::Target { group, index } => view.language.targets(group).get(index)?,
+            Self::ApplyPreset | Self::DeletePreset => &view.language.presets,
+        })
     }
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct DashboardConfirmation {
+    pub action: DashboardAction,
+    pub label: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize, PartialEq, Eq)]
+pub struct DashboardUi {
+    pub page: DashboardPage,
+    pub picker: Option<DashboardPicker>,
+    pub picker_page: usize,
+    pub display_editor: Option<DisplayKind>,
+    pub confirmation: Option<DashboardConfirmation>,
 }
 
 #[derive(Debug)]
 pub struct DashboardState {
+    pub ui: DashboardUi,
+    pub hovered: Option<u8>,
+    pub pressed: Option<u8>,
     interactive: bool,
-    capture_available: bool,
-    ocr_available: bool,
-    vision_available: bool,
-    vision_enabled: bool,
-    vision_configured: bool,
-    osc_available: bool,
-    hovered: Option<DashboardControl>,
-    pressed: Option<DashboardControl>,
-    page: DashboardPage,
-    picker: Option<DashboardControl>,
-    picker_page: usize,
-    language: DashboardLanguage,
-    display_editor: Option<DisplayKind>,
-    position: [Vec<DashboardNumberField>; 2],
-    choices: [DashboardChoice; 3],
-    confirmation: Option<(DashboardAction, String)>,
+    language: Option<DashboardLanguage>,
 }
 
 impl DashboardState {
     pub fn new() -> Self {
         Self {
-            interactive: true,
-            capture_available: false,
-            ocr_available: true,
-            vision_available: false,
-            vision_enabled: false,
-            vision_configured: false,
-            osc_available: true,
+            ui: DashboardUi::default(),
             hovered: None,
             pressed: None,
-            page: DashboardPage::Display,
-            picker: None,
-            picker_page: 0,
-            language: DashboardLanguage::default(),
-            display_editor: None,
-            position: [Vec::new(), Vec::new()],
-            choices: std::array::from_fn(|_| DashboardChoice::default()),
-            confirmation: None,
+            interactive: true,
+            language: None,
+        }
+    }
+
+    pub fn clear_pointer(&mut self) {
+        self.hovered = None;
+        self.pressed = None;
+    }
+
+    #[cfg(any(test, all(windows, debug_assertions, feature = "vr-preview")))]
+    pub fn set_interactive(&mut self, interactive: bool) {
+        self.interactive = interactive;
+        if !interactive {
+            self.clear_pointer();
         }
     }
 
     pub fn update_view(&mut self, view: &DashboardViewModel) {
-        // The frontend serializes saves, so pending persistence must not block input.
-        self.set_interactive(true);
-        self.capture_available = view.capture.available;
-        self.choices = [
-            view.content.clone(),
-            view.wrist.hand.clone(),
-            view.osc.strategy.clone(),
-        ];
-        self.ocr_available = view.ocr_available && view.ocr.available;
-        self.vision_available = view.vision_available;
-        self.vision_enabled = view.vision.enabled;
-        self.vision_configured = view.vision.configured;
-        self.osc_available = view.osc_available;
-        if !view.osc_available && self.page == DashboardPage::Osc {
-            self.page = DashboardPage::Display;
-            self.hovered = None;
-            self.pressed = None;
-        }
-        if self.language != view.language {
-            self.language = view.language.clone();
-            self.confirmation = None;
-            self.pressed = None;
-            self.hovered = None;
-            self.picker = None;
-        }
-        let position = [&view.headset.position, &view.wrist.position];
-        for (index, fields) in position.into_iter().enumerate() {
-            if &self.position[index] != fields {
-                self.position[index] = fields.clone();
-                self.pressed = None;
-                self.hovered = None;
+        if self.language.as_ref() != Some(&view.language) {
+            if self.language.is_some() {
+                self.ui.picker = None;
+                self.ui.confirmation = None;
+                self.clear_pointer();
             }
+            self.language = Some(view.language.clone());
+        }
+        if !view.osc_available && self.ui.page == DashboardPage::Osc {
+            self.ui = DashboardUi::default();
+            self.clear_pointer();
         }
     }
 
-    pub(super) fn confirmation(&self) -> Option<(&DashboardAction, &str)> {
-        self.confirmation
-            .as_ref()
-            .map(|(action, label)| (action, label.as_str()))
-    }
-
-    pub(super) fn page(&self) -> DashboardPage {
-        self.page
-    }
-    pub(super) fn picker(&self) -> Option<DashboardControl> {
-        self.picker
-    }
-    pub(super) fn picker_page(&self) -> usize {
-        self.picker_page
-    }
-
-    pub(super) fn display_editor(&self) -> Option<DisplayKind> {
-        self.display_editor
-    }
-
-    fn position_fields(&self) -> &[DashboardNumberField] {
-        match self.display_editor {
-            Some(DisplayKind::Headset) => &self.position[0],
-            Some(DisplayKind::Wrist) => &self.position[1],
-            None => &[],
-        }
-    }
-
-    fn choice(&self, control: DashboardControl) -> Option<&DashboardChoice> {
-        match control {
-            DashboardControl::RecognitionLanguage => Some(&self.language.recognition),
-            DashboardControl::TranslationMode => Some(&self.language.mode),
-            DashboardControl::TargetLanguage(group, index) => {
-                self.language.targets(group).get(index)
-            }
-            DashboardControl::PresetApply | DashboardControl::PresetDelete => {
-                Some(&self.language.presets)
-            }
-            _ => None,
-        }
-    }
-
-    pub(super) fn picker_choice(&self) -> Option<&DashboardChoice> {
-        self.picker.and_then(|control| self.choice(control))
-    }
-
-    fn control_at(&self, x: f32, y: f32) -> Option<DashboardControl> {
-        if self.confirmation.is_some() {
-            return [
-                DashboardControl::ConfirmDelete,
-                DashboardControl::CancelDelete,
-            ]
-            .into_iter()
-            .find(|&control| control_rect(control).contains(x, y));
-        }
-        if self.picker.is_none() && self.display_editor.is_none() {
-            for (choice_index, choice) in self.choices.iter().enumerate() {
-                for index in 0..choice.options.len() {
-                    let control = match choice_index {
-                        0 => DashboardControl::DisplayContent(index),
-                        1 => DashboardControl::WristHand(index),
-                        _ => DashboardControl::OscStrategy(index),
-                    };
-                    if control_page(control) == Some(self.page)
-                        && self.control_enabled(control)
-                        && control_rect(control).contains(x, y)
-                    {
-                        return Some(control);
-                    }
-                }
-            }
-        }
-        if self.page == DashboardPage::Display && self.display_editor.is_some() {
-            for field in self.position_fields() {
-                for direction in [-1, 1] {
-                    let control = DashboardControl::PositionStep(field.field, direction);
-                    if self.control_enabled(control) && control_rect(control).contains(x, y) {
-                        return Some(control);
-                    }
-                }
-            }
-            for control in [
-                DashboardControl::PositionClose,
-                DashboardControl::PositionPreview,
-                DashboardControl::PositionReset,
-                DashboardControl::RecenterDialogue,
-                DashboardControl::AttachDialogue,
-            ] {
-                if self.control_enabled(control) && control_rect(control).contains(x, y) {
-                    return Some(control);
-                }
-            }
-        }
-        if self.page == DashboardPage::Language && self.picker.is_none() {
-            for group in [TargetGroup::Microphone, TargetGroup::Speaker] {
-                for index in 0..self.language.targets(group).len().min(3) {
-                    for control in [
-                        DashboardControl::TargetLanguage(group, index),
-                        DashboardControl::TargetUp(group, index),
-                        DashboardControl::TargetDown(group, index),
-                        DashboardControl::TargetDelete(group, index),
-                    ] {
-                        if self.control_enabled(control) && control_rect(control).contains(x, y) {
-                            return Some(control);
-                        }
-                    }
-                }
-                let control = DashboardControl::TargetAdd(group);
-                if self.control_enabled(control) && control_rect(control).contains(x, y) {
-                    return Some(control);
-                }
-            }
-        }
-        for &(control, rect) in CONTROLS {
-            let page = control_page(control);
-            if page.is_some_and(|page| page != self.page)
-                || (self.picker.is_some() && page.is_some())
-                || (self.display_editor.is_some() && page == Some(DashboardPage::Display))
-            {
-                continue;
-            }
-            if !self.control_enabled(control) {
-                continue;
-            }
-            if rect.contains(x, y) {
-                return Some(control);
-            }
-        }
-        let choice = self.picker_choice()?;
-        if PICKER_CLOSE_RECT.contains(x, y) {
-            return Some(DashboardControl::PickerClose);
-        }
-        if self.picker_page > 0 && PICKER_PREVIOUS_RECT.contains(x, y) {
-            return Some(DashboardControl::PickerPrevious);
-        }
-        if (self.picker_page + 1) * PICKER_PAGE_SIZE < choice.options.len()
-            && PICKER_NEXT_RECT.contains(x, y)
-        {
-            return Some(DashboardControl::PickerNext);
-        }
-        let start = self.picker_page * PICKER_PAGE_SIZE;
-        (start..choice.options.len().min(start + PICKER_PAGE_SIZE))
-            .find(|&index| picker_option_rect(index).contains(x, y))
-            .map(DashboardControl::PickerOption)
-    }
-
-    pub(super) fn control_enabled(&self, control: DashboardControl) -> bool {
-        if control == DashboardControl::Capture && !self.capture_available {
-            return false;
-        }
-        if !self.ocr_available
-            && matches!(
-                control,
-                DashboardControl::OcrEnabled | DashboardControl::OcrGesture
-            )
-        {
-            return false;
-        }
-        if control == DashboardControl::VisionEnabled
-            && (!self.vision_available || (!self.vision_enabled && !self.vision_configured))
-        {
-            return false;
-        }
-        if control == DashboardControl::OcrBindings && !self.ocr_available && !self.vision_available
-        {
-            return false;
-        }
-        if !self.osc_available
-            && (control == DashboardControl::OscTab
-                || control_page(control) == Some(DashboardPage::Osc))
-        {
-            return false;
-        }
+    pub fn activate(
+        &mut self,
+        command: DashboardCommand,
+        view: &DashboardViewModel,
+    ) -> Option<DashboardAction> {
         if !self.interactive {
-            return false;
+            return None;
         }
-        if self
-            .choice(control)
-            .is_some_and(|choice| choice.options.is_empty())
-        {
-            return false;
+        self.update_view(view);
+        self.clear_pointer();
+        if self.ui.confirmation.is_some() {
+            return match command {
+                DashboardCommand::Confirm => {
+                    let action = self.ui.confirmation.take()?.action;
+                    self.action_allowed(&action, view).then_some(action)
+                }
+                DashboardCommand::Cancel => {
+                    self.ui.confirmation = None;
+                    None
+                }
+                _ => None,
+            };
         }
-        match control {
-            DashboardControl::RecenterDialogue | DashboardControl::AttachDialogue => {
-                self.display_editor == Some(DisplayKind::Wrist)
-            }
-            DashboardControl::DisplayContent(index) => self.choices[0].options.get(index).is_some(),
-            DashboardControl::WristHand(index) => self.choices[1].options.get(index).is_some(),
-            DashboardControl::OscStrategy(index) => self.choices[2].options.get(index).is_some(),
-            DashboardControl::PositionStep(field, direction) => self
-                .position_fields()
-                .iter()
-                .find(|item| item.field == field)
-                .is_some_and(|item| {
-                    if direction < 0 {
-                        item.can_decrease
-                    } else {
-                        item.can_increase
-                    }
-                }),
-            DashboardControl::TargetUp(_, index) => index > 0,
-            DashboardControl::TargetDown(group, index) => {
-                index + 1 < self.language.targets(group).len()
-            }
-            DashboardControl::TargetDelete(group, _) => self.language.targets(group).len() > 1,
-            DashboardControl::TargetAdd(group) => {
-                self.language.can_add && self.language.targets(group).len() < 3
-            }
-            DashboardControl::PresetSave => self.language.can_save_preset,
-            _ => true,
-        }
-    }
-
-    pub fn set_interactive(&mut self, interactive: bool) {
-        self.interactive = interactive;
-        if !interactive {
-            self.pressed = None;
-        }
-    }
-
-    pub fn pointer_move(&mut self, x: f32, y: f32) -> bool {
-        let hovered = self.interactive.then(|| self.control_at(x, y)).flatten();
-        let changed = self.hovered != hovered;
-        self.hovered = hovered;
-        changed
-    }
-
-    pub fn pointer_down(&mut self, x: f32, y: f32) -> bool {
-        let pressed = self.interactive.then(|| self.control_at(x, y)).flatten();
-        let changed = self.pressed != pressed;
-        self.pressed = pressed;
-        changed
-    }
-
-    pub fn pointer_up(&mut self, x: f32, y: f32) -> Option<DashboardAction> {
-        let released = self.interactive.then(|| self.control_at(x, y)).flatten();
-        let control = (released == self.pressed).then_some(released).flatten();
-        self.pressed = None;
-        match control? {
-            DashboardControl::ConfirmDelete => {
-                self.hovered = None;
-                self.confirmation.take().map(|(action, _)| action)
-            }
-            DashboardControl::CancelDelete => {
-                self.confirmation = None;
-                self.hovered = None;
-                None
-            }
-            DashboardControl::TargetDelete(group, index) => {
-                let label = self.language.targets(group).get(index)?.value.clone();
-                self.confirmation = Some((DashboardAction::DeleteTarget { group, index }, label));
-                self.hovered = None;
-                None
-            }
-            DashboardControl::DisplayContent(index) => Some(DashboardAction::SetDisplayContent(
-                self.choices[0].options.get(index)?.value.clone(),
-            )),
-            DashboardControl::WristHand(index) => Some(DashboardAction::SetWristHand(
-                self.choices[1].options.get(index)?.value.clone(),
-            )),
-            DashboardControl::OscStrategy(index) => Some(DashboardAction::SetOscStrategy(
-                self.choices[2].options.get(index)?.value.clone(),
-            )),
-            tab @ (DashboardControl::DisplayTab
-            | DashboardControl::LanguageTab
-            | DashboardControl::OscTab) => {
-                self.page = match tab {
-                    DashboardControl::LanguageTab => DashboardPage::Language,
-                    DashboardControl::OscTab => DashboardPage::Osc,
-                    _ => DashboardPage::Display,
+        match command {
+            DashboardCommand::Page(page) if page != DashboardPage::Osc || view.osc_available => {
+                self.ui = DashboardUi {
+                    page,
+                    ..DashboardUi::default()
                 };
-                self.picker = None;
-                self.display_editor = None;
-                self.hovered = None;
                 None
             }
-            DashboardControl::HeadsetPosition | DashboardControl::WristPosition => {
-                self.display_editor = Some(if control == Some(DashboardControl::HeadsetPosition) {
-                    DisplayKind::Headset
-                } else {
-                    DisplayKind::Wrist
-                });
-                self.hovered = None;
+            DashboardCommand::Picker(picker)
+                if self.ui.page == DashboardPage::Language && self.ui.picker.is_none() =>
+            {
+                if picker
+                    .choice(view)
+                    .is_some_and(|choice| !choice.options.is_empty())
+                {
+                    self.ui.picker = Some(picker);
+                    self.ui.picker_page = 0;
+                }
                 None
             }
-            DashboardControl::PositionClose => {
-                self.display_editor = None;
-                self.hovered = None;
+            DashboardCommand::PickerPage(direction) if matches!(direction, -1 | 1) => {
+                let choice = self.ui.picker?.choice(view)?;
+                let page = self
+                    .ui
+                    .picker_page
+                    .saturating_add_signed(direction as isize);
+                if page * PICKER_PAGE_SIZE < choice.options.len() {
+                    self.ui.picker_page = page;
+                }
                 None
             }
-            DashboardControl::PositionStep(field, direction) => {
-                Some(DashboardAction::AdjustDisplayPosition {
-                    kind: self.display_editor?,
-                    field,
-                    direction,
-                })
-            }
-            DashboardControl::PositionReset => {
-                Some(DashboardAction::ResetDisplayPosition(self.display_editor?))
-            }
-            DashboardControl::RecenterDialogue => Some(DashboardAction::RecenterDialogue),
-            DashboardControl::AttachDialogue => Some(DashboardAction::AttachDialogue),
-            DashboardControl::PositionPreview => Some(match self.display_editor? {
-                DisplayKind::Headset => DashboardAction::PreviewHeadset,
-                DisplayKind::Wrist => DashboardAction::PreviewWrist,
-            }),
-            control @ (DashboardControl::RecognitionLanguage
-            | DashboardControl::TranslationMode
-            | DashboardControl::TargetLanguage(..)
-            | DashboardControl::PresetApply
-            | DashboardControl::PresetDelete) => {
-                self.picker = Some(control);
-                self.picker_page = 0;
-                self.hovered = None;
-                None
-            }
-            DashboardControl::PickerClose => {
-                self.picker = None;
-                self.hovered = None;
-                None
-            }
-            DashboardControl::PickerPrevious => {
-                self.picker_page -= 1;
-                self.hovered = None;
-                None
-            }
-            DashboardControl::PickerNext => {
-                self.picker_page += 1;
-                self.hovered = None;
-                None
-            }
-            DashboardControl::PickerOption(index) => {
-                let option = self.picker_choice()?.options.get(index)?.clone();
-                let value = option.value;
-                let action = match self.picker? {
-                    DashboardControl::RecognitionLanguage => {
-                        DashboardAction::SetRecognitionLanguage(value)
-                    }
-                    DashboardControl::TranslationMode => DashboardAction::SetTranslationMode(value),
-                    DashboardControl::TargetLanguage(group, index) => {
+            DashboardCommand::Select(index) => {
+                let picker = self.ui.picker?;
+                if index / PICKER_PAGE_SIZE != self.ui.picker_page {
+                    return None;
+                }
+                let option = picker.choice(view)?.options.get(index)?;
+                let value = option.value.clone();
+                let action = match picker {
+                    DashboardPicker::Recognition => DashboardAction::SetRecognitionLanguage(value),
+                    DashboardPicker::Mode => DashboardAction::SetTranslationMode(value),
+                    DashboardPicker::Target { group, index } => {
                         DashboardAction::SetTargetLanguage {
                             group,
                             index,
                             value,
                         }
                     }
-                    DashboardControl::PresetApply => DashboardAction::ApplyLanguagePreset(value),
-                    DashboardControl::PresetDelete => DashboardAction::DeleteLanguagePreset(value),
-                    _ => return None,
+                    DashboardPicker::ApplyPreset => DashboardAction::ApplyLanguagePreset(value),
+                    DashboardPicker::DeletePreset => DashboardAction::DeleteLanguagePreset(value),
                 };
-                self.picker = None;
-                self.hovered = None;
-                if matches!(action, DashboardAction::DeleteLanguagePreset(_)) {
-                    self.confirmation = Some((action, option.label));
-                    None
-                } else {
-                    Some(action)
-                }
+                self.ui.picker = None;
+                self.emit_or_confirm(action, option.label.clone(), view)
             }
-            control => action_for(control),
+            DashboardCommand::Position(kind) if self.ui.page == DashboardPage::Display => {
+                self.ui.display_editor = Some(kind);
+                None
+            }
+            DashboardCommand::Close => {
+                self.ui.picker = None;
+                self.ui.display_editor = None;
+                None
+            }
+            DashboardCommand::Action(action) => {
+                if self.ui.picker.is_some()
+                    && !matches!(
+                        action,
+                        DashboardAction::ToggleMaster | DashboardAction::ToggleCapture
+                    )
+                {
+                    return None;
+                }
+                let label = match &action {
+                    DashboardAction::DeleteTarget { group, index } => view
+                        .language
+                        .targets(*group)
+                        .get(*index)
+                        .map(|choice| choice.value.clone())
+                        .unwrap_or_default(),
+                    _ => String::new(),
+                };
+                self.emit_or_confirm(action, label, view)
+            }
+            _ => None,
         }
     }
 
-    pub(super) fn hovered(&self) -> Option<DashboardControl> {
-        self.hovered
+    fn emit_or_confirm(
+        &mut self,
+        action: DashboardAction,
+        label: String,
+        view: &DashboardViewModel,
+    ) -> Option<DashboardAction> {
+        if !self.action_allowed(&action, view) {
+            return None;
+        }
+        if matches!(
+            action,
+            DashboardAction::DeleteTarget { .. } | DashboardAction::DeleteLanguagePreset(_)
+        ) {
+            self.ui.confirmation = Some(DashboardConfirmation { action, label });
+            None
+        } else {
+            Some(action)
+        }
     }
 
-    pub(super) fn pressed(&self) -> Option<DashboardControl> {
-        self.pressed
+    fn action_allowed(&self, action: &DashboardAction, view: &DashboardViewModel) -> bool {
+        use DashboardAction::*;
+        let page = match action {
+            ToggleMaster | ToggleCapture => {
+                return !matches!(action, ToggleCapture) || view.capture.available
+            }
+            SetRecognitionLanguage(_)
+            | SetTranslationMode(_)
+            | SetTargetLanguage { .. }
+            | AddTarget(_)
+            | DeleteTarget { .. }
+            | MoveTarget { .. }
+            | SaveLanguagePreset(_)
+            | ApplyLanguagePreset(_)
+            | DeleteLanguagePreset(_) => DashboardPage::Language,
+            ToggleOsc | ToggleOscOriginal | ToggleOscMuteSync | SetOscStrategy(_) => {
+                DashboardPage::Osc
+            }
+            _ => DashboardPage::Display,
+        };
+        if self.ui.page != page || page == DashboardPage::Osc && !view.osc_available {
+            return false;
+        }
+        let contains = |choice: &DashboardChoice, value: &str| {
+            choice.options.iter().any(|option| option.value == value)
+        };
+        match action {
+            ToggleOcr | ToggleOcrGesture => view.ocr_available && view.ocr.available,
+            ToggleVision => {
+                view.vision_available && (view.vision.enabled || view.vision.configured)
+            }
+            OpenOcrBindings => view.vision_available || view.ocr_available && view.ocr.available,
+            SetDisplayContent(value) => contains(&view.content, value),
+            SetWristHand(value) => contains(&view.wrist.hand, value),
+            SetOscStrategy(value) => contains(&view.osc.strategy, value),
+            SetRecognitionLanguage(value) => contains(&view.language.recognition, value),
+            SetTranslationMode(value) => contains(&view.language.mode, value),
+            SetTargetLanguage {
+                group,
+                index,
+                value,
+            } => view
+                .language
+                .targets(*group)
+                .get(*index)
+                .is_some_and(|choice| contains(choice, value)),
+            AddTarget(group) => view.language.can_add && view.language.targets(*group).len() < 3,
+            DeleteTarget { group, index } => {
+                let targets = view.language.targets(*group);
+                targets.len() > 1 && *index < targets.len()
+            }
+            MoveTarget {
+                group,
+                index,
+                offset,
+            } => {
+                let count = view.language.targets(*group).len();
+                *index < count
+                    && matches!(offset, -1 | 1)
+                    && index
+                        .checked_add_signed(*offset as isize)
+                        .is_some_and(|target| target < count)
+            }
+            SaveLanguagePreset(name) => view.language.can_save_preset && name.is_empty(),
+            ApplyLanguagePreset(value) | DeleteLanguagePreset(value) => {
+                contains(&view.language.presets, value)
+            }
+            AdjustDisplayPosition {
+                kind,
+                field,
+                direction,
+            } => {
+                let fields = if *kind == DisplayKind::Headset {
+                    &view.headset.position
+                } else {
+                    &view.wrist.position
+                };
+                self.ui.display_editor == Some(*kind)
+                    && fields.iter().any(|item| {
+                        item.field == *field
+                            && match direction {
+                                -1 => item.can_decrease,
+                                1 => item.can_increase,
+                                _ => false,
+                            }
+                    })
+            }
+            ResetDisplayPosition(kind) => self.ui.display_editor == Some(*kind),
+            RecenterDialogue | AttachDialogue => self.ui.display_editor == Some(DisplayKind::Wrist),
+            _ => true,
+        }
     }
 }
 
@@ -1081,510 +644,260 @@ impl Default for DashboardState {
     }
 }
 
-fn action_for(control: DashboardControl) -> Option<DashboardAction> {
-    Some(match control {
-        DashboardControl::TargetAdd(group) => DashboardAction::AddTarget(group),
-        DashboardControl::TargetDelete(group, index) => {
-            DashboardAction::DeleteTarget { group, index }
-        }
-        DashboardControl::TargetUp(group, index) => DashboardAction::MoveTarget {
-            group,
-            index,
-            offset: -1,
-        },
-        DashboardControl::TargetDown(group, index) => DashboardAction::MoveTarget {
-            group,
-            index,
-            offset: 1,
-        },
-        DashboardControl::PresetSave => DashboardAction::SaveLanguagePreset(String::new()),
-        DashboardControl::OscEnabled => DashboardAction::ToggleOsc,
-        DashboardControl::OscOriginal => DashboardAction::ToggleOscOriginal,
-        DashboardControl::OscMuteSync => DashboardAction::ToggleOscMuteSync,
-        DashboardControl::Master => DashboardAction::ToggleMaster,
-        DashboardControl::Capture => DashboardAction::ToggleCapture,
-        DashboardControl::HeadsetEnabled => DashboardAction::ToggleHeadset,
-        DashboardControl::HeadsetWidthDown => DashboardAction::HeadsetWidthDown,
-        DashboardControl::HeadsetWidthUp => DashboardAction::HeadsetWidthUp,
-        DashboardControl::HeadsetOpacityDown => DashboardAction::HeadsetOpacityDown,
-        DashboardControl::HeadsetOpacityUp => DashboardAction::HeadsetOpacityUp,
-        DashboardControl::HeadsetPreview => DashboardAction::PreviewHeadset,
-        DashboardControl::WristEnabled => DashboardAction::ToggleWrist,
-        DashboardControl::WristWidthDown => DashboardAction::WristWidthDown,
-        DashboardControl::WristWidthUp => DashboardAction::WristWidthUp,
-        DashboardControl::WristOpacityDown => DashboardAction::WristOpacityDown,
-        DashboardControl::WristOpacityUp => DashboardAction::WristOpacityUp,
-        DashboardControl::WristPreview => DashboardAction::PreviewWrist,
-        DashboardControl::OcrEnabled => DashboardAction::ToggleOcr,
-        DashboardControl::VisionEnabled => DashboardAction::ToggleVision,
-        DashboardControl::OcrGesture => DashboardAction::ToggleOcrGesture,
-        DashboardControl::OcrBindings => DashboardAction::OpenOcrBindings,
-        _ => return None,
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn click(state: &mut DashboardState, x: f32, y: f32) -> Option<DashboardAction> {
-        state.pointer_down(x, y);
-        state.pointer_up(x, y)
-    }
-
-    #[test]
-    fn vision_toggle_is_independent_of_ocr_and_requires_configuration_to_enable() {
-        let mut state = DashboardState {
-            ocr_available: false,
+    fn view() -> DashboardViewModel {
+        let choice = DashboardChoice {
+            value: "en".into(),
+            options: vec![
+                DashboardOption {
+                    value: "en".into(),
+                    label: "English".into(),
+                },
+                DashboardOption {
+                    value: "ja".into(),
+                    label: "Japanese".into(),
+                },
+            ],
+        };
+        DashboardViewModel {
+            labels: DashboardLabels::default(),
+            enabled: false,
+            capture: DashboardCapture {
+                running: false,
+                available: true,
+            },
+            content: choice.clone(),
+            ocr_available: true,
             vision_available: true,
-            ..DashboardState::default()
-        };
-        assert_eq!(click(&mut state, 1040., 778.), None);
-        state.vision_configured = true;
+            osc_available: true,
+            headset: DashboardHeadset {
+                enabled: true,
+                preview_visible: false,
+                width: "1 m".into(),
+                opacity: "80%".into(),
+                position: vec![DashboardNumberField {
+                    field: PositionField::Horizontal,
+                    label: "X".into(),
+                    value: "0".into(),
+                    can_decrease: false,
+                    can_increase: true,
+                }],
+            },
+            wrist: DashboardWrist {
+                enabled: true,
+                anchor_mode: "wrist".into(),
+                hand: choice.clone(),
+                preview_visible: false,
+                width: "1 m".into(),
+                opacity: "80%".into(),
+                position: vec![],
+            },
+            ocr: DashboardOcr {
+                available: true,
+                enabled: true,
+                backend: "winrt".into(),
+                gesture: true,
+            },
+            vision: DashboardVision::default(),
+            language: DashboardLanguage {
+                recognition: choice.clone(),
+                mode: choice.clone(),
+                speaker_targets: vec![choice.clone(), choice.clone()],
+                microphone_targets: vec![choice.clone()],
+                can_add: true,
+                presets: choice.clone(),
+                can_save_preset: true,
+            },
+            osc: DashboardOsc {
+                enabled: true,
+                original: false,
+                mute_sync: false,
+                strategy: choice,
+                endpoint: String::new(),
+            },
+            status: String::new(),
+            save_state: DashboardSaveState::Idle,
+            error: None,
+        }
+    }
+
+    fn action(
+        state: &mut DashboardState,
+        view: &DashboardViewModel,
+        action: DashboardAction,
+    ) -> Option<DashboardAction> {
+        state.activate(DashboardCommand::Action(action), view)
+    }
+
+    #[test]
+    fn master_off_preserves_settings_access_but_availability_is_enforced() {
+        let mut state = DashboardState::new();
+        let mut view = view();
         assert_eq!(
-            click(&mut state, 1040., 778.),
+            action(&mut state, &view, DashboardAction::ToggleHeadset),
+            Some(DashboardAction::ToggleHeadset)
+        );
+        assert_eq!(
+            action(&mut state, &view, DashboardAction::ToggleVision),
+            None
+        );
+        view.vision.configured = true;
+        assert_eq!(
+            action(&mut state, &view, DashboardAction::ToggleVision),
             Some(DashboardAction::ToggleVision)
         );
+        view.capture.available = false;
         assert_eq!(
-            serde_json::to_string(&DashboardAction::ToggleVision).unwrap(),
-            "\"toggle_vision\""
+            action(&mut state, &view, DashboardAction::ToggleCapture),
+            None
         );
-        state.vision_configured = false;
-        state.vision_enabled = true;
+        view.ocr_available = false;
+        assert_eq!(action(&mut state, &view, DashboardAction::ToggleOcr), None);
+        state.set_interactive(false);
         assert_eq!(
-            click(&mut state, 1040., 778.),
-            Some(DashboardAction::ToggleVision)
-        );
-        assert_eq!(
-            click(&mut state, 1200., 790.),
-            Some(DashboardAction::OpenOcrBindings)
+            action(&mut state, &view, DashboardAction::ToggleMaster),
+            None
         );
     }
 
     #[test]
-    fn feature_switches_remove_ocr_and_osc_controls() {
-        let mut state = DashboardState {
-            ocr_available: false,
-            osc_available: false,
-            ..DashboardState::default()
-        };
-        assert_eq!(click(&mut state, 340., 778.), None);
-        assert_eq!(click(&mut state, 880., 168.), None);
-        assert_eq!(state.page(), DashboardPage::Display);
-        state.ocr_available = true;
-        state.osc_available = true;
-        assert_eq!(
-            click(&mut state, 340., 778.),
-            Some(DashboardAction::ToggleOcr)
-        );
-        click(&mut state, 880., 168.);
-        assert_eq!(state.page(), DashboardPage::Osc);
-    }
-
-    #[test]
-    fn position_editor_maps_each_axis_to_the_selected_overlay() {
-        let mut state = DashboardState::default();
-        for (index, third) in [PositionField::Distance, PositionField::Depth]
-            .into_iter()
-            .enumerate()
-        {
-            state.position[index] = [
-                PositionField::Horizontal,
-                PositionField::Vertical,
-                third,
-                PositionField::Pitch,
-                PositionField::Yaw,
-                PositionField::Roll,
-            ]
-            .into_iter()
-            .map(|field| DashboardNumberField {
-                field,
-                label: String::new(),
-                value: String::new(),
-                can_decrease: true,
-                can_increase: true,
+    fn picker_validates_current_page_options_and_preserves_action_encoding() {
+        let mut state = DashboardState::new();
+        let mut view = view();
+        view.language.recognition.options = (0..40)
+            .map(|index| DashboardOption {
+                value: format!("language-{index}"),
+                label: format!("Language {index}"),
             })
             .collect();
-        }
-        for (kind, x) in [(DisplayKind::Headset, 200.), (DisplayKind::Wrist, 900.)] {
-            assert_eq!(click(&mut state, x, 630.), None);
-            assert_eq!(state.display_editor(), Some(kind));
-            let fields = state.position_fields().to_vec();
-            for field in fields {
-                for direction in [-1, 1] {
-                    let rect = control_rect(DashboardControl::PositionStep(field.field, direction));
-                    assert_eq!(
-                        click(
-                            &mut state,
-                            (rect.left + rect.right) / 2.,
-                            (rect.top + rect.bottom) / 2.
-                        ),
-                        Some(DashboardAction::AdjustDisplayPosition {
-                            kind,
-                            field: field.field,
-                            direction
-                        })
-                    );
-                }
-            }
-            assert_eq!(click(&mut state, 108., 510.), None);
-            assert_eq!(
-                click(&mut state, 1000., 278.),
-                Some(if kind == DisplayKind::Headset {
-                    DashboardAction::PreviewHeadset
-                } else {
-                    DashboardAction::PreviewWrist
-                })
-            );
-            assert_eq!(
-                click(&mut state, 200., 792.),
-                Some(DashboardAction::ResetDisplayPosition(kind))
-            );
-            assert_eq!(click(&mut state, 1250., 278.), None);
-            assert_eq!(state.display_editor(), None);
-        }
-        assert_eq!(
-            serde_json::to_value(DashboardAction::AdjustDisplayPosition {
-                kind: DisplayKind::Wrist,
-                field: PositionField::Depth,
-                direction: -1
-            })
-            .unwrap(),
-            serde_json::json!({ "adjust_display_position": { "kind": "wrist", "field": "offset_z_m", "direction": -1 } })
+        state.activate(DashboardCommand::Page(DashboardPage::Language), &view);
+        state.activate(
+            DashboardCommand::Picker(DashboardPicker::Recognition),
+            &view,
         );
-        click(&mut state, 200., 630.);
-        click(&mut state, 500., 168.);
-        assert_eq!(state.display_editor(), None);
+        assert_eq!(state.activate(DashboardCommand::Select(32), &view), None);
+        state.activate(DashboardCommand::PickerPage(1), &view);
+        let selected = state.activate(DashboardCommand::Select(32), &view).unwrap();
+        assert_eq!(
+            serde_json::to_value(selected).unwrap(),
+            serde_json::json!({ "set_recognition_language": "language-32" })
+        );
+        assert!(state.ui.picker.is_none());
+        assert_eq!(
+            action(
+                &mut state,
+                &view,
+                DashboardAction::SetRecognitionLanguage("missing".into())
+            ),
+            None
+        );
     }
 
     #[test]
-    fn position_limits_and_disabled_input_preserve_the_editor() {
-        let mut state = DashboardState::default();
-        state.position[0] = vec![DashboardNumberField {
-            field: PositionField::Horizontal,
-            label: "Horizontal".into(),
-            value: "-2.00 m".into(),
-            can_decrease: false,
-            can_increase: true,
-        }];
-        click(&mut state, 200., 630.);
-        assert_eq!(click(&mut state, 108., 450.), None);
-        assert_eq!(
-            click(&mut state, 450., 450.),
-            Some(DashboardAction::AdjustDisplayPosition {
-                kind: DisplayKind::Headset,
-                field: PositionField::Horizontal,
-                direction: 1
-            })
-        );
-        state.set_interactive(false);
-        assert_eq!(click(&mut state, 450., 450.), None);
-        assert_eq!(click(&mut state, 200., 792.), None);
-        assert_eq!(click(&mut state, 1000., 278.), None);
-        assert_eq!(state.display_editor(), Some(DisplayKind::Headset));
-    }
-
-    #[test]
-    fn target_rows_emit_group_and_index_and_enforce_route_limits() {
-        let mut state = DashboardState::default();
-        let choice = DashboardChoice {
-            value: "English".into(),
-            options: vec![DashboardOption {
-                value: "fr".into(),
-                label: "French".into(),
-            }],
+    fn deletion_requires_confirmation_and_stale_settings_cancel_it() {
+        let mut state = DashboardState::new();
+        let mut view = view();
+        state.activate(DashboardCommand::Page(DashboardPage::Language), &view);
+        let remove = DashboardAction::DeleteTarget {
+            group: TargetGroup::Speaker,
+            index: 1,
         };
-        state.language.microphone_targets = vec![choice.clone()];
-        state.language.speaker_targets = vec![choice; 3];
-        state.language.can_add = true;
-        click(&mut state, 500., 168.);
-        for group in [TargetGroup::Microphone, TargetGroup::Speaker] {
-            let count = state.language.targets(group).len();
-            for index in 0..count {
-                let rect = control_rect(DashboardControl::TargetLanguage(group, index));
-                click(&mut state, rect.left + 20., rect.top + 20.);
-                let action = click(&mut state, 100., 360.).unwrap();
-                assert_eq!(
-                    action,
-                    DashboardAction::SetTargetLanguage {
-                        group,
-                        index,
-                        value: "fr".into()
-                    }
-                );
-                assert_eq!(
-                    serde_json::to_value(action).unwrap()["set_target_language"]["index"],
-                    index
-                );
-            }
-        }
-        assert_eq!(click(&mut state, 518., 450.), None);
-        assert_eq!(click(&mut state, 650., 450.), None);
-        assert_eq!(click(&mut state, 900., 694.), None);
+        assert_eq!(action(&mut state, &view, remove.clone()), None);
+        assert!(state.ui.confirmation.is_some());
         assert_eq!(
-            click(&mut state, 200., 694.),
+            action(&mut state, &view, DashboardAction::ToggleMaster),
+            None
+        );
+        assert_eq!(
+            state.activate(DashboardCommand::Confirm, &view),
+            Some(remove.clone())
+        );
+        action(&mut state, &view, remove);
+        view.language.speaker_targets.remove(1);
+        state.update_view(&view);
+        assert!(state.ui.confirmation.is_none());
+        assert_eq!(state.activate(DashboardCommand::Confirm, &view), None);
+        assert_eq!(
+            action(
+                &mut state,
+                &view,
+                DashboardAction::DeleteTarget {
+                    group: TargetGroup::Speaker,
+                    index: 0
+                }
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn target_routes_and_position_limits_reject_invalid_commands() {
+        let mut state = DashboardState::new();
+        let mut view = view();
+        state.activate(DashboardCommand::Page(DashboardPage::Language), &view);
+        assert_eq!(
+            action(
+                &mut state,
+                &view,
+                DashboardAction::MoveTarget {
+                    group: TargetGroup::Speaker,
+                    index: 0,
+                    offset: -1
+                }
+            ),
+            None
+        );
+        assert_eq!(
+            action(
+                &mut state,
+                &view,
+                DashboardAction::MoveTarget {
+                    group: TargetGroup::Speaker,
+                    index: 99,
+                    offset: 1
+                }
+            ),
+            None
+        );
+        assert_eq!(
+            action(
+                &mut state,
+                &view,
+                DashboardAction::AddTarget(TargetGroup::Microphone)
+            ),
             Some(DashboardAction::AddTarget(TargetGroup::Microphone))
         );
-        assert_eq!(
-            click(&mut state, 1202., 528.),
-            Some(DashboardAction::MoveTarget {
-                group: TargetGroup::Speaker,
-                index: 1,
-                offset: -1
-            })
-        );
-        assert_eq!(click(&mut state, 1330., 528.), None);
-        // Clicking behind the confirmation must not delete or toggle anything.
-        assert_eq!(click(&mut state, 1330., 528.), None);
-        assert_eq!(click(&mut state, 800., 168.), None);
-        assert_eq!(state.page(), DashboardPage::Language);
-        assert_eq!(click(&mut state, 550., 620.), None);
-        assert_eq!(click(&mut state, 1330., 528.), None);
-        assert_eq!(
-            click(&mut state, 900., 620.),
-            Some(DashboardAction::DeleteTarget {
-                group: TargetGroup::Speaker,
-                index: 1,
-            })
-        );
-        click(&mut state, 800., 168.);
-        assert_eq!(
-            click(&mut state, 1330., 528.),
-            Some(DashboardAction::ToggleOscMuteSync)
-        );
-    }
-
-    #[test]
-    fn preset_pickers_emit_ids_and_full_capacity_disables_save() {
-        let mut state = DashboardState::default();
-        state.language.presets.options = vec![DashboardOption {
-            value: "preset-id".into(),
-            label: "Custom preset".into(),
-        }];
-        click(&mut state, 500., 168.);
-        assert_eq!(click(&mut state, 900., 800.), None);
-        click(&mut state, 400., 800.);
-        assert_eq!(
-            click(&mut state, 100., 360.),
-            Some(DashboardAction::ApplyLanguagePreset("preset-id".into()))
-        );
-        click(&mut state, 1250., 800.);
-        assert_eq!(click(&mut state, 100., 360.), None);
-        assert_eq!(
-            click(&mut state, 900., 620.),
-            Some(DashboardAction::DeleteLanguagePreset("preset-id".into()))
-        );
-        state.language.can_save_preset = true;
-        assert_eq!(
-            click(&mut state, 900., 800.),
-            Some(DashboardAction::SaveLanguagePreset(String::new()))
-        );
-        state.set_interactive(false);
-        assert_eq!(click(&mut state, 400., 800.), None);
-        assert_eq!(state.picker(), None);
-    }
-
-    #[test]
-    fn language_picker_emits_the_selected_value_and_can_be_cancelled() {
-        let mut state = DashboardState::default();
-        state.language.recognition.options = vec![
-            DashboardOption {
-                value: "auto".into(),
-                label: "Automatic".into(),
-            },
-            DashboardOption {
-                value: "en".into(),
-                label: "English".into(),
-            },
-        ];
-        assert_eq!(click(&mut state, 500., 168.), None);
-        assert_eq!(click(&mut state, 200., 280.), None);
-        assert_eq!(
-            click(&mut state, 430., 360.),
-            Some(DashboardAction::SetRecognitionLanguage("en".into()))
-        );
-        assert_eq!(state.picker(), None);
-        assert_eq!(
-            serde_json::to_value(DashboardAction::SetRecognitionLanguage("en".into())).unwrap(),
-            serde_json::json!({ "set_recognition_language": "en" })
-        );
-        click(&mut state, 200., 280.);
-        assert_eq!(click(&mut state, 1240., 278.), None);
-        assert_eq!(state.picker(), None);
-    }
-
-    #[test]
-    fn paged_language_picker_keeps_values_and_bounds_in_sync() {
-        let mut state = DashboardState::default();
-        state.language.speaker_targets = vec![DashboardChoice {
-            value: String::new(),
-            options: (0..40)
-                .map(|index| DashboardOption {
-                    value: format!("language-{index}"),
-                    label: format!("Language {index}"),
-                })
-                .collect(),
-        }];
-        click(&mut state, 500., 168.);
-        click(&mut state, 800., 450.);
-        assert_eq!(click(&mut state, 900., 278.), None);
-        assert_eq!(state.picker_page(), 0);
-        assert_eq!(click(&mut state, 1050., 278.), None);
-        assert_eq!(state.picker_page(), 1);
-        assert_eq!(click(&mut state, 1050., 278.), None);
-        assert_eq!(state.picker_page(), 1);
-        assert_eq!(
-            click(&mut state, 100., 360.),
-            Some(DashboardAction::SetTargetLanguage {
-                group: TargetGroup::Speaker,
-                index: 0,
-                value: "language-32".into()
-            })
-        );
-    }
-
-    #[test]
-    fn empty_and_disabled_language_choices_do_not_open_a_picker() {
-        let mut state = DashboardState::default();
-        click(&mut state, 500., 168.);
-        assert_eq!(click(&mut state, 200., 280.), None);
-        assert_eq!(state.picker(), None);
-        state.language.recognition.options = vec![DashboardOption {
-            value: "en".into(),
-            label: "English".into(),
-        }];
-        state.set_interactive(false);
-        assert_eq!(click(&mut state, 200., 280.), None);
-        assert_eq!(state.picker(), None);
-    }
-
-    #[test]
-    fn tab_navigation_is_local_and_hides_controls_from_other_pages() {
-        let mut state = DashboardState::default();
-        state.pointer_down(800., 168.);
-        assert_eq!(state.pointer_up(800., 168.), None);
-        state.pointer_down(500., 374.);
-        assert_eq!(state.pointer_up(500., 374.), None);
-        state.pointer_down(200., 320.);
-        let action = state.pointer_up(200., 320.);
-        assert_eq!(
-            action.map(|action| serde_json::to_value(action).unwrap()),
-            Some(serde_json::json!("toggle_osc"))
-        );
-    }
-
-    #[test]
-    fn language_tabs_do_not_emit_settings_actions() {
-        let mut state = DashboardState::default();
-        state.pointer_down(500., 168.);
-        assert_eq!(state.pointer_up(500., 168.), None);
-        state.pointer_down(108., 510.);
-        assert_eq!(state.pointer_up(108., 510.), None);
-    }
-
-    #[test]
-    fn master_switch_maps_to_a_semantic_action() {
-        let mut state = DashboardState::default();
-
-        state.pointer_down(1200.0, 168.0);
-
-        assert_eq!(
-            state.pointer_up(1200.0, 168.0),
-            Some(DashboardAction::ToggleMaster)
-        );
-    }
-
-    #[test]
-    fn releasing_outside_the_pressed_control_does_not_activate_it() {
-        let mut state = DashboardState::default();
-
-        state.pointer_down(650.0, 278.0);
-
-        assert_eq!(state.pointer_up(800.0, 278.0), None);
-    }
-
-    #[test]
-    fn headset_step_buttons_have_distinct_actions() {
-        let mut state = DashboardState::default();
-
-        state.pointer_down(108.0, 550.0);
-        let decrease = state.pointer_up(108.0, 550.0);
-        state.pointer_down(336.0, 550.0);
-        let increase = state.pointer_up(336.0, 550.0);
-
-        assert_eq!(decrease, Some(DashboardAction::HeadsetWidthDown));
-        assert_eq!(increase, Some(DashboardAction::HeadsetWidthUp));
-    }
-
-    #[test]
-    fn disabled_controls_do_not_emit_actions() {
-        let mut state = DashboardState::default();
-        state.set_interactive(false);
-
-        state.pointer_down(1200.0, 168.0);
-
-        assert_eq!(state.pointer_up(1200.0, 168.0), None);
-    }
-
-    #[test]
-    fn openvr_pointer_origin_is_converted_to_top_left() {
-        for height in [840, 872, DASHBOARD_HEIGHT] {
-            assert_eq!(
-                pointer_from_openvr(100.0, 200.0, height),
-                (100.0, height as f32 - 200.0)
-            );
-        }
-    }
-
-    #[test]
-    fn segments_emit_direct_values_and_stay_on_their_page() {
-        let mut state = DashboardState {
-            choices: std::array::from_fn(|_| DashboardChoice {
-                value: "Preferred".into(),
-                options: vec![
-                    DashboardOption {
-                        value: "preferred_only".into(),
-                        label: "Preferred".into(),
-                    },
-                    DashboardOption {
-                        value: "all_languages".into(),
-                        label: "All".into(),
-                    },
-                ],
-            }),
-            ..DashboardState::default()
+        state.activate(DashboardCommand::Page(DashboardPage::Display), &view);
+        state.activate(DashboardCommand::Position(DisplayKind::Headset), &view);
+        let adjust = |direction| DashboardAction::AdjustDisplayPosition {
+            kind: DisplayKind::Headset,
+            field: PositionField::Horizontal,
+            direction,
         };
-        assert_eq!(
-            click(&mut state, 1200., 278.),
-            Some(DashboardAction::SetDisplayContent("all_languages".into()))
-        );
-        assert_eq!(
-            serde_json::to_value(DashboardAction::SetDisplayContent("all_languages".into()))
-                .unwrap(),
-            serde_json::json!({ "set_display_content": "all_languages" })
-        );
-        state.choices[1].options[1].value = "right".into();
-        assert_eq!(
-            click(&mut state, 1140., 444.),
-            Some(DashboardAction::SetWristHand("right".into()))
-        );
-        click(&mut state, 800., 168.);
-        assert_eq!(click(&mut state, 1200., 278.), None);
-        assert_eq!(
-            click(&mut state, 700., 660.),
-            Some(DashboardAction::SetOscStrategy("all_languages".into()))
-        );
+        assert_eq!(action(&mut state, &view, adjust(-1)), None);
+        assert_eq!(action(&mut state, &view, adjust(1)), Some(adjust(1)));
+        assert_eq!(action(&mut state, &view, adjust(2)), None);
+        view.osc_available = false;
+        state.activate(DashboardCommand::Page(DashboardPage::Osc), &view);
+        assert_eq!(state.ui.page, DashboardPage::Display);
     }
 
     #[test]
-    fn ocr_bindings_use_the_full_width_utility_card() {
-        let mut state = DashboardState::default();
-
-        state.pointer_down(1200.0, 790.0);
-
+    fn commands_round_trip_without_changing_business_action_protocol() {
+        let command = DashboardCommand::Action(DashboardAction::SetWristHand("right".into()));
+        let encoded =
+            serde_json::json!({ "type": "action", "value": { "set_wrist_hand": "right" } });
+        assert_eq!(serde_json::to_value(&command).unwrap(), encoded);
         assert_eq!(
-            state.pointer_up(1200.0, 790.0),
-            Some(DashboardAction::OpenOcrBindings)
+            serde_json::from_value::<DashboardCommand>(encoded).unwrap(),
+            command
+        );
+        assert_eq!(
+            pointer_from_openvr(100., 200., DASHBOARD_HEIGHT),
+            (100., 700.)
         );
     }
 }

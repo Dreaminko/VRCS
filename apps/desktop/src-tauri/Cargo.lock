@@ -5533,7 +5533,6 @@ dependencies = [
  "tauri-plugin-updater",
  "tokio",
  "tracing",
- "unicode-segmentation",
  "uuid",
  "vrcs-core",
  "windows",

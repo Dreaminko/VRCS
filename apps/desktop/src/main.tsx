@@ -18,7 +18,8 @@ async function render() {
   const route = parameters.get("window");
   if (route === "vr-surface") {
     const surface = parameters.get("surface");
-    if (surface !== "menu" && surface !== "dialogue" && surface !== "reader" && surface !== "headset" && surface !== "ocr_progress") throw new Error("Unknown VR surface");
+    const { isSurface } = await import("./vr-surface/protocol");
+    if (!isSurface(surface)) throw new Error("Unknown VR surface");
     document.documentElement.dataset.vrSurface = surface;
     const { SurfaceHost } = await import("./vr-surface/SurfaceHost");
     createRoot(rootElement).render(<StrictMode><SurfaceHost surface={surface} /></StrictMode>);
