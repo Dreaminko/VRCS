@@ -2,13 +2,15 @@ use super::{
     backend::{OpenVrBackend, OverlayKind},
     ocr_input_state::TriggerUpdate,
     ocr_selection::Selection,
+    ocr_wrist::Button,
     ocr_wrist::{Action, LaserEvent, Pointer, View, ViewMode},
-    ocr_wrist_renderer::{self, Button},
+    surface::{SurfaceHub, SurfaceId, SurfaceRenderer, SurfaceView},
 };
 use crate::vision_image::prepare_image;
 #[cfg(test)]
 use crate::{vision_image::resize, vr_overlay::renderer::Texture};
 use std::{sync::mpsc, time::Instant};
+use tauri::{AppHandle, Manager as _};
 use vrcs_core::{
     vision::{VisionAnswer, VisionProgress, VisionService, VisionSession},
     VisionConfig, VrOcrConfig, VrOcrDisplayMode,
@@ -36,7 +38,6 @@ pub struct VisionRuntime {
     pages: usize,
     labels: super::wrist_labels::WristLabels,
     pointer: Pointer,
-    answer_cache: super::vision_markdown_renderer::AnswerCache,
 }
 
 impl VisionRuntime {
@@ -59,7 +60,6 @@ impl VisionRuntime {
             pages: 1,
             labels: super::wrist_labels::WristLabels::default(),
             pointer: Pointer::default(),
-            answer_cache: super::vision_markdown_renderer::AnswerCache::default(),
         }
     }
 
@@ -107,7 +107,6 @@ impl VisionRuntime {
         self.rendered = None;
         self.buttons.clear();
         self.pages = 1;
-        self.answer_cache.clear();
         self.pointer = Pointer::default();
     }
 
@@ -394,32 +393,61 @@ impl VisionRuntime {
         self.pointer = Pointer::default();
     }
 
-    pub fn render(&mut self, backend: &mut OpenVrBackend) -> Result<bool, String> {
+    pub fn input_revision(&self) -> u64 {
+        super::ocr_wrist::input_revision(self.rendered.as_ref(), self.id)
+    }
+
+    pub fn render(
+        &mut self,
+        app: &AppHandle,
+        backend: &mut OpenVrBackend,
+        surface: &mut SurfaceRenderer,
+    ) -> Result<bool, String> {
         let (Some(view), Some(config)) = (&mut self.view, &self.configuration) else {
             return Ok(false);
         };
         // Use an independent default, never the subtitle or OCR wrist configuration.
         let wrist = config.wrist.clone().unwrap_or_default();
-        // Keep SteamVR laser focus disabled while the recording trigger is needed.
+        // The recording trigger keeps its existing application-local owner.
         if !backend
             .ensure_ocr_wrist(&wrist, self.session.is_none())?
             .available
         {
             return Ok(false);
         }
-        if self.rendered.as_ref() != Some(view) {
-            let rendered = ocr_wrist_renderer::render_with_answer_cache(
-                view,
-                wrist.font_size_px,
-                0.9,
-                &self.labels,
-                &mut self.answer_cache,
-            )?;
-            view.page = view.page.min(rendered.page_count.saturating_sub(1));
-            self.pages = rendered.page_count;
-            self.buttons = rendered.buttons;
-            backend.upload(OverlayKind::OcrWrist, &rendered.texture)?;
+        let hovered = super::surface::reader_hover(view.hovered);
+        let mut reader = view.clone();
+        reader.hovered = None;
+        let dark = app
+            .state::<super::runtime::Manager>()
+            .controls
+            .lock()
+            .map(|hub| hub.snapshot().dark)
+            .unwrap_or(false);
+        let visible = surface.present(
+            app,
+            backend,
+            OverlayKind::OcrWrist,
+            SurfaceView::Reader {
+                dark,
+                labels: self.labels.clone(),
+                reader,
+                font_size: wrist.font_size_px,
+                opacity: 0.9,
+            },
+            hovered,
+            None,
+        )?;
+        self.buttons.clear();
+        if let Some(layout) = app.state::<SurfaceHub>().layout(SurfaceId::Reader) {
+            view.page = view.page.min(layout.page_count.saturating_sub(1));
+            self.pages = layout.page_count;
+            self.buttons = layout.reader_buttons();
             self.rendered = Some(view.clone());
+        }
+        if !visible {
+            backend.hide(OverlayKind::OcrWrist);
+            return Ok(false);
         }
         backend.set_opacity(OverlayKind::OcrWrist, wrist.opacity)?;
         backend.show(OverlayKind::OcrWrist)?;
@@ -508,7 +536,6 @@ mod tests {
         let view = VisionRuntime::view("Ready", "question", "answer");
         runtime.view = Some(view.clone());
         runtime.rendered = Some(view.clone());
-        assert!(runtime.answer_cache.prepare("**answer**", 32, 880, 444));
         runtime.buttons.push(Button {
             action: Action::Close,
             bounds: [0.0, 0.0, 1.0, 1.0],
@@ -517,9 +544,8 @@ mod tests {
         assert_eq!(runtime.view.as_ref(), Some(&view));
         assert!(runtime.rendered.is_none());
         assert!(runtime.buttons.is_empty());
-        assert!(runtime.answer_cache.page_count().is_some());
         runtime.clear();
-        assert!(runtime.answer_cache.page_count().is_none());
+        assert!(runtime.view.is_none());
     }
 
     #[test]

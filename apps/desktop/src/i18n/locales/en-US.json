@@ -932,7 +932,19 @@
         "trackedDevice": "Tracked device",
         "showSample": "Show sample",
         "hideSample": "Hide sample",
-        "restoreDefaults": "Restore defaults"
+        "restoreDefaults": "Restore defaults",
+        "wristMenuEnable": "Wrist quick menu",
+        "menuHand": "Menu hand",
+        "anchorMode": "Dialogue panel anchor",
+        "anchorWrist": "Attach to wrist",
+        "anchorWorld": "Anchor in space",
+        "recenterDialogue": "Move dialogue panel in front",
+        "emptyDialogue": "No recent content",
+        "dragHint": "Point at the handle and hold grip to drag",
+        "waitingContent": "Enabled; waiting for content",
+        "masterOff": "Subtitle master switch is off",
+        "controlBusy": "Working",
+        "controlFailed": "Action failed; try again"
       },
       "conversationTitles": {
         "title": "Conversation management",

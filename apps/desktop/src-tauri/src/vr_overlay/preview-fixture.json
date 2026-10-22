@@ -1,0 +1,487 @@
+{
+  "labels": {
+    "osc_tab": "OSC",
+    "ocr_progress": {
+      "prepare": "Prepare",
+      "recognize": "Recognize",
+      "translate": "Translate",
+      "display": "Display",
+      "preparing": "Preparing image…",
+      "elapsed": "Elapsed {{seconds}}s",
+      "tasks": "Tasks {{completed}} / {{total}}",
+      "processed": "{{completed}} tasks processed",
+      "failed": "{{failed}} failed",
+      "recognizingTranslating": "Recognizing and translating…",
+      "waitingWorker": "Waiting for local OCR…",
+      "loadingModels": "Loading local models…",
+      "recognizing": "Recognizing text…",
+      "translating": "Translating text…",
+      "displaying": "Displaying results…",
+      "firstScan": "First scan may take longer",
+      "noText": "No text detected",
+      "lowConfidence": "No readable text detected",
+      "translationFailed": "Translation failed",
+      "partial": "Some translations unavailable",
+      "displayUnavailable": "Results ready; display unavailable",
+      "sourceDisplayed": "Original text displayed",
+      "complete": "Complete · Results displayed",
+      "timeoutPartial": "Timed out · Partial results displayed",
+      "timeout": "Processing timed out",
+      "viewChanged": "View changed; scan again",
+      "unavailable": "OCR unavailable",
+      "disabled": "OCR is disabled",
+      "enableOcr": "Enable OCR in Settings to scan text",
+      "modelsMissing": "Local OCR models are missing",
+      "network": "Network request failed",
+      "localFailed": "Local OCR failed",
+      "trackingLost": "Headset tracking unavailable",
+      "configurationChanged": "Settings changed; scan again",
+      "retry": "Try scanning again"
+    },
+    "wrist_reader": {
+      "disabled": "Disabled",
+      "waiting_vr": "Waiting for SteamVR",
+      "ready": "Ready to scan",
+      "unbound": "Bind the OCR controller actions in SteamVR",
+      "capturing": "Capturing",
+      "selecting": "Adjust the frame; hold the right trigger to confirm",
+      "waiting_hands": "Move your hands away to start recognition",
+      "loading_model": "Loading local models",
+      "recognizing": "Recognizing locally",
+      "translating": "Translating",
+      "recognized": "Recognition complete",
+      "visible": "Translations displayed",
+      "invalid": "View changed; scan again",
+      "error": "OCR unavailable",
+      "no_text": "No text found",
+      "low_confidence": "Text confidence is below the threshold",
+      "source_visible": "Recognized text displayed",
+      "partial_visible": "Completed translations displayed",
+      "translation_failed": "All translations failed",
+      "timed_out": "OCR task timed out",
+      "visionTitle": "Visual assistant",
+      "ocrTitle": "OCR",
+      "ocrAdditional": "OCR · Additional text",
+      "question": "Question",
+      "answer": "Answer",
+      "source": "Source",
+      "end": "End",
+      "previousBlock": "Previous text",
+      "nextBlock": "Next text",
+      "previousPage": "Previous",
+      "nextPage": "Next",
+      "language": "Language",
+      "pin": "Pin",
+      "unpin": "Unpin",
+      "pinned": "Pinned",
+      "close": "Close",
+      "cancel": "Cancel",
+      "expand": "Expand",
+      "backToAnswer": "Back to answer",
+      "complete": "Complete",
+      "listening": "Listening · release to send",
+      "finalizing": "Finishing speech recognition…",
+      "requesting": "Waiting for answer…",
+      "visionError": "Could not get an answer",
+      "listeningHint": "Hold the left trigger to speak. Release to send.",
+      "requestingHint": "Your image and question are being processed.",
+      "retryHint": "Release the trigger, select an area and ask again.",
+      "translationNotConfigured": "Translation is not configured",
+      "translationTimeout": "Translation timed out",
+      "translationUnavailable": "Translation unavailable",
+      "hideAfter": "Hides in {{seconds}} s",
+      "block": "Text",
+      "page": "Page",
+      "zh-Hans": "简体中文",
+      "en": "English",
+      "ja": "日本語"
+    },
+    "title": "VRCS Quick Settings",
+    "subtitle": "Adjust common display options inside SteamVR",
+    "master": "VR Overlay",
+    "capture_start": "Start transcription",
+    "capture_stop": "Stop transcription",
+    "headset": "Headset subtitles",
+    "wrist": "Wrist conversation",
+    "ocr": "VR text translation",
+    "vision": "Visual Q&A",
+    "content": "Multilingual translations",
+    "hand": "Controller",
+    "width": "Width",
+    "opacity": "Opacity",
+    "position": "Position",
+    "rotation": "Rotation",
+    "reset_position": "Reset position and rotation",
+    "recenter_dialogue": "Move dialogue panel in front",
+    "attach_dialogue": "Attach to wrist",
+    "gesture": "Frame gesture",
+    "preview": "Show preview",
+    "bindings": "Controller bindings",
+    "saving": "Saving…",
+    "saved": "Saved",
+    "display_tab": "Display",
+    "language_tab": "Languages",
+    "recognition_language": "Spoken language",
+    "translation_mode": "Translation mode",
+    "translation_languages": "Target languages",
+    "speaker_language": "Other party",
+    "microphone_language": "Me",
+    "add_target": "Add target language",
+    "presets": "Language presets",
+    "save_preset": "Save current configuration",
+    "apply_preset": "Apply preset",
+    "delete": "Delete",
+    "osc_original": "Keep original text in output",
+    "osc_enabled": "Enable OSC",
+    "osc_mute_sync": "Sync VRChat microphone mute",
+    "osc_strategy": "OSC multilingual output",
+    "osc_hint": "Enable OSC in VRChat as well. Set the port in the desktop app.",
+    "close": "Close",
+    "content_hint": "Applies to headset and wrist",
+    "headset_hint": "Adjust subtitle size, opacity and position",
+    "tools": "Visual tools",
+    "vision_unconfigured": "Set up a model on desktop",
+    "ocr_unavailable": "Enable OCR on desktop first",
+    "hide_preview": "Hide preview",
+    "confirm_delete": "Confirm deletion",
+    "delete_hint": "This cannot be undone.",
+    "cancel": "Cancel",
+    "position_hint": "Left/right · Up/down · Depth (m)",
+    "rotation_hint": "Pitch · Yaw · Roll (degrees)"
+  },
+  "enabled": true,
+  "capture": {
+    "running": false,
+    "available": true
+  },
+  "content": {
+    "value": "preferred_only",
+    "options": [
+      {
+        "value": "preferred_only",
+        "label": "preferred_only"
+      },
+      {
+        "value": "all_languages",
+        "label": "all_languages"
+      }
+    ]
+  },
+  "ocr_available": true,
+  "vision_available": true,
+  "osc_available": true,
+  "headset": {
+    "enabled": true,
+    "width": "1.20 m",
+    "opacity": "92%",
+    "position": [
+      {
+        "field": "offset_x_m",
+        "label": "offset_x_m",
+        "value": "0.00",
+        "can_decrease": true,
+        "can_increase": true
+      },
+      {
+        "field": "offset_y_m",
+        "label": "offset_y_m",
+        "value": "0.00",
+        "can_decrease": true,
+        "can_increase": true
+      },
+      {
+        "field": "distance_m",
+        "label": "distance_m",
+        "value": "1.20",
+        "can_decrease": true,
+        "can_increase": true
+      },
+      {
+        "field": "pitch_deg",
+        "label": "pitch_deg",
+        "value": "0.00",
+        "can_decrease": true,
+        "can_increase": true
+      },
+      {
+        "field": "yaw_deg",
+        "label": "yaw_deg",
+        "value": "0.00",
+        "can_decrease": true,
+        "can_increase": true
+      },
+      {
+        "field": "roll_deg",
+        "label": "roll_deg",
+        "value": "0.00",
+        "can_decrease": true,
+        "can_increase": true
+      }
+    ]
+  },
+  "wrist": {
+    "enabled": true,
+    "anchor_mode": "wrist",
+    "hand": {
+      "value": "left",
+      "options": [
+        {
+          "value": "left",
+          "label": "left"
+        },
+        {
+          "value": "right",
+          "label": "right"
+        },
+        {
+          "value": "dominant",
+          "label": "dominant"
+        }
+      ]
+    },
+    "width": "0.32 m",
+    "opacity": "94%",
+    "position": [
+      {
+        "field": "offset_x_m",
+        "label": "offset_x_m",
+        "value": "0.00",
+        "can_decrease": true,
+        "can_increase": true
+      },
+      {
+        "field": "offset_y_m",
+        "label": "offset_y_m",
+        "value": "0.00",
+        "can_decrease": true,
+        "can_increase": true
+      },
+      {
+        "field": "offset_z_m",
+        "label": "offset_z_m",
+        "value": "0.00",
+        "can_decrease": true,
+        "can_increase": true
+      },
+      {
+        "field": "pitch_deg",
+        "label": "pitch_deg",
+        "value": "0.00",
+        "can_decrease": true,
+        "can_increase": true
+      },
+      {
+        "field": "yaw_deg",
+        "label": "yaw_deg",
+        "value": "0.00",
+        "can_decrease": true,
+        "can_increase": true
+      },
+      {
+        "field": "roll_deg",
+        "label": "roll_deg",
+        "value": "0.00",
+        "can_decrease": true,
+        "can_increase": true
+      }
+    ]
+  },
+  "ocr": {
+    "available": true,
+    "enabled": true,
+    "backend": "Local OCR",
+    "gesture": true
+  },
+  "vision": {
+    "enabled": true,
+    "configured": true,
+    "model": "Preview"
+  },
+  "language": {
+    "recognition": {
+      "value": "auto",
+      "options": [
+        {
+          "value": "auto",
+          "label": "auto"
+        },
+        {
+          "value": "en",
+          "label": "en"
+        },
+        {
+          "value": "zh",
+          "label": "zh"
+        },
+        {
+          "value": "ja",
+          "label": "ja"
+        },
+        {
+          "value": "ko",
+          "label": "ko"
+        },
+        {
+          "value": "de",
+          "label": "de"
+        },
+        {
+          "value": "fr",
+          "label": "fr"
+        },
+        {
+          "value": "es",
+          "label": "es"
+        },
+        {
+          "value": "ru",
+          "label": "ru"
+        },
+        {
+          "value": "it",
+          "label": "it"
+        },
+        {
+          "value": "pt",
+          "label": "pt"
+        },
+        {
+          "value": "nl",
+          "label": "nl"
+        },
+        {
+          "value": "ar",
+          "label": "ar"
+        },
+        {
+          "value": "sv",
+          "label": "sv"
+        },
+        {
+          "value": "th",
+          "label": "th"
+        },
+        {
+          "value": "vi",
+          "label": "vi"
+        },
+        {
+          "value": "id",
+          "label": "id"
+        },
+        {
+          "value": "pl",
+          "label": "pl"
+        },
+        {
+          "value": "tr",
+          "label": "tr"
+        },
+        {
+          "value": "uk",
+          "label": "uk"
+        }
+      ]
+    },
+    "mode": {
+      "value": "source_only",
+      "options": [
+        {
+          "value": "source_only",
+          "label": "source_only"
+        },
+        {
+          "value": "translate",
+          "label": "translate"
+        },
+        {
+          "value": "bilingual",
+          "label": "bilingual"
+        }
+      ]
+    },
+    "speaker_targets": [
+      {
+        "value": "zh-Hans",
+        "options": [
+          {
+            "value": "zh-Hans",
+            "label": "zh-Hans"
+          },
+          {
+            "value": "en",
+            "label": "en"
+          },
+          {
+            "value": "ja",
+            "label": "ja"
+          }
+        ]
+      }
+    ],
+    "microphone_targets": [
+      {
+        "value": "en",
+        "options": [
+          {
+            "value": "en",
+            "label": "en"
+          },
+          {
+            "value": "zh-Hans",
+            "label": "zh-Hans"
+          },
+          {
+            "value": "ja",
+            "label": "ja"
+          }
+        ]
+      }
+    ],
+    "can_add": true,
+    "presets": {
+      "value": "Everyday",
+      "options": [
+        {
+          "value": "Everyday",
+          "label": "Everyday"
+        },
+        {
+          "value": "Japanese",
+          "label": "Japanese"
+        },
+        {
+          "value": "Multilingual",
+          "label": "Multilingual"
+        }
+      ]
+    },
+    "can_save_preset": true
+  },
+  "osc": {
+    "enabled": false,
+    "original": true,
+    "mute_sync": false,
+    "strategy": {
+      "value": "preferred_only",
+      "options": [
+        {
+          "value": "preferred_only",
+          "label": "preferred_only"
+        },
+        {
+          "value": "round_robin",
+          "label": "round_robin"
+        },
+        {
+          "value": "all_languages",
+          "label": "all_languages"
+        }
+      ]
+    },
+    "endpoint": "127.0.0.1:9000"
+  },
+  "status": "Native renderer · synthetic content",
+  "save_state": "idle",
+  "error": null
+}

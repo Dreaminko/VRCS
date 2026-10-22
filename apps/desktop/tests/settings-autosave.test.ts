@@ -55,3 +55,30 @@ test("only reports a failed save when it is still the latest change", async () =
 
   assert.deepEqual(errors, []);
 });
+
+test("queued patches use confirmed settings and each has its own acknowledgement", async () => {
+  let current = { port: 9001, enabled: false };
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  const writes: typeof current[] = [];
+  const save = createSettingsAutosave({
+    getCurrent: () => current,
+    persist: async (value) => {
+      writes.push(value);
+      if (writes.length === 1) await gate;
+      current = value;
+      return value;
+    },
+    onOptimistic: () => undefined,
+    onCommit: () => undefined,
+    onError: () => undefined,
+  });
+  const desktop = save({ ...current, port: 9002 });
+  const enable = save.update((latest) => ({ ...latest, enabled: true }));
+  const disable = save.update((latest) => ({ ...latest, enabled: false }));
+  release();
+  const [, enabled, disabled] = await Promise.all([desktop, enable, disable]);
+  assert.deepEqual(enabled, { port: 9002, enabled: true });
+  assert.deepEqual(disabled, { port: 9002, enabled: false });
+  assert.equal(writes.length, 3);
+});

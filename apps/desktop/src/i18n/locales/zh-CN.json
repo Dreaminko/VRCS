@@ -932,7 +932,19 @@
         "trackedDevice": "跟踪设备",
         "showSample": "显示样本",
         "hideSample": "隐藏样本",
-        "restoreDefaults": "恢复默认"
+        "restoreDefaults": "恢复默认",
+        "wristMenuEnable": "手腕快捷菜单",
+        "menuHand": "菜单绑定手",
+        "anchorMode": "字幕面板固定方式",
+        "anchorWrist": "固定在手上",
+        "anchorWorld": "空间固定",
+        "recenterDialogue": "将浏览面板移到面前",
+        "emptyDialogue": "暂无新内容",
+        "dragHint": "指向把手，按住握持键拖动",
+        "waitingContent": "设置已开启，等待内容",
+        "masterOff": "受字幕总开关限制",
+        "controlBusy": "正在处理",
+        "controlFailed": "操作失败，请重试"
       },
       "conversationTitles": {
         "title": "会话管理",

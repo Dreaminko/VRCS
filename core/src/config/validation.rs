@@ -379,6 +379,12 @@ fn validate_recognition_models(asr: &AsrConfig, vad: &VadConfig) -> Result<(), S
 }
 
 fn validate_vr_overlay(config: &VrOverlayConfig) -> Result<(), String> {
+    if !["left", "right"].contains(&config.wrist_menu.hand.as_str()) {
+        return Err("VR Overlay wrist menu hand must be left or right".into());
+    }
+    if !["wrist", "world"].contains(&config.wrist.anchor_mode.as_str()) {
+        return Err("VR Overlay wrist anchor_mode must be wrist or world".into());
+    }
     if !["preferred_only", "all_languages"].contains(&config.translation_display.as_str()) {
         return Err(format!(
             "Unsupported VR Overlay translation_display: {}",

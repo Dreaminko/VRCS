@@ -21,6 +21,16 @@ const COMMANDS: &[&str] = &[
     "vr_overlay_show_sample",
     "vr_overlay_hide_sample",
     "vr_dashboard_update_view",
+    "vr_overlay_control_ready",
+    "vr_overlay_control_update",
+    "vr_overlay_control_result",
+    "vr_overlay_control_release",
+    "vr_overlay_placement_result",
+    "vr_overlay_place_dialogue",
+    #[cfg(windows)]
+    "vr_surface_ready",
+    #[cfg(windows)]
+    "vr_surface_layout",
     "set_shortcut_recording",
     "desktop_ocr_status",
     "desktop_ocr_scan",
@@ -34,6 +44,12 @@ const COMMANDS: &[&str] = &[
     "desktop_vision_ask",
     "desktop_vision_cancel",
     "desktop_vision_close",
+    #[cfg(all(windows, debug_assertions, feature = "vr-preview"))]
+    "vr_preview_open",
+    #[cfg(all(windows, debug_assertions, feature = "vr-preview"))]
+    "vr_preview_update",
+    #[cfg(all(windows, debug_assertions, feature = "vr-preview"))]
+    "vr_preview_frame",
 ];
 
 fn main() {

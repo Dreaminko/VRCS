@@ -4,6 +4,13 @@ use super::ocr_wrist::Action;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::{ffi::CString, mem::size_of, path::Path, time::Instant};
 
+pub struct UiInput {
+    pub device: u32,
+    pub source: u64,
+    pub trigger: Option<bool>,
+    pub grip: Option<bool>,
+}
+
 pub struct InputActions {
     pub vision_trigger: TriggerUpdate,
     pub cancel: bool,
@@ -53,6 +60,7 @@ pub struct OcrInput {
     grips: [u64; 2],
     poses: [u64; 2],
     frame_session: FrameSession,
+    grips_blocked: bool,
     last_digital_state: Option<(bool, bool, bool, bool, bool, bool)>,
 }
 
@@ -142,37 +150,7 @@ fn write_if_changed(path: &Path, value: &serde_json::Value) -> Result<(), String
 }
 
 impl OcrInput {
-    /// Read the current trigger and its controller without requiring frame pose bindings.
-    pub fn pointer_sample(&self, right: bool) -> Option<(u32, u64, bool)> {
-        let api = unsafe { &*self.table };
-        let mut trigger: openvr_sys::InputDigitalActionData_t = unsafe { std::mem::zeroed() };
-        let error = unsafe {
-            api.GetDigitalActionData?(
-                if right { self.scan } else { self.clear },
-                &mut trigger,
-                size_of::<openvr_sys::InputDigitalActionData_t>() as u32,
-                0,
-            )
-        };
-        if error != 0 || !trigger.bActive || trigger.activeOrigin == 0 {
-            return None;
-        }
-        let mut info: openvr_sys::InputOriginInfo_t = unsafe { std::mem::zeroed() };
-        let error = unsafe {
-            api.GetOriginTrackedDeviceInfo?(
-                trigger.activeOrigin,
-                &mut info,
-                size_of::<openvr_sys::InputOriginInfo_t>() as u32,
-            )
-        };
-        (error == 0 && info.devicePath != 0).then_some((
-            info.trackedDeviceIndex,
-            info.devicePath,
-            trigger.bState,
-        ))
-    }
-
-    /// Source handles stay available while SteamVR's laser mouse owns input focus.
+    /// Resolve the physical hand source for pointer pose components.
     pub fn pointer_source(&self, right: bool) -> Option<u64> {
         let api = unsafe { &*self.table };
         let path = if right {
@@ -183,6 +161,52 @@ impl OcrInput {
         let mut source = 0;
         let error = unsafe { api.GetInputSourceHandle?(path.as_ptr().cast_mut(), &mut source) };
         (error == 0 && source != 0).then_some(source)
+    }
+
+    /// Read only trigger/grip actions; do not request global input focus.
+    pub fn ui_samples(&self) -> Vec<UiInput> {
+        let api = unsafe { &*self.table };
+        [false, true]
+            .into_iter()
+            .filter_map(|right| {
+                let side = usize::from(right);
+                let source = self.pointer_source(right)?;
+                let read = |action| {
+                    let mut data: openvr_sys::InputDigitalActionData_t =
+                        unsafe { std::mem::zeroed() };
+                    let error = unsafe {
+                        api.GetDigitalActionData?(
+                            action,
+                            &mut data,
+                            size_of::<openvr_sys::InputDigitalActionData_t>() as u32,
+                            source,
+                        )
+                    };
+                    (error == 0 && data.bActive && data.activeOrigin != 0).then_some(data)
+                };
+                let trigger = read(if right { self.scan } else { self.clear });
+                let grip = read(self.grips[side]);
+                let origin = trigger.as_ref().or(grip.as_ref())?.activeOrigin;
+                let mut info: openvr_sys::InputOriginInfo_t = unsafe { std::mem::zeroed() };
+                if unsafe {
+                    api.GetOriginTrackedDeviceInfo?(
+                        origin,
+                        &mut info,
+                        size_of::<openvr_sys::InputOriginInfo_t>() as u32,
+                    )
+                } != 0
+                    || info.devicePath != source
+                {
+                    return None;
+                }
+                Some(UiInput {
+                    device: info.trackedDeviceIndex,
+                    source,
+                    trigger: trigger.map(|v| v.bState),
+                    grip: grip.map(|v| v.bState),
+                })
+            })
+            .collect()
     }
 
     pub fn freeze_frame(&mut self) {
@@ -267,6 +291,7 @@ impl OcrInput {
                 action("/actions/ocr/in/right_pose").unwrap_or(0),
             ],
             frame_session: FrameSession::default(),
+            grips_blocked: false,
             last_digital_state: None,
         })
     }
@@ -291,7 +316,6 @@ impl OcrInput {
         reading_focus: bool,
         vision_enabled: bool,
     ) -> Result<InputActions, String> {
-        let tracking = tracking.filter(|_| !reading_focus);
         let api = unsafe { &*self.table };
         let read = |handle| -> Result<openvr_sys::InputDigitalActionData_t, String> {
             let mut data = unsafe { std::mem::zeroed() };
@@ -306,6 +330,16 @@ impl OcrInput {
             })?;
             Ok(data)
         };
+        // Frame bindings are optional; basic scan/clear must still work without them.
+        let grips = self
+            .grips
+            .map(|handle| read(handle).unwrap_or_else(|_| unsafe { std::mem::zeroed() }));
+        if reading_focus {
+            self.grips_blocked = true;
+        } else if grips.iter().all(|g| g.bActive && !g.bState) {
+            self.grips_blocked = false;
+        }
+        let tracking = tracking.filter(|_| !reading_focus && !self.grips_blocked);
         let scan = read(self.scan)?;
         let clear = read(self.clear)?;
         let navigation = if reading_focus {
@@ -407,7 +441,6 @@ impl OcrInput {
             }
         });
         let controllers = tracking.and_then(|(head, tracking_origin)| {
-            let grips = [read(self.grips[0]).ok()?, read(self.grips[1]).ok()?];
             let poses = [
                 read_controller(api, self.poses[0], head, tracking_origin).ok()?,
                 read_controller(api, self.poses[1], head, tracking_origin).ok()?,
@@ -813,6 +846,7 @@ mod tests {
             scan_hold: Default::default(),
             clear_hold: Default::default(),
             frame_session: Default::default(),
+            grips_blocked: false,
             last_digital_state: None,
         }
     }
@@ -830,13 +864,19 @@ mod tests {
         api.GetInputSourceHandle = Some(source);
         assert_eq!(input(&api).pointer_source(true), Some(99));
         assert_eq!(input(&api).pointer_source(false), Some(100));
-        assert!(input(&api).pointer_sample(true).is_none());
+        assert!(input(&api).ui_samples().is_empty());
         api.GetInputSourceHandle = None;
         assert!(input(&api).pointer_source(true).is_none());
     }
 
     #[test]
     fn wrist_pointer_works_without_optional_frame_pose_bindings() {
+        unsafe extern "C" fn source(_: *mut std::ffi::c_char, handle: *mut u64) -> i32 {
+            unsafe {
+                *handle = 99;
+            }
+            0
+        }
         unsafe extern "C" fn digital(
             _: u64,
             data: *mut openvr_sys::InputDigitalActionData_t,
@@ -862,16 +902,32 @@ mod tests {
             0
         }
         let mut api: openvr_sys::VR_IVRInput_FnTable = unsafe { std::mem::zeroed() };
+        api.GetInputSourceHandle = Some(source);
         api.GetDigitalActionData = Some(digital);
         api.GetOriginTrackedDeviceInfo = Some(origin);
         // Menu clicks must work even when grip-based frame poses are not bound.
-        assert!(input(&api).pointer_sample(true) == Some((2, 99, true)));
+        let samples = input(&api).ui_samples();
+        assert_eq!(samples.len(), 2);
+        assert!(samples.iter().all(|sample| sample.device == 2
+            && sample.source == 99
+            && sample.trigger == Some(true)));
     }
 
     #[test]
     fn wrist_pointer_uses_the_current_trigger_snapshot_and_controller_identity() {
         use std::cell::Cell;
         thread_local! { static UPDATES: Cell<u32> = const { Cell::new(0) }; }
+        unsafe extern "C" fn source(path: *mut std::ffi::c_char, handle: *mut u64) -> i32 {
+            let path = unsafe { std::ffi::CStr::from_ptr(path) };
+            unsafe {
+                *handle = if path == c"/user/hand/right" {
+                    101
+                } else {
+                    102
+                };
+            }
+            0
+        }
         unsafe extern "C" fn update(
             _: *mut openvr_sys::VRActiveActionSet_t,
             _: u32,
@@ -905,13 +961,22 @@ mod tests {
             0
         }
         let mut api: openvr_sys::VR_IVRInput_FnTable = unsafe { std::mem::zeroed() };
+        api.GetInputSourceHandle = Some(source);
         api.UpdateActionState = Some(update);
         api.GetDigitalActionData = Some(digital);
         api.GetOriginTrackedDeviceInfo = Some(origin);
         let mut controller = input(&api);
         controller.update_actions().unwrap();
-        assert_eq!(controller.pointer_sample(false), Some((2, 102, true)));
-        assert_eq!(controller.pointer_sample(true), Some((1, 101, true)));
+        let samples = controller.ui_samples();
+        assert_eq!(samples.len(), 2);
+        assert_eq!(
+            (samples[0].device, samples[0].source, samples[0].trigger),
+            (2, 102, Some(true))
+        );
+        assert_eq!(
+            (samples[1].device, samples[1].source, samples[1].trigger),
+            (1, 101, Some(true))
+        );
         controller.poll_with_vision(None, true, false).unwrap();
         assert_eq!(
             UPDATES.get(),
@@ -919,9 +984,13 @@ mod tests {
             "Menu and OCR must share one action snapshot"
         );
         controller.update_actions().unwrap();
-        assert_eq!(controller.pointer_sample(true), Some((1, 101, false)));
+        let samples = controller.ui_samples();
+        assert_eq!(
+            (samples[1].device, samples[1].source, samples[1].trigger),
+            (1, 101, Some(false))
+        );
         api.GetOriginTrackedDeviceInfo = None;
-        assert!(input(&api).pointer_sample(true).is_none());
+        assert!(input(&api).ui_samples().is_empty());
     }
 
     #[test]

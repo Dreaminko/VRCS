@@ -72,11 +72,11 @@ export function useAppWorkspace({
   });
   const captureControl = useCaptureControl({
     coreReady: runtime.ready,
-    running: runtime.health?.capture_requested ?? false,
+    getRunning: captureRuntime.getRunning,
     outputMode: settings.value?.audio.output.mode,
     createConversation: conversation.createConversation,
     clearLookup: selection.clear,
-    toggleCoreCapture: captureRuntime.toggle,
+    setCoreCaptureRunning: captureRuntime.setRunning,
     clearErrorFrom: runtime.clearErrorFrom,
     reportError: runtime.reportError,
   });

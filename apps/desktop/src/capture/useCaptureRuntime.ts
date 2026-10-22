@@ -19,24 +19,33 @@ export function useCaptureRuntime({
   const pendingRef = useRef(false);
   const { getCurrent, patch, refreshQuietly } = health;
 
-  const toggle = useCallback(async () => {
-    if (pendingRef.current) return;
+  const setRunning = useCallback(async (target: boolean): Promise<boolean> => {
+    if (pendingRef.current) return false;
+    if (getCurrent()?.capture_requested === target) return true;
     pendingRef.current = true;
     setPending(true);
     try {
-      if (getCurrent()?.capture_requested) {
+      if (!target) {
         await captureApi.stop();
         clearPartials();
       } else {
         await captureApi.start();
       }
       clearErrorFrom("capture");
+      patch((current) => current ? { ...current, capture_requested: target } : current);
+      return true;
+    } catch (error) {
+      // A timeout can leave the operation completed on Core. Reconcile before retrying.
+      if ((await refreshQuietly())?.capture_requested === target) return true;
+      throw error;
     } finally {
       await refreshQuietly();
       pendingRef.current = false;
       setPending(false);
     }
-  }, [clearErrorFrom, clearPartials, getCurrent, refreshQuietly]);
+  }, [clearErrorFrom, clearPartials, getCurrent, patch, refreshQuietly]);
+
+  const toggle = useCallback(() => setRunning(!getCurrent()?.capture_requested), [getCurrent, setRunning]);
 
   const startMicrophoneTest = useCallback(async () => {
     try {
@@ -74,6 +83,8 @@ export function useCaptureRuntime({
   return {
     pending,
     toggle,
+    setRunning,
+    getRunning: () => getCurrent()?.capture_requested ?? false,
     startMicrophoneTest,
     stopMicrophoneTest,
   };

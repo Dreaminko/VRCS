@@ -3,7 +3,20 @@ use vrcs_core::ocr::TranslatedBlock;
 use super::ocr_status::OcrState;
 use super::wrist_labels::WristLabels;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub fn input_revision(view: Option<&View>, session: u64) -> u64 {
+    use std::hash::{DefaultHasher, Hash, Hasher};
+    let mut hash = DefaultHasher::new();
+    session.hash(&mut hash);
+    if let Some(view) = view {
+        let mut view = view.clone();
+        view.hovered = None;
+        view.hash(&mut hash);
+    }
+    hash.finish()
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Action {
     PreviousBlock,
     NextBlock,
@@ -15,13 +28,19 @@ pub enum Action {
     Close,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Button {
+    pub action: Action,
+    pub bounds: [f32; 4],
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum ViewMode {
     Ocr,
     Vision,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize)]
 pub struct View {
     pub mode: ViewMode,
     pub source: String,
@@ -226,53 +245,6 @@ impl LaserEvent {
             Self::Leave => None,
         }
     }
-}
-
-/// Keep focus stable when the native laser makes action data inactive.
-pub fn native_focus(pointing: bool, focused: bool, trigger_released: bool) -> bool {
-    pointing && (focused || trigger_released)
-}
-
-pub fn laser_event(event: &openvr_sys::VREvent_t, wrist_device: u32) -> Option<LaserEvent> {
-    let kind = event.eventType as i32;
-    if matches!(
-        kind,
-        openvr_sys::EVREventType_VREvent_FocusLeave
-            | openvr_sys::EVREventType_VREvent_OverlayHidden
-            | openvr_sys::EVREventType_VREvent_OverlayShown
-    ) {
-        return Some(LaserEvent::Leave);
-    }
-    if !matches!(
-        kind,
-        openvr_sys::EVREventType_VREvent_MouseMove
-            | openvr_sys::EVREventType_VREvent_MouseButtonDown
-            | openvr_sys::EVREventType_VREvent_MouseButtonUp
-    ) {
-        return None;
-    }
-    let mouse = unsafe { event.data.mouse };
-    if kind != openvr_sys::EVREventType_VREvent_MouseMove
-        && mouse.button & openvr_sys::EVRMouseButton_VRMouseButton_Left as u32 == 0
-    {
-        return None;
-    }
-    let device = event.trackedDeviceIndex;
-    let size = super::ocr_wrist_renderer::SIZE as f32;
-    // SteamVR mouse coordinates start at the bottom left; button bounds start at the top left.
-    let point = [mouse.x / size, 1. - mouse.y / size];
-    if device == wrist_device
-        || point
-            .iter()
-            .any(|value| !value.is_finite() || !(0. ..=1.).contains(value))
-    {
-        return Some(LaserEvent::Leave);
-    }
-    Some(match kind {
-        openvr_sys::EVREventType_VREvent_MouseButtonDown => LaserEvent::Down { device, point },
-        openvr_sys::EVREventType_VREvent_MouseButtonUp => LaserEvent::Up { device, point },
-        _ => LaserEvent::Move { device, point },
-    })
 }
 
 pub struct Pointer {
@@ -539,77 +511,5 @@ mod tests {
                 None
             );
         }
-    }
-
-    #[test]
-    fn native_focus_waits_for_release_and_survives_inactive_actions() {
-        assert!(!native_focus(true, false, false));
-        assert!(native_focus(true, false, true));
-        assert!(native_focus(true, true, false));
-        assert!(!native_focus(false, true, false));
-        assert!(!native_focus(false, false, true));
-    }
-    #[test]
-    fn native_mouse_coordinates_match_rendered_buttons_and_exclude_the_bound_hand() {
-        let mouse = |kind: i32, device, button, x, y| {
-            let mut event = openvr_sys::VREvent_t {
-                eventType: kind as u32,
-                trackedDeviceIndex: device,
-                ..Default::default()
-            };
-            event.data.mouse = openvr_sys::VREvent_Mouse_t {
-                x,
-                y,
-                button,
-                cursorIndex: 0,
-            };
-            event
-        };
-        let down = mouse(
-            openvr_sys::EVREventType_VREvent_MouseButtonDown,
-            2,
-            1,
-            900.,
-            64.,
-        );
-        assert_eq!(
-            laser_event(&down, 1),
-            Some(LaserEvent::Down {
-                device: 2,
-                point: [900. / 1024., 960. / 1024.]
-            })
-        );
-        assert_eq!(laser_event(&down, 2), Some(LaserEvent::Leave));
-        assert_eq!(
-            laser_event(
-                &mouse(
-                    openvr_sys::EVREventType_VREvent_MouseButtonDown,
-                    2,
-                    2,
-                    900.,
-                    64.
-                ),
-                1
-            ),
-            None
-        );
-        assert_eq!(
-            laser_event(
-                &mouse(
-                    openvr_sys::EVREventType_VREvent_MouseMove,
-                    2,
-                    0,
-                    f32::NAN,
-                    64.
-                ),
-                1
-            ),
-            Some(LaserEvent::Leave)
-        );
-        let leave = openvr_sys::VREvent_t {
-            eventType: openvr_sys::EVREventType_VREvent_FocusLeave as u32,
-            ..Default::default()
-        };
-        assert_eq!(laser_event(&leave, 1), Some(LaserEvent::Leave));
     }
 }

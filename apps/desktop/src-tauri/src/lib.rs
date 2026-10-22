@@ -492,6 +492,22 @@ pub fn run() {
             vr_overlay::vr_overlay_show_sample,
             vr_overlay::vr_overlay_hide_sample,
             vr_overlay::vr_dashboard_update_view,
+            vr_overlay::vr_overlay_control_ready,
+            vr_overlay::vr_overlay_control_update,
+            vr_overlay::vr_overlay_control_result,
+            vr_overlay::vr_overlay_control_release,
+            vr_overlay::vr_overlay_placement_result,
+            vr_overlay::vr_overlay_place_dialogue,
+            #[cfg(windows)]
+            vr_overlay::surface::vr_surface_ready,
+            #[cfg(windows)]
+            vr_overlay::surface::vr_surface_layout,
+            #[cfg(all(windows, debug_assertions, feature = "vr-preview"))]
+            vr_overlay::preview::vr_preview_open,
+            #[cfg(all(windows, debug_assertions, feature = "vr-preview"))]
+            vr_overlay::preview::vr_preview_update,
+            #[cfg(all(windows, debug_assertions, feature = "vr-preview"))]
+            vr_overlay::preview::vr_preview_frame,
             desktop_capture::set_shortcut_recording,
             desktop_ocr::desktop_ocr_status,
             desktop_ocr::desktop_ocr_scan,
@@ -556,6 +572,8 @@ pub fn run() {
                 .and_then(|value| value.parse().ok())
                 .ok_or_else(|| std::io::Error::other("core URL is missing a valid port"))?;
             app.manage(vr_overlay::Manager::new(app.handle().clone()));
+            #[cfg(windows)]
+            app.manage(vr_overlay::surface::SurfaceHub::default());
             app.manage(desktop_ocr::Manager::new(app.handle().clone()));
             app.manage(desktop_vision::Manager::new(app.handle().clone()));
             app.manage(CoreRuntime {
@@ -572,10 +590,31 @@ pub fn run() {
                 },
                 stop_requested: AtomicBool::new(false),
             });
+            #[cfg(all(windows, debug_assertions, feature = "vr-preview"))]
+            if let Some(live) = vr_overlay::preview::mode() {
+                vr_overlay::preview::setup(app.handle(), live)?;
+                if !live {
+                    return Ok(());
+                }
+            }
             launch_core(app.handle()).map_err(std::io::Error::other)?;
             Ok(())
         })
+        .on_page_load(|webview, payload| {
+            if webview.label() == "main"
+                && matches!(payload.event(), tauri::webview::PageLoadEvent::Started)
+            {
+                if let Some(manager) = webview.app_handle().try_state::<vr_overlay::Manager>() {
+                    manager.revoke_controls();
+                }
+            }
+        })
         .on_window_event(|window, event| {
+            #[cfg(all(windows, debug_assertions, feature = "vr-preview"))]
+            if window.label() == "vr-preview" && matches!(event, WindowEvent::CloseRequested { .. })
+            {
+                window.app_handle().exit(0);
+            }
             if window.label() == "ocr" {
                 if let WindowEvent::CloseRequested { api, .. } = event {
                     api.prevent_close();
@@ -592,6 +631,12 @@ pub fn run() {
                 }
             }
             if window.label() == "main" {
+                if matches!(event, WindowEvent::Destroyed) {
+                    window
+                        .app_handle()
+                        .state::<vr_overlay::Manager>()
+                        .revoke_controls();
+                }
                 if matches!(
                     event,
                     WindowEvent::Focused(false)

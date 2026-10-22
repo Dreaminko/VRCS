@@ -19,13 +19,14 @@ pub enum PresentationContent {
     Wrist(Vec<WristMessage>),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize)]
 pub struct WristMessage {
     pub text: String,
     pub side: MessageSide,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum MessageSide {
     Left,
     Right,

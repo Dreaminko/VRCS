@@ -932,7 +932,19 @@
         "trackedDevice": "追蹤裝置",
         "showSample": "顯示範例",
         "hideSample": "隱藏範例",
-        "restoreDefaults": "還原預設"
+        "restoreDefaults": "還原預設",
+        "wristMenuEnable": "手腕快捷選單",
+        "menuHand": "選單綁定手",
+        "anchorMode": "字幕面板固定方式",
+        "anchorWrist": "固定在手上",
+        "anchorWorld": "空間固定",
+        "recenterDialogue": "將瀏覽面板移到面前",
+        "emptyDialogue": "暫無新內容",
+        "dragHint": "指向把手，按住握持鍵拖動",
+        "waitingContent": "設定已開啟，等待內容",
+        "masterOff": "受字幕總開關限制",
+        "controlBusy": "正在處理",
+        "controlFailed": "操作失敗，請重試"
       },
       "conversationTitles": {
         "title": "對話管理",

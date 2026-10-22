@@ -217,7 +217,13 @@ mod tests {
         );
         assert_keys(
             &value["vr_overlay"],
-            ["enabled", "headset", "translation_display", "wrist"],
+            [
+                "enabled",
+                "headset",
+                "translation_display",
+                "wrist",
+                "wrist_menu",
+            ],
         );
         assert_keys(
             &value["vr_overlay"]["headset"],
@@ -247,6 +253,7 @@ mod tests {
         assert_keys(
             &value["vr_overlay"]["wrist"],
             [
+                "anchor_mode",
                 "background_opacity",
                 "dominant_hand",
                 "enabled",
@@ -269,6 +276,7 @@ mod tests {
                 "yaw_deg",
             ],
         );
+        assert_keys(&value["vr_overlay"]["wrist_menu"], ["enabled", "hand"]);
         assert_keys(
             &value["vrcx"],
             [

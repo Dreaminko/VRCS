@@ -6,13 +6,15 @@ use super::{
     ocr_progress_renderer,
     ocr_selection::Selection,
     ocr_status::{failure_code, OcrState, OcrStatus, OcrWristState},
+    ocr_wrist::Button,
     ocr_wrist::{Action, LaserEvent, Pointer, Reader, View},
-    ocr_wrist_renderer::{self, Button},
+    surface::{SurfaceHub, SurfaceId, SurfaceRenderer, SurfaceView},
 };
 use std::{
     path::PathBuf,
     sync::{Arc, Mutex},
 };
+use tauri::{AppHandle, Manager as _};
 use tokio::sync::{mpsc, watch};
 use vrcs_core::{
     ocr::{
@@ -85,6 +87,8 @@ pub struct OcrRuntime {
     service: Option<VrOcrService>,
     directory: Option<PathBuf>,
     manifest: Option<PathBuf>,
+    ui_events: Vec<LaserEvent>,
+    ui_focus: bool,
     task: Option<tauri::async_runtime::JoinHandle<()>>,
     sender: mpsc::Sender<Update>,
     receiver: mpsc::Receiver<Update>,
@@ -111,6 +115,7 @@ pub struct OcrRuntime {
     wrist_pages: usize,
     wrist_pointer: Pointer,
     wrist_hovered: Option<Action>,
+    reader_surface: SurfaceRenderer,
     encoder: Arc<tokio::sync::Semaphore>,
     pub blocks: [Vec<TranslatedBlock>; 2],
     pub status: OcrStatus,
@@ -124,6 +129,8 @@ impl OcrRuntime {
             service,
             directory,
             manifest: None,
+            ui_events: Vec::new(),
+            ui_focus: false,
             task: None,
             sender,
             receiver,
@@ -150,6 +157,7 @@ impl OcrRuntime {
             wrist_pages: 1,
             wrist_pointer: Pointer::default(),
             wrist_hovered: None,
+            reader_surface: SurfaceRenderer::new(SurfaceId::Reader),
             encoder: Arc::new(tokio::sync::Semaphore::new(1)),
             blocks: Default::default(),
             status: OcrStatus::default(),
@@ -292,6 +300,7 @@ impl OcrRuntime {
 
     pub fn tick(
         &mut self,
+        app: &AppHandle,
         backend: &mut OpenVrBackend,
         config: &VrOcrConfig,
         wrist: &vrcs_core::VrOverlayWristConfig,
@@ -304,7 +313,6 @@ impl OcrRuntime {
             backend.reset_ocr();
             backend.reset(OverlayKind::OcrWrist);
             backend.reset(OverlayKind::OcrProgress);
-            backend.reset_ocr_input();
             self.unavailable(false);
             return;
         }
@@ -347,16 +355,18 @@ impl OcrRuntime {
         }
         let wrist_result = if self.vision.visible() {
             self.wrist_view = None;
-            self.vision.render(backend).map(|visible| {
-                self.status.wrist_state = if visible {
-                    OcrWristState::Visible
-                } else {
-                    OcrWristState::DeviceUnavailable
-                };
-                self.status.wrist_error = None;
-            })
+            self.vision
+                .render(app, backend, &mut self.reader_surface)
+                .map(|visible| {
+                    self.status.wrist_state = if visible {
+                        OcrWristState::Visible
+                    } else {
+                        OcrWristState::DeviceUnavailable
+                    };
+                    self.status.wrist_error = None;
+                })
         } else {
-            self.update_wrist(backend, config, wrist)
+            self.update_wrist(app, backend, config, wrist)
         };
         if let Err(error) = wrist_result {
             backend.reset(OverlayKind::OcrWrist);
@@ -457,7 +467,7 @@ impl OcrRuntime {
         reading_focus
     }
 
-    fn update(&mut self, backend: &mut OpenVrBackend, config: &VrOcrConfig) -> Result<(), String> {
+    pub fn prepare_input(&mut self, backend: &mut OpenVrBackend) -> Result<(), String> {
         if self.manifest.is_none() {
             self.manifest = Some(install_manifest(
                 self.directory
@@ -466,7 +476,29 @@ impl OcrRuntime {
             )?);
         }
         backend.update_ocr_input(self.manifest.as_deref().ok_or("OCR manifest unavailable")?)?;
-        let (events, focused) = backend.poll_ocr_wrist_events()?;
+        Ok(())
+    }
+
+    pub fn pointer_input(&mut self, events: Vec<LaserEvent>, focused: bool) {
+        self.ui_events = events;
+        self.ui_focus = focused;
+    }
+
+    pub fn owns_input(&self) -> bool {
+        self.selecting
+    }
+
+    pub fn input_revision(&self) -> u64 {
+        if self.vision.visible() {
+            self.vision.input_revision()
+        } else {
+            super::ocr_wrist::input_revision(self.wrist_view.as_ref(), self.status.scan_id)
+        }
+    }
+
+    fn update(&mut self, backend: &mut OpenVrBackend, config: &VrOcrConfig) -> Result<(), String> {
+        let events = std::mem::take(&mut self.ui_events);
+        let focused = self.ui_focus;
         let reading_focus = if self.vision.visible() {
             self.vision.pointer(&events, focused);
             focused || events.iter().any(|event| event.point().is_some())
@@ -708,6 +740,7 @@ impl OcrRuntime {
 
     fn update_wrist(
         &mut self,
+        app: &AppHandle,
         backend: &mut OpenVrBackend,
         config: &VrOcrConfig,
         subtitle_wrist: &vrcs_core::VrOverlayWristConfig,
@@ -752,20 +785,42 @@ impl OcrRuntime {
         }
         view.hovered = self.wrist_hovered;
         let has_blocks = view.block_count > 0;
-        if self.wrist_view.as_ref() != Some(&view) {
-            let rendered = ocr_wrist_renderer::render(
-                &view,
-                config_wrist.font_size_px,
-                config.background_opacity,
-                &self.reader_labels,
-            )?;
-            self.reader.clamp_page(rendered.page_count);
-            self.wrist_pages = rendered.page_count;
-            self.wrist_buttons = rendered.buttons;
-            backend.upload(OverlayKind::OcrWrist, &rendered.texture)?;
+        let hovered = super::surface::reader_hover(view.hovered);
+        let mut reader = view.clone();
+        reader.hovered = None;
+        let dark = app
+            .state::<super::runtime::Manager>()
+            .controls
+            .lock()
+            .map(|hub| hub.snapshot().dark)
+            .unwrap_or(false);
+        let visible = self.reader_surface.present(
+            app,
+            backend,
+            OverlayKind::OcrWrist,
+            SurfaceView::Reader {
+                dark,
+                labels: self.reader_labels.clone(),
+                reader,
+                font_size: config_wrist.font_size_px,
+                opacity: config.background_opacity,
+            },
+            hovered,
+            None,
+        )?;
+        self.wrist_buttons.clear();
+        if let Some(layout) = app.state::<SurfaceHub>().layout(SurfaceId::Reader) {
+            self.reader.clamp_page(layout.page_count);
+            self.wrist_pages = layout.page_count;
+            self.wrist_buttons = layout.reader_buttons();
             self.wrist_view = Some(view);
         }
         backend.set_opacity(OverlayKind::OcrWrist, config_wrist.opacity)?;
+        if !visible {
+            backend.hide(OverlayKind::OcrWrist);
+            self.status.wrist_state = OcrWristState::Hidden;
+            return Ok(());
+        }
         backend.show(OverlayKind::OcrWrist)?;
         if has_blocks {
             if let Some(feedback) = &mut self.feedback {

@@ -46,6 +46,8 @@ pub use translation::{
     DEFAULT_TRANSLATION_SYSTEM_PROMPT,
 };
 pub use validation::{validate_glossary_source_url, validate_translation_prompt};
-pub use vr_overlay::{VrOverlayConfig, VrOverlayHeadsetConfig, VrOverlayWristConfig};
+pub use vr_overlay::{
+    VrOverlayConfig, VrOverlayHeadsetConfig, VrOverlayWristConfig, VrOverlayWristMenuConfig,
+};
 
 pub use ocr::{OcrDevice, VisionConfig, VrOcrConfig, VrOcrDisplayMode, VrOcrWristConfig};

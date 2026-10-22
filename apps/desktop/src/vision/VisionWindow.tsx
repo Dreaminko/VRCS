@@ -1,8 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Check, Copy, Image, LoaderCircle, Mic, RefreshCw, ScanEye, Send, Square, TriangleAlert, X } from "lucide-react";
 import { Trans, useTranslation } from "react-i18next";
-import Markdown, { type Components } from "react-markdown";
-import remarkGfm from "remark-gfm";
 import {
   askDesktopVision, cancelDesktopVision, captureDesktopVision, closeDesktopVision,
   finishDesktopVisionRecording, getDesktopVisionImage, startDesktopVisionRecording,
@@ -10,16 +8,9 @@ import {
 import { canAskDesktopVision, DESKTOP_VISION_QUESTION_LIMIT, desktopVisionBusy, desktopVisionSendKey } from "./status";
 import { useDesktopVisionSession } from "./useDesktopVisionSession";
 import { useAppTheme } from "../app/useAppTheme";
+import { VisionAnswerMarkdown } from "./VisionAnswerMarkdown";
 
 import "./vision-window.css";
-
-const answerComponents: Components = {
-  a: ({ node: _node, ...props }) => props.href
-    ? <a {...props} target={props.href.startsWith("#") ? undefined : "_blank"} rel="noopener noreferrer" />
-    : <>{props.children}</>,
-  img: ({ alt }) => <>{alt}</>,
-  table: ({ node: _node, ...props }) => <div className="vision-window-answer-table"><table {...props} /></div>,
-};
 
 export function VisionWindow() {
   const { t } = useTranslation();
@@ -176,7 +167,7 @@ export function VisionWindow() {
       </>}
       {status?.answer && <section className="vision-window-answer" aria-label={t("visionWindow.answer")}>
         <div className="bubble vision-window-answer-text">
-          <Markdown remarkPlugins={[remarkGfm]} components={answerComponents} skipHtml>{status.answer}</Markdown>
+          <VisionAnswerMarkdown>{status.answer}</VisionAnswerMarkdown>
         </div>
         <div className="vision-window-answer-actions">
           <button className="secondary-button vision-window-ask-again" type="button" disabled={!editable} onClick={() => { input.current?.focus(); input.current?.select(); }}>{t("visionWindow.askAgain")}</button>

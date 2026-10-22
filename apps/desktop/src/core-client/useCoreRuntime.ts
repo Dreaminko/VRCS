@@ -39,14 +39,19 @@ export function useCoreRuntime({
   const healthRef = useRef<Health | null>(null);
   healthRef.current = health;
 
-  const replaceHealth = useCallback((next: Health | null) => setHealth(next), []);
+  const replaceHealth = useCallback((next: Health | null) => {
+    healthRef.current = next;
+    setHealth(next);
+  }, []);
   const patchHealth = useCallback((update: (current: Health | null) => Health | null) => {
-    setHealth(update);
+    healthRef.current = update(healthRef.current);
+    setHealth(healthRef.current);
   }, []);
   const getCurrentHealth = useCallback(() => healthRef.current, []);
   const refreshHealthQuietly = useCallback(async () => {
     try {
       const next = await runtimeApi.health();
+      healthRef.current = next;
       setHealth(next);
       return next;
     } catch {

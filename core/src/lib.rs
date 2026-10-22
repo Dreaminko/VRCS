@@ -45,7 +45,7 @@ use crate::startup::{RuntimeAssembly, RuntimeTasks, StartupPlan};
 
 pub use crate::config::{
     FeatureConfig, FeatureKey, VisionConfig, VrOcrConfig, VrOcrDisplayMode, VrOcrWristConfig,
-    VrOverlayConfig, VrOverlayHeadsetConfig, VrOverlayWristConfig,
+    VrOverlayConfig, VrOverlayHeadsetConfig, VrOverlayWristConfig, VrOverlayWristMenuConfig,
 };
 pub use crate::models::{
     LiveTranslation, LiveTranslationPreview, SpeakerIdentity, Subtitle, SubtitleTranslation,

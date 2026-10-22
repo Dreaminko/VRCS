@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-vr-preview-update"
+description = "Enables the vr_preview_update command without any pre-configured scope."
+commands.allow = ["vr_preview_update"]
+
+[[permission]]
+identifier = "deny-vr-preview-update"
+description = "Denies the vr_preview_update command without any pre-configured scope."
+commands.deny = ["vr_preview_update"]

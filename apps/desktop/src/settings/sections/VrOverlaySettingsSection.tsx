@@ -23,6 +23,7 @@ import {
   hideVrOverlaySample,
   listenVrOverlayStatus,
   retryVrOverlay,
+  placeVrDialogue,
   showVrOverlaySample,
   type VrOverlayKind,
 } from "../../integrations/vr-overlay-native";
@@ -215,6 +216,27 @@ export function VrOverlaySettingsSection({
       <div className="section-heading">
         <div><Layers3 size={18} /><h2>{t("settings.vrOverlay.title")}</h2></div>
       </div>
+
+      <section className="vr-overlay-card">
+        <PreferenceToggle
+          title={t("settings.vrOverlay.wristMenuEnable")}
+          checked={draft.vr_overlay.wrist_menu.enabled}
+          disabled={false}
+          onChange={(enabled) => applySettings((current) => patchVrOverlay(current, {
+            wrist_menu: { ...current.vr_overlay.wrist_menu, enabled },
+          }))}
+        />
+        <SettingsDisclosure open={draft.vr_overlay.wrist_menu.enabled}>
+          <Select label={t("settings.vrOverlay.menuHand")}
+            value={draft.vr_overlay.wrist_menu.hand}
+            options={["left", "right"].map((value) => ({ value, label: t(`settings.vrDashboard.hands.${value}`) }))}
+            disabled={false}
+            onChange={(hand) => applySettings((current) => patchVrOverlay(current, {
+              wrist_menu: { ...current.vr_overlay.wrist_menu, hand: hand as "left" | "right" },
+            }))}
+          />
+        </SettingsDisclosure>
+      </section>
 
       <div className="vr-overlay-runtime-card">
         <SettingsDisclosure open={draft.vr_overlay.enabled}>
@@ -424,6 +446,13 @@ export function VrOverlaySettingsSection({
                 <MeterRange label={t("settings.vrOverlay.vertical")} value={draft.vr_overlay.wrist.offset_y_m} {...VR_OVERLAY_POSITION_RANGES.wrist.offset_y_m} digits={2} unit=" m" disabled={wristDisabled} onCommit={(value) => updateWrist("offset_y_m", value)} />
                 <MeterRange label={t("settings.vrOverlay.depth")} value={draft.vr_overlay.wrist.offset_z_m} {...VR_OVERLAY_POSITION_RANGES.wrist.offset_z_m} digits={2} unit=" m" disabled={wristDisabled} onCommit={(value) => updateWrist("offset_z_m", value)} />
               </div>
+              <Select label={t("settings.vrOverlay.anchorMode")} value={draft.vr_overlay.wrist.anchor_mode}
+                options={[{ value: "wrist", label: t("settings.vrOverlay.anchorWrist") }, { value: "world", label: t("settings.vrOverlay.anchorWorld") }]}
+                disabled={wristDisabled} onChange={(value) => updateWrist("anchor_mode", value as "wrist" | "world")} />
+              <button className="secondary-button" type="button" disabled={wristDisabled || nativeBusy !== null || status?.state !== "ready"}
+                onClick={() => void runNativeAction("wrist", () => placeVrDialogue("world"))}>
+                {t("settings.vrOverlay.recenterDialogue")}
+              </button>
             </div>
 
             <div className="vr-overlay-range-group">

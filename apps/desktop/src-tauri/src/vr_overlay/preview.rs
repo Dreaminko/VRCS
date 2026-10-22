@@ -1,0 +1,1696 @@
+//! Development-only adapter for the production React surfaces and native textures.
+use super::control_protocol::{ControlAction, ControlSnapshot, ControlSource};
+use super::dashboard::{
+    DashboardAction, DashboardChoice, DashboardOption, DashboardSaveState, DashboardState,
+    DashboardViewModel, DisplayKind, TargetGroup,
+};
+use super::interaction::{Hit, Key, Kind, Router, Sample, Surface};
+use super::ocr_wrist::{self, Action, LaserEvent, View, ViewMode};
+use super::placement::{Mode, Placement, Pose, Request};
+use super::presentation::{MessageSide, PresentationContent, WristMessage};
+use super::renderer::{self, Texture};
+use super::surface::{
+    reader_action, SurfaceId, SurfaceKey, SurfaceLayout, SurfaceState, SurfaceView,
+};
+use super::{dashboard_renderer, dialogue, transform};
+use serde::{Deserialize, Serialize};
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
+use tauri::{Emitter, Manager as _, State, WebviewWindow};
+use vrcs_core::ocr::{BlockTranslation, TextBlock, TranslatedBlock};
+
+const PANELS: [&str; 10] = [
+    "Wrist menu",
+    "SteamVR Dashboard",
+    "Dialogue",
+    "Headset subtitles",
+    "OCR reader",
+    "Vision answer",
+    "OCR selection",
+    "OCR mirror",
+    "OCR progress",
+    "Vision recording / confirmation",
+];
+
+#[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Scene {
+    Normal,
+    Empty,
+    Long,
+    Partial,
+    Expired,
+    Busy,
+    Unavailable,
+    Error,
+    Timeout,
+}
+
+#[derive(Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum Operation {
+    Refresh,
+    Select { panel: u32 },
+    Scene { scene: Scene },
+    Pointer { input: Input },
+    Cancel,
+    Advance,
+    Reset,
+    Dark { enabled: bool },
+    SaveFailure { enabled: bool },
+    Tracking { available: bool },
+    OriginChanged,
+    Place { mode: Mode },
+    Text { source: String, translation: String },
+    Layout { layout: SurfaceLayout },
+}
+
+#[derive(Clone, Copy, Deserialize)]
+pub struct Input {
+    pub panel: u32,
+    pub generation: u32,
+    pub revision: u32,
+    pub point: Option<[f32; 2]>,
+    pub buttons: u8,
+    pub depth: f32,
+    pub rotation: [f32; 3],
+}
+
+#[derive(Serialize)]
+pub struct Info {
+    session: u32,
+    live: bool,
+    panels: [&'static str; 10],
+    panel: u32,
+    scene: Scene,
+    generation: u32,
+    revision: u32,
+    frame: u32,
+    dark: bool,
+    fail_save: bool,
+    tracking: bool,
+    mode: Mode,
+    dragging: bool,
+    busy: bool,
+    pose: Option<Pose>,
+    last_action: String,
+    surface: Option<SurfaceState>,
+    closed: bool,
+}
+
+enum Effect {
+    Control(ControlAction),
+    Dashboard(DashboardAction),
+    Placement(Request),
+}
+
+pub struct PreviewState(Mutex<Preview>);
+
+struct Preview {
+    session: u32,
+    live: bool,
+    panel: u32,
+    scene: Scene,
+    generation: u32,
+    revision: u32,
+    sequence: u32,
+    dirty: bool,
+    texture: Option<Texture>,
+    surface: Option<SurfaceState>,
+    layout: Option<SurfaceLayout>,
+    controls: ControlSnapshot,
+    view: DashboardViewModel,
+    dashboard: DashboardState,
+    cache: dashboard_renderer::RasterCache,
+    router: Router,
+    pointer: ocr_wrist::Pointer,
+    hover: Option<u8>,
+    pressed: Option<u8>,
+    cursor: Option<[f32; 2]>,
+    placement: Arc<Mutex<Placement>>,
+    placement_revision: u64,
+    reader: ocr_wrist::Reader,
+    vision: View,
+    page_count: usize,
+    closed: bool,
+    source: String,
+    translation: String,
+    advance: usize,
+    pending: [Option<(bool, Instant)>; 4],
+    fail_save: bool,
+    tracking: bool,
+    last_action: String,
+}
+
+impl Preview {
+    fn new(live: bool, placement: Arc<Mutex<Placement>>) -> Self {
+        let view: DashboardViewModel = serde_json::from_str(include_str!("preview-fixture.json"))
+            .expect("valid preview fixture");
+        let mut controls = ControlSnapshot {
+            owner_epoch: 1,
+            revision: 1,
+            ..Default::default()
+        };
+        for (item, label) in
+            controls
+                .items
+                .iter_mut()
+                .zip(["Dialogue", "Subtitles", "OSC", "Transcribe"])
+        {
+            item.available = !live;
+            item.label = label.into();
+        }
+        let mut dashboard = DashboardState::new();
+        dashboard.update_view(&view);
+        dashboard.set_interactive(true);
+        let mut preview = Self {
+            session: 0,
+            live,
+            panel: 0,
+            scene: Scene::Normal,
+            generation: 1,
+            revision: 1,
+            sequence: 0,
+            dirty: true,
+            texture: None,
+            surface: None,
+            layout: None,
+            controls,
+            view,
+            dashboard,
+            cache: Default::default(),
+            router: Default::default(),
+            pointer: Default::default(),
+            hover: None,
+            pressed: None,
+            cursor: None,
+            placement,
+            placement_revision: 0,
+            reader: Default::default(),
+            vision: View {
+                mode: ViewMode::Vision,
+                source: "What does this panel show?".into(),
+                translation: String::new(),
+                translation_label: String::new(),
+                title: "visionTitle".into(),
+                status: "complete".into(),
+                detail: String::new(),
+                block_index: 0,
+                block_count: 1,
+                page: 0,
+                pinned: false,
+                source_only: false,
+                language_count: 1,
+                hovered: None,
+            },
+            page_count: 1,
+            closed: false,
+            source: "Welcome to VRCS.\n欢迎使用 VRCS。".into(),
+            translation: "You can move while using the overlay.\n操作面板时仍可移动。".into(),
+            advance: 0,
+            pending: Default::default(),
+            fail_save: false,
+            tracking: true,
+            last_action: "Synthetic content and poses; OpenVR is not initialized.".into(),
+        };
+        preview.set_scene(Scene::Normal);
+        preview
+    }
+
+    fn info(&self) -> Info {
+        let p = self.placement.lock().unwrap_or_else(|e| e.into_inner());
+        Info {
+            session: self.session,
+            live: self.live,
+            panels: PANELS,
+            panel: self.panel,
+            scene: self.scene,
+            generation: self.generation,
+            revision: self.revision,
+            frame: self.sequence,
+            dark: self.controls.dark,
+            fail_save: self.fail_save,
+            tracking: self.tracking,
+            mode: p.display_mode(),
+            dragging: p.dragging().is_some(),
+            busy: p.busy(),
+            pose: p.absolute_pose().or_else(|| self.tracking.then(wrist_pose)),
+            last_action: self.last_action.clone(),
+            surface: self.surface.clone(),
+            closed: self.closed,
+        }
+    }
+
+    fn cancel(&mut self) {
+        self.router.cancel();
+        self.pointer.event(LaserEvent::Leave, None);
+        self.dashboard.set_interactive(false);
+        self.dashboard.set_interactive(true);
+        self.placement
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .cancel_drag();
+        self.hover = None;
+        self.pressed = None;
+        self.cursor = None;
+        self.dirty = true;
+    }
+
+    fn layout_changed(&mut self) {
+        self.revision += 1;
+        self.layout = None;
+        self.cursor = None;
+        self.dirty = true;
+    }
+
+    fn set_scene(&mut self, scene: Scene) {
+        self.cancel();
+        self.scene = scene;
+        self.closed = false;
+        self.advance = 0;
+        self.pending = Default::default();
+        if !self.live {
+            for (index, item) in self.controls.items.iter_mut().enumerate() {
+                item.available = scene != Scene::Unavailable;
+                item.busy = matches!(scene, Scene::Busy | Scene::Timeout) && index == 3;
+                item.reason = match scene {
+                    Scene::Unavailable => Some("Feature unavailable".into()),
+                    Scene::Error => Some("Save failed".into()),
+                    _ => None,
+                };
+            }
+        }
+        self.reader = Default::default();
+        let blocks = if matches!(scene, Scene::Empty | Scene::Expired) {
+            Vec::new()
+        } else {
+            sample_blocks(scene == Scene::Long)
+        };
+        self.reader.sync(1, &blocks);
+        self.vision.page = 0;
+        self.vision.pinned = false;
+        self.vision.status = match scene {
+            Scene::Busy => "requesting",
+            Scene::Error | Scene::Unavailable | Scene::Timeout => "visionError",
+            _ => "complete",
+        }
+        .into();
+        self.vision.detail = if matches!(scene, Scene::Error | Scene::Timeout) {
+            "Synthetic request failed".into()
+        } else {
+            String::new()
+        };
+        self.vision.translation = if matches!(scene, Scene::Empty | Scene::Expired) {
+            String::new()
+        } else {
+            sample_answer(scene == Scene::Long)
+        };
+        if scene == Scene::Partial {
+            self.vision.translation = "## Streaming answer\n\nThe panel shows".into();
+        }
+        self.layout_changed();
+    }
+
+    fn update(&mut self, operation: Operation) -> Result<Vec<Effect>, String> {
+        let mut effects = Vec::new();
+        match operation {
+            Operation::Refresh => {}
+            Operation::Layout { layout } => {
+                let surface = self.surface_id().ok_or("Panel has no React surface")?;
+                layout.validate(surface)?;
+                if layout.key == self.surface_key() {
+                    self.page_count = layout.page_count;
+                    self.layout = Some(layout);
+                }
+            }
+            Operation::Select { panel } => {
+                if panel >= PANELS.len() as u32 {
+                    return Err("Unknown preview panel".into());
+                }
+                self.cancel();
+                self.panel = panel;
+                self.generation += 1;
+                self.layout_changed();
+            }
+            Operation::Scene { scene } => self.set_scene(scene),
+            Operation::Pointer { input } => return self.input(input),
+            Operation::Cancel => self.cancel(),
+            Operation::Reset => {
+                if self.live {
+                    return Err("Live preview cannot reset user settings".into());
+                }
+                let session = self.session;
+                let generation = self.generation + 1;
+                let sequence = self.sequence;
+                *self = Self::new(false, Arc::new(Mutex::new(Placement::default())));
+                self.session = session;
+                self.generation = generation;
+                self.sequence = sequence;
+            }
+            Operation::Advance => {
+                self.advance += 1;
+                if self.scene == Scene::Partial {
+                    self.vision
+                        .translation
+                        .push_str(" more translated text.\n\n- Keep moving\n- Read the answer");
+                }
+                if self.scene == Scene::Busy {
+                    self.vision.status = match self.advance % 4 {
+                        1 => "listening",
+                        2 => "finalizing",
+                        3 => "requesting",
+                        _ => "complete",
+                    }
+                    .into();
+                }
+                if self.scene == Scene::Timeout && !self.live {
+                    self.controls.items[3].busy = false;
+                    self.controls.items[3].reason =
+                        Some("Timeout: current capture state checked".into());
+                }
+                // Dialogue toolbar identity is independent of streaming body text.
+                if self.panel != 2 {
+                    self.layout_changed();
+                } else {
+                    self.dirty = true;
+                }
+            }
+            Operation::Dark { enabled } => {
+                self.controls.dark = enabled;
+                self.dirty = true;
+            }
+            Operation::SaveFailure { enabled } => {
+                if self.live {
+                    return Err("Failure injection is only available in mock mode".into());
+                }
+                self.fail_save = enabled;
+            }
+            Operation::Tracking { available } => {
+                self.cancel();
+                self.tracking = available;
+                self.last_action = "Synthetic controller tracking changed".into();
+            }
+            Operation::OriginChanged => {
+                self.cancel();
+                self.placement
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .reset_tracking();
+                self.generation += 1;
+                self.last_action =
+                    "Synthetic tracking origin reset; previous world pose discarded".into();
+            }
+            Operation::Place { mode } => {
+                if let Some(effect) = self.place(mode) {
+                    effects.push(effect);
+                }
+            }
+            Operation::Text {
+                source,
+                translation,
+            } => {
+                if source.len() > 32768 || translation.len() > 32768 {
+                    return Err("Preview text exceeds the limit".into());
+                }
+                self.source = source;
+                self.translation = translation;
+                self.dirty = true;
+            }
+        }
+        Ok(effects)
+    }
+
+    fn key(&self) -> Key {
+        Key {
+            surface: match self.panel {
+                0 => Surface::Menu,
+                2 => Surface::Dialogue,
+                _ => Surface::Reader,
+            },
+            generation: u64::from(self.generation),
+            revision: if self.panel == 2 {
+                self.placement
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .revision
+            } else {
+                u64::from(self.revision)
+            },
+        }
+    }
+
+    fn surface_id(&self) -> Option<SurfaceId> {
+        match self.panel {
+            0 => Some(SurfaceId::Menu),
+            2 => Some(SurfaceId::Dialogue),
+            4 | 5 | 9 => Some(SurfaceId::Reader),
+            _ => None,
+        }
+    }
+
+    fn surface_key(&self) -> SurfaceKey {
+        SurfaceKey {
+            generation: self.generation,
+            revision: self.revision,
+        }
+    }
+
+    fn input(&mut self, input: Input) -> Result<Vec<Effect>, String> {
+        let continuing_drag = self.panel == 2
+            && self
+                .placement
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .dragging()
+                .is_some();
+        if input.panel != self.panel
+            || input.generation != self.generation
+            || input.revision != self.revision && !continuing_drag
+        {
+            self.cancel();
+            return Err("Stale preview layout".into());
+        }
+        if input
+            .point
+            .is_some_and(|point| !point.iter().all(|v| v.is_finite() && (0. ..1.).contains(v)))
+            || !input.depth.is_finite()
+            || !input.rotation.iter().all(|v| v.is_finite())
+        {
+            self.cancel();
+            return Err("Invalid preview input".into());
+        }
+        if !self.tracking {
+            self.cancel();
+            return Ok(Vec::new());
+        }
+        let point = input.point.filter(|[u, v]| {
+            self.surface_id().is_some()
+                || self.texture.as_ref().is_some_and(|texture| {
+                    let offset = ((*v * texture.height as f32) as usize * texture.width as usize
+                        + (*u * texture.width as f32) as usize)
+                        * 4;
+                    texture
+                        .pixels
+                        .get(offset + 3)
+                        .is_some_and(|alpha| *alpha > 0)
+                })
+        });
+        let cursor = point.filter(|_| {
+            !self.closed
+                && self
+                    .layout
+                    .as_ref()
+                    .is_some_and(|layout| layout.key == self.surface_key())
+        });
+        self.dirty |= self.cursor != cursor;
+        self.cursor = cursor;
+        let mut effects = Vec::new();
+        if self.panel == 1 {
+            let (x, y) = point
+                .zip(self.texture.as_ref())
+                .map(|(p, texture)| (p[0] * texture.width as f32, p[1] * texture.height as f32))
+                .unwrap_or((-1., -1.));
+            let was_pressed = self.pressed.is_some();
+            self.dirty |= self.dashboard.pointer_move(x, y);
+            if input.buttons & 1 != 0 && !was_pressed {
+                self.dashboard.pointer_down(x, y);
+                self.pressed = Some(0);
+                self.dirty = true;
+            }
+            if input.buttons & 1 == 0 && was_pressed {
+                self.pressed = None;
+                if let Some(action) = self.dashboard.pointer_up(x, y) {
+                    effects.extend(self.dashboard_action(action));
+                }
+                self.layout_changed();
+            }
+            return Ok(effects);
+        }
+        let key = self.key();
+        let hit = point.and_then(|point| {
+            if self.closed && matches!(self.panel, 4 | 5 | 9) {
+                return None;
+            }
+            let region = self
+                .layout
+                .as_ref()
+                .filter(|layout| layout.key == self.surface_key())?
+                .hit(point)?;
+            Some(Hit {
+                key,
+                region,
+                point,
+                distance: 1.,
+            })
+        });
+        let sample = Sample {
+            device: 1,
+            trigger: Some(input.buttons & 1 != 0),
+            grip: Some(input.buttons & 2 != 0),
+            hit,
+        };
+        let output = self.router.step(&[sample], &[key]);
+        let hover = output.hover.map(|(_, hit)| hit.region);
+        self.dirty |= self.hover != hover || !output.events.is_empty();
+        self.hover = hover;
+        if matches!(self.panel, 4 | 5 | 9) {
+            let action = point.and_then(|point| self.reader_hit(point).map(|v| v.1));
+            self.pointer.event(
+                point
+                    .map(|p| LaserEvent::Move {
+                        device: 1,
+                        point: p.map(|v| v * 1024.),
+                    })
+                    .unwrap_or(LaserEvent::Leave),
+                action,
+            );
+        }
+        let controller = synthetic_controller(input);
+        {
+            let mut p = self.placement.lock().unwrap_or_else(|e| e.into_inner());
+            if self.panel == 2 && p.dragging().is_some() {
+                p.drag(1, controller);
+            }
+        }
+        for event in output.events {
+            match self.panel {
+                0 => match event.kind {
+                    Kind::Down => self.pressed = Some(event.hit.region),
+                    Kind::Up => {
+                        self.pressed = None;
+                        let index = event.hit.region as usize;
+                        effects.push(Effect::Control(ControlAction::for_index(
+                            index,
+                            !self.controls.items[index].requested,
+                        )));
+                    }
+                    _ => self.pressed = None,
+                },
+                2 => {
+                    let mut p = self.placement.lock().unwrap_or_else(|e| e.into_inner());
+                    let request = match event.kind {
+                        Kind::Grab => {
+                            let panel = p.absolute_pose().unwrap_or_else(wrist_pose);
+                            p.grab(1, controller, panel);
+                            None
+                        }
+                        Kind::Release => p.release(1),
+                        Kind::Cancel => {
+                            p.cancel_drag();
+                            None
+                        }
+                        Kind::Up if event.hit.region == 1 => p.set_mode(Mode::Wrist, None),
+                        Kind::Up if event.hit.region == 2 => {
+                            let pose = p.absolute_pose().unwrap_or_else(wrist_pose);
+                            p.set_mode(Mode::World, Some(pose))
+                        }
+                        _ => None,
+                    };
+                    if let Some(request) = request {
+                        effects.push(Effect::Placement(request));
+                    }
+                }
+                4 | 5 | 9 => {
+                    let action = self.reader_hit(event.hit.point).map(|v| v.1);
+                    let point = event.hit.point.map(|v| v * 1024.);
+                    let event = match event.kind {
+                        Kind::Down => LaserEvent::Down { device: 1, point },
+                        Kind::Up => LaserEvent::Up { device: 1, point },
+                        _ => LaserEvent::Leave,
+                    };
+                    if let Some(action) = self.pointer.event(event, action) {
+                        self.reader_action(action);
+                    }
+                }
+                _ => {}
+            }
+        }
+        Ok(effects)
+    }
+
+    fn reader_hit(&self, point: [f32; 2]) -> Option<(u8, Action)> {
+        let id = self.layout.as_ref()?.hit(point)?;
+        Some((id, reader_action(id)?))
+    }
+
+    fn reader_action(&mut self, action: Action) {
+        if self.panel == 4 {
+            self.reader.act(action, self.page_count);
+        } else {
+            match action {
+                Action::PreviousPage => self.vision.page = self.vision.page.saturating_sub(1),
+                Action::NextPage => {
+                    self.vision.page = (self.vision.page + 1).min(self.page_count.saturating_sub(1))
+                }
+                Action::TogglePin => self.vision.pinned = !self.vision.pinned,
+                Action::ToggleQuestion => self.vision.source_only = !self.vision.source_only,
+                _ => {}
+            }
+        }
+        if action == Action::Close {
+            self.closed = true;
+        }
+        self.last_action = format!("Synthetic reader: {action:?}");
+        self.layout_changed();
+    }
+
+    fn place(&mut self, mode: Mode) -> Option<Effect> {
+        if !self.tracking {
+            self.last_action = "Synthetic tracking is unavailable".into();
+            return None;
+        }
+        self.dirty = true;
+        self.placement
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .set_mode(
+                mode,
+                (mode == Mode::World).then(|| dialogue::in_front(head_pose())),
+            )
+            .map(Effect::Placement)
+    }
+
+    fn dashboard_action(&mut self, action: DashboardAction) -> Vec<Effect> {
+        use DashboardAction::*;
+        let control = match &action {
+            ToggleWrist => Some(ControlAction::SetWristEnabled(
+                !self.controls.items[0].requested,
+            )),
+            ToggleHeadset => Some(ControlAction::SetHeadsetEnabled(
+                !self.controls.items[1].requested,
+            )),
+            ToggleOsc => Some(ControlAction::SetOscEnabled(
+                !self.controls.items[2].requested,
+            )),
+            ToggleCapture => Some(ControlAction::SetCaptureRunning(
+                !self.controls.items[3].requested,
+            )),
+            _ => None,
+        };
+        if let Some(control) = control {
+            return vec![Effect::Control(control)];
+        }
+        match action {
+            RecenterDialogue => self.place(Mode::World).into_iter().collect(),
+            AttachDialogue => self.place(Mode::Wrist).into_iter().collect(),
+            OpenOcrBindings => {
+                self.last_action = "Controller bindings require a real SteamVR headset".into();
+                Vec::new()
+            }
+            PreviewHeadset => {
+                self.view.headset.preview_visible = !self.view.headset.preview_visible;
+                Vec::new()
+            }
+            PreviewWrist => {
+                self.view.wrist.preview_visible = !self.view.wrist.preview_visible;
+                Vec::new()
+            }
+            _ => vec![Effect::Dashboard(action)],
+        }
+    }
+
+    fn apply_mock(&mut self, effect: Effect) {
+        match effect {
+            Effect::Control(action) => {
+                let index = action.index();
+                let item = &mut self.controls.items[index];
+                if !item.available || item.busy {
+                    return;
+                }
+                item.busy = true;
+                item.reason = None;
+                self.pending[index] = Some((action.target(), Instant::now()));
+                self.last_action = format!("Mock: {action:?}");
+            }
+            Effect::Placement(request) => {
+                self.placement
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .resolve(
+                        request.id,
+                        !self.fail_save,
+                        self.fail_save
+                            .then(|| "Synthetic save failed; previous anchor restored".into()),
+                    );
+                self.last_action = format!(
+                    "Mock anchor: {:?}{}",
+                    request.mode,
+                    if self.fail_save { " (save failed)" } else { "" }
+                );
+                self.layout_changed();
+            }
+            Effect::Dashboard(action) => {
+                self.last_action = format!("Mock Dashboard: {action:?}");
+                if self.fail_save {
+                    self.view.error = Some("Synthetic save failed".into());
+                    self.view.save_state = DashboardSaveState::Error;
+                } else {
+                    apply_dashboard(&mut self.view, action);
+                    self.view.error = None;
+                    self.view.save_state = DashboardSaveState::Saved;
+                }
+                self.dashboard.update_view(&self.view);
+            }
+        }
+        self.dirty = true;
+    }
+
+    fn refresh(&mut self) {
+        for (index, pending) in self.pending.iter_mut().enumerate() {
+            if pending.is_some_and(|(_, at)| at.elapsed() >= Duration::from_millis(300)) {
+                let target = pending.take().expect("pending mock action").0;
+                let item = &mut self.controls.items[index];
+                item.busy = false;
+                if self.fail_save {
+                    item.reason = Some("Synthetic operation failed".into());
+                } else {
+                    item.requested = target;
+                    item.effective = target;
+                }
+                self.dirty = true;
+            }
+        }
+        if !self.live {
+            self.view.wrist.enabled = self.controls.items[0].requested;
+            self.view.headset.enabled = self.controls.items[1].requested;
+            self.view.osc.enabled = self.controls.items[2].requested;
+            self.view.capture.running = self.controls.items[3].requested;
+            self.view.wrist.anchor_mode = match self
+                .placement
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .mode()
+            {
+                Mode::Wrist => "wrist",
+                Mode::World => "world",
+            }
+            .into();
+        }
+        self.dashboard.update_view(&self.view);
+        let mut placement = self.placement.lock().unwrap_or_else(|e| e.into_inner());
+        if self.tracking {
+            placement.initialize_world(dialogue::in_front(head_pose()));
+        }
+        self.dirty |= placement.revision != self.placement_revision;
+    }
+
+    fn surface_view(&self) -> Option<SurfaceView> {
+        Some(match self.panel {
+            0 => SurfaceView::Menu {
+                controls: self.controls.clone(),
+            },
+            2 => {
+                let p = self.placement.lock().unwrap_or_else(|e| e.into_inner());
+                let messages = if matches!(self.scene, Scene::Empty | Scene::Expired) {
+                    Vec::new()
+                } else {
+                    vec![
+                        WristMessage {
+                            text: self
+                                .source
+                                .repeat(if self.scene == Scene::Long { 8 } else { 1 }),
+                            side: MessageSide::Left,
+                        },
+                        WristMessage {
+                            text: self.translation.clone(),
+                            side: MessageSide::Right,
+                        },
+                    ]
+                };
+                SurfaceView::Dialogue {
+                    controls: self.controls.clone(),
+                    messages,
+                    mode: p.display_mode(),
+                    busy: p.busy(),
+                    error: p.error.clone(),
+                    font_size: 28,
+                    opacity: 0.94,
+                }
+            }
+            4 | 5 | 9 => {
+                let mut reader = if self.panel == 4 {
+                    self.reader.view_with_labels(
+                        super::ocr_status::OcrState::Visible,
+                        false,
+                        false,
+                        &self.view.labels.wrist_reader,
+                    )
+                } else {
+                    self.vision.clone()
+                };
+                if self.panel == 9 {
+                    reader.status = ["listening", "finalizing", "requesting", "complete"]
+                        [self.advance % 4]
+                        .into();
+                }
+                reader.hovered = None;
+                SurfaceView::Reader {
+                    dark: self.controls.dark,
+                    labels: self.view.labels.wrist_reader.clone(),
+                    reader,
+                    font_size: 28,
+                    opacity: 0.94,
+                }
+            }
+            _ => return None,
+        })
+    }
+
+    fn render(&mut self) -> Result<(), String> {
+        if !self.dirty {
+            return Ok(());
+        }
+        let placement_revision = self
+            .placement
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .revision;
+        if let Some(view) = self.surface_view() {
+            if self
+                .surface
+                .as_ref()
+                .is_some_and(|state| state.key == self.surface_key() && state.view != view)
+            {
+                self.layout_changed();
+            }
+            self.surface = Some(SurfaceState {
+                key: self.surface_key(),
+                view,
+                hovered: self.hover,
+                pressed: self.pressed,
+                pointer: self.cursor,
+            });
+            self.texture = None;
+            self.sequence += 1;
+            self.dirty = false;
+            self.placement_revision = placement_revision;
+            return Ok(());
+        }
+        self.surface = None;
+        self.layout = None;
+        let empty = matches!(self.scene, Scene::Empty | Scene::Expired);
+        let mut texture = match self.panel {
+            1 => dashboard_renderer::render(&self.view, &self.dashboard, &mut self.cache)?
+                .into_rgba(),
+            3 => {
+                let text = if empty {
+                    String::new()
+                } else if self.scene == Scene::Partial {
+                    format!("{} …", self.source)
+                } else {
+                    format!("{}\n{}", self.source, self.translation)
+                };
+                let mut texture = renderer::render(
+                    renderer::Layout::Headset {
+                        lines_per_language: 2,
+                    },
+                    &PresentationContent::Headset(text),
+                    38,
+                    0.65,
+                )?;
+                unpremultiply(&mut texture.pixels);
+                texture
+            }
+            6 => {
+                super::ocr_selection::Selection::from_corners(
+                    [[-0.3, 0.2, -1.], [0.3, -0.2, -1.]],
+                    transform::matrix(0., 0., 0., [0.; 3]),
+                    0,
+                    0,
+                )
+                .expect("valid synthetic selection")
+                .preview()
+                .texture
+            }
+            7 => {
+                let eye = super::ocr_capture::EyeCapture {
+                    image: mirror_image()?,
+                    projection: [-1., 1., -1., 1.],
+                    eye_to_head: transform::matrix(0., 0., 0., [0.; 3]),
+                    head_pose: head_pose(),
+                };
+                let (mut overlay, _) =
+                    super::ocr_renderer::render_eye(&eye, &sample_blocks(false), &[], 0.65, false)?;
+                unpremultiply(&mut overlay.pixels);
+                for (base, over) in eye
+                    .image
+                    .pixels
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
+                    .zip(overlay.pixels.as_chunks_mut::<4>().0.iter_mut())
+                {
+                    let alpha = u32::from(over[3]);
+                    for i in 0..3 {
+                        over[i] = ((u32::from(over[i]) * alpha
+                            + u32::from(base[i]) * (255 - alpha))
+                            / 255) as u8;
+                    }
+                    over[3] = 255;
+                }
+                overlay
+            }
+            8 => {
+                use super::ocr_progress::Stage;
+                let step = self.advance % 4;
+                let stages = std::array::from_fn(|i| {
+                    if i < step {
+                        Stage::Complete
+                    } else if i == step {
+                        if self.scene == Scene::Error {
+                            Stage::Failed
+                        } else {
+                            Stage::Active
+                        }
+                    } else {
+                        Stage::Pending
+                    }
+                });
+                super::ocr_progress_renderer::render(
+                    &super::ocr_progress::ProgressView {
+                        scan_id: 1,
+                        status: "Synthetic OCR".into(),
+                        detail: if self.scene == Scene::Error {
+                            "Recognition failed"
+                        } else {
+                            "Advance to inspect recognition and translation stages"
+                        }
+                        .into(),
+                        elapsed_seconds: self.advance as u64,
+                        stages,
+                        stage_labels: [
+                            "Capture".into(),
+                            "Recognize".into(),
+                            "Translate".into(),
+                            "Display".into(),
+                        ],
+                        translation_fraction: Some((self.advance.min(3), 3)),
+                    },
+                    self.advance as u8,
+                )?
+            }
+            _ => return Err("Unknown preview panel".into()),
+        };
+        if empty && self.panel == 3 {
+            texture.pixels.fill(0);
+        }
+        self.texture = Some(texture);
+        self.sequence += 1;
+        self.dirty = false;
+        self.placement_revision = placement_revision;
+        Ok(())
+    }
+}
+
+fn head_pose() -> Pose {
+    transform::matrix(0., 0., 0., [0., 1.6, 0.])
+}
+fn wrist_pose() -> Pose {
+    transform::matrix(0., 0., 0., [0., 1.2, -0.6])
+}
+fn synthetic_controller(input: Input) -> Pose {
+    let [u, v] = input.point.unwrap_or([0.5, 0.5]);
+    transform::matrix(
+        input.rotation[0].clamp(-180., 180.),
+        input.rotation[1].clamp(-180., 180.),
+        input.rotation[2].clamp(-180., 180.),
+        [
+            (u - 0.5) * 2.,
+            1.6 + (0.5 - v) * 2.,
+            -input.depth.clamp(0.2, 3.),
+        ],
+    )
+}
+fn unpremultiply(pixels: &mut [u8]) {
+    for p in pixels.as_chunks_mut::<4>().0 {
+        let a = u32::from(p[3]);
+        for channel in &mut p[..3] {
+            *channel = (u32::from(*channel) * 255)
+                .checked_div(a)
+                .unwrap_or(0)
+                .min(255) as u8;
+        }
+    }
+}
+fn sample_answer(long: bool) -> String {
+    let answer = "## VR overlay\n\nThe panel keeps recent **transcriptions** and translations visible.\n\n- Trigger: activate a button\n- Grip: move the dialogue panel\n\n| Mode | Anchor |\n| --- | --- |\n| Wrist | Controller |\n| World | Tracking space |\n\n```rust\nlet overlay = \"VRCS\";\n```\n\n> Game movement continues while you use the panel.\n\n";
+    answer.repeat(if long { 12 } else { 1 })
+}
+fn sample_blocks(long: bool) -> Vec<TranslatedBlock> {
+    ["Welcome to VRCS", "Recent dialogue and translated text"]
+        .into_iter()
+        .enumerate()
+        .map(|(id, text)| {
+            let top = 100. + id as f32 * 160.;
+            TranslatedBlock {
+                source: TextBlock {
+                    id,
+                    text: text.repeat(if long { 30 } else { 1 }),
+                    confidence: 0.99,
+                    polygon: [[80., top], [680., top], [680., top + 90.], [80., top + 90.]],
+                },
+                fragments: Vec::new(),
+                translations: vec![
+                    BlockTranslation {
+                        target_language: "zh-CN".into(),
+                        text: Some(
+                            "欢迎使用 VRCS。面板交互期间可以继续在游戏内移动。".repeat(if long {
+                                25
+                            } else {
+                                1
+                            }),
+                        ),
+                        error_code: None,
+                    },
+                    BlockTranslation {
+                        target_language: "ja".into(),
+                        text: Some("VRCS へようこそ。".into()),
+                        error_code: None,
+                    },
+                ],
+            }
+        })
+        .collect()
+}
+fn mirror_image() -> Result<Texture, String> {
+    let mut canvas = super::overlay_ui::Canvas::new(768, 512);
+    canvas.round([0, 0, 768, 512], 0, [38, 44, 54, 255]);
+    canvas.round([40, 60, 728, 420], 20, [55, 64, 78, 255]);
+    canvas.text(
+        "Welcome to VRCS",
+        [80, 100, 680, 190],
+        36,
+        [245, 248, 255, 255],
+    )?;
+    canvas.text(
+        "Recent dialogue and translated text",
+        [80, 260, 680, 350],
+        28,
+        [190, 215, 235, 255],
+    )?;
+    Ok(canvas.texture)
+}
+
+fn apply_dashboard(view: &mut DashboardViewModel, action: DashboardAction) {
+    use DashboardAction::*;
+    fn targets(group: TargetGroup, view: &mut DashboardViewModel) -> &mut Vec<DashboardChoice> {
+        match group {
+            TargetGroup::Speaker => &mut view.language.speaker_targets,
+            TargetGroup::Microphone => &mut view.language.microphone_targets,
+        }
+    }
+    match action {
+        ToggleMaster => view.enabled = !view.enabled,
+        ToggleOcr => view.ocr.enabled = !view.ocr.enabled,
+        ToggleVision => view.vision.enabled = !view.vision.enabled,
+        ToggleOcrGesture => view.ocr.gesture = !view.ocr.gesture,
+        ToggleOscOriginal => view.osc.original = !view.osc.original,
+        ToggleOscMuteSync => view.osc.mute_sync = !view.osc.mute_sync,
+        SetDisplayContent(value) => view.content.value = value,
+        SetWristHand(value) => view.wrist.hand.value = value,
+        SetOscStrategy(value) => view.osc.strategy.value = value,
+        SetRecognitionLanguage(value) => view.language.recognition.value = value,
+        SetTranslationMode(value) => view.language.mode.value = value,
+        SetTargetLanguage {
+            group,
+            index,
+            value,
+        } => {
+            if let Some(choice) = targets(group, view).get_mut(index) {
+                choice.value = value;
+            }
+        }
+        AddTarget(group) => {
+            let list = targets(group, view);
+            if list.len() < 3 {
+                list.push(list.first().cloned().unwrap_or_default());
+            }
+        }
+        DeleteTarget { group, index } => {
+            let list = targets(group, view);
+            if index < list.len() {
+                list.remove(index);
+            }
+        }
+        MoveTarget {
+            group,
+            index,
+            offset,
+        } => {
+            let list = targets(group, view);
+            let next = index as i32 + offset;
+            if index < list.len() && next >= 0 && (next as usize) < list.len() {
+                list.swap(index, next as usize);
+            }
+        }
+        SaveLanguagePreset(_) => {
+            let id = format!("preview-{}", view.language.presets.options.len() + 1);
+            view.language.presets.options.push(DashboardOption {
+                value: id,
+                label: "Preview preset".into(),
+            });
+        }
+        ApplyLanguagePreset(value) => view.language.presets.value = value,
+        DeleteLanguagePreset(value) => view.language.presets.options.retain(|v| v.value != value),
+        HeadsetWidthDown | HeadsetWidthUp => step_number(
+            &mut view.headset.width,
+            if action == HeadsetWidthUp {
+                0.02
+            } else {
+                -0.02
+            },
+            " m",
+        ),
+        WristWidthDown | WristWidthUp => step_number(
+            &mut view.wrist.width,
+            if action == WristWidthUp { 0.02 } else { -0.02 },
+            " m",
+        ),
+        HeadsetOpacityDown | HeadsetOpacityUp => step_number(
+            &mut view.headset.opacity,
+            if action == HeadsetOpacityUp { 5. } else { -5. },
+            "%",
+        ),
+        WristOpacityDown | WristOpacityUp => step_number(
+            &mut view.wrist.opacity,
+            if action == WristOpacityUp { 5. } else { -5. },
+            "%",
+        ),
+        AdjustDisplayPosition {
+            kind,
+            field,
+            direction,
+        } => {
+            let list = if kind == DisplayKind::Wrist {
+                &mut view.wrist.position
+            } else {
+                &mut view.headset.position
+            };
+            let rotation = matches!(
+                field,
+                super::dashboard::PositionField::Pitch
+                    | super::dashboard::PositionField::Yaw
+                    | super::dashboard::PositionField::Roll
+            );
+            if let Some(value) = list.iter_mut().find(|v| v.field == field) {
+                step_number(
+                    &mut value.value,
+                    direction as f32 * if rotation { 5. } else { 0.01 },
+                    if rotation { "°" } else { " m" },
+                );
+            }
+        }
+        ResetDisplayPosition(kind) => {
+            let defaults: DashboardViewModel =
+                serde_json::from_str(include_str!("preview-fixture.json")).expect("valid fixture");
+            if kind == DisplayKind::Wrist {
+                view.wrist.position = defaults.wrist.position;
+            } else {
+                view.headset.position = defaults.headset.position;
+            }
+        }
+        _ => {}
+    }
+}
+fn step_number(value: &mut String, delta: f32, unit: &str) {
+    let number = value
+        .trim_end_matches(|c: char| !c.is_ascii_digit() && c != '.')
+        .parse::<f32>()
+        .unwrap_or(0.);
+    *value = format!("{:.2}{unit}", number + delta);
+}
+
+pub fn mode() -> Option<bool> {
+    match std::env::var("VRCS_VR_PREVIEW").as_deref() {
+        Ok("mock") => Some(false),
+        Ok("live") => Some(true),
+        _ => None,
+    }
+}
+pub fn setup(app: &tauri::AppHandle, live: bool) -> Result<(), Box<dyn std::error::Error>> {
+    if std::env::var_os("VRCS_VR_SURFACE_SMOKE").is_some() {
+        // Reproduce the default desktop environment that exists before VR hosts in production.
+        tauri::WebviewWindowBuilder::new(
+            app,
+            "vr-surface-smoke-desktop",
+            tauri::WebviewUrl::External(tauri::Url::parse("about:blank")?),
+        )
+        .transparent(true)
+        .visible(false)
+        .focused(false)
+        .skip_taskbar(true)
+        .build()?;
+        let mut preview = Preview::new(false, Arc::new(Mutex::new(Placement::default())));
+        let mut views = Vec::new();
+        for panel in [0, 2, 5] {
+            preview.panel = panel;
+            views.push((
+                preview.surface_id().unwrap(),
+                preview.surface_view().unwrap(),
+            ));
+        }
+        super::surface::smoke(app.clone(), views);
+        return Ok(());
+    }
+    app.add_capability(include_str!("../../vr-preview.capability.json"))?;
+    let manager = app.state::<super::Manager>();
+    let placement = if live {
+        manager.placement.clone()
+    } else {
+        Arc::new(Mutex::new(Placement::default()))
+    };
+    app.manage(PreviewState(Mutex::new(Preview::new(live, placement))));
+    tauri::WebviewWindowBuilder::new(
+        app,
+        "vr-preview",
+        tauri::WebviewUrl::App("index.html?window=vr-preview".into()),
+    )
+    .title(if live {
+        "VRCS · VR Preview · LIVE"
+    } else {
+        "VRCS · VR Preview · MOCK"
+    })
+    .inner_size(1280., 900.)
+    .min_inner_size(900., 680.)
+    .build()?;
+    Ok(())
+}
+fn require_window(window: &WebviewWindow) -> Result<(), String> {
+    if window.label() == "vr-preview" {
+        Ok(())
+    } else {
+        Err("Preview commands require the preview window".into())
+    }
+}
+
+#[tauri::command]
+pub fn vr_preview_open(
+    window: WebviewWindow,
+    state: State<'_, PreviewState>,
+) -> Result<Info, String> {
+    require_window(&window)?;
+    let mut p = state.0.lock().map_err(|e| e.to_string())?;
+    p.cancel();
+    p.session += 1;
+    p.generation += 1;
+    p.render()?;
+    Ok(p.info())
+}
+
+#[tauri::command]
+pub fn vr_preview_update(
+    window: WebviewWindow,
+    state: State<'_, PreviewState>,
+    manager: State<'_, super::Manager>,
+    session: u32,
+    operation: Operation,
+) -> Result<Info, String> {
+    require_window(&window)?;
+    let mut p = state.0.lock().map_err(|e| e.to_string())?;
+    if p.session != session {
+        return Err("Stale preview session".into());
+    }
+    if p.live {
+        let controls = manager
+            .controls
+            .lock()
+            .map_err(|e| e.to_string())?
+            .snapshot();
+        if controls != p.controls {
+            if p.controls.owner_epoch != controls.owner_epoch {
+                p.cancel();
+                p.generation += 1;
+            }
+            p.controls = controls;
+            if p.panel == 0 {
+                p.layout_changed();
+            } else {
+                p.dirty = true;
+            }
+        }
+        if let Some(view) = manager.preview_view() {
+            if view != p.view {
+                p.view = view;
+                if p.panel == 1 {
+                    p.layout_changed();
+                } else {
+                    p.dirty = true;
+                }
+            }
+            p.placement
+                .lock()
+                .map_err(|e| e.to_string())?
+                .sync_mode(Mode::from_config(&p.view.wrist.anchor_mode));
+        }
+    }
+    let effects = p.update(operation)?;
+    let mut dispatch = Vec::new();
+    for effect in effects {
+        if p.live {
+            dispatch.push(effect);
+        } else {
+            p.apply_mock(effect);
+        }
+    }
+    p.refresh();
+    p.render()?;
+    let info = p.info();
+    drop(p);
+    for effect in dispatch {
+        match effect {
+            Effect::Control(action) => super::runtime::dispatch_control(
+                window.app_handle(),
+                &manager.controls,
+                ControlSource::DevPreview,
+                action,
+            ),
+            Effect::Dashboard(action) => window
+                .emit_to("main", "vr-dashboard-action", action)
+                .map_err(|e| e.to_string())?,
+            Effect::Placement(request) => {
+                let hub = manager.controls.lock().map_err(|e| e.to_string())?;
+                let epoch = if hub.active() {
+                    hub.snapshot().owner_epoch
+                } else {
+                    0
+                };
+                drop(hub);
+                super::ui_runtime::dispatch_placement(
+                    window.app_handle(),
+                    epoch,
+                    &manager.placement,
+                    request,
+                );
+            }
+        }
+    }
+    Ok(info)
+}
+
+#[tauri::command]
+pub fn vr_preview_frame(
+    window: WebviewWindow,
+    state: State<'_, PreviewState>,
+    session: u32,
+    sequence: u32,
+) -> Result<tauri::ipc::Response, String> {
+    require_window(&window)?;
+    let p = state.0.lock().map_err(|e| e.to_string())?;
+    if p.session != session || p.sequence != sequence {
+        return Err("Stale preview frame".into());
+    }
+    let texture = p.texture.as_ref().ok_or("Preview frame unavailable")?;
+    Ok(tauri::ipc::Response::new(encode_frame(
+        texture.clone(),
+        p.generation,
+        p.revision,
+        p.panel,
+        p.sequence,
+    )))
+}
+
+fn encode_frame(
+    texture: Texture,
+    generation: u32,
+    revision: u32,
+    panel: u32,
+    sequence: u32,
+) -> Vec<u8> {
+    let mut frame = Vec::with_capacity(40 + texture.pixels.len());
+    for value in [
+        0x56524353,
+        1,
+        texture.width,
+        texture.height,
+        1,
+        1,
+        generation,
+        revision,
+        panel,
+        sequence,
+    ] {
+        frame.extend_from_slice(&value.to_le_bytes());
+    }
+    frame.extend_from_slice(&texture.pixels);
+    frame
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn binary_frame_has_explicit_pixel_contract_and_layout_identity() {
+        let data = encode_frame(
+            Texture {
+                width: 1,
+                height: 1,
+                pixels: vec![10, 20, 30, 128],
+            },
+            2,
+            3,
+            4,
+            5,
+        );
+        assert_eq!(data.len(), 44);
+        let fields: Vec<_> = data[..40]
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|v| u32::from_le_bytes(*v))
+            .collect();
+        assert_eq!(fields, [0x56524353, 1, 1, 1, 1, 1, 2, 3, 4, 5]);
+        assert_eq!(data[40..], [10, 20, 30, 128]);
+    }
+
+    fn mock() -> Preview {
+        Preview::new(false, Arc::new(Mutex::new(Placement::default())))
+    }
+    fn input(p: &Preview, point: [f32; 2], buttons: u8) -> Input {
+        Input {
+            panel: p.panel,
+            generation: p.generation,
+            revision: p.revision,
+            point: Some(point),
+            buttons,
+            depth: 0.8,
+            rotation: [0.; 3],
+        }
+    }
+    fn apply(p: &mut Preview, operation: Operation) {
+        for effect in p.update(operation).unwrap() {
+            p.apply_mock(effect);
+        }
+        p.refresh();
+        p.render().unwrap();
+        measure(p);
+    }
+    fn measure(p: &mut Preview) {
+        use super::super::surface::Region;
+        let regions = match p.panel {
+            0 => vec![Region {
+                id: 0,
+                bounds: [0.1, 0.2, 0.26, 0.84],
+                circle: false,
+            }],
+            2 => vec![Region {
+                id: 0,
+                bounds: [0.1, 0.02, 0.6, 0.1],
+                circle: false,
+            }],
+            4 | 5 | 9 => vec![Region {
+                id: 7,
+                bounds: [0.85, 0.88, 0.92, 0.95],
+                circle: true,
+            }],
+            _ => return,
+        };
+        p.update(Operation::Layout {
+            layout: SurfaceLayout {
+                key: p.surface_key(),
+                regions,
+                page_count: 1,
+            },
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn every_panel_renders_and_reset_invalidates_old_input_and_frame() {
+        let mut p = mock();
+        for panel in 0..10 {
+            apply(&mut p, Operation::Select { panel });
+            if p.surface_id().is_some() {
+                assert!(p.info().surface.is_some());
+                assert!(p.texture.is_none());
+            } else {
+                let texture = p.texture.as_ref().unwrap();
+                assert_eq!(
+                    texture.pixels.len(),
+                    (texture.width * texture.height * 4) as usize
+                );
+            }
+        }
+        let old = input(&p, [0.5, 0.5], 0);
+        let sequence = p.sequence;
+        apply(&mut p, Operation::Reset);
+        assert!(p.sequence > sequence);
+        assert!(p.input(old).is_err());
+    }
+
+    #[test]
+    fn react_pointer_tracks_panel_background_and_clears_on_leave_or_tracking_loss() {
+        let mut p = mock();
+        for panel in [0, 2, 4, 5, 9] {
+            apply(&mut p, Operation::Select { panel });
+            let key = p.surface_key();
+            let idle = input(&p, [0.5, 0.5], 0);
+            apply(&mut p, Operation::Pointer { input: idle });
+            let surface = p.info().surface.unwrap();
+            assert_eq!(surface.pointer, Some([0.5, 0.5]));
+            assert_eq!(surface.hovered, None);
+            assert_eq!(surface.key, key);
+            let sequence = p.sequence;
+            let moved = input(&p, [0.6, 0.6], 0);
+            apply(&mut p, Operation::Pointer { input: moved });
+            assert_eq!(p.info().surface.unwrap().pointer, Some([0.6, 0.6]));
+            assert!(p.sequence > sequence);
+            let mut leave = moved;
+            leave.point = None;
+            apply(&mut p, Operation::Pointer { input: leave });
+            assert_eq!(p.info().surface.unwrap().pointer, None);
+            apply(&mut p, Operation::Pointer { input: moved });
+            apply(&mut p, Operation::Cancel);
+            assert_eq!(p.info().surface.unwrap().pointer, None);
+            apply(&mut p, Operation::Pointer { input: moved });
+            apply(&mut p, Operation::Tracking { available: false });
+            assert_eq!(p.info().surface.unwrap().pointer, None);
+            apply(&mut p, Operation::Tracking { available: true });
+        }
+    }
+
+    #[test]
+    fn mock_menu_uses_real_hit_and_button_edges() {
+        let mut p = mock();
+        p.render().unwrap();
+        measure(&mut p);
+        let point = [0.18, 0.5];
+        let idle = input(&p, point, 0);
+        apply(&mut p, Operation::Pointer { input: idle });
+        let down = input(&p, point, 1);
+        apply(&mut p, Operation::Pointer { input: down });
+        assert!(p.pending.iter().all(Option::is_none));
+        let up = input(&p, point, 0);
+        apply(&mut p, Operation::Pointer { input: up });
+        assert!(p.pending[0].is_some());
+        p.pending[0].as_mut().unwrap().1 = Instant::now() - Duration::from_secs(1);
+        p.refresh();
+        assert!(p.controls.items[0].requested);
+    }
+
+    #[test]
+    fn dashboard_input_matches_the_displayed_texture_height() {
+        for footer in [false, true] {
+            let mut p = mock();
+            p.panel = 1;
+            if footer {
+                p.view.save_state = DashboardSaveState::Saving;
+            }
+            p.render().unwrap();
+            let texture = p.texture.as_ref().unwrap();
+            assert!(texture.height < 900);
+            let point = [342. / texture.width as f32, 790. / texture.height as f32];
+            p.input(input(&p, point, 1)).unwrap();
+            let effects = p.input(input(&p, point, 0)).unwrap();
+            assert!(effects
+                .iter()
+                .any(|effect| matches!(effect, Effect::Dashboard(DashboardAction::ToggleOcr))));
+        }
+    }
+
+    #[test]
+    fn live_placement_receipt_redraws_without_a_control_or_dashboard_change() {
+        let mut p = Preview::new(true, Arc::new(Mutex::new(Placement::default())));
+        p.panel = 2;
+        let Some(Effect::Placement(request)) = p.place(Mode::World) else {
+            panic!("expected placement request");
+        };
+        p.refresh();
+        p.render().unwrap();
+        let sequence = p.sequence;
+        let view = serde_json::to_value(p.info().surface).unwrap();
+        p.placement
+            .lock()
+            .unwrap()
+            .resolve(request.id, false, Some("Save failed".into()));
+        p.refresh();
+        p.render().unwrap();
+        assert!(!p.info().busy);
+        assert!(p.sequence > sequence);
+        assert_ne!(serde_json::to_value(p.info().surface).unwrap(), view);
+    }
+
+    #[test]
+    fn dialogue_drag_survives_streaming_but_cancel_and_save_failure_restore_anchor() {
+        let mut p = mock();
+        apply(&mut p, Operation::Select { panel: 2 });
+        let point = [0.2, 0.05];
+        let idle = input(&p, point, 0);
+        apply(&mut p, Operation::Pointer { input: idle });
+        let down = input(&p, point, 2);
+        apply(&mut p, Operation::Pointer { input: down });
+        assert_eq!(p.placement.lock().unwrap().dragging(), Some(1));
+        apply(
+            &mut p,
+            Operation::Text {
+                source: "A new partial".into(),
+                translation: "更新".into(),
+            },
+        );
+        assert_eq!(p.placement.lock().unwrap().dragging(), Some(1));
+        let mut moved = input(&p, [0.8, 0.7], 2);
+        moved.depth = 1.5;
+        apply(&mut p, Operation::Pointer { input: moved });
+        assert_ne!(p.info().pose, Some(wrist_pose()));
+        apply(&mut p, Operation::SaveFailure { enabled: true });
+        moved.buttons = 0;
+        apply(&mut p, Operation::Pointer { input: moved });
+        assert_eq!(p.placement.lock().unwrap().mode(), Mode::Wrist);
+        assert!(p.placement.lock().unwrap().error.is_some());
+        let idle = input(&p, point, 0);
+        apply(&mut p, Operation::Pointer { input: idle });
+        let down = input(&p, point, 2);
+        apply(&mut p, Operation::Pointer { input: down });
+        apply(&mut p, Operation::Tracking { available: false });
+        assert!(p.placement.lock().unwrap().dragging().is_none());
+        assert_eq!(p.placement.lock().unwrap().mode(), Mode::Wrist);
+    }
+
+    #[test]
+    fn live_preview_rejects_reset_and_failure_injection() {
+        let mut p = Preview::new(true, Arc::new(Mutex::new(Placement::default())));
+        assert!(p.update(Operation::Reset).is_err());
+        assert!(p.update(Operation::SaveFailure { enabled: true }).is_err());
+    }
+
+    #[test]
+    fn react_input_requires_current_dom_layout_and_uses_stable_region_ids() {
+        let mut p = mock();
+        p.render().unwrap();
+        let point = [0.18, 0.5];
+        assert!(p.input(input(&p, point, 0)).unwrap().is_empty());
+        assert!(p.input(input(&p, point, 1)).unwrap().is_empty());
+        assert!(p.input(input(&p, point, 0)).unwrap().is_empty());
+        apply(&mut p, Operation::Select { panel: 5 });
+        let point = [0.88, 0.91];
+        for buttons in [0, 1, 0] {
+            let sample = input(&p, point, buttons);
+            apply(&mut p, Operation::Pointer { input: sample });
+        }
+        assert!(p.info().closed);
+        let old = p.layout.take().unwrap();
+        p.layout_changed();
+        p.update(Operation::Layout { layout: old }).unwrap();
+        assert!(p.layout.is_none());
+    }
+}
