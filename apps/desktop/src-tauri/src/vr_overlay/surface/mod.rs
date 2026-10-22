@@ -121,9 +121,10 @@ pub enum SurfaceView {
     },
     Dashboard {
         dark: bool,
-        dashboard: DashboardViewModel,
+        dashboard: Box<DashboardViewModel>,
         ui: DashboardUi,
     },
+    #[cfg(all(debug_assertions, feature = "vr-preview"))]
     DashboardThumbnail {
         dark: bool,
     },

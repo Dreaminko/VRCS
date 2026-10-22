@@ -1395,8 +1395,10 @@ mod platform {
                     assert_eq!((width, height, depth), (256, 256, 4));
                     let pixels =
                         unsafe { std::slice::from_raw_parts(data.cast::<u8>(), 256 * 256 * 4) };
-                    assert!(pixels.chunks_exact(4).any(|pixel| pixel[3] > 0));
-                    assert!(pixels.chunks_exact(4).any(|pixel| pixel[3] == 0));
+                    let (pixels, remainder) = pixels.as_chunks::<4>();
+                    assert!(remainder.is_empty());
+                    assert!(pixels.iter().any(|pixel| pixel[3] > 0));
+                    assert!(pixels.iter().any(|pixel| pixel[3] == 0));
                     call("thumbnail", handle)
                 }
                 unsafe extern "C" fn clear(handle: u64) -> i32 {

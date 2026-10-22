@@ -930,7 +930,7 @@ fn update_dashboard(
             SurfaceId::Dashboard,
             SurfaceView::Dashboard {
                 dark,
-                dashboard: view.clone(),
+                dashboard: Box::new(view.clone()),
                 ui: state.dashboard.ui.clone(),
             },
             state.dashboard.hovered,
@@ -986,7 +986,7 @@ fn update_dashboard(
             OverlayKind::Dashboard,
             SurfaceView::Dashboard {
                 dark,
-                dashboard: view,
+                dashboard: Box::new(view),
                 ui: state.dashboard.ui.clone(),
             },
             state.dashboard.hovered,

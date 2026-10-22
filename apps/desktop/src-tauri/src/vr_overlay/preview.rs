@@ -790,7 +790,7 @@ impl Preview {
             },
             1 => SurfaceView::Dashboard {
                 dark: self.controls.dark,
-                dashboard: self.view.clone(),
+                dashboard: Box::new(self.view.clone()),
                 ui: self.dashboard.ui.clone(),
             },
             2 => {
@@ -1202,7 +1202,7 @@ pub fn setup(app: &tauri::AppHandle, live: bool) -> Result<(), Box<dyn std::erro
         views.extend([
             (SurfaceId::Dashboard, SurfaceView::Dashboard {
                 dark,
-                dashboard: preview.view.clone(),
+                dashboard: Box::new(preview.view.clone()),
                 ui: super::dashboard::DashboardUi::default(),
             }),
             (SurfaceId::OcrSelection, SurfaceView::OcrSelection { dark }),
