@@ -5,10 +5,9 @@ use std::ptr::null_mut;
 use windows_sys::Win32::Foundation::RECT;
 use windows_sys::Win32::Graphics::Gdi::{
     CreateCompatibleDC, CreateDIBSection, CreateFontW, CreateSolidBrush, DeleteDC, DeleteObject,
-    DrawTextW, FillRect, GetTextMetricsW, SelectObject, SetBkMode, SetTextColor, BITMAPINFO,
-    BITMAPINFOHEADER, BI_RGB, CLIP_DEFAULT_PRECIS, DEFAULT_CHARSET, DEFAULT_PITCH, DIB_RGB_COLORS,
-    DT_CALCRECT, FF_DONTCARE, FW_SEMIBOLD, OUT_DEFAULT_PRECIS, PROOF_QUALITY, TEXTMETRICW,
-    TRANSPARENT,
+    DrawTextW, FillRect, SelectObject, SetBkMode, SetTextColor, BITMAPINFO, BITMAPINFOHEADER,
+    BI_RGB, CLIP_DEFAULT_PRECIS, DEFAULT_CHARSET, DEFAULT_PITCH, DIB_RGB_COLORS, DT_CALCRECT,
+    FF_DONTCARE, FW_SEMIBOLD, OUT_DEFAULT_PRECIS, PROOF_QUALITY, TRANSPARENT,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -42,7 +41,6 @@ pub(super) struct TextMask {
     width: u32,
     height: u32,
     black: *mut c_void,
-    metrics: TEXTMETRICW,
 }
 
 impl TextMask {
@@ -123,8 +121,6 @@ impl TextMask {
             }
             SetBkMode(dc, TRANSPARENT as i32);
             SetTextColor(dc, 0x00ff_ffff);
-            let mut metrics = zeroed();
-            GetTextMetricsW(dc, &mut metrics);
 
             Ok(Self {
                 dc,
@@ -136,7 +132,6 @@ impl TextMask {
                 width,
                 height,
                 black,
-                metrics,
             })
         }
     }
@@ -207,61 +202,12 @@ impl TextMask {
         }
     }
 
-    pub fn line_height(&self) -> i32 {
-        self.metrics.tmHeight.max(1)
-    }
-
-    pub fn ascent(&self) -> i32 {
-        self.metrics.tmAscent.max(1)
-    }
-
     pub fn pixels(&self) -> &[u8] {
         unsafe {
             std::slice::from_raw_parts(
                 self.bits.cast::<u8>(),
                 (self.width * self.height * 4) as usize,
             )
-        }
-    }
-
-    pub fn blend_into(
-        &self,
-        pixels: &mut [u8],
-        target_width: u32,
-        rect: Rect,
-        offset_x: i32,
-        offset_y: i32,
-        color: [u8; 3],
-    ) {
-        let target_height = pixels.len() / 4 / target_width as usize;
-        for y in rect.top.max(0)..rect.bottom.min(self.height as i32) {
-            for x in rect.left.max(0)..rect.right.min(self.width as i32) {
-                let (target_x, target_y) = (x + offset_x, y + offset_y);
-                if target_x < 0
-                    || target_y < 0
-                    || target_x >= target_width as i32
-                    || target_y >= target_height as i32
-                {
-                    continue;
-                }
-                let source = ((y as u32 * self.width + x as u32) * 4) as usize;
-                let target = ((target_y as u32 * target_width + target_x as u32) * 4) as usize;
-                let coverage = self.pixels()[source..source + 3]
-                    .iter()
-                    .copied()
-                    .max()
-                    .unwrap_or(0) as u16;
-                if coverage == 0 {
-                    continue;
-                }
-                for channel in 0..3 {
-                    pixels[target + channel] = ((color[channel] as u16 * coverage
-                        + pixels[target + channel] as u16 * (255 - coverage))
-                        / 255) as u8;
-                }
-                pixels[target + 3] = pixels[target + 3]
-                    .saturating_add(((255 - pixels[target + 3]) as u16 * coverage / 255) as u8);
-            }
         }
     }
 }

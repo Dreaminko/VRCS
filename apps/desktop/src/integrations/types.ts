@@ -56,6 +56,7 @@ export interface VrOverlayHeadsetSettings {
 }
 
 export interface VrOverlayWristSettings {
+  anchor_mode: "wrist" | "world";
   enabled: boolean;
   hand: VrOverlayHand;
   dominant_hand: VrOverlayControllerHand;
@@ -79,6 +80,7 @@ export interface VrOverlayWristSettings {
 }
 
 export interface VrOverlaySettings {
+  wrist_menu: { enabled: boolean; hand: VrOverlayControllerHand };
   enabled: boolean;
   translation_display: VrOverlayTranslationDisplay;
   headset: VrOverlayHeadsetSettings;

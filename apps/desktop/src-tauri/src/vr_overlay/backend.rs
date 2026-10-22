@@ -6,7 +6,7 @@ mod platform {
     use openvr::{ApplicationType, Context, Overlay, System, TrackedControllerRole};
     use vrcs_core::{VrOcrWristConfig, VrOverlayHeadsetConfig, VrOverlayWristConfig};
 
-    use super::{ControllerBinding, OverlayKind};
+    use super::{menu_config, ControllerBinding, OverlayKind};
     use crate::vr_overlay::d3d11_texture::{Device, OverlayTexture};
     use crate::vr_overlay::dashboard::{
         pointer_from_openvr, DashboardPointerEvent, DASHBOARD_HEIGHT, DASHBOARD_WIDTH,
@@ -35,6 +35,8 @@ mod platform {
         ocr_mirrors: [Option<Mirror>; 2],
         headset: Option<OverlayHandle>,
         wrist: Option<OverlayHandle>,
+        wrist_menu: Option<OverlayHandle>,
+        tracking_reset: bool,
         ocr_wrist: Option<OverlayHandle>,
         ocr_progress: Option<OverlayHandle>,
         ocr_wrist_device: Option<u32>,
@@ -45,6 +47,7 @@ mod platform {
         dashboard_height: u32,
         headset_state: SubmittedState,
         wrist_state: SubmittedState,
+        wrist_menu_state: SubmittedState,
         ocr_wrist_state: SubmittedState,
         ocr_progress_state: SubmittedState,
         ocr_frame_state: SubmittedState,
@@ -59,7 +62,6 @@ mod platform {
         visible: bool,
         opacity: Option<f32>,
         interactive: Option<bool>,
-        laser_focused: bool,
         texture: Option<OverlayTexture>,
         d3d11_disabled: bool,
     }
@@ -144,9 +146,6 @@ mod platform {
             if let Some(input) = &mut self.ocr_input {
                 input.freeze_frame();
             }
-        }
-        pub fn reset_ocr_input(&mut self) {
-            self.ocr_input = None;
         }
         pub fn open_ocr_bindings(&mut self) -> Result<(), String> {
             self.ocr_input
@@ -404,6 +403,8 @@ mod platform {
                 ocr_mirrors: [None, None],
                 headset: None,
                 wrist: None,
+                wrist_menu: None,
+                tracking_reset: false,
                 ocr_wrist: None,
                 ocr_progress: None,
                 ocr_wrist_device: None,
@@ -414,6 +415,7 @@ mod platform {
                 dashboard_height: DASHBOARD_HEIGHT,
                 headset_state: SubmittedState::default(),
                 wrist_state: SubmittedState::default(),
+                wrist_menu_state: SubmittedState::default(),
                 ocr_wrist_state: SubmittedState::default(),
                 ocr_progress_state: SubmittedState::default(),
                 ocr_frame_state: SubmittedState::default(),
@@ -424,8 +426,10 @@ mod platform {
             })
         }
 
-        pub fn quit_requested(&self) -> bool {
-            poll_quit_requested(unsafe { &*self.raw_system })
+        pub fn quit_requested(&mut self) -> bool {
+            let (quit, reset) = poll_runtime_events(unsafe { &*self.raw_system });
+            self.tracking_reset |= reset;
+            quit
         }
 
         pub fn ensure_dashboard(&mut self) -> Result<(), String> {
@@ -670,9 +674,6 @@ mod platform {
                     )?;
                 }
                 self.ocr_wrist_state.interactive = Some(interactive);
-                if !interactive {
-                    self.set_ocr_wrist_focus(false)?;
-                }
             }
             Ok(binding)
         }
@@ -697,7 +698,7 @@ mod platform {
                 });
             };
             if !self.system.is_tracked_device_connected(device)
-                || (kind == OverlayKind::OcrWrist && self.controller_pose(device.0).is_none())
+                || self.controller_pose(device.0).is_none()
             {
                 self.hide(kind);
                 return Ok(ControllerBinding {
@@ -713,6 +714,12 @@ mod platform {
                     "org.vrcs.overlay.ocr.wrist\0",
                     "VRCS OCR Reader\0",
                 )
+            } else if kind == OverlayKind::WristMenu {
+                (
+                    &mut self.wrist_menu,
+                    "org.vrcs.overlay.wrist.menu\0",
+                    "VRCS Wrist Menu\0",
+                )
             } else {
                 (&mut self.wrist, WRIST_KEY, WRIST_NAME)
             };
@@ -721,6 +728,7 @@ mod platform {
                     .overlay
                     .create_overlay(key, name)
                     .map_err(|error| format!("Create wrist overlay failed: {error:?}"))?;
+                configure_ocr_wrist_input(unsafe { &*self.raw_overlay }, handle)?;
                 *slot = Some(handle);
             }
             let handle = slot.expect("controller overlay exists");
@@ -737,7 +745,7 @@ mod platform {
             })
         }
 
-        fn controller_pose(&self, device: u32) -> Option<([[f32; 4]; 3], i32)> {
+        pub fn controller_pose(&self, device: u32) -> Option<([[f32; 4]; 3], i32)> {
             let table = load_raw_interface(openvr_sys::IVRCompositor_Version, "compositor").ok()?
                 as *const openvr_sys::VR_IVRCompositor_FnTable;
             let table = unsafe { &*table };
@@ -792,83 +800,135 @@ mod platform {
             ))
         }
 
-        fn set_ocr_wrist_focus(&mut self, focused: bool) -> Result<(), String> {
-            if self.ocr_wrist_state.laser_focused == focused {
-                return Ok(());
-            }
-            let handle = self.ocr_wrist.ok_or("OCR wrist overlay unavailable")?;
-            let api = unsafe { &*self.raw_overlay };
-            set_wrist_interactive(api, handle, focused)?;
-            self.ocr_wrist_state.laser_focused = focused;
-            Ok(())
+        pub fn tracking_reset(&mut self) -> bool {
+            std::mem::take(&mut self.tracking_reset)
         }
 
-        pub fn poll_ocr_wrist_events(
+        pub fn system_dashboard_visible(&mut self) -> bool {
+            self.overlay.is_dashboard_visible()
+        }
+
+        pub fn visible(&self, kind: OverlayKind) -> bool {
+            self.state(kind).visible
+        }
+
+        pub fn controller_device(&self, config: &VrOverlayWristConfig) -> Option<u32> {
+            let device = self
+                .system
+                .tracked_device_index_for_controller_role(controller_role(config).1)?;
+            self.controller_pose(device.0)?;
+            Some(device.0)
+        }
+
+        pub fn wrist_pose(&self, config: &VrOverlayWristConfig) -> Option<[[f32; 4]; 3]> {
+            let (controller, _) = self.controller_pose(self.controller_device(config)?)?;
+            Some(transform::compose(controller, transform::wrist(config)))
+        }
+
+        pub fn wrist_angle(&self, config: &VrOverlayWristConfig) -> Option<f32> {
+            let panel = self.wrist_pose(config)?;
+            let (head, _, _) = self.ocr_tracking().ok()?;
+            let toward: [f32; 3] = std::array::from_fn(|i| head[i][3] - panel[i][3]);
+            let length = toward.iter().map(|v| v * v).sum::<f32>().sqrt();
+            (length > 0.001).then(|| {
+                (toward
+                    .iter()
+                    .enumerate()
+                    .map(|(i, v)| v * panel[i][2])
+                    .sum::<f32>()
+                    / length)
+                    .clamp(-1., 1.)
+                    .acos()
+                    .to_degrees()
+            })
+        }
+
+        pub fn ensure_wrist_menu(&mut self, hand: &str) -> Result<(), String> {
+            if self
+                .ensure_controller_overlay(OverlayKind::WristMenu, &menu_config(hand))?
+                .available
+            {
+                Ok(())
+            } else {
+                Err("Controller tracking unavailable".into())
+            }
+        }
+
+        pub fn ensure_world_wrist(
             &mut self,
-        ) -> Result<(Vec<crate::vr_overlay::ocr_wrist::LaserEvent>, bool), String> {
-            use crate::vr_overlay::ocr_wrist::{laser_event, native_focus, LaserEvent};
-            let focused = (|| {
-                let handle = self.ocr_wrist.filter(|_| {
-                    self.ocr_wrist_state.visible
-                        && self.ocr_wrist_state.interactive == Some(true)
-                        && !self.overlay.is_dashboard_visible()
-                })?;
-                let wrist_device = self.ocr_wrist_device?;
-                let role = match self.system.get_controller_role_for_tracked_device_index(
-                    openvr::TrackedDeviceIndex(wrist_device),
-                ) {
-                    Some(TrackedControllerRole::LeftHand) => TrackedControllerRole::RightHand,
-                    Some(TrackedControllerRole::RightHand) => TrackedControllerRole::LeftHand,
-                    _ => return None,
-                };
-                let device = self.system.tracked_device_index_for_controller_role(role)?;
-                let right = role == TrackedControllerRole::RightHand;
-                let input = self.ocr_input.as_ref()?;
-                let source = input.pointer_source(right)?;
-                let (matrix, origin) = self.controller_pointer_pose(device, source)?;
-                let pointing = wrist_ray_hit(unsafe { &*self.raw_overlay }, handle, origin, matrix);
-                let released = input
-                    .pointer_sample(right)
-                    .is_some_and(|(index, _, down)| index == device.0 && !down);
-                Some(native_focus(
-                    pointing,
-                    self.ocr_wrist_state.laser_focused,
-                    released,
-                ))
-            })()
-            .unwrap_or(false);
-            self.set_ocr_wrist_focus(focused)?;
-            let Some(handle) = self.ocr_wrist else {
-                return Ok((vec![LaserEvent::Leave], false));
-            };
-            let api = unsafe { &*self.raw_overlay };
-            let poll = api
-                .PollNextOverlayEvent
-                .ok_or("SteamVR wrist events unavailable")?;
-            let mut events = Vec::new();
-            loop {
-                let mut event = openvr_sys::VREvent_t::default();
-                if !unsafe {
-                    poll(
-                        handle.0,
-                        &mut event,
-                        size_of::<openvr_sys::VREvent_t>() as u32,
-                    )
-                } {
-                    break;
-                }
-                if focused {
-                    if let Some(event) =
-                        laser_event(&event, self.ocr_wrist_device.unwrap_or(u32::MAX))
-                    {
-                        events.push(event);
-                    }
-                }
+            config: &VrOverlayWristConfig,
+            pose: [[f32; 4]; 3],
+            origin: i32,
+        ) -> Result<(), String> {
+            if self.wrist.is_none() {
+                let handle = self
+                    .overlay
+                    .create_overlay(WRIST_KEY, WRIST_NAME)
+                    .map_err(|e| format!("Create dialogue overlay failed: {e:?}"))?;
+                configure_ocr_wrist_input(unsafe { &*self.raw_overlay }, handle)?;
+                self.wrist = Some(handle);
             }
-            if !focused {
-                events.push(LaserEvent::Leave);
+            let handle = self.wrist.expect("dialogue overlay");
+            self.overlay
+                .set_width(handle, config.width_m)
+                .map_err(|e| format!("Set dialogue width failed: {e:?}"))?;
+            let mut matrix = openvr_sys::HmdMatrix34_t { m: pose };
+            check_wrist_input(unsafe {
+                (*self.raw_overlay)
+                    .SetOverlayTransformAbsolute
+                    .ok_or("Absolute overlays unavailable")?(
+                    handle.0, origin, &mut matrix
+                )
+            })
+        }
+
+        pub fn ui_inputs(&self) -> Vec<crate::vr_overlay::ocr_input::UiInput> {
+            self.ocr_input
+                .as_ref()
+                .map(|input| input.ui_samples())
+                .unwrap_or_default()
+                .into_iter()
+                .filter(|input| self.controller_pose(input.device).is_some())
+                .collect()
+        }
+
+        pub fn intersect(
+            &self,
+            kind: OverlayKind,
+            device: u32,
+            source: u64,
+        ) -> Option<([f32; 2], f32)> {
+            if !self.state(kind).visible {
+                return None;
             }
-            Ok((events, focused))
+            if kind == OverlayKind::OcrWrist
+                && (self.ocr_wrist_device == Some(device)
+                    || self.ocr_wrist_state.interactive != Some(true))
+            {
+                return None;
+            }
+            let handle = self.handle(kind)?;
+            let (pose, origin) =
+                self.controller_pointer_pose(openvr::TrackedDeviceIndex(device), source)?;
+            wrist_ray_hit(unsafe { &*self.raw_overlay }, handle, origin, pose)
+        }
+
+        pub fn surface_adapter_index(&self) -> Result<u32, String> {
+            dxgi_adapter_index()
+        }
+
+        pub fn upload_surface(
+            &mut self,
+            kind: OverlayKind,
+            shared_handle: usize,
+        ) -> Result<(), String> {
+            let handle = self.handle(kind).ok_or("Overlay is not created")?;
+            submit_shared_texture(
+                self.raw_overlay,
+                handle,
+                shared_handle as *mut std::ffi::c_void,
+                true,
+            )
         }
 
         pub fn upload(&mut self, kind: OverlayKind, texture: &Texture) -> Result<(), String> {
@@ -936,7 +996,7 @@ mod platform {
                 );
             } else {
                 let texture = device.create_shared_texture(source)?;
-                submit_shared_texture(self.raw_overlay, handle, texture.shared_handle())?;
+                submit_shared_texture(self.raw_overlay, handle, texture.shared_handle(), false)?;
                 let shared_handle = texture.shared_handle() as usize;
                 self.state_mut(kind).texture = Some(texture);
                 tracing::info!(
@@ -995,11 +1055,6 @@ mod platform {
         }
 
         pub fn hide(&mut self, kind: OverlayKind) {
-            if kind == OverlayKind::OcrWrist {
-                if let Err(error) = self.set_ocr_wrist_focus(false) {
-                    tracing::warn!(error, "Unable to release SteamVR wrist focus");
-                }
-            }
             if !self.state(kind).visible {
                 return;
             }
@@ -1013,6 +1068,7 @@ mod platform {
         pub fn hide_all(&mut self) {
             self.hide(OverlayKind::Headset);
             self.hide(OverlayKind::Wrist);
+            self.hide(OverlayKind::WristMenu);
             self.hide(OverlayKind::OcrWrist);
             self.hide(OverlayKind::OcrProgress);
             self.hide(OverlayKind::OcrFrame);
@@ -1028,6 +1084,7 @@ mod platform {
             match kind {
                 OverlayKind::Headset => self.headset,
                 OverlayKind::Wrist => self.wrist,
+                OverlayKind::WristMenu => self.wrist_menu,
                 OverlayKind::OcrWrist => self.ocr_wrist,
                 OverlayKind::OcrProgress => self.ocr_progress,
                 OverlayKind::OcrFrame => self.ocr_frame,
@@ -1041,6 +1098,7 @@ mod platform {
             match kind {
                 OverlayKind::Headset => &self.headset_state,
                 OverlayKind::Wrist => &self.wrist_state,
+                OverlayKind::WristMenu => &self.wrist_menu_state,
                 OverlayKind::OcrWrist => &self.ocr_wrist_state,
                 OverlayKind::OcrProgress => &self.ocr_progress_state,
                 OverlayKind::OcrFrame => &self.ocr_frame_state,
@@ -1054,6 +1112,7 @@ mod platform {
             match kind {
                 OverlayKind::Headset => &mut self.headset_state,
                 OverlayKind::Wrist => &mut self.wrist_state,
+                OverlayKind::WristMenu => &mut self.wrist_menu_state,
                 OverlayKind::OcrWrist => &mut self.ocr_wrist_state,
                 OverlayKind::OcrProgress => &mut self.ocr_progress_state,
                 OverlayKind::OcrFrame => &mut self.ocr_frame_state,
@@ -1067,6 +1126,7 @@ mod platform {
             let handle = match kind {
                 OverlayKind::Headset => self.headset.take(),
                 OverlayKind::Wrist => self.wrist.take(),
+                OverlayKind::WristMenu => self.wrist_menu.take(),
                 OverlayKind::OcrWrist => {
                     self.ocr_wrist_device = None;
                     self.ocr_wrist.take()
@@ -1098,6 +1158,7 @@ mod platform {
             self.hide_all();
             self.destroy(OverlayKind::Headset);
             self.destroy(OverlayKind::Wrist);
+            self.destroy(OverlayKind::WristMenu);
             self.destroy(OverlayKind::OcrWrist);
             self.destroy(OverlayKind::OcrProgress);
             self.destroy(OverlayKind::OcrFrame);
@@ -1109,22 +1170,29 @@ mod platform {
         }
     }
 
-    fn poll_quit_requested(system: &openvr_sys::VR_IVRSystem_FnTable) -> bool {
+    fn poll_runtime_events(system: &openvr_sys::VR_IVRSystem_FnTable) -> (bool, bool) {
+        let mut reset = false;
         let poll = system
             .PollNextEvent
             .expect("OpenVR event polling available");
         loop {
             let mut event = openvr_sys::VREvent_t::default();
             if !unsafe { poll(&mut event, std::mem::size_of_val(&event) as u32) } {
-                return false;
+                return (false, reset);
             }
+            reset |= matches!(
+                event.eventType as i32,
+                openvr_sys::EVREventType_VREvent_SeatedZeroPoseReset
+                    | openvr_sys::EVREventType_VREvent_ChaperoneUniverseHasChanged
+                    | openvr_sys::EVREventType_VREvent_ChaperoneDataHasChanged
+            );
             if event.eventType == openvr_sys::EVREventType_VREvent_Quit as u32 {
                 unsafe {
                     system
                         .AcknowledgeQuit_Exiting
                         .expect("OpenVR quit acknowledgement available")();
                 }
-                return true;
+                return (true, reset);
             }
         }
     }
@@ -1185,14 +1253,7 @@ mod platform {
                 .SetOverlayInputMethod
                 .ok_or("SteamVR OCR wrist input mode unavailable")?(
                 handle.0,
-                openvr_sys::VROverlayInputMethod_Mouse,
-            ))?;
-            let size = crate::vr_overlay::ocr_wrist_renderer::SIZE as f32;
-            let mut scale = openvr_sys::HmdVector2_t { v: [size, size] };
-            check_wrist_input(api
-                .SetOverlayMouseScale
-                .ok_or("SteamVR OCR wrist mouse scale unavailable")?(
-                handle.0, &mut scale
+                openvr_sys::VROverlayInputMethod_None,
             ))?;
         }
         set_wrist_interactive(api, handle, false)
@@ -1203,10 +1264,8 @@ mod platform {
         handle: OverlayHandle,
         origin: i32,
         matrix: [[f32; 4]; 3],
-    ) -> bool {
-        let Some(intersection) = overlay.ComputeOverlayIntersection else {
-            return false;
-        };
+    ) -> Option<([f32; 2], f32)> {
+        let intersection = overlay.ComputeOverlayIntersection?;
         let mut ray = openvr_sys::VROverlayIntersectionParams_t {
             vSource: openvr_sys::HmdVector3_t {
                 v: std::array::from_fn(|i| matrix[i][3]),
@@ -1217,12 +1276,16 @@ mod platform {
             eOrigin: origin,
         };
         let mut hit: openvr_sys::VROverlayIntersectionResults_t = unsafe { std::mem::zeroed() };
-        (unsafe { intersection(handle.0, &mut ray, &mut hit) })
+        let found = unsafe { intersection(handle.0, &mut ray, &mut hit) };
+        (found
+            && hit.fDistance.is_finite()
+            && hit.fDistance >= 0.
             && hit
                 .vUVs
                 .v
                 .iter()
-                .all(|v| v.is_finite() && (0. ..=1.).contains(v))
+                .all(|v| v.is_finite() && (0. ..=1.).contains(v)))
+        .then_some(([hit.vUVs.v[0], 1. - hit.vUVs.v[1]], hit.fDistance))
     }
 
     fn dxgi_adapter_index() -> Result<u32, String> {
@@ -1243,15 +1306,27 @@ mod platform {
         raw_overlay: *const openvr_sys::VR_IVROverlay_FnTable,
         handle: OverlayHandle,
         shared_handle: *mut std::ffi::c_void,
+        premultiplied: bool,
     ) -> Result<(), String> {
+        let api = unsafe { &*raw_overlay };
+        let error = unsafe {
+            api.SetOverlayFlag
+                .ok_or("OpenVR overlay alpha mode is unavailable")?(
+                handle.0,
+                openvr_sys::VROverlayFlags_IsPremultiplied,
+                premultiplied,
+            )
+        };
+        if error != openvr_sys::EVROverlayError_VROverlayError_None {
+            return Err(format!("Set overlay alpha mode failed with code {error}"));
+        }
         let mut texture = openvr_sys::Texture_t {
             handle: shared_handle,
             eType: openvr_sys::ETextureType_TextureType_DXGISharedHandle,
             eColorSpace: openvr_sys::EColorSpace_ColorSpace_Auto,
         };
         let error = unsafe {
-            (&*raw_overlay)
-                .SetOverlayTexture
+            api.SetOverlayTexture
                 .ok_or_else(|| "OpenVR SetOverlayTexture is unavailable".to_string())?(
                 handle.0,
                 &mut texture,
@@ -1306,6 +1381,49 @@ mod platform {
         use std::sync::atomic::{AtomicBool, AtomicI32, AtomicUsize, Ordering};
 
         #[test]
+        fn shared_textures_configure_alpha_before_submission() {
+            use std::cell::Cell;
+            thread_local! {
+                static ALPHA: Cell<Option<bool>> = const { Cell::new(None) };
+                static SUBMITTED: Cell<usize> = const { Cell::new(0) };
+            }
+            unsafe extern "C" fn flag(handle: u64, flag: i32, enabled: bool) -> i32 {
+                assert_eq!(handle, 73);
+                assert_eq!(flag, openvr_sys::VROverlayFlags_IsPremultiplied);
+                ALPHA.set(Some(enabled));
+                0
+            }
+            unsafe extern "C" fn submit(handle: u64, texture: *mut openvr_sys::Texture_t) -> i32 {
+                assert_eq!(handle, 73);
+                if ALPHA.get().is_none() {
+                    return 10;
+                }
+                assert_eq!(
+                    unsafe { (*texture).eType },
+                    openvr_sys::ETextureType_TextureType_DXGISharedHandle
+                );
+                SUBMITTED.set(SUBMITTED.get() + 1);
+                0
+            }
+            unsafe extern "C" fn rejected(_: u64, _: i32, _: bool) -> i32 {
+                10
+            }
+            let mut api: openvr_sys::VR_IVROverlay_FnTable = unsafe { std::mem::zeroed() };
+            api.SetOverlayFlag = Some(flag);
+            api.SetOverlayTexture = Some(submit);
+            let handle = openvr::overlay::OverlayHandle(73);
+            let texture = std::ptr::without_provenance_mut(42);
+            for premultiplied in [true, false] {
+                ALPHA.set(None);
+                super::submit_shared_texture(&api, handle, texture, premultiplied).unwrap();
+                assert_eq!(ALPHA.get(), Some(premultiplied));
+            }
+            api.SetOverlayFlag = Some(rejected);
+            assert!(super::submit_shared_texture(&api, handle, texture, true).is_err());
+            assert_eq!(SUBMITTED.get(), 2);
+        }
+
+        #[test]
         fn quit_is_acknowledged_but_another_process_quitting_is_not() {
             use std::cell::{Cell, RefCell};
             use std::collections::VecDeque;
@@ -1334,20 +1452,20 @@ mod platform {
             EVENTS.with_borrow_mut(|events| {
                 events.push_back(openvr_sys::EVREventType_VREvent_ProcessQuit as u32);
             });
-            assert!(!super::poll_quit_requested(&api));
+            assert!(!super::poll_runtime_events(&api).0);
             assert_eq!(ACKNOWLEDGED.get(), 0);
 
             EVENTS.with_borrow_mut(|events| {
                 events.push_back(openvr_sys::EVREventType_VREvent_TrackedDeviceUpdated as u32);
                 events.push_back(openvr_sys::EVREventType_VREvent_Quit as u32);
             });
-            assert!(super::poll_quit_requested(&api));
+            assert!(super::poll_runtime_events(&api).0);
             assert_eq!(ACKNOWLEDGED.get(), 1);
-            assert!(!super::poll_quit_requested(&api));
+            assert!(!super::poll_runtime_events(&api).0);
         }
 
         #[test]
-        fn ocr_wrist_configures_native_mouse_without_taking_focus() {
+        fn ordinary_overlay_disables_system_mouse_and_focus() {
             static CONFIGURED: AtomicUsize = AtomicUsize::new(0);
             static METHOD: AtomicI32 = AtomicI32::new(-1);
             static INTERACTIVE: AtomicBool = AtomicBool::new(true);
@@ -1374,7 +1492,7 @@ mod platform {
             let mut api: openvr_sys::VR_IVROverlay_FnTable = unsafe { std::mem::zeroed() };
             unsafe extern "C" fn scale(handle: u64, scale: *mut openvr_sys::HmdVector2_t) -> i32 {
                 assert_eq!(handle, 73);
-                let size = crate::vr_overlay::ocr_wrist_renderer::SIZE as f32;
+                let size = crate::vr_overlay::surface::SurfaceId::Reader.size().0 as f32;
                 assert_eq!(unsafe { (*scale).v }, [size, size]);
                 CONFIGURED.fetch_or(4, Ordering::Relaxed);
                 0
@@ -1383,11 +1501,11 @@ mod platform {
             api.SetOverlayMouseScale = Some(scale);
             api.SetOverlayFlag = Some(flag);
             super::configure_ocr_wrist_input(&api, openvr::overlay::OverlayHandle(73)).unwrap();
-            assert_eq!(CONFIGURED.load(Ordering::Relaxed), 7);
+            assert_eq!(CONFIGURED.load(Ordering::Relaxed), 3);
             assert!(!INTERACTIVE.load(Ordering::Relaxed));
             assert_eq!(
                 METHOD.load(Ordering::Relaxed),
-                openvr_sys::VROverlayInputMethod_Mouse
+                openvr_sys::VROverlayInputMethod_None
             );
             api.SetOverlayFlag = Some(rejected);
             assert!(
@@ -1430,9 +1548,9 @@ mod platform {
                     super::transform::matrix(0., 0., 0., [1., 2., 3.]),
                 )
             };
-            assert!(sample());
+            assert_eq!(sample(), Some(([0.75, 0.75], 0.)));
             HIT.set(false);
-            assert!(!sample());
+            assert!(sample().is_none());
         }
 
         #[test]
@@ -1527,10 +1645,27 @@ mod platform {
 
 pub use platform::OpenVrBackend;
 
+#[cfg(windows)]
+pub fn menu_config(hand: &str) -> vrcs_core::VrOverlayWristConfig {
+    vrcs_core::VrOverlayWristConfig {
+        hand: hand.into(),
+        width_m: 0.18,
+        // Place the menu above the forearm, behind the controller in local +Z.
+        offset_x_m: 0.0,
+        offset_y_m: 0.06,
+        offset_z_m: 0.18,
+        pitch_deg: -90.0,
+        yaw_deg: 0.0,
+        roll_deg: 0.0,
+        ..Default::default()
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OverlayKind {
     Headset,
     Wrist,
+    WristMenu,
     OcrWrist,
     OcrProgress,
     OcrFrame,

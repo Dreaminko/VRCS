@@ -11,6 +11,26 @@ pub struct VrOverlayConfig {
     pub headset: VrOverlayHeadsetConfig,
     #[serde(default)]
     pub wrist: VrOverlayWristConfig,
+    #[serde(default)]
+    pub wrist_menu: VrOverlayWristMenuConfig,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VrOverlayWristMenuConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default = "default_wrist_hand")]
+    pub hand: String,
+}
+
+impl Default for VrOverlayWristMenuConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            hand: default_wrist_hand(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -61,6 +81,8 @@ pub struct VrOverlayHeadsetConfig {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct VrOverlayWristConfig {
+    #[serde(default = "default_anchor_mode")]
+    pub anchor_mode: String,
     #[serde(default = "default_true")]
     pub enabled: bool,
     #[serde(default = "default_wrist_hand")]
@@ -105,6 +127,10 @@ pub struct VrOverlayWristConfig {
 
 fn default_true() -> bool {
     true
+}
+
+fn default_anchor_mode() -> String {
+    "wrist".into()
 }
 
 fn default_translation_display() -> String {
@@ -206,6 +232,7 @@ impl Default for VrOverlayConfig {
             translation_display: default_translation_display(),
             headset: VrOverlayHeadsetConfig::default(),
             wrist: VrOverlayWristConfig::default(),
+            wrist_menu: VrOverlayWristMenuConfig::default(),
         }
     }
 }
@@ -240,6 +267,7 @@ impl Default for VrOverlayHeadsetConfig {
 impl Default for VrOverlayWristConfig {
     fn default() -> Self {
         Self {
+            anchor_mode: default_anchor_mode(),
             enabled: default_true(),
             hand: default_wrist_hand(),
             dominant_hand: default_dominant_hand(),
@@ -268,6 +296,22 @@ impl Default for VrOverlayWristConfig {
 mod tests {
     use super::super::VrOcrConfig;
     use super::*;
+
+    #[test]
+    fn old_configs_default_to_opt_in_menu_and_wrist_anchor() {
+        let old: VrOverlayConfig = serde_json::from_str(r#"{"wrist":{"hand":"right"}}"#).unwrap();
+        assert!(!old.wrist_menu.enabled);
+        assert_eq!(old.wrist_menu.hand, "left");
+        assert_eq!(old.wrist.anchor_mode, "wrist");
+        let config: VrOverlayConfig = serde_json::from_str(
+            r#"{"wrist_menu":{"enabled":true,"hand":"right"},"wrist":{"anchor_mode":"world"}}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            config,
+            serde_json::from_value(serde_json::to_value(&config).unwrap()).unwrap()
+        );
+    }
 
     #[test]
     fn wrist_idle_hide_default_and_saved_values_are_preserved() {

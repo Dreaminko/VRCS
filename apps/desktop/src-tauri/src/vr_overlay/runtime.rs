@@ -12,8 +12,10 @@ use tokio::sync::{broadcast, watch};
 use vrcs_core::{PresentationEvent, VrOcrConfig, VrOverlayConfig};
 
 use super::backend::{OpenVrBackend, OverlayKind};
+use super::control_protocol::{ControlAction, ControlHub, ControlSource};
 use super::dashboard::{DashboardPointerEvent, DashboardState, DashboardViewModel};
 use super::dashboard_renderer;
+use super::placement::{Mode, Placement};
 use super::presentation::{
     HeadsetPresentation, MessageSide, PresentationContent, PresentationFrame, WristMessage,
     WristPresentation,
@@ -27,6 +29,25 @@ const DASHBOARD_UPDATE_INTERVAL: Duration = Duration::from_millis(16);
 const RECONNECT_INTERVAL: Duration = Duration::from_secs(2);
 const EVENT_QUEUE_CAPACITY: usize = 256;
 const DROP_WARNING_INTERVAL: Duration = Duration::from_secs(5);
+
+pub(super) fn dispatch_control(
+    app: &AppHandle,
+    controls: &Mutex<ControlHub>,
+    source: ControlSource,
+    action: ControlAction,
+) {
+    let request = controls
+        .lock()
+        .ok()
+        .and_then(|mut hub| hub.begin(source, action));
+    if let Some(request) = request {
+        if let Err(error) = app.emit_to("main", super::control_protocol::REQUEST_EVENT, &request) {
+            if let Ok(mut hub) = controls.lock() {
+                hub.finish(&request, Some(error.to_string()));
+            }
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SampleKind {
@@ -152,10 +173,13 @@ struct PendingControl {
     ocr_bindings: bool,
     headset_sample: Option<bool>,
     wrist_sample: Option<bool>,
+    placement_mode: Option<Mode>,
 }
 
 pub struct Manager {
     app: AppHandle,
+    pub(super) controls: Arc<Mutex<ControlHub>>,
+    pub(super) placement: Arc<Mutex<Placement>>,
     status: Arc<Mutex<VrOverlayStatus>>,
     event_sender: Mutex<Option<SyncSender<PresentationEvent>>>,
     pending_control: Arc<Mutex<PendingControl>>,
@@ -167,9 +191,23 @@ pub struct Manager {
 }
 
 impl Manager {
+    #[cfg(all(windows, debug_assertions, feature = "vr-preview"))]
+    pub(super) fn preview_view(&self) -> Option<DashboardViewModel> {
+        self.latest_dashboard.lock().ok()?.clone()
+    }
+    pub fn revoke_controls(&self) {
+        if let Ok(mut hub) = self.controls.lock() {
+            hub.revoke();
+        }
+        if let Ok(mut placement) = self.placement.lock() {
+            placement.cancel();
+        }
+    }
     pub fn new(app: AppHandle) -> Self {
         Self {
             app,
+            controls: Arc::new(Mutex::new(ControlHub::default())),
+            placement: Arc::new(Mutex::new(Placement::default())),
             status: Arc::new(Mutex::new(VrOverlayStatus::initial())),
             event_sender: Mutex::new(None),
             pending_control: Arc::new(Mutex::new(PendingControl::default())),
@@ -212,6 +250,10 @@ impl Manager {
         ocr_service: Option<vrcs_core::ocr::VrOcrService>,
         vision_service: vrcs_core::vision::VisionService,
     ) -> Result<(), String> {
+        #[cfg(all(windows, debug_assertions, feature = "vr-preview"))]
+        if super::preview::mode().is_some() {
+            return Ok(());
+        }
         tracing::info!("Starting VR Overlay manager");
         self.stop();
         let initial_config = config.borrow().clone();
@@ -223,6 +265,8 @@ impl Manager {
         let pending_control = self.pending_control.clone();
         let latest_config = self.latest_config.clone();
         let latest_dashboard = self.latest_dashboard.clone();
+        let controls = self.controls.clone();
+        let placement = self.placement.clone();
         let stopping = self.stopping.clone();
         let worker = std::thread::Builder::new()
             .name("vrcs-vr-overlay".into())
@@ -234,6 +278,8 @@ impl Manager {
                     pending_control,
                     latest_config,
                     latest_dashboard,
+                    controls,
+                    placement,
                     stopping,
                     initial_config,
                     features,
@@ -299,6 +345,10 @@ impl Manager {
         self.update_control(|control| control.retry = true)
     }
 
+    pub fn place_dialogue(&self, mode: Mode) -> Result<(), String> {
+        self.update_control(|control| control.placement_mode = Some(mode))
+    }
+
     pub fn set_sample(&self, kind: SampleKind, visible: bool) -> Result<(), String> {
         self.update_control(|control| match kind {
             SampleKind::Headset => control.headset_sample = Some(visible),
@@ -349,6 +399,9 @@ impl Manager {
 }
 
 struct WorkerState {
+    controls: Arc<Mutex<ControlHub>>,
+    #[cfg(windows)]
+    ui: super::ui_runtime::UiRuntime,
     config: VrOverlayConfig,
     ocr_config: VrOcrConfig,
     headset: HeadsetPresentation,
@@ -379,6 +432,8 @@ fn worker_loop(
     pending_control: Arc<Mutex<PendingControl>>,
     latest_config: Arc<Mutex<Option<(VrOverlayConfig, VrOcrConfig)>>>,
     latest_dashboard: Arc<Mutex<Option<DashboardViewModel>>>,
+    controls: Arc<Mutex<ControlHub>>,
+    placement: Arc<Mutex<Placement>>,
     stopping: Arc<AtomicBool>,
     config: (VrOverlayConfig, VrOcrConfig),
     features: watch::Receiver<vrcs_core::FeatureConfig>,
@@ -399,6 +454,9 @@ fn worker_loop(
     };
     let (config, ocr_config) = config;
     let mut state = WorkerState {
+        controls,
+        #[cfg(windows)]
+        ui: super::ui_runtime::UiRuntime::new(placement),
         config,
         ocr_config,
         headset: HeadsetPresentation::default(),
@@ -474,15 +532,20 @@ fn worker_loop(
         }
         #[cfg(windows)]
         let mut open_ocr_bindings = false;
+        let mut placement_mode = None;
         if let Ok(mut pending) = pending_control.lock() {
             let control = std::mem::take(&mut *pending);
+            placement_mode = control.placement_mode;
             #[cfg(windows)]
             {
                 open_ocr_bindings = control.ocr_bindings;
             }
             if control.retry {
                 #[cfg(windows)]
-                state.ocr.clear();
+                {
+                    state.ocr.clear();
+                    state.ui.reset();
+                }
                 if let Some(mut backend) = state.backend.take() {
                     backend.hide_all();
                 }
@@ -513,6 +576,12 @@ fn worker_loop(
         }
 
         let available = features.borrow().vr_overlay;
+        #[cfg(windows)]
+        if let Some(mode) = placement_mode {
+            if let Some(backend) = state.backend.as_ref() {
+                state.ui.place(&app, backend, &state.controls, mode);
+            }
+        }
         // The panic hook records details; keep the worker alive and reconnect.
         let ticked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             tick(&app, &mut state, &mut status, available)
@@ -543,7 +612,24 @@ fn worker_loop(
             status.ocr = state.ocr.status.clone();
         }
         update_status(&app, &shared_status, &status);
-        let interval = if status.dashboard.visible {
+        if let Ok(mut hub) = state.controls.lock() {
+            let ready = |resource: &ResourceState| {
+                matches!(
+                    resource,
+                    ResourceState::ReadyHidden | ResourceState::Visible | ResourceState::Fading
+                )
+            };
+            hub.set_overlay_effective(
+                status.state == RuntimeState::Ready && ready(&status.wrist.state),
+                status.state == RuntimeState::Ready && ready(&status.headset.state),
+            );
+        }
+        #[cfg(windows)]
+        let ui_active = state.ui.fast_tick()
+            || state.ocr.status.wrist_state == super::ocr_status::OcrWristState::Visible;
+        #[cfg(not(windows))]
+        let ui_active = false;
+        let interval = if status.dashboard.visible || ui_active {
             DASHBOARD_UPDATE_INTERVAL
         } else {
             UPDATE_INTERVAL
@@ -557,7 +643,10 @@ fn worker_loop(
 fn recover_from_panic(state: &mut WorkerState, status: &mut VrOverlayStatus) {
     tracing::error!("VR Overlay worker panicked; reconnecting");
     #[cfg(windows)]
-    state.ocr.clear();
+    {
+        state.ocr.clear();
+        state.ui.reset();
+    }
     drop(state.backend.take());
     state.headset_hash = None;
     state.wrist_hash = None;
@@ -572,14 +661,17 @@ fn recover_from_panic(state: &mut WorkerState, status: &mut VrOverlayStatus) {
 fn tick(app: &AppHandle, state: &mut WorkerState, status: &mut VrOverlayStatus, available: bool) {
     if state
         .backend
-        .as_ref()
+        .as_mut()
         .is_some_and(OpenVrBackend::quit_requested)
     {
         tracing::info!("SteamVR requested quit; detaching OpenVR and keeping VRCS running");
         state.session.quit();
         drop(state.backend.take());
         #[cfg(windows)]
-        state.ocr.unavailable(state.ocr_config.enabled);
+        {
+            state.ocr.unavailable(state.ocr_config.enabled);
+            state.ui.reset();
+        }
         state.headset_hash = None;
         state.wrist_hash = None;
         state.dashboard_dirty = true;
@@ -611,7 +703,10 @@ fn tick(app: &AppHandle, state: &mut WorkerState, status: &mut VrOverlayStatus, 
 
     if !available {
         #[cfg(windows)]
-        state.ocr.unavailable(false);
+        {
+            state.ocr.unavailable(false);
+            state.ui.reset();
+        }
         if let Some(mut backend) = state.backend.take() {
             backend.hide_all();
         }
@@ -656,7 +751,10 @@ fn tick(app: &AppHandle, state: &mut WorkerState, status: &mut VrOverlayStatus, 
     let vision_enabled = false;
     if !status.runtime_installed || !status.hmd_present {
         #[cfg(windows)]
-        state.ocr.unavailable(ocr_enabled);
+        {
+            state.ocr.unavailable(ocr_enabled);
+            state.ui.reset();
+        }
         if let Some(mut backend) = state.backend.take() {
             backend.hide_all();
         }
@@ -701,6 +799,8 @@ fn tick(app: &AppHandle, state: &mut WorkerState, status: &mut VrOverlayStatus, 
                     .session
                     .connected(pid.expect("SteamVR process checked"));
                 state.backend = Some(backend);
+                #[cfg(windows)]
+                state.ui.reset();
                 status.state = RuntimeState::Ready;
                 status.last_connected_at = Some(unix_timestamp());
                 status.reconnect_attempt = 0;
@@ -733,11 +833,29 @@ fn tick(app: &AppHandle, state: &mut WorkerState, status: &mut VrOverlayStatus, 
     status.state = RuntimeState::Ready;
     status.last_error_detail = None;
     #[cfg(windows)]
-    state
-        .ocr
-        .tick(&mut backend, &state.ocr_config, &state.config.wrist);
+    {
+        if let Err(error) = state.ocr.prepare_input(&mut backend) {
+            state.ui.reset();
+            if state.ocr.status.last_error.as_ref() != Some(&error) {
+                tracing::warn!(%error, "VR controller input unavailable");
+            }
+            state.ocr.status.last_error = Some(error);
+        }
+        let (events, focused) = state.ui.tick(
+            app,
+            &mut backend,
+            &state.config,
+            &state.controls,
+            state.ocr.input_revision(),
+            state.ocr.owns_input(),
+        );
+        state.ocr.pointer_input(events, focused);
+        state
+            .ocr
+            .tick(app, &mut backend, &state.ocr_config, &state.config.wrist);
+    }
     update_headset(state, status, &mut backend);
-    update_wrist(state, status, &mut backend);
+    update_wrist(app, state, status, &mut backend);
     update_dashboard(app, state, status, &mut backend);
     let headset_failed =
         state.config.headset.enabled && status.headset.state == ResourceState::Error;
@@ -802,6 +920,50 @@ fn update_dashboard(
                         let action = state.dashboard.pointer_up(x, y);
                         state.dashboard_dirty = true;
                         if let Some(action) = action {
+                            #[cfg(windows)]
+                            if matches!(
+                                action,
+                                super::dashboard::DashboardAction::RecenterDialogue
+                                    | super::dashboard::DashboardAction::AttachDialogue
+                            ) {
+                                let mode = if matches!(
+                                    action,
+                                    super::dashboard::DashboardAction::RecenterDialogue
+                                ) {
+                                    Mode::World
+                                } else {
+                                    Mode::Wrist
+                                };
+                                state.ui.place(app, backend, &state.controls, mode);
+                                continue;
+                            }
+                            let control = state.controls.lock().ok().and_then(|hub| {
+                                let view = hub.snapshot();
+                                match &action {
+                                    super::dashboard::DashboardAction::ToggleWrist => Some(
+                                        ControlAction::SetWristEnabled(!view.items[0].requested),
+                                    ),
+                                    super::dashboard::DashboardAction::ToggleHeadset => Some(
+                                        ControlAction::SetHeadsetEnabled(!view.items[1].requested),
+                                    ),
+                                    super::dashboard::DashboardAction::ToggleOsc => {
+                                        Some(ControlAction::SetOscEnabled(!view.items[2].requested))
+                                    }
+                                    super::dashboard::DashboardAction::ToggleCapture => Some(
+                                        ControlAction::SetCaptureRunning(!view.items[3].requested),
+                                    ),
+                                    _ => None,
+                                }
+                            });
+                            if let Some(control) = control {
+                                dispatch_control(
+                                    app,
+                                    &state.controls,
+                                    ControlSource::Dashboard,
+                                    control,
+                                );
+                                continue;
+                            }
                             if let Err(error) = app.emit("vr-dashboard-action", action) {
                                 tracing::warn!(%error, "SteamVR dashboard action emit failed");
                             }
@@ -955,7 +1117,152 @@ fn update_headset(
     }
 }
 
+#[cfg(windows)]
 fn update_wrist(
+    app: &AppHandle,
+    state: &mut WorkerState,
+    status: &mut VrOverlayStatus,
+    backend: &mut OpenVrBackend,
+) {
+    use super::surface::SurfaceView;
+    if !state.config.enabled || !state.config.wrist.enabled {
+        backend.reset(OverlayKind::Wrist);
+        state.wrist_hash = None;
+        state.ui.dialogue_revision = None;
+        status.wrist.state = ResourceState::Disabled;
+        status.wrist.bound_role = None;
+        status.wrist.tracked_device_available = false;
+        status.wrist.last_error_code = None;
+        return;
+    }
+    let (mode, pose, busy, error, revision) = {
+        let placement = state.ui.placement.lock().unwrap_or_else(|e| e.into_inner());
+        (
+            placement.display_mode(),
+            placement.absolute_pose(),
+            placement.busy(),
+            placement.error.clone(),
+            placement.revision,
+        )
+    };
+    let setup = if mode == Mode::World {
+        status.wrist.bound_role = None;
+        match (pose, backend.ocr_tracking()) {
+            (Some(pose), Ok((_, _, origin))) => {
+                backend.ensure_world_wrist(&state.config.wrist, pose, origin)
+            }
+            _ => {
+                backend.hide(OverlayKind::Wrist);
+                status.wrist.state = ResourceState::DeviceUnavailable;
+                status.wrist.tracked_device_available = false;
+                return;
+            }
+        }
+    } else {
+        backend
+            .ensure_wrist(&state.config.wrist)
+            .and_then(|binding| {
+                status.wrist.bound_role = binding.role;
+                if binding.available {
+                    Ok(())
+                } else {
+                    Err("Controller tracking unavailable".into())
+                }
+            })
+    };
+    if let Err(error) = setup {
+        backend.hide(OverlayKind::Wrist);
+        status.wrist.tracked_device_available = false;
+        if error == "Controller tracking unavailable" {
+            status.wrist.state = ResourceState::DeviceUnavailable;
+        } else {
+            backend.reset(OverlayKind::Wrist);
+            state.wrist_hash = None;
+            wrist_error(status, "wrist_setup", error);
+        }
+        return;
+    }
+    status.wrist.tracked_device_available = true;
+    if !state.ui.dialogue_visible && !state.wrist_sample {
+        backend.hide(OverlayKind::Wrist);
+        status.wrist.state = ResourceState::ReadyHidden;
+        return;
+    }
+    let frame = if state.wrist_sample {
+        Some(PresentationFrame::wrist(vec![
+            WristMessage {
+                text: "你好，欢迎使用 VRCS。".into(),
+                side: MessageSide::Left,
+            },
+            WristMessage {
+                text: "Conversation stays on your wrist or in front of you.".into(),
+                side: MessageSide::Right,
+            },
+        ]))
+    } else {
+        state.wrist.frame_with_translation_display(
+            Instant::now(),
+            &state.config.wrist,
+            &state.config.translation_display,
+        )
+    }
+    .unwrap_or_else(|| PresentationFrame::wrist(Vec::new()));
+    let controls = state
+        .controls
+        .lock()
+        .map(|hub| hub.snapshot())
+        .unwrap_or_default();
+    let messages = match frame.content {
+        PresentationContent::Wrist(messages) => messages,
+        _ => Vec::new(),
+    };
+    let result = (|| {
+        let visible = state.ui.dialogue_surface.present(
+            app,
+            backend,
+            OverlayKind::Wrist,
+            SurfaceView::Dialogue {
+                controls,
+                messages,
+                mode,
+                busy,
+                error,
+                font_size: state.config.wrist.font_size_px,
+                opacity: state.config.wrist.background_opacity,
+            },
+            state.ui.dialogue_hover,
+            None,
+        )?;
+        backend.set_opacity(OverlayKind::Wrist, state.config.wrist.opacity)?;
+        if visible {
+            backend.show(OverlayKind::Wrist)?;
+        } else {
+            backend.hide(OverlayKind::Wrist);
+        }
+        Ok::<_, String>(visible)
+    })();
+    match result {
+        Ok(visible) => {
+            state.ui.dialogue_revision = visible.then_some(revision);
+            status.wrist.state = if visible {
+                ResourceState::Visible
+            } else {
+                ResourceState::Creating
+            };
+            status.wrist.last_error_code = None;
+        }
+        Err(error) => {
+            state.ui.dialogue_revision = None;
+            backend.reset(OverlayKind::Wrist);
+            state.wrist_hash = None;
+            wrist_error(status, "wrist_render", error);
+        }
+    }
+}
+
+#[cfg(not(windows))]
+fn update_wrist(
+    _app: &AppHandle,
     state: &mut WorkerState,
     status: &mut VrOverlayStatus,
     backend: &mut OpenVrBackend,

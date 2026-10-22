@@ -592,26 +592,41 @@ fn render_display_position(
         )?;
     }
     canvas.divider(Rect::new(78, 740, 1362, 741));
-    canvas.centered_icon(
-        ControlIcon::Move3d,
-        Rect::new(636, 760, 708, 828),
-        48,
-        PRIMARY_INK,
-    );
-    canvas.text(
-        &view.labels.position_hint,
-        Rect::new(744, 752, 1362, 792),
-        20,
-        TEXT_SECONDARY,
-        Align::Left,
-    )?;
-    canvas.text(
-        &view.labels.rotation_hint,
-        Rect::new(744, 792, 1362, 832),
-        20,
-        TEXT_SECONDARY,
-        Align::Left,
-    )?;
+    if kind == DisplayKind::Wrist {
+        for (control, label) in [
+            (
+                DashboardControl::RecenterDialogue,
+                &view.labels.recenter_dialogue,
+            ),
+            (
+                DashboardControl::AttachDialogue,
+                &view.labels.attach_dialogue,
+            ),
+        ] {
+            canvas.button(control_rect(control).into(), label, visual(state, control))?;
+        }
+    } else {
+        canvas.centered_icon(
+            ControlIcon::Move3d,
+            Rect::new(636, 760, 708, 828),
+            48,
+            PRIMARY_INK,
+        );
+        canvas.text(
+            &view.labels.position_hint,
+            Rect::new(744, 752, 1362, 792),
+            20,
+            TEXT_SECONDARY,
+            Align::Left,
+        )?;
+        canvas.text(
+            &view.labels.rotation_hint,
+            Rect::new(744, 792, 1362, 832),
+            20,
+            TEXT_SECONDARY,
+            Align::Left,
+        )?;
+    }
     canvas.label_icon_button(
         control_rect(DashboardControl::PositionReset).into(),
         &view.labels.reset_position,
@@ -2322,6 +2337,7 @@ mod tests {
             },
             wrist: DashboardWrist {
                 enabled: true,
+                anchor_mode: "wrist".into(),
                 hand: super::super::dashboard::DashboardChoice::default(),
                 preview_visible: false,
                 width: "0.32 m".into(),

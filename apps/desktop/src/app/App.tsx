@@ -9,13 +9,25 @@ import { useAppTheme } from "./useAppTheme";
 import { useAppWorkspace } from "./useAppWorkspace";
 import type { SettingsCategory } from "../settings/settings-types";
 import { useVrDashboardBridge } from "../vr-dashboard/useVrDashboardBridge";
+import { useVrControlBridge } from "../vr-controls/useVrControlBridge";
 
 function App() {
   const [page, setPage] = useState<Page>("live");
   const [settingsInitialCategory, setSettingsInitialCategory] = useState<SettingsCategory>("system");
   useAppTheme();
   const workspace = useAppWorkspace({ page, setPage, setSettingsInitialCategory });
-  useVrDashboardBridge(workspace.settings.value, workspace.settings.save, workspace.providers.catalog.profiles, {
+  useVrControlBridge({
+    settings: workspace.settings.value,
+    getSettings: workspace.settings.getCurrent,
+    update: workspace.settings.update,
+    available: workspace.runtime.ready && workspace.onboarding.status === "complete",
+    requested: workspace.runtime.health?.capture_requested ?? false,
+    getRequested: workspace.capture.getRunning,
+    running: workspace.runtime.health?.capture_running ?? false,
+    busy: workspace.capture.pending,
+    setCaptureRunning: workspace.capture.setCaptureRunning,
+  });
+  useVrDashboardBridge(workspace.settings.value, workspace.settings.update, workspace.providers.catalog.profiles, {
     running: workspace.runtime.health?.capture_requested ?? false,
     available: workspace.runtime.ready && !workspace.capture.pending && workspace.onboarding.status === "complete",
     toggle: workspace.capture.toggleCapture,

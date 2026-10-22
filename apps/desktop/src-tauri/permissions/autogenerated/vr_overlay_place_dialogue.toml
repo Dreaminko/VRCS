@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-vr-overlay-place-dialogue"
+description = "Enables the vr_overlay_place_dialogue command without any pre-configured scope."
+commands.allow = ["vr_overlay_place_dialogue"]
+
+[[permission]]
+identifier = "deny-vr-overlay-place-dialogue"
+description = "Denies the vr_overlay_place_dialogue command without any pre-configured scope."
+commands.deny = ["vr_overlay_place_dialogue"]

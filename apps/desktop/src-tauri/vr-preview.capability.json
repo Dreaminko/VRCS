@@ -1,0 +1,10 @@
+{
+  "identifier": "vr-preview",
+  "windows": ["vr-preview"],
+  "permissions": [
+    "core:window:allow-is-focused",
+    "allow-vr-preview-open",
+    "allow-vr-preview-update",
+    "allow-vr-preview-frame"
+  ]
+}

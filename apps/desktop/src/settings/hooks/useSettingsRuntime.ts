@@ -101,6 +101,12 @@ export function useSettingsRuntime({
   if (settingsAutosaveRef.current === null) {
     settingsAutosaveRef.current = createSettingsAutosave<Settings>({
       persist: (next) => persistSettingsRef.current(next),
+      getCurrent: () => persistedSettingsRef.current,
+      reload: async () => {
+        await loadSettingsRef.current();
+        if (!persistedSettingsRef.current) throw new Error("Core is unavailable");
+        return persistedSettingsRef.current;
+      },
       onOptimistic: (next) => setSettings({
         ...next, features: persistedSettingsRef.current?.features ?? next.features,
       }),
@@ -124,10 +130,13 @@ export function useSettingsRuntime({
 
   return {
     value: settings,
+    getCurrent: () => persistedSettingsRef.current,
     devices: { items: devices, ready: devicesReady, refresh: loadDevices },
     asr: { refresh: refreshModels },
     refresh: loadSettings,
+    reload: async () => { await loadSettings(); return persistedSettingsRef.current ?? undefined; },
     save: settingsAutosaveRef.current,
+    update: settingsAutosaveRef.current.update,
     testOsc,
   };
 }

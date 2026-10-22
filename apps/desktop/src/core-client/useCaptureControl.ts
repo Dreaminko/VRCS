@@ -1,10 +1,10 @@
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
+import { createCaptureController } from "../capture/capture-control";
 
 import { shouldShowVrchatNotRunningWarning } from "../capture/capture-warning";
 import type { CompactPanelState } from "../shell/compact-mode";
 import {
   readTranscriptionStartBehavior,
-  shouldCreateConversationOnCaptureToggle,
 } from "../capture/transcription-start";
 
 type ReportError = (
@@ -15,43 +15,50 @@ type ReportError = (
 
 export function useCaptureControl({
   coreReady,
-  running,
+  getRunning,
   outputMode,
   compact,
   createConversation,
   clearLookup,
-  toggleCoreCapture,
+  setCoreCaptureRunning,
   clearErrorFrom,
   resizeCompactWindow,
   collapseCompactOverlay,
   reportError,
 }: {
   coreReady: boolean;
-  running: boolean;
+  getRunning: () => boolean;
   outputMode: string | undefined;
   compact: boolean;
   createConversation: () => Promise<boolean>;
   clearLookup: () => void;
-  toggleCoreCapture: () => Promise<unknown>;
+  setCoreCaptureRunning: (target: boolean) => Promise<boolean>;
   clearErrorFrom: (source: string) => void;
   resizeCompactWindow: (panelState: CompactPanelState) => Promise<unknown>;
   collapseCompactOverlay: () => void;
   reportError: ReportError;
 }) {
   const [vrchatWarningOpen, setVrchatWarningOpen] = useState(false);
-
-  const toggleCapture = useCallback(async (): Promise<boolean> => {
-    if (!coreReady) return false;
-    try {
-      if (shouldCreateConversationOnCaptureToggle(
-        running,
-        readTranscriptionStartBehavior(),
-      )) {
-        if (!await createConversation()) return false;
-        clearLookup();
-      }
-      await toggleCoreCapture();
+  const [pending, setPending] = useState(false);
+  const current = useRef({ coreReady, getRunning, createConversation, clearLookup, setCoreCaptureRunning });
+  current.current = { coreReady, getRunning, createConversation, clearLookup, setCoreCaptureRunning };
+  const controller = useRef<ReturnType<typeof createCaptureController> | null>(null);
+  if (!controller.current) controller.current = createCaptureController({
+    available: () => current.current.coreReady,
+    running: () => current.current.getRunning(),
+    newConversation: () => readTranscriptionStartBehavior() === "new_conversation",
+    createConversation: async () => {
+      if (!await current.current.createConversation()) return false;
+      current.current.clearLookup();
       return true;
+    },
+    setRunning: (target) => current.current.setCoreCaptureRunning(target),
+    onPending: setPending,
+  });
+
+  const setCaptureRunning = useCallback(async (target: boolean): Promise<boolean> => {
+    try {
+      return await controller.current!.setRunning(target);
     } catch (reason) {
       if (shouldShowVrchatNotRunningWarning(reason, outputMode === "vrchat")) {
         clearErrorFrom("capture");
@@ -73,14 +80,11 @@ export function useCaptureControl({
     clearErrorFrom,
     clearLookup,
     compact,
-    coreReady,
-    createConversation,
     outputMode,
     reportError,
     resizeCompactWindow,
-    running,
-    toggleCoreCapture,
   ]);
+  const toggleCapture = useCallback(() => setCaptureRunning(!current.current.getRunning()), [setCaptureRunning]);
 
   const closeVrchatWarning = useCallback(() => {
     setVrchatWarningOpen(false);
@@ -90,6 +94,8 @@ export function useCaptureControl({
   return {
     vrchatWarningOpen,
     toggleCapture,
+    setCaptureRunning,
+    pending,
     closeVrchatWarning,
   };
 }

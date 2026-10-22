@@ -11,6 +11,7 @@
     "dev:vulkan": "npm --workspace apps/desktop run tauri -- dev --features vulkan",
     "dev:core": "cargo run --manifest-path core/Cargo.toml",
     "dev:desktop": "npm --workspace apps/desktop run tauri -- dev",
+    "dev:vr": "node scripts/dev-vr.mjs",
     "check:i18n": "node scripts/check-i18n.mjs",
     "i18n:new": "node scripts/create-locale.mjs",
     "build:frontend": "npm --workspace apps/desktop run build",

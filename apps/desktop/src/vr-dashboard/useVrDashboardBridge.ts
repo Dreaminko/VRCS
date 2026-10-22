@@ -25,7 +25,7 @@ type SaveState = VrDashboardViewModel["save_state"];
 
 export function useVrDashboardBridge(
   settings: Settings | null,
-  save: (settings: Settings) => Promise<Settings>,
+  save: (apply: (settings: Settings) => Settings) => Promise<Settings>,
   profiles: ApiProfileView[],
   capture: { running: boolean; available: boolean; toggle: () => Promise<boolean> },
 ): void {
@@ -33,9 +33,6 @@ export function useVrDashboardBridge(
   const [status, setStatus] = useState<VrOverlayStatus | null>(null);
   const [saveState, setSaveState] = useState<SaveState>("idle");
   const [saveError, setSaveError] = useState<string | null>(null);
-  const [captureBusy, setCaptureBusy] = useState(false);
-  const captureBusyRef = useRef(false);
-  const captureRef = useRef(capture);
   const settingsRef = useRef(settings);
   const statusRef = useRef(status);
   const saveRef = useRef(save);
@@ -46,7 +43,6 @@ export function useVrDashboardBridge(
   statusRef.current = status;
   saveRef.current = save;
   profilesRef.current = profiles;
-  captureRef.current = capture;
 
   useEffect(() => {
     let disposed = false;
@@ -70,19 +66,8 @@ export function useVrDashboardBridge(
     const handleAction = async (action: VrDashboardAction) => {
       const current = settingsRef.current;
       if (!current?.features.vr_overlay) return;
-      if (action === "toggle_capture") {
-        if (!captureRef.current.available || captureBusyRef.current) return;
-        captureBusyRef.current = true;
-        setCaptureBusy(true);
-        setSaveError(null);
-        try {
-          if (!await captureRef.current.toggle()) setSaveError(t("settings.vrDashboard.actionFailed"));
-        } finally {
-          captureBusyRef.current = false;
-          setCaptureBusy(false);
-        }
-        return;
-      }
+      // The four shared controls are routed by Rust to the application coordinator.
+      if (action === "toggle_capture" || action === "toggle_wrist" || action === "toggle_headset" || action === "toggle_osc") return;
       if (action === "open_ocr_bindings" && !current.features.ocr && !current.features.visual_question_answering) return;
       if (action === "preview_headset" || action === "preview_wrist") {
         const kind = action === "preview_headset" ? "headset" : "wrist";
@@ -105,7 +90,7 @@ export function useVrDashboardBridge(
       setSaveState("saving");
       setSaveError(null);
       try {
-        const saved = await saveRef.current(next);
+        const saved = await saveRef.current((latest) => applyVrDashboardAction(latest, action, profilesRef.current));
         if (version !== saveVersionRef.current) return;
         settingsRef.current = saved;
         setSaveState("saved");
@@ -174,6 +159,8 @@ export function useVrDashboardBridge(
         position: t("settings.vrOverlay.position"),
         rotation: t("settings.vrOverlay.rotation"),
         reset_position: t("settings.vrDashboard.resetPosition"),
+        recenter_dialogue: t("settings.vrOverlay.recenterDialogue"),
+        attach_dialogue: t("settings.vrOverlay.anchorWrist"),
         gesture: t("settings.vrDashboard.gesture"),
         preview: t("settings.vrDashboard.preview"),
         bindings: t("settings.vrDashboard.bindings"),
@@ -211,7 +198,7 @@ export function useVrDashboardBridge(
         rotation_hint: t("settings.vrDashboard.rotationHint"),
       },
       enabled: overlay.enabled,
-      capture: { running: capture.running, available: capture.available && !captureBusy },
+      capture: { running: capture.running, available: capture.available },
       content: {
         value: t(overlay.translation_display === "all_languages" ? "settings.vrOverlay.translationDisplays.allLanguages" : "settings.vrOverlay.translationDisplays.preferredOnly"),
         options: ["preferred_only", "all_languages"].map((value) => ({ value, label: t(`settings.vrOverlay.translationDisplays.${value === "all_languages" ? "allLanguages" : "preferredOnly"}`) })),
@@ -228,6 +215,7 @@ export function useVrDashboardBridge(
       },
       wrist: {
         enabled: overlay.wrist.enabled,
+        anchor_mode: overlay.wrist.anchor_mode,
         preview_visible: status?.wrist.sample_visible ?? false,
         hand: {
           value: t(`settings.vrDashboard.hands.${overlay.wrist.hand}`),
@@ -281,5 +269,5 @@ export function useVrDashboardBridge(
       error: saveError,
     };
     void updateVrDashboardView(model);
-  }, [capture.running, capture.available, captureBusy, i18n.resolvedLanguage, profiles, saveError, saveState, settings, status, t]);
+  }, [capture.running, capture.available, i18n.resolvedLanguage, profiles, saveError, saveState, settings, status, t]);
 }

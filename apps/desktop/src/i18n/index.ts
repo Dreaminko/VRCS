@@ -26,8 +26,8 @@ async function syncNativeLabels(): Promise<void> {
   });
 }
 
-export async function initializeI18n(): Promise<void> {
-  selectedPreference = await loadUiLanguagePreference(supportedUiLocales);
+export async function initializeI18n({ nativePreferences = true }: { nativePreferences?: boolean } = {}): Promise<void> {
+  selectedPreference = nativePreferences ? await loadUiLanguagePreference(supportedUiLocales) : "system";
   const locale = resolveUiLocale(selectedPreference, supportedUiLocales);
 
   await i18n
@@ -44,7 +44,7 @@ export async function initializeI18n(): Promise<void> {
     });
 
   applyDocumentLocale(locale);
-  await syncNativeLabels().catch(() => undefined);
+  if (nativePreferences) await syncNativeLabels().catch(() => undefined);
 }
 
 export function currentUiLanguagePreference(): UiLanguagePreference {

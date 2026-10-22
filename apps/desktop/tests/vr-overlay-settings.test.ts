@@ -41,6 +41,7 @@ test("VR Overlay defaults keep OCR settings separate", () => {
     "headset",
     "translation_display",
     "wrist",
+    "wrist_menu",
   ]);
   assert.equal(DEFAULT_VR_OVERLAY_SETTINGS.translation_display, "all_languages");
   assert.equal(DEFAULT_OCR_SETTINGS.enabled, false);
@@ -73,6 +74,7 @@ test("VR Overlay defaults keep OCR settings separate", () => {
   assert.equal(DEFAULT_VR_OVERLAY_WRIST_SETTINGS.show_translation_partials, true);
   assert.equal(DEFAULT_VR_OVERLAY_WRIST_SETTINGS.idle_hide_seconds, 15);
   assert.deepEqual(Object.keys(DEFAULT_VR_OVERLAY_WRIST_SETTINGS).sort(), [
+    "anchor_mode",
     "background_opacity",
     "dominant_hand",
     "enabled",

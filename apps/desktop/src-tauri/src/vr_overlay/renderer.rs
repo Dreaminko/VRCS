@@ -44,7 +44,16 @@ impl BgraTexture {
 
 #[derive(Debug, Clone, Copy)]
 pub enum Layout {
-    Headset { lines_per_language: u32 },
+    Headset {
+        lines_per_language: u32,
+    },
+    #[cfg_attr(
+        windows,
+        expect(
+            dead_code,
+            reason = "Only the non-Windows fallback constructs this layout."
+        )
+    )]
     Wrist,
 }
 

@@ -925,7 +925,19 @@
         "trackedDevice": "トラッキングデバイス",
         "showSample": "サンプルを表示",
         "hideSample": "サンプルを非表示",
-        "restoreDefaults": "既定値に戻す"
+        "restoreDefaults": "既定値に戻す",
+        "wristMenuEnable": "手首クイックメニュー",
+        "menuHand": "メニューを表示する手",
+        "anchorMode": "字幕パネルの固定方法",
+        "anchorWrist": "手首に固定",
+        "anchorWorld": "空間に固定",
+        "recenterDialogue": "会話パネルを目の前に移動",
+        "emptyDialogue": "新しい内容はありません",
+        "dragHint": "ハンドルを指してグリップを押しながら移動",
+        "waitingContent": "有効・内容を待機中",
+        "masterOff": "字幕の一括設定がオフです",
+        "controlBusy": "処理中",
+        "controlFailed": "操作に失敗しました。再試行してください"
       },
       "conversationTitles": {
         "title": "会話管理",

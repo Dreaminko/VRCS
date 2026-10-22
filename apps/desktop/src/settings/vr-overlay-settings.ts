@@ -75,6 +75,7 @@ export const DEFAULT_VR_OVERLAY_HEADSET_SETTINGS: VrOverlayHeadsetSettings = {
 };
 
 export const DEFAULT_VR_OVERLAY_WRIST_SETTINGS: VrOverlayWristSettings = {
+  anchor_mode: "wrist",
   enabled: true,
   hand: "left",
   dominant_hand: "right",
@@ -129,6 +130,7 @@ export const DEFAULT_OCR_SETTINGS: VrOcrSettings = {
 };
 
 export const DEFAULT_VR_OVERLAY_SETTINGS: VrOverlaySettings = {
+  wrist_menu: { enabled: false, hand: "left" },
   enabled: false,
   translation_display: "all_languages",
   headset: { ...DEFAULT_VR_OVERLAY_HEADSET_SETTINGS },

@@ -61,6 +61,10 @@ pub struct DashboardLabels {
     pub position: String,
     pub rotation: String,
     pub reset_position: String,
+    #[serde(default)]
+    pub recenter_dialogue: String,
+    #[serde(default)]
+    pub attach_dialogue: String,
     pub gesture: String,
     pub preview: String,
     pub bindings: String,
@@ -165,6 +169,8 @@ pub struct DashboardHeadset {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct DashboardWrist {
     pub enabled: bool,
+    #[serde(default)]
+    pub anchor_mode: String,
     pub hand: DashboardChoice,
     #[serde(default)]
     pub preview_visible: bool,
@@ -285,6 +291,8 @@ pub enum DashboardAction {
         direction: i32,
     },
     ResetDisplayPosition(DisplayKind),
+    RecenterDialogue,
+    AttachDialogue,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -341,6 +349,8 @@ pub(super) enum DashboardControl {
     PositionClose,
     PositionPreview,
     PositionReset,
+    RecenterDialogue,
+    AttachDialogue,
     OcrEnabled,
     VisionEnabled,
     OcrGesture,
@@ -526,6 +536,8 @@ pub(super) fn control_rect(control: DashboardControl) -> Rect {
         PositionClose => return PICKER_CLOSE_RECT,
         PositionPreview => return Rect::new(880., 250., 1160., 306.),
         PositionReset => return Rect::new(78., 762., 598., 824.),
+        RecenterDialogue => return Rect::new(630., 762., 988., 824.),
+        AttachDialogue => return Rect::new(1004., 762., 1362., 824.),
         _ => {}
     }
     let (group, index) = match control {
@@ -776,6 +788,8 @@ impl DashboardState {
                 DashboardControl::PositionClose,
                 DashboardControl::PositionPreview,
                 DashboardControl::PositionReset,
+                DashboardControl::RecenterDialogue,
+                DashboardControl::AttachDialogue,
             ] {
                 if self.control_enabled(control) && control_rect(control).contains(x, y) {
                     return Some(control);
@@ -872,6 +886,9 @@ impl DashboardState {
             return false;
         }
         match control {
+            DashboardControl::RecenterDialogue | DashboardControl::AttachDialogue => {
+                self.display_editor == Some(DisplayKind::Wrist)
+            }
             DashboardControl::DisplayContent(index) => self.choices[0].options.get(index).is_some(),
             DashboardControl::WristHand(index) => self.choices[1].options.get(index).is_some(),
             DashboardControl::OscStrategy(index) => self.choices[2].options.get(index).is_some(),
@@ -986,6 +1003,8 @@ impl DashboardState {
             DashboardControl::PositionReset => {
                 Some(DashboardAction::ResetDisplayPosition(self.display_editor?))
             }
+            DashboardControl::RecenterDialogue => Some(DashboardAction::RecenterDialogue),
+            DashboardControl::AttachDialogue => Some(DashboardAction::AttachDialogue),
             DashboardControl::PositionPreview => Some(match self.display_editor? {
                 DisplayKind::Headset => DashboardAction::PreviewHeadset,
                 DisplayKind::Wrist => DashboardAction::PreviewWrist,

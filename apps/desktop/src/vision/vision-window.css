@@ -78,28 +78,6 @@
 .vision-window-copy { min-height: 30px; padding-inline: 10px; border-radius: var(--radius-pill); font-size: 11px; }
 .vision-window-copy svg { flex: none; }
 .vision-window .vision-window-answer-text { min-width: 0; border-radius: var(--radius-lg); font-size: 14px; white-space: normal; }
-.vision-window-answer-text :is(p, ul, ol, blockquote, pre, .vision-window-answer-table) { margin: 0 0 1em; }
-.vision-window-answer-text > :last-child { margin-bottom: 0; }
-.vision-window-answer-text :is(h1, h2, h3, h4, h5, h6) { margin: 1.2em 0 0.6em; color: var(--text); font-size: 1.1em; font-weight: 650; line-height: 1.4; }
-.vision-window-answer-text > :first-child { margin-top: 0; }
-.vision-window-answer-text h1 { font-size: 1.4em; }
-.vision-window-answer-text h2 { font-size: 1.25em; }
-.vision-window-answer-text :is(ul, ol) { padding-left: 1.6em; }
-.vision-window-answer-text li + li { margin-top: 0.3em; }
-.vision-window-answer-text li > :is(p, ul, ol) { margin-bottom: 0.4em; }
-.vision-window-answer-text .task-list-item { list-style: none; }
-.vision-window-answer-text input[type="checkbox"] { margin-right: 0.5em; accent-color: var(--primary); }
-.vision-window-answer-text blockquote { padding-left: 1em; border-left: 3px solid var(--border-strong); color: var(--text-secondary); }
-.vision-window-answer-text blockquote > :last-child { margin-bottom: 0; }
-.vision-window-answer-text a { color: var(--primary-ink); text-decoration: underline; text-underline-offset: 3px; }
-.vision-window-answer-text code { padding: 2px 5px; border-radius: 4px; background: var(--surface-subtle); font: 0.9em var(--font-mono); }
-.vision-window-answer-text pre { max-width: 100%; padding: 12px; overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-subtle); white-space: pre; overflow-wrap: normal; }
-.vision-window-answer-text pre code { padding: 0; background: none; }
-.vision-window-answer-text hr { margin: 1.2em 0; border: 0; border-top: 1px solid var(--border); }
-.vision-window-answer-table { max-width: 100%; overflow-x: auto; }
-.vision-window-answer-table table { width: 100%; border-collapse: collapse; font-size: 13px; }
-.vision-window-answer-table :is(th, td) { min-width: 100px; padding: 8px 10px; border: 1px solid var(--border); vertical-align: top; }
-.vision-window-answer-table th { background: var(--surface-subtle); font-weight: 600; }
 .vision-window-ask-again { min-height: 32px; justify-self: start; padding-inline: 12px; border-radius: var(--radius-pill); font-size: 11px; }
 
 
