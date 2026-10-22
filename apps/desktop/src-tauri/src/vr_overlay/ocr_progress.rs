@@ -116,14 +116,6 @@ impl Feedback {
         self.terminal = Some((state, now));
     }
 
-    pub fn animation(&self, now: Instant) -> u8 {
-        if self.terminal.is_some() {
-            0
-        } else {
-            ((now.saturating_duration_since(self.started).as_millis() / 250) % 4) as u8
-        }
-    }
-
     #[cfg(test)]
     pub fn view(&self, now: Instant) -> Option<ProgressView> {
         self.view_with_labels(now, &ProgressLabels::default())
@@ -564,7 +556,7 @@ pub(super) mod tests {
     }
 
     #[test]
-    fn source_only_skips_translation_and_success_expires_without_animation() {
+    fn source_only_skips_translation_and_success_expires() {
         let now = Instant::now();
         let mut feedback = Feedback::new(3, true, now);
         feedback.displayed();
@@ -578,21 +570,6 @@ pub(super) mod tests {
                 Stage::Complete
             ]
         );
-        assert_eq!(feedback.animation(now + Duration::from_millis(300)), 0);
         assert!(feedback.view(now + Duration::from_millis(1200)).is_none());
-    }
-
-    #[test]
-    fn animation_updates_at_most_four_times_per_second() {
-        let now = Instant::now();
-        let feedback = Feedback::new(4, false, now);
-        assert_eq!(
-            feedback.animation(now),
-            feedback.animation(now + Duration::from_millis(249))
-        );
-        assert_ne!(
-            feedback.animation(now),
-            feedback.animation(now + Duration::from_millis(250))
-        );
     }
 }

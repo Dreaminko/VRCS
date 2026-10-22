@@ -10,6 +10,7 @@ use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindow, Webvi
 
 use super::backend::{OpenVrBackend, OverlayKind};
 use super::control_protocol::ControlSnapshot;
+use super::ocr_progress::ProgressView;
 use super::ocr_wrist::{Action, Button, View};
 use super::placement::Mode;
 use super::presentation::WristMessage;
@@ -21,6 +22,8 @@ pub enum SurfaceId {
     Menu,
     Dialogue,
     Reader,
+    Headset,
+    OcrProgress,
 }
 
 impl SurfaceId {
@@ -32,6 +35,8 @@ impl SurfaceId {
             Self::Menu => "menu",
             Self::Dialogue => "dialogue",
             Self::Reader => "reader",
+            Self::Headset => "headset",
+            Self::OcrProgress => "ocr_progress",
         }
     }
     fn label(self) -> String {
@@ -42,13 +47,17 @@ impl SurfaceId {
             Self::Menu => (1024, 256),
             Self::Dialogue => (768, 768),
             Self::Reader => (1024, 1024),
+            // A centered card can grow to four languages with four lines each.
+            Self::Headset => (1024, 1360),
+            Self::OcrProgress => (768, 224),
         }
     }
-    fn max_region(self) -> u8 {
+    fn region_count(self) -> usize {
         match self {
-            Self::Menu => 3,
-            Self::Dialogue => 2,
-            Self::Reader => 7,
+            Self::Menu => 4,
+            Self::Dialogue => 3,
+            Self::Reader => 8,
+            Self::Headset | Self::OcrProgress => 0,
         }
     }
 }
@@ -80,6 +89,17 @@ pub enum SurfaceView {
         reader: View,
         font_size: u32,
         opacity: f32,
+    },
+    Headset {
+        dark: bool,
+        text: String,
+        lines_per_language: u32,
+        font_size: u32,
+        opacity: f32,
+    },
+    OcrProgress {
+        dark: bool,
+        progress: Option<ProgressView>,
     },
 }
 
@@ -115,14 +135,15 @@ pub struct SurfaceLayout {
 
 impl SurfaceLayout {
     pub fn validate(&self, surface: SurfaceId) -> Result<(), String> {
-        if self.regions.len() > usize::from(surface.max_region()) + 1
+        if self.regions.len() > surface.region_count()
             || !(1..=10000).contains(&self.page_count)
+            || surface.region_count() == 0 && self.page_count != 1
         {
             return Err("Invalid surface layout size".into());
         }
         for (i, region) in self.regions.iter().enumerate() {
             let [l, t, r, b] = region.bounds;
-            if region.id > surface.max_region()
+            if usize::from(region.id) >= surface.region_count()
                 || ![l, t, r, b]
                     .iter()
                     .all(|v| v.is_finite() && (0.0..=1.0).contains(v))
@@ -352,7 +373,7 @@ impl Entry {
 }
 
 #[derive(Default)]
-pub struct SurfaceHub(Mutex<[Entry; 3]>);
+pub struct SurfaceHub(Mutex<[Entry; 5]>);
 
 impl SurfaceHub {
     pub fn generation(&self, surface: SurfaceId) -> u32 {
@@ -527,10 +548,12 @@ pub fn smoke(app: AppHandle, views: Vec<(SurfaceId, SurfaceView)>) {
                     .layout
                     .as_ref()
                     .and_then(|layout| layout.regions.last())
-                    .map(|region| region.id)
-                    .ok_or("Smoke surface has no controls")?;
+                    .map(|region| region.id);
                 let mut previous = first.clone();
-                for hover in [Some(hovered), None, Some(hovered)] {
+                for hover in hovered
+                    .into_iter()
+                    .flat_map(|id| [Some(id), None, Some(id)])
+                {
                     hub.publish(&app, surface, view.clone(), hover, None)?;
                     let changed_at = std::time::Instant::now();
                     loop {
@@ -556,6 +579,38 @@ pub fn smoke(app: AppHandle, views: Vec<(SurfaceId, SurfaceView)>) {
                             ));
                         }
                         std::thread::sleep(std::time::Duration::from_millis(15));
+                    }
+                }
+                if hovered.is_none() {
+                    let mut updated = view.clone();
+                    match &mut updated {
+                        SurfaceView::Headset { text, .. } => {
+                            *text = "Updated caption / 字幕内容已更新".into();
+                        }
+                        SurfaceView::OcrProgress {
+                            progress: Some(progress),
+                            ..
+                        } => {
+                            progress.status = "Updated OCR progress".into();
+                            progress.translation_fraction = Some((2, 3));
+                        }
+                        _ => return Err("Smoke surface has no content to update".into()),
+                    }
+                    hub.publish(&app, surface, updated, None, None)?;
+                    key = hub.0.lock().map_err(|e| e.to_string())?[surface.index()]
+                        .state
+                        .as_ref()
+                        .ok_or("Smoke surface has no state")?
+                        .key;
+                    let frame = wait_for_frame(&mut capture, surface, key)?;
+                    if capture.snapshot(frame)? == first {
+                        return Err(format!("{} content did not update", surface.name()));
+                    }
+                    if capture.snapshot(first_frame)? != first {
+                        return Err(format!(
+                            "{} capture overwrote its submitted texture",
+                            surface.name()
+                        ));
                     }
                 }
                 for recreate in [false, true] {
@@ -605,7 +660,7 @@ pub fn smoke(app: AppHandle, views: Vec<(SurfaceId, SurfaceView)>) {
                     }
                     key = recovered;
                 }
-                results.push(serde_json::json!({"surface":surface,"width":width,"height":height,"key":key,"transparent_pixels":transparent,"visible_pixels":visible,"hover_updated":true,"submitted_texture_preserved":true,"reload_recovered":true,"host_recreated":true}));
+                results.push(serde_json::json!({"surface":surface,"width":width,"height":height,"key":key,"transparent_pixels":transparent,"visible_pixels":visible,"hover_updated":hovered.map(|_| true),"content_updated":hovered.is_none(),"submitted_texture_preserved":true,"reload_recovered":true,"host_recreated":true}));
             }
             if app.get_webview_window("vr-surface-smoke-desktop").is_none() {
                 return Err("Default desktop WebView was closed during capture smoke".into());
@@ -1001,6 +1056,29 @@ mod tests {
         value.regions.pop();
         value.regions[0].bounds[0] = f32::NAN;
         assert!(value.validate(SurfaceId::Menu).is_err());
+    }
+
+    #[test]
+    fn passive_surfaces_cannot_publish_input_regions_or_pages() {
+        let key = SurfaceKey {
+            generation: 1,
+            revision: 1,
+        };
+        for name in ["headset", "ocr_progress"] {
+            let surface: SurfaceId = serde_json::from_value(serde_json::json!(name)).unwrap();
+            let mut value = SurfaceLayout {
+                key,
+                regions: vec![],
+                page_count: 1,
+            };
+            assert!(value.validate(surface).is_ok());
+            assert_eq!(value.hit([0.5, 0.5]), None);
+            value.page_count = 2;
+            assert!(value.validate(surface).is_err());
+            value.page_count = 1;
+            value.regions = layout(key).regions;
+            assert!(value.validate(surface).is_err());
+        }
     }
 
     #[test]

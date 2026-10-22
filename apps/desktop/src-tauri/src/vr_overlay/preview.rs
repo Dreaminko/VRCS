@@ -7,8 +7,8 @@ use super::dashboard::{
 use super::interaction::{Hit, Key, Kind, Router, Sample, Surface};
 use super::ocr_wrist::{self, Action, LaserEvent, View, ViewMode};
 use super::placement::{Mode, Placement, Pose, Request};
-use super::presentation::{MessageSide, PresentationContent, WristMessage};
-use super::renderer::{self, Texture};
+use super::presentation::{MessageSide, WristMessage};
+use super::renderer::Texture;
 use super::surface::{
     reader_action, SurfaceId, SurfaceKey, SurfaceLayout, SurfaceState, SurfaceView,
 };
@@ -443,7 +443,9 @@ impl Preview {
         match self.panel {
             0 => Some(SurfaceId::Menu),
             2 => Some(SurfaceId::Dialogue),
+            3 => Some(SurfaceId::Headset),
             4 | 5 | 9 => Some(SurfaceId::Reader),
+            8 => Some(SurfaceId::OcrProgress),
             _ => None,
         }
     }
@@ -497,6 +499,7 @@ impl Preview {
         });
         let cursor = point.filter(|_| {
             !self.closed
+                && !matches!(self.panel, 3 | 8)
                 && self
                     .layout
                     .as_ref()
@@ -827,6 +830,25 @@ impl Preview {
                     opacity: 0.94,
                 }
             }
+            3 => SurfaceView::Headset {
+                dark: self.controls.dark,
+                text: if matches!(self.scene, Scene::Empty | Scene::Expired) {
+                    String::new()
+                } else if self.scene == Scene::Partial {
+                    format!("[2] {} …", self.source)
+                } else if self.scene == Scene::Long {
+                    format!(
+                        "[2] {}\n{}",
+                        self.source.repeat(20),
+                        self.translation.repeat(20)
+                    )
+                } else {
+                    format!("[2] {}\n{}", self.source, self.translation)
+                },
+                lines_per_language: 2,
+                font_size: 38,
+                opacity: 0.65,
+            },
             4 | 5 | 9 => {
                 let mut reader = if self.panel == 4 {
                     self.reader.view_with_labels(
@@ -850,6 +872,52 @@ impl Preview {
                     reader,
                     font_size: 28,
                     opacity: 0.94,
+                }
+            }
+            8 => {
+                use super::ocr_progress::{ProgressView, Stage};
+                let step = self.advance % 4;
+                let failed = matches!(self.scene, Scene::Error | Scene::Timeout);
+                SurfaceView::OcrProgress {
+                    dark: self.controls.dark,
+                    progress: (!matches!(self.scene, Scene::Empty | Scene::Expired)).then(|| {
+                        ProgressView {
+                            scan_id: 1,
+                            status: if self.scene == Scene::Timeout {
+                                "Timed out"
+                            } else {
+                                "Synthetic OCR"
+                            }
+                            .into(),
+                            detail: if failed {
+                                "Recognition failed"
+                            } else {
+                                "Advance to inspect recognition and translation stages"
+                            }
+                            .into(),
+                            elapsed_seconds: self.advance as u64,
+                            stages: std::array::from_fn(|i| {
+                                if i < step {
+                                    Stage::Complete
+                                } else if i == step {
+                                    if failed {
+                                        Stage::Failed
+                                    } else {
+                                        Stage::Active
+                                    }
+                                } else {
+                                    Stage::Pending
+                                }
+                            }),
+                            stage_labels: [
+                                "Capture".into(),
+                                "Recognize".into(),
+                                "Translate".into(),
+                                "Display".into(),
+                            ],
+                            translation_fraction: Some((self.advance.min(3), 3)),
+                        }
+                    }),
                 }
             }
             _ => return None,
@@ -888,29 +956,9 @@ impl Preview {
         }
         self.surface = None;
         self.layout = None;
-        let empty = matches!(self.scene, Scene::Empty | Scene::Expired);
-        let mut texture = match self.panel {
+        let texture = match self.panel {
             1 => dashboard_renderer::render(&self.view, &self.dashboard, &mut self.cache)?
                 .into_rgba(),
-            3 => {
-                let text = if empty {
-                    String::new()
-                } else if self.scene == Scene::Partial {
-                    format!("{} …", self.source)
-                } else {
-                    format!("{}\n{}", self.source, self.translation)
-                };
-                let mut texture = renderer::render(
-                    renderer::Layout::Headset {
-                        lines_per_language: 2,
-                    },
-                    &PresentationContent::Headset(text),
-                    38,
-                    0.65,
-                )?;
-                unpremultiply(&mut texture.pixels);
-                texture
-            }
             6 => {
                 super::ocr_selection::Selection::from_corners(
                     [[-0.3, 0.2, -1.], [0.3, -0.2, -1.]],
@@ -950,50 +998,8 @@ impl Preview {
                 }
                 overlay
             }
-            8 => {
-                use super::ocr_progress::Stage;
-                let step = self.advance % 4;
-                let stages = std::array::from_fn(|i| {
-                    if i < step {
-                        Stage::Complete
-                    } else if i == step {
-                        if self.scene == Scene::Error {
-                            Stage::Failed
-                        } else {
-                            Stage::Active
-                        }
-                    } else {
-                        Stage::Pending
-                    }
-                });
-                super::ocr_progress_renderer::render(
-                    &super::ocr_progress::ProgressView {
-                        scan_id: 1,
-                        status: "Synthetic OCR".into(),
-                        detail: if self.scene == Scene::Error {
-                            "Recognition failed"
-                        } else {
-                            "Advance to inspect recognition and translation stages"
-                        }
-                        .into(),
-                        elapsed_seconds: self.advance as u64,
-                        stages,
-                        stage_labels: [
-                            "Capture".into(),
-                            "Recognize".into(),
-                            "Translate".into(),
-                            "Display".into(),
-                        ],
-                        translation_fraction: Some((self.advance.min(3), 3)),
-                    },
-                    self.advance as u8,
-                )?
-            }
             _ => return Err("Unknown preview panel".into()),
         };
-        if empty && self.panel == 3 {
-            texture.pixels.fill(0);
-        }
         self.texture = Some(texture);
         self.sequence += 1;
         self.dirty = false;
@@ -1242,7 +1248,7 @@ pub fn setup(app: &tauri::AppHandle, live: bool) -> Result<(), Box<dyn std::erro
         .build()?;
         let mut preview = Preview::new(false, Arc::new(Mutex::new(Placement::default())));
         let mut views = Vec::new();
-        for panel in [0, 2, 5] {
+        for panel in [0, 2, 3, 5, 8] {
             preview.panel = panel;
             views.push((
                 preview.surface_id().unwrap(),
@@ -1503,6 +1509,7 @@ mod tests {
                 bounds: [0.85, 0.88, 0.92, 0.95],
                 circle: true,
             }],
+            3 | 8 => vec![],
             _ => return,
         };
         p.update(Operation::Layout {
@@ -1513,6 +1520,37 @@ mod tests {
             },
         })
         .unwrap();
+    }
+
+    #[test]
+    fn passive_panels_use_react_without_pointer_actions_and_hide_expired_content() {
+        let mut p = mock();
+        for (panel, kind, content) in [(3, "headset", "text"), (8, "ocr_progress", "progress")] {
+            apply(&mut p, Operation::Select { panel });
+            let surface = p.info().surface.expect("passive panel uses React");
+            let view = serde_json::to_value(surface.view).unwrap();
+            assert_eq!(view["kind"], kind);
+            assert!(!view[content].is_null());
+            assert!(p.texture.is_none());
+            let pointer = input(&p, [0.5, 0.5], 1);
+            assert!(p.input(pointer).unwrap().is_empty());
+            p.render().unwrap();
+            assert_eq!(p.info().surface.unwrap().pointer, None);
+            apply(
+                &mut p,
+                Operation::Scene {
+                    scene: Scene::Expired,
+                },
+            );
+            let view = serde_json::to_value(p.info().surface.unwrap().view).unwrap();
+            assert!(view[content].is_null() || view[content] == "");
+            apply(
+                &mut p,
+                Operation::Scene {
+                    scene: Scene::Normal,
+                },
+            );
+        }
     }
 
     #[test]

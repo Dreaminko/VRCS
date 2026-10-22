@@ -255,6 +255,7 @@ impl From<Rect> for RECT {
     }
 }
 
+#[cfg(all(debug_assertions, feature = "vr-preview"))]
 pub(super) fn fill_rounded_rect(
     pixels: &mut [u8],
     width: u32,
@@ -283,6 +284,7 @@ pub(super) fn fill_rounded_rect(
     }
 }
 
+#[cfg(all(debug_assertions, feature = "vr-preview"))]
 fn inside_rounded_rect(x: i32, y: i32, rect: Rect, radius: i32) -> bool {
     if radius == 0
         || (x >= rect.left + radius && x < rect.right - radius)

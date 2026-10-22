@@ -5,8 +5,6 @@ mod d3d11_texture;
 mod dashboard;
 mod dashboard_renderer;
 mod dialogue;
-#[cfg(any(windows, test))]
-mod headset_layout;
 mod interaction;
 #[cfg(windows)]
 pub(crate) mod ocr_capture;
@@ -21,8 +19,6 @@ mod ocr_input_state;
 #[cfg(windows)]
 mod ocr_plane;
 mod ocr_progress;
-#[cfg(windows)]
-mod ocr_progress_renderer;
 #[cfg(windows)]
 mod ocr_renderer;
 #[cfg(windows)]
@@ -55,8 +51,6 @@ pub(crate) mod renderer;
 mod runtime;
 mod transform;
 mod wrist_labels;
-#[cfg(any(windows, test))]
-mod wrist_layout;
 #[cfg(windows)]
 mod wrist_renderer;
 

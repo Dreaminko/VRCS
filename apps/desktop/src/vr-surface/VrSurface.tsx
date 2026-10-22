@@ -1,6 +1,7 @@
 import { useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { ArrowLeft, ArrowRight, ChevronLeft, ChevronRight, GripHorizontal, Hand, Languages, MessageSquare, Mic, Monitor, Pin, PinOff, Radio, ScanEye, Square, X } from "lucide-react";
 import { VisionAnswerMarkdown } from "../vision/VisionAnswerMarkdown";
+import { Headset, OcrProgress } from "./PassiveSurfaces";
 import { menuStatus, pageGeometry, SURFACE_SIZE, type SurfaceLayout, type SurfaceState, type SurfaceView } from "./protocol";
 
 import "./surface.css";
@@ -95,9 +96,9 @@ export function VrSurface({ state, onLayout }: { state: SurfaceState; onLayout?:
   const [paging, setPaging] = useState<Paging>({ count: 1, page: 0, offset: 0 });
   const lastLayout = useRef("");
   const [width, height] = SURFACE_SIZE[state.view.kind];
-  const dark = state.view.kind === "reader" ? state.view.dark : state.view.controls.dark;
-  const fontSize = state.view.kind === "menu" ? 28 : Math.min(64, Math.max(16, state.view.font_size));
-  const opacity = state.view.kind === "menu" ? 1 : Math.min(1, Math.max(0, state.view.opacity));
+  const dark = "dark" in state.view ? state.view.dark : state.view.controls.dark;
+  const fontSize = "font_size" in state.view ? Math.min(state.view.kind === "headset" ? 68 : 64, Math.max(16, state.view.font_size)) : 28;
+  const opacity = "opacity" in state.view ? Math.min(1, Math.max(0, state.view.opacity)) : 1;
 
   useLayoutEffect(() => {
     const element = root.current;
@@ -134,6 +135,7 @@ export function VrSurface({ state, onLayout }: { state: SurfaceState; onLayout?:
   return <div ref={root} className={`vr-surface vr-surface-${state.view.kind}`} data-theme={dark ? "dark" : "light"} style={style}>
     {state.view.kind === "menu" ? <Menu state={state} view={state.view} />
       : state.view.kind === "dialogue" ? <Dialogue state={state} view={state.view} />
-        : <Reader state={state} view={state.view} paging={paging} />}
+        : state.view.kind === "reader" ? <Reader state={state} view={state.view} paging={paging} />
+          : state.view.kind === "headset" ? <Headset view={state.view} /> : <OcrProgress view={state.view} />}
   </div>;
 }

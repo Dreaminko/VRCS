@@ -1,6 +1,6 @@
 import type { ControlItem, ControlSnapshot } from "../vr-controls/protocol";
 
-export type Surface = "menu" | "dialogue" | "reader";
+export type Surface = "menu" | "dialogue" | "reader" | "headset" | "ocr_progress";
 export interface SurfaceKey { generation: number; revision: number }
 
 export interface ReaderView {
@@ -23,7 +23,19 @@ export interface ReaderView {
 export type SurfaceView =
   | { kind: "menu"; controls: ControlSnapshot }
   | { kind: "dialogue"; controls: ControlSnapshot; messages: { text: string; side: "left" | "right" }[]; mode: "wrist" | "world"; busy: boolean; error: string | null; font_size: number; opacity: number }
-  | { kind: "reader"; dark: boolean; labels: Record<string, string>; reader: ReaderView; font_size: number; opacity: number };
+  | { kind: "reader"; dark: boolean; labels: Record<string, string>; reader: ReaderView; font_size: number; opacity: number }
+  | { kind: "headset"; dark: boolean; text: string; lines_per_language: number; font_size: number; opacity: number }
+  | { kind: "ocr_progress"; dark: boolean; progress: ProgressView | null };
+
+export interface ProgressView {
+  scan_id: number;
+  status: string;
+  detail: string;
+  elapsed_seconds: number;
+  stages: ("pending" | "active" | "complete" | "skipped" | "failed")[];
+  stage_labels: string[];
+  translation_fraction: [number, number] | null;
+}
 
 export interface SurfaceState {
   key: SurfaceKey;
@@ -41,7 +53,7 @@ export interface SurfaceLayout {
   page_count: number;
 }
 
-export const SURFACE_SIZE = { menu: [1024, 256], dialogue: [768, 768], reader: [1024, 1024] } as const;
+export const SURFACE_SIZE = { menu: [1024, 256], dialogue: [768, 768], reader: [1024, 1024], headset: [1024, 1360], ocr_progress: [768, 224] } as const;
 
 export function menuStatus(item: ControlItem, labels: Record<string, string>) {
   const status = item.busy ? "busy" : item.reason || !item.available ? "unavailable" : item.requested && !item.effective ? "waiting" : "idle";

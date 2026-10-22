@@ -93,5 +93,28 @@ html[data-vr-surface], html[data-vr-surface] body, html[data-vr-surface] #root {
 .vr-reader-toolbar { flex: none; align-self: center; gap: 8px; padding: 8px; }
 .vr-reader-toolbar .vr-surface-button { width: 68px; height: 68px; flex-basis: 68px; }
 .vr-reader-toolbar .vr-surface-tooltip { max-width: 220px; }
+.vr-surface-headset { display: flex; align-items: center; justify-content: center; padding: 0 8px 8px; }
+.vr-headset-panel { width: 100%; padding: 14px 26px; text-align: center; font-weight: 600; }
+.vr-headset-language { display: flex; align-items: center; overflow: hidden; }
+.vr-headset-language span { display: block; width: 100%; flex: none; line-height: 1.2; overflow-wrap: anywhere; }
+.vr-progress-panel { position: absolute; inset: 8px 12px 16px; padding: 18px 24px; }
+.vr-progress-panel header { display: flex; align-items: center; gap: 12px; font-size: 28px; }
+.vr-progress-panel header strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vr-progress-panel header svg { width: 30px; height: 30px; color: var(--primary-ink); }
+.vr-progress-panel header.vr-surface-error svg { color: inherit; }
+.vr-progress-stages { display: flex; gap: 16px; margin: 18px 0 14px; padding: 0; list-style: none; }
+.vr-progress-stages li { min-width: 0; flex: 1; color: var(--text-quiet); }
+.vr-progress-stage-label { display: flex; align-items: center; gap: 8px; font-size: 22px; white-space: nowrap; }
+.vr-progress-stage-label svg { width: 22px; height: 22px; }
+.vr-progress-track { height: 8px; margin-top: 10px; border-radius: 999px; background: var(--surface-subtle); overflow: hidden; }
+.vr-progress-track i { display: block; width: 0; height: 100%; border-radius: inherit; background: currentColor; }
+.vr-progress-stages [data-stage="active"], .vr-progress-stages [data-stage="complete"] { color: var(--primary-ink); }
+.vr-progress-stages [data-stage="failed"] { color: var(--error); }
+.vr-progress-track.indeterminate i { width: 35%; animation: vr-progress-sweep 1.4s ease-in-out infinite; }
+.vr-progress-stages [data-stage="skipped"] .vr-progress-track { background: transparent; border: 1px dashed var(--border-strong); }
+.vr-progress-panel > p { margin: 0; overflow: hidden; color: var(--text-secondary); font-size: 22px; text-overflow: ellipsis; white-space: nowrap; }
+.vr-progress-spinner { animation: vr-progress-spin 1.5s linear infinite; }
+@keyframes vr-progress-spin { to { transform: rotate(360deg); } }
+@keyframes vr-progress-sweep { 0%, 100% { transform: translateX(-100%); } 50% { transform: translateX(285%); } }
 .vr-surface-marker { position: absolute; z-index: 100; bottom: 0; left: 0; display: flex; width: 256px; height: 8px; pointer-events: none; }
 .vr-surface-marker i { display: block; width: 4px; height: 8px; flex: 0 0 4px; }

@@ -21,6 +21,7 @@ use super::presentation::{
     WristPresentation,
 };
 use super::process::{steamvr_pid, SteamVrSession};
+#[cfg(not(windows))]
 use super::renderer::{self, Layout};
 
 pub const STATUS_EVENT: &str = "vr-overlay-status-changed";
@@ -408,6 +409,9 @@ struct WorkerState {
     wrist: WristPresentation,
     headset_sample: bool,
     wrist_sample: bool,
+    #[cfg(windows)]
+    headset_surface: super::surface::SurfaceRenderer,
+    #[cfg(not(windows))]
     headset_hash: Option<u64>,
     wrist_hash: Option<u64>,
     backend: Option<OpenVrBackend>,
@@ -421,6 +425,17 @@ struct WorkerState {
     next_probe: Instant,
     #[cfg(windows)]
     ocr: super::ocr_runtime::OcrRuntime,
+}
+
+impl WorkerState {
+    fn reset_headset(&mut self) {
+        #[cfg(windows)]
+        self.headset_surface.reset();
+        #[cfg(not(windows))]
+        {
+            self.headset_hash = None;
+        }
+    }
 }
 
 // Keep the existing worker spawn boundary explicit.
@@ -463,6 +478,9 @@ fn worker_loop(
         wrist: WristPresentation::default(),
         headset_sample: false,
         wrist_sample: false,
+        #[cfg(windows)]
+        headset_surface: super::surface::SurfaceRenderer::new(super::surface::SurfaceId::Headset),
+        #[cfg(not(windows))]
         headset_hash: None,
         wrist_hash: None,
         backend: None,
@@ -549,7 +567,7 @@ fn worker_loop(
                 if let Some(mut backend) = state.backend.take() {
                     backend.hide_all();
                 }
-                state.headset_hash = None;
+                state.reset_headset();
                 state.wrist_hash = None;
                 state.dashboard_dirty = true;
                 state.dashboard_thumbnail_uploaded = false;
@@ -560,7 +578,6 @@ fn worker_loop(
             }
             if let Some(visible) = control.headset_sample {
                 state.headset_sample = visible;
-                state.headset_hash = None;
             }
             if let Some(visible) = control.wrist_sample {
                 state.wrist_sample = visible;
@@ -648,7 +665,7 @@ fn recover_from_panic(state: &mut WorkerState, status: &mut VrOverlayStatus) {
         state.ui.reset();
     }
     drop(state.backend.take());
-    state.headset_hash = None;
+    state.reset_headset();
     state.wrist_hash = None;
     state.dashboard_dirty = true;
     state.dashboard_thumbnail_uploaded = false;
@@ -672,7 +689,7 @@ fn tick(app: &AppHandle, state: &mut WorkerState, status: &mut VrOverlayStatus, 
             state.ocr.unavailable(state.ocr_config.enabled);
             state.ui.reset();
         }
-        state.headset_hash = None;
+        state.reset_headset();
         state.wrist_hash = None;
         state.dashboard_dirty = true;
         state.dashboard_thumbnail_uploaded = false;
@@ -714,7 +731,7 @@ fn tick(app: &AppHandle, state: &mut WorkerState, status: &mut VrOverlayStatus, 
         state.wrist_sample = false;
         state.headset = HeadsetPresentation::default();
         state.wrist = WristPresentation::default();
-        state.headset_hash = None;
+        state.reset_headset();
         state.wrist_hash = None;
         state.dashboard_dirty = true;
         state.dashboard_thumbnail_uploaded = false;
@@ -758,7 +775,7 @@ fn tick(app: &AppHandle, state: &mut WorkerState, status: &mut VrOverlayStatus, 
         if let Some(mut backend) = state.backend.take() {
             backend.hide_all();
         }
-        state.headset_hash = None;
+        state.reset_headset();
         state.wrist_hash = None;
         status.state = RuntimeState::WaitingRuntime;
         status.headset.state = if state.config.headset.enabled {
@@ -805,7 +822,9 @@ fn tick(app: &AppHandle, state: &mut WorkerState, status: &mut VrOverlayStatus, 
                 status.last_connected_at = Some(unix_timestamp());
                 status.reconnect_attempt = 0;
                 status.last_error_detail = None;
-                state.headset_hash = None;
+                state.reset_headset();
+                #[cfg(windows)]
+                state.ocr.reset_surfaces();
                 state.wrist_hash = None;
                 state.dashboard_dirty = true;
                 state.dashboard_thumbnail_uploaded = false;
@@ -854,7 +873,7 @@ fn tick(app: &AppHandle, state: &mut WorkerState, status: &mut VrOverlayStatus, 
             .ocr
             .tick(app, &mut backend, &state.ocr_config, &state.config.wrist);
     }
-    update_headset(state, status, &mut backend);
+    update_headset(app, state, status, &mut backend);
     update_wrist(app, state, status, &mut backend);
     update_dashboard(app, state, status, &mut backend);
     let headset_failed =
@@ -1033,6 +1052,7 @@ fn question_draft_frame(draft: &str) -> PresentationFrame {
 }
 
 fn update_headset(
+    app: &AppHandle,
     state: &mut WorkerState,
     status: &mut VrOverlayStatus,
     backend: &mut OpenVrBackend,
@@ -1045,7 +1065,7 @@ fn update_headset(
     // changing subtitle history or requiring the subtitle display to be enabled.
     if question_draft.is_none() && (!state.config.enabled || !state.config.headset.enabled) {
         backend.reset(OverlayKind::Headset);
-        state.headset_hash = None;
+        state.reset_headset();
         status.headset.state = ResourceState::Disabled;
         status.headset.last_error_code = None;
         return;
@@ -1053,7 +1073,7 @@ fn update_headset(
     status.headset.state = ResourceState::Creating;
     if let Err(error) = backend.ensure_headset(&state.config.headset) {
         backend.reset(OverlayKind::Headset);
-        state.headset_hash = None;
+        state.reset_headset();
         resource_error(
             &mut status.headset,
             "headset_setup",
@@ -1084,7 +1104,50 @@ fn update_headset(
         return;
     };
 
-    match render_and_show(
+    #[cfg(windows)]
+    let presented = (|| {
+        use super::surface::SurfaceView;
+        let PresentationContent::Headset(text) = &frame.content else {
+            return Err("Invalid headset content".into());
+        };
+        let dark = state
+            .controls
+            .lock()
+            .map(|hub| hub.snapshot().dark)
+            .unwrap_or(false);
+        let visible = state.headset_surface.present(
+            app,
+            backend,
+            OverlayKind::Headset,
+            SurfaceView::Headset {
+                dark,
+                text: text.clone(),
+                lines_per_language: state.config.headset.lines_per_language,
+                font_size: state.config.headset.font_size_px,
+                opacity: state.config.headset.background_opacity,
+            },
+            None,
+            None,
+        )?;
+        if visible {
+            let shown = backend
+                .set_opacity(
+                    OverlayKind::Headset,
+                    state.config.headset.opacity * frame.opacity,
+                )
+                .and_then(|()| backend.show(OverlayKind::Headset));
+            if shown.is_err() {
+                backend.reset(OverlayKind::Headset);
+                state.reset_headset();
+            }
+            shown?;
+        } else {
+            backend.hide(OverlayKind::Headset);
+        }
+        Ok(visible)
+    })();
+    #[cfg(not(windows))]
+    let presented = render_and_show(
         backend,
         OverlayKind::Headset,
         Layout::Headset {
@@ -1095,9 +1158,13 @@ fn update_headset(
         state.config.headset.background_opacity,
         state.config.headset.opacity,
         &mut state.headset_hash,
-    ) {
-        Ok(()) => {
-            status.headset.state = if frame.opacity < 1.0 {
+    )
+    .map(|()| true);
+    match presented {
+        Ok(visible) => {
+            status.headset.state = if !visible {
+                ResourceState::Creating
+            } else if frame.opacity < 1.0 {
                 ResourceState::Fading
             } else {
                 ResourceState::Visible
@@ -1106,7 +1173,6 @@ fn update_headset(
         }
         Err(error) => {
             backend.reset(OverlayKind::Headset);
-            state.headset_hash = None;
             resource_error(
                 &mut status.headset,
                 "headset_render",
@@ -1354,6 +1420,7 @@ fn update_wrist(
 }
 
 #[allow(clippy::too_many_arguments)]
+#[cfg(not(windows))]
 fn render_and_show(
     backend: &mut OpenVrBackend,
     kind: OverlayKind,

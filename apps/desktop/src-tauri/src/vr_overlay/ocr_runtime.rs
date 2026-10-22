@@ -2,8 +2,7 @@ use super::{
     backend::{OpenVrBackend, OverlayKind},
     ocr_capture::{center_crop, CropTransform, StereoCapture},
     ocr_input::{install_manifest, InputActions},
-    ocr_progress::{Feedback, ProgressLabels, ProgressView},
-    ocr_progress_renderer,
+    ocr_progress::{Feedback, ProgressLabels},
     ocr_selection::Selection,
     ocr_status::{failure_code, OcrState, OcrStatus, OcrWristState},
     ocr_wrist::Button,
@@ -102,7 +101,7 @@ pub struct OcrRuntime {
     feedback: Option<Feedback>,
     pub progress_labels: ProgressLabels,
     reader_labels: super::wrist_labels::WristLabels,
-    feedback_view: Option<(ProgressView, u8)>,
+    progress_surface: SurfaceRenderer,
     configuration: Option<Arc<ScanConfiguration>>,
     selecting: bool,
     selection: Option<Selection>,
@@ -144,7 +143,7 @@ impl OcrRuntime {
             feedback: None,
             progress_labels: ProgressLabels::default(),
             reader_labels: super::wrist_labels::WristLabels::default(),
-            feedback_view: None,
+            progress_surface: SurfaceRenderer::new(SurfaceId::OcrProgress),
             configuration: None,
             selecting: false,
             selection: None,
@@ -218,7 +217,6 @@ impl OcrRuntime {
         self.progress = None;
         self.pipeline = None;
         self.feedback = None;
-        self.feedback_view = None;
         self.status.progress = None;
         self.status.progress_error = None;
         self.configuration = None;
@@ -260,6 +258,12 @@ impl OcrRuntime {
         self.status.state = state;
         self.status.controller_bound = false;
         self.status.gesture_available = false;
+    }
+
+    // Call after the previous OpenVR backend has released its submitted textures.
+    pub fn reset_surfaces(&mut self) {
+        self.reader_surface.reset();
+        self.progress_surface.reset();
     }
 
     fn invalidate(&mut self, config: &VrOcrConfig) {
@@ -313,6 +317,7 @@ impl OcrRuntime {
             backend.reset_ocr();
             backend.reset(OverlayKind::OcrWrist);
             backend.reset(OverlayKind::OcrProgress);
+            self.progress_surface.reset();
             self.unavailable(false);
             return;
         }
@@ -388,10 +393,11 @@ impl OcrRuntime {
                 feedback.finish(state, std::time::Instant::now());
             }
         }
-        if let Err(error) = self.update_feedback(backend) {
-            tracing::warn!(error, "OCR progress overlay unavailable");
+        if let Err(error) = self.update_feedback(app, backend) {
+            if self.status.progress_error.as_deref() != Some(error.as_str()) {
+                tracing::warn!(error, "OCR progress overlay unavailable");
+            }
             backend.reset(OverlayKind::OcrProgress);
-            self.feedback_view = None;
             self.status.progress_error = Some(error);
         }
     }
@@ -407,7 +413,11 @@ impl OcrRuntime {
         }
     }
 
-    fn update_feedback(&mut self, backend: &mut OpenVrBackend) -> Result<(), String> {
+    fn update_feedback(
+        &mut self,
+        app: &AppHandle,
+        backend: &mut OpenVrBackend,
+    ) -> Result<(), String> {
         let now = std::time::Instant::now();
         self.status.progress = self
             .feedback
@@ -415,26 +425,44 @@ impl OcrRuntime {
             .and_then(|feedback| feedback.view_with_labels(now, &self.progress_labels));
         let Some(view) = &self.status.progress else {
             backend.hide(OverlayKind::OcrProgress);
-            self.feedback_view = None;
             return Ok(());
         };
-        if self.status.progress_error.is_some() {
+        if let Err(error) = backend.ensure_ocr_progress() {
+            backend.reset(OverlayKind::OcrProgress);
+            self.progress_surface.reset();
+            return Err(error);
+        }
+        let dark = app
+            .state::<super::runtime::Manager>()
+            .controls
+            .lock()
+            .map(|hub| hub.snapshot().dark)
+            .unwrap_or(false);
+        let visible = self.progress_surface.present(
+            app,
+            backend,
+            OverlayKind::OcrProgress,
+            SurfaceView::OcrProgress {
+                dark,
+                progress: Some(view.clone()),
+            },
+            None,
+            None,
+        )?;
+        if !visible {
+            backend.hide(OverlayKind::OcrProgress);
             return Ok(());
         }
-        let animation = self
-            .feedback
-            .as_ref()
-            .map(|feedback| feedback.animation(now))
-            .unwrap_or(0);
-        let next = (view.clone(), animation);
-        backend.ensure_ocr_progress()?;
-        if self.feedback_view.as_ref() != Some(&next) {
-            let texture = ocr_progress_renderer::render(view, animation)?;
-            backend.upload(OverlayKind::OcrProgress, &texture)?;
-            self.feedback_view = Some(next);
+        let shown = backend
+            .set_opacity(OverlayKind::OcrProgress, 0.94)
+            .and_then(|()| backend.show(OverlayKind::OcrProgress));
+        if shown.is_err() {
+            backend.reset(OverlayKind::OcrProgress);
+            self.progress_surface.reset();
         }
-        backend.set_opacity(OverlayKind::OcrProgress, 0.94)?;
-        backend.show(OverlayKind::OcrProgress)
+        shown?;
+        self.status.progress_error = None;
+        Ok(())
     }
 
     fn update_wrist_pointer(&mut self, events: &[LaserEvent], focused: bool) -> bool {

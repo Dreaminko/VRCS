@@ -2,6 +2,6 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "vr-surface",
   "description": "Local React texture hosts; no access to application controls or configuration",
-  "windows": ["vr-surface-menu", "vr-surface-dialogue", "vr-surface-reader"],
+  "windows": ["vr-surface-menu", "vr-surface-dialogue", "vr-surface-reader", "vr-surface-headset", "vr-surface-ocr_progress"],
   "permissions": ["core:event:allow-listen", "core:event:allow-unlisten", "allow-vr-surface-ready", "allow-vr-surface-layout"]
 }

@@ -170,7 +170,7 @@ export function VrPreview() {
             }}>
             <div className="vr-preview-react-inner" style={{ width: size[0], height: size[1], transform: `scale(${scale})` }}>
               <VrSurface state={surface} onLayout={onSurfaceLayout} />
-              <SurfacePointer point={surface.pointer} />
+              {surface.view.kind !== "headset" && surface.view.kind !== "ocr_progress" && <SurfacePointer point={surface.pointer} />}
             </div>
           </div>}
         </div>
