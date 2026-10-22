@@ -511,6 +511,8 @@ impl SurfaceHub {
 /// Exercises the real offscreen hosts and shared GPU textures without initializing OpenVR.
 #[cfg(all(debug_assertions, feature = "vr-preview"))]
 pub fn smoke(app: AppHandle, views: Vec<(SurfaceId, SurfaceView)>) {
+    use windows_sys::Win32::Graphics::Gdi::{MonitorFromWindow, MONITOR_DEFAULTTONULL};
+
     fn wait_for_layout(
         app: &AppHandle,
         surface: SurfaceId,
@@ -530,6 +532,14 @@ pub fn smoke(app: AppHandle, views: Vec<(SurfaceId, SurfaceView)>) {
                 if entry.ready {
                     if let (Some(hwnd), Some(layout)) = (entry.hwnd, &entry.layout) {
                         if previous.is_none_or(|key| key.generation != layout.key.generation) {
+                            if !unsafe { MonitorFromWindow(hwnd as _, MONITOR_DEFAULTTONULL) }
+                                .is_null()
+                            {
+                                return Err(format!(
+                                    "{} host overlaps the desktop",
+                                    surface.name()
+                                ));
+                            }
                             return Ok((hwnd, layout.key));
                         }
                     }
@@ -730,7 +740,7 @@ pub fn smoke(app: AppHandle, views: Vec<(SurfaceId, SurfaceView)>) {
                     }
                     key = recovered;
                 }
-                results.push(serde_json::json!({"surface":surface,"width":width,"height":height,"key":key,"transparent_pixels":transparent,"visible_pixels":visible,"hover_updated":hovered.map(|_| true),"content_updated":hovered.is_none(),"submitted_texture_preserved":true,"reload_recovered":true,"host_recreated":true}));
+                results.push(serde_json::json!({"surface":surface,"width":width,"height":height,"key":key,"desktop_hidden":true,"transparent_pixels":transparent,"visible_pixels":visible,"hover_updated":hovered.map(|_| true),"content_updated":hovered.is_none(),"submitted_texture_preserved":true,"reload_recovered":true,"host_recreated":true}));
             }
             if app.get_webview_window("vr-surface-smoke-desktop").is_none() {
                 return Err("Default desktop WebView was closed during capture smoke".into());
@@ -839,7 +849,7 @@ fn create_host(app: &AppHandle, surface: SurfaceId, epoch: u32) -> Result<(), St
                 .skip_taskbar(true)
                 .focused(false)
                 .focusable(false)
-                .position(-16000., -16000.)
+                .visible(false)
                 .inner_size(width as f64, (height + 8) as f64)
                 .data_directory(data_directory)
                 .additional_browser_args("--disable-features=CalculateNativeWinOcclusion --disable-backgrounding-occluded-windows --disable-renderer-backgrounding")
@@ -867,10 +877,20 @@ fn create_host(app: &AppHandle, surface: SurfaceId, epoch: u32) -> Result<(), St
                     }
                 }
             });
+            // Initial offscreen coordinates are clamped by tao. Move before showing.
+            let left = window.available_monitors().map_err(|e| e.to_string())?
+                .iter()
+                .map(|monitor| monitor.position().x)
+                .min()
+                .unwrap_or(0);
+            window.set_position(tauri::PhysicalPosition::new(left - width as i32 - 8, 0))
+                .map_err(|e| e.to_string())?;
             let scale = window.scale_factor().map_err(|e| e.to_string())?;
             window.set_zoom(1. / scale).map_err(|e| e.to_string())?;
             window.set_size(tauri::PhysicalSize::new(width, height + 8)).map_err(|e| e.to_string())?;
             window.set_ignore_cursor_events(true).map_err(|e| e.to_string())?;
+            // WGC needs a shown window to keep producing frames.
+            window.show().map_err(|e| e.to_string())?;
             window.hwnd().map(|handle| Some(handle.0 as isize)).map_err(|e| e.to_string())
         })();
         let hub = host_app.state::<SurfaceHub>();
