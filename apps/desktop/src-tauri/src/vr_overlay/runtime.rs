@@ -1294,8 +1294,14 @@ fn update_wrist(
             &state.config.wrist,
             &state.config.translation_display,
         )
-    }
-    .unwrap_or_else(|| PresentationFrame::wrist(Vec::new()));
+    };
+    let Some(frame) = frame else {
+        backend.hide(OverlayKind::Wrist);
+        state.ui.dialogue_revision = None;
+        status.wrist.state = ResourceState::ReadyHidden;
+        status.wrist.last_error_code = None;
+        return;
+    };
     let controls = state
         .controls
         .lock()
