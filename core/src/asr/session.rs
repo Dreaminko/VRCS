@@ -308,10 +308,12 @@ mod tests {
 
     #[tokio::test]
     async fn mimo_rejects_unsupported_languages_before_credentials_or_network_access() {
-        let mut config = AsrConfig::default();
-        config.backend = providers::SERVICE_MIMO_TRANSCRIPTION.into();
-        config.language = "ja".into();
-        config.active_profile_id = Some("mimo".into());
+        let mut config = AsrConfig {
+            backend: providers::SERVICE_MIMO_TRANSCRIPTION.into(),
+            language: "ja".into(),
+            active_profile_id: Some("mimo".into()),
+            ..AsrConfig::default()
+        };
         config.api_profiles.push(ApiProfile {
             id: "mimo".into(),
             provider: providers::MIMO_PROVIDER.into(),
