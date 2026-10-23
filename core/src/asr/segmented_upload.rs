@@ -5,10 +5,10 @@ use tokio::task::JoinHandle;
 
 use crate::config::{ApiProfile, RecognitionServiceSettings};
 
-use super::openai_audio_transcriptions;
 use super::qwen_runtime::{QwenConnection, QwenRuntime};
 use super::streaming::{CloudEvent, SegmentationMode};
 use super::SharedAudio;
+use super::{mimo, openai_audio_transcriptions};
 
 const MAX_AUDIO_SECONDS: usize = 300;
 const MAX_AUDIO_SAMPLES: usize = 16_000 * MAX_AUDIO_SECONDS;
@@ -35,6 +35,7 @@ enum UploadTarget {
 
 pub struct SegmentedUploadSession {
     audio: Mutex<Vec<f32>>,
+    max_audio_samples: usize,
     jobs: mpsc::Sender<UploadJob>,
     events: mpsc::Receiver<CloudEvent>,
     task: JoinHandle<()>,
@@ -47,6 +48,11 @@ impl SegmentedUploadSession {
         settings: RecognitionServiceSettings,
         language: String,
     ) -> Self {
+        let max_audio_samples = if profile.provider == crate::providers::MIMO_PROVIDER {
+            mimo::MAX_AUDIO_SAMPLES
+        } else {
+            MAX_AUDIO_SAMPLES
+        };
         let (jobs_tx, jobs_rx) = mpsc::channel(UPLOAD_QUEUE_CAPACITY);
         let (events_tx, events_rx) = mpsc::channel(EVENT_QUEUE_CAPACITY);
         let task = tokio::spawn(run_worker(
@@ -61,6 +67,7 @@ impl SegmentedUploadSession {
         ));
         Self {
             audio: Mutex::new(Vec::new()),
+            max_audio_samples,
             jobs: jobs_tx,
             events: events_rx,
             task,
@@ -85,6 +92,7 @@ impl SegmentedUploadSession {
         ));
         Self {
             audio: Mutex::new(Vec::new()),
+            max_audio_samples: MAX_AUDIO_SAMPLES,
             jobs: jobs_tx,
             events: events_rx,
             task,
@@ -96,9 +104,10 @@ impl SegmentedUploadSession {
             return Ok(());
         }
         let mut audio = self.audio.lock().await;
-        if audio.len().saturating_add(samples.len()) > MAX_AUDIO_SAMPLES {
+        if audio.len().saturating_add(samples.len()) > self.max_audio_samples {
             return Err(format!(
-                "Transcription audio exceeds the {MAX_AUDIO_SECONDS}-second limit"
+                "Transcription audio exceeds the {:.1}-second upload limit",
+                self.max_audio_samples as f64 / 16_000.0
             ));
         }
         audio.extend_from_slice(samples.as_slice());
@@ -201,16 +210,30 @@ async fn run_worker(
                 api_key,
                 settings,
             } => {
-                openai_audio_transcriptions::transcribe_result_with_empty(
-                    http.as_ref().expect("profile client exists"),
-                    profile,
-                    api_key,
-                    settings,
-                    &language,
-                    &job.samples,
-                    job.allow_empty,
-                )
-                .await
+                let http = http.as_ref().expect("profile client exists");
+                if profile.provider == crate::providers::MIMO_PROVIDER {
+                    mimo::transcribe(
+                        http,
+                        profile,
+                        api_key,
+                        settings,
+                        &language,
+                        &job.samples,
+                        job.allow_empty,
+                    )
+                    .await
+                } else {
+                    openai_audio_transcriptions::transcribe_result_with_empty(
+                        http,
+                        profile,
+                        api_key,
+                        settings,
+                        &language,
+                        &job.samples,
+                        job.allow_empty,
+                    )
+                    .await
+                }
             }
             UploadTarget::ManagedQwen {
                 connection,
@@ -569,6 +592,38 @@ mod tests {
             "auto".into(),
         );
         assert!(session.commit().await.unwrap_err().contains("empty"));
+        session.stop().await;
+    }
+
+    #[tokio::test]
+    async fn mimo_audio_buffer_respects_the_base64_upload_limit() {
+        let session = SegmentedUploadSession::spawn(
+            ApiProfile {
+                provider: crate::providers::MIMO_PROVIDER.into(),
+                ..ApiProfile::default()
+            },
+            "test-key".into(),
+            RecognitionServiceSettings {
+                model: "mimo-v2.5-asr".into(),
+                context: String::new(),
+            },
+            "auto".into(),
+        );
+        session
+            .send(super::super::share_audio(
+                vec![0.0; super::super::mimo::MAX_AUDIO_SAMPLES],
+            ))
+            .await
+            .unwrap();
+        assert!(session
+            .send(super::super::share_audio(vec![0.0]))
+            .await
+            .is_err());
+        session.discard_pending().await;
+        session
+            .send(super::super::share_audio(vec![0.1; 320]))
+            .await
+            .unwrap();
         session.stop().await;
     }
 

@@ -36,6 +36,7 @@ pub(crate) fn validate_backend(config: &AsrConfig) -> Result<(), String> {
         .ok_or_else(|| format!("Unsupported question ASR backend: {}", config.backend))?;
     match service.adapter {
         ServiceAdapter::OpenAiAudioTranscriptions
+        | ServiceAdapter::MimoTranscription
         | ServiceAdapter::QwenRealtime
         | ServiceAdapter::FunAsrRealtime => Ok(()),
         ServiceAdapter::QwenLiveTranslate

@@ -91,6 +91,10 @@ export function thinkingControlForModel(
   }
 
   if (provider === "deepseek") return "disable_supported";
+  if (provider === "mimo") {
+    return ["mimo-v2.6-flash", "mimo-v2.6-pro", "mimo-v2.6-pro-ultraspeed"].includes(normalizedModel)
+      ? "disable_supported" : "unsupported";
+  }
   if (provider === "gemini" && normalizedModel.startsWith("gemini-2.5-flash")) return "disable_supported";
   if (provider === "gemini" && normalizedModel.startsWith("gemini-2.5-pro")) return "hide_only";
   if (provider === "groq") return groqThinkingControl(normalizedModel);

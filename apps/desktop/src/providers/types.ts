@@ -85,6 +85,7 @@ export interface ProviderServiceDefinition {
   capabilities: ApiCapability[];
   adapter: string;
   recognition_transport: RecognitionTransport | null;
+  recognition_languages?: string[];
   partial_results: boolean;
   models: string[];
   model_listing: boolean;

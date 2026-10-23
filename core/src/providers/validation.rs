@@ -263,7 +263,7 @@ mod tests {
     fn image_capability_is_explicit_and_uses_existing_profile_validation() {
         use crate::providers::{
             catalog, profile_capabilities, supports_llm_models, CAPABILITY_IMAGE_UNDERSTANDING,
-            GEMINI_PROVIDER, GROQ_PROVIDER, LM_STUDIO_PROVIDER, OPENAI_PROVIDER,
+            GEMINI_PROVIDER, GROQ_PROVIDER, LM_STUDIO_PROVIDER, MIMO_PROVIDER, OPENAI_PROVIDER,
             OPENROUTER_PROVIDER, QWEN_AI_PROVIDER,
         };
         let supported = [
@@ -275,6 +275,7 @@ mod tests {
             OPENAI_COMPATIBLE_PROVIDER,
             OPENROUTER_PROVIDER,
             LM_STUDIO_PROVIDER,
+            MIMO_PROVIDER,
             OLLAMA_PROVIDER,
             QWEN_AI_PROVIDER,
         ];

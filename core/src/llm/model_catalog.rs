@@ -173,6 +173,20 @@ impl ModelDetails {
     pub fn from_native(entry: &Value, provider: &str) -> Self {
         let mut details = Self::default();
         match provider {
+            "mimo" => {
+                // /models returns IDs only. Capabilities come from the native model guide.
+                // https://mimo.mi.com/docs/zh-CN/quick-start/summary/model
+                let model = entry.get("id").and_then(Value::as_str).unwrap_or_default();
+                if crate::providers::MIMO_CHAT_MODELS.contains(&model) {
+                    details.input_modalities = vec!["text".into(), "image".into()];
+                    details.output_modalities = vec!["text".into()];
+                    details.context_tokens = Some(1_048_576);
+                    details.max_output_tokens = Some(131_072);
+                } else if model == "mimo-v2.5-asr" {
+                    details.input_modalities = vec!["audio".into()];
+                    details.output_modalities = vec!["text".into()];
+                }
+            }
             "gemini" => {
                 details.context_tokens = positive_limit(entry.get("inputTokenLimit"));
                 details.max_output_tokens = positive_limit(entry.get("outputTokenLimit"));
@@ -228,9 +242,15 @@ impl ModelDetails {
             ("status", details.status.is_some()),
         ] {
             if known {
-                details
-                    .field_sources
-                    .insert(field.into(), "provider_api".into());
+                details.field_sources.insert(
+                    field.into(),
+                    if provider == "mimo" {
+                        "builtin"
+                    } else {
+                        "provider_api"
+                    }
+                    .into(),
+                );
             }
         }
         details
@@ -241,6 +261,7 @@ impl ModelDetails {
         let output_key = match provider {
             "gemini" => "/generationConfig/maxOutputTokens",
             "openai" => "/max_output_tokens",
+            "mimo" => "/max_completion_tokens",
             _ => "/max_tokens",
         };
         if !self.stale

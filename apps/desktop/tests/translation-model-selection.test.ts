@@ -16,6 +16,14 @@ test("OpenRouter prefers non-reasoning translations and preserves saved selectio
   assert.equal(selectTranslationModel("openrouter", models, "openai/gpt-5-mini"), "openai/gpt-5-mini");
 });
 
+test("MiMo prefers Flash then Pro and excludes speech models", () => {
+  const models = ["mimo-v2.5-asr", "mimo-v2.5-tts", "mimo-v2.6-pro-ultraspeed", "mimo-v2.6-pro", "mimo-v2.6-flash"];
+  assert.equal(selectTranslationModel("mimo", models, ""), "mimo-v2.6-flash");
+  assert.equal(selectTranslationModel("mimo", models.slice(0, -1), ""), "mimo-v2.6-pro");
+  assert.equal(selectTranslationModel("mimo", models, "mimo-v2.6-pro"), "mimo-v2.6-pro");
+  assert.equal(selectTranslationModel("mimo", ["mimo-v2.5-asr", "mimo-v2.5-tts"], ""), undefined);
+});
+
 test("explicit text modalities override name heuristics and exclude audio-only inputs", () => {
   assert.equal(selectTranslationModel("openai", ["whisper", "image-chat"], "", {
     whisper: { input_modalities: ["audio"], output_modalities: ["text"] },

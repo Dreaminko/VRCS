@@ -17,6 +17,7 @@ pub const MICROSOFT_PROVIDER: &str = "microsoft_translator";
 pub const GROQ_PROVIDER: &str = "groq";
 pub const OPENROUTER_PROVIDER: &str = "openrouter";
 pub const DEEPSEEK_PROVIDER: &str = "deepseek";
+pub const MIMO_PROVIDER: &str = "mimo";
 pub const LM_STUDIO_PROVIDER: &str = "lm_studio";
 pub const OLLAMA_PROVIDER: &str = "ollama";
 pub const QWEN_LOCAL_PROVIDER: &str = "qwen_local";
@@ -37,6 +38,7 @@ pub const SERVICE_TOKEN_PLAN_REALTIME: &str = "token_plan_realtime";
 pub const SERVICE_OPENAI_REALTIME: &str = "openai_realtime";
 pub const SERVICE_OPENAI_REALTIME_TRANSLATE: &str = "openai_realtime_translate";
 pub const SERVICE_GROQ_TRANSCRIPTION: &str = "groq_transcription";
+pub const SERVICE_MIMO_TRANSCRIPTION: &str = "mimo_transcription";
 pub const SERVICE_OPENROUTER_TRANSCRIPTION: &str = "openrouter_transcription";
 pub const SERVICE_GEMINI_TRANSCRIBE: &str = "gemini_transcribe";
 pub const SERVICE_GEMINI_LIVE_TRANSLATE: &str = "gemini_live_translate";
@@ -152,6 +154,12 @@ const OPENAI_ASR_MODELS: &[&str] = &[
     "gpt-4o-transcribe",
 ];
 const GROQ_ASR_MODELS: &[&str] = &["whisper-large-v3-turbo", "whisper-large-v3"];
+pub const MIMO_CHAT_MODELS: &[&str] = &[
+    "mimo-v2.6-flash",
+    "mimo-v2.6-pro",
+    "mimo-v2.6-pro-ultraspeed",
+];
+pub const MIMO_ASR_LANGUAGES: &[&str] = &["auto", "zh", "en"];
 const OPENROUTER_ASR_MODELS: &[&str] = &[
     "openai/whisper-large-v3-turbo",
     "openai/whisper-large-v3",
@@ -220,6 +228,7 @@ pub enum OpenAiProtocolBehavior {
     Alibaba,
     DeepSeek,
     Groq,
+    Mimo,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -240,6 +249,7 @@ pub enum ServiceAdapter {
     GeminiTranscribe,
     GeminiLiveTranslate,
     OpenAiAudioTranscriptions,
+    MimoTranscription,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -256,6 +266,7 @@ pub struct ProviderServiceDefinition {
     pub capabilities: &'static [&'static str],
     pub adapter: ServiceAdapter,
     pub recognition_transport: Option<RecognitionTransport>,
+    pub recognition_languages: &'static [&'static str],
     pub partial_results: bool,
     pub supports_streaming: bool,
     pub supports_model_listing: bool,
@@ -530,6 +541,33 @@ const DEEPSEEK_SERVICES: &[ProviderServiceDefinition] = &[multimodal_service(
     SupportLevel::Native,
 )];
 
+const MIMO_SERVICES: &[ProviderServiceDefinition] = &[
+    multimodal_service(
+        "mimo_chat_completions",
+        "MiMo Chat Completions",
+        ServiceAdapter::OpenAiChatCompletions {
+            behavior: OpenAiProtocolBehavior::Mimo,
+        },
+        SupportLevel::Native,
+    ),
+    ProviderServiceDefinition {
+        supports_model_listing: true,
+        recognition_languages: MIMO_ASR_LANGUAGES,
+        ..recognition_service_definition(
+            SERVICE_MIMO_TRANSCRIPTION,
+            "MiMo Transcription",
+            ServiceAdapter::MimoTranscription,
+            RecognitionServiceSpec {
+                transport: RecognitionTransport::SegmentedUpload,
+                partial_results: false,
+                models: &["mimo-v2.5-asr"],
+                context_max_chars: None,
+                support: SupportLevel::Native,
+            },
+        )
+    },
+];
+
 const LM_STUDIO_SERVICES: &[ProviderServiceDefinition] = &[multimodal_service(
     "lm_studio_chat_completions",
     "LM Studio Chat Completions",
@@ -584,6 +622,7 @@ const fn text_service(
         capabilities: TEXT_CAPABILITIES,
         adapter,
         recognition_transport: None,
+        recognition_languages: &[],
         partial_results: false,
         supports_streaming: true,
         supports_model_listing: true,
@@ -606,6 +645,7 @@ const fn translation_service(
         capabilities: TRANSLATION_CAPABILITY,
         adapter,
         recognition_transport: None,
+        recognition_languages: &[],
         partial_results: false,
         supports_streaming: false,
         supports_model_listing: false,
@@ -629,6 +669,7 @@ const fn recognition_service_definition(
         capabilities: SPEECH_CAPABILITY,
         adapter,
         recognition_transport: Some(spec.transport),
+        recognition_languages: &[],
         partial_results: spec.partial_results,
         supports_streaming: matches!(spec.transport, RecognitionTransport::RealtimeStream),
         supports_model_listing: matches!(
@@ -655,6 +696,7 @@ pub fn catalog() -> Vec<ProviderDefinition> {
         GROQ_PROVIDER,
         OPENROUTER_PROVIDER,
         DEEPSEEK_PROVIDER,
+        MIMO_PROVIDER,
         GEMINI_PROVIDER,
         DEEPL_PROVIDER,
         MICROSOFT_PROVIDER,
@@ -775,6 +817,21 @@ pub fn definition(provider: &str) -> Option<ProviderDefinition> {
                 ),
                 DEEPSEEK_SERVICES,
                 LLM_PURPOSES,
+                LLM_TRANSLATION_LANGUAGES,
+                true,
+            ),
+            MIMO_PROVIDER => (
+                "Xiaomi MiMo",
+                ProviderCategory::CloudProvider,
+                connection(
+                    ApiAuthMode::Bearer,
+                    BaseUrlPolicy::Fixed("https://api.xiaomimimo.com/v1"),
+                    &["VRCS_MIMO_API_KEY", "MIMO_API_KEY"],
+                    &[],
+                    false,
+                ),
+                MIMO_SERVICES,
+                SHARED_PURPOSES,
                 LLM_TRANSLATION_LANGUAGES,
                 true,
             ),
@@ -939,6 +996,7 @@ fn provider_id(provider: &str) -> &'static str {
         GROQ_PROVIDER => GROQ_PROVIDER,
         OPENROUTER_PROVIDER => OPENROUTER_PROVIDER,
         DEEPSEEK_PROVIDER => DEEPSEEK_PROVIDER,
+        MIMO_PROVIDER => MIMO_PROVIDER,
         LM_STUDIO_PROVIDER => LM_STUDIO_PROVIDER,
         OLLAMA_PROVIDER => OLLAMA_PROVIDER,
         QWEN_LOCAL_PROVIDER => QWEN_LOCAL_PROVIDER,
@@ -1033,6 +1091,22 @@ pub fn recognition_model_supported(_service: &ProviderServiceDefinition, model: 
     model == trimmed && !model.is_empty() && model.chars().count() <= 200
 }
 
+pub fn validate_recognition_language(
+    service: &ProviderServiceDefinition,
+    language: &str,
+) -> Result<(), String> {
+    if service.recognition_languages.is_empty() || service.recognition_languages.contains(&language)
+    {
+        Ok(())
+    } else {
+        Err(format!(
+            "Unsupported recognition language for {}: {language}. Use {}.",
+            service.id,
+            service.recognition_languages.join(", ")
+        ))
+    }
+}
+
 fn recognition_catalog_model_supported(service: &ProviderServiceDefinition, model: &str) -> bool {
     if !recognition_model_supported(service, model) {
         return false;
@@ -1057,7 +1131,17 @@ pub fn compatible_service_models(
 ) -> Vec<String> {
     models
         .into_iter()
-        .filter(|model| recognition_catalog_model_supported(service, model))
+        .filter(|model| {
+            if service.id == "mimo_chat_completions" {
+                !model.contains("-asr")
+                    && !model.contains("-tts")
+                    && !matches!(model.as_str(), "mimo-v2.5" | "mimo-v2.5-pro")
+            } else if service.recognition_transport.is_some() {
+                recognition_catalog_model_supported(service, model)
+            } else {
+                true
+            }
+        })
         .collect()
 }
 
@@ -1358,6 +1442,70 @@ pub fn translation_language_name(language: &str) -> Option<&'static str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn mimo_exposes_native_chat_vision_and_segmented_asr() {
+        let profile = profile(
+            "mimo",
+            &[
+                CAPABILITY_TEXT_GENERATION,
+                CAPABILITY_TEXT_TRANSLATION,
+                CAPABILITY_IMAGE_UNDERSTANDING,
+                CAPABILITY_SPEECH_TO_TEXT,
+            ],
+        );
+        validation::validate_profile(&profile).unwrap();
+        assert_eq!(
+            effective_base_url(&profile).unwrap(),
+            "https://api.xiaomimimo.com/v1"
+        );
+        let provider = definition("mimo").unwrap();
+        assert!(catalog().iter().any(|item| item.id == "mimo"));
+        assert_eq!(provider.category, ProviderCategory::CloudProvider);
+        assert_eq!(
+            provider.connection.environment_variables,
+            &["VRCS_MIMO_API_KEY", "MIMO_API_KEY"]
+        );
+        let chat = resolve_profile_capability(&profile, CAPABILITY_IMAGE_UNDERSTANDING).unwrap();
+        assert_eq!(chat.service.id, "mimo_chat_completions");
+        assert_eq!(
+            compatible_service_models(
+                chat.service,
+                [
+                    "mimo-v2.6-flash",
+                    "mimo-v2.6-pro-ultraspeed",
+                    "mimo-future",
+                    "mimo-v2.5-asr",
+                    "mimo-v2.5-tts",
+                    "mimo-v2.5",
+                    "mimo-v2.5-pro"
+                ]
+                .map(str::to_owned)
+                .to_vec()
+            ),
+            ["mimo-v2.6-flash", "mimo-v2.6-pro-ultraspeed", "mimo-future"]
+        );
+        let asr = resolve_profile_service(&profile, "mimo_transcription").unwrap();
+        assert_eq!(
+            asr.service.recognition_transport,
+            Some(RecognitionTransport::SegmentedUpload)
+        );
+        assert_eq!(asr.service.models, &["mimo-v2.5-asr"]);
+        assert_eq!(asr.service.recognition_languages, &["auto", "zh", "en"]);
+        assert!(!asr.service.partial_results);
+        assert!(!asr.service.supports_context);
+        assert_eq!(
+            compatible_service_models(
+                asr.service,
+                vec![
+                    "mimo-v2.6-flash".into(),
+                    "mimo-v2.5-asr".into(),
+                    "mimo-v2.5-tts".into()
+                ]
+            ),
+            vec!["mimo-v2.5-asr"]
+        );
+    }
 
     #[test]
     fn openrouter_transcription_exposes_segmented_asr_and_dynamic_models() {

@@ -10,18 +10,19 @@ import Ollama from "@lobehub/icons/es/Ollama/components/Mono";
 import OpenAI from "@lobehub/icons/es/OpenAI/components/Mono";
 import OpenRouter from "@lobehub/icons/es/OpenRouter/components/Color";
 import Qwen from "@lobehub/icons/es/Qwen/components/Color";
+import XiaomiMiMo from "@lobehub/icons/es/XiaomiMiMo/components/Mono";
 
 export interface ProviderIconInput {
   provider: string;
 }
 
-// Color marks carry the official brand palette. OpenAI, Groq, LM Studio and Ollama
-// have no color variant in lobe-icons, so they use the mono mark, which inherits currentColor.
+// Color marks carry the official brand palette. Mono marks inherit currentColor.
 const PROVIDER_ICONS: Record<string, IconType> = {
   openai: OpenAI,
   gemini: Gemini,
   groq: Groq,
   deepseek: DeepSeek,
+  mimo: XiaomiMiMo,
   openrouter: OpenRouter,
   alibaba_cloud: AlibabaCloud,
   alibaba_token_plan: AlibabaCloud,

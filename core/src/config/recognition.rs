@@ -4,8 +4,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::providers::{
     SERVICE_FUN_ASR_REALTIME, SERVICE_GEMINI_TRANSCRIBE, SERVICE_GROQ_TRANSCRIPTION,
-    SERVICE_OPENAI_REALTIME, SERVICE_OPENROUTER_TRANSCRIPTION, SERVICE_QWEN_LOCAL_TRANSCRIPTION,
-    SERVICE_QWEN_REALTIME, SERVICE_TOKEN_PLAN_REALTIME,
+    SERVICE_MIMO_TRANSCRIPTION, SERVICE_OPENAI_REALTIME, SERVICE_OPENROUTER_TRANSCRIPTION,
+    SERVICE_QWEN_LOCAL_TRANSCRIPTION, SERVICE_QWEN_REALTIME, SERVICE_TOKEN_PLAN_REALTIME,
 };
 
 use super::ApiProfile;
@@ -121,6 +121,13 @@ pub fn default_service_settings() -> BTreeMap<String, RecognitionServiceSettings
             SERVICE_GROQ_TRANSCRIPTION,
             RecognitionServiceSettings {
                 model: "whisper-large-v3-turbo".into(),
+                context: String::new(),
+            },
+        ),
+        (
+            SERVICE_MIMO_TRANSCRIPTION,
+            RecognitionServiceSettings {
+                model: "mimo-v2.5-asr".into(),
                 context: String::new(),
             },
         ),

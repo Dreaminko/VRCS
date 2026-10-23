@@ -4,7 +4,6 @@ use std::time::Duration;
 use crate::config::{ApiProfile, AsrConfig};
 use crate::providers::{self, RecognitionTransport, ServiceAdapter};
 
-use super::openai_audio_transcriptions;
 use super::qwen_models::{is_installed, package_dir, package_spec};
 use super::qwen_runtime::{QwenConnection, QwenRuntime};
 use super::read_credential;
@@ -12,6 +11,7 @@ use super::segmented_upload::SegmentedUploadSession;
 use super::streaming::{self, CloudEvent, SegmentationMode, StreamingSession};
 use super::ModelManager;
 use super::SharedAudio;
+use super::{mimo, openai_audio_transcriptions};
 
 pub enum CloudRecognitionSession {
     Realtime(StreamingSession),
@@ -91,7 +91,10 @@ pub fn validate_cloud_connection(config: &AsrConfig) -> Result<(), String> {
     match service.recognition_transport {
         Some(RecognitionTransport::RealtimeStream) => streaming::validate_cloud_connection(config),
         Some(RecognitionTransport::SegmentedUpload) => {
-            if service.adapter != ServiceAdapter::OpenAiAudioTranscriptions {
+            if !matches!(
+                service.adapter,
+                ServiceAdapter::OpenAiAudioTranscriptions | ServiceAdapter::MimoTranscription
+            ) {
                 return Err(format!(
                     "Unsupported segmented recognition adapter: {:?}",
                     service.adapter
@@ -123,7 +126,10 @@ pub async fn spawn_cloud_recognition_session(
                 .map(CloudRecognitionSession::Realtime)
         }
         Some(RecognitionTransport::SegmentedUpload) => {
-            if service.adapter != ServiceAdapter::OpenAiAudioTranscriptions {
+            if !matches!(
+                service.adapter,
+                ServiceAdapter::OpenAiAudioTranscriptions | ServiceAdapter::MimoTranscription
+            ) {
                 return Err(format!(
                     "Unsupported segmented recognition adapter: {:?}",
                     service.adapter
@@ -204,12 +210,16 @@ pub async fn test_cloud_service(
         .find(|profile| profile.id == profile_id)
         .ok_or_else(|| "API profile does not exist".to_string())?;
     let resolved = providers::resolve_profile_service(profile, service_id)?;
+    providers::validate_recognition_language(resolved.service, &config.language)?;
     match resolved.service.recognition_transport {
         Some(RecognitionTransport::RealtimeStream) => {
             streaming::test_streaming_connection(config, profile_id, Some(service_id)).await
         }
         Some(RecognitionTransport::SegmentedUpload) => {
-            if resolved.service.adapter != ServiceAdapter::OpenAiAudioTranscriptions {
+            if !matches!(
+                resolved.service.adapter,
+                ServiceAdapter::OpenAiAudioTranscriptions | ServiceAdapter::MimoTranscription
+            ) {
                 return Err(format!(
                     "Unsupported segmented recognition adapter: {:?}",
                     resolved.service.adapter
@@ -218,6 +228,19 @@ pub async fn test_cloud_service(
             let key = credential(profile)?;
             let settings = service_settings(config, service_id)?;
             let samples = connection_test_audio();
+            if resolved.service.adapter == ServiceAdapter::MimoTranscription {
+                return mimo::transcribe(
+                    &openai_audio_transcriptions::http_client(profile),
+                    profile,
+                    &key,
+                    settings,
+                    &config.language,
+                    &samples,
+                    true,
+                )
+                .await
+                .map(|_| ());
+            }
             openai_audio_transcriptions::test_connection(
                 &openai_audio_transcriptions::http_client(profile),
                 profile,
@@ -247,6 +270,7 @@ fn active_profile_service(
         .find(|profile| profile.id == active_id)
         .ok_or_else(|| "The active API profile does not exist".to_string())?;
     let resolved = providers::resolve_profile_service(profile, &config.backend)?;
+    providers::validate_recognition_language(resolved.service, &config.language)?;
     Ok((profile, *resolved.service))
 }
 
@@ -281,6 +305,35 @@ fn connection_test_audio() -> Vec<f32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn mimo_rejects_unsupported_languages_before_credentials_or_network_access() {
+        let mut config = AsrConfig::default();
+        config.backend = providers::SERVICE_MIMO_TRANSCRIPTION.into();
+        config.language = "ja".into();
+        config.active_profile_id = Some("mimo".into());
+        config.api_profiles.push(ApiProfile {
+            id: "mimo".into(),
+            provider: providers::MIMO_PROVIDER.into(),
+            enabled_capabilities: vec![providers::CAPABILITY_SPEECH_TO_TEXT.into()],
+            ..ApiProfile::default()
+        });
+        super::super::question::validate_backend(&config).unwrap();
+        assert!(validate_cloud_connection(&config)
+            .unwrap_err()
+            .contains("language"));
+        assert!(spawn_cloud_recognition_session(config.clone(), 0.5)
+            .await
+            .err()
+            .unwrap()
+            .contains("language"));
+        assert!(
+            test_cloud_service(&config, "mimo", providers::SERVICE_MIMO_TRANSCRIPTION)
+                .await
+                .unwrap_err()
+                .contains("language")
+        );
+    }
 
     #[tokio::test]
     async fn managed_qwen_session_checks_its_package_without_an_api_profile() {

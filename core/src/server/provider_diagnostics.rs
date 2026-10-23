@@ -187,7 +187,7 @@ async fn test_recognition_service(
                     )
                 })?;
         }
-        ServiceAdapter::OpenAiAudioTranscriptions => {
+        ServiceAdapter::OpenAiAudioTranscriptions | ServiceAdapter::MimoTranscription => {
             asr::test_cloud_service(config, &profile.id, service.id)
                 .await
                 .map_err(|error| {
@@ -465,6 +465,7 @@ fn select_listed_model(provider: &str, models: Vec<String>) -> Option<String> {
         OPENAI_PROVIDER => OPENAI_DIAGNOSTIC_MODELS,
         GROQ_PROVIDER => GROQ_DIAGNOSTIC_MODELS,
         DEEPSEEK_PROVIDER => DEEPSEEK_DIAGNOSTIC_MODELS,
+        providers::MIMO_PROVIDER => &["mimo-v2.6-flash", "mimo-v2.6-pro"],
         GEMINI_PROVIDER => GEMINI_DIAGNOSTIC_MODELS,
         ALIBABA_PROVIDER | ALIBABA_TOKEN_PLAN_PROVIDER | providers::QWEN_AI_PROVIDER => {
             ALIBABA_DIAGNOSTIC_MODELS
@@ -556,6 +557,29 @@ fn endpoint_error(code: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn mimo_diagnostic_selects_only_available_standard_chat_models() {
+        assert_eq!(
+            select_listed_model(
+                "mimo",
+                vec![
+                    "mimo-v2.5-asr".into(),
+                    "mimo-v2.5-tts".into(),
+                    "mimo-v2.6-pro-ultraspeed".into(),
+                    "mimo-v2.6-pro".into(),
+                    "mimo-v2.6-flash".into(),
+                ]
+            )
+            .as_deref(),
+            Some("mimo-v2.6-flash")
+        );
+        assert!(select_listed_model(
+            "mimo",
+            vec!["mimo-v2.5-asr".into(), "mimo-v2.6-pro-ultraspeed".into()]
+        )
+        .is_none());
+    }
     use crate::providers::{
         LM_STUDIO_PROVIDER, OPENAI_COMPATIBLE_PROVIDER, SERVICE_GROQ_TRANSCRIPTION,
     };

@@ -46,7 +46,7 @@ Turn off unused features in **Settings › System › Features** to hide their s
 
 - Capture system or VRChat process audio alongside your microphone for real-time subtitles, with separate audio controls, a compact window, and local session history.
 - Generate AI summary titles for completed conversations and search history by title. Configure a model and enable automatic generation in **Settings › System › Conversation management**; it is off by default. A new conversation ends the previous one; stopping transcription only pauses it. Generate or regenerate titles from a history item's menu. Custom names take priority.
-- Choose local Qwen3 ASR on CPU or Vulkan, or cloud services including Qwen3 ASR, Fun-ASR, OpenAI Realtime, Gemini, Groq, and OpenRouter. Use Silero VAD and optional Smart Turn for speech segmentation.
+- Choose local Qwen3 ASR on CPU or Vulkan, or cloud services including Qwen3 ASR, Fun-ASR, OpenAI Realtime, Gemini, Groq, OpenRouter, and Xiaomi MiMo. Use Silero VAD and optional Smart Turn for speech segmentation.
 - Translate manually or automatically into up to three languages per audio stream. Choose a service and model for each language, with support for DeepL, Microsoft Translator, OpenAI, Gemini, Alibaba Cloud LLM, and OpenAI-compatible services.
 - Get live source text and translations with Qwen Live Translate, Gemini Live Translate, or OpenAI Realtime Translation.
 - Customize prompts, local and subscribed glossaries, and subtitle context. Add world and member context from [VRCX-0](https://vrcx-0.dev/), and switch recognition, translation, and Chatbox settings with language presets.

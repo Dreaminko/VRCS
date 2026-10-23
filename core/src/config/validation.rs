@@ -312,6 +312,9 @@ fn validate_recognition_options(asr: &AsrConfig) -> Result<(), String> {
             asr.language
         ));
     }
+    if let Some((_, service)) = providers::recognition_service(&asr.backend) {
+        providers::validate_recognition_language(service, &asr.language)?;
+    }
     if !asr.managed_qwen.package_id.is_empty()
         && !crate::asr::is_supported_qwen_package(&asr.managed_qwen.package_id)
     {

@@ -2,6 +2,7 @@
 
 mod manager;
 mod migration;
+mod mimo;
 mod openai_audio_transcriptions;
 mod question;
 mod qwen_models;

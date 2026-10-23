@@ -298,7 +298,7 @@ pub(crate) fn encode_wav(samples: &[f32]) -> Vec<u8> {
     wav
 }
 
-fn network_error(error: reqwest::Error) -> String {
+pub(super) fn network_error(error: reqwest::Error) -> String {
     if error.is_timeout() {
         "Transcription request timed out".into()
     } else {
@@ -306,7 +306,7 @@ fn network_error(error: reqwest::Error) -> String {
     }
 }
 
-fn status_error(status: reqwest::StatusCode, body: &str) -> String {
+pub(super) fn status_error(status: reqwest::StatusCode, body: &str) -> String {
     let detail = body
         .trim()
         .chars()

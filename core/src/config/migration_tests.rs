@@ -8,6 +8,23 @@ use crate::providers::{
 };
 
 #[test]
+fn mimo_recognition_defaults_are_backfilled_without_overwriting_saved_models() {
+    let mut raw = serde_json::json!({
+        "schema_version": SCHEMA_VERSION,
+        "asr": {"service_settings": {}}
+    });
+    let config = config_from_value(&raw).unwrap();
+    let service = crate::providers::SERVICE_MIMO_TRANSCRIPTION;
+    assert_eq!(config.asr.service_settings[service].model, "mimo-v2.5-asr");
+    raw["asr"]["service_settings"][service] = serde_json::json!({"model": "mimo-future-asr"});
+    let config = config_from_value(&raw).unwrap();
+    assert_eq!(
+        config.asr.service_settings[service].model,
+        "mimo-future-asr"
+    );
+}
+
+#[test]
 fn recent_text_preferences_default_on_and_preserve_saved_choices() {
     let defaults = AppConfig::default();
     assert!(defaults.translation.prompt.context_enabled);

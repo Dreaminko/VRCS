@@ -254,6 +254,10 @@ fn chat_completion_body(
         "max_tokens": request.max_output_tokens,
         "stream": stream
     });
+    if behavior == OpenAiProtocolBehavior::Mimo {
+        body.as_object_mut().unwrap().remove("max_tokens");
+        body["max_completion_tokens"] = json!(request.max_output_tokens);
+    }
     reasoning::apply_chat_completion_reasoning(
         &mut body,
         behavior,
@@ -791,6 +795,11 @@ mod tests {
                 "qwen3.8-max",
                 "Visible answer",
             ),
+            (
+                OpenAiProtocolBehavior::Mimo,
+                "mimo-v2.6-flash",
+                "Visible answer",
+            ),
         ] {
             let (sender, receiver) = tokio::sync::oneshot::channel();
             let sender = Arc::new(Mutex::new(Some(sender)));
@@ -798,7 +807,7 @@ mod tests {
                 "/v1/chat/completions",
                 post(move |Json(body): Json<Value>| async move {
                     sender.lock().unwrap().take().unwrap().send(body).unwrap();
-                    Json(json!({"choices": [{"finish_reason": "stop", "message": {"content": reply}}]}))
+                    Json(json!({"choices": [{"finish_reason": "stop", "message": {"content": reply, "reasoning_content": "private"}}]}))
                 }),
             );
             let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
@@ -837,7 +846,12 @@ mod tests {
             server.abort();
             assert_eq!(output, "Visible answer");
             assert_eq!(body["stream"], false);
-            assert_eq!(body["max_tokens"], 256);
+            if behavior == OpenAiProtocolBehavior::Mimo {
+                assert_eq!(body["max_completion_tokens"], 256);
+                assert!(body.get("max_tokens").is_none());
+            } else {
+                assert_eq!(body["max_tokens"], 256);
+            }
             assert_eq!(
                 body["messages"][1]["content"],
                 json!([
@@ -846,7 +860,7 @@ mod tests {
                 ])
             );
             match behavior {
-                OpenAiProtocolBehavior::DeepSeek => {
+                OpenAiProtocolBehavior::DeepSeek | OpenAiProtocolBehavior::Mimo => {
                     assert_eq!(body["thinking"]["type"], "disabled")
                 }
                 OpenAiProtocolBehavior::Groq => {
@@ -1092,6 +1106,43 @@ mod tests {
     }
 
     #[test]
+    fn mimo_body_controls_thinking_and_uses_completion_token_budget() {
+        let profile = ApiProfile {
+            provider: "mimo".into(),
+            enabled_capabilities: vec![providers::CAPABILITY_TEXT_GENERATION.into()],
+            ..Default::default()
+        };
+        let service =
+            providers::resolve_profile_capability(&profile, providers::CAPABILITY_TEXT_GENERATION)
+                .unwrap();
+        let providers::ServiceAdapter::OpenAiChatCompletions { behavior } = service.service.adapter
+        else {
+            panic!("MiMo must use Chat Completions");
+        };
+        for enabled in [false, true] {
+            let request = LlmRequest {
+                model: "mimo-v2.6-flash",
+                instructions: "Translate",
+                input: "hello",
+                max_output_tokens: 128,
+                thinking_enabled: enabled,
+                reasoning_control: None,
+            };
+            let body = chat_completion_body(&request, behavior, enabled);
+            assert_eq!(body["max_completion_tokens"], 128);
+            assert!(body.get("max_tokens").is_none());
+            assert_eq!(
+                body["thinking"]["type"],
+                if enabled { "enabled" } else { "disabled" }
+            );
+            assert_eq!(body["messages"][0]["content"], "Translate");
+            assert_eq!(body["stream"], enabled);
+            assert!(body.get("temperature").is_none());
+            assert!(body.get("reasoning_effort").is_none());
+        }
+    }
+
+    #[test]
     fn maps_groq_reasoning_models_without_conflicting_parameters() {
         let request = |model, thinking_enabled| LlmRequest {
             model,
@@ -1307,12 +1358,29 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn mimo_streaming_returns_only_visible_text() {
+        let body = concat!(
+            "data: {\"choices\":[{\"delta\":{\"reasoning_content\":\"private\"}}]}\n\n",
+            "data: {\"choices\":[{\"delta\":{\"content\":\"Hello\"}}]}\n\n",
+            "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n",
+            "data: [DONE]\n\n"
+        );
+        assert_eq!(
+            chat_fixture_result(body.into(), true, OpenAiProtocolBehavior::Mimo)
+                .await
+                .unwrap(),
+            "Hello"
+        );
+    }
+
+    #[tokio::test]
     async fn truncated_json_reports_output_exhaustion_for_every_chat_behavior() {
         for behavior in [
             OpenAiProtocolBehavior::Standard,
             OpenAiProtocolBehavior::Alibaba,
             OpenAiProtocolBehavior::DeepSeek,
             OpenAiProtocolBehavior::Groq,
+            OpenAiProtocolBehavior::Mimo,
         ] {
             for content in ["", "Partial translation"] {
                 let body = json!({ "choices": [{
@@ -1346,6 +1414,7 @@ mod tests {
             OpenAiProtocolBehavior::Alibaba,
             OpenAiProtocolBehavior::DeepSeek,
             OpenAiProtocolBehavior::Groq,
+            OpenAiProtocolBehavior::Mimo,
         ] {
             for content in ["", "Partial translation"] {
                 let body = format!(

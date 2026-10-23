@@ -309,6 +309,7 @@ impl LlmClient {
         }
         self.list_models_with_adapter(profile, api_key, resolved.service.adapter)
             .await
+            .map(|models| providers::compatible_service_models(resolved.service, models))
     }
 
     pub async fn list_provider_models(
@@ -365,7 +366,7 @@ impl LlmClient {
             providers::OPENAI_PROVIDER => {
                 openai::list_model_catalog(&self.http, profile, api_key).await?
             }
-            providers::GROQ_PROVIDER | providers::DEEPSEEK_PROVIDER => {
+            providers::GROQ_PROVIDER | providers::DEEPSEEK_PROVIDER | providers::MIMO_PROVIDER => {
                 openai_compatible::list_model_catalog(&self.http, profile, api_key).await?
             }
             _ => model_catalog::ModelCatalog {

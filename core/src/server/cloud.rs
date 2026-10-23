@@ -159,6 +159,7 @@ fn service_value(service: &ProviderServiceDefinition) -> Value {
         "capabilities": service.capabilities,
         "adapter": adapter_id(service.adapter),
         "recognition_transport": service.recognition_transport,
+        "recognition_languages": service.recognition_languages,
         "partial_results": service.partial_results,
         "models": service.models,
         "model_listing": service.supports_model_listing,
@@ -183,6 +184,7 @@ fn adapter_id(adapter: ServiceAdapter) -> &'static str {
         ServiceAdapter::GeminiLiveTranslate => "gemini_live_translate",
         ServiceAdapter::OpenAiRealtimeTranslate => "openai_realtime_translate",
         ServiceAdapter::OpenAiAudioTranscriptions => "openai_audio_transcriptions",
+        ServiceAdapter::MimoTranscription => "mimo_transcription",
     }
 }
 
@@ -572,12 +574,10 @@ async fn service_models(
             .list_model_catalog(profile, &api_key)
             .await
             .map_err(|error| api_error(StatusCode::BAD_GATEWAY, error.code, error.detail))?;
-        if service.recognition_transport.is_some() {
-            catalog.models = providers::compatible_service_models(service, catalog.models);
-            catalog
-                .model_details
-                .retain(|model, _| catalog.models.contains(model));
-        }
+        catalog.models = providers::compatible_service_models(service, catalog.models);
+        catalog
+            .model_details
+            .retain(|model, _| catalog.models.contains(model));
         if !catalog.models.is_empty() {
             return Ok(Json(json!(catalog)));
         }

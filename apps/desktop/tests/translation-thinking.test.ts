@@ -132,3 +132,14 @@ test("Alibaba exposes thinking controls for DeepSeek V4.1 and Vanchin V4 models"
   }
   assert.equal(thinkingControlForModel("alibaba_cloud", "unknown-model"), "unsupported");
 });
+test("MiMo offers only documented thinking toggles without effort or budget controls", () => {
+  for (const model of ["mimo-v2.6-flash", "mimo-v2.6-pro", "mimo-v2.6-pro-ultraspeed"]) {
+    assert.deepEqual(reasoningOptionsForModel("mimo", model), {
+      thinking: "disable_supported", efforts: [], budget: undefined,
+    });
+    assert.equal(normalizeReasoningControlForModel("mimo", model, { type: "effort", value: "high" }), null);
+    assert.equal(normalizeReasoningControlForModel("mimo", model, { type: "budget_tokens", value: 1024 }), null);
+  }
+  assert.equal(thinkingControlForModel("mimo", "mimo-future"), "unsupported");
+  assert.equal(thinkingControlForModel("openai_compatible", "mimo-v2.6-flash"), "unsupported");
+});

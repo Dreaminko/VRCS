@@ -14,6 +14,7 @@ import Ollama from "@lobehub/icons/es/Ollama/components/Mono";
 import OpenAI from "@lobehub/icons/es/OpenAI/components/Mono";
 import OpenRouter from "@lobehub/icons/es/OpenRouter/components/Color";
 import Qwen from "@lobehub/icons/es/Qwen/components/Color";
+import XiaomiMiMo from "@lobehub/icons/es/XiaomiMiMo/components/Mono";
 
 import { providerIcon } from "../src/providers/provider-icon.ts";
 
@@ -22,6 +23,7 @@ const providerIcons = [
   ["gemini", Gemini, "color"],
   ["groq", Groq, "mono"],
   ["deepseek", DeepSeek, "color"],
+  ["mimo", XiaomiMiMo, "mono"],
   ["openrouter", OpenRouter, "color"],
   ["alibaba_cloud", AlibabaCloud, "color"],
   ["alibaba_token_plan", AlibabaCloud, "color"],

@@ -2,6 +2,20 @@ use super::validation::validate_glossary;
 use super::*;
 
 #[test]
+fn mimo_recognition_only_accepts_documented_languages_when_selected() {
+    let mut config = AppConfig::default();
+    config.asr.backend = crate::providers::SERVICE_MIMO_TRANSCRIPTION.into();
+    for language in ["auto", "zh", "en"] {
+        config.asr.language = language.into();
+        config.validate_settings().unwrap();
+    }
+    config.asr.language = "ja".into();
+    assert!(config.validate_settings().unwrap_err().contains("language"));
+    config.asr.backend = crate::providers::SERVICE_QWEN_REALTIME.into();
+    config.validate_settings().unwrap();
+}
+
+#[test]
 fn conversation_titles_require_text_generation_only_when_automatic() {
     let mut config = AppConfig::default();
     config.conversation_titles.profile_id = Some("titles".into());

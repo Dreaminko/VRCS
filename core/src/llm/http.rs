@@ -289,6 +289,44 @@ mod tests {
     use super::*;
 
     #[tokio::test]
+    async fn mimo_id_only_catalog_adds_only_verified_native_capabilities() {
+        use axum::{routing::get, Json, Router};
+        let app = Router::new().route(
+            "/models",
+            get(|| async {
+                Json(json!({"data": [
+                    {"id": "mimo-v2.6-flash"}, {"id": "mimo-v2.6-pro"},
+                    {"id": "mimo-v2.6-pro-ultraspeed"}, {"id": "mimo-v2.5-asr"},
+                    {"id": "mimo-future"}
+                ]}))
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}/models", listener.local_addr().unwrap());
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let client = reqwest::Client::builder().no_proxy().build().unwrap();
+        let catalog = list_model_catalog(client.get(&url), "mimo").await.unwrap();
+        assert_eq!(catalog.models.len(), 5);
+        for model in crate::providers::MIMO_CHAT_MODELS {
+            let details = &catalog.model_details[*model];
+            assert_eq!(details.input_modalities, ["text", "image"]);
+            assert_eq!(details.output_modalities, ["text"]);
+            assert_eq!(details.max_output_tokens, Some(131_072));
+            assert_eq!(details.field_sources["input_modalities"], "builtin");
+        }
+        assert_eq!(
+            catalog.model_details["mimo-v2.5-asr"].input_modalities,
+            ["audio"]
+        );
+        assert!(!catalog.model_details.contains_key("mimo-future"));
+        let custom = list_model_catalog(client.get(&url), "openai_compatible")
+            .await
+            .unwrap();
+        assert!(custom.model_details.is_empty());
+        server.abort();
+    }
+
+    #[tokio::test]
     async fn catalogs_preserve_native_facts_and_legacy_id_only_responses() {
         use axum::{routing::get, Json, Router};
         let app = Router::new().route("/models", get(|| async { Json(json!({"data": [

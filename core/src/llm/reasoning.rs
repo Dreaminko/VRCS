@@ -69,6 +69,15 @@ pub(super) fn builtin_options(provider: &str, model: &str) -> Option<ReasoningOp
             | "deepseek-v4-pro" => &["low", "high", "max"],
             _ => return None,
         },
+        "mimo" if crate::providers::MIMO_CHAT_MODELS.contains(&model) => {
+            return Some(ReasoningOptions {
+                supported: Some(true),
+                mandatory: Some(false),
+                can_disable: Some(true),
+                controls: vec![ReasoningControl::Toggle],
+                ..Default::default()
+            });
+        }
         "groq" => match model {
             "openai/gpt-oss-20b" | "openai/gpt-oss-120b" => &["low", "medium", "high"],
             "qwen/qwen3.6-27b" => &["none", "default"],
@@ -470,6 +479,13 @@ pub(super) fn thinking_control(behavior: OpenAiProtocolBehavior, model: &str) ->
         OpenAiProtocolBehavior::DeepSeek => ThinkingControl::DisableSupported,
         OpenAiProtocolBehavior::Groq => groq_thinking_control(model),
         OpenAiProtocolBehavior::Alibaba => alibaba_thinking_control(model),
+        OpenAiProtocolBehavior::Mimo => {
+            if crate::providers::MIMO_CHAT_MODELS.contains(&model) {
+                ThinkingControl::DisableSupported
+            } else {
+                ThinkingControl::Unsupported
+            }
+        }
         OpenAiProtocolBehavior::Standard => ThinkingControl::Unsupported,
     }
 }
@@ -491,6 +507,13 @@ pub(super) fn apply_chat_completion_reasoning(
             }
             if stream {
                 body["stream_options"] = json!({ "include_usage": true });
+            }
+        }
+        OpenAiProtocolBehavior::Mimo => {
+            if thinking_control(behavior, model) == ThinkingControl::DisableSupported {
+                body["thinking"] = json!({
+                    "type": if enabled { "enabled" } else { "disabled" }
+                });
             }
         }
         OpenAiProtocolBehavior::Groq => apply_groq_reasoning(body, model, enabled),
@@ -708,6 +731,28 @@ fn partial_tag_suffix_len(text: &str, tag: &str) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn mimo_reasoning_exposes_only_verified_toggles() {
+        for model in [
+            "mimo-v2.6-flash",
+            "mimo-v2.6-pro",
+            "mimo-v2.6-pro-ultraspeed",
+        ] {
+            let options = builtin_options("mimo", model).unwrap();
+            assert_eq!(options.can_disable, Some(true));
+            assert_eq!(options.mandatory, Some(false));
+            assert!(matches!(
+                options.controls.as_slice(),
+                [ReasoningControl::Toggle]
+            ));
+            assert!(options.supported_efforts.is_none());
+        }
+        for model in ["mimo-v2.5-asr", "mimo-v2.5", "mimo-future"] {
+            assert!(builtin_options("mimo", model).is_none());
+        }
+        assert!(builtin_options("openai_compatible", "mimo-v2.6-flash").is_none());
+    }
 
     #[test]
     fn deepseek_alias_efforts_work_without_catalog_metadata_and_preserve_the_toggle() {
