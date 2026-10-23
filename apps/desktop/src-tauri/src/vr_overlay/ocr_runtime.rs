@@ -324,10 +324,10 @@ impl OcrRuntime {
     ) {
         self.vision.tick();
         if self.capture.is_none() && !self.selecting {
-            backend.reset_ocr();
+            backend.hide_ocr();
         }
         if !config.enabled && !self.vision.enabled() {
-            backend.reset_ocr();
+            backend.hide_ocr();
             backend.reset(OverlayKind::OcrWrist);
             backend.reset(OverlayKind::OcrProgress);
             self.progress_surface.reset();
@@ -348,7 +348,7 @@ impl OcrRuntime {
             // A failure that persists across frames must not repeat once per poll.
             let repeated = self.status.last_error.as_deref() == Some(error.as_str());
             self.clear();
-            backend.reset_ocr();
+            backend.hide_ocr();
             let code = failure_code(&error);
             if !repeated {
                 tracing::warn!(scan_id, code, %error, "VR OCR failed");
@@ -556,7 +556,7 @@ impl OcrRuntime {
         )?;
         if input.cancel {
             self.clear();
-            backend.reset_ocr();
+            backend.hide_ocr();
             return Ok(());
         }
         self.vision.trigger(&input.vision_trigger);
@@ -573,12 +573,12 @@ impl OcrRuntime {
         if input.clear && !(self.vision.enabled() && self.selecting && self.vision_frame_valid) {
             self.clear();
             backend.freeze_ocr_frame();
-            backend.reset_ocr();
+            backend.hide_ocr();
             return Ok(());
         }
         if self.expired(std::time::Instant::now(), config.display_seconds) {
             self.clear();
-            backend.reset_ocr();
+            backend.hide_ocr();
         }
         if let Some(capture) = &self.capture {
             let configuration_valid = self.configuration.as_deref().is_some_and(|snapshot| {
@@ -591,20 +591,20 @@ impl OcrRuntime {
                 .is_ok_and(|(pose, pid, origin)| tracking_valid(capture, pose, pid, origin));
             if !configuration_valid {
                 self.clear();
-                backend.reset_ocr();
+                backend.hide_ocr();
             } else if !valid {
                 self.invalidate(config);
-                backend.reset_ocr();
+                backend.hide_ocr();
             }
         }
         if input.frame_cancelled && self.selecting {
             self.clear();
-            backend.reset_ocr();
+            backend.hide_ocr();
             return Ok(());
         }
         if self.reject_disabled_request(config, &input) {
             backend.freeze_ocr_frame();
-            backend.reset_ocr();
+            backend.hide_ocr();
             return Ok(());
         }
         let mut capture_requested = false;
@@ -613,7 +613,7 @@ impl OcrRuntime {
             self.vision_frame_valid = false;
             if !self.selecting {
                 self.clear();
-                backend.reset_ocr();
+                backend.hide_ocr();
                 self.selecting = true;
             }
             let (eyes, pid, origin) = backend.ocr_view()?;
@@ -623,7 +623,7 @@ impl OcrRuntime {
                 })
             {
                 self.invalidate(config);
-                backend.reset_ocr();
+                backend.hide_ocr();
                 return Ok(());
             }
             let selection = if let Some(selection) = &self.selection {
@@ -634,7 +634,7 @@ impl OcrRuntime {
             let Some(selection) = selection else {
                 // The hands can pass through the same row while the user adjusts the diagonal.
                 // Keep the initial axes while the current frame is degenerate.
-                backend.reset_ocr();
+                backend.hide_ocr();
                 self.status.state = OcrState::Selecting;
                 if input.frame_confirmed {
                     self.invalidate(config);
@@ -650,7 +650,7 @@ impl OcrRuntime {
             self.vision_frame_valid = visible;
             // Hide an off-screen preview without ending the frame session.
             if !visible {
-                backend.reset_ocr();
+                backend.hide_ocr();
                 self.status.state = OcrState::Selecting;
                 if input.frame_confirmed {
                     self.invalidate(config);
@@ -664,14 +664,14 @@ impl OcrRuntime {
             {
                 let selection = self.selection.clone().ok_or("Invalid visual frame")?;
                 self.clear();
-                backend.reset_ocr();
+                backend.hide_ocr();
                 backend.freeze_ocr_frame();
                 self.vision.begin(backend, &selection);
                 return Ok(());
             }
             if was_selecting && input.frame_confirmed && config.enabled {
                 self.selecting = false;
-                backend.reset_ocr();
+                backend.hide_ocr();
                 self.status.state = OcrState::Capturing;
                 capture_requested = true;
             } else {
@@ -982,7 +982,7 @@ impl OcrRuntime {
             return Ok(false);
         }
         if config.display_mode != VrOcrDisplayMode::Stereo || self.capture.is_none() {
-            backend.reset_ocr();
+            backend.hide_ocr();
             self.result_presentation = None;
             self.result_layout = None;
             return Ok(std::mem::take(&mut self.result_dirty));
@@ -994,13 +994,13 @@ impl OcrRuntime {
         let changed = self.result_dirty;
         if changed {
             backend.hide(OverlayKind::OcrResult);
-            backend.reset(OverlayKind::OcrFrame);
+            backend.hide(OverlayKind::OcrFrame);
             self.result_presentation = self.result_frame(config)?;
             self.result_layout = None;
             self.result_dirty = false;
         }
         let Some(presentation) = &self.result_presentation else {
-            backend.reset(OverlayKind::OcrResult);
+            backend.hide(OverlayKind::OcrResult);
             self.status.layout_limited = !self.blocks.iter().all(Vec::is_empty);
             if let Some(summary) = self.summary.clone() {
                 self.complete_status(&summary, !self.fallback_texts().is_empty());

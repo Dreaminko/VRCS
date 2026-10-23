@@ -616,7 +616,7 @@ fn worker_loop(
                 .as_mut()
                 .ok_or("SteamVR is unavailable".to_string())
                 .and_then(|backend| {
-                    backend.reset_ocr();
+                    backend.hide_ocr();
                     backend.open_ocr_bindings()
                 });
             if let Err(error) = result {

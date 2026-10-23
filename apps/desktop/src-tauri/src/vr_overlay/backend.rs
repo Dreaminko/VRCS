@@ -188,9 +188,10 @@ mod platform {
     }
 
     impl OpenVrBackend {
-        pub fn reset_ocr(&mut self) {
-            self.reset(OverlayKind::OcrFrame);
-            self.reset(OverlayKind::OcrResult);
+        pub fn hide_ocr(&mut self) {
+            // Static WGC surfaces may not produce another frame when shown again.
+            self.hide(OverlayKind::OcrFrame);
+            self.hide(OverlayKind::OcrResult);
         }
 
         pub fn ocr_tracking(&self) -> Result<([[f32; 4]; 3], u32, i32), String> {
