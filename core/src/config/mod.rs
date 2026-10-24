@@ -50,4 +50,6 @@ pub use vr_overlay::{
     VrOverlayConfig, VrOverlayHeadsetConfig, VrOverlayWristConfig, VrOverlayWristMenuConfig,
 };
 
+#[cfg(test)]
+pub use ocr::VisionAsrConfig;
 pub use ocr::{OcrDevice, VisionConfig, VrOcrConfig, VrOcrDisplayMode, VrOcrWristConfig};

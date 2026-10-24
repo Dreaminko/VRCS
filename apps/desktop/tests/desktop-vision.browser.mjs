@@ -61,7 +61,10 @@ async function setup() {
         const [config, setConfig] = useState({ ...DEFAULT_VISION_SETTINGS, profile_id: 'images', model: 'image-model' });
         window.config = config;
         window.patchConfig = patch => setConfig(current => ({ ...current, ...patch }));
-        return <VisionSettingsCard config={config} profiles={[{ id: 'images', name: 'Image service', provider: 'openai',
+        return <VisionSettingsCard config={config} providerDefinitions={[]}
+          recognition={{ backend: 'qwen_local_managed', active_profile_id: null, language: 'auto',
+            managed_qwen: { package_id: 'qwen3-asr-0.6b-q8_0', device: 'auto' }, service_settings: {} }}
+          profiles={[{ id: 'images', name: 'Image service', provider: 'openai',
           provider_display_name: 'OpenAI', enabled_capabilities: ['image_understanding'] }]}
           vrAvailable={false} disabled={false} onChange={window.patchConfig} onSelectProfile={() => {}} />;
       }

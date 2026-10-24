@@ -51,6 +51,8 @@ for (const [width, systemReduced] of [[1200, false], [380, false], [1200, true]]
               locale="en-US" draft={{ features: {}, conversation_titles: { auto_generate: false, profile_id: null, model: '', output_language: 'auto' }, storage: { subtitle_history_max_bytes: 10485760 } }}
               profiles={[]} onManageProfiles={noop} applySettings={noop} updater={{ phase: 'idle', automaticChecks: false }} />
             <VisionSettingsCard config={vision} profiles={[]} disabled={false} vrAvailable={true}
+              providerDefinitions={[]} recognition={{ backend: 'qwen_local_managed', active_profile_id: null, language: 'auto',
+                managed_qwen: { package_id: 'qwen3-asr-0.6b-q8_0', device: 'auto' }, service_settings: {} }}
               onChange={patch => setVision(current => ({ ...current, ...patch }))} onSelectProfile={noop} />
           </>;
         }

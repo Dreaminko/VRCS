@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Gamepad2, ScanEye } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { VrOcrStatus } from "../../integrations/types";
-import type { ApiProfileView } from "../../providers/types";
+import type { ApiProfileView, ProviderDefinition } from "../../providers/types";
 import type { Settings } from "../types";
 import type { ApplySettings } from "../settings-types";
 import { getVrOverlayStatus, listenVrOverlayStatus, openVrOcrBindings } from "../../integrations/vr-overlay-native";
@@ -14,8 +14,8 @@ import { VisionSettingsCard } from "./VisionSettingsCard";
 import { patchVision, selectVisionProfile } from "../vision-settings";
 import { PreferenceToggle } from "../SettingsControls";
 
-export function OcrSettingsSection({ vrAvailable, draft, profiles, applySettings }: {
-  vrAvailable: boolean; draft: Settings; profiles: ApiProfileView[]; applySettings: ApplySettings;
+export function OcrSettingsSection({ vrAvailable, draft, profiles, providerDefinitions, applySettings }: {
+  vrAvailable: boolean; draft: Settings; profiles: ApiProfileView[]; providerDefinitions: ProviderDefinition[]; applySettings: ApplySettings;
 }) {
   const { t } = useTranslation();
   const [runtime, setRuntime] = useState<VrOcrStatus>();
@@ -68,6 +68,7 @@ export function OcrSettingsSection({ vrAvailable, draft, profiles, applySettings
       runtime={runtime} desktopStatus={desktopStatus}
       onChange={(patch) => applySettings((current) => patchOcr(current, patch))} /></div>}
     {draft.features.visual_question_answering && <VisionSettingsCard config={draft.vision} profiles={profiles}
+      recognition={draft.asr} providerDefinitions={providerDefinitions}
       vrAvailable={vrAvailable} disabled={false}
       onChange={(patch) => applySettings((current) => patchVision(current, patch))}
       onSelectProfile={(profileId) => applySettings((current) => selectVisionProfile(current, profileId))} />}

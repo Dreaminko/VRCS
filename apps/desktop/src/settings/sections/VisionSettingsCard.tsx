@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { ChevronDown, Eye, FlaskConical, Monitor, RectangleGoggles, RefreshCw } from "lucide-react";
 import { request } from "../../core-client/transport";
 import { useTranslation } from "react-i18next";
-import type { ApiProfileView } from "../../providers/types";
+import type { ApiProfileView, AsrSettings, ProviderDefinition } from "../../providers/types";
 import type { VrOcrWristSettings } from "../../integrations/types";
 import { TRANSLATION_LANGUAGE_CODES } from "../../translation/translation-languages";
 import { normalizeReasoningControlForModel } from "../../translation/translation-thinking";
@@ -19,10 +19,13 @@ import { formatBytes } from "../settings-derived";
 import { openDesktopVision } from "../../vision/api";
 import { useDesktopVisionSession } from "../../vision/useDesktopVisionSession";
 import { SettingsDisclosure } from "../components/SettingsDisclosure";
+import { VisionAsrSettings } from "./VisionAsrSettings";
 
-export function VisionSettingsCard({ config, profiles, vrAvailable, disabled, onChange, onSelectProfile }: {
+export function VisionSettingsCard({ config, profiles, recognition, providerDefinitions, vrAvailable, disabled, onChange, onSelectProfile }: {
   config: VisionSettings;
   profiles: ApiProfileView[];
+  recognition: AsrSettings;
+  providerDefinitions: ProviderDefinition[];
   vrAvailable: boolean;
   disabled: boolean;
   onChange: (patch: Partial<VisionSettings>) => void;
@@ -157,6 +160,8 @@ export function VisionSettingsCard({ config, profiles, vrAvailable, disabled, on
       <div className="vr-overlay-field-grid">
         {connectionSettings}
       </div>
+      <VisionAsrSettings config={config.asr} shared={recognition} profiles={profiles}
+        definitions={providerDefinitions} disabled={disabled} onChange={(asr) => onChange({ asr })} />
       <details className="vision-settings-details">
         <summary><span>{t("settings.vision.systemPrompt")}</span><ChevronDown size={16} /></summary>
         <label className="field translation-prompt-field">

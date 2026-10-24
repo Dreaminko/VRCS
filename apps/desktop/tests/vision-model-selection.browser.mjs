@@ -56,6 +56,8 @@ test("vision model selection uses provider catalogs and preserves saved models o
           window.setDisabled = setDisabled;
           window.config = config;
           return <VisionSettingsCard config={config} profiles={currentProfiles} vrAvailable={true} disabled={disabled}
+            providerDefinitions={[]} recognition={{ backend: 'qwen_local_managed', active_profile_id: null, language: 'auto',
+              managed_qwen: { package_id: 'qwen3-asr-0.6b-q8_0', device: 'auto' }, service_settings: {} }}
             onChange={patch => setConfig(current => ({ ...current, ...patch }))}
             onSelectProfile={id => setConfig(current => selectVisionProfile({ vision: current }, id).vision)} />;
         }

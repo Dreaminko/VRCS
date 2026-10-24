@@ -70,11 +70,19 @@ export interface FeatureSettings {
 
 export type FeatureKey = keyof FeatureSettings;
 
+export interface VisionAsrSettings {
+  backend: string;
+  profile_id: string | null;
+  language: AsrSettings["language"];
+  model: string;
+}
+
 export interface VisionSettings {
   enabled: boolean;
   vr_enabled: boolean;
   desktop_enabled: boolean;
   desktop_shortcut: string;
+  asr: VisionAsrSettings | null;
   profile_id: string | null;
   model: string;
   thinking_enabled: boolean;

@@ -148,10 +148,16 @@ impl VisionService {
         }
         let profile = vision_profile(&snapshot)?;
         let api_key = credential(profile)?;
-        crate::asr::validate_question_backend(&snapshot.asr)?;
-        if snapshot.asr.backend != crate::config::QWEN_MANAGED_BACKEND {
-            crate::asr::validate_cloud_connection(&snapshot.asr)?;
+        let question_asr = snapshot.vision.asr_config(&snapshot.asr);
+        crate::asr::validate_question_backend(&question_asr)?;
+        if question_asr.backend != crate::config::QWEN_MANAGED_BACKEND {
+            crate::asr::validate_cloud_connection(&question_asr)?;
         }
+        let silence_seconds = if question_asr.backend == providers::SERVICE_FUN_ASR_REALTIME {
+            snapshot.vad.silence_seconds.max(0.2)
+        } else {
+            snapshot.vad.silence_seconds
+        };
         let microphone = capture::QuestionMicrophoneGuard::acquire(
             self.state.config.question_microphone.clone(),
         )?;
@@ -183,7 +189,7 @@ impl VisionService {
         let recognition = runtime.spawn(async move {
             let result = async {
             let work = crate::asr::recognize_live_question(
-                task_snapshot.asr.clone(), reader, task_snapshot.vad.silence_seconds,
+                question_asr, reader, silence_seconds,
                 question_runtime,
                 Arc::clone(&service.state.capture.model_manager), task_draft,
             );
@@ -235,7 +241,7 @@ impl VisionService {
     fn matches_session_for(&self, mode: VisionMode, snapshot: &AppConfig) -> bool {
         let current = self.snapshot_for(mode);
         self.matches_request(mode, snapshot)
-            && current.asr == snapshot.asr
+            && current.vision.asr_config(&current.asr) == snapshot.vision.asr_config(&snapshot.asr)
             && current.vad.silence_seconds == snapshot.vad.silence_seconds
             && current.vision.max_capture_seconds == snapshot.vision.max_capture_seconds
             && current.vision.asr_finalize_timeout_ms == snapshot.vision.asr_finalize_timeout_ms
@@ -462,6 +468,7 @@ fn request_configuration(config: &VisionConfig) -> VisionConfig {
         vr_enabled: defaults.vr_enabled,
         desktop_enabled: defaults.desktop_enabled,
         desktop_shortcut: defaults.desktop_shortcut,
+        asr: None,
         max_capture_seconds: defaults.max_capture_seconds,
         asr_finalize_timeout_ms: defaults.asr_finalize_timeout_ms,
         display_seconds: defaults.display_seconds,
@@ -593,6 +600,15 @@ mod tests {
 
     #[tokio::test]
     async fn release_sends_one_isolated_question_and_image_without_publishing_subtitles() {
+        check_isolated_question(false).await;
+    }
+
+    #[tokio::test]
+    async fn vision_custom_asr_works_with_global_live_translation() {
+        check_isolated_question(true).await;
+    }
+
+    async fn check_isolated_question(custom_asr: bool) {
         use axum::{routing::post, Json, Router};
         use serde_json::{json, Value};
         use std::sync::atomic::{AtomicUsize, Ordering};
@@ -603,9 +619,14 @@ mod tests {
         let asr_calls = Arc::new(AtomicUsize::new(0));
         let speech_calls = asr_calls.clone();
         let mock = Router::new()
-            .route("/v1/audio/transcriptions", post(move || {
+            .route("/v1/audio/transcriptions", post(move |body: axum::body::Bytes| {
                 let calls = speech_calls.clone();
                 async move {
+                    if custom_asr {
+                        let body = String::from_utf8_lossy(&body);
+                        assert!(body.contains("name=\"model\"\r\n\r\nquestion-asr-model\r\n"));
+                        assert!(body.contains("name=\"language\"\r\n\r\nen\r\n"));
+                    }
                     let index = calls.fetch_add(1, Ordering::SeqCst);
                     Json(json!({"text": if index == 0 { "What is this" } else { "What is this button?" }}))
                 }
@@ -661,6 +682,18 @@ mod tests {
                 ..Default::default()
             },
         ];
+        if custom_asr {
+            config.asr.backend = providers::SERVICE_QWEN_LIVE_TRANSLATE.into();
+            config.asr.active_profile_id = None;
+            let mut vision = serde_json::to_value(&config.vision).unwrap();
+            vision["asr"] = json!({
+                "backend": "qwen_local_transcription",
+                "profile_id": "speech",
+                "language": "en",
+                "model": "question-asr-model"
+            });
+            config.vision = serde_json::from_value(vision).unwrap();
+        }
         crate::config::save_config(&config_path, &config).unwrap();
         let handle = crate::start(crate::CoreOptions {
             config_path,
@@ -748,6 +781,13 @@ mod tests {
             config.audio.microphone.trigger_threshold_dbfs = 0.0;
         }
         assert!(service.matches_session(&session.snapshot));
+        if custom_asr {
+            let mut config = handle.state.config.config.write().unwrap();
+            config.asr.backend = providers::SERVICE_OPENAI_REALTIME_TRANSLATE.into();
+            config.asr.language = "ja".into();
+            drop(config);
+            assert!(service.matches_session(&session.snapshot));
+        }
         session.release();
         // This late chunk covers the release edge; the final upload must wait
         // for it and must not use the incomplete preview as the question.

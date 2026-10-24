@@ -162,6 +162,91 @@ fn vision_rejects_unknown_fields_and_missing_profiles() {
 }
 
 #[test]
+fn vision_custom_asr_validates_its_service_profile_model_and_language() {
+    let mut config = AppConfig::default();
+    config.asr.backend = crate::providers::SERVICE_QWEN_LIVE_TRANSLATE.into();
+    config.asr.api_profiles.push(ApiProfile {
+        id: "speech".into(),
+        name: "Speech".into(),
+        provider: crate::providers::QWEN_LOCAL_PROVIDER.into(),
+        base_url: Some("http://127.0.0.1:8000/v1".into()),
+        auth_mode: ApiAuthMode::None,
+        is_local: true,
+        enabled_capabilities: vec!["speech_to_text".into()],
+        ..Default::default()
+    });
+    let valid = serde_json::json!({"asr": {
+        "backend": "qwen_local_transcription", "profile_id": "speech",
+        "model": "question-asr-model", "language": "en"
+    }});
+    config.vision = serde_json::from_value(valid.clone()).unwrap();
+    config.validate_settings().unwrap();
+    let restored: AppConfig =
+        serde_json::from_value(serde_json::to_value(&config).unwrap()).unwrap();
+    assert_eq!(config, restored);
+    assert_eq!(restored.asr.backend, "qwen_live_translate");
+
+    for (field, value) in [
+        ("backend", "qwen_live_translate"),
+        ("backend", "openai_realtime"),
+        ("backend", "not-a-service"),
+        ("profile_id", "missing"),
+        ("language", "invalid"),
+    ] {
+        let mut invalid = valid.clone();
+        invalid["asr"][field] = serde_json::json!(value);
+        config.vision = serde_json::from_value(invalid).unwrap();
+        assert!(config.validate_settings().is_err(), "{field}={value}");
+    }
+    config.vision = serde_json::from_value(valid).unwrap();
+    config.asr.api_profiles[0].enabled_capabilities = vec!["text_generation".into()];
+    assert!(config.validate_settings().is_err());
+}
+
+#[test]
+fn vision_custom_asr_accepts_managed_models_without_an_api_profile() {
+    let mut config = AppConfig::default();
+    config.asr.backend = crate::providers::SERVICE_GEMINI_LIVE_TRANSLATE.into();
+    config.asr.managed_qwen.device = "cpu".into();
+    config.vision = serde_json::from_value(serde_json::json!({
+        "asr": {"backend": "qwen_local_managed", "language": "ja"}
+    }))
+    .unwrap();
+    config.validate_settings().unwrap();
+    let resolved = config.vision.asr_config(&config.asr);
+    assert_eq!(resolved.backend, QWEN_MANAGED_BACKEND);
+    assert_eq!(resolved.language, "ja");
+    assert_eq!(resolved.managed_qwen, config.asr.managed_qwen);
+    config.vision = serde_json::from_value(serde_json::json!({})).unwrap();
+    config.validate_settings().unwrap();
+    assert_eq!(config.vision.asr_config(&config.asr), config.asr);
+}
+
+#[test]
+fn vision_custom_asr_keeps_language_and_silence_rules_independent_of_global_translation() {
+    let mut config = AppConfig::default();
+    config.asr.backend = crate::providers::SERVICE_GEMINI_LIVE_TRANSLATE.into();
+    config.asr.language = "ja".into();
+    config.vad.silence_seconds = 0.1;
+    config.vision.asr = Some(VisionAsrConfig {
+        backend: crate::providers::SERVICE_FUN_ASR_REALTIME.into(),
+        model: "fun-asr-realtime".into(),
+        ..Default::default()
+    });
+    config.validate_settings().unwrap();
+    let asr = config.vision.asr.as_mut().unwrap();
+    asr.backend = crate::providers::SERVICE_MIMO_TRANSCRIPTION.into();
+    asr.model = "mimo-v2.5-asr".into();
+    asr.language = "en".into();
+    config.validate_settings().unwrap();
+    config.vision.asr.as_mut().unwrap().language = "ja".into();
+    assert!(config
+        .validate_settings()
+        .unwrap_err()
+        .contains("vision.asr"));
+}
+
+#[test]
 fn managed_qwen_gpu_device_is_accepted_and_persisted() {
     let mut config = AppConfig::default();
     config.asr.backend = QWEN_MANAGED_BACKEND.into();

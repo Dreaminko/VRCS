@@ -54,6 +54,8 @@ for (const backend of ["cloud", "local"]) {
               desktopStatus={{ shortcut_error: 'desktop_ocr.shortcut_conflict' }} runtime={{ state: 'ready', last_error: 'VR error' }}
               onChange={patch => setOcr(current => ({ ...current, ...patch }))} /></div>
             <VisionSettingsCard config={visionConfig} profiles={profiles} disabled={false} vrAvailable={vrAvailable}
+              providerDefinitions={[]} recognition={{ backend: 'qwen_local_managed', active_profile_id: null, language: 'auto',
+                managed_qwen: { package_id: 'qwen3-asr-0.6b-q8_0', device: 'auto' }, service_settings: {} }}
               onChange={patch => setVision(current => ({ ...current, ...patch }))}
               onSelectProfile={id => setVision(current => selectVisionProfile({ vision: current }, id).vision)} />
           </>;

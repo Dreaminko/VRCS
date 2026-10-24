@@ -81,6 +81,8 @@ for (const width of [1200, 380]) {
           <div id="ocr-layout"><OcrSettingsCard config={{ ...DEFAULT_OCR_SETTINGS, targets: [] }} profiles={[]}
             disabled={false} vrAvailable={true} desktopStatus={null} onChange={noop} /></div>
           <VisionSettingsCard config={{ ...DEFAULT_VISION_SETTINGS, enabled: true, profile_id: 'sample', model: 'image-model' }}
+            providerDefinitions={[]} recognition={{ backend: 'qwen_local_managed', active_profile_id: null, language: 'auto',
+              managed_qwen: { package_id: 'qwen3-asr-0.6b-q8_0', device: 'auto' }, service_settings: {} }}
             profiles={[profile]} disabled={false} vrAvailable={true} onChange={noop} onSelectProfile={noop} />
         </div>);
         const check = (condition, message) => { if (!condition) throw new Error(message); };
@@ -123,7 +125,7 @@ for (const width of [1200, 380]) {
           for (const selector of ['#ocr-layout .ocr-settings-group', '.vision-settings-card .vision-settings-group']) {
             for (const group of document.querySelectorAll(selector)) {
               const heading = group.querySelector(':scope > header');
-              const toggle = heading.querySelector('[role=switch]');
+              const toggle = heading?.querySelector('[role=switch]');
               if (!toggle) continue;
               const label = heading.querySelector('strong');
               check(!group.querySelector(':scope > .settings-toggle-row'), 'Mode switch does not occupy a separate row');

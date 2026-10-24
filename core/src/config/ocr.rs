@@ -9,6 +9,7 @@ pub struct VisionConfig {
     pub vr_enabled: bool,
     pub desktop_enabled: bool,
     pub desktop_shortcut: String,
+    pub asr: Option<VisionAsrConfig>,
     pub profile_id: Option<String>,
     pub model: String,
     pub thinking_enabled: bool,
@@ -33,6 +34,7 @@ impl Default for VisionConfig {
             vr_enabled: true,
             desktop_enabled: false,
             desktop_shortcut: "Ctrl+Alt+V".into(),
+            asr: None,
             profile_id: None,
             model: String::new(),
             thinking_enabled: false,
@@ -48,6 +50,59 @@ impl Default for VisionConfig {
             display_seconds: 30.0,
             wrist: Some(VrOcrWristConfig::default()),
         }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct VisionAsrConfig {
+    pub backend: String,
+    pub profile_id: Option<String>,
+    pub language: String,
+    pub model: String,
+}
+
+impl Default for VisionAsrConfig {
+    fn default() -> Self {
+        Self {
+            backend: super::QWEN_MANAGED_BACKEND.into(),
+            profile_id: None,
+            language: "auto".into(),
+            model: String::new(),
+        }
+    }
+}
+
+impl VisionConfig {
+    pub fn asr_config(&self, shared: &super::AsrConfig) -> super::AsrConfig {
+        let Some(custom) = &self.asr else {
+            return shared.clone();
+        };
+        let mut config = super::AsrConfig {
+            backend: custom.backend.clone(),
+            active_profile_id: custom.profile_id.clone(),
+            language: custom.language.clone(),
+            api_profiles: shared
+                .api_profiles
+                .iter()
+                .filter(|profile| Some(&profile.id) == custom.profile_id.as_ref())
+                .cloned()
+                .collect(),
+            service_settings: Default::default(),
+            ..Default::default()
+        };
+        if custom.backend == super::QWEN_MANAGED_BACKEND {
+            config.managed_qwen = shared.managed_qwen.clone();
+        } else {
+            config.service_settings.insert(
+                custom.backend.clone(),
+                super::RecognitionServiceSettings {
+                    model: custom.model.clone(),
+                    context: String::new(),
+                },
+            );
+        }
+        config
     }
 }
 

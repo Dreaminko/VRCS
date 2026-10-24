@@ -1,5 +1,6 @@
-import type { ApiProfile, ApiModelCatalog } from "../providers/types";
-import type { Settings, VisionSettings } from "./types";
+import type { ApiProfile, ApiModelCatalog, ApiProfileView, AsrSettings, ProviderDefinition, ProviderServiceDefinition } from "../providers/types";
+import { MANAGED_QWEN_RECOGNITION_SOURCE, recognitionServicesForProfile } from "../providers/recognition-services.ts";
+import type { Settings, VisionAsrSettings, VisionSettings } from "./types";
 import { DEFAULT_OCR_WRIST_SETTINGS } from "./vr-overlay-settings.ts";
 
 export const DEFAULT_VISION_SETTINGS: VisionSettings = {
@@ -7,6 +8,7 @@ export const DEFAULT_VISION_SETTINGS: VisionSettings = {
   vr_enabled: true,
   desktop_enabled: false,
   desktop_shortcut: "Ctrl+Alt+V",
+  asr: null,
   profile_id: null,
   model: "",
   thinking_enabled: false,
@@ -53,4 +55,45 @@ export function patchVision(settings: Settings, patch: Partial<VisionSettings>):
 export function selectVisionProfile(settings: Settings, profileId: string | null): Settings {
   if (settings.vision.profile_id === profileId) return settings;
   return patchVision(settings, { profile_id: profileId, model: "", reasoning_control: null });
+}
+
+// Keep these adapters aligned with the question completion protocols in core.
+export function supportsQuestionAsr(service: ProviderServiceDefinition): boolean {
+  return ["openai_audio_transcriptions", "mimo_transcription", "qwen_realtime", "fun_asr_realtime"].includes(service.adapter);
+}
+
+export function visionAsrServices(profile: ApiProfileView | undefined, definitions: ProviderDefinition[]): ProviderServiceDefinition[] {
+  return recognitionServicesForProfile(profile, definitions).filter(supportsQuestionAsr);
+}
+
+export function visionAsrProfiles(profiles: ApiProfileView[], definitions: ProviderDefinition[]): ApiProfileView[] {
+  return profiles.filter((profile) => profile.enabled_capabilities.includes("speech_to_text")
+    && visionAsrServices(profile, definitions).length > 0);
+}
+
+export function selectVisionAsrService(current: VisionAsrSettings, service: ProviderServiceDefinition, shared: AsrSettings): VisionAsrSettings {
+  const language = !service.recognition_languages?.length || service.recognition_languages.includes(current.language)
+    ? current.language : "auto";
+  return {
+    ...current,
+    backend: service.id,
+    model: current.backend === service.id ? current.model
+      : shared.service_settings[service.id]?.model || service.models[0] || "",
+    language,
+  };
+}
+
+export function selectVisionAsrSource(current: VisionAsrSettings | null, source: string, shared: AsrSettings,
+  profiles: ApiProfileView[], definitions: ProviderDefinition[]): VisionAsrSettings | null {
+  if (!source) return null;
+  const initial = current ?? { backend: shared.backend, profile_id: shared.active_profile_id,
+    language: shared.language, model: shared.service_settings[shared.backend]?.model ?? "" };
+  if (source === MANAGED_QWEN_RECOGNITION_SOURCE) {
+    return { ...initial, backend: "qwen_local_managed", profile_id: null, model: "" };
+  }
+  const profile = visionAsrProfiles(profiles, definitions).find((item) => item.id === source);
+  const services = visionAsrServices(profile, definitions);
+  const service = services.find((item) => item.id === initial.backend) ?? services[0];
+  if (!profile || !service) return current;
+  return selectVisionAsrService({ ...initial, profile_id: profile.id }, service, shared);
 }

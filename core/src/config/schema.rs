@@ -290,6 +290,7 @@ mod tests {
             &value["vision"],
             [
                 "answer_language",
+                "asr",
                 "asr_finalize_timeout_ms",
                 "desktop_enabled",
                 "desktop_shortcut",

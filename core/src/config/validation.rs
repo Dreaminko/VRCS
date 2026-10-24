@@ -131,6 +131,25 @@ fn validate_conversation_titles(config: &AppConfig) -> Result<(), String> {
 
 fn validate_vision(config: &AppConfig) -> Result<(), String> {
     let vision = &config.vision;
+    if let Some(custom) = &vision.asr {
+        if custom.backend == QWEN_MANAGED_BACKEND && custom.profile_id.is_some() {
+            return Err("vision.asr.profile_id must be empty for managed Qwen".into());
+        }
+        let asr = vision.asr_config(&config.asr);
+        let validate = || {
+            crate::asr::validate_question_backend(&asr)?;
+            validate_recognition_options(&asr)?;
+            validate_api_profiles(&asr)?;
+            validate_recognition_models(
+                &asr,
+                &VadConfig {
+                    silence_seconds: config.vad.silence_seconds.max(0.2),
+                    ..config.vad.clone()
+                },
+            )
+        };
+        validate().map_err(|detail| format!("vision.asr: {detail}"))?;
+    }
     if let Some(control) = &vision.reasoning_control {
         control.validate()?;
     }
