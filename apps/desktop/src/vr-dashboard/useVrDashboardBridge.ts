@@ -216,6 +216,7 @@ export function useVrDashboardBridge(
       wrist: {
         enabled: overlay.wrist.enabled,
         anchor_mode: overlay.wrist.anchor_mode,
+        follow_view: overlay.wrist.follow_view,
         preview_visible: status?.wrist.sample_visible ?? false,
         hand: {
           value: t(`settings.vrDashboard.hands.${overlay.wrist.hand}`),

@@ -25,13 +25,15 @@ test("surface identity rejects stale generations, revisions and invalid 32-bit k
   }
 });
 
-test("capture marker contains generation then revision as 32 MSB-first bits", () => {
-  const bits = markerBits({ generation: 0x80000001, revision: 0x12345678 });
-  assert.equal(bits.length, 64);
+test("capture marker contains content identity and a checked visual serial in two 256px rows", () => {
+  const bits = markerBits({ generation: 0x80000001, revision: 0x12345678 }, 0x80123456);
+  assert.equal(bits.length, 128);
   assert.deepEqual(bits.slice(0, 32), [1, ...Array(30).fill(0), 1]);
   const decode = (value: number[]) => value.reduce((word, bit) => word * 2 + bit, 0);
   assert.equal(decode(bits.slice(0, 32)), 0x80000001);
-  assert.equal(decode(bits.slice(32)), 0x12345678);
+  assert.equal(decode(bits.slice(32, 64)), 0x12345678);
+  assert.equal(decode(bits.slice(64, 96)), 0x80123456);
+  assert.equal(decode(bits.slice(96)), (~0x80123456) >>> 0);
 });
 
 test("reader pages overlap so every vertical position remains reachable", () => {

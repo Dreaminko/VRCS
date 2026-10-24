@@ -943,6 +943,8 @@
         "anchorMode": "Dialogue panel anchor",
         "anchorWrist": "Attach to wrist",
         "anchorWorld": "Anchor in space",
+        "followView": "Follow view",
+        "followViewHint": "When anchored in space, move the panel with your view. Turn off to leave it in place.",
         "recenterDialogue": "Move dialogue panel in front",
         "emptyDialogue": "No recent content",
         "dragHint": "Point at the handle and hold grip to drag",
@@ -954,7 +956,6 @@
       "conversationTitles": {
         "title": "Conversation management",
         "autoGenerate": "Generate conversation titles automatically",
-        "description": "Generate a summary title from the transcript when a new conversation ends the previous one. Stopping transcription only pauses it.",
         "configureFirst": "Select an available text generation API profile and set a model first.",
         "modelSettings": "Title generation model",
         "profile": "API profile",

@@ -88,7 +88,7 @@ export interface VrDashboardViewModel {
   vision_available: boolean;
   osc_available: boolean;
   headset: { enabled: boolean; preview_visible: boolean; width: string; opacity: string; position: VrDashboardNumberField[] };
-  wrist: { enabled: boolean; anchor_mode: string; hand: VrDashboardChoice; preview_visible: boolean; width: string; opacity: string; position: VrDashboardNumberField[] };
+  wrist: { enabled: boolean; anchor_mode: string; follow_view: boolean; hand: VrDashboardChoice; preview_visible: boolean; width: string; opacity: string; position: VrDashboardNumberField[] };
   ocr: { available: boolean; enabled: boolean; backend: string; gesture: boolean };
   vision: { enabled: boolean; configured: boolean; model: string };
   language: {

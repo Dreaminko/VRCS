@@ -16,6 +16,7 @@ mod platform {
         EyeCapture, StereoCapture, OCR_MOVEMENT_LIMIT_M,
     };
     use crate::vr_overlay::renderer::Texture;
+    use crate::vr_overlay::surface::SurfaceId;
     use crate::vr_overlay::transform;
 
     const HEADSET_KEY: &str = "org.vrcs.overlay.headset\0";
@@ -54,6 +55,8 @@ mod platform {
         ocr_result_state: SubmittedState,
         dashboard_state: SubmittedState,
         ocr_input: Option<crate::vr_overlay::ocr_input::OcrInput>,
+        cursor: crate::vr_overlay::cursor::CursorOverlay,
+        cursor_interval: std::time::Duration,
     }
 
     #[derive(Default)]
@@ -500,6 +503,14 @@ mod platform {
             let raw_overlay = load_raw_overlay()?;
             let raw_system = load_raw_system()?;
             let texture_device = create_texture_device();
+            let cursor_interval = crate::vr_overlay::cursor::frame_interval(
+                system
+                    .float_tracked_device_property(
+                        tracked_device_index::HMD,
+                        openvr::property::DisplayFrequency_Float,
+                    )
+                    .unwrap_or(90.),
+            );
             Ok(Self {
                 context,
                 system,
@@ -527,6 +538,8 @@ mod platform {
                 ocr_result_state: SubmittedState::default(),
                 dashboard_state: SubmittedState::default(),
                 ocr_input: None,
+                cursor: Default::default(),
+                cursor_interval,
             })
         }
 
@@ -804,7 +817,7 @@ mod platform {
             }))
         }
 
-        fn controller_pointer_pose(
+        pub fn controller_pointer_pose(
             &self,
             device: openvr::TrackedDeviceIndex,
             source: u64,
@@ -902,6 +915,7 @@ mod platform {
             config: &VrOverlayWristConfig,
             pose: [[f32; 4]; 3],
             origin: i32,
+            head_relative: Option<[[f32; 4]; 3]>,
         ) -> Result<(), String> {
             if self.wrist.is_none() {
                 let handle = self
@@ -915,6 +929,16 @@ mod platform {
             self.overlay
                 .set_width(handle, config.width_m)
                 .map_err(|e| format!("Set dialogue width failed: {e:?}"))?;
+            if let Some(relative) = head_relative {
+                return self
+                    .overlay
+                    .set_transform_tracked_device_relative(
+                        handle,
+                        tracked_device_index::HMD,
+                        &Matrix3x4(relative),
+                    )
+                    .map_err(|e| format!("Set dialogue follow transform failed: {e:?}"));
+            }
             let mut matrix = openvr_sys::HmdMatrix34_t { m: pose };
             check_wrist_input(unsafe {
                 (*self.raw_overlay)
@@ -930,17 +954,14 @@ mod platform {
                 .as_ref()
                 .map(|input| input.ui_samples())
                 .unwrap_or_default()
-                .into_iter()
-                .filter(|input| self.controller_pose(input.device).is_some())
-                .collect()
         }
 
         pub fn intersect(
             &self,
             kind: OverlayKind,
             device: u32,
-            source: u64,
-        ) -> Option<([f32; 2], f32)> {
+            ray: ([[f32; 4]; 3], i32),
+        ) -> Option<([f32; 2], [f32; 3], f32)> {
             if !self.state(kind).visible {
                 return None;
             }
@@ -951,9 +972,40 @@ mod platform {
                 return None;
             }
             let handle = self.handle(kind)?;
-            let (pose, origin) =
-                self.controller_pointer_pose(openvr::TrackedDeviceIndex(device), source)?;
-            wrist_ray_hit(unsafe { &*self.raw_overlay }, handle, origin, pose)
+            let (pose, origin) = ray;
+            let size = match kind {
+                OverlayKind::WristMenu => SurfaceId::Menu.size(),
+                OverlayKind::Wrist => SurfaceId::Dialogue.size(),
+                OverlayKind::OcrWrist => SurfaceId::Reader.size(),
+                _ => return None,
+            };
+            wrist_ray_hit(unsafe { &*self.raw_overlay }, handle, origin, pose, size)
+        }
+
+        pub fn cursor_interval(&self) -> std::time::Duration {
+            self.cursor_interval
+        }
+
+        pub fn update_cursor(
+            &mut self,
+            target: Option<(OverlayKind, [f32; 3], i32, u32)>,
+        ) -> Result<(), String> {
+            let api = unsafe { &*self.raw_overlay };
+            if let Some((kind, position, origin, width)) = target {
+                if self.visible(kind) {
+                    if let Some(handle) = self.handle(kind) {
+                        let diameter_px = if kind == OverlayKind::WristMenu {
+                            30
+                        } else {
+                            24
+                        };
+                        self.cursor
+                            .update(api, handle.0, position, origin, width, diameter_px)?;
+                        return Ok(());
+                    }
+                }
+            }
+            self.cursor.hide(api)
         }
 
         pub fn surface_adapter_index(&self) -> Result<u32, String> {
@@ -971,6 +1023,22 @@ mod platform {
                 handle,
                 shared_handle as *mut std::ffi::c_void,
             )
+        }
+
+        pub fn clear_surface_texture(&mut self, kind: OverlayKind) -> Result<(), String> {
+            let Some(handle) = self.handle(kind) else {
+                return Ok(());
+            };
+            let table = unsafe { &*self.raw_overlay };
+            let clear = table
+                .ClearOverlayTexture
+                .ok_or("ClearOverlayTexture is unavailable")?;
+            let error = unsafe { clear(handle.0) };
+            if error != openvr_sys::EVROverlayError_VROverlayError_None {
+                return Err(format!("Clear surface texture failed: {error}"));
+            }
+            // Keep the handle, placement, and dashboard registration intact.
+            Ok(())
         }
 
         pub fn set_opacity(&mut self, kind: OverlayKind, opacity: f32) -> Result<(), String> {
@@ -1004,6 +1072,10 @@ mod platform {
         }
 
         pub fn hide(&mut self, kind: OverlayKind) {
+            if self.cursor.target.is_some() && self.cursor.target == self.handle(kind).map(|h| h.0)
+            {
+                let _ = self.cursor.hide(unsafe { &*self.raw_overlay });
+            }
             if !self.state(kind).visible {
                 return;
             }
@@ -1015,6 +1087,7 @@ mod platform {
         }
 
         pub fn hide_all(&mut self) {
+            let _ = self.cursor.hide(unsafe { &*self.raw_overlay });
             self.hide(OverlayKind::Headset);
             self.hide(OverlayKind::Wrist);
             self.hide(OverlayKind::WristMenu);
@@ -1118,6 +1191,7 @@ mod platform {
             self.destroy(OverlayKind::OcrFrame);
             self.destroy(OverlayKind::OcrResult);
             self.destroy(OverlayKind::Dashboard);
+            self.cursor.destroy(unsafe { &*self.raw_overlay });
             // Detach while graphics resources are still alive; keep the desktop process running.
             unsafe { self.context.shutdown() };
         }
@@ -1217,7 +1291,8 @@ mod platform {
         handle: OverlayHandle,
         origin: i32,
         matrix: [[f32; 4]; 3],
-    ) -> Option<([f32; 2], f32)> {
+        texture_size: (u32, u32),
+    ) -> Option<([f32; 2], [f32; 3], f32)> {
         let intersection = overlay.ComputeOverlayIntersection?;
         let mut ray = openvr_sys::VROverlayIntersectionParams_t {
             vSource: openvr_sys::HmdVector3_t {
@@ -1230,15 +1305,40 @@ mod platform {
         };
         let mut hit: openvr_sys::VROverlayIntersectionResults_t = unsafe { std::mem::zeroed() };
         let found = unsafe { intersection(handle.0, &mut ray, &mut hit) };
-        (found
-            && hit.fDistance.is_finite()
-            && hit.fDistance >= 0.
-            && hit
-                .vUVs
-                .v
-                .iter()
-                .all(|v| v.is_finite() && (0. ..=1.).contains(v)))
-        .then_some(([hit.vUVs.v[0], 1. - hit.vUVs.v[1]], hit.fDistance))
+        if !found
+            || !hit.fDistance.is_finite()
+            || hit.fDistance < 0.
+            || !hit.vPoint.v.iter().all(|v| v.is_finite())
+        {
+            return None;
+        }
+        let mut panel = openvr_sys::HmdMatrix34_t { m: [[0.; 4]; 3] };
+        let mut width = 0.;
+        unsafe {
+            check_wrist_input(overlay.GetTransformForOverlayCoordinates?(
+                handle.0,
+                origin,
+                openvr_sys::HmdVector2_t { v: [0.5, 0.5] },
+                &mut panel,
+            ))
+            .ok()?;
+            check_wrist_input(overlay.GetOverlayWidthInMeters?(handle.0, &mut width)).ok()?;
+        }
+        if !width.is_finite() || width <= 0. || texture_size.0 == 0 || texture_size.1 == 0 {
+            return None;
+        }
+        // OpenVR's input UVs can use a different aspect ratio from the visible texture.
+        let local: [f32; 2] = std::array::from_fn(|axis| {
+            (0..3)
+                .map(|i| (hit.vPoint.v[i] - panel.m[i][3]) * panel.m[i][axis])
+                .sum()
+        });
+        let height = width * texture_size.1 as f32 / texture_size.0 as f32;
+        let point = [0.5 + local[0] / width, 0.5 - local[1] / height];
+        point
+            .iter()
+            .all(|v| v.is_finite() && (0. ..=1.).contains(v))
+            .then_some((point, hit.vPoint.v, hit.fDistance))
     }
 
     fn dxgi_adapter_index() -> Result<u32, String> {
@@ -1603,15 +1703,7 @@ mod platform {
                 10
             }
             let mut api: openvr_sys::VR_IVROverlay_FnTable = unsafe { std::mem::zeroed() };
-            unsafe extern "C" fn scale(handle: u64, scale: *mut openvr_sys::HmdVector2_t) -> i32 {
-                assert_eq!(handle, 73);
-                let size = crate::vr_overlay::surface::SurfaceId::Reader.size().0 as f32;
-                assert_eq!(unsafe { (*scale).v }, [size, size]);
-                CONFIGURED.fetch_or(4, Ordering::Relaxed);
-                0
-            }
             api.SetOverlayInputMethod = Some(method);
-            api.SetOverlayMouseScale = Some(scale);
             api.SetOverlayFlag = Some(flag);
             super::configure_ocr_wrist_input(&api, openvr::overlay::OverlayHandle(73)).unwrap();
             assert_eq!(CONFIGURED.load(Ordering::Relaxed), 3);
@@ -1631,9 +1723,122 @@ mod platform {
         }
 
         #[test]
+        fn wrist_ray_matches_texture_aspect_and_visible_menu() {
+            use crate::vr_overlay::surface::{SurfaceId, SurfaceLayout};
+            use std::cell::Cell;
+            thread_local! {
+                static PANEL: Cell<[[f32; 4]; 3]> = const { Cell::new([[0.; 4]; 3]) };
+            }
+            unsafe extern "C" fn coordinates(
+                _: u64,
+                _: i32,
+                uv: openvr_sys::HmdVector2_t,
+                pose: *mut openvr_sys::HmdMatrix34_t,
+            ) -> i32 {
+                assert_eq!(uv.v, [0.5, 0.5]);
+                unsafe { (*pose).m = PANEL.get() };
+                0
+            }
+            unsafe extern "C" fn width(_: u64, width: *mut f32) -> i32 {
+                unsafe { *width = 0.18 };
+                0
+            }
+            unsafe extern "C" fn intersection(
+                _: u64,
+                ray: *mut openvr_sys::VROverlayIntersectionParams_t,
+                hit: *mut openvr_sys::VROverlayIntersectionResults_t,
+            ) -> bool {
+                let ray = unsafe { &*ray };
+                let panel = PANEL.get();
+                let dot =
+                    |v: [f32; 3], axis: usize| (0..3).map(|i| v[i] * panel[i][axis]).sum::<f32>();
+                let offset = std::array::from_fn(|i| panel[i][3] - ray.vSource.v[i]);
+                let distance = dot(offset, 2) / dot(ray.vDirection.v, 2);
+                let point =
+                    std::array::from_fn(|i| ray.vSource.v[i] + distance * ray.vDirection.v[i]);
+                let local = std::array::from_fn(|i| point[i] - panel[i][3]);
+                // Reproduce SteamVR's square input geometry with default mouse scale.
+                let uv = [0.5 + dot(local, 0) / 0.18, 0.5 + dot(local, 1) / 0.18];
+                unsafe {
+                    (*hit).vPoint.v = point;
+                    (*hit).vUVs.v = uv;
+                    (*hit).fDistance = distance;
+                }
+                distance >= 0. && uv.iter().all(|v| (0. ..=1.).contains(v))
+            }
+            let mut api: openvr_sys::VR_IVROverlay_FnTable = unsafe { std::mem::zeroed() };
+            api.GetTransformForOverlayCoordinates = Some(coordinates);
+            api.GetOverlayWidthInMeters = Some(width);
+            api.ComputeOverlayIntersection = Some(intersection);
+            let layout: SurfaceLayout = serde_json::from_value(serde_json::json!({
+                "key": { "generation": 1, "revision": 1 },
+                "regions": [{ "id": 1, "bounds": [314./1024., 48./256., 474./1024., 208./256.], "circle": true }],
+                "menu_bounds": [16./1024., 8./256., 1008./1024., 248./256.],
+                "page_count": 1
+            })).unwrap();
+            layout.validate(SurfaceId::Menu).unwrap();
+            for panel in [
+                super::transform::matrix(0., 0., 0., [1., 2., 3.]),
+                super::transform::matrix(-90., 0., 0., [1., 2., 3.]),
+                super::transform::matrix(-35., 25., -10., [1., 2., 3.]),
+            ] {
+                PANEL.set(panel);
+                for (x, y, visible, button) in [
+                    (394., -64., false, None),
+                    (394., 4., false, None),
+                    (394., 16., true, None),
+                    (394., 128., true, Some(1)),
+                    (394., 224., true, None),
+                    (394., 252., false, None),
+                    (394., 320., false, None),
+                    (20., 16., false, None),
+                    (32., 128., true, None),
+                ] {
+                    let expected = [x / 1024., y / 256.];
+                    let position: [f32; 3] = std::array::from_fn(|i| {
+                        panel[i][3]
+                            + panel[i][0] * (expected[0] - 0.5) * 0.18
+                            + panel[i][1] * (0.5 - expected[1]) * 0.045
+                    });
+                    let mut ray = panel;
+                    for i in 0..3 {
+                        ray[i][3] = position[i] + panel[i][2] * 0.2;
+                    }
+                    let hit = super::wrist_ray_hit(
+                        &api,
+                        super::OverlayHandle(73),
+                        1,
+                        ray,
+                        SurfaceId::Menu.size(),
+                    );
+                    if !(0. ..=1.).contains(&expected[1]) {
+                        assert!(hit.is_none(), "outside texture: {x}, {y}");
+                        continue;
+                    }
+                    let (uv, point, distance) = hit.expect("hit inside the texture");
+                    for i in 0..2 {
+                        assert!(
+                            (uv[i] - expected[i]).abs() < 0.0001,
+                            "pixel {x}, {y}: {uv:?} != {expected:?}"
+                        );
+                    }
+                    for i in 0..3 {
+                        assert!((point[i] - position[i]).abs() < 0.00001);
+                    }
+                    assert!((distance - 0.2).abs() < 0.00001);
+                    assert_eq!(layout.pointer_contains(uv), visible, "pixel {x}, {y}");
+                    assert_eq!(layout.hit(uv), button, "pixel {x}, {y}");
+                }
+            }
+        }
+
+        #[test]
         fn wrist_ray_uses_the_pointer_pose_and_rejects_misses() {
             use std::cell::Cell;
-            thread_local! { static HIT: Cell<bool> = const { Cell::new(true) }; }
+            thread_local! {
+                static HIT: Cell<bool> = const { Cell::new(true) };
+                static POSITION: Cell<[f32; 3]> = const { Cell::new([1., 2., 2.25]) };
+            }
             unsafe extern "C" fn intersection(
                 _: u64,
                 ray: *mut openvr_sys::VROverlayIntersectionParams_t,
@@ -1648,20 +1853,42 @@ mod platform {
                 }
                 unsafe {
                     (*hit).vUVs.v = [0.75, 0.25];
+                    (*hit).vPoint.v = POSITION.get();
+                    (*hit).vNormal.v = [0., 0., 1.];
+                    (*hit).fDistance = 0.75;
                 }
                 HIT.get()
             }
+            unsafe extern "C" fn coordinates(
+                _: u64,
+                _: i32,
+                _: openvr_sys::HmdVector2_t,
+                pose: *mut openvr_sys::HmdMatrix34_t,
+            ) -> i32 {
+                unsafe { (*pose).m = super::transform::matrix(0., 0., 0., [0.75, 2.25, 2.25]) };
+                0
+            }
+            unsafe extern "C" fn width(_: u64, width: *mut f32) -> i32 {
+                unsafe { *width = 1. };
+                0
+            }
             let mut overlay: openvr_sys::VR_IVROverlay_FnTable = unsafe { std::mem::zeroed() };
             overlay.ComputeOverlayIntersection = Some(intersection);
+            overlay.GetTransformForOverlayCoordinates = Some(coordinates);
+            overlay.GetOverlayWidthInMeters = Some(width);
             let sample = || {
                 super::wrist_ray_hit(
                     &overlay,
                     openvr::overlay::OverlayHandle(73),
                     1,
                     super::transform::matrix(0., 0., 0., [1., 2., 3.]),
+                    (1024, 1024),
                 )
             };
-            assert_eq!(sample(), Some(([0.75, 0.75], 0.)));
+            assert_eq!(sample(), Some(([0.75, 0.75], [1., 2., 2.25], 0.75)));
+            POSITION.set([f32::NAN, 2., 2.25]);
+            assert!(sample().is_none());
+            POSITION.set([1., 2., 2.25]);
             HIT.set(false);
             assert!(sample().is_none());
         }

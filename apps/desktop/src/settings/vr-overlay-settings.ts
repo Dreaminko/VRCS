@@ -76,6 +76,7 @@ export const DEFAULT_VR_OVERLAY_HEADSET_SETTINGS: VrOverlayHeadsetSettings = {
 
 export const DEFAULT_VR_OVERLAY_WRIST_SETTINGS: VrOverlayWristSettings = {
   anchor_mode: "wrist",
+  follow_view: false,
   enabled: true,
   hand: "left",
   dominant_hand: "right",

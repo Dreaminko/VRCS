@@ -51,7 +51,6 @@ export function ConversationTitleSettingsSection({ config, profiles, onChange }:
     </div>
     {/* Stay clickable when auto-generate is on but its profile/model became invalid, so it can still be turned off. */}
     <PreferenceToggle title={t("settings.conversationTitles.autoGenerate")}
-      description={t("settings.conversationTitles.description")}
       checked={config.auto_generate} disabled={!configured && !config.auto_generate}
       onChange={(auto_generate) => onChange({ auto_generate })} />
     {!configured && <p className="settings-field-note">{t("settings.conversationTitles.configureFirst")}</p>}

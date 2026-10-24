@@ -499,16 +499,50 @@ fn worker_loop(
         ocr,
     };
     let mut status = VrOverlayStatus::initial();
+    let mut next_tick = Instant::now();
+    #[cfg(windows)]
+    let mut next_pointer = Instant::now();
 
     loop {
         let started = Instant::now();
         if stopping.load(Ordering::Acquire) {
             status.state = RuntimeState::ShuttingDown;
             update_status(&app, &shared_status, &status);
+            #[cfg(windows)]
+            {
+                state
+                    .headset_surface
+                    .stop(&app, state.backend.as_mut(), OverlayKind::Headset);
+                state
+                    .dashboard_surface
+                    .stop(&app, state.backend.as_mut(), OverlayKind::Dashboard);
+                state.ui.stop_surfaces(&app, state.backend.as_mut());
+                state.ocr.stop_surfaces(&app, state.backend.as_mut());
+            }
             if let Some(mut backend) = state.backend.take() {
                 backend.hide_all();
             }
             break;
+        }
+
+        if started < next_tick {
+            let mut wake = next_tick;
+            #[cfg(windows)]
+            if state.ui.fast_tick()
+                || state.ocr.status.wrist_state == super::ocr_status::OcrWristState::Visible
+            {
+                if let Some(backend) = state.backend.as_mut() {
+                    if started >= next_pointer {
+                        state.ui.update_pointer(&app, backend);
+                        next_pointer = Instant::now() + backend.cursor_interval();
+                    }
+                    wake = wake.min(next_pointer);
+                }
+            }
+            if let Some(delay) = wake.checked_duration_since(Instant::now()) {
+                std::thread::sleep(delay);
+            }
+            continue;
         }
 
         if let Ok(mut pending) = latest_config.lock() {
@@ -625,6 +659,16 @@ fn worker_loop(
         }
         #[cfg(windows)]
         {
+            state
+                .headset_surface
+                .finish_tick(&app, state.backend.as_mut(), OverlayKind::Headset);
+            state.dashboard_surface.finish_tick(
+                &app,
+                state.backend.as_mut(),
+                OverlayKind::Dashboard,
+            );
+            state.ui.finish_surfaces(&app, state.backend.as_mut());
+            state.ocr.finish_surfaces(&app, state.backend.as_mut());
             status.ocr = state.ocr.status.clone();
         }
         update_status(&app, &shared_status, &status);
@@ -650,8 +694,13 @@ fn worker_loop(
         } else {
             UPDATE_INTERVAL
         };
-        if let Some(delay) = interval.checked_sub(started.elapsed()) {
-            std::thread::sleep(delay);
+        next_tick = started + interval;
+        #[cfg(windows)]
+        if let Some(backend) = state.backend.as_mut() {
+            if Instant::now() >= next_pointer || !ui_active {
+                state.ui.update_pointer(&app, backend);
+                next_pointer = Instant::now() + backend.cursor_interval();
+            }
         }
     }
 }
@@ -919,6 +968,13 @@ fn update_dashboard(
     let result = (|| -> Result<bool, String> {
         backend.ensure_dashboard()?;
         let hub = app.state::<SurfaceHub>();
+        // Keep the tab registered, but never wake its WebView before it is opened.
+        if !backend.dashboard_visible() {
+            let _ = backend.poll_dashboard_events()?;
+            state.dashboard.clear_pointer();
+            state.dashboard_pressed_key = None;
+            return Ok(false);
+        }
         let dark = state
             .controls
             .lock()
@@ -998,7 +1054,7 @@ fn update_dashboard(
             status.dashboard.visible = ready && backend.dashboard_visible();
             status.dashboard.state = if status.dashboard.visible {
                 ResourceState::Visible
-            } else if ready {
+            } else if ready || !backend.dashboard_visible() {
                 ResourceState::ReadyHidden
             } else {
                 ResourceState::Creating
@@ -1225,11 +1281,13 @@ fn update_wrist(
         status.wrist.last_error_code = None;
         return;
     }
-    let (mode, pose, busy, error, revision) = {
+    let (mode, pose, relative, follow_view, busy, error, revision) = {
         let placement = state.ui.placement.lock().unwrap_or_else(|e| e.into_inner());
         (
             placement.display_mode(),
             placement.absolute_pose(),
+            placement.head_relative_pose(),
+            placement.follow_view(),
             placement.busy(),
             placement.error.clone(),
             placement.revision,
@@ -1239,7 +1297,7 @@ fn update_wrist(
         status.wrist.bound_role = None;
         match (pose, backend.ocr_tracking()) {
             (Some(pose), Ok((_, _, origin))) => {
-                backend.ensure_world_wrist(&state.config.wrist, pose, origin)
+                backend.ensure_world_wrist(&state.config.wrist, pose, origin, relative)
             }
             _ => {
                 backend.hide(OverlayKind::Wrist);
@@ -1320,6 +1378,7 @@ fn update_wrist(
                 controls,
                 messages,
                 mode,
+                follow_view,
                 busy,
                 error,
                 font_size: state.config.wrist.font_size_px,

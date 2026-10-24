@@ -3,5 +3,5 @@
   "identifier": "vr-surface",
   "description": "Local React texture hosts; no access to application controls or configuration",
   "windows": ["vr-surface-menu", "vr-surface-dialogue", "vr-surface-reader", "vr-surface-headset", "vr-surface-ocr_progress", "vr-surface-dashboard", "vr-surface-dashboard_thumbnail", "vr-surface-ocr_selection", "vr-surface-ocr_result"],
-  "permissions": ["core:event:allow-listen", "core:event:allow-unlisten", "allow-vr-surface-ready", "allow-vr-surface-layout"]
+  "permissions": ["core:event:allow-listen", "core:event:allow-unlisten", "allow-vr-surface-ready", "allow-vr-surface-layout", "allow-vr-surface-paint", "allow-vr-surface-snapshot"]
 }

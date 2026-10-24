@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import {
+  Captions,
   Hand,
   Layers3,
-  RectangleGoggles,
   RefreshCw,
   RotateCcw,
   TriangleAlert,
@@ -217,27 +217,6 @@ export function VrOverlaySettingsSection({
         <div><Layers3 size={18} /><h2>{t("settings.vrOverlay.title")}</h2></div>
       </div>
 
-      <section className="vr-overlay-card">
-        <PreferenceToggle
-          title={t("settings.vrOverlay.wristMenuEnable")}
-          checked={draft.vr_overlay.wrist_menu.enabled}
-          disabled={false}
-          onChange={(enabled) => applySettings((current) => patchVrOverlay(current, {
-            wrist_menu: { ...current.vr_overlay.wrist_menu, enabled },
-          }))}
-        />
-        <SettingsDisclosure open={draft.vr_overlay.wrist_menu.enabled}>
-          <Select label={t("settings.vrOverlay.menuHand")}
-            value={draft.vr_overlay.wrist_menu.hand}
-            options={["left", "right"].map((value) => ({ value, label: t(`settings.vrDashboard.hands.${value}`) }))}
-            disabled={false}
-            onChange={(hand) => applySettings((current) => patchVrOverlay(current, {
-              wrist_menu: { ...current.vr_overlay.wrist_menu, hand: hand as "left" | "right" },
-            }))}
-          />
-        </SettingsDisclosure>
-      </section>
-
       <div className="vr-overlay-runtime-card">
         <SettingsDisclosure open={draft.vr_overlay.enabled}>
           <div className="vr-overlay-runtime-main">
@@ -295,11 +274,41 @@ export function VrOverlaySettingsSection({
         </SettingsDisclosure>
       </div>
 
+      <section className="vr-overlay-card" aria-labelledby="vr-overlay-wrist-menu-title">
+        <header className="vr-overlay-card-heading vr-overlay-feature-heading">
+          <div>
+            <Hand size={18} />
+            <span>
+              <strong id="vr-overlay-wrist-menu-title">{t("settings.vrOverlay.wristMenuEnable")}</strong>
+            </span>
+          </div>
+          <PreferenceToggle
+            title={t("settings.vrOverlay.wristMenuEnable")}
+            hideLabel
+            checked={draft.vr_overlay.wrist_menu.enabled}
+            disabled={false}
+            onChange={(enabled) => applySettings((current) => patchVrOverlay(current, {
+              wrist_menu: { ...current.vr_overlay.wrist_menu, enabled },
+            }))}
+          />
+        </header>
+        <SettingsDisclosure open={draft.vr_overlay.wrist_menu.enabled}>
+          <Select label={t("settings.vrOverlay.menuHand")}
+            value={draft.vr_overlay.wrist_menu.hand}
+            options={["left", "right"].map((value) => ({ value, label: t(`settings.vrDashboard.hands.${value}`) }))}
+            disabled={false}
+            onChange={(hand) => applySettings((current) => patchVrOverlay(current, {
+              wrist_menu: { ...current.vr_overlay.wrist_menu, hand: hand as "left" | "right" },
+            }))}
+          />
+        </SettingsDisclosure>
+      </section>
+
       <SettingsDisclosure open={draft.vr_overlay.enabled} className="vr-overlay-card-list">
         <section className="vr-overlay-card" aria-labelledby="vr-overlay-headset-title">
           <header className="vr-overlay-card-heading vr-overlay-feature-heading">
             <div>
-              <RectangleGoggles size={18} />
+              <Captions size={18} />
               <span>
                 <strong id="vr-overlay-headset-title">{t("settings.vrOverlay.headset.title")}</strong>
                 <small>{t("settings.vrOverlay.headset.description")}</small>
@@ -449,6 +458,9 @@ export function VrOverlaySettingsSection({
               <Select label={t("settings.vrOverlay.anchorMode")} value={draft.vr_overlay.wrist.anchor_mode}
                 options={[{ value: "wrist", label: t("settings.vrOverlay.anchorWrist") }, { value: "world", label: t("settings.vrOverlay.anchorWorld") }]}
                 disabled={wristDisabled} onChange={(value) => updateWrist("anchor_mode", value as "wrist" | "world")} />
+              <PreferenceToggle title={t("settings.vrOverlay.followView")} description={t("settings.vrOverlay.followViewHint")}
+                checked={draft.vr_overlay.wrist.follow_view} disabled={wristDisabled || draft.vr_overlay.wrist.anchor_mode !== "world"}
+                onChange={(value) => updateWrist("follow_view", value)} />
               <button className="secondary-button" type="button" disabled={wristDisabled || nativeBusy !== null || status?.state !== "ready"}
                 onClick={() => void runNativeAction("wrist", () => placeVrDialogue("world"))}>
                 {t("settings.vrOverlay.recenterDialogue")}

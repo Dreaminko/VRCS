@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-vr-surface-paint"
+description = "Enables the vr_surface_paint command without any pre-configured scope."
+commands.allow = ["vr_surface_paint"]
+
+[[permission]]
+identifier = "deny-vr-surface-paint"
+description = "Denies the vr_surface_paint command without any pre-configured scope."
+commands.deny = ["vr_surface_paint"]

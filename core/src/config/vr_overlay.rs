@@ -83,6 +83,8 @@ pub struct VrOverlayHeadsetConfig {
 pub struct VrOverlayWristConfig {
     #[serde(default = "default_anchor_mode")]
     pub anchor_mode: String,
+    #[serde(default)]
+    pub follow_view: bool,
     #[serde(default = "default_true")]
     pub enabled: bool,
     #[serde(default = "default_wrist_hand")]
@@ -268,6 +270,7 @@ impl Default for VrOverlayWristConfig {
     fn default() -> Self {
         Self {
             anchor_mode: default_anchor_mode(),
+            follow_view: false,
             enabled: default_true(),
             hand: default_wrist_hand(),
             dominant_hand: default_dominant_hand(),
@@ -326,6 +329,22 @@ mod tests {
                 serde_json::from_value(serde_json::to_value(saved).unwrap()).unwrap();
             assert_eq!(restored.idle_hide_seconds, seconds);
         }
+    }
+
+    #[test]
+    fn wrist_follow_view_is_opt_in_and_round_trips() {
+        assert!(!VrOverlayWristConfig::default().follow_view);
+        let old: VrOverlayWristConfig =
+            serde_json::from_value(serde_json::json!({"anchor_mode": "world"})).unwrap();
+        assert!(!old.follow_view);
+        let enabled: VrOverlayWristConfig = serde_json::from_value(
+            serde_json::json!({"anchor_mode": "world", "follow_view": true}),
+        )
+        .unwrap();
+        let restored: VrOverlayWristConfig =
+            serde_json::from_value(serde_json::to_value(&enabled).unwrap()).unwrap();
+        assert!(restored.follow_view);
+        assert_eq!(enabled, restored);
     }
 
     #[test]

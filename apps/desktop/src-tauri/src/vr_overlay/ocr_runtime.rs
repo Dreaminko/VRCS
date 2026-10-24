@@ -272,6 +272,28 @@ impl OcrRuntime {
     }
 
     // Call after the previous OpenVR backend has released its submitted textures.
+    pub fn finish_surfaces(&mut self, app: &AppHandle, mut backend: Option<&mut OpenVrBackend>) {
+        self.reader_surface
+            .finish_tick(app, backend.as_deref_mut(), OverlayKind::OcrWrist);
+        self.progress_surface
+            .finish_tick(app, backend.as_deref_mut(), OverlayKind::OcrProgress);
+        self.selection_surface
+            .finish_tick(app, backend.as_deref_mut(), OverlayKind::OcrFrame);
+        self.result_surface
+            .finish_tick(app, backend, OverlayKind::OcrResult);
+    }
+
+    pub fn stop_surfaces(&mut self, app: &AppHandle, mut backend: Option<&mut OpenVrBackend>) {
+        self.reader_surface
+            .stop(app, backend.as_deref_mut(), OverlayKind::OcrWrist);
+        self.progress_surface
+            .stop(app, backend.as_deref_mut(), OverlayKind::OcrProgress);
+        self.selection_surface
+            .stop(app, backend.as_deref_mut(), OverlayKind::OcrFrame);
+        self.result_surface
+            .stop(app, backend, OverlayKind::OcrResult);
+    }
+
     pub fn reset_surfaces(&mut self) {
         self.reader_surface.reset();
         self.progress_surface.reset();
@@ -1842,6 +1864,8 @@ mod tests {
                 revision: 1,
             },
             regions: vec![],
+            menu_bounds: None,
+            panels: vec![],
             page_count: 1,
             unplaced: vec![1],
         };

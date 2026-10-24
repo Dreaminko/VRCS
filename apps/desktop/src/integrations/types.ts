@@ -57,6 +57,7 @@ export interface VrOverlayHeadsetSettings {
 
 export interface VrOverlayWristSettings {
   anchor_mode: "wrist" | "world";
+  follow_view: boolean;
   enabled: boolean;
   hand: VrOverlayHand;
   dominant_hand: VrOverlayControllerHand;

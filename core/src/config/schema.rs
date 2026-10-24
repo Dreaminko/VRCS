@@ -257,6 +257,7 @@ mod tests {
                 "background_opacity",
                 "dominant_hand",
                 "enabled",
+                "follow_view",
                 "font_size_px",
                 "hand",
                 "idle_hide_seconds",

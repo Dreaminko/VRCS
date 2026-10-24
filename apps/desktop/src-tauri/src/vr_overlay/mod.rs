@@ -1,6 +1,8 @@
 mod backend;
 mod control_protocol;
 #[cfg(windows)]
+mod cursor;
+#[cfg(windows)]
 mod d3d11_texture;
 mod dashboard;
 mod dialogue;

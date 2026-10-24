@@ -123,6 +123,7 @@ struct Preview {
     pointer: ocr_wrist::Pointer,
     hover: Option<u8>,
     pressed: Option<u8>,
+    hold_progress: Option<f32>,
     cursor: Option<[f32; 2]>,
     placement: Arc<Mutex<Placement>>,
     placement_revision: u64,
@@ -177,6 +178,7 @@ impl Preview {
             pointer: Default::default(),
             hover: None,
             pressed: None,
+            hold_progress: None,
             cursor: None,
             placement,
             placement_revision: 0,
@@ -244,6 +246,7 @@ impl Preview {
             .cancel_drag();
         self.hover = None;
         self.pressed = None;
+        self.hold_progress = None;
         self.cursor = None;
         self.dirty = true;
     }
@@ -480,16 +483,17 @@ impl Preview {
             return Ok(Vec::new());
         }
         let point = input.point;
-        let cursor = point.filter(|_| {
+        let cursor = point.filter(|point| {
             !self.closed
                 && matches!(self.panel, 0 | 1 | 2 | 4 | 5 | 9)
-                && self
-                    .layout
-                    .as_ref()
-                    .is_some_and(|layout| layout.key == self.surface_key())
+                && self.layout.as_ref().is_some_and(|layout| {
+                    layout.key == self.surface_key()
+                        && (self.panel == 1 || layout.pointer_contains(*point))
+                })
         });
         self.dirty |= self.cursor != cursor;
         self.cursor = cursor;
+        let point = cursor;
         let mut effects = Vec::new();
         let key = self.key();
         let hit = point.and_then(|point| {
@@ -514,7 +518,22 @@ impl Preview {
             grip: Some(input.buttons & 2 != 0),
             hit,
         };
-        let output = self.router.step(&[sample], &[key]);
+        let can_recenter = self.panel == 0 && self.controls.items[0].requested && {
+            let placement = self.placement.lock().unwrap_or_else(|e| e.into_inner());
+            placement.display_mode() == Mode::World && !placement.busy()
+        };
+        let mut output = self.router.step(&[sample], &[key]);
+        let now = Instant::now();
+        if can_recenter {
+            if let Some(event) = self.router.long_press(now) {
+                output.events.push(event);
+            }
+        }
+        let hold_progress = can_recenter
+            .then(|| self.router.hold_progress(now))
+            .flatten();
+        self.dirty |= self.hold_progress != hold_progress;
+        self.hold_progress = hold_progress;
         let hover = output.hover.map(|(_, hit)| hit.region);
         self.dirty |= self.hover != hover || !output.events.is_empty();
         self.hover = hover;
@@ -541,6 +560,7 @@ impl Preview {
             match self.panel {
                 0 => match event.kind {
                     Kind::Down => self.pressed = Some(event.hit.region),
+                    Kind::LongPress => effects.extend(self.place(Mode::World)),
                     Kind::Up => {
                         self.pressed = None;
                         let index = event.hit.region as usize;
@@ -592,6 +612,10 @@ impl Preview {
                         Kind::Up if event.hit.region == 2 => {
                             let pose = p.absolute_pose().unwrap_or_else(wrist_pose);
                             p.set_mode(Mode::World, Some(pose))
+                        }
+                        Kind::Up if event.hit.region == 3 => {
+                            let enabled = !p.follow_view();
+                            p.set_follow_view(enabled)
                         }
                         _ => None,
                     };
@@ -744,6 +768,21 @@ impl Preview {
         self.dirty = true;
     }
 
+    fn sync_dashboard_view(&mut self, view: DashboardViewModel) -> Result<(), String> {
+        if view != self.view {
+            self.view = view;
+            if self.panel == 1 {
+                self.layout_changed();
+            } else {
+                self.dirty = true;
+            }
+        }
+        let mut placement = self.placement.lock().map_err(|e| e.to_string())?;
+        placement.sync_mode(Mode::from_config(&self.view.wrist.anchor_mode));
+        placement.sync_follow_view(self.view.wrist.follow_view);
+        Ok(())
+    }
+
     fn refresh(&mut self) {
         for (index, pending) in self.pending.iter_mut().enumerate() {
             if pending.is_some_and(|(_, at)| at.elapsed() >= Duration::from_millis(300)) {
@@ -764,20 +803,18 @@ impl Preview {
             self.view.headset.enabled = self.controls.items[1].requested;
             self.view.osc.enabled = self.controls.items[2].requested;
             self.view.capture.running = self.controls.items[3].requested;
-            self.view.wrist.anchor_mode = match self
-                .placement
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .mode()
-            {
+            let placement = self.placement.lock().unwrap_or_else(|e| e.into_inner());
+            self.view.wrist.anchor_mode = match placement.mode() {
                 Mode::Wrist => "wrist",
                 Mode::World => "world",
             }
             .into();
+            self.view.wrist.follow_view = placement.follow_view();
         }
         self.dashboard.update_view(&self.view);
         let mut placement = self.placement.lock().unwrap_or_else(|e| e.into_inner());
         if self.tracking {
+            placement.update_head(head_pose());
             placement.initialize_world(dialogue::in_front(head_pose()));
         }
         self.dirty |= placement.revision != self.placement_revision;
@@ -787,6 +824,7 @@ impl Preview {
         Some(match self.panel {
             0 => SurfaceView::Menu {
                 controls: self.controls.clone(),
+                hold_progress: self.hold_progress,
             },
             1 => SurfaceView::Dashboard {
                 dark: self.controls.dark,
@@ -815,6 +853,7 @@ impl Preview {
                     controls: self.controls.clone(),
                     messages,
                     mode: p.display_mode(),
+                    follow_view: p.follow_view(),
                     busy: p.busy(),
                     error: p.error.clone(),
                     font_size: 28,
@@ -938,7 +977,7 @@ impl Preview {
         if self
             .surface
             .as_ref()
-            .is_some_and(|state| state.key == self.surface_key() && state.view != view)
+            .is_some_and(|state| state.key == self.surface_key() && !state.view.same_layout(&view))
         {
             self.layout_changed();
         }
@@ -948,6 +987,11 @@ impl Preview {
             hovered: self.hover,
             pressed: self.pressed,
             pointer: self.cursor,
+            activity: super::surface::SurfaceActivity {
+                active: true,
+                request: 0,
+            },
+            restore_scroll: None,
         });
         self.dirty = false;
         self.placement_revision = placement_revision;
@@ -1309,18 +1353,7 @@ pub fn vr_preview_update(
             }
         }
         if let Some(view) = manager.preview_view() {
-            if view != p.view {
-                p.view = view;
-                if p.panel == 1 {
-                    p.layout_changed();
-                } else {
-                    p.dirty = true;
-                }
-            }
-            p.placement
-                .lock()
-                .map_err(|e| e.to_string())?
-                .sync_mode(Mode::from_config(&p.view.wrist.anchor_mode));
+            p.sync_dashboard_view(view)?;
         }
     }
     let effects = p.update(operation)?;
@@ -1399,7 +1432,7 @@ mod tests {
             0 => vec![Region {
                 id: 0,
                 bounds: [0.1, 0.2, 0.26, 0.84],
-                circle: false,
+                circle: true,
                 dashboard: None,
             }],
             1 => vec![Region {
@@ -1410,12 +1443,24 @@ mod tests {
                     DashboardAction::ToggleOcr,
                 )),
             }],
-            2 => vec![Region {
-                id: 0,
-                bounds: [0.1, 0.02, 0.6, 0.1],
-                circle: false,
-                dashboard: None,
-            }],
+            2 => {
+                let placement = p.placement.lock().unwrap();
+                let mut regions = vec![Region {
+                    id: 0,
+                    bounds: [0.1, 0.02, 0.6, 0.1],
+                    circle: false,
+                    dashboard: None,
+                }];
+                if placement.display_mode() == Mode::World && !placement.busy() {
+                    regions.push(Region {
+                        id: 3,
+                        bounds: [0.7, 0.02, 0.8, 0.12],
+                        circle: true,
+                        dashboard: None,
+                    });
+                }
+                regions
+            }
             4 | 5 | 9 => vec![Region {
                 id: 7,
                 bounds: [0.85, 0.88, 0.92, 0.95],
@@ -1429,6 +1474,24 @@ mod tests {
             layout: SurfaceLayout {
                 key: p.surface_key(),
                 regions,
+                menu_bounds: (p.panel == 0).then_some([0.015625, 0.03125, 0.984375, 0.96875]),
+                panels: match p.panel {
+                    2 => vec![
+                        super::super::surface::Panel {
+                            bounds: [0.01, 0.01, 0.99, 0.125],
+                            radius: [0.0575, 0.0575],
+                        },
+                        super::super::surface::Panel {
+                            bounds: [0.02, 0.145, 0.98, 0.98],
+                            radius: [0.04, 0.04],
+                        },
+                    ],
+                    4 | 5 | 9 => vec![super::super::surface::Panel {
+                        bounds: [0.0234375, 0.0234375, 0.9765625, 0.984375],
+                        radius: [0.03125, 0.03125],
+                    }],
+                    _ => Vec::new(),
+                },
                 page_count: 1,
                 unplaced: Vec::new(),
             },
@@ -1482,7 +1545,7 @@ mod tests {
     #[test]
     fn react_pointer_tracks_panel_background_and_clears_on_leave_or_tracking_loss() {
         let mut p = mock();
-        for panel in [0, 1, 2, 4, 5, 9] {
+        for panel in [1, 2, 4, 5, 9] {
             apply(&mut p, Operation::Select { panel });
             let key = p.surface_key();
             let idle = input(&p, [0.5, 0.5], 0);
@@ -1509,10 +1572,32 @@ mod tests {
     }
 
     #[test]
-    fn mock_menu_uses_real_hit_and_button_edges() {
+    fn mock_menu_cursor_covers_background_without_expanding_button_hits() {
         let mut p = mock();
         p.render().unwrap();
         measure(&mut p);
+        for (point, visible, hit) in [
+            ([0.18, 0.5], true, true),
+            ([0.5, 0.5], true, false),
+            ([0.5, 0.9], true, false),
+            ([0.5, 0.1], true, false),
+            ([0.04, 0.35], true, false),
+            ([0.02, 0.06], false, false),
+            ([0.01, 0.5], false, false),
+        ] {
+            let idle = input(&p, point, 0);
+            apply(&mut p, Operation::Pointer { input: idle });
+            let surface = p.info().surface.unwrap();
+            assert_eq!(surface.pointer, visible.then_some(point), "{point:?}");
+            assert_eq!(surface.hovered, hit.then_some(0));
+            if !hit {
+                let down = input(&p, point, 1);
+                assert!(p.input(down).unwrap().is_empty());
+                let up = input(&p, point, 0);
+                assert!(p.input(up).unwrap().is_empty());
+                assert!(p.pending.iter().all(Option::is_none));
+            }
+        }
         let point = [0.18, 0.5];
         let idle = input(&p, point, 0);
         apply(&mut p, Operation::Pointer { input: idle });
@@ -1525,6 +1610,94 @@ mod tests {
         p.pending[0].as_mut().unwrap().1 = Instant::now() - Duration::from_secs(1);
         p.refresh();
         assert!(p.controls.items[0].requested);
+    }
+
+    #[test]
+    fn menu_hold_recenters_world_dialogue_once_without_toggling_it() {
+        let mut p = mock();
+        p.controls.items[0].requested = true;
+        let original = transform::matrix(0., 90., 0., [3., 1., 2.]);
+        {
+            let mut placement = p.placement.lock().unwrap();
+            placement.sync_mode(Mode::World);
+            placement.initialize_world(original);
+        }
+        p.render().unwrap();
+        measure(&mut p);
+        let key = p.surface_key();
+        let point = [0.18, 0.5];
+        let idle = input(&p, point, 0);
+        apply(&mut p, Operation::Pointer { input: idle });
+        let down = input(&p, point, 1);
+        apply(&mut p, Operation::Pointer { input: down });
+        std::thread::sleep(Duration::from_millis(350));
+        apply(&mut p, Operation::Pointer { input: down });
+        let view = serde_json::to_value(p.info().surface.unwrap().view).unwrap();
+        let progress = view["hold_progress"].as_f64().expect("hold progress");
+        assert!((0. ..1.).contains(&progress));
+        assert_eq!(p.info().pose, Some(original));
+        assert_eq!(p.surface_key(), key);
+        assert!(p.layout.is_some());
+
+        std::thread::sleep(Duration::from_millis(350));
+        apply(&mut p, Operation::Pointer { input: down });
+        assert_eq!(p.info().pose, Some(dialogue::in_front(head_pose())));
+        assert_eq!(p.info().mode, Mode::World);
+        let revision = p.placement.lock().unwrap().revision;
+        apply(&mut p, Operation::Pointer { input: down });
+        assert_eq!(p.placement.lock().unwrap().revision, revision);
+        assert_eq!(p.surface_key(), key);
+
+        let up = input(&p, point, 0);
+        apply(&mut p, Operation::Pointer { input: up });
+        assert!(p.pending.iter().all(Option::is_none));
+        assert!(p.controls.items[0].requested);
+        assert!(
+            serde_json::to_value(p.info().surface.unwrap().view).unwrap()["hold_progress"]
+                .is_null()
+        );
+        assert_eq!(p.placement.lock().unwrap().revision, revision);
+    }
+
+    #[test]
+    fn menu_hold_clears_when_cancelled_and_requires_world_dialogue() {
+        let mut p = mock();
+        p.controls.items[0].requested = true;
+        p.placement.lock().unwrap().sync_mode(Mode::World);
+        p.refresh();
+        p.render().unwrap();
+        measure(&mut p);
+        let original = p.info().pose;
+        let point = [0.18, 0.5];
+        for operation in [Operation::Cancel, Operation::Tracking { available: false }] {
+            let idle = input(&p, point, 0);
+            apply(&mut p, Operation::Pointer { input: idle });
+            let down = input(&p, point, 1);
+            apply(&mut p, Operation::Pointer { input: down });
+            assert!(p.hold_progress.is_some());
+            apply(&mut p, operation);
+            assert_eq!(p.hold_progress, None);
+            assert_eq!(p.pressed, None);
+            assert_eq!(p.info().pose, original);
+            assert!(p.pending.iter().all(Option::is_none));
+            apply(&mut p, Operation::Tracking { available: true });
+        }
+        for (mode, enabled) in [(Mode::Wrist, true), (Mode::World, false)] {
+            p.placement.lock().unwrap().sync_mode(mode);
+            p.controls.items[0].requested = enabled;
+            p.dirty = true;
+            p.render().unwrap();
+            measure(&mut p);
+            let idle = input(&p, point, 0);
+            apply(&mut p, Operation::Pointer { input: idle });
+            let down = input(&p, point, 1);
+            apply(&mut p, Operation::Pointer { input: down });
+            assert_eq!(p.hold_progress, None);
+            assert_eq!(p.pressed, Some(0));
+            let up = input(&p, point, 0);
+            let effects = p.input(up).unwrap();
+            assert!(matches!(effects.as_slice(), [Effect::Control(_)]));
+        }
     }
 
     #[test]
@@ -1610,6 +1783,110 @@ mod tests {
         apply(&mut p, Operation::Tracking { available: false });
         assert!(p.placement.lock().unwrap().dragging().is_none());
         assert_eq!(p.placement.lock().unwrap().mode(), Mode::Wrist);
+    }
+
+    #[test]
+    fn dialogue_follow_button_saves_and_rolls_back_through_the_placement_flow() {
+        let mut p = mock();
+        apply(&mut p, Operation::Select { panel: 2 });
+        let point = [0.75, 0.07];
+        for buttons in [0, 1, 0] {
+            let sample = input(&p, point, buttons);
+            apply(&mut p, Operation::Pointer { input: sample });
+        }
+        assert!(!p.placement.lock().unwrap().follow_view());
+        apply(&mut p, Operation::Place { mode: Mode::World });
+        let pose = p.info().pose;
+        for (fail, expected) in [(false, true), (true, true), (false, false)] {
+            apply(&mut p, Operation::SaveFailure { enabled: fail });
+            for buttons in [0, 1, 0] {
+                let sample = input(&p, point, buttons);
+                apply(&mut p, Operation::Pointer { input: sample });
+            }
+            let placement = p.placement.lock().unwrap();
+            assert_eq!(placement.follow_view(), expected);
+            assert_eq!(placement.error.is_some(), fail);
+            assert!(!placement.busy());
+            drop(placement);
+            assert_eq!(p.info().pose, pose);
+            let view = serde_json::to_value(p.info().surface.unwrap().view).unwrap();
+            assert_eq!(view["follow_view"], expected);
+        }
+    }
+
+    #[test]
+    fn live_dialogue_follow_button_dispatches_and_resolves_a_placement_request() {
+        let mut p = Preview::new(true, Arc::new(Mutex::new(Placement::default())));
+        apply(&mut p, Operation::Select { panel: 2 });
+        let Some(Effect::Placement(anchor)) = p.place(Mode::World) else {
+            panic!("expected world placement request");
+        };
+        p.placement.lock().unwrap().resolve(anchor.id, true, None);
+        p.refresh();
+        p.render().unwrap();
+        measure(&mut p);
+        let pose = p.info().pose;
+        let point = [0.75, 0.07];
+        for buttons in [0, 1] {
+            assert!(p.input(input(&p, point, buttons)).unwrap().is_empty());
+        }
+        let effects = p.input(input(&p, point, 0)).unwrap();
+        let [Effect::Placement(request)] = effects.as_slice() else {
+            panic!("expected follow-view placement request");
+        };
+        assert_eq!(request.mode, Mode::World);
+        assert!(request.follow_view);
+        assert!(p.placement.lock().unwrap().busy());
+        p.placement.lock().unwrap().resolve(request.id, true, None);
+        p.refresh();
+        p.render().unwrap();
+        assert!(!p.info().busy);
+        assert!(p.placement.lock().unwrap().follow_view());
+        assert!(p.placement.lock().unwrap().head_relative_pose().is_some());
+        assert_eq!(p.info().pose, pose);
+        let view = serde_json::to_value(p.info().surface.unwrap().view).unwrap();
+        assert_eq!(view["follow_view"], true);
+    }
+
+    #[test]
+    fn live_preview_loads_saved_follow_preference_and_can_disable_it() {
+        let mut p = Preview::new(true, Arc::new(Mutex::new(Placement::default())));
+        apply(&mut p, Operation::Select { panel: 2 });
+        let mut view = p.view.clone();
+        view.wrist.anchor_mode = "world".into();
+        view.wrist.follow_view = true;
+        p.sync_dashboard_view(view).unwrap();
+        p.refresh();
+        p.render().unwrap();
+        measure(&mut p);
+        assert_eq!(p.info().mode, Mode::World);
+        assert!(p.placement.lock().unwrap().follow_view());
+        assert!(p.placement.lock().unwrap().head_relative_pose().is_some());
+        let pose = p.info().pose;
+        let surface = serde_json::to_value(p.info().surface.unwrap().view).unwrap();
+        assert_eq!(surface["follow_view"], true);
+
+        let point = [0.75, 0.07];
+        for buttons in [0, 1] {
+            assert!(p.input(input(&p, point, buttons)).unwrap().is_empty());
+        }
+        let effects = p.input(input(&p, point, 0)).unwrap();
+        let [Effect::Placement(request)] = effects.as_slice() else {
+            panic!("expected follow-view placement request");
+        };
+        assert!(!request.follow_view);
+        let mut view = p.view.clone();
+        view.wrist.follow_view = false;
+        p.sync_dashboard_view(view).unwrap();
+        assert!(p.placement.lock().unwrap().busy());
+        p.placement.lock().unwrap().resolve(request.id, true, None);
+        p.refresh();
+        p.render().unwrap();
+        assert!(!p.info().busy);
+        assert_eq!(p.info().pose, pose);
+        assert!(!p.placement.lock().unwrap().follow_view());
+        let surface = serde_json::to_value(p.info().surface.unwrap().view).unwrap();
+        assert_eq!(surface["follow_view"], false);
     }
 
     #[test]

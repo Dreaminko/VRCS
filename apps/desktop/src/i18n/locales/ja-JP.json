@@ -943,6 +943,8 @@
         "anchorMode": "字幕パネルの固定方法",
         "anchorWrist": "手首に固定",
         "anchorWorld": "空間に固定",
+        "followView": "視点に追従",
+        "followViewHint": "空間固定時にパネルが視点に追従します。オフにすると現在の位置に留まります。",
         "recenterDialogue": "会話パネルを目の前に移動",
         "emptyDialogue": "新しい内容はありません",
         "dragHint": "ハンドルを指してグリップを押しながら移動",
@@ -954,7 +956,6 @@
       "conversationTitles": {
         "title": "会話管理",
         "autoGenerate": "会話タイトルを自動生成",
-        "description": "新しい会話を作成して前の会話を終了すると、字幕の原文から要約タイトルを生成します。文字起こしの停止は一時停止として扱います。",
         "configureFirst": "利用可能なテキスト生成 API プロファイルとモデルを先に設定してください。",
         "modelSettings": "タイトル生成モデル",
         "profile": "API プロファイル",

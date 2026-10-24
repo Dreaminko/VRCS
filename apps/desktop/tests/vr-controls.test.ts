@@ -31,6 +31,36 @@ test("OSC cannot enable a disabled feature", () => {
   assert.equal(current.osc.enabled, false);
 });
 
+test("dialogue placement saves anchor and follow preference together without changing other layers", async () => {
+  const current = settings();
+  let writes = 0;
+  const action = { set_dialogue_placement: { mode: "world" as const, follow_view: true } };
+  const execute = createControlExecutor({
+    update: async (apply) => {
+      writes++;
+      const next = apply(current);
+      assert.equal(next.vr_overlay.wrist.anchor_mode, "world");
+      assert.equal(next.vr_overlay.wrist.follow_view, true);
+      assert.equal(next.vr_overlay.headset, current.vr_overlay.headset);
+      assert.equal(next.osc, current.osc);
+      assert.equal(current.vr_overlay.wrist.anchor_mode, "wrist");
+      assert.equal(current.vr_overlay.wrist.follow_view, false);
+      assert.equal(applyControlAction(next, action), next);
+      return next;
+    },
+    setCaptureRunning: async () => true,
+  });
+  await execute(action);
+  assert.equal(writes, 1);
+});
+
+test("dialogue placement rejects a save that drops the follow preference", async () => {
+  const current = settings();
+  current.vr_overlay.wrist.anchor_mode = "world";
+  const execute = createControlExecutor({ update: async () => current, setCaptureRunning: async () => true });
+  await assert.rejects(execute({ set_dialogue_placement: { mode: "world", follow_view: true } }), /not applied/);
+});
+
 test("queued controls rebase a conflicted save and do not overwrite unrelated settings", async () => {
   let current = settings();
   let writes = 0;

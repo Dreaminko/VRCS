@@ -30,7 +30,7 @@ export function useVrControlBridge(options: {
   view.current = {
     owner_epoch: epoch, revision: revision.current,
     dark: document.documentElement.dataset.theme === "dark",
-    labels: Object.fromEntries(["emptyDialogue", "dragHint", "anchorWrist", "anchorWorld", "controlBusy", "controlFailed", "masterOff", "waitingContent"]
+    labels: Object.fromEntries(["emptyDialogue", "dragHint", "anchorWrist", "anchorWorld", "followView", "controlBusy", "controlFailed", "masterOff", "waitingContent"]
       .map((key) => [key, t(`settings.vrOverlay.${key}`)])),
     items: [
       item(overlay?.wrist.enabled ?? false, false, options.available && Boolean(settings?.features.vr_overlay), t("settings.vrDashboard.wrist"), false, overlay?.enabled ? null : t("settings.vrOverlay.masterOff")),
@@ -91,7 +91,7 @@ export function useVrControlBridge(options: {
         seen.set("placement", request.id);
         void (async () => {
           let error: string | null = null;
-          try { await execute({ set_anchor_mode: request.mode }); }
+          try { await execute({ set_dialogue_placement: { mode: request.mode, follow_view: request.follow_view } }); }
           catch (reason) { error = reason instanceof Error ? reason.message : String(reason); }
           if (disposed || owner !== request.owner_epoch) return;
           await invoke("vr_overlay_placement_result", { epoch: owner, id: request.id, error });

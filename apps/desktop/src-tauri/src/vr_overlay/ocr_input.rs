@@ -9,6 +9,7 @@ pub struct UiInput {
     pub source: u64,
     pub trigger: Option<bool>,
     pub grip: Option<bool>,
+    pub scroll_y: f32,
 }
 
 pub struct InputActions {
@@ -58,6 +59,7 @@ pub struct OcrInput {
     clear_hold: HoldAction,
     hands: [u64; 2],
     grips: [u64; 2],
+    scrolls: [u64; 2],
     poses: [u64; 2],
     frame_session: FrameSession,
     grips_blocked: bool,
@@ -90,6 +92,15 @@ pub fn install_manifest(directory: &Path) -> Result<std::path::PathBuf, String> 
             );
             serde_json::json!({"path":format!("/user/hand/{side}/input/grip"),"mode":mode,"inputs":inputs})
         };
+        let scroll = |side: &str| {
+            let (axis, mode) = match controller {
+                "knuckles" => ("thumbstick", "joystick"),
+                "oculus_touch" => ("joystick", "joystick"),
+                _ => ("trackpad", "trackpad"),
+            };
+            serde_json::json!({"path":format!("/user/hand/{side}/input/{axis}"),"mode":mode,
+                "inputs":{"position":{"output":format!("/actions/ocr/in/{side}_scroll")}}})
+        };
         let binding = serde_json::json!({"controller_type":controller,"name":"VRCS OCR",
         "description":"Hold both grips to drag a frame. After the frame appears, hold the right trigger to confirm OCR. With the visual assistant enabled, hold the left trigger in a valid frame to speak, then release to ask; otherwise hold to cancel / clear. If a trigger was already held before the frame appeared, release it before confirming. Triggers cannot scan or start a question without a frame. Bind the optional cancel action as needed. Customize to avoid game input conflicts.",
         "bindings":{"/actions/ocr":{"poses":[
@@ -101,7 +112,7 @@ pub fn install_manifest(directory: &Path) -> Result<std::path::PathBuf, String> 
         ],"sources":[
             {"path":"/user/hand/right/input/trigger","mode":"button","inputs":{"click":{"output":"/actions/ocr/in/scan"}}},
             {"path":"/user/hand/left/input/trigger","mode":"button","inputs":{"click":{"output":"/actions/ocr/in/clear"}}},
-            grip("left"), grip("right")
+            grip("left"), grip("right"), scroll("left"), scroll("right")
         ]}}});
         write_if_changed(&directory.join(&name), &binding)?;
         bindings.push(serde_json::json!({"controller_type":controller,"binding_url":name}));
@@ -120,6 +131,8 @@ pub fn install_manifest(directory: &Path) -> Result<std::path::PathBuf, String> 
                 {"name":"/actions/ocr/in/next_page","type":"boolean","requirement":"optional"},
                 {"name":"/actions/ocr/in/left_grip","type":"boolean","requirement":"optional"},
                 {"name":"/actions/ocr/in/right_grip","type":"boolean","requirement":"optional"},
+                {"name":"/actions/ocr/in/left_scroll","type":"vector2","requirement":"optional"},
+                {"name":"/actions/ocr/in/right_scroll","type":"vector2","requirement":"optional"},
                 {"name":"/actions/ocr/in/left_pose","type":"pose","requirement":"optional"},
                 {"name":"/actions/ocr/in/right_pose","type":"pose","requirement":"optional"},
                 {"name":"/actions/ocr/in/left_hand","type":"skeleton","skeleton":"/skeleton/hand/left","requirement":"optional"},
@@ -133,6 +146,8 @@ pub fn install_manifest(directory: &Path) -> Result<std::path::PathBuf, String> 
                 "/actions/ocr/in/previous_page":"Previous OCR page (point at panel)",
                 "/actions/ocr/in/next_page":"Next OCR page (point at panel)",
                 "/actions/ocr/in/left_grip":"Frame drag left grip", "/actions/ocr/in/right_grip":"Frame drag right grip",
+                "/actions/ocr/in/left_scroll":"Scroll reader with left stick (point at panel)",
+                "/actions/ocr/in/right_scroll":"Scroll reader with right stick (point at panel)",
                 "/actions/ocr/in/left_pose":"Frame left corner", "/actions/ocr/in/right_pose":"Frame right corner",
                 "/actions/ocr/in/left_hand":"Left hand camera frame", "/actions/ocr/in/right_hand":"Right hand camera frame"}]
         }),
@@ -163,7 +178,7 @@ impl OcrInput {
         (error == 0 && source != 0).then_some(source)
     }
 
-    /// Read only trigger/grip actions; do not request global input focus.
+    /// Read controller actions without requesting global input focus.
     pub fn ui_samples(&self) -> Vec<UiInput> {
         let api = unsafe { &*self.table };
         [false, true]
@@ -186,24 +201,51 @@ impl OcrInput {
                 };
                 let trigger = read(if right { self.scan } else { self.clear });
                 let grip = read(self.grips[side]);
-                let origin = trigger.as_ref().or(grip.as_ref())?.activeOrigin;
-                let mut info: openvr_sys::InputOriginInfo_t = unsafe { std::mem::zeroed() };
-                if unsafe {
-                    api.GetOriginTrackedDeviceInfo?(
-                        origin,
-                        &mut info,
-                        size_of::<openvr_sys::InputOriginInfo_t>() as u32,
-                    )
-                } != 0
-                    || info.devicePath != source
-                {
-                    return None;
-                }
+                let scroll = api.GetAnalogActionData.and_then(|read| {
+                    let action = self.scrolls[side];
+                    if action == 0 {
+                        return None;
+                    }
+                    let mut data: openvr_sys::InputAnalogActionData_t =
+                        unsafe { std::mem::zeroed() };
+                    let error = unsafe {
+                        read(
+                            action,
+                            &mut data,
+                            size_of::<openvr_sys::InputAnalogActionData_t>() as u32,
+                            source,
+                        )
+                    };
+                    (error == 0 && data.bActive && data.activeOrigin != 0 && data.y.is_finite())
+                        .then_some(data)
+                });
+                let device = |origin| {
+                    let mut info: openvr_sys::InputOriginInfo_t = unsafe { std::mem::zeroed() };
+                    let error = unsafe {
+                        api.GetOriginTrackedDeviceInfo?(
+                            origin,
+                            &mut info,
+                            size_of::<openvr_sys::InputOriginInfo_t>() as u32,
+                        )
+                    };
+                    (error == 0 && info.devicePath == source).then_some(info.trackedDeviceIndex)
+                };
+                let origin = trigger
+                    .as_ref()
+                    .or(grip.as_ref())
+                    .map(|data| data.activeOrigin)
+                    .or_else(|| scroll.as_ref().map(|data| data.activeOrigin))?;
+                let tracked_device = device(origin)?;
+                let scroll_y = scroll
+                    .filter(|data| device(data.activeOrigin) == Some(tracked_device))
+                    .map(|data| data.y.signum() * ((data.y.abs().min(1.0) - 0.2) / 0.8).max(0.0))
+                    .unwrap_or(0.0);
                 Some(UiInput {
-                    device: info.trackedDeviceIndex,
+                    device: tracked_device,
                     source,
                     trigger: trigger.map(|v| v.bState),
                     grip: grip.map(|v| v.bState),
+                    scroll_y,
                 })
             })
             .collect()
@@ -285,6 +327,10 @@ impl OcrInput {
             grips: [
                 action("/actions/ocr/in/left_grip").unwrap_or(0),
                 action("/actions/ocr/in/right_grip").unwrap_or(0),
+            ],
+            scrolls: [
+                action("/actions/ocr/in/left_scroll").unwrap_or(0),
+                action("/actions/ocr/in/right_scroll").unwrap_or(0),
             ],
             poses: [
                 action("/actions/ocr/in/left_pose").unwrap_or(0),
@@ -842,6 +888,7 @@ mod tests {
             reading: [0; 4],
             hands: [72, 73],
             grips: [3, 4],
+            scrolls: [7, 8],
             poses: [5, 6],
             scan_hold: Default::default(),
             clear_hold: Default::default(),
@@ -991,6 +1038,105 @@ mod tests {
         );
         api.GetOriginTrackedDeviceInfo = None;
         assert!(input(&api).ui_samples().is_empty());
+    }
+
+    #[test]
+    fn reader_scroll_uses_each_hands_axis_and_ignores_invalid_samples() {
+        use std::cell::{Cell, RefCell};
+        thread_local! {
+            static AXIS: Cell<(i32, bool, u64, f32)> = const { Cell::new((0, true, 0, 1.0)) };
+            static READS: RefCell<Vec<(u64, u64)>> = const { RefCell::new(Vec::new()) };
+        }
+        unsafe extern "C" fn source(path: *mut std::ffi::c_char, handle: *mut u64) -> i32 {
+            unsafe {
+                *handle = if std::ffi::CStr::from_ptr(path) == c"/user/hand/left" {
+                    101
+                } else {
+                    102
+                };
+            }
+            0
+        }
+        unsafe extern "C" fn digital(
+            _: u64,
+            data: *mut openvr_sys::InputDigitalActionData_t,
+            _: u32,
+            source: u64,
+        ) -> i32 {
+            unsafe {
+                (*data).bActive = true;
+                (*data).activeOrigin = source - 100;
+                (*data).bState = true;
+            }
+            0
+        }
+        unsafe extern "C" fn analog(
+            action: u64,
+            data: *mut openvr_sys::InputAnalogActionData_t,
+            _: u32,
+            source: u64,
+        ) -> i32 {
+            READS.with_borrow_mut(|reads| reads.push((action, source)));
+            let (error, active, origin, y) = AXIS.get();
+            unsafe {
+                (*data).bActive = active;
+                (*data).activeOrigin = if origin == 0 { source - 100 } else { origin };
+                (*data).y = if action == 7 { y } else { -y };
+            }
+            error
+        }
+        unsafe extern "C" fn origin(
+            origin: u64,
+            info: *mut openvr_sys::InputOriginInfo_t,
+            _: u32,
+        ) -> i32 {
+            unsafe {
+                (*info).trackedDeviceIndex = origin as u32;
+                (*info).devicePath = origin + 100;
+            }
+            0
+        }
+        let mut api: openvr_sys::VR_IVRInput_FnTable = unsafe { std::mem::zeroed() };
+        api.GetInputSourceHandle = Some(source);
+        api.GetDigitalActionData = Some(digital);
+        api.GetAnalogActionData = Some(analog);
+        api.GetOriginTrackedDeviceInfo = Some(origin);
+        let samples = input(&api).ui_samples();
+        assert_eq!(
+            READS.with_borrow(|reads| reads.clone()),
+            [(7, 101), (8, 102)]
+        );
+        assert_eq!((samples[0].scroll_y, samples[1].scroll_y), (1.0, -1.0));
+        for value in [0.0, 0.1, -0.2, f32::NAN, f32::INFINITY] {
+            AXIS.set((0, true, 0, value));
+            assert!(input(&api)
+                .ui_samples()
+                .iter()
+                .all(|sample| sample.scroll_y == 0.0));
+        }
+        for (error, active) in [(1, true), (0, false)] {
+            AXIS.set((error, active, 0, 1.0));
+            let samples = input(&api).ui_samples();
+            assert_eq!(samples.len(), 2);
+            assert!(samples
+                .iter()
+                .all(|sample| sample.scroll_y == 0.0 && sample.trigger == Some(true)));
+        }
+        AXIS.set((0, true, 2, 1.0));
+        let samples = input(&api).ui_samples();
+        assert_eq!((samples[0].scroll_y, samples[1].scroll_y), (0.0, -1.0));
+        api.GetAnalogActionData = None;
+        assert!(input(&api)
+            .ui_samples()
+            .iter()
+            .all(|sample| sample.scroll_y == 0.0 && sample.trigger == Some(true)));
+        api.GetAnalogActionData = Some(analog);
+        api.GetDigitalActionData = None;
+        AXIS.set((0, true, 0, 0.6));
+        let samples = input(&api).ui_samples();
+        assert_eq!(samples.len(), 2);
+        assert!((samples[0].scroll_y - 0.5).abs() < 0.0001);
+        assert!((samples[1].scroll_y + 0.5).abs() < 0.0001);
     }
 
     #[test]
@@ -1291,7 +1437,30 @@ mod tests {
                     grip["inputs"][component]["output"],
                     format!("/actions/ocr/in/{side}_grip")
                 );
-                for (name, kind) in [("pose", "pose"), ("grip", "boolean")] {
+                let axis = match controller {
+                    "knuckles" => "thumbstick",
+                    "oculus_touch" => "joystick",
+                    _ => "trackpad",
+                };
+                let scroll = binding["sources"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .find(|source| source["path"] == format!("/user/hand/{side}/input/{axis}"))
+                    .expect("Each hand must have a default reader scroll binding");
+                assert_eq!(
+                    scroll["inputs"]["position"]["output"],
+                    format!("/actions/ocr/in/{side}_scroll")
+                );
+                assert_eq!(
+                    scroll["mode"],
+                    if axis == "trackpad" {
+                        "trackpad"
+                    } else {
+                        "joystick"
+                    }
+                );
+                for (name, kind) in [("pose", "pose"), ("grip", "boolean"), ("scroll", "vector2")] {
                     let action = manifest["actions"]
                         .as_array()
                         .unwrap()

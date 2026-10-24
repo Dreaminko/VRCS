@@ -10,7 +10,7 @@ use std::{
 };
 use windows::{
     core::{factory, IInspectable, Interface, BOOL},
-    Foundation::TypedEventHandler,
+    Foundation::{TimeSpan, TypedEventHandler},
     Graphics::{
         Capture::{
             Direct3D11CaptureFrame, Direct3D11CaptureFramePool, GraphicsCaptureItem,
@@ -47,19 +47,21 @@ use windows::{
 };
 
 const MARKER_WIDTH: u32 = 256;
-const MARKER_HEIGHT: u32 = 8;
+pub const MARKER_HEIGHT: u32 = 16;
 
 #[derive(Clone, Copy, Debug)]
 pub struct Captured {
     pub shared_handle: usize,
     pub generation: u32,
     pub revision: u32,
+    pub paint_serial: u32,
+    pub requested_serial: u32,
 }
 
 /// Construct, poll, and drop on the same VR worker thread.
 pub struct Capture {
     pending: Option<Pending>,
-    source: Source,
+    source: Option<Source>,
     context: ID3D11DeviceContext,
     device: ID3D11Device,
     marker: ID3D11Texture2D,
@@ -68,6 +70,8 @@ pub struct Capture {
     next_slot: usize,
     width: u32,
     height: u32,
+    hwnd: isize,
+    counters: Arc<super::metrics::CaptureCounters>,
     // COM objects must be released before the apartment is uninitialized.
     _apartment: Apartment,
 }
@@ -89,6 +93,7 @@ struct Slot {
 struct Pending {
     _frame: Frame,
     slot: usize,
+    requested_serial: u32,
 }
 
 struct Frame(Direct3D11CaptureFrame);
@@ -105,10 +110,14 @@ struct Source {
     item: GraphicsCaptureItem,
     closed_token: Option<i64>,
     closed: Arc<AtomicBool>,
+    frame_token: Option<i64>,
 }
 
 impl Source {
     fn close(&mut self) {
+        if let Some(token) = self.frame_token.take() {
+            let _ = self.pool.RemoveFrameArrived(token);
+        }
         if let Some(token) = self.closed_token.take() {
             let _ = self.item.RemoveClosed(token);
         }
@@ -124,7 +133,13 @@ impl Drop for Source {
 }
 
 impl Capture {
-    pub fn new(hwnd: isize, adapter_index: u32, width: u32, height: u32) -> Result<Self, String> {
+    pub(super) fn with_counters(
+        hwnd: isize,
+        adapter_index: u32,
+        width: u32,
+        height: u32,
+        counters: Arc<super::metrics::CaptureCounters>,
+    ) -> Result<Self, String> {
         let capture_height = height
             .checked_add(MARKER_HEIGHT)
             .ok_or("Invalid surface size")?;
@@ -148,7 +163,7 @@ impl Capture {
             create_slot(&device, width, height)?,
             create_slot(&device, width, height)?,
         ];
-        let mut marker_desc = texture_desc(MARKER_WIDTH, 1);
+        let mut marker_desc = texture_desc(MARKER_WIDTH, 2);
         marker_desc.Usage = D3D11_USAGE_STAGING;
         marker_desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ.0 as u32;
         let marker = create_texture(&device, &marker_desc)?;
@@ -164,63 +179,10 @@ impl Capture {
         }
         .map_err(|e| failure("Create capture completion query", e))?;
         let query = query.ok_or("D3D11 returned no capture query")?;
-        let dxgi_device: IDXGIDevice = device.cast().map_err(|e| failure("Get DXGI device", e))?;
-        let capture_device: IDirect3DDevice =
-            unsafe { CreateDirect3D11DeviceFromDXGIDevice(&dxgi_device) }
-                .and_then(|value| value.cast())
-                .map_err(|e| failure("Create WinRT D3D11 device", e))?;
-        let interop: IGraphicsCaptureItemInterop =
-            factory::<GraphicsCaptureItem, IGraphicsCaptureItemInterop>()
-                .map_err(|e| failure("Create WGC factory", e))?;
-        let item: GraphicsCaptureItem = unsafe { interop.CreateForWindow(HWND(hwnd as *mut _)) }
-            .map_err(|e| failure("Capture WebView window", e))?;
-        let size = item.Size().map_err(|e| failure("Read WGC item size", e))?;
-        check_size(size, width, capture_height)?;
-        let pool = Direct3D11CaptureFramePool::CreateFreeThreaded(
-            &capture_device,
-            DirectXPixelFormat::B8G8R8A8UIntNormalized,
-            2,
-            size,
-        )
-        .map_err(|e| failure("Create WGC frame pool", e))?;
-        let session = match pool.CreateCaptureSession(&item) {
-            Ok(session) => session,
-            Err(error) => {
-                let _ = pool.Close();
-                return Err(failure("Create WGC session", error));
-            }
-        };
-        let mut source = Source {
-            session,
-            pool,
-            item,
-            closed_token: None,
-            closed: Arc::new(AtomicBool::new(false)),
-        };
-        let closed = source.closed.clone();
-        source.closed_token = Some(
-            source
-                .item
-                .Closed(
-                    &TypedEventHandler::<GraphicsCaptureItem, IInspectable>::new(move |_, _| {
-                        closed.store(true, Ordering::Release);
-                        Ok(())
-                    }),
-                )
-                .map_err(|e| failure("Observe capture closure", e))?,
-        );
-        source
-            .session
-            .SetIsCursorCaptureEnabled(false)
-            .map_err(|e| failure("Disable capture cursor", e))?;
-        source
-            .session
-            .StartCapture()
-            .map_err(|e| failure("Start WebView capture", e))?;
-
+        let source = Source::new(&device, hwnd, width, capture_height, &counters)?;
         Ok(Self {
             pending: None,
-            source,
+            source: Some(source),
             context,
             device,
             marker,
@@ -229,13 +191,41 @@ impl Capture {
             next_slot: 0,
             width,
             height,
+            hwnd,
+            counters,
             _apartment: apartment,
         })
     }
 
-    /// Polls without waiting for a frame, GPU completion, or a staging map.
-    pub fn poll(&mut self) -> Result<Option<Captured>, String> {
-        if self.source.closed.load(Ordering::Acquire) {
+    pub fn active(&self) -> bool {
+        self.source.is_some()
+    }
+
+    pub fn suspend(&mut self) {
+        // Stop delivery before releasing in-flight frames. D3D keeps queued resources alive.
+        self.source.take();
+        self.pending.take();
+    }
+
+    pub fn resume(&mut self) -> Result<(), String> {
+        if self.source.is_none() {
+            self.source = Some(Source::new(
+                &self.device,
+                self.hwnd,
+                self.width,
+                self.height + MARKER_HEIGHT,
+                &self.counters,
+            )?);
+        }
+        Ok(())
+    }
+
+    /// Polls without waiting; the dirty gate precedes every full texture copy.
+    pub fn poll(&mut self, requested: Option<u32>) -> Result<Option<Captured>, String> {
+        let Some(source) = &self.source else {
+            return Ok(None);
+        };
+        if source.closed.load(Ordering::Acquire) {
             return Err("The WebView capture window was closed".into());
         }
         unsafe { self.device.GetDeviceRemovedReason() }
@@ -243,6 +233,9 @@ impl Capture {
         if self.pending.is_some() {
             return self.finish();
         }
+        let Some(requested_serial) = requested.filter(|serial| *serial != 0) else {
+            return Ok(None);
+        };
         let Some(frame) = self.next_frame()? else {
             return Ok(None);
         };
@@ -268,14 +261,6 @@ impl Capture {
             bottom: self.height,
             back: 1,
         };
-        let marker = D3D11_BOX {
-            left: 0,
-            top: self.height + 4,
-            front: 0,
-            right: MARKER_WIDTH,
-            bottom: self.height + 5,
-            back: 1,
-        };
         unsafe {
             self.context.CopySubresourceRegion(
                 &self.slots[self.next_slot].texture,
@@ -287,33 +272,51 @@ impl Capture {
                 0,
                 Some(&content),
             );
-            self.context.CopySubresourceRegion(
-                &self.marker,
-                0,
-                0,
-                0,
-                0,
-                &texture,
-                0,
-                Some(&marker),
-            );
+            for row in 0..2 {
+                let marker = D3D11_BOX {
+                    left: 0,
+                    top: self.height + 4 + row * 8,
+                    front: 0,
+                    right: MARKER_WIDTH,
+                    bottom: self.height + 5 + row * 8,
+                    back: 1,
+                };
+                self.context.CopySubresourceRegion(
+                    &self.marker,
+                    0,
+                    0,
+                    row,
+                    0,
+                    &texture,
+                    0,
+                    Some(&marker),
+                );
+            }
             self.context.End(&self.query);
             self.context.Flush();
         }
+        super::metrics::CaptureCounters::increment(&self.counters.copies, 1);
+        super::metrics::CaptureCounters::increment(
+            &self.counters.copy_bytes,
+            u64::from(self.width) * u64::from(self.height) * 4,
+        );
         self.pending = Some(Pending {
             _frame: frame,
             slot: self.next_slot,
+            requested_serial,
         });
         Ok(None)
     }
 
     fn next_frame(&self) -> Result<Option<Frame>, String> {
+        let Some(source) = &self.source else {
+            return Ok(None);
+        };
         let mut latest = None;
         // Keep latency bounded without spinning while capture is producing frames.
         for _ in 0..2 {
-            match self.source.pool.TryGetNextFrame() {
+            match source.pool.TryGetNextFrame() {
                 Ok(frame) => latest = Some(Frame(frame)),
-                // windows-rs represents the successful nullable result as Error::empty().
                 Err(error) if error.code().0 == 0 => break,
                 Err(error) => return Err(failure("Get next WGC frame", error)),
             }
@@ -356,28 +359,35 @@ impl Capture {
         let key = if mapped.pData.is_null() || mapped.RowPitch < MARKER_WIDTH * 4 {
             None
         } else {
-            // Only this 1 KiB marker row crosses from the GPU to the CPU.
-            let row = unsafe {
-                std::slice::from_raw_parts(mapped.pData.cast(), (MARKER_WIDTH * 4) as usize)
+            // Only two 1 KiB rows cross from GPU to CPU, including row-pitch padding.
+            let rows = unsafe {
+                std::slice::from_raw_parts(
+                    mapped.pData.cast(),
+                    mapped.RowPitch as usize + (MARKER_WIDTH * 4) as usize,
+                )
             };
-            decode_marker(row)
+            decode_marker(rows, mapped.RowPitch as usize)
         };
-        unsafe { self.context.Unmap(&self.marker, 0) };
+        unsafe {
+            self.context.Unmap(&self.marker, 0);
+        }
         let pending = self
             .pending
             .take()
             .expect("capture completion requires an in-flight frame");
-        let Some((generation, revision)) = key else {
+        let Some((generation, revision, paint_serial)) = key else {
             return Ok(None);
         };
         Ok(Some(Captured {
             shared_handle: self.slots[pending.slot].handle,
             generation,
             revision,
+            paint_serial,
+            requested_serial: pending.requested_serial,
         }))
     }
 
-    /// Protect the submitted texture and start copying into the released buffer.
+    /// Protect the submitted slot. Idle surfaces must never start a speculative copy.
     pub fn submitted(&mut self, frame: Captured) -> Result<(), String> {
         let slot = self
             .slots
@@ -385,8 +395,7 @@ impl Capture {
             .position(|slot| slot.handle == frame.shared_handle)
             .expect("submitted texture belongs to this capture");
         self.next_slot = 1 - slot;
-        // Let the next render tick finish this copy instead of starting it.
-        self.poll()?;
+        super::metrics::CaptureCounters::increment(&self.counters.submissions, 1);
         Ok(())
     }
 
@@ -410,7 +419,7 @@ impl Capture {
             self.context
                 .Map(&staging, 0, D3D11_MAP_READ, 0, Some(&mut mapped))
         }
-        .map_err(|error| failure("Read smoke test texture", error))?;
+        .map_err(|e| failure("Read smoke test texture", e))?;
         let mut pixels = Vec::with_capacity((self.width * self.height * 4) as usize);
         for y in 0..self.height as usize {
             let row = unsafe {
@@ -428,11 +437,105 @@ impl Capture {
     }
 }
 
+impl Source {
+    fn new(
+        device: &ID3D11Device,
+        hwnd: isize,
+        width: u32,
+        capture_height: u32,
+        counters: &Arc<super::metrics::CaptureCounters>,
+    ) -> Result<Self, String> {
+        let dxgi_device: IDXGIDevice = device.cast().map_err(|e| failure("Get DXGI device", e))?;
+        let capture_device: IDirect3DDevice =
+            unsafe { CreateDirect3D11DeviceFromDXGIDevice(&dxgi_device) }
+                .and_then(|value| value.cast())
+                .map_err(|e| failure("Create WinRT D3D11 device", e))?;
+        let interop: IGraphicsCaptureItemInterop =
+            factory::<GraphicsCaptureItem, IGraphicsCaptureItemInterop>()
+                .map_err(|e| failure("Create WGC factory", e))?;
+        let item: GraphicsCaptureItem = unsafe { interop.CreateForWindow(HWND(hwnd as *mut _)) }
+            .map_err(|e| failure("Capture WebView window", e))?;
+        let size = item.Size().map_err(|e| failure("Read WGC item size", e))?;
+        check_size(size, width, capture_height)?;
+        let pool = Direct3D11CaptureFramePool::CreateFreeThreaded(
+            &capture_device,
+            DirectXPixelFormat::B8G8R8A8UIntNormalized,
+            2,
+            size,
+        )
+        .map_err(|e| failure("Create WGC frame pool", e))?;
+        let session = match pool.CreateCaptureSession(&item) {
+            Ok(session) => session,
+            Err(error) => {
+                let _ = pool.Close();
+                return Err(failure("Create WGC session", error));
+            }
+        };
+        let mut source = Source {
+            session,
+            pool,
+            item,
+            closed_token: None,
+            closed: Arc::new(AtomicBool::new(false)),
+            frame_token: None,
+        };
+        let closed = source.closed.clone();
+        source.closed_token = Some(
+            source
+                .item
+                .Closed(
+                    &TypedEventHandler::<GraphicsCaptureItem, IInspectable>::new(move |_, _| {
+                        closed.store(true, Ordering::Release);
+                        Ok(())
+                    }),
+                )
+                .map_err(|e| failure("Observe capture closure", e))?,
+        );
+        source
+            .session
+            .SetIsCursorCaptureEnabled(false)
+            .map_err(|e| failure("Disable capture cursor", e))?;
+        // Older Windows versions may not expose this interface.
+        let interval_supported = source
+            .session
+            .SetMinUpdateInterval(TimeSpan { Duration: 166_667 })
+            .is_ok();
+        if super::metrics::enabled() {
+            tracing::info!(interval_supported, "WGC minimum update interval capability");
+        }
+        if super::metrics::enabled() {
+            let counters = counters.clone();
+            source.frame_token = Some(
+                source
+                    .pool
+                    .FrameArrived(
+                        &TypedEventHandler::<Direct3D11CaptureFramePool, IInspectable>::new(
+                            move |_, _| {
+                                super::metrics::CaptureCounters::increment(
+                                    &counters.source_frames,
+                                    1,
+                                );
+                                Ok(())
+                            },
+                        ),
+                    )
+                    .map_err(|e| failure("Observe source frames", e))?,
+            );
+        }
+        source
+            .session
+            .StartCapture()
+            .map_err(|e| failure("Start WebView capture", e))?;
+
+        Ok(source)
+    }
+}
+
 impl Drop for Capture {
     fn drop(&mut self) {
         // Close the pool before returning a frame, so WGC cannot reuse its surface.
         // D3D11 defers resource destruction for queued copies; do not wait on the GPU.
-        self.source.close();
+        self.source.take();
         self.pending.take();
         unsafe {
             self.context.ClearState();
@@ -522,18 +625,19 @@ fn check_size(size: SizeInt32, width: u32, height: u32) -> Result<(), String> {
     Ok(())
 }
 
-fn decode_marker(row: &[u8]) -> Option<(u32, u32)> {
-    let mut values = [0u32; 2];
-    for bit in 0..64 {
-        let pixel = row.get((bit * 4 + 2) * 4..(bit * 4 + 2) * 4 + 4)?;
+fn decode_marker(rows: &[u8], row_pitch: usize) -> Option<(u32, u32, u32)> {
+    let mut values = [0u32; 4];
+    for bit in 0..128 {
+        let offset = (bit / 64) * row_pitch + ((bit % 64) * 4 + 2) * 4;
+        let pixel = rows.get(offset..offset + 4)?;
         let one = pixel[..3].iter().all(|&channel| channel >= 224);
         if pixel[3] < 224 || (!one && !pixel[..3].iter().all(|&channel| channel <= 31)) {
             return None;
         }
         values[bit / 32] = (values[bit / 32] << 1) | u32::from(one);
     }
-    // The page reserves zero for an uninitialized surface.
-    (values[0] != 0 && values[1] != 0).then_some((values[0], values[1]))
+    (values[0] != 0 && values[1] != 0 && values[2] != 0 && values[3] == !values[2])
+        .then_some((values[0], values[1], values[2]))
 }
 
 fn failure(operation: &str, error: windows::core::Error) -> String {
@@ -545,10 +649,11 @@ mod tests {
     use super::decode_marker;
 
     #[test]
-    fn reads_msb_first_generation_and_revision_from_bgra_marker() {
-        let (generation, revision) = (0x8020_0103u32, 0x0408_10ffu32);
-        let mut row = vec![0; 1024];
-        for (index, value) in [generation, revision].into_iter().enumerate() {
+    fn validates_two_marker_rows_with_padding_and_paint_complement() {
+        let values = [0x8020_0103u32, 0x0408_10ffu32, 0xffff_fffeu32, 1u32];
+        let pitch = 1280;
+        let mut rows = vec![0; pitch * 2];
+        for (index, value) in values.into_iter().enumerate() {
             for bit in 0..32 {
                 let color = if value & (1 << (31 - bit)) != 0 {
                     255
@@ -556,14 +661,17 @@ mod tests {
                     0
                 };
                 for x in 0..4 {
-                    let offset = (index * 32 * 4 + bit * 4 + x) * 4;
-                    row[offset..offset + 4].copy_from_slice(&[color, color, color, 255]);
+                    let offset = (index / 2) * pitch + ((index % 2) * 32 * 4 + bit * 4 + x) * 4;
+                    rows[offset..offset + 4].copy_from_slice(&[color, color, color, 255]);
                 }
             }
         }
-        assert_eq!(decode_marker(&row), Some((generation, revision)));
-        row[8] = 128;
-        assert_eq!(decode_marker(&row), None);
-        assert_eq!(decode_marker(&[0; 1024]), None);
+        assert_eq!(
+            decode_marker(&rows, pitch),
+            Some((values[0], values[1], values[2]))
+        );
+        rows[pitch + 8] = 128;
+        assert_eq!(decode_marker(&rows, pitch), None);
+        assert_eq!(decode_marker(&[0; 2048], 1024), None);
     }
 }

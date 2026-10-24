@@ -73,11 +73,13 @@ test("VR Overlay defaults keep OCR settings separate", () => {
   assert.equal(DEFAULT_VR_OVERLAY_WRIST_SETTINGS.show_partials, true);
   assert.equal(DEFAULT_VR_OVERLAY_WRIST_SETTINGS.show_translation_partials, true);
   assert.equal(DEFAULT_VR_OVERLAY_WRIST_SETTINGS.idle_hide_seconds, 15);
+  assert.equal(DEFAULT_VR_OVERLAY_WRIST_SETTINGS.follow_view, false);
   assert.deepEqual(Object.keys(DEFAULT_VR_OVERLAY_WRIST_SETTINGS).sort(), [
     "anchor_mode",
     "background_opacity",
     "dominant_hand",
     "enabled",
+    "follow_view",
     "font_size_px",
     "hand",
     "idle_hide_seconds",
@@ -104,7 +106,7 @@ test("VR Overlay patches are immutable and scoped to the requested branch", () =
     translation_display: "preferred_only",
   });
   const headset = patchVrOverlayHeadset(enabled, { distance_m: 2.4 });
-  const wrist = patchVrOverlayWrist(headset, { hand: "right", max_entries: 8 });
+  const wrist = patchVrOverlayWrist(headset, { hand: "right", max_entries: 8, follow_view: true });
 
   assert.equal(settings.vr_overlay.enabled, false);
   assert.equal(enabled.vr_overlay.enabled, true);
@@ -113,6 +115,9 @@ test("VR Overlay patches are immutable and scoped to the requested branch", () =
   assert.equal(headset.vr_overlay.wrist, settings.vr_overlay.wrist);
   assert.equal(wrist.vr_overlay.wrist.hand, "right");
   assert.equal(wrist.vr_overlay.wrist.max_entries, 8);
+  assert.equal(wrist.vr_overlay.wrist.follow_view, true);
+  assert.equal(settings.vr_overlay.wrist.follow_view, false);
+  assert.equal(wrist.ocr, settings.ocr);
   assert.equal(wrist.vr_overlay.headset, headset.vr_overlay.headset);
 });
 
@@ -145,7 +150,7 @@ test("headset and wrist reset independently without changing the master switch",
       opacity: 0.35,
       width_m: 2.5,
     }),
-    { opacity: 0.4, max_entries: 9, idle_hide_seconds: 0 },
+    { opacity: 0.4, max_entries: 9, idle_hide_seconds: 0, follow_view: true },
   );
 
   const resetHeadset = resetVrOverlayHeadset(changed);
@@ -157,6 +162,7 @@ test("headset and wrist reset independently without changing the master switch",
   assert.equal(resetWrist.vr_overlay.enabled, true);
   assert.deepEqual(resetWrist.vr_overlay.wrist, DEFAULT_VR_OVERLAY_WRIST_SETTINGS);
   assert.equal(resetWrist.vr_overlay.wrist.idle_hide_seconds, 15);
+  assert.equal(resetWrist.vr_overlay.wrist.follow_view, false);
   assert.equal(resetWrist.vr_overlay.headset, changed.vr_overlay.headset);
 });
 

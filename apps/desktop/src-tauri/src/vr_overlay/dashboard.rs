@@ -171,6 +171,8 @@ pub struct DashboardWrist {
     pub enabled: bool,
     #[serde(default)]
     pub anchor_mode: String,
+    #[serde(default)]
+    pub follow_view: bool,
     pub hand: DashboardChoice,
     #[serde(default)]
     pub preview_visible: bool,
@@ -689,6 +691,7 @@ mod tests {
             wrist: DashboardWrist {
                 enabled: true,
                 anchor_mode: "wrist".into(),
+                follow_view: false,
                 hand: choice.clone(),
                 preview_visible: false,
                 width: "1 m".into(),

@@ -74,6 +74,14 @@ export function VrPreview() {
       display(next);
     }).catch((reason) => { if (!disposed) setError(String(reason)); });
     const timer = window.setInterval(() => { if (queue.current === transport) transport.push({ type: "refresh" }); }, 400);
+    const holdTimer = window.setInterval(() => {
+      const displayed = shown.current;
+      if (queue.current !== transport || displayed?.panel !== 0 || !(pointer.current.buttons & 1)) return;
+      transport.push({ type: "pointer", input: {
+        panel: displayed.panel, generation: displayed.generation, revision: displayed.revision,
+        ...pointer.current, ...pose.current,
+      } });
+    }, 40);
     const cancel = () => { pointer.current.buttons = 0; transport.push({ type: "cancel" }); };
     const visibility = () => { if (document.hidden) cancel(); };
     window.addEventListener("blur", cancel);
@@ -81,6 +89,7 @@ export function VrPreview() {
     return () => {
       disposed = true;
       window.clearInterval(timer);
+      window.clearInterval(holdTimer);
       window.removeEventListener("blur", cancel);
       document.removeEventListener("visibilitychange", visibility);
       transport.close();
@@ -136,12 +145,19 @@ export function VrPreview() {
         </div>
         <div ref={stage} className={`vr-preview-stage ${background}`}>
           {surface && <div className="vr-preview-react-surface" style={{ width: size[0] * scale, height: size[1] * scale, visibility: info?.closed ? "hidden" : "visible" }} tabIndex={0}
-            aria-label="React VR 面板预览，左键点击，右键抓取字幕把手" {...pointerHandlers}
+            aria-label="React VR 面板预览，左键点击，右键抓取字幕把手，滚轮滚动阅读内容" {...pointerHandlers}
             onContextMenu={(event) => event.preventDefault()} onKeyDown={(event) => { if (event.key === "Escape") cancel(); }}
             onWheel={(event) => {
-              if (!(pointer.current.buttons & 2)) return;
-              const next = Math.max(0.2, Math.min(3, pose.current.depth + event.deltaY * 0.001));
-              pose.current.depth = next; setDepth(next); input();
+              if (pointer.current.buttons & 2) {
+                const next = Math.max(0.2, Math.min(3, pose.current.depth + event.deltaY * 0.001));
+                pose.current.depth = next; setDepth(next); input();
+              } else if (surface.view.kind === "reader") {
+                const viewport = event.currentTarget.querySelector<HTMLElement>("[data-vr-page-viewport]");
+                if (!viewport) return;
+                const step = event.deltaMode === 1 ? parseFloat(getComputedStyle(viewport).lineHeight) || 40
+                  : event.deltaMode === 2 ? viewport.clientHeight : 1;
+                viewport.scrollTop += event.deltaY * step;
+              }
             }}>
             <div className="vr-preview-react-inner" style={{ width: size[0], height: size[1], transform: `scale(${scale})` }}>
               <VrSurface state={surface} onLayout={onSurfaceLayout} />
@@ -149,7 +165,7 @@ export function VrPreview() {
             </div>
           </div>}
         </div>
-        <p className="vr-preview-hint">左键 = Trigger；右键在字幕标题把手上抓取，释放后固定；滚轮调深度；Esc 取消。先移入再按下。</p>
+        <p className="vr-preview-hint">左键 = Trigger；滚轮滚动 OCR / 问答内容；右键抓取字幕把手，滚轮调深度，释放后固定；Esc 取消。先移入再按下。</p>
         <output className="vr-preview-output" aria-live="polite">{error || info?.last_action || "正在连接预览窗口…"}</output>
       </section>
       <aside className="vr-preview-options">

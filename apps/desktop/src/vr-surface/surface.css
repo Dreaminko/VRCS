@@ -1,6 +1,7 @@
 html[data-vr-surface], html[data-vr-surface] body, html[data-vr-surface] #root { min-width: 0; background: transparent; }
 .vr-surface-host { position: fixed; inset: 0; overflow: hidden; background: transparent; }
 .vr-surface-pointer { position: absolute; z-index: 50; width: 20px; height: 20px; box-sizing: border-box; border: 3px solid #ffffff; border-radius: 50%; background: rgba(116, 214, 255, 0.35); box-shadow: 0 0 0 2px rgba(15, 23, 42, 0.6); transform: translate(-50%, -50%); pointer-events: none; }
+.vr-surface-menu + .vr-surface-pointer { transform: translate(-50%, -50%) scale(1.25); }
 .vr-surface {
   position: relative;
   flex: none;
@@ -60,6 +61,9 @@ html[data-vr-surface], html[data-vr-surface] body, html[data-vr-surface] #root {
 .vr-menu-capsule .vr-surface-button:not(.primary) { background: transparent; }
 .vr-menu-capsule .vr-surface-button:not(.primary).hovered { background: var(--primary-softer); }
 .vr-menu-capsule .vr-surface-button svg { width: 80px; height: 80px; }
+.vr-menu-capsule .vr-surface-button > .vr-menu-hold-progress { position: absolute; inset: 0; width: 100%; height: 100%; transform: rotate(-90deg); color: var(--primary-ink); }
+.vr-menu-hold-progress circle { fill: none; stroke: currentColor; stroke-width: 6px; }
+.vr-menu-hold-track { opacity: 0.2; }
 .vr-menu-capsule .vr-surface-tooltip { bottom: calc(100% + 6px); max-width: 230px; font-size: 20px; }
 .vr-surface-divider { width: 2px; height: 40px; flex: 0 0 2px; margin: 0 10px; background: var(--border); }
 .vr-surface-panel { border: 2px solid var(--border); border-radius: 32px; background: color-mix(in srgb, var(--surface) calc(var(--vr-background-opacity) * 100%), transparent); }
@@ -83,7 +87,7 @@ html[data-vr-surface], html[data-vr-surface] body, html[data-vr-surface] #root {
 .vr-reader-status { display: flex; min-height: 48px; flex: none; align-items: center; justify-content: space-between; gap: 16px; color: var(--text-secondary); font-size: 22px; }
 .vr-reader-status.vr-surface-error { color: var(--error); }
 .vr-reader-status span:last-child { text-align: right; }
-.vr-reader-viewport { min-height: 0; flex: 1; margin: 12px 0 20px; overflow: hidden; }
+.vr-reader-viewport { min-height: 0; flex: 1; margin: 12px 0 20px; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
 .vr-reader-content { display: flow-root; line-height: 1.65; }
 .vr-reader-card { margin: 0 0 20px; padding: 24px; border: 1px solid var(--border); border-radius: 24px; background: var(--surface); }
 .vr-reader-card:last-child { margin-bottom: 0; }
@@ -116,5 +120,6 @@ html[data-vr-surface], html[data-vr-surface] body, html[data-vr-surface] #root {
 .vr-progress-spinner { animation: vr-progress-spin 1.5s linear infinite; }
 @keyframes vr-progress-spin { to { transform: rotate(360deg); } }
 @keyframes vr-progress-sweep { 0%, 100% { transform: translateX(-100%); } 50% { transform: translateX(285%); } }
-.vr-surface-marker { position: absolute; z-index: 100; bottom: 0; left: 0; display: flex; width: 256px; height: 8px; pointer-events: none; }
+.vr-surface-host[data-active="false"] *, .vr-surface-host[data-active="false"] *::before, .vr-surface-host[data-active="false"] *::after { animation-play-state: paused !important; }
+.vr-surface-marker { position: absolute; z-index: 100; bottom: 0; left: 0; display: flex; flex-wrap: wrap; width: 256px; height: 16px; pointer-events: none; }
 .vr-surface-marker i { display: block; width: 4px; height: 8px; flex: 0 0 4px; }

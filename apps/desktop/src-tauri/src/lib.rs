@@ -502,6 +502,10 @@ pub fn run() {
             vr_overlay::surface::vr_surface_ready,
             #[cfg(windows)]
             vr_overlay::surface::vr_surface_layout,
+            #[cfg(windows)]
+            vr_overlay::surface::vr_surface_paint,
+            #[cfg(windows)]
+            vr_overlay::surface::vr_surface_snapshot,
             #[cfg(all(windows, debug_assertions, feature = "vr-preview"))]
             vr_overlay::preview::vr_preview_open,
             #[cfg(all(windows, debug_assertions, feature = "vr-preview"))]

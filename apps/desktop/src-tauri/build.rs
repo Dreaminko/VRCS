@@ -31,6 +31,10 @@ const COMMANDS: &[&str] = &[
     "vr_surface_ready",
     #[cfg(windows)]
     "vr_surface_layout",
+    #[cfg(windows)]
+    "vr_surface_paint",
+    #[cfg(windows)]
+    "vr_surface_snapshot",
     "set_shortcut_recording",
     "desktop_ocr_status",
     "desktop_ocr_scan",

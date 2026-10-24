@@ -32,4 +32,4 @@ export interface ControlSnapshot {
   labels: Record<string, string>;
 }
 
-export interface PlacementRequest { owner_epoch: number; id: number; mode: "wrist" | "world" }
+export interface PlacementRequest { owner_epoch: number; id: number; mode: "wrist" | "world"; follow_view: boolean }

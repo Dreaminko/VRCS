@@ -943,6 +943,8 @@
         "anchorMode": "字幕面板固定方式",
         "anchorWrist": "固定在手上",
         "anchorWorld": "空间固定",
+        "followView": "跟随视角",
+        "followViewHint": "空间固定时，面板随视角移动；关闭后停留在当前位置。",
         "recenterDialogue": "将浏览面板移到面前",
         "emptyDialogue": "暂无新内容",
         "dragHint": "指向把手，按住握持键拖动",
@@ -954,7 +956,6 @@
       "conversationTitles": {
         "title": "会话管理",
         "autoGenerate": "自动生成会话标题",
-        "description": "新建对话结束旧会话后，根据字幕原文生成总结标题。停止转写仅暂停，不触发生成。",
         "configureFirst": "请先选择可用的文本生成 API 档案并设置模型。",
         "modelSettings": "标题生成模型",
         "profile": "API 档案",

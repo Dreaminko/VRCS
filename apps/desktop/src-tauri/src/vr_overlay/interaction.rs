@@ -1,5 +1,8 @@
 //! Application-local input routing. This never captures SteamVR or game input.
 use std::collections::HashMap;
+use std::time::{Duration, Instant};
+
+const LONG_PRESS: Duration = Duration::from_millis(650);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Surface {
@@ -35,6 +38,7 @@ pub struct Sample {
 pub enum Kind {
     Down,
     Up,
+    LongPress,
     Grab,
     Release,
     Cancel,
@@ -57,11 +61,55 @@ pub struct Output {
 pub struct Router {
     previous: HashMap<u32, (Option<bool>, Option<bool>)>,
     owner: Option<Event>,
+    pressed_at: Option<Instant>,
+    hover_device: Option<u32>,
 }
 
 impl Router {
     pub fn active(&self) -> bool {
         self.owner.is_some()
+    }
+
+    pub fn hold_progress(&self, now: Instant) -> Option<f32> {
+        let owner = self.owner?;
+        if owner.hit.key.surface != Surface::Menu || owner.hit.region != 0 {
+            return None;
+        }
+        Some(
+            (now.saturating_duration_since(self.pressed_at?)
+                .as_secs_f32()
+                / LONG_PRESS.as_secs_f32())
+            .min(1.),
+        )
+    }
+
+    pub fn long_press(&mut self, now: Instant) -> Option<Event> {
+        if self.hold_progress(now)? < 1. {
+            return None;
+        }
+        let owner = self.owner.as_mut()?;
+        if owner.kind != Kind::Down {
+            return None;
+        }
+        owner.kind = Kind::LongPress;
+        Some(*owner)
+    }
+
+    pub fn select_pointer_device(&mut self, candidates: &[(u32, f32)]) -> Option<u32> {
+        let present = |device| candidates.iter().any(|&(id, _)| id == device);
+        self.hover_device = if let Some(owner) = self.owner {
+            present(owner.device).then_some(owner.device)
+        } else {
+            self.hover_device
+                .filter(|&device| present(device))
+                .or_else(|| {
+                    candidates
+                        .iter()
+                        .min_by(|a, b| a.1.total_cmp(&b.1))
+                        .map(|c| c.0)
+                })
+        };
+        self.hover_device
     }
 
     pub fn step(&mut self, samples: &[Sample], keys: &[Key]) -> Output {
@@ -75,7 +123,7 @@ impl Router {
                     .iter()
                     .all(|v| v.is_finite() && (0. ..=1.).contains(v))
         };
-        output.hover = samples
+        let hits: Vec<_> = samples
             .iter()
             .filter_map(|sample| {
                 sample
@@ -83,7 +131,15 @@ impl Router {
                     .filter(|hit| valid_hit(*hit))
                     .map(|hit| (sample.device, hit))
             })
-            .min_by(|a, b| a.1.distance.total_cmp(&b.1.distance));
+            .collect();
+        if !hits.is_empty() {
+            let candidates: Vec<_> = hits
+                .iter()
+                .map(|(device, hit)| (*device, hit.distance))
+                .collect();
+            let device = self.select_pointer_device(&candidates);
+            output.hover = hits.into_iter().find(|(id, _)| Some(*id) == device);
+        }
 
         if let Some(owner) = self.owner {
             let sample = samples.iter().find(|s| s.device == owner.device);
@@ -99,12 +155,14 @@ impl Router {
             });
             let kind = if !keys.contains(&owner.hit.key)
                 || state.is_none()
-                || owner.kind == Kind::Down && matching.is_none()
+                || owner.kind != Kind::Grab && matching.is_none()
             {
                 Some(Kind::Cancel)
             } else if state == Some(false) {
                 Some(if owner.kind == Kind::Grab {
                     Kind::Release
+                } else if owner.kind == Kind::LongPress {
+                    Kind::Cancel
                 } else {
                     Kind::Up
                 })
@@ -118,6 +176,7 @@ impl Router {
                     ..owner
                 });
                 self.owner = None;
+                self.pressed_at = None;
             }
             // A release cannot become a press on another surface in the same sample.
         } else if let Some((device, hit)) = output.hover {
@@ -140,6 +199,7 @@ impl Router {
             if let Some(kind) = kind {
                 let event = Event { device, hit, kind };
                 self.owner = Some(event);
+                self.pressed_at = (kind == Kind::Down).then(Instant::now);
                 output.events.push(event);
             }
         }
@@ -154,6 +214,8 @@ impl Router {
 
     pub fn cancel(&mut self) -> Option<Event> {
         self.previous.clear();
+        self.hover_device = None;
+        self.pressed_at = None;
         self.owner.take().map(|event| Event {
             kind: Kind::Cancel,
             ..event
@@ -248,5 +310,129 @@ mod tests {
             .step(&[sample(false, false, Surface::Dialogue)], &[])
             .events
             .is_empty());
+    }
+
+    #[test]
+    fn hover_stays_with_the_same_hand_until_it_leaves() {
+        let mut router = Router::default();
+        let keys = [key(Surface::Menu), key(Surface::Reader)];
+        let first = sample(false, false, Surface::Menu);
+        let mut other = sample(false, false, Surface::Reader);
+        other.device = 3;
+        other.hit.as_mut().unwrap().distance = 0.5;
+        router.step(&[first], &keys);
+        assert_eq!(router.step(&[first, other], &keys).hover.unwrap().0, 2);
+        assert_eq!(router.step(&[other], &keys).hover.unwrap().0, 3);
+        assert!(router.step(&[], &keys).hover.is_none());
+    }
+
+    #[test]
+    fn dragging_never_hands_hover_to_another_controller() {
+        let mut router = Router::default();
+        let keys = [key(Surface::Dialogue), key(Surface::Reader)];
+        router.step(&[sample(false, false, Surface::Dialogue)], &keys);
+        let mut owner = sample(false, true, Surface::Dialogue);
+        router.step(&[owner], &keys);
+        let mut other = sample(false, false, Surface::Reader);
+        other.device = 3;
+        other.hit.as_mut().unwrap().distance = 0.5;
+        assert_eq!(router.step(&[owner, other], &keys).hover.unwrap().0, 2);
+        owner.hit = None;
+        assert!(router.step(&[owner, other], &keys).hover.is_none());
+        assert!(router.active());
+    }
+
+    #[test]
+    fn holding_dialogue_menu_button_fires_before_release() {
+        let mut router = Router::default();
+        let keys = [key(Surface::Menu)];
+        router.step(&[sample(false, false, Surface::Menu)], &keys);
+        router.step(&[sample(true, false, Surface::Menu)], &keys);
+        let start = router.pressed_at.unwrap();
+        let halfway = start + LONG_PRESS / 2;
+        assert_eq!(router.hold_progress(halfway), Some(0.5));
+        assert!(router.long_press(halfway).is_none());
+        let complete = start + LONG_PRESS;
+        assert_eq!(router.long_press(complete).unwrap().kind, Kind::LongPress);
+        assert_eq!(router.hold_progress(complete), Some(1.));
+        assert!(router.long_press(complete + LONG_PRESS).is_none());
+        assert!(router.active());
+        assert_eq!(
+            router
+                .step(&[sample(false, false, Surface::Menu)], &keys)
+                .events[0]
+                .kind,
+            Kind::Cancel
+        );
+        assert_eq!(router.hold_progress(complete), None);
+    }
+
+    #[test]
+    fn menu_hold_clears_on_release_or_loss_of_ownership() {
+        let keys = [key(Surface::Menu)];
+        let down = sample(true, false, Surface::Menu);
+        let mut away = down;
+        away.hit = None;
+        let mut other = down;
+        other.hit.as_mut().unwrap().region = 1;
+        let mut stale = down;
+        stale.hit.as_mut().unwrap().key.revision += 1;
+        let mut unknown = down;
+        unknown.trigger = None;
+        for (samples, keys, expected) in [
+            (
+                vec![sample(false, false, Surface::Menu)],
+                keys.to_vec(),
+                Kind::Up,
+            ),
+            (vec![away], keys.to_vec(), Kind::Cancel),
+            (vec![other], keys.to_vec(), Kind::Cancel),
+            (vec![stale], keys.to_vec(), Kind::Cancel),
+            (vec![down], vec![], Kind::Cancel),
+            (vec![], keys.to_vec(), Kind::Cancel),
+            (vec![unknown], keys.to_vec(), Kind::Cancel),
+        ] {
+            let mut router = Router::default();
+            router.step(
+                &[sample(false, false, Surface::Menu)],
+                &[key(Surface::Menu)],
+            );
+            router.step(&[down], &[key(Surface::Menu)]);
+            let halfway = router.pressed_at.unwrap() + LONG_PRESS / 2;
+            assert_eq!(router.hold_progress(halfway), Some(0.5));
+            assert_eq!(router.step(&samples, &keys).events[0].kind, expected);
+            assert_eq!(router.hold_progress(halfway), None);
+            assert!(router.long_press(halfway + LONG_PRESS).is_none());
+            assert!(!router.active());
+        }
+        let mut router = Router::default();
+        router.step(&[sample(false, false, Surface::Menu)], &keys);
+        router.step(&[down], &keys);
+        assert_eq!(router.cancel().unwrap().kind, Kind::Cancel);
+        assert_eq!(router.hold_progress(Instant::now() + LONG_PRESS), None);
+    }
+
+    #[test]
+    fn other_buttons_keep_their_click_behavior_without_hold_progress() {
+        for (surface, region) in [
+            (Surface::Menu, 1),
+            (Surface::Menu, 2),
+            (Surface::Menu, 3),
+            (Surface::Dialogue, 0),
+            (Surface::Reader, 0),
+        ] {
+            let mut router = Router::default();
+            let keys = [key(surface)];
+            let mut input = sample(false, false, surface);
+            input.hit.as_mut().unwrap().region = region;
+            router.step(&[input], &keys);
+            input.trigger = Some(true);
+            assert_eq!(router.step(&[input], &keys).events[0].kind, Kind::Down);
+            let complete = router.pressed_at.unwrap() + LONG_PRESS;
+            assert_eq!(router.hold_progress(complete), None);
+            assert!(router.long_press(complete).is_none());
+            input.trigger = Some(false);
+            assert_eq!(router.step(&[input], &keys).events[0].kind, Kind::Up);
+        }
     }
 }

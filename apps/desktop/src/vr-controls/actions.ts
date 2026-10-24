@@ -1,10 +1,18 @@
 import type { Settings } from "../settings/types";
 import type { ControlAction } from "./protocol";
 
-type SettingsAction = ControlAction | { set_anchor_mode: "wrist" | "world" };
+type SettingsAction = ControlAction | { set_anchor_mode: "wrist" | "world" }
+  | { set_dialogue_placement: { mode: "wrist" | "world"; follow_view: boolean } };
 
 export function applyControlAction(settings: Settings, action: SettingsAction): Settings {
   if ("set_capture_running" in action) return settings;
+  if ("set_dialogue_placement" in action) {
+    const { mode, follow_view } = action.set_dialogue_placement;
+    const wrist = settings.vr_overlay.wrist;
+    return wrist.anchor_mode === mode && wrist.follow_view === follow_view ? settings : {
+      ...settings, vr_overlay: { ...settings.vr_overlay, wrist: { ...wrist, anchor_mode: mode, follow_view } },
+    };
+  }
   if ("set_anchor_mode" in action) return settings.vr_overlay.wrist.anchor_mode === action.set_anchor_mode ? settings : {
     ...settings, vr_overlay: { ...settings.vr_overlay, wrist: { ...settings.vr_overlay.wrist, anchor_mode: action.set_anchor_mode } },
   };

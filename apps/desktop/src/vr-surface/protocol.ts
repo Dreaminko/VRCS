@@ -24,8 +24,8 @@ export interface ReaderView {
 }
 
 export type SurfaceView =
-  | { kind: "menu"; controls: ControlSnapshot }
-  | { kind: "dialogue"; controls: ControlSnapshot; messages: { text: string; side: "left" | "right" }[]; mode: "wrist" | "world"; busy: boolean; error: string | null; font_size: number; opacity: number }
+  | { kind: "menu"; controls: ControlSnapshot; hold_progress?: number | null }
+  | { kind: "dialogue"; controls: ControlSnapshot; messages: { text: string; side: "left" | "right" }[]; mode: "wrist" | "world"; follow_view: boolean; busy: boolean; error: string | null; font_size: number; opacity: number }
   | { kind: "reader"; dark: boolean; labels: Record<string, string>; reader: ReaderView; font_size: number; opacity: number }
   | { kind: "headset"; dark: boolean; text: string; lines_per_language: number; font_size: number; opacity: number }
   | { kind: "ocr_progress"; dark: boolean; progress: ProgressView | null }
@@ -49,13 +49,19 @@ export interface SurfaceState {
   hovered: number | null;
   pressed: number | null;
   pointer: [number, number] | null;
+  activity?: SurfaceActivity;
+  restore_scroll?: number | null;
 }
 
+export interface SurfaceActivity { active: boolean; request: number }
 export interface SurfacePointerState { key: SurfaceKey; point: [number, number] | null }
+export interface SurfaceScrollState { key: SurfaceKey; delta: number }
 
 export interface SurfaceLayout {
   key: SurfaceKey;
   regions: { id: number; bounds: [number, number, number, number]; circle?: boolean; dashboard?: DashboardCommand }[];
+  menu_bounds?: [number, number, number, number];
+  panels?: { bounds: [number, number, number, number]; radius: [number, number] }[];
   page_count: number;
   unplaced?: number[];
 }
@@ -87,8 +93,8 @@ export function newerKey(next: SurfaceKey, current: SurfaceKey | null): boolean 
 }
 
 // WGC reads this small strip before accepting the matching texture and hit map.
-export function markerBits(key: SurfaceKey): number[] {
-  return [key.generation, key.revision].flatMap((word) => Array.from({ length: 32 }, (_, index) => (word >>> (31 - index)) & 1));
+export function markerBits(key: SurfaceKey, paintSerial: number): number[] {
+  return [key.generation, key.revision, paintSerial, ~paintSerial].flatMap((word) => Array.from({ length: 32 }, (_, index) => (word >>> (31 - index)) & 1));
 }
 
 export function pageGeometry(height: number, viewport: number, requested: number, lineHeight: number) {
