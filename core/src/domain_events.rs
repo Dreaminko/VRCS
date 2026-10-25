@@ -6,7 +6,8 @@ use crate::chatbox::ChatboxMessage;
 use crate::models::{now_iso8601, Subtitle, SubtitleTranslation};
 
 pub const API_VERSION: &str = "1.0";
-pub const EVENT_TYPES: [&str; 11] = [
+pub const EVENT_TYPES: [&str; 12] = [
+    "asr.speaker_updated",
     "asr.partial",
     "asr.final",
     "asr.cancelled",
@@ -89,6 +90,15 @@ impl DomainEventHub {
         ));
     }
 
+    pub fn speaker_updated(&self, speaker: &crate::models::SpeakerIdentity) {
+        self.publish(DomainEvent::new(
+            "asr.speaker_updated",
+            &speaker.id,
+            "speaker",
+            json!({ "speaker": speaker }),
+        ));
+    }
+
     pub fn asr_final(&self, message_id: &str, subtitle: &Subtitle) {
         self.publish(DomainEvent::new(
             "asr.final",
@@ -100,6 +110,22 @@ impl DomainEventHub {
                 "language": subtitle.language,
                 "subtitle": subtitle,
             }),
+        ));
+    }
+
+    pub fn asr_player_partial(
+        &self,
+        message_id: &str,
+        source: &str,
+        text: &str,
+        language: Option<&str>,
+        speaker: &crate::models::SpeakerIdentity,
+    ) {
+        self.publish(DomainEvent::new(
+            "asr.partial",
+            message_id,
+            source,
+            json!({ "text": text, "language": language, "speaker": speaker }),
         ));
     }
 

@@ -1,4 +1,5 @@
 mod backend;
+mod caption_status;
 mod control_protocol;
 #[cfg(windows)]
 mod cursor;

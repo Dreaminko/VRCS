@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-player-audio-set-memory-compression"
+description = "Enables the player_audio_set_memory_compression command without any pre-configured scope."
+commands.allow = ["player_audio_set_memory_compression"]
+
+[[permission]]
+identifier = "deny-player-audio-set-memory-compression"
+description = "Denies the player_audio_set_memory_compression command without any pre-configured scope."
+commands.deny = ["player_audio_set_memory_compression"]

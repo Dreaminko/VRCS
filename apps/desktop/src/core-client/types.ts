@@ -22,9 +22,31 @@ export interface Health {
   vad_backend: string;
   vad_model_version: string | null;
   last_error: string | null;
+  player_audio?: PlayerAudioStatus | null;
   osc?: OscRuntimeStatus;
   vrchat_mute_sync: VrchatMuteStatus;
   language_session?: ActiveLanguageSession;
+}
+
+export interface PlayerAudioStatus {
+  players?: { speaker: import("../subtitles/types").SpeakerIdentity; selected: boolean; active: boolean }[];
+  phase: "waiting_game" | "waiting_world" | "waiting_traffic" | "waiting_key" | "acquiring_key" | "retrying_key" | "streaming" | "failed" | "stopped";
+  captured_packets: number;
+  decrypted_packets: number;
+  pcm_frames: number;
+  active_players: number;
+  dropped_frames: number;
+  decode_errors: number;
+  key_scan?: {
+    stage: "paging" | "scanning" | "verified" | "cached";
+    scanned_bytes: number;
+    total_bytes: number;
+    candidates_tested: number;
+    elapsed_ms: number;
+    scan_elapsed_ms: number;
+    workers: number;
+  } | null;
+  detail: string | null;
 }
 
 export type ActiveLanguageSession =

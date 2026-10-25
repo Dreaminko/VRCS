@@ -123,3 +123,12 @@ html[data-vr-surface], html[data-vr-surface] body, html[data-vr-surface] #root {
 .vr-surface-host[data-active="false"] *, .vr-surface-host[data-active="false"] *::before, .vr-surface-host[data-active="false"] *::after { animation-play-state: paused !important; }
 .vr-surface-marker { position: absolute; z-index: 100; bottom: 0; left: 0; display: flex; flex-wrap: wrap; width: 256px; height: 16px; pointer-events: none; }
 .vr-surface-marker i { display: block; width: 4px; height: 8px; flex: 0 0 4px; }
+
+/* Player captions keep stable, independent cards instead of replacing one slot. */
+.vr-caption-grid { display: grid; width: 100%; min-width: 0; gap: 12px; }
+.vr-caption-card { min-width: 0; padding: 4px 8px; overflow: hidden; }
+.vr-caption-speaker { color: var(--primary-ink); font-weight: 650; line-height: 1.1; margin-bottom: 6px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.vr-caption-card .vr-headset-language + .vr-headset-language { color: var(--text-secondary); }
+.vr-dialogue-body .vr-caption-card { border: 1px solid var(--border); border-radius: 16px; background: var(--surface); }
+.vr-dialogue-body .vr-caption-card.right { border-color: var(--border-strong); background: var(--primary-soft); }
+.vr-caption-notice { flex: none; margin: 0 0 16px; color: var(--text-secondary); font-size: 26px; line-height: 1.35; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 120px; overflow: hidden; }

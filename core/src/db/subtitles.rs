@@ -83,6 +83,18 @@ pub struct ConversationSubtitleContext {
 }
 
 impl Database {
+    pub(crate) fn update_speaker_identity(
+        &self,
+        speaker: &crate::models::SpeakerIdentity,
+    ) -> AppResult<()> {
+        self.conn.execute(
+            "UPDATE subtitles SET speaker = json_set(speaker, '$.display_name', ?2, '$.user_id', ?3)
+             WHERE json_valid(speaker) AND json_extract(speaker, '$.id') = ?1",
+            params![speaker.id, speaker.display_name, speaker.user_id],
+        )?;
+        Ok(())
+    }
+
     /// 写入字幕，并在数据库锁内确定当前 active 会话。
     #[allow(dead_code)]
     pub fn add_subtitle(&self, subtitle: &Subtitle) -> AppResult<Subtitle> {

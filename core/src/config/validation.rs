@@ -292,13 +292,53 @@ fn validate_audio(audio: &AudioConfig, vad: &VadConfig) -> Result<(), String> {
     }
     match audio.output.mode.as_str() {
         "system" => {}
-        "vrchat" | "disabled" if audio.output.device_id.is_some() => {
+        "vrchat" | "vrchat_players" | "disabled" if audio.output.device_id.is_some() => {
             return Err(
                 "VRChat or disabled output mode cannot specify a system output device".into(),
             );
         }
-        "vrchat" | "disabled" => {}
+        "vrchat" | "vrchat_players" | "disabled" => {}
         other => return Err(format!("Unsupported output mode: {other}")),
+    }
+    let players = &audio.output.player_audio;
+    if players.max_visible_players > 64 {
+        return Err("Visible player limit must be between 0 and 64".into());
+    }
+    let drive = players.pagefile_drive.as_bytes();
+    if drive.len() != 2 || !drive[0].is_ascii_alphabetic() || drive[1] != b':' {
+        return Err("Player audio pagefile drive must be a drive letter such as C:".into());
+    }
+    if players.max_players > 8 {
+        return Err("Player audio max_players must be 0 (unlimited) or between 1 and 8".into());
+    }
+    if let Some(ids) = &players.selected_tracks {
+        let mut seen = HashSet::new();
+        if ids.len() > 512
+            || ids.iter().any(|id| {
+                id.is_empty()
+                    || id.len() > 256
+                    || id.chars().any(char::is_control)
+                    || !seen.insert(id)
+            })
+        {
+            return Err("Player audio selection must contain at most 512 unique user IDs".into());
+        }
+    }
+    if players.selected_user_names.len() > 512
+        || players.selected_user_names.iter().any(|(id, name)| {
+            !crate::models::is_vrchat_user_id(id)
+                || name.is_empty()
+                || name.chars().count() > 128
+                || name.chars().any(char::is_control)
+        })
+    {
+        return Err(
+            "Saved player labels must contain valid user IDs and names of at most 128 characters"
+                .into(),
+        );
+    }
+    if players.opus_library_path.len() > 4096 {
+        return Err("Player audio Opus library path is too long".into());
     }
     if !(-80.0..=-10.0).contains(&audio.output.trigger_threshold_dbfs) {
         return Err("Output trigger_threshold_dbfs must be between -80 and -10".into());
@@ -940,4 +980,34 @@ fn validate_prompt_variables(template: &str) -> Result<(), String> {
         return Err("Translation system prompt contains an unclosed variable".into());
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod player_audio_tests {
+    use super::*;
+
+    #[test]
+    fn player_audio_is_opt_in_and_validates_resource_limits() {
+        let mut audio = AudioConfig::default();
+        let vad = VadConfig::default();
+        assert_eq!(audio.output.mode, "system");
+        assert_eq!(audio.output.player_audio.max_players, 0);
+        audio.output.mode = "vrchat_players".into();
+        assert!(validate_audio(&audio, &vad).is_ok());
+        audio.output.player_audio.max_players = 9;
+        assert!(validate_audio(&audio, &vad).is_err());
+        audio.output.player_audio.max_players = 0;
+        assert!(validate_audio(&audio, &vad).is_ok());
+        audio.output.player_audio.max_players = 4;
+        audio.output.device_id = Some(1);
+        assert!(validate_audio(&audio, &vad).is_err());
+        audio.output.device_id = None;
+        audio.output.player_audio.pagefile_drive = "C:\\other".into();
+        assert!(validate_audio(&audio, &vad).is_err());
+        let legacy: AudioConfig = serde_json::from_str(r#"{"output":{"mode":"vrchat"}}"#).unwrap();
+        assert_eq!(
+            legacy.output.player_audio,
+            crate::config::PlayerAudioConfig::default()
+        );
+    }
 }

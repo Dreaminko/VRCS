@@ -7,6 +7,7 @@ import type { VrchatMuteStatus } from "../integrations/types";
 import type {
   Subtitle,
   SubtitleTranslation,
+  SpeakerIdentity,
 } from "./types";
 
 export const SUBTITLE_HISTORY_PAGE_SIZE = 100;
@@ -37,6 +38,7 @@ export interface ConversationCatalogEvent {
 }
 
 export type SubtitleStreamMessage =
+  | { type: "speaker_updated"; speaker: SpeakerIdentity }
   | { type: "subtitle"; subtitle: Subtitle; utterance_id?: string }
   | { type: "conversation_catalog"; catalog: ConversationCatalog }
   | (Omit<LiveTranscription, "type"> & { type: "live_translation_updated"; translation: string; target_language: string })
@@ -165,7 +167,12 @@ function isTranslation(value: unknown): value is SubtitleTranslation {
 function isSpeaker(value: unknown): boolean {
   return value === undefined || value === null || (isObject(value)
     && isText(value.id) && typeof value.index === "number"
-    && Number.isSafeInteger(value.index) && value.index >= 0);
+    && Number.isSafeInteger(value.index) && value.index >= 0
+    && (value.user_id === undefined || value.user_id === null || (typeof value.user_id === "string"
+      && /^usr_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(value.user_id)))
+    && (value.display_name === undefined || value.display_name === null
+      || (typeof value.display_name === "string" && [...value.display_name].length <= 128
+        && !/[\u0000-\u001f\u007f-\u009f]/u.test(value.display_name))));
 }
 
 function isSubtitle(value: unknown): value is Subtitle {
@@ -206,6 +213,9 @@ export function parseSubtitleStreamMessage(
   }
   if (!isObject(value) || typeof value.type !== "string") return null;
   switch (value.type) {
+    case "speaker_updated":
+      return isObject(value.speaker) && isSpeaker(value.speaker)
+        ? { type: "speaker_updated", speaker: value.speaker as unknown as SpeakerIdentity } : null;
     case "subtitle":
       return isSubtitle(value.subtitle)
         && (value.utterance_id === undefined || isText(value.utterance_id))
@@ -232,6 +242,7 @@ export function parseSubtitleStreamMessage(
         ? value as SubtitleStreamMessage : null;
     case "partial":
       return isSource(value.source)
+        && isSpeaker(value.speaker)
         && isText(value.text)
         && isText(value.utterance_id)
         && (

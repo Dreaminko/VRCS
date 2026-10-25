@@ -23,7 +23,12 @@ use super::{read_credential, SharedAudio};
 mod alignment;
 mod idle;
 mod provider;
+#[cfg(test)]
+mod quota_tests;
+mod rate_limit;
 mod reconnect;
+
+pub(crate) use rate_limit::controlled as connection_rate_controlled;
 
 pub use provider::SegmentationMode;
 use provider::{InitializationEvent, NormalizationState, Provider};
@@ -401,6 +406,7 @@ async fn run_with_reconnect(
     events: mpsc::Sender<CloudEvent>,
     mut stop: watch::Receiver<bool>,
 ) {
+    let quota = rate_limit::gate(&config, &profile);
     let mut backoff = Duration::from_millis(500);
     let mut replay = VecDeque::new();
     loop {
@@ -429,12 +435,11 @@ async fn run_with_reconnect(
                 // Planned resumption is independent of the network failure policy.
                 let mut resume_backoff = Duration::from_millis(500);
                 let connection = loop {
-                    let connection = idle::collect_until(
+                    let connection = tokio::select! { result = idle::collect_until(
                         connect_initialized(provider, &config, &profile, silence_seconds, &key),
                         &mut audio,
                         &mut resume,
-                    )
-                    .await;
+                    ) => result, _ = stop.changed() => return };
                     match connection {
                         Ok(connection) => break Ok(connection),
                         Err(error) => {
@@ -449,12 +454,11 @@ async fn run_with_reconnect(
                                     detail: error,
                                 })
                                 .await;
-                            idle::collect_until(
+                            tokio::select! { _ = idle::collect_until(
                                 tokio::time::sleep(resume_backoff),
                                 &mut audio,
                                 &mut resume,
-                            )
-                            .await;
+                            ) => {}, _ = stop.changed() => return }
                             resume_backoff = (resume_backoff * 2).min(Duration::from_secs(8));
                         }
                     }
@@ -502,6 +506,9 @@ async fn run_with_reconnect(
             Ok(_) => "Cloud recognition connection was closed".to_string(),
             Err(error) => error,
         };
+        if let Some(quota) = &quota {
+            quota.failed(&detail);
+        }
         let _ = events
             .send(CloudEvent::Failed {
                 utterance_id: None,
@@ -511,8 +518,23 @@ async fn run_with_reconnect(
             })
             .await;
         // Retry on a fresh socket only; keep draining input so the pipeline never stalls.
-        let mut pending = reconnect::ReconnectBuffer::default();
+        let mut pending = if quota.is_some() {
+            reconnect::ReconnectBuffer::realtime()
+        } else {
+            reconnect::ReconnectBuffer::default()
+        };
         let connection = loop {
+            if quota.is_some() && config.single_speaker {
+                // An idle player's closed socket should not consume another
+                // request until that player speaks again.
+                let ready = tokio::select! {
+                    ready = pending.wait_for_speech(&mut audio) => ready,
+                    _ = stop.changed() => break None,
+                };
+                if !ready {
+                    break None;
+                }
+            }
             let attempt = async {
                 tokio::time::sleep(backoff).await;
                 connect_initialized(provider, &config, &profile, silence_seconds, &key).await
@@ -547,7 +569,7 @@ async fn run_with_reconnect(
         backoff = Duration::from_millis(500);
         // OpenAI translation restarts from live speech rather than stale audio.
         if provider != Provider::OpenAiLiveTranslate {
-            replay.extend(pending.inputs);
+            replay.extend(pending.into_inputs());
         }
     }
 }
@@ -691,7 +713,7 @@ async fn run_session_inner(
                         }
                         if idle {
                             flush_audio_buffer(provider, socket, &mut audio_buffer).await?;
-                            let mut resume = idle::ResumeBuffer::default();
+                            let mut resume = if connection_rate_controlled(config) { idle::ResumeBuffer::realtime() } else { idle::ResumeBuffer::default() };
                             let closing = finish_aligned(provider, socket, config, task_id, normalization, events, pending_audio);
                             if let Err(error) = idle::collect_until(closing, audio, &mut resume).await {
                                 // A failed close must not discard speech captured for the next session.
@@ -785,6 +807,24 @@ async fn connect(
 }
 
 async fn connect_initialized(
+    provider: Provider,
+    config: &AsrConfig,
+    profile: &ApiProfile,
+    silence_seconds: f64,
+    key: &str,
+) -> Result<(Socket, Option<String>), String> {
+    let quota = rate_limit::gate(config, profile);
+    if let Some(quota) = &quota {
+        quota.acquire().await;
+    }
+    let result = connect_admitted(provider, config, profile, silence_seconds, key).await;
+    if let (Some(quota), Err(detail)) = (&quota, &result) {
+        quota.failed(detail);
+    }
+    result
+}
+
+async fn connect_admitted(
     provider: Provider,
     config: &AsrConfig,
     profile: &ApiProfile,

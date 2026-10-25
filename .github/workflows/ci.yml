@@ -41,7 +41,7 @@ jobs:
           else
             while IFS= read -r file; do
               case "$file" in
-                core/*|apps/desktop/src-tauri/*|rust-toolchain.toml|scripts/check-rust.ps1|scripts/test-check-rust.ps1|scripts/test-release-metadata.ps1|scripts/write-release-metadata.ps1|scripts/prepare-vulkan-runtime.ps1|.github/workflows/ci.yml)
+                core/*|crates/*|apps/desktop/src-tauri/*|rust-toolchain.toml|scripts/check-rust.ps1|scripts/test-check-rust.ps1|scripts/test-release-metadata.ps1|scripts/write-release-metadata.ps1|scripts/prepare-vulkan-runtime.ps1|.github/workflows/ci.yml)
                   rust=true
                   ;;
               esac

@@ -11,9 +11,15 @@ import type { ApplySettings, SaveState } from "../settings-types";
 import { DeviceGroup } from "../SettingsControls";
 import { MicrophoneLevelSetting } from "./MicrophoneLevelSetting";
 import { OtherVoiceLevelSetting } from "./OtherVoiceLevelSetting";
+import { DEFAULT_PLAYER_AUDIO, PlayerAudioSettings } from "./PlayerAudioSettings";
+import type { PlayerAudioStatus } from "../../core-client/types";
+import type { PlayerAudioStart } from "../../capture/usePlayerAudioStart";
+import { MemoryCompressionControls } from "../../capture/MemoryCompressionControls";
 
 export function AudioSettingsSection({
   draft,
+  playerAudioStatus,
+  playerAudioStart,
   devices,
   devicesReady,
   deviceErrors,
@@ -29,6 +35,8 @@ export function AudioSettingsSection({
   onStopMicrophoneTest,
 }: {
   draft: Settings;
+  playerAudioStatus?: PlayerAudioStatus | null;
+  playerAudioStart?: PlayerAudioStart;
   devices: AudioDevice[];
   devicesReady: boolean;
   deviceErrors: string[];
@@ -156,6 +164,16 @@ export function AudioSettingsSection({
                 })),
               },
               {
+                key: "vrchat_players",
+                name: t("settings.audio.players.title"),
+                description: t("settings.audio.players.nameHint"),
+                chosen: draft.audio.output.mode === "vrchat_players",
+                onSelect: () => applySettings((current) => ({
+                  ...current,
+                  audio: { ...current.audio, output: { ...current.audio.output, mode: "vrchat_players", device_id: null } },
+                })),
+              },
+              {
                 key: "disabled",
                 name: t("settings.audio.disableOtherVoices"),
                 chosen: draft.audio.output.mode === "disabled",
@@ -171,6 +189,15 @@ export function AudioSettingsSection({
               audio: { ...current.audio, output: { ...current.audio.output, mode: "system", device_id: id } },
             }))}
           />
+          {draft.audio.output.mode === "vrchat_players" && <PlayerAudioSettings
+            value={draft.audio.output.player_audio} status={playerAudioStatus} disabled={saveState === "saving"}
+            onChange={(patch) => applySettings((current) => ({
+              ...current, audio: { ...current.audio, output: { ...current.audio.output,
+                player_audio: { ...(current.audio.output.player_audio ?? DEFAULT_PLAYER_AUDIO), ...patch },
+              } },
+            }))} />}
+          {playerAudioStart && playerAudioStart.memory.status?.supported !== false
+            && <MemoryCompressionControls memory={playerAudioStart.memory} />}
           <DeviceGroup
             icon={<Mic size={18} />}
             title={t("settings.audio.ownVoice")}

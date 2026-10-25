@@ -216,12 +216,23 @@ fn validate_optional_text(label: &str, value: Option<&str>, maximum: usize) -> R
     Ok(())
 }
 
-/// An anonymous, session-scoped diarization identity, not a person's account ID.
+/// A track/session identity, with optional stable VRChat account metadata.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct SpeakerIdentity {
     pub id: String,
     /// Zero-based display ordinal, stable within one recognition session.
     pub index: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub display_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub user_id: Option<String>,
+}
+
+pub(crate) fn is_vrchat_user_id(value: &str) -> bool {
+    value.strip_prefix("usr_").is_some_and(|id| {
+        id.len() == 36
+            && uuid::Uuid::parse_str(id).is_ok_and(|uuid| uuid.hyphenated().to_string() == id)
+    })
 }
 
 /// A display snapshot. It is not evidence of sentence alignment.

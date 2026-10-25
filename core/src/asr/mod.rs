@@ -34,6 +34,7 @@ pub use session::{
     spawn_cloud_recognition_session, test_cloud_service, validate_cloud_connection,
     CloudRecognitionSession,
 };
+pub(crate) use streaming::connection_rate_controlled;
 pub use streaming::{
     streaming_test_backend, test_streaming_connection, CloudEvent, LiveTranslationResult,
     SegmentationMode,

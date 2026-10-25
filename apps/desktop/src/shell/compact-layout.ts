@@ -50,6 +50,13 @@ export interface CompactTextBudget {
   translation: number;
 }
 
+export function playerCaptionMinimumHeight(count: number, fontSize: CompactFontSize): number {
+  const font = COMPACT_FONT_PRESETS[fontSize];
+  return 2 + COMPACT_LAYOUT.headerHeight + COMPACT_LAYOUT.bodyPaddingTop + COMPACT_LAYOUT.bodyPaddingBottom
+    + Math.max(1, count) * (14 + font.originalLine + font.translationLine + 8)
+    + Math.max(0, count - 1) * COMPACT_LAYOUT.groupGap;
+}
+
 /** Only the oversized newest group receives paragraph height limits. */
 export function allocateLatestLines(
   natural: CompactTextBudget,

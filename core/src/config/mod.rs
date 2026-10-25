@@ -25,7 +25,7 @@ mod migration_tests;
 #[cfg(test)]
 mod validation_tests;
 
-pub use audio::{AudioConfig, MicrophoneConfig, OutputConfig, VadConfig};
+pub use audio::{AudioConfig, MicrophoneConfig, OutputConfig, PlayerAudioConfig, VadConfig};
 pub use conversation_titles::{ConversationTitleConfig, TITLE_OUTPUT_LANGUAGES};
 pub use features::{apply_feature_gates, FeatureConfig, FeatureKey};
 pub use glossary::{GlossaryCategory, GlossaryConfig, GlossaryEntry, GlossarySource};

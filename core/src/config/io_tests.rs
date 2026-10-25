@@ -3,6 +3,39 @@ use std::fs;
 use super::{load_config, AppConfig};
 
 #[test]
+fn player_user_selection_and_labels_survive_config_save_and_reload() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("config.json");
+    let mut config = AppConfig::default();
+    let user = "usr_00000000-0000-4000-8000-000000000007";
+    config.audio.output.player_audio.max_visible_players = 8;
+    config.audio.output.player_audio.selected_tracks = Some(vec![user.into()]);
+    config
+        .audio
+        .output
+        .player_audio
+        .selected_user_names
+        .insert(user.into(), "Saved player".into());
+    super::save_config(&path, &config).unwrap();
+    assert_eq!(
+        load_config(&path).unwrap().audio.output.player_audio,
+        config.audio.output.player_audio
+    );
+    config.audio.output.player_audio.selected_tracks = Some(vec![]);
+    config.audio.output.player_audio.selected_user_names.clear();
+    super::save_config(&path, &config).unwrap();
+    assert_eq!(
+        load_config(&path)
+            .unwrap()
+            .audio
+            .output
+            .player_audio
+            .selected_tracks,
+        Some(vec![])
+    );
+}
+
+#[test]
 fn legacy_ocr_backend_is_removed_on_load_without_losing_preferences() {
     for backend in ["cloud", "local"] {
         let dir = tempfile::tempdir().unwrap();

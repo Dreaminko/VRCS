@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { coreWebSocketUrl } from "./transport";
+import { clearSpeakerIdentities, publishSpeakerIdentity } from "../subtitles/speaker-state";
 import {
   clearAudioLevels,
   clearLivePartial,
@@ -82,6 +83,7 @@ export function useCoreEventStream({
       socket = new WebSocket(coreWebSocketUrl());
       socket.onopen = () => {
         if (closed) return;
+        clearSpeakerIdentities();
         setConnection("connected");
         handlersRef.current.onConnected();
       };
@@ -89,6 +91,9 @@ export function useCoreEventStream({
         const message = parseSubtitleStreamMessage(event.data);
         if (message === null) return;
         switch (message.type) {
+          case "speaker_updated":
+            publishSpeakerIdentity(message.speaker);
+            break;
           case "subtitle": {
             const source = message.subtitle.source ?? "speaker";
             if (source !== "chatbox") {

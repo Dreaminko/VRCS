@@ -127,7 +127,12 @@ mod tests {
         assert_keys(&value["audio"], ["microphone", "output", "sample_rate"]);
         assert_keys(
             &value["audio"]["output"],
-            ["device_id", "mode", "trigger_threshold_dbfs"],
+            [
+                "device_id",
+                "mode",
+                "player_audio",
+                "trigger_threshold_dbfs",
+            ],
         );
         assert_keys(
             &value["audio"]["microphone"],

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
 
 import type { Page } from "./app-types";
@@ -20,6 +20,7 @@ import {
 } from "../translation/translation-languages";
 import { useAppUpdater } from "../updates/useAppUpdater";
 import { useInterfaceScale } from "./useInterfaceScale";
+import { usePlayerHistoryPreferences } from "../subtitles/usePlayerHistoryPreferences";
 
 export function useAppWorkspace({
   page,
@@ -35,6 +36,7 @@ export function useAppWorkspace({
   const updater = useAppUpdater(onboardingFlow.status === "complete");
   const core = useCoreSession(page === "settings" || onboardingFlow.status !== "complete");
   const { runtime, capture: captureRuntime, settings, dictionary, subtitles } = core;
+  const playerDisplay = usePlayerHistoryPreferences(settings.value?.translation, runtime.health?.language_session);
   const learningAvailable = settings.value?.features.learning ?? false;
   useEffect(() => {
     if (settings.value && !learningAvailable && page === "learning") setPage("live");
@@ -74,6 +76,7 @@ export function useAppWorkspace({
     coreReady: runtime.ready,
     getRunning: captureRuntime.getRunning,
     outputMode: settings.value?.audio.output.mode,
+    preparePlayerAudioStart: captureRuntime.playerAudioStart.prepare,
     createConversation: conversation.createConversation,
     clearLookup: selection.clear,
     setCoreCaptureRunning: captureRuntime.setRunning,
@@ -81,7 +84,14 @@ export function useAppWorkspace({
     reportError: runtime.reportError,
   });
   const selectionPanelOpen = Boolean(selection.target && selection.tool);
-  const overlayOpen = selectionPanelOpen || captureControl.vrchatWarningOpen;
+  const overlayOpen = selectionPanelOpen || captureControl.vrchatWarningOpen || captureRuntime.playerAudioStart.notice !== null
+    || captureRuntime.playerAudioStart.memory.dialog !== null;
+  const resumedPlayerAudio = useRef(false);
+  useEffect(() => {
+    if (!captureRuntime.playerAudioStart.resumeRequested || resumedPlayerAudio.current || !runtime.ready || !settings.value || onboardingFlow.status !== "complete") return;
+    resumedPlayerAudio.current = true;
+    if (settings.value.audio.output.mode === "vrchat_players") void captureControl.setCaptureRunning(true);
+  }, [captureRuntime.playerAudioStart.resumeRequested, runtime.ready, settings.value, onboardingFlow.status, captureControl.setCaptureRunning]);
   const { compact, resizeCompactWindow } = compactWindow;
   const { reportError } = runtime;
   useEffect(() => {
@@ -138,6 +148,7 @@ export function useAppWorkspace({
       finish: finishOnboarding,
     },
     runtime,
+    playerDisplay,
     capture: {
       ...captureRuntime,
       ...captureControl,

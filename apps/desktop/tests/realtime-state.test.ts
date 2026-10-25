@@ -5,6 +5,7 @@ import {
   clearLivePartials,
   completeLivePartial,
   getLivePartial,
+  getLivePartials,
   livePartialHasSubtitle,
   publishLivePartial,
   resetLivePartial,
@@ -23,12 +24,56 @@ function partial(utteranceId: string, text: string): LiveTranscription {
   };
 }
 
+test("simultaneous player previews update and complete independently", () => {
+  clearLivePartials();
+  const first = { ...partial("p1:1", "hello"), speaker: { id: "player-1", index: 0 } };
+  const second = { ...partial("p2:1", "goodbye"), speaker: { id: "player-2", index: 1 } };
+  publishLivePartial(first);
+  publishLivePartial(second);
+  const snapshot = getLivePartials("speaker");
+  assert.equal(snapshot, getLivePartials("speaker"));
+  assert.equal(snapshot.length, 2);
+  publishLivePartial({ ...first, translation: "你好" });
+  assert.equal(getLivePartials("speaker").length, 2);
+  assert.equal(getLivePartials("speaker").find((p) => p.speaker?.id === "player-2"), second);
+  completeLivePartial("speaker", first.utterance_id);
+  publishLivePartial(first);
+  assert.deepEqual(getLivePartials("speaker"), [second]);
+  resetLivePartial("speaker");
+  assert.deepEqual(getLivePartials("speaker"), []);
+});
+
+test("player previews remain independent from the microphone", () => {
+  clearLivePartials();
+  publishLivePartial({ ...partial("mic", "me"), source: "microphone" });
+  for (let i = 0; i < 30; i++) {
+    publishLivePartial({ ...partial(`player-${i}:1`, "voice"), speaker: { id: `player-${i}`, index: i } });
+  }
+  assert.equal(getLivePartials("speaker").length, 30);
+  resetLivePartial("speaker");
+  assert.equal(getLivePartial("microphone")?.text, "me");
+  clearLivePartials();
+});
+
 test("completing the current utterance clears its partial", () => {
   clearLivePartials();
   publishLivePartial(partial("utterance-1", "hello"));
   completeLivePartial("speaker", "utterance-1");
 
   assert.equal(getLivePartial("speaker"), null);
+  clearLivePartials();
+});
+
+test("unlimited capture keeps more than eight concurrent player previews", () => {
+  clearLivePartials();
+  for (let index = 0; index < 40; index += 1) {
+    publishLivePartial({ ...partial(`player-${index}`, `Player ${index}`), speaker: { id: `actor-${index}`, index } });
+  }
+  assert.equal(getLivePartials("speaker").length, 40);
+  for (let index = 0; index < 39; index += 1) completeLivePartial("speaker", `player-${index}`);
+  publishLivePartial({ ...partial("player-0", "late result"), speaker: { id: "actor-0", index: 0 } });
+  assert.equal(getLivePartials("speaker").length, 1);
+  assert.equal(getLivePartial("speaker")?.utterance_id, "player-39");
   clearLivePartials();
 });
 

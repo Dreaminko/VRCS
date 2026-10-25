@@ -243,3 +243,8 @@ html:has(.compact-root) #root {
   stroke-width: 2px;
   paint-order: stroke fill;
 }
+
+.compact-speaker { flex: none; color: var(--primary-ink); font-size: 12px; line-height: 14px; font-weight: 650; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.compact-subtitle-stack.compact-parallel { display: grid; grid-auto-rows: max-content; min-height: 0; flex: 1; align-content: safe center; overflow-y: auto; margin-block: 0; gap: 6px; }
+.compact-parallel .compact-subtitle-row { padding: 2px 4px; border-left: 2px solid var(--border); }
+.compact-root-transparent .compact-speaker { flex: none; color: white; text-shadow: 0 1px 3px black, 0 0 2px black; }

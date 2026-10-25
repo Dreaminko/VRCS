@@ -397,6 +397,7 @@ impl Manager {
 }
 
 struct WorkerState {
+    caption_status: super::caption_status::CaptionStatus,
     controls: Arc<Mutex<ControlHub>>,
     #[cfg(windows)]
     ui: super::ui_runtime::UiRuntime,
@@ -471,6 +472,7 @@ fn worker_loop(
     };
     let (config, ocr_config) = config;
     let mut state = WorkerState {
+        caption_status: Default::default(),
         controls,
         #[cfg(windows)]
         ui: super::ui_runtime::UiRuntime::new(placement),
@@ -579,6 +581,9 @@ fn worker_loop(
                             .ocr
                             .set_reader_labels(view.labels.wrist_reader.clone());
                     }
+                    state
+                        .caption_status
+                        .update(view.caption_notice.clone(), Instant::now());
                     state.dashboard.update_view(&view);
                     state.dashboard_view = Some(view);
                 }
@@ -617,6 +622,10 @@ fn worker_loop(
                 state.wrist_sample = visible;
             }
         }
+        // Send uncapped candidates: the WebViews share the desktop visibility
+        // policy and apply player/history limits after filtering original text.
+        state.headset.set_player_limit(Some(0));
+        state.wrist.set_player_limit(Some(0));
         for event in event_receiver.try_iter().take(EVENT_QUEUE_CAPACITY) {
             let now = Instant::now();
             state
@@ -1190,6 +1199,13 @@ fn update_headset(
             &state.config.translation_display,
         )
     };
+    let notice = state.caption_status.text(Instant::now());
+    let frame = frame.or_else(|| {
+        notice.as_ref().map(|_| PresentationFrame {
+            content: PresentationContent::Headset(Vec::new()),
+            opacity: 1.0,
+        })
+    });
     let Some(frame) = frame else {
         backend.hide(OverlayKind::Headset);
         status.headset.state = ResourceState::ReadyHidden;
@@ -1200,7 +1216,7 @@ fn update_headset(
     #[cfg(windows)]
     let presented = (|| {
         use super::surface::SurfaceView;
-        let PresentationContent::Headset(text) = &frame.content else {
+        let PresentationContent::Headset(messages) = &frame.content else {
             return Err("Invalid headset content".into());
         };
         let dark = state
@@ -1213,8 +1229,23 @@ fn update_headset(
             backend,
             OverlayKind::Headset,
             SurfaceView::Headset {
+                visibility: state
+                    .dashboard_view
+                    .as_ref()
+                    .map(|view| view.caption_visibility.clone())
+                    .unwrap_or_default(),
+                max_visible_players: state
+                    .dashboard_view
+                    .as_ref()
+                    .and_then(|view| view.max_visible_players),
                 dark,
-                text: text.clone(),
+                messages: messages.clone(),
+                notice: notice.clone(),
+                labels: state
+                    .dashboard_view
+                    .as_ref()
+                    .map(|view| view.labels.captions.clone())
+                    .unwrap_or_default(),
                 lines_per_language: state.config.headset.lines_per_language,
                 font_size: state.config.headset.font_size_px,
                 opacity: state.config.headset.background_opacity,
@@ -1226,7 +1257,8 @@ fn update_headset(
             let shown = backend
                 .set_opacity(
                     OverlayKind::Headset,
-                    state.config.headset.opacity * frame.opacity,
+                    state.config.headset.opacity
+                        * if notice.is_some() { 1.0 } else { frame.opacity },
                 )
                 .and_then(|()| backend.show(OverlayKind::Headset));
             if shown.is_err() {
@@ -1338,10 +1370,14 @@ fn update_wrist(
     let frame = if state.wrist_sample {
         Some(PresentationFrame::wrist(vec![
             WristMessage {
+                original: None,
+                speaker: None,
                 text: "你好，欢迎使用 VRCS。".into(),
                 side: MessageSide::Left,
             },
             WristMessage {
+                original: None,
+                speaker: None,
                 text: "Conversation stays on your wrist or in front of you.".into(),
                 side: MessageSide::Right,
             },
@@ -1353,6 +1389,12 @@ fn update_wrist(
             &state.config.translation_display,
         )
     };
+    let notice = state.caption_status.text(Instant::now());
+    let frame = frame.or_else(|| {
+        notice
+            .as_ref()
+            .map(|_| PresentationFrame::wrist(Vec::new()))
+    });
     let Some(frame) = frame else {
         backend.hide(OverlayKind::Wrist);
         state.ui.dialogue_revision = None;
@@ -1375,8 +1417,28 @@ fn update_wrist(
             backend,
             OverlayKind::Wrist,
             SurfaceView::Dialogue {
+                visibility: state
+                    .dashboard_view
+                    .as_ref()
+                    .map(|view| view.caption_visibility.clone())
+                    .unwrap_or_default(),
+                max_visible_players: state
+                    .dashboard_view
+                    .as_ref()
+                    .and_then(|view| view.max_visible_players),
+                max_entries: state.config.wrist.max_entries.clamp(3, 10) as usize,
                 controls,
                 messages,
+                parallel: state
+                    .dashboard_view
+                    .as_ref()
+                    .is_some_and(|view| view.max_visible_players.is_some()),
+                notice,
+                labels: state
+                    .dashboard_view
+                    .as_ref()
+                    .map(|view| view.labels.captions.clone())
+                    .unwrap_or_default(),
                 mode,
                 follow_view,
                 busy,

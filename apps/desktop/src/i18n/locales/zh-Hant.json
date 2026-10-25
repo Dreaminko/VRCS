@@ -116,9 +116,18 @@
       "targetLanguage": "目標語言",
       "translate": "翻譯",
       "sendMode": "傳送內容",
-      "modes": { "original": "原文", "translation": "譯文", "bilingual": "雙語" },
+      "modes": {
+        "original": "原文",
+        "translation": "譯文",
+        "bilingual": "雙語"
+      },
       "format": "訊息格式",
-      "formats": { "originalFirst": "原文在前，譯文在後", "translationFirst": "譯文在前，原文在後", "slash": "以斜線分隔", "custom": "自訂" },
+      "formats": {
+        "originalFirst": "原文在前，譯文在後",
+        "translationFirst": "譯文在前，原文在後",
+        "slash": "以斜線分隔",
+        "custom": "自訂"
+      },
       "customFormat": "自訂訊息格式",
       "preview": "傳送預覽",
       "previewEmpty": "最終訊息會顯示在此處",
@@ -126,7 +135,10 @@
       "send": "傳送到 VRChat",
       "sending": "正在傳送…",
       "oscDisabled": "請先在設定中啟用 OSC。",
-      "errors": { "translate": "無法翻譯此則訊息。", "send": "無法傳送 Chatbox 訊息。" }
+      "errors": {
+        "translate": "無法翻譯此則訊息。",
+        "send": "無法傳送 Chatbox 訊息。"
+      }
     },
     "capture": {
       "start": "開始轉錄",
@@ -200,6 +212,26 @@
       }
     },
     "warnings": {
+      "playerAudio": {
+        "title": "啟動 VRChat 分玩家獨立音軌",
+        "intro": "這是用於多人即時翻譯的實驗功能。繼續前，請了解其運作方式、使用條件與風險。",
+        "principleTitle": "實作原理",
+        "principle": "VRCS 使用 Windows 原生介面被動接收本機的 VRChat 語音網路資料。啟用後，登入後首次進入世界並完成載入時，會從本機分頁檔中嘗試解析並驗證語音金鑰，為每位玩家分別解密、解碼為獨立 PCM 音軌，再交給所選辨識與翻譯服務。",
+        "paging": "取得金鑰時，會要求 Windows 將部分遊戲記憶體頁換出至磁碟分頁檔，再從中嘗試解析金鑰，期間可能使遊戲短暫停頓。",
+        "privacyTitle": "音訊與資料處理",
+        "privacy": "每位玩家的獨立音軌會交給目前設定的辨識與翻譯服務，使用雲端服務時會傳送語音，並行請求可能增加費用。VRCS 不將原始音訊或工作階段金鑰儲存至磁碟；文字、譯文與玩家顯示名稱會隨歷史記錄儲存。原始音軌不套用遊戲內距離衰減、音量及靜音過濾。",
+        "privacyConsent": "請告知所有參與者並取得其同意，遵守適用的隱私與個人資料保護要求；禁止用於未經同意的監聽、騷擾或侵權。",
+        "disclaimerTitle": "實驗功能免責聲明",
+        "disclaimer": "本實驗功能依「現狀」提供，不保證準確性、穩定性或適用性，可能出現漏包、延遲、姓名缺失或辨識錯誤。在適用法律允許的範圍內，開發者不對使用本功能造成的帳戶處罰、資料遺失、系統不穩定或其他損失負責。使用第三方服務或資源時還需遵守其條款與授權。如不同意這些說明，請取消並停止使用此功能。",
+        "countdown": "請閱讀說明，{{seconds}} 秒後可繼續",
+        "ready": "請確認已了解上述說明，再繼續啟動。",
+        "confirm": "我已了解，繼續啟動",
+        "elevationCancelled": "已取消 Windows 系統管理員授權，本次操作未繼續。",
+        "termsTitle": "服務條款與帳戶風險",
+        "terms": "擷取、解密或處理 VRChat 語音及房間通訊可能違反 VRChat 的服務條款，可能導致帳戶限制、封禁等後果。請先了解相關規則，並自行決定是否承擔使用風險。",
+        "anticheatTitle": "反作弊與相容性",
+        "anticheat": "本工具不直接讀取遊戲程序記憶體，也不修改遊戲檔案；但使用任何第三方工具，都存在被反作弊系統 Easy Anti-Cheat（EAC）判定為異常的風險，本專案不保證帳戶安全。"
+      },
       "vrchat": {
         "title": "VRChat 未執行",
         "description": "VRCS 可以繼續監聽，但在 VRChat 啟動前可能無法取得遊戲音訊。"
@@ -279,6 +311,39 @@
       "waiting": "等待字幕…",
       "microphoneMe": "我 · 麥克風",
       "speakerNumber": "發話者 {{number}}",
+      "trackNumber": "音軌 {{number}}",
+      "players": {
+        "title": "人員與譯文顯示",
+        "hiddenCount": "已隱藏 {{count}} 人",
+        "process": "處理哪些玩家",
+        "all": "翻譯所有人",
+        "selected": "僅翻譯選定的人",
+        "processHint": "所選玩家依 VRChat 使用者 ID 儲存在本機，切換世界或重新啟動後可沿用，再次遇見時自動更新暱稱。僅翻譯選定玩家時，未選取或尚未確認使用者 ID 的音軌不會進行解碼、辨識或翻譯。",
+        "savedSelection": "已儲存的選擇",
+        "userIdPending": "等待玩家使用者 ID，暫時無法選取",
+        "selectCurrent": "選取目前所有人",
+        "selectNone": "全部取消",
+        "noneSelected": "未選取目前玩家，暫不處理對方音訊。",
+        "languages": "隱藏的原文語言（可複選）",
+        "followDefault": "跟隨預設",
+        "noHiddenLanguages": "不隱藏任何語言",
+        "languageHint": "預設跟隨「目標語言 → 對方」的全部語言；原文為所選語言時，會隱藏對方的整條原文及全部譯文，其他原文語言不受影響。取消跟隨後可手動複選，僅影響顯示；缺少語言標記時會根據原文在本機判斷，無法確定時仍會顯示。",
+        "search": "搜尋玩家",
+        "showAll": "顯示所有記錄",
+        "empty": "等待音軌或載入歷史記錄。",
+        "translatePerson": "翻譯 {{name}}",
+        "translate": "翻譯",
+        "hidePerson": "隱藏 {{name}} 的記錄",
+        "showPerson": "顯示 {{name}} 的記錄",
+        "show": "顯示",
+        "hide": "隱藏",
+        "current": "目前世界",
+        "history": "歷史音軌",
+        "unidentified": "未標記音軌的對方",
+        "filteredEmpty": "目前篩選下沒有記錄。",
+        "hideHint": "隱藏設定同步套用於聊天頁面、桌面字幕、VR 字幕與手腕對話；不刪除紀錄，也不改變音訊處理選擇。",
+        "namePending": "部分音軌尚未配對到玩家姓名。請保持擷取開啟，再進入其他世界或重新載入目前世界；收到姓名資訊後會自動更新。"
+      },
       "speakerOther": "其他人 · 系統音訊",
       "returnToBottom": "回到最新字幕",
       "returnToBottomShort": "最新字幕",
@@ -574,6 +639,7 @@
     },
     "validation": {
       "audio": {
+        "player_audio_unavailable": "無法啟動分玩家獨立音軌。請檢查系統管理員權限、NTFS 分頁檔所在磁碟及 Opus 程式庫。",
         "outputUnavailable": "所選系統輸出裝置已無法使用，請重新選擇。",
         "microphoneUnavailable": "所選麥克風裝置已無法使用，請重新選擇。"
       },
@@ -587,7 +653,9 @@
     "updates": {
       "title": "軟體更新",
       "currentVersion": "目前版本 {{version}}",
-      "variant": { "standard": "標準版" },
+      "variant": {
+        "standard": "標準版"
+      },
       "automaticChecks": "自動檢查更新",
       "checkNow": "立即檢查",
       "availableTitle": "VRCS {{version}} 已推出",
@@ -605,18 +673,18 @@
         "installing": "正在安裝更新…"
       },
       "errors": {
-      "conversations": {
-        "title_interrupted": "上次生成已中斷，請重試。",
-        "title_service_failed": "無法產生標題，請檢查模型服務後重試。",
-        "title_not_configured": "請在對話標題設定中檢查 API 設定檔、憑證和模型。",
-        "title_timeout": "標題生成逾時，請重試。",
-        "title_empty": "此對話沒有可用於摘要的字幕原文。",
-        "title_invalid_output": "模型未傳回有效的單行標題，請重試。",
-        "title_unavailable": "請先結束對話，並還原預設標題後再產生。"
-      },
-    "feature": {
-      "disabled": "此功能已關閉，可在系統設定的功能選項中重新開啟。"
-    },
+        "conversations": {
+          "title_interrupted": "上次生成已中斷，請重試。",
+          "title_service_failed": "無法產生標題，請檢查模型服務後重試。",
+          "title_not_configured": "請在對話標題設定中檢查 API 設定檔、憑證和模型。",
+          "title_timeout": "標題生成逾時，請重試。",
+          "title_empty": "此對話沒有可用於摘要的字幕原文。",
+          "title_invalid_output": "模型未傳回有效的單行標題，請重試。",
+          "title_unavailable": "請先結束對話，並還原預設標題後再產生。"
+        },
+        "feature": {
+          "disabled": "此功能已關閉，可在系統設定的功能選項中重新開啟。"
+        },
         "unavailable": "此版本未設定更新功能。",
         "busy": "更新正在進行中。",
         "no_pending": "請重新檢查更新後再安裝。",
@@ -809,18 +877,59 @@
         "wristPosition": "位置與角度",
         "results": "區域譯文：{{completed}} 項成功，{{failed}} 項失敗",
         "sourceView": "原文與譯文一起顯示。",
-        "errors": {"timeout": "工作已逾時，請重新辨識。", "models_missing": "請在設定中準備本機 OCR 模型。", "configuration_changed": "OCR 設定已變更，請重新辨識。", "tracking_lost": "請恢復頭戴裝置追蹤後重新辨識。", "view_changed": "原文字區域已變更，請重新辨識。", "network": "OCR 網路請求失敗，請檢查連線後重試。", "local_failed": "本機 OCR 推論失敗，請檢查模型準備狀態。", "unavailable": "OCR 暫時不可用，請檢查 VR 連線和本機模型。", "translation_failed": "全部翻譯請求失敗，請檢查翻譯服務。", "partial_failure": "部分翻譯失敗，已完成的譯文會被保留。", "partial_timeout": "部分翻譯逾時，已完成的譯文會被保留。"},
+        "errors": {
+          "timeout": "工作已逾時，請重新辨識。",
+          "models_missing": "請在設定中準備本機 OCR 模型。",
+          "configuration_changed": "OCR 設定已變更，請重新辨識。",
+          "tracking_lost": "請恢復頭戴裝置追蹤後重新辨識。",
+          "view_changed": "原文字區域已變更，請重新辨識。",
+          "network": "OCR 網路請求失敗，請檢查連線後重試。",
+          "local_failed": "本機 OCR 推論失敗，請檢查模型準備狀態。",
+          "unavailable": "OCR 暫時不可用，請檢查 VR 連線和本機模型。",
+          "translation_failed": "全部翻譯請求失敗，請檢查翻譯服務。",
+          "partial_failure": "部分翻譯失敗，已完成的譯文會被保留。",
+          "partial_timeout": "部分翻譯逾時，已完成的譯文會被保留。"
+        },
         "displayMode": "VR 結果顯示方式",
-        "displayModes": { "wrist": "手腕面板", "stereo": "原文字位置（左右眼）" },
+        "displayModes": {
+          "wrist": "手腕面板",
+          "stereo": "原文字位置（左右眼）"
+        },
         "device": "本機 OCR 推論裝置",
         "deviceDescription": "DirectML 使用 Windows 上的相容 GPU。GPU 載入或辨識失敗時，OCR 會自動退回 CPU。",
         "activeDevice": "最近使用的裝置：{{device}}",
         "cpuFallback": "DirectML 失敗，OCR 已切換至 CPU。",
-        "modelStates": { "missing": "需要下載", "downloading": "正在下載", "ready": "已就緒", "error": "下載失敗" },
+        "modelStates": {
+          "missing": "需要下載",
+          "downloading": "正在下載",
+          "ready": "已就緒",
+          "error": "下載失敗"
+        },
         "modelFailed": "無法準備 OCR 模型，請檢查連線後重試。",
         "modelDeleteFailed": "無法刪除 OCR 模型。請等待目前的下載或辨識完成後重試。",
         "controls": "選框出現後，長按右扳機 0.65 秒確認 OCR。若此前已按住扳機，需先放開再按。未框選時不會辨識。長按左扳機可清除，啟用視覺問答時用於提問。",
-        "states": {"disabled": "已關閉", "waiting_vr": "等待 SteamVR", "ready": "可以辨識", "unbound": "請在 SteamVR 中綁定 OCR 控制器操作", "capturing": "正在擷取", "selecting": "調整選框，長按右扳機確認", "waiting_hands": "移開雙手後開始辨識", "loading_model": "正在載入本機模型", "recognizing": "正在本機辨識", "translating": "正在翻譯", "recognized": "辨識完成", "visible": "正在顯示譯文", "invalid": "視野已變化，請重新辨識", "error": "OCR 無法使用", "no_text": "未發現文字", "low_confidence": "文字信心值低於門檻", "source_visible": "正在顯示辨識原文", "partial_visible": "正在顯示已完成的譯文", "translation_failed": "全部翻譯失敗", "timed_out": "OCR 工作逾時"},
+        "states": {
+          "disabled": "已關閉",
+          "waiting_vr": "等待 SteamVR",
+          "ready": "可以辨識",
+          "unbound": "請在 SteamVR 中綁定 OCR 控制器操作",
+          "capturing": "正在擷取",
+          "selecting": "調整選框，長按右扳機確認",
+          "waiting_hands": "移開雙手後開始辨識",
+          "loading_model": "正在載入本機模型",
+          "recognizing": "正在本機辨識",
+          "translating": "正在翻譯",
+          "recognized": "辨識完成",
+          "visible": "正在顯示譯文",
+          "invalid": "視野已變化，請重新辨識",
+          "error": "OCR 無法使用",
+          "no_text": "未發現文字",
+          "low_confidence": "文字信心值低於門檻",
+          "source_visible": "正在顯示辨識原文",
+          "partial_visible": "正在顯示已完成的譯文",
+          "translation_failed": "全部翻譯失敗",
+          "timed_out": "OCR 工作逾時"
+        },
         "title": "OCR",
         "description": "在本機辨識選區文字，並透過所選 API 翻譯。",
         "localModel": "本機 PP-OCRv6",
@@ -970,7 +1079,6 @@
       "system": {
         "title": "系統",
         "general": "一般設定",
-
         "saveImmediately": "更改會立即儲存。",
         "language": "介面語言",
         "languageDescription": "跟隨系統語言，或單獨指定 VRCS 使用的語言。",
@@ -995,7 +1103,6 @@
         "runOnboardingStopFirst": "請先停止轉錄",
         "externalApi": {
           "title": "第三方輸出 API",
-
           "enabled": "啟用第三方輸出 API",
           "enabledDescription": "預設關閉；僅開放健康檢查、功能資訊和事件訂閱。",
           "host": "監聽位址",
@@ -1017,7 +1124,6 @@
           "tokenLoadFailed": "無法讀取權杖狀態。",
           "tokenSaveFailed": "無法儲存權杖。",
           "tokenDeleteFailed": "無法刪除權杖。",
-
           "statusLoadFailed": "無法讀取第三方輸出 API 的目前狀態。",
           "runtime": {
             "checking": "正在讀取目前執行狀態。",
@@ -1029,7 +1135,6 @@
       },
       "storage": {
         "title": "儲存",
-
         "databaseUsage": "字幕歷史使用空間",
         "databaseUsageDescription": "字幕歷史使用量包含字幕及其索引，用於計算配額。已分配空間和可回收空間統計整個資料庫。",
         "ofQuota": "／{{quota}} 配額",
@@ -1050,7 +1155,6 @@
         "liveTranslateHint": "每路音源翻譯第一目標語言，需開啟自動翻譯。文字 Prompt 和思考設定不適用。Qwen 使用純文字輸出並辨識發話者；其他即時翻譯服務產生譯後音訊，但應用不播放。",
         "liveTranslatePreview": "偵測到語音後開始上傳，譯文回傳即可預覽。本機對齊支援歷史記錄、額外目標翻譯及 OSC；同語言原文無需等待譯文即可完成。",
         "title": "字幕翻譯",
-
         "mode": "翻譯方式",
         "modeDescription": "自動模式會翻譯其他人的聲音與你的麥克風內容；手動模式只會依要求翻譯。",
         "modes": {
@@ -1085,7 +1189,11 @@
         "contextEnabled": "附帶最近原文",
         "contextEnabledDescription": "依時間順序將所選來源最近完成的原文加入 LLM 提示詞。預設關閉。",
         "contextSourcesTitle": "原文來源",
-        "contextSources": { "speaker": "其他人的聲音", "microphone": "麥克風", "chatbox": "Chatbox" },
+        "contextSources": {
+          "speaker": "其他人的聲音",
+          "microphone": "麥克風",
+          "chatbox": "Chatbox"
+        },
         "contextLimitsTitle": "上下文限制",
         "maxMessages": "最近訊息數（1–50）",
         "maxChars": "上下文字元上限（200–12000）",
@@ -1114,7 +1222,10 @@
         "editGlossary": "編輯術語表",
         "addSubscription": "新增訂閱",
         "editSubscription": "編輯訂閱",
-        "glossaryTypes": { "local": "本機", "subscription": "訂閱" },
+        "glossaryTypes": {
+          "local": "本機",
+          "subscription": "訂閱"
+        },
         "localGlossaryDetail": "儲存在目前 VRCS 設定中",
         "glossaryEntryCount": "{{count}} 個條目",
         "glossaryEntriesOmitted": "另有 {{count}} 個條目因總數限制而省略",
@@ -1152,7 +1263,12 @@
         "glossarySource": "原詞",
         "glossaryTarget": "固定譯法",
         "glossaryCategory": "類別",
-        "glossaryCategories": { "person": "人名", "world": "VRChat 世界", "game": "遊戲術語", "custom": "自訂" },
+        "glossaryCategories": {
+          "person": "人名",
+          "world": "VRChat 世界",
+          "game": "遊戲術語",
+          "custom": "自訂"
+        },
         "keepOriginal": "保留原文",
         "caseSensitive": "區分大小寫",
         "table": {
@@ -1207,7 +1323,6 @@
       },
       "apiManagement": {
         "title": "API 存取",
-
         "securityNotice": "API 金鑰會儲存在 Windows 認證管理員中，絕不會寫入設定檔。環境變數中的金鑰優先使用。",
         "alibabaDescription": "Qwen3 ASR 與 Fun-ASR 共用此連線",
         "openaiDescription": "OpenAI 官方 API，可用於 Realtime 轉錄和 LLM 翻譯",
@@ -1311,8 +1426,20 @@
         "connectionSucceeded": "連線成功。",
         "connectionFailed": "連線診斷發現相容性問題。",
         "diagnostics": {
-          "checks": { "configuration": "設定", "endpoint": "網路端點", "authentication": "驗證", "models": "模型清單", "completion": "標準產生", "streaming": "串流產生" },
-          "status": { "passed": "通過", "warning": "警告", "failed": "失敗", "skipped": "未執行" },
+          "checks": {
+            "configuration": "設定",
+            "endpoint": "網路端點",
+            "authentication": "驗證",
+            "models": "模型清單",
+            "completion": "標準產生",
+            "streaming": "串流產生"
+          },
+          "status": {
+            "passed": "通過",
+            "warning": "警告",
+            "failed": "失敗",
+            "skipped": "未執行"
+          },
           "codes": {
             "llm_timeout": "請求逾時，請檢查服務狀態或延長逾時時間。",
             "llm_dns_failed": "無法解析主機名稱，請檢查 Base URL。",
@@ -1423,6 +1550,63 @@
       },
       "audio": {
         "title": "音訊來源",
+        "memory": {
+          "title": "Windows 記憶體壓縮",
+          "manage": "檢查與管理",
+          "checking": "正在檢測記憶體壓縮…",
+          "unknown": "狀態尚未確認",
+          "enabled": "記憶體壓縮已開啟",
+          "disabled": "記憶體壓縮已關閉",
+          "desktopOnly": "請在 Windows 桌面版 VRCS 中管理記憶體壓縮。",
+          "description": "分玩家獨立音軌需要關閉記憶體壓縮。檢測只讀取狀態；關閉和恢復都會在說明影響並取得確認後執行。",
+          "authorization": "讀取狀態需要系統管理員權限。授權後 VRCS 會自動重新開啟並繼續檢測，不會啟動音軌擷取。",
+          "authorize": "授權並檢測",
+          "refresh": "重新檢測",
+          "disable": "一鍵關閉",
+          "enable": "恢復開啟",
+          "disableTitle": "關閉 Windows 記憶體壓縮？",
+          "enableTitle": "恢復 Windows 記憶體壓縮？",
+          "disableImpact": "這會修改整台電腦的 Windows 記憶體管理設定，並暫停目前轉錄。關閉後，系統可能使用更多實體記憶體，記憶體不足時也可能增加磁碟分頁、影響其他應用程式的效能。設定不會隨 VRCS 結束自動恢復，可隨時在這裡恢復開啟。",
+          "enableImpact": "這會重新開啟整台電腦的 Windows 記憶體壓縮，並暫停目前轉錄。恢復後，分玩家獨立音軌所需的執行條件將不再滿足；再次使用時需要重新關閉記憶體壓縮並重新啟動電腦。",
+          "confirmRestart": "修改後請儲存工作並重新啟動電腦。VRCS 會驗證設定並保留重新啟動提醒，不會替你重新啟動電腦。",
+          "confirmDisable": "確認關閉",
+          "confirmEnable": "確認恢復",
+          "restart": "記憶體壓縮設定已更新。請儲存工作並重新啟動電腦，讓系統完整套用變更。僅重新開啟 VRCS 無法完成此步驟。",
+          "pauseFailed": "無法暫停目前轉錄，記憶體壓縮設定未變更。"
+        },
+        "players": {
+          "title": "VRChat 分玩家獨立音軌（實驗性）",
+          "description": "每位玩家一條獨立音軌，分別辨識、翻譯並顯示對應姓名。",
+          "requirements": "需要以系統管理員權限執行 VRCS，並關閉 Windows 記憶體壓縮。啟用後，登入後首次進入世界並完成載入時，程式會自動嘗試解析語音金鑰。",
+          "nameHint": "要配對玩家姓名，請先開啟擷取再進入世界，或重新載入目前世界。",
+          "drive": "分頁檔所在磁碟",
+          "limit": "同時處理的玩家數",
+          "limitHint": "預設不限制同時處理人數；也可選擇上限。每位發聲玩家使用獨立辨識工作階段。",
+          "opus": "Opus 程式庫路徑（選填）",
+          "opusAuto": "自動使用執行中的 VRChat 安裝目錄",
+          "activeTracks": "已接入 {{players}} 位玩家的音軌",
+          "waitingSpeech": "等待玩家語音",
+          "keyElapsed": "已用時 {{seconds}} 秒",
+          "phase": {
+            "stopped": "已停止",
+            "waiting_traffic": "等待 VRChat 網路資料",
+            "waiting_key": "正在驗證語音連線",
+            "acquiring_key": "正在取得語音金鑰",
+            "streaming": "正在接收分玩家獨立音軌",
+            "failed": "分玩家獨立音軌擷取因錯誤停止",
+            "waiting_game": "等待 VRChat 啟動",
+            "waiting_world": "等待 VRChat 世界載入完成",
+            "retrying_key": "尚未取得金鑰，稍後自動重試"
+          },
+          "keyStage": {
+            "cached": "已重用本次登入的金鑰",
+            "verified": "已取得語音金鑰"
+          },
+          "keyTime": "耗時 {{seconds}} 秒",
+          "unlimited": "無限制",
+          "visibleLimit": "同時顯示的玩家數",
+          "visibleLimitHint": "統一控制桌面字幕小視窗、VR 字幕與手腕對話的玩家顯示上限，優先保留正在說話的玩家。僅影響顯示，不限制背景辨識、翻譯人數；自己的麥克風不占名額。"
+        },
         "devicesFound": "找到 {{count}} 個裝置",
         "waitingScan": "等待掃描裝置",
         "rescan": "重新掃描",
@@ -1490,7 +1674,6 @@
       },
       "anki": {
         "title": "AnkiConnect",
-
         "enable": "啟用 AnkiConnect",
         "enableDescription": "允許檢查本機 Anki 連線，並在辭典查詢中建立卡片。",
         "invalidPort": "請輸入 1 到 65535 之間的有效連線埠。",
@@ -1557,11 +1740,14 @@
       },
       "osc": {
         "title": "OSC",
-
         "enable": "啟用 OSC",
         "enableDescription": "統一控制聊天框輸出和 VRChat 靜音同步。",
         "translationStrategy": "OSC 多語言傳送",
-        "translationStrategies": { "preferredOnly": "僅偏好語言", "roundRobin": "輪流傳送", "allLanguages": "同時顯示所有語言" },
+        "translationStrategies": {
+          "preferredOnly": "僅偏好語言",
+          "roundRobin": "輪流傳送",
+          "allLanguages": "同時顯示所有語言"
+        },
         "preserveOriginal": "輸出中保留原文",
         "preserveOriginalDescription": "有譯文時同時傳送原文和譯文；關閉後僅傳送譯文。",
         "muteSync": "同步 VRChat 麥克風靜音",
@@ -1721,13 +1907,24 @@
       "unknown": "發生未知錯誤。",
       "operation": "操作失敗。",
       "chatbox": {
-        "missing_original": "請輸入原文。", "missing_translation": "請先輸入或產生譯文。", "missing_bilingual_text": "雙語傳送需要原文和譯文。",
-        "text_too_long": "訊息最多可輸入 5,000 個字元。", "invalid_language": "語言代碼無效。", "invalid_format": "自訂格式必須各包含一次 {original} 和 {translation}。",
-        "over_limit": "此訊息有 {{count}} 個字元，上限為 {{limit}} 個字元。", "history_store_failed": "訊息已處理，但無法儲存其歷史記錄。", "conversation_store_failed": "訊息已傳送，但無法加入目前對話。"
+        "missing_original": "請輸入原文。",
+        "missing_translation": "請先輸入或產生譯文。",
+        "missing_bilingual_text": "雙語傳送需要原文和譯文。",
+        "text_too_long": "訊息最多可輸入 5,000 個字元。",
+        "invalid_language": "語言代碼無效。",
+        "invalid_format": "自訂格式必須各包含一次 {original} 和 {translation}。",
+        "over_limit": "此訊息有 {{count}} 個字元，上限為 {{limit}} 個字元。",
+        "history_store_failed": "訊息已處理，但無法儲存其歷史記錄。",
+        "conversation_store_failed": "訊息已傳送，但無法加入目前對話。"
       },
       "osc": {
-        "disabled": "OSC 已停用。", "blocked_vrchat_muted": "VRChat 目前處於靜音狀態，因此未傳送訊息。", "blocked_mute_unknown": "VRCS 正在確認 VRChat 的靜音狀態，請稍後再試。",
-        "queue_full": "OSC 傳送佇列已滿，請稍後再試。", "send_timeout": "OSC 傳送逾時。", "send_cancelled": "OSC 設定已變更，因此取消傳送。", "send_failed": "無法傳送至本機 VRChat OSC 連接埠。"
+        "disabled": "OSC 已停用。",
+        "blocked_vrchat_muted": "VRChat 目前處於靜音狀態，因此未傳送訊息。",
+        "blocked_mute_unknown": "VRCS 正在確認 VRChat 的靜音狀態，請稍後再試。",
+        "queue_full": "OSC 傳送佇列已滿，請稍後再試。",
+        "send_timeout": "OSC 傳送逾時。",
+        "send_cancelled": "OSC 設定已變更，因此取消傳送。",
+        "send_failed": "無法傳送至本機 VRChat OSC 連接埠。"
       },
       "apiProfiles": {
         "operation": "無法完成 API 設定檔操作。",

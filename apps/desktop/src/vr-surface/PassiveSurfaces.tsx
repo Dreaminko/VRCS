@@ -1,7 +1,8 @@
 import { useLayoutEffect, useRef } from "react";
 import { Check, Circle, LoaderCircle, Minus, ScanEye, X } from "lucide-react";
-import type { SurfaceView } from "./protocol";
+import type { CaptionMessage, CaptionLabels, SurfaceView } from "./protocol";
 import { visibleCaption, visibleTail } from "./headset-layout";
+import { visibleCaptionMessages } from "./caption-visibility";
 
 function Caption({ text, lines, speaker, fontSize }: { text: string; lines: number; speaker: boolean; fontSize: number }) {
   const root = useRef<HTMLDivElement>(null);
@@ -24,16 +25,36 @@ function Caption({ text, lines, speaker, fontSize }: { text: string; lines: numb
     void document.fonts.ready.then(measure);
     return () => { disposed = true; observer.disconnect(); };
   }, [text, lines, speaker, fontSize]);
-  return <div ref={root} className="vr-headset-language" style={{ height: 82 * lines }}>
+  return <div ref={root} className="vr-headset-language" style={{ height: Math.ceil(fontSize * 1.2 * lines) + 1, fontSize }}>
     <span style={{ whiteSpace: lines === 1 ? "nowrap" : "pre-wrap" }}>{text}</span>
   </div>;
 }
 
+export function CaptionCards({ messages, labels, lines = 1, fontSize, height }: {
+  messages: CaptionMessage[]; labels?: CaptionLabels; lines?: number; fontSize: number; height: number;
+}) {
+  const rows = messages.length;
+  const languageCount = Math.max(1, ...messages.map(message => message.text.split("\n", 4).length));
+  const scale = Math.max(0.01, Math.min(1, (height / Math.max(1, rows) - languageCount * 2)
+    / (fontSize * (0.85 + languageCount * lines * 1.2) + 26)));
+  const size = fontSize * scale;
+  return <div className="vr-caption-grid" style={{ gridTemplateColumns: "minmax(0, 1fr)", gap: 12 * scale }}>
+    {messages.map((message, index) => <article key={index} className={`vr-caption-card ${message.side}`} style={{ padding: `${4 * scale}px 8px` }}>
+      <div className="vr-caption-speaker" style={{ fontSize: size * 0.75, marginBottom: 6 * scale }} title={message.speaker || undefined}>
+        {message.speaker || (message.side === "right" ? labels?.me ?? "Me" : labels?.other ?? "Others")}
+      </div>
+      {message.text.split("\n", 4).map((text, language) => <Caption key={language} text={text} lines={lines} speaker={false} fontSize={size} />)}
+    </article>)}
+  </div>;
+}
+
 export function Headset({ view }: { view: Extract<SurfaceView, { kind: "headset" }> }) {
-  if (!view.text) return null;
+  const messages = visibleCaptionMessages(view);
+  if (!messages.length && !view.notice) return null;
   const lines = Math.min(4, Math.max(1, view.lines_per_language));
   return <section className="vr-headset-panel vr-surface-panel" aria-live="polite">
-    {view.text.split("\n", 4).map((text, index) => <Caption key={index} text={text} lines={lines} speaker={index === 0} fontSize={view.font_size} />)}
+    {view.notice && <p className="vr-caption-notice" role="status">{view.notice}</p>}
+    <CaptionCards messages={messages} labels={view.labels} lines={lines} fontSize={Math.min(68, view.font_size)} height={view.notice ? 1160 : 1290} />
   </section>;
 }
 

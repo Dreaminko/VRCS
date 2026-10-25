@@ -3136,6 +3136,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "19f132c84eca552bf34cab8ec81f1c1dcc229b811638f9d283dceabe58c5569e"
 
 [[package]]
+name = "player-audio-scan"
+version = "0.1.0"
+dependencies = [
+ "memchr",
+ "ring",
+ "zeroize",
+]
+
+[[package]]
 name = "plist"
 version = "1.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5491,11 +5500,14 @@ dependencies = [
  "base64 0.22.1",
  "chrono",
  "futures-util",
+ "libloading 0.8.9",
  "mdns-sd",
  "ndarray",
  "ort",
+ "player-audio-scan",
  "regex",
  "reqwest 0.12.28",
+ "ring",
  "rosc",
  "rusqlite",
  "rustfft",
@@ -5513,6 +5525,7 @@ dependencies = [
  "uuid",
  "wasapi",
  "windows",
+ "zeroize",
  "zip 2.4.2",
 ]
 

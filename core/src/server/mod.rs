@@ -415,12 +415,13 @@ async fn health(State(state): State<HealthContext>) -> Json<Value> {
     } else {
         ("not_loaded", None)
     };
-    let (speaker_running, audio_device, speaker_error) = {
+    let (speaker_running, audio_device, speaker_error, player_audio) = {
         let pipeline = state.capture.speaker_pipeline.lock().await;
         (
             pipeline.running(),
             pipeline.device().cloned(),
             pipeline.last_error(),
+            pipeline.player_status(),
         )
     };
     let (microphone_running, microphone_device, microphone_error) = {
@@ -464,6 +465,7 @@ async fn health(State(state): State<HealthContext>) -> Json<Value> {
             "stopped"
         },
         "audio_device": audio_device,
+        "player_audio": player_audio,
         "microphone_device": microphone_device,
         "microphone_test_running": microphone_test_running,
         "microphone_test_device": microphone_test_device,

@@ -30,9 +30,20 @@ export interface AudioLevel {
 }
 
 export interface AudioOutputSettings {
-  mode: "system" | "vrchat" | "disabled";
+  mode: "system" | "vrchat" | "vrchat_players" | "disabled";
   device_id: number | null;
   trigger_threshold_dbfs: number;
+  player_audio?: PlayerAudioSettings;
+}
+
+export interface PlayerAudioSettings {
+  pagefile_drive: string;
+  opus_library_path: string;
+  max_players: number;
+  max_visible_players?: number;
+  /** Persisted VRChat user IDs; null accepts everyone, [] accepts no one. */
+  selected_tracks?: string[] | null;
+  selected_user_names?: Record<string, string>;
 }
 
 export interface MicrophoneSettings {

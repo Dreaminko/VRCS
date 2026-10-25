@@ -185,19 +185,28 @@ pub(super) async fn handle_socket(state: RealtimeContext, socket: WebSocket) {
 
 fn recognition_payload(event: DomainEvent) -> Option<Value> {
     match event.event_type.as_str() {
+        "asr.speaker_updated" => {
+            Some(json!({ "type": "speaker_updated", "speaker": event.payload["speaker"] }))
+        }
         "translation.live_updated" => {
             let mut payload = event.payload;
             payload["type"] = json!("live_translation_updated");
             payload["source"] = json!(event.source);
             Some(payload)
         }
-        "asr.partial" => Some(json!({
+        "asr.partial" => {
+            let mut payload = json!({
             "type": "partial",
             "utterance_id": event.message_id,
             "source": event.source,
             "text": event.payload.get("text")?,
             "language": event.payload.get("language"),
-        })),
+            });
+            if let Some(speaker) = event.payload.get("speaker") {
+                payload["speaker"] = speaker.clone();
+            }
+            Some(payload)
+        }
         "asr.final" => Some(json!({
             "type": "subtitle",
             "utterance_id": event.message_id,
@@ -229,6 +238,22 @@ mod tests {
     use super::*;
     use crate::domain_events::DomainEventHub;
     use crate::models::{now_iso8601, Subtitle};
+
+    #[tokio::test]
+    async fn player_partial_keeps_identity_over_the_ui_websocket() {
+        let events = DomainEventHub::new();
+        let mut receiver = events.subscribe();
+        let speaker = crate::models::SpeakerIdentity {
+            id: "session:flow:actor".into(),
+            index: 2,
+            display_name: None,
+            user_id: None,
+        };
+        events.asr_player_partial("player-scoped:1", "speaker", "hello", Some("en"), &speaker);
+        let payload = recognition_payload(receiver.recv().await.unwrap()).unwrap();
+        assert_eq!(payload["speaker"], serde_json::json!(speaker));
+        assert_eq!(payload["utterance_id"], "player-scoped:1");
+    }
 
     fn subtitle() -> Subtitle {
         Subtitle {

@@ -20,6 +20,7 @@ mod models;
 pub mod ocr;
 mod osc;
 mod pipeline;
+mod player_audio;
 mod providers;
 mod server;
 mod smart_turn;

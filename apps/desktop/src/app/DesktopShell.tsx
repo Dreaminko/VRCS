@@ -6,6 +6,7 @@ import { ChevronDown, LoaderCircle } from "lucide-react";
 import type { Page } from "./app-types";
 import { ErrorBanner } from "./components/ErrorBanner";
 import { PastConversationNotice } from "./components/PastConversationNotice";
+import { WorkspaceFrame } from "./components/WorkspaceFrame";
 import { ChatboxComposer } from "../chatbox/ChatboxComposer";
 import { ConversationSidebar } from "../conversations/ConversationSidebar";
 
@@ -17,6 +18,8 @@ import { UpdateNotice } from "../updates/UpdateNotice";
 import { SelectionToolOverlays } from "./SelectionToolOverlays";
 import type { AppWorkspace } from "./useAppWorkspace";
 import { openDesktopVision } from "../vision/api";
+import { PlayerHistoryControls } from "../subtitles/components/PlayerHistoryControls";
+import { DEFAULT_PLAYER_AUDIO } from "../settings/sections/PlayerAudioSettings";
 
 let learningWorkspaceModule: Promise<typeof import("../learning/components/LearningWorkspace")> | undefined;
 let settingsPanelModule: Promise<typeof import("../settings/SettingsPanel")> | undefined;
@@ -88,6 +91,7 @@ export function DesktopShell({
     dictionary,
     onboarding,
     locale,
+    playerDisplay,
   } = workspace;
   const features = settings.value?.features;
   const titleConfig = settings.value?.conversation_titles;
@@ -187,13 +191,11 @@ export function DesktopShell({
             onClick={() => conversations.setSidebarOpen(false)}
           />
         )}
-        <div
-          className="app-scroll-region"
-          ref={conversations.liveScrollRef}
+        <WorkspaceFrame
+          page={page}
+          scrollRef={conversations.liveScrollRef}
           onScroll={conversations.onLiveScroll}
-        >
-          <main className={`workspace workspace-${page}`}>
-            {page === "live" && (
+          toolbar={<>
               <TopStatus
                 connection={runtime.connection}
                 health={runtime.health}
@@ -201,7 +203,20 @@ export function DesktopShell({
                 apiProfiles={providers.catalog.profiles}
                 providerDefinitions={providers.catalog.providerDefinitions}
               />
-            )}
+              <PlayerHistoryControls
+                subtitles={conversations.selectedSubtitles}
+                status={runtime.health?.player_audio}
+                enabled={settings.value?.audio.output.mode === "vrchat_players"}
+                selectedUserIds={settings.value?.audio.output.player_audio?.selected_tracks ?? null}
+                selectedUserNames={settings.value?.audio.output.player_audio?.selected_user_names}
+                defaultLanguages={playerDisplay.defaultLanguages}
+                preferences={playerDisplay.preferences}
+                onPreferences={playerDisplay.update}
+                onSelection={(selected_tracks, selected_user_names) => settings.update((current) => ({...current, audio:{...current.audio,
+                  output:{...current.audio.output, player_audio:{...(current.audio.output.player_audio ?? DEFAULT_PLAYER_AUDIO), selected_tracks, selected_user_names}}}}))}
+              />
+          </>}
+        >
 
             {visionOpenError && <ErrorBanner error={t("visionWindow.errors.openFailed")} retryable={false}
               onRetry={openVision} onClose={() => setVisionOpenError(false)} />}
@@ -230,6 +245,9 @@ export function DesktopShell({
                   )}
                 <LiveView
                   subtitles={conversations.selectedSubtitles}
+                  hiddenTracks={playerDisplay.hiddenTracks}
+                  hiddenSourceLanguages={playerDisplay.hiddenSourceLanguages}
+                  playerAudioPhase={runtime.health?.player_audio?.phase}
                   scrollContainerRef={conversations.liveScrollRef}
                   running={
                     (runtime.health?.capture_requested ?? false)
@@ -290,6 +308,7 @@ export function DesktopShell({
                 <SettingsPanel
                   initialCategory={settingsInitialCategory}
                   settings={settings.value}
+                  playerAudioStart={capture.playerAudioStart}
                   interfaceScale={settings.interfaceScale}
                   devices={settings.devices.items}
                   devicesReady={settings.devices.ready}
@@ -315,8 +334,7 @@ export function DesktopShell({
                 />
               </Suspense>
             )}
-          </main>
-        </div>
+        </WorkspaceFrame>
       </div>
 
       {page === "live" && !conversations.followingLiveSubtitles && !chatbox.open && (

@@ -21,7 +21,7 @@ pub(super) fn session_update(config: &AsrConfig) -> Result<Value, String> {
         json!({"event_id": uuid::Uuid::new_v4().to_string(), "type":"session.update", "session": {
             "output_modalities":["text"],
             "translation":translation,
-            "audio":{"input":{"turn_detection":{"type":"speaker_detection","threshold":0.5}}}
+            "audio":{"input":{"turn_detection":{"type":if config.single_speaker { "server_vad" } else { "speaker_detection" },"threshold":0.5}}}
         }}),
     )
 }
@@ -306,14 +306,19 @@ pub(super) fn normalize_event(
             // Qwen AI also labels source message items as "assistant". A
             // speech/transcription event identifies the source unambiguously.
             state.targets.remove(&id);
-            let speaker = value["speaker_id"].as_u64().map(|provider_id| {
-                let next = state.speaker_indices.len() as u64;
-                let index = *state.speaker_indices.entry(provider_id).or_insert(next);
-                SpeakerIdentity {
-                    id: format!("qwen-{}-{provider_id}", state.session_id),
-                    index,
-                }
-            });
+            let speaker = value["speaker_id"]
+                .as_u64()
+                .filter(|_| !config.single_speaker)
+                .map(|provider_id| {
+                    let next = state.speaker_indices.len() as u64;
+                    let index = *state.speaker_indices.entry(provider_id).or_insert(next);
+                    SpeakerIdentity {
+                        id: format!("qwen-{}-{provider_id}", state.session_id),
+                        index,
+                        display_name: None,
+                        user_id: None,
+                    }
+                });
             // Register speech even when diarization metadata is absent. A late
             // completion for the previous sentence must not close this preview
             // before its first transcription delta arrives.
@@ -736,6 +741,27 @@ mod tests {
             );
         }
         assert!(session_update(&AsrConfig::default()).is_err());
+    }
+
+    #[test]
+    fn separated_track_uses_vad_and_ignores_provider_speaker_changes() {
+        let mut config = config();
+        config.single_speaker = true;
+        let update = session_update(&config).unwrap();
+        assert_eq!(
+            update.pointer("/session/audio/input/turn_detection/type"),
+            Some(&json!("server_vad"))
+        );
+        assert!(serde_json::to_value(&config)
+            .unwrap()
+            .get("single_speaker")
+            .is_none());
+        let mut state = State::default();
+        for (id, provider_speaker) in [("track-first", 1), ("track-next", 8)] {
+            normalize_event(&config, &json!({"type":"input_audio_buffer.speech_started","item_id":id,"speaker_id":provider_speaker}), &mut state).unwrap();
+            assert!(state.sources[id].speaker.is_none());
+        }
+        assert!(state.speaker_indices.is_empty());
     }
     #[test]
     fn deltas_preview_and_final_snapshots_replace_without_echoing_audio() {

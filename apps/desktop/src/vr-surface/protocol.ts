@@ -23,11 +23,24 @@ export interface ReaderView {
   hovered?: string | null;
 }
 
+export interface CaptionOriginal {
+  source: string;
+  track_id: string | null;
+  text: string;
+  language: string | null;
+  translation_sources: string[];
+  live: boolean;
+}
+export interface CaptionMessage { text: string; side: "left" | "right"; speaker?: string | null; original?: CaptionOriginal | null }
+export interface CaptionVisibility { hidden_tracks: readonly string[]; hidden_source_languages: readonly string[] }
+interface CaptionSelection { visibility?: CaptionVisibility; max_visible_players?: number | null; max_entries?: number }
+export interface CaptionLabels { me: string; other: string }
+
 export type SurfaceView =
   | { kind: "menu"; controls: ControlSnapshot; hold_progress?: number | null }
-  | { kind: "dialogue"; controls: ControlSnapshot; messages: { text: string; side: "left" | "right" }[]; mode: "wrist" | "world"; follow_view: boolean; busy: boolean; error: string | null; font_size: number; opacity: number }
+  | ({ kind: "dialogue"; controls: ControlSnapshot; messages: CaptionMessage[]; parallel?: boolean; notice?: string | null; labels?: CaptionLabels; mode: "wrist" | "world"; follow_view: boolean; busy: boolean; error: string | null; font_size: number; opacity: number } & CaptionSelection)
   | { kind: "reader"; dark: boolean; labels: Record<string, string>; reader: ReaderView; font_size: number; opacity: number }
-  | { kind: "headset"; dark: boolean; text: string; lines_per_language: number; font_size: number; opacity: number }
+  | ({ kind: "headset"; dark: boolean; messages: CaptionMessage[]; notice?: string | null; labels?: CaptionLabels; lines_per_language: number; font_size: number; opacity: number } & CaptionSelection)
   | { kind: "ocr_progress"; dark: boolean; progress: ProgressView | null }
   | { kind: "dashboard"; dark: boolean; dashboard: VrDashboardViewModel; ui: DashboardUi }
   | { kind: "dashboard_thumbnail" | "ocr_selection"; dark: boolean }

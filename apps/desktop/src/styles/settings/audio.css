@@ -4,6 +4,9 @@
 .device-group-title h3 { margin: 0; font-size: var(--settings-text-group-title); font-weight: var(--settings-weight-heading); line-height: var(--settings-leading-tight); }
 .device-group-title > div > span { display: block; margin-top: 2px; color: var(--text-quiet); font-size: var(--settings-text-caption); line-height: var(--settings-leading-copy); }
 .device-group + .device-group { margin-top: 24px; }
+.player-audio-settings { margin: 16px 0 24px; }
+.player-audio-settings .settings-field-note, .memory-compression-card .settings-field-note { margin: 0; color: var(--text-secondary); font-size: var(--settings-text-caption); line-height: var(--settings-leading-copy); }
+.player-audio-settings [role="status"] p { margin: 6px 0 0; overflow-wrap: anywhere; }
 
 .microphone-level-setting {
   display: grid;
@@ -130,3 +133,19 @@
   to { opacity: 1; transform: translateY(0); }
 }
 
+.player-audio-start-dialog { width: min(680px, 100%); }
+.player-audio-start-dialog .api-profile-editor-heading { display: flex; align-items: center; gap: 9px; }
+.player-audio-start-copy { min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding-right: 10px; color: var(--text-secondary); font-size: 13px; line-height: 1.75; }
+.player-audio-start-copy p { margin: 0 0 14px; }
+.player-audio-start-copy h3 { margin: 4px 0 6px; color: var(--text); font-size: 14px; }
+.player-audio-start-copy:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
+.player-audio-start-dialog .api-profile-editor-actions { flex-shrink: 0; flex-wrap: wrap; border-top: 1px solid var(--border); padding-top: 14px; }
+.player-audio-start-dialog .api-profile-editor-actions > small { color: var(--text-quiet); font-size: 12px; }
+.player-audio-start-dialog .settings-inline-actions { margin-left: auto; }
+.memory-compression-card { display: grid; gap: 12px; margin: 16px 0 24px; padding: var(--settings-card-padding); border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface-elevated); }
+.memory-compression-heading { display: flex; align-items: flex-start; gap: 10px; color: var(--primary-ink); }
+.memory-compression-heading > div { display: grid; gap: 4px; min-width: 0; }
+.memory-compression-heading strong { font-size: var(--settings-text-label); }
+.memory-compression-heading small { color: var(--text-secondary); font-size: var(--settings-text-caption); }
+.memory-compression-card p { margin: 0; overflow-wrap: anywhere; }
+.memory-compression-restart { padding: 12px; border: 1px solid var(--border); border-radius: var(--radius-md); color: var(--primary-ink); background: var(--primary-softer); }

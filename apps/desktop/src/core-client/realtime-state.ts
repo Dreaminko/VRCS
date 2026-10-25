@@ -11,11 +11,12 @@ type TranslationPartial = NonNullable<Subtitle["translation_partial"]> & { prefe
 
 const audioLevels = new Map<AudioLevel["source"], AudioLevel>();
 const audioLevelListeners = new Set<Listener>();
-const livePartials = new Map<LiveTranscription["source"], LiveTranscription>();
+const livePartials = new Map<LiveTranscription["source"], LiveTranscription[]>();
+const EMPTY_LIVE_PARTIALS: LiveTranscription[] = [];
 const livePartialListeners = new Map<LiveTranscription["source"], Set<Listener>>();
 const terminatedLivePartialIds = new Set<string>();
 const terminatedLivePartialOrder: string[] = [];
-const MAX_TERMINATED_LIVE_PARTIALS = 32;
+const MAX_TERMINATED_LIVE_PARTIALS = 1_024;
 const translationPartials = new Map<number, TranslationPartial[]>();
 const translationPartialListeners = new Map<number, Set<Listener>>();
 
@@ -88,7 +89,14 @@ export function publishLivePartial(partial: LiveTranscription) {
   if (terminatedLivePartialIds.has(livePartialKey(partial.source, partial.utterance_id))) {
     return;
   }
-  livePartials.set(partial.source, partial);
+  const previous = livePartials.get(partial.source) ?? EMPTY_LIVE_PARTIALS;
+  // One preview per player, plus the legacy unlabelled source. Arrays are stable
+  // between updates for useSyncExternalStore. Completion/close events remove
+  // previews; do not silently hide players when capture has no concurrency cap.
+  livePartials.set(partial.source, [
+    ...previous.filter((item) => (item.speaker?.id ?? null) !== (partial.speaker?.id ?? null)),
+    partial,
+  ]);
   notifyKey(livePartialListeners, partial.source);
 }
 
@@ -97,8 +105,11 @@ export function completeLivePartial(
   utteranceId: string,
 ) {
   rememberLivePartialTermination(source, utteranceId);
-  if (livePartials.get(source)?.utterance_id !== utteranceId) return;
-  livePartials.delete(source);
+  const previous = livePartials.get(source);
+  if (!previous?.some((item) => item.utterance_id === utteranceId)) return;
+  const next = previous.filter((item) => item.utterance_id !== utteranceId);
+  if (next.length) livePartials.set(source, next);
+  else livePartials.delete(source);
   notifyKey(livePartialListeners, source);
 }
 
@@ -131,7 +142,19 @@ export function clearLivePartials() {
 export function getLivePartial(
   source: LiveTranscription["source"],
 ): LiveTranscription | null {
-  return livePartials.get(source) ?? null;
+  return livePartials.get(source)?.at(-1) ?? null;
+}
+
+export function getLivePartials(source: LiveTranscription["source"]): LiveTranscription[] {
+  return livePartials.get(source) ?? EMPTY_LIVE_PARTIALS;
+}
+
+export function useLivePartials(source: LiveTranscription["source"]): LiveTranscription[] {
+  return useSyncExternalStore(
+    (listener) => subscribeKey(livePartialListeners, source, listener),
+    () => getLivePartials(source),
+    () => EMPTY_LIVE_PARTIALS,
+  );
 }
 
 export function livePartialHasSubtitle(
@@ -205,14 +228,18 @@ export function useTranslationPartials(
 
 /** A stable snapshot for a bounded set of compact-layout candidates. */
 export function useTranslationPartialsForSubtitles(subtitleIds: readonly (number | null)[]) {
+  // Equivalent ID lists must share a store even when a caller creates a fresh
+  // array. Otherwise getSnapshot changes on every render and React keeps retrying.
+  const idsKey = JSON.stringify(subtitleIds);
   const store = useMemo(() => {
-    const read = () => subtitleIds.map((id) => id === null
+    const ids: (number | null)[] = JSON.parse(idsKey);
+    const read = () => ids.map((id) => id === null
       ? EMPTY_TRANSLATION_PARTIALS
       : translationPartials.get(id) ?? EMPTY_TRANSLATION_PARTIALS);
     let snapshot = read();
     return {
       subscribe(listener: Listener) {
-        const unsubscribes = [...new Set(subtitleIds)].flatMap((id) => id === null
+        const unsubscribes = [...new Set(ids)].flatMap((id) => id === null
           ? [] : [subscribeKey(translationPartialListeners, id, listener)]);
         return () => unsubscribes.forEach((unsubscribe) => unsubscribe());
       },
@@ -222,6 +249,6 @@ export function useTranslationPartialsForSubtitles(subtitleIds: readonly (number
         return snapshot;
       },
     };
-  }, [subtitleIds]);
+  }, [idsKey]);
   return useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
 }

@@ -32,6 +32,9 @@ pub struct AsrConfig {
     /// Native translation glossary resolved from enabled sources; never persisted.
     #[serde(skip)]
     pub live_translation_phrases: BTreeMap<String, String>,
+    /// A separated audio track already has an authoritative identity.
+    #[serde(skip)]
+    pub single_speaker: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -169,6 +172,7 @@ impl Default for AsrConfig {
             service_settings: default_service_settings(),
             live_translation_target: None,
             live_translation_phrases: BTreeMap::new(),
+            single_speaker: false,
         }
     }
 }

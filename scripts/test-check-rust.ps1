@@ -24,8 +24,8 @@ function Assert-CheckCommands {
     $script:cargoCalls.Clear()
     $runtimeCallsBefore = $global:vrcsRuntimeCalls
     & $checkScript -Check $Check -Vulkan:$Vulkan
-    if ($script:cargoCalls.Count -ne 2) {
-        throw "$Check must check both crates exactly once"
+    if ($script:cargoCalls.Count -ne 3) {
+        throw "$Check must check all three crates exactly once"
     }
     foreach ($call in $script:cargoCalls) {
         if (-not $call.StartsWith("$ExpectedCommand ")) {
@@ -35,7 +35,7 @@ function Assert-CheckCommands {
             throw "$Check must use the lockfile"
         }
         $usesVulkan = $call.Contains("--features vulkan")
-        if ($usesVulkan -ne ($Vulkan -and $Check -ne "format")) {
+        if ($usesVulkan -ne ($Vulkan -and $Check -ne "format" -and -not $call.Contains("crates/player-audio-scan/"))) {
             throw "$Check must select only the requested CPU or Vulkan features"
         }
     }
@@ -61,14 +61,14 @@ try {
 
     $script:cargoCalls.Clear()
     & $checkScript
-    if ($script:cargoCalls.Count -ne 6) { throw "Default checks must run all three stages for both crates" }
+    if ($script:cargoCalls.Count -ne 9) { throw "Default checks must run all three stages for all three crates" }
 
     Push-Location $PSScriptRoot
     try {
         foreach ($failure in @("fmt", "clippy", "test")) {
             $script:cargoCalls.Clear()
             $script:failCommand = $failure
-            $expectedCalls = @{ fmt = 1; clippy = 3; test = 5 }
+            $expectedCalls = @{ fmt = 1; clippy = 4; test = 7 }
             $locationBefore = (Get-Location).Path
             $caughtFailure = $false
             try {

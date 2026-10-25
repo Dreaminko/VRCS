@@ -1,5 +1,6 @@
 @import "./styles/base.css";
 @import "./styles/layout.css";
+@import "./styles/layout/player-history.css";
 @import "./styles/settings.css";
 @import "./styles/onboarding.css";
 @import "./styles/dictionary.css";

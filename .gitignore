@@ -91,6 +91,7 @@ Desktop.ini
 # Local documentation; keep the Alibaba Cloud guide and its image assets
 /docs/*
 !/docs/AlibabaCloud_Free.md
+!/docs/experimental-player-audio.md
 !/docs/images/
 /docs/images/*
 !/docs/images/APIKeys.png

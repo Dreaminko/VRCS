@@ -449,6 +449,8 @@ fn title_input_samples_first_and_last_originals_with_a_strict_unicode_budget() {
     source.speaker = Some(crate::models::SpeakerIdentity {
         id: "private-session-id".into(),
         index: 0,
+        display_name: None,
+        user_id: None,
     });
     for index in 0..250 {
         source.text = format!("excerpt-{index} {}", "界".repeat(400));
@@ -1257,10 +1259,24 @@ fn version_5_preserves_history_and_round_trips_session_scoped_speakers() {
     item.speaker = Some(crate::models::SpeakerIdentity {
         id: "qwen-session-1".into(),
         index: 1,
+        display_name: None,
+        user_id: None,
     });
     let saved = db.add_subtitle(&item).unwrap();
     let id = saved.id.unwrap();
     let conversation = saved.conversation_id.as_deref().unwrap();
+    // Late names update persisted rows without touching unlabelled history.
+    item.speaker.as_mut().unwrap().display_name = Some("测试玩家 <VRC>".into());
+    item.speaker.as_mut().unwrap().user_id =
+        Some("usr_00000000-0000-4000-8000-000000000007".into());
+    db.update_speaker_identity(item.speaker.as_ref().unwrap())
+        .unwrap();
+    assert!(db
+        .subtitle(legacy.id.unwrap())
+        .unwrap()
+        .unwrap()
+        .speaker
+        .is_none());
     assert_eq!(db.subtitle(id).unwrap().unwrap().speaker, item.speaker);
     assert_eq!(db.subtitle_history(10).unwrap()[0].speaker, item.speaker);
     assert_eq!(

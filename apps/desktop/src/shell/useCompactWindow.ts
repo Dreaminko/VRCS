@@ -129,6 +129,20 @@ export function useCompactWindow({
     return task.promise;
   }, []);
 
+  const ensureCaptionHeight = useCallback(async (minimum: number) => {
+    if (!compactModeRef.current || panelStateRef.current !== false || panelTaskRef.current?.running) return;
+    const target = clampCompactWindowHeight(minimum);
+    if (target <= heightRef.current) return;
+    heightRef.current = target;
+    panelStateRef.current = null;
+    try {
+      await resizeCompactWindow(false);
+      setHeight(target);
+    } catch (reason) {
+      reportError(reason, "errors.window.compactResize", "window");
+    }
+  }, [reportError, resizeCompactWindow]);
+
   const setCompactMode = useCallback(async (
     next: boolean,
     onExitCompact: () => void = () => undefined,
@@ -233,6 +247,7 @@ export function useCompactWindow({
     toggleCompactBackground,
     height,
     resizeCompactWindow,
+    ensureCaptionHeight,
     enterCompact,
     exitCompact,
     toggleCompact,

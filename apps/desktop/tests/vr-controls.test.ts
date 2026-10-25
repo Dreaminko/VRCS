@@ -173,3 +173,22 @@ test("failed conversation creation never starts capture and releases pending", a
   assert.equal(starts, 0);
   assert.equal(await control.setRunning(false), true);
 });
+
+test("capture consent completes before creating a conversation or starting any input", async () => {
+  const calls: string[] = [];
+  let decide!: (allowed: boolean) => void;
+  const control = createCaptureController({available:()=>true, running:()=>false, newConversation:()=>true,
+    beforeStart:()=>new Promise<boolean>(resolve=>{calls.push("notice");decide=resolve;}),
+    createConversation:async()=>{calls.push("conversation");return true;},
+    setRunning:async()=>{calls.push("capture");return true;}, onPending:()=>{}});
+  const first=control.setRunning(true), duplicate=control.setRunning(true);
+  assert.equal(first,duplicate);
+  assert.deepEqual(calls,["notice"]);
+  decide(false);
+  assert.equal(await first,false);
+  assert.deepEqual(calls,["notice"]);
+  const next=control.setRunning(true);
+  decide(true);
+  assert.equal(await next,true);
+  assert.deepEqual(calls,["notice","notice","conversation","capture"]);
+});

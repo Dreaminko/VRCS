@@ -1,4 +1,21 @@
+// These assertions cover rendered text; source metadata has dedicated tests below.
+impl PresentationContent {
+    fn without_original(mut self) -> Self {
+        let (Self::Headset(messages) | Self::Wrist(messages)) = &mut self;
+        for message in messages {
+            message.original = None;
+        }
+        self
+    }
+}
+
 use super::*;
+
+fn headset_content(text: String) -> PresentationContent {
+    PresentationFrame::headset(text, 1.0)
+        .content
+        .without_original()
+}
 
 #[test]
 fn preview_switches_select_original_and_translation_in_previews_and_finals() {
@@ -37,13 +54,23 @@ fn preview_switches_select_original_and_translation_in_previews_and_finals() {
         let assert_text =
             |headset: &HeadsetPresentation, wrist: &WristPresentation, expected: &str| {
                 assert_eq!(
-                    headset.frame(now, &headset_config).unwrap().content,
-                    PresentationContent::Headset(expected.into()),
+                    headset
+                        .frame(now, &headset_config)
+                        .unwrap()
+                        .content
+                        .without_original(),
+                    headset_content(expected.into()),
                     "original={show_original}, translation={show_translation}",
                 );
                 assert_eq!(
-                    wrist.frame(now, &wrist_config).unwrap().content,
+                    wrist
+                        .frame(now, &wrist_config)
+                        .unwrap()
+                        .content
+                        .without_original(),
                     PresentationContent::Wrist(vec![WristMessage {
+                        original: None,
+                        speaker: None,
                         text: expected.into(),
                         side: MessageSide::Left,
                     }]),
@@ -133,11 +160,18 @@ fn delayed_native_previews_keep_both_lanes_after_display_history_is_evicted() {
             headset.apply(event.clone(), now, &headset_config);
             wrist.apply(event, now, &wrist_config);
             assert_eq!(
-                headset.frame(now, &headset_config).unwrap().content,
-                PresentationContent::Headset(expected.into())
+                headset
+                    .frame(now, &headset_config)
+                    .unwrap()
+                    .content
+                    .without_original(),
+                headset_content(expected.into())
             );
-            let PresentationContent::Wrist(messages) =
-                wrist.frame(now, &wrist_config).unwrap().content
+            let PresentationContent::Wrist(messages) = wrist
+                .frame(now, &wrist_config)
+                .unwrap()
+                .content
+                .without_original()
             else {
                 panic!()
             };
@@ -149,7 +183,7 @@ fn delayed_native_previews_keep_both_lanes_after_display_history_is_evicted() {
             };
             headset.apply(event.clone(), now, &headset_config);
             wrist.apply(event, now, &wrist_config);
-            assert!(headset.partial.is_none() && wrist.partials.is_empty());
+            assert!(headset.partials.is_empty() && wrist.partials.is_empty());
         }
     }
 }
@@ -182,6 +216,7 @@ fn partial_event(utterance_id: &str, source: &str, text: &str) -> PresentationEv
         source: source.into(),
         text: text.into(),
         language: Some("en".into()),
+        speaker: None,
     }
 }
 
@@ -234,13 +269,17 @@ fn wrist_idle_deadline_preserves_history_and_new_activity_restores_visibility() 
     );
     let frame = wrist.frame(now + Duration::from_secs(60), &config).unwrap();
     assert_eq!(
-        frame.content,
+        frame.content.without_original(),
         PresentationContent::Wrist(vec![
             WristMessage {
+                original: None,
+                speaker: None,
                 text: "hello".into(),
                 side: MessageSide::Left
             },
             WristMessage {
+                original: None,
+                speaker: None,
                 text: "again".into(),
                 side: MessageSide::Left
             },
@@ -469,7 +508,10 @@ fn headset_final_fades() {
     let fading = state
         .frame(now + Duration::from_millis(2500), &config)
         .unwrap();
-    assert_eq!(fading.content, PresentationContent::Headset("hello".into()));
+    assert_eq!(
+        fading.content.without_original(),
+        headset_content("hello".into())
+    );
     assert!((fading.opacity - 0.5).abs() < 0.01);
     assert!(state.frame(now + Duration::from_secs(3), &config).is_none());
 }
@@ -492,8 +534,12 @@ fn translation_completion_updates_matching_headset_item() {
         &config,
     );
     assert_eq!(
-        state.frame(now, &config).unwrap().content,
-        PresentationContent::Headset("hello\n你好".into())
+        state
+            .frame(now, &config)
+            .unwrap()
+            .content
+            .without_original(),
+        headset_content("hello\n你好".into())
     );
 }
 
@@ -532,22 +578,27 @@ fn multilingual_translation_display_can_show_preferred_or_all_languages() {
         headset
             .frame_with_translation_display(now, &headset_config, "preferred_only")
             .unwrap()
-            .content,
-        PresentationContent::Headset("hello\n你好".into())
+            .content
+            .without_original(),
+        headset_content("hello\n你好".into())
     );
     assert_eq!(
         headset
             .frame_with_translation_display(now, &headset_config, "all_languages")
             .unwrap()
-            .content,
-        PresentationContent::Headset("hello\n你好\nこんにちは".into())
+            .content
+            .without_original(),
+        headset_content("hello\n你好\nこんにちは".into())
     );
     assert_eq!(
         wrist
             .frame_with_translation_display(now, &wrist_config, "preferred_only")
             .unwrap()
-            .content,
+            .content
+            .without_original(),
         PresentationContent::Wrist(vec![WristMessage {
+            original: None,
+            speaker: None,
             text: "hello\n你好".into(),
             side: MessageSide::Left,
         }])
@@ -556,8 +607,11 @@ fn multilingual_translation_display_can_show_preferred_or_all_languages() {
         wrist
             .frame_with_translation_display(now, &wrist_config, "all_languages")
             .unwrap()
-            .content,
+            .content
+            .without_original(),
         PresentationContent::Wrist(vec![WristMessage {
+            original: None,
+            speaker: None,
             text: "hello\n你好\nこんにちは".into(),
             side: MessageSide::Left,
         }])
@@ -596,8 +650,11 @@ fn interleaved_wrist_translation_partials_keep_each_language_current() {
         wrist
             .frame_with_translation_display(now + Duration::from_secs(6), &config, "all_languages",)
             .unwrap()
-            .content,
+            .content
+            .without_original(),
         PresentationContent::Wrist(vec![WristMessage {
+            original: None,
+            speaker: None,
             text: "hello\n你好\nこんにちは".into(),
             side: MessageSide::Left,
         }])
@@ -629,8 +686,9 @@ fn later_non_preferred_update_preserves_preferred_translation() {
         headset
             .frame_with_translation_display(now, &config, "preferred_only")
             .unwrap()
-            .content,
-        PresentationContent::Headset("hello\n你好".into())
+            .content
+            .without_original(),
+        headset_content("hello\n你好".into())
     );
 }
 
@@ -656,8 +714,12 @@ fn same_language_translation_is_hidden() {
         &headset_config,
     );
     assert_eq!(
-        headset.frame(now, &headset_config).unwrap().content,
-        PresentationContent::Headset("hello".into())
+        headset
+            .frame(now, &headset_config)
+            .unwrap()
+            .content
+            .without_original(),
+        headset_content("hello".into())
     );
 
     let wrist_config = VrOverlayWristConfig {
@@ -668,8 +730,14 @@ fn same_language_translation_is_hidden() {
     let mut wrist = WristPresentation::default();
     wrist.apply(final_event(item), now, &wrist_config);
     assert_eq!(
-        wrist.frame(now, &wrist_config).unwrap().content,
+        wrist
+            .frame(now, &wrist_config)
+            .unwrap()
+            .content
+            .without_original(),
         PresentationContent::Wrist(vec![WristMessage {
+            original: None,
+            speaker: None,
             text: "hello".into(),
             side: MessageSide::Left,
         }])
@@ -692,17 +760,27 @@ fn wrist_keeps_only_configured_recent_finals() {
         );
     }
     assert_eq!(
-        state.frame(now, &config).unwrap().content,
+        state
+            .frame(now, &config)
+            .unwrap()
+            .content
+            .without_original(),
         PresentationContent::Wrist(vec![
             WristMessage {
+                original: None,
+                speaker: None,
                 text: "line3".into(),
                 side: MessageSide::Left,
             },
             WristMessage {
+                original: None,
+                speaker: None,
                 text: "line4".into(),
                 side: MessageSide::Left,
             },
             WristMessage {
+                original: None,
+                speaker: None,
                 text: "line5".into(),
                 side: MessageSide::Left,
             },
@@ -729,7 +807,12 @@ fn wrist_trims_existing_history_when_limit_changes() {
     config.max_entries = 3;
     state.set_max_entries(config.max_entries);
 
-    let PresentationContent::Wrist(messages) = state.frame(now, &config).unwrap().content else {
+    let PresentationContent::Wrist(messages) = state
+        .frame(now, &config)
+        .unwrap()
+        .content
+        .without_original()
+    else {
         panic!("expected wrist messages");
     };
     assert_eq!(
@@ -757,7 +840,12 @@ fn wrist_places_remote_left_and_local_sources_right() {
         state.apply(final_event(item), now, &config);
     }
 
-    let PresentationContent::Wrist(messages) = state.frame(now, &config).unwrap().content else {
+    let PresentationContent::Wrist(messages) = state
+        .frame(now, &config)
+        .unwrap()
+        .content
+        .without_original()
+    else {
         panic!("expected wrist messages");
     };
     assert_eq!(messages[0].side, MessageSide::Left);
@@ -783,8 +871,12 @@ fn recognition_partials_are_visible_only_when_enabled() {
         &headset_config,
     );
     assert_eq!(
-        headset.frame(now, &headset_config).unwrap().content,
-        PresentationContent::Headset("hello".into())
+        headset
+            .frame(now, &headset_config)
+            .unwrap()
+            .content
+            .without_original(),
+        headset_content("hello".into())
     );
 
     let wrist_config = VrOverlayWristConfig {
@@ -794,8 +886,14 @@ fn recognition_partials_are_visible_only_when_enabled() {
     let mut wrist = WristPresentation::default();
     wrist.apply(partial_event("u1", "speaker", "hello"), now, &wrist_config);
     assert_eq!(
-        wrist.frame(now, &wrist_config).unwrap().content,
+        wrist
+            .frame(now, &wrist_config)
+            .unwrap()
+            .content
+            .without_original(),
         PresentationContent::Wrist(vec![WristMessage {
+            original: None,
+            speaker: None,
             text: "hello".into(),
             side: MessageSide::Left,
         }])
@@ -822,8 +920,12 @@ fn headset_final_replaces_partial_and_blocks_late_updates() {
     state.apply(partial_event("u1", "speaker", "late partial"), now, &config);
 
     assert_eq!(
-        state.frame(now, &config).unwrap().content,
-        PresentationContent::Headset("final".into())
+        state
+            .frame(now, &config)
+            .unwrap()
+            .content
+            .without_original(),
+        headset_content("final".into())
     );
 }
 
@@ -871,7 +973,12 @@ fn final_replaces_matching_wrist_partial_without_clearing_newer_utterance() {
     );
     state.apply(partial_event("u1", "speaker", "late partial"), now, &config);
 
-    let PresentationContent::Wrist(messages) = state.frame(now, &config).unwrap().content else {
+    let PresentationContent::Wrist(messages) = state
+        .frame(now, &config)
+        .unwrap()
+        .content
+        .without_original()
+    else {
         panic!("expected wrist messages");
     };
     assert_eq!(
@@ -930,8 +1037,14 @@ fn recognition_reset_allows_reused_utterance_ids() {
     state.apply(partial_event("u1", "speaker", "new session"), now, &config);
 
     assert_eq!(
-        state.frame(now, &config).unwrap().content,
+        state
+            .frame(now, &config)
+            .unwrap()
+            .content
+            .without_original(),
         PresentationContent::Wrist(vec![WristMessage {
+            original: None,
+            speaker: None,
             text: "new session".into(),
             side: MessageSide::Left,
         }])
@@ -958,8 +1071,14 @@ fn recognition_reset_clears_only_matching_wrist_source() {
     );
 
     assert_eq!(
-        state.frame(now, &config).unwrap().content,
+        state
+            .frame(now, &config)
+            .unwrap()
+            .content
+            .without_original(),
         PresentationContent::Wrist(vec![WristMessage {
+            original: None,
+            speaker: None,
             text: "local".into(),
             side: MessageSide::Right,
         }])
@@ -1003,8 +1122,8 @@ fn native_translation_can_arrive_before_the_original() {
     let mut headset = HeadsetPresentation::default();
     headset.apply(event.clone(), now, &config);
     assert!(headset
-        .partial
-        .as_ref()
+        .partials
+        .back()
         .is_some_and(|item| item.original.is_empty() && item.translations[0].text == "hello"));
     headset.apply(
         PresentationEvent::RecognitionCancelled {
@@ -1015,7 +1134,7 @@ fn native_translation_can_arrive_before_the_original() {
         &config,
     );
     headset.apply(event.clone(), now, &config);
-    assert!(headset.partial.is_none());
+    assert!(headset.partials.is_empty());
     let mut wrist = WristPresentation::default();
     let wrist_config = VrOverlayWristConfig {
         show_partials: true,
@@ -1064,12 +1183,22 @@ fn qwen_translation_delta_keeps_its_completed_original_in_bilingual_preview() {
         wrist.apply(event, now, &wrist_config);
     }
     assert_eq!(
-        headset.frame(now, &config).unwrap().content,
-        PresentationContent::Headset("Hello.\n你好".into())
+        headset
+            .frame(now, &config)
+            .unwrap()
+            .content
+            .without_original(),
+        headset_content("Hello.\n你好".into())
     );
     assert_eq!(
-        wrist.frame(now, &wrist_config).unwrap().content,
+        wrist
+            .frame(now, &wrist_config)
+            .unwrap()
+            .content
+            .without_original(),
         PresentationContent::Wrist(vec![WristMessage {
+            original: None,
+            speaker: None,
             text: "Hello.\n你好".into(),
             side: MessageSide::Left,
         }])
@@ -1122,13 +1251,21 @@ fn recognition_only_preview_keeps_its_original_and_never_pairs_different_utteran
     };
     state.apply(preview("source-1", "Hello"), now, &config);
     assert_eq!(
-        state.frame(now, &config).unwrap().content,
-        PresentationContent::Headset("Hello.".into())
+        state
+            .frame(now, &config)
+            .unwrap()
+            .content
+            .without_original(),
+        headset_content("Hello.".into())
     );
     state.apply(preview("source-2", "Next sentence"), now, &config);
     assert_eq!(
-        state.frame(now, &config).unwrap().content,
-        PresentationContent::Headset("Next sentence".into())
+        state
+            .frame(now, &config)
+            .unwrap()
+            .content
+            .without_original(),
+        headset_content("Next sentence".into())
     );
 }
 
@@ -1170,8 +1307,12 @@ fn late_translation_preview_uses_its_own_original_after_another_source_finishes(
         &config,
     );
     assert_eq!(
-        state.frame(now, &config).unwrap().content,
-        PresentationContent::Headset("First.\n第一句".into())
+        state
+            .frame(now, &config)
+            .unwrap()
+            .content
+            .without_original(),
+        headset_content("First.\n第一句".into())
     );
 }
 
@@ -1226,12 +1367,22 @@ fn native_deltas_update_subtitle_previews_without_duplicating_the_stored_origina
         wrist.apply(event, now, &wrist_config);
     }
     assert_eq!(
-        headset.frame(now, &headset_config).unwrap().content,
-        PresentationContent::Headset("你好".into())
+        headset
+            .frame(now, &headset_config)
+            .unwrap()
+            .content
+            .without_original(),
+        headset_content("你好".into())
     );
     assert_eq!(
-        wrist.frame(now, &wrist_config).unwrap().content,
+        wrist
+            .frame(now, &wrist_config)
+            .unwrap()
+            .content
+            .without_original(),
         PresentationContent::Wrist(vec![WristMessage {
+            original: None,
+            speaker: None,
             text: "你好".into(),
             side: MessageSide::Left
         }])
@@ -1251,12 +1402,22 @@ fn native_deltas_update_subtitle_previews_without_duplicating_the_stored_origina
         wrist.apply(event, now, &wrist_config);
     }
     assert_eq!(
-        headset.frame(now, &headset_config).unwrap().content,
-        PresentationContent::Headset("你好，完整结果。".into())
+        headset
+            .frame(now, &headset_config)
+            .unwrap()
+            .content
+            .without_original(),
+        headset_content("你好，完整结果。".into())
     );
     assert_eq!(
-        wrist.frame(now, &wrist_config).unwrap().content,
+        wrist
+            .frame(now, &wrist_config)
+            .unwrap()
+            .content
+            .without_original(),
         PresentationContent::Wrist(vec![WristMessage {
+            original: None,
+            speaker: None,
             text: "你好，完整结果。".into(),
             side: MessageSide::Left
         }])
@@ -1288,8 +1449,12 @@ fn japanese_live_translation_preview_does_not_require_recognition_preview() {
     let mut state = HeadsetPresentation::default();
     state.apply(event.clone(), now, &config);
     assert_eq!(
-        state.frame(now, &config).unwrap().content,
-        PresentationContent::Headset("正在播放日语音频。".into())
+        state
+            .frame(now, &config)
+            .unwrap()
+            .content
+            .without_original(),
+        headset_content("正在播放日语音频。".into())
     );
     let config = VrOverlayWristConfig {
         show_partials: false,
@@ -1299,8 +1464,14 @@ fn japanese_live_translation_preview_does_not_require_recognition_preview() {
     let mut wrist = WristPresentation::default();
     wrist.apply(event, now, &config);
     assert_eq!(
-        wrist.frame(now, &config).unwrap().content,
+        wrist
+            .frame(now, &config)
+            .unwrap()
+            .content
+            .without_original(),
         PresentationContent::Wrist(vec![WristMessage {
+            original: None,
+            speaker: None,
             text: "正在播放日语音频。".into(),
             side: MessageSide::Left,
         }])
@@ -1338,8 +1509,12 @@ fn empty_live_original_does_not_hide_a_completed_japanese_subtitle() {
         &config,
     );
     assert_eq!(
-        state.frame(now, &config).unwrap().content,
-        PresentationContent::Headset("日本語の字幕です。".into())
+        state
+            .frame(now, &config)
+            .unwrap()
+            .content
+            .without_original(),
+        headset_content("日本語の字幕です。".into())
     );
 }
 
@@ -1361,8 +1536,12 @@ fn expired_preview_does_not_hide_newer_completed_subtitles() {
     let later = now + Duration::from_secs(4);
     state.apply(final_event(subtitle(2, "新しい字幕")), later, &config);
     assert_eq!(
-        state.frame(later, &config).unwrap().content,
-        PresentationContent::Headset("新しい字幕".into())
+        state
+            .frame(later, &config)
+            .unwrap()
+            .content
+            .without_original(),
+        headset_content("新しい字幕".into())
     );
 }
 
@@ -1403,6 +1582,8 @@ fn diarized_final_has_a_speaker_label_with_both_previews_disabled() {
     item.speaker = Some(vrcs_core::SpeakerIdentity {
         id: "qwen-session-1".into(),
         index: 1,
+        display_name: None,
+        user_id: None,
     });
     let config = VrOverlayHeadsetConfig {
         show_partials: false,
@@ -1413,8 +1594,17 @@ fn diarized_final_has_a_speaker_label_with_both_previews_disabled() {
     let mut headset = HeadsetPresentation::default();
     headset.apply(event.clone(), now, &config);
     assert_eq!(
-        headset.frame(now, &config).unwrap().content,
-        PresentationContent::Headset("[2] Hello.".into())
+        headset
+            .frame(now, &config)
+            .unwrap()
+            .content
+            .without_original(),
+        PresentationContent::Headset(vec![WristMessage {
+            original: None,
+            text: "Hello.".into(),
+            side: MessageSide::Left,
+            speaker: Some("#2".into())
+        }])
     );
     let config = VrOverlayWristConfig {
         show_partials: false,
@@ -1424,10 +1614,11 @@ fn diarized_final_has_a_speaker_label_with_both_previews_disabled() {
     let mut wrist = WristPresentation::default();
     wrist.apply(event, now, &config);
     let frame = wrist.frame(now, &config).unwrap();
-    let PresentationContent::Wrist(messages) = frame.content else {
+    let PresentationContent::Wrist(messages) = frame.content.without_original() else {
         panic!()
     };
-    assert_eq!(messages[0].text, "[2] Hello.");
+    assert_eq!(messages[0].text, "Hello.");
+    assert_eq!(messages[0].speaker.as_deref(), Some("#2"));
 }
 
 #[test]
@@ -1436,6 +1627,8 @@ fn diarized_live_preview_and_completed_translation_label_both_overlays() {
     let speaker = vrcs_core::SpeakerIdentity {
         id: "qwen-session-1".into(),
         index: 1,
+        display_name: None,
+        user_id: None,
     };
     let event = PresentationEvent::LiveTranslationUpdated {
         source: "speaker".into(),
@@ -1468,15 +1661,29 @@ fn diarized_live_preview_and_completed_translation_label_both_overlays() {
 
     let assert_text = |headset: &HeadsetPresentation, wrist: &WristPresentation| {
         assert_eq!(
-            headset.frame(now, &headset_config).unwrap().content,
-            PresentationContent::Headset("[2] Hello.\n你好。".into())
+            headset
+                .frame(now, &headset_config)
+                .unwrap()
+                .content
+                .without_original(),
+            PresentationContent::Headset(vec![WristMessage {
+                original: None,
+                text: "Hello.\n你好。".into(),
+                side: MessageSide::Left,
+                speaker: Some("#2".into())
+            }])
         );
-        let PresentationContent::Wrist(messages) = wrist.frame(now, &wrist_config).unwrap().content
+        let PresentationContent::Wrist(messages) = wrist
+            .frame(now, &wrist_config)
+            .unwrap()
+            .content
+            .without_original()
         else {
             panic!()
         };
         assert_eq!(messages.len(), 1);
-        assert_eq!(messages[0].text, "[2] Hello.\n你好。");
+        assert_eq!(messages[0].text, "Hello.\n你好。");
+        assert_eq!(messages[0].speaker.as_deref(), Some("#2"));
     };
     assert_text(&headset, &wrist);
 
@@ -1496,4 +1703,335 @@ fn diarized_live_preview_and_completed_translation_label_both_overlays() {
     headset.apply(event.clone(), now, &headset_config);
     wrist.apply(event, now, &wrist_config);
     assert_text(&headset, &wrist);
+}
+
+#[test]
+fn independent_player_lanes_names_limits_and_cancellation() {
+    let now = Instant::now();
+    let headset_config = VrOverlayHeadsetConfig {
+        show_partials: true,
+        include_microphone: true,
+        ..Default::default()
+    };
+    let wrist_config = VrOverlayWristConfig {
+        show_partials: true,
+        include_microphone: true,
+        max_entries: 3,
+        ..Default::default()
+    };
+    let mut headset = HeadsetPresentation::default();
+    let mut wrist = WristPresentation::default();
+    headset.set_player_limit(Some(4));
+    wrist.set_player_limit(Some(4));
+    let preview = |index: u64, text: &str| PresentationEvent::RecognitionPartial {
+        utterance_id: format!("player-{index}-sentence"),
+        source: "speaker".into(),
+        text: text.into(),
+        language: Some("en".into()),
+        speaker: Some(vrcs_core::SpeakerIdentity {
+            id: format!("player-{index}"),
+            index,
+            display_name: Some(format!("Player {index}")),
+            user_id: None,
+        }),
+    };
+    for index in 0..8 {
+        let event = preview(index, &format!("Speech {index}"));
+        headset.apply(event.clone(), now, &headset_config);
+        wrist.apply(event, now, &wrist_config);
+    }
+    let get_messages = |content| match content {
+        PresentationContent::Headset(messages) | PresentationContent::Wrist(messages) => messages,
+    };
+    for content in [
+        headset
+            .frame(now, &headset_config)
+            .unwrap()
+            .content
+            .without_original(),
+        wrist
+            .frame(now, &wrist_config)
+            .unwrap()
+            .content
+            .without_original(),
+    ] {
+        let messages = get_messages(content);
+        assert_eq!(
+            messages.len(),
+            4,
+            "history limit must not discard visible active players"
+        );
+        for (index, message) in messages.iter().enumerate() {
+            assert_eq!(message.speaker, Some(format!("Player {index}")));
+        }
+    }
+    // Updating one player does not change the visible set/order or another player's text.
+    let event = preview(2, "Updated independently");
+    headset.apply(event.clone(), now, &headset_config);
+    wrist.apply(event, now, &wrist_config);
+    let event = PresentationEvent::SpeakerUpdated {
+        speaker: vrcs_core::SpeakerIdentity {
+            id: "player-2".into(),
+            index: 2,
+            display_name: Some("New name".into()),
+            user_id: None,
+        },
+    };
+    headset.apply(event.clone(), now, &headset_config);
+    wrist.apply(event, now, &wrist_config);
+    for content in [
+        headset
+            .frame(now, &headset_config)
+            .unwrap()
+            .content
+            .without_original(),
+        wrist
+            .frame(now, &wrist_config)
+            .unwrap()
+            .content
+            .without_original(),
+    ] {
+        let messages = get_messages(content);
+        assert_eq!(messages[0].text, "Speech 0");
+        assert_eq!(messages[2].text, "Updated independently");
+        assert_eq!(messages[2].speaker.as_deref(), Some("New name"));
+    }
+    headset.set_player_limit(Some(0));
+    wrist.set_player_limit(Some(0));
+    let event = partial_event("my-microphone", "microphone", "My speech");
+    headset.apply(event.clone(), now, &headset_config);
+    wrist.apply(event, now, &wrist_config);
+    assert_eq!(
+        get_messages(
+            headset
+                .frame(now, &headset_config)
+                .unwrap()
+                .content
+                .without_original()
+        )
+        .len(),
+        9
+    );
+    assert_eq!(
+        get_messages(
+            wrist
+                .frame(now, &wrist_config)
+                .unwrap()
+                .content
+                .without_original()
+        )
+        .len(),
+        9
+    );
+    let event = PresentationEvent::RecognitionCancelled {
+        source: "speaker".into(),
+        utterance_id: "player-2-sentence".into(),
+    };
+    headset.apply(event.clone(), now, &headset_config);
+    wrist.apply(event, now, &wrist_config);
+    assert_eq!(
+        get_messages(
+            headset
+                .frame(now, &headset_config)
+                .unwrap()
+                .content
+                .without_original()
+        )
+        .len(),
+        8
+    );
+    assert_eq!(
+        get_messages(
+            wrist
+                .frame(now, &wrist_config)
+                .unwrap()
+                .content
+                .without_original()
+        )
+        .len(),
+        8
+    );
+    // Reducing the limit doesn't consume a slot for the user's microphone.
+    headset.set_player_limit(Some(1));
+    wrist.set_player_limit(Some(1));
+    assert_eq!(
+        get_messages(
+            headset
+                .frame(now, &headset_config)
+                .unwrap()
+                .content
+                .without_original()
+        )
+        .len(),
+        2
+    );
+    assert_eq!(
+        get_messages(
+            wrist
+                .frame(now, &wrist_config)
+                .unwrap()
+                .content
+                .without_original()
+        )
+        .len(),
+        2
+    );
+}
+
+#[test]
+fn caption_candidates_keep_original_identity_and_language_for_shared_visibility() {
+    let now = Instant::now();
+    let headset_config = VrOverlayHeadsetConfig {
+        show_partials: false,
+        show_translation_partials: true,
+        ..Default::default()
+    };
+    let wrist_config = VrOverlayWristConfig {
+        show_partials: false,
+        show_translation_partials: true,
+        ..Default::default()
+    };
+    let mut headset = HeadsetPresentation::default();
+    let mut wrist = WristPresentation::default();
+    headset.set_player_limit(Some(0));
+    wrist.set_player_limit(Some(0));
+    let mut value = subtitle(1, "这是中文原文");
+    value.language = None;
+    value.speaker = Some(vrcs_core::SpeakerIdentity {
+        id: "track-a".into(),
+        index: 0,
+        display_name: Some("Alice".into()),
+        user_id: None,
+    });
+    let mut translated = translation("English translation only");
+    translated.source_language = Some("zh-CN".into());
+    translated.target_language = "en".into();
+    value.translations.push(translated);
+    let event = PresentationEvent::Final {
+        utterance_id: Some("original-1".into()),
+        subtitle: value,
+    };
+    headset.apply(event.clone(), now, &headset_config);
+    wrist.apply(event, now, &wrist_config);
+    let inspect = |headset: &HeadsetPresentation, wrist: &WristPresentation, live| {
+        for frame in [
+            headset
+                .frame_with_translation_display(now, &headset_config, "all_languages")
+                .unwrap(),
+            wrist
+                .frame_with_translation_display(now, &wrist_config, "all_languages")
+                .unwrap(),
+        ] {
+            let (PresentationContent::Headset(messages) | PresentationContent::Wrist(messages)) =
+                frame.content;
+            let message = messages
+                .iter()
+                .find(|message| {
+                    message
+                        .original
+                        .as_ref()
+                        .is_some_and(|original| original.live == live)
+                })
+                .unwrap();
+            assert_eq!(message.text, "English translation only");
+            let original = message.original.as_ref().unwrap();
+            assert_eq!(original.text, "这是中文原文");
+            assert_eq!(original.source, "speaker");
+            assert_eq!(original.track_id.as_deref(), Some("track-a"));
+            assert_eq!(original.translation_sources, ["zh-CN"]);
+            assert_eq!(original.live, live);
+            let wire = serde_json::to_value(message).unwrap();
+            assert_eq!(wire["original"]["text"], "这是中文原文");
+        }
+    };
+    inspect(&headset, &wrist, false);
+    let event = PresentationEvent::LiveTranslationUpdated {
+        source: "speaker".into(),
+        snapshot: vrcs_core::LiveTranslation {
+            utterance_id: "qwen-preview-1".into(),
+            source_utterance_id: Some("original-1".into()),
+            text: String::new(),
+            language: None,
+            completed_original: None,
+            conversation_preview: None,
+            speaker: Some(vrcs_core::SpeakerIdentity {
+                id: "track-a".into(),
+                index: 0,
+                display_name: Some("Alice".into()),
+                user_id: None,
+            }),
+            translation: "English translation only".into(),
+            target_language: "en".into(),
+        },
+    };
+    headset.apply(event.clone(), now, &headset_config);
+    wrist.apply(event, now, &wrist_config);
+    // The source may be absent from a late translation delta, but remains
+    // available to the language filter independently of the displayed text.
+    inspect(&headset, &wrist, true);
+}
+
+#[test]
+fn shared_surface_selection_receives_candidates_before_history_and_player_limits() {
+    let now = Instant::now();
+    let headset_config = VrOverlayHeadsetConfig::default();
+    let wrist_config = VrOverlayWristConfig {
+        max_entries: 3,
+        ..Default::default()
+    };
+    let mut headset = HeadsetPresentation::default();
+    let mut wrist = WristPresentation::default();
+    headset.set_player_limit(Some(0));
+    wrist.set_player_limit(Some(0));
+    for index in 0..12 {
+        let mut value = subtitle(index, &format!("Candidate {index}"));
+        value.speaker = Some(vrcs_core::SpeakerIdentity {
+            id: "same-track".into(),
+            index: 0,
+            display_name: None,
+            user_id: None,
+        });
+        let event = PresentationEvent::Final {
+            utterance_id: Some(format!("utterance-{index}")),
+            subtitle: value,
+        };
+        headset.apply(event.clone(), now, &headset_config);
+        wrist.apply(event, now, &wrist_config);
+    }
+    for frame in [
+        headset
+            .frame_with_translation_display(now, &headset_config, "all_languages")
+            .unwrap(),
+        wrist
+            .frame_with_translation_display(now, &wrist_config, "all_languages")
+            .unwrap(),
+    ] {
+        let (PresentationContent::Headset(messages) | PresentationContent::Wrist(messages)) =
+            frame.content;
+        assert_eq!(
+            messages.len(),
+            12,
+            "hiding newer source languages must not discard older visible candidates"
+        );
+        assert!(messages.iter().all(|message| message.original.is_some()));
+    }
+}
+
+#[test]
+fn corrected_translation_source_language_replaces_its_previous_detection() {
+    let mut value = subtitle(1, "123");
+    value.language = None;
+    let mut item = item_from_subtitle(value, Some("source".into()), Instant::now());
+    let mut translated = translation("Translation");
+    translated.target_language = "en".into();
+    translated.source_language = Some("fr".into());
+    update_completed_translation(&mut item, translated.clone(), true);
+    translated.source_language = Some("zh".into());
+    update_completed_translation(&mut item, translated, true);
+    assert_eq!(
+        caption_original(&item, false, None).translation_sources,
+        ["zh"]
+    );
+    item.visibility_original = Some("完整的中文预览".into());
+    assert_eq!(caption_original(&item, true, None).text, "完整的中文预览");
 }

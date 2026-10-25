@@ -838,20 +838,30 @@ impl Preview {
                 } else {
                     vec![
                         WristMessage {
+                            original: None,
+                            speaker: None,
                             text: self
                                 .source
                                 .repeat(if self.scene == Scene::Long { 8 } else { 1 }),
                             side: MessageSide::Left,
                         },
                         WristMessage {
+                            original: None,
+                            speaker: None,
                             text: self.translation.clone(),
                             side: MessageSide::Right,
                         },
                     ]
                 };
                 SurfaceView::Dialogue {
+                    visibility: super::dashboard::CaptionVisibility::default(),
+                    max_visible_players: None,
+                    max_entries: 10,
                     controls: self.controls.clone(),
                     messages,
+                    parallel: false,
+                    notice: None,
+                    labels: Default::default(),
                     mode: p.display_mode(),
                     follow_view: p.follow_view(),
                     busy: p.busy(),
@@ -861,20 +871,33 @@ impl Preview {
                 }
             }
             3 => SurfaceView::Headset {
+                visibility: super::dashboard::CaptionVisibility::default(),
+                max_visible_players: None,
                 dark: self.controls.dark,
-                text: if matches!(self.scene, Scene::Empty | Scene::Expired) {
-                    String::new()
-                } else if self.scene == Scene::Partial {
-                    format!("[2] {} …", self.source)
-                } else if self.scene == Scene::Long {
-                    format!(
-                        "[2] {}\n{}",
-                        self.source.repeat(20),
-                        self.translation.repeat(20)
-                    )
+                messages: if matches!(self.scene, Scene::Empty | Scene::Expired) {
+                    Vec::new()
                 } else {
-                    format!("[2] {}\n{}", self.source, self.translation)
+                    vec![WristMessage {
+                        original: None,
+                        speaker: Some("Alex".into()),
+                        side: MessageSide::Left,
+                        text: if matches!(self.scene, Scene::Empty | Scene::Expired) {
+                            String::new()
+                        } else if self.scene == Scene::Partial {
+                            format!("{} …", self.source)
+                        } else if self.scene == Scene::Long {
+                            format!(
+                                "{}\n{}",
+                                self.source.repeat(20),
+                                self.translation.repeat(20)
+                            )
+                        } else {
+                            format!("{}\n{}", self.source, self.translation)
+                        },
+                    }]
                 },
+                notice: None,
+                labels: Default::default(),
                 lines_per_language: 2,
                 font_size: 38,
                 opacity: 0.65,
@@ -1502,7 +1525,8 @@ mod tests {
     #[test]
     fn passive_panels_use_react_without_pointer_actions_and_hide_expired_content() {
         let mut p = mock();
-        for (panel, kind, content) in [(3, "headset", "text"), (8, "ocr_progress", "progress")] {
+        for (panel, kind, content) in [(3, "headset", "messages"), (8, "ocr_progress", "progress")]
+        {
             apply(&mut p, Operation::Select { panel });
             let surface = p.info().surface.expect("passive panel uses React");
             let view = serde_json::to_value(surface.view).unwrap();
@@ -1519,7 +1543,7 @@ mod tests {
                 },
             );
             let view = serde_json::to_value(p.info().surface.unwrap().view).unwrap();
-            assert!(view[content].is_null() || view[content] == "");
+            assert!(view[content].is_null() || view[content].as_array().is_some_and(Vec::is_empty));
             apply(
                 &mut p,
                 Operation::Scene {
