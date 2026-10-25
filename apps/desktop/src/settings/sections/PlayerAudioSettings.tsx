@@ -34,12 +34,11 @@ export function PlayerAudioSettings({ value, status, disabled, onChange }: {
       <Select label={t("settings.audio.players.limit")} value={String(options.max_players)}
         options={[{value: "0", label: t("settings.audio.players.unlimited")},
           ...["1", "2", "3", "4", "5", "6", "7", "8"].map(value => ({value, label: value}))]} disabled={disabled}
-        helper={t("settings.audio.players.limitHint")}
         onChange={(count) => onChange({ max_players: Number(count) })} />
       <Select label={t("settings.audio.players.visibleLimit")} value={String(options.max_visible_players ?? 4)}
         options={[{ value: "0", label: t("settings.audio.players.unlimited") },
           ...Array.from({ length: 64 }, (_, index) => ({ value: String(index + 1), label: String(index + 1) }))]}
-        disabled={disabled} helper={t("settings.audio.players.visibleLimitHint")}
+        disabled={disabled}
         onChange={(count) => onChange({ max_visible_players: Number(count) })} />
     </div>
     <div className="field">

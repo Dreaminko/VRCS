@@ -1,5 +1,5 @@
-import { useMemo, useState } from "react";
-import { Eye, EyeOff, UsersRound } from "lucide-react";
+import { useId, useMemo, useRef, useState } from "react";
+import { Eye, EyeOff, UsersRound, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { PlayerAudioStatus } from "../../core-client/types";
 import type { SpeakerIdentity, Subtitle } from "../types";
@@ -8,6 +8,7 @@ import { historySpeakers, isAudioTrack, sourceLanguageKey, subtitleSourceLanguag
 import { playerUserId } from "../../capture/player-selection";
 import { localizedLanguageName, TRANSLATION_LANGUAGE_CODES } from "../../translation/translation-languages";
 import { Select } from "../../settings/SettingsControls";
+import { useDismissibleLayer } from "../../shared/hooks/use-dismissible-layer";
 
 export function PlayerHistoryControls({ subtitles, status, enabled, selectedUserIds, selectedUserNames = {}, defaultLanguages, preferences, onPreferences, onSelection }: {
   subtitles: Subtitle[];
@@ -21,6 +22,16 @@ export function PlayerHistoryControls({ subtitles, status, enabled, selectedUser
   onSelection: (value: string[] | null, names: Record<string, string>) => Promise<unknown>;
 }) {
   const { t, i18n } = useTranslation();
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const panelId = useId();
+  const titleId = useId();
+  const close = () => {
+    setOpen(false);
+    if (rootRef.current?.contains(document.activeElement)) triggerRef.current?.focus({ preventScroll: true });
+  };
+  useDismissibleLayer(open, rootRef, close);
   const [busy, setBusy] = useState(false);
   const [query, setQuery] = useState("");
   const current = enabled ? status?.players ?? [] : [];
@@ -60,16 +71,23 @@ export function PlayerHistoryControls({ subtitles, status, enabled, selectedUser
     try { await onSelection(value, names); } catch { /* The shared settings error banner reports persistence failures. */ }
     finally { setBusy(false); }
   };
-  return <details className="player-history-controls">
-    <summary><UsersRound size={16} /><span>{t("live.players.title")}</span>
-      {preferences.hiddenTracks.length > 0 && <small>{t("live.players.hiddenCount", { count: preferences.hiddenTracks.length })}</small>}
-    </summary>
+  return <div className="player-history-controls" ref={rootRef}>
+    <button type="button" className="player-history-trigger" ref={triggerRef}
+      data-tooltip={t("live.players.title")} aria-label={t("live.players.title")}
+      aria-expanded={open} aria-controls={panelId} onClick={() => setOpen(!open)}>
+      <UsersRound size={18} aria-hidden="true" />
+    </button>
+    {open && <section className="player-history-panel" id={panelId} aria-labelledby={titleId}>
+      <header className="player-history-heading">
+        <strong id={titleId}>{t("live.players.title")}</strong>
+        {preferences.hiddenTracks.length > 0 && <small>{t("live.players.hiddenCount", { count: preferences.hiddenTracks.length })}</small>}
+        <button type="button" className="player-history-close" aria-label={t("common.close")} onClick={close}><X size={16} aria-hidden="true" /></button>
+      </header>
     <div className="player-history-body">
       {enabled && <div className="player-history-processing">
         <Select label={t("live.players.process")} value={selectedUserIds === null ? "all" : "selected"} disabled={busy}
           options={[{value:"all",label:t("live.players.all")},{value:"selected",label:t("live.players.selected")}]}
           onChange={(value) => void select(value === "all" ? null : [])} />
-        <small>{t("live.players.processHint")}</small>
         {selectedUserIds !== null && <div className="player-history-actions">
           <button type="button" className="secondary-button" disabled={busy || !currentUsers.length} onClick={() => void select([...new Set([...selectedUserIds, ...currentUsers])])}>{t("live.players.selectCurrent")}</button>
           <button type="button" className="secondary-button" disabled={busy || !selectedUserIds.length} onClick={() => void select([])}>{t("live.players.selectNone")}</button>
@@ -86,7 +104,6 @@ export function PlayerHistoryControls({ subtitles, status, enabled, selectedUser
           <input type="checkbox" value={language} checked={languages.includes(language)} onChange={(event) => onPreferences({...preferences,
             hiddenSourceLanguages:event.target.checked ? [...languages, language] : languages.filter((value) => value !== language)})} />{languageName(language)}
         </label>)}</div>}
-        <small>{t("live.players.languageHint")}</small>
       </fieldset>
       <div className="player-history-actions">
         <input className="player-history-search" type="search" value={query} placeholder={t("live.players.search")} aria-label={t("live.players.search")} onChange={(event) => setQuery(event.target.value)} />
@@ -104,10 +121,10 @@ export function PlayerHistoryControls({ subtitles, status, enabled, selectedUser
         onHidden={(hidden) => onPreferences({...preferences, hiddenTracks:hidden ? [...preferences.hiddenTracks, speaker.id] : preferences.hiddenTracks.filter((id) => id !== speaker.id)})} />)}
         {!speakers.length && <p className="player-history-empty">{t("live.players.empty")}</p>}
       </div>
-      <small>{t("live.players.hideHint")}</small>
       {current.some((player) => !player.speaker.display_name) && <small role="status">{t("live.players.namePending")}</small>}
     </div>
-  </details>;
+    </section>}
+  </div>;
 }
 
 function PlayerRow({ speaker: identity, query, current, selectionEnabled, selectedUserIds, busy, hidden, onSelected, onHidden }: {

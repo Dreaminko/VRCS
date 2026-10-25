@@ -61,6 +61,7 @@ html:has(.window-chrome[data-maximized="true"]) { clip-path: none; }
 }
 
 .workspace-frame {
+  position: relative;
   display: flex;
   flex: 1;
   min-width: 0;
@@ -69,13 +70,17 @@ html:has(.window-chrome[data-maximized="true"]) { clip-path: none; }
 }
 
 .live-toolbar {
-  flex: 0 0 auto;
+  position: absolute;
+  z-index: 45;
+  inset: 0 0 auto;
   padding: 12px 24px 0;
-  overflow-y: hidden;
-  scrollbar-gutter: stable;
+  overflow: visible;
+  pointer-events: none;
 }
 
-.live-toolbar + .app-scroll-region > .workspace-live { padding-top: 0; }
+.live-toolbar .top-status-row { margin-bottom: 0; }
+.live-toolbar .top-status-row > * { pointer-events: auto; }
+.live-toolbar + .app-scroll-region > .workspace-live { padding-top: 76px; }
 .live-toolbar + .app-scroll-region > .workspace-live > .error-banner:first-child { margin-top: 0; }
 
 .app-scroll-region {

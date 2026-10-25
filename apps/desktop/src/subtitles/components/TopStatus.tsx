@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
 import { recognitionEngineLabel } from "../../providers/recognition-services";
@@ -11,17 +12,19 @@ import type {
 } from "../../providers/types";
 import type { Settings } from "../../settings/types";
 
-export function TopStatus({ connection, health, settings, apiProfiles = [], providerDefinitions = [] }: {
+export function TopStatus({ connection, health, settings, apiProfiles = [], providerDefinitions = [], controls }: {
   connection: ConnectionState;
   health: Health | null;
   settings: Settings | null;
   apiProfiles?: ApiProfileView[];
   providerDefinitions?: ProviderDefinition[];
+  controls?: ReactNode;
 }) {
   const { t } = useTranslation();
   const connectionLabel = t(`status.connection.${connection}`);
   return (
     <div className="top-status-row">
+      {controls}
       <div className="status-summary" aria-label={t("status.summary")}>
         <div className={`core-summary connection-${connection}`}><span>Core</span><strong><i aria-hidden="true" />{connectionLabel}</strong></div>
         <i aria-hidden="true" />

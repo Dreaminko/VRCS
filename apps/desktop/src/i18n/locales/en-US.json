@@ -318,7 +318,6 @@
         "process": "Players to process",
         "all": "Translate everyone",
         "selected": "Translate selected people only",
-        "processHint": "Selected players are saved locally by VRChat user ID and reused across worlds and restarts. Saved names update when you meet them again. In selected-player mode, unselected tracks and tracks awaiting a user ID are not decoded, recognized, or translated.",
         "savedSelection": "Saved selection",
         "userIdPending": "Waiting for player user ID before selection",
         "selectCurrent": "Select everyone here",
@@ -327,7 +326,6 @@
         "languages": "Hidden original languages (multiple)",
         "followDefault": "Follow default",
         "noHiddenLanguages": "No languages hidden",
-        "languageHint": "Defaults to all languages under Target languages → Other party. When the detected original language is selected, hide the other party’s entire original and all its translations. Other original languages are unaffected. Turn off following to choose manually. This only affects display; missing language labels are inferred locally from the original text. Uncertain results remain visible.",
         "search": "Search players",
         "showAll": "Show all records",
         "empty": "Waiting for tracks or loading history.",
@@ -341,7 +339,6 @@
         "history": "Historical track",
         "unidentified": "Other party without a track label",
         "filteredEmpty": "No records match the current filters.",
-        "hideHint": "Hiding applies to chat, desktop captions, VR captions, and wrist dialogue. It does not delete records or change which players are processed.",
         "namePending": "Some tracks do not have player names yet. Keep capture running, then enter another world or reload the current world. Names will update automatically when received."
       },
       "speakerOther": "Others · system audio",
@@ -1588,7 +1585,6 @@
           "nameHint": "To match player names, start capture before entering a world, or reload the current world.",
           "drive": "Pagefile drive",
           "limit": "Concurrent players",
-          "limitHint": "No concurrent-player limit by default; an optional limit is available. Each speaking player uses a separate recognition session.",
           "opus": "Opus library path (optional)",
           "opusAuto": "Automatically use the running VRChat installation",
           "activeTracks": "Connected player tracks: {{players}}",
@@ -1611,8 +1607,7 @@
           },
           "keyTime": "Took {{seconds}} s",
           "unlimited": "Unlimited",
-          "visibleLimit": "Players shown at once",
-          "visibleLimitHint": "Applies to the desktop caption window, VR captions and wrist dialogue. Active speakers take priority. This only limits display, not recognition or translation; your microphone does not count toward the limit."
+          "visibleLimit": "Players shown at once"
         },
         "devicesFound": "{{count}} devices found",
         "waitingScan": "Waiting for device scan",

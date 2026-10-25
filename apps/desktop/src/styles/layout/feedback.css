@@ -1,14 +1,18 @@
 
-.top-status-row { display: flex; flex: 0 0 auto; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 12px; margin-bottom: 20px; }
+.top-status-row { position: relative; display: flex; flex: 0 0 auto; align-items: center; justify-content: flex-end; gap: 12px; margin-bottom: 20px; }
 .status-summary {
   display: flex;
+  min-width: 0;
   min-height: 42px;
   align-items: center;
   padding: 6px 10px;
   border-radius: 999px;
   background: var(--surface);
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+  overflow-x: auto;
+  scrollbar-width: none;
 }
+.status-summary > div { flex-shrink: 0; }
 .status-summary div {
   display: grid;
   grid-template-rows: 13px 18px;

@@ -195,27 +195,28 @@ export function DesktopShell({
           page={page}
           scrollRef={conversations.liveScrollRef}
           onScroll={conversations.onLiveScroll}
-          toolbar={<>
-              <TopStatus
-                connection={runtime.connection}
-                health={runtime.health}
-                settings={settings.value}
-                apiProfiles={providers.catalog.profiles}
-                providerDefinitions={providers.catalog.providerDefinitions}
-              />
-              <PlayerHistoryControls
-                subtitles={conversations.selectedSubtitles}
-                status={runtime.health?.player_audio}
-                enabled={settings.value?.audio.output.mode === "vrchat_players"}
-                selectedUserIds={settings.value?.audio.output.player_audio?.selected_tracks ?? null}
-                selectedUserNames={settings.value?.audio.output.player_audio?.selected_user_names}
-                defaultLanguages={playerDisplay.defaultLanguages}
-                preferences={playerDisplay.preferences}
-                onPreferences={playerDisplay.update}
-                onSelection={(selected_tracks, selected_user_names) => settings.update((current) => ({...current, audio:{...current.audio,
-                  output:{...current.audio.output, player_audio:{...(current.audio.output.player_audio ?? DEFAULT_PLAYER_AUDIO), selected_tracks, selected_user_names}}}}))}
-              />
-          </>}
+          toolbar={
+            <TopStatus
+              connection={runtime.connection}
+              health={runtime.health}
+              settings={settings.value}
+              apiProfiles={providers.catalog.profiles}
+              providerDefinitions={providers.catalog.providerDefinitions}
+              controls={
+                <PlayerHistoryControls
+                  subtitles={conversations.selectedSubtitles}
+                  status={runtime.health?.player_audio}
+                  enabled={settings.value?.audio.output.mode === "vrchat_players"}
+                  selectedUserIds={settings.value?.audio.output.player_audio?.selected_tracks ?? null}
+                  selectedUserNames={settings.value?.audio.output.player_audio?.selected_user_names}
+                  defaultLanguages={playerDisplay.defaultLanguages}
+                  preferences={playerDisplay.preferences}
+                  onPreferences={playerDisplay.update}
+                  onSelection={(selected_tracks, selected_user_names) => settings.update((current) => ({...current, audio:{...current.audio,
+                    output:{...current.audio.output, player_audio:{...(current.audio.output.player_audio ?? DEFAULT_PLAYER_AUDIO), selected_tracks, selected_user_names}}}}))}
+                />}
+            />
+          }
         >
 
             {visionOpenError && <ErrorBanner error={t("visionWindow.errors.openFailed")} retryable={false}
@@ -344,7 +345,7 @@ export function DesktopShell({
           aria-label={t(subtitles.focusedSubtitleId !== null
             ? "live.returnToLatest"
             : "live.returnToBottom")}
-          title={t(subtitles.focusedSubtitleId !== null
+          data-tooltip={t(subtitles.focusedSubtitleId !== null
             ? "live.returnToLatestShort"
             : "live.returnToBottomShort")}
           onClick={() => {

@@ -10,7 +10,7 @@ const testDirectory = dirname(fileURLToPath(import.meta.url));
 const browser = [process.env.PROGRAMFILES, process.env["PROGRAMFILES(X86)"], process.env.LOCALAPPDATA]
   .filter(Boolean).flatMap(root => [join(root,"Google/Chrome/Application/chrome.exe"),join(root,"Microsoft/Edge/Application/msedge.exe")]).find(existsSync);
 
-for (const width of [1100,380]) {
+for (const width of [1100,860,380]) {
   test(`track selection and hidden original languages at ${width}px`, {timeout:45000,skip:!browser && "Chrome or Edge is required"}, async () => {
     const bundle=await build({
       stdin:{resolveDir:join(testDirectory,".."),loader:"tsx",contents:`
@@ -48,12 +48,11 @@ for (const width of [1100,380]) {
           const scroll=scrollApi.liveScrollRef;
           state={preferences,selected,selectedNames,subtitles};changeDefaults=setDefaults;changeRows=setSubtitles;changePlayers=setPlayers;
           return <div className="app-shell live-shell sidebar-collapsed" style={{height}}><div className="window-chrome">VRCS</div><div className="app-body">
-            <WorkspaceFrame page="live" scrollRef={scroll} onScroll={scrollApi.onLiveScroll} toolbar={<>
-            <TopStatus connection="connected" health={null} settings={null}/>
-            <PlayerHistoryControls subtitles={subtitles} status={{players:players.map(speaker=>({speaker,active:true,selected:true}))}}
+            <WorkspaceFrame page="live" scrollRef={scroll} onScroll={scrollApi.onLiveScroll} toolbar={
+            <TopStatus connection="connected" health={null} settings={null} controls={<PlayerHistoryControls subtitles={subtitles} status={{players:players.map(speaker=>({speaker,active:true,selected:true}))}}
               enabled={true} selectedUserIds={selected} selectedUserNames={selectedNames} defaultLanguages={defaults} preferences={preferences} onPreferences={setPreferences}
-              onSelection={async (value,names)=>{await new Promise(resolve=>setTimeout(resolve,30));setSelected(value);setSelectedNames(names);}} />
-            </>}>
+              onSelection={async (value,names)=>{await new Promise(resolve=>setTimeout(resolve,30));setSelected(value);setSelectedNames(names);}} />}/>
+            }>
             <LiveView subtitles={subtitles} hiddenTracks={preferences.hiddenTracks} hiddenSourceLanguages={preferences.hiddenSourceLanguages??defaults}
               scrollContainerRef={scroll} running={true} hasOlder={true} loading={false} loadingOlder={false} onLoadOlder={noop} onSelect={noop} />
           </WorkspaceFrame></div>{!scrollApi.followingLiveSubtitles&&<button className="live-scroll-to-bottom" onClick={()=>scrollApi.scrollLiveViewToBottom()}>返回底部</button>}</div>;
@@ -64,45 +63,74 @@ for (const width of [1100,380]) {
         const languageCheckbox=code=>document.querySelector('.player-history-language-list input[value="'+code+'"]');
         const row=id=>document.querySelector('[data-subtitle-id="'+id+'"]');
         try{
-          await wait(()=>document.querySelector('summary'));
+          await wait(()=>document.querySelector('.player-history-trigger'));
           changeRows([]);
           await wait(()=>!row(1));
           await new Promise(resolve=>setTimeout(resolve,100));
           const region=document.querySelector('.app-scroll-region');
-          const summary=document.querySelector('summary');
+          const trigger=document.querySelector('.player-history-trigger');
           const status=document.querySelector('.top-status-row');
           const toolbar=document.querySelector('.live-toolbar');
-          const summaryTop=()=>summary.getBoundingClientRect().top;
+          const triggerTop=()=>trigger.getBoundingClientRect().top;
           const statusTop=()=>status.getBoundingClientRect().top;
-          const initialSummaryTop=summaryTop(),initialStatusTop=statusTop();
+          const initialTriggerTop=triggerTop(),initialStatusTop=statusTop();
+          const triggerRect=trigger.getBoundingClientRect();
+          check(toolbar.getBoundingClientRect().top===region.getBoundingClientRect().top,'conversation content extends beneath the floating toolbar');
+          check(document.elementFromPoint(region.getBoundingClientRect().left+2,triggerRect.top+triggerRect.height/2)?.closest('.app-scroll-region')===region,'empty toolbar space passes pointer input through to the conversation');
+          check(document.elementFromPoint(triggerRect.left+triggerRect.width/2,triggerRect.top+triggerRect.height/2)?.closest('.player-history-trigger')===trigger,'the floating personnel button remains clickable');
+          check(triggerRect.width===42&&triggerRect.height===42&&getComputedStyle(trigger).borderRadius==='50%','the personnel control is a circular button');
+          check(!trigger.textContent.trim()&&trigger.getAttribute('aria-label')==='人员与译文显示','the icon-only button retains an accessible name');
+          if(${width}>680){
+            const core=document.querySelector('.core-summary').getBoundingClientRect();
+            check(triggerRect.right<core.left&&Math.abs(triggerRect.top+triggerRect.height/2-core.top-core.height/2)<1,'the button sits immediately left of Core on the same row');
+          }
+          check(!document.querySelector('.player-history-panel')&&trigger.getAttribute('aria-expanded')==='false','settings are collapsed initially');
           const settled=()=>new Promise(resolve=>setTimeout(resolve,100));
           region.scrollTop=0;
-          summary.dispatchEvent(new KeyboardEvent('keydown',{key:'Tab',bubbles:true}));
-          summary.dispatchEvent(new PointerEvent('pointerdown',{button:0,bubbles:true}));
+          trigger.dispatchEvent(new KeyboardEvent('keydown',{key:'Tab',bubbles:true}));
+          trigger.dispatchEvent(new PointerEvent('pointerdown',{button:0,bubbles:true}));
           await settled();
           check(scrollApi.followingLiveSubtitles,'tabbing or an incomplete click on a closed panel must not pause following');
-          summary.click();
+          const initialRegionTop=region.getBoundingClientRect().top;
+          trigger.click();
           await settled();
-          check(Math.abs(summaryTop()-initialSummaryTop)<1 && scrollApi.followingLiveSubtitles,'expanding controls keeps the toolbar fixed and does not pause live following');
+          check(Math.abs(triggerTop()-initialTriggerTop)<1 && scrollApi.followingLiveSubtitles,'expanding controls keeps the toolbar fixed and does not pause live following');
+          check(region.getBoundingClientRect().top===initialRegionTop,'the floating panel does not move the conversation');
+          const expanded=document.querySelector('.player-history-panel').getBoundingClientRect();
+          check(expanded.left>=0&&expanded.right<=innerWidth+1&&expanded.top>triggerRect.bottom,'settings open below the toolbar within the viewport');
+          const closeButton=document.querySelector('.player-history-close');
+          check(document.elementFromPoint(expanded.right-25,expanded.top+25)?.closest('.player-history-close')===closeButton,'the expanded panel is not clipped by the toolbar');
+          closeButton.focus();
+          closeButton.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}));
+          await settled();
+          check(!document.querySelector('.player-history-panel')&&document.activeElement===trigger,'Escape closes settings and restores focus to the trigger');
+          trigger.click();await settled();
+          region.dispatchEvent(new PointerEvent('pointerdown',{button:0,bubbles:true}));await settled();
+          check(!document.querySelector('.player-history-panel'),'clicking outside dismisses the panel');
+          trigger.click();await settled();
           await wait(()=>region.scrollHeight-region.clientHeight-region.scrollTop<=1);
-          summary.click();await settled();
+          trigger.click();await settled();
           check(region.scrollTop<=1&&scrollApi.followingLiveSubtitles&&!document.querySelector('.live-scroll-to-bottom'),'collapsing an empty conversation must remove the false return-to-bottom button');
-          summary.click();await settled();summary.click();await settled();
+          trigger.click();await settled();trigger.click();await settled();
           check(scrollApi.followingLiveSubtitles,'repeated expansion and collapse must restore following');
 
           const longRows=Array.from({length:20},(_,index)=>({...rows[index%3],id:index+100}));
           changeRows(longRows);await wait(()=>row(100));await wait(()=>region.scrollHeight-region.clientHeight-region.scrollTop<=1);
           check(region.scrollTop>100,'the conversation must have a real scroll range');
-          check(Math.abs(summaryTop()-initialSummaryTop)<1&&Math.abs(statusTop()-initialStatusTop)<1,'both personnel controls and status stay fixed at the bottom of a long conversation');
+          check(Math.abs(triggerTop()-initialTriggerTop)<1&&Math.abs(statusTop()-initialStatusTop)<1,'both personnel controls and status stay fixed at the bottom of a long conversation');
           check(region.scrollHeight-region.clientHeight-region.scrollTop<=1,'new messages still follow after the panel is closed');
           region.dispatchEvent(new WheelEvent('wheel',{deltaY:-120,bubbles:true}));
           region.scrollTop=0;await settled();
           check(!scrollApi.followingLiveSubtitles,'reading earlier messages pauses following');
-          check(Math.abs(summaryTop()-initialSummaryTop)<1&&Math.abs(statusTop()-initialStatusTop)<1,'both toolbars stay fixed when reading older messages');
-          summary.click();await settled();summary.click();await settled();
+          check(Math.abs(triggerTop()-initialTriggerTop)<1&&Math.abs(statusTop()-initialStatusTop)<1,'both toolbars stay fixed when reading older messages');
+          trigger.click();await settled();trigger.click();await settled();
           check(region.scrollTop<=1&&!scrollApi.followingLiveSubtitles&&document.querySelector('.live-scroll-to-bottom'),'collapsing a panel preserves genuine history reading and its return button');
 
-          summary.click();await settled();
+          trigger.click();await settled();
+          changeHeight(620);await settled();
+          check(document.querySelector('.player-history-panel').getBoundingClientRect().bottom<=document.querySelector('.app-shell').getBoundingClientRect().bottom,'the panel fits the minimum supported window height');
+          const followDefault=document.querySelector('.player-history-languages > label input');
+          followDefault.click();await wait(()=>languageCheckbox('en'));
           changeHeight(500);await settled();
           const panel=document.querySelector('.player-history-body');
           check(panel.scrollHeight>panel.clientHeight&&region.clientHeight>=100,'short windows scroll the expanded panel internally and retain a chat viewport');
@@ -110,15 +138,16 @@ for (const width of [1100,380]) {
           panel.scrollTop=panel.scrollHeight;await settled();
           check(panel.scrollTop>0&&panel.scrollTop+panel.clientHeight>=panel.scrollHeight-1,'every panel control is reachable through its own scrollbar');
           check(Math.abs(region.scrollTop-chatTop)<1&&!scrollApi.followingLiveSubtitles,'scrolling the personnel panel does not scroll the chat or change following');
-          check(toolbar.getBoundingClientRect().bottom<=region.getBoundingClientRect().top+1,'the toolbar never overlays the conversation');
-          changeHeight(850);await settled();summary.click();await settled();
+          check(toolbar.getBoundingClientRect().top===region.getBoundingClientRect().top&&toolbar.getBoundingClientRect().bottom>region.getBoundingClientRect().top,'the toolbar stays above the conversation in short windows');
+          changeHeight(850);followDefault.click();
+          await wait(()=>state.preferences.hiddenSourceLanguages===null);await settled();trigger.click();await settled();
 
           scrollApi.scrollLiveViewToBottom('auto');await settled();changeFocus(100);await settled();
-          summary.click();await settled();summary.click();await settled();
+          trigger.click();await settled();trigger.click();await settled();
           check(!scrollApi.followingLiveSubtitles,'panel collapse must not clear a focused search result');
           changeFocus(null);await settled();
           changeRows([]);await wait(()=>!row(100));await settled();
-          region.scrollTop=0;summary.click();await settled();
+          region.scrollTop=0;trigger.click();await settled();
           changeRows(rows);
           await wait(()=>row(1));
           check(row(1).textContent.includes('译文-zh-Hans')&&row(1).textContent.includes('译文-en')&&row(1).textContent.includes('译文-ja'),'Japanese originals keep all translation targets, including hidden source languages');
@@ -166,12 +195,16 @@ for (const width of [1100,380]) {
           document.querySelector('[aria-label="隐藏 Bob 玩家 的记录"]').click();
           await wait(()=>!row(2));
           check(state.subtitles.length===3 && state.selected===null,'hiding never deletes history or changes capture');
+          document.querySelector('.player-history-processing .dropdown-trigger').focus();
           document.querySelector('.player-history-processing .dropdown-trigger').click();
           await wait(()=>document.querySelector('[role=option]'));
-          [...document.querySelectorAll('[role=option]')].find(option=>option.textContent.includes('仅翻译选定的人')).click();
+          const selectedOption=[...document.querySelectorAll('[role=option]')].find(option=>option.textContent.includes('仅翻译选定的人'));
+          selectedOption.focus();selectedOption.click();
           await wait(()=>Array.isArray(state.selected) && document.querySelector('[aria-label="翻译 Alice 玩家"]'));
+          document.querySelector('[aria-label="翻译 Alice 玩家"]').focus();
           document.querySelector('[aria-label="翻译 Alice 玩家"]').click();
           await wait(()=>state.selected?.length===1);
+          check(trigger.getAttribute('aria-expanded')==='true','saving a focused selection keeps the settings panel open');
           check(state.selected[0]===alice.user_id,'selection stores the VRChat user ID instead of the current track ID');
           check(state.selectedNames[alice.user_id]===alice.display_name,'selection saves the display label alongside the account ID');
           check(!document.querySelector('[aria-label="翻译 Bob 玩家"]').checked,'unselected player remains excluded');
