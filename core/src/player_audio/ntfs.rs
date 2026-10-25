@@ -423,7 +423,10 @@ impl<R: Read + Seek> Ntfs<R> {
         let mut extensions = Vec::new();
         for attr in attributes(&record)? {
             if attr.kind == 0x80 && attr.unnamed {
-                size = size.max(qword(attr.bytes, 48)?);
+                // File size is valid only in the extent whose LowestVcn is zero.
+                if qword(attr.bytes, 16)? == 0 {
+                    size = qword(attr.bytes, 48)?;
+                }
                 data_runs.extend(attr.runs()?);
             } else if attr.kind == 0x20 {
                 let list = if attr.bytes[8] == 0 {
@@ -455,6 +458,9 @@ impl<R: Read + Seek> Ntfs<R> {
             let extension = self.record(number)?;
             for attr in attributes(&extension)? {
                 if attr.kind == 0x80 && attr.unnamed {
+                    if qword(attr.bytes, 16)? == 0 {
+                        size = qword(attr.bytes, 48)?;
+                    }
                     data_runs.extend(attr.runs()?);
                 }
             }
@@ -586,8 +592,23 @@ mod tests {
         attr
     }
 
-    #[test]
-    fn discovers_and_reads_fragmented_pagefile_from_ntfs_metadata() {
+    fn attribute_list(entries: &[(u64, u64)]) -> Vec<u8> {
+        let length = 24 + entries.len() * 32;
+        let mut attr = vec![0; length];
+        attr[..4].copy_from_slice(&0x20u32.to_le_bytes());
+        attr[4..8].copy_from_slice(&(length as u32).to_le_bytes());
+        attr[16..20].copy_from_slice(&((length - 24) as u32).to_le_bytes());
+        attr[20..22].copy_from_slice(&24u16.to_le_bytes());
+        for (entry, &(vcn, number)) in attr[24..].as_chunks_mut::<32>().0.iter_mut().zip(entries) {
+            entry[..4].copy_from_slice(&0x80u32.to_le_bytes());
+            entry[4..6].copy_from_slice(&32u16.to_le_bytes());
+            entry[8..16].copy_from_slice(&vcn.to_le_bytes());
+            entry[16..24].copy_from_slice(&number.to_le_bytes());
+        }
+        attr
+    }
+
+    fn pagefile_disk() -> Vec<u8> {
         let mut disk = vec![0; 256 * 512];
         disk[3..11].copy_from_slice(b"NTFS    ");
         disk[11..13].copy_from_slice(&512u16.to_le_bytes());
@@ -625,7 +646,12 @@ mod tests {
             .copy_from_slice(&record(&[data_attr(&[0x11, 1, 100, 0x11, 1, 30, 0], 1024)]));
         disk[100 * 512..101 * 512].fill(1);
         disk[130 * 512..131 * 512].fill(2);
-        let mut ntfs = Ntfs::new(std::io::Cursor::new(disk)).unwrap();
+        disk
+    }
+
+    #[test]
+    fn discovers_and_reads_fragmented_pagefile_from_ntfs_metadata() {
+        let mut ntfs = Ntfs::new(std::io::Cursor::new(pagefile_disk())).unwrap();
         let (size, extents) = ntfs.pagefile().unwrap();
         assert_eq!(size, 1024);
         assert_eq!(extents.len(), 2);
@@ -648,6 +674,49 @@ mod tests {
             &[1, 1, 1, 1, 2, 2, 2, 2]
         );
     }
+
+    #[test]
+    fn discovers_pagefile_when_data_starts_in_an_extension_record() {
+        let mut disk = pagefile_disk();
+        disk.copy_within(4096 + 9 * 1024..4096 + 10 * 1024, 4096 + 10 * 1024);
+        disk[4096 + 9 * 1024..4096 + 10 * 1024]
+            .copy_from_slice(&record(&[attribute_list(&[(0, 10)])]));
+        let mut ntfs = Ntfs::new(std::io::Cursor::new(disk)).unwrap();
+        let (size, extents) = ntfs.pagefile().unwrap();
+        assert_eq!(size, 1024);
+        assert_eq!(extents.len(), 2);
+        assert_eq!(
+            &ntfs.read_runs(&extents, 508, 8).unwrap()[..],
+            &[1, 1, 1, 1, 2, 2, 2, 2]
+        );
+    }
+
+    #[test]
+    fn pagefile_size_ignores_continuation_extent_headers() {
+        for first_in_base in [true, false] {
+            let mut disk = pagefile_disk();
+            let first = data_attr(&[0x11, 1, 100, 0], 1024);
+            let mut continuation = data_attr(&[0x21, 1, 130, 0, 0], u64::MAX);
+            continuation[16..24].copy_from_slice(&1u64.to_le_bytes());
+            continuation[24..32].copy_from_slice(&1u64.to_le_bytes());
+            let (base, extension, entries) = if first_in_base {
+                (first, continuation, [(0, 9), (1, 10)])
+            } else {
+                (continuation, first, [(0, 10), (1, 9)])
+            };
+            disk[4096 + 9 * 1024..4096 + 10 * 1024]
+                .copy_from_slice(&record(&[base, attribute_list(&entries)]));
+            disk[4096 + 10 * 1024..4096 + 11 * 1024].copy_from_slice(&record(&[extension]));
+            let mut ntfs = Ntfs::new(std::io::Cursor::new(disk)).unwrap();
+            let (size, extents) = ntfs.pagefile().unwrap();
+            assert_eq!(size, 1024, "first_in_base={first_in_base}");
+            assert_eq!(
+                &ntfs.read_runs(&extents, 508, 8).unwrap()[..],
+                &[1, 1, 1, 1, 2, 2, 2, 2]
+            );
+        }
+    }
+
     #[test]
     fn runlists_handle_negative_deltas_sparse_runs_and_truncation() {
         let data = [0x11, 3, 100, 0x11, 2, 0xf6, 0x01, 4, 0];
