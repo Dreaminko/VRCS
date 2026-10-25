@@ -1562,7 +1562,6 @@
           "enabled": "内存压缩已开启",
           "disabled": "内存压缩已关闭",
           "desktopOnly": "请在 Windows 桌面版 VRCS 中管理内存压缩。",
-          "description": "分玩家独立音轨需要关闭内存压缩。检测只读取状态；关闭和恢复都会在说明影响并获得确认后执行。",
           "authorization": "读取状态需要管理员权限。授权后 VRCS 会自动重新打开并继续检测，不会启动音轨采集。",
           "authorize": "授权并检测",
           "refresh": "重新检测",

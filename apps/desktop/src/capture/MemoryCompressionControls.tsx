@@ -16,18 +16,15 @@ function statusKey(memory: Memory) {
 
 export function MemoryCompressionControls({ memory }: { memory: Memory }) {
   const { t } = useTranslation();
-  return <section className="memory-compression-card">
+  return <div className="memory-compression-setting">
     <div className="memory-compression-heading"><MemoryStick size={18} /><div>
       <strong>{t("settings.audio.memory.title")}</strong>
       <small>{t(`settings.audio.memory.${statusKey(memory)}`)}</small>
     </div></div>
-    <p className="settings-field-note">{t("settings.audio.memory.description")}</p>
+    <button type="button" className="secondary-button" disabled={memory.busy} onClick={memory.open}>{t("settings.audio.memory.manage")}</button>
     {memory.status?.restart_required && <p className="settings-field-note">{t("settings.audio.memory.restart")}</p>}
     {memory.error && <p className="settings-validation-error" role="alert">{memory.error}</p>}
-    <div className="settings-inline-actions">
-      <button type="button" className="secondary-button" disabled={memory.busy} onClick={memory.open}>{t("settings.audio.memory.manage")}</button>
-    </div>
-  </section>;
+  </div>;
 }
 
 export function MemoryCompressionDialog({ memory }: { memory: Memory }) {
@@ -46,7 +43,6 @@ export function MemoryCompressionDialog({ memory }: { memory: Memory }) {
           <p>{t("settings.audio.memory.confirmRestart")}</p>
         </> : <>
           <p role="status">{t(`settings.audio.memory.${statusKey(memory)}`)}</p>
-          <p>{t("settings.audio.memory.description")}</p>
           {memory.status?.restart_required && <p className="memory-compression-restart" role="status">{t("settings.audio.memory.restart")}</p>}
           {memory.status?.supported && !memory.status.elevated && <p>{t("settings.audio.memory.authorization")}</p>}
         </>}

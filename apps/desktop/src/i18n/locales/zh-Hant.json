@@ -1562,7 +1562,6 @@
           "enabled": "記憶體壓縮已開啟",
           "disabled": "記憶體壓縮已關閉",
           "desktopOnly": "請在 Windows 桌面版 VRCS 中管理記憶體壓縮。",
-          "description": "分玩家獨立音軌需要關閉記憶體壓縮。檢測只讀取狀態；關閉和恢復都會在說明影響並取得確認後執行。",
           "authorization": "讀取狀態需要系統管理員權限。授權後 VRCS 會自動重新開啟並繼續檢測，不會啟動音軌擷取。",
           "authorize": "授權並檢測",
           "refresh": "重新檢測",

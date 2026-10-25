@@ -1562,7 +1562,6 @@
           "enabled": "Memory compression is on",
           "disabled": "Memory compression is off",
           "desktopOnly": "Manage memory compression in the Windows desktop version of VRCS.",
-          "description": "Per-player independent tracks require memory compression to be off. Checking only reads the status; changes require an explanation and your confirmation.",
           "authorization": "Reading the status requires administrator privileges. After authorization, VRCS reopens and continues checking without starting audio capture.",
           "authorize": "Authorize and check",
           "refresh": "Check again",

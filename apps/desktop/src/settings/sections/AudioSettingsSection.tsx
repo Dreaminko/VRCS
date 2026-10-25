@@ -14,7 +14,6 @@ import { OtherVoiceLevelSetting } from "./OtherVoiceLevelSetting";
 import { DEFAULT_PLAYER_AUDIO, PlayerAudioSettings } from "./PlayerAudioSettings";
 import type { PlayerAudioStatus } from "../../core-client/types";
 import type { PlayerAudioStart } from "../../capture/usePlayerAudioStart";
-import { MemoryCompressionControls } from "../../capture/MemoryCompressionControls";
 
 export function AudioSettingsSection({
   draft,
@@ -191,13 +190,12 @@ export function AudioSettingsSection({
           />
           {draft.audio.output.mode === "vrchat_players" && <PlayerAudioSettings
             value={draft.audio.output.player_audio} status={playerAudioStatus} disabled={saveState === "saving"}
+            memory={playerAudioStart?.memory}
             onChange={(patch) => applySettings((current) => ({
               ...current, audio: { ...current.audio, output: { ...current.audio.output,
                 player_audio: { ...(current.audio.output.player_audio ?? DEFAULT_PLAYER_AUDIO), ...patch },
               } },
             }))} />}
-          {playerAudioStart && playerAudioStart.memory.status?.supported !== false
-            && <MemoryCompressionControls memory={playerAudioStart.memory} />}
           <DeviceGroup
             icon={<Mic size={18} />}
             title={t("settings.audio.ownVoice")}

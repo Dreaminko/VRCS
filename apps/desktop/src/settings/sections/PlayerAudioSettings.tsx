@@ -2,6 +2,8 @@ import { FlaskConical } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import type { PlayerAudioSettings as Options } from "../../capture/types";
+import { MemoryCompressionControls } from "../../capture/MemoryCompressionControls";
+import type { PlayerAudioStart } from "../../capture/usePlayerAudioStart";
 import type { PlayerAudioStatus } from "../../core-client/types";
 import { EditableDropdownField } from "../../shared/ui/DropdownField";
 import { Select } from "../SettingsControls";
@@ -10,9 +12,10 @@ export const DEFAULT_PLAYER_AUDIO: Options = {
   pagefile_drive: "C:", opus_library_path: "", max_players: 0, max_visible_players: 4,
 };
 
-export function PlayerAudioSettings({ value, status, disabled, onChange }: {
+export function PlayerAudioSettings({ value, status, memory, disabled, onChange }: {
   value?: Options;
   status?: PlayerAudioStatus | null;
+  memory?: PlayerAudioStart["memory"];
   disabled: boolean;
   onChange: (patch: Partial<Options>) => void;
 }) {
@@ -27,6 +30,7 @@ export function PlayerAudioSettings({ value, status, disabled, onChange }: {
         <small>{t("settings.audio.players.description")}</small></span>
     </div></div>
     <p className="settings-field-note">{t("settings.audio.players.requirements")}</p>
+    {memory && memory.status?.supported !== false && <MemoryCompressionControls memory={memory} />}
     <div className="vr-overlay-field-grid">
       <Select label={t("settings.audio.players.drive")} value={options.pagefile_drive.toUpperCase()}
         values={Array.from({ length: 26 }, (_, i) => `${String.fromCharCode(65 + i)}:`)}

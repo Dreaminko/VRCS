@@ -5,7 +5,7 @@
 .device-group-title > div > span { display: block; margin-top: 2px; color: var(--text-quiet); font-size: var(--settings-text-caption); line-height: var(--settings-leading-copy); }
 .device-group + .device-group { margin-top: 24px; }
 .player-audio-settings { margin: 16px 0 24px; }
-.player-audio-settings .settings-field-note, .memory-compression-card .settings-field-note { margin: 0; color: var(--text-secondary); font-size: var(--settings-text-caption); line-height: var(--settings-leading-copy); }
+.player-audio-settings .settings-field-note { margin: 0; color: var(--text-secondary); font-size: var(--settings-text-caption); line-height: var(--settings-leading-copy); }
 .player-audio-settings [role="status"] p { margin: 6px 0 0; overflow-wrap: anywhere; }
 
 .microphone-level-setting {
@@ -142,10 +142,12 @@
 .player-audio-start-dialog .api-profile-editor-actions { flex-shrink: 0; flex-wrap: wrap; border-top: 1px solid var(--border); padding-top: 14px; }
 .player-audio-start-dialog .api-profile-editor-actions > small { color: var(--text-quiet); font-size: 12px; }
 .player-audio-start-dialog .settings-inline-actions { margin-left: auto; }
-.memory-compression-card { display: grid; gap: 12px; margin: 16px 0 24px; padding: var(--settings-card-padding); border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface-elevated); }
+.memory-compression-setting { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px 16px; }
 .memory-compression-heading { display: flex; align-items: flex-start; gap: 10px; color: var(--primary-ink); }
+.memory-compression-heading > svg { flex-shrink: 0; }
 .memory-compression-heading > div { display: grid; gap: 4px; min-width: 0; }
 .memory-compression-heading strong { font-size: var(--settings-text-label); }
 .memory-compression-heading small { color: var(--text-secondary); font-size: var(--settings-text-caption); }
-.memory-compression-card p { margin: 0; overflow-wrap: anywhere; }
+.memory-compression-setting > button { white-space: nowrap; }
+.memory-compression-setting > p { grid-column: 1 / -1; margin: 0; overflow-wrap: anywhere; }
 .memory-compression-restart { padding: 12px; border: 1px solid var(--border); border-radius: var(--radius-md); color: var(--primary-ink); background: var(--primary-softer); }
