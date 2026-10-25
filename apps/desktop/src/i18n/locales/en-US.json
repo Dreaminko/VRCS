@@ -116,9 +116,18 @@
       "targetLanguage": "Target language",
       "translate": "Translate",
       "sendMode": "Send content",
-      "modes": { "original": "Original", "translation": "Translation", "bilingual": "Bilingual" },
+      "modes": {
+        "original": "Original",
+        "translation": "Translation",
+        "bilingual": "Bilingual"
+      },
       "format": "Message format",
-      "formats": { "originalFirst": "Original, then translation", "translationFirst": "Translation, then original", "slash": "Slash separated", "custom": "Custom" },
+      "formats": {
+        "originalFirst": "Original, then translation",
+        "translationFirst": "Translation, then original",
+        "slash": "Slash separated",
+        "custom": "Custom"
+      },
       "customFormat": "Custom message format",
       "preview": "Send preview",
       "previewEmpty": "Your final message will appear here",
@@ -126,7 +135,10 @@
       "send": "Send to VRChat",
       "sending": "Sending…",
       "oscDisabled": "Enable OSC in Settings before sending.",
-      "errors": { "translate": "We couldn't translate this message.", "send": "We couldn't send the Chatbox message." }
+      "errors": {
+        "translate": "We couldn't translate this message.",
+        "send": "We couldn't send the Chatbox message."
+      }
     },
     "capture": {
       "start": "Start transcription",
@@ -200,6 +212,26 @@
       }
     },
     "warnings": {
+      "playerAudio": {
+        "title": "Start VRChat per-player independent tracks",
+        "intro": "This experimental feature provides translation for separate players. Please read how it works, its requirements and its risks before continuing.",
+        "principleTitle": "How it works",
+        "principle": "VRCS passively receives local VRChat voice network traffic through native Windows interfaces. Once enabled, it attempts to find and authenticate the voice key in the local pagefile when the first world finishes loading after login. Each player is decrypted and decoded into a separate PCM track for the selected recognition and translation services.",
+        "paging": "To obtain the key, VRCS asks Windows to page out some game memory pages to the pagefile on disk, then attempts to extract the key from it. This may briefly pause the game.",
+        "privacyTitle": "Audio and data handling",
+        "privacy": "Each player track goes to your configured recognition and translation services. Cloud services receive voice audio and concurrent requests may increase charges. VRCS does not save raw audio or session keys to disk; text, translations and player display names are saved in history. Raw tracks do not apply in-game distance attenuation, volume or mute filtering.",
+        "privacyConsent": "Inform all participants, obtain their consent and follow applicable privacy requirements. Do not use this feature for nonconsensual monitoring, harassment or infringement.",
+        "disclaimerTitle": "Experimental feature disclaimer",
+        "disclaimer": "This experimental feature is provided as is, without guarantees of accuracy, stability or fitness. Packets, names or recognition results may be missing or incorrect. To the extent permitted by applicable law, developers are not liable for account penalties, data loss, system instability or other losses arising from its use. Follow the terms and licenses of third-party services and resources. If you disagree, cancel and stop using this feature.",
+        "countdown": "Please read; continue in {{seconds}} seconds",
+        "ready": "Continue only after reviewing the information above.",
+        "confirm": "I understand; continue",
+        "elevationCancelled": "Windows administrator authorization was cancelled. The requested operation did not continue.",
+        "termsTitle": "Service terms and account risks",
+        "terms": "Capturing, decrypting or processing VRChat voice and room traffic may violate VRChat terms of service and may lead to account restrictions or bans. Review the applicable rules and decide whether to accept these risks.",
+        "anticheatTitle": "Anti-cheat and compatibility",
+        "anticheat": "This tool does not directly read game process memory or modify game files. However, using any third-party tool carries a risk of being flagged as abnormal by Easy Anti-Cheat (EAC). This project does not guarantee account safety."
+      },
       "vrchat": {
         "title": "VRChat is not running",
         "description": "VRCS can continue listening, but game audio may not be available until VRChat starts."
@@ -279,6 +311,39 @@
       "waiting": "Waiting for subtitles…",
       "microphoneMe": "You · microphone",
       "speakerNumber": "Speaker {{number}}",
+      "trackNumber": "Track {{number}}",
+      "players": {
+        "title": "People and translation display",
+        "hiddenCount": "{{count}} people hidden",
+        "process": "Players to process",
+        "all": "Translate everyone",
+        "selected": "Translate selected people only",
+        "processHint": "Selected players are saved locally by VRChat user ID and reused across worlds and restarts. Saved names update when you meet them again. In selected-player mode, unselected tracks and tracks awaiting a user ID are not decoded, recognized, or translated.",
+        "savedSelection": "Saved selection",
+        "userIdPending": "Waiting for player user ID before selection",
+        "selectCurrent": "Select everyone here",
+        "selectNone": "Deselect all",
+        "noneSelected": "No current players selected; other-party audio is not being processed.",
+        "languages": "Hidden original languages (multiple)",
+        "followDefault": "Follow default",
+        "noHiddenLanguages": "No languages hidden",
+        "languageHint": "Defaults to all languages under Target languages → Other party. When the detected original language is selected, hide the other party’s entire original and all its translations. Other original languages are unaffected. Turn off following to choose manually. This only affects display; missing language labels are inferred locally from the original text. Uncertain results remain visible.",
+        "search": "Search players",
+        "showAll": "Show all records",
+        "empty": "Waiting for tracks or loading history.",
+        "translatePerson": "Translate {{name}}",
+        "translate": "Translate",
+        "hidePerson": "Hide records from {{name}}",
+        "showPerson": "Show records from {{name}}",
+        "show": "Show",
+        "hide": "Hide",
+        "current": "Current world",
+        "history": "Historical track",
+        "unidentified": "Other party without a track label",
+        "filteredEmpty": "No records match the current filters.",
+        "hideHint": "Hiding applies to chat, desktop captions, VR captions, and wrist dialogue. It does not delete records or change which players are processed.",
+        "namePending": "Some tracks do not have player names yet. Keep capture running, then enter another world or reload the current world. Names will update automatically when received."
+      },
       "speakerOther": "Others · system audio",
       "returnToBottom": "Return to the latest subtitle",
       "returnToBottomShort": "Latest subtitle",
@@ -574,6 +639,7 @@
     },
     "validation": {
       "audio": {
+        "player_audio_unavailable": "Per-player independent tracks could not start. Check administrator access, the NTFS pagefile drive and the Opus library.",
         "outputUnavailable": "The selected system output device is no longer available. Select it again.",
         "microphoneUnavailable": "The selected microphone is no longer available. Select it again."
       },
@@ -587,7 +653,9 @@
     "updates": {
       "title": "Software updates",
       "currentVersion": "Current version {{version}}",
-      "variant": { "standard": "Standard build" },
+      "variant": {
+        "standard": "Standard build"
+      },
       "automaticChecks": "Check for updates automatically",
       "checkNow": "Check now",
       "availableTitle": "VRCS {{version}} is available",
@@ -605,18 +673,18 @@
         "installing": "Installing update…"
       },
       "errors": {
-      "conversations": {
-        "title_interrupted": "The previous title request was interrupted. Try again.",
-        "title_service_failed": "Title generation failed. Check the model service and try again.",
-        "title_not_configured": "Check the API profile, credentials, and model in conversation title settings.",
-        "title_timeout": "Title generation timed out. Try again.",
-        "title_empty": "This conversation has no original transcript to summarize.",
-        "title_invalid_output": "The model did not return a valid single-line title. Try again.",
-        "title_unavailable": "End the conversation and restore its default title before generating a title."
-      },
-    "feature": {
-      "disabled": "This feature is turned off. Turn it on in System settings → Features."
-    },
+        "conversations": {
+          "title_interrupted": "The previous title request was interrupted. Try again.",
+          "title_service_failed": "Title generation failed. Check the model service and try again.",
+          "title_not_configured": "Check the API profile, credentials, and model in conversation title settings.",
+          "title_timeout": "Title generation timed out. Try again.",
+          "title_empty": "This conversation has no original transcript to summarize.",
+          "title_invalid_output": "The model did not return a valid single-line title. Try again.",
+          "title_unavailable": "End the conversation and restore its default title before generating a title."
+        },
+        "feature": {
+          "disabled": "This feature is turned off. Turn it on in System settings → Features."
+        },
         "unavailable": "Updates are not configured for this build.",
         "busy": "An update operation is already running.",
         "no_pending": "Check for updates again before installing.",
@@ -809,18 +877,59 @@
         "wristPosition": "Position and rotation",
         "results": "Region translations: {{completed}} completed, {{failed}} failed",
         "sourceView": "Original text is shown with translations.",
-        "errors": {"timeout": "The task timed out. Scan again.", "models_missing": "Prepare the local OCR models in settings.", "configuration_changed": "OCR settings changed. Scan again.", "tracking_lost": "Restore headset tracking and scan again.", "view_changed": "The source view changed. Scan again.", "network": "OCR network request failed. Check the connection and retry.", "local_failed": "Local OCR inference failed. Check model preparation and retry.", "unavailable": "OCR is unavailable. Check the VR connection and local models.", "translation_failed": "All translation requests failed. Check the translation service.", "partial_failure": "Some translations failed. Completed translations are retained.", "partial_timeout": "Some translations timed out. Completed translations are retained."},
+        "errors": {
+          "timeout": "The task timed out. Scan again.",
+          "models_missing": "Prepare the local OCR models in settings.",
+          "configuration_changed": "OCR settings changed. Scan again.",
+          "tracking_lost": "Restore headset tracking and scan again.",
+          "view_changed": "The source view changed. Scan again.",
+          "network": "OCR network request failed. Check the connection and retry.",
+          "local_failed": "Local OCR inference failed. Check model preparation and retry.",
+          "unavailable": "OCR is unavailable. Check the VR connection and local models.",
+          "translation_failed": "All translation requests failed. Check the translation service.",
+          "partial_failure": "Some translations failed. Completed translations are retained.",
+          "partial_timeout": "Some translations timed out. Completed translations are retained."
+        },
         "displayMode": "VR result display",
-        "displayModes": { "wrist": "Wrist panel", "stereo": "Original text position (both eyes)" },
+        "displayModes": {
+          "wrist": "Wrist panel",
+          "stereo": "Original text position (both eyes)"
+        },
         "device": "Local OCR device",
         "deviceDescription": "DirectML uses a compatible GPU on Windows. If GPU loading or recognition fails, OCR falls back to CPU.",
         "activeDevice": "Last used device: {{device}}",
         "cpuFallback": "DirectML failed. OCR has switched to CPU.",
-        "modelStates": { "missing": "Download required", "downloading": "Downloading", "ready": "Ready", "error": "Download failed" },
+        "modelStates": {
+          "missing": "Download required",
+          "downloading": "Downloading",
+          "ready": "Ready",
+          "error": "Download failed"
+        },
         "modelFailed": "Could not prepare the OCR models. Check the connection and try again.",
         "modelDeleteFailed": "Could not delete the OCR models. Wait for any download or recognition to finish, then try again.",
         "controls": "After the frame appears, hold the right trigger for 0.65 seconds to confirm OCR. If the trigger was already held, release it before pressing again. OCR requires a frame. Hold the left trigger to clear, or to ask when visual questions are enabled.",
-        "states": {"disabled": "Disabled", "waiting_vr": "Waiting for SteamVR", "ready": "Ready to scan", "unbound": "Bind the OCR controller actions in SteamVR", "capturing": "Capturing", "selecting": "Adjust the frame; hold the right trigger to confirm", "waiting_hands": "Move your hands away to start recognition", "loading_model": "Loading local models", "recognizing": "Recognizing locally", "translating": "Translating", "recognized": "Recognition complete", "visible": "Translations displayed", "invalid": "View changed; scan again", "error": "OCR unavailable", "no_text": "No text found", "low_confidence": "Text confidence is below the threshold", "source_visible": "Recognized text displayed", "partial_visible": "Completed translations displayed", "translation_failed": "All translations failed", "timed_out": "OCR task timed out"},
+        "states": {
+          "disabled": "Disabled",
+          "waiting_vr": "Waiting for SteamVR",
+          "ready": "Ready to scan",
+          "unbound": "Bind the OCR controller actions in SteamVR",
+          "capturing": "Capturing",
+          "selecting": "Adjust the frame; hold the right trigger to confirm",
+          "waiting_hands": "Move your hands away to start recognition",
+          "loading_model": "Loading local models",
+          "recognizing": "Recognizing locally",
+          "translating": "Translating",
+          "recognized": "Recognition complete",
+          "visible": "Translations displayed",
+          "invalid": "View changed; scan again",
+          "error": "OCR unavailable",
+          "no_text": "No text found",
+          "low_confidence": "Text confidence is below the threshold",
+          "source_visible": "Recognized text displayed",
+          "partial_visible": "Completed translations displayed",
+          "translation_failed": "All translations failed",
+          "timed_out": "OCR task timed out"
+        },
         "title": "OCR",
         "description": "Recognize selected text locally and translate it with the selected API.",
         "localModel": "Local PP-OCRv6",
@@ -970,7 +1079,6 @@
       "system": {
         "title": "System",
         "general": "General settings",
-
         "saveImmediately": "Changes are saved immediately.",
         "language": "Interface language",
         "languageDescription": "Use the system language or choose one for VRCS.",
@@ -995,7 +1103,6 @@
         "runOnboardingStopFirst": "Stop transcription first",
         "externalApi": {
           "title": "Third-party output API",
-
           "enabled": "Enable third-party output API",
           "enabledDescription": "Off by default. It exposes only health, capabilities, and event subscription routes.",
           "host": "Listen address",
@@ -1017,7 +1124,6 @@
           "tokenLoadFailed": "Could not load the token status.",
           "tokenSaveFailed": "Could not save the token.",
           "tokenDeleteFailed": "Could not delete the token.",
-
           "statusLoadFailed": "Could not read the current External API status.",
           "runtime": {
             "checking": "Checking the current runtime status.",
@@ -1029,7 +1135,6 @@
       },
       "storage": {
         "title": "Storage",
-
         "databaseUsage": "Subtitle history usage",
         "databaseUsageDescription": "Subtitle history usage includes subtitles and their indexes and counts toward the quota. Allocated and reclaimable space cover the entire database.",
         "ofQuota": "of {{quota}} quota",
@@ -1050,7 +1155,6 @@
         "liveTranslateHint": "Each audio source translates its first target and requires automatic translation. Text prompts and thinking settings do not apply. Qwen uses text-only output and speaker diarization; other live translators generate audio that the app does not play.",
         "liveTranslatePreview": "Audio uploads begin after speech is detected. Translations can be previewed as they arrive. Local alignment supports history, extra targets and OSC; same-language source text can complete without waiting for a translation.",
         "title": "Subtitle translation",
-
         "mode": "Translation mode",
         "modeDescription": "Automatic mode translates both other voices and your microphone. Manual mode translates only on request.",
         "modes": {
@@ -1085,7 +1189,11 @@
         "contextEnabled": "Include recent source text",
         "contextEnabledDescription": "Add recent final source text from selected sources to the LLM prompt in chronological order. Off by default.",
         "contextSourcesTitle": "Source types",
-        "contextSources": { "speaker": "Speaker", "microphone": "Microphone", "chatbox": "Chatbox" },
+        "contextSources": {
+          "speaker": "Speaker",
+          "microphone": "Microphone",
+          "chatbox": "Chatbox"
+        },
         "contextLimitsTitle": "Context limits",
         "maxMessages": "Recent messages (1–50)",
         "maxChars": "Context character limit (200–12000)",
@@ -1114,7 +1222,10 @@
         "editGlossary": "Edit glossary",
         "addSubscription": "Add subscription",
         "editSubscription": "Edit subscription",
-        "glossaryTypes": { "local": "Local", "subscription": "Subscription" },
+        "glossaryTypes": {
+          "local": "Local",
+          "subscription": "Subscription"
+        },
         "localGlossaryDetail": "Stored in the current VRCS settings",
         "glossaryEntryCount": "{{count}} entries",
         "glossaryEntriesOmitted": "{{count}} more entries were omitted by the total limit",
@@ -1152,7 +1263,12 @@
         "glossarySource": "Source term",
         "glossaryTarget": "Fixed translation",
         "glossaryCategory": "Category",
-        "glossaryCategories": { "person": "Person", "world": "VRChat world", "game": "Game term", "custom": "Custom" },
+        "glossaryCategories": {
+          "person": "Person",
+          "world": "VRChat world",
+          "game": "Game term",
+          "custom": "Custom"
+        },
         "keepOriginal": "Keep original",
         "caseSensitive": "Case-sensitive",
         "table": {
@@ -1207,7 +1323,6 @@
       },
       "apiManagement": {
         "title": "API access",
-
         "securityNotice": "API keys are stored in Windows Credential Manager and are never written to the settings file. Keys from environment variables take priority.",
         "alibabaDescription": "Shared by Qwen3 ASR and Fun-ASR",
         "openaiDescription": "Official OpenAI API for Realtime transcription and LLM translation",
@@ -1311,8 +1426,20 @@
         "connectionSucceeded": "Connection succeeded.",
         "connectionFailed": "The connection diagnostic found compatibility problems.",
         "diagnostics": {
-          "checks": { "configuration": "Configuration", "endpoint": "Network endpoint", "authentication": "Authentication", "models": "Model list", "completion": "Standard generation", "streaming": "Streaming generation" },
-          "status": { "passed": "Passed", "warning": "Warning", "failed": "Failed", "skipped": "Skipped" },
+          "checks": {
+            "configuration": "Configuration",
+            "endpoint": "Network endpoint",
+            "authentication": "Authentication",
+            "models": "Model list",
+            "completion": "Standard generation",
+            "streaming": "Streaming generation"
+          },
+          "status": {
+            "passed": "Passed",
+            "warning": "Warning",
+            "failed": "Failed",
+            "skipped": "Skipped"
+          },
           "codes": {
             "llm_timeout": "The request timed out. Check the service or increase the timeout.",
             "llm_dns_failed": "The host name could not be resolved. Check the Base URL.",
@@ -1423,6 +1550,63 @@
       },
       "audio": {
         "title": "Audio sources",
+        "memory": {
+          "title": "Windows memory compression",
+          "manage": "Check and manage",
+          "checking": "Checking memory compression…",
+          "unknown": "Status not yet confirmed",
+          "enabled": "Memory compression is on",
+          "disabled": "Memory compression is off",
+          "desktopOnly": "Manage memory compression in the Windows desktop version of VRCS.",
+          "description": "Per-player independent tracks require memory compression to be off. Checking only reads the status; changes require an explanation and your confirmation.",
+          "authorization": "Reading the status requires administrator privileges. After authorization, VRCS reopens and continues checking without starting audio capture.",
+          "authorize": "Authorize and check",
+          "refresh": "Check again",
+          "disable": "Turn off",
+          "enable": "Restore compression",
+          "disableTitle": "Turn off Windows memory compression?",
+          "enableTitle": "Restore Windows memory compression?",
+          "disableImpact": "This changes Windows memory management for the entire computer and pauses current transcription. Turning it off may increase physical memory use and disk paging under memory pressure, affecting other apps. The setting persists after VRCS exits. You can restore compression here at any time.",
+          "enableImpact": "This turns Windows memory compression back on for the entire computer and pauses current transcription. Per-player independent tracks will no longer meet their requirements. To use them again, turn compression off and restart the computer.",
+          "confirmRestart": "Save your work and restart the computer after changing this setting. VRCS verifies the setting and keeps a restart reminder; it will not restart the computer for you.",
+          "confirmDisable": "Confirm turn off",
+          "confirmEnable": "Confirm restore",
+          "restart": "Memory compression settings were updated. Save your work and restart the computer to fully apply the change. Restarting only VRCS does not complete this step.",
+          "pauseFailed": "Current transcription could not be paused. Memory compression was not changed."
+        },
+        "players": {
+          "title": "VRChat per-player independent tracks (Experimental)",
+          "description": "One independent audio track per player, with separate recognition, translation and player names.",
+          "requirements": "VRCS needs administrator privileges and Windows memory compression turned off. Once enabled, VRCS automatically attempts to obtain the voice key when the first world finishes loading after login.",
+          "nameHint": "To match player names, start capture before entering a world, or reload the current world.",
+          "drive": "Pagefile drive",
+          "limit": "Concurrent players",
+          "limitHint": "No concurrent-player limit by default; an optional limit is available. Each speaking player uses a separate recognition session.",
+          "opus": "Opus library path (optional)",
+          "opusAuto": "Automatically use the running VRChat installation",
+          "activeTracks": "Connected player tracks: {{players}}",
+          "waitingSpeech": "Waiting for player voice audio",
+          "keyElapsed": "Elapsed: {{seconds}} s",
+          "phase": {
+            "stopped": "Stopped",
+            "waiting_traffic": "Waiting for VRChat network traffic",
+            "waiting_key": "Verifying the voice connection",
+            "acquiring_key": "Obtaining the voice key",
+            "streaming": "Receiving per-player independent tracks",
+            "failed": "Player audio stopped with an error",
+            "waiting_game": "Waiting for VRChat to start",
+            "waiting_world": "Waiting for the VRChat world to finish loading",
+            "retrying_key": "Key acquisition failed; retrying shortly"
+          },
+          "keyStage": {
+            "cached": "Reused the key from this login",
+            "verified": "Voice key obtained"
+          },
+          "keyTime": "Took {{seconds}} s",
+          "unlimited": "Unlimited",
+          "visibleLimit": "Players shown at once",
+          "visibleLimitHint": "Applies to the desktop caption window, VR captions and wrist dialogue. Active speakers take priority. This only limits display, not recognition or translation; your microphone does not count toward the limit."
+        },
         "devicesFound": "{{count}} devices found",
         "waitingScan": "Waiting for device scan",
         "rescan": "Rescan",
@@ -1490,7 +1674,6 @@
       },
       "anki": {
         "title": "AnkiConnect",
-
         "enable": "Enable AnkiConnect",
         "enableDescription": "Allow local Anki connection checks and card creation from dictionary results.",
         "invalidPort": "Enter a valid port from 1 to 65535.",
@@ -1557,11 +1740,14 @@
       },
       "osc": {
         "title": "OSC",
-
         "enable": "Enable OSC",
         "enableDescription": "Control OSC chatbox output and VRChat mute sync.",
         "translationStrategy": "OSC multilingual output",
-        "translationStrategies": { "preferredOnly": "Preferred language only", "roundRobin": "Round robin", "allLanguages": "Show all languages together" },
+        "translationStrategies": {
+          "preferredOnly": "Preferred language only",
+          "roundRobin": "Round robin",
+          "allLanguages": "Show all languages together"
+        },
         "preserveOriginal": "Keep original text in output",
         "preserveOriginalDescription": "When a translation is available, send the original and translation together. Turn this off to send only the translation.",
         "muteSync": "Sync VRChat microphone mute",
@@ -1721,13 +1907,24 @@
       "unknown": "An unknown error occurred.",
       "operation": "The operation failed.",
       "chatbox": {
-        "missing_original": "Enter the original message.", "missing_translation": "Enter or generate a translation first.", "missing_bilingual_text": "Bilingual messages need both original and translated text.",
-        "text_too_long": "Messages can contain up to 5,000 characters.", "invalid_language": "The language code is invalid.", "invalid_format": "Custom formats must contain {original} and {translation} once each.",
-        "over_limit": "This message has {{count}} characters. The limit is {{limit}}.", "history_store_failed": "The message was handled, but its history could not be saved.", "conversation_store_failed": "The message was sent, but it could not be added to the current conversation."
+        "missing_original": "Enter the original message.",
+        "missing_translation": "Enter or generate a translation first.",
+        "missing_bilingual_text": "Bilingual messages need both original and translated text.",
+        "text_too_long": "Messages can contain up to 5,000 characters.",
+        "invalid_language": "The language code is invalid.",
+        "invalid_format": "Custom formats must contain {original} and {translation} once each.",
+        "over_limit": "This message has {{count}} characters. The limit is {{limit}}.",
+        "history_store_failed": "The message was handled, but its history could not be saved.",
+        "conversation_store_failed": "The message was sent, but it could not be added to the current conversation."
       },
       "osc": {
-        "disabled": "OSC is disabled.", "blocked_vrchat_muted": "VRChat is muted, so the message was not sent.", "blocked_mute_unknown": "VRCS is checking the VRChat mute state. Try again shortly.",
-        "queue_full": "The OSC send queue is full. Try again shortly.", "send_timeout": "The OSC send timed out.", "send_cancelled": "The OSC settings changed, so the send was cancelled.", "send_failed": "We couldn't send to the local VRChat OSC port."
+        "disabled": "OSC is disabled.",
+        "blocked_vrchat_muted": "VRChat is muted, so the message was not sent.",
+        "blocked_mute_unknown": "VRCS is checking the VRChat mute state. Try again shortly.",
+        "queue_full": "The OSC send queue is full. Try again shortly.",
+        "send_timeout": "The OSC send timed out.",
+        "send_cancelled": "The OSC settings changed, so the send was cancelled.",
+        "send_failed": "We couldn't send to the local VRChat OSC port."
       },
       "apiProfiles": {
         "operation": "The API profile operation failed.",

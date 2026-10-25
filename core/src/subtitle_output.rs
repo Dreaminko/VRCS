@@ -8,6 +8,9 @@ use crate::osc::OscChatboxDispatcher;
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum PresentationEvent {
+    SpeakerUpdated {
+        speaker: crate::models::SpeakerIdentity,
+    },
     LiveTranslationUpdated {
         source: String,
         snapshot: crate::models::LiveTranslation,
@@ -17,6 +20,8 @@ pub enum PresentationEvent {
         source: String,
         text: String,
         language: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        speaker: Option<crate::models::SpeakerIdentity>,
     },
     RecognitionCancelled {
         utterance_id: String,
@@ -123,6 +128,13 @@ impl SubtitleLifecyclePublisher {
         self.subtitles.subscribe()
     }
 
+    pub(crate) fn speaker_updated(&self, speaker: &crate::models::SpeakerIdentity) {
+        self.events.speaker_updated(speaker);
+        let _ = self.presentation.send(PresentationEvent::SpeakerUpdated {
+            speaker: speaker.clone(),
+        });
+    }
+
     pub fn live_translation(&self, source: &str, snapshot: crate::models::LiveTranslation) {
         self.events.live_translation(source, &snapshot);
         let _ = self
@@ -179,6 +191,28 @@ impl SubtitleLifecyclePublisher {
                 source: source.into(),
                 text: text.into(),
                 language: language.map(str::to_owned),
+                speaker: None,
+            });
+    }
+
+    pub fn asr_player_partial(
+        &self,
+        message_id: &str,
+        source: &str,
+        text: &str,
+        language: Option<&str>,
+        speaker: &crate::models::SpeakerIdentity,
+    ) {
+        self.events
+            .asr_player_partial(message_id, source, text, language, speaker);
+        let _ = self
+            .presentation
+            .send(PresentationEvent::RecognitionPartial {
+                utterance_id: message_id.into(),
+                source: source.into(),
+                text: text.into(),
+                language: language.map(str::to_owned),
+                speaker: Some(speaker.clone()),
             });
     }
 
@@ -392,6 +426,7 @@ mod tests {
                 source,
                 text,
                 language,
+                ..
             } if utterance_id == "utterance-7"
                 && source == "speaker"
                 && text == "hel"

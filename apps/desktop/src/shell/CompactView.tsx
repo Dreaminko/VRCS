@@ -3,16 +3,23 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Check, Maximize2, Mic, Square, X } from "lucide-react";
 
 import type { LookupOrigin, SelectionTarget } from "../app/app-types";
-import { useLivePartial } from "../core-client/realtime-state";
-import type { Subtitle } from "../subtitles/types";
+import type { LiveTranscription } from "../capture/types";
+import { useLivePartials } from "../core-client/realtime-state";
+import type { SpeakerIdentity, Subtitle } from "../subtitles/types";
 import { contentLanguageTag } from "../app/ui-language";
+import { useSpeakerIdentity } from "../subtitles/speaker-state";
+import { livePartialVisible, subtitleVisible } from "../subtitles/player-history";
+import { selectPlayerHistory, selectPlayerPreviews } from "./player-previews";
 import { compactLivePreview } from "./compact-mode";
 import { useBatchedPreview } from "../shared/hooks/streaming-preview";
-import { type CompactFontSize, type CompactTextBudget } from "./compact-layout";
+import { playerCaptionMinimumHeight, type CompactFontSize, type CompactTextBudget } from "./compact-layout";
 import { useCompactLayout, type CompactGroup } from "./useCompactLayout";
 import { CompactBackgroundControls, CompactWindowIcon } from "./CompactBackgroundControls";
 
-export function CompactView({ transparentBackground, onToggleBackground, backgroundOpacity, onBackgroundOpacityChange, fontSize, onFontSizeChange, subtitles, subtitleHistory, selectionTarget, running, vrchatMuted, captureDisabled, onSelect, onCapture, onRestore, onClose, onResize }: {
+const EMPTY_PREVIEWS: LiveTranscription[] = [];
+const EMPTY_FILTER: readonly string[] = [];
+
+export function CompactView({ transparentBackground, onToggleBackground, backgroundOpacity, onBackgroundOpacityChange, fontSize, onFontSizeChange, subtitles, subtitleHistory, selectionTarget, playerLimit, hiddenTracks = EMPTY_FILTER, hiddenSourceLanguages = EMPTY_FILTER, onCaptionHeight, running, vrchatMuted, captureDisabled, onSelect, onCapture, onRestore, onClose, onResize }: {
   transparentBackground: boolean;
   onToggleBackground: () => void;
   backgroundOpacity: number;
@@ -22,6 +29,10 @@ export function CompactView({ transparentBackground, onToggleBackground, backgro
   subtitles: Subtitle[];
   subtitleHistory: Subtitle[];
   selectionTarget: SelectionTarget | null;
+  playerLimit?: number;
+  hiddenTracks?: readonly string[];
+  hiddenSourceLanguages?: readonly string[];
+  onCaptionHeight?: (minimum: number) => Promise<void> | void;
   running: boolean;
   vrchatMuted: boolean;
   captureDisabled: boolean;
@@ -32,19 +43,27 @@ export function CompactView({ transparentBackground, onToggleBackground, backgro
   onResize: () => void;
 }) {
   const { t } = useTranslation();
-  const microphonePartial = useLivePartial("microphone");
-  const speakerPartial = useLivePartial("speaker");
-  const rawPartial = microphonePartial ?? speakerPartial;
-  const resolvedPartial = useMemo(
-    () => compactLivePreview(rawPartial, subtitleHistory),
-    [rawPartial, subtitleHistory],
-  );
-  const partial = useBatchedPreview(
-    resolvedPartial,
-    rawPartial?.utterance_id ?? "",
-    rawPartial?.utterance_id.startsWith("qwen-preview-") ?? false,
-  );
-  const layout = useCompactLayout({ subtitles, partial, fontSize, selectionTarget, transparentBackground });
+  const microphonePartials = useLivePartials("microphone");
+  const speakerPartials = useLivePartials("speaker");
+  const previews = useMemo(() => selectPlayerPreviews(
+    speakerPartials.map(partial => compactLivePreview(partial, subtitleHistory)!)
+      .filter(partial => livePartialVisible(partial, hiddenTracks, hiddenSourceLanguages)),
+    microphonePartials.map(partial => compactLivePreview(partial, subtitleHistory)!), playerLimit),
+    [speakerPartials, microphonePartials, playerLimit, subtitleHistory, hiddenTracks, hiddenSourceLanguages]);
+  const batched = useBatchedPreview(previews, "compact-previews", previews.some(partial => partial.utterance_id.includes("qwen-preview-"))) ?? EMPTY_PREVIEWS;
+  // A hidden/currently filtered lane must disappear immediately, even while a
+  // previous Qwen snapshot is waiting for its next display batch.
+  const visiblePreviews = useMemo(() => batched.filter(partial => previews.some(current =>
+    current.source === partial.source && current.utterance_id === partial.utterance_id)), [batched, previews]);
+  const visibleSubtitles = useMemo(() => selectPlayerHistory(
+    subtitles.filter(subtitle => subtitleVisible(subtitle, hiddenTracks, hiddenSourceLanguages)), previews, playerLimit),
+    [subtitles, previews, playerLimit, hiddenTracks, hiddenSourceLanguages]);
+  const layout = useCompactLayout({ subtitles: visibleSubtitles, previews: visiblePreviews, fontSize, selectionTarget, transparentBackground, perPlayer: playerLimit !== undefined });
+  useEffect(() => {
+    if (layout.parallel && !layout.frozen) {
+      void onCaptionHeight?.(playerCaptionMinimumHeight(layout.visibleGroups.length, fontSize));
+    }
+  }, [layout.parallel, layout.frozen, layout.visibleGroups.length, fontSize, onCaptionHeight]);
   const latest = layout.visibleGroups.at(-1);
   const statusLabel = vrchatMuted ? t("status.pausedVrchatMuted") : latest?.language?.toUpperCase() ?? "AUTO";
   const captureLabel = t(running ? "capture.pause" : "capture.start");
@@ -65,10 +84,12 @@ export function CompactView({ transparentBackground, onToggleBackground, backgro
       </header>
       <div className="compact-body">
         <div ref={layout.contentRef} className="compact-content">
-          <div className="compact-subtitle-stack">
+          <div className={`compact-subtitle-stack${layout.parallel ? " compact-parallel" : ""}`} style={layout.parallel ? {
+            gridTemplateColumns: "minmax(0, 1fr)",
+          } as import("react").CSSProperties : undefined}>
             {layout.visibleGroups.map((group, index) => (
-              <CompactSubtitleRow key={group.key} group={group} current={index === layout.visibleGroups.length - 1}
-                budget={index === layout.visibleGroups.length - 1 ? layout.latestBudget : undefined}
+              <CompactSubtitleRow key={group.key} group={group} current={Boolean(layout.parallel) || index === layout.visibleGroups.length - 1}
+                budget={layout.parallel || index === layout.visibleGroups.length - 1 ? layout.latestBudget : undefined}
                 frozen={layout.frozen} onSelect={onSelect} />
             ))}
             {layout.visibleGroups.length === 0 && (
@@ -80,6 +101,7 @@ export function CompactView({ transparentBackground, onToggleBackground, backgro
           <div ref={layout.measureRef} className="compact-measurements" aria-hidden="true" inert>
             {layout.measurementGroups.map((group, index) => (
               <div key={group.key} className={`compact-subtitle-row ${index === layout.measurementGroups.length - 1 ? "compact-subtitle-current" : "compact-subtitle-history"}`}>
+                <CompactSpeaker speaker={group.speaker} source={group.source} />
                 {group.text && <p className="compact-original" lang={contentLanguageTag(group.language)}>{group.text}</p>}
                 {group.translation && <p className="compact-translation" lang={contentLanguageTag(group.targetLanguage)}>{group.translation}{group.streaming && <span className="streaming-ellipsis">…</span>}</p>}
               </div>
@@ -178,6 +200,13 @@ function CompactFontMenu({ value, onChange }: { value: CompactFontSize; onChange
   );
 }
 
+function CompactSpeaker({ speaker: identity, source }: { speaker?: SpeakerIdentity | null; source?: string }) {
+  const { t } = useTranslation();
+  const speaker = useSpeakerIdentity(identity);
+  return <div className="compact-speaker">{speaker?.display_name || (source === "microphone" ? t("live.microphoneMe")
+    : speaker ? t("live.trackNumber", { number: speaker.index + 1 }) : t("live.speakerOther"))}</div>;
+}
+
 function CompactSubtitleRow({ group, current, budget, frozen, onSelect }: {
   group: CompactGroup;
   current: boolean;
@@ -187,6 +216,7 @@ function CompactSubtitleRow({ group, current, budget, frozen, onSelect }: {
 }) {
   return (
     <div className={`compact-subtitle-row ${current ? "compact-subtitle-current" : "compact-subtitle-history"}`}>
+      <CompactSpeaker speaker={group.speaker} source={group.source} />
       {group.text && <CompactText className="compact-original" lang={contentLanguageTag(group.language)} text={group.text}
         height={budget?.original} frozen={frozen} onMouseUp={() => void onSelect(group.context, group.origin)} />}
       {group.translation && <CompactText className="compact-translation" lang={contentLanguageTag(group.targetLanguage)}

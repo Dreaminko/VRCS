@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-player-audio-pending-action"
+description = "Enables the player_audio_pending_action command without any pre-configured scope."
+commands.allow = ["player_audio_pending_action"]
+
+[[permission]]
+identifier = "deny-player-audio-pending-action"
+description = "Denies the player_audio_pending_action command without any pre-configured scope."
+commands.deny = ["player_audio_pending_action"]

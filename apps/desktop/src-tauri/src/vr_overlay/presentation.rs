@@ -1,5 +1,5 @@
 use std::borrow::Cow;
-use std::collections::VecDeque;
+use std::collections::{BTreeMap, VecDeque};
 use std::time::{Duration, Instant};
 
 use vrcs_core::{
@@ -15,14 +15,29 @@ pub struct PresentationFrame {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum PresentationContent {
-    Headset(String),
+    Headset(Vec<WristMessage>),
     Wrist(Vec<WristMessage>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize)]
 pub struct WristMessage {
+    pub speaker: Option<String>,
     pub text: String,
     pub side: MessageSide,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub original: Option<CaptionOriginal>,
+}
+
+/// Unformatted source data lets every WebView use the same visibility and
+/// language-detection rules, even when the caption shows translations only.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize)]
+pub struct CaptionOriginal {
+    pub source: String,
+    pub track_id: Option<String>,
+    pub text: String,
+    pub language: Option<String>,
+    pub translation_sources: Vec<String>,
+    pub live: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize)]
@@ -35,7 +50,12 @@ pub enum MessageSide {
 impl PresentationFrame {
     pub fn headset(text: impl Into<String>, opacity: f32) -> Self {
         Self {
-            content: PresentationContent::Headset(text.into()),
+            content: PresentationContent::Headset(vec![WristMessage {
+                text: text.into(),
+                side: MessageSide::Left,
+                speaker: None,
+                original: None,
+            }]),
             opacity,
         }
     }
@@ -53,10 +73,12 @@ struct PresentationItem {
     utterance_id: Option<String>,
     source_utterance_id: Option<String>,
     subtitle_id: Option<i64>,
-    speaker_index: Option<u64>,
+    speaker: Option<vrcs_core::SpeakerIdentity>,
     source: String,
     language: Option<String>,
+    translation_sources: BTreeMap<String, String>,
     original: String,
+    visibility_original: Option<String>,
     translations: Vec<PresentationTranslation>,
     expires_at: Instant,
 }
@@ -69,7 +91,10 @@ struct PresentationTranslation {
     preferred: bool,
 }
 
-const MAX_TERMINATED_UTTERANCES: usize = 32;
+const MAX_TERMINATED_UTTERANCES: usize = 1_024;
+// Keep enough candidates to fill the wrist after filtering, without sending
+// an entire conversation through the WebView on every streaming update.
+const MAX_WRIST_CANDIDATES: usize = 128;
 
 #[derive(Default)]
 struct TerminatedUtterances(VecDeque<(String, String)>);
@@ -99,11 +124,15 @@ impl TerminatedUtterances {
 #[derive(Default)]
 pub struct HeadsetPresentation {
     recent: VecDeque<PresentationItem>,
-    partial: Option<PresentationItem>,
+    partials: VecDeque<PresentationItem>,
+    player_limit: Option<usize>,
     terminated: TerminatedUtterances,
 }
 
 impl HeadsetPresentation {
+    pub fn set_player_limit(&mut self, limit: Option<usize>) {
+        self.player_limit = limit;
+    }
     pub fn apply(
         &mut self,
         event: PresentationEvent,
@@ -111,6 +140,12 @@ impl HeadsetPresentation {
         config: &VrOverlayHeadsetConfig,
     ) {
         match event {
+            PresentationEvent::SpeakerUpdated { speaker } => {
+                update_speaker(
+                    self.recent.iter_mut().chain(self.partials.iter_mut()),
+                    &speaker,
+                );
+            }
             PresentationEvent::LiveTranslationUpdated { source, snapshot }
                 if (config.show_partials || config.show_translation_partials)
                     && source_enabled(&source, config)
@@ -123,7 +158,9 @@ impl HeadsetPresentation {
                     snapshot.language,
                     expiry(now, config.display_seconds),
                 );
-                item.speaker_index = snapshot.speaker.map(|speaker| speaker.index);
+                item.speaker = snapshot.speaker;
+                item.visibility_original =
+                    snapshot.conversation_preview.map(|preview| preview.text);
                 item.source_utterance_id = snapshot.source_utterance_id;
                 if config.show_translation_partials && !snapshot.translation.is_empty() {
                     item.translations.push(PresentationTranslation {
@@ -133,46 +170,41 @@ impl HeadsetPresentation {
                         preferred: true,
                     });
                 }
-                self.partial = Some(item);
+                upsert_partial(&mut self.partials, item);
             }
             PresentationEvent::RecognitionPartial {
                 utterance_id,
                 source,
                 text,
                 language,
+                speaker,
             } if config.show_partials
                 && source_enabled(&source, config)
                 && !text.trim().is_empty()
                 && !self.terminated.contains(&source, &utterance_id) =>
             {
-                self.partial = Some(item_from_partial(
+                let mut item = item_from_partial(
                     utterance_id,
                     source,
                     text,
                     language,
                     expiry(now, config.display_seconds),
-                ));
+                );
+                item.speaker = speaker;
+                upsert_partial(&mut self.partials, item);
             }
             PresentationEvent::RecognitionCancelled {
                 utterance_id,
                 source,
             } => {
                 self.terminated.remember(&source, &utterance_id);
-                if self.partial.as_ref().is_some_and(|item| {
-                    item.source == source && item.utterance_id.as_deref() == Some(&utterance_id)
-                }) {
-                    self.partial = None;
-                }
+                self.partials.retain(|item| {
+                    item.source != source || item.utterance_id.as_deref() != Some(&utterance_id)
+                });
             }
             PresentationEvent::RecognitionReset { source } => {
                 self.terminated.reset_source(&source);
-                if self
-                    .partial
-                    .as_ref()
-                    .is_some_and(|item| item.source == source)
-                {
-                    self.partial = None;
-                }
+                self.partials.retain(|item| item.source != source);
             }
             PresentationEvent::Final {
                 utterance_id,
@@ -180,12 +212,10 @@ impl HeadsetPresentation {
             } => {
                 if let Some(utterance_id) = utterance_id.as_deref() {
                     self.terminated.remember(&subtitle.source, utterance_id);
-                    if self.partial.as_ref().is_some_and(|item| {
-                        item.source == subtitle.source
-                            && item.utterance_id.as_deref() == Some(utterance_id)
-                    }) {
-                        self.partial = None;
-                    }
+                    self.partials.retain(|item| {
+                        item.source != subtitle.source
+                            || item.utterance_id.as_deref() != Some(utterance_id)
+                    });
                 }
                 if source_enabled(&subtitle.source, config) {
                     self.recent.push_back(item_from_subtitle(
@@ -233,7 +263,7 @@ impl HeadsetPresentation {
 
     pub fn set_show_partials(&mut self, enabled: bool) {
         if !enabled {
-            self.partial = None;
+            self.partials.clear();
         }
     }
 
@@ -252,38 +282,134 @@ impl HeadsetPresentation {
         config: &VrOverlayHeadsetConfig,
         translation_display: &str,
     ) -> Option<PresentationFrame> {
-        for (item, preview) in [(self.partial.as_ref(), true), (self.recent.back(), false)] {
-            let Some(item) = item.filter(|item| source_enabled(&item.source, config)) else {
+        // One latest caption per source/track. A preview replaces only its own
+        // lane, so another player's update, completion or cancellation is isolated.
+        let mut lanes: Vec<(&PresentationItem, bool)> = Vec::new();
+        for item in self.recent.iter().filter(|item| {
+            source_enabled(&item.source, config)
+                && fade_opacity(now, item.expires_at, config.fade_seconds).is_some()
+        }) {
+            // Unlimited candidates are filtered and capped by the shared
+            // WebView policy. Keep older visible languages available as well.
+            if self.player_limit == Some(0) {
+                lanes.push((item, false));
                 continue;
-            };
-            let Some(opacity) = fade_opacity(now, item.expires_at, config.fade_seconds) else {
-                continue;
-            };
-            let text = if preview {
-                preview_text(
-                    item,
-                    translation_display,
-                    config.show_partials,
-                    config.show_translation_partials,
-                    self.recent.iter().find(|completed| {
-                        item.source == completed.source
-                            && item.source_utterance_id.is_some()
-                            && item.source_utterance_id == completed.utterance_id
-                    }),
-                )
+            }
+            if let Some(lane) = lanes
+                .iter_mut()
+                .find(|(previous, _)| same_lane(previous, item))
+            {
+                *lane = (item, false);
             } else {
-                display_text(
-                    item,
-                    selected_caption_mode(config.show_partials, config.show_translation_partials),
-                    translation_display,
-                    "\n",
-                )
-            };
-            if !text.trim().is_empty() {
-                return Some(PresentationFrame::headset(text, opacity));
+                lanes.push((item, false));
             }
         }
-        None
+        for item in self.partials.iter().filter(|item| {
+            source_enabled(&item.source, config)
+                && fade_opacity(now, item.expires_at, config.fade_seconds).is_some()
+        }) {
+            if preview_text(
+                item,
+                translation_display,
+                config.show_partials,
+                config.show_translation_partials,
+                self.recent
+                    .iter()
+                    .find(|completed| matches_original(item, completed)),
+            )
+            .trim()
+            .is_empty()
+            {
+                continue;
+            }
+            if self.player_limit == Some(0) {
+                lanes.push((item, true));
+                continue;
+            }
+            if let Some(lane) = lanes
+                .iter_mut()
+                .find(|(previous, _)| same_lane(previous, item))
+            {
+                *lane = (item, true);
+            } else {
+                lanes.push((item, true));
+            }
+        }
+        if self.player_limit.is_none() {
+            // Preserve the original single-caption behavior for mixed audio.
+            lanes = lanes
+                .into_iter()
+                .rev()
+                .find(|(_, preview)| *preview)
+                .or_else(|| {
+                    self.recent
+                        .back()
+                        .filter(|item| {
+                            source_enabled(&item.source, config)
+                                && fade_opacity(now, item.expires_at, config.fade_seconds).is_some()
+                        })
+                        .map(|item| (item, false))
+                })
+                .into_iter()
+                .collect();
+        } else {
+            lanes.sort_by_key(|(_, preview)| !*preview);
+            let mut count = 0;
+            lanes.retain(|(item, _)| {
+                item.source != "speaker" || {
+                    count += 1;
+                    self.player_limit == Some(0) || count <= self.player_limit.unwrap_or(0)
+                }
+            });
+        }
+        let mut opacity = 0.0_f32;
+        let messages: Vec<_> = lanes
+            .into_iter()
+            .filter_map(|(item, preview)| {
+                let text = if preview {
+                    preview_text(
+                        item,
+                        translation_display,
+                        config.show_partials,
+                        config.show_translation_partials,
+                        self.recent
+                            .iter()
+                            .find(|completed| matches_original(item, completed)),
+                    )
+                } else {
+                    display_text(
+                        item,
+                        selected_caption_mode(
+                            config.show_partials,
+                            config.show_translation_partials,
+                        ),
+                        translation_display,
+                        "\n",
+                    )
+                };
+                if text.trim().is_empty() {
+                    return None;
+                }
+                opacity = opacity
+                    .max(fade_opacity(now, item.expires_at, config.fade_seconds).unwrap_or(0.0));
+                Some(WristMessage {
+                    text,
+                    side: message_side(&item.source),
+                    speaker: speaker_label(item),
+                    original: Some(caption_original(
+                        item,
+                        preview,
+                        self.recent
+                            .iter()
+                            .find(|completed| matches_original(item, completed)),
+                    )),
+                })
+            })
+            .collect();
+        (!messages.is_empty()).then_some(PresentationFrame {
+            content: PresentationContent::Headset(messages),
+            opacity,
+        })
     }
 }
 
@@ -291,13 +417,23 @@ impl HeadsetPresentation {
 pub struct WristPresentation {
     entries: VecDeque<PresentationItem>,
     partials: VecDeque<PresentationItem>,
+    player_limit: Option<usize>,
     terminated: TerminatedUtterances,
     last_activity: Option<Instant>,
 }
 
 impl WristPresentation {
+    pub fn set_player_limit(&mut self, limit: Option<usize>) {
+        self.player_limit = limit;
+    }
     pub fn apply(&mut self, event: PresentationEvent, now: Instant, config: &VrOverlayWristConfig) {
         match event {
+            PresentationEvent::SpeakerUpdated { speaker } => {
+                update_speaker(
+                    self.entries.iter_mut().chain(self.partials.iter_mut()),
+                    &speaker,
+                );
+            }
             PresentationEvent::LiveTranslationUpdated { source, snapshot }
                 if (config.show_partials || config.show_translation_partials)
                     && source_enabled(&source, config)
@@ -310,7 +446,9 @@ impl WristPresentation {
                     snapshot.language,
                     now,
                 );
-                item.speaker_index = snapshot.speaker.map(|speaker| speaker.index);
+                item.speaker = snapshot.speaker;
+                item.visibility_original =
+                    snapshot.conversation_preview.map(|preview| preview.text);
                 item.source_utterance_id = snapshot.source_utterance_id;
                 if config.show_translation_partials && !snapshot.translation.is_empty() {
                     item.translations.push(PresentationTranslation {
@@ -329,15 +467,7 @@ impl WristPresentation {
                 )
                 .trim()
                 .is_empty();
-                if let Some(existing) = self
-                    .partials
-                    .iter_mut()
-                    .find(|partial| partial.source == item.source)
-                {
-                    *existing = item;
-                } else {
-                    self.partials.push_back(item);
-                }
+                upsert_partial(&mut self.partials, item);
                 if has_content {
                     self.last_activity = Some(now);
                 }
@@ -347,21 +477,15 @@ impl WristPresentation {
                 source,
                 text,
                 language,
+                speaker,
             } if config.show_partials
                 && source_enabled(&source, config)
                 && !text.trim().is_empty()
                 && !self.terminated.contains(&source, &utterance_id) =>
             {
-                let item = item_from_partial(utterance_id, source, text, language, now);
-                if let Some(existing) = self
-                    .partials
-                    .iter_mut()
-                    .find(|partial| partial.source == item.source)
-                {
-                    *existing = item;
-                } else {
-                    self.partials.push_back(item);
-                }
+                let mut item = item_from_partial(utterance_id, source, text, language, now);
+                item.speaker = speaker;
+                upsert_partial(&mut self.partials, item);
                 self.last_activity = Some(now);
             }
             PresentationEvent::RecognitionCancelled {
@@ -497,9 +621,29 @@ impl WristPresentation {
         }
 
         let limit = config.max_entries.clamp(3, 10) as usize;
+        let mut visible: Vec<&PresentationItem> = Vec::new();
+        for item in self
+            .partials
+            .iter()
+            .chain(self.entries.iter().rev())
+            .filter(|item| source_enabled(&item.source, config) && item.source == "speaker")
+        {
+            if !visible.iter().any(|other| same_lane(other, item))
+                && self
+                    .player_limit
+                    .is_none_or(|limit| limit == 0 || visible.len() < limit)
+            {
+                visible.push(item);
+            }
+        }
+        let selected = |item: &&PresentationItem| {
+            item.source != "speaker" || visible.iter().any(|other| same_lane(other, item))
+        };
+        let active_count = self.partials.iter().filter(selected).count();
         let mut messages: Vec<WristMessage> = self
             .entries
             .iter()
+            .filter(selected)
             .filter(|item| source_enabled(&item.source, config))
             .filter(|item| {
                 !self.partials.iter().any(|partial| {
@@ -527,8 +671,17 @@ impl WristPresentation {
             .chain(
                 self.partials
                     .iter()
+                    .filter(selected)
                     .filter(|item| source_enabled(&item.source, config))
                     .map(|item| WristMessage {
+                        speaker: speaker_label(item),
+                        original: Some(caption_original(
+                            item,
+                            true,
+                            self.entries
+                                .iter()
+                                .find(|completed| matches_original(item, completed)),
+                        )),
                         text: preview_text(
                             item,
                             translation_display,
@@ -545,14 +698,19 @@ impl WristPresentation {
             )
             .filter(|message| !message.text.trim().is_empty())
             .collect();
-        if messages.len() > limit {
+        let limit = limit.max(active_count);
+        if self.player_limit != Some(0) && messages.len() > limit {
             messages.drain(..messages.len() - limit);
         }
         (!messages.is_empty()).then(|| PresentationFrame::wrist(messages))
     }
 
     fn trim(&mut self, max_entries: u32) {
-        let limit = max_entries.clamp(3, 10) as usize;
+        let limit = if self.player_limit == Some(0) {
+            MAX_WRIST_CANDIDATES
+        } else {
+            max_entries.clamp(3, 10) as usize
+        };
         while self.entries.len() > limit {
             self.entries.pop_front();
         }
@@ -593,10 +751,21 @@ fn item_from_subtitle(
         utterance_id,
         source_utterance_id: None,
         subtitle_id: subtitle.id,
-        speaker_index: subtitle.speaker.map(|speaker| speaker.index),
+        speaker: subtitle.speaker,
         source: subtitle.source,
         language: subtitle.language,
+        translation_sources: subtitle
+            .translations
+            .iter()
+            .filter_map(|translation| {
+                translation
+                    .source_language
+                    .as_ref()
+                    .map(|language| (translation.target_language.clone(), language.clone()))
+            })
+            .collect(),
         original: subtitle.text,
+        visibility_original: None,
         translations,
         expires_at,
     }
@@ -613,10 +782,12 @@ fn item_from_partial(
         utterance_id: Some(utterance_id),
         source_utterance_id: None,
         subtitle_id: None,
-        speaker_index: None,
+        speaker: None,
         source,
         language,
+        translation_sources: BTreeMap::new(),
         original: text,
+        visibility_original: None,
         translations: Vec::new(),
         expires_at,
     }
@@ -641,6 +812,13 @@ fn update_completed_translation(
     translation: SubtitleTranslation,
     preferred: bool,
 ) -> bool {
+    if let Some(language) = &translation.source_language {
+        item.translation_sources
+            .insert(translation.target_language.clone(), language.clone());
+    } else {
+        item.translation_sources
+            .remove(&translation.target_language);
+    }
     let target_language = translation.target_language.clone();
     if translation
         .source_group
@@ -706,8 +884,49 @@ fn update_translation(
 
 fn wrist_message(item: &PresentationItem, mode: &str, translation_display: &str) -> WristMessage {
     WristMessage {
+        original: Some(caption_original(item, false, None)),
+        speaker: speaker_label(item),
         text: display_text(item, mode, translation_display, "\n"),
         side: message_side(&item.source),
+    }
+}
+
+fn caption_original(
+    item: &PresentationItem,
+    live: bool,
+    completed: Option<&PresentationItem>,
+) -> CaptionOriginal {
+    CaptionOriginal {
+        source: item.source.clone(),
+        track_id: item
+            .speaker
+            .as_ref()
+            .or_else(|| completed.and_then(|item| item.speaker.as_ref()))
+            .map(|speaker| speaker.id.clone()),
+        text: item
+            .visibility_original
+            .as_ref()
+            .filter(|text| !text.trim().is_empty())
+            .cloned()
+            .unwrap_or_else(|| {
+                if item.original.trim().is_empty() {
+                    completed
+                        .map(|item| item.original.clone())
+                        .unwrap_or_default()
+                } else {
+                    item.original.clone()
+                }
+            }),
+        language: completed
+            .and_then(|item| item.language.clone())
+            .or_else(|| item.language.clone()),
+        translation_sources: completed
+            .unwrap_or(item)
+            .translation_sources
+            .values()
+            .cloned()
+            .collect(),
+        live,
     }
 }
 
@@ -739,14 +958,13 @@ fn display_text(
     translation_display: &str,
     separator: &str,
 ) -> String {
-    let text = display_parts(
+    display_parts(
         &item.original,
         &item.translations,
         mode,
         translation_display,
         separator,
-    );
-    speaker_text(item, text)
+    )
 }
 
 fn preview_text(
@@ -779,18 +997,12 @@ fn preview_text(
     } else {
         &[][..]
     };
-    let text = display_parts(
+    display_parts(
         original,
         translations,
         "bilingual",
         translation_display,
         "\n",
-    );
-    speaker_text(
-        completed
-            .filter(|_| item.speaker_index.is_none())
-            .unwrap_or(item),
-        text,
     )
 }
 
@@ -804,10 +1016,53 @@ fn selected_caption_mode(show_original: bool, show_translation: bool) -> &'stati
     }
 }
 
-fn speaker_text(item: &PresentationItem, text: String) -> String {
-    match item.speaker_index {
-        Some(index) if !text.trim().is_empty() => format!("[{}] {text}", index.saturating_add(1)),
-        _ => text,
+fn speaker_label(item: &PresentationItem) -> Option<String> {
+    if item.source != "speaker" {
+        return None;
+    }
+    item.speaker.as_ref().map(|speaker| {
+        speaker
+            .display_name
+            .clone()
+            .filter(|name| !name.trim().is_empty())
+            .unwrap_or_else(|| format!("#{}", speaker.index.saturating_add(1)))
+    })
+}
+
+fn same_lane(left: &PresentationItem, right: &PresentationItem) -> bool {
+    left.source == right.source
+        && left.speaker.as_ref().map(|s| &s.id) == right.speaker.as_ref().map(|s| &s.id)
+}
+
+fn matches_original(preview: &PresentationItem, completed: &PresentationItem) -> bool {
+    preview.source == completed.source
+        && preview.source_utterance_id.is_some()
+        && preview.source_utterance_id == completed.utterance_id
+}
+
+fn upsert_partial(partials: &mut VecDeque<PresentationItem>, item: PresentationItem) {
+    if let Some(previous) = partials
+        .iter_mut()
+        .find(|previous| same_lane(previous, &item))
+    {
+        *previous = item;
+    } else {
+        partials.push_back(item);
+    }
+}
+
+fn update_speaker<'a>(
+    items: impl Iterator<Item = &'a mut PresentationItem>,
+    speaker: &vrcs_core::SpeakerIdentity,
+) {
+    for item in items {
+        if item
+            .speaker
+            .as_ref()
+            .is_some_and(|current| current.id == speaker.id)
+        {
+            item.speaker = Some(speaker.clone());
+        }
     }
 }
 

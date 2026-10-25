@@ -4,6 +4,7 @@ import { useDictionaryRuntime } from "../dictionary/useDictionaryRuntime";
 import { useSettingsRuntime } from "../settings/hooks/useSettingsRuntime";
 import { useCoreRuntime } from "./useCoreRuntime";
 import { useRuntimeErrors } from "./useRuntimeErrors";
+import { usePlayerAudioStart } from "../capture/usePlayerAudioStart";
 
 export function useCoreSession(resourcesActive: boolean) {
   const errors = useRuntimeErrors();
@@ -19,11 +20,16 @@ export function useCoreSession(resourcesActive: boolean) {
     clearErrorFrom: errors.clearErrorFrom,
     reportError: errors.reportError,
   });
+  const playerAudioStart = usePlayerAudioStart({
+    beforeMemoryChange: async () => !runtime.health.getCurrent()?.capture_requested || await capture.setRunning(false),
+  });
   const settings = useSettingsRuntime({
     active: resourcesActive,
     coreConfigured: runtime.coreConfigured,
     health: runtime.health,
     stopMicrophoneTest: capture.stopMicrophoneTest,
+    setCaptureRunning: capture.setRunning,
+    playerAudioStart,
     clearErrorFrom: errors.clearErrorFrom,
     reportError: errors.reportError,
   });
@@ -49,7 +55,7 @@ export function useCoreSession(resourcesActive: boolean) {
       clearError: errors.clearError,
       clearErrorFrom: errors.clearErrorFrom,
     },
-    capture,
+    capture: { ...capture, playerAudioStart },
     settings,
     dictionary,
     subtitles: {

@@ -1,5 +1,6 @@
 import type { Subtitle } from "../subtitles/types";
 import type { LiveTranscription } from "../capture/types";
+import { subtitleSourceLanguage } from "../subtitles/player-history.ts";
 
 export const COMPACT_WINDOW_SIZE = { width: 720, height: 160 } as const;
 export const COMPACT_PANEL_WINDOW_SIZE = { width: 720, height: 520 } as const;
@@ -20,12 +21,13 @@ export function compactLivePreview(
   partial: LiveTranscription | null,
   subtitles: Subtitle[],
 ): LiveTranscription | null {
-  if (!partial || partial.text.trim()) return partial;
-  if (partial.completed_original?.trim()) return { ...partial, text: partial.completed_original };
+  if (!partial) return partial;
   // A completed original can arrive without any source preview deltas.
   const completed = subtitles.find((subtitle) => compactPartialMatchesSubtitle(partial, subtitle));
-  if (!completed) return partial;
-  return { ...partial, text: completed.text, language: completed.language ?? partial.language };
+  const text = partial.text.trim() ? partial.text : partial.completed_original?.trim() ? partial.completed_original : completed?.text ?? partial.text;
+  // A final source may supply language metadata after preview deltas started.
+  const language = completed ? subtitleSourceLanguage(completed) ?? partial.language : partial.language;
+  return text === partial.text && language === partial.language ? partial : { ...partial, text, language };
 }
 
 export type CompactPanelState = boolean;

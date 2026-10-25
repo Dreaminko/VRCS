@@ -3,6 +3,7 @@ import type { CSSProperties, RefObject } from "react";
 import { createPortal } from "react-dom";
 import { LoaderCircle } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { subtitleVisible } from "../player-history";
 
 import type { LookupOrigin } from "../../app/app-types";
 import {
@@ -11,6 +12,7 @@ import {
 } from "../../app/interface-scale";
 import type { SubtitleAnalysisOutcome } from "../subtitle-actions";
 import type { Subtitle } from "../types";
+import type { PlayerAudioStatus } from "../../core-client/types";
 import { usePrependScrollAnchor } from "../hooks/usePrependScrollAnchor";
 import {
   useSubtitleBoxSelection,
@@ -23,8 +25,11 @@ export { TopStatus } from "./TopStatus";
 
 export const LiveView = memo(function LiveView({
   subtitles,
+  hiddenTracks = [],
+  hiddenSourceLanguages,
   scrollContainerRef,
   running,
+  playerAudioPhase,
   hasOlder,
   loading,
   loadingOlder,
@@ -46,8 +51,11 @@ export const LiveView = memo(function LiveView({
   focusedSubtitleId = null,
 }: {
   subtitles: Subtitle[];
+  hiddenTracks?: readonly string[];
+  hiddenSourceLanguages?: readonly string[];
   scrollContainerRef: RefObject<HTMLDivElement | null>;
   running: boolean;
+  playerAudioPhase?: PlayerAudioStatus["phase"];
   hasOlder: boolean;
   loading: boolean;
   loadingOlder: boolean;
@@ -69,7 +77,8 @@ export const LiveView = memo(function LiveView({
   focusedSubtitleId?: number | null;
 }) {
   const { t } = useTranslation();
-  const chronological = useMemo(() => [...subtitles].reverse(), [subtitles]);
+  const chronological = useMemo(() => [...subtitles].reverse().filter((subtitle) =>
+    subtitleVisible(subtitle, hiddenTracks, hiddenSourceLanguages)), [subtitles, hiddenTracks, hiddenSourceLanguages]);
   const selectableIds = useMemo(
     () => chronological.flatMap((subtitle) => subtitle.id === null ? [] : [subtitle.id]),
     [chronological],
@@ -152,9 +161,7 @@ export const LiveView = memo(function LiveView({
           {copyFeedback.text}
         </div>
       )}
-      {chronological.length ? (
-        <>
-          {hasOlder && (
+      {hasOlder && (
             <div className="conversation-load-older">
               <button
                 className="secondary-button"
@@ -169,6 +176,8 @@ export const LiveView = memo(function LiveView({
               </button>
             </div>
           )}
+      {chronological.length ? (
+        <>
           {chronological.map((subtitle, index) => {
             const selected = subtitle.id !== null && selectedIds.has(subtitle.id);
             return (
@@ -204,10 +213,12 @@ export const LiveView = memo(function LiveView({
           <LoaderCircle className="spinning" size={22} />
           <p>{t("common.loading")}</p>
         </div>
+      ) : subtitles.length ? (
+        <div className="empty-state"><p>{t("live.players.filteredEmpty")}</p></div>
       ) : (
-        <EmptyLiveView running={running} />
+        <EmptyLiveView running={running} playerAudioPhase={playerAudioPhase} />
       )}
-      {running && <LivePartials subtitles={subtitles} />}
+      {running && <LivePartials subtitles={subtitles} playerAudioPhase={playerAudioPhase} hiddenTracks={hiddenTracks} hiddenSourceLanguages={hiddenSourceLanguages} />}
     </section>
   );
 });

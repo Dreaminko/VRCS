@@ -17,6 +17,8 @@ import {
   type SubtitleCopyMode,
 } from "../subtitle-actions";
 import type { Subtitle } from "../types";
+import { useSpeakerIdentity } from "../speaker-state";
+import { isAudioTrack } from "../player-history";
 import { SubtitleAnalysisPopover } from "./SubtitleAnalysisPopover";
 import { SubtitleContextMenu } from "./SubtitleContextMenu";
 
@@ -70,12 +72,12 @@ export const SubtitleBubble = memo(function SubtitleBubble({
   const { t, i18n } = useTranslation();
   const locale = i18n.resolvedLanguage ?? "en-US";
   const source: SubtitleSource = subtitle.source ?? "speaker";
+  const speaker = useSpeakerIdentity(subtitle.speaker);
   const mine = source !== "speaker";
   const translationPartials = useTranslationPartials(subtitle.id);
   const completedTranslations = subtitle.translations.filter(
     (translation) =>
-      !translation.source_group
-      || translation.source_group.subtitle_ids.at(-1) === subtitle.id,
+      !translation.source_group || translation.source_group.subtitle_ids.at(-1) === subtitle.id,
   );
   const completedTranslation = completedTranslations[0];
   const fallbackPartial = subtitle.translation_partial
@@ -198,8 +200,8 @@ export const SubtitleBubble = memo(function SubtitleBubble({
       <div className="message-meta">
         {!mine && <Volume2 size={14} />}
         {mine && <time>{timestamp(subtitle.created_at, locale)}</time>}
-        <span>{source === "chatbox" ? t("chatbox.title") : mine ? t("live.microphoneMe") : t("live.speakerOther")}</span>
-        {subtitle.speaker && <span>{t("live.speakerNumber", { number: subtitle.speaker.index + 1 })}</span>}
+        <span className="speaker-name">{source === "chatbox" ? t("chatbox.title") : mine ? t("live.microphoneMe") : speaker?.display_name || t("live.speakerOther")}</span>
+        {speaker && !speaker.display_name && <span>{t(isAudioTrack(speaker) ? "live.trackNumber" : "live.speakerNumber", { number: speaker.index + 1 })}</span>}
         {!mine && <time>{timestamp(subtitle.created_at, locale)}</time>}
         {source === "microphone" && <Mic size={14} />}
         {source === "chatbox" && <MessageSquare size={14} />}

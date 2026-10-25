@@ -5,6 +5,7 @@ use super::{SharedAudio, StreamingInput};
 const SAMPLE_RATE: usize = 16_000;
 const PRE_ROLL_SAMPLES: usize = SAMPLE_RATE / 5;
 const MAX_RESUME_SAMPLES: usize = SAMPLE_RATE * 30;
+const REALTIME_RESUME_SAMPLES: usize = SAMPLE_RATE * 3;
 pub(super) const IDLE_SAMPLES: usize = SAMPLE_RATE * 30;
 
 #[derive(Default)]
@@ -32,11 +33,20 @@ pub(super) struct ResumeBuffer {
     triggers: usize,
     pub ready: bool,
     pub closed: bool,
+    realtime: bool,
+    last_audio: Option<tokio::time::Instant>,
 }
 
 impl ResumeBuffer {
+    pub fn realtime() -> Self {
+        Self {
+            realtime: true,
+            ..Self::default()
+        }
+    }
+
     pub fn has_capacity(&self) -> bool {
-        self.samples < MAX_RESUME_SAMPLES
+        self.realtime || self.samples < MAX_RESUME_SAMPLES
     }
 
     pub fn push(&mut self, input: StreamingInput) {
@@ -55,6 +65,7 @@ impl ResumeBuffer {
             }
         };
         self.triggers = if speech { self.triggers + 1 } else { 0 };
+        self.last_audio = Some(tokio::time::Instant::now());
         self.ready |= self.triggers >= 2;
         self.samples += samples.len();
         self.audio.push_back((samples, speech));
@@ -65,10 +76,21 @@ impl ResumeBuffer {
             {
                 self.samples -= self.audio.pop_front().unwrap().0.len();
             }
+        } else if self.realtime {
+            while self.samples > REALTIME_RESUME_SAMPLES {
+                self.samples -= self.audio.pop_front().unwrap().0.len();
+            }
         }
     }
 
     pub fn take(&mut self) -> impl Iterator<Item = StreamingInput> + '_ {
+        if self.realtime
+            && self
+                .last_audio
+                .is_none_or(|last| last.elapsed().as_secs() >= 3)
+        {
+            self.audio.clear();
+        }
         self.samples = 0;
         self.audio
             .drain(..)
@@ -98,6 +120,26 @@ pub(super) async fn collect_until<F: std::future::Future>(
 mod tests {
     use super::*;
     use std::sync::Arc;
+
+    #[tokio::test(start_paused = true)]
+    async fn quota_wait_keeps_draining_but_only_replays_a_short_recent_tail() {
+        let mut buffer = ResumeBuffer::realtime();
+        for _ in 0..1000 {
+            buffer.push(StreamingInput::AudioActivity(
+                Arc::new(vec![0.1; 1600]),
+                true,
+            ));
+        }
+        assert!(buffer.ready && buffer.has_capacity());
+        assert_eq!(buffer.samples, 48_000);
+        assert_eq!(buffer.take().count(), 30);
+        buffer.push(StreamingInput::AudioActivity(
+            Arc::new(vec![0.1; 1600]),
+            true,
+        ));
+        tokio::time::advance(std::time::Duration::from_secs(4)).await;
+        assert_eq!(buffer.take().count(), 0);
+    }
 
     #[tokio::test]
     async fn close_and_connect_keep_capturing_and_handle_closed_channels() {

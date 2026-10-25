@@ -468,7 +468,19 @@ test("shared source context survives protocol validation and history reconciliat
 });
 
 test("speaker identities survive live previews and history messages", () => {
-  const speaker = { id: "qwen-session-0", index: 0 };
+  const speaker = { id: "vrc:track-0", index: 0, display_name: "玩家 <VRC>", user_id: "usr_00000000-0000-4000-8000-000000000007" };
+  const update = { type: "speaker_updated", speaker };
+  assert.deepEqual(parseSubtitleStreamMessage(JSON.stringify(update)), update);
+  for (const user_id of [null, undefined]) {
+    const optional = { ...update, speaker: { id:"qwen-session-0", index:0, user_id } };
+    assert.deepEqual(parseSubtitleStreamMessage(JSON.stringify(optional)), JSON.parse(JSON.stringify(optional)));
+  }
+  for (const user_id of [123, "Player", "usr_test", "avtr_00000000-0000-4000-8000-000000000007"]) {
+    assert.equal(parseSubtitleStreamMessage(JSON.stringify({ ...update, speaker: { ...speaker, user_id } })), null);
+  }
+  for (const display_name of [123, "bad\nname", "x".repeat(129)]) {
+    assert.equal(parseSubtitleStreamMessage(JSON.stringify({ ...update, speaker: { ...speaker, display_name } })), null);
+  }
   const item = { ...subtitle(1, "Hello"), speaker };
   const history = parseSubtitleStreamMessage(JSON.stringify({ type: "subtitle", subtitle: item }));
   assert.equal(history?.type, "subtitle");

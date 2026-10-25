@@ -15,6 +15,7 @@ export function CompactEntry({
   settings,
   selection,
   learning,
+  playerDisplay,
 }: {
   compact: AppWorkspace["compact"];
   runtime: AppWorkspace["runtime"];
@@ -22,6 +23,7 @@ export function CompactEntry({
   settings: AppWorkspace["settings"];
   selection: AppWorkspace["selection"];
   learning: AppWorkspace["learning"];
+  playerDisplay: AppWorkspace["playerDisplay"];
 }) {
   const { selectionPanelOpen, overlayOpen } = compact;
   const preset = COMPACT_FONT_PRESETS[compact.fontSize];
@@ -37,12 +39,16 @@ export function CompactEntry({
   return (
     <div style={style} className={`compact-root ${compact.transparentBackground ? "compact-root-transparent" : ""} ${overlayOpen ? "compact-root-overlay" : ""} ${selectionPanelOpen ? "compact-root-selection" : ""}`}>
       <CompactView
+        hiddenTracks={playerDisplay.hiddenTracks}
+        hiddenSourceLanguages={playerDisplay.hiddenSourceLanguages}
         transparentBackground={compact.transparentBackground}
         onToggleBackground={compact.toggleCompactBackground}
         backgroundOpacity={compact.backgroundOpacity}
         onBackgroundOpacityChange={compact.setBackgroundOpacity}
         fontSize={compact.fontSize}
         onFontSizeChange={compact.setFontSize}
+        playerLimit={settings.value?.audio.output.mode === "vrchat_players" ? settings.value.audio.output.player_audio?.max_visible_players ?? 4 : undefined}
+        onCaptionHeight={compact.ensureCaptionHeight}
         subtitles={compact.subtitles}
         subtitleHistory={compact.subtitleHistory}
         selectionTarget={selection.target}

@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import type { PlayerAudioStatus } from "../core-client/types";
+import { playerAudioNotice } from "../capture/player-audio-notice";
 
 import type { VrOverlayStatus } from "../integrations/types";
 import type { Settings } from "../settings/types";
@@ -27,7 +29,8 @@ export function useVrDashboardBridge(
   settings: Settings | null,
   save: (apply: (settings: Settings) => Settings) => Promise<Settings>,
   profiles: ApiProfileView[],
-  capture: { running: boolean; available: boolean; toggle: () => Promise<boolean> },
+  capture: { running: boolean; available: boolean; toggle: () => Promise<boolean>; playerAudio?: PlayerAudioStatus | null },
+  display: { hiddenTracks: readonly string[]; hiddenSourceLanguages: readonly string[] },
 ): void {
   const { t, i18n } = useTranslation();
   const [status, setStatus] = useState<VrOverlayStatus | null>(null);
@@ -136,7 +139,11 @@ export function useVrDashboardBridge(
     }));
     const strategyKeys = { preferred_only: "preferredOnly", round_robin: "roundRobin", all_languages: "allLanguages" };
     const model: VrDashboardViewModel = {
+      caption_visibility: { hidden_tracks: display.hiddenTracks, hidden_source_languages: display.hiddenSourceLanguages },
+      max_visible_players: settings.audio.output.mode === "vrchat_players" ? settings.audio.output.player_audio?.max_visible_players ?? 4 : null,
+      caption_notice: playerAudioNotice(capture.playerAudio, capture.running, t),
       labels: {
+        captions: { me: t("live.microphoneMe"), other: t("live.speakerOther") },
         ocr_progress: i18n.t("settings.vrOcr.progress", { returnObjects: true }) as Record<string, string>,
         wrist_reader: {
           ...i18n.t("settings.vrOcr.states", { returnObjects: true }) as Record<string, string>,
@@ -270,5 +277,5 @@ export function useVrDashboardBridge(
       error: saveError,
     };
     void updateVrDashboardView(model);
-  }, [capture.running, capture.available, i18n.resolvedLanguage, profiles, saveError, saveState, settings, status, t]);
+  }, [capture.running, capture.available, capture.playerAudio, display.hiddenTracks, display.hiddenSourceLanguages, i18n.resolvedLanguage, profiles, saveError, saveState, settings, status, t]);
 }

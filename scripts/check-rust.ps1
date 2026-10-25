@@ -20,7 +20,7 @@ function Invoke-CargoCheck {
 }
 
 $repoRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot ".."))
-$manifests = @("core/Cargo.toml", "apps/desktop/src-tauri/Cargo.toml")
+$manifests = @("core/Cargo.toml", "apps/desktop/src-tauri/Cargo.toml", "crates/player-audio-scan/Cargo.toml")
 $featureArguments = if ($Vulkan) { @("--features", "vulkan") } else { @() }
 
 Push-Location $repoRoot
@@ -36,12 +36,14 @@ try {
     }
     if ($Check -in @("all", "clippy")) {
         foreach ($manifest in $manifests) {
-            Invoke-CargoCheck -CargoArguments (@("clippy", "--manifest-path", $manifest, "--all-targets", "--locked") + $featureArguments + @("--", "-D", "warnings"))
+            $features = if ($manifest.StartsWith("crates/")) { @() } else { $featureArguments }
+            Invoke-CargoCheck -CargoArguments (@("clippy", "--manifest-path", $manifest, "--all-targets", "--locked") + $features + @("--", "-D", "warnings"))
         }
     }
     if ($Check -in @("all", "test")) {
         foreach ($manifest in $manifests) {
-            Invoke-CargoCheck -CargoArguments (@("test", "--manifest-path", $manifest, "--locked") + $featureArguments)
+            $features = if ($manifest.StartsWith("crates/")) { @() } else { $featureArguments }
+            Invoke-CargoCheck -CargoArguments (@("test", "--manifest-path", $manifest, "--locked") + $features)
         }
     }
 }

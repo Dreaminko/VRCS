@@ -544,6 +544,7 @@ mod tests {
         assert_eq!(
             subscribed["payload"]["events"],
             json!([
+                "asr.speaker_updated",
                 "asr.partial",
                 "asr.final",
                 "asr.cancelled",

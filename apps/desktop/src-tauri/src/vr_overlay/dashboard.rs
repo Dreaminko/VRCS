@@ -9,6 +9,12 @@ pub fn pointer_from_openvr(x: f32, y: f32, height: u32) -> (f32, f32) {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct DashboardViewModel {
+    #[serde(default)]
+    pub caption_visibility: CaptionVisibility,
+    #[serde(default)]
+    pub caption_notice: Option<super::caption_status::CaptionNotice>,
+    #[serde(default)]
+    pub max_visible_players: Option<usize>,
     pub labels: DashboardLabels,
     pub enabled: bool,
     #[serde(default)]
@@ -32,12 +38,20 @@ pub struct DashboardViewModel {
     pub error: Option<String>,
 }
 
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct CaptionVisibility {
+    pub hidden_tracks: Vec<String>,
+    pub hidden_source_languages: Vec<String>,
+}
+
 fn available_by_default() -> bool {
     true
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 pub struct DashboardLabels {
+    #[serde(default)]
+    pub captions: super::caption_status::CaptionLabels,
     #[serde(default)]
     pub ocr_progress: super::ocr_progress::ProgressLabels,
     #[serde(default)]
@@ -665,6 +679,9 @@ mod tests {
             ],
         };
         DashboardViewModel {
+            caption_notice: None,
+            max_visible_players: None,
+            caption_visibility: CaptionVisibility::default(),
             labels: DashboardLabels::default(),
             enabled: false,
             capture: DashboardCapture {

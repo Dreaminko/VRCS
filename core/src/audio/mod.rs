@@ -101,6 +101,7 @@ struct CaptureSession {
     stop: Arc<AtomicBool>,
     join: Option<JoinHandle<()>>,
     rx: mpsc::Receiver<Vec<f32>>,
+    priming: std::collections::VecDeque<Vec<f32>>,
 }
 
 pub struct AudioCapture {
@@ -112,6 +113,23 @@ pub struct AudioCapture {
 }
 
 impl AudioCapture {
+    pub(crate) fn from_stream(
+        rx: mpsc::Receiver<Vec<f32>>,
+        priming: std::collections::VecDeque<Vec<f32>>,
+    ) -> Self {
+        Self {
+            output_rate: 16_000,
+            source: CaptureSource::Speaker,
+            session: Some(CaptureSession {
+                stop: Arc::new(AtomicBool::new(false)),
+                join: None,
+                rx,
+                priming,
+            }),
+            device: None,
+            microphone_tap: None,
+        }
+    }
     pub fn new(output_rate: u32, source: CaptureSource) -> Self {
         Self {
             output_rate,
@@ -236,6 +254,7 @@ impl AudioCapture {
             stop,
             join: Some(join),
             rx,
+            priming: Default::default(),
         });
         self.device = Some(device.clone());
         Ok(device)
@@ -246,6 +265,9 @@ impl AudioCapture {
             .session
             .as_mut()
             .ok_or_else(|| AudioError::new("Audio capture is not running"))?;
+        if let Some(frame) = session.priming.pop_front() {
+            return Ok(frame);
+        }
         session
             .rx
             .recv()
@@ -443,5 +465,18 @@ mod tests {
         }
         capture.stop();
         assert!(capture.device().is_none());
+    }
+
+    #[tokio::test]
+    async fn player_startup_audio_precedes_new_frames_and_shutdown_closes_stream() {
+        let (sender, receiver) = mpsc::channel(2);
+        sender.send(vec![0.3; 512]).await.unwrap();
+        let priming = [vec![0.1; 512], vec![0.2; 512]].into();
+        let mut capture = AudioCapture::from_stream(receiver, priming);
+        for value in [0.1, 0.2, 0.3] {
+            assert_eq!(capture.read().await.unwrap(), vec![value; 512]);
+        }
+        capture.shutdown().await;
+        assert!(sender.send(vec![0.4; 512]).await.is_err());
     }
 }

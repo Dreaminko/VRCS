@@ -45,12 +45,13 @@ npm run build:frontend
 ```
 
 The Rust script runs formatting checks, Clippy with `-D warnings` for all
-targets, and tests for both crates. Neither CPU nor Vulkan checks require
-an SDK.
+targets, and tests for the Core, desktop, and native scan crates. Neither CPU
+nor Vulkan checks require an SDK.
 Run it on Windows before submitting Rust changes so the desktop capture and
 overlay code is checked. For Vulkan changes, also run
 `.\scripts\check-rust.ps1 -Vulkan`; this stages the Vulkan loader and checks
-both crates with Vulkan enabled. CI checks both CPU and Vulkan builds.
+the Core and desktop crates with Vulkan enabled. CI checks both CPU and Vulkan
+builds.
 
 Use `-Check format`, `-Check clippy`, or `-Check test` to run one Rust check
 stage. Formatting does not prepare runtime files.
@@ -58,6 +59,77 @@ Release tags run the full CI workflow before packaging the standard installer.
 CI validates locale resources, then runs the frontend tests and build.
 
 Please keep commits focused and do not include generated build output.
+
+## Player audio development
+
+The [player audio guide](docs/experimental-player-audio.md) describes setup,
+player selection, subtitle visibility, and the main modules. The capture module
+produces independent 16 kHz mono PCM streams; each stream enters the shared
+recognition and translation pipeline with its own identity and lifecycle.
+
+Run the standard development checks above for native or pipeline changes.
+The player-audio browser fixtures cover the audio settings, permission flow,
+memory compression controls, player selection, and desktop/VR captions:
+
+```powershell
+node --test apps/desktop/tests/player-*.browser.mjs apps/desktop/tests/memory-compression.browser.mjs
+```
+
+These fixtures require Chrome or Edge and use simulated native APIs. Regular
+unit tests use synthetic packets and local service mocks. Live capture,
+pagefile access, and local capture replay are opt-in tests with separate
+requirements stated in their `#[ignore]` descriptions.
+
+Use synthetic text, player identities, audio, and packets in committed fixtures.
+Do not copy private conversation text from screenshots or recordings into tests.
+Tests that exercise service requests should use loopback mocks and fake
+credentials; real captures belong only in the opt-in local replay workflow.
+
+### Local capture replay
+
+Replay a local capture with its matching session key and an installed Opus
+library. Each input line has three comma-separated fields: direction (`S` for
+incoming traffic), capture metadata, and the hexadecimal encrypted packet.
+Keep captures and keys outside version control and supply paths and keys through
+process-local environment variables:
+
+```powershell
+$env:VRCS_TEST_CAPTURE = '<absolute path to a local capture>'
+$env:VRCS_TEST_PHOTON_KEY = '<matching 64-character hexadecimal key>'
+$env:VRCS_TEST_OPUS_DLL = '<absolute path to opus.dll>'
+try {
+    cargo test --manifest-path core/Cargo.toml replay_local_capture -- --ignored --nocapture
+} finally {
+    Remove-Item Env:VRCS_TEST_CAPTURE, Env:VRCS_TEST_PHOTON_KEY, Env:VRCS_TEST_OPUS_DLL -ErrorAction SilentlyContinue
+}
+```
+
+The replay reports packet and player-frame counts, identity mappings, and PCM
+SHA-256 digests. It does not write raw audio. Set `VRCS_TEST_REQUIRE_VOICE=1` to
+require incoming voice, or `VRCS_TEST_REQUIRE_NAMES=1` to require identity
+coverage for every speaking actor.
+
+### Scan performance and diagnostics
+
+Synthetic benchmarks measure scanning work without reading a real pagefile:
+
+```powershell
+cargo test --manifest-path crates/player-audio-scan/Cargo.toml benchmark_scan_8455_mib -- --ignored --nocapture
+cargo test --manifest-path core/Cargo.toml benchmark_parallel_pagefile_8455_mib -- --ignored --nocapture
+```
+
+The scan-crate benchmark measures search and authentication. The Core benchmark
+also includes parallel reads from a synthetic volume and buffer cleanup. Neither
+measures physical disk I/O or Windows paging, so these timings do not represent
+end-to-end key acquisition in a running game.
+
+The `/health` response exposes `player_audio` counters for authenticated packets,
+PCM blocks, dropped frames, and decode errors. Its `key_scan` object reports the
+stage, elapsed time, scanned bytes, candidate count, and worker count.
+`elapsed_ms` covers acquisition or cached-key authentication; `scan_elapsed_ms`
+covers the scan itself. Waiting for the game, world, or network samples is
+excluded. The `streaming` phase means the key is authenticated and capture is
+ready; PCM and subtitle output must be checked separately.
 
 ## Qwen runtime and native builds
 

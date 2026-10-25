@@ -1,5 +1,5 @@
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::collections::{HashMap, HashSet};
+use std::sync::{Arc, Mutex, RwLock, Weak};
 
 use tokio::sync::broadcast;
 
@@ -27,6 +27,9 @@ struct RecognizedText {
     speaker: Option<crate::models::SpeakerIdentity>,
 }
 
+type PlayerIdentity = Arc<RwLock<crate::models::SpeakerIdentity>>;
+type PlayerIdentities = Arc<Mutex<HashMap<String, Weak<RwLock<crate::models::SpeakerIdentity>>>>>;
+
 #[derive(Clone)]
 pub(crate) struct PipelineDependencies {
     database: Arc<Mutex<Database>>,
@@ -38,9 +41,32 @@ pub(crate) struct PipelineDependencies {
     output: SubtitleLifecyclePublisher,
     pending_native: Arc<Mutex<HashMap<String, PendingNative>>>,
     managed_qwen: Option<(Arc<QwenRuntime>, Arc<ModelManager>)>,
+    player: Option<(PlayerIdentity, String)>,
+    player_identities: PlayerIdentities,
+    player_previews: Arc<Mutex<HashSet<String>>>,
 }
 
 impl PipelineDependencies {
+    pub(super) fn player_settings(&self) -> Arc<RwLock<AppConfig>> {
+        Arc::clone(&self.config)
+    }
+
+    pub(super) fn player_selected(&self, speaker: &crate::models::SpeakerIdentity) -> bool {
+        self.config
+            .read()
+            .expect("config lock")
+            .audio
+            .output
+            .player_audio
+            .selected_tracks
+            .as_ref()
+            .is_none_or(|ids| speaker.user_id.as_ref().is_some_and(|id| ids.contains(id)))
+    }
+
+    pub(super) fn current_player_selected(&self) -> bool {
+        self.player_identity()
+            .is_none_or(|player| self.player_selected(&player))
+    }
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
         database: Arc<Mutex<Database>>,
@@ -61,6 +87,9 @@ impl PipelineDependencies {
             output,
             pending_native: Arc::default(),
             managed_qwen: None,
+            player: None,
+            player_identities: Arc::default(),
+            player_previews: Arc::default(),
         }
     }
 
@@ -77,32 +106,211 @@ impl PipelineDependencies {
         self.managed_qwen.clone()
     }
 
+    pub(crate) fn with_player(mut self, speaker: crate::models::SpeakerIdentity) -> Self {
+        let shared = {
+            let mut identities = self.player_identities.lock().expect("player identities");
+            identities.retain(|_, value| value.strong_count() > 0);
+            let shared = identities
+                .get(&speaker.id)
+                .and_then(Weak::upgrade)
+                .unwrap_or_else(|| Arc::new(RwLock::new(speaker.clone())));
+            if speaker.display_name.is_some() {
+                shared
+                    .write()
+                    .expect("player identity")
+                    .display_name
+                    .clone_from(&speaker.display_name);
+            }
+            if speaker.user_id.is_some() {
+                shared
+                    .write()
+                    .expect("player identity")
+                    .user_id
+                    .clone_from(&speaker.user_id);
+            }
+            identities.insert(speaker.id.clone(), Arc::downgrade(&shared));
+            shared
+        };
+        self.player = Some((shared, format!("player-{}", uuid::Uuid::new_v4())));
+        self.pending_native = Arc::default();
+        self.player_previews = Arc::default();
+        self
+    }
+
+    fn player_identity(&self) -> Option<crate::models::SpeakerIdentity> {
+        self.player
+            .as_ref()
+            .map(|(speaker, _)| speaker.read().expect("player identity").clone())
+    }
+
+    pub(super) fn update_player(&self, speaker: &crate::models::SpeakerIdentity) -> bool {
+        let Some((current, _)) = &self.player else {
+            return false;
+        };
+        let mut current = current.write().expect("player identity");
+        if current.id != speaker.id
+            || (current.display_name == speaker.display_name && current.user_id == speaker.user_id)
+        {
+            return false;
+        }
+        current.display_name.clone_from(&speaker.display_name);
+        current.user_id.clone_from(&speaker.user_id);
+        true
+    }
+
+    pub(super) async fn publish_speaker(&self, speaker: crate::models::SpeakerIdentity) {
+        // Retiring ASR tasks can still be saving their last sentence.
+        // They share this identity even after removal from the active task map.
+        if let Some(shared) = self
+            .player_identities
+            .lock()
+            .expect("player identities")
+            .get(&speaker.id)
+            .and_then(Weak::upgrade)
+        {
+            let mut current = shared.write().expect("player identity");
+            current.display_name.clone_from(&speaker.display_name);
+            current.user_id.clone_from(&speaker.user_id);
+        }
+        let database = Arc::clone(&self.database);
+        let update = speaker.clone();
+        match tokio::task::spawn_blocking(move || {
+            database
+                .lock()
+                .expect("database")
+                .update_speaker_identity(&update)
+        })
+        .await
+        {
+            Ok(Ok(())) => {}
+            _ => tracing::warn!("Could not update stored player display names"),
+        }
+        self.output.speaker_updated(&speaker);
+    }
+
+    pub(super) fn scope_id(&self, id: &str) -> String {
+        self.player
+            .as_ref()
+            .map_or_else(|| id.to_owned(), |(_, prefix)| format!("{prefix}:{id}"))
+    }
+
+    pub(super) fn scope_event(&self, mut event: crate::asr::CloudEvent) -> crate::asr::CloudEvent {
+        let Some(speaker) = self.player_identity() else {
+            return event;
+        };
+        let transcript = |value: &mut crate::models::LiveTranslation| {
+            value.utterance_id = self.scope_id(&value.utterance_id);
+            value.source_utterance_id = value
+                .source_utterance_id
+                .as_ref()
+                .map(|id| self.scope_id(id));
+            value.speaker = Some(speaker.clone());
+        };
+        match &mut event {
+            crate::asr::CloudEvent::Partial { utterance_id, .. }
+            | crate::asr::CloudEvent::Final { utterance_id, .. } => {
+                *utterance_id = self.scope_id(utterance_id)
+            }
+            crate::asr::CloudEvent::Failed { utterance_id, .. } => {
+                *utterance_id = utterance_id.as_ref().map(|id| self.scope_id(id))
+            }
+            crate::asr::CloudEvent::LiveTranslation {
+                snapshot,
+                completed,
+                translations,
+                finished_preview_ids,
+                ..
+            } => {
+                transcript(snapshot);
+                for result in completed.iter_mut().chain(translations) {
+                    transcript(&mut result.transcript);
+                    result.source_utterance_ids = result
+                        .source_utterance_ids
+                        .iter()
+                        .map(|id| self.scope_id(id))
+                        .collect();
+                }
+                *finished_preview_ids = finished_preview_ids
+                    .iter()
+                    .map(|id| self.scope_id(id))
+                    .collect();
+            }
+        }
+        event
+    }
+
     pub(crate) fn publish_live_translation(
         &self,
         source: &str,
         snapshot: crate::models::LiveTranslation,
     ) {
+        if !self.current_player_selected() {
+            return;
+        }
+        if self.player.is_some() {
+            self.player_previews
+                .lock()
+                .expect("player previews")
+                .insert(snapshot.utterance_id.clone());
+        }
         self.output.live_translation(source, snapshot);
     }
 
     pub(crate) fn publish_live(&self, event: LiveTranscription) {
+        if !self.current_player_selected() {
+            return;
+        }
         match &event {
             LiveTranscription::Partial {
                 utterance_id,
                 source,
                 text,
                 language,
-            } => self
-                .output
-                .asr_partial(utterance_id, source, text, language.as_deref()),
+            } => {
+                if let Some(speaker) = self.player_identity() {
+                    self.player_previews
+                        .lock()
+                        .expect("player previews")
+                        .insert(utterance_id.clone());
+                    self.output.asr_player_partial(
+                        utterance_id,
+                        source,
+                        text,
+                        language.as_deref(),
+                        &speaker,
+                    );
+                } else {
+                    self.output
+                        .asr_partial(utterance_id, source, text, language.as_deref());
+                }
+            }
             LiveTranscription::Failed {
                 utterance_id,
                 source,
                 code,
                 detail,
-            } => self
-                .output
-                .asr_failed(utterance_id.as_deref(), source, code, detail),
+            } => {
+                if self.player.is_some() {
+                    if let Some(id) = utterance_id {
+                        self.player_previews
+                            .lock()
+                            .expect("player previews")
+                            .remove(id);
+                    } else {
+                        self.reset_recognition(source);
+                    }
+                }
+                let scoped = self
+                    .player
+                    .as_ref()
+                    .map(|(_, prefix)| format!("{prefix}:session"));
+                self.output.asr_failed(
+                    utterance_id.as_deref().or(scoped.as_deref()),
+                    source,
+                    code,
+                    detail,
+                );
+            }
             LiveTranscription::AudioLevel { .. } => {}
         }
         if let LiveTranscription::Failed { source, .. } = &event {
@@ -112,12 +320,28 @@ impl PipelineDependencies {
     }
 
     pub(crate) fn cancel_recognition(&self, utterance_id: &str, source: &str, reason: &str) {
+        self.player_previews
+            .lock()
+            .expect("player previews")
+            .remove(utterance_id);
         self.output.asr_cancelled(utterance_id, source, reason);
     }
 
     pub(crate) fn reset_recognition(&self, source: &str) {
         self.fail_pending_native(source);
-        self.output.asr_reset(source);
+        if self.player.is_none() {
+            self.output.asr_reset(source);
+        } else {
+            for id in self
+                .player_previews
+                .lock()
+                .expect("player previews")
+                .drain()
+            {
+                self.output
+                    .asr_cancelled(&id, source, "player_session_ended");
+            }
+        }
     }
 
     pub(crate) async fn publish_text(
@@ -131,7 +355,7 @@ impl PipelineDependencies {
             RecognizedText {
                 text,
                 language,
-                speaker: None,
+                speaker: self.player_identity(),
             },
             source,
             message_id,
@@ -198,6 +422,9 @@ impl PipelineDependencies {
         source: &'static str,
         result: crate::asr::LiveTranslationResult,
     ) -> Result<(), String> {
+        if !self.current_player_selected() {
+            return Ok(());
+        }
         if result.source_utterance_ids.len() > 1 {
             return self.publish_native_translation_group(source, result).await;
         }
@@ -494,17 +721,26 @@ impl PipelineDependencies {
         native: Option<SubtitleTranslation>,
         native_pending: bool,
     ) -> Result<(), String> {
+        if !self.current_player_selected() {
+            self.output
+                .asr_cancelled(&message_id, source, "track_unselected");
+            return Ok(());
+        }
         let RecognizedText {
             text,
             language,
             speaker,
         } = transcript;
+        self.player_previews
+            .lock()
+            .expect("player previews")
+            .remove(&message_id);
         let text = text.trim().to_string();
         if text.is_empty() {
             self.output.asr_cancelled(&message_id, source, "empty");
             return Ok(());
         }
-        let subtitle = Subtitle {
+        let mut subtitle = Subtitle {
             speaker,
             id: None,
             conversation_id: None,
@@ -517,6 +753,7 @@ impl PipelineDependencies {
             translations: Vec::new(),
         };
         let database = Arc::clone(&self.database);
+        let player = self.player.as_ref().map(|(speaker, _)| Arc::clone(speaker));
         let catalog = self.catalog.clone();
         let native_record = native
             .clone()
@@ -525,6 +762,11 @@ impl PipelineDependencies {
             let database = database
                 .lock()
                 .map_err(|_| "Database lock is unavailable".to_string())?;
+            // Read under the database lock so a late metadata update cannot
+            // backfill history and then be overwritten by an older ASR snapshot.
+            if let Some(player) = player {
+                subtitle.speaker = Some(player.read().expect("player identity").clone());
+            }
             let mut saved = database
                 .add_subtitle(&subtitle)
                 .map_err(|error| error.to_string())?;
@@ -742,6 +984,74 @@ mod tests {
     use super::{automatic_translation_targets, native_repair_target};
     use crate::config::{ApiAuthMode, ApiProfile, TranslationConfig, TranslationTargetConfig};
 
+    #[tokio::test]
+    async fn deselected_track_discards_late_previews_and_results_without_affecting_selected_track()
+    {
+        use crate::models::{LiveTranscription, SpeakerIdentity};
+        let hub = crate::domain_events::DomainEventHub::new();
+        let mut events = hub.subscribe();
+        let base = super::super::tests::test_dependencies(hub);
+        let first = base.clone().with_player(SpeakerIdentity {
+            id: "track-a".into(),
+            index: 0,
+            display_name: None,
+            user_id: Some("usr_00000000-0000-4000-8000-000000000001".into()),
+        });
+        let second = base.clone().with_player(SpeakerIdentity {
+            id: "track-b".into(),
+            index: 1,
+            display_name: None,
+            user_id: Some("usr_00000000-0000-4000-8000-000000000002".into()),
+        });
+        base.config
+            .write()
+            .unwrap()
+            .audio
+            .output
+            .player_audio
+            .selected_tracks = Some(vec!["usr_00000000-0000-4000-8000-000000000001".into()]);
+        second.publish_live(LiveTranscription::Partial {
+            utterance_id: "late-b".into(),
+            source: "speaker".into(),
+            text: "must not display".into(),
+            language: None,
+        });
+        second.publish_live_translation("speaker", native_result().transcript);
+        assert!(events.try_recv().is_err());
+        second
+            .publish_text("must not save".into(), None, "speaker", "late-b".into())
+            .await
+            .unwrap();
+        first
+            .publish_text("selected track".into(), None, "speaker", "a".into())
+            .await
+            .unwrap();
+        let history = base.database.lock().unwrap().subtitle_history(20).unwrap();
+        assert_eq!(history.len(), 1);
+        assert_eq!(history[0].speaker.as_ref().unwrap().id, "track-a");
+        // Returning to the default accepts new tracks again.
+        base.config
+            .write()
+            .unwrap()
+            .audio
+            .output
+            .player_audio
+            .selected_tracks = None;
+        second
+            .publish_text("enabled again".into(), None, "speaker", "new-b".into())
+            .await
+            .unwrap();
+        assert_eq!(
+            base.database
+                .lock()
+                .unwrap()
+                .subtitle_history(20)
+                .unwrap()
+                .len(),
+            2
+        );
+    }
+
     fn native_result() -> crate::asr::LiveTranslationResult {
         crate::asr::LiveTranslationResult {
             pending: false,
@@ -786,6 +1096,351 @@ mod tests {
         );
         assert!(native_repair_target(&config, &[], "microphone", "zh-Hans").is_none());
         assert!(native_repair_target(&config, &[], "microphone", "ja").is_none());
+    }
+
+    #[tokio::test]
+    async fn late_player_name_updates_saved_and_inflight_results_without_crossing_players() {
+        use crate::models::SpeakerIdentity;
+        let hub = crate::domain_events::DomainEventHub::new();
+        let base = super::super::tests::test_dependencies(hub);
+        let mut speaker = SpeakerIdentity {
+            id: "vrc-actor".into(),
+            index: 0,
+            display_name: None,
+            user_id: None,
+        };
+        let first = base.clone().with_player(speaker.clone());
+        first
+            .publish_text(
+                "Before name".into(),
+                None,
+                "speaker",
+                first.scope_id("before"),
+            )
+            .await
+            .unwrap();
+        // A retiring session and a new ASR task share late identity metadata.
+        let replacement = base.clone().with_player(speaker.clone());
+        let other = base.clone().with_player(SpeakerIdentity {
+            id: "other-actor".into(),
+            index: 1,
+            display_name: None,
+            user_id: None,
+        });
+        speaker.display_name = Some("VRC 玩家".into());
+        base.publish_speaker(speaker.clone()).await;
+        assert_eq!(first.player_identity(), Some(speaker.clone()));
+        assert_eq!(replacement.player_identity(), Some(speaker.clone()));
+        assert_eq!(other.player_identity().unwrap().display_name, None);
+        first
+            .publish_text(
+                "Finishing retired task".into(),
+                None,
+                "speaker",
+                first.scope_id("after"),
+            )
+            .await
+            .unwrap();
+        let mut native = native_result();
+        native.transcript.speaker = Some(SpeakerIdentity {
+            display_name: None,
+            user_id: None,
+            ..speaker.clone()
+        });
+        first
+            .publish_native_translation("speaker", native)
+            .await
+            .unwrap();
+        let database = base.database.lock().unwrap();
+        let rows = database.subtitle_history(10).unwrap();
+        assert_eq!(rows.len(), 3);
+        assert!(rows
+            .iter()
+            .all(|row| row.speaker.as_ref() == Some(&speaker)));
+    }
+
+    #[tokio::test]
+    async fn player_sessions_scope_native_and_plain_results_and_reset_only_their_previews() {
+        use crate::asr::CloudEvent;
+        use crate::models::{LiveTranscription, SpeakerIdentity};
+        let hub = crate::domain_events::DomainEventHub::new();
+        let mut events = hub.subscribe();
+        let base = super::super::tests::test_dependencies(hub);
+        let first = base.clone().with_player(SpeakerIdentity {
+            id: "actor-1".into(),
+            index: 0,
+            display_name: None,
+            user_id: None,
+        });
+        let second = base.clone().with_player(SpeakerIdentity {
+            id: "actor-2".into(),
+            index: 1,
+            display_name: None,
+            user_id: None,
+        });
+        assert_ne!(first.scope_id("sentence-1"), second.scope_id("sentence-1"));
+        for player in [&first, &second] {
+            while events.try_recv().is_ok() {}
+            player.publish_live(LiveTranscription::Partial {
+                utterance_id: player.scope_id("sentence-1"),
+                source: "speaker".into(),
+                text: "hello".into(),
+                language: Some("en".into()),
+            });
+            let event = events.try_recv().unwrap();
+            assert_eq!(
+                event.payload["speaker"]["id"],
+                player.player_identity().unwrap().id
+            );
+            player
+                .publish_text(
+                    "hello".into(),
+                    Some("en".into()),
+                    "speaker",
+                    player.scope_id("sentence-1"),
+                )
+                .await
+                .unwrap();
+        }
+        for service in [
+            "qwen_live_translate",
+            "openai_live_translate",
+            "gemini_live_translate",
+        ] {
+            for player in [&first, &second] {
+                let mut result = native_result();
+                result.transcript.speaker = Some(SpeakerIdentity {
+                    id: "provider-diarized-speaker".into(),
+                    index: 99,
+                    display_name: None,
+                    user_id: None,
+                });
+                let event = player.scope_event(CloudEvent::LiveTranslation {
+                    service: service.into(),
+                    snapshot: Box::new(result.transcript.clone()),
+                    completed: vec![result],
+                    translations: vec![],
+                    finished_preview_ids: vec!["old-preview".into()],
+                });
+                let CloudEvent::LiveTranslation {
+                    snapshot,
+                    completed,
+                    finished_preview_ids,
+                    ..
+                } = event
+                else {
+                    unreachable!()
+                };
+                assert_eq!(snapshot.utterance_id, player.scope_id("native-1"));
+                assert_eq!(
+                    completed[0].source_utterance_ids,
+                    [player.scope_id("native-1")]
+                );
+                assert_eq!(finished_preview_ids, [player.scope_id("old-preview")]);
+                assert_eq!(
+                    snapshot.speaker.as_ref().unwrap().id,
+                    player.player_identity().unwrap().id
+                );
+                player.publish_live_translation("speaker", *snapshot);
+                player
+                    .publish_native_translation("speaker", completed[0].clone())
+                    .await
+                    .unwrap();
+            }
+        }
+        let rows = base.database.lock().unwrap().subtitle_history(20).unwrap();
+        assert_eq!(rows.len(), 8);
+        for id in ["actor-1", "actor-2"] {
+            let own: Vec<_> = rows
+                .iter()
+                .filter(|r| r.speaker.as_ref().unwrap().id == id)
+                .collect();
+            assert_eq!(own.len(), 4);
+            assert_eq!(own.iter().filter(|s| !s.translations.is_empty()).count(), 3);
+        }
+        // A failed continuous session must not clear the other player's preview.
+        while events.try_recv().is_ok() {}
+        for player in [&first, &second] {
+            let mut preview = native_result().transcript;
+            preview.utterance_id = player.scope_id("preview-2");
+            player.publish_live_translation("speaker", preview);
+        }
+        while events.try_recv().is_ok() {}
+        first.reset_recognition("speaker");
+        assert!(!second.player_previews.lock().unwrap().is_empty());
+        while let Ok(event) = events.try_recv() {
+            assert_ne!(event.event_type, "asr.reset");
+            assert_eq!(event.message_id, first.scope_id("preview-2"));
+        }
+    }
+
+    #[tokio::test]
+    async fn twelve_player_pcm_streams_reach_independent_asr_and_translation_requests() {
+        use super::super::{run, AsrEchoGuard, PipelineRunContext};
+        use crate::config::{ApiAuthMode, ApiProfile, AsrConfig};
+        use crate::models::SpeakerIdentity;
+        use axum::{body::Bytes, routing::post, Json, Router};
+        use serde_json::{json, Value};
+        use std::sync::{atomic::AtomicBool, Arc};
+        use std::time::Duration;
+        use tokio::sync::{mpsc, watch};
+        let router = Router::new()
+            .route(
+                "/v1/audio/transcriptions",
+                post(|body: Bytes| async move {
+                    let at = body.windows(4).position(|v| v == b"RIFF").unwrap();
+                    let length =
+                        u32::from_le_bytes(body[at + 4..at + 8].try_into().unwrap()) as usize + 8;
+                    let mut wav =
+                        hound::WavReader::new(std::io::Cursor::new(&body[at..at + length]))
+                            .unwrap();
+                    assert_eq!(wav.spec().sample_rate, 16_000);
+                    assert_eq!(wav.spec().channels, 1);
+                    let samples: Vec<_> = wav.samples::<i16>().map(Result::unwrap).collect();
+                    let positive = samples.iter().any(|s| *s > 1000);
+                    let negative = samples.iter().any(|s| *s < -1000);
+                    assert_ne!(positive, negative, "player PCM must never mix");
+                    Json(json!({"text": if positive { "alpha" } else { "beta" }, "language": "en"}))
+                }),
+            )
+            .route(
+                "/v1/chat/completions",
+                post(|Json(body): Json<Value>| async move {
+                    let text = body["messages"].as_array().unwrap().last().unwrap()["content"]
+                        .as_str()
+                        .unwrap();
+                    assert!(text.contains("alpha") ^ text.contains("beta"));
+                    let translation = if text.contains("alpha") { "甲" } else { "乙" };
+                    let delta = json!({"choices":[{"delta":{"content":translation}}]});
+                    (
+                        [("content-type", "text/event-stream")],
+                        format!("data: {delta}\n\ndata: [DONE]\n\n"),
+                    )
+                }),
+            );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}/v1", listener.local_addr().unwrap());
+        let server = tokio::spawn(async move {
+            axum::serve(listener, router).await.unwrap();
+        });
+        let hub = crate::domain_events::DomainEventHub::new();
+        let mut events = hub.subscribe();
+        let base = super::super::tests::test_dependencies(hub);
+        let recognizer = ApiProfile {
+            id: "recognizer".into(),
+            provider: crate::providers::QWEN_LOCAL_PROVIDER.into(),
+            base_url: Some(url.clone()),
+            auth_mode: ApiAuthMode::None,
+            is_local: true,
+            enabled_capabilities: vec![crate::providers::CAPABILITY_SPEECH_TO_TEXT.into()],
+            ..Default::default()
+        };
+        let translator = ApiProfile {
+            id: "translator".into(),
+            provider: crate::providers::OPENAI_COMPATIBLE_PROVIDER.into(),
+            base_url: Some(url),
+            auth_mode: ApiAuthMode::None,
+            is_local: true,
+            enabled_capabilities: vec![crate::providers::CAPABILITY_TEXT_TRANSLATION.into()],
+            ..Default::default()
+        };
+        let asr = AsrConfig {
+            backend: crate::providers::SERVICE_QWEN_LOCAL_TRANSCRIPTION.into(),
+            active_profile_id: Some(recognizer.id.clone()),
+            api_profiles: vec![recognizer, translator],
+            ..Default::default()
+        };
+        {
+            let mut config = base.config.write().unwrap();
+            config.asr = asr.clone();
+            config.translation.mode = "automatic".into();
+            let mut target = TranslationTargetConfig::new("zh-Hans");
+            target.profile_id = Some("translator".into());
+            target.model = "test-translator".into();
+            config.translation.speaker_targets = vec![target];
+        }
+        let (shutdown, _) = watch::channel(false);
+        let (stop, _) = watch::channel(false);
+        let mut tasks = Vec::new();
+        let mut audio_senders = Vec::new();
+        for index in 0..12 {
+            let amplitude = if index % 2 == 0 { 0.1f32 } else { -0.2 };
+            let dependencies = base.clone().with_player(SpeakerIdentity {
+                id: format!("actor-{index}"),
+                index: index as u64,
+                display_name: None,
+                user_id: None,
+            });
+            let session = crate::asr::spawn_cloud_recognition_session(asr.clone(), 0.2)
+                .await
+                .unwrap();
+            let (sender, receiver) = mpsc::channel(64);
+            for frame in 0..36 {
+                sender
+                    .send(vec![
+                        if (4..24).contains(&frame) {
+                            amplitude
+                        } else {
+                            0.0
+                        };
+                        512
+                    ])
+                    .await
+                    .unwrap();
+            }
+            audio_senders.push(sender);
+            let mut shutdown_rx = shutdown.subscribe();
+            let stop_rx = stop.subscribe();
+            tasks.push(tokio::spawn(async move {
+                let mut capture =
+                    crate::audio::AudioCapture::from_stream(receiver, Default::default());
+                run(
+                    &mut capture,
+                    crate::vad::VoiceDetector::default(),
+                    crate::vad::SpeechSegmenter::new(16_000, 0.2, 6.0),
+                    PipelineRunContext {
+                        dependencies,
+                        source: "speaker",
+                        cloud: Some(session),
+                        echo_guard: AsrEchoGuard::default(),
+                        sample_rate: 16_000,
+                        trigger_threshold_dbfs: Some(-45.0),
+                        discard_on_stop: Arc::new(AtomicBool::new(false)),
+                        smart_turn: None,
+                    },
+                    &mut shutdown_rx,
+                    stop_rx,
+                )
+                .await
+                .unwrap();
+            }));
+        }
+        tokio::time::timeout(Duration::from_secs(10), async {
+            let mut translated = 0;
+            while translated < 12 {
+                let event = events.recv().await.unwrap();
+                assert_ne!(event.event_type, "asr.failed");
+                assert_ne!(event.event_type, "translation.failed");
+                if event.event_type == "translation.completed" {
+                    translated += 1;
+                }
+            }
+            stop.send(true).unwrap();
+            for task in tasks {
+                task.await.unwrap();
+            }
+        })
+        .await
+        .unwrap();
+        drop(audio_senders);
+        let rows = base.database.lock().unwrap().subtitle_history(20).unwrap();
+        assert_eq!(rows.len(), 12);
+        for row in rows {
+            let first = row.speaker.as_ref().unwrap().index % 2 == 0;
+            assert_eq!(row.text, if first { "alpha" } else { "beta" });
+            assert_eq!(row.translations[0].text, if first { "甲" } else { "乙" });
+        }
+        server.abort();
     }
 
     #[tokio::test]
@@ -1401,6 +2056,8 @@ mod tests {
         let speaker = crate::models::SpeakerIdentity {
             id: "qwen-session-0".into(),
             index: 0,
+            display_name: None,
+            user_id: None,
         };
         result.transcript.speaker = Some(speaker.clone());
         dependencies

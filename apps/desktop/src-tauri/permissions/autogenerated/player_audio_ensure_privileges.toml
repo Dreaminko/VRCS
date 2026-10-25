@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-player-audio-ensure-privileges"
+description = "Enables the player_audio_ensure_privileges command without any pre-configured scope."
+commands.allow = ["player_audio_ensure_privileges"]
+
+[[permission]]
+identifier = "deny-player-audio-ensure-privileges"
+description = "Denies the player_audio_ensure_privileges command without any pre-configured scope."
+commands.deny = ["player_audio_ensure_privileges"]

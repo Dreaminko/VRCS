@@ -4,14 +4,18 @@ import type { LookupOrigin, SelectionTarget } from "../app/app-types";
 import type { LiveTranscription } from "../capture/types";
 import { useTranslationPartialsForSubtitles } from "../core-client/realtime-state";
 import { useBatchedPreview } from "../shared/hooks/streaming-preview";
-import type { Subtitle } from "../subtitles/types";
+import type { SpeakerIdentity, Subtitle } from "../subtitles/types";
 import { compactPartialMatchesSubtitle, compactPreviewText } from "./compact-mode";
+import { latestCaptionsByTrack } from "./player-previews";
 import {
   allocateLatestLines, COMPACT_FONT_PRESETS, fitRecentGroups,
   type CompactFontSize, type CompactTextBudget,
 } from "./compact-layout";
 
 export interface CompactGroup {
+  speaker?: SpeakerIdentity | null;
+  source?: string;
+  live?: boolean;
   key: string;
   context: string;
   text: string;
@@ -23,6 +27,7 @@ export interface CompactGroup {
 }
 
 interface LayoutSnapshot {
+  parallel?: boolean;
   groups: CompactGroup[];
   latestBudget?: CompactTextBudget;
 }
@@ -30,7 +35,8 @@ interface LayoutSnapshot {
 function sameGroups(left: CompactGroup[], right: CompactGroup[]) {
   return left.length === right.length && left.every((group, index) => {
     const other = right[index];
-    return group.key === other.key && group.text === other.text && group.context === other.context
+    return group.speaker?.id === other.speaker?.id && group.speaker?.display_name === other.speaker?.display_name
+      && group.live === other.live && group.source === other.source && group.key === other.key && group.text === other.text && group.context === other.context
       && group.language === other.language && group.translation === other.translation
       && group.targetLanguage === other.targetLanguage && group.streaming === other.streaming
       && group.origin?.id === other.origin?.id && group.origin?.source === other.origin?.source
@@ -54,18 +60,21 @@ function matchesSelectionTarget(group: CompactGroup, target: SelectionTarget) {
   return !group.origin && group.context === target.context;
 }
 
-function useCandidateGroups(subtitles: Subtitle[], partial: LiveTranscription | null, limit: number) {
-  const live = partial && (partial.text.trimEnd() || partial.translation?.trimEnd()) ? partial : null;
-  const candidates = useMemo(() => subtitles
-    .filter((subtitle) => (!live || !compactPartialMatchesSubtitle(live, subtitle))
+function useCandidateGroups(subtitles: Subtitle[], previews: LiveTranscription[], limit: number, perPlayer: boolean) {
+  const lives = useMemo(() => previews.filter(partial => partial.text.trimEnd() || partial.translation?.trimEnd()), [previews]);
+  const candidates = useMemo(() => {
+    const history = subtitles.filter((subtitle) => !lives.some(live => compactPartialMatchesSubtitle(live, subtitle))
       && (subtitle.text.trimEnd() || subtitle.translations[0]?.text.trimEnd()
-        || subtitle.translation_partial?.text.trimEnd()))
-    .slice(-limit), [subtitles, live, limit]);
+        || subtitle.translation_partial?.text.trimEnd()));
+    // Bound history by track before measuring, so one busy player cannot push
+    // another player's completed translation out of the candidate window.
+    return perPlayer ? latestCaptionsByTrack(history) : history.slice(-limit);
+  }, [subtitles, lives, limit, perPlayer]);
   const ids = useMemo(() => candidates.map((subtitle) => subtitle.id), [candidates]);
   const partials = useTranslationPartialsForSubtitles(ids);
   const qwenPartials = useMemo(() => candidates.flatMap((subtitle, index) => {
     const value = partials[index][0] ?? subtitle.translation_partial;
-    return value && subtitle.utterance_id?.startsWith("qwen-source-")
+    return value && subtitle.utterance_id?.includes("qwen-source-")
       ? [{ id: subtitle.id, value }] : [];
   }), [candidates, partials]);
   const batched = useBatchedPreview(qwenPartials, "compact-translations", qwenPartials.length > 0);
@@ -73,13 +82,14 @@ function useCandidateGroups(subtitles: Subtitle[], partial: LiveTranscription | 
   return useMemo(() => {
     const groups: CompactGroup[] = candidates.map((subtitle, index) => {
       const pending = partials[index][0] ?? subtitle.translation_partial;
-      const preview = subtitle.utterance_id?.startsWith("qwen-source-") && pending
+      const preview = subtitle.utterance_id?.includes("qwen-source-") && pending
         ? batched?.find((item) => item.id === subtitle.id
           && item.value.target_language === pending.target_language)?.value
         : pending;
       const translation = preview ?? subtitle.translations[0];
       return {
         key: `subtitle:${subtitle.id ?? `${subtitle.source}:${subtitle.created_at}`}`,
+        speaker: subtitle.speaker, source: subtitle.source,
         context: subtitle.text,
         text: compactPreviewText(subtitle.text),
         language: subtitle.language,
@@ -92,12 +102,13 @@ function useCandidateGroups(subtitles: Subtitle[], partial: LiveTranscription | 
         },
       };
     });
-    if (live) {
+    for (const live of lives) {
       const completed = subtitles.find((subtitle) => compactPartialMatchesSubtitle(live, subtitle));
       groups.push({
         key: completed
           ? `subtitle:${completed.id ?? `${completed.source}:${completed.created_at}`}`
           : `partial:${live.source}:${live.source_utterance_id ?? live.utterance_id}`,
+        speaker: live.speaker, source: live.source, live: true,
         context: live.text,
         text: compactPreviewText(live.text),
         language: live.language,
@@ -110,16 +121,18 @@ function useCandidateGroups(subtitles: Subtitle[], partial: LiveTranscription | 
         } : undefined,
       });
     }
-    return groups.filter((group) => group.text || group.translation).slice(-limit);
-  }, [candidates, partials, batched, live, subtitles, limit]);
+    const visible = groups.filter((group) => group.text || group.translation);
+    return perPlayer ? latestCaptionsByTrack(visible) : visible;
+  }, [candidates, partials, batched, lives, subtitles, perPlayer]);
 }
 
-export function useCompactLayout({ subtitles, partial, fontSize, selectionTarget, transparentBackground }: {
+export function useCompactLayout({ subtitles, previews, fontSize, selectionTarget, transparentBackground, perPlayer = false }: {
   subtitles: Subtitle[];
-  partial: LiveTranscription | null;
+  previews: LiveTranscription[];
   fontSize: CompactFontSize;
   selectionTarget: SelectionTarget | null;
   transparentBackground: boolean;
+  perPlayer?: boolean;
 }) {
   const contentRef = useRef<HTMLDivElement>(null);
   const measureRef = useRef<HTMLDivElement>(null);
@@ -127,7 +140,7 @@ export function useCompactLayout({ subtitles, partial, fontSize, selectionTarget
   const preset = COMPACT_FONT_PRESETS[fontSize];
   // A nonempty group takes at least one line. This only bounds DOM work.
   const limit = Math.ceil(availableHeight / Math.min(preset.originalLine, preset.translationLine)) + 1;
-  const candidates = useCandidateGroups(subtitles, partial, limit);
+  const candidates = useCandidateGroups(subtitles, previews, limit, perPlayer);
   const [selectionFrozen, setSelectionFrozen] = useState(false);
   const frozen = Boolean(selectionTarget) || selectionFrozen;
   const frozenGroups = useRef<CompactGroup[] | null>(null);
@@ -215,6 +228,13 @@ export function useCompactLayout({ subtitles, partial, fontSize, selectionTarget
         && measuredSelectionRef.current === selectionTarget) return;
       const rows = Array.from(measure.children) as HTMLElement[];
       if (rows.length !== groups.length) return;
+      if (!frozen && perPlayer && groups.length > 1) {
+        const budget = { original: preset.originalLine, translation: preset.translationLine };
+        setLayout(previous => sameGroups(previous.groups, groups) && previous.parallel === true
+          && previous.latestBudget?.original === budget.original && previous.latestBudget?.translation === budget.translation
+          ? previous : { groups, latestBudget: budget, parallel: true });
+        return;
+      }
       const heights = rows.map((row) => row.getBoundingClientRect().height);
       let count = fitRecentGroups(heights, height);
       let latestBudget: CompactTextBudget | undefined;
@@ -225,13 +245,13 @@ export function useCompactLayout({ subtitles, partial, fontSize, selectionTarget
         latestBudget = allocateLatestLines({
           original: original?.getBoundingClientRect().height ?? 0,
           translation: translation?.getBoundingClientRect().height ?? 0,
-        }, height, fontSize);
+        }, Math.max(0, height - (latest.querySelector<HTMLElement>(".compact-speaker")?.getBoundingClientRect().height ?? 0) - 4), fontSize);
         count = 1;
       }
       const nextGroups = count ? groups.slice(-count) : [];
       geometryRef.current = geometry;
       measuredSelectionRef.current = selectionTarget;
-      setLayout((previous) => sameGroups(previous.groups, nextGroups)
+      setLayout((previous) => sameGroups(previous.groups, nextGroups) && !previous.parallel
         && previous.latestBudget?.original === latestBudget?.original
         && previous.latestBudget?.translation === latestBudget?.translation
         ? previous : { groups: nextGroups, latestBudget });
@@ -262,10 +282,10 @@ export function useCompactLayout({ subtitles, partial, fontSize, selectionTarget
       if (frameRef.current !== null) cancelAnimationFrame(frameRef.current);
       frameRef.current = null;
     };
-  }, [groups, fontSize, frozen, selectionTarget, transparentBackground]);
+  }, [groups, fontSize, frozen, selectionTarget, transparentBackground, perPlayer]);
 
   return {
     contentRef, measureRef, measurementGroups: groups,
-    visibleGroups: layout.groups, latestBudget: layout.latestBudget, frozen,
+    visibleGroups: layout.groups, parallel: layout.parallel, latestBudget: layout.latestBudget, frozen,
   };
 }

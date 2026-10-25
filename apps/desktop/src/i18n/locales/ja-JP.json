@@ -116,9 +116,18 @@
       "targetLanguage": "翻訳先言語",
       "translate": "翻訳",
       "sendMode": "送信内容",
-      "modes": { "original": "原文", "translation": "翻訳", "bilingual": "二言語" },
+      "modes": {
+        "original": "原文",
+        "translation": "翻訳",
+        "bilingual": "二言語"
+      },
       "format": "メッセージ形式",
-      "formats": { "originalFirst": "原文の下に翻訳", "translationFirst": "翻訳の下に原文", "slash": "スラッシュ区切り", "custom": "カスタム" },
+      "formats": {
+        "originalFirst": "原文の下に翻訳",
+        "translationFirst": "翻訳の下に原文",
+        "slash": "スラッシュ区切り",
+        "custom": "カスタム"
+      },
       "customFormat": "カスタムメッセージ形式",
       "preview": "送信プレビュー",
       "previewEmpty": "入力したメッセージの送信結果がここに表示されます",
@@ -126,7 +135,10 @@
       "send": "VRChat に送信",
       "sending": "送信中…",
       "oscDisabled": "送信する前に設定で OSC を有効にしてください。",
-      "errors": { "translate": "このメッセージを翻訳できませんでした。", "send": "Chatbox メッセージを送信できませんでした。" }
+      "errors": {
+        "translate": "このメッセージを翻訳できませんでした。",
+        "send": "Chatbox メッセージを送信できませんでした。"
+      }
     },
     "capture": {
       "start": "文字起こしを開始",
@@ -200,6 +212,26 @@
       }
     },
     "warnings": {
+      "playerAudio": {
+        "title": "VRChat プレイヤー別独立音声トラックを開始",
+        "intro": "複数のプレイヤーを個別に翻訳する実験的な機能です。続行する前に、仕組み、必要条件、リスクをご確認ください。",
+        "principleTitle": "動作の仕組み",
+        "principle": "VRCS は Windows のネイティブ API でローカルの VRChat 音声通信を受動的に受信します。有効にすると、ログイン後最初のワールドの読み込み完了時にローカルのページファイルから音声鍵を検索・検証し、プレイヤーごとに独立した PCM トラックへ復号・デコードして認識・翻訳サービスに渡します。",
+        "paging": "鍵を取得する際は、ゲームメモリの一部のページをディスク上のページファイルへページアウトするよう Windows に要求し、そこから鍵の解析を試みます。その間、一時的にゲームが停止する場合があります。",
+        "privacyTitle": "音声とデータの扱い",
+        "privacy": "各プレイヤーの音声は設定した認識・翻訳サービスに渡されます。クラウド利用時は音声が送信され、同時リクエストで料金が増える場合があります。VRCS は生音声やセッション鍵をディスクに保存しません。原文・訳文・プレイヤー名は履歴に保存されます。生トラックにはゲーム内の距離減衰、音量、ミュート設定は適用されません。",
+        "privacyConsent": "参加者全員に説明して同意を得たうえで、適用されるプライバシー関連の要件を守ってください。同意のない監視、嫌がらせ、権利侵害には使用しないでください。",
+        "disclaimerTitle": "実験的機能の免責事項",
+        "disclaimer": "本実験機能は現状のまま提供され、正確性、安定性、適合性を保証しません。パケットや名前の欠落、遅延、認識ミスが発生する場合があります。適用法で認められる範囲において、開発者は利用に伴うアカウントの処分、データ損失、システムの不安定化、その他の損失に責任を負いません。第三者のサービスやリソースの規約・ライセンスも守ってください。同意できない場合はキャンセルし、本機能の使用を中止してください。",
+        "countdown": "説明をご確認ください。あと {{seconds}} 秒で続行できます",
+        "ready": "上記の内容を確認してから続行してください。",
+        "confirm": "理解して続行",
+        "elevationCancelled": "Windows の管理者権限の許可がキャンセルされました。要求された操作は続行していません。",
+        "termsTitle": "利用規約とアカウントへの影響",
+        "terms": "VRChat の音声やルーム通信の取得・復号・処理は VRChat の利用規約に抵触し、アカウントの制限や停止につながる可能性があります。関連する規則を確認し、リスクを受け入れるか判断してください。",
+        "anticheatTitle": "アンチチートと互換性",
+        "anticheat": "本ツールはゲームプロセスのメモリを直接読み取らず、ゲームファイルも変更しません。ただし、どのようなサードパーティ製ツールでも、Easy Anti-Cheat（EAC）に異常と判断されるリスクがあります。本プロジェクトはアカウントの安全を保証しません。"
+      },
       "vrchat": {
         "title": "VRChat が起動していません",
         "description": "VRCS は待機を続けますが、VRChat を起動するまでゲーム音声を取得できない場合があります。"
@@ -279,6 +311,39 @@
       "waiting": "字幕を待っています…",
       "microphoneMe": "自分 · マイク",
       "speakerNumber": "話者 {{number}}",
+      "trackNumber": "音声トラック {{number}}",
+      "players": {
+        "title": "プレイヤーと訳文の表示",
+        "hiddenCount": "{{count}} 人を非表示",
+        "process": "処理するプレイヤー",
+        "all": "全員を翻訳",
+        "selected": "選択した人のみ翻訳",
+        "processHint": "選択したプレイヤーは VRChat のユーザー ID でローカルに保存され、ワールド移動や再起動後も引き継がれます。再会時に名前を自動更新します。選択した人のみ翻訳する場合、未選択またはユーザー ID が未確認の音声はデコード・認識・翻訳されません。",
+        "savedSelection": "保存済みの選択",
+        "userIdPending": "ユーザー ID の確認待ちのため選択できません",
+        "selectCurrent": "現在の全員を選択",
+        "selectNone": "すべて解除",
+        "noneSelected": "現在のプレイヤーが未選択のため、相手の音声を処理しません。",
+        "languages": "非表示にする原文の言語（複数選択）",
+        "followDefault": "既定に従う",
+        "noHiddenLanguages": "非表示にする言語なし",
+        "languageHint": "既定では「翻訳先言語 → 相手」のすべての言語に従います。認識された原文が選択した言語の場合、相手の原文とすべての訳文をまとめて非表示にします。他の原文言語には影響しません。追従を解除すると手動で複数選択できます。表示だけを変更し、言語情報がない場合は原文からローカルで判定し、判定できない記録は表示します。",
+        "search": "プレイヤーを検索",
+        "showAll": "すべての記録を表示",
+        "empty": "音声トラックを待機中、または履歴を読み込み中です。",
+        "translatePerson": "{{name}} を翻訳",
+        "translate": "翻訳",
+        "hidePerson": "{{name}} の記録を非表示",
+        "showPerson": "{{name}} の記録を表示",
+        "show": "表示",
+        "hide": "非表示",
+        "current": "現在のワールド",
+        "history": "過去の音声トラック",
+        "unidentified": "音声トラック未設定の相手",
+        "filteredEmpty": "現在のフィルターに一致する記録はありません。",
+        "hideHint": "非表示の設定はチャット、デスクトップ字幕、VR 字幕、手首の会話に共通で適用されます。履歴の削除や音声処理対象の変更は行いません。",
+        "namePending": "一部のトラックはプレイヤー名をまだ照合できていません。キャプチャを続けたまま別のワールドに入るか、現在のワールドを再読み込みしてください。名前の情報を受信すると自動で更新されます。"
+      },
       "speakerOther": "相手 · システム音声",
       "returnToBottom": "最新の字幕に戻る",
       "returnToBottomShort": "最新の字幕",
@@ -574,6 +639,7 @@
     },
     "validation": {
       "audio": {
+        "player_audio_unavailable": "プレイヤー別独立音声トラックを開始できません。管理者権限、NTFS ページファイルのドライブ、Opus ライブラリを確認してください。",
         "outputUnavailable": "選択したシステム出力デバイスが利用できません。選び直してください。",
         "microphoneUnavailable": "選択したマイクが利用できません。選び直してください。"
       },
@@ -587,7 +653,9 @@
     "updates": {
       "title": "ソフトウェア更新",
       "currentVersion": "現在のバージョン {{version}}",
-      "variant": { "standard": "標準版" },
+      "variant": {
+        "standard": "標準版"
+      },
       "automaticChecks": "更新を自動確認する",
       "checkNow": "今すぐ確認",
       "availableTitle": "VRCS {{version}} を利用できます",
@@ -605,18 +673,18 @@
         "installing": "更新をインストールしています…"
       },
       "errors": {
-      "conversations": {
-        "title_interrupted": "前回の生成が中断されました。再試行してください。",
-        "title_service_failed": "タイトルを生成できませんでした。モデルサービスを確認して再試行してください。",
-        "title_not_configured": "会話タイトルの設定で API プロファイル、認証情報、モデルを確認してください。",
-        "title_timeout": "タイトル生成がタイムアウトしました。再試行してください。",
-        "title_empty": "この会話には要約できる字幕原文がありません。",
-        "title_invalid_output": "モデルが有効な1行のタイトルを返しませんでした。再試行してください。",
-        "title_unavailable": "会話を終了し、既定のタイトルに戻してから生成してください。"
-      },
-    "feature": {
-      "disabled": "この機能はオフです。システム設定の機能の選択からオンにできます。"
-    },
+        "conversations": {
+          "title_interrupted": "前回の生成が中断されました。再試行してください。",
+          "title_service_failed": "タイトルを生成できませんでした。モデルサービスを確認して再試行してください。",
+          "title_not_configured": "会話タイトルの設定で API プロファイル、認証情報、モデルを確認してください。",
+          "title_timeout": "タイトル生成がタイムアウトしました。再試行してください。",
+          "title_empty": "この会話には要約できる字幕原文がありません。",
+          "title_invalid_output": "モデルが有効な1行のタイトルを返しませんでした。再試行してください。",
+          "title_unavailable": "会話を終了し、既定のタイトルに戻してから生成してください。"
+        },
+        "feature": {
+          "disabled": "この機能はオフです。システム設定の機能の選択からオンにできます。"
+        },
         "unavailable": "このビルドには更新機能が設定されていません。",
         "busy": "別の更新操作が実行中です。",
         "no_pending": "もう一度更新を確認してからインストールしてください。",
@@ -809,18 +877,59 @@
         "wristPosition": "位置と角度",
         "results": "領域の翻訳：完了 {{completed}} 件、失敗 {{failed}} 件",
         "sourceView": "原文と翻訳を一緒に表示します。",
-        "errors": {"timeout": "処理がタイムアウトしました。再スキャンしてください。", "models_missing": "設定でローカル OCR モデルを準備してください。", "configuration_changed": "OCR 設定が変更されました。再スキャンしてください。", "tracking_lost": "ヘッドセットの追跡を復旧して再スキャンしてください。", "view_changed": "原文の領域が変化しました。再スキャンしてください。", "network": "OCR のネットワーク接続を確認して再試行してください。", "local_failed": "ローカル OCR の推論に失敗しました。モデルを確認してください。", "unavailable": "VR 接続とローカル OCR モデルを確認してください。", "translation_failed": "すべての翻訳に失敗しました。翻訳サービスを確認してください。", "partial_failure": "一部の翻訳に失敗しました。完了した翻訳は保持されます。", "partial_timeout": "一部の翻訳がタイムアウトしました。完了した翻訳は保持されます。"},
+        "errors": {
+          "timeout": "処理がタイムアウトしました。再スキャンしてください。",
+          "models_missing": "設定でローカル OCR モデルを準備してください。",
+          "configuration_changed": "OCR 設定が変更されました。再スキャンしてください。",
+          "tracking_lost": "ヘッドセットの追跡を復旧して再スキャンしてください。",
+          "view_changed": "原文の領域が変化しました。再スキャンしてください。",
+          "network": "OCR のネットワーク接続を確認して再試行してください。",
+          "local_failed": "ローカル OCR の推論に失敗しました。モデルを確認してください。",
+          "unavailable": "VR 接続とローカル OCR モデルを確認してください。",
+          "translation_failed": "すべての翻訳に失敗しました。翻訳サービスを確認してください。",
+          "partial_failure": "一部の翻訳に失敗しました。完了した翻訳は保持されます。",
+          "partial_timeout": "一部の翻訳がタイムアウトしました。完了した翻訳は保持されます。"
+        },
         "displayMode": "VR 結果の表示方法",
-        "displayModes": { "wrist": "手首パネル", "stereo": "元の文字位置（両眼）" },
+        "displayModes": {
+          "wrist": "手首パネル",
+          "stereo": "元の文字位置（両眼）"
+        },
         "device": "ローカル OCR の推論デバイス",
         "deviceDescription": "DirectML は Windows 上の対応 GPU を使用します。GPU の読み込みや認識に失敗した場合、OCR は CPU に切り替わります。",
         "activeDevice": "最後に使用したデバイス：{{device}}",
         "cpuFallback": "DirectML に失敗したため、OCR は CPU に切り替わりました。",
-        "modelStates": { "missing": "ダウンロードが必要", "downloading": "ダウンロード中", "ready": "準備完了", "error": "ダウンロード失敗" },
+        "modelStates": {
+          "missing": "ダウンロードが必要",
+          "downloading": "ダウンロード中",
+          "ready": "準備完了",
+          "error": "ダウンロード失敗"
+        },
         "modelFailed": "OCR モデルを準備できません。接続を確認して再試行してください。",
         "modelDeleteFailed": "OCR モデルを削除できません。ダウンロードや文字認識が完了してから再試行してください。",
         "controls": "枠が表示されたら、右トリガーを 0.65 秒長押しすると OCR を確定します。すでに押していた場合は、一度放してから押してください。枠がないと認識しません。左トリガーの長押しでクリア、視覚質問が有効な場合は質問します。",
-        "states": {"disabled": "無効", "waiting_vr": "SteamVR を待機中", "ready": "認識できます", "unbound": "SteamVR で OCR の操作を割り当ててください", "capturing": "画像取得中", "selecting": "範囲を調整し、右トリガーを長押しして確定", "waiting_hands": "両手を移動すると認識を開始します", "loading_model": "ローカルモデル読込中", "recognizing": "ローカル認識中", "translating": "翻訳中", "recognized": "認識完了", "visible": "訳文表示中", "invalid": "視野が変わりました。再認識してください", "error": "OCR を利用できません", "no_text": "文字が見つかりません", "low_confidence": "文字の信頼度がしきい値未満です", "source_visible": "認識した原文を表示中", "partial_visible": "完了した翻訳を表示中", "translation_failed": "すべての翻訳に失敗しました", "timed_out": "OCR 処理がタイムアウトしました"},
+        "states": {
+          "disabled": "無効",
+          "waiting_vr": "SteamVR を待機中",
+          "ready": "認識できます",
+          "unbound": "SteamVR で OCR の操作を割り当ててください",
+          "capturing": "画像取得中",
+          "selecting": "範囲を調整し、右トリガーを長押しして確定",
+          "waiting_hands": "両手を移動すると認識を開始します",
+          "loading_model": "ローカルモデル読込中",
+          "recognizing": "ローカル認識中",
+          "translating": "翻訳中",
+          "recognized": "認識完了",
+          "visible": "訳文表示中",
+          "invalid": "視野が変わりました。再認識してください",
+          "error": "OCR を利用できません",
+          "no_text": "文字が見つかりません",
+          "low_confidence": "文字の信頼度がしきい値未満です",
+          "source_visible": "認識した原文を表示中",
+          "partial_visible": "完了した翻訳を表示中",
+          "translation_failed": "すべての翻訳に失敗しました",
+          "timed_out": "OCR 処理がタイムアウトしました"
+        },
         "title": "OCR",
         "description": "選択範囲の文字をローカルで認識し、選択した API で翻訳します。",
         "localModel": "ローカル PP-OCRv6",
@@ -970,7 +1079,6 @@
       "system": {
         "title": "システム",
         "general": "一般設定",
-
         "saveImmediately": "変更はすぐに保存されます。",
         "language": "表示言語",
         "languageDescription": "システム言語に従うか、VRCS 用の言語を選びます。",
@@ -995,7 +1103,6 @@
         "runOnboardingStopFirst": "先に文字起こしを停止してください",
         "externalApi": {
           "title": "サードパーティ出力 API",
-
           "enabled": "サードパーティ出力 API を有効にする",
           "enabledDescription": "初期状態では無効です。ヘルス、機能情報、イベント購読のみを公開します。",
           "host": "リッスンアドレス",
@@ -1017,7 +1124,6 @@
           "tokenLoadFailed": "Token の状態を読み込めませんでした。",
           "tokenSaveFailed": "Token を保存できませんでした。",
           "tokenDeleteFailed": "Token を削除できませんでした。",
-
           "statusLoadFailed": "外部出力 API の現在の状態を取得できませんでした。",
           "runtime": {
             "checking": "現在の実行状態を確認しています。",
@@ -1029,7 +1135,6 @@
       },
       "storage": {
         "title": "ストレージ",
-
         "databaseUsage": "字幕履歴の使用量",
         "databaseUsageDescription": "字幕履歴の使用量には字幕とそのインデックスが含まれ、上限の計算に使われます。割り当て済み容量と回収可能な容量はデータベース全体の値です。",
         "ofQuota": "/ 上限 {{quota}}",
@@ -1050,7 +1155,6 @@
         "liveTranslateHint": "各音声ソースの最初の翻訳先を使用し、自動翻訳が必要です。テキストプロンプトと思考設定は適用されません。Qwen はテキストのみを出力し話者を識別します。他のリアルタイム翻訳サービスは翻訳音声を生成しますが、アプリでは再生しません。",
         "liveTranslatePreview": "音声検出後にアップロードを開始し、訳文が届くとプレビューできます。ローカル整列は履歴、追加の翻訳先、OSC に対応し、同じ言語の原文は訳文を待たずに確定できます。",
         "title": "字幕翻訳",
-
         "mode": "翻訳モード",
         "modeDescription": "自動モードでは他人の音声と自分のマイクの両方を翻訳します。手動モードではリクエスト時のみ翻訳します。",
         "modes": {
@@ -1085,7 +1189,11 @@
         "contextEnabled": "最近の原文を添付",
         "contextEnabledDescription": "選択したソースの最近の確定原文を時系列で LLM プロンプトに追加します。既定ではオフです。",
         "contextSourcesTitle": "原文のソース",
-        "contextSources": { "speaker": "スピーカー", "microphone": "マイク", "chatbox": "Chatbox" },
+        "contextSources": {
+          "speaker": "スピーカー",
+          "microphone": "マイク",
+          "chatbox": "Chatbox"
+        },
         "contextLimitsTitle": "コンテキスト範囲",
         "maxMessages": "最近のメッセージ数（1–50）",
         "maxChars": "コンテキスト文字数上限（200–12000）",
@@ -1114,7 +1222,10 @@
         "editGlossary": "用語集を編集",
         "addSubscription": "購読を追加",
         "editSubscription": "購読を編集",
-        "glossaryTypes": { "local": "ローカル", "subscription": "購読" },
+        "glossaryTypes": {
+          "local": "ローカル",
+          "subscription": "購読"
+        },
         "localGlossaryDetail": "現在の VRCS 設定に保存",
         "glossaryEntryCount": "{{count}} 件",
         "glossaryEntriesOmitted": "全体上限により、さらに {{count}} 件が省略されました",
@@ -1152,7 +1263,12 @@
         "glossarySource": "原語",
         "glossaryTarget": "固定訳",
         "glossaryCategory": "カテゴリ",
-        "glossaryCategories": { "person": "人名", "world": "VRChat ワールド", "game": "ゲーム用語", "custom": "カスタム" },
+        "glossaryCategories": {
+          "person": "人名",
+          "world": "VRChat ワールド",
+          "game": "ゲーム用語",
+          "custom": "カスタム"
+        },
         "keepOriginal": "原文を維持",
         "caseSensitive": "大文字と小文字を区別",
         "table": {
@@ -1207,7 +1323,6 @@
       },
       "apiManagement": {
         "title": "API 管理",
-
         "securityNotice": "API キーは Windows 資格情報マネージャーに保存され、設定ファイルには書き込まれません。環境変数のキーが優先されます。",
         "alibabaDescription": "Qwen3 ASR と Fun-ASR で共有します",
         "openaiDescription": "OpenAI 公式 API。Realtime 音声認識と LLM 翻訳で使用できます",
@@ -1311,8 +1426,20 @@
         "connectionSucceeded": "接続に成功しました。",
         "connectionFailed": "接続診断で互換性の問題が見つかりました。",
         "diagnostics": {
-          "checks": { "configuration": "設定", "endpoint": "ネットワークエンドポイント", "authentication": "認証", "models": "モデル一覧", "completion": "通常生成", "streaming": "ストリーミング生成" },
-          "status": { "passed": "成功", "warning": "警告", "failed": "失敗", "skipped": "未実行" },
+          "checks": {
+            "configuration": "設定",
+            "endpoint": "ネットワークエンドポイント",
+            "authentication": "認証",
+            "models": "モデル一覧",
+            "completion": "通常生成",
+            "streaming": "ストリーミング生成"
+          },
+          "status": {
+            "passed": "成功",
+            "warning": "警告",
+            "failed": "失敗",
+            "skipped": "未実行"
+          },
           "codes": {
             "llm_timeout": "タイムアウトしました。サービス状態を確認するか時間を延長してください。",
             "llm_dns_failed": "ホスト名を解決できません。Base URL を確認してください。",
@@ -1423,6 +1550,63 @@
       },
       "audio": {
         "title": "音声ソース",
+        "memory": {
+          "title": "Windows メモリ圧縮",
+          "manage": "確認と管理",
+          "checking": "メモリ圧縮を確認中…",
+          "unknown": "状態は未確認です",
+          "enabled": "メモリ圧縮は有効です",
+          "disabled": "メモリ圧縮は無効です",
+          "desktopOnly": "Windows デスクトップ版 VRCS でメモリ圧縮を管理してください。",
+          "description": "プレイヤー別独立音声トラックにはメモリ圧縮の無効化が必要です。確認では状態のみ読み取り、変更は影響を説明して同意を得てから行います。",
+          "authorization": "状態の読み取りには管理者権限が必要です。許可後は VRCS が開き直して確認を続けます。音声収録は開始しません。",
+          "authorize": "許可して確認",
+          "refresh": "再確認",
+          "disable": "無効にする",
+          "enable": "有効に戻す",
+          "disableTitle": "Windows メモリ圧縮を無効にしますか？",
+          "enableTitle": "Windows メモリ圧縮を有効に戻しますか？",
+          "disableImpact": "PC 全体の Windows メモリ管理設定が変更され、現在の文字起こしは一時停止します。物理メモリの使用量やメモリ不足時のディスクへのページングが増え、他のアプリの性能に影響する場合があります。VRCS を終了しても設定は元に戻りません。いつでもここで再び有効にできます。",
+          "enableImpact": "PC 全体の Windows メモリ圧縮を再び有効にし、現在の文字起こしを一時停止します。プレイヤー別独立音声トラックの実行条件を満たさなくなるため、再度使うには圧縮を無効にして PC を再起動してください。",
+          "confirmRestart": "変更後は作業を保存して PC を再起動してください。VRCS は設定を検証して再起動の案内を保持します。PC を自動的に再起動することはありません。",
+          "confirmDisable": "無効化を確認",
+          "confirmEnable": "復元を確認",
+          "restart": "メモリ圧縮の設定を更新しました。作業を保存して PC を再起動し、変更を完全に適用してください。VRCS だけの再起動では完了しません。",
+          "pauseFailed": "文字起こしを一時停止できませんでした。メモリ圧縮は変更していません。"
+        },
+        "players": {
+          "title": "VRChat プレイヤー別独立音声トラック（実験的）",
+          "description": "プレイヤーごとに独立した音声トラックを取得し、個別に認識・翻訳して名前を表示します。",
+          "requirements": "VRCS の管理者権限と Windows メモリ圧縮の無効化が必要です。有効にすると、ログイン後最初のワールドの読み込み完了時に音声鍵の取得を自動的に試みます。",
+          "nameHint": "プレイヤー名を照合するには、先にキャプチャを開始してからワールドに入るか、現在のワールドを再読み込みしてください。",
+          "drive": "ページファイルのドライブ",
+          "limit": "同時処理するプレイヤー数",
+          "limitHint": "同時処理人数は既定で無制限です。上限も選択できます。発話中の各プレイヤーに独立した認識セッションを使用します。",
+          "opus": "Opus ライブラリのパス（任意）",
+          "opusAuto": "実行中の VRChat のインストール先を自動使用",
+          "activeTracks": "{{players}} 人の音声トラックに接続中",
+          "waitingSpeech": "プレイヤーの音声を待機中",
+          "keyElapsed": "経過時間：{{seconds}} 秒",
+          "phase": {
+            "stopped": "停止中",
+            "waiting_traffic": "VRChat のネットワークデータを待機中",
+            "waiting_key": "音声接続を確認中",
+            "acquiring_key": "音声キーを取得中",
+            "streaming": "プレイヤー別独立音声トラックを受信中",
+            "failed": "エラーにより取得が停止しました",
+            "waiting_game": "VRChat の起動を待機中",
+            "waiting_world": "VRChat のワールド読み込み完了を待機中",
+            "retrying_key": "キーを取得できませんでした。まもなく自動再試行します"
+          },
+          "keyStage": {
+            "cached": "今回のログインのキーを再利用しました",
+            "verified": "音声キーを取得しました"
+          },
+          "keyTime": "所要時間：{{seconds}} 秒",
+          "unlimited": "無制限",
+          "visibleLimit": "同時に表示するプレイヤー数",
+          "visibleLimitHint": "デスクトップ字幕、VR 字幕、手首の会話に共通の表示上限です。発話中のプレイヤーを優先します。認識・翻訳の処理人数は制限せず、自分のマイクは人数に含めません。"
+        },
         "devicesFound": "{{count}} 台のデバイスを検出",
         "waitingScan": "デバイスの検出待ち",
         "rescan": "再スキャン",
@@ -1490,7 +1674,6 @@
       },
       "anki": {
         "title": "AnkiConnect",
-
         "enable": "AnkiConnect を有効にする",
         "enableDescription": "ローカルの Anki 接続確認と辞書検索結果からのカード作成を許可します。",
         "invalidPort": "1～65535 の有効なポートを入力してください。",
@@ -1557,11 +1740,14 @@
       },
       "osc": {
         "title": "OSC",
-
         "enable": "OSC を有効にする",
         "enableDescription": "チャットボックス出力と VRChat のミュート同期をまとめて制御します。",
         "translationStrategy": "OSC多言語出力",
-        "translationStrategies": { "preferredOnly": "優先言語のみ", "roundRobin": "順番に送信", "allLanguages": "複数言語を同時に表示" },
+        "translationStrategies": {
+          "preferredOnly": "優先言語のみ",
+          "roundRobin": "順番に送信",
+          "allLanguages": "複数言語を同時に表示"
+        },
         "preserveOriginal": "出力に原文を残す",
         "preserveOriginalDescription": "翻訳がある場合は原文と翻訳を一緒に送信します。オフにすると翻訳だけを送信します。",
         "muteSync": "VRChat のマイクミュートと同期",
@@ -1721,13 +1907,24 @@
       "unknown": "不明なエラーが発生しました。",
       "operation": "操作に失敗しました。",
       "chatbox": {
-        "missing_original": "原文を入力してください。", "missing_translation": "先に翻訳を入力または生成してください。", "missing_bilingual_text": "二言語メッセージには原文と翻訳が必要です。",
-        "text_too_long": "メッセージは5,000文字以内で入力してください。", "invalid_language": "言語コードが無効です。", "invalid_format": "カスタム形式には {original} と {translation} を1回ずつ含めてください。",
-        "over_limit": "メッセージは {{count}} 文字です。上限は {{limit}} 文字です。", "history_store_failed": "メッセージは処理されましたが、履歴を保存できませんでした。", "conversation_store_failed": "メッセージは送信されましたが、現在の会話に追加できませんでした。"
+        "missing_original": "原文を入力してください。",
+        "missing_translation": "先に翻訳を入力または生成してください。",
+        "missing_bilingual_text": "二言語メッセージには原文と翻訳が必要です。",
+        "text_too_long": "メッセージは5,000文字以内で入力してください。",
+        "invalid_language": "言語コードが無効です。",
+        "invalid_format": "カスタム形式には {original} と {translation} を1回ずつ含めてください。",
+        "over_limit": "メッセージは {{count}} 文字です。上限は {{limit}} 文字です。",
+        "history_store_failed": "メッセージは処理されましたが、履歴を保存できませんでした。",
+        "conversation_store_failed": "メッセージは送信されましたが、現在の会話に追加できませんでした。"
       },
       "osc": {
-        "disabled": "OSC が無効です。", "blocked_vrchat_muted": "VRChat がミュート中のため、メッセージは送信されませんでした。", "blocked_mute_unknown": "VRChat のミュート状態を確認中です。しばらくしてから再試行してください。",
-        "queue_full": "OSC 送信キューがいっぱいです。しばらくしてから再試行してください。", "send_timeout": "OSC 送信がタイムアウトしました。", "send_cancelled": "OSC 設定が変更されたため、送信を中止しました。", "send_failed": "ローカルの VRChat OSC ポートに送信できませんでした。"
+        "disabled": "OSC が無効です。",
+        "blocked_vrchat_muted": "VRChat がミュート中のため、メッセージは送信されませんでした。",
+        "blocked_mute_unknown": "VRChat のミュート状態を確認中です。しばらくしてから再試行してください。",
+        "queue_full": "OSC 送信キューがいっぱいです。しばらくしてから再試行してください。",
+        "send_timeout": "OSC 送信がタイムアウトしました。",
+        "send_cancelled": "OSC 設定が変更されたため、送信を中止しました。",
+        "send_failed": "ローカルの VRChat OSC ポートに送信できませんでした。"
       },
       "apiProfiles": {
         "operation": "API プロファイルの操作に失敗しました。",

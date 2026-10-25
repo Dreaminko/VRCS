@@ -28,11 +28,13 @@ import { OcrSettingsSection } from "./sections/OcrSettingsSection";
 import { VrOverlaySettingsSection } from "./sections/VrOverlaySettingsSection";
 import type { SettingsCategory } from "./settings-types";
 import type { AppUpdaterState } from "../updates/useAppUpdater";
+import type { PlayerAudioStart } from "../capture/usePlayerAudioStart";
 
 export function SettingsPanel({
   initialCategory = "system",
   settings,
   health,
+  playerAudioStart,
   interfaceScale,
   devices,
   devicesReady,
@@ -55,6 +57,7 @@ export function SettingsPanel({
   initialCategory?: SettingsCategory;
   settings: Settings;
   health: Health | null;
+  playerAudioStart?: PlayerAudioStart;
   interfaceScale: number;
   devices: AudioDevice[];
   devicesReady: boolean;
@@ -189,6 +192,8 @@ export function SettingsPanel({
       {activeCategory === "audio" && (
         <AudioSettingsSection
           draft={draft}
+          playerAudioStatus={health?.player_audio}
+          playerAudioStart={playerAudioStart}
           devices={devices}
           devicesReady={devicesReady}
           microphoneRunning={Boolean(health?.capture_running && health.microphone_device)}

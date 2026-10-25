@@ -21,6 +21,16 @@ pub(crate) struct CaptureReloadPlan {
 
 impl CaptureReloadPlan {
     pub(crate) fn between(current: &AppConfig, candidate: &AppConfig) -> Self {
+        // Track selection is applied live before decoding and before ASR.
+        // It must not tear down every other player's session or the capture.
+        let mut current_output = current.audio.output.clone();
+        let mut candidate_output = candidate.audio.output.clone();
+        current_output.player_audio.max_visible_players = 0;
+        candidate_output.player_audio.max_visible_players = 0;
+        current_output.player_audio.selected_tracks = None;
+        candidate_output.player_audio.selected_tracks = None;
+        current_output.player_audio.selected_user_names.clear();
+        candidate_output.player_audio.selected_user_names.clear();
         let shared = current.vad != candidate.vad
             || (current.vrcx.enabled && current.vrcx.include_in_asr_context)
                 != (candidate.vrcx.enabled && candidate.vrcx.include_in_asr_context)
@@ -41,7 +51,7 @@ impl CaptureReloadPlan {
                     && target(&current.translation.speaker_targets)
                         != target(&candidate.translation.speaker_targets))
                 || sample_rate_changed
-                || current.audio.output != candidate.audio.output,
+                || current_output != candidate_output,
             microphone: shared
                 || live_mode_changed
                 || (live
@@ -357,6 +367,30 @@ async fn start_speaker_pipeline(
         .flatten();
     let process_name = (output.mode == "vrchat").then_some("VRChat.exe");
     let (asr, echo_guard) = effective_asr_config(state, config, "speaker");
+    if output.mode == "vrchat_players" {
+        return state
+            .capture
+            .speaker_pipeline
+            .lock()
+            .await
+            .start_players(
+                &output.player_audio,
+                output.trigger_threshold_dbfs,
+                &config.vad,
+                asr,
+                echo_guard,
+                pipeline_dependencies(state),
+            )
+            .await
+            .map(Some)
+            .map_err(|error| {
+                api_error(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    error.code(),
+                    error.to_string(),
+                )
+            });
+    }
     state
         .capture
         .speaker_pipeline
@@ -431,7 +465,9 @@ async fn start_planned_pipelines(
     Option<crate::models::AudioDevice>,
 )> {
     if config.asr.backend == QWEN_MANAGED_BACKEND
-        && (config.audio.output.mode != "disabled" || config.audio.microphone.mode != "disabled")
+        && ((config.audio.output.mode != "disabled"
+            && config.audio.output.mode != "vrchat_players")
+            || config.audio.microphone.mode != "disabled")
     {
         crate::asr::prepare_managed_qwen(
             &config.asr,
@@ -650,6 +686,23 @@ pub(crate) async fn resume_microphone(state: &CaptureContext) -> Result<(), Stri
 #[cfg(test)]
 mod tests {
     use super::{asr_runtime_changed, CaptureReloadPlan};
+    #[test]
+    fn track_selection_changes_do_not_restart_capture_or_other_players() {
+        let mut current = crate::config::AppConfig::default();
+        current.audio.output.mode = "vrchat_players".into();
+        let mut next = current.clone();
+        let user = "usr_00000000-0000-4000-8000-000000000007";
+        next.audio.output.player_audio.max_visible_players = 8;
+        next.audio.output.player_audio.selected_tracks = Some(vec![user.into()]);
+        next.audio
+            .output
+            .player_audio
+            .selected_user_names
+            .insert(user.into(), "Saved player".into());
+        assert!(CaptureReloadPlan::between(&current, &next).is_empty());
+        next.audio.output.player_audio.pagefile_drive = "D:".into();
+        assert!(!CaptureReloadPlan::between(&current, &next).is_empty());
+    }
 
     #[test]
     fn vrcx_asr_context_toggle_reloads_both_pipelines() {

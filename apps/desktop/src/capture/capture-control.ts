@@ -3,6 +3,7 @@ export function createCaptureController(options: {
   running: () => boolean;
   newConversation: () => boolean;
   createConversation: () => Promise<boolean>;
+  beforeStart?: () => Promise<boolean>;
   setRunning: (target: boolean) => Promise<boolean>;
   onPending: (pending: boolean) => void;
 }) {
@@ -13,6 +14,7 @@ export function createCaptureController(options: {
     if (options.running() === target) return Promise.resolve(true);
     options.onPending(true);
     const result = (async () => {
+      if (target && options.beforeStart && !await options.beforeStart()) return false;
       if (target && options.newConversation() && !await options.createConversation()) return false;
       return options.setRunning(target);
     })().finally(() => {

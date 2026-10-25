@@ -3,6 +3,8 @@ import type { ApiProvider } from "../providers/types";
 export interface SpeakerIdentity {
   id: string;
   index: number;
+  display_name?: string | null;
+  user_id?: string | null;
 }
 
 export interface Subtitle {

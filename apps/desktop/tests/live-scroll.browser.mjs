@@ -25,7 +25,9 @@ test("live translation scroll follows layout changes and respects user input", {
       import { initReactI18next } from 'react-i18next';
       import en from './src/i18n/locales/en-US.json';
       import { useLiveConversationScroll } from './src/conversations/useLiveConversationScroll';
-      import { LiveView } from './src/subtitles/components/SubtitleViews';
+      import { LiveView, TopStatus } from './src/subtitles/components/SubtitleViews';
+      import { PlayerHistoryControls } from './src/subtitles/components/PlayerHistoryControls';
+      import { WorkspaceFrame } from './src/app/components/WorkspaceFrame';
       import { publishTranslationPartial, clearTranslationPartial, publishLivePartial, clearLivePartials } from './src/core-client/realtime-state';
       import './src/styles.css';
       await i18next.use(initReactI18next).init({ lng: 'en-US', resources: { 'en-US': { translation: en.translation } } });
@@ -38,19 +40,22 @@ test("live translation scroll follows layout changes and respects user input", {
         const [rows, updateRows] = useState(initial);
         const [stamp, updateStamp] = useState('0');
         const [focused, updateFocused] = useState(null);
+        const [preferences, setPreferences] = useState({ hiddenTracks:[], hiddenSourceLanguages:null });
         setRows = updateRows; setStamp = updateStamp; setFocused = updateFocused;
         api = useLiveConversationScroll({ page: 'live', activeConversationId: 'current', selectedConversationId: 'current',
           openedConversationId: 'current', loadingConversationSubtitles: false,
           selectedConversationUpdatedAt: stamp, focusedSubtitleId: focused });
         return <div className="app-shell live-shell sidebar-collapsed" style={{ height: 520 }}>
           <div className="window-chrome">Live scroll test</div>
-          <div className="app-body"><div className="app-scroll-region" ref={api.liveScrollRef} onScroll={api.onLiveScroll}>
-            <main className="workspace workspace-live">
+          <div className="app-body"><WorkspaceFrame page="live" scrollRef={api.liveScrollRef} onScroll={api.onLiveScroll} toolbar={<>
+            <TopStatus connection="connected" health={null} settings={null}/>
+            <PlayerHistoryControls subtitles={rows} enabled={false} selectedUserIds={null} defaultLanguages={['zh']}
+              preferences={preferences} onPreferences={setPreferences} onSelection={async()=>{}}/>
+          </>}>
               <input id="editor" aria-label="Editable text" />
               <LiveView subtitles={rows} scrollContainerRef={api.liveScrollRef} running={true} hasOlder={false}
                 loading={false} loadingOlder={false} onLoadOlder={async () => {}} onSelect={async () => {}} />
-            </main>
-          </div></div>
+          </WorkspaceFrame></div>
         </div>;
       }
       const root = createRoot(document.getElementById('root'));
@@ -64,6 +69,7 @@ test("live translation scroll follows layout changes and respects user input", {
         state, settle,
         async reset() {
           document.activeElement?.blur();
+          document.querySelector('.player-history-controls').open = false;
           clearLivePartials(); clearTranslationPartial(18);
           flushSync(() => { setRows(initial()); setStamp(String(performance.now())); setFocused(null); });
           api.scrollLiveViewToBottom('auto');
@@ -94,10 +100,21 @@ test("live translation scroll follows layout changes and respects user input", {
         async bottom() { api.scrollLiveViewToBottom('auto'); await settle(); },
         async focusSubtitle() { flushSync(() => setFocused(10)); await settle(); },
         async clearFocus() { flushSync(() => setFocused(null)); await settle(); },
+        async expandPanel(open) { document.querySelector('.player-history-controls').open = open; await settle(); },
+        toolbar() {
+          const panel = document.querySelector('.player-history-body');
+          const rect = panel.getBoundingClientRect();
+          return { summaryTop:document.querySelector('summary').getBoundingClientRect().top,
+            statusTop:document.querySelector('.top-status-row').getBoundingClientRect().top,
+            bottom:document.querySelector('.live-toolbar').getBoundingClientRect().bottom,
+            chatTop:region().getBoundingClientRect().top,chatHeight:region().clientHeight,
+            panelTop:panel.scrollTop,panelRange:panel.scrollHeight-panel.clientHeight,
+            x:rect.left+rect.width/2,y:rect.top+Math.min(50,rect.height/2) };
+        },
         focusScroll() { region().tabIndex = 0; region().focus({ preventScroll: true }); },
         bounds() {
           const rect = region().getBoundingClientRect();
-          return { x: rect.left + 200, y: rect.top + 100, right: rect.right, bottom: rect.bottom };
+          return { x: rect.left + 200, y: rect.top + Math.min(100,rect.height/2), right: rect.right, bottom: rect.bottom };
         },
       };
     ` },
@@ -124,7 +141,7 @@ test("live translation scroll follows layout changes and respects user input", {
       "--headless=new", "--remote-debugging-port=0", "--disable-gpu", "--no-first-run",
       "--disable-background-networking", "--disable-extensions", "--window-size=1000,800",
       "--user-data-dir=" + join(directory, "profile"), pathToFileURL(html).href,
-    ], { timeout: 40000 });
+    ], { timeout: 40000, windowsHide: true });
     const endpoint = await new Promise((resolve, reject) => {
       let stderr = "";
       browserProcess.once("error", reject);
@@ -217,6 +234,41 @@ test("live translation scroll follows layout changes and respects user input", {
         await followingBottom();
       });
     }
+    await t.test("both toolbars remain fixed while reading chat history", async () => {
+      await evaluate("fixture.reset()");
+      const before = await evaluate("fixture.toolbar()");
+      const { x, y } = await evaluate("fixture.bounds()");
+      await input("dispatchMouseEvent", { type:"mouseWheel", x, y, deltaX:0, deltaY:-240 });
+      await waitFor(current => !current.following && current.gap > 50);
+      await preservesHistory();
+      const after = await evaluate("fixture.toolbar()");
+      assert.equal(after.summaryTop, before.summaryTop);
+      assert.equal(after.statusTop, before.statusTop);
+      const oldTop = (await state()).top;
+      await evaluate("fixture.expandPanel(true)");
+      assert.ok(Math.abs((await state()).top - oldTop) <= 1);
+      await preservesHistory();
+      await evaluate("fixture.expandPanel(false)");
+      assert.equal((await state()).following, false);
+    });
+    await t.test("expanded panel scrolls independently without pausing or obscuring live chat", async () => {
+      await evaluate("fixture.reset();");
+      await evaluate("fixture.expandPanel(true)");
+      await followingBottom();
+      const panel = await evaluate("fixture.toolbar()");
+      assert.ok(panel.panelRange > 0 && panel.chatHeight >= 100, JSON.stringify(panel));
+      assert.ok(panel.bottom <= panel.chatTop + 1, JSON.stringify(panel));
+      const before = await state();
+      await input("dispatchMouseEvent", { type:"mouseWheel", x:panel.x, y:panel.y, deltaX:0, deltaY:240 });
+      await settleInput();
+      assert.ok((await evaluate("fixture.toolbar()")).panelTop > 0);
+      assert.ok(Math.abs((await state()).top - before.top) <= 1);
+      await followingBottom();
+      await evaluate("fixture.grow()");
+      await followingBottom();
+      await evaluate("fixture.expandPanel(false)");
+      await followingBottom();
+    });
     await t.test("wheel scrolling pauses history and resumes at the bottom", async () => {
       await evaluate("fixture.reset()");
       const { x, y } = await evaluate("fixture.bounds()");

@@ -1,0 +1,14 @@
+[package]
+name = "player-audio-scan"
+version = "0.1.0"
+edition = "2021"
+license = "AGPL-3.0-only"
+publish = false
+
+[dependencies]
+memchr = "2"
+ring = "0.17"
+zeroize = "1"
+
+[profile.dev]
+opt-level = 3

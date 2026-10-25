@@ -45,6 +45,7 @@
 ## 主要功能
 
 - 采集系统或 VRChat 进程音频与麦克风，生成双路实时字幕，支持独立音源控制、紧凑窗口和本地会话历史。
+- 在「设置 › 音频来源」启用「VRChat 分玩家独立音轨（实验性）」，为每位玩家分别识别、翻译，可选择处理对象，并在桌面与 VR 字幕中显示讲话人。详见[功能与使用说明](docs/experimental-player-audio.md)。
 - 为已结束的会话生成 AI 总结标题，并按标题查找历史。可在“设置 › 系统 › 会话管理”配置模型并开启自动生成，默认关闭；新建对话会结束旧会话，停止转写仅暂停。也可在历史会话菜单中手动生成或重新生成，手动命名始终优先。
 - 本地 Qwen3 ASR 支持 CPU 或 Vulkan；云端识别支持 Qwen3 ASR、Fun-ASR、OpenAI Realtime、Gemini、Groq 和 OpenRouter 等服务，配合 Silero VAD 与可选 Smart Turn 进行语音分段。
 - 每路音源最多翻译为三种语言，可分别选择服务与模型，支持手动或自动翻译，以及 DeepL、Microsoft Translator、OpenAI、Gemini、Alibaba Cloud LLM 和 OpenAI 兼容服务。

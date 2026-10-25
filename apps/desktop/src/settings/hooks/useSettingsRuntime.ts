@@ -8,12 +8,16 @@ import { captureApi } from "../../capture/api";
 import { settingsApi } from "../api";
 import { createSettingsAutosave } from "../settings-autosave";
 import type { Settings } from "../types";
+import type { PlayerAudioStart } from "../../capture/usePlayerAudioStart";
+import { withCurrentPlayerNames } from "../../capture/player-selection";
 
 export function useSettingsRuntime({
   active,
   coreConfigured,
   health,
   stopMicrophoneTest,
+  setCaptureRunning,
+  playerAudioStart,
   clearErrorFrom,
   reportError,
 }: {
@@ -21,6 +25,8 @@ export function useSettingsRuntime({
   coreConfigured: boolean;
   health: CoreHealthController;
   stopMicrophoneTest: () => Promise<void>;
+  setCaptureRunning: (running: boolean) => Promise<boolean>;
+  playerAudioStart: PlayerAudioStart;
   clearErrorFrom: (source: string) => void;
   reportError: ReportRuntimeError;
 }) {
@@ -82,6 +88,13 @@ export function useSettingsRuntime({
 
   const persistSettings = useCallback(async (next: Settings): Promise<Settings> => {
     const previous = persistedSettingsRef.current;
+    const switchToPlayers = previous !== null && previous.audio.output.mode !== "vrchat_players"
+      && next.audio.output.mode === "vrchat_players" && health.getCurrent()?.capture_requested;
+    // Stop before saving: Core normally restarts active inputs as part of saving settings.
+    if (switchToPlayers) {
+      if (!await playerAudioStart.confirm()) return previous;
+      if (!await setCaptureRunning(false)) throw new Error("Could not pause capture before changing the audio source");
+    }
     const microphoneRouteChanged = previous !== null && (
       previous.audio.microphone.mode !== next.audio.microphone.mode
       || previous.audio.microphone.device_id !== next.audio.microphone.device_id
@@ -89,11 +102,28 @@ export function useSettingsRuntime({
     if (health.getCurrent()?.microphone_test_running && microphoneRouteChanged) {
       await stopMicrophoneTest();
     }
-    const saved = await settingsApi.saveSettings(next);
+    let saved: Settings;
+    try { saved = await settingsApi.saveSettings(next); }
+    catch (error) {
+      if (switchToPlayers) await setCaptureRunning(true).catch((reason) => reportError(reason, "errors.operation", "capture"));
+      throw error;
+    }
     persistedSettingsRef.current = saved;
+    if (switchToPlayers) {
+      let ready = false;
+      try { ready = await playerAudioStart.ensurePrivileges(); }
+      catch (reason) {
+        // UAC cancellation leaves the original input and capture available.
+        saved = await settingsApi.saveSettings({ ...saved, audio: { ...saved.audio, output: previous.audio.output } });
+        persistedSettingsRef.current = saved;
+        await setCaptureRunning(true).catch((error) => reportError(error, "errors.operation", "capture"));
+        reportError(reason, "errors.operation", "capture");
+      }
+      if (ready) await setCaptureRunning(true).catch((reason) => reportError(reason, "errors.operation", "capture"));
+    }
     void health.refreshQuietly();
     return saved;
-  }, [health, stopMicrophoneTest]);
+  }, [health, stopMicrophoneTest, setCaptureRunning, playerAudioStart, reportError]);
   const persistSettingsRef = useRef(persistSettings);
   persistSettingsRef.current = persistSettings;
 
@@ -121,6 +151,21 @@ export function useSettingsRuntime({
       },
     });
   }
+
+  const refreshingPlayerNames = useRef(false);
+  const observedPlayers = health.value?.player_audio?.players;
+  useEffect(() => {
+    // This runtime stays mounted on every page. Use the shared autosave queue so
+    // a name refresh cannot overwrite concurrent settings or restore a deselection.
+    if (!observedPlayers?.length || refreshingPlayerNames.current) return;
+    const current = persistedSettingsRef.current;
+    const speakers = observedPlayers.map((player) => player.speaker);
+    if (!current || withCurrentPlayerNames(current, speakers) === current) return;
+    refreshingPlayerNames.current = true;
+    void settingsAutosaveRef.current!.update((latest) => withCurrentPlayerNames(latest, speakers))
+      .catch(() => { /* Shared settings errors report failures; the next health update retries. */ })
+      .finally(() => { refreshingPlayerNames.current = false; });
+  }, [observedPlayers]);
 
   const testOsc = useCallback(async () => {
     await integrationsApi.testOsc();

@@ -10,6 +10,8 @@ import { useAppWorkspace } from "./useAppWorkspace";
 import type { SettingsCategory } from "../settings/settings-types";
 import { useVrDashboardBridge } from "../vr-dashboard/useVrDashboardBridge";
 import { useVrControlBridge } from "../vr-controls/useVrControlBridge";
+import { PlayerAudioStartDialog } from "../capture/PlayerAudioStartDialog";
+import { MemoryCompressionDialog } from "../capture/MemoryCompressionControls";
 
 function App() {
   const [page, setPage] = useState<Page>("live");
@@ -28,10 +30,11 @@ function App() {
     setCaptureRunning: workspace.capture.setCaptureRunning,
   });
   useVrDashboardBridge(workspace.settings.value, workspace.settings.update, workspace.providers.catalog.profiles, {
+    playerAudio: workspace.runtime.health?.player_audio,
     running: workspace.runtime.health?.capture_requested ?? false,
     available: workspace.runtime.ready && !workspace.capture.pending && workspace.onboarding.status === "complete",
     toggle: workspace.capture.toggleCapture,
-  });
+  }, workspace.playerDisplay);
 
   useEffect(() => {
     const preventBrowserContextMenu = (event: MouseEvent) => event.preventDefault();
@@ -52,6 +55,7 @@ function App() {
   } else if (workspace.compact.compact) {
     view = (
       <CompactEntry
+        playerDisplay={workspace.playerDisplay}
         compact={workspace.compact}
         runtime={workspace.runtime}
         capture={workspace.capture}
@@ -75,6 +79,9 @@ function App() {
   return (
     <>
       {view}
+      {workspace.capture.playerAudioStart.notice && <PlayerAudioStartDialog
+        openedAt={workspace.capture.playerAudioStart.notice.openedAt} onDecision={workspace.capture.playerAudioStart.decide} />}
+      {workspace.capture.playerAudioStart.memory.dialog && <MemoryCompressionDialog memory={workspace.capture.playerAudioStart.memory} />}
       <RuntimeWarningDialogs
         vrchatWarningOpen={workspace.capture.vrchatWarningOpen}
         onCloseVrchatWarning={workspace.capture.closeVrchatWarning}

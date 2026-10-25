@@ -1,7 +1,8 @@
 import { useLayoutEffect, useRef, type CSSProperties, type ReactNode } from "react";
 import { Captions, ChevronLeft, ChevronRight, Eye, GripHorizontal, Hand, Languages, MessageSquare, Mic, Pin, PinOff, Radio, ScanEye, Square, X } from "lucide-react";
 import { VisionAnswerMarkdown } from "../vision/VisionAnswerMarkdown";
-import { Headset, OcrProgress } from "./PassiveSurfaces";
+import { CaptionCards, Headset, OcrProgress } from "./PassiveSurfaces";
+import { visibleCaptionMessages } from "./caption-visibility";
 import { DashboardSurface, DashboardThumbnail } from "./DashboardSurface";
 import { OcrResultSurface, OcrSelectionSurface } from "./OcrSurfaces";
 import { menuStatus, pageGeometry, SURFACE_SIZE, type SurfaceLayout, type SurfaceState, type SurfaceView } from "./protocol";
@@ -40,6 +41,7 @@ function Menu({ state, view }: { state: SurfaceState; view: Extract<SurfaceView,
 
 function Dialogue({ state, view }: { state: SurfaceState; view: Extract<SurfaceView, { kind: "dialogue" }> }) {
   const labels = view.controls.labels;
+  const messages = visibleCaptionMessages(view);
   return <>
     <nav className="vr-dialogue-toolbar vr-surface-capsule" data-vr-panel>
       <SurfaceButton state={state} id={0} label={labels.dragHint || "Point at the handle and hold grip to drag"} grip disabled={view.busy}>
@@ -51,8 +53,14 @@ function Dialogue({ state, view }: { state: SurfaceState; view: Extract<SurfaceV
       <SurfaceButton state={state} id={2} label={labels.anchorWorld || "World"} active={view.mode === "world"} disabled={view.busy}><Pin /></SurfaceButton>
     </nav>
     <section className="vr-dialogue-body vr-surface-panel" data-vr-panel>
-      {view.messages.length ? <div className="vr-dialogue-messages">{view.messages.map((message, index) => <p className={`vr-dialogue-bubble ${message.side}`} key={index}>{message.text}</p>)}</div>
-        : <p className="vr-surface-empty">{labels.emptyDialogue || "No recent dialogue"}</p>}
+      {view.notice && <p className="vr-caption-notice" role="status">{view.notice}</p>}
+      {messages.length ? view.parallel
+        ? <CaptionCards messages={messages} labels={view.labels} lines={messages.length <= 3 ? 2 : 1} fontSize={view.font_size} height={view.notice ? 440 : 550} />
+        : <div className="vr-dialogue-messages">{messages.map((message, index) => <div className={`vr-dialogue-bubble ${message.side}`} key={index}>
+          <div className="vr-caption-speaker">{message.speaker || (message.side === "right" ? view.labels?.me ?? "Me" : view.labels?.other ?? "Others")}</div>
+          {message.text}
+        </div>)}</div>
+        : !view.notice && <p className="vr-surface-empty">{labels.emptyDialogue || "No recent dialogue"}</p>}
       {view.error && <p className="vr-surface-error" role="alert">{view.error}</p>}
     </section>
   </>;

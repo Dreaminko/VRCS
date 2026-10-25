@@ -77,7 +77,7 @@ test("compact translation preview keeps a completed original even without source
     assert.equal(resolved?.utterance_id, preview.utterance_id);
   }
   const sourceDelta = { ...preview, text: "original delta" };
-  assert.equal(compactLivePreview(sourceDelta, [completed]), sourceDelta);
+  assert.deepEqual(compactLivePreview(sourceDelta, [completed]), { ...sourceDelta, language: completed.language });
   assert.equal(preview.text, "");
   assert.equal(compactLivePreview(preview, []), preview);
   assert.equal(compactLivePreview(preview, [{ ...completed, utterance_id: "other" }]), preview);

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-player-audio-memory-status"
+description = "Enables the player_audio_memory_status command without any pre-configured scope."
+commands.allow = ["player_audio_memory_status"]
+
+[[permission]]
+identifier = "deny-player-audio-memory-status"
+description = "Denies the player_audio_memory_status command without any pre-configured scope."
+commands.deny = ["player_audio_memory_status"]

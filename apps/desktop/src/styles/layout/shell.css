@@ -60,6 +60,24 @@ html:has(.window-chrome[data-maximized="true"]) { clip-path: none; }
   overflow: hidden;
 }
 
+.workspace-frame {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+}
+
+.live-toolbar {
+  flex: 0 0 auto;
+  padding: 12px 24px 0;
+  overflow-y: hidden;
+  scrollbar-gutter: stable;
+}
+
+.live-toolbar + .app-scroll-region > .workspace-live { padding-top: 0; }
+.live-toolbar + .app-scroll-region > .workspace-live > .error-banner:first-child { margin-top: 0; }
+
 .app-scroll-region {
   min-width: 0;
   min-height: 0;

@@ -3,6 +3,8 @@ mod desktop_capture;
 mod desktop_ocr;
 mod desktop_vision;
 mod diagnostics;
+mod memory_compression;
+mod player_audio_elevation;
 #[cfg(windows)]
 mod vision_image;
 mod vr_overlay;
@@ -433,6 +435,13 @@ fn stop_core(app: &tauri::AppHandle) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let resume_player_audio = match player_audio_elevation::startup() {
+        Ok(resume) => resume,
+        Err(error) => {
+            eprintln!("{error}");
+            return;
+        }
+    };
     let log_dir = diagnostics::desktop_log_dir();
     let _logging_guard = match vrcs_core::init_tracing(Some(&log_dir)) {
         Ok(guard) => Some(guard),
@@ -465,6 +474,10 @@ pub fn run() {
         .manage(connection)
         .manage(diagnostic_state)
         .manage(app_updates::UpdateState::new())
+        .manage(player_audio_elevation::ElevationState::new(
+            resume_player_audio,
+        ))
+        .manage(memory_compression::MemoryCompressionState::default())
         .manage(desktop_capture::ShortcutRecording::default())
         .manage(NativeUiState {
             show_item: Mutex::new(None),
@@ -475,6 +488,11 @@ pub fn run() {
             core_connection,
             core_startup,
             retry_core,
+            player_audio_elevation::player_audio_pending_action,
+            player_audio_elevation::player_audio_consume_action,
+            player_audio_elevation::player_audio_ensure_privileges,
+            memory_compression::player_audio_memory_status,
+            memory_compression::player_audio_set_memory_compression,
             write_glossary_file,
             open_vrcx_repository,
             diagnostics::diagnostic_status,
@@ -735,6 +753,11 @@ mod tests {
         ] {
             for permission in [
                 "allow-core-connection",
+                "allow-player-audio-ensure-privileges",
+                "allow-player-audio-consume-action",
+                "allow-player-audio-pending-action",
+                "allow-player-audio-memory-status",
+                "allow-player-audio-set-memory-compression",
                 "allow-write-glossary-file",
                 "allow-export-error-report",
                 "allow-download-and-install-update",

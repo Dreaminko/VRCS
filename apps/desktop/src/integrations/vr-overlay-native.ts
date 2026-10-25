@@ -24,7 +24,11 @@ export interface VrDashboardNumberField {
 }
 
 export interface VrDashboardViewModel {
+  caption_visibility?: { hidden_tracks: readonly string[]; hidden_source_languages: readonly string[] };
+  max_visible_players?: number | null;
+  caption_notice?: import("../capture/player-audio-notice").PlayerAudioNotice | null;
   labels: {
+    captions?: { me: string; other: string };
     ocr_progress: Record<string, string>;
     wrist_reader: Record<string, string>;
     title: string;

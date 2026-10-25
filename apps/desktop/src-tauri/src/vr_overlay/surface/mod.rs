@@ -95,8 +95,14 @@ pub enum SurfaceView {
         hold_progress: Option<f32>,
     },
     Dialogue {
+        visibility: super::dashboard::CaptionVisibility,
+        max_visible_players: Option<usize>,
+        max_entries: usize,
         controls: ControlSnapshot,
         messages: Vec<WristMessage>,
+        parallel: bool,
+        notice: Option<String>,
+        labels: super::caption_status::CaptionLabels,
         mode: Mode,
         follow_view: bool,
         busy: bool,
@@ -112,8 +118,12 @@ pub enum SurfaceView {
         opacity: f32,
     },
     Headset {
+        visibility: super::dashboard::CaptionVisibility,
+        max_visible_players: Option<usize>,
         dark: bool,
-        text: String,
+        messages: Vec<WristMessage>,
+        notice: Option<String>,
+        labels: super::caption_status::CaptionLabels,
         lines_per_language: u32,
         font_size: u32,
         opacity: f32,
@@ -1173,8 +1183,13 @@ pub fn smoke(app: AppHandle, views: Vec<(SurfaceId, SurfaceView)>) {
                 if hovered.is_none() {
                     let mut updated = view.clone();
                     match &mut updated {
-                        SurfaceView::Headset { text, .. } => {
-                            *text = "Updated caption / 字幕内容已更新".into();
+                        SurfaceView::Headset { messages, .. } => {
+                            *messages = vec![WristMessage {
+                                original: None,
+                                text: "Updated caption / 字幕内容已更新".into(),
+                                side: super::presentation::MessageSide::Left,
+                                speaker: None,
+                            }];
                         }
                         SurfaceView::OcrProgress {
                             progress: Some(progress),
