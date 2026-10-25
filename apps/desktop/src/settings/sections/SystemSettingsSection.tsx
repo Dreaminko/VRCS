@@ -215,6 +215,12 @@ export function SystemSettingsSection({
               onChange={(enabled) => void onUpdateDesktop("launchAtStartup", enabled)}
             />
             <PreferenceToggle
+              title={t("settings.system.runAsAdministrator")}
+              checked={desktopPreferences.runAsAdministrator}
+              disabled={!desktopPreferencesReady || desktopSaveState === "saving"}
+              onChange={(enabled) => void onUpdateDesktop("runAsAdministrator", enabled)}
+            />
+            <PreferenceToggle
               title={t("settings.system.minimizeToTray")}
               checked={desktopPreferences.minimizeToTray}
               disabled={!desktopPreferencesReady || desktopSaveState === "saving"}

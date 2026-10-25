@@ -30,6 +30,7 @@ pub(crate) enum Outcome {
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum Action {
+    LaunchApp,
     StartCapture,
     InspectMemoryCompression,
     DisableMemoryCompression,
@@ -38,6 +39,7 @@ pub(crate) enum Action {
 impl Action {
     fn argument(self) -> &'static str {
         match self {
+            Self::LaunchApp => "launch_app",
             Self::StartCapture => "start_capture",
             Self::InspectMemoryCompression => "inspect_memory_compression",
             Self::DisableMemoryCompression => "disable_memory_compression",
@@ -46,6 +48,7 @@ impl Action {
     }
     fn parse(value: &str) -> Option<Self> {
         [
+            Self::LaunchApp,
             Self::StartCapture,
             Self::InspectMemoryCompression,
             Self::DisableMemoryCompression,
@@ -53,6 +56,13 @@ impl Action {
         ]
         .into_iter()
         .find(|action| action.argument() == value)
+    }
+
+    fn pending_action(self) -> Option<Self> {
+        match self {
+            Self::LaunchApp => None,
+            action => Some(action),
+        }
     }
 }
 
@@ -161,7 +171,7 @@ pub(crate) fn startup() -> Result<Option<Action>, String> {
     {
         let action = handoff.action;
         native::accept(handoff)?;
-        Ok(Some(action))
+        Ok(action.pending_action())
     }
     #[cfg(not(windows))]
     {
@@ -426,6 +436,7 @@ mod tests {
     fn handoff_accepts_only_allowed_actions_numeric_arguments_and_nonce() {
         let nonce = "01234567-0123-4123-8123-012345678901";
         for action in [
+            Action::LaunchApp,
             Action::StartCapture,
             Action::InspectMemoryCompression,
             Action::DisableMemoryCompression,
@@ -447,6 +458,19 @@ mod tests {
             assert!(
                 parse_handoff(&invalid.into_iter().map(str::to_owned).collect::<Vec<_>>()).is_err()
             );
+        }
+    }
+
+    #[test]
+    fn default_administrator_launch_does_not_resume_player_audio() {
+        assert_eq!(Action::LaunchApp.pending_action(), None);
+        for action in [
+            Action::StartCapture,
+            Action::InspectMemoryCompression,
+            Action::DisableMemoryCompression,
+            Action::EnableMemoryCompression,
+        ] {
+            assert_eq!(action.pending_action(), Some(action));
         }
     }
 }

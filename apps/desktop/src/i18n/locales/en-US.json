@@ -1095,6 +1095,7 @@
         "createNewConversation": "Create a new conversation",
         "launchAtStartup": "Launch at startup",
         "launchAtStartupDescription": "Start VRCS automatically after you sign in.",
+        "runAsAdministrator": "Run as administrator by default",
         "minimizeToTray": "Minimize to system tray",
         "minimizeToTrayDescription": "Keep VRCS running in the tray when its window is closed.",
         "runOnboarding": "First-use guide",
@@ -2088,6 +2089,7 @@
         "save": "Could not save desktop preferences.",
         "language": "Could not change the interface language.",
         "autostart_not_applied": "Windows did not apply the startup setting.",
+        "administrator_not_saved": "Could not save the administrator launch preference.",
         "tray_not_saved": "The system tray preference could not be saved."
       },
       "dialog": {

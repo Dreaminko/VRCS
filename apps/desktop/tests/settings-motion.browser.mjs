@@ -43,10 +43,15 @@ for (const [width, systemReduced] of [[1200, false], [380, false], [1200, true]]
         const noop = () => {};
         function Harness() {
           const [vision, setVision] = useState(DEFAULT_VISION_SETTINGS);
+          const [desktopPreferences, setDesktopPreferences] = useState({
+            launchAtStartup: false, runAsAdministrator: false, minimizeToTray: false,
+          });
           return <>
-            <SystemSettingsSection desktopPreferences={{ launchAtStartup: false, minimizeToTray: false }}
+            <SystemSettingsSection desktopPreferences={desktopPreferences}
               desktopPreferencesReady={true} desktopSaveState="saved" desktopMessage="" uiLanguagePreference="en-US"
-              interfaceScale={100} onUpdateDesktop={async () => {}} onInterfaceScaleChange={noop}
+              interfaceScale={100} onUpdateDesktop={async (key, enabled) => {
+                setDesktopPreferences(current => ({ ...current, [key]: enabled }));
+              }} onInterfaceScaleChange={noop}
               onUpdateUiLanguage={async () => {}} onboardingDisabled={false} onStartOnboarding={noop}
               locale="en-US" draft={{ features: {}, conversation_titles: { auto_generate: false, profile_id: null, model: '', output_language: 'auto' }, storage: { subtitle_history_max_bytes: 10485760 } }}
               profiles={[]} onManageProfiles={noop} applySettings={noop} updater={{ phase: 'idle', automaticChecks: false }} />
@@ -79,6 +84,12 @@ for (const [width, systemReduced] of [[1200, false], [380, false], [1200, true]]
         };
         try {
           await settle();
+          const administratorSwitch = document.querySelector('[role="switch"][aria-label="Run as administrator by default"]');
+          check(administratorSwitch?.getAttribute('aria-checked') === 'false', 'Administrator launches are disabled by default');
+          click(administratorSwitch);
+          check(administratorSwitch.getAttribute('aria-checked') === 'true', 'Administrator launches can be enabled');
+          click(administratorSwitch);
+          check(administratorSwitch.getAttribute('aria-checked') === 'false', 'Administrator launches can be disabled');
           const groups = [...document.querySelectorAll('.system-settings-list > .system-settings-group:not(.software-update-settings)')];
           check(groups.length === 4, 'All system settings groups are available');
           check(document.querySelector('.system-settings-list > :last-child').classList.contains('software-update-settings'),

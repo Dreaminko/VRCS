@@ -1095,6 +1095,7 @@
         "createNewConversation": "新建对话",
         "launchAtStartup": "开机启动",
         "launchAtStartupDescription": "登录系统后自动启动 VRCS。",
+        "runAsAdministrator": "默认以管理员运行",
         "minimizeToTray": "最小化到系统托盘",
         "minimizeToTrayDescription": "关闭窗口时让 VRCS 继续在托盘中运行。",
         "runOnboarding": "首次使用指引",
@@ -2088,6 +2089,7 @@
         "save": "无法保存桌面偏好。",
         "language": "无法切换界面语言。",
         "autostart_not_applied": "Windows 开机启动设置未能生效。",
+        "administrator_not_saved": "无法保存默认以管理员运行的偏好。",
         "tray_not_saved": "无法保存系统托盘偏好。"
       },
       "dialog": {

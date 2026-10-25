@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  DesktopPreferenceError,
   defaultDesktopPreferences,
   loadDesktopPreferences,
   updateDesktopPreference,
@@ -10,9 +11,11 @@ import type { DesktopPreferencesRuntime } from "../src/shell/desktop-preferences
 function fakeRuntime(initial?: {
   native?: boolean;
   launchAtStartup?: boolean;
+  runAsAdministrator?: unknown;
   minimizeToTray?: unknown;
 }) {
   let launchAtStartup = initial?.launchAtStartup ?? false;
+  let runAsAdministrator = initial?.runAsAdministrator;
   let minimizeToTray = initial?.minimizeToTray;
   const events: string[] = [];
   const runtime: DesktopPreferencesRuntime = {
@@ -21,6 +24,11 @@ function fakeRuntime(initial?: {
     setLaunchAtStartup: async (enabled) => {
       events.push(`autostart:${enabled}`);
       launchAtStartup = enabled;
+    },
+    getRunAsAdministrator: async () => runAsAdministrator,
+    setRunAsAdministrator: async (enabled) => {
+      events.push(`administrator:${enabled}`);
+      runAsAdministrator = enabled;
     },
     getMinimizeToTray: async () => minimizeToTray,
     setMinimizeToTray: async (enabled) => {
@@ -41,6 +49,7 @@ test("missing tray preferences default to enabled while saved choices are preser
     const { runtime } = fakeRuntime({ minimizeToTray: saved });
     assert.deepEqual(await loadDesktopPreferences(runtime), {
       launchAtStartup: false,
+      runAsAdministrator: false,
       minimizeToTray: expected,
     });
   }
@@ -50,6 +59,7 @@ test("loads autostart from Windows and tray behavior from the preference store",
   const { runtime } = fakeRuntime({ launchAtStartup: true, minimizeToTray: true });
   assert.deepEqual(await loadDesktopPreferences(runtime), {
     launchAtStartup: true,
+    runAsAdministrator: false,
     minimizeToTray: true,
   });
 });
@@ -64,6 +74,39 @@ test("updates and verifies each desktop preference independently", async () => {
   );
   const tray = await updateDesktopPreference(startup, "minimizeToTray", true, runtime);
 
-  assert.deepEqual(tray, { launchAtStartup: true, minimizeToTray: true });
+  assert.deepEqual(tray, { launchAtStartup: true, runAsAdministrator: false, minimizeToTray: true });
   assert.deepEqual(events, ["autostart:true", "tray:true"]);
+});
+
+test("administrator launches require an explicitly enabled preference", async () => {
+  for (const saved of [undefined, null, "true", 1, false, true]) {
+    const { runtime } = fakeRuntime({ runAsAdministrator: saved });
+    const preferences = await loadDesktopPreferences(runtime);
+    assert.equal(preferences.runAsAdministrator, saved === true);
+  }
+});
+
+test("enables and disables administrator launches without changing autostart or tray behavior", async () => {
+  const { events, runtime } = fakeRuntime({ launchAtStartup: true, minimizeToTray: true });
+  const initial = await loadDesktopPreferences(runtime);
+  const enabled = await updateDesktopPreference(initial, "runAsAdministrator", true, runtime);
+  assert.deepEqual(enabled, { ...initial, runAsAdministrator: true });
+  assert.deepEqual(await loadDesktopPreferences(runtime), enabled);
+
+  const disabled = await updateDesktopPreference(enabled, "runAsAdministrator", false, runtime);
+  assert.deepEqual(disabled, initial);
+  assert.deepEqual(await loadDesktopPreferences(runtime), initial);
+  assert.deepEqual(events, ["administrator:true", "administrator:false"]);
+});
+
+test("reports administrator preference writes that did not persist", async () => {
+  for (const enabled of [true, false]) {
+    const { runtime } = fakeRuntime({ runAsAdministrator: !enabled });
+    runtime.setRunAsAdministrator = async () => {};
+    await assert.rejects(
+      updateDesktopPreference(defaultDesktopPreferences, "runAsAdministrator", enabled, runtime),
+      (error: unknown) => error instanceof DesktopPreferenceError
+        && error.code === "desktop.administrator_not_saved",
+    );
+  }
 });

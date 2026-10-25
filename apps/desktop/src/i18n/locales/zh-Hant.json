@@ -1095,6 +1095,7 @@
         "createNewConversation": "建立新對話",
         "launchAtStartup": "開機啟動",
         "launchAtStartupDescription": "登入系統後自動啟動 VRCS。",
+        "runAsAdministrator": "預設以系統管理員身分執行",
         "minimizeToTray": "最小化到系統匣",
         "minimizeToTrayDescription": "關閉視窗時讓 VRCS 繼續在系統匣中執行。",
         "runOnboarding": "首次使用指引",
@@ -2088,6 +2089,7 @@
         "save": "無法儲存桌面偏好設定。",
         "language": "無法切換介面語言。",
         "autostart_not_applied": "Windows 未套用開機啟動設定。",
+        "administrator_not_saved": "無法儲存預設以系統管理員身分執行的偏好。",
         "tray_not_saved": "無法儲存系統匣偏好。"
       },
       "dialog": {

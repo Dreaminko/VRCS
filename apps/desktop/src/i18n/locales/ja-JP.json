@@ -1095,6 +1095,7 @@
         "createNewConversation": "新しい会話を作成",
         "launchAtStartup": "ログイン時に起動",
         "launchAtStartupDescription": "サインイン後に VRCS を自動的に起動します。",
+        "runAsAdministrator": "既定で管理者として実行",
         "minimizeToTray": "システムトレイに最小化",
         "minimizeToTrayDescription": "ウィンドウを閉じても VRCS をトレイで実行し続けます。",
         "runOnboarding": "初回セットアップガイド",
@@ -2088,6 +2089,7 @@
         "save": "デスクトップ設定を保存できませんでした。",
         "language": "表示言語を変更できませんでした。",
         "autostart_not_applied": "Windows にスタートアップ設定が反映されませんでした。",
+        "administrator_not_saved": "管理者として起動する設定を保存できませんでした。",
         "tray_not_saved": "システムトレイの設定を保存できませんでした。"
       },
       "dialog": {

@@ -618,6 +618,25 @@ pub fn run() {
                 }
             }
             launch_core(app.handle()).map_err(std::io::Error::other)?;
+            #[cfg(windows)]
+            if app
+                .store("preferences.json")?
+                .get("runAsAdministrator")
+                .and_then(|value| value.as_bool())
+                .unwrap_or(false)
+            {
+                let app = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    if let Err(error) = player_audio_elevation::player_audio_ensure_privileges(
+                        app,
+                        player_audio_elevation::Action::LaunchApp,
+                    )
+                    .await
+                    {
+                        tracing::warn!(%error, "Default administrator launch failed; continuing without elevation");
+                    }
+                });
+            }
             Ok(())
         })
         .on_page_load(|webview, payload| {
