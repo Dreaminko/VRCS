@@ -9,6 +9,7 @@ mod conversation_titles;
 mod credentials;
 mod db;
 mod domain_events;
+mod downloads;
 mod error;
 mod external_api;
 mod glossary;

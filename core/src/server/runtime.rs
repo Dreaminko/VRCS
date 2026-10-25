@@ -22,6 +22,7 @@ pub(crate) struct ConfigRuntime {
     pub(crate) vision_config_tx: watch::Sender<crate::config::VisionConfig>,
     pub(crate) question_microphone: Arc<AtomicBool>,
     pub(crate) local_ocr: Arc<crate::ocr::LocalOcrRuntime>,
+    pub(crate) download_sources: Arc<crate::downloads::DownloadSources>,
     pub(crate) config_path: PathBuf,
     pub(crate) asr_model_dir_override: Option<PathBuf>,
     pub(crate) config: Arc<RwLock<AppConfig>>,
@@ -39,6 +40,9 @@ pub(crate) struct ConfigRuntimeInput {
 
 impl ConfigRuntime {
     pub(crate) fn new(input: ConfigRuntimeInput) -> Self {
+        let download_sources = Arc::new(crate::downloads::DownloadSources::new(
+            input.config.storage.model_download_source,
+        ));
         let ocr_directory = input
             .config_path
             .parent()
@@ -51,7 +55,11 @@ impl ConfigRuntime {
             )
             .0,
             question_microphone: Arc::new(AtomicBool::new(false)),
-            local_ocr: Arc::new(crate::ocr::LocalOcrRuntime::new(ocr_directory)),
+            local_ocr: Arc::new(
+                crate::ocr::LocalOcrRuntime::new(ocr_directory)
+                    .with_download_sources(Arc::clone(&download_sources)),
+            ),
+            download_sources,
             config_path: input.config_path,
             asr_model_dir_override: input.asr_model_dir_override,
             config: Arc::new(RwLock::new(input.config)),
@@ -92,7 +100,8 @@ impl CaptureRuntime {
             input
                 .vad_model_path
                 .with_file_name(smart_turn::MODEL_FILENAME),
-        );
+        )
+        .with_download_sources(Arc::clone(&input.model_manager.download_sources));
 
         Self {
             live_tx: input.live_tx,

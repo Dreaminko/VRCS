@@ -692,6 +692,12 @@
       }
     },
     "settings": {
+      "downloads": {
+        "source": "Download source",
+        "auto": "Automatic",
+        "official": "Official source",
+        "modelscope": "ModelScope mirror"
+      },
       "reasoning": {
         "strength": "Thinking strength",
         "applicationDefault": "Application default",

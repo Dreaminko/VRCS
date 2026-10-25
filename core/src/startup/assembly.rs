@@ -44,7 +44,15 @@ impl RuntimeAssembly {
             .map_err(|error| format!("Failed to apply subtitle history storage quota: {error}"))?;
 
         let (vad_runtime, vad_prepare_task) = prepare_vad(&plan, preparation).await;
-        let model_manager = Arc::new(asr::ModelManager::new(plan.asr_model_dir.clone())?);
+        let config_runtime = ConfigRuntime::new(ConfigRuntimeInput {
+            config_path: plan.config_path.clone(),
+            asr_model_dir_override: plan.asr_model_dir_override.clone(),
+            config: plan.config.clone(),
+        });
+        let model_manager = Arc::new(
+            asr::ModelManager::new(plan.asr_model_dir.clone())?
+                .with_download_sources(Arc::clone(&config_runtime.download_sources)),
+        );
 
         let (subtitles_tx, _) = broadcast::channel(50);
         let (live_tx, _) = broadcast::channel(100);
@@ -104,11 +112,6 @@ impl RuntimeAssembly {
             watch::channel((effective.vr_overlay.clone(), effective.ocr.clone()));
 
         let qwen_runtime_dir = plan.config_path.with_file_name("runtimes").join("qwen");
-        let config_runtime = ConfigRuntime::new(ConfigRuntimeInput {
-            config_path: plan.config_path,
-            asr_model_dir_override: plan.asr_model_dir_override,
-            config: plan.config,
-        });
         let capture_runtime = CaptureRuntime::new(CaptureRuntimeInput {
             qwen_runtime_dir,
             live_tx,

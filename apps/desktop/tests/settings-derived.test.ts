@@ -22,6 +22,7 @@ const settings: Settings = {
     database_path: "data/vrcs.db",
     model_directory: "models/asr",
     subtitle_history_max_bytes: 100 * 1024 * 1024,
+    model_download_source: "auto",
   },
   audio: {
     sample_rate: 16_000,

@@ -249,6 +249,7 @@ async fn qwen_download_reuses_verified_files_after_a_failed_companion_download()
         FIXTURE,
         &url,
         &client,
+        &crate::downloads::DownloadSources::new(crate::config::ModelDownloadSource::Official),
         cancel.clone(),
         |_, _| {},
     )
@@ -261,9 +262,17 @@ async fn qwen_download_reuses_verified_files_after_a_failed_companion_download()
     );
 
     companion_fails.store(false, Ordering::SeqCst);
-    download_into_staging(root.path(), FIXTURE, &url, &client, cancel, |_, _| {})
-        .await
-        .unwrap();
+    download_into_staging(
+        root.path(),
+        FIXTURE,
+        &url,
+        &client,
+        &crate::downloads::DownloadSources::new(crate::config::ModelDownloadSource::Official),
+        cancel,
+        |_, _| {},
+    )
+    .await
+    .unwrap();
     assert!(is_installed(root.path(), FIXTURE, true).unwrap());
     assert_eq!(main_hits.load(Ordering::SeqCst), 1);
     server.abort();

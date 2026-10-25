@@ -37,6 +37,14 @@ impl LocalOcrRuntime {
         }
     }
 
+    pub(crate) fn with_download_sources(
+        mut self,
+        sources: Arc<crate::downloads::DownloadSources>,
+    ) -> Self {
+        self.assets = self.assets.with_download_sources(sources);
+        self
+    }
+
     pub fn execution_status(&self) -> OcrExecutionStatus {
         self.execution
             .read()

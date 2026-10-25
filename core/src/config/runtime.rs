@@ -16,6 +16,17 @@ pub struct StorageConfig {
     pub model_directory: String,
     #[serde(default = "default_history_max_bytes")]
     pub subtitle_history_max_bytes: u64,
+    #[serde(default)]
+    pub model_download_source: ModelDownloadSource,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ModelDownloadSource {
+    #[default]
+    Auto,
+    Official,
+    Modelscope,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -91,6 +102,7 @@ impl Default for StorageConfig {
             database_path: default_database_path(),
             model_directory: default_model_directory(),
             subtitle_history_max_bytes: default_history_max_bytes(),
+            model_download_source: ModelDownloadSource::Auto,
         }
     }
 }

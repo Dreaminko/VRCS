@@ -109,6 +109,7 @@ impl ModelManager {
                 spec,
                 &base_url,
                 &manager.client,
+                &manager.download_sources,
                 cancel_rx.clone(),
                 |bytes, total| {
                     if let Some(job) = manager

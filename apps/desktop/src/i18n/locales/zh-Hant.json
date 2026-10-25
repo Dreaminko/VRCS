@@ -692,6 +692,12 @@
       }
     },
     "settings": {
+      "downloads": {
+        "source": "下載來源",
+        "auto": "自動選擇",
+        "official": "官方來源",
+        "modelscope": "ModelScope 鏡像"
+      },
       "reasoning": {
         "strength": "思考強度",
         "applicationDefault": "應用程式預設",

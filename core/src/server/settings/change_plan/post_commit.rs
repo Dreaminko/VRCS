@@ -50,6 +50,10 @@ impl PostCommitUpdates {
             .glossary
             .set_config(effective_candidate.glossary.clone());
         *state.config.config.write().expect("config lock") = candidate.clone();
+        state
+            .config
+            .download_sources
+            .set_preference(candidate.storage.model_download_source);
         state.config.features_tx.send_if_modified(|features| {
             if *features == candidate.features {
                 return false;

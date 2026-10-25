@@ -53,7 +53,7 @@ for (const [width, systemReduced] of [[1200, false], [380, false], [1200, true]]
                 setDesktopPreferences(current => ({ ...current, [key]: enabled }));
               }} onInterfaceScaleChange={noop}
               onUpdateUiLanguage={async () => {}} onboardingDisabled={false} onStartOnboarding={noop}
-              locale="en-US" draft={{ features: {}, conversation_titles: { auto_generate: false, profile_id: null, model: '', output_language: 'auto' }, storage: { subtitle_history_max_bytes: 10485760 } }}
+              locale="en-US" draft={{ features: {}, conversation_titles: { auto_generate: false, profile_id: null, model: '', output_language: 'auto' }, storage: { subtitle_history_max_bytes: 10485760, model_download_source: 'auto' } }}
               profiles={[]} onManageProfiles={noop} applySettings={noop} updater={{ phase: 'idle', automaticChecks: false }} />
             <VisionSettingsCard config={vision} profiles={[]} disabled={false} vrAvailable={true}
               providerDefinitions={[]} recognition={{ backend: 'qwen_local_managed', active_profile_id: null, language: 'auto',

@@ -230,8 +230,12 @@ export function OnboardingWizard({
             {step === 0 && (
               <WelcomeStep
                 languagePreference={languagePreference}
-                busy={busy}
+                busy={operationBusy}
                 onUpdateLanguage={(preference) => void updateLanguage(preference)}
+                downloadSource={settings.storage.model_download_source}
+                onUpdateDownloadSource={(source) => void audio.updateSettings((current) => ({
+                  ...current, storage: { ...current.storage, model_download_source: source },
+                }))}
               />
             )}
 

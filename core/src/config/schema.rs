@@ -89,6 +89,34 @@ mod tests {
     use crate::config::{GlossaryCategory, GlossaryEntry, GlossarySource, TranslationPromptConfig};
 
     #[test]
+    fn missing_model_download_source_defaults_to_auto() {
+        let mut value = serde_json::to_value(AppConfig::default()).unwrap();
+        value["storage"]
+            .as_object_mut()
+            .unwrap()
+            .remove("model_download_source");
+        let config: AppConfig = serde_json::from_value(value).unwrap();
+        let saved = serde_json::to_value(config).unwrap();
+        assert_eq!(saved["storage"]["model_download_source"], "auto");
+    }
+
+    #[test]
+    fn model_download_source_round_trips_and_rejects_unknown_sources() {
+        for source in ["auto", "official", "modelscope"] {
+            let mut value = serde_json::to_value(AppConfig::default()).unwrap();
+            value["storage"]["model_download_source"] = source.into();
+            let config: AppConfig = serde_json::from_value(value).unwrap();
+            assert_eq!(
+                serde_json::to_value(config).unwrap()["storage"]["model_download_source"],
+                source
+            );
+        }
+        let mut value = serde_json::to_value(AppConfig::default()).unwrap();
+        value["storage"]["model_download_source"] = "unknown".into();
+        assert!(serde_json::from_value::<AppConfig>(value).is_err());
+    }
+
+    #[test]
     fn default_config_json_contract_is_stable() {
         let value = serde_json::to_value(AppConfig::default()).unwrap();
         assert_keys(
@@ -121,6 +149,7 @@ mod tests {
             [
                 "database_path",
                 "model_directory",
+                "model_download_source",
                 "subtitle_history_max_bytes",
             ],
         );

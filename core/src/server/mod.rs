@@ -7,6 +7,7 @@ mod chatbox;
 mod cloud;
 mod conversations;
 mod dictionary;
+mod downloads;
 mod external;
 mod feature_gate;
 mod glossaries;
@@ -254,6 +255,8 @@ pub fn router(state: Arc<AppState>) -> Router {
             "/api/settings",
             get(settings::get_settings).put(settings::update_settings),
         )
+        .route("/api/downloads/sources", get(downloads::sources))
+        .route("/api/downloads/probe", post(downloads::probe))
         .route(
             "/api/external-api/token",
             get(external::token_status)

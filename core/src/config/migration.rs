@@ -70,6 +70,7 @@ fn migrate_v1(raw: &serde_json::Value) -> AppConfig {
                 .map(str::to_owned)
                 .unwrap_or_else(|| "models/whisper".into()),
             subtitle_history_max_bytes: defaults.storage.subtitle_history_max_bytes,
+            model_download_source: defaults.storage.model_download_source,
         },
         audio: AudioConfig {
             sample_rate: raw

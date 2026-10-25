@@ -8,6 +8,8 @@ import type {
 } from "../integrations/types";
 import type { AsrSettings } from "../providers/types";
 
+export type ModelDownloadSource = "auto" | "official" | "modelscope";
+
 export interface Settings {
   schema_version: 34;
   conversation_titles: ConversationTitleSettings;
@@ -20,6 +22,7 @@ export interface Settings {
     database_path: string;
     model_directory: string;
     subtitle_history_max_bytes: number;
+    model_download_source: ModelDownloadSource;
   };
   audio: {
     sample_rate: number;

@@ -36,6 +36,7 @@ pub struct SmartTurnRuntime {
     model_path: Arc<PathBuf>,
     analyzer: Arc<Mutex<Option<SmartTurnAnalyzer>>>,
     prepare_lock: Arc<tokio::sync::Mutex<()>>,
+    sources: Arc<crate::downloads::DownloadSources>,
 }
 
 impl SmartTurnRuntime {
@@ -44,12 +45,21 @@ impl SmartTurnRuntime {
             model_path: Arc::new(model_path),
             analyzer: Arc::new(Mutex::new(None)),
             prepare_lock: Arc::new(tokio::sync::Mutex::new(())),
+            sources: Arc::new(crate::downloads::DownloadSources::new(Default::default())),
         }
+    }
+
+    pub(crate) fn with_download_sources(
+        mut self,
+        sources: Arc<crate::downloads::DownloadSources>,
+    ) -> Self {
+        self.sources = sources;
+        self
     }
 
     pub async fn prepare(&self) -> Result<(), String> {
         let _guard = self.prepare_lock.lock().await;
-        ensure_model(&self.model_path).await?;
+        ensure_model(&self.model_path, &self.sources).await?;
         let analyzer = Arc::clone(&self.analyzer);
         let model_path = Arc::clone(&self.model_path);
         tokio::task::spawn_blocking(move || {
@@ -264,7 +274,10 @@ fn build_mel_filters() -> Vec<f64> {
     filters
 }
 
-pub async fn ensure_model(model_path: &Path) -> Result<(), String> {
+async fn ensure_model(
+    model_path: &Path,
+    sources: &crate::downloads::DownloadSources,
+) -> Result<(), String> {
     if model_file_is_valid(model_path).await? {
         return Ok(());
     }
@@ -290,8 +303,28 @@ pub async fn ensure_model(model_path: &Path) -> Result<(), String> {
         .read_timeout(Duration::from_secs(60))
         .build()
         .map_err(|error| error.to_string())?;
+    let mut last_error = "No Smart Turn model download source is available".to_string();
+    for url in sources.urls(MODEL_URL).await {
+        match download_model(&client, &url, &partial, model_path).await {
+            Ok(()) => return Ok(()),
+            Err(error) => {
+                let _ = tokio::fs::remove_file(&partial).await;
+                tracing::warn!(%error, "Smart Turn model download source failed");
+                last_error = error;
+            }
+        }
+    }
+    Err(last_error)
+}
+
+async fn download_model(
+    client: &reqwest::Client,
+    url: &str,
+    partial: &Path,
+    model_path: &Path,
+) -> Result<(), String> {
     let response = client
-        .get(MODEL_URL)
+        .get(url)
         .send()
         .await
         .map_err(|error| format!("Smart Turn model download failed: {error}"))?
@@ -304,7 +337,7 @@ pub async fn ensure_model(model_path: &Path) -> Result<(), String> {
         return Err("Smart Turn model download size does not match the pinned version".into());
     }
 
-    let mut file = tokio::fs::File::create(&partial)
+    let mut file = tokio::fs::File::create(partial)
         .await
         .map_err(|error| format!("Failed to create Smart Turn temporary file: {error}"))?;
     let mut stream = response.bytes_stream();
@@ -316,7 +349,6 @@ pub async fn ensure_model(model_path: &Path) -> Result<(), String> {
             .checked_add(chunk.len() as u64)
             .ok_or_else(|| "Smart Turn model size overflow".to_string())?;
         if downloaded > MODEL_BYTES {
-            let _ = tokio::fs::remove_file(&partial).await;
             return Err("Smart Turn model download exceeds the pinned version size".into());
         }
         hasher.update(&chunk);
@@ -333,16 +365,13 @@ pub async fn ensure_model(model_path: &Path) -> Result<(), String> {
     drop(file);
 
     let digest = format!("{:x}", hasher.finalize());
-    if let Err(error) = validate_model_metadata(downloaded, &digest) {
-        let _ = tokio::fs::remove_file(&partial).await;
-        return Err(error);
-    }
+    validate_model_metadata(downloaded, &digest)?;
     if model_path.exists() {
         tokio::fs::remove_file(model_path)
             .await
             .map_err(|error| format!("Failed to replace invalid Smart Turn model: {error}"))?;
     }
-    tokio::fs::rename(&partial, model_path)
+    tokio::fs::rename(partial, model_path)
         .await
         .map_err(|error| format!("Failed to install Smart Turn model: {error}"))?;
     Ok(())

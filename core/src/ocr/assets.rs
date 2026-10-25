@@ -57,6 +57,7 @@ pub(super) struct ModelAssets {
     status: Arc<RwLock<ModelStatus>>,
     prepare_lock: Arc<tokio::sync::Mutex<()>>,
     download_task: Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>,
+    sources: Arc<crate::downloads::DownloadSources>,
 }
 
 impl ModelAssets {
@@ -71,7 +72,16 @@ impl ModelAssets {
             })),
             prepare_lock: Arc::new(tokio::sync::Mutex::new(())),
             download_task: Default::default(),
+            sources: Arc::new(crate::downloads::DownloadSources::new(Default::default())),
         }
+    }
+
+    pub fn with_download_sources(
+        mut self,
+        sources: Arc<crate::downloads::DownloadSources>,
+    ) -> Self {
+        self.sources = sources;
+        self
     }
 
     pub fn snapshot(&self) -> ModelStatus {
@@ -203,7 +213,8 @@ impl ModelAssets {
             .await
             .map_err(|_| "Could not create the OCR model directory")?;
         let client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(180))
+            .connect_timeout(std::time::Duration::from_secs(15))
+            .read_timeout(std::time::Duration::from_secs(60))
             .build()
             .map_err(|_| "Could not create the OCR model download client")?;
         for asset in &ASSETS {
@@ -217,24 +228,53 @@ impl ModelAssets {
                 continue;
             }
             let temporary = path.with_extension("download.tmp");
-            let result = self.download_file(&client, asset, &temporary, &path).await;
-            if result.is_err() {
-                let _ = tokio::fs::remove_file(&temporary).await;
-            }
-            result?;
+            let urls = self.sources.urls(asset.url).await;
+            self.download_from_sources(&client, asset, &urls, &temporary, &path)
+                .await?;
         }
         Ok(())
+    }
+
+    async fn download_from_sources(
+        &self,
+        client: &reqwest::Client,
+        asset: &Asset,
+        urls: &[String],
+        temporary: &Path,
+        path: &Path,
+    ) -> Result<(), String> {
+        let completed = self.snapshot().downloaded_bytes;
+        let mut last_error = "No OCR model download source is available".to_string();
+        for url in urls {
+            self.status
+                .write()
+                .unwrap_or_else(|error| error.into_inner())
+                .downloaded_bytes = completed;
+            match self
+                .download_file(client, asset, url, temporary, path)
+                .await
+            {
+                Ok(()) => return Ok(()),
+                Err(error) => {
+                    let _ = tokio::fs::remove_file(temporary).await;
+                    tracing::warn!(asset = asset.name, %error, "OCR model download source failed");
+                    last_error = error;
+                }
+            }
+        }
+        Err(last_error)
     }
 
     async fn download_file(
         &self,
         client: &reqwest::Client,
         asset: &Asset,
+        url: &str,
         temporary: &Path,
         path: &Path,
     ) -> Result<(), String> {
         let response = client
-            .get(asset.url)
+            .get(url)
             .send()
             .await
             .map_err(|_| format!("Could not download OCR asset {}", asset.name))?
@@ -399,6 +439,40 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn ocr_fallback_resets_progress_after_a_corrupt_mirror_response() {
+        use axum::{routing::get, Router};
+        let app = Router::new()
+            .route("/mirror", get(|| async { "abd" }))
+            .route("/official", get(|| async { "abc" }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let root = tempfile::tempdir().unwrap();
+        let assets = ModelAssets::new(root.path().into());
+        assets.status.write().unwrap().downloaded_bytes = 7;
+        let asset = Asset {
+            name: "model.onnx",
+            url: "unused",
+            bytes: 3,
+            sha256: "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+        };
+        let path = root.path().join(asset.name);
+        let temporary = path.with_extension("download.tmp");
+        let urls = [
+            format!("http://{address}/mirror"),
+            format!("http://{address}/official"),
+        ];
+        assets
+            .download_from_sources(&reqwest::Client::new(), &asset, &urls, &temporary, &path)
+            .await
+            .unwrap();
+        assert_eq!(std::fs::read(path).unwrap(), b"abc");
+        assert_eq!(assets.snapshot().downloaded_bytes, 10);
+        assert!(!temporary.exists());
+        server.abort();
+    }
+
+    #[tokio::test]
     async fn ocr_model_download_verifies_before_replacing_an_existing_file() {
         use axum::{routing::get, Router};
         use std::sync::atomic::{AtomicBool, Ordering};
@@ -435,14 +509,14 @@ mod tests {
         };
         let client = reqwest::Client::new();
         assert!(assets
-            .download_file(&client, &asset, &temporary, &path)
+            .download_file(&client, &asset, asset.url, &temporary, &path)
             .await
             .unwrap_err()
             .contains("integrity"));
         assert_eq!(std::fs::read(&path).unwrap(), b"previous");
         corrupt.store(false, Ordering::Release);
         assets
-            .download_file(&client, &asset, &temporary, &path)
+            .download_file(&client, &asset, asset.url, &temporary, &path)
             .await
             .unwrap();
         assert_eq!(std::fs::read(&path).unwrap(), b"abc");

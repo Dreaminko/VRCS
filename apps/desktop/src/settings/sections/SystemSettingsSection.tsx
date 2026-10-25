@@ -23,6 +23,7 @@ import type { ApplySettings, SaveState } from "../settings-types";
 import { PreferenceToggle, Select } from "../SettingsControls";
 import { StorageSettingsSection } from "./StorageSettingsSection";
 import { FeatureSettingsCard } from "../system/FeatureSettingsCard";
+import { DownloadSourceSettings } from "../system/DownloadSourceSettings";
 import { SoftwareUpdateSettings } from "../../updates/SoftwareUpdateSettings";
 import type { AppUpdaterState } from "../../updates/useAppUpdater";
 import { ConversationTitleSettingsSection } from "./ConversationTitleSettingsSection";
@@ -119,6 +120,10 @@ export function SystemSettingsSection({
               onChange={(value) => void onUpdateUiLanguage(value as UiLanguagePreference)}
             />
           </div>
+          <DownloadSourceSettings source={draft.storage.model_download_source}
+            onChange={(source) => applySettings((current) => ({
+              ...current, storage: { ...current.storage, model_download_source: source },
+            }))} />
           <div className="system-theme-setting">
             <div>
               <strong>{t("settings.system.theme")}</strong>

@@ -4,15 +4,21 @@ import { useTranslation } from "react-i18next";
 import type { UiLanguagePreference } from "../../app/ui-language";
 import { localeCatalog } from "../../i18n/catalog";
 import { Select } from "../../settings/SettingsControls";
+import { DownloadSourceSettings } from "../../settings/system/DownloadSourceSettings";
+import type { ModelDownloadSource } from "../../settings/types";
 
 export function WelcomeStep({
   languagePreference,
   busy,
   onUpdateLanguage,
+  downloadSource,
+  onUpdateDownloadSource,
 }: {
   languagePreference: UiLanguagePreference;
   busy: boolean;
   onUpdateLanguage: (preference: UiLanguagePreference) => void;
+  downloadSource: ModelDownloadSource;
+  onUpdateDownloadSource: (source: ModelDownloadSource) => void;
 }) {
   const { t } = useTranslation();
 
@@ -38,6 +44,7 @@ export function WelcomeStep({
           onChange={(value) => onUpdateLanguage(value as UiLanguagePreference)}
         />
       </div>
+      <DownloadSourceSettings source={downloadSource} disabled={busy} onChange={onUpdateDownloadSource} />
     </div>
   );
 }

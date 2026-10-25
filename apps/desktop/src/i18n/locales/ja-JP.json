@@ -692,6 +692,12 @@
       }
     },
     "settings": {
+      "downloads": {
+        "source": "ダウンロード元",
+        "auto": "自動選択",
+        "official": "公式サイト",
+        "modelscope": "ModelScope ミラー"
+      },
       "reasoning": {
         "strength": "思考の強度",
         "applicationDefault": "アプリの既定値",

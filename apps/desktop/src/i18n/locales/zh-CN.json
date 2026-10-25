@@ -692,6 +692,12 @@
       }
     },
     "settings": {
+      "downloads": {
+        "source": "下载源",
+        "auto": "自动选择",
+        "official": "官方源",
+        "modelscope": "ModelScope 镜像"
+      },
       "reasoning": {
         "strength": "思考强度",
         "applicationDefault": "应用默认",

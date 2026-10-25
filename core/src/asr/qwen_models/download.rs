@@ -13,6 +13,7 @@ pub(crate) async fn download_into_staging(
     spec: PackageSpec,
     base_url: &str,
     client: &reqwest::Client,
+    sources: &crate::downloads::DownloadSources,
     mut cancel: watch::Receiver<bool>,
     mut on_progress: impl FnMut(u64, u64),
 ) -> Result<(), String> {
@@ -57,26 +58,67 @@ pub(crate) async fn download_into_staging(
         url.path_segments_mut()
             .map_err(|_| "Invalid Qwen ASR download URL".to_string())?
             .push(asset.name);
-        let result = download_file(
+        let urls = tokio::select! {
+            _ = cancel.changed() => return Err("Qwen ASR download was cancelled".into()),
+            urls = sources.urls(url.as_str()) => urls,
+        };
+        download_file_from_sources(
             client,
-            url,
+            &urls,
             *asset,
             &path,
             &temporary,
             &mut cancel,
             |bytes| on_progress(completed + bytes, total),
         )
-        .await;
-        if result.is_err() {
-            let _ = tokio::fs::remove_file(&temporary).await;
-        }
-        result?;
+        .await?;
         completed += asset.bytes;
     }
     if *cancel.borrow() {
         return Err("Qwen ASR download was cancelled".into());
     }
     activate_staging(root, spec)
+}
+
+async fn download_file_from_sources(
+    client: &reqwest::Client,
+    urls: &[String],
+    asset: AssetSpec,
+    path: &Path,
+    temporary: &PathBuf,
+    cancel: &mut watch::Receiver<bool>,
+    mut on_progress: impl FnMut(u64),
+) -> Result<(), String> {
+    let mut last_error = "No model download source is available".to_string();
+    for url in urls {
+        if *cancel.borrow() {
+            return Err("Qwen ASR download was cancelled".into());
+        }
+        on_progress(0);
+        let url = reqwest::Url::parse(url).map_err(|error| error.to_string())?;
+        match download_file(
+            client,
+            url,
+            asset,
+            path,
+            temporary,
+            cancel,
+            &mut on_progress,
+        )
+        .await
+        {
+            Ok(()) => return Ok(()),
+            Err(error) => {
+                let _ = tokio::fs::remove_file(temporary).await;
+                last_error = error;
+                if *cancel.borrow() {
+                    break;
+                }
+                tracing::warn!(asset = asset.name, %last_error, "model download source failed");
+            }
+        }
+    }
+    Err(last_error)
 }
 
 pub(crate) async fn download_file(
@@ -155,4 +197,117 @@ pub(crate) async fn download_file(
         .await
         .map_err(|error| format!("Could not stage Qwen ASR asset: {error}"))?;
     cache_verified_asset(path, asset, digest)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::{http::StatusCode, routing::get, Router};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+
+    const ASSET: AssetSpec = AssetSpec {
+        name: "fixture.gguf",
+        bytes: 3,
+        sha256: "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+    };
+
+    #[tokio::test]
+    async fn fallback_retries_http_errors_and_bad_checksums_before_installing() {
+        let hits = Arc::new(AtomicUsize::new(0));
+        let served = Arc::clone(&hits);
+        let app = Router::new()
+            .route(
+                "/blocked",
+                get(|| async { StatusCode::SERVICE_UNAVAILABLE }),
+            )
+            .route("/corrupt", get(|| async { "abd" }))
+            .route(
+                "/official",
+                get(move || {
+                    served.fetch_add(1, Ordering::SeqCst);
+                    async { "abc" }
+                }),
+            );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let root = tempfile::tempdir().unwrap();
+        let temporary = root.path().join("fixture.part");
+        let path = root.path().join(ASSET.name);
+        let client = reqwest::Client::new();
+        let (_cancel_tx, mut cancel) = watch::channel(false);
+        for failed in ["blocked", "corrupt"] {
+            let urls = [
+                format!("http://{address}/{failed}"),
+                format!("http://{address}/official"),
+            ];
+            download_file_from_sources(
+                &client,
+                &urls,
+                ASSET,
+                &path,
+                &temporary,
+                &mut cancel,
+                |_| {},
+            )
+            .await
+            .unwrap();
+            assert_eq!(std::fs::read(&path).unwrap(), b"abc");
+            assert!(!temporary.exists());
+        }
+        assert_eq!(hits.load(Ordering::SeqCst), 2);
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn cancellation_during_a_request_never_starts_the_fallback() {
+        let hits = Arc::new(AtomicUsize::new(0));
+        let served = Arc::clone(&hits);
+        let (cancel_tx, mut cancel) = watch::channel(false);
+        let app = Router::new()
+            .route(
+                "/slow",
+                get(move || {
+                    let cancel_tx = cancel_tx.clone();
+                    async move {
+                        cancel_tx.send(true).unwrap();
+                        std::future::pending::<String>().await
+                    }
+                }),
+            )
+            .route(
+                "/official",
+                get(move || {
+                    served.fetch_add(1, Ordering::SeqCst);
+                    async { "abc" }
+                }),
+            );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let root = tempfile::tempdir().unwrap();
+        let urls = [
+            format!("http://{address}/slow"),
+            format!("http://{address}/official"),
+        ];
+        let result = tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            download_file_from_sources(
+                &reqwest::Client::new(),
+                &urls,
+                ASSET,
+                &root.path().join(ASSET.name),
+                &root.path().join("fixture.part"),
+                &mut cancel,
+                |_| {},
+            ),
+        )
+        .await
+        .unwrap();
+        assert!(result.unwrap_err().contains("cancelled"));
+        assert_eq!(hits.load(Ordering::SeqCst), 0);
+        assert!(!root.path().join(ASSET.name).exists());
+        server.abort();
+    }
 }

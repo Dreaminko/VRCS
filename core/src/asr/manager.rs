@@ -23,6 +23,7 @@ impl DownloadJob {
 
 pub struct ModelManager {
     model_dir: RwLock<PathBuf>,
+    pub(crate) download_sources: Arc<crate::downloads::DownloadSources>,
     pub(super) client: reqwest::Client,
     pub(super) jobs: Mutex<HashMap<String, DownloadJob>>,
 }
@@ -37,6 +38,7 @@ impl ModelManager {
         })?;
         Ok(Self {
             model_dir: RwLock::new(model_dir),
+            download_sources: Arc::new(crate::downloads::DownloadSources::new(Default::default())),
             client: reqwest::Client::builder()
                 .connect_timeout(Duration::from_secs(15))
                 .read_timeout(Duration::from_secs(60))
@@ -44,6 +46,14 @@ impl ModelManager {
                 .map_err(|error| format!("Failed to create model download client: {error}"))?,
             jobs: Mutex::new(HashMap::new()),
         })
+    }
+
+    pub(crate) fn with_download_sources(
+        mut self,
+        sources: Arc<crate::downloads::DownloadSources>,
+    ) -> Self {
+        self.download_sources = sources;
+        self
     }
 
     pub fn model_dir(&self) -> PathBuf {
