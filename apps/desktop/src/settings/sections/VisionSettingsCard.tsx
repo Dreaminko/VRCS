@@ -118,13 +118,13 @@ export function VisionSettingsCard({ config, profiles, recognition, providerDefi
             onChange({ model: nextModel, reasoning_control });
           }} />
         <button className="secondary-button" type="button" aria-label={t("settings.apiManagement.refreshModels")}
-          title={t("settings.apiManagement.refreshModels")} disabled={disabled || !selected || loading}
+          data-tooltip={t("settings.apiManagement.refreshModels")} disabled={disabled || !selected || loading}
           onClick={() => void refresh()}>
           <RefreshCw size={15} className={loading ? "spin" : undefined} />
         </button>
         <button className="secondary-button" type="button"
           aria-label={t(testing ? "settings.vision.testing" : "settings.vision.testButton")}
-          title={`${t(testing ? "settings.vision.testing" : "settings.vision.testButton")}\n${t("settings.vision.testDescription")}`}
+          data-tooltip={`${t(testing ? "settings.vision.testing" : "settings.vision.testButton")}\n${t("settings.vision.testDescription")}`}
           disabled={disabled || testing || !selected || !config.model.trim()}
           onClick={() => void testImage()}>
           {testing ? <RefreshCw size={15} className="spin" /> : <FlaskConical size={15} />}
@@ -192,7 +192,7 @@ export function VisionSettingsCard({ config, profiles, recognition, providerDefi
 
             onChange={(desktop_shortcut) => onChange({ desktop_shortcut })} />
 
-          {desktopStatus?.shortcut_error && <p className="vr-overlay-native-error" role="alert" title={desktopStatus.shortcut_error}>
+          {desktopStatus?.shortcut_error && <p className="vr-overlay-native-error" role="alert" data-tooltip={desktopStatus.shortcut_error}>
             {t(`visionWindow.errors.${desktopStatus.shortcut_error.replace("desktop_vision.", "")}`, { defaultValue: t("visionWindow.errors.shortcutFailed") })}
           </p>}
           {config.enabled && config.desktop_enabled && desktopStatus?.available === false && <p className="vision-settings-note">{t("visionWindow.errors.unavailable")}</p>}

@@ -100,7 +100,7 @@ export function SelectionAiPopover({
         <span className="selection-panel-icon" aria-hidden="true"><Sparkles size={16} /></span>
         <div>
           <h2>{t("selection.ai.title")}</h2>
-          <p title={target.selectedText}>{target.selectedText}</p>
+          <p data-tooltip={target.selectedText}>{target.selectedText}</p>
         </div>
         <button type="button" aria-label={t("selection.close")} onClick={onClose}><X size={18} /></button>
       </header>

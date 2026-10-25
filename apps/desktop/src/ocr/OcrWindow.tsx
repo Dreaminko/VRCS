@@ -57,7 +57,7 @@ export function OcrWindow() {
     <header className="window-chrome ocr-window-header" data-tauri-drag-region>
       <h1 data-tauri-drag-region>{t("ocrWindow.title")}</h1>
       <div className="window-actions">
-        <button className="window-close" type="button" aria-label={t("ocrWindow.close")} title={t("ocrWindow.close")} onClick={close}><X size={15} strokeWidth={1.8} /></button>
+        <button className="window-close" type="button" aria-label={t("ocrWindow.close")} data-tooltip={t("ocrWindow.close")} onClick={close}><X size={15} strokeWidth={1.8} /></button>
       </div>
     </header>
     <div className="ocr-window-content" aria-busy={!status || processing}>

@@ -128,7 +128,8 @@
   content: attr(data-tooltip);
 }
 .dock-button::after,
-.settings-tab-tooltip {
+.settings-tab-tooltip,
+.control-tooltip {
   width: max-content;
   max-width: min(220px, calc(100vw - 24px));
   padding: 8px 10px;

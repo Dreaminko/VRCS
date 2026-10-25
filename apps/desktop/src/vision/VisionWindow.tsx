@@ -106,7 +106,7 @@ export function VisionWindow() {
     <header className="window-chrome vision-window-header" data-tauri-drag-region>
       <h1 data-tauri-drag-region><ScanEye size={15} aria-hidden="true" />{t("visionWindow.title")}</h1>
       <div className="window-actions">
-        <button className="window-close" type="button" aria-label={t("visionWindow.close")} title={t("visionWindow.close")} onClick={close}><X size={15} strokeWidth={1.8} /></button>
+        <button className="window-close" type="button" aria-label={t("visionWindow.close")} data-tooltip={t("visionWindow.close")} onClick={close}><X size={15} strokeWidth={1.8} /></button>
       </div>
     </header>
     <div className="vision-window-content" aria-busy={!status || busy || pending}>
@@ -118,7 +118,7 @@ export function VisionWindow() {
           {errorCode && <details><summary>{t("visionWindow.errorDetail")}</summary><p>{errorCode}{status?.error_detail ? `\n${status.error_detail}` : ""}</p></details>}
         </div>
       </div>}
-      {shortcutError && <p className="vision-window-notice" role="alert" title={shortcutError}>
+      {shortcutError && <p className="vision-window-notice" role="alert" data-tooltip={shortcutError}>
         <TriangleAlert size={15} aria-hidden="true" />
         {t(`visionWindow.errors.${shortcutError.replace("desktop_vision.", "")}`, { defaultValue: t("visionWindow.errors.shortcutFailed") })}
       </p>}

@@ -189,7 +189,7 @@ export function SystemSettingsSection({
                   type="button"
                   disabled={interfaceScale >= INTERFACE_SCALE_MAX}
                   aria-label={`${t("settings.system.interfaceScale")} +${INTERFACE_SCALE_STEP}%`}
-                  title={`+${INTERFACE_SCALE_STEP}%`}
+                  data-tooltip={`+${INTERFACE_SCALE_STEP}%`}
                   onClick={() => stepInterfaceScale(1)}
                 >
                   <ChevronUp size={13} strokeWidth={2} />
@@ -198,7 +198,7 @@ export function SystemSettingsSection({
                   type="button"
                   disabled={interfaceScale <= INTERFACE_SCALE_MIN}
                   aria-label={`${t("settings.system.interfaceScale")} -${INTERFACE_SCALE_STEP}%`}
-                  title={`-${INTERFACE_SCALE_STEP}%`}
+                  data-tooltip={`-${INTERFACE_SCALE_STEP}%`}
                   onClick={() => stepInterfaceScale(-1)}
                 >
                   <ChevronDown size={13} strokeWidth={2} />

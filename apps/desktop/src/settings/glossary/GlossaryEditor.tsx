@@ -369,7 +369,7 @@ export function GlossaryEditor({
                     className="api-row-icon-button"
                     type="button"
                     aria-label={t("settings.glossary.moveGlossaryUp", { name })}
-                    title={t("settings.glossary.moveUp")}
+                    data-tooltip={t("settings.glossary.moveUp")}
                     disabled={disabled || index === 0}
                     onClick={() => moveSource(index, -1)}
                   >
@@ -379,7 +379,7 @@ export function GlossaryEditor({
                     className="api-row-icon-button"
                     type="button"
                     aria-label={t("settings.glossary.moveGlossaryDown", { name })}
-                    title={t("settings.glossary.moveDown")}
+                    data-tooltip={t("settings.glossary.moveDown")}
                     disabled={disabled || index === sources.length - 1}
                     onClick={() => moveSource(index, 1)}
                   >

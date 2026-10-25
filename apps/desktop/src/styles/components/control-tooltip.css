@@ -1,0 +1,38 @@
+.control-tooltip {
+  position: fixed;
+  z-index: 1600;
+  max-height: var(--tooltip-max-height);
+  pointer-events: none;
+  white-space: pre-line;
+  animation: control-tooltip-in 150ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+.control-tooltip-label {
+  display: block;
+  max-height: calc(var(--tooltip-max-height) - 18px);
+  overflow: hidden;
+}
+.control-tooltip::before {
+  position: absolute;
+  top: -4px;
+  left: var(--tooltip-arrow-left, 50%);
+  width: 7px;
+  height: 7px;
+  transform: translateX(-50%) rotate(45deg);
+  border-top: 1px solid var(--border);
+  border-left: 1px solid var(--border);
+  background: var(--surface);
+  content: "";
+}
+.control-tooltip[data-side="top"]::before {
+  top: auto;
+  bottom: -4px;
+  transform: translateX(-50%) rotate(225deg);
+}
+.control-tooltip.keyboard { animation: none; }
+@keyframes control-tooltip-in {
+  from { opacity: 0; transform: translateY(-3px) scale(0.985); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .control-tooltip { animation: none; }
+}

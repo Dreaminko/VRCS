@@ -55,11 +55,11 @@ export function WindowChrome() {
     <header className="window-chrome" data-maximized={isMaximized} data-tauri-drag-region aria-label={t("window.controls")}>
       <div className="window-drag-region" data-tauri-drag-region />
       <div className="window-actions">
-        <button type="button" aria-label={t("window.minimize")} title={t("window.minimizeShort")} onClick={() => void runWindowAction("minimize")}><Minus size={15} strokeWidth={1.8} /></button>
-        <button type="button" aria-label={t("window.maximize")} title={t("window.maximizeShort")} onClick={() => void runWindowAction("maximize")}>
+        <button type="button" aria-label={t("window.minimize")} data-tooltip={t("window.minimizeShort")} onClick={() => void runWindowAction("minimize")}><Minus size={15} strokeWidth={1.8} /></button>
+        <button type="button" aria-label={t("window.maximize")} data-tooltip={t("window.maximizeShort")} onClick={() => void runWindowAction("maximize")}>
           {isMaximized ? <Copy size={12} strokeWidth={1.7} /> : <Square size={12} strokeWidth={1.7} />}
         </button>
-        <button className="window-close" type="button" aria-label={t("window.close")} title={t("common.close")} onClick={() => void runWindowAction("close")}><X size={15} strokeWidth={1.8} /></button>
+        <button className="window-close" type="button" aria-label={t("window.close")} data-tooltip={t("common.close")} onClick={() => void runWindowAction("close")}><X size={15} strokeWidth={1.8} /></button>
       </div>
     </header>
   );

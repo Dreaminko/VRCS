@@ -444,7 +444,7 @@ const LearningMaterialRow = memo(function LearningMaterialRow({
       />
       <div
         className="learning-material-meta"
-        title={sourceLabel}
+        data-tooltip={sourceLabel}
         onClick={(event) => handleToggle(event.shiftKey)}
       >
         <span className={`learning-material-source learning-material-source-${sourceKind}`} aria-label={sourceLabel}>
@@ -477,7 +477,7 @@ const LearningMaterialRow = memo(function LearningMaterialRow({
           className={`learning-add-action${captured ? " captured" : ""}`}
           type="button"
           disabled={collecting}
-          title={captured ? t("learning.materials.openCollected") : undefined}
+          data-tooltip={captured ? t("learning.materials.openCollected") : undefined}
           onMouseUp={(event) => event.stopPropagation()}
           onClick={() => void workspace.collectSubtitle(subtitle).then((item) => {
             if (!item) return;

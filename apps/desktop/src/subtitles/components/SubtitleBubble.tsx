@@ -232,7 +232,7 @@ export const SubtitleBubble = memo(function SubtitleBubble({
                   key={translation.target_language}
                 >
                   {group && (
-                    <small className="bubble-translation-group" title={group.text}>
+                    <small className="bubble-translation-group" data-tooltip={group.text}>
                       {t("live.sharedTranslation", { count: group.subtitle_ids.length })}
                     </small>
                   )}

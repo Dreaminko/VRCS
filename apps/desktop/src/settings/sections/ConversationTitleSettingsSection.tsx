@@ -87,7 +87,7 @@ export function ConversationTitleSettingsSection({ config, profiles, onChange }:
                 onChange(trimmed ? { model: trimmed } : { model: "", auto_generate: false });
               }} />
             <button className="secondary-button" type="button" aria-label={t("settings.apiManagement.refreshModels")}
-              title={t("settings.apiManagement.refreshModels")} disabled={!selected || catalog.loading}
+              data-tooltip={t("settings.apiManagement.refreshModels")} disabled={!selected || catalog.loading}
               onClick={() => void catalog.refresh()}>
               <RefreshCw size={15} className={catalog.loading ? "spinning" : undefined} />
             </button>

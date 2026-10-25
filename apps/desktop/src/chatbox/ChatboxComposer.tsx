@@ -200,7 +200,7 @@ export function ChatboxComposer({
           aria-expanded={expanded}
           aria-controls="chatbox-details"
           aria-label={t(expanded ? "chatbox.collapseDetails" : "chatbox.expandDetails")}
-          title={t(expanded ? "chatbox.collapseDetails" : "chatbox.expandDetails")}
+          data-tooltip={t(expanded ? "chatbox.collapseDetails" : "chatbox.expandDetails")}
           onClick={() => setExpanded((current) => !current)}
         >
           {expanded ? <ChevronDown size={20} /> : <ChevronUp size={20} />}
@@ -230,7 +230,7 @@ export function ChatboxComposer({
           type="button"
           disabled={!canSend}
           aria-label={sendLabel}
-          title={sendLabel}
+          data-tooltip={sendLabel}
           onClick={submit}
         >
           {busy === "translate" || busy === "send"

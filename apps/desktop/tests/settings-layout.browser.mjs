@@ -142,7 +142,7 @@ for (const width of [1200, 380]) {
           sameTop(refresh, imageTest, 'Vision image test stays on the model row');
           check(rect(model).right <= rect(refresh).left, 'Model controls do not overlap');
           check(rect(refresh).right <= rect(imageTest).left, 'Vision image test stays to the right of refresh');
-          check(imageTest.textContent.trim() === '' && imageTest.getAttribute('aria-label') && imageTest.title, 'Vision image test has only an icon with an accessible label and tooltip');
+          check(imageTest.textContent.trim() === '' && imageTest.getAttribute('aria-label') && imageTest.dataset.tooltip, 'Vision image test has only an icon with an accessible label and tooltip');
           const visionGrid = document.querySelector('.vision-settings-card .vr-overlay-field-grid');
           const answerLanguage = visionGrid.querySelector('.language-picker-field .dropdown-trigger');
           if (getComputedStyle(visionGrid).gridTemplateColumns.split(' ').length === 2) {

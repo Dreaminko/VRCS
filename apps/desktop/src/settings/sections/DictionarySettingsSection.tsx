@@ -86,7 +86,7 @@ export function DictionarySettingsSection({
                     type="button"
                     disabled={dictionaryBusy}
                     aria-label={t("settings.dictionary.removeNamed", { title: dictionary.title })}
-                    title={t("settings.dictionary.remove")}
+                    data-tooltip={t("settings.dictionary.remove")}
                     onClick={(event) => {
                       removalTriggerRef.current = event.currentTarget;
                       setPendingRemoval(dictionary);

@@ -326,7 +326,7 @@ export function VrcxIntegrationSettingsCard({ config, saveState, onChange }: {
                   className="api-row-icon-button"
                   type="button"
                   aria-label={t("settings.vrcx.saveToken")}
-                  title={t("settings.vrcx.saveToken")}
+                  data-tooltip={t("settings.vrcx.saveToken")}
                   disabled={tokenBusy || tokenStatus?.environment_override || !tokenInput.trim()}
                   onClick={() => void saveToken()}
                 >
@@ -337,7 +337,7 @@ export function VrcxIntegrationSettingsCard({ config, saveState, onChange }: {
                     className="api-row-icon-button external-api-delete-button"
                     type="button"
                     aria-label={t("settings.vrcx.deleteToken")}
-                    title={t("settings.vrcx.deleteToken")}
+                    data-tooltip={t("settings.vrcx.deleteToken")}
                     disabled={tokenBusy || tokenStatus.environment_override}
                     onClick={() => void deleteToken()}
                   >

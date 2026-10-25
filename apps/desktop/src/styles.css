@@ -6,6 +6,7 @@
 @import "./styles/dictionary.css";
 @import "./styles/components/selection-tools.css";
 @import "./styles/components/confirm-dialog.css";
+@import "./styles/components/control-tooltip.css";
 @import "./styles/chatbox.css";
 @import "./styles/compact.css";
 @import "./styles/motion.css";

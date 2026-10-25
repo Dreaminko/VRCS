@@ -119,7 +119,7 @@ export function ConversationActionsPopover({
               className={conversation.icon === "message" ? "selected" : ""}
               type="button"
               aria-label={t("conversations.icons.default")}
-              title={t("conversations.icons.default")}
+              data-tooltip={t("conversations.icons.default")}
               onClick={() => onChooseIcon(null)}
             >
               <MessageSquareText size={18} />
@@ -130,7 +130,7 @@ export function ConversationActionsPopover({
                 className={conversation.icon === icon ? "selected" : ""}
                 type="button"
                 aria-label={t(`conversations.icons.${icon}`)}
-                title={t(`conversations.icons.${icon}`)}
+                data-tooltip={t(`conversations.icons.${icon}`)}
                 onClick={() => onChooseIcon(icon)}
               >
                 <ConversationIconView icon={icon} size={18} />
@@ -148,7 +148,7 @@ export function ConversationActionsPopover({
           {!conversation.active && conversation.subtitleCount > 0 && <>
             <button type="button" role="menuitem"
               disabled={generating || conversation.hasCustomTitle}
-              title={conversation.hasCustomTitle ? t("conversations.titleClearCustom") : undefined}
+              data-tooltip={conversation.hasCustomTitle ? t("conversations.titleClearCustom") : undefined}
               onClick={titleConfigured ? onGenerateTitle : onOpenTitleSettings}>
               {generating ? <LoaderCircle className="spinning" size={16} /> : <Sparkles size={16} />}
               {t(generating ? "conversations.titleGenerating" : conversation.summaryTitle

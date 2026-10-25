@@ -2,6 +2,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { isTauri } from "@tauri-apps/api/core";
 import { AppErrorBoundary, FatalErrorScreen } from "./shared/ui/AppErrorBoundary";
+import { ControlTooltip } from "./shared/ui/ControlTooltip";
 import {
   installGlobalErrorReporting,
   normalizeFrontendError,
@@ -43,6 +44,7 @@ async function render() {
     <StrictMode>
       <AppErrorBoundary>
         <Component />
+        <ControlTooltip />
       </AppErrorBoundary>
     </StrictMode>,
   );

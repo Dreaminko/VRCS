@@ -70,7 +70,7 @@ export function CompactView({ transparentBackground, onToggleBackground, backgro
   return (
     <div className="compact-shell">
       <header className="compact-header" data-tauri-drag-region>
-        <div className={`compact-status ${running ? "running" : ""} ${vrchatMuted ? "muted" : ""}`} title={statusLabel} data-tauri-drag-region>
+        <div className={`compact-status ${running ? "running" : ""} ${vrchatMuted ? "muted" : ""}`} data-tooltip={statusLabel} data-tauri-drag-region>
           <i aria-hidden="true" data-tauri-drag-region />
           <span data-tauri-drag-region>{statusLabel}</span>
         </div>
@@ -78,8 +78,8 @@ export function CompactView({ transparentBackground, onToggleBackground, backgro
           <CompactFontMenu value={fontSize} onChange={onFontSizeChange} />
           <CompactBackgroundControls transparentBackground={transparentBackground} onToggleBackground={onToggleBackground}
             opacity={backgroundOpacity} onOpacityChange={onBackgroundOpacityChange} />
-          <button type="button" aria-label={t("window.restore")} title={t("window.restore")} onClick={onRestore}><CompactWindowIcon icon={Maximize2} /></button>
-          <button className="compact-close-button" type="button" aria-label={t("window.close")} title={t("window.close")} onClick={onClose}><CompactWindowIcon icon={X} /></button>
+          <button type="button" aria-label={t("window.restore")} data-tooltip={t("window.restore")} onClick={onRestore}><CompactWindowIcon icon={Maximize2} /></button>
+          <button className="compact-close-button" type="button" aria-label={t("window.close")} data-tooltip={t("window.close")} onClick={onClose}><CompactWindowIcon icon={X} /></button>
         </div>
       </header>
       <div className="compact-body">
@@ -109,12 +109,12 @@ export function CompactView({ transparentBackground, onToggleBackground, backgro
           </div>
         </div>
         <div className="compact-actions">
-          <button className="compact-capture-button" type="button" aria-label={captureLabel} aria-pressed={running} title={captureLabel} disabled={captureDisabled} onClick={onCapture}>
+          <button className="compact-capture-button" type="button" aria-label={captureLabel} aria-pressed={running} data-tooltip={captureLabel} disabled={captureDisabled} onClick={onCapture}>
             {running ? <Square size={15} /> : <Mic size={16} />}
           </button>
         </div>
       </div>
-      <div className="compact-resize-grip" title={t("window.resize")} onPointerDown={(event) => {
+      <div className="compact-resize-grip" data-tooltip={t("window.resize")} onPointerDown={(event) => {
         if (event.button !== 0 || !event.isPrimary) return;
         event.preventDefault();
         event.stopPropagation();
@@ -171,7 +171,7 @@ function CompactFontMenu({ value, onChange }: { value: CompactFontSize; onChange
     <div ref={controlRef} className="compact-font-control" onBlur={(event) => {
       if (!event.currentTarget.contains(event.relatedTarget)) setOpen(false);
     }}>
-      <button ref={buttonRef} type="button" className="compact-font-button" aria-label={label} title={label}
+      <button ref={buttonRef} type="button" className="compact-font-button" aria-label={label} data-tooltip={label}
         aria-haspopup="menu" aria-expanded={open} aria-controls={open ? "compact-font-menu" : undefined}
         onClick={() => setOpen((previous) => !previous)} onKeyDown={(event) => {
           if (event.key === "ArrowDown" || event.key === "ArrowUp") { event.preventDefault(); setOpen(true); }

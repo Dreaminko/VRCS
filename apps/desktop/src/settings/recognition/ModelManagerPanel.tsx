@@ -103,7 +103,7 @@ export function ModelManagerPanel({
             className="secondary-button"
             type="button"
             disabled={!NATIVE_APP || disabled || downloadingCount > 0 || saveState === "saving"}
-            title={NATIVE_APP ? t("settings.recognition.chooseFolder") : t("settings.recognition.browserPathHint")}
+            data-tooltip={NATIVE_APP ? t("settings.recognition.chooseFolder") : t("settings.recognition.browserPathHint")}
             onClick={() => void onChooseDirectory()}
           >
             <FolderOpen size={16} />

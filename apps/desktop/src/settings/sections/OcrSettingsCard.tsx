@@ -126,7 +126,7 @@ export function OcrSettingsCard({ vrAvailable, config, profiles, disabled: savin
           {execution?.active_device && <p role="status">
             {t("settings.vrOcr.activeDevice", { device: execution.active_device === "directml" ? "GPU (DirectML)" : "CPU" })}
           </p>}
-          {execution?.fallback_reason && <p className="vr-overlay-native-error" role="status" title={execution.fallback_reason}>
+          {execution?.fallback_reason && <p className="vr-overlay-native-error" role="status" data-tooltip={execution.fallback_reason}>
             {t("settings.vrOcr.cpuFallback")}
           </p>}
           <div className="model-list">

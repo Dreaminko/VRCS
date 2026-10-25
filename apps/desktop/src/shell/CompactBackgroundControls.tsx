@@ -14,7 +14,7 @@ export function CompactBackgroundControls({ transparentBackground, onToggleBackg
   return (
     <>
       {!transparentBackground && <CompactOpacityControl value={opacity} onChange={onOpacityChange} />}
-      <button type="button" aria-label={modeLabel} title={modeLabel} aria-pressed={transparentBackground} onClick={onToggleBackground}>
+      <button type="button" aria-label={modeLabel} data-tooltip={modeLabel} aria-pressed={transparentBackground} onClick={onToggleBackground}>
         <CompactWindowIcon icon={SquareDashed} />
       </button>
     </>
@@ -62,7 +62,7 @@ function CompactOpacityControl({ value, onChange }: { value: number; onChange: (
     <div ref={controlRef} className="compact-opacity-control" onBlur={(event) => {
       if (!event.currentTarget.contains(event.relatedTarget)) setOpen(false);
     }}>
-      <button ref={buttonRef} type="button" aria-label={currentLabel} title={currentLabel}
+      <button ref={buttonRef} type="button" aria-label={currentLabel} data-tooltip={currentLabel}
         aria-haspopup="dialog" aria-expanded={open} aria-controls={open ? id : undefined}
         onClick={() => setOpen((previous) => !previous)} onKeyDown={(event) => {
           if (event.key === "ArrowDown" || event.key === "ArrowUp") { event.preventDefault(); setOpen(true); }

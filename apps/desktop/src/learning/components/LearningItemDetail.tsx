@@ -113,7 +113,7 @@ export function LearningItemDetail({
               type="button"
               ref={managementButtonRef}
               aria-label={t("learning.actions.more")}
-              title={t("learning.actions.more")}
+              data-tooltip={t("learning.actions.more")}
               aria-expanded={managementOpen}
               aria-controls={managementOpen ? `learning-item-actions-${item.id}` : undefined}
               onClick={() => setManagementOpen(!managementOpen)}

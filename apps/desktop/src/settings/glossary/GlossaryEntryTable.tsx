@@ -311,7 +311,7 @@ export function GlossaryEntryTable({
               type="button"
               disabled={saving}
               aria-label={t("settings.glossary.table.deleteSelected")}
-              title={t("settings.glossary.table.deleteSelected")}
+              data-tooltip={t("settings.glossary.table.deleteSelected")}
               onClick={() => requestRemoval(selectedRowIds)}
             >
               <Trash2 size={15} aria-hidden="true" />
@@ -373,7 +373,7 @@ const GlossaryEntryRow = memo(function GlossaryEntryRow({
           disabled={saving}
           aria-label={t("settings.glossary.table.sourceAtRow", { row: position })}
           aria-invalid={Boolean(sourceIssue)}
-          title={sourceIssue}
+          data-tooltip={sourceIssue}
           onChange={(event) => onUpdate({ source: event.target.value })}
         />
       </td>
@@ -386,7 +386,7 @@ const GlossaryEntryRow = memo(function GlossaryEntryRow({
           aria-label={t("settings.glossary.table.targetAtRow", { row: position })}
           aria-invalid={Boolean(targetIssue)}
           placeholder={entry.target === null ? t("settings.glossary.keepOriginal") : undefined}
-          title={targetIssue}
+          data-tooltip={targetIssue}
           onChange={(event) => onUpdate({ target: event.target.value })}
         />
       </td>
@@ -433,7 +433,7 @@ const GlossaryEntryRow = memo(function GlossaryEntryRow({
           className="api-row-icon-button api-danger-button"
           type="button"
           aria-label={t("settings.glossary.table.deleteRow", { row: position })}
-          title={t("common.delete")}
+          data-tooltip={t("common.delete")}
           disabled={saving}
           onClick={onRemove}
         >
