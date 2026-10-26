@@ -137,6 +137,17 @@ for (const width of [1100,860,380]) {
           const chatTop=region.scrollTop;
           panel.scrollTop=panel.scrollHeight;await settled();
           check(panel.scrollTop>0&&panel.scrollTop+panel.clientHeight>=panel.scrollHeight-1,'every panel control is reachable through its own scrollbar');
+          const lastPlayerIsReachable=()=>{
+            const button=document.querySelector('.player-history-row:last-child button');
+            const rect=button.getBoundingClientRect();
+            return document.elementFromPoint(rect.left+rect.width/2,rect.top+rect.height/2)?.closest('button')===button;
+          };
+          check(lastPlayerIsReachable(),'the last player remains visible and clickable after expanding original languages and scrolling to the bottom');
+          const manyPlayers=Array.from({length:24},(_,index)=>({...bob,id:'vrc:extra-'+index,user_id:'usr_00000000-0000-4000-8000-'+String(index+10).padStart(12,'0'),display_name:'Player '+index,index}));
+          changePlayers(manyPlayers);await wait(()=>document.querySelectorAll('.player-history-row').length===26);
+          panel.scrollTop=panel.scrollHeight;await settled();
+          check(lastPlayerIsReachable(),'scrolling the menu body reaches the last player in a long list without a separate player scrollbar');
+          changePlayers([alice,bob]);await wait(()=>document.querySelectorAll('.player-history-row').length===2);
           check(Math.abs(region.scrollTop-chatTop)<1&&!scrollApi.followingLiveSubtitles,'scrolling the personnel panel does not scroll the chat or change following');
           check(toolbar.getBoundingClientRect().top===region.getBoundingClientRect().top&&toolbar.getBoundingClientRect().bottom>region.getBoundingClientRect().top,'the toolbar stays above the conversation in short windows');
           changeHeight(850);followDefault.click();
