@@ -128,11 +128,11 @@ jobs:
 
       - name: Lint Rust
         shell: pwsh
-        run: ./scripts/check-rust.ps1 -Check clippy -Vulkan:('${{ matrix.backend }}' -eq 'vulkan')
+        run: ./scripts/check-rust.ps1 -Check clippy -Vulkan:('${{ matrix.backend }}' -eq 'vulkan') -CiVulkanOnly:('${{ matrix.backend }}' -eq 'vulkan')
 
       - name: Test Rust
         shell: pwsh
-        run: ./scripts/check-rust.ps1 -Check test -Vulkan:('${{ matrix.backend }}' -eq 'vulkan')
+        run: ./scripts/check-rust.ps1 -Check test -Vulkan:('${{ matrix.backend }}' -eq 'vulkan') -CiVulkanOnly:('${{ matrix.backend }}' -eq 'vulkan')
 
   gate:
     needs: [changes, frontend, rustfmt, rust]
