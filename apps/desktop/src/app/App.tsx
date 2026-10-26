@@ -10,6 +10,7 @@ import { useAppWorkspace } from "./useAppWorkspace";
 import type { SettingsCategory } from "../settings/settings-types";
 import { useVrDashboardBridge } from "../vr-dashboard/useVrDashboardBridge";
 import { useVrControlBridge } from "../vr-controls/useVrControlBridge";
+import { useVrPlayerDisplayBridge } from "../vr-controls/useVrPlayerDisplayBridge";
 import { PlayerAudioStartDialog } from "../capture/PlayerAudioStartDialog";
 import { MemoryCompressionDialog } from "../capture/MemoryCompressionControls";
 
@@ -18,7 +19,7 @@ function App() {
   const [settingsInitialCategory, setSettingsInitialCategory] = useState<SettingsCategory>("system");
   useAppTheme();
   const workspace = useAppWorkspace({ page, setPage, setSettingsInitialCategory });
-  useVrControlBridge({
+  const controlEpoch = useVrControlBridge({
     settings: workspace.settings.value,
     getSettings: workspace.settings.getCurrent,
     update: workspace.settings.update,
@@ -31,6 +32,7 @@ function App() {
     playerAudioStart: workspace.capture.playerAudioStart,
     playerAudioStatus: workspace.runtime.health?.player_audio,
   });
+  useVrPlayerDisplayBridge(controlEpoch, workspace);
   useVrDashboardBridge(workspace.settings.value, workspace.settings.update, workspace.providers.catalog.profiles, {
     playerAudio: workspace.runtime.health?.player_audio,
     running: workspace.runtime.health?.capture_requested ?? false,

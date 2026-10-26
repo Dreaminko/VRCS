@@ -12,7 +12,7 @@ use super::presentation::{MessageSide, WristMessage};
 use super::surface::{
     reader_action, SurfaceId, SurfaceKey, SurfaceLayout, SurfaceState, SurfaceView,
 };
-use super::{dialogue, transform};
+use super::{dialogue, player_display, transform, wrist_menu};
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -100,6 +100,7 @@ pub struct Info {
 
 enum Effect {
     Control(ControlAction),
+    PlayerDisplay(player_display::Action),
     Dashboard(DashboardAction),
     Placement(Request),
 }
@@ -117,6 +118,8 @@ struct Preview {
     surface: Option<SurfaceState>,
     layout: Option<SurfaceLayout>,
     controls: ControlSnapshot,
+    players: player_display::View,
+    menu_ui: wrist_menu::Ui,
     view: DashboardViewModel,
     dashboard: DashboardState,
     router: Router,
@@ -135,6 +138,7 @@ struct Preview {
     translation: String,
     advance: usize,
     pending: [Option<(bool, Instant)>; 4],
+    player_pending: Option<(player_display::Action, Instant)>,
     fail_save: bool,
     tracking: bool,
     last_action: String,
@@ -172,6 +176,8 @@ impl Preview {
             surface: None,
             layout: None,
             controls,
+            players: Default::default(),
+            menu_ui: Default::default(),
             view,
             dashboard,
             router: Default::default(),
@@ -205,6 +211,7 @@ impl Preview {
             translation: "You can move while using the overlay.\n操作面板时仍可移动。".into(),
             advance: 0,
             pending: Default::default(),
+            player_pending: None,
             fail_save: false,
             tracking: true,
             last_action: "Synthetic content and poses; OpenVR is not initialized.".into(),
@@ -252,6 +259,9 @@ impl Preview {
     }
 
     fn layout_changed(&mut self) {
+        if self.panel == 0 {
+            self.cancel();
+        }
         self.revision += 1;
         self.layout = None;
         self.cursor = None;
@@ -264,7 +274,10 @@ impl Preview {
         self.closed = false;
         self.advance = 0;
         self.pending = Default::default();
+        self.player_pending = None;
         if !self.live {
+            self.players = sample_player_display(scene);
+            self.menu_ui.clamp(&self.players);
             for (index, item) in self.controls.items.iter_mut().enumerate() {
                 item.available = scene != Scene::Unavailable;
                 item.busy = matches!(scene, Scene::Busy | Scene::Timeout) && index == 3;
@@ -360,6 +373,9 @@ impl Preview {
                     self.controls.items[3].busy = false;
                     self.controls.items[3].reason =
                         Some("Timeout: current capture state checked".into());
+                    self.players.busy = false;
+                    self.players.error =
+                        Some("Timeout: previous personnel settings retained".into());
                 }
                 // Dialogue toolbar identity is independent of streaming body text.
                 if self.panel != 2 {
@@ -381,6 +397,10 @@ impl Preview {
             Operation::Tracking { available } => {
                 self.cancel();
                 self.tracking = available;
+                if !available {
+                    self.menu_ui = Default::default();
+                    self.layout_changed();
+                }
                 self.last_action = "Synthetic controller tracking changed".into();
             }
             Operation::OriginChanged => {
@@ -390,6 +410,8 @@ impl Preview {
                     .unwrap_or_else(|e| e.into_inner())
                     .reset_tracking();
                 self.generation += 1;
+                self.menu_ui = Default::default();
+                self.layout_changed();
                 self.last_action =
                     "Synthetic tracking origin reset; previous world pose discarded".into();
             }
@@ -518,10 +540,21 @@ impl Preview {
             grip: Some(input.buttons & 2 != 0),
             hit,
         };
-        let can_recenter = self.panel == 0 && self.controls.items[0].requested && {
-            let placement = self.placement.lock().unwrap_or_else(|e| e.into_inner());
-            placement.display_mode() == Mode::World && !placement.busy()
-        };
+        let can_recenter = self.panel == 0
+            && self.controls.items[0].requested
+            && matches!(
+                self.layout
+                    .as_ref()
+                    .filter(|layout| layout.key == self.surface_key())
+                    .and_then(|layout| layout.menu_command(0)),
+                Some(wrist_menu::Command::Control(
+                    ControlAction::SetWristEnabled(_)
+                ))
+            )
+            && {
+                let placement = self.placement.lock().unwrap_or_else(|e| e.into_inner());
+                placement.display_mode() == Mode::World && !placement.busy()
+            };
         let mut output = self.router.step(&[sample], &[key]);
         let now = Instant::now();
         if can_recenter {
@@ -563,11 +596,23 @@ impl Preview {
                     Kind::LongPress => effects.extend(self.place(Mode::World)),
                     Kind::Up => {
                         self.pressed = None;
-                        let index = event.hit.region as usize;
-                        effects.push(Effect::Control(ControlAction::for_index(
-                            index,
-                            !self.controls.items[index].requested,
-                        )));
+                        let command = self
+                            .layout
+                            .as_ref()
+                            .filter(|layout| layout.key == self.surface_key())
+                            .and_then(|layout| layout.menu_command(event.hit.region));
+                        match command {
+                            Some(wrist_menu::Command::Control(action)) => {
+                                effects.push(Effect::Control(action))
+                            }
+                            Some(wrist_menu::Command::Display(action)) => {
+                                effects.push(Effect::PlayerDisplay(action))
+                            }
+                            Some(command) if self.menu_ui.apply(&command, &self.players) => {
+                                self.layout_changed()
+                            }
+                            _ => {}
+                        }
                     }
                     _ => self.pressed = None,
                 },
@@ -724,6 +769,15 @@ impl Preview {
 
     fn apply_mock(&mut self, effect: Effect) {
         match effect {
+            Effect::PlayerDisplay(action) => {
+                if !self.players.available || self.players.busy || !action.allowed(&self.players) {
+                    return;
+                }
+                self.players.busy = true;
+                self.players.error = None;
+                self.last_action = format!("Mock personnel: {action:?}");
+                self.player_pending = Some((action, Instant::now()));
+            }
             Effect::Control(action) => {
                 let index = action.index();
                 let item = &mut self.controls.items[index];
@@ -750,7 +804,9 @@ impl Preview {
                     request.mode,
                     if self.fail_save { " (save failed)" } else { "" }
                 );
-                self.layout_changed();
+                if self.panel != 0 {
+                    self.layout_changed();
+                }
             }
             Effect::Dashboard(action) => {
                 self.last_action = format!("Mock Dashboard: {action:?}");
@@ -766,6 +822,29 @@ impl Preview {
             }
         }
         self.dirty = true;
+    }
+
+    fn sync_control_views(&mut self, controls: ControlSnapshot, players: player_display::View) {
+        if controls == self.controls && players == self.players {
+            return;
+        }
+        if controls.owner_epoch != self.controls.owner_epoch
+            || self.players.available
+                && !players.available
+                && controls.items.iter().all(|item| !item.available)
+        {
+            self.cancel();
+            self.generation += 1;
+            self.menu_ui = Default::default();
+        }
+        self.controls = controls;
+        self.players = players;
+        self.menu_ui.clamp(&self.players);
+        if self.panel == 0 {
+            self.layout_changed();
+        } else {
+            self.dirty = true;
+        }
     }
 
     fn sync_dashboard_view(&mut self, view: DashboardViewModel) -> Result<(), String> {
@@ -784,6 +863,28 @@ impl Preview {
     }
 
     fn refresh(&mut self) {
+        if self
+            .player_pending
+            .as_ref()
+            .is_some_and(|(_, at)| at.elapsed() >= Duration::from_millis(300))
+        {
+            let (action, _) = self
+                .player_pending
+                .take()
+                .expect("pending mock personnel action");
+            self.players.busy = false;
+            if self.fail_save {
+                self.players.error =
+                    Some("Synthetic save failed; previous settings retained".into());
+            } else if !action.allowed(&self.players) {
+                self.players.error = Some("Personnel state changed; try again".into());
+            } else {
+                apply_player_display(&mut self.players, action);
+                self.players.error = None;
+                self.menu_ui.clamp(&self.players);
+            }
+            self.dirty = true;
+        }
         for (index, pending) in self.pending.iter_mut().enumerate() {
             if pending.is_some_and(|(_, at)| at.elapsed() >= Duration::from_millis(300)) {
                 let target = pending.take().expect("pending mock action").0;
@@ -824,6 +925,8 @@ impl Preview {
         Some(match self.panel {
             0 => SurfaceView::Menu {
                 controls: self.controls.clone(),
+                players: self.players.clone(),
+                ui: self.menu_ui.clone(),
                 hold_progress: self.hold_progress,
             },
             1 => SurfaceView::Dashboard {
@@ -995,13 +1098,14 @@ impl Preview {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .revision;
-        let view = self.surface_view().ok_or("Unknown preview panel")?;
+        let mut view = self.surface_view().ok_or("Unknown preview panel")?;
         if self
             .surface
             .as_ref()
             .is_some_and(|state| state.key == self.surface_key() && !state.view.same_layout(&view))
         {
             self.layout_changed();
+            view = self.surface_view().ok_or("Unknown preview panel")?;
         }
         self.surface = Some(SurfaceState {
             key: self.surface_key(),
@@ -1104,6 +1208,203 @@ fn sample_scene(scene: Scene) -> OcrScene {
         opacity: 0.94,
         aspect: 1.5,
     }
+}
+
+fn sample_player_display(scene: Scene) -> player_display::View {
+    let mut players = Vec::new();
+    if !matches!(scene, Scene::Empty | Scene::Expired) {
+        let current = if scene == Scene::Long { 13 } else { 4 };
+        let history = if scene == Scene::Long { 8 } else { 3 };
+        for index in 0..current + history {
+            let user = if index == 3 { 1 } else { index + 1 };
+            players.push(player_display::Player {
+                track_id: Some(format!("track-{}", index + 1)),
+                user_id: (index != 2).then(|| format!("usr_00000000-0000-0000-0000-{user:012}")),
+                name: if index == 2 {
+                    "Identity pending".into()
+                } else if index == 0 && scene == Scene::Long {
+                    "Alex with a deliberately long display name for a two-line wrist row".into()
+                } else if matches!(index, 0 | 1 | 3) {
+                    "Alex".into()
+                } else {
+                    format!("Player {}", index + 1)
+                },
+                detail: if index == 2 {
+                    "Track 3 - waiting for player identity".into()
+                } else {
+                    format!("Track {} - account {user:04}", index + 1)
+                },
+                current: index < current,
+                selected: false,
+                hidden: false,
+            });
+        }
+        players.push(player_display::Player {
+            track_id: None,
+            user_id: Some("usr_00000000-0000-0000-0000-000000000999".into()),
+            name: "Saved offline player".into(),
+            detail: "Saved selection - account 0999".into(),
+            current: false,
+            selected: true,
+            hidden: false,
+        });
+    }
+    player_display::View {
+        available: scene != Scene::Unavailable,
+        processing_available: scene != Scene::Unavailable,
+        player_mode: true,
+        selection_mode: "selected".into(),
+        selected_count: usize::from(!players.is_empty()),
+        players,
+        languages: [
+            ("en", "English"),
+            ("ja", "Japanese"),
+            ("zh-CN", "Simplified Chinese"),
+            ("zh-TW", "Traditional Chinese"),
+            ("ko", "Korean"),
+            ("fr", "French"),
+            ("de", "German"),
+            ("es", "Spanish"),
+            ("it", "Italian"),
+            ("pt", "Portuguese"),
+            ("ru", "Russian"),
+            ("ar", "Arabic"),
+            ("hi", "Hindi"),
+            ("th", "Thai"),
+            ("vi", "Vietnamese"),
+            ("id", "Indonesian"),
+        ]
+        .into_iter()
+        .map(|(code, label)| player_display::Language {
+            code: code.into(),
+            label: label.into(),
+            hidden: matches!(code, "en" | "ja"),
+        })
+        .collect(),
+        follow_default: true,
+        default_languages: vec!["English".into(), "Japanese".into()],
+        labels: [
+            ("title", "People and translation display"),
+            ("playersTab", "People"),
+            ("historySaved", "History and saved"),
+            (
+                "processingUnavailable",
+                "Player processing requires per-player audio and a connected Core.",
+            ),
+            (
+                "unavailable",
+                "Open the main VRCS window to use these settings.",
+            ),
+            ("process", "Players to process"),
+            ("all", "Translate everyone"),
+            ("selected", "Translate selected people only"),
+            ("selectCurrent", "Select everyone here"),
+            ("selectNone", "Deselect all"),
+            (
+                "noneSelected",
+                "No players selected; other-party audio is not being processed.",
+            ),
+            ("languages", "Hidden original languages"),
+            ("followDefault", "Follow default"),
+            ("noHiddenLanguages", "No languages hidden"),
+            ("showAll", "Restore people display"),
+            ("empty", "Waiting for tracks or loading history."),
+            ("translate", "Translate"),
+            ("show", "Show"),
+            ("hide", "Hide"),
+            ("current", "Current world"),
+            ("close", "Close"),
+            ("previous", "Previous"),
+            ("next", "Next"),
+            ("busy", "Saving..."),
+        ]
+        .into_iter()
+        .map(|(key, value)| (key.into(), value.into()))
+        .collect(),
+        busy: matches!(scene, Scene::Busy | Scene::Timeout),
+        error: (scene == Scene::Error)
+            .then(|| "Synthetic save failed; previous settings retained".into()),
+    }
+}
+
+fn apply_player_display(view: &mut player_display::View, action: player_display::Action) {
+    use player_display::Action;
+    match action {
+        Action::SetProcessingMode(mode) => {
+            view.selection_mode = mode;
+            for player in &mut view.players {
+                player.selected = false;
+            }
+        }
+        Action::SetUserSelected { user_id, selected } => {
+            for player in &mut view.players {
+                if player.user_id.as_ref() == Some(&user_id) {
+                    player.selected = selected;
+                }
+            }
+        }
+        Action::SelectCurrent(()) => {
+            let users: std::collections::HashSet<_> = view
+                .players
+                .iter()
+                .filter(|player| player.current)
+                .filter_map(|player| player.user_id.clone())
+                .collect();
+            for player in &mut view.players {
+                player.selected |= player
+                    .user_id
+                    .as_ref()
+                    .is_some_and(|user| users.contains(user));
+            }
+        }
+        Action::ClearSelection(()) => {
+            for player in &mut view.players {
+                player.selected = false;
+            }
+        }
+        Action::SetTrackHidden { track_id, hidden } => {
+            for player in &mut view.players {
+                if player.track_id.as_ref() == Some(&track_id) {
+                    player.hidden = hidden;
+                }
+            }
+        }
+        Action::ShowAllTracks(()) => {
+            for player in &mut view.players {
+                player.hidden = false;
+            }
+        }
+        Action::SetFollowDefault(follow) => {
+            view.follow_default = follow;
+            if follow {
+                for language in &mut view.languages {
+                    language.hidden = view.default_languages.contains(&language.label);
+                }
+            }
+        }
+        Action::SetSourceLanguageHidden { language, hidden } => {
+            if let Some(candidate) = view
+                .languages
+                .iter_mut()
+                .find(|candidate| candidate.code == language)
+            {
+                candidate.hidden = hidden;
+            }
+        }
+        Action::ClearHiddenLanguages(()) => {
+            view.follow_default = false;
+            for language in &mut view.languages {
+                language.hidden = false;
+            }
+        }
+    }
+    view.selected_count = view
+        .players
+        .iter()
+        .filter(|player| player.selected)
+        .filter_map(|player| player.user_id.as_ref())
+        .collect::<std::collections::HashSet<_>>()
+        .len();
 }
 
 fn apply_dashboard(view: &mut DashboardViewModel, action: DashboardAction) {
@@ -1244,17 +1545,6 @@ pub fn mode() -> Option<bool> {
 }
 pub fn setup(app: &tauri::AppHandle, live: bool) -> Result<(), Box<dyn std::error::Error>> {
     if std::env::var_os("VRCS_VR_SURFACE_SMOKE").is_some() {
-        // Reproduce the default desktop environment that exists before VR hosts in production.
-        tauri::WebviewWindowBuilder::new(
-            app,
-            "vr-surface-smoke-desktop",
-            tauri::WebviewUrl::External(tauri::Url::parse("about:blank")?),
-        )
-        .transparent(true)
-        .visible(false)
-        .focused(false)
-        .skip_taskbar(true)
-        .build()?;
         let mut preview = Preview::new(false, Arc::new(Mutex::new(Placement::default())));
         let mut views = Vec::new();
         for panel in [0, 2, 3, 5, 8] {
@@ -1264,6 +1554,12 @@ pub fn setup(app: &tauri::AppHandle, live: bool) -> Result<(), Box<dyn std::erro
                 preview.surface_view().unwrap(),
             ));
         }
+        preview.panel = 0;
+        preview.menu_ui.apply(
+            &wrist_menu::Command::Page(wrist_menu::Page::Players),
+            &preview.players,
+        );
+        views.push((SurfaceId::Menu, preview.surface_view().unwrap()));
         let dark = preview.controls.dark;
         views.extend([
             (SurfaceId::Dashboard, SurfaceView::Dashboard {
@@ -1356,28 +1652,24 @@ pub fn vr_preview_update(
     if p.session != session {
         return Err("Stale preview session".into());
     }
-    if p.live {
-        let controls = manager
-            .controls
-            .lock()
-            .map_err(|e| e.to_string())?
-            .snapshot();
-        if controls != p.controls {
-            if p.controls.owner_epoch != controls.owner_epoch {
-                p.cancel();
-                p.generation += 1;
-            }
-            p.controls = controls;
-            if p.panel == 0 {
-                p.layout_changed();
-            } else {
-                p.dirty = true;
-            }
-        }
+    let expected_players = if p.live {
+        let (controls, players, revision) = {
+            let hub = manager.controls.lock().map_err(|e| e.to_string())?;
+            (
+                hub.snapshot(),
+                hub.player_display().clone(),
+                hub.player_display_revision(),
+            )
+        };
+        let expected = (controls.owner_epoch, revision);
+        p.sync_control_views(controls, players);
         if let Some(view) = manager.preview_view() {
             p.sync_dashboard_view(view)?;
         }
-    }
+        expected
+    } else {
+        (0, 0)
+    };
     let effects = p.update(operation)?;
     let mut dispatch = Vec::new();
     for effect in effects {
@@ -1393,6 +1685,13 @@ pub fn vr_preview_update(
     drop(p);
     for effect in dispatch {
         match effect {
+            Effect::PlayerDisplay(action) => super::runtime::dispatch_player_display(
+                window.app_handle(),
+                &manager.controls,
+                ControlSource::DevPreview,
+                expected_players,
+                action,
+            ),
             Effect::Control(action) => super::runtime::dispatch_control(
                 window.app_handle(),
                 &manager.controls,
@@ -1426,6 +1725,246 @@ pub fn vr_preview_update(
 mod tests {
     use super::*;
 
+    #[test]
+    fn personnel_entry_navigates_without_capture_and_stale_release_cannot_hide_a_track() {
+        let mut p = mock();
+        p.render().unwrap();
+        let set_layout = |p: &mut Preview, command: serde_json::Value| {
+            let layout = serde_json::from_value(serde_json::json!({
+                "key": p.surface_key(),
+                "regions": [{"id": 4, "bounds": [0.4, 0.84, 0.525, 0.965], "circle": true, "menu": command}],
+                "menu_bounds": [0.0125, 0.80625, 0.9875, 0.99375], "page_count": 1
+            })).unwrap();
+            p.update(Operation::Layout { layout }).unwrap();
+        };
+        set_layout(&mut p, serde_json::json!({"page": "players"}));
+        let point = [0.46, 0.9];
+        p.input(input(&p, point, 0)).unwrap();
+        p.input(input(&p, point, 1)).unwrap();
+        assert!(p.input(input(&p, point, 0)).unwrap().is_empty());
+        p.render().unwrap();
+        let view = serde_json::to_value(&p.surface.as_ref().unwrap().view).unwrap();
+        assert_eq!(view["ui"]["page"], "players");
+        assert!(p.pending.iter().all(Option::is_none));
+        set_layout(
+            &mut p,
+            serde_json::json!({"display": {"show_all_tracks": null}}),
+        );
+        p.input(input(&p, point, 0)).unwrap();
+        p.input(input(&p, point, 1)).unwrap();
+        let release = input(&p, point, 0);
+        p.layout_changed();
+        assert!(p.input(release).is_err());
+        assert!(p.pressed.is_none());
+    }
+
+    #[test]
+    fn mock_personnel_processing_visibility_and_language_filters_are_independent() {
+        let mut p = mock();
+        let first = p.players.players[0].clone();
+        let saved = p
+            .players
+            .players
+            .iter()
+            .find(|player| player.track_id.is_none())
+            .unwrap()
+            .user_id
+            .clone()
+            .unwrap();
+        let languages = p.players.languages.clone();
+        let select = |p: &mut Preview, action| {
+            p.apply_mock(Effect::PlayerDisplay(action));
+            assert!(p.players.busy);
+            p.player_pending.as_mut().unwrap().1 = Instant::now() - Duration::from_secs(1);
+            p.refresh();
+            assert!(!p.players.busy);
+            assert!(p.players.error.is_none());
+        };
+        select(&mut p, player_display::Action::SelectCurrent(()));
+        assert_eq!(p.players.selected_count, 3);
+        assert!(p
+            .players
+            .players
+            .iter()
+            .filter(|player| player.current && player.user_id.is_some())
+            .all(|player| player.selected));
+        assert!(
+            p.players
+                .players
+                .iter()
+                .find(|player| player.user_id.as_ref() == Some(&saved))
+                .unwrap()
+                .selected
+        );
+        assert!(
+            !p.players
+                .players
+                .iter()
+                .find(|player| player.user_id.is_none())
+                .unwrap()
+                .selected
+        );
+        select(
+            &mut p,
+            player_display::Action::SetUserSelected {
+                user_id: first.user_id.clone().unwrap(),
+                selected: false,
+            },
+        );
+        assert_eq!(p.players.selected_count, 2);
+        assert!(p
+            .players
+            .players
+            .iter()
+            .filter(|player| player.user_id == first.user_id)
+            .all(|player| !player.selected));
+        let selected_count = p.players.selected_count;
+        select(
+            &mut p,
+            player_display::Action::SetTrackHidden {
+                track_id: first.track_id.unwrap(),
+                hidden: true,
+            },
+        );
+        assert_eq!(p.players.selected_count, selected_count);
+        assert_eq!(p.players.languages, languages);
+        assert!(p.players.players[0].hidden);
+        select(&mut p, player_display::Action::ClearSelection(()));
+        assert_eq!(p.players.selection_mode, "selected");
+        assert_eq!(p.players.selected_count, 0);
+        assert!(p.players.players[0].hidden);
+        select(&mut p, player_display::Action::SetFollowDefault(false));
+        assert_eq!(p.players.languages, languages);
+        select(
+            &mut p,
+            player_display::Action::SetSourceLanguageHidden {
+                language: "fr".into(),
+                hidden: true,
+            },
+        );
+        select(&mut p, player_display::Action::ShowAllTracks(()));
+        assert!(p.players.players.iter().all(|player| !player.hidden));
+        assert!(
+            p.players
+                .languages
+                .iter()
+                .find(|language| language.code == "fr")
+                .unwrap()
+                .hidden
+        );
+        select(&mut p, player_display::Action::ClearHiddenLanguages(()));
+        assert!(!p.players.follow_default);
+        assert!(p.players.languages.iter().all(|language| !language.hidden));
+        select(&mut p, player_display::Action::SetFollowDefault(true));
+        assert!(p.players.follow_default);
+        assert!(
+            p.players
+                .languages
+                .iter()
+                .find(|language| language.code == "en")
+                .unwrap()
+                .hidden
+        );
+        select(
+            &mut p,
+            player_display::Action::SetProcessingMode("all".into()),
+        );
+        assert_eq!(p.players.selection_mode, "all");
+        assert_eq!(p.players.selected_count, 0);
+    }
+
+    #[test]
+    fn mock_personnel_failure_keeps_confirmed_values_and_does_not_block_quick_controls() {
+        let mut p = mock();
+        p.fail_save = true;
+        let before = p.players.players.clone();
+        let action = player_display::Action::SetTrackHidden {
+            track_id: before[0].track_id.clone().unwrap(),
+            hidden: true,
+        };
+        p.apply_mock(Effect::PlayerDisplay(action));
+        assert!(p.players.busy);
+        assert_eq!(p.players.players, before);
+        p.apply_mock(Effect::PlayerDisplay(
+            player_display::Action::ShowAllTracks(()),
+        ));
+        p.apply_mock(Effect::Control(ControlAction::SetOscEnabled(true)));
+        assert!(p.pending[2].is_some());
+        p.pending[2].as_mut().unwrap().1 = Instant::now() + Duration::from_secs(1);
+        p.player_pending.as_mut().unwrap().1 = Instant::now() - Duration::from_secs(1);
+        p.refresh();
+        assert!(!p.players.busy);
+        assert!(p.players.error.as_deref().unwrap().contains("failed"));
+        assert_eq!(p.players.players, before);
+        assert!(p.pending[2].is_some());
+    }
+
+    #[test]
+    fn live_personnel_sync_invalidates_old_hits_and_owner_or_tracking_reset_closes_settings() {
+        let mut p = Preview::new(true, Arc::new(Mutex::new(Placement::default())));
+        let players = sample_player_display(Scene::Long);
+        p.sync_control_views(p.controls.clone(), players);
+        p.menu_ui.apply(
+            &wrist_menu::Command::Page(wrist_menu::Page::Players),
+            &p.players,
+        );
+        p.menu_ui.player_page = 2;
+        p.render().unwrap();
+        measure(&mut p);
+        let point = [0.1625, 0.9];
+        p.input(input(&p, point, 0)).unwrap();
+        p.input(input(&p, point, 1)).unwrap();
+        let release = input(&p, point, 0);
+        let mut players = p.players.clone();
+        players.players.truncate(1);
+        p.sync_control_views(p.controls.clone(), players.clone());
+        assert_eq!(p.menu_ui.player_page, 0);
+        assert!(p.pressed.is_none());
+        assert!(p.layout.is_none());
+        assert!(p.input(release).is_err());
+        let mut controls = p.controls.clone();
+        controls.owner_epoch += 1;
+        p.sync_control_views(controls, players);
+        assert_eq!(p.menu_ui.page, wrist_menu::Page::Home);
+        for operation in [
+            Operation::Tracking { available: false },
+            Operation::OriginChanged,
+        ] {
+            p.menu_ui.page = wrist_menu::Page::Languages;
+            p.update(operation).unwrap();
+            assert_eq!(p.menu_ui.page, wrist_menu::Page::Home);
+        }
+    }
+
+    #[test]
+    fn live_personnel_release_emits_a_request_without_mutating_the_snapshot() {
+        let mut p = Preview::new(true, Arc::new(Mutex::new(Placement::default())));
+        p.sync_control_views(p.controls.clone(), sample_player_display(Scene::Normal));
+        p.render().unwrap();
+        let action = player_display::Action::SetTrackHidden {
+            track_id: p.players.players[0].track_id.clone().unwrap(),
+            hidden: true,
+        };
+        let before = p.players.clone();
+        let layout = serde_json::from_value(serde_json::json!({
+            "key": p.surface_key(),
+            "regions": [{"id": 5, "bounds": [0.1, 0.2, 0.3, 0.3], "menu": {"display": action}}],
+            "menu_bounds": [0.0125, 0.80625, 0.9875, 0.99375],
+            "panels": [{"bounds": [0.0125, 0.0125, 0.9875, 0.79375], "radius": [0.025, 0.025]}],
+            "page_count": 1
+        }))
+        .unwrap();
+        p.update(Operation::Layout { layout }).unwrap();
+        let point = [0.2, 0.25];
+        for buttons in [0, 1] {
+            assert!(p.input(input(&p, point, buttons)).unwrap().is_empty());
+        }
+        let effects = p.input(input(&p, point, 0)).unwrap();
+        assert!(matches!(effects.as_slice(), [Effect::PlayerDisplay(value)] if value == &action));
+        assert_eq!(p.players, before);
+        assert!(p.player_pending.is_none());
+    }
+
     fn mock() -> Preview {
         Preview::new(false, Arc::new(Mutex::new(Placement::default())))
     }
@@ -1453,9 +1992,12 @@ mod tests {
         let regions = match p.panel {
             0 => vec![Region {
                 id: 0,
-                bounds: [0.1, 0.2, 0.26, 0.84],
+                bounds: [128., 1072., 288., 1232.].map(|value| value / 1280.),
                 circle: true,
                 dashboard: None,
+                menu: Some(wrist_menu::Command::Control(
+                    ControlAction::SetWristEnabled(!p.controls.items[0].requested),
+                )),
             }],
             1 => vec![Region {
                 id: 17,
@@ -1464,6 +2006,7 @@ mod tests {
                 dashboard: Some(super::super::dashboard::DashboardCommand::Action(
                     DashboardAction::ToggleOcr,
                 )),
+                menu: None,
             }],
             2 => {
                 let placement = p.placement.lock().unwrap();
@@ -1472,6 +2015,7 @@ mod tests {
                     bounds: [0.1, 0.02, 0.6, 0.1],
                     circle: false,
                     dashboard: None,
+                    menu: None,
                 }];
                 if placement.display_mode() == Mode::World && !placement.busy() {
                     regions.push(Region {
@@ -1479,6 +2023,7 @@ mod tests {
                         bounds: [0.7, 0.02, 0.8, 0.12],
                         circle: true,
                         dashboard: None,
+                        menu: None,
                     });
                 }
                 regions
@@ -1488,6 +2033,7 @@ mod tests {
                 bounds: [0.85, 0.88, 0.92, 0.95],
                 circle: true,
                 dashboard: None,
+                menu: None,
             }],
             3 | 6 | 7 | 8 | 10 => vec![],
             _ => return,
@@ -1496,8 +2042,15 @@ mod tests {
             layout: SurfaceLayout {
                 key: p.surface_key(),
                 regions,
-                menu_bounds: (p.panel == 0).then_some([0.015625, 0.03125, 0.984375, 0.96875]),
+                menu_bounds: (p.panel == 0)
+                    .then_some([16., 1032., 1264., 1272.].map(|value| value / 1280.)),
                 panels: match p.panel {
+                    0 if p.menu_ui.page != wrist_menu::Page::Home => {
+                        vec![super::super::surface::Panel {
+                            bounds: [16., 16., 1264., 1016.].map(|value| value / 1280.),
+                            radius: [0.025, 0.025],
+                        }]
+                    }
                     2 => vec![
                         super::super::surface::Panel {
                             bounds: [0.01, 0.01, 0.99, 0.125],
@@ -1599,15 +2152,17 @@ mod tests {
         let mut p = mock();
         p.render().unwrap();
         measure(&mut p);
-        for (point, visible, hit) in [
-            ([0.18, 0.5], true, true),
-            ([0.5, 0.5], true, false),
-            ([0.5, 0.9], true, false),
-            ([0.5, 0.1], true, false),
-            ([0.04, 0.35], true, false),
-            ([0.02, 0.06], false, false),
-            ([0.01, 0.5], false, false),
+        for (pixels, visible, hit) in [
+            ([208., 1152.], true, true),
+            ([640., 1152.], true, false),
+            ([640., 1260.], true, false),
+            ([640., 1044.], true, false),
+            ([52., 1120.], true, false),
+            ([26., 1048.], false, false),
+            ([12., 1152.], false, false),
+            ([640., 640.], false, false),
         ] {
+            let point = pixels.map(|value| value / 1280.);
             let idle = input(&p, point, 0);
             apply(&mut p, Operation::Pointer { input: idle });
             let surface = p.info().surface.unwrap();
@@ -1621,7 +2176,7 @@ mod tests {
                 assert!(p.pending.iter().all(Option::is_none));
             }
         }
-        let point = [0.18, 0.5];
+        let point = [0.1625, 0.9];
         let idle = input(&p, point, 0);
         apply(&mut p, Operation::Pointer { input: idle });
         let down = input(&p, point, 1);
@@ -1648,7 +2203,7 @@ mod tests {
         p.render().unwrap();
         measure(&mut p);
         let key = p.surface_key();
-        let point = [0.18, 0.5];
+        let point = [0.1625, 0.9];
         let idle = input(&p, point, 0);
         apply(&mut p, Operation::Pointer { input: idle });
         let down = input(&p, point, 1);
@@ -1691,7 +2246,7 @@ mod tests {
         p.render().unwrap();
         measure(&mut p);
         let original = p.info().pose;
-        let point = [0.18, 0.5];
+        let point = [0.1625, 0.9];
         for operation in [Operation::Cancel, Operation::Tracking { available: false }] {
             let idle = input(&p, point, 0);
             apply(&mut p, Operation::Pointer { input: idle });
@@ -1923,7 +2478,7 @@ mod tests {
     fn react_input_requires_current_dom_layout_and_uses_stable_region_ids() {
         let mut p = mock();
         p.render().unwrap();
-        let point = [0.18, 0.5];
+        let point = [0.1625, 0.9];
         assert!(p.input(input(&p, point, 0)).unwrap().is_empty());
         assert!(p.input(input(&p, point, 1)).unwrap().is_empty());
         assert!(p.input(input(&p, point, 0)).unwrap().is_empty());

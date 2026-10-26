@@ -57,7 +57,7 @@ impl SurfaceId {
     }
     pub fn size(self) -> (u32, u32) {
         match self {
-            Self::Menu => (1024, 256),
+            Self::Menu => (1280, 1280),
             Self::Dialogue => (768, 768),
             Self::Reader => (1024, 1024),
             Self::PlayerAudio => (1024, 1024),
@@ -71,7 +71,7 @@ impl SurfaceId {
     }
     fn region_count(self) -> usize {
         match self {
-            Self::Menu => 4,
+            Self::Menu => 64,
             Self::Dialogue => 4,
             Self::Reader => 8,
             Self::PlayerAudio => 4,
@@ -100,6 +100,8 @@ pub enum SurfaceView {
     },
     Menu {
         controls: ControlSnapshot,
+        players: super::player_display::View,
+        ui: super::wrist_menu::Ui,
         hold_progress: Option<f32>,
     },
     Dialogue {
@@ -160,7 +162,20 @@ pub enum SurfaceView {
 impl SurfaceView {
     pub(super) fn same_layout(&self, other: &Self) -> bool {
         match (self, other) {
-            (Self::Menu { controls: a, .. }, Self::Menu { controls: b, .. }) => a == b,
+            (
+                Self::Menu {
+                    controls: a,
+                    players: ap,
+                    ui: au,
+                    ..
+                },
+                Self::Menu {
+                    controls: b,
+                    players: bp,
+                    ui: bu,
+                    ..
+                },
+            ) => a == b && ap == bp && au == bu,
             _ => self == other,
         }
     }
@@ -233,6 +248,8 @@ pub struct Region {
     pub circle: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dashboard: Option<DashboardCommand>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub menu: Option<super::wrist_menu::Command>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -295,7 +312,7 @@ impl SurfaceLayout {
         }
         let panel_limit = match surface {
             SurfaceId::Dialogue => 2,
-            SurfaceId::Reader | SurfaceId::PlayerAudio => 1,
+            SurfaceId::Menu | SurfaceId::Reader | SurfaceId::PlayerAudio => 1,
             _ => 0,
         };
         if self.panels.len() > panel_limit {
@@ -338,8 +355,19 @@ impl SurfaceLayout {
                 || l >= r
                 || t >= b
                 || (surface == SurfaceId::Dashboard) != region.dashboard.is_some()
+                || (surface == SurfaceId::Menu) != region.menu.is_some()
             {
                 return Err("Invalid surface hit region".into());
+            }
+            if let Some(command) = &region.menu {
+                use super::wrist_menu::Command;
+                let valid = match command {
+                    Command::Control(action) => usize::from(region.id) == action.index(),
+                    _ => region.id >= 4,
+                };
+                if !valid {
+                    return Err("Invalid menu command region".into());
+                }
             }
             if region.circle
                 && ((r - l) * surface.size().0 as f32 - (b - t) * surface.size().1 as f32).abs()
@@ -391,6 +419,14 @@ impl SurfaceLayout {
                             <= 1.)
             })
             .map(|region| region.id)
+    }
+
+    pub fn menu_command(&self, id: u8) -> Option<super::wrist_menu::Command> {
+        self.regions
+            .iter()
+            .find(|region| region.id == id)?
+            .menu
+            .clone()
     }
 
     pub fn reader_buttons(&self) -> Vec<Button> {
@@ -977,6 +1013,40 @@ impl SurfaceHub {
 pub fn smoke(app: AppHandle, views: Vec<(SurfaceId, SurfaceView)>) {
     use windows_sys::Win32::Graphics::Gdi::{MonitorFromWindow, MONITOR_DEFAULTTONULL};
 
+    fn check_player_display_bridge(app: &AppHandle) -> Result<(), String> {
+        use tauri::Listener;
+        let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+        let listener = app.once("vr-player-display-smoke", move |event| {
+            let result = serde_json::from_str::<Option<String>>(event.payload())
+                .map_err(|error| error.to_string())
+                .and_then(|error| error.map_or(Ok(()), Err));
+            let _ = sender.send(result);
+        });
+        let host_app = app.clone();
+        app.run_on_main_thread(move || {
+            // The real main capability is exercised without loading App or starting Core.
+            let result = WebviewWindowBuilder::new(
+                &host_app,
+                "main",
+                WebviewUrl::App("tests/vr-player-display.smoke.html".into()),
+            )
+            .transparent(true)
+            .visible(false)
+            .focused(false)
+            .skip_taskbar(true)
+            .build();
+            if let Err(error) = result {
+                let _ = host_app.emit("vr-player-display-smoke", Some(error.to_string()));
+            }
+        })
+        .map_err(|error| error.to_string())?;
+        let result = receiver
+            .recv_timeout(Duration::from_secs(20))
+            .map_err(|error| format!("Main-window player display bridge timed out: {error}"));
+        app.unlisten(listener);
+        result?
+    }
+
     fn wait_for_layout(
         app: &AppHandle,
         surface: SurfaceId,
@@ -996,7 +1066,12 @@ pub fn smoke(app: AppHandle, views: Vec<(SurfaceId, SurfaceView)>) {
                 }
                 if entry.ready {
                     if let (Some(hwnd), Some(layout)) = (entry.hwnd, &entry.layout) {
-                        if previous.is_none_or(|key| key.generation != layout.key.generation) {
+                        if entry
+                            .state
+                            .as_ref()
+                            .is_some_and(|state| state.key == layout.key)
+                            && previous.is_none_or(|key| key.generation != layout.key.generation)
+                        {
                             if !unsafe { MonitorFromWindow(hwnd as _, MONITOR_DEFAULTTONULL) }
                                 .is_null()
                             {
@@ -1062,6 +1137,7 @@ pub fn smoke(app: AppHandle, views: Vec<(SurfaceId, SurfaceView)>) {
         let result = (|| -> Result<Vec<serde_json::Value>, String> {
             let directory = std::path::Path::new("target/vr-surface-smoke");
             std::fs::create_dir_all(directory).map_err(|e| e.to_string())?;
+            check_player_display_bridge(&app)?;
             let hub = app.state::<SurfaceHub>();
             let mut results = Vec::new();
             // Keep sibling hosts alive when a recovery check destroys one window.
@@ -1069,6 +1145,12 @@ pub fn smoke(app: AppHandle, views: Vec<(SurfaceId, SurfaceView)>) {
                 wait_for_layout(&app, *surface, view, None)?;
             }
             for (surface, view) in views {
+                let case = match &view {
+                    SurfaceView::Menu { ui, .. } if ui.page != super::wrist_menu::Page::Home => {
+                        "menu-expanded"
+                    }
+                    _ => surface.name(),
+                };
                 let (hwnd, mut key) = wait_for_layout(&app, surface, &view, None)?;
                 let (width, height) = surface.size();
                 let counters = hub.0.lock().map_err(|e| e.to_string())?[surface.index()]
@@ -1097,7 +1179,7 @@ pub fn smoke(app: AppHandle, views: Vec<(SurfaceId, SurfaceView)>) {
                         surface.name()
                     ));
                 }
-                std::fs::write(directory.join(format!("{}.bgra", surface.name())), &first)
+                std::fs::write(directory.join(format!("{case}.bgra")), &first)
                     .map_err(|e| e.to_string())?;
                 capture.submitted(first_frame)?;
                 hub.0.lock().map_err(|e| e.to_string())?[surface.index()]
@@ -1360,16 +1442,16 @@ pub fn smoke(app: AppHandle, views: Vec<(SurfaceId, SurfaceView)>) {
                 }
                 hub.set_active(&app, surface, false)?;
                 capture.suspend();
-                results.push(serde_json::json!({"surface":surface,"width":width,"height":height,"key":key,"desktop_hidden":true,"transparent_pixels":transparent,"visible_pixels":visible,"hover_updated":hovered.map(|_| true),"content_updated":hovered.is_none(),"submitted_texture_preserved":true,"reload_recovered":true,"host_recreated":true,"idle_no_copies":static_surface.then_some(true),"hidden_source_closed":true,"hidden_no_copies":true,"warm_recovered":true,"pipelined_ticks":pipelined_ticks,"hold_submissions":hold_submissions}));
+                results.push(serde_json::json!({"surface":surface,"case":case,"width":width,"height":height,"key":key,"desktop_hidden":true,"transparent_pixels":transparent,"visible_pixels":visible,"hover_updated":hovered.map(|_| true),"content_updated":hovered.is_none(),"submitted_texture_preserved":true,"reload_recovered":true,"host_recreated":true,"idle_no_copies":static_surface.then_some(true),"hidden_source_closed":true,"hidden_no_copies":true,"warm_recovered":true,"pipelined_ticks":pipelined_ticks,"hold_submissions":hold_submissions}));
             }
-            if app.get_webview_window("vr-surface-smoke-desktop").is_none() {
+            if app.get_webview_window("main").is_none() {
                 return Err("Default desktop WebView was closed during capture smoke".into());
             }
             Ok(results)
         })();
         let report = match &result {
             Ok(surfaces) => {
-                serde_json::json!({"ok":true,"desktop_webview_coexisted":true,"surfaces":surfaces})
+                serde_json::json!({"ok":true,"desktop_webview_coexisted":true,"player_display_bridge":true,"surfaces":surfaces})
             }
             Err(error) => serde_json::json!({"ok":false,"error":error}),
         };
@@ -1891,6 +1973,27 @@ mod tests {
     use super::*;
 
     #[test]
+    fn expanded_menu_keeps_capsule_and_panel_hits_separate() {
+        assert_eq!(SurfaceId::Menu.size(), (1280, 1280));
+        let value: SurfaceLayout = serde_json::from_value(serde_json::json!({
+            "key": {"generation": 1, "revision": 1},
+            "regions": [
+                {"id": 4, "bounds": [0.6, 0.84, 0.725, 0.965], "circle": true, "menu": {"page": "players"}},
+                {"id": 17, "bounds": [0.1, 0.3, 0.4, 0.4], "menu": {"display": {"show_all_tracks": null}}}
+            ],
+            "menu_bounds": [0.0125, 0.80625, 0.9875, 0.99375],
+            "panels": [{"bounds": [0.0125, 0.0125, 0.9875, 0.7875], "radius": [0.025, 0.025]}],
+            "page_count": 1
+        })).unwrap();
+        value.validate(SurfaceId::Menu).unwrap();
+        assert!(value.pointer_contains([0.5, 0.5]));
+        assert!(value.pointer_contains([0.5, 0.9]));
+        assert!(!value.pointer_contains([0.5, 0.8]));
+        assert_eq!(value.hit([0.2, 0.35]), Some(17));
+        assert!(value.validate(SurfaceId::Dialogue).is_err());
+    }
+
+    #[test]
     fn copy_budget_does_not_halve_the_worker_tick_rate() {
         let mut renderer = SurfaceRenderer::new(SurfaceId::Menu);
         let started = Instant::now();
@@ -1931,6 +2034,8 @@ mod tests {
         let mut entry = Entry::default();
         entry.publish(
             SurfaceView::Menu {
+                players: Default::default(),
+                ui: Default::default(),
                 controls: ControlSnapshot::default(),
                 hold_progress: None,
             },
@@ -1951,6 +2056,8 @@ mod tests {
         entry.set_active(true, Instant::now());
         entry.publish(
             SurfaceView::Menu {
+                players: Default::default(),
+                ui: Default::default(),
                 controls: ControlSnapshot::default(),
                 hold_progress: None,
             },
@@ -1975,6 +2082,8 @@ mod tests {
             };
             entry.publish(
                 SurfaceView::Menu {
+                    players: Default::default(),
+                    ui: Default::default(),
                     controls,
                     hold_progress: None,
                 },
@@ -1999,6 +2108,8 @@ mod tests {
         entry.set_active(true, Instant::now());
         entry.publish(
             SurfaceView::Menu {
+                players: Default::default(),
+                ui: Default::default(),
                 controls: ControlSnapshot::default(),
                 hold_progress: None,
             },
@@ -2033,6 +2144,8 @@ mod tests {
         entry.set_active(true, Instant::now());
         entry.publish(
             SurfaceView::Menu {
+                players: Default::default(),
+                ui: Default::default(),
                 controls: ControlSnapshot::default(),
                 hold_progress: None,
             },
@@ -2053,6 +2166,8 @@ mod tests {
         let mut entry = active_entry();
         entry.publish(
             SurfaceView::Menu {
+                players: Default::default(),
+                ui: Default::default(),
                 controls: ControlSnapshot::default(),
                 hold_progress: None,
             },
@@ -2066,7 +2181,7 @@ mod tests {
         assert!(entry.commit_paint(key, 10));
         assert!(entry.active_layout().is_some());
         let mut moved = layout(key);
-        moved.regions[0].bounds = [0.2, 0., 0.4, 0.8];
+        moved.regions[0].bounds = [0.2, 0., 0.4, 0.2];
         assert!(entry
             .accept_layout_paint(SurfaceId::Menu, moved.clone(), 11)
             .unwrap());
@@ -2128,9 +2243,12 @@ mod tests {
             key,
             regions: vec![Region {
                 id: 0,
-                bounds: [0., 0., 0.2, 0.8],
+                bounds: [0., 0., 0.2, 0.2],
                 circle: true,
                 dashboard: None,
+                menu: Some(super::super::wrist_menu::Command::Control(
+                    super::super::control_protocol::ControlAction::SetWristEnabled(true),
+                )),
             }],
             menu_bounds: None,
             panels: vec![],
@@ -2143,6 +2261,8 @@ mod tests {
         let mut entry = active_entry();
         entry.publish(
             SurfaceView::Menu {
+                players: Default::default(),
+                ui: Default::default(),
                 controls: ControlSnapshot::default(),
                 hold_progress: None,
             },
@@ -2175,6 +2295,8 @@ mod tests {
         let mut entry = active_entry();
         entry.publish(
             SurfaceView::Menu {
+                players: Default::default(),
+                ui: Default::default(),
                 controls: ControlSnapshot::default(),
                 hold_progress: None,
             },
@@ -2189,6 +2311,8 @@ mod tests {
         assert!(entry.active_layout().is_some());
         entry.publish(
             SurfaceView::Menu {
+                players: Default::default(),
+                ui: Default::default(),
                 controls: ControlSnapshot::default(),
                 hold_progress: None,
             },
@@ -2201,6 +2325,8 @@ mod tests {
         controls.revision += 1;
         entry.publish(
             SurfaceView::Menu {
+                players: Default::default(),
+                ui: Default::default(),
                 controls,
                 hold_progress: None,
             },
@@ -2221,6 +2347,8 @@ mod tests {
         let mut controls = ControlSnapshot::default();
         entry.publish(
             SurfaceView::Menu {
+                players: Default::default(),
+                ui: Default::default(),
                 controls: controls.clone(),
                 hold_progress: None,
             },
@@ -2239,6 +2367,8 @@ mod tests {
         controls.revision += 1;
         entry.publish(
             SurfaceView::Menu {
+                players: Default::default(),
+                ui: Default::default(),
                 controls,
                 hold_progress: None,
             },
@@ -2281,6 +2411,8 @@ mod tests {
         let mut controls = ControlSnapshot::default();
         entry.publish(
             SurfaceView::Menu {
+                players: Default::default(),
+                ui: Default::default(),
                 controls: controls.clone(),
                 hold_progress: None,
             },
@@ -2293,6 +2425,8 @@ mod tests {
         for progress in [Some(0.), Some(0.5), Some(1.), None] {
             assert!(entry.publish(
                 SurfaceView::Menu {
+                    players: Default::default(),
+                    ui: Default::default(),
                     controls: controls.clone(),
                     hold_progress: progress
                 },
@@ -2308,6 +2442,8 @@ mod tests {
         controls.revision += 1;
         entry.publish(
             SurfaceView::Menu {
+                players: Default::default(),
+                ui: Default::default(),
                 controls,
                 hold_progress: None,
             },
@@ -2322,6 +2458,8 @@ mod tests {
         let mut entry = active_entry();
         entry.publish(
             SurfaceView::Menu {
+                players: Default::default(),
+                ui: Default::default(),
                 controls: ControlSnapshot::default(),
                 hold_progress: None,
             },
@@ -2376,6 +2514,7 @@ mod tests {
             bounds: [left, 0.02, right, 0.12],
             circle: id != 0,
             dashboard: None,
+            menu: None,
         })
         .collect();
         assert!(value.validate(SurfaceId::Dialogue).is_ok());
@@ -2444,12 +2583,13 @@ mod tests {
         });
         value.regions[0].id = 42;
         value.regions[0].circle = false;
+        value.regions[0].menu = None;
         assert!(value.validate(SurfaceId::Dashboard).is_err());
         value.regions[0].dashboard = Some(DashboardCommand::Page(
             super::super::dashboard::DashboardPage::Language,
         ));
         assert!(value.validate(SurfaceId::Dashboard).is_ok());
-        assert_eq!(value.hit([0.1, 0.4]), Some(42));
+        assert_eq!(value.hit([0.1, 0.1]), Some(42));
         assert!(value.validate(SurfaceId::Menu).is_err());
     }
 
@@ -2508,6 +2648,8 @@ mod tests {
         let now = Instant::now();
         entry.publish(
             SurfaceView::Menu {
+                players: Default::default(),
+                ui: Default::default(),
                 controls: ControlSnapshot::default(),
                 hold_progress: None,
             },
@@ -2527,6 +2669,8 @@ mod tests {
         };
         entry.publish(
             SurfaceView::Menu {
+                players: Default::default(),
+                ui: Default::default(),
                 controls: controls.clone(),
                 hold_progress: None,
             },
@@ -2537,6 +2681,8 @@ mod tests {
         controls.revision = 3;
         entry.publish(
             SurfaceView::Menu {
+                players: Default::default(),
+                ui: Default::default(),
                 controls,
                 hold_progress: None,
             },
@@ -2552,6 +2698,8 @@ mod tests {
         let mut entry = active_entry();
         entry.publish(
             SurfaceView::Menu {
+                players: Default::default(),
+                ui: Default::default(),
                 controls: ControlSnapshot::default(),
                 hold_progress: None,
             },

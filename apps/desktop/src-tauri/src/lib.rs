@@ -513,6 +513,8 @@ pub fn run() {
             vr_overlay::vr_overlay_control_ready,
             vr_overlay::vr_overlay_control_update,
             vr_overlay::vr_overlay_player_audio_update,
+            vr_overlay::vr_overlay_player_display_update,
+            vr_overlay::vr_overlay_player_display_result,
             vr_overlay::vr_overlay_control_result,
             vr_overlay::vr_overlay_control_release,
             vr_overlay::vr_overlay_placement_result,

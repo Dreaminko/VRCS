@@ -1,22 +1,26 @@
 import { memo, useCallback, useLayoutEffect, useMemo, useRef, type CSSProperties, type ReactNode } from "react";
-import { Captions, ChevronLeft, ChevronRight, Eye, GripHorizontal, Hand, Languages, MessageSquare, Mic, Pin, PinOff, Radio, ScanEye, Square, X } from "lucide-react";
+import { Captions, ChevronLeft, ChevronRight, Eye, GripHorizontal, Hand, Languages, MessageSquare, Mic, Pin, PinOff, Radio, ScanEye, Square, UsersRound, X } from "lucide-react";
+import type { WristMenuCommand } from "../vr-controls/player-display-protocol";
+import type { ControlAction } from "../vr-controls/protocol";
 import { VisionAnswerMarkdown } from "../vision/VisionAnswerMarkdown";
 import { Headset, OcrProgress } from "./PassiveSurfaces";
 import { visibleCaptionMessages } from "./caption-visibility";
 import { DashboardSurface, DashboardThumbnail } from "./DashboardSurface";
 import { OcrResultSurface, OcrSelectionSurface } from "./OcrSurfaces";
 import { PlayerAudioPrompt } from "./PlayerAudioPrompt";
+import { DEFAULT_WRIST_MENU_UI, PlayerDisplayMenu } from "./PlayerDisplayMenu";
 import { menuStatus, pageGeometry, SURFACE_SIZE, type SurfaceLayout, type SurfaceState, type SurfaceView } from "./protocol";
 
 import "./surface.css";
 
-function SurfaceButton({ state, id, label, children, active = false, primary = false, disabled = false, grip = false, status }: {
+function SurfaceButton({ state, id, label, children, active = false, primary = false, disabled = false, grip = false, status, menu }: {
   state: SurfaceState; id: number; label: string; children: ReactNode; active?: boolean; primary?: boolean; disabled?: boolean; grip?: boolean;
   status?: string;
+  menu?: WristMenuCommand;
 }) {
   const hovered = state.hovered === id;
   return <button type="button" tabIndex={-1} disabled={disabled} aria-label={label} aria-pressed={active} aria-busy={status === "busy" || undefined} data-status={status}
-    data-vr-region={id} data-vr-circle={!grip || undefined}
+    data-vr-region={id} data-vr-circle={!grip || undefined} data-vr-menu={menu ? JSON.stringify(menu) : undefined}
     className={`vr-surface-button${grip ? " vr-surface-grip" : ""}${active ? " active" : ""}${primary ? " primary" : ""}${hovered ? " hovered" : ""}${state.pressed === id ? " pressed" : ""}`}>
     {children}
     {hovered && label && <span className="vr-surface-tooltip">{label}</span>}
@@ -25,19 +29,33 @@ function SurfaceButton({ state, id, label, children, active = false, primary = f
 
 function Menu({ state, view }: { state: SurfaceState; view: Extract<SurfaceView, { kind: "menu" }> }) {
   const icons = [<MessageSquare />, <Captions />, <Radio />, view.controls.items[3]?.requested ? <Square /> : <Mic />];
+  const ui = view.ui ?? DEFAULT_WRIST_MENU_UI;
   const progress = view.hold_progress;
-  return <nav className="vr-menu-capsule">
-    {view.controls.items.slice(0, 4).map((item, index) => <SurfaceButton state={state} id={index} key={index}
-      {...menuStatus(item, view.controls.labels)}
-      active={item.requested} primary={index === 3} disabled={!item.available || item.busy}>
-      {icons[index]}
-      {index === 0 && state.pressed === 0 && progress != null && <svg className="vr-menu-hold-progress" viewBox="0 0 160 160"
-        role="progressbar" aria-label={item.label} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(progress * 100)}>
-        <circle className="vr-menu-hold-track" cx="80" cy="80" r="72" />
-        <circle cx="80" cy="80" r="72" pathLength={100} strokeDasharray={100} strokeDashoffset={100 * (1 - progress)} />
-      </svg>}
-    </SurfaceButton>)}
-  </nav>;
+  const actions: ControlAction[] = [
+    { set_wrist_enabled: !view.controls.items[0]?.requested }, { set_headset_enabled: !view.controls.items[1]?.requested },
+    { set_osc_enabled: !view.controls.items[2]?.requested }, { set_capture_running: !view.controls.items[3]?.requested },
+  ];
+  return <>
+    <PlayerDisplayMenu state={state} view={view.players} ui={ui} />
+    <nav className="vr-menu-capsule">
+      {[0, 1, 2, 4, 3].map(index => {
+        if (index === 4) return <SurfaceButton state={state} id={4} key={4} label={view.players?.labels.title || "People and translation display"}
+          menu={{ page: ui.page === "home" ? "players" : "home" }} active={ui.page !== "home"}><UsersRound /></SurfaceButton>;
+        const item = view.controls.items[index];
+        if (!item) return null;
+        return <SurfaceButton state={state} id={index} key={index}
+          {...menuStatus(item, view.controls.labels)}
+          menu={{ control: actions[index] }} active={item.requested} primary={index === 3} disabled={!item.available || item.busy}>
+          {icons[index]}
+          {index === 0 && state.pressed === 0 && progress != null && <svg className="vr-menu-hold-progress" viewBox="0 0 160 160"
+            role="progressbar" aria-label={item.label} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(progress * 100)}>
+            <circle className="vr-menu-hold-track" cx="80" cy="80" r="72" />
+            <circle cx="80" cy="80" r="72" pathLength={100} strokeDasharray={100} strokeDashoffset={100 * (1 - progress)} />
+          </svg>}
+        </SurfaceButton>;
+      })}
+    </nav>
+  </>;
 }
 
 function Dialogue({ state, view }: { state: SurfaceState; view: Extract<SurfaceView, { kind: "dialogue" }> }) {
@@ -154,7 +172,7 @@ export const VrSurface = memo(function VrSurface({ state, onLayout }: { state: S
       if (!bounds.width || !bounds.height) return;
       const normalize = (rect: DOMRect): [number, number, number, number] => [(rect.left - bounds.left) / bounds.width, (rect.top - bounds.top) / bounds.height, (rect.right - bounds.left) / bounds.width, (rect.bottom - bounds.top) / bounds.height];
       const regions = [...element.querySelectorAll<HTMLButtonElement>("[data-vr-region]")].filter((button) => !button.disabled).map((button) => {
-        return { id: Number(button.dataset.vrRegion), bounds: normalize(button.getBoundingClientRect()), ...(button.dataset.vrCircle ? { circle: true } : {}), ...(button.dataset.vrCommand ? { dashboard: JSON.parse(button.dataset.vrCommand) } : {}) };
+        return { id: Number(button.dataset.vrRegion), bounds: normalize(button.getBoundingClientRect()), ...(button.dataset.vrCircle ? { circle: true } : {}), ...(button.dataset.vrCommand ? { dashboard: JSON.parse(button.dataset.vrCommand) } : {}), ...(button.dataset.vrMenu ? { menu: JSON.parse(button.dataset.vrMenu) } : {}) };
       });
       const menu = element.querySelector(".vr-menu-capsule");
       const panels = [...element.querySelectorAll<HTMLElement>("[data-vr-panel]")].map(panel => {

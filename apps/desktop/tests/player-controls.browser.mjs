@@ -10,16 +10,19 @@ const testDirectory = dirname(fileURLToPath(import.meta.url));
 const browser = [process.env.PROGRAMFILES, process.env["PROGRAMFILES(X86)"], process.env.LOCALAPPDATA]
   .filter(Boolean).flatMap(root => [join(root,"Google/Chrome/Application/chrome.exe"),join(root,"Microsoft/Edge/Application/msedge.exe")]).find(existsSync);
 
-for (const width of [1100,860,380]) {
-  test(`track selection and hidden original languages at ${width}px`, {timeout:45000,skip:!browser && "Chrome or Edge is required"}, async () => {
+for (const [width,reduced] of [[1100,false],[860,false],[380,false],[1100,true]]) {
+  test(`track selection and hidden original languages at ${width}px (reduced: ${reduced})`, {timeout:45000,skip:!browser && "Chrome or Edge is required"}, async () => {
     const bundle=await build({
       stdin:{resolveDir:join(testDirectory,".."),loader:"tsx",contents:`
         import React, {useRef,useState} from 'react';
         import {createRoot} from 'react-dom/client';
+        import {flushSync} from 'react-dom';
+        import {updateReducedMotionPreference} from './src/app/app-motion';
         import i18next from 'i18next';
         import {initReactI18next} from 'react-i18next';
         import locale from './src/i18n/locales/zh-CN.json';
         import {PlayerHistoryControls} from './src/subtitles/components/PlayerHistoryControls';
+        import {applyPlayerSelectionAction} from './src/subtitles/player-controls';
         import {LiveView,TopStatus} from './src/subtitles/components/SubtitleViews';
         import {WorkspaceFrame} from './src/app/components/WorkspaceFrame';
         import {useLiveConversationScroll} from './src/conversations/useLiveConversationScroll';
@@ -51,7 +54,7 @@ for (const width of [1100,860,380]) {
             <WorkspaceFrame page="live" scrollRef={scroll} onScroll={scrollApi.onLiveScroll} toolbar={
             <TopStatus connection="connected" health={null} settings={null} controls={<PlayerHistoryControls subtitles={subtitles} status={{players:players.map(speaker=>({speaker,active:true,selected:true}))}}
               enabled={true} selectedUserIds={selected} selectedUserNames={selectedNames} defaultLanguages={defaults} preferences={preferences} onPreferences={setPreferences}
-              onSelection={async (value,names)=>{await new Promise(resolve=>setTimeout(resolve,30));setSelected(value);setSelectedNames(names);}} />}/>
+              onSelection={async (action,speakers,current)=>{await new Promise(resolve=>setTimeout(resolve,30));const next=applyPlayerSelectionAction({audio:{output:{mode:'vrchat_players',player_audio:{selected_tracks:selected,selected_user_names:selectedNames}}}},action,speakers,current).audio.output.player_audio;setSelected(next.selected_tracks);setSelectedNames(next.selected_user_names);}} />}/>
             }>
             <LiveView subtitles={subtitles} hiddenTracks={preferences.hiddenTracks} hiddenSourceLanguages={preferences.hiddenSourceLanguages??defaults}
               scrollContainerRef={scroll} running={true} hasOlder={true} loading={false} loadingOlder={false} onLoadOlder={noop} onSelect={noop} />
@@ -60,9 +63,15 @@ for (const width of [1100,860,380]) {
         createRoot(document.getElementById('root')).render(<Fixture/>);
         const wait=async predicate=>{for(let i=0;i<150;i++){if(predicate())return;await new Promise(r=>setTimeout(r,20));}throw Error('Timed out: '+predicate);};
         const check=(condition,message)=>{if(!condition)throw Error(message);};
+        const click=element=>flushSync(()=>element.click());
+        const finishMotion=async panel=>{
+          for(const animation of panel?.getAnimations()??[])animation.finish();
+          await wait(()=>!panel?.isConnected||!panel.getAnimations().length);
+        };
         const languageCheckbox=code=>document.querySelector('.player-history-language-list input[value="'+code+'"]');
         const row=id=>document.querySelector('[data-subtitle-id="'+id+'"]');
         try{
+          check(matchMedia('(prefers-reduced-motion: reduce)').matches===${reduced},'the system motion preference is applied');
           await wait(()=>document.querySelector('.player-history-trigger'));
           changeRows([]);
           await wait(()=>!row(1));
@@ -85,14 +94,75 @@ for (const width of [1100,860,380]) {
             check(triggerRect.right<core.left&&Math.abs(triggerRect.top+triggerRect.height/2-core.top-core.height/2)<1,'the button sits immediately left of Core on the same row');
           }
           check(!document.querySelector('.player-history-panel')&&trigger.getAttribute('aria-expanded')==='false','settings are collapsed initially');
-          const settled=()=>new Promise(resolve=>setTimeout(resolve,100));
+          const settled=async()=>{
+            await new Promise(resolve=>setTimeout(resolve,100));
+            await finishMotion(document.querySelector('.player-history-panel'));
+          };
           region.scrollTop=0;
           trigger.dispatchEvent(new KeyboardEvent('keydown',{key:'Tab',bubbles:true}));
           trigger.dispatchEvent(new PointerEvent('pointerdown',{button:0,bubbles:true}));
           await settled();
           check(scrollApi.followingLiveSubtitles,'tabbing or an incomplete click on a closed panel must not pause following');
           const initialRegionTop=region.getBoundingClientRect().top;
-          trigger.click();
+          click(trigger);
+          const motionPanel=document.querySelector('.player-history-panel');
+          check(motionPanel&&!motionPanel.inert,'the panel is interactive as soon as it opens');
+          if(!${reduced}){
+            const entry=motionPanel.getAnimations()[0];
+            check(entry,'the panel animates when opening');
+            entry.pause();entry.currentTime=entry.effect.getTiming().duration/2;
+            const opacity=Number(getComputedStyle(motionPanel).opacity);
+            check(opacity>0.7&&opacity<1&&getComputedStyle(motionPanel).transform!=='none','opening scales and fades with non-linear deceleration');
+          }else check(!motionPanel.getAnimations().length,'system reduced motion skips the opening animation');
+          await finishMotion(motionPanel);
+          const checkAnchor=()=>{
+            const panelRect=motionPanel.getBoundingClientRect();
+            const buttonRect=trigger.getBoundingClientRect();
+            const scale=buttonRect.width/trigger.offsetWidth;
+            const [originX,originY]=getComputedStyle(motionPanel).transformOrigin.split(' ').map(parseFloat);
+            check(Math.abs(panelRect.left+originX*scale-buttonRect.left-buttonRect.width/2)<1.5
+              &&Math.abs(panelRect.top+originY*scale-buttonRect.top-buttonRect.height/2)<1.5,
+              'the panel expands from the trigger center, not the toolbar or window corner');
+          };
+          checkAnchor();
+          document.body.style.zoom='1.25';
+          await settled();checkAnchor();
+          document.body.style.zoom='';
+          await settled();checkAnchor();
+          const paint=document.createElement('canvas').getContext('2d');
+          for(const theme of ['light','dark']){
+            document.documentElement.dataset.theme=theme;
+            await settled();
+            paint.clearRect(0,0,1,1);paint.fillStyle=getComputedStyle(trigger).backgroundColor;paint.fillRect(0,0,1,1);
+            check(paint.getImageData(0,0,1,1).data[3]===255,'the expanded button retains an opaque base in '+theme+' mode');
+          }
+          document.documentElement.dataset.theme=${reduced}?'dark':'light';
+          click(trigger);
+          check(trigger.getAttribute('aria-expanded')==='false','dismissal updates the trigger immediately');
+          if(!${reduced}){
+            check(motionPanel.isConnected&&motionPanel.inert&&motionPanel.getAttribute('aria-hidden')==='true','the closing panel stays mounted but cannot receive input or accessibility focus');
+            const exit=motionPanel.getAnimations()[0];
+            check(exit,'the panel animates when closing');
+            exit.pause();exit.currentTime=exit.effect.getTiming().duration/2;
+            const opacity=Number(getComputedStyle(motionPanel).opacity);
+            check(opacity>0.5&&opacity<1,'closing fades with non-linear acceleration');
+            click(trigger);
+            check(document.querySelector('.player-history-panel')===motionPanel&&!motionPanel.inert,'rapid reopening preserves and reactivates the panel');
+            const reopen=motionPanel.getAnimations()[0];
+            reopen.pause();reopen.currentTime=0;
+            check(Math.abs(Number(getComputedStyle(motionPanel).opacity)-opacity)<0.02,'interrupted motion continues without an opacity jump');
+            await finishMotion(motionPanel);
+            click(trigger);
+            await wait(()=>!motionPanel.isConnected);
+          }
+          check(!document.querySelector('.player-history-panel'),'the panel is removed after closing');
+          updateReducedMotionPreference(true);
+          click(trigger);
+          check(!document.querySelector('.player-history-panel').getAnimations().length,'the app reduced-motion setting also skips opening motion');
+          click(trigger);
+          check(!document.querySelector('.player-history-panel'),'reduced motion dismisses without an exit delay');
+          updateReducedMotionPreference(false);
+          click(trigger);
           await settled();
           check(Math.abs(triggerTop()-initialTriggerTop)<1 && scrollApi.followingLiveSubtitles,'expanding controls keeps the toolbar fixed and does not pause live following');
           check(region.getBoundingClientRect().top===initialRegionTop,'the floating panel does not move the conversation');
@@ -299,8 +369,8 @@ for (const width of [1100,860,380]) {
       writeFileSync(join(directory,'content.html'),'<style>'+css+'</style><div id="root"></div><pre id="result">PENDING</pre><script>const report=document.getElementById("result");window.addEventListener("error",e=>report.textContent="FAIL: "+e.message);window.addEventListener("unhandledrejection",e=>report.textContent="FAIL: "+e.reason);new MutationObserver(()=>parent.postMessage(report.textContent,"*")).observe(report,{childList:true});</script><script type="module">'+javascript.replace(/<\/script/gi,'<\\/script')+'</script>');
       const html=join(directory,'test.html');
       writeFileSync(html,'<iframe src="content.html" style="display:block;border:0;width:'+width+'px;height:1500px"></iframe><pre id="result">PENDING</pre><script>window.addEventListener("message",e=>document.getElementById("result").textContent=e.data);</script>');
-      const screenshot=resolve(testDirectory,'../../../core/target/player-controls-ui-'+width+'.png');
-      assert.equal(await runBrowserFixture(html,screenshot,directory,width), 'PASS');
+      const screenshot=resolve(testDirectory,'../../../core/target/player-controls-ui-'+width+(reduced?'-reduced':'')+'.png');
+      assert.equal(await runBrowserFixture(html,screenshot,directory,width,reduced), 'PASS');
     }finally{
       assert(relative(testDirectory,directory).startsWith('.player-controls-browser-'));
       rmSync(directory,{recursive:true,force:true,maxRetries:10,retryDelay:200});
@@ -310,9 +380,10 @@ for (const width of [1100,860,380]) {
 
 // Virtual-time dump-dom can starve native ResizeObserver callbacks. Drive the
 // actual browser clock so viewport changes and live following are both tested.
-async function runBrowserFixture(html,screenshot,directory,width) {
+async function runBrowserFixture(html,screenshot,directory,width,reduced) {
   const child=spawn(browser,['--headless=new','--remote-debugging-port=0','--disable-gpu','--no-first-run',
     '--disable-background-networking','--disable-extensions','--window-size='+width+',1500',
+    ...(reduced?['--force-prefers-reduced-motion=reduce']:[]),
     '--user-data-dir='+join(directory,'profile'),pathToFileURL(html).href],{windowsHide:true,timeout:40000});
   let socket;
   const pending=new Map();

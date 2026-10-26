@@ -1827,7 +1827,7 @@ mod platform {
                 0
             }
             unsafe extern "C" fn width(_: u64, width: *mut f32) -> i32 {
-                unsafe { *width = 0.18 };
+                unsafe { *width = 0.225 };
                 0
             }
             unsafe extern "C" fn intersection(
@@ -1845,7 +1845,7 @@ mod platform {
                     std::array::from_fn(|i| ray.vSource.v[i] + distance * ray.vDirection.v[i]);
                 let local = std::array::from_fn(|i| point[i] - panel[i][3]);
                 // Reproduce SteamVR's square input geometry with default mouse scale.
-                let uv = [0.5 + dot(local, 0) / 0.18, 0.5 + dot(local, 1) / 0.18];
+                let uv = [0.5 + dot(local, 0) / 0.225, 0.5 + dot(local, 1) / 0.225];
                 unsafe {
                     (*hit).vPoint.v = point;
                     (*hit).vUVs.v = uv;
@@ -1859,8 +1859,8 @@ mod platform {
             api.ComputeOverlayIntersection = Some(intersection);
             let layout: SurfaceLayout = serde_json::from_value(serde_json::json!({
                 "key": { "generation": 1, "revision": 1 },
-                "regions": [{ "id": 1, "bounds": [314./1024., 48./256., 474./1024., 208./256.], "circle": true }],
-                "menu_bounds": [16./1024., 8./256., 1008./1024., 248./256.],
+                "regions": [{ "id": 1, "bounds": [314./1280., 1072./1280., 474./1280., 1232./1280.], "circle": true, "menu": {"control": {"set_headset_enabled": true}} }],
+                "menu_bounds": [16./1280., 1032./1280., 1264./1280., 1272./1280.],
                 "page_count": 1
             })).unwrap();
             layout.validate(SurfaceId::Menu).unwrap();
@@ -1881,11 +1881,11 @@ mod platform {
                     (20., 16., false, None),
                     (32., 128., true, None),
                 ] {
-                    let expected = [x / 1024., y / 256.];
+                    let expected = [x / 1280., (y + 1024.) / 1280.];
                     let position: [f32; 3] = std::array::from_fn(|i| {
                         panel[i][3]
-                            + panel[i][0] * (expected[0] - 0.5) * 0.18
-                            + panel[i][1] * (0.5 - expected[1]) * 0.045
+                            + panel[i][0] * (expected[0] - 0.5) * 0.225
+                            + panel[i][1] * (0.5 - expected[1]) * 0.225
                     });
                     let mut ray = panel;
                     for i in 0..3 {
@@ -2069,15 +2069,30 @@ pub use platform::OpenVrBackend;
 pub fn menu_config(hand: &str) -> vrcs_core::VrOverlayWristConfig {
     vrcs_core::VrOverlayWristConfig {
         hand: hand.into(),
-        width_m: 0.18,
-        // Place the menu above the forearm, behind the controller in local +Z.
+        width_m: 0.225,
+        // Keep the bottom capsule at its original anchor as the texture extends upward.
         offset_x_m: 0.0,
         offset_y_m: 0.06,
-        offset_z_m: 0.18,
+        offset_z_m: 0.09,
         pitch_deg: -90.0,
         yaw_deg: 0.0,
         roll_deg: 0.0,
         ..Default::default()
+    }
+}
+
+#[cfg(all(test, windows))]
+#[test]
+fn expanded_menu_keeps_quick_buttons_at_the_original_wrist_anchor() {
+    for hand in ["left", "right"] {
+        let config = menu_config(hand);
+        assert_eq!(config.hand, hand);
+        assert_eq!(config.pitch_deg, -90.0);
+        assert!((config.width_m / 1280.0 - 0.18 / 1024.0).abs() < 0.000001);
+        // Overlay -Y maps to controller +Z at pitch -90 degrees.
+        let capsule_z = config.offset_z_m + (1152.0 - 640.0) * config.width_m / 1280.0;
+        assert!((capsule_z - 0.18).abs() < 0.000001);
+        assert_eq!(config.offset_y_m, 0.06);
     }
 }
 

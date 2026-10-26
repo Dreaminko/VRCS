@@ -3,6 +3,7 @@ import type { VrDashboardViewModel } from "../integrations/vr-overlay-native";
 import type { DashboardCommand, DashboardUi } from "./dashboard-protocol";
 import type { OcrScene } from "./ocr-scene";
 import type { PlayerAudioPrompt } from "../capture/player-audio-vr";
+import type { PlayerDisplayView, WristMenuCommand, WristMenuUi } from "../vr-controls/player-display-protocol";
 
 export type Surface = keyof typeof SURFACE_SIZE;
 export interface SurfaceKey { generation: number; revision: number }
@@ -38,7 +39,7 @@ interface CaptionSelection { visibility?: CaptionVisibility; max_visible_players
 export interface CaptionLabels { me: string; other: string }
 
 export type SurfaceView =
-  | { kind: "menu"; controls: ControlSnapshot; hold_progress?: number | null }
+  | { kind: "menu"; controls: ControlSnapshot; players?: PlayerDisplayView; ui?: WristMenuUi; hold_progress?: number | null }
   | ({ kind: "dialogue"; controls: ControlSnapshot; messages: CaptionMessage[]; notice?: string | null; labels?: CaptionLabels; mode: "wrist" | "world"; follow_view: boolean; busy: boolean; error: string | null; font_size: number; opacity: number } & CaptionSelection)
   | { kind: "reader"; dark: boolean; labels: Record<string, string>; reader: ReaderView; font_size: number; opacity: number }
   | ({ kind: "headset"; dark: boolean; messages: CaptionMessage[]; notice?: string | null; labels?: CaptionLabels; lines_per_language: number; font_size: number; opacity: number } & CaptionSelection)
@@ -74,14 +75,14 @@ export interface SurfaceScrollState { key: SurfaceKey; delta: number }
 
 export interface SurfaceLayout {
   key: SurfaceKey;
-  regions: { id: number; bounds: [number, number, number, number]; circle?: boolean; dashboard?: DashboardCommand }[];
+  regions: { id: number; bounds: [number, number, number, number]; circle?: boolean; dashboard?: DashboardCommand; menu?: WristMenuCommand }[];
   menu_bounds?: [number, number, number, number];
   panels?: { bounds: [number, number, number, number]; radius: [number, number] }[];
   page_count: number;
   unplaced?: number[];
 }
 
-export const SURFACE_SIZE = { menu: [1024, 256], dialogue: [768, 768], reader: [1024, 1024], headset: [1024, 1360], ocr_progress: [768, 224], dashboard: [1440, 900], dashboard_thumbnail: [256, 256], ocr_selection: [256, 256], ocr_result: [2048, 2048], player_audio: [1024, 1024] } as const;
+export const SURFACE_SIZE = { menu: [1280, 1280], dialogue: [768, 768], reader: [1024, 1024], headset: [1024, 1360], ocr_progress: [768, 224], dashboard: [1440, 900], dashboard_thumbnail: [256, 256], ocr_selection: [256, 256], ocr_result: [2048, 2048], player_audio: [1024, 1024] } as const;
 
 export function isSurface(value: string | null): value is Surface {
   return value !== null && Object.hasOwn(SURFACE_SIZE, value);

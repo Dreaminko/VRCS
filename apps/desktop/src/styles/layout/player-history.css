@@ -1,6 +1,8 @@
 .player-history-controls { flex: 0 0 auto; color: var(--text); font-size: 12px; }
-.player-history-trigger {
+.player-history-trigger,
+.status-trigger {
   display: grid;
+  flex: 0 0 auto;
   width: 42px;
   height: 42px;
   place-items: center;
@@ -13,9 +15,14 @@
   cursor: pointer;
   transition: color 120ms ease-out, background-color 120ms ease-out, border-color 120ms ease-out;
 }
-.player-history-trigger:hover { color: var(--text); border-color: var(--border-strong); background: var(--surface-elevated); }
+.player-history-trigger:hover,
+.status-trigger:hover { color: var(--text); border-color: var(--border-strong); background: var(--surface-elevated); }
 .player-history-trigger:active,
-.player-history-trigger[aria-expanded="true"] { color: var(--primary-ink); border-color: var(--primary); background: var(--primary-soft); }
+.player-history-trigger[aria-expanded="true"] {
+  color: var(--primary-ink);
+  border-color: var(--primary);
+  background: linear-gradient(var(--primary-soft), var(--primary-soft)), var(--surface);
+}
 .player-history-panel {
   position: absolute;
   z-index: 200;
@@ -29,6 +36,7 @@
   border-radius: 14px;
   background: var(--surface);
   box-shadow: var(--overlay-shadow);
+  transition: none;
 }
 .player-history-heading { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 12px 15px; border-bottom: 1px solid var(--border); }
 .player-history-heading strong { flex: 1; font-size: 13px; font-weight: 600; }

@@ -47,6 +47,26 @@ pub(super) fn dispatch_control(
     }
 }
 
+pub(super) fn dispatch_player_display(
+    app: &AppHandle,
+    controls: &Mutex<ControlHub>,
+    source: ControlSource,
+    expected: (u32, u32),
+    action: super::player_display::Action,
+) {
+    let request = controls
+        .lock()
+        .ok()
+        .and_then(|mut hub| hub.begin_player_display(source, expected, action));
+    if let Some(request) = request {
+        if let Err(error) = app.emit_to("main", super::player_display::REQUEST_EVENT, &request) {
+            if let Ok(mut hub) = controls.lock() {
+                hub.finish_player_display(&request, Some(error.to_string()));
+            }
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SampleKind {
     Headset,

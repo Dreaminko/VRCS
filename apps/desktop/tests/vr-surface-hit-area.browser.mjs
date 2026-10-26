@@ -37,6 +37,7 @@ test("VR hit contours exclude transparent borders and keep the dialogue toolbar 
       const reader = { ...base, view: { kind: 'reader', dark: false, labels: {}, font_size: 28, opacity: 1,
         reader: { mode: 'ocr', source: 'Source', translation: 'Translation', title: 'Reader', status: '', detail: '', translation_label: 'answer',
           block_index: 0, block_count: 1, page: 0, pinned: false, source_only: false, language_count: 1 } } };
+      const menu = { ...base, view: { kind: 'menu', controls, ui: { page: 'players', group: 'current', player_page: 0, language_page: 0 } } };
       let layout;
       const render = state => flushSync(() => root.render(<VrSurface state={state} onLayout={next => { layout = next; }} />));
       try {
@@ -60,6 +61,13 @@ test("VR hit contours exclude transparent borders and keep the dialogue toolbar 
           check(Math.abs(panel.bounds[0] * 1024 - 24) < 0.01 && Math.abs(panel.bounds[3] * 1024 - 1008) < 0.01,
             'Reader margins are excluded: ' + dark);
           check(Math.abs(panel.radius[0] * 1024 - 32) < 0.01, 'Reader rounded corners match its contour: ' + dark);
+          menu.view.controls.dark = dark;
+          render({ ...menu, view: { ...menu.view } });
+          check(layout.panels?.length === 1, 'Expanded menu reports one settings contour beside its persistent capsule: ' + dark);
+          check(layout.panels[0].bounds[3] < layout.menu_bounds[1], 'The transparent gap between settings and capsule remains open: ' + dark);
+          check(Math.abs(layout.panels[0].radius[0] * 1280 - 32) < 0.01, 'Settings contour uses the existing panel radius: ' + dark);
+          render({ ...menu, view: { ...menu.view, ui: { ...menu.view.ui, page: 'home' } } });
+          check(!layout.panels && layout.menu_bounds[1] > 0.8, 'Collapsed menu does not capture the transparent settings area: ' + dark);
         }
         document.getElementById('result').textContent = JSON.stringify({ passed });
       } catch (error) {
@@ -85,7 +93,7 @@ test("VR hit contours exclude transparent borders and keep the dialogue toolbar 
     assert.ok(output, "The hit contour fixture must finish");
     const result = JSON.parse(output);
     assert.equal(result.error, undefined, result.error);
-    assert.equal(result.passed.length, 16);
+    assert.equal(result.passed.length, 24);
   } finally {
     assert.equal(dirname(directory), testDirectory);
     rmSync(directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });

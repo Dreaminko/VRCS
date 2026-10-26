@@ -159,4 +159,6 @@ export function useVrControlBridge(options: {
     observer.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
     return () => observer.disconnect();
   }, [epoch, settings, options.available, options.requested, options.running, options.busy, t]);
+
+  return epoch;
 }

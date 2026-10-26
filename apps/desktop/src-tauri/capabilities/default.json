@@ -52,6 +52,8 @@
     "allow-vr-overlay-control-ready",
     "allow-vr-overlay-control-update",
     "allow-vr-overlay-player-audio-update",
+    "allow-vr-overlay-player-display-update",
+    "allow-vr-overlay-player-display-result",
     "allow-vr-overlay-control-result",
     "allow-vr-overlay-control-release",
     "allow-vr-overlay-placement-result",

@@ -329,6 +329,10 @@
       "trackNumber": "音声トラック {{number}}",
       "players": {
         "title": "プレイヤーと訳文の表示",
+        "playersTab": "プレイヤー",
+        "historySaved": "履歴と保存済み",
+        "processingUnavailable": "処理対象の選択にはプレイヤー別音声と Core への接続が必要です。",
+        "unavailable": "この設定を使うには VRCS のメイン画面を開いてください。",
         "hiddenCount": "{{count}} 人を非表示",
         "process": "処理するプレイヤー",
         "all": "全員を翻訳",

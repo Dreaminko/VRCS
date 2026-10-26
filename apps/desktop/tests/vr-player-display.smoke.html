@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="UTF-8"><title>VR player display bridge smoke</title></head>
+<body>
+<script type="module">
+  import { invoke } from "@tauri-apps/api/core";
+  import { emit } from "@tauri-apps/api/event";
+
+  let epoch = 0;
+  let failure = null;
+  try {
+    const controls = await invoke("vr_overlay_control_ready", { view: {
+      owner_epoch: 0, revision: 0, dark: true, labels: {},
+      items: Array.from({ length: 4 }, () => ({ requested: false, effective: false, available: false, busy: false, label: "", reason: null })),
+    } });
+    epoch = controls.owner_epoch;
+    const accepted = await invoke("vr_overlay_player_display_update", { epoch, revision: 1, view: {
+      available: true, processing_available: false, player_mode: false, selection_mode: "all", selected_count: 0,
+      players: [], languages: [], follow_default: true, default_languages: [], labels: {}, busy: false, error: null,
+    } });
+    if (!accepted) throw new Error("Main-window personnel snapshot was rejected");
+    const finished = await invoke("vr_overlay_player_display_result", { request: {
+      owner_epoch: epoch, request_id: 1, base_revision: 1, source: "dev_preview", action: { show_all_tracks: null },
+    }, error: null });
+    if (finished !== false) throw new Error("An unsolicited result must not finish a request");
+  } catch (error) {
+    failure = String(error);
+  } finally {
+    if (epoch) {
+      try { await invoke("vr_overlay_control_release", { epoch }); }
+      catch (error) { failure ??= String(error); }
+    }
+    await emit("vr-player-display-smoke", failure);
+  }
+</script>
+</body>
+</html>

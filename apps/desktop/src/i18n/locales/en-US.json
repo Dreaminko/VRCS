@@ -329,6 +329,10 @@
       "trackNumber": "Track {{number}}",
       "players": {
         "title": "People and translation display",
+        "playersTab": "People",
+        "historySaved": "History and saved",
+        "processingUnavailable": "Player processing requires per-player audio and a connected Core.",
+        "unavailable": "Open the main VRCS window to use these settings.",
         "hiddenCount": "{{count}} people hidden",
         "process": "Players to process",
         "all": "Translate everyone",

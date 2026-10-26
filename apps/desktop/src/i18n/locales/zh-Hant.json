@@ -329,6 +329,10 @@
       "trackNumber": "音軌 {{number}}",
       "players": {
         "title": "人員與譯文顯示",
+        "playersTab": "人員",
+        "historySaved": "歷史與已儲存",
+        "processingUnavailable": "處理選擇需要分玩家音軌和已連線的 Core。",
+        "unavailable": "請開啟 VRCS 主視窗以使用這些設定。",
         "hiddenCount": "已隱藏 {{count}} 人",
         "process": "處理哪些玩家",
         "all": "翻譯所有人",

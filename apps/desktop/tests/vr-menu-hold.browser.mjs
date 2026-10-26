@@ -78,6 +78,17 @@ test("Menu hold feedback preserves hit bounds and the preview samples a stationa
           check(!ring(), 'Release clears feedback: ' + dark);
           render(0.5, 1);
           check(!ring(), 'Other buttons do not show the ring: ' + dark);
+          for (const page of ['players', 'languages']) {
+            state.view.ui = { page, group: 'current', player_page: 0, language_page: 0 };
+            render(0.5, 0);
+            check(ring()?.getAttribute('aria-valuenow') === '50' && ring().closest('[data-vr-region]')?.dataset.vrRegion === '0', 'Expanded settings preserve wrist relocation progress on the original control: ' + page + ' ' + dark);
+            check(buttons().filter(button => button.closest('.vr-menu-capsule')).map(button => button.dataset.vrRegion).join(',') === '0,1,2,4,3', 'Expanded settings preserve quick-control region IDs: ' + page + ' ' + dark);
+            const settingsIds = buttons().filter(button => button.closest('.vr-player-display-panel')).map(button => Number(button.dataset.vrRegion));
+            for (const id of settingsIds) {
+              render(0.5, id);
+              check(!ring(), 'Settings controls do not show the wrist relocation ring: ' + page + ' ' + id + ' ' + dark);
+            }
+          }
         }
 
         flushSync(() => root.render(<SurfaceHost surface="menu" />));
@@ -96,7 +107,7 @@ test("Menu hold feedback preserves hit bounds and the preview samples a stationa
         flushSync(() => root.render(<VrPreview />));
         await settle();
         const target = document.querySelector('.vr-preview-react-surface');
-        const previewScale = target.querySelector('.vr-surface').getBoundingClientRect().width / 1024;
+        const previewScale = target.querySelector('.vr-surface').getBoundingClientRect().width / 1280;
         check(Math.abs(target.querySelector('.vr-surface-pointer').getBoundingClientRect().width / previewScale - 25) < 0.01, 'Menu preview uses the enlarged cursor');
         target.setPointerCapture = () => {};
         const button = target.querySelector('[data-vr-region="0"]').getBoundingClientRect();

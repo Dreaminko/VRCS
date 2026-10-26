@@ -30,6 +30,7 @@ mod ocr_status;
 mod ocr_wrist;
 mod placement;
 mod player_audio_ui;
+mod player_display;
 #[cfg(all(windows, debug_assertions, feature = "vr-preview"))]
 pub(crate) mod preview;
 #[cfg(windows)]
@@ -111,6 +112,37 @@ pub fn vr_overlay_player_audio_update(
         .lock()
         .map_err(|e| e.to_string())?
         .update_player_audio(epoch, revision, view))
+}
+
+#[tauri::command]
+pub fn vr_overlay_player_display_update(
+    window: tauri::WebviewWindow,
+    epoch: u32,
+    revision: u32,
+    view: player_display::View,
+    manager: State<'_, Manager>,
+) -> Result<bool, String> {
+    require_control_owner(&window)?;
+    Ok(manager
+        .controls
+        .lock()
+        .map_err(|e| e.to_string())?
+        .update_player_display(epoch, revision, view))
+}
+
+#[tauri::command]
+pub fn vr_overlay_player_display_result(
+    window: tauri::WebviewWindow,
+    request: player_display::Request,
+    error: Option<String>,
+    manager: State<'_, Manager>,
+) -> Result<bool, String> {
+    require_control_owner(&window)?;
+    Ok(manager
+        .controls
+        .lock()
+        .map_err(|e| e.to_string())?
+        .finish_player_display(&request, error))
 }
 
 #[tauri::command]

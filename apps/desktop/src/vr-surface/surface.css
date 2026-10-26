@@ -60,7 +60,7 @@ html[data-vr-surface], html[data-vr-surface] body, html[data-vr-surface] #root {
 .vr-surface-dashboard .vr-player-audio-panel { inset: 24px 170px; }
 .vr-surface svg { display: block; flex: none; width: 40px; height: 40px; stroke-width: 1.8; }
 .vr-surface-capsule, .vr-menu-capsule { display: flex; align-items: center; border: 2px solid var(--border); border-radius: 999px; background: var(--surface); }
-.vr-menu-capsule { position: absolute; inset: 8px 16px; justify-content: space-around; padding: 16px; }
+.vr-menu-capsule { position: absolute; right: 16px; bottom: 8px; left: 16px; height: 240px; justify-content: space-around; padding: 16px; }
 .vr-surface-button { position: relative; display: grid; width: 72px; height: 72px; flex: 0 0 72px; place-items: center; margin: 0; padding: 0; border: 0; border-radius: 50%; color: var(--text-secondary); background: transparent; font: inherit; }
 .vr-surface-button.hovered { color: var(--primary-ink); background: var(--primary-softer); }
 .vr-surface-button.active { color: var(--primary-ink); background: var(--primary-soft); }
@@ -82,6 +82,42 @@ html[data-vr-surface], html[data-vr-surface] body, html[data-vr-surface] #root {
 .vr-menu-capsule .vr-surface-tooltip { bottom: calc(100% + 6px); max-width: 230px; font-size: 20px; }
 .vr-surface-divider { width: 2px; height: 40px; flex: 0 0 2px; margin: 0 10px; background: var(--border); }
 .vr-surface-panel { border: 2px solid var(--border); border-radius: 32px; background: color-mix(in srgb, var(--surface) calc(var(--vr-background-opacity) * 100%), transparent); }
+.vr-player-display-panel { position: absolute; inset: 16px 16px 272px; display: flex; flex-direction: column; gap: 8px; padding: 24px; overflow: hidden; }
+.vr-menu-heading { display: flex; min-height: 72px; max-height: 96px; flex: none; align-items: center; justify-content: space-between; gap: 20px; }
+.vr-menu-heading > div { min-width: 0; }
+.vr-menu-heading h1 { margin: 0; font-size: 32px; line-height: 1.3; font-weight: 650; }
+.vr-menu-status { display: -webkit-box; margin: 4px 0 0; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; color: var(--text-secondary); font-size: 22px; line-height: 1.2; overflow-wrap: anywhere; }
+.vr-menu-status.vr-surface-error { color: var(--error); }
+.vr-menu-button { display: flex; min-width: 72px; min-height: 72px; flex: none; align-items: center; justify-content: center; gap: 12px; margin: 0; padding: 8px 14px; border: 2px solid var(--border-strong); border-radius: 16px; color: var(--text); background: var(--surface-subtle); font: inherit; font-size: 28px; line-height: 1.15; text-align: center; overflow-wrap: anywhere; }
+.vr-menu-button > span { min-width: 0; }
+.vr-menu-button svg { width: 32px; height: 32px; }
+.vr-menu-button.active { border-color: var(--primary-ink); color: var(--primary-ink); background: var(--primary-soft); }
+.vr-menu-button.hovered, .vr-menu-button.pressed { outline: 3px solid var(--primary-ink); outline-offset: -5px; }
+.vr-menu-button.pressed { background: var(--primary-soft); }
+.vr-menu-button:disabled { opacity: 0.42; }
+.vr-menu-tabs, .vr-menu-processing, .vr-menu-player-actions, .vr-menu-player-groups { display: flex; height: 72px; flex: none; gap: 12px; }
+.vr-menu-tabs > .vr-menu-button, .vr-menu-processing > .vr-menu-button, .vr-menu-player-actions > .vr-menu-button, .vr-menu-player-groups > .vr-menu-button { min-width: 0; flex: 1; }
+.vr-menu-tabs > .vr-menu-button { border-radius: 999px; }
+.vr-menu-processing[data-available="true"] > .vr-menu-button.active:disabled { opacity: 1; }
+.vr-menu-pagination { display: flex; flex: none; align-items: center; gap: 12px; }
+.vr-menu-pagination > span { min-width: 84px; color: var(--text-secondary); font-size: 26px; text-align: center; font-variant-numeric: tabular-nums; }
+.vr-menu-player-list { display: grid; min-height: 0; flex: 1; grid-template-rows: repeat(5, minmax(0, 1fr)); gap: 8px; }
+.vr-menu-player-row { display: grid; min-height: 0; grid-template-columns: minmax(0, 1fr) 216px 176px; align-items: center; gap: 16px; padding: 4px 16px; border: 1px solid var(--border); border-radius: 18px; background: var(--surface); }
+.vr-menu-player-row.is-hidden { background: var(--surface-subtle); }
+.vr-menu-player-name { min-width: 0; }
+.vr-menu-player-name strong { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; font-size: 30px; font-weight: 600; line-height: 1.05; overflow-wrap: anywhere; }
+.vr-menu-player-name small { display: block; overflow: hidden; color: var(--text-secondary); font-size: 20px; line-height: 1.1; text-overflow: ellipsis; white-space: nowrap; }
+.vr-menu-player-row > .vr-menu-button { min-width: 0; padding-right: 10px; padding-left: 10px; font-size: 26px; }
+.vr-menu-check { display: grid; width: 30px; height: 30px; flex: 0 0 30px; place-items: center; border: 2px solid currentColor; border-radius: 7px; }
+.vr-menu-check svg { width: 24px; height: 24px; }
+.vr-menu-player-list > .vr-surface-empty, .vr-menu-language-list > .vr-surface-empty { grid-row: 1 / -1; grid-column: 1 / -1; }
+.vr-menu-language-actions { display: flex; height: 96px; flex: none; align-items: center; gap: 12px; }
+.vr-menu-language-actions > .vr-menu-button:first-child { min-width: 0; height: 96px; flex: 1; justify-content: flex-start; text-align: left; }
+.vr-menu-language-actions > .vr-menu-button:last-child { max-width: 420px; }
+.vr-menu-language-actions small { display: -webkit-box; margin-top: 4px; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; color: var(--text-secondary); font-size: 22px; line-height: 1.2; }
+.vr-menu-language-list { display: grid; min-height: 0; flex: 1; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: repeat(6, minmax(0, 1fr)); gap: 12px; }
+.vr-menu-language-option { min-width: 0; justify-content: flex-start; text-align: left; }
+.vr-menu-language-footer { display: flex; height: 72px; flex: none; justify-content: flex-end; }
 .vr-dialogue-toolbar { position: absolute; top: 8px; right: 8px; left: 8px; height: 88px; gap: 8px; padding: 6px 10px; }
 .vr-surface-grip { display: flex; min-width: 0; width: auto; height: 68px; flex: 1; gap: 16px; justify-content: center; border-radius: 999px; padding: 0 20px; font-size: 26px; }
 .vr-surface-grip span:not(.vr-surface-tooltip) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

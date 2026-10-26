@@ -4,7 +4,7 @@ use tauri::{AppHandle, Emitter, Manager as _};
 use vrcs_core::VrOverlayConfig;
 
 use super::backend::{menu_config, OpenVrBackend, OverlayKind};
-use super::control_protocol::{ControlAction, ControlHub, ControlSnapshot, ControlSource};
+use super::control_protocol::{ControlHub, ControlSource};
 use super::interaction::{Hit, Key, Kind, Router, Sample, Surface};
 use super::ocr_wrist::LaserEvent;
 use super::placement::{Mode, Placement, Request};
@@ -95,7 +95,8 @@ pub struct UiRuntime {
     router: Router,
     lift: wrist_menu::Visibility,
     dialogue_lift: wrist_menu::Visibility,
-    menu_frame: Option<(ControlSnapshot, Option<u8>, Option<u8>)>,
+    menu_frame: Option<SurfaceView>,
+    menu_ui: wrist_menu::Ui,
     pub menu_visible: bool,
     pub dialogue_hover: Option<u8>,
     pub dialogue_visible: bool,
@@ -121,6 +122,7 @@ impl UiRuntime {
             lift: Default::default(),
             dialogue_lift: Default::default(),
             menu_frame: None,
+            menu_ui: Default::default(),
             menu_visible: false,
             dialogue_hover: None,
             dialogue_visible: false,
@@ -176,6 +178,7 @@ impl UiRuntime {
         self.generation += 1;
         self.origin = None;
         self.menu_frame = None;
+        self.menu_ui = Default::default();
         self.menu_surface.reset();
         self.dialogue_surface.reset();
         self.menu_visible = false;
@@ -313,9 +316,16 @@ impl UiRuntime {
         reader_revision: u64,
         content_owns_input: bool,
     ) -> (Vec<LaserEvent>, bool) {
-        let (view, owner_active) = controls
+        let (view, players, players_revision, owner_active) = controls
             .lock()
-            .map(|hub| (hub.snapshot(), hub.active()))
+            .map(|hub| {
+                (
+                    hub.snapshot(),
+                    hub.player_display().clone(),
+                    hub.player_display_revision(),
+                    hub.active(),
+                )
+            })
             .unwrap_or_default();
         let context = (
             config.wrist_menu.hand.clone(),
@@ -337,6 +347,7 @@ impl UiRuntime {
         if context != self.context || dashboard || content_owns_input {
             self.suspend_input();
             if context != self.context {
+                self.menu_ui = Default::default();
                 if let Ok(mut p) = self.placement.lock() {
                     p.cancel();
                 }
@@ -361,12 +372,15 @@ impl UiRuntime {
             }
         }
         let menu_config = menu_config(&config.wrist_menu.hand);
+        let menu_angle = backend.wrist_angle(&menu_config);
+        if menu_angle.is_none() {
+            self.menu_ui = Default::default();
+        }
+        self.menu_ui.clamp(&players);
         self.menu_visible = config.wrist_menu.enabled
-            && self.lift.update(
-                backend.wrist_angle(&menu_config),
-                self.pressed.is_some(),
-                Instant::now(),
-            );
+            && self
+                .lift
+                .update(menu_angle, self.pressed.is_some(), Instant::now());
         self.dialogue_visible = config.enabled
             && config.wrist.enabled
             && match placement.display_mode() {
@@ -383,10 +397,19 @@ impl UiRuntime {
         let surfaces = app.state::<SurfaceHub>();
         let generation =
             |surface| (self.generation << 32) | u64::from(surfaces.generation(surface));
+        let menu_layout = surfaces.layout(SurfaceId::Menu);
+        let menu_view = SurfaceView::Menu {
+            controls: view.clone(),
+            players: players.clone(),
+            ui: self.menu_ui.clone(),
+            hold_progress: None,
+        };
         let menu_key = Key {
             surface: Surface::Menu,
             generation: generation(SurfaceId::Menu),
-            revision: u64::from(view.revision),
+            revision: menu_layout
+                .as_ref()
+                .map_or(0, |layout| u64::from(layout.key.revision)),
         };
         let dialogue_key = Key {
             surface: Surface::Dialogue,
@@ -399,7 +422,6 @@ impl UiRuntime {
             revision: reader_revision,
         };
         let mut keys = Vec::new();
-        let menu_layout = surfaces.layout(SurfaceId::Menu);
         let dialogue_layout = surfaces.layout(SurfaceId::Dialogue);
         let reader_layout = surfaces.layout(SurfaceId::Reader);
         let pointer_layouts = [
@@ -412,7 +434,7 @@ impl UiRuntime {
             && self
                 .menu_frame
                 .as_ref()
-                .is_some_and(|frame| frame.0 == view)
+                .is_some_and(|frame| frame.same_layout(&menu_view))
         {
             keys.push(menu_key);
         }
@@ -534,9 +556,11 @@ impl UiRuntime {
                 && !was_active
                 && !self.router.active()
         }) {
-            if let Err(error) =
-                surfaces.scroll(app, SurfaceId::Dialogue, scroll_delta(pointer.scroll_y, elapsed))
-            {
+            if let Err(error) = surfaces.scroll(
+                app,
+                SurfaceId::Dialogue,
+                scroll_delta(pointer.scroll_y, elapsed),
+            ) {
                 tracing::debug!(%error, "VR dialogue scroll unavailable");
             }
         }
@@ -555,8 +579,9 @@ impl UiRuntime {
                     }
                     Kind::Up => {
                         self.pressed = None;
-                        let i = event.hit.region as usize;
-                        action = Some(ControlAction::for_index(i, !view.items[i].requested));
+                        action = menu_layout
+                            .as_ref()
+                            .and_then(|layout| layout.menu_command(event.hit.region));
                     }
                     _ => self.pressed = None,
                 },
@@ -613,10 +638,32 @@ impl UiRuntime {
             dispatch_placement(app, view.owner_epoch, &self.placement, request);
         }
         if let Some(action) = action {
-            super::runtime::dispatch_control(app, controls, ControlSource::WristMenu, action);
+            match action {
+                wrist_menu::Command::Control(action) => super::runtime::dispatch_control(
+                    app,
+                    controls,
+                    ControlSource::WristMenu,
+                    action,
+                ),
+                wrist_menu::Command::Display(action) => super::runtime::dispatch_player_display(
+                    app,
+                    controls,
+                    ControlSource::WristMenu,
+                    (view.owner_epoch, players_revision),
+                    action,
+                ),
+                navigation => {
+                    self.menu_ui.apply(&navigation, &players);
+                }
+            }
         }
         if self.menu_visible {
-            let frame = (view, hovered, self.pressed);
+            let frame = SurfaceView::Menu {
+                controls: view,
+                players,
+                ui: self.menu_ui.clone(),
+                hold_progress,
+            };
             let result = backend
                 .ensure_wrist_menu(&config.wrist_menu.hand)
                 .and_then(|_| {
@@ -624,12 +671,9 @@ impl UiRuntime {
                         app,
                         backend,
                         OverlayKind::WristMenu,
-                        SurfaceView::Menu {
-                            controls: frame.0.clone(),
-                            hold_progress,
-                        },
-                        frame.1,
-                        frame.2,
+                        frame.clone(),
+                        hovered,
+                        self.pressed,
                     )? {
                         self.menu_frame = Some(frame);
                         backend.show(OverlayKind::WristMenu)
@@ -674,11 +718,14 @@ mod tests {
             },
             regions: vec![surface::Region {
                 id: 0,
-                bounds: [0.421875, 0.1875, 0.578125, 0.8125],
+                bounds: [0.4375, 0.8375, 0.5625, 0.9625],
                 circle: true,
                 dashboard: None,
+                menu: Some(wrist_menu::Command::Control(
+                    super::super::control_protocol::ControlAction::SetWristEnabled(true),
+                )),
             }],
-            menu_bounds: Some([0.015625, 0.03125, 0.984375, 0.96875]),
+            menu_bounds: Some([0.0125, 0.80625, 0.9875, 0.99375]),
             panels: Vec::new(),
             page_count: 1,
             unplaced: Vec::new(),
@@ -688,7 +735,7 @@ mod tests {
         let menu = Pointer {
             device: 2,
             key,
-            point: [0.5, 0.5],
+            point: [0.5, 0.9],
             position: [0., 0., -1.],
             distance: 1.,
             scroll_y: 0.,
@@ -699,6 +746,7 @@ mod tests {
                 surface: Surface::Reader,
                 ..key
             },
+            point: [0.5, 0.5],
             distance: 2.,
             ..menu
         };
@@ -713,13 +761,13 @@ mod tests {
         let selected = nearest_pointer([menu, reader].into_iter(), &layouts).unwrap();
         assert_eq!(selected.key.surface, Surface::Menu);
 
-        for point in [[0.5, 0.9], [0.5, 0.1], [0.25, 0.5], [0.04, 0.35]] {
+        for point in [[0.5, 0.98], [0.5, 0.82], [0.25, 0.9], [0.04, 0.9]] {
             assert!(layout.hit(point).is_none());
             let background = Pointer { point, ..menu };
             let selected = nearest_pointer([background, reader].into_iter(), &layouts).unwrap();
             assert_eq!(selected.key.surface, Surface::Menu, "{point:?}");
         }
-        for point in [[0.01, 0.5], [0.5, 0.99], [0.02, 0.06], [0.98, 0.94]] {
+        for point in [[0.01, 0.9], [0.5, 0.999], [0.02, 0.81], [0.98, 0.98]] {
             let outside = Pointer { point, ..menu };
             assert!(nearest_pointer([outside].into_iter(), &layouts).is_none());
             let selected = nearest_pointer([outside, reader].into_iter(), &layouts).unwrap();
