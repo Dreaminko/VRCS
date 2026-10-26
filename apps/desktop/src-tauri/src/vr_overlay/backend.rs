@@ -15,7 +15,7 @@ mod platform {
         center_bounds, crop_projection, pose_within_translation_limit_m, projection_from_openvr,
         EyeCapture, StereoCapture, OCR_MOVEMENT_LIMIT_M,
     };
-    use crate::vr_overlay::renderer::Texture;
+    use crate::vr_overlay::renderer::{dashboard_placeholder, Texture};
     use crate::vr_overlay::surface::SurfaceId;
     use crate::vr_overlay::transform;
 
@@ -69,6 +69,7 @@ mod platform {
     #[derive(Default)]
     struct DashboardOverlay {
         handles: Option<[OverlayHandle; 2]>,
+        placeholder: Option<String>,
     }
 
     impl DashboardOverlay {
@@ -151,15 +152,52 @@ mod platform {
             result
         }
 
-        fn clear_texture(&self, table: &openvr_sys::VR_IVROverlay_FnTable) {
+        fn show_placeholder(
+            &mut self,
+            table: &openvr_sys::VR_IVROverlay_FnTable,
+            error: Option<&str>,
+        ) -> Result<(), String> {
+            // Keep an error visible while the WebView retries in the background.
+            if error.is_none() && self.placeholder.is_some() {
+                return Ok(());
+            }
+            let message = match error {
+                Some(error) => format!("VRCS\n\nDashboard unavailable. Retrying...\n\n{error}"),
+                None => "VRCS\n\nLoading dashboard...".into(),
+            };
+            if self.placeholder.as_ref() == Some(&message) {
+                return Ok(());
+            }
+            let main = self.main().ok_or("Dashboard overlay is not created")?;
+            let texture = dashboard_placeholder(&message)?;
+            let submit = table.SetOverlayRaw.ok_or("SetOverlayRaw is unavailable")?;
+            let error = unsafe {
+                submit(
+                    main.0,
+                    texture.pixels.as_ptr().cast_mut().cast(),
+                    texture.width,
+                    texture.height,
+                    4,
+                )
+            };
+            if error != openvr_sys::EVROverlayError_VROverlayError_None {
+                return Err(format!("Submit dashboard placeholder failed: {error}"));
+            }
+            self.placeholder = Some(message);
+            Ok(())
+        }
+
+        fn clear_texture(&mut self, table: &openvr_sys::VR_IVROverlay_FnTable) {
             if let (Some(main), Some(clear)) = (self.main(), table.ClearOverlayTexture) {
                 unsafe {
                     let _ = clear(main.0);
                 }
             }
+            self.placeholder = None;
         }
 
         fn destroy(&mut self, table: &openvr_sys::VR_IVROverlay_FnTable) {
+            self.placeholder = None;
             if let Some(handles) = self.handles.take() {
                 for handle in handles {
                     unsafe {
@@ -551,6 +589,11 @@ mod platform {
 
         pub fn ensure_dashboard(&mut self) -> Result<(), String> {
             self.dashboard.ensure(unsafe { &*self.raw_overlay })
+        }
+
+        pub fn show_dashboard_placeholder(&mut self, error: Option<&str>) -> Result<(), String> {
+            self.dashboard
+                .show_placeholder(unsafe { &*self.raw_overlay }, error)
         }
 
         pub fn dashboard_visible(&self) -> bool {
@@ -1022,7 +1065,11 @@ mod platform {
                 self.raw_overlay,
                 handle,
                 shared_handle as *mut std::ffi::c_void,
-            )
+            )?;
+            if kind == OverlayKind::Dashboard {
+                self.dashboard.placeholder = None;
+            }
+            Ok(())
         }
 
         pub fn clear_surface_texture(&mut self, kind: OverlayKind) -> Result<(), String> {
@@ -1036,6 +1083,9 @@ mod platform {
             let error = unsafe { clear(handle.0) };
             if error != openvr_sys::EVROverlayError_VROverlayError_None {
                 return Err(format!("Clear surface texture failed: {error}"));
+            }
+            if kind == OverlayKind::Dashboard {
+                self.dashboard.placeholder = None;
             }
             // Keep the handle, placement, and dashboard registration intact.
             Ok(())

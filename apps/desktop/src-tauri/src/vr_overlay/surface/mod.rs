@@ -900,6 +900,10 @@ impl SurfaceHub {
         Ok(())
     }
 
+    pub(super) fn invalidate_host(&self, surface: SurfaceId) {
+        self.0.lock().unwrap_or_else(|e| e.into_inner())[surface.index()].invalidate_host();
+    }
+
     pub(super) fn publish(
         &self,
         app: &AppHandle,
@@ -1702,8 +1706,7 @@ impl SurfaceRenderer {
         self.retry_at = None;
         let result = self.present_frame(app, backend, kind, view, hovered, pressed);
         if result.is_err() {
-            let hub = app.state::<SurfaceHub>();
-            hub.0.lock().unwrap_or_else(|e| e.into_inner())[self.surface.index()].invalidate_host();
+            app.state::<SurfaceHub>().invalidate_host(self.surface);
             // Detach the submitted texture before releasing its capture resources.
             backend.reset(kind);
             self.reset();

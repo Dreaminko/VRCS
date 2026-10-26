@@ -989,7 +989,7 @@ fn update_dashboard(
             .lock()
             .map(|hub| hub.snapshot().dark)
             .unwrap_or(false);
-        // Publish first so a changed view revokes input from the preceding frame.
+        // Revoke stale input first, and recover hosts when publish bypasses the renderer.
         hub.publish(
             app,
             SurfaceId::Dashboard,
@@ -1000,7 +1000,8 @@ fn update_dashboard(
             },
             state.dashboard.hovered,
             state.dashboard.pressed,
-        )?;
+        )
+        .inspect_err(|_| hub.invalidate_host(SurfaceId::Dashboard))?;
         let mut layout = hub.layout(SurfaceId::Dashboard);
         for event in backend.poll_dashboard_events()? {
             let (x, y) = match event {
@@ -1045,7 +1046,7 @@ fn update_dashboard(
                 _ => {}
             }
         }
-        state.dashboard_surface.present(
+        let ready = state.dashboard_surface.present(
             app,
             backend,
             OverlayKind::Dashboard,
@@ -1056,7 +1057,11 @@ fn update_dashboard(
             },
             state.dashboard.hovered,
             state.dashboard.pressed,
-        )
+        )?;
+        if !ready {
+            backend.show_dashboard_placeholder(None)?;
+        }
+        Ok(ready)
     })();
     match result {
         Ok(ready) => {
@@ -1074,6 +1079,9 @@ fn update_dashboard(
             // Release the captured texture while keeping the registered dashboard tab.
             backend.reset(OverlayKind::Dashboard);
             state.reset_dashboard();
+            if let Err(placeholder_error) = backend.show_dashboard_placeholder(Some(&error)) {
+                tracing::warn!(%placeholder_error, "SteamVR dashboard error display failed");
+            }
             state.dashboard_retry_at = Some(Instant::now() + Duration::from_secs(1));
             status.dashboard.visible = false;
             status.dashboard.state = ResourceState::Error;
