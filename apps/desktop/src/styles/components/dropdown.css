@@ -230,7 +230,7 @@
   overflow: hidden;
 }
 .dropdown-menu-floating.dropdown-menu-compact .dropdown-option { font-size: var(--settings-text-body); }
-.dropdown-option-entry { display: grid; gap: 2px; }
+.dropdown-option-entry { display: grid; min-width: 0; gap: 2px; }
 .dropdown-option-group {
   padding: 8px 10px 3px;
   color: var(--text-quiet);
@@ -243,6 +243,7 @@
 .dropdown-option {
   display: flex;
   width: 100%;
+  min-width: 0;
   min-height: var(--settings-control-compact-height);
   align-items: center;
   justify-content: space-between;

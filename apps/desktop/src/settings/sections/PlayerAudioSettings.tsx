@@ -35,6 +35,13 @@ export function PlayerAudioSettings({ value, status, memory, disabled, onChange 
       <Select label={t("settings.audio.players.drive")} value={options.pagefile_drive.toUpperCase()}
         values={Array.from({ length: 26 }, (_, i) => `${String.fromCharCode(65 + i)}:`)}
         disabled={disabled} onChange={(pagefile_drive) => onChange({ pagefile_drive })} />
+      <div className="field">
+        <span>{t("settings.audio.players.opus")}</span>
+        <EditableDropdownField label={t("settings.audio.players.opus")}
+          placeholder={t("settings.audio.players.opusAuto")} value={options.opus_library_path}
+          options={[]} disabled={disabled} commitOnBlur
+          onChange={(path) => onChange({ opus_library_path: path.trim() })} />
+      </div>
       <Select label={t("settings.audio.players.limit")} value={String(options.max_players)}
         options={[{value: "0", label: t("settings.audio.players.unlimited")},
           ...["1", "2", "3", "4", "5", "6", "7", "8"].map(value => ({value, label: value}))]} disabled={disabled}
@@ -44,13 +51,6 @@ export function PlayerAudioSettings({ value, status, memory, disabled, onChange 
           ...Array.from({ length: 64 }, (_, index) => ({ value: String(index + 1), label: String(index + 1) }))]}
         disabled={disabled}
         onChange={(count) => onChange({ max_visible_players: Number(count) })} />
-    </div>
-    <div className="field">
-      <span>{t("settings.audio.players.opus")}</span>
-      <EditableDropdownField label={t("settings.audio.players.opus")}
-        placeholder={t("settings.audio.players.opusAuto")} value={options.opus_library_path}
-        options={[]} disabled={disabled} commitOnBlur
-        onChange={(path) => onChange({ opus_library_path: path.trim() })} />
     </div>
     <div className="settings-field-note" role="status">
       <strong>{phase === "streaming" && status

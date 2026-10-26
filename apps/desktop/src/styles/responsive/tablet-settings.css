@@ -4,6 +4,9 @@
   .settings-section { padding-block: 22px; }
   .recognition-config-row,
   .translation-config-row { grid-template-columns: 1fr; gap: 14px; }
+  .device-group { grid-template-columns: minmax(0, 1fr); }
+  .device-group-heading { gap: 14px; }
+  .device-group-content { grid-column: 1; }
   .recognition-source-row > .recognition-config-title,
   .translation-mode-row > .translation-config-title { min-height: 0; }
   .api-profile-row { grid-template-columns: minmax(0, 1fr); gap: 10px 16px; }

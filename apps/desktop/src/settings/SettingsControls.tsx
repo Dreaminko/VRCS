@@ -355,57 +355,61 @@ export function DeviceGroup({ icon, title, note, beforeList, devices, devicesRea
 }) {
   const { t, i18n } = useTranslation();
   const locale = i18n.resolvedLanguage ?? "en-US";
+  const selectedValue = selectedDeviceId !== null
+    ? `device:${selectedDeviceId}`
+    : `source:${specialRows.find((row) => row.chosen)?.key ?? ""}`;
+  const options = [
+    ...specialRows.map((row) => ({
+      value: `source:${row.key}`,
+      label: row.name,
+      description: row.description,
+    })),
+    ...devices.map((device) => ({
+      value: `device:${device.id}`,
+      label: device.name,
+      description: t("settings.audio.deviceDescription", {
+        sampleRate: new Intl.NumberFormat(locale).format(device.sample_rate),
+        channels: device.channels,
+        defaultSuffix: device.is_default ? t("settings.audio.defaultSuffix") : "",
+      }),
+    })),
+  ];
   return (
     <div className="device-group">
-      <div className="device-group-title">
-        <span className="device-group-icon">{icon}</span>
-        <div><h3>{title}</h3>{note && <span>{note}</span>}</div>
-      </div>
-      {beforeList}
-      <div className="device-list">
-        {specialRows.map((row) => (
-          <DeviceRow
-            key={row.key}
-            name={row.name}
-            description={row.description}
-            chosen={row.chosen}
+      <div className="device-group-heading">
+        <div className="device-group-title">
+          <span className="device-group-icon">{icon}</span>
+          <div><h3>{title}</h3>{note && <span>{note}</span>}</div>
+        </div>
+        <div className="device-select">
+          <DropdownField
+            label={title}
+            value={selectedValue}
+            options={options}
             disabled={disabled}
-            onSelect={row.onSelect}
+            floating
+            placeholder={devicesReady ? t("common.unavailable") : t("settings.audio.scanning")}
+            onChange={(value) => {
+              if (value === selectedValue) return;
+              const specialRow = specialRows.find((row) => value === `source:${row.key}`);
+              if (specialRow) {
+                specialRow.onSelect();
+                return;
+              }
+              const device = devices.find((item) => value === `device:${item.id}`);
+              if (device) onSelectDevice(device.id);
+            }}
           />
-        ))}
-        {devices.map((device) => (
-          <DeviceRow
-            key={device.id}
-            name={device.name}
-            description={t("settings.audio.deviceDescription", {
-              sampleRate: new Intl.NumberFormat(locale).format(device.sample_rate),
-              channels: device.channels,
-              defaultSuffix: device.is_default ? t("settings.audio.defaultSuffix") : "",
-            })}
-            chosen={selectedDeviceId === device.id}
-            disabled={disabled}
-            onSelect={() => onSelectDevice(device.id)}
-          />
-        ))}
-        {!devicesReady
-          ? <p className="device-empty">{t("settings.audio.scanning")}</p>
-          : !devices.length && <p className="device-empty">{t("settings.audio.noDevices")}</p>}
+        </div>
       </div>
+      {(beforeList || !devicesReady || !devices.length) && (
+        <div className="device-group-content">
+          {beforeList}
+          {!devicesReady
+            ? <p className="device-empty" role="status">{t("settings.audio.scanning")}</p>
+            : !devices.length && <p className="device-empty" role="status">{t("settings.audio.noDevices")}</p>}
+        </div>
+      )}
     </div>
-  );
-}
-
-function DeviceRow({ name, description, chosen, disabled, onSelect }: {
-  name: string;
-  description?: string;
-  chosen: boolean;
-  disabled: boolean;
-  onSelect: () => void;
-}) {
-  return (
-    <label className={`device-row ${chosen ? "chosen" : ""} ${disabled ? "disabled" : ""}`}>
-      <input type="radio" aria-label={name} checked={chosen} disabled={disabled} onChange={onSelect} />
-      <span><strong>{name}</strong>{description && <small>{description}</small>}</span>
-    </label>
   );
 }

@@ -131,14 +131,24 @@ export function AudioSettingsSection({
             icon={<Volume2 size={18} />}
             title={t("settings.audio.otherVoice")}
             beforeList={(
-              <OtherVoiceLevelSetting
-                level={speakerLevel}
-                enabled={draft.audio.output.mode !== "disabled"}
-                captureRunning={transcriptionRunning}
-                threshold={draft.audio.output.trigger_threshold_dbfs}
-                disabled={draft.audio.output.mode === "disabled"}
-                onCommit={updateOutputThreshold}
-              />
+              <>
+                <OtherVoiceLevelSetting
+                  level={speakerLevel}
+                  enabled={draft.audio.output.mode !== "disabled"}
+                  captureRunning={transcriptionRunning}
+                  threshold={draft.audio.output.trigger_threshold_dbfs}
+                  disabled={draft.audio.output.mode === "disabled"}
+                  onCommit={updateOutputThreshold}
+                />
+                {draft.audio.output.mode === "vrchat_players" && <PlayerAudioSettings
+                  value={draft.audio.output.player_audio} status={playerAudioStatus} disabled={saveState === "saving"}
+                  memory={playerAudioStart?.memory}
+                  onChange={(patch) => applySettings((current) => ({
+                    ...current, audio: { ...current.audio, output: { ...current.audio.output,
+                      player_audio: { ...(current.audio.output.player_audio ?? DEFAULT_PLAYER_AUDIO), ...patch },
+                    } },
+                  }))} />}
+              </>
             )}
             devices={outputDevices}
             devicesReady={devicesReady}
@@ -188,14 +198,6 @@ export function AudioSettingsSection({
               audio: { ...current.audio, output: { ...current.audio.output, mode: "system", device_id: id } },
             }))}
           />
-          {draft.audio.output.mode === "vrchat_players" && <PlayerAudioSettings
-            value={draft.audio.output.player_audio} status={playerAudioStatus} disabled={saveState === "saving"}
-            memory={playerAudioStart?.memory}
-            onChange={(patch) => applySettings((current) => ({
-              ...current, audio: { ...current.audio, output: { ...current.audio.output,
-                player_audio: { ...(current.audio.output.player_audio ?? DEFAULT_PLAYER_AUDIO), ...patch },
-              } },
-            }))} />}
           <DeviceGroup
             icon={<Mic size={18} />}
             title={t("settings.audio.ownVoice")}
