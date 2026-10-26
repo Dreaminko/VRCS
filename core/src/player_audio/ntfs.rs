@@ -380,20 +380,66 @@ impl<R: Read + Seek> Ntfs<R> {
         Ok(bytes)
     }
 
+    fn records(&mut self, number: u64, kinds: &[u32]) -> Result<Vec<Zeroizing<Vec<u8>>>, String> {
+        let record = self.record(number)?;
+        let mut extensions = Vec::new();
+        for attr in attributes(&record)? {
+            if attr.kind != 0x20 {
+                continue;
+            }
+            let list = if attr.bytes[8] == 0 {
+                Zeroizing::new(attr.resident()?.to_vec())
+            } else {
+                self.read_runs(
+                    &attr.runs()?,
+                    0,
+                    usize::try_from(qword(attr.bytes, 48)?).map_err(|_| BAD)?,
+                )?
+            };
+            let mut at = 0;
+            while at < list.len() {
+                let length = word(&list, at + 4)? as usize;
+                if length < 26 || at + length > list.len() {
+                    return Err(BAD.into());
+                }
+                let kind = dword(&list, at)?;
+                if kinds.contains(&kind) && (kind != 0x80 || list[at + 6] == 0) {
+                    let reference = qword(&list, at + 16)? & 0x0000_ffff_ffff_ffff;
+                    if reference != number && !extensions.contains(&reference) {
+                        if extensions.len() >= 32 {
+                            return Err(BAD.into());
+                        }
+                        extensions.push(reference);
+                    }
+                }
+                at += length;
+            }
+        }
+        let mut result = vec![record];
+        for reference in extensions {
+            result.push(self.record(reference)?);
+        }
+        Ok(result)
+    }
+
     pub(super) fn pagefile(&mut self) -> Result<(u64, Vec<Run>), String> {
-        let root = self.record(5)?;
         let mut index_size = 4096;
         let mut allocation = Vec::new();
         let mut allocation_size = 0;
         let mut number = None;
-        for attr in attributes(&root)? {
-            if attr.kind == 0x90 {
-                let value = attr.resident()?;
-                index_size = dword(value, 8)? as usize;
-                number = lookup_index(value, 16)?;
-            } else if attr.kind == 0xa0 {
-                allocation = attr.runs()?;
-                allocation_size = qword(attr.bytes, 48)?;
+        for record in self.records(5, &[0x90, 0xa0])? {
+            for attr in attributes(&record)? {
+                if attr.kind == 0x90 {
+                    let value = attr.resident()?;
+                    index_size = dword(value, 8)? as usize;
+                    number = lookup_index(value, 16)?;
+                } else if attr.kind == 0xa0 {
+                    allocation.extend(attr.runs()?);
+                    // Continuation extents do not carry a valid stream size.
+                    if qword(attr.bytes, 16)? == 0 {
+                        allocation_size = qword(attr.bytes, 48)?;
+                    }
+                }
             }
         }
         if number.is_none() {
@@ -401,13 +447,12 @@ impl<R: Read + Seek> Ntfs<R> {
                 return Err(BAD.into());
             }
             let mut offset = 0;
+            let mut invalid_index = false;
             while offset + index_size as u64 <= allocation_size {
                 let mut index = self.read_runs(&allocation, offset, index_size)?;
                 offset += index_size as u64;
-                if index.get(..4) != Some(b"INDX") {
-                    continue;
-                }
-                if fixup(&mut index, self.sector).is_err() {
+                if index.get(..4) != Some(b"INDX") || fixup(&mut index, self.sector).is_err() {
+                    invalid_index = true;
                     continue;
                 }
                 number = lookup_index(&index, 24)?;
@@ -415,49 +460,19 @@ impl<R: Read + Seek> Ntfs<R> {
                     break;
                 }
             }
-        }
-        let number = number.ok_or("pagefile.sys was not found on the selected drive")?;
-        let record = self.record(number)?;
-        let mut data_runs = Vec::new();
-        let mut size = 0;
-        let mut extensions = Vec::new();
-        for attr in attributes(&record)? {
-            if attr.kind == 0x80 && attr.unnamed {
-                // File size is valid only in the extent whose LowestVcn is zero.
-                if qword(attr.bytes, 16)? == 0 {
-                    size = qword(attr.bytes, 48)?;
-                }
-                data_runs.extend(attr.runs()?);
-            } else if attr.kind == 0x20 {
-                let list = if attr.bytes[8] == 0 {
-                    Zeroizing::new(attr.resident()?.to_vec())
-                } else {
-                    self.read_runs(
-                        &attr.runs()?,
-                        0,
-                        usize::try_from(qword(attr.bytes, 48)?).map_err(|_| BAD)?,
-                    )?
-                };
-                let mut at = 0;
-                while at + 26 <= list.len() {
-                    let length = word(&list, at + 4)? as usize;
-                    if length < 26 || at + length > list.len() || extensions.len() > 32 {
-                        return Err(BAD.into());
-                    }
-                    if dword(&list, at)? == 0x80 && list[at + 6] == 0 {
-                        let reference = qword(&list, at + 16)? & 0x0000_ffff_ffff_ffff;
-                        if reference != number && !extensions.contains(&reference) {
-                            extensions.push(reference);
-                        }
-                    }
-                    at += length;
-                }
+            // Unused blocks can be invalid; keep searching, but do not claim
+            // the file is absent when the index could not be read completely.
+            if number.is_none() && invalid_index {
+                return Err(BAD.into());
             }
         }
-        for number in extensions {
-            let extension = self.record(number)?;
-            for attr in attributes(&extension)? {
+        let number = number.ok_or("pagefile.sys was not found on the selected drive")?;
+        let mut data_runs = Vec::new();
+        let mut size = 0;
+        for record in self.records(number, &[0x80])? {
+            for attr in attributes(&record)? {
                 if attr.kind == 0x80 && attr.unnamed {
+                    // File size is valid only in the extent whose LowestVcn is zero.
                     if qword(attr.bytes, 16)? == 0 {
                         size = qword(attr.bytes, 48)?;
                     }
@@ -649,6 +664,179 @@ mod tests {
         disk
     }
 
+    fn resident_attr(kind: u32, name: &str, value: &[u8]) -> Vec<u8> {
+        let name: Vec<_> = name.encode_utf16().flat_map(u16::to_le_bytes).collect();
+        let offset = (24 + name.len()).div_ceil(8) * 8;
+        let length = (offset + value.len()).div_ceil(8) * 8;
+        let mut attr = vec![0; length];
+        attr[..4].copy_from_slice(&kind.to_le_bytes());
+        attr[4..8].copy_from_slice(&(length as u32).to_le_bytes());
+        attr[9] = (name.len() / 2) as u8;
+        attr[10..12].copy_from_slice(&24u16.to_le_bytes());
+        attr[16..20].copy_from_slice(&(value.len() as u32).to_le_bytes());
+        attr[20..22].copy_from_slice(&(offset as u16).to_le_bytes());
+        attr[24..24 + name.len()].copy_from_slice(&name);
+        attr[offset..offset + value.len()].copy_from_slice(value);
+        attr
+    }
+
+    fn indexed_pagefile_disk(allocation_records: &[u64], nonresident_list: bool) -> Vec<u8> {
+        let mut disk = pagefile_disk();
+        let mut root_index = vec![0; 56];
+        root_index[..4].copy_from_slice(&0x30u32.to_le_bytes());
+        root_index[4..8].copy_from_slice(&1u32.to_le_bytes());
+        root_index[8..12].copy_from_slice(&512u32.to_le_bytes());
+        root_index[12] = 1;
+        root_index[16..20].copy_from_slice(&16u32.to_le_bytes());
+        root_index[20..24].copy_from_slice(&40u32.to_le_bytes());
+        root_index[24..28].copy_from_slice(&40u32.to_le_bytes());
+        root_index[28] = 1;
+        root_index[40..42].copy_from_slice(&24u16.to_le_bytes());
+        root_index[44] = 3;
+        let mut root_attrs = vec![resident_attr(0x90, "$I30", &root_index)];
+        let mut list = Vec::new();
+        let name: Vec<_> = "$I30".encode_utf16().flat_map(u16::to_le_bytes).collect();
+        for (vcn, &number) in allocation_records.iter().enumerate() {
+            let mut entry = vec![0; 40];
+            entry[..4].copy_from_slice(&0xa0u32.to_le_bytes());
+            entry[4..6].copy_from_slice(&40u16.to_le_bytes());
+            entry[6] = 4;
+            entry[7] = 26;
+            entry[8..16].copy_from_slice(&(vcn as u64).to_le_bytes());
+            entry[16..24].copy_from_slice(&number.to_le_bytes());
+            entry[26..34].copy_from_slice(&name);
+            list.extend(entry);
+
+            let mut allocation = vec![0; 80];
+            allocation[..4].copy_from_slice(&0xa0u32.to_le_bytes());
+            allocation[4..8].copy_from_slice(&80u32.to_le_bytes());
+            allocation[8] = 1;
+            allocation[9] = 4;
+            allocation[10..12].copy_from_slice(&64u16.to_le_bytes());
+            allocation[16..24].copy_from_slice(&(vcn as u64).to_le_bytes());
+            allocation[24..32].copy_from_slice(&(vcn as u64).to_le_bytes());
+            allocation[32..34].copy_from_slice(&72u16.to_le_bytes());
+            let size = if vcn == 0 {
+                allocation_records.len() as u64 * 512
+            } else {
+                u64::MAX
+            };
+            for at in [40, 48, 56] {
+                allocation[at..at + 8].copy_from_slice(&size.to_le_bytes());
+            }
+            allocation[64..72].copy_from_slice(&name);
+            allocation[72..77].copy_from_slice(&[0x21, 1, 140 + vcn as u8, 0, 0]);
+            if number == 5 {
+                root_attrs.push(allocation);
+            } else {
+                let mut extension = record(&[allocation]);
+                extension[32..40].copy_from_slice(&5u64.to_le_bytes());
+                let offset = 4096 + number as usize * 1024;
+                disk[offset..offset + 1024].copy_from_slice(&extension);
+            }
+
+            let mut index = vec![0; 512];
+            index[..4].copy_from_slice(b"INDX");
+            index[4..6].copy_from_slice(&40u16.to_le_bytes());
+            index[6..8].copy_from_slice(&2u16.to_le_bytes());
+            index[16..24].copy_from_slice(&(vcn as u64).to_le_bytes());
+            index[24..28].copy_from_slice(&24u32.to_le_bytes());
+            index[32..36].copy_from_slice(&488u32.to_le_bytes());
+            if vcn + 1 < allocation_records.len() {
+                index[28..32].copy_from_slice(&48u32.to_le_bytes());
+                index[36] = 1;
+                index[56..58].copy_from_slice(&24u16.to_le_bytes());
+                index[60] = 3;
+                index[64..72].copy_from_slice(&(vcn as u64 + 1).to_le_bytes());
+            } else {
+                let filename: Vec<_> = "pagefile.sys"
+                    .encode_utf16()
+                    .flat_map(u16::to_le_bytes)
+                    .collect();
+                let key_size = 66 + filename.len();
+                let entry_size = (16 + key_size).div_ceil(8) * 8;
+                index[28..32].copy_from_slice(&((24 + entry_size + 16) as u32).to_le_bytes());
+                index[48..56].copy_from_slice(&9u64.to_le_bytes());
+                index[56..58].copy_from_slice(&(entry_size as u16).to_le_bytes());
+                index[58..60].copy_from_slice(&(key_size as u16).to_le_bytes());
+                index[64..72].copy_from_slice(&5u64.to_le_bytes());
+                index[128] = (filename.len() / 2) as u8;
+                index[129] = 3;
+                index[130..130 + filename.len()].copy_from_slice(&filename);
+                index[48 + entry_size + 8..48 + entry_size + 10]
+                    .copy_from_slice(&16u16.to_le_bytes());
+                index[48 + entry_size + 12] = 2;
+            }
+            index[40..44].copy_from_slice(&[0xab, 0xcd, 0, 0]);
+            index[510..512].copy_from_slice(&[0xab, 0xcd]);
+            let offset = (140 + vcn) * 512;
+            disk[offset..offset + 512].copy_from_slice(&index);
+        }
+        let list_attr = if nonresident_list {
+            disk[160 * 512..160 * 512 + list.len()].copy_from_slice(&list);
+            let mut attr = data_attr(&[0x21, 1, 160, 0, 0], list.len() as u64);
+            attr[..4].copy_from_slice(&0x20u32.to_le_bytes());
+            attr
+        } else {
+            resident_attr(0x20, "", &list)
+        };
+        root_attrs.insert(0, list_attr);
+        root_attrs.push(resident_attr(
+            0xb0,
+            "$I30",
+            &[(1 << allocation_records.len()) - 1],
+        ));
+        disk[4096 + 5 * 1024..4096 + 6 * 1024].copy_from_slice(&record(&root_attrs));
+        disk
+    }
+
+    #[test]
+    fn discovers_pagefile_through_root_directory_extensions() {
+        for records in [&[5][..], &[10], &[5, 10], &[10, 5]] {
+            for nonresident_list in [false, true] {
+                let disk = indexed_pagefile_disk(records, nonresident_list);
+                let mut ntfs = Ntfs::new(std::io::Cursor::new(disk)).unwrap();
+                let (size, extents) = ntfs.pagefile().unwrap_or_else(|error| {
+                    panic!("records={records:?}, nonresident_list={nonresident_list}: {error}")
+                });
+                assert_eq!(size, 1024);
+                assert_eq!(
+                    &ntfs.read_runs(&extents, 508, 8).unwrap()[..],
+                    &[1, 1, 1, 1, 2, 2, 2, 2]
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn invalid_directory_indexes_are_not_reported_as_missing_files() {
+        for offset in [0, 510] {
+            let mut disk = indexed_pagefile_disk(&[5], false);
+            disk[140 * 512 + offset] ^= 1;
+            let mut ntfs = Ntfs::new(std::io::Cursor::new(disk)).unwrap();
+            assert_eq!(ntfs.pagefile().unwrap_err(), BAD);
+        }
+    }
+
+    #[test]
+    fn absent_pagefile_in_valid_directory_is_reported_as_missing() {
+        let mut disk = indexed_pagefile_disk(&[5], false);
+        disk[140 * 512 + 130] = b'x';
+        let mut ntfs = Ntfs::new(std::io::Cursor::new(disk)).unwrap();
+        assert_eq!(
+            ntfs.pagefile().unwrap_err(),
+            "pagefile.sys was not found on the selected drive"
+        );
+    }
+
+    #[test]
+    fn directory_scan_can_find_pagefile_after_an_unused_index_block() {
+        let mut disk = indexed_pagefile_disk(&[5, 10], false);
+        disk[140 * 512..141 * 512].fill(0);
+        let mut ntfs = Ntfs::new(std::io::Cursor::new(disk)).unwrap();
+        assert_eq!(ntfs.pagefile().unwrap().0, 1024);
+    }
+
     #[test]
     fn discovers_and_reads_fragmented_pagefile_from_ntfs_metadata() {
         let mut ntfs = Ntfs::new(std::io::Cursor::new(pagefile_disk())).unwrap();
@@ -689,6 +877,22 @@ mod tests {
             &ntfs.read_runs(&extents, 508, 8).unwrap()[..],
             &[1, 1, 1, 1, 2, 2, 2, 2]
         );
+    }
+
+    #[test]
+    fn pagefile_discovery_does_not_read_unrelated_named_streams() {
+        let mut disk = pagefile_disk();
+        let mut list = attribute_list(&[(0, 31)]);
+        list[30] = 1;
+        list[31] = 26;
+        list[50..52].copy_from_slice(&(b'x' as u16).to_le_bytes());
+        // Record 31 is deliberately unreadable; the named stream is irrelevant.
+        disk[4096 + 9 * 1024..4096 + 10 * 1024].copy_from_slice(&record(&[
+            data_attr(&[0x11, 1, 100, 0x11, 1, 30, 0], 1024),
+            list,
+        ]));
+        let mut ntfs = Ntfs::new(std::io::Cursor::new(disk)).unwrap();
+        assert_eq!(ntfs.pagefile().unwrap().0, 1024);
     }
 
     #[test]
