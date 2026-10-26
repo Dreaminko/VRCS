@@ -1594,7 +1594,6 @@
         },
         "players": {
           "title": "VRChat 分玩家独立音轨（实验性）",
-          "description": "每位玩家一条独立音轨，分别识别、翻译并显示对应姓名。",
           "requirements": "需要以管理员权限运行 VRCS，并关闭 Windows 内存压缩。启用后，登录后首次进入世界并完成加载时，程序会自动尝试解析语音密钥。",
           "nameHint": "要匹配玩家姓名，请先开启采集再进入世界，或重新加载当前世界。",
           "drive": "分页文件所在盘",
@@ -1633,7 +1632,6 @@
         "otherVoicePreviewListening": "正在监听其他人的声音",
         "otherVoiceLevelMeterLabel": "其他人的声音当前输入音量",
         "otherVoiceTriggerThreshold": "其他人的声音触发阈值",
-        "otherVoiceTriggerThresholdDescription": "只有检测到语音且音量达到此阈值时才纳入识别。调高可过滤远处路人，过高可能漏掉较轻的近处说话声。",
         "systemOutput": "系统输出",
         "systemOutputDescription": "使用 Windows 默认输出设备。",
         "vrchatDescription": "捕获 VRChat 选择的输出设备。",

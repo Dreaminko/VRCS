@@ -138,7 +138,7 @@ for (const width of [1200, 861, 860, 681, 680, 380]) {
           const fields = ['drive', 'opus', 'limit', 'visibleLimit'].map(key => {
             const control = [...card.querySelectorAll('input[aria-label], button[aria-label]')]
               .find(element => element.getAttribute('aria-label') === i18n.t('settings.audio.players.' + key));
-            return control.closest('.field').getBoundingClientRect();
+            return control.closest('.field, .range-field').getBoundingClientRect();
           });
           if (innerWidth > 860) {
             for (const [left, right] of [[fields[0], fields[1]], [fields[2], fields[3]]]) {

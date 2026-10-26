@@ -1594,7 +1594,6 @@
         },
         "players": {
           "title": "VRChat per-player independent tracks (Experimental)",
-          "description": "One independent audio track per player, with separate recognition, translation and player names.",
           "requirements": "VRCS needs administrator privileges and Windows memory compression turned off. Once enabled, VRCS automatically attempts to obtain the voice key when the first world finishes loading after login.",
           "nameHint": "To match player names, start capture before entering a world, or reload the current world.",
           "drive": "Pagefile drive",
@@ -1633,7 +1632,6 @@
         "otherVoicePreviewListening": "Listening for other voices",
         "otherVoiceLevelMeterLabel": "Current input level for other voices",
         "otherVoiceTriggerThreshold": "Other voices trigger threshold",
-        "otherVoiceTriggerThresholdDescription": "Audio is included in recognition only when speech is detected at or above this level. Raise it to filter distant bystanders; setting it too high may miss quiet nearby speech.",
         "systemOutput": "System output",
         "systemOutputDescription": "Use the default Windows output device.",
         "vrchatDescription": "Capture the output device selected by VRChat.",

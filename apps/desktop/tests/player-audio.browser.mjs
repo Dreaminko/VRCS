@@ -18,6 +18,7 @@ for (const width of [1100, 380]) {
       stdin: { resolveDir: join(testDirectory, ".."), loader: "tsx", contents: `
         import React, { useState } from 'react';
         import { createRoot } from 'react-dom/client';
+        import { flushSync } from 'react-dom';
         import i18next from 'i18next';
         import { initReactI18next } from 'react-i18next';
         import locale from './src/i18n/locales/zh-CN.json';
@@ -31,12 +32,14 @@ for (const width of [1100, 380]) {
         window.requestAnimationFrame = callback => setTimeout(() => callback(performance.now()), 16);
         window.cancelAnimationFrame = clearTimeout;
         const noop = async () => {};
-        let current, updateStatus, updateDraft;
+        let current, updateStatus, updateDraft, updateSaveState;
         function Fixture() {
           const [draft,setDraft] = useState({ audio: { output:{mode:'system', device_id:null, trigger_threshold_dbfs:-45},
             microphone:{mode:'disabled',device_id:null,trigger_threshold_dbfs:-45} } });
           current = draft;
           updateDraft = setDraft;
+          const [saveState,setSaveState] = useState('idle');
+          updateSaveState = setSaveState;
           const [status,setStatus] = useState({phase:'acquiring_key',captured_packets:500,decrypted_packets:0,pcm_frames:0,
             active_players:0,dropped_frames:0,decode_errors:0,detail:null,
             key_scan:{stage:'scanning',scanned_bytes:4096*1048576,total_bytes:8455*1048576,
@@ -44,7 +47,7 @@ for (const width of [1100, 380]) {
           updateStatus = setStatus;
           return <><AudioSettingsSection draft={draft} devices={[]} devicesReady={true} deviceErrors={[]}
             outputDevices={[]} microphoneDevices={[]} microphoneRunning={false} transcriptionRunning={false}
-            microphoneTestRunning={false} saveState="idle" onRefresh={noop} applySettings={setDraft}
+            microphoneTestRunning={false} saveState={saveState} onRefresh={noop} applySettings={setDraft}
             onStartMicrophoneTest={noop} onStopMicrophoneTest={noop}
             playerAudioStatus={status} />
             <div id="waiting"><EmptyLiveView running={true} playerAudioPhase={status.phase} /></div>
@@ -60,23 +63,53 @@ for (const width of [1100, 380]) {
           throw Error('Timed out: '+predicate);
         };
         const check = (ok, message) => { if(!ok)throw Error(message); };
+        const inputRange = (input, value) => flushSync(() => {
+          Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, String(value));
+          input.dispatchEvent(new Event('input', { bubbles:true }));
+        });
+        const commitRange = (input, event) => flushSync(() => input.dispatchEvent(event));
         try {
-          await wait(() => document.querySelector('input[type=radio]'));
+          await wait(() => document.querySelector('.device-select .dropdown-trigger'));
           const name=locale.translation.settings.audio.players.title;
-          [...document.querySelectorAll('input[type=radio]')].find(e=>e.getAttribute('aria-label')===name).click();
+          document.querySelector('.device-select .dropdown-trigger').click();
+          await wait(()=>document.querySelector('[role=option]'));
+          [...document.querySelectorAll('[role=option]')].find(e=>e.querySelector('.dropdown-option-copy > span')?.textContent===name).click();
           await wait(()=>document.querySelector('.player-audio-settings'));
           check(current.audio.output.mode==='vrchat_players','experimental source saved');
           const card=document.querySelector('.player-audio-settings');
-          const selectors=card.querySelectorAll('.dropdown-trigger');
-          check(selectors[1].textContent.includes('无限制'),'default player limit is unlimited');
-          selectors[1].click();
-          await wait(()=>document.querySelector('[role=option]'));
-          [...document.querySelectorAll('[role=option]')].find(e=>e.textContent.trim()==='2').click();
-          await wait(()=>current.audio.output.player_audio?.max_players===2);
-          selectors[1].click();
-          await wait(()=>document.querySelector('[role=option]'));
-          [...document.querySelectorAll('[role=option]')].find(e=>e.textContent.trim()==='无限制').click();
-          await wait(()=>current.audio.output.player_audio?.max_players===0);
+          const controls=['limit','visibleLimit'].map(key=>card.querySelector('input[type="range"][aria-label="'+locale.translation.settings.audio.players[key]+'"]'));
+          check(controls.every(Boolean),'both player counts use labeled sliders');
+          const [processing,visible]=controls;
+          const unlimited=locale.translation.settings.audio.players.unlimited;
+          check(processing.value==='0'&&processing.getAttribute('aria-valuetext')===unlimited,'default processing limit remains unlimited');
+          check(visible.value==='4'&&visible.getAttribute('aria-valuetext')==='4','default visible limit remains four players');
+          for (const [input,field,max,initial,selection] of [
+            [processing,'max_players',8,0,2],
+            [visible,'max_visible_players',64,4,12],
+          ]) {
+            check(input.min==='0'&&input.max===String(max)&&input.step==='1','player sliders preserve the full integer range');
+            const previous=current.audio.output.player_audio;
+            inputRange(input,selection);
+            check(input.closest('label').querySelector('output').textContent===String(selection),'the count updates while dragging');
+            check((current.audio.output.player_audio?.[field]??initial)===initial,'dragging does not save intermediate values');
+            commitRange(input,new PointerEvent('pointerup',{bubbles:true}));
+            check(current.audio.output.player_audio[field]===selection,'releasing the slider saves the selected count');
+            const other=field==='max_players'?'max_visible_players':'max_players';
+            check(current.audio.output.player_audio[other]===(previous?.[other]??(other==='max_players'?0:4)),'each slider preserves the other limit');
+            inputRange(input,max);
+            commitRange(input,new KeyboardEvent('keyup',{key:'End',bubbles:true}));
+            check(current.audio.output.player_audio[field]===max,'keyboard completion saves the maximum count');
+            inputRange(input,0);
+            commitRange(input,new FocusEvent('focusout',{bubbles:true}));
+            check(current.audio.output.player_audio[field]===0&&input.getAttribute('aria-valuetext')===unlimited,'zero retains the unlimited option and saves on blur');
+          }
+          updateDraft(previous=>({...previous,audio:{...previous.audio,output:{...previous.audio.output,
+            player_audio:{...previous.audio.output.player_audio,max_players:3,max_visible_players:10}}}}));
+          await wait(()=>processing.value==='3'&&visible.value==='10');
+          updateSaveState('saving');
+          await wait(()=>controls.every(input=>input.disabled));
+          updateSaveState('idle');
+          await wait(()=>controls.every(input=>!input.disabled));
           const statusText=()=>card.querySelector('[role=status]').textContent;
           check(statusText().includes('正在获取语音密钥')&&statusText().includes('已用时 2.7 秒'),'acquisition shows a plain status and elapsed time');
           check(!/MiB|PCM|认证包|候选|解码错误|丢弃/.test(statusText()),'diagnostic counters are hidden');

@@ -1594,7 +1594,6 @@
         },
         "players": {
           "title": "VRChat プレイヤー別独立音声トラック（実験的）",
-          "description": "プレイヤーごとに独立した音声トラックを取得し、個別に認識・翻訳して名前を表示します。",
           "requirements": "VRCS の管理者権限と Windows メモリ圧縮の無効化が必要です。有効にすると、ログイン後最初のワールドの読み込み完了時に音声鍵の取得を自動的に試みます。",
           "nameHint": "プレイヤー名を照合するには、先にキャプチャを開始してからワールドに入るか、現在のワールドを再読み込みしてください。",
           "drive": "ページファイルのドライブ",
@@ -1633,7 +1632,6 @@
         "otherVoicePreviewListening": "相手の声を待機中",
         "otherVoiceLevelMeterLabel": "相手の声の現在の入力レベル",
         "otherVoiceTriggerThreshold": "相手の声のトリガーしきい値",
-        "otherVoiceTriggerThresholdDescription": "音声が検出され、このレベル以上の場合のみ認識に含めます。遠くの人の声を除外するには高くしますが、高すぎると近くの小さな声を認識できない場合があります。",
         "systemOutput": "システム出力",
         "systemOutputDescription": "Windows の既定の出力デバイスを使用します。",
         "vrchatDescription": "VRChat で選択した出力デバイスを取得します。",

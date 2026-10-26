@@ -79,7 +79,6 @@ export function OtherVoiceLevelSetting({
         )}
         onCommit={onCommit}
       />
-      <small>{t("settings.audio.otherVoiceTriggerThresholdDescription")}</small>
     </div>
   );
 }

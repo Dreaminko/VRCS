@@ -6,7 +6,7 @@ import { MemoryCompressionControls } from "../../capture/MemoryCompressionContro
 import type { PlayerAudioStart } from "../../capture/usePlayerAudioStart";
 import type { PlayerAudioStatus } from "../../core-client/types";
 import { EditableDropdownField } from "../../shared/ui/DropdownField";
-import { Select } from "../SettingsControls";
+import { RangeField, Select } from "../SettingsControls";
 
 export const DEFAULT_PLAYER_AUDIO: Options = {
   pagefile_drive: "C:", opus_library_path: "", max_players: 0, max_visible_players: 4,
@@ -24,10 +24,10 @@ export function PlayerAudioSettings({ value, status, memory, disabled, onChange 
   const phase = status?.phase ?? "stopped";
   const keyScan = status?.key_scan;
   const keyReady = keyScan?.stage === "verified" || keyScan?.stage === "cached";
+  const formatPlayerCount = (count: number) => count === 0 ? t("settings.audio.players.unlimited") : String(count);
   return <section className="vr-overlay-card player-audio-settings" aria-labelledby="player-audio-title">
     <div className="vr-overlay-card-heading"><div><FlaskConical size={18} />
-      <span><strong id="player-audio-title">{t("settings.audio.players.title")}</strong>
-        <small>{t("settings.audio.players.description")}</small></span>
+      <span><strong id="player-audio-title">{t("settings.audio.players.title")}</strong></span>
     </div></div>
     <p className="settings-field-note">{t("settings.audio.players.requirements")}</p>
     {memory && memory.status?.supported !== false && <MemoryCompressionControls memory={memory} />}
@@ -42,15 +42,12 @@ export function PlayerAudioSettings({ value, status, memory, disabled, onChange 
           options={[]} disabled={disabled} commitOnBlur
           onChange={(path) => onChange({ opus_library_path: path.trim() })} />
       </div>
-      <Select label={t("settings.audio.players.limit")} value={String(options.max_players)}
-        options={[{value: "0", label: t("settings.audio.players.unlimited")},
-          ...["1", "2", "3", "4", "5", "6", "7", "8"].map(value => ({value, label: value}))]} disabled={disabled}
-        onChange={(count) => onChange({ max_players: Number(count) })} />
-      <Select label={t("settings.audio.players.visibleLimit")} value={String(options.max_visible_players ?? 4)}
-        options={[{ value: "0", label: t("settings.audio.players.unlimited") },
-          ...Array.from({ length: 64 }, (_, index) => ({ value: String(index + 1), label: String(index + 1) }))]}
-        disabled={disabled}
-        onChange={(count) => onChange({ max_visible_players: Number(count) })} />
+      <RangeField label={t("settings.audio.players.limit")} value={options.max_players}
+        min={0} max={8} step={1} disabled={disabled} formatValue={formatPlayerCount}
+        onCommit={(max_players) => onChange({ max_players })} />
+      <RangeField label={t("settings.audio.players.visibleLimit")} value={options.max_visible_players ?? 4}
+        min={0} max={64} step={1} disabled={disabled} formatValue={formatPlayerCount}
+        onCommit={(max_visible_players) => onChange({ max_visible_players })} />
     </div>
     <div className="settings-field-note" role="status">
       <strong>{phase === "streaming" && status
