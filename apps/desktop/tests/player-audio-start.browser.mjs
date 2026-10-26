@@ -10,7 +10,8 @@ const testDirectory=dirname(fileURLToPath(import.meta.url));
 const browser=[process.env.PROGRAMFILES,process.env['PROGRAMFILES(X86)'],process.env.LOCALAPPDATA].filter(Boolean)
   .flatMap(root=>[join(root,'Google/Chrome/Application/chrome.exe'),join(root,'Microsoft/Edge/Application/msedge.exe')]).find(existsSync);
 
-for(const width of [1100,380]) test(`player audio consent, UAC cancellation and resume at ${width}px`,{timeout:45000,skip:!browser&&'Chrome or Edge is required'},async()=>{
+for(const width of [1100,380]) test(`${width===1100?'player audio consent, UAC cancellation and resume':'player audio dialog layout'} at ${width}px`,{timeout:45000,skip:!browser&&'Chrome or Edge is required'},async()=>{
+  const fullScenario=width===1100;
   const bundle=await build({stdin:{resolveDir:join(testDirectory,'..'),loader:'tsx',contents:`
     import React,{StrictMode,useState} from 'react';
     import {createRoot} from 'react-dom/client';
@@ -53,6 +54,7 @@ for(const width of [1100,380]) test(`player audio consent, UAC cancellation and 
     const mode=value=>settings.update(current=>({...current,audio:{...current.audio,output:{...current.audio.output,mode:value}}}));
     try{
       await wait(()=>settings?.value);
+      if(${fullScenario}){
       const user='usr_00000000-0000-4000-8000-000000000007';
       await settings.update(current=>({...current,audio:{...current.audio,output:{...current.audio.output,player_audio:{
         pagefile_drive:'C:',opus_library_path:'',max_players:0,selected_tracks:[user],selected_user_names:{[user]:'Old name'},
@@ -105,6 +107,9 @@ for(const width of [1100,380]) test(`player audio consent, UAC cancellation and 
       await control.setRunning(false);
       document.getElementById('start').click();await wait(()=>dialog());await sleep(100);
       check(accept().disabled,'each later start has a fresh reading interval');
+      }else{
+        void gate.confirm();await wait(()=>dialog());
+      }
       const bounds=dialog().getBoundingClientRect(),footer=dialog().querySelector('.api-profile-editor-actions').getBoundingClientRect();
       check(bounds.left>=0&&bounds.right<=innerWidth+1&&bounds.top>=0&&footer.bottom<=innerHeight+1,'dialog and action buttons stay in the viewport');
       const copy=dialog().querySelector('.player-audio-start-copy');
@@ -134,7 +139,9 @@ for(const width of [1100,380]) test(`player audio consent, UAC cancellation and 
     assert.ifError(result.error);assert.equal(result.status,0,result.stderr);
     assert.equal(result.stdout.match(/<pre id="result">([^<]*)<\/pre>/)?.[1],'PASS',result.stdout.match(/<pre id="result">([^<]*)<\/pre>/)?.[1]||result.stderr);
   }finally{
-    assert(relative(testDirectory,directory).startsWith('.player-start-browser-'));
-    rmSync(directory,{recursive:true,force:true,maxRetries:10,retryDelay:200});
+    const cleanupDirectory=resolve(directory);
+    assert.equal(dirname(cleanupDirectory),resolve(testDirectory));
+    assert(relative(resolve(testDirectory),cleanupDirectory).startsWith('.player-start-browser-'));
+    rmSync(cleanupDirectory,{recursive:true,force:true,maxRetries:10,retryDelay:200});
   }
 });

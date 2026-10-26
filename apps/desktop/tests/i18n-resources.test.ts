@@ -34,12 +34,6 @@ function leaves(value: unknown, prefix = ""): Map<string, string> {
   return result;
 }
 
-function placeholders(value: string): string[] {
-  return [...value.matchAll(/\{\{\s*([^},\s]+)[^}]*\}\}/g)]
-    .map((match) => match[1])
-    .sort();
-}
-
 function sourceFiles(directory: URL): URL[] {
   return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
     const child = new URL(entry.name + (entry.isDirectory() ? "/" : ""), directory);
@@ -47,34 +41,6 @@ function sourceFiles(directory: URL): URL[] {
     return /\.(?:ts|tsx)$/.test(entry.name) ? [child] : [];
   });
 }
-
-test("locale resources have identical keys and interpolation variables", () => {
-  const resources = localeNames.map((name) => {
-    const resource = loadLocale(name);
-    assert.equal((resource._meta as JsonObject).status, "complete");
-    return [name, leaves(resource.translation)] as const;
-  });
-  const referenceResource = resources.find(([name]) => name === "en-US");
-  assert.ok(referenceResource);
-  const [referenceName, reference] = referenceResource;
-
-  for (const [name, resource] of resources.filter(([name]) => name !== referenceName)) {
-    assert.deepEqual(
-      [...resource.keys()].sort(),
-      [...reference.keys()].sort(),
-      `${name} keys differ from ${referenceName}`,
-    );
-    for (const [key, referenceValue] of reference) {
-      const value = resource.get(key);
-      assert.ok(value?.trim(), `${name}:${key} must not be empty`);
-      assert.deepEqual(
-        placeholders(value!),
-        placeholders(referenceValue),
-        `${name}:${key} interpolation variables differ`,
-      );
-    }
-  }
-});
 
 test("repository localization validator accepts every locale", () => {
   assert.deepEqual(

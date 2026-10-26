@@ -35,7 +35,9 @@ for (const [width, reduced] of [[1200, false], [380, false], [1200, true]]) {
         function Harness() {
           const [value, setValue] = useState('first');
           const [disabled, setDisabled] = useState(false);
+          const [decks, setDecks] = useState(['First', 'First::Child', 'Second']);
           window.disableFields = setDisabled;
+          window.refreshDecks = () => setDecks(current => [...current]);
           return <div style={{ padding: 24 }}>
             <button id="outside">Outside</button>
             {['plain', 'search', 'floating', 'above'].map(id => <section key={id} id={id}
@@ -46,7 +48,7 @@ for (const [width, reduced] of [[1200, false], [380, false], [1200, true]]) {
             <section id="editable" style={{ width: 260, marginTop: 24 }}><EditableDropdownField
               label="Editable" value={value} options={options} disabled={disabled} onChange={setValue} /></section>
             <section id="tree" style={{ width: 260, marginTop: 24 }}><DeckTreeSelect
-              label="Deck" value="First" decks={['First', 'Second']} disabled={disabled} onChange={() => {}} /></section>
+              label="Deck" value="First" decks={decks} disabled={disabled} onChange={() => {}} /></section>
           </div>;
         }
         const root = createRoot(document.getElementById('root'));
@@ -122,6 +124,30 @@ for (const [width, reduced] of [[1200, false], [380, false], [1200, true]]) {
             }
             await wait(() => !getMenu());
           }
+          if (${width === 1200 && !reduced}) {
+            stage = 'tree focus after list renders';
+            const treeTrigger = document.querySelector('#tree .dropdown-trigger');
+            click(treeTrigger);
+            await wait(() => getMenu());
+            const treeMenu = getMenu();
+            await finish(treeMenu);
+            const firstItem = treeMenu.querySelector('[role=treeitem]');
+            await wait(() => document.activeElement === firstItem);
+            const expand = treeMenu.querySelector('.deck-tree-toggle');
+            expand.focus();
+            click(expand);
+            await wait(() => treeMenu.querySelectorAll('[role=treeitem]').length === 3);
+            await new Promise(requestAnimationFrame);
+            check(document.activeElement === expand, 'Expanding the visible deck list does not steal focus from its toggle');
+            flushSync(() => window.refreshDecks());
+            await new Promise(requestAnimationFrame);
+            check(document.activeElement === expand, 'Refreshing the deck catalog does not reset focus to the selected item');
+            key(firstItem, 'ArrowDown');
+            await wait(() => document.activeElement?.textContent === 'Child');
+            key(document.activeElement, 'Escape');
+            await finish(treeMenu);
+            await wait(() => !getMenu() && document.activeElement === treeTrigger);
+          }
           const trigger = document.querySelector('#search .dropdown-trigger');
           key(trigger, 'ArrowDown');
           await wait(() => document.activeElement?.classList.contains('dropdown-search'));
@@ -184,12 +210,14 @@ for (const [width, reduced] of [[1200, false], [380, false], [1200, true]]) {
         "--disable-background-networking", "--disable-extensions", "--window-size=" + Math.max(500, width) + ",900",
         ...(reduced ? ["--force-prefers-reduced-motion=reduce"] : []),
         "--user-data-dir=" + join(directory, "profile"), pathToFileURL(html).href,
-      ], { encoding: "utf8", timeout: 30000, maxBuffer: 8 * 1024 * 1024 });
+      ], { encoding: "utf8", windowsHide: true, timeout: 30000, maxBuffer: 8 * 1024 * 1024 });
       assert.ifError(result.error);
       assert.equal(result.status, 0, result.stderr);
       const report = result.stdout.match(/<pre id="result">([^<]*)<\/pre>/)?.[1];
       assert.equal(report, "PASS", report || result.stderr);
     } finally {
+      assert.equal(dirname(directory), testDirectory, "Temporary browser data must stay in the test directory");
+      assert(directory.startsWith(join(testDirectory, ".dropdown-motion-browser-")));
       rmSync(directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
     }
   });

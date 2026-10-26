@@ -323,10 +323,12 @@ mod tests {
         assert_eq!(text, "Value 3.14!” Next sentence.");
 
         text.clear();
-        for _ in 0..10_000 {
-            append_display_text(&mut text, "汉字🙂");
+        let delta = "汉字🙂";
+        let first_overflow = MAX_DISPLAY_CHARS / delta.chars().count() + 1;
+        for _ in 0..first_overflow + 3 {
+            append_display_text(&mut text, delta);
             assert!(text.chars().count() <= MAX_DISPLAY_CHARS);
-            assert!(text.ends_with("汉字🙂"));
+            assert!(text.ends_with(delta));
         }
         text = "a".repeat(MAX_DISPLAY_CHARS);
         append_display_text(&mut text, " recent words");

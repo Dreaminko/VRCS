@@ -128,38 +128,36 @@ test("a control cannot acknowledge a save that did not apply its target", async 
   await assert.rejects(execute({ set_osc_enabled: true }), /not applied/);
 });
 
-for (const source of ["desktop", "dashboard", "wrist_menu", "dev_preview"]) {
-  test(`${source}: capture lock includes conversation creation and satisfied targets do nothing`, async () => {
-    let running = false;
-    let creates = 0;
-    let starts = 0;
-    const pending: boolean[] = [];
-    let release!: () => void;
-    const gate = new Promise<void>((resolve) => { release = resolve; });
-    const control = createCaptureController({
-      available: () => true,
-      running: () => running,
-      newConversation: () => true,
-      createConversation: async () => { creates++; await gate; return true; },
-      setRunning: async (target) => { starts++; running = target; return true; },
-      onPending: (value) => pending.push(value),
-    });
-    const first = control.setRunning(true);
-    const second = control.setRunning(true);
-    assert.equal(creates, 1);
-    assert.deepEqual(pending, [true]);
-    release();
-    assert.deepEqual(await Promise.all([first, second]), [true, true]);
-    assert.equal(starts, 1);
-    assert.equal(await control.setRunning(true), true);
-    assert.equal(creates, 1);
-    assert.equal(starts, 1);
-    await control.setRunning(false);
-    assert.equal(creates, 1);
-    assert.equal(running, false);
-    assert.deepEqual(pending, [true, false, true, false]);
+test("capture lock includes conversation creation and satisfied targets do nothing", async () => {
+  let running = false;
+  let creates = 0;
+  let starts = 0;
+  const pending: boolean[] = [];
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  const control = createCaptureController({
+    available: () => true,
+    running: () => running,
+    newConversation: () => true,
+    createConversation: async () => { creates++; await gate; return true; },
+    setRunning: async (target) => { starts++; running = target; return true; },
+    onPending: (value) => pending.push(value),
   });
-}
+  const first = control.setRunning(true);
+  const second = control.setRunning(true);
+  assert.equal(creates, 1);
+  assert.deepEqual(pending, [true]);
+  release();
+  assert.deepEqual(await Promise.all([first, second]), [true, true]);
+  assert.equal(starts, 1);
+  assert.equal(await control.setRunning(true), true);
+  assert.equal(creates, 1);
+  assert.equal(starts, 1);
+  await control.setRunning(false);
+  assert.equal(creates, 1);
+  assert.equal(running, false);
+  assert.deepEqual(pending, [true, false, true, false]);
+});
 
 test("failed conversation creation never starts capture and releases pending", async () => {
   let starts = 0;

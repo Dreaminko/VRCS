@@ -10,9 +10,10 @@ const testDirectory = dirname(fileURLToPath(import.meta.url));
 const browser = [process.env.PROGRAMFILES, process.env["PROGRAMFILES(X86)"], process.env.LOCALAPPDATA]
   .filter(Boolean).flatMap(root => [join(root, "Google/Chrome/Application/chrome.exe"), join(root, "Microsoft/Edge/Application/msedge.exe")]).find(existsSync);
 
-for (const width of [1100, 380]) test(`memory compression consent, restoration and reboot gate at ${width}px`, {
+for (const width of [1100, 380]) test(`${width === 1100 ? 'memory compression consent, restoration and reboot gate' : 'memory compression confirmation layout'} at ${width}px`, {
   timeout: 45000, skip: !browser && "Chrome or Edge is required",
 }, async () => {
+  const fullScenario = width === 1100;
   const bundle = await build({ stdin: { resolveDir: join(testDirectory, ".."), loader: "tsx", contents: `
     import React,{StrictMode} from 'react';
     import {createRoot} from 'react-dom/client';
@@ -45,6 +46,7 @@ for (const width of [1100, 380]) test(`memory compression consent, restoration a
     const remount=async()=>{root.render(null);await sleep(40);mount();await sleep(80);await wait(()=>gate.memory.status&&!gate.memory.busy);};
     try{
       mount();await wait(()=>gate?.memory.status&&!gate.memory.busy);
+      if(${fullScenario}){
       check(gate.memory.status.enabled===true&&testing.events.length===0,'initial detection is read-only');
       check(!await gate.ensurePrivileges(),'enabled compression blocks capture');
       await wait(()=>dialog());
@@ -104,6 +106,9 @@ for (const width of [1100, 380]) test(`memory compression consent, restoration a
       await remount();await wait(()=>dialog());
       check(testing.events.join('|')==='consume:inspect_memory_compression'&&!gate.resumeRequested,'inspection handoff only reads status');
       await click(words.disable);await wait(()=>gate.memory.dialog==='disable');
+      }else{
+        gate.memory.requestChange(false);await wait(()=>dialog()&&gate.memory.dialog==='disable');
+      }
       const bounds=dialog().getBoundingClientRect(),footer=dialog().querySelector('.api-profile-editor-actions').getBoundingClientRect();
       check(bounds.left>=0&&bounds.right<=innerWidth+1&&bounds.top>=0&&footer.bottom<=innerHeight+1,'memory confirmation fits the viewport');
       const copy=dialog().querySelector('.player-audio-start-copy');copy.scrollTop=copy.scrollHeight;
@@ -145,7 +150,9 @@ for (const width of [1100, 380]) test(`memory compression consent, restoration a
     assert.ifError(result.error); assert.equal(result.status, 0, result.stderr);
     assert.equal(result.stdout.match(/<pre id="result">([^<]*)<\/pre>/)?.[1], 'PASS', result.stdout.match(/<pre id="result">([^<]*)<\/pre>/)?.[1] || result.stderr);
   } finally {
-    assert(relative(testDirectory, directory).startsWith('.memory-browser-'));
-    rmSync(directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+    const cleanupDirectory = resolve(directory);
+    assert.equal(dirname(cleanupDirectory), resolve(testDirectory));
+    assert(relative(resolve(testDirectory), cleanupDirectory).startsWith('.memory-browser-'));
+    rmSync(cleanupDirectory, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
   }
 });

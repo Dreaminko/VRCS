@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import test from "node:test";
 import { build } from "esbuild";
@@ -14,7 +14,8 @@ const browser = [process.env.PROGRAMFILES, process.env["PROGRAMFILES(X86)"], pro
   ]).find(existsSync);
 
 for (const width of [1200, 380]) {
-  test(`model autocomplete preserves typing, selection and custom names at ${width}px`, {
+  test(width === 1200 ? "model autocomplete preserves typing, selection and custom names"
+    : "model autocomplete menus stay within the narrow viewport", {
     timeout: 45000, skip: !browser && "No installed Chrome or Edge executable was found.",
   }, async () => {
     const bundle = await build({
@@ -71,7 +72,7 @@ for (const width of [1200, 380]) {
         let stage = '';
         try {
           check(innerWidth === ${width}, 'The test uses the expected CSS viewport');
-          for (const floating of [false, true]) for (const commitOnBlur of [false, true]) {
+          for (const floating of [false, true]) for (const commitOnBlur of ${width === 1200 ? "[false, true]" : "[false]"}) {
             stage = JSON.stringify({ floating, commitOnBlur });
             updates = [];
             flushSync(() => root.render(<Harness key={stage} floating={floating} commitOnBlur={commitOnBlur} />));
@@ -80,6 +81,22 @@ for (const width of [1200, 380]) {
             const menu = () => document.getElementById(input.getAttribute('aria-controls'));
             const visible = () => [...menu().querySelectorAll('[role=option]')];
             const active = () => document.getElementById(input.getAttribute('aria-activedescendant'));
+            if (${width !== 1200}) {
+              flushSync(() => toggle.click());
+              await wait(() => menu() && !menu().inert);
+              for (const animation of document.getAnimations()) {
+                if (animation.effect.getTiming().iterations !== Infinity) animation.finish();
+              }
+              await settle();
+              for (const element of [input, toggle, menu(), ...visible()]) {
+                const bounds = element.getBoundingClientRect();
+                check(bounds.width > 0 && bounds.height > 0, 'Menu controls have visible bounds');
+                check(bounds.left >= 0 && bounds.right <= innerWidth + 1, 'Menu controls stay within the viewport width');
+                check(bounds.top >= 0 && bounds.bottom <= innerHeight + 1, 'Menu controls stay within the viewport height');
+              }
+              check(menu().scrollWidth <= menu().clientWidth + 1, 'Suggestions do not overflow the menu horizontally');
+              continue;
+            }
             type(input, '  DEEPS  ');
             check(input.getAttribute('aria-expanded') === 'true', 'Typing opens matching model suggestions');
             await wait(() => menu());
@@ -184,13 +201,17 @@ for (const width of [1200, 380]) {
         "--headless=new", "--dump-dom", "--virtual-time-budget=15000", "--disable-gpu", "--no-first-run",
         "--disable-background-networking", "--disable-extensions", "--window-size=" + Math.max(500, width) + ",900",
         "--user-data-dir=" + join(directory, "profile"), pathToFileURL(html).href,
-      ], { encoding: "utf8", timeout: 30000, maxBuffer: 8 * 1024 * 1024 });
+      ], { encoding: "utf8", timeout: 30000, maxBuffer: 8 * 1024 * 1024, windowsHide: true });
       assert.ifError(result.error);
       assert.equal(result.status, 0, result.stderr);
       const report = result.stdout.match(/<pre id="result">([^<]*)<\/pre>/)?.[1];
       assert.equal(report, "PASS", report || result.stderr);
     } finally {
-      rmSync(directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+      const cleanupPath = resolve(directory);
+      const cleanupRelative = relative(resolve(testDirectory), cleanupPath);
+      assert.ok(cleanupRelative && cleanupRelative !== ".." && !cleanupRelative.startsWith(".." + sep)
+        && !isAbsolute(cleanupRelative), "Temporary directory must resolve inside the tests directory");
+      rmSync(cleanupPath, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
     }
   });
 }

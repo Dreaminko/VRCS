@@ -1,6 +1,5 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import {
   ankiDeckAncestors,
   ankiDeckDisplayName,
@@ -61,19 +60,4 @@ test("provides display paths and navigation relatives for nested decks", () => {
   assert.equal(ankiDeckParent("Language::Japanese::N5"), "Language::Japanese");
   assert.equal(ankiDeckParent("Default"), null);
   assert.equal(ankiDeckDisplayName("Language::Japanese::N5"), "Language / Japanese / N5");
-});
-
-test("deck tree focus is not retriggered by visible list renders", () => {
-  const source = readFileSync(
-    new URL("../src/settings/SettingsControls.tsx", import.meta.url),
-    "utf8",
-  );
-  const focusEffect = source.match(
-    /useEffect\(\(\) => \{\s*if \(!open\) return;[\s\S]*?itemRefs\.current\.get\(activeName\)\?\.focus\(\)[\s\S]*?\}, \[([^\]]+)\]\);/,
-  );
-
-  assert.ok(focusEffect, "the deck focus effect must remain explicit and testable");
-  assert.match(focusEffect[1], /\bactiveName\b/);
-  assert.match(focusEffect[1], /\bopen\b/);
-  assert.doesNotMatch(focusEffect[1], /\bvisibleNodes\b/);
 });
