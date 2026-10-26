@@ -38,7 +38,8 @@ pub fn dashboard_placeholder(message: &str) -> Result<Texture, String> {
             return Err("Create dashboard placeholder bitmap failed".into());
         }
         let previous_bitmap = SelectObject(dc, bitmap);
-        let pixels = std::slice::from_raw_parts_mut(pixels.cast::<u8>(), (width * height * 4) as usize);
+        let pixels =
+            std::slice::from_raw_parts_mut(pixels.cast::<u8>(), (width * height * 4) as usize);
         for pixel in pixels.chunks_exact_mut(4) {
             pixel.copy_from_slice(&[30, 24, 20, 255]);
         }
