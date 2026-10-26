@@ -40,7 +40,7 @@ pub fn dashboard_placeholder(message: &str) -> Result<Texture, String> {
         let previous_bitmap = SelectObject(dc, bitmap);
         let pixels =
             std::slice::from_raw_parts_mut(pixels.cast::<u8>(), (width * height * 4) as usize);
-        for pixel in pixels.chunks_exact_mut(4) {
+        for pixel in pixels.as_chunks_mut::<4>().0 {
             pixel.copy_from_slice(&[30, 24, 20, 255]);
         }
         let font = CreateFontW(
@@ -84,7 +84,7 @@ pub fn dashboard_placeholder(message: &str) -> Result<Texture, String> {
         );
         GdiFlush();
         let mut pixels = pixels.to_vec();
-        for pixel in pixels.chunks_exact_mut(4) {
+        for pixel in pixels.as_chunks_mut::<4>().0 {
             pixel.swap(0, 2);
             pixel[3] = 255;
         }
