@@ -1,4 +1,5 @@
-import type { ReactNode } from "react";
+import { useState, type MouseEvent, type ReactNode } from "react";
+import { Activity } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { recognitionEngineLabel } from "../../providers/recognition-services";
@@ -11,6 +12,9 @@ import type {
   ProviderDefinition,
 } from "../../providers/types";
 import type { Settings } from "../../settings/types";
+import { useTopStatusMotion } from "./useTopStatusMotion";
+
+const STATUS_EXPANDED_KEY = "vrcs.status-expanded";
 
 export function TopStatus({ connection, health, settings, apiProfiles = [], providerDefinitions = [], controls }: {
   connection: ConnectionState;
@@ -21,22 +25,44 @@ export function TopStatus({ connection, health, settings, apiProfiles = [], prov
   controls?: ReactNode;
 }) {
   const { t } = useTranslation();
+  const [expanded, setExpanded] = useState(() => {
+    try { return localStorage.getItem(STATUS_EXPANDED_KEY) !== "false"; }
+    catch { return true; }
+  });
+  const motion = useTopStatusMotion(expanded);
   const connectionLabel = t(`status.connection.${connection}`);
+  const toggleLabel = t(expanded ? "common.collapseNamed" : "common.expandNamed", { name: t("status.summary") });
+  const toggle = (event: MouseEvent<HTMLButtonElement>) => {
+    motion.prepare(event.detail > 0);
+    const next = !expanded;
+    setExpanded(next);
+    try { localStorage.setItem(STATUS_EXPANDED_KEY, String(next)); }
+    catch { /* Keep the control usable when storage is unavailable. */ }
+  };
   return (
-    <div className="top-status-row">
+    <div className="top-status-row" ref={motion.rowRef}>
       {controls}
-      <div className="status-summary" aria-label={t("status.summary")}>
-        <div className={`core-summary connection-${connection}`}><span>Core</span><strong><i aria-hidden="true" />{connectionLabel}</strong></div>
-        <i aria-hidden="true" />
-        <div><span>{t("status.label")}</span><strong>{transcriptionStatusLabel(health, t)}</strong></div>
-        <i aria-hidden="true" />
-        <div className={health?.osc?.send_gate === "open" ? "mute-summary" : "mute-summary muted"}>
-          <span>{t("status.vrchat")}</span>
-          <strong>{vrchatSendStatusLabel(health, settings, t)}</strong>
-        </div>
-        <i aria-hidden="true" />
-        <div><span>{t("status.engine")}</span><strong>{engineLabel(settings, apiProfiles, providerDefinitions)}</strong></div>
-      </div>
+      <button type="button" ref={motion.buttonRef} className={`status-toggle ${expanded ? "status-summary" : "status-trigger"}`}
+        aria-label={toggleLabel} aria-expanded={expanded} data-tooltip={toggleLabel} onClick={toggle}>
+        <span className="status-motion-surface" ref={motion.surfaceRef} aria-hidden="true">
+          <span className="status-motion-outline" ref={motion.outlineRef} />
+          <span className="status-motion-fill" ref={motion.fillRef} />
+        </span>
+        <span className="status-motion-content" ref={motion.contentRef}>
+        {expanded ? <>
+          <span className={`status-summary-item core-summary connection-${connection}`}><span className="status-summary-label">Core</span><strong><i aria-hidden="true" />{connectionLabel}</strong></span>
+          <i aria-hidden="true" />
+          <span className="status-summary-item"><span className="status-summary-label">{t("status.label")}</span><strong>{transcriptionStatusLabel(health, t)}</strong></span>
+          <i aria-hidden="true" />
+          <span className={`status-summary-item mute-summary${health?.osc?.send_gate === "open" ? "" : " muted"}`}>
+            <span className="status-summary-label">{t("status.vrchat")}</span>
+            <strong>{vrchatSendStatusLabel(health, settings, t)}</strong>
+          </span>
+          <i aria-hidden="true" />
+          <span className="status-summary-item"><span className="status-summary-label">{t("status.engine")}</span><strong>{engineLabel(settings, apiProfiles, providerDefinitions)}</strong></span>
+        </> : <Activity size={18} aria-hidden="true" />}
+        </span>
+      </button>
     </div>
   );
 }
