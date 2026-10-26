@@ -90,12 +90,14 @@ export function publishLivePartial(partial: LiveTranscription) {
     return;
   }
   const previous = livePartials.get(partial.source) ?? EMPTY_LIVE_PARTIALS;
+  const current = previous.find((item) => item.utterance_id === partial.utterance_id
+    && (item.speaker?.id ?? null) === (partial.speaker?.id ?? null));
   // One preview per player, plus the legacy unlabelled source. Arrays are stable
   // between updates for useSyncExternalStore. Completion/close events remove
   // previews; do not silently hide players when capture has no concurrency cap.
   livePartials.set(partial.source, [
     ...previous.filter((item) => (item.speaker?.id ?? null) !== (partial.speaker?.id ?? null)),
-    partial,
+    { ...partial, received_at: current?.received_at ?? Date.now() },
   ]);
   notifyKey(livePartialListeners, partial.source);
 }

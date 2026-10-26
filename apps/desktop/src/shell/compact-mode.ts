@@ -30,7 +30,14 @@ export function compactLivePreview(
   return text === partial.text && language === partial.language ? partial : { ...partial, text, language };
 }
 
-export type CompactPanelState = boolean;
+// A number reserves the measured Chatbox height; true opens a selection/dialog panel.
+export type CompactPanelState = boolean | number;
+
+export function compactChatboxHeight(panelState: CompactPanelState): number {
+  return typeof panelState === "number"
+    ? Math.min(COMPACT_WINDOW_MAX_HEIGHT - COMPACT_WINDOW_SIZE.height, Math.max(0, Math.ceil(panelState)))
+    : 0;
+}
 
 export function compactWindowSize(
   panelState: CompactPanelState,
@@ -39,17 +46,17 @@ export function compactWindowSize(
 ) {
   return {
     width,
-    height: panelState
+    height: panelState === true
       ? COMPACT_PANEL_WINDOW_SIZE.height
-      : clampCompactWindowHeight(height),
+      : clampCompactWindowHeight(height + compactChatboxHeight(panelState)),
   };
 }
 
 export function compactWindowConstraints(panelState: CompactPanelState) {
-  if (!panelState) {
+  if (panelState !== true) {
     return {
       minWidth: COMPACT_WINDOW_MIN_WIDTH,
-      minHeight: COMPACT_WINDOW_SIZE.height,
+      minHeight: COMPACT_WINDOW_SIZE.height + compactChatboxHeight(panelState),
       maxHeight: COMPACT_WINDOW_MAX_HEIGHT,
     };
   }

@@ -66,6 +66,8 @@ function App() {
         settings={workspace.settings}
         selection={workspace.selection}
         learning={workspace.learning}
+        chatbox={workspace.chatbox}
+        providers={workspace.providers}
       />
     );
   } else {

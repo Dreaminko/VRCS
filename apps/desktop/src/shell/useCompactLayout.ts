@@ -28,6 +28,7 @@ export interface CompactGroup {
 
 interface LayoutSnapshot {
   parallel?: boolean;
+  scrollable?: boolean;
   groups: CompactGroup[];
   latestBudget?: CompactTextBudget;
 }
@@ -68,7 +69,7 @@ function useCandidateGroups(subtitles: Subtitle[], previews: LiveTranscription[]
         || subtitle.translation_partial?.text.trimEnd()));
     // Bound history by track before measuring, so one busy player cannot push
     // another player's completed translation out of the candidate window.
-    return perPlayer ? latestCaptionsByTrack(history) : history.slice(-limit);
+    return perPlayer ? latestCaptionsByTrack(history, limit) : history.slice(-limit);
   }, [subtitles, lives, limit, perPlayer]);
   const ids = useMemo(() => candidates.map((subtitle) => subtitle.id), [candidates]);
   const partials = useTranslationPartialsForSubtitles(ids);
@@ -104,7 +105,7 @@ function useCandidateGroups(subtitles: Subtitle[], previews: LiveTranscription[]
     });
     for (const live of lives) {
       const completed = subtitles.find((subtitle) => compactPartialMatchesSubtitle(live, subtitle));
-      groups.push({
+      const group: CompactGroup = {
         key: completed
           ? `subtitle:${completed.id ?? `${completed.source}:${completed.created_at}`}`
           : `partial:${live.source}:${live.source_utterance_id ?? live.utterance_id}`,
@@ -119,7 +120,15 @@ function useCandidateGroups(subtitles: Subtitle[], previews: LiveTranscription[]
           id: completed.id, language: completed.language, source: completed.source ?? null,
           createdAt: completed.created_at, translation: live.translation ?? null,
         } : undefined,
-      });
+      };
+      // An older speech preview must not hide a message sent from Chatbox.
+      const receivedAt = live.received_at;
+      const newerChatbox = !perPlayer && receivedAt !== undefined
+        ? groups.findIndex((item) => item.source === "chatbox"
+          && Date.parse(item.origin?.createdAt ?? "") >= receivedAt)
+        : -1;
+      if (newerChatbox < 0) groups.push(group);
+      else groups.splice(newerChatbox, 0, group);
     }
     const visible = groups.filter((group) => group.text || group.translation);
     return perPlayer ? latestCaptionsByTrack(visible) : visible;
@@ -228,11 +237,15 @@ export function useCompactLayout({ subtitles, previews, fontSize, selectionTarge
         && measuredSelectionRef.current === selectionTarget) return;
       const rows = Array.from(measure.children) as HTMLElement[];
       if (rows.length !== groups.length) return;
-      if (!frozen && perPlayer && groups.length > 1) {
+      const chatboxStart = groups.findIndex(group => group.source === "chatbox");
+      const scrollable = !frozen && chatboxStart >= 0;
+      geometryRef.current = geometry;
+      measuredSelectionRef.current = selectionTarget;
+      if (!frozen && perPlayer && chatboxStart !== 0 && groups.length > 1) {
         const budget = { original: preset.originalLine, translation: preset.translationLine };
-        setLayout(previous => sameGroups(previous.groups, groups) && previous.parallel === true
+        setLayout(previous => sameGroups(previous.groups, groups) && previous.parallel === true && previous.scrollable === scrollable
           && previous.latestBudget?.original === budget.original && previous.latestBudget?.translation === budget.translation
-          ? previous : { groups, latestBudget: budget, parallel: true });
+          ? previous : { groups, latestBudget: budget, parallel: true, scrollable });
         return;
       }
       const heights = rows.map((row) => row.getBoundingClientRect().height);
@@ -248,13 +261,14 @@ export function useCompactLayout({ subtitles, previews, fontSize, selectionTarge
         }, Math.max(0, height - (latest.querySelector<HTMLElement>(".compact-speaker")?.getBoundingClientRect().height ?? 0) - 4), fontSize);
         count = 1;
       }
-      const nextGroups = count ? groups.slice(-count) : [];
-      geometryRef.current = geometry;
-      measuredSelectionRef.current = selectionTarget;
+      // Keep bounded Chatbox history in the scroll viewport, even when only part
+      // of the previous message fits above the newest one.
+      const nextGroups = scrollable ? groups : count ? groups.slice(-count) : [];
       setLayout((previous) => sameGroups(previous.groups, nextGroups) && !previous.parallel
+        && previous.scrollable === scrollable
         && previous.latestBudget?.original === latestBudget?.original
         && previous.latestBudget?.translation === latestBudget?.translation
-        ? previous : { groups: nextGroups, latestBudget });
+        ? previous : { groups: nextGroups, latestBudget, scrollable });
     };
     const schedule = () => {
       if (frameRef.current === null) frameRef.current = requestAnimationFrame(reflow);
@@ -286,6 +300,6 @@ export function useCompactLayout({ subtitles, previews, fontSize, selectionTarge
 
   return {
     contentRef, measureRef, measurementGroups: groups,
-    visibleGroups: layout.groups, parallel: layout.parallel, latestBudget: layout.latestBudget, frozen,
+    visibleGroups: layout.groups, parallel: layout.parallel, scrollable: layout.scrollable, latestBudget: layout.latestBudget, frozen,
   };
 }

@@ -35,12 +35,27 @@ test("simultaneous player previews update and complete independently", () => {
   assert.equal(snapshot.length, 2);
   publishLivePartial({ ...first, translation: "你好" });
   assert.equal(getLivePartials("speaker").length, 2);
-  assert.equal(getLivePartials("speaker").find((p) => p.speaker?.id === "player-2"), second);
+  assert.equal(getLivePartials("speaker").find((p) => p.speaker?.id === "player-2"), snapshot[1]);
   completeLivePartial("speaker", first.utterance_id);
   publishLivePartial(first);
-  assert.deepEqual(getLivePartials("speaker"), [second]);
+  assert.deepEqual(getLivePartials("speaker"), [snapshot[1]]);
   resetLivePartial("speaker");
   assert.deepEqual(getLivePartials("speaker"), []);
+});
+
+test("preview arrival time survives deltas but advances for a new utterance", (context) => {
+  clearLivePartials();
+  context.mock.timers.enable({ apis: ["Date"], now: 1_000 });
+  const input = partial("first", "hello");
+  publishLivePartial(input);
+  assert.equal(getLivePartial("speaker")?.received_at, 1_000);
+  assert.equal(input.received_at, undefined);
+  context.mock.timers.tick(500);
+  publishLivePartial({ ...input, text: "hello again" });
+  assert.equal(getLivePartial("speaker")?.received_at, 1_000);
+  publishLivePartial(partial("second", "new speech"));
+  assert.equal(getLivePartial("speaker")?.received_at, 1_500);
+  clearLivePartials();
 });
 
 test("player previews remain independent from the microphone", () => {

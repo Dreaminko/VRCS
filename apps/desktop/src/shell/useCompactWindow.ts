@@ -32,6 +32,15 @@ export function useCompactWindow({
   const requestedPanelStateRef = useRef<CompactPanelState>(false);
   const panelTaskRef = useRef<{ promise: Promise<void>; running: boolean } | null>(null);
   const heightRef = useRef<number>(COMPACT_WINDOW_SIZE.height);
+  const nativeHeightRef = useRef<number>(COMPACT_WINDOW_SIZE.height);
+
+  const rememberUserResize = useCallback((nativeHeight: number) => {
+    // Apply only the user's delta, not temporary composer space or capped height.
+    const nextHeight = clampCompactWindowHeight(heightRef.current + nativeHeight - nativeHeightRef.current);
+    heightRef.current = nextHeight;
+    nativeHeightRef.current = nativeHeight;
+    setHeight(nextHeight);
+  }, []);
 
   useEffect(() => {
     if (!NATIVE_APP || !compact) return;
@@ -40,7 +49,8 @@ export function useCompactWindow({
     let heightReadId = 0;
     const syncHeight = async () => {
       const task = panelTaskRef.current;
-      if (!compactModeRef.current || panelStateRef.current !== false || task?.running) return;
+      const panelState = panelStateRef.current;
+      if (!compactModeRef.current || panelState === true || panelState === null || task?.running) return;
       const readId = ++heightReadId;
       try {
         const { getCurrentWindow } = await import("@tauri-apps/api/window");
@@ -51,11 +61,9 @@ export function useCompactWindow({
         ]);
         // Read native geometry for delayed resize events, and discard reads
         // that overlap a panel adjustment, even if that task already finished.
-        if (disposed || readId !== heightReadId || !compactModeRef.current || panelStateRef.current !== false
+        if (disposed || readId !== heightReadId || !compactModeRef.current || panelStateRef.current !== panelState
           || task !== panelTaskRef.current || task?.running) return;
-        const nextHeight = clampCompactWindowHeight(innerSize.toLogical(scaleFactor).height);
-        heightRef.current = nextHeight;
-        setHeight(nextHeight);
+        rememberUserResize(innerSize.toLogical(scaleFactor).height);
       } catch (reason) {
         if (!disposed && compactModeRef.current) {
           reportError(reason, "errors.window.compactResize", "window");
@@ -69,16 +77,19 @@ export function useCompactWindow({
       disposed = true;
       window.removeEventListener("resize", onResize);
     };
-  }, [compact, reportError]);
+  }, [compact, rememberUserResize, reportError]);
 
   const resizeCompactWindow = useCallback((panelState: CompactPanelState): Promise<void> => {
     if (!compactModeRef.current) return Promise.resolve();
     requestedPanelStateRef.current = panelState;
     const currentTask = panelTaskRef.current;
     if (currentTask?.running) return currentTask.promise;
-    if (panelStateRef.current === panelState) return Promise.resolve();
+    const atTarget = (target: CompactPanelState) => panelStateRef.current === target
+      && nativeHeightRef.current === compactWindowSize(target, 0, heightRef.current).height;
+    if (atTarget(panelState)) return Promise.resolve();
     if (!NATIVE_APP) {
       panelStateRef.current = panelState;
+      nativeHeightRef.current = compactWindowSize(panelState, 0, heightRef.current).height;
       return Promise.resolve();
     }
 
@@ -91,7 +102,7 @@ export function useCompactWindow({
       try {
         while (compactModeRef.current) {
           const target = requestedPanelStateRef.current;
-          if (panelStateRef.current === target) break;
+          if (atTarget(target)) break;
           try {
             const { getCurrentWindow, LogicalSize } = await import("@tauri-apps/api/window");
             if (!compactModeRef.current) break;
@@ -102,10 +113,8 @@ export function useCompactWindow({
             ]);
             if (!compactModeRef.current) break;
             const currentSize = innerSize.toLogical(scaleFactor);
-            if (target && panelStateRef.current === false) {
-              const currentHeight = clampCompactWindowHeight(currentSize.height);
-              heightRef.current = currentHeight;
-              setHeight(currentHeight);
+            if (panelStateRef.current !== true && panelStateRef.current !== null) {
+              rememberUserResize(currentSize.height);
             }
             const size = compactWindowSize(target, currentSize.width, heightRef.current);
             panelStateRef.current = null;
@@ -114,7 +123,7 @@ export function useCompactWindow({
             await appWindow.setSize(new LogicalSize(size.width, size.height));
             if (!compactModeRef.current) break;
             panelStateRef.current = target;
-            if (!target) setHeight(size.height);
+            nativeHeightRef.current = size.height;
           } catch (reason) {
             failure = { reason };
             // Process a newer target after failure, but never retry indefinitely.
@@ -127,17 +136,16 @@ export function useCompactWindow({
       }
     })();
     return task.promise;
-  }, []);
+  }, [rememberUserResize]);
 
   const ensureCaptionHeight = useCallback(async (minimum: number) => {
-    if (!compactModeRef.current || panelStateRef.current !== false || panelTaskRef.current?.running) return;
+    if (!compactModeRef.current || requestedPanelStateRef.current === true) return;
     const target = clampCompactWindowHeight(minimum);
     if (target <= heightRef.current) return;
     heightRef.current = target;
-    panelStateRef.current = null;
+    setHeight(target);
     try {
-      await resizeCompactWindow(false);
-      setHeight(target);
+      await resizeCompactWindow(requestedPanelStateRef.current);
     } catch (reason) {
       reportError(reason, "errors.window.compactResize", "window");
     }
@@ -157,6 +165,8 @@ export function useCompactWindow({
       }
       if (!NATIVE_APP) {
         panelStateRef.current = false;
+        requestedPanelStateRef.current = false;
+        nativeHeightRef.current = heightRef.current;
         if (!next) onExitCompact();
         setCompact(next);
         clearErrorFrom("window");
@@ -169,6 +179,7 @@ export function useCompactWindow({
       const appWindow = getCurrentWindow();
       if (next) {
         panelStateRef.current = false;
+        requestedPanelStateRef.current = false;
         const compactSize = compactWindowSize(
           false,
           COMPACT_WINDOW_SIZE.width,
@@ -176,6 +187,7 @@ export function useCompactWindow({
         );
         await appWindow.setSizeConstraints(compactWindowConstraints(false));
         await appWindow.setSize(new LogicalSize(compactSize.width, compactSize.height));
+        nativeHeightRef.current = compactSize.height;
         await appWindow.setResizable(true);
         await invoke("set_compact_window_topmost", { enabled: true });
         setHeight(compactSize.height);

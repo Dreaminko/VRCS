@@ -92,16 +92,6 @@ export function useAppWorkspace({
     resumedPlayerAudio.current = true;
     if (settings.value.audio.output.mode === "vrchat_players") void captureControl.setCaptureRunning(true);
   }, [captureRuntime.playerAudioStart.resumeRequested, runtime.ready, settings.value, onboardingFlow.status, captureControl.setCaptureRunning]);
-  const { compact, resizeCompactWindow } = compactWindow;
-  const { reportError } = runtime;
-  useEffect(() => {
-    if (!compact) return;
-    void resizeCompactWindow(overlayOpen).catch((reason) => {
-      reportError(reason, overlayOpen
-        ? "errors.window.compactToggle"
-        : "errors.window.compactCollapse", "window");
-    });
-  }, [compact, overlayOpen, resizeCompactWindow, reportError]);
   const { interfaceScale, setInterfaceScale } = useInterfaceScale(runtime.reportError);
   const chatboxRoute = settings.value?.translation.microphone_targets[0];
   const providerCatalog = useApiProfileViews(

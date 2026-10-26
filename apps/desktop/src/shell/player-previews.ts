@@ -14,12 +14,15 @@ function compareCaptionTracks(left: CaptionTrack, right: CaptionTrack): number {
 }
 
 /** Input is oldest first, with live previews after completed captions. */
-export function latestCaptionsByTrack<T extends CaptionTrack>(captions: readonly T[]): T[] {
+export function latestCaptionsByTrack<T extends CaptionTrack>(captions: readonly T[], historyLimit = captions.length): T[] {
   const lanes = new Map<string, T>();
+  const messages: T[] = [];
   for (const caption of captions) {
-    lanes.set(`${caption.source ?? "speaker"}:${caption.speaker?.id ?? "unidentified"}`, caption);
+    // Manual sends are separate messages, not updates to a speaker lane.
+    if (caption.source === "chatbox") messages.push(caption);
+    else lanes.set(`${caption.source ?? "speaker"}:${caption.speaker?.id ?? "unidentified"}`, caption);
   }
-  return [...lanes.values()].sort(compareCaptionTracks);
+  return [...lanes.values()].sort(compareCaptionTracks).concat(messages.slice(-historyLimit));
 }
 
 export function selectPlayerHistory(subtitles: Subtitle[], previews: LiveTranscription[], limit?: number): Subtitle[] {

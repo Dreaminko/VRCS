@@ -1,6 +1,6 @@
 import { useTranslation } from "react-i18next";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Check, Maximize2, Mic, Square, X } from "lucide-react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type Ref } from "react";
+import { Check, Maximize2, MessageSquare, Mic, Square, X } from "lucide-react";
 
 import type { LookupOrigin, SelectionTarget } from "../app/app-types";
 import type { LiveTranscription } from "../capture/types";
@@ -19,7 +19,7 @@ import { CompactBackgroundControls, CompactWindowIcon } from "./CompactBackgroun
 const EMPTY_PREVIEWS: LiveTranscription[] = [];
 const EMPTY_FILTER: readonly string[] = [];
 
-export function CompactView({ transparentBackground, onToggleBackground, backgroundOpacity, onBackgroundOpacityChange, fontSize, onFontSizeChange, subtitles, subtitleHistory, selectionTarget, playerLimit, hiddenTracks = EMPTY_FILTER, hiddenSourceLanguages = EMPTY_FILTER, onCaptionHeight, running, vrchatMuted, captureDisabled, onSelect, onCapture, onRestore, onClose, onResize }: {
+export function CompactView({ transparentBackground, onToggleBackground, backgroundOpacity, onBackgroundOpacityChange, fontSize, onFontSizeChange, subtitles, subtitleHistory, selectionTarget, playerLimit, hiddenTracks = EMPTY_FILTER, hiddenSourceLanguages = EMPTY_FILTER, onCaptionHeight, running, vrchatMuted, captureDisabled, chatboxOpen, chatboxDisabled, chatboxButtonRef, onChatbox, onSelect, onCapture, onRestore, onClose, onResize }: {
   transparentBackground: boolean;
   onToggleBackground: () => void;
   backgroundOpacity: number;
@@ -36,6 +36,10 @@ export function CompactView({ transparentBackground, onToggleBackground, backgro
   running: boolean;
   vrchatMuted: boolean;
   captureDisabled: boolean;
+  chatboxOpen?: boolean;
+  chatboxDisabled?: boolean;
+  chatboxButtonRef?: Ref<HTMLButtonElement>;
+  onChatbox?: () => void;
   onSelect: (context: string, origin?: LookupOrigin) => Promise<void>;
   onCapture: () => void;
   onRestore: () => void;
@@ -43,6 +47,7 @@ export function CompactView({ transparentBackground, onToggleBackground, backgro
   onResize: () => void;
 }) {
   const { t } = useTranslation();
+  const stackRef = useRef<HTMLDivElement>(null);
   const microphonePartials = useLivePartials("microphone");
   const speakerPartials = useLivePartials("speaker");
   const previews = useMemo(() => selectPlayerPreviews(
@@ -59,12 +64,30 @@ export function CompactView({ transparentBackground, onToggleBackground, backgro
     subtitles.filter(subtitle => subtitleVisible(subtitle, hiddenTracks, hiddenSourceLanguages)), previews, playerLimit),
     [subtitles, previews, playerLimit, hiddenTracks, hiddenSourceLanguages]);
   const layout = useCompactLayout({ subtitles: visibleSubtitles, previews: visiblePreviews, fontSize, selectionTarget, transparentBackground, perPlayer: playerLimit !== undefined });
+  const captionTracks = layout.visibleGroups.filter(group => group.source !== "chatbox").length;
+  const minimumRows = captionTracks + Number(layout.visibleGroups.some(group => group.source === "chatbox"));
   useEffect(() => {
     if (layout.parallel && !layout.frozen) {
-      void onCaptionHeight?.(playerCaptionMinimumHeight(layout.visibleGroups.length, fontSize));
+      void onCaptionHeight?.(playerCaptionMinimumHeight(minimumRows, fontSize));
     }
-  }, [layout.parallel, layout.frozen, layout.visibleGroups.length, fontSize, onCaptionHeight]);
+  }, [layout.parallel, layout.frozen, minimumRows, fontSize, onCaptionHeight]);
   const latest = layout.visibleGroups.at(-1);
+  useLayoutEffect(() => {
+    const stack = stackRef.current;
+    if (!layout.scrollable || layout.frozen || !stack) return;
+    let following = true;
+    const followTail = () => { if (following) stack.scrollTop = stack.scrollHeight; };
+    const trackScroll = () => { following = stack.scrollHeight - stack.scrollTop - stack.clientHeight <= 1; };
+    followTail();
+    const observer = new ResizeObserver(followTail);
+    observer.observe(stack);
+    for (const row of stack.children) observer.observe(row);
+    stack.addEventListener("scroll", trackScroll);
+    return () => {
+      observer.disconnect();
+      stack.removeEventListener("scroll", trackScroll);
+    };
+  }, [layout.scrollable, layout.frozen, latest?.key]);
   const statusLabel = vrchatMuted ? t("status.pausedVrchatMuted") : latest?.language?.toUpperCase() ?? "AUTO";
   const captureLabel = t(running ? "capture.pause" : "capture.start");
   return (
@@ -75,6 +98,11 @@ export function CompactView({ transparentBackground, onToggleBackground, backgro
           <span data-tauri-drag-region>{statusLabel}</span>
         </div>
         <div className="compact-window-actions">
+          {onChatbox && <button ref={chatboxButtonRef} className="compact-chatbox-toggle" type="button"
+            aria-label={t("chatbox.title")} data-tooltip={t("chatbox.title")} aria-expanded={chatboxOpen}
+            aria-controls={chatboxOpen ? "compact-chatbox" : undefined} disabled={chatboxDisabled} onClick={onChatbox}>
+            <CompactWindowIcon icon={MessageSquare} />
+          </button>}
           <CompactFontMenu value={fontSize} onChange={onFontSizeChange} />
           <CompactBackgroundControls transparentBackground={transparentBackground} onToggleBackground={onToggleBackground}
             opacity={backgroundOpacity} onOpacityChange={onBackgroundOpacityChange} />
@@ -84,11 +112,9 @@ export function CompactView({ transparentBackground, onToggleBackground, backgro
       </header>
       <div className="compact-body">
         <div ref={layout.contentRef} className="compact-content">
-          <div className={`compact-subtitle-stack${layout.parallel ? " compact-parallel" : ""}`} style={layout.parallel ? {
-            gridTemplateColumns: "minmax(0, 1fr)",
-          } as import("react").CSSProperties : undefined}>
+          <div ref={stackRef} className={`compact-subtitle-stack${layout.parallel ? " compact-parallel" : ""}${layout.scrollable ? " compact-scrollable" : ""}`}>
             {layout.visibleGroups.map((group, index) => (
-              <CompactSubtitleRow key={group.key} group={group} current={Boolean(layout.parallel) || index === layout.visibleGroups.length - 1}
+              <CompactSubtitleRow key={group.key} group={group} current={(Boolean(layout.parallel) && group.source !== "chatbox") || index === layout.visibleGroups.length - 1}
                 budget={layout.parallel || index === layout.visibleGroups.length - 1 ? layout.latestBudget : undefined}
                 frozen={layout.frozen} onSelect={onSelect} />
             ))}
@@ -203,7 +229,7 @@ function CompactFontMenu({ value, onChange }: { value: CompactFontSize; onChange
 function CompactSpeaker({ speaker: identity, source }: { speaker?: SpeakerIdentity | null; source?: string }) {
   const { t } = useTranslation();
   const speaker = useSpeakerIdentity(identity);
-  return <div className="compact-speaker">{speaker?.display_name || (source === "microphone" ? t("live.microphoneMe")
+  return <div className="compact-speaker">{source === "chatbox" ? t("chatbox.title") : speaker?.display_name || (source === "microphone" ? t("live.microphoneMe")
     : speaker ? t("live.trackNumber", { number: speaker.index + 1 }) : t("live.speakerOther"))}</div>;
 }
 

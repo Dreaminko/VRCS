@@ -164,6 +164,17 @@ test("compact mode constrains width and normal subtitle height", () => {
   assert.equal("maxWidth" in compactWindowConstraints(false), false);
 });
 
+test("compact chatbox adds temporary space without replacing the subtitle height", () => {
+  for (const [measured, total, minimum] of [[70, 310, 230], [210, 450, 370], [420, 660, 580]]) {
+    assert.deepEqual(compactWindowSize(measured, 960, 240), { width: 960, height: total });
+    assert.deepEqual(compactWindowConstraints(measured), {
+      minWidth: 480, minHeight: minimum, maxHeight: 720,
+    });
+    assert.deepEqual(compactWindowSize(measured, 960, 680), { width: 960, height: 720 });
+    assert.deepEqual(compactWindowSize(false, 960, 240), { width: 960, height: 240 });
+  }
+});
+
 test("compact height is clamped to the supported range", () => {
   assert.equal(clampCompactWindowHeight(80), COMPACT_WINDOW_SIZE.height);
   assert.equal(clampCompactWindowHeight(241.6), 242);

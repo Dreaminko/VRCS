@@ -31,6 +31,18 @@ test("live previews replace only their own track while other players retain thei
   assert.equal(captions.length, 5);
 });
 
+test("Chatbox messages keep their recent history instead of replacing a speaker track", () => {
+  const player = preview(0);
+  const latestPlayer = { ...player, text: "Player keeps speaking" };
+  const first = { source: "chatbox", text: "First message" };
+  const second = { source: "chatbox", text: "Second message" };
+  const third = { source: "chatbox", text: "Third message" };
+  const captions = [player, first, second, latestPlayer, third];
+  assert.deepEqual(latestCaptionsByTrack(captions), [latestPlayer, first, second, third]);
+  assert.deepEqual(latestCaptionsByTrack(captions, 2), [latestPlayer, second, third]);
+  assert.equal(captions.length, 5);
+});
+
 test("VR captions keep waiting and failure notices without duplicating key acquisition progress", () => {
   const t = ((key: string) => key) as TFunction;
   const status: PlayerAudioStatus = { phase: "waiting_game", captured_packets: 0, decrypted_packets: 0,

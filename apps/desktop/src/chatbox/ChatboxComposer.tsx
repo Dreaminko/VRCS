@@ -27,6 +27,10 @@ export function ChatboxComposer({
   onDraftChange,
   onTranslate,
   onSend,
+  inline = false,
+  expanded: controlledExpanded,
+  onExpandedChange,
+  onClose,
 }: {
   draft: ChatboxComposeInput;
   preview: ChatboxPreview;
@@ -39,10 +43,19 @@ export function ChatboxComposer({
   onDraftChange: (draft: ChatboxComposeInput) => void;
   onTranslate: () => Promise<void>;
   onSend: () => Promise<boolean>;
+  inline?: boolean;
+  expanded?: boolean;
+  onExpandedChange?: (expanded: boolean) => void;
+  onClose?: () => void;
 }) {
   const { t } = useTranslation();
   const originalRef = useRef<HTMLTextAreaElement | null>(null);
-  const [expanded, setExpanded] = useState(false);
+  const [localExpanded, setLocalExpanded] = useState(false);
+  const expanded = controlledExpanded ?? localExpanded;
+  const setExpanded = (next: boolean) => {
+    setLocalExpanded(next);
+    onExpandedChange?.(next);
+  };
 
   useEffect(() => {
     const frame = requestAnimationFrame(() => originalRef.current?.focus());
@@ -72,126 +85,132 @@ export function ChatboxComposer({
     });
   };
 
+  const details = (expanded || inline) && (
+    <div className="chatbox-details" id="chatbox-details">
+      <header className="chatbox-details-header">
+        <h2>{t("chatbox.detailsTitle")}</h2>
+      </header>
+
+      <div className="chatbox-controls">
+        <div className="chatbox-language-control">
+          <LanguagePicker
+            compact
+            floating
+            label={t("chatbox.targetLanguage")}
+            value={draft.target_language ?? "ja"}
+            languageCodes={languageCodes}
+            allowCustom={allowCustomLanguage}
+            onChange={(target_language) => update({ target_language })}
+          />
+          <button
+            className="chatbox-secondary-button"
+            type="button"
+            disabled={busy !== null || !draft.original.trim()}
+            onClick={() => void onTranslate()}
+          >
+            {busy === "translate" ? <LoaderCircle className="chatbox-spinner" size={16} /> : <Languages size={16} />}
+            {t(busy === "translate" ? "translation.translating" : "chatbox.translate")}
+          </button>
+        </div>
+        <SegmentedControl
+          label={t("chatbox.sendMode")}
+          value={draft.send_mode}
+          options={[
+            { value: "original", label: t("chatbox.modes.original") },
+            { value: "translation", label: t("chatbox.modes.translation") },
+            { value: "bilingual", label: t("chatbox.modes.bilingual") },
+          ]}
+          onChange={(send_mode) => update({ send_mode })}
+        />
+      </div>
+
+      <label className={`chatbox-text-field ${translationStale ? "stale" : ""}`}>
+        <span>
+          {t("chatbox.translation")}
+          {translationStale && <small>{t("chatbox.translationStale")}</small>}
+        </span>
+        <textarea
+          value={draft.translation ?? ""}
+          maxLength={5000}
+          placeholder={t("chatbox.translationPlaceholder")}
+          disabled={busy === "translate" || busy === "send"}
+          onChange={(event) => update({ translation: event.target.value || null })}
+        />
+      </label>
+
+      {draft.send_mode === "bilingual" && (
+        <div className={`chatbox-format-row ${draft.message_format === "custom" ? "custom" : ""}`}>
+          <DropdownField
+            compact
+            floating
+            label={t("chatbox.format")}
+            value={draft.message_format}
+            options={[
+              { value: "original_newline_translation", label: t("chatbox.formats.originalFirst") },
+              { value: "translation_newline_original", label: t("chatbox.formats.translationFirst") },
+              { value: "slash_separated", label: t("chatbox.formats.slash") },
+              { value: "custom", label: t("chatbox.formats.custom") },
+            ]}
+            onChange={(message_format) => update({ message_format: message_format as ChatboxComposeInput["message_format"] })}
+          />
+          {draft.message_format === "custom" && (
+            <input
+              className="chatbox-custom-format"
+              aria-label={t("chatbox.customFormat")}
+              value={draft.custom_format ?? ""}
+              maxLength={200}
+              placeholder="{original} / {translation}"
+              onChange={(event) => update({ custom_format: event.target.value || null })}
+            />
+          )}
+        </div>
+      )}
+
+      <div className={`chatbox-preview ${!translationPending && preview.over_limit ? "over-limit" : ""}`}>
+        <div className="chatbox-preview-heading">
+          <span>{t("chatbox.preview")}</span>
+          <output>{translationPending ? `— / ${preview.limit}` : `${preview.char_count} / ${preview.limit}`}</output>
+        </div>
+        <p>{translationPending
+          ? t("chatbox.translationPreviewPending")
+          : preview.text || t("chatbox.previewEmpty")}</p>
+        <label className="chatbox-overflow-choice">
+          <input
+            type="checkbox"
+            checked={draft.overflow_policy === "smart_truncate"}
+            onChange={(event) => update({
+              overflow_policy: event.target.checked ? "smart_truncate" : "block",
+            })}
+          />
+          <span>{t("chatbox.smartTruncate")}</span>
+        </label>
+      </div>
+    </div>
+  );
+
   return (
     <section
-      className={`chatbox-composer ${expanded ? "expanded" : "compact"}`}
+      className={`chatbox-composer ${expanded ? "expanded" : "compact"}${inline ? " chatbox-composer-inline" : ""}`}
       aria-label={t("chatbox.title")}
       aria-busy={busy === "translate" || busy === "send"}
       onKeyDown={(event) => {
-        if (event.key === "Escape" && expanded) {
+        if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return;
+        if (event.key === "Escape" && (expanded || onClose)) {
+          event.preventDefault();
           event.stopPropagation();
-          setExpanded(false);
-          originalRef.current?.focus();
+          if (expanded) {
+            setExpanded(false);
+            originalRef.current?.focus();
+          } else onClose?.();
           return;
         }
-        if (event.key === "Enter" && event.ctrlKey && canSend) {
+        if (event.key === "Enter" && event.ctrlKey && !event.shiftKey && canSend) {
           event.preventDefault();
           submit();
         }
       }}
     >
-      {expanded && (
-        <div className="chatbox-details" id="chatbox-details">
-          <header className="chatbox-details-header">
-            <h2>{t("chatbox.detailsTitle")}</h2>
-          </header>
-
-          <div className="chatbox-controls">
-            <div className="chatbox-language-control">
-              <LanguagePicker
-                compact
-                floating
-                label={t("chatbox.targetLanguage")}
-                value={draft.target_language ?? "ja"}
-                languageCodes={languageCodes}
-                allowCustom={allowCustomLanguage}
-                onChange={(target_language) => update({ target_language })}
-              />
-              <button
-                className="chatbox-secondary-button"
-                type="button"
-                disabled={busy !== null || !draft.original.trim()}
-                onClick={() => void onTranslate()}
-              >
-                {busy === "translate" ? <LoaderCircle className="chatbox-spinner" size={16} /> : <Languages size={16} />}
-                {t(busy === "translate" ? "translation.translating" : "chatbox.translate")}
-              </button>
-            </div>
-            <SegmentedControl
-              label={t("chatbox.sendMode")}
-              value={draft.send_mode}
-              options={[
-                { value: "original", label: t("chatbox.modes.original") },
-                { value: "translation", label: t("chatbox.modes.translation") },
-                { value: "bilingual", label: t("chatbox.modes.bilingual") },
-              ]}
-              onChange={(send_mode) => update({ send_mode })}
-            />
-          </div>
-
-          <label className={`chatbox-text-field ${translationStale ? "stale" : ""}`}>
-            <span>
-              {t("chatbox.translation")}
-              {translationStale && <small>{t("chatbox.translationStale")}</small>}
-            </span>
-            <textarea
-              value={draft.translation ?? ""}
-              maxLength={5000}
-              placeholder={t("chatbox.translationPlaceholder")}
-              disabled={busy === "translate" || busy === "send"}
-              onChange={(event) => update({ translation: event.target.value || null })}
-            />
-          </label>
-
-          {draft.send_mode === "bilingual" && (
-            <div className={`chatbox-format-row ${draft.message_format === "custom" ? "custom" : ""}`}>
-              <DropdownField
-                compact
-                floating
-                label={t("chatbox.format")}
-                value={draft.message_format}
-                options={[
-                  { value: "original_newline_translation", label: t("chatbox.formats.originalFirst") },
-                  { value: "translation_newline_original", label: t("chatbox.formats.translationFirst") },
-                  { value: "slash_separated", label: t("chatbox.formats.slash") },
-                  { value: "custom", label: t("chatbox.formats.custom") },
-                ]}
-                onChange={(message_format) => update({ message_format: message_format as ChatboxComposeInput["message_format"] })}
-              />
-              {draft.message_format === "custom" && (
-                <input
-                  className="chatbox-custom-format"
-                  aria-label={t("chatbox.customFormat")}
-                  value={draft.custom_format ?? ""}
-                  maxLength={200}
-                  placeholder="{original} / {translation}"
-                  onChange={(event) => update({ custom_format: event.target.value || null })}
-                />
-              )}
-            </div>
-          )}
-
-          <div className={`chatbox-preview ${!translationPending && preview.over_limit ? "over-limit" : ""}`}>
-            <div className="chatbox-preview-heading">
-              <span>{t("chatbox.preview")}</span>
-              <output>{translationPending ? `— / ${preview.limit}` : `${preview.char_count} / ${preview.limit}`}</output>
-            </div>
-            <p>{translationPending
-              ? t("chatbox.translationPreviewPending")
-              : preview.text || t("chatbox.previewEmpty")}</p>
-            <label className="chatbox-overflow-choice">
-              <input
-                type="checkbox"
-                checked={draft.overflow_policy === "smart_truncate"}
-                onChange={(event) => update({
-                  overflow_policy: event.target.checked ? "smart_truncate" : "block",
-                })}
-              />
-              <span>{t("chatbox.smartTruncate")}</span>
-            </label>
-          </div>
-        </div>
-      )}
+      {!inline && details}
 
       <div className="chatbox-quick-row">
         <button
@@ -201,9 +220,9 @@ export function ChatboxComposer({
           aria-controls="chatbox-details"
           aria-label={t(expanded ? "chatbox.collapseDetails" : "chatbox.expandDetails")}
           data-tooltip={t(expanded ? "chatbox.collapseDetails" : "chatbox.expandDetails")}
-          onClick={() => setExpanded((current) => !current)}
+          onClick={() => setExpanded(!expanded)}
         >
-          {expanded ? <ChevronDown size={20} /> : <ChevronUp size={20} />}
+          {expanded !== inline ? <ChevronDown size={20} /> : <ChevronUp size={20} />}
         </button>
         <div className={`chatbox-quick-input ${inputCount > preview.limit ? "over-limit" : ""}`}>
           <label className="sr-only" htmlFor="chatbox-original-input">{t("chatbox.original")}</label>
@@ -217,7 +236,7 @@ export function ChatboxComposer({
             disabled={busy === "translate" || busy === "send"}
             onChange={(event) => update({ original: event.target.value })}
             onKeyDown={(event) => {
-              if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) return;
+              if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return;
               event.preventDefault();
               event.stopPropagation();
               submit();
@@ -241,6 +260,9 @@ export function ChatboxComposer({
 
       {!oscEnabled && <p className="chatbox-inline-message error">{t("chatbox.oscDisabled")}</p>}
       {feedback && <p className={`chatbox-inline-message ${feedback.tone}`} role="status">{feedback.text}</p>}
+      {inline && <div className="chatbox-details-reveal" aria-hidden={!expanded} inert={!expanded}>
+        <div className="chatbox-details-clip">{details}</div>
+      </div>}
     </section>
   );
 }

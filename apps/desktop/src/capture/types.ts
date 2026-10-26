@@ -11,6 +11,8 @@ export interface LiveTranscription {
   speaker?: import("../subtitles/types").SpeakerIdentity | null;
   type: "partial";
   utterance_id: string;
+  /** Local first-seen time, preserved across streaming updates. */
+  received_at?: number;
   source_utterance_id?: string | null;
   completed_original?: string | null;
   conversation_preview?: { text: string; translation: string } | null;
