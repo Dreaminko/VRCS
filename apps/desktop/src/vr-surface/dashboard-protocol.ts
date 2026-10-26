@@ -18,6 +18,7 @@ export interface DashboardUi {
 }
 
 export type DashboardCommand =
+  | { type: "player_audio"; value: { request_id: number; action: "cancel" | "confirm" | "previous" | "next" } }
   | { type: "page"; value: DashboardPage }
   | { type: "picker"; value: DashboardPicker }
   | { type: "picker_page"; value: -1 | 1 }

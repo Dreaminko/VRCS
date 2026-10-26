@@ -213,6 +213,21 @@
     },
     "warnings": {
       "playerAudio": {
+        "vrPreparation": {
+          "scrollHint": "使用翻頁按鈕或控制器搖桿捲動閱讀。",
+          "privileges": "正在檢查管理員權限",
+          "memory": "正在檢查記憶體壓縮狀態",
+          "relaunching": "正在以管理員權限重新啟動",
+          "blocked": "系統準備需要處理",
+          "failed": "系統準備失敗",
+          "desktop": "請在桌面完成所需操作。",
+          "paging": "正在準備記憶體頁，遊戲可能短暫停頓",
+          "scanning": "正在掃描語音金鑰",
+          "prerequisites": "系統條件",
+          "game": "遊戲狀態",
+          "key": "語音金鑰",
+          "audio": "音訊接收"
+        },
         "title": "啟動 VRChat 分玩家獨立音軌",
         "intro": "這是用於多人即時翻譯的實驗功能。繼續前，請了解其運作方式、使用條件與風險。",
         "principleTitle": "實作原理",

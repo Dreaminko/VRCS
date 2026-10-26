@@ -2,7 +2,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { useTranslation } from "react-i18next";
 
-export const PLAYER_AUDIO_READING_MS = 3_000;
+import { PLAYER_AUDIO_READING_MS, type PlayerAudioPreparation } from "./player-audio-vr";
+export { PLAYER_AUDIO_READING_MS } from "./player-audio-vr";
 
 type ElevationAction = "start_capture" | "inspect_memory_compression" | "disable_memory_compression" | "enable_memory_compression";
 export interface MemoryCompressionStatus {
@@ -17,8 +18,10 @@ export function usePlayerAudioStart(options?: { beforeMemoryChange: () => Promis
   const { t } = useTranslation();
   const optionsRef = useRef(options);
   optionsRef.current = options;
-  const [notice, setNotice] = useState<{ openedAt: number } | null>(null);
-  const pending = useRef<{ openedAt: number; promise: Promise<boolean>; resolve: (value: boolean) => void } | null>(null);
+  const [notice, setNotice] = useState<{ requestId: number; openedAt: number } | null>(null);
+  const sequence = useRef(0);
+  const pending = useRef<{ requestId: number; openedAt: number; promise: Promise<boolean>; resolve: (value: boolean) => void } | null>(null);
+  const [preparation, setPreparation] = useState<PlayerAudioPreparation | null>(null);
   const [resumeRequested, setResumeRequested] = useState(false);
   const resumeApproved = useRef(false);
   const [memoryStatus, setMemoryStatus] = useState<MemoryCompressionStatus | null>(null);
@@ -102,14 +105,17 @@ export function usePlayerAudioStart(options?: { beforeMemoryChange: () => Promis
     const openedAt = performance.now();
     let resolve!: (value: boolean) => void;
     const promise = new Promise<boolean>((done) => { resolve = done; });
-    pending.current = { openedAt, promise, resolve };
-    setNotice({ openedAt });
+    const requestId = ++sequence.current;
+    pending.current = { requestId, openedAt, promise, resolve };
+    setPreparation(null);
+    setNotice({ requestId, openedAt });
     return promise;
   }, []);
 
-  const decide = useCallback((accepted: boolean) => {
+  const decide = useCallback((accepted: boolean, requestId?: number) => {
     const request = pending.current;
-    if (!request || performance.now() - request.openedAt < PLAYER_AUDIO_READING_MS) return;
+    if (!request || requestId !== undefined && requestId !== request.requestId
+      || performance.now() - request.openedAt < PLAYER_AUDIO_READING_MS) return;
     pending.current = null;
     setNotice(null);
     request.resolve(accepted);
@@ -117,15 +123,41 @@ export function usePlayerAudioStart(options?: { beforeMemoryChange: () => Promis
 
   const checkMemoryBeforeStart = useCallback(async () => {
     if (!isTauri()) return true;
+    setPreparation({ stage: "memory", detail: null });
     try {
       const status = await refreshMemory();
-      if (status.supported && status.enabled === false && !status.restart_required) return true;
-    } catch { /* Keep the failure visible in the management dialog. */ }
+      if (status.supported && status.enabled === false && !status.restart_required) {
+        setPreparation(null);
+        return true;
+      }
+      const key = !status.supported ? "desktopOnly" : status.restart_required ? "restart" : status.enabled ? "enabled" : "unknown";
+      setPreparation({ stage: "blocked", detail: t(`settings.audio.memory.${key}`) });
+    } catch (error) { setPreparation({ stage: "failed", detail: String(error) }); }
     setMemoryDialog("manage");
     return false;
-  }, [refreshMemory]);
+  }, [refreshMemory, t]);
 
-  const ensurePrivileges = useCallback(async () => await elevate("start_capture") && await checkMemoryBeforeStart(), [elevate, checkMemoryBeforeStart]);
+  const ensurePrivileges = useCallback(async () => {
+    setPreparation({ stage: "privileges", detail: null });
+    try {
+      if (!await elevate("start_capture")) {
+        setPreparation({ stage: "relaunching", detail: null });
+        return false;
+      }
+      const ready = await checkMemoryBeforeStart();
+      if (ready) setPreparation(null);
+      return ready;
+    } catch (error) {
+      setPreparation({ stage: "failed", detail: String(error) });
+      throw error;
+    }
+  }, [elevate, checkMemoryBeforeStart]);
+
+  useEffect(() => {
+    if (preparation?.stage !== "blocked" && preparation?.stage !== "failed") return;
+    const timer = window.setTimeout(() => setPreparation(null), 10_000);
+    return () => window.clearTimeout(timer);
+  }, [preparation]);
 
   const prepare = useCallback(async () => {
     if (resumeApproved.current) {
@@ -137,7 +169,7 @@ export function usePlayerAudioStart(options?: { beforeMemoryChange: () => Promis
     return await confirm() && await ensurePrivileges();
   }, [confirm, ensurePrivileges, checkMemoryBeforeStart]);
 
-  return { notice, decide, confirm, ensurePrivileges, prepare, resumeRequested, memory: {
+  return { notice, preparation, decide, confirm, ensurePrivileges, prepare, resumeRequested, memory: {
     status: memoryStatus, dialog: memoryDialog, error: memoryError, busy: refreshing || changing,
     changing, refresh: () => { void refreshMemory().catch(() => undefined); },
     open: () => { setMemoryDialog("manage"); void refreshMemory().catch(() => undefined); },

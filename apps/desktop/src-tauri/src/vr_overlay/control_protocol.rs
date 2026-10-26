@@ -90,9 +90,47 @@ pub struct ControlHub {
     pending: [Option<ControlRequest>; 4],
     failures: [Option<String>; 4],
     overlay_effective: Option<[bool; 2]>,
+    player_audio: super::player_audio_ui::View,
+    player_audio_revision: u32,
 }
 
 impl ControlHub {
+    pub fn player_audio(&self) -> &super::player_audio_ui::View {
+        &self.player_audio
+    }
+
+    pub fn update_player_audio(
+        &mut self,
+        epoch: u32,
+        revision: u32,
+        view: super::player_audio_ui::View,
+    ) -> bool {
+        if !self.active
+            || epoch != self.snapshot.owner_epoch
+            || revision <= self.player_audio_revision
+        {
+            return false;
+        }
+        self.player_audio_revision = revision;
+        self.player_audio = view;
+        true
+    }
+
+    pub fn player_audio_decision(
+        &self,
+        request_id: u32,
+        accepted: bool,
+    ) -> Option<super::player_audio_ui::Decision> {
+        let prompt = self.player_audio.notice.as_ref()?;
+        (self.active && prompt.request_id == request_id && prompt.remaining_seconds == 0).then_some(
+            super::player_audio_ui::Decision {
+                owner_epoch: self.snapshot.owner_epoch,
+                request_id,
+                accepted,
+            },
+        )
+    }
+
     pub fn active(&self) -> bool {
         self.active
     }
@@ -122,12 +160,15 @@ impl ControlHub {
         self.pending = Default::default();
         self.failures = Default::default();
         self.sequence = 0;
+        self.player_audio = Default::default();
+        self.player_audio_revision = 0;
         self.active = true;
         Ok(self.snapshot())
     }
 
     pub fn revoke(&mut self) {
         self.active = false;
+        self.player_audio = Default::default();
         self.pending = Default::default();
         for item in &mut self.snapshot.items {
             item.available = false;
@@ -205,6 +246,41 @@ impl ControlHub {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn consent_is_independent_of_pending_capture_and_rejects_stale_or_early_decisions() {
+        use super::super::player_audio_ui::{Prompt, View};
+        let mut hub = ready();
+        hub.begin(
+            ControlSource::WristMenu,
+            ControlAction::SetCaptureRunning(true),
+        )
+        .unwrap();
+        let epoch = hub.snapshot().owner_epoch;
+        let mut view = View {
+            notice: Some(Prompt {
+                request_id: 7,
+                remaining_seconds: 3,
+                ..Default::default()
+            }),
+            progress: None,
+        };
+        assert!(hub.update_player_audio(epoch, 1, view.clone()));
+        assert!(hub.player_audio_decision(7, true).is_none());
+        view.notice.as_mut().unwrap().remaining_seconds = 0;
+        assert!(hub.update_player_audio(epoch, 2, view.clone()));
+        assert!(!hub.update_player_audio(epoch, 1, View::default()));
+        assert!(!hub.update_player_audio(epoch + 1, 3, View::default()));
+        assert!(hub.player_audio_decision(6, true).is_none());
+        assert!(hub.player_audio_decision(7, true).unwrap().accepted);
+        assert!(!hub.player_audio_decision(7, false).unwrap().accepted);
+        assert!(hub.snapshot().items[3].busy);
+        hub.revoke();
+        assert!(hub.player_audio().notice.is_none());
+        assert!(hub.player_audio_decision(7, true).is_none());
+        hub.register(ControlSnapshot::default()).unwrap();
+        assert!(!hub.update_player_audio(epoch, 3, view));
+    }
 
     fn ready() -> ControlHub {
         let mut hub = ControlHub::default();

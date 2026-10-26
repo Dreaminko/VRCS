@@ -10,6 +10,8 @@ pub fn pointer_from_openvr(x: f32, y: f32, height: u32) -> (f32, f32) {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct DashboardViewModel {
     #[serde(default)]
+    pub player_audio_notice: Option<super::player_audio_ui::Prompt>,
+    #[serde(default)]
     pub caption_visibility: CaptionVisibility,
     #[serde(default)]
     pub caption_notice: Option<super::caption_status::CaptionNotice>,
@@ -324,6 +326,10 @@ pub enum DashboardPointerEvent {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(tag = "type", content = "value", rename_all = "snake_case")]
 pub enum DashboardCommand {
+    PlayerAudio {
+        request_id: u32,
+        action: super::player_audio_ui::Action,
+    },
     Page(DashboardPage),
     Picker(DashboardPicker),
     PickerPage(i32),
@@ -679,6 +685,7 @@ mod tests {
             ],
         };
         DashboardViewModel {
+            player_audio_notice: None,
             caption_notice: None,
             max_visible_players: None,
             caption_visibility: CaptionVisibility::default(),

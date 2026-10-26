@@ -213,6 +213,21 @@
     },
     "warnings": {
       "playerAudio": {
+        "vrPreparation": {
+          "scrollHint": "Use the arrow buttons or the controller thumbstick to scroll.",
+          "privileges": "Checking administrator access",
+          "memory": "Checking memory compression",
+          "relaunching": "Restarting with administrator access",
+          "blocked": "System preparation needs attention",
+          "failed": "System preparation failed",
+          "desktop": "Complete the required steps on the desktop.",
+          "paging": "Preparing memory pages; the game may pause briefly",
+          "scanning": "Scanning for the voice key",
+          "prerequisites": "System",
+          "game": "Game",
+          "key": "Voice key",
+          "audio": "Audio"
+        },
         "title": "Start VRChat per-player independent tracks",
         "intro": "This experimental feature provides translation for separate players. Please read how it works, its requirements and its risks before continuing.",
         "principleTitle": "How it works",

@@ -401,6 +401,8 @@ struct WorkerState {
     controls: Arc<Mutex<ControlHub>>,
     #[cfg(windows)]
     ui: super::ui_runtime::UiRuntime,
+    #[cfg(windows)]
+    player_audio: super::player_audio_ui::Runtime,
     config: VrOverlayConfig,
     ocr_config: VrOcrConfig,
     headset: HeadsetPresentation,
@@ -425,6 +427,12 @@ struct WorkerState {
 }
 
 impl WorkerState {
+    #[cfg(windows)]
+    fn reset_ui(&mut self) {
+        self.ui.reset();
+        self.player_audio.reset();
+    }
+
     fn reset_dashboard(&mut self) {
         #[cfg(windows)]
         {
@@ -476,6 +484,8 @@ fn worker_loop(
         controls,
         #[cfg(windows)]
         ui: super::ui_runtime::UiRuntime::new(placement),
+        #[cfg(windows)]
+        player_audio: Default::default(),
         config,
         ocr_config,
         headset: HeadsetPresentation::default(),
@@ -519,6 +529,9 @@ fn worker_loop(
                     .dashboard_surface
                     .stop(&app, state.backend.as_mut(), OverlayKind::Dashboard);
                 state.ui.stop_surfaces(&app, state.backend.as_mut());
+                state
+                    .player_audio
+                    .stop_surfaces(&app, state.backend.as_mut());
                 state.ocr.stop_surfaces(&app, state.backend.as_mut());
             }
             if let Some(mut backend) = state.backend.take() {
@@ -531,11 +544,16 @@ fn worker_loop(
             let mut wake = next_tick;
             #[cfg(windows)]
             if state.ui.fast_tick()
+                || state.player_audio.active()
                 || state.ocr.status.wrist_state == super::ocr_status::OcrWristState::Visible
             {
                 if let Some(backend) = state.backend.as_mut() {
                     if started >= next_pointer {
-                        state.ui.update_pointer(&app, backend);
+                        if state.player_audio.active() {
+                            state.player_audio.update_pointer(&app, backend);
+                        } else {
+                            state.ui.update_pointer(&app, backend);
+                        }
                         next_pointer = Instant::now() + backend.cursor_interval();
                     }
                     wake = wake.min(next_pointer);
@@ -603,7 +621,7 @@ fn worker_loop(
                 #[cfg(windows)]
                 {
                     state.ocr.clear();
-                    state.ui.reset();
+                    state.reset_ui();
                 }
                 if let Some(mut backend) = state.backend.take() {
                     backend.hide_all();
@@ -677,6 +695,9 @@ fn worker_loop(
                 OverlayKind::Dashboard,
             );
             state.ui.finish_surfaces(&app, state.backend.as_mut());
+            state
+                .player_audio
+                .finish_surfaces(&app, state.backend.as_mut());
             state.ocr.finish_surfaces(&app, state.backend.as_mut());
             status.ocr = state.ocr.status.clone();
         }
@@ -695,6 +716,7 @@ fn worker_loop(
         }
         #[cfg(windows)]
         let ui_active = state.ui.fast_tick()
+            || state.player_audio.active()
             || state.ocr.status.wrist_state == super::ocr_status::OcrWristState::Visible;
         #[cfg(not(windows))]
         let ui_active = false;
@@ -707,7 +729,11 @@ fn worker_loop(
         #[cfg(windows)]
         if let Some(backend) = state.backend.as_mut() {
             if Instant::now() >= next_pointer || !ui_active {
-                state.ui.update_pointer(&app, backend);
+                if state.player_audio.active() {
+                    state.player_audio.update_pointer(&app, backend);
+                } else {
+                    state.ui.update_pointer(&app, backend);
+                }
                 next_pointer = Instant::now() + backend.cursor_interval();
             }
         }
@@ -719,7 +745,7 @@ fn recover_from_panic(state: &mut WorkerState, status: &mut VrOverlayStatus) {
     #[cfg(windows)]
     {
         state.ocr.clear();
-        state.ui.reset();
+        state.reset_ui();
     }
     drop(state.backend.take());
     state.reset_headset();
@@ -742,7 +768,7 @@ fn tick(app: &AppHandle, state: &mut WorkerState, status: &mut VrOverlayStatus, 
         #[cfg(windows)]
         {
             state.ocr.unavailable(state.ocr_config.enabled);
-            state.ui.reset();
+            state.reset_ui();
         }
         state.reset_headset();
         state.reset_dashboard();
@@ -775,7 +801,7 @@ fn tick(app: &AppHandle, state: &mut WorkerState, status: &mut VrOverlayStatus, 
         #[cfg(windows)]
         {
             state.ocr.unavailable(false);
-            state.ui.reset();
+            state.reset_ui();
         }
         if let Some(mut backend) = state.backend.take() {
             backend.hide_all();
@@ -821,7 +847,7 @@ fn tick(app: &AppHandle, state: &mut WorkerState, status: &mut VrOverlayStatus, 
         #[cfg(windows)]
         {
             state.ocr.unavailable(ocr_enabled);
-            state.ui.reset();
+            state.reset_ui();
         }
         if let Some(mut backend) = state.backend.take() {
             backend.hide_all();
@@ -868,7 +894,7 @@ fn tick(app: &AppHandle, state: &mut WorkerState, status: &mut VrOverlayStatus, 
                     .connected(pid.expect("SteamVR process checked"));
                 state.backend = Some(backend);
                 #[cfg(windows)]
-                state.ui.reset();
+                state.reset_ui();
                 status.state = RuntimeState::Ready;
                 status.last_connected_at = Some(unix_timestamp());
                 status.reconnect_attempt = 0;
@@ -903,24 +929,34 @@ fn tick(app: &AppHandle, state: &mut WorkerState, status: &mut VrOverlayStatus, 
     #[cfg(windows)]
     {
         if let Err(error) = state.ocr.prepare_input(&mut backend) {
-            state.ui.reset();
+            state.reset_ui();
             if state.ocr.status.last_error.as_ref() != Some(&error) {
                 tracing::warn!(%error, "VR controller input unavailable");
             }
             state.ocr.status.last_error = Some(error);
         }
+        let modal = state.player_audio.tick(app, &mut backend, &state.controls);
         let (events, focused) = state.ui.tick(
             app,
             &mut backend,
             &state.config,
             &state.controls,
             state.ocr.input_revision(),
-            state.ocr.owns_input(),
+            state.ocr.owns_input() || modal,
         );
-        state.ocr.pointer_input(events, focused);
-        state
-            .ocr
-            .tick(app, &mut backend, &state.ocr_config, &state.config.wrist);
+        state.ocr.pointer_input(events, focused || modal);
+        let player_progress = state
+            .controls
+            .lock()
+            .ok()
+            .and_then(|hub| hub.player_audio().progress.clone());
+        state.ocr.tick(
+            app,
+            &mut backend,
+            &state.ocr_config,
+            &state.config.wrist,
+            player_progress.as_ref(),
+        );
     }
     update_headset(app, state, status, &mut backend);
     update_wrist(app, state, status, &mut backend);
@@ -962,11 +998,16 @@ fn update_dashboard(
 ) {
     use super::dashboard::{DASHBOARD_HEIGHT, DASHBOARD_WIDTH};
     use super::surface::{SurfaceHub, SurfaceId, SurfaceView};
-    let Some(view) = state.dashboard_view.clone() else {
+    let Some(mut view) = state.dashboard_view.clone() else {
         status.dashboard.state = ResourceState::Disabled;
         status.dashboard.visible = false;
         return;
     };
+    view.player_audio_notice = state
+        .controls
+        .lock()
+        .ok()
+        .and_then(|hub| hub.player_audio().notice.clone());
     if state
         .dashboard_retry_at
         .is_some_and(|until| Instant::now() < until)
@@ -1036,8 +1077,22 @@ fn update_dashboard(
                         })
                         .and_then(|region| region.dashboard.clone());
                     if let Some(command) = command {
-                        if let Some(action) = state.dashboard.activate(command, &view) {
-                            dispatch_dashboard_action(app, state, backend, action);
+                        if let super::dashboard::DashboardCommand::PlayerAudio {
+                            request_id,
+                            action,
+                        } = command
+                        {
+                            super::player_audio_ui::activate(
+                                app,
+                                &state.controls,
+                                SurfaceId::Dashboard,
+                                request_id,
+                                action,
+                            );
+                        } else if view.player_audio_notice.is_none() {
+                            if let Some(action) = state.dashboard.activate(command, &view) {
+                                dispatch_dashboard_action(app, state, backend, action);
+                            }
                         }
                         // Any subsequent input must wait for the newly rendered layout.
                         layout = None;

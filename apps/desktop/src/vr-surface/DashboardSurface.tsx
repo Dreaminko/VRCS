@@ -5,6 +5,7 @@ import type { VrOverlayPositionField } from "../settings/vr-overlay-settings";
 import dashboardThumbnail from "../../src-tauri/icons/128x128@2x.png";
 import { DASHBOARD_PICKER_PAGE_SIZE, dashboardPickerChoice, type DashboardAction, type DashboardCommand, type DashboardPicker, type DashboardUi, type DisplayKind, type TargetGroup } from "./dashboard-protocol";
 import "./dashboard.css";
+import { PlayerAudioPrompt } from "./PlayerAudioPrompt";
 
 type ButtonOptions = { active?: boolean; disabled?: boolean; icon?: boolean; primary?: boolean; danger?: boolean; label?: string; key?: string };
 
@@ -15,6 +16,7 @@ export function DashboardThumbnail() {
 export function DashboardSurface({ dashboard: view, ui, hovered, pressed }: {
   dashboard: VrDashboardViewModel; ui: DashboardUi; hovered: number | null; pressed: number | null;
 }) {
+  if (view.player_audio_notice) return <PlayerAudioPrompt notice={view.player_audio_notice} hovered={hovered} pressed={pressed} dashboard />;
   const labels = view.labels;
   let region = 0;
   const button = (command: DashboardCommand, children: ReactNode, options: ButtonOptions = {}) => {

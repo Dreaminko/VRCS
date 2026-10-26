@@ -31,6 +31,7 @@ pub enum SurfaceId {
     DashboardThumbnail,
     OcrSelection,
     OcrResult,
+    PlayerAudio,
 }
 
 impl SurfaceId {
@@ -48,6 +49,7 @@ impl SurfaceId {
             Self::DashboardThumbnail => "dashboard_thumbnail",
             Self::OcrSelection => "ocr_selection",
             Self::OcrResult => "ocr_result",
+            Self::PlayerAudio => "player_audio",
         }
     }
     fn label(self) -> String {
@@ -58,6 +60,7 @@ impl SurfaceId {
             Self::Menu => (1024, 256),
             Self::Dialogue => (768, 768),
             Self::Reader => (1024, 1024),
+            Self::PlayerAudio => (1024, 1024),
             // A centered card can grow to four languages with four lines each.
             Self::Headset => (1024, 1360),
             Self::OcrProgress => (768, 224),
@@ -71,6 +74,7 @@ impl SurfaceId {
             Self::Menu => 4,
             Self::Dialogue => 4,
             Self::Reader => 8,
+            Self::PlayerAudio => 4,
             Self::Dashboard => 192,
             Self::Headset
             | Self::OcrProgress
@@ -90,6 +94,10 @@ pub struct SurfaceKey {
 #[derive(Clone, PartialEq, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum SurfaceView {
+    PlayerAudio {
+        dark: bool,
+        notice: super::player_audio_ui::Prompt,
+    },
     Menu {
         controls: ControlSnapshot,
         hold_progress: Option<f32>,
@@ -288,7 +296,7 @@ impl SurfaceLayout {
         }
         let panel_limit = match surface {
             SurfaceId::Dialogue => 2,
-            SurfaceId::Reader => 1,
+            SurfaceId::Reader | SurfaceId::PlayerAudio => 1,
             _ => 0,
         };
         if self.panels.len() > panel_limit {
@@ -820,7 +828,7 @@ impl Entry {
 }
 
 #[derive(Default)]
-pub struct SurfaceHub(Mutex<[Entry; 9]>);
+pub struct SurfaceHub(Mutex<[Entry; 10]>);
 
 impl SurfaceHub {
     fn set_active(&self, app: &AppHandle, surface: SurfaceId, active: bool) -> Result<(), String> {
@@ -878,12 +886,16 @@ impl SurfaceHub {
     }
 
     pub fn scroll_reader(&self, app: &AppHandle, delta: f32) -> Result<(), String> {
+        self.scroll(app, SurfaceId::Reader, delta)
+    }
+
+    pub fn scroll(&self, app: &AppHandle, surface: SurfaceId, delta: f32) -> Result<(), String> {
         if !delta.is_finite() || delta == 0.0 {
             return Ok(());
         }
         let update = {
             let entries = self.0.lock().map_err(|e| e.to_string())?;
-            let entry = &entries[SurfaceId::Reader.index()];
+            let entry = &entries[surface.index()];
             entry
                 .ready
                 .then(|| entry.active_layout())
@@ -894,7 +906,7 @@ impl SurfaceHub {
                 })
         };
         if let Some(update) = update {
-            app.emit_to(SurfaceId::Reader.label(), "vr-surface-scroll", update)
+            app.emit_to(surface.label(), "vr-surface-scroll", update)
                 .map_err(|e| e.to_string())?;
         }
         Ok(())

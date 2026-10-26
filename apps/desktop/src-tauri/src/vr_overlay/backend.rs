@@ -42,6 +42,7 @@ mod platform {
         tracking_reset: bool,
         ocr_wrist: Option<OverlayHandle>,
         ocr_progress: Option<OverlayHandle>,
+        player_audio: Option<OverlayHandle>,
         ocr_wrist_device: Option<u32>,
         ocr_frame: Option<OverlayHandle>,
         ocr_result: Option<OverlayHandle>,
@@ -51,6 +52,7 @@ mod platform {
         wrist_menu_state: SubmittedState,
         ocr_wrist_state: SubmittedState,
         ocr_progress_state: SubmittedState,
+        player_audio_state: SubmittedState,
         ocr_frame_state: SubmittedState,
         ocr_result_state: SubmittedState,
         dashboard_state: SubmittedState,
@@ -563,6 +565,7 @@ mod platform {
                 tracking_reset: false,
                 ocr_wrist: None,
                 ocr_progress: None,
+                player_audio: None,
                 ocr_wrist_device: None,
                 ocr_frame: None,
                 ocr_result: None,
@@ -572,6 +575,7 @@ mod platform {
                 wrist_menu_state: SubmittedState::default(),
                 ocr_wrist_state: SubmittedState::default(),
                 ocr_progress_state: SubmittedState::default(),
+                player_audio_state: SubmittedState::default(),
                 ocr_frame_state: SubmittedState::default(),
                 ocr_result_state: SubmittedState::default(),
                 dashboard_state: SubmittedState::default(),
@@ -672,6 +676,32 @@ mod platform {
             self.overlay
                 .set_transform_tracked_device_relative(handle, tracked_device_index::HMD, &matrix)
                 .map_err(|error| format!("Position headset overlay failed: {error:?}"))
+        }
+
+        pub fn ensure_player_audio(
+            &mut self,
+            pose: [[f32; 4]; 3],
+            origin: i32,
+        ) -> Result<(), String> {
+            if self.player_audio.is_none() {
+                let handle = self
+                    .overlay
+                    .create_overlay("org.vrcs.overlay.player.audio\0", "VRCS Player Audio\0")
+                    .map_err(|e| format!("Create player audio overlay failed: {e:?}"))?;
+                self.player_audio = Some(handle);
+                self.overlay
+                    .set_width(handle, 0.75)
+                    .map_err(|e| format!("Set player audio overlay width failed: {e:?}"))?;
+            }
+            let handle = self.player_audio.expect("player audio overlay");
+            let mut matrix = openvr_sys::HmdMatrix34_t { m: pose };
+            check_wrist_input(unsafe {
+                (*self.raw_overlay)
+                    .SetOverlayTransformAbsolute
+                    .ok_or("Absolute overlays unavailable")?(
+                    handle.0, origin, &mut matrix
+                )
+            })
         }
 
         pub fn ensure_ocr_progress(&mut self) -> Result<(), String> {
@@ -1020,6 +1050,7 @@ mod platform {
                 OverlayKind::WristMenu => SurfaceId::Menu.size(),
                 OverlayKind::Wrist => SurfaceId::Dialogue.size(),
                 OverlayKind::OcrWrist => SurfaceId::Reader.size(),
+                OverlayKind::PlayerAudio => SurfaceId::PlayerAudio.size(),
                 _ => return None,
             };
             wrist_ray_hit(unsafe { &*self.raw_overlay }, handle, origin, pose, size)
@@ -1143,6 +1174,7 @@ mod platform {
             self.hide(OverlayKind::WristMenu);
             self.hide(OverlayKind::OcrWrist);
             self.hide(OverlayKind::OcrProgress);
+            self.hide(OverlayKind::PlayerAudio);
             self.hide(OverlayKind::OcrFrame);
             self.hide(OverlayKind::OcrResult);
         }
@@ -1165,6 +1197,7 @@ mod platform {
                 OverlayKind::WristMenu => self.wrist_menu,
                 OverlayKind::OcrWrist => self.ocr_wrist,
                 OverlayKind::OcrProgress => self.ocr_progress,
+                OverlayKind::PlayerAudio => self.player_audio,
                 OverlayKind::OcrFrame => self.ocr_frame,
                 OverlayKind::OcrResult => self.ocr_result,
                 OverlayKind::Dashboard => self.dashboard.main(),
@@ -1178,6 +1211,7 @@ mod platform {
                 OverlayKind::WristMenu => &self.wrist_menu_state,
                 OverlayKind::OcrWrist => &self.ocr_wrist_state,
                 OverlayKind::OcrProgress => &self.ocr_progress_state,
+                OverlayKind::PlayerAudio => &self.player_audio_state,
                 OverlayKind::OcrFrame => &self.ocr_frame_state,
                 OverlayKind::OcrResult => &self.ocr_result_state,
                 OverlayKind::Dashboard => &self.dashboard_state,
@@ -1191,6 +1225,7 @@ mod platform {
                 OverlayKind::WristMenu => &mut self.wrist_menu_state,
                 OverlayKind::OcrWrist => &mut self.ocr_wrist_state,
                 OverlayKind::OcrProgress => &mut self.ocr_progress_state,
+                OverlayKind::PlayerAudio => &mut self.player_audio_state,
                 OverlayKind::OcrFrame => &mut self.ocr_frame_state,
                 OverlayKind::OcrResult => &mut self.ocr_result_state,
                 OverlayKind::Dashboard => &mut self.dashboard_state,
@@ -1208,6 +1243,7 @@ mod platform {
                 }
                 OverlayKind::OcrFrame => self.ocr_frame.take(),
                 OverlayKind::OcrProgress => self.ocr_progress.take(),
+                OverlayKind::PlayerAudio => self.player_audio.take(),
                 OverlayKind::OcrResult => self.ocr_result.take(),
                 OverlayKind::Dashboard => {
                     self.dashboard.destroy(unsafe { &*self.raw_overlay });
@@ -1238,6 +1274,7 @@ mod platform {
             self.destroy(OverlayKind::WristMenu);
             self.destroy(OverlayKind::OcrWrist);
             self.destroy(OverlayKind::OcrProgress);
+            self.destroy(OverlayKind::PlayerAudio);
             self.destroy(OverlayKind::OcrFrame);
             self.destroy(OverlayKind::OcrResult);
             self.destroy(OverlayKind::Dashboard);
@@ -2046,6 +2083,7 @@ pub fn menu_config(hand: &str) -> vrcs_core::VrOverlayWristConfig {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OverlayKind {
+    PlayerAudio,
     Headset,
     Wrist,
     WristMenu,

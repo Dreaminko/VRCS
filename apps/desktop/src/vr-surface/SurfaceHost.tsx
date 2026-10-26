@@ -66,7 +66,7 @@ export function SurfaceHost({ surface }: { surface: Surface }) {
   }, [surface, markPaint]);
 
   useEffect(() => {
-    if (surface !== "reader") return;
+    if (surface !== "reader" && surface !== "player_audio" && surface !== "dashboard") return;
     let disposed = false;
     const subscription = listen<SurfaceScrollState>("vr-surface-scroll", ({ payload }) => {
       if (disposed || !activity.current.active || !sameKey(current.current, payload.key) || !Number.isFinite(payload.delta)) return;

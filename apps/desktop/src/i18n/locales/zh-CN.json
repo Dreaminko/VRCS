@@ -213,6 +213,21 @@
     },
     "warnings": {
       "playerAudio": {
+        "vrPreparation": {
+          "scrollHint": "使用翻页按钮或手柄摇杆滚动阅读。",
+          "privileges": "正在检查管理员权限",
+          "memory": "正在检查内存压缩状态",
+          "relaunching": "正在以管理员权限重新启动",
+          "blocked": "系统准备需要处理",
+          "failed": "系统准备失败",
+          "desktop": "请在桌面完成所需操作。",
+          "paging": "正在准备内存页，游戏可能短暂停顿",
+          "scanning": "正在扫描语音密钥",
+          "prerequisites": "系统条件",
+          "game": "游戏状态",
+          "key": "语音密钥",
+          "audio": "音频接收"
+        },
         "title": "启动 VRChat 分玩家独立音轨",
         "intro": "这是面向多人同传的实验功能。继续前，请了解它的工作方式、使用条件和风险。",
         "principleTitle": "实现原理",

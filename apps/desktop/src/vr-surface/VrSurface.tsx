@@ -5,6 +5,7 @@ import { CaptionCards, Headset, OcrProgress } from "./PassiveSurfaces";
 import { visibleCaptionMessages } from "./caption-visibility";
 import { DashboardSurface, DashboardThumbnail } from "./DashboardSurface";
 import { OcrResultSurface, OcrSelectionSurface } from "./OcrSurfaces";
+import { PlayerAudioPrompt } from "./PlayerAudioPrompt";
 import { menuStatus, pageGeometry, SURFACE_SIZE, type SurfaceLayout, type SurfaceState, type SurfaceView } from "./protocol";
 
 import "./surface.css";
@@ -160,6 +161,7 @@ export function VrSurface({ state, onLayout }: { state: SurfaceState; onLayout?:
   const style = { width, height, "--vr-font-size": `${fontSize}px`, "--vr-background-opacity": opacity } as CSSProperties;
   return <div ref={root} className={`vr-surface vr-surface-${state.view.kind}`} data-theme={dark ? "dark" : "light"} style={style}>
     {state.view.kind === "menu" ? <Menu state={state} view={state.view} />
+      : state.view.kind === "player_audio" ? <PlayerAudioPrompt notice={state.view.notice} hovered={state.hovered} pressed={state.pressed} />
       : state.view.kind === "dialogue" ? <Dialogue state={state} view={state.view} />
         : state.view.kind === "reader" ? <Reader state={state} view={state.view} />
           : state.view.kind === "headset" ? <Headset view={state.view} />

@@ -28,6 +28,7 @@ const COMMANDS: &[&str] = &[
     "vr_dashboard_update_view",
     "vr_overlay_control_ready",
     "vr_overlay_control_update",
+    "vr_overlay_player_audio_update",
     "vr_overlay_control_result",
     "vr_overlay_control_release",
     "vr_overlay_placement_result",

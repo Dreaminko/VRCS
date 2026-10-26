@@ -5,6 +5,9 @@ import { useTranslation } from "react-i18next";
 import type { Settings } from "../settings/types";
 import { createControlExecutor } from "./actions";
 import type { ControlRequest, ControlSnapshot, PlacementRequest } from "./protocol";
+import type { PlayerAudioStart } from "../capture/usePlayerAudioStart";
+import type { PlayerAudioStatus } from "../core-client/types";
+import { playerAudioProgress, playerAudioPrompt, type PlayerAudioDecision } from "../capture/player-audio-vr";
 
 export function useVrControlBridge(options: {
   settings: Settings | null;
@@ -16,12 +19,16 @@ export function useVrControlBridge(options: {
   running: boolean;
   busy: boolean;
   setCaptureRunning: (target: boolean) => Promise<boolean>;
+  playerAudioStart: PlayerAudioStart;
+  playerAudioStatus?: PlayerAudioStatus | null;
 }) {
   const { t } = useTranslation();
   const current = useRef(options);
   current.current = options;
   const [epoch, setEpoch] = useState(0);
   const revision = useRef(0);
+  const audioRevision = useRef(0);
+  const [now, setNow] = useState(() => performance.now());
   const view = useRef<ControlSnapshot>({ owner_epoch: 0, revision: 0, items: [], dark: false, labels: {} });
   const settings = options.getSettings();
   const overlay = settings?.vr_overlay;
@@ -98,6 +105,11 @@ export function useVrControlBridge(options: {
         })().catch((error) => console.warn("VR placement result failed", error));
       };
       stops.push(await listen<PlacementRequest>("vr-overlay-placement-request", ({ payload }) => place(payload)));
+      stops.push(await listen<PlayerAudioDecision>("vr-overlay-player-audio-decision", ({ payload }) => {
+        if (!disposed && owner && payload.owner_epoch === owner) {
+          current.current.playerAudioStart.decide(payload.accepted, payload.request_id);
+        }
+      }));
       if (disposed) { stops.forEach((stop) => stop()); return; }
       const ready = await invoke<ControlSnapshot>("vr_overlay_control_ready", { view: view.current });
       owner = ready.owner_epoch;
@@ -116,6 +128,23 @@ export function useVrControlBridge(options: {
       if (owner) void invoke("vr_overlay_control_release", { epoch: owner });
     };
   }, []);
+
+  useEffect(() => {
+    if (!options.playerAudioStart.notice) return;
+    setNow(performance.now());
+    const timer = window.setInterval(() => setNow(performance.now()), 200);
+    return () => window.clearInterval(timer);
+  }, [options.playerAudioStart.notice]);
+
+  const notice = playerAudioPrompt(options.playerAudioStart.notice, now, t);
+  const progress = notice ? null : playerAudioProgress(options.playerAudioStart.preparation, options.playerAudioStatus,
+    settings?.audio.output.mode === "vrchat_players" && options.requested, t);
+  const audioView = JSON.stringify({ notice, progress });
+  useEffect(() => {
+    if (!epoch) return;
+    void invoke("vr_overlay_player_audio_update", { epoch, revision: ++audioRevision.current, view: JSON.parse(audioView) })
+      .catch((error) => console.warn("VR player audio state update failed", error));
+  }, [epoch, audioView]);
 
   useEffect(() => {
     if (!epoch) return;

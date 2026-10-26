@@ -43,6 +43,21 @@ html[data-vr-surface], html[data-vr-surface] body, html[data-vr-surface] #root {
   --error: #d07277;
 }
 .vr-surface, .vr-surface * { box-sizing: border-box; }
+.vr-player-audio-panel { position: absolute; inset: 16px; display: flex; flex-direction: column; padding: 32px; gap: 16px; border: 2px solid var(--border); border-radius: 28px; background: var(--surface); }
+.vr-player-audio-panel > header { display: flex; align-items: center; gap: 16px; }
+.vr-player-audio-panel h1 { margin: 0; font-size: 32px; line-height: 1.35; }
+.vr-player-audio-scroll-hint, .vr-player-audio-reading-status { color: var(--text-secondary); font-size: 22px; line-height: 1.5; }
+.vr-player-audio-viewport { min-height: 0; flex: 1; overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--border-strong) transparent; padding-right: 18px; }
+.vr-player-audio-viewport p { margin: 0 0 20px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.vr-player-audio-viewport h2 { margin: 28px 0 12px; font-size: 28px; line-height: 1.4; }
+.vr-player-audio-panel footer { display: grid; gap: 12px; border-top: 2px solid var(--border); padding-top: 16px; }
+.vr-player-audio-panel nav { display: flex; align-items: center; gap: 12px; }
+.vr-player-audio-panel nav > span { flex: 1; }
+.vr-player-audio-button { display: flex; align-items: center; justify-content: center; min-width: 72px; min-height: 68px; padding: 12px 22px; border: 2px solid var(--border-strong); border-radius: 16px; font: inherit; font-size: 24px; line-height: 1.35; color: var(--text); background: var(--surface-subtle); }
+.vr-player-audio-button.primary { background: var(--primary); border-color: var(--primary); color: #12232c; }
+.vr-player-audio-button.hovered, .vr-player-audio-button.pressed { outline: 3px solid var(--primary-ink); outline-offset: -4px; }
+.vr-player-audio-button:disabled { opacity: 0.45; }
+.vr-surface-dashboard .vr-player-audio-panel { inset: 24px 170px; }
 .vr-surface svg { display: block; flex: none; width: 40px; height: 40px; stroke-width: 1.8; }
 .vr-surface-capsule, .vr-menu-capsule { display: flex; align-items: center; border: 2px solid var(--border); border-radius: 999px; background: var(--surface); }
 .vr-menu-capsule { position: absolute; inset: 8px 16px; justify-content: space-around; padding: 16px; }

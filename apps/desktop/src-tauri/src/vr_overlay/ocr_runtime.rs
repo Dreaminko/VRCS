@@ -343,6 +343,7 @@ impl OcrRuntime {
         backend: &mut OpenVrBackend,
         config: &VrOcrConfig,
         wrist: &vrcs_core::VrOverlayWristConfig,
+        player_progress: Option<&super::ocr_progress::ProgressView>,
     ) {
         self.vision.tick();
         if self.capture.is_none() && !self.selecting {
@@ -351,9 +352,12 @@ impl OcrRuntime {
         if !config.enabled && !self.vision.enabled() {
             backend.hide_ocr();
             backend.reset(OverlayKind::OcrWrist);
-            backend.reset(OverlayKind::OcrProgress);
-            self.progress_surface.reset();
             self.unavailable(false);
+            if let Err(error) = self.update_feedback(app, backend, player_progress) {
+                backend.reset(OverlayKind::OcrProgress);
+                self.progress_surface.reset();
+                self.status.progress_error = Some(error);
+            }
             return;
         }
         let result = self.update(app, backend, config).and_then(|_| {
@@ -426,7 +430,7 @@ impl OcrRuntime {
                 feedback.finish(state, std::time::Instant::now());
             }
         }
-        if let Err(error) = self.update_feedback(app, backend) {
+        if let Err(error) = self.update_feedback(app, backend, player_progress) {
             if self.status.progress_error.as_deref() != Some(error.as_str()) {
                 tracing::warn!(error, "OCR progress overlay unavailable");
             }
@@ -450,13 +454,14 @@ impl OcrRuntime {
         &mut self,
         app: &AppHandle,
         backend: &mut OpenVrBackend,
+        player_progress: Option<&super::ocr_progress::ProgressView>,
     ) -> Result<(), String> {
         let now = std::time::Instant::now();
         self.status.progress = self
             .feedback
             .as_ref()
             .and_then(|feedback| feedback.view_with_labels(now, &self.progress_labels));
-        let Some(view) = &self.status.progress else {
+        let Some(view) = player_progress.or(self.status.progress.as_ref()) else {
             backend.hide(OverlayKind::OcrProgress);
             return Ok(());
         };

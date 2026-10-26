@@ -2,6 +2,7 @@ import type { ControlItem, ControlSnapshot } from "../vr-controls/protocol";
 import type { VrDashboardViewModel } from "../integrations/vr-overlay-native";
 import type { DashboardCommand, DashboardUi } from "./dashboard-protocol";
 import type { OcrScene } from "./ocr-scene";
+import type { PlayerAudioPrompt } from "../capture/player-audio-vr";
 
 export type Surface = keyof typeof SURFACE_SIZE;
 export interface SurfaceKey { generation: number; revision: number }
@@ -42,6 +43,7 @@ export type SurfaceView =
   | { kind: "reader"; dark: boolean; labels: Record<string, string>; reader: ReaderView; font_size: number; opacity: number }
   | ({ kind: "headset"; dark: boolean; messages: CaptionMessage[]; notice?: string | null; labels?: CaptionLabels; lines_per_language: number; font_size: number; opacity: number } & CaptionSelection)
   | { kind: "ocr_progress"; dark: boolean; progress: ProgressView | null }
+  | { kind: "player_audio"; dark: boolean; notice: PlayerAudioPrompt }
   | { kind: "dashboard"; dark: boolean; dashboard: VrDashboardViewModel; ui: DashboardUi }
   | { kind: "dashboard_thumbnail" | "ocr_selection"; dark: boolean }
   | { kind: "ocr_result"; dark: boolean; scene: OcrScene };
@@ -79,14 +81,14 @@ export interface SurfaceLayout {
   unplaced?: number[];
 }
 
-export const SURFACE_SIZE = { menu: [1024, 256], dialogue: [768, 768], reader: [1024, 1024], headset: [1024, 1360], ocr_progress: [768, 224], dashboard: [1440, 900], dashboard_thumbnail: [256, 256], ocr_selection: [256, 256], ocr_result: [2048, 2048] } as const;
+export const SURFACE_SIZE = { menu: [1024, 256], dialogue: [768, 768], reader: [1024, 1024], headset: [1024, 1360], ocr_progress: [768, 224], dashboard: [1440, 900], dashboard_thumbnail: [256, 256], ocr_selection: [256, 256], ocr_result: [2048, 2048], player_audio: [1024, 1024] } as const;
 
 export function isSurface(value: string | null): value is Surface {
   return value !== null && Object.hasOwn(SURFACE_SIZE, value);
 }
 
 export function hasPointer(surface: Surface): boolean {
-  return surface === "menu" || surface === "dialogue" || surface === "reader" || surface === "dashboard";
+  return surface === "menu" || surface === "dialogue" || surface === "reader" || surface === "dashboard" || surface === "player_audio";
 }
 
 export function menuStatus(item: ControlItem, labels: Record<string, string>) {

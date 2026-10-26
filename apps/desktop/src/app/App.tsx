@@ -28,6 +28,8 @@ function App() {
     running: workspace.runtime.health?.capture_running ?? false,
     busy: workspace.capture.pending,
     setCaptureRunning: workspace.capture.setCaptureRunning,
+    playerAudioStart: workspace.capture.playerAudioStart,
+    playerAudioStatus: workspace.runtime.health?.player_audio,
   });
   useVrDashboardBridge(workspace.settings.value, workspace.settings.update, workspace.providers.catalog.profiles, {
     playerAudio: workspace.runtime.health?.player_audio,

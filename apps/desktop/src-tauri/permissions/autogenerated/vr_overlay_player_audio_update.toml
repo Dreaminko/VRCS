@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-vr-overlay-player-audio-update"
+description = "Enables the vr_overlay_player_audio_update command without any pre-configured scope."
+commands.allow = ["vr_overlay_player_audio_update"]
+
+[[permission]]
+identifier = "deny-vr-overlay-player-audio-update"
+description = "Denies the vr_overlay_player_audio_update command without any pre-configured scope."
+commands.deny = ["vr_overlay_player_audio_update"]
