@@ -108,7 +108,6 @@ pub enum SurfaceView {
         max_entries: usize,
         controls: ControlSnapshot,
         messages: Vec<WristMessage>,
-        parallel: bool,
         notice: Option<String>,
         labels: super::caption_status::CaptionLabels,
         mode: Mode,
@@ -1035,7 +1034,7 @@ pub fn smoke(app: AppHandle, views: Vec<(SurfaceId, SurfaceView)>) {
                 let entry = &entries[surface.index()];
                 entry.needs_paint().then_some(entry.paint).flatten()
             };
-            if let Some(frame) = capture.poll(requested)? {
+            if let Some(frame) = capture.poll()? {
                 let hub = app.state::<SurfaceHub>();
                 let entries = hub.0.lock().map_err(|e| e.to_string())?;
                 if (frame.generation, frame.revision) == (key.generation, key.revision)
@@ -1048,6 +1047,7 @@ pub fn smoke(app: AppHandle, views: Vec<(SurfaceId, SurfaceView)>) {
                     return Ok(frame);
                 }
             }
+            capture.start(requested)?;
             if started.elapsed() >= Duration::from_secs(10) {
                 return Err(format!(
                     "{} capture did not contain its marker",
@@ -1105,12 +1105,7 @@ pub fn smoke(app: AppHandle, views: Vec<(SurfaceId, SurfaceView)>) {
                 // Ignore late font receipts before measuring the settled static interval.
                 let settle_until = Instant::now() + Duration::from_millis(350);
                 while Instant::now() < settle_until {
-                    let requested = {
-                        let entries = hub.0.lock().map_err(|e| e.to_string())?;
-                        let entry = &entries[surface.index()];
-                        entry.needs_paint().then_some(entry.paint).flatten()
-                    };
-                    if let Some(frame) = capture.poll(requested)? {
+                    if let Some(frame) = capture.poll()? {
                         let mut entries = hub.0.lock().map_err(|e| e.to_string())?;
                         if entries[surface.index()].accepts_frame(
                             key,
@@ -1121,6 +1116,12 @@ pub fn smoke(app: AppHandle, views: Vec<(SurfaceId, SurfaceView)>) {
                             // Protect first_frame for the existing buffer-preservation check below.
                         }
                     }
+                    let requested = {
+                        let entries = hub.0.lock().map_err(|e| e.to_string())?;
+                        let entry = &entries[surface.index()];
+                        entry.needs_paint().then_some(entry.paint).flatten()
+                    };
+                    capture.start(requested)?;
                     std::thread::sleep(Duration::from_millis(15));
                 }
                 let static_surface = surface != SurfaceId::OcrProgress;
@@ -1133,7 +1134,7 @@ pub fn smoke(app: AppHandle, views: Vec<(SurfaceId, SurfaceView)>) {
                             let entry = &entries[surface.index()];
                             entry.needs_paint().then_some(entry.paint).flatten()
                         };
-                        if capture.poll(requested)?.is_some() {
+                        if capture.poll()?.is_some() || capture.start(requested)? {
                             return Err("Static surface requested another copy".into());
                         }
                         std::thread::sleep(Duration::from_millis(15));
@@ -1167,7 +1168,7 @@ pub fn smoke(app: AppHandle, views: Vec<(SurfaceId, SurfaceView)>) {
                     loop {
                         let requested =
                             hub.0.lock().map_err(|e| e.to_string())?[surface.index()].paint;
-                        if let Some(frame) = capture.poll(requested)? {
+                        if let Some(frame) = capture.poll()? {
                             last_frame = Some(frame);
                             if capture.snapshot(first_frame)? != first {
                                 return Err(format!(
@@ -1183,6 +1184,7 @@ pub fn smoke(app: AppHandle, views: Vec<(SurfaceId, SurfaceView)>) {
                                 break;
                             }
                         }
+                        capture.start(requested)?;
                         if changed_at.elapsed().as_secs() >= 5 {
                             let entries = hub.0.lock().map_err(|e| e.to_string())?;
                             let entry = &entries[surface.index()];
@@ -1250,7 +1252,7 @@ pub fn smoke(app: AppHandle, views: Vec<(SurfaceId, SurfaceView)>) {
                 let hidden_copies = counters.copies.load(std::sync::atomic::Ordering::Relaxed);
                 let until = Instant::now() + Duration::from_secs(2);
                 while Instant::now() < until {
-                    if capture.poll(Some(1))?.is_some() {
+                    if capture.poll()?.is_some() || capture.start(Some(1))? {
                         return Err("Hidden capture produced a frame".into());
                     }
                     std::thread::sleep(Duration::from_millis(15));
@@ -1321,9 +1323,44 @@ pub fn smoke(app: AppHandle, views: Vec<(SurfaceId, SurfaceView)>) {
                     }
                     key = recovered;
                 }
+                let mut pipelined_ticks = 0;
+                let mut hold_submissions = 0;
+                if surface == SurfaceId::Menu && metrics::enabled() {
+                    let mut renderer = SurfaceRenderer::new(surface);
+                    renderer.capture = Some(capture);
+                    for step in 0..60 {
+                        let started = Instant::now();
+                        let mut holding = view.clone();
+                        if let SurfaceView::Menu { hold_progress, .. } = &mut holding {
+                            *hold_progress = Some(step as f32 / 59.0);
+                        }
+                        hub.publish(&app, surface, holding, Some(0), Some(0))?;
+                        let copies = counters.copies.load(std::sync::atomic::Ordering::Relaxed);
+                        let mut submitted = false;
+                        renderer.capture_frame(&hub, |_| {
+                            submitted = true;
+                            Ok(())
+                        })?;
+                        hold_submissions += u32::from(submitted);
+                        if submitted
+                            && counters.copies.load(std::sync::atomic::Ordering::Relaxed) > copies
+                        {
+                            pipelined_ticks += 1;
+                        }
+                        std::thread::sleep(
+                            Duration::from_millis(16).saturating_sub(started.elapsed()),
+                        );
+                    }
+                    if pipelined_ticks == 0 {
+                        return Err(format!(
+                            "Menu capture never submitted and started a copy in the same tick ({hold_submissions} hold frames)"
+                        ));
+                    }
+                    capture = renderer.capture.take().expect("smoke capture exists");
+                }
                 hub.set_active(&app, surface, false)?;
                 capture.suspend();
-                results.push(serde_json::json!({"surface":surface,"width":width,"height":height,"key":key,"desktop_hidden":true,"transparent_pixels":transparent,"visible_pixels":visible,"hover_updated":hovered.map(|_| true),"content_updated":hovered.is_none(),"submitted_texture_preserved":true,"reload_recovered":true,"host_recreated":true,"idle_no_copies":static_surface.then_some(true),"hidden_source_closed":true,"hidden_no_copies":true,"warm_recovered":true}));
+                results.push(serde_json::json!({"surface":surface,"width":width,"height":height,"key":key,"desktop_hidden":true,"transparent_pixels":transparent,"visible_pixels":visible,"hover_updated":hovered.map(|_| true),"content_updated":hovered.is_none(),"submitted_texture_preserved":true,"reload_recovered":true,"host_recreated":true,"idle_no_copies":static_surface.then_some(true),"hidden_source_closed":true,"hidden_no_copies":true,"warm_recovered":true,"pipelined_ticks":pipelined_ticks,"hold_submissions":hold_submissions}));
             }
             if app.get_webview_window("vr-surface-smoke-desktop").is_none() {
                 return Err("Default desktop WebView was closed during capture smoke".into());
@@ -1584,7 +1621,7 @@ pub struct SurfaceRenderer {
     visible_frame: bool,
     retry_at: Option<Instant>,
     requested: bool,
-    last_copy: Option<Instant>,
+    next_copy: Option<Instant>,
 }
 
 impl SurfaceRenderer {
@@ -1596,7 +1633,7 @@ impl SurfaceRenderer {
             visible_frame: false,
             retry_at: None,
             requested: false,
-            last_copy: None,
+            next_copy: None,
         }
     }
     pub fn reset(&mut self) {
@@ -1604,7 +1641,7 @@ impl SurfaceRenderer {
         self.identity = None;
         self.visible_frame = false;
         self.retry_at = None;
-        self.last_copy = None;
+        self.next_copy = None;
     }
 
     /// Every business tick ends here, including early returns and disconnected states.
@@ -1783,24 +1820,19 @@ impl SurfaceRenderer {
             )?);
             self.identity = Some(identity);
         }
+        self.capture_frame(&hub, |frame| {
+            backend.upload_surface(kind, frame.shared_handle)
+        })
+    }
+
+    fn capture_frame(
+        &mut self,
+        hub: &SurfaceHub,
+        upload: impl FnOnce(windows_wgc::Captured) -> Result<(), String>,
+    ) -> Result<bool, String> {
         let capture = self.capture.as_mut().expect("capture exists");
         capture.resume()?;
-        let requested = {
-            let entries = hub.0.lock().map_err(|e| e.to_string())?;
-            let entry = &entries[self.surface.index()];
-            let interval = if self.surface == SurfaceId::OcrProgress {
-                Duration::from_millis(34)
-            } else {
-                Duration::from_micros(16_667)
-            };
-            (entry.needs_paint() && self.last_copy.is_none_or(|at| at.elapsed() >= interval))
-                .then_some(entry.paint)
-                .flatten()
-        };
-        if requested.is_some() {
-            self.last_copy = Some(Instant::now());
-        }
-        if let Some(frame) = capture.poll(requested)? {
+        if let Some(frame) = capture.poll()? {
             let key = SurfaceKey {
                 generation: frame.generation,
                 revision: frame.revision,
@@ -1808,20 +1840,85 @@ impl SurfaceRenderer {
             let mut entries = hub.0.lock().map_err(|e| e.to_string())?;
             let entry = &mut entries[self.surface.index()];
             if entry.accepts_frame(key, frame.paint_serial, frame.requested_serial) {
-                backend.upload_surface(kind, frame.shared_handle)?;
+                upload(frame)?;
                 entry.commit_paint(key, frame.paint_serial);
                 self.visible_frame = true;
                 drop(entries);
                 capture.submitted(frame)?;
             }
         }
+        let now = Instant::now();
+        let requested = {
+            let entries = hub.0.lock().map_err(|e| e.to_string())?;
+            let entry = &entries[self.surface.index()];
+            (entry.needs_paint() && self.copy_due(now))
+                .then_some(entry.paint)
+                .flatten()
+        };
+        if self
+            .capture
+            .as_mut()
+            .expect("capture exists")
+            .start(requested)?
+        {
+            self.copied(now);
+        }
         Ok(self.visible_frame)
+    }
+
+    fn copy_due(&self, now: Instant) -> bool {
+        self.next_copy.is_none_or(|at| now >= at)
+    }
+
+    fn copied(&mut self, now: Instant) {
+        let interval = if self.surface == SurfaceId::OcrProgress {
+            Duration::from_millis(34)
+        } else {
+            Duration::from_micros(16_667)
+        };
+        // Carry sub-tick lateness forward without accumulating work across idle periods.
+        self.next_copy = Some(
+            self.next_copy
+                .map(|at| at + interval)
+                .filter(|at| *at > now)
+                .unwrap_or(now + interval),
+        );
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn copy_budget_does_not_halve_the_worker_tick_rate() {
+        let mut renderer = SurfaceRenderer::new(SurfaceId::Menu);
+        let started = Instant::now();
+        let mut copies = 0;
+        for tick in 0..64 {
+            let now = started + Duration::from_millis(tick * 16);
+            if renderer.copy_due(now) {
+                renderer.copied(now);
+                copies += 1;
+            }
+        }
+        assert_eq!(copies, 61, "roughly 60 copies per second, not 30");
+    }
+
+    #[test]
+    fn copy_budget_keeps_ocr_slower_and_does_not_catch_up_after_idle() {
+        let mut renderer = SurfaceRenderer::new(SurfaceId::OcrProgress);
+        let started = Instant::now();
+        renderer.copied(started);
+        assert!(!renderer.copy_due(started + Duration::from_millis(33)));
+        assert!(renderer.copy_due(started + Duration::from_millis(34)));
+        let resumed = started + Duration::from_secs(10);
+        assert!(renderer.copy_due(resumed));
+        renderer.copied(resumed);
+        assert!(!renderer.copy_due(resumed));
+        assert!(!renderer.copy_due(resumed + Duration::from_millis(33)));
+        assert!(renderer.copy_due(resumed + Duration::from_millis(34)));
+    }
 
     fn active_entry() -> Entry {
         let mut entry = Entry::default();

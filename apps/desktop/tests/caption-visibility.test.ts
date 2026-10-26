@@ -47,11 +47,25 @@ test("headset keeps the latest visible language per player and replaces only its
   assert.deepEqual(visibleCaptionMessages(current).map(item => item.speaker), ["second"]);
 });
 
-test("wrist hidden history does not evict visible entries or parallel live previews", () => {
+test("wrist filters hidden history before enforcing the entry limit, including live previews", () => {
   const current = view([...Array.from({ length: 3 }, (_, i) => message(`past-${i}`, "en", "Past", false)),
     ...Array.from({ length: 6 }, (_, i) => message(`zh-${i}`, "zh", "隐藏", false))], "dialogue");
   current.max_visible_players = 0;
   assert.deepEqual(visibleCaptionMessages(current).map(item => item.speaker), ["past-0", "past-1", "past-2"]);
   current.messages.push(...Array.from({ length: 6 }, (_, i) => message(`active-${i}`, "en")));
-  assert.equal(visibleCaptionMessages(current).length, 6);
+  assert.deepEqual(visibleCaptionMessages(current).map(item => item.speaker), ["active-3", "active-4", "active-5"]);
+});
+
+test("wrist entry limits stay bounded even with unlimited players or missing settings", () => {
+  const current = view(Array.from({ length: 128 }, (_, i) => message(`active-${i}`, "en")), "dialogue");
+  current.max_visible_players = 0;
+  for (const max_entries of [undefined, 100, NaN, Infinity]) {
+    current.max_entries = max_entries;
+    const visible = visibleCaptionMessages(current);
+    assert.equal(visible.length, 10);
+    assert.equal(visible[0].speaker, "active-118");
+    assert.equal(visible.at(-1)!.speaker, "active-127");
+  }
+  current.max_entries = 4;
+  assert.equal(visibleCaptionMessages(current).length, 4);
 });

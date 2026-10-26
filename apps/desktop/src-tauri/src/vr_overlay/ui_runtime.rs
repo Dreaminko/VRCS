@@ -528,6 +528,18 @@ impl UiRuntime {
         } else {
             events.push(LaserEvent::Leave);
         }
+        if let Some(pointer) = pointer.filter(|p| {
+            p.key.surface == Surface::Dialogue
+                && keys.contains(&p.key)
+                && !was_active
+                && !self.router.active()
+        }) {
+            if let Err(error) =
+                surfaces.scroll(app, SurfaceId::Dialogue, scroll_delta(pointer.scroll_y, elapsed))
+            {
+                tracing::debug!(%error, "VR dialogue scroll unavailable");
+            }
+        }
         let mut save = None;
         let mut action = None;
         let mut placement = self.placement.lock().unwrap_or_else(|e| e.into_inner());

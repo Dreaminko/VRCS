@@ -151,12 +151,14 @@ export function VrPreview() {
               if (pointer.current.buttons & 2) {
                 const next = Math.max(0.2, Math.min(3, pose.current.depth + event.deltaY * 0.001));
                 pose.current.depth = next; setDepth(next); input();
-              } else if (surface.view.kind === "reader") {
+              } else if (surface.view.kind === "reader" || surface.view.kind === "dialogue") {
                 const viewport = event.currentTarget.querySelector<HTMLElement>("[data-vr-page-viewport]");
                 if (!viewport) return;
                 const step = event.deltaMode === 1 ? parseFloat(getComputedStyle(viewport).lineHeight) || 40
                   : event.deltaMode === 2 ? viewport.clientHeight : 1;
+                const before = viewport.scrollTop;
                 viewport.scrollTop += event.deltaY * step;
+                if (viewport.scrollTop !== before) viewport.dispatchEvent(new Event("scroll"));
               }
             }}>
             <div className="vr-preview-react-inner" style={{ width: size[0], height: size[1], transform: `scale(${scale})` }}>
@@ -165,7 +167,7 @@ export function VrPreview() {
             </div>
           </div>}
         </div>
-        <p className="vr-preview-hint">左键 = Trigger；滚轮滚动 OCR / 问答内容；右键抓取字幕把手，滚轮调深度，释放后固定；Esc 取消。先移入再按下。</p>
+        <p className="vr-preview-hint">左键 = Trigger；滚轮滚动对话 / OCR / 问答内容；右键抓取字幕把手，滚轮调深度，释放后固定；Esc 取消。先移入再按下。</p>
         <output className="vr-preview-output" aria-live="polite">{error || info?.last_action || "正在连接预览窗口…"}</output>
       </section>
       <aside className="vr-preview-options">

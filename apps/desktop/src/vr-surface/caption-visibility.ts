@@ -41,8 +41,8 @@ export function visibleCaptionMessages(view: CaptionView): CaptionMessage[] {
     }
     messages = messages.filter(message => !other(message) || selected.has(lane(message)));
   }
-  if (view.kind === "dialogue" && view.max_entries !== undefined) {
-    const count = Math.max(view.max_entries, messages.filter(live).length);
+  if (view.kind === "dialogue") {
+    const count = Number.isFinite(view.max_entries) ? Math.min(10, Math.max(3, Math.floor(view.max_entries!))) : 10;
     messages = messages.slice(-count);
   }
   return messages;

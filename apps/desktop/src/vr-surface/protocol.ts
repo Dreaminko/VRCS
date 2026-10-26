@@ -39,7 +39,7 @@ export interface CaptionLabels { me: string; other: string }
 
 export type SurfaceView =
   | { kind: "menu"; controls: ControlSnapshot; hold_progress?: number | null }
-  | ({ kind: "dialogue"; controls: ControlSnapshot; messages: CaptionMessage[]; parallel?: boolean; notice?: string | null; labels?: CaptionLabels; mode: "wrist" | "world"; follow_view: boolean; busy: boolean; error: string | null; font_size: number; opacity: number } & CaptionSelection)
+  | ({ kind: "dialogue"; controls: ControlSnapshot; messages: CaptionMessage[]; notice?: string | null; labels?: CaptionLabels; mode: "wrist" | "world"; follow_view: boolean; busy: boolean; error: string | null; font_size: number; opacity: number } & CaptionSelection)
   | { kind: "reader"; dark: boolean; labels: Record<string, string>; reader: ReaderView; font_size: number; opacity: number }
   | ({ kind: "headset"; dark: boolean; messages: CaptionMessage[]; notice?: string | null; labels?: CaptionLabels; lines_per_language: number; font_size: number; opacity: number } & CaptionSelection)
   | { kind: "ocr_progress"; dark: boolean; progress: ProgressView | null }

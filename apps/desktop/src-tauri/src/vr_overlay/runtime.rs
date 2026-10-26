@@ -1492,10 +1492,6 @@ fn update_wrist(
                 max_entries: state.config.wrist.max_entries.clamp(3, 10) as usize,
                 controls,
                 messages,
-                parallel: state
-                    .dashboard_view
-                    .as_ref()
-                    .is_some_and(|view| view.max_visible_players.is_some()),
                 notice,
                 labels: state
                     .dashboard_view

@@ -30,8 +30,8 @@ function Caption({ text, lines, speaker, fontSize }: { text: string; lines: numb
   </div>;
 }
 
-export function CaptionCards({ messages, labels, lines = 1, fontSize, height }: {
-  messages: CaptionMessage[]; labels?: CaptionLabels; lines?: number; fontSize: number; height: number;
+function HeadsetCaptions({ messages, labels, lines, fontSize, height }: {
+  messages: CaptionMessage[]; labels?: CaptionLabels; lines: number; fontSize: number; height: number;
 }) {
   const rows = messages.length;
   const languageCount = Math.max(1, ...messages.map(message => message.text.split("\n", 4).length));
@@ -54,7 +54,7 @@ export function Headset({ view }: { view: Extract<SurfaceView, { kind: "headset"
   const lines = Math.min(4, Math.max(1, view.lines_per_language));
   return <section className="vr-headset-panel vr-surface-panel" aria-live="polite">
     {view.notice && <p className="vr-caption-notice" role="status">{view.notice}</p>}
-    <CaptionCards messages={messages} labels={view.labels} lines={lines} fontSize={Math.min(68, view.font_size)} height={view.notice ? 1160 : 1290} />
+    <HeadsetCaptions messages={messages} labels={view.labels} lines={lines} fontSize={Math.min(68, view.font_size)} height={view.notice ? 1160 : 1290} />
   </section>;
 }
 

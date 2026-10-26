@@ -14,7 +14,7 @@ const browser = [process.env.PROGRAMFILES, process.env["PROGRAMFILES(X86)"], pro
     join(root, "Microsoft/Edge/Application/msedge.exe"),
   ]).find(existsSync);
 
-test("VR reader preserves scroll position and keeps the cursor out of captured surfaces", {
+test("VR reader and dialogue scrolling preserves position and bounds caption rendering", {
   timeout: 45000, skip: !browser && "No installed Chrome or Edge executable was found.",
 }, async () => {
   const bundle = await build({
@@ -42,6 +42,12 @@ test("VR reader preserves scroll position and keeps the cursor out of captured s
             source: 'Question line.\\n'.repeat(100), translation: '**Answer** paragraph.\\n\\n'.repeat(100),
             translation_label: 'answer', block_index: 0, block_count: 3, page: 0,
             pinned: false, source_only: false, language_count: 2 } }
+      };
+      const caption = index => ({ speaker: 'Player ' + index, text: 'Caption ' + index + '\\nTranslation '.repeat(8), side: index % 2 ? 'right' : 'left' });
+      const dialogue = {
+        ...initial, view: { kind: 'dialogue', controls: { owner_epoch: 1, revision: 1, dark: true, labels: {}, items: [] },
+          messages: Array.from({ length: 10 }, (_, i) => caption(i)), max_entries: 10, max_visible_players: 0,
+          mode: 'wrist', follow_view: false, busy: false, error: null, font_size: 28, opacity: 0.94 }
       };
       let state = initial;
       const publish = patch => {
@@ -107,8 +113,62 @@ test("VR reader preserves scroll position and keeps the cursor out of captured s
         await settle();
         check(viewport().scrollTop === previewTop, 'Right-button wheel leaves content position unchanged');
         check(document.querySelector('input[type="range"]').value === '0.9', 'Right-button wheel still adjusts panel depth');
+
+        flushSync(() => root.render(<SurfaceHost surface="dialogue" />));
+        await settle();
+        state = dialogue;
+        flushSync(() => emit('vr-surface-view', state));
+        await settle();
+        check(viewport(), 'Dialogue exposes a scrollable viewport');
+        const atBottom = () => Math.abs(viewport().scrollHeight - viewport().clientHeight - viewport().scrollTop) <= 1;
+        check(viewport().scrollTop > 1000 && atBottom(), 'Dialogue starts at the latest bubbles');
+        const nodes = [...document.querySelectorAll('.vr-dialogue-bubble')];
+        scroll(-0.5);
+        const dialogueTop = viewport().scrollTop;
+        check(!atBottom(), 'Controller scroll reaches older bubbles');
+        publish({ hovered: 1 });
+        publish({ view: { ...state.view, messages: [...state.view.messages.slice(0, -1), { ...state.view.messages.at(-1), text: state.view.messages.at(-1).text + '\\nMore translation'.repeat(10) }] } });
+        await settle();
+        check(viewport().scrollTop === dialogueTop, 'Hover and immediate streamed captions do not jump while reading history');
+        for (const delta of [NaN, Infinity, -Infinity]) scroll(delta);
+        scroll(-1, { generation: 0, revision: 1 });
+        check(viewport().scrollTop === dialogueTop, 'Dialogue ignores invalid and stale scroll events');
+        const mutations = [];
+        const observer = new MutationObserver(records => mutations.push(...records));
+        observer.observe(document.querySelector('.vr-surface'), { childList: true, subtree: true, attributes: true, characterData: true });
+        scroll(1000);
+        await settle();
+        observer.disconnect();
+        check(!mutations.length && nodes.every((node, index) => node === document.querySelectorAll('.vr-dialogue-bubble')[index]), 'Scrolling does not rerender caption DOM');
+        publish({ view: { ...state.view, messages: [...state.view.messages, caption(10)] } });
+        await settle();
+        check(atBottom(), 'Returning to the bottom resumes following new captions');
+        for (let i = 11; i < 300; i++) {
+          publish({ view: { ...state.view, messages: [...state.view.messages.slice(-127), caption(i)] } });
+          check(document.querySelectorAll('.vr-dialogue-bubble').length === 10, 'Caption DOM remains capped at ten: ' + i);
+        }
+        await settle();
+        check(atBottom() && document.querySelector('.vr-dialogue-messages').textContent.includes('Caption 299'), 'Long-running updates retain the latest bounded captions');
+        scroll(-1000);
+        await settle();
+        check(viewport().scrollTop === 0 && document.querySelector('.vr-dialogue-bubble').getBoundingClientRect().top >= viewport().getBoundingClientRect().top - 1, 'Oldest retained bubble is reachable');
+        publish({ view: { ...state.view, max_entries: 3 } });
+        check(document.querySelectorAll('.vr-dialogue-bubble').length === 3, 'A lower configured history limit applies immediately');
+        preview.surface = dialogue;
+        flushSync(() => root.render(<VrPreview />));
+        await settle();
+        const dialoguePanel = document.querySelector('.vr-preview-react-surface');
+        const bottom = viewport().scrollTop;
+        dialoguePanel.dispatchEvent(new WheelEvent('wheel', { bubbles: true, deltaY: -100 }));
+        check(viewport().scrollTop === bottom - 100, 'Desktop preview wheel scrolls the same dialogue bubbles');
+        const dialogueBounds = dialoguePanel.getBoundingClientRect();
+        dialoguePanel.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, pointerType: 'mouse', buttons: 2,
+          clientX: dialogueBounds.left + 100, clientY: dialogueBounds.top + 100 }));
+        dialoguePanel.dispatchEvent(new WheelEvent('wheel', { bubbles: true, deltaY: 100 }));
+        await settle();
+        check(viewport().scrollTop === bottom - 100 && document.querySelector('input[type="range"]').value === '0.9', 'Dialogue right-button wheel adjusts depth without scrolling');
         root.unmount();
-        document.getElementById('result').textContent = JSON.stringify({ passed });
+        document.getElementById('result').textContent = JSON.stringify({ passed, complete: true });
       }
       run().catch(error => {
         root.unmount();
@@ -152,7 +212,7 @@ test("VR reader preserves scroll position and keeps the cursor out of captured s
     assert.ok(output, "The reader fixture must finish");
     const result = JSON.parse(output);
     assert.equal(result.error, undefined, result.error);
-    assert.equal(result.passed.length, 19, JSON.stringify(result));
+    assert.equal(result.complete, true, JSON.stringify(result));
   } finally {
     rmSync(directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
   }

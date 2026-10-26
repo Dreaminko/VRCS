@@ -31,11 +31,11 @@ test("live previews replace only their own track while other players retain thei
   assert.equal(captions.length, 5);
 });
 
-test("every waiting/retry/failure phase is a persistent VR notice, and success is a short notice", () => {
+test("VR captions keep waiting and failure notices without duplicating key acquisition progress", () => {
   const t = ((key: string) => key) as TFunction;
   const status: PlayerAudioStatus = { phase: "waiting_game", captured_packets: 0, decrypted_packets: 0,
     pcm_frames: 0, active_players: 0, dropped_frames: 0, decode_errors: 0, detail: null };
-  for (const phase of ["waiting_game", "waiting_world", "waiting_traffic", "waiting_key", "acquiring_key", "retrying_key", "failed"] as const) {
+  for (const phase of ["waiting_game", "waiting_world", "waiting_traffic", "failed"] as const) {
     const notice = playerAudioNotice({ ...status, phase }, true, t)!;
     assert.equal(notice.key, phase);
     assert.equal(notice.duration_ms, null);
@@ -43,8 +43,10 @@ test("every waiting/retry/failure phase is a persistent VR notice, and success i
   }
   assert.match(playerAudioNotice({ ...status, phase: "failed", detail: "Scan timed out" }, true, t)!.text, /Scan timed out/);
   const ready = { ...status, active_players: 1, phase: "streaming" as const, key_scan: { stage: "verified" as const, elapsed_ms: 1234, scan_elapsed_ms: 900, scanned_bytes: 0, total_bytes: 0, candidates_tested: 0, workers: 1 } };
-  assert.equal(playerAudioNotice(ready, true, t)!.duration_ms, 5000);
-  assert.deepEqual(playerAudioNotice({ ...ready, active_players: 0 }, true, t), playerAudioNotice(ready, true, t));
+  for (const phase of ["waiting_key", "acquiring_key", "retrying_key", "streaming"] as const) {
+    assert.equal(playerAudioNotice({ ...ready, phase }, true, t), null);
+  }
+  assert.equal(playerAudioNotice({ ...ready, key_scan: { ...ready.key_scan, stage: "cached" } }, true, t), null);
   assert.equal(playerAudioNotice(ready, false, t), null);
   assert.equal(playerAudioNotice({ ...status, phase: "stopped" }, true, t), null);
 });

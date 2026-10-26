@@ -30,6 +30,7 @@ for (const mode of ["compact", "compact-qwen", "compact-filter", "headset", "wri
       import './src/styles.css';
       const mode=MODE_PLACEHOLDER;
       const isCompact=mode.startsWith('compact');
+      const captionSelector=mode==='headset'?'.vr-caption-card':'.vr-dialogue-bubble';
       await i18next.use(initReactI18next).init({lng:'zh-CN',resources:{'zh-CN':{translation:locale.translation}}});
       const root=createRoot(document.getElementById('root'));
       const check=(value,message)=>{if(!value)throw new Error(message);};
@@ -47,7 +48,7 @@ for (const mode of ["compact", "compact-qwen", "compact-filter", "headset", "wri
       const surface=(messages,notice=null,dark=false,selection={})=>{
         const labels={me:'我',other:'其他人'};
         const view=mode==='headset'?{kind:'headset',dark,messages,notice,labels,lines_per_language:2,font_size:48,opacity:0.95,...selection}:
-          {kind:'dialogue',parallel:true,controls:{owner_epoch:1,revision:1,dark,labels:{dialogueTitle:'手腕对话'},items:[]},messages,notice,labels,mode:'wrist',follow_view:false,busy:false,error:null,font_size:28,opacity:0.94,...selection};
+          {kind:'dialogue',controls:{owner_epoch:1,revision:1,dark,labels:{dialogueTitle:'手腕对话'},items:[]},messages,notice,labels,mode:'wrist',follow_view:false,busy:false,error:null,font_size:28,opacity:0.94,...selection};
         flushSync(()=>root.render(<VrSurface state={{key:{generation:1,revision:++revision},view,hovered:null,pressed:null,pointer:null}} onLayout={noop}/>));
       };
       try{
@@ -150,24 +151,37 @@ for (const mode of ["compact", "compact-qwen", "compact-filter", "headset", "wri
         }else{
           const messages=players.slice(0,4).map((player,index)=>({speaker:player.display_name,text:'Hello from '+player.display_name+'\n这是玩家 '+(index+1)+' 的实时译文。',side:'left'}));
           for(const dark of [false,true]){
-            surface(messages,'正在获取语音密钥\n已等待 2.5 秒',dark);
+            surface(messages,'等待 VRChat 世界加载完成',dark);
             await document.fonts.ready;
-            check(document.querySelectorAll('.vr-caption-card').length===4,'All players render at once');
-            const lanes=[...document.querySelectorAll('.vr-caption-card')];
+            check(document.querySelectorAll(captionSelector).length===4,'All players render in the surface caption layout');
+            const lanes=[...document.querySelectorAll(captionSelector)];
             check(lanes.every((card,index)=>index===0||card.getBoundingClientRect().top>=lanes[index-1].getBoundingClientRect().bottom),'VR lanes are stacked vertically');
-            check([...document.querySelectorAll('.vr-headset-language span')].every(node=>node.textContent.trim().length>0),'Every VR language slot contains visible text');
+            check(lanes.every((caption,index)=>caption.textContent.includes('Hello from '+players[index].display_name)&&caption.textContent.includes('实时译文')),'Every VR caption retains both languages');
             check([...document.querySelectorAll('.vr-caption-speaker')].map(node=>node.textContent).join(',')==='Alice,Bob,千夏,小明','Each VR lane has the speaker name');
-            check(document.querySelector('[role="status"]').textContent.includes('语音密钥'),'VR includes key acquisition notice');
+            check(document.querySelector('[role="status"]').textContent.includes('世界加载'),'VR includes waiting notices');
             const panel=document.querySelector(mode==='headset'?'.vr-headset-panel':'.vr-dialogue-body').getBoundingClientRect();
-            check([...document.querySelectorAll('.vr-caption-card')].every(card=>{const rect=card.getBoundingClientRect();return rect.top>=panel.top&&rect.bottom<=panel.bottom+1&&rect.right<=panel.right;}),'VR cards stay within the panel');
+            if(mode==='headset'){
+              check(lanes.every(card=>{const rect=card.getBoundingClientRect();return rect.top>=panel.top&&rect.bottom<=panel.bottom+1&&rect.right<=panel.right;}),'Headset captions stay within the panel');
+            }else{
+              const viewport=document.querySelector('[data-vr-page-viewport]');
+              check(viewport,'Wrist bubbles have a scrollable viewport');
+              const bounds=viewport.getBoundingClientRect();
+              check(bounds.top>=panel.top&&bounds.bottom<=panel.bottom&&bounds.right<=panel.right,'The wrist viewport stays within the panel');
+              check(document.querySelector('[role="status"]').getBoundingClientRect().bottom<=bounds.top,'Status stays outside the scrolling content');
+              viewport.scrollTop=0;
+              check(lanes[0].getBoundingClientRect().top>=bounds.top-1,'The oldest bubble is reachable at the top');
+              viewport.scrollTop=viewport.scrollHeight;
+              check(lanes.at(-1).getBoundingClientRect().bottom<=bounds.bottom+1,'The latest bubble is reachable at the bottom');
+              check(lanes.every(bubble=>{const rect=bubble.getBoundingClientRect();return rect.left>=bounds.left&&rect.right<=bounds.right;}),'Wrist bubbles never overflow horizontally');
+            }
           }
-          for(const notice of ['等待 VRChat 启动','等待 VRChat 世界加载完成','正在重新获取语音密钥','获取失败：扫描超时']){
+          for(const notice of ['等待 VRChat 启动','等待 VRChat 世界加载完成','获取失败：扫描超时']){
             surface([],notice);check(document.querySelector('[role="status"]').textContent===notice,'Status is visible without any subtitle');
           }
           surface(messages,null);check(!document.querySelector('[role="status"]'),'Resolved status clears without clearing captions');
           messages[1]={...messages[1],speaker:'Bob 改名',text:'Updated Bob only\n只更新 Bob'};
-          surface(messages,'密钥已通过认证 · 获取耗时 2.5 秒');
-          check(document.querySelectorAll('.vr-caption-card')[0].textContent.includes('Alice'),'Unrelated VR lane remains intact');
+          surface(messages);
+          check(document.querySelectorAll(captionSelector)[0].textContent.includes('Alice'),'Unrelated VR lane remains intact');
           const original=(index,language,text,live=true,source='speaker')=>({source,track_id:'player-'+index,text,language,translation_sources:[],live});
           const filtered=[
             {speaker:'Hidden player',text:'Hidden English',side:'left',original:original(0,'en','Hidden English')},
@@ -184,11 +198,19 @@ for (const mode of ["compact", "compact-qwen", "compact-filter", "headset", "wri
           const finalMessages=filtered.map(message=>({...message,original:{...message.original,live:false}}));
           surface(finalMessages,'等待 VRChat 启动',false,selection);
           check(names()==='English player,French player,Me','VR final captions use the same filtering as live previews');
-          surface(filtered,null,false,{...selection,visibility:{hidden_tracks:[],hidden_source_languages:[]},max_visible_players:0});
-          check(document.querySelectorAll('.vr-caption-card').length===6,'Updating VR preferences restores already buffered speech');
+          surface(filtered,null,false,{...selection,visibility:{hidden_tracks:[],hidden_source_languages:[]},max_visible_players:0,max_entries:10});
+          check(document.querySelectorAll(captionSelector).length===6,'Updating VR preferences restores already buffered speech');
           surface(filtered.slice(0,3),'等待 VRChat 启动',false,selection);
-          check(!document.querySelector('.vr-caption-card')&&document.querySelector('[role="status"]'),'Hiding every caption preserves capture notices');
+          check(!document.querySelector(captionSelector)&&document.querySelector('[role="status"]'),'Hiding every caption preserves capture notices');
           surface(filtered,null,false,selection);
+          if(mode==='wrist'){
+            const bubbles=[...document.querySelectorAll(captionSelector)];
+            const left=bubbles[0].getBoundingClientRect(),right=bubbles.at(-1).getBoundingClientRect();
+            check(right.right>left.right&&right.left>left.left,'Self captions align right of other speakers');
+            const otherStyle=getComputedStyle(bubbles[0]),selfStyle=getComputedStyle(bubbles.at(-1));
+            check(parseFloat(otherStyle.borderTopLeftRadius)<parseFloat(otherStyle.borderTopRightRadius),'Other speakers use the left bubble corner');
+            check(parseFloat(selfStyle.borderTopRightRadius)<parseFloat(selfStyle.borderTopLeftRadius),'Self captions use the right bubble corner');
+          }
         }
         document.getElementById('result').textContent='PASS';
       }catch(error){document.getElementById('result').textContent='FAIL: '+error.stack;}

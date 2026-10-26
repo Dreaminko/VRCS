@@ -220,8 +220,8 @@ impl Capture {
         Ok(())
     }
 
-    /// Polls without waiting; the dirty gate precedes every full texture copy.
-    pub fn poll(&mut self, requested: Option<u32>) -> Result<Option<Captured>, String> {
+    /// Completes a pending copy without waiting or starting another one.
+    pub fn poll(&mut self) -> Result<Option<Captured>, String> {
         let Some(source) = &self.source else {
             return Ok(None);
         };
@@ -233,11 +233,19 @@ impl Capture {
         if self.pending.is_some() {
             return self.finish();
         }
+        Ok(None)
+    }
+
+    /// Start only after handling the completed frame, so its submitted slot is protected.
+    pub fn start(&mut self, requested: Option<u32>) -> Result<bool, String> {
+        if self.source.is_none() || self.pending.is_some() {
+            return Ok(false);
+        }
         let Some(requested_serial) = requested.filter(|serial| *serial != 0) else {
-            return Ok(None);
+            return Ok(false);
         };
         let Some(frame) = self.next_frame()? else {
-            return Ok(None);
+            return Ok(false);
         };
         let size = frame
             .0
@@ -305,7 +313,7 @@ impl Capture {
             slot: self.next_slot,
             requested_serial,
         });
-        Ok(None)
+        Ok(true)
     }
 
     fn next_frame(&self) -> Result<Option<Frame>, String> {

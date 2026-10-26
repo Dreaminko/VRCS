@@ -1,7 +1,7 @@
-import { useLayoutEffect, useRef, type CSSProperties, type ReactNode } from "react";
+import { memo, useCallback, useLayoutEffect, useMemo, useRef, type CSSProperties, type ReactNode } from "react";
 import { Captions, ChevronLeft, ChevronRight, Eye, GripHorizontal, Hand, Languages, MessageSquare, Mic, Pin, PinOff, Radio, ScanEye, Square, X } from "lucide-react";
 import { VisionAnswerMarkdown } from "../vision/VisionAnswerMarkdown";
-import { CaptionCards, Headset, OcrProgress } from "./PassiveSurfaces";
+import { Headset, OcrProgress } from "./PassiveSurfaces";
 import { visibleCaptionMessages } from "./caption-visibility";
 import { DashboardSurface, DashboardThumbnail } from "./DashboardSurface";
 import { OcrResultSurface, OcrSelectionSurface } from "./OcrSurfaces";
@@ -42,7 +42,25 @@ function Menu({ state, view }: { state: SurfaceState; view: Extract<SurfaceView,
 
 function Dialogue({ state, view }: { state: SurfaceState; view: Extract<SurfaceView, { kind: "dialogue" }> }) {
   const labels = view.controls.labels;
-  const messages = visibleCaptionMessages(view);
+  const messages = useMemo(() => visibleCaptionMessages(view), [view.messages, view.visibility, view.max_visible_players, view.max_entries]);
+  const viewport = useRef<HTMLDivElement>(null);
+  const following = useRef(true);
+  const followLatest = useCallback(() => {
+    const element = viewport.current;
+    if (element && following.current) element.scrollTop = element.scrollHeight;
+  }, []);
+  useLayoutEffect(() => {
+    if (!messages.length) following.current = true;
+    followLatest();
+  }, [messages, view.font_size, view.notice, view.error, followLatest]);
+  useLayoutEffect(() => {
+    const element = viewport.current;
+    if (!element) return;
+    const observer = new ResizeObserver(followLatest);
+    observer.observe(element);
+    if (element.firstElementChild) observer.observe(element.firstElementChild);
+    return () => observer.disconnect();
+  }, [followLatest]);
   return <>
     <nav className="vr-dialogue-toolbar vr-surface-capsule" data-vr-panel>
       <SurfaceButton state={state} id={0} label={labels.dragHint || "Point at the handle and hold grip to drag"} grip disabled={view.busy}>
@@ -55,13 +73,15 @@ function Dialogue({ state, view }: { state: SurfaceState; view: Extract<SurfaceV
     </nav>
     <section className="vr-dialogue-body vr-surface-panel" data-vr-panel>
       {view.notice && <p className="vr-caption-notice" role="status">{view.notice}</p>}
-      {messages.length ? view.parallel
-        ? <CaptionCards messages={messages} labels={view.labels} lines={messages.length <= 3 ? 2 : 1} fontSize={view.font_size} height={view.notice ? 440 : 550} />
-        : <div className="vr-dialogue-messages">{messages.map((message, index) => <div className={`vr-dialogue-bubble ${message.side}`} key={index}>
+      <div ref={viewport} className="vr-dialogue-viewport" data-vr-page-viewport onScroll={(event) => {
+        const element = event.currentTarget;
+        following.current = element.scrollHeight - element.clientHeight - element.scrollTop <= 2;
+      }}>
+        <div className="vr-dialogue-messages">{messages.length ? messages.map((message, index) => <div className={`vr-dialogue-bubble ${message.side}`} key={index}>
           <div className="vr-caption-speaker">{message.speaker || (message.side === "right" ? view.labels?.me ?? "Me" : view.labels?.other ?? "Others")}</div>
           {message.text}
-        </div>)}</div>
-        : !view.notice && <p className="vr-surface-empty">{labels.emptyDialogue || "No recent dialogue"}</p>}
+        </div>) : !view.notice && <p className="vr-surface-empty">{labels.emptyDialogue || "No recent dialogue"}</p>}</div>
+      </div>
       {view.error && <p className="vr-surface-error" role="alert">{view.error}</p>}
     </section>
   </>;
@@ -111,7 +131,7 @@ function Reader({ state, view }: { state: SurfaceState; view: Extract<SurfaceVie
   </section>;
 }
 
-export function VrSurface({ state, onLayout }: { state: SurfaceState; onLayout?: (layout: SurfaceLayout) => void }) {
+export const VrSurface = memo(function VrSurface({ state, onLayout }: { state: SurfaceState; onLayout?: (layout: SurfaceLayout) => void }) {
   const root = useRef<HTMLDivElement>(null);
   const lastLayout = useRef("");
   const [width, height] = SURFACE_SIZE[state.view.kind];
@@ -171,4 +191,4 @@ export function VrSurface({ state, onLayout }: { state: SurfaceState; onLayout?:
                   : state.view.kind === "ocr_selection" ? <OcrSelectionSurface />
                     : state.view.kind === "ocr_result" ? <OcrResultSurface scene={state.view.scene} /> : null}
   </div>;
-}
+});

@@ -66,7 +66,7 @@ export function SurfaceHost({ surface }: { surface: Surface }) {
   }, [surface, markPaint]);
 
   useEffect(() => {
-    if (surface !== "reader" && surface !== "player_audio" && surface !== "dashboard") return;
+    if (surface !== "reader" && surface !== "dialogue" && surface !== "player_audio" && surface !== "dashboard") return;
     let disposed = false;
     const subscription = listen<SurfaceScrollState>("vr-surface-scroll", ({ payload }) => {
       if (disposed || !activity.current.active || !sameKey(current.current, payload.key) || !Number.isFinite(payload.delta)) return;
@@ -74,10 +74,14 @@ export function SurfaceHost({ surface }: { surface: Surface }) {
       if (viewport) {
         const before = viewport.scrollTop;
         viewport.scrollTop += payload.delta * viewport.clientHeight;
-        if (viewport.scrollTop !== before) markPaint();
+        if (viewport.scrollTop !== before) {
+          // Update follow mode before incoming captions overtake the browser's scroll event.
+          viewport.dispatchEvent(new Event("scroll"));
+          markPaint();
+        }
       }
     });
-    void subscription.catch((error) => console.error("VR reader scroll connection failed", error));
+    void subscription.catch((error) => console.error("VR surface scroll connection failed", error));
     return () => { disposed = true; void subscription.then((unlisten) => unlisten()).catch(() => {}); };
   }, [surface, markPaint]);
 

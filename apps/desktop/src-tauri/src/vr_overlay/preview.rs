@@ -859,7 +859,6 @@ impl Preview {
                     max_entries: 10,
                     controls: self.controls.clone(),
                     messages,
-                    parallel: false,
                     notice: None,
                     labels: Default::default(),
                     mode: p.display_mode(),
