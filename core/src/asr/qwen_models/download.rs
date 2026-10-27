@@ -136,7 +136,13 @@ pub(crate) async fn download_file(
         response = request => response,
     }
     .and_then(reqwest::Response::error_for_status)
-    .map_err(|error| format!("Could not download Qwen ASR asset {}: {error}", asset.name))?;
+    .map_err(|error| {
+        format!(
+            "Could not download Qwen ASR asset {}: {}",
+            asset.name,
+            error.without_url()
+        )
+    })?;
     if response
         .content_length()
         .is_some_and(|size| size != asset.bytes)
@@ -158,7 +164,9 @@ pub(crate) async fn download_file(
             chunk = stream.next() => chunk,
         };
         let Some(chunk) = chunk else { break };
-        let chunk = chunk.map_err(|error| format!("Qwen ASR download was interrupted: {error}"))?;
+        let chunk = chunk.map_err(|error| {
+            format!("Qwen ASR download was interrupted: {}", error.without_url())
+        })?;
         downloaded = downloaded
             .checked_add(chunk.len() as u64)
             .ok_or_else(|| "Qwen ASR download size overflow".to_string())?;
@@ -202,7 +210,11 @@ pub(crate) async fn download_file(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use axum::{http::StatusCode, routing::get, Router};
+    use axum::{
+        http::{HeaderMap, StatusCode},
+        routing::get,
+        Router,
+    };
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
 
@@ -213,14 +225,62 @@ mod tests {
     };
 
     #[tokio::test]
+    async fn download_sends_app_user_agent_after_a_redirect() {
+        let app = Router::new()
+            .route(
+                "/repo",
+                get(|| async { axum::response::Redirect::temporary("/cdn") }),
+            )
+            .route(
+                "/cdn",
+                get(|headers: HeaderMap| async move {
+                    if headers
+                        .get("user-agent")
+                        .and_then(|value| value.to_str().ok())
+                        == Some(concat!("VRCS/", env!("CARGO_PKG_VERSION")))
+                    {
+                        (StatusCode::OK, "abc")
+                    } else {
+                        (StatusCode::FORBIDDEN, "denied by UA ACL = blacklist")
+                    }
+                }),
+            );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let root = tempfile::tempdir().unwrap();
+        let manager = crate::asr::ModelManager::new(root.path().into()).unwrap();
+        let path = root.path().join(ASSET.name);
+        let temporary = root.path().join("fixture.part");
+        let (_cancel_tx, mut cancel) = watch::channel(false);
+        let result = download_file(
+            &manager.client,
+            format!("http://{address}/repo").parse().unwrap(),
+            ASSET,
+            &path,
+            &temporary,
+            &mut cancel,
+            |_| {},
+        )
+        .await;
+        server.abort();
+        result.unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), b"abc");
+        assert!(!temporary.exists());
+    }
+
+    #[tokio::test]
     async fn fallback_retries_http_errors_and_bad_checksums_before_installing() {
         let hits = Arc::new(AtomicUsize::new(0));
         let served = Arc::clone(&hits);
         let app = Router::new()
             .route(
                 "/blocked",
-                get(|| async { StatusCode::SERVICE_UNAVAILABLE }),
+                get(|| async {
+                    axum::response::Redirect::temporary("/denied?auth_key=test-signature")
+                }),
             )
+            .route("/denied", get(|| async { StatusCode::SERVICE_UNAVAILABLE }))
             .route("/corrupt", get(|| async { "abd" }))
             .route(
                 "/official",
@@ -237,6 +297,21 @@ mod tests {
         let path = root.path().join(ASSET.name);
         let client = reqwest::Client::new();
         let (_cancel_tx, mut cancel) = watch::channel(false);
+        let error = download_file_from_sources(
+            &client,
+            &[format!("http://{address}/blocked")],
+            ASSET,
+            &path,
+            &temporary,
+            &mut cancel,
+            |_| {},
+        )
+        .await
+        .unwrap_err();
+        assert!(error.contains("503"));
+        assert!(error.contains(ASSET.name));
+        assert!(!error.contains("auth_key"));
+        assert!(!error.contains("test-signature"));
         for failed in ["blocked", "corrupt"] {
             let urls = [
                 format!("http://{address}/{failed}"),

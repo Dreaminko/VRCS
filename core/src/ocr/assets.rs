@@ -212,9 +212,7 @@ impl ModelAssets {
         tokio::fs::create_dir_all(&self.directory)
             .await
             .map_err(|_| "Could not create the OCR model directory")?;
-        let client = reqwest::Client::builder()
-            .connect_timeout(std::time::Duration::from_secs(15))
-            .read_timeout(std::time::Duration::from_secs(60))
+        let client = crate::downloads::client_builder()
             .build()
             .map_err(|_| "Could not create the OCR model download client")?;
         for asset in &ASSETS {

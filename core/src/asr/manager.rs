@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, RwLock};
-use std::time::Duration;
 
 use tokio::sync::{watch, Notify};
 
@@ -39,9 +38,7 @@ impl ModelManager {
         Ok(Self {
             model_dir: RwLock::new(model_dir),
             download_sources: Arc::new(crate::downloads::DownloadSources::new(Default::default())),
-            client: reqwest::Client::builder()
-                .connect_timeout(Duration::from_secs(15))
-                .read_timeout(Duration::from_secs(60))
+            client: crate::downloads::client_builder()
                 .build()
                 .map_err(|error| format!("Failed to create model download client: {error}"))?,
             jobs: Mutex::new(HashMap::new()),

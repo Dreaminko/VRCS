@@ -31,6 +31,14 @@ const MIRRORS: [(&str, &str); 5] = [
     ),
 ];
 
+pub(crate) fn client_builder() -> reqwest::ClientBuilder {
+    reqwest::Client::builder()
+        // ModelScope's CDN rejects requests without a User-Agent.
+        .user_agent(concat!("VRCS/", env!("CARGO_PKG_VERSION")))
+        .connect_timeout(Duration::from_secs(15))
+        .read_timeout(Duration::from_secs(60))
+}
+
 pub(crate) struct DownloadSources {
     preference: RwLock<ModelDownloadSource>,
     probe: Mutex<Option<ProbeResult>>,
@@ -94,7 +102,7 @@ impl DownloadSources {
                 return result.clone();
             }
         }
-        let (official_latency_ms, mirror_latency_ms) = match reqwest::Client::builder()
+        let (official_latency_ms, mirror_latency_ms) = match client_builder()
             .connect_timeout(Duration::from_secs(2))
             .timeout(Duration::from_secs(4))
             .build()
@@ -250,16 +258,29 @@ mod tests {
 
     #[tokio::test]
     async fn probe_checks_download_response_and_rejects_error_pages_and_empty_bodies() {
-        use axum::{http::StatusCode, routing::get, Router};
+        use axum::{
+            http::{HeaderMap, StatusCode},
+            response::IntoResponse,
+            routing::get,
+            Router,
+        };
         let app = Router::new()
             .route(
                 "/file",
-                get(|| async {
+                get(|headers: HeaderMap| async move {
+                    if headers
+                        .get("user-agent")
+                        .and_then(|value| value.to_str().ok())
+                        != Some(concat!("VRCS/", env!("CARGO_PKG_VERSION")))
+                    {
+                        return StatusCode::FORBIDDEN.into_response();
+                    }
                     (
                         StatusCode::PARTIAL_CONTENT,
                         [("content-range", "bytes 0-0/100")],
                         "x",
                     )
+                        .into_response()
                 }),
             )
             .route(
@@ -272,7 +293,7 @@ mod tests {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
         let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
-        let client = reqwest::Client::new();
+        let client = client_builder().build().unwrap();
         assert!(probe_url(&client, &format!("http://{address}/file"))
             .await
             .is_some());
@@ -289,5 +310,18 @@ mod tests {
             .await
             .is_none());
         server.abort();
+    }
+
+    #[tokio::test]
+    #[ignore = "requires network access to the pinned ModelScope mirrors"]
+    async fn live_modelscope_mirrors_support_range_probes() {
+        let client = client_builder()
+            .connect_timeout(Duration::from_secs(2))
+            .timeout(Duration::from_secs(4))
+            .build()
+            .unwrap();
+        for (_, mirror) in MIRRORS {
+            assert!(probe_url(&client, mirror).await.is_some(), "{mirror}");
+        }
     }
 }

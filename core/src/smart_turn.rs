@@ -2,7 +2,6 @@
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
 
 use futures_util::StreamExt;
 use ndarray::Array3;
@@ -298,9 +297,7 @@ async fn ensure_model(
         revision = MODEL_REVISION,
         "downloading Smart Turn model"
     );
-    let client = reqwest::Client::builder()
-        .connect_timeout(Duration::from_secs(15))
-        .read_timeout(Duration::from_secs(60))
+    let client = crate::downloads::client_builder()
         .build()
         .map_err(|error| error.to_string())?;
     let mut last_error = "No Smart Turn model download source is available".to_string();
@@ -327,9 +324,8 @@ async fn download_model(
         .get(url)
         .send()
         .await
-        .map_err(|error| format!("Smart Turn model download failed: {error}"))?
-        .error_for_status()
-        .map_err(|error| format!("Smart Turn model download failed: {error}"))?;
+        .and_then(reqwest::Response::error_for_status)
+        .map_err(|error| format!("Smart Turn model download failed: {}", error.without_url()))?;
     if response
         .content_length()
         .is_some_and(|length| length != MODEL_BYTES)
@@ -344,7 +340,9 @@ async fn download_model(
     let mut downloaded = 0u64;
     let mut hasher = Sha256::new();
     while let Some(chunk) = stream.next().await {
-        let chunk = chunk.map_err(|error| format!("Smart Turn model download failed: {error}"))?;
+        let chunk = chunk.map_err(|error| {
+            format!("Smart Turn model download failed: {}", error.without_url())
+        })?;
         downloaded = downloaded
             .checked_add(chunk.len() as u64)
             .ok_or_else(|| "Smart Turn model size overflow".to_string())?;
@@ -452,6 +450,55 @@ mod tests {
         assert!(validate_model_metadata(MODEL_BYTES, MODEL_SHA256).is_ok());
         assert!(validate_model_metadata(MODEL_BYTES - 1, MODEL_SHA256).is_err());
         assert!(validate_model_metadata(MODEL_BYTES, "bad").is_err());
+    }
+
+    #[tokio::test]
+    async fn download_errors_do_not_expose_signed_urls() {
+        use axum::{http::StatusCode, routing::get, Router};
+        let app = Router::new()
+            .route(
+                "/repo",
+                get(|| async {
+                    axum::response::Redirect::temporary("/cdn?auth_key=test-signature")
+                }),
+            )
+            .route("/cdn", get(|| async { StatusCode::FORBIDDEN }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join(MODEL_FILENAME);
+        let error = download_model(
+            &reqwest::Client::new(),
+            &format!("http://{address}/repo"),
+            &path.with_extension("onnx.part"),
+            &path,
+        )
+        .await
+        .unwrap_err();
+        server.abort();
+        assert!(error.contains("403"));
+        assert!(!error.contains("auth_key"));
+        assert!(!error.contains("test-signature"));
+        assert!(!path.exists());
+    }
+
+    #[tokio::test]
+    #[ignore = "downloads the pinned 8.7 MB Smart Turn model from ModelScope"]
+    async fn live_modelscope_download_passes_integrity_checks() {
+        let sources =
+            crate::downloads::DownloadSources::new(crate::config::ModelDownloadSource::Modelscope);
+        let urls = sources.urls(MODEL_URL).await;
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join(MODEL_FILENAME);
+        let partial = path.with_extension("onnx.part");
+        let client = crate::downloads::client_builder().build().unwrap();
+        // Do not allow an official-source fallback to hide a broken mirror.
+        download_model(&client, &urls[0], &partial, &path)
+            .await
+            .unwrap();
+        assert!(model_file_is_valid(&path).await.unwrap());
+        assert!(!partial.exists());
     }
 
     #[tokio::test]
