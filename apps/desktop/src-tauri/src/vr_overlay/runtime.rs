@@ -23,7 +23,7 @@ use super::process::{steamvr_pid, SteamVrSession};
 
 pub const STATUS_EVENT: &str = "vr-overlay-status-changed";
 const UPDATE_INTERVAL: Duration = Duration::from_millis(50);
-const DASHBOARD_UPDATE_INTERVAL: Duration = Duration::from_millis(16);
+pub(super) const SURFACE_FRAME_INTERVAL: Duration = Duration::from_nanos(16_666_700);
 const RECONNECT_INTERVAL: Duration = Duration::from_secs(2);
 const EVENT_QUEUE_CAPACITY: usize = 256;
 const DROP_WARNING_INTERVAL: Duration = Duration::from_secs(5);
@@ -741,7 +741,7 @@ fn worker_loop(
         #[cfg(not(windows))]
         let ui_active = false;
         let interval = if status.dashboard.visible || ui_active {
-            DASHBOARD_UPDATE_INTERVAL
+            SURFACE_FRAME_INTERVAL
         } else {
             UPDATE_INTERVAL
         };

@@ -1956,7 +1956,7 @@ impl SurfaceRenderer {
         let interval = if self.surface == SurfaceId::OcrProgress {
             Duration::from_millis(34)
         } else {
-            Duration::from_micros(16_667)
+            super::runtime::SURFACE_FRAME_INTERVAL
         };
         // Carry sub-tick lateness forward without accumulating work across idle periods.
         self.next_copy = Some(
@@ -2006,6 +2006,27 @@ mod tests {
             }
         }
         assert_eq!(copies, 61, "roughly 60 copies per second, not 30");
+    }
+
+    #[test]
+    fn active_worker_and_capture_keep_even_frame_intervals() {
+        let mut renderer = SurfaceRenderer::new(SurfaceId::Reader);
+        let started = Instant::now();
+        let interval = super::super::runtime::SURFACE_FRAME_INTERVAL;
+        let mut previous = None;
+        for tick in 0..120 {
+            let now = started + interval * tick;
+            if renderer.copy_due(now) {
+                if let Some(previous) = previous {
+                    assert!(
+                        now.duration_since(previous) <= Duration::from_millis(17),
+                        "capture must not skip an active worker tick"
+                    );
+                }
+                renderer.copied(now);
+                previous = Some(now);
+            }
+        }
     }
 
     #[test]

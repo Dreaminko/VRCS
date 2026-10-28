@@ -506,7 +506,9 @@ impl Source {
         // Older Windows versions may not expose this interface.
         let interval_supported = source
             .session
-            .SetMinUpdateInterval(TimeSpan { Duration: 166_667 })
+            .SetMinUpdateInterval(TimeSpan {
+                Duration: (super::super::runtime::SURFACE_FRAME_INTERVAL.as_nanos() / 100) as i64,
+            })
             .is_ok();
         if super::metrics::enabled() {
             tracing::info!(interval_supported, "WGC minimum update interval capability");
