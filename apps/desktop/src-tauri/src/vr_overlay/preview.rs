@@ -1109,6 +1109,7 @@ impl Preview {
         }
         self.surface = Some(SurfaceState {
             key: self.surface_key(),
+            scroll_key: self.surface_key(),
             view,
             hovered: self.hover,
             pressed: self.pressed,

@@ -61,6 +61,7 @@ export interface ProgressView {
 
 export interface SurfaceState {
   key: SurfaceKey;
+  scroll_key?: SurfaceKey;
   view: SurfaceView;
   hovered: number | null;
   pressed: number | null;

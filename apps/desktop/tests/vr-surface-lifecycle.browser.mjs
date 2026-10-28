@@ -26,6 +26,14 @@ test("surface sleep preserves reading position and visual receipts follow actual
       const passed = [];
       const check = (condition, message) => { if (!condition) throw new Error(message); passed.push(message); };
       const settle = () => new Promise(resolve => setTimeout(resolve, 80));
+      let frameId = 0;
+      const frames = new Map();
+      window.requestAnimationFrame = callback => { frames.set(++frameId, callback); return frameId; };
+      window.cancelAnimationFrame = id => frames.delete(id);
+      const frame = () => {
+        const pending = [...frames.values()]; frames.clear();
+        flushSync(() => pending.forEach(callback => callback(performance.now())));
+      };
       const root = createRoot(document.getElementById('root'));
       const viewport = () => document.querySelector('[data-vr-page-viewport]');
       const paints = () => calls.filter(call => call.command === 'vr_surface_paint');
@@ -45,7 +53,7 @@ test("surface sleep preserves reading position and visual receipts follow actual
         const initial = serial(); publish({ hovered: 6 }); await settle();
         check(serial() > initial, 'Hover changes pixels without changing the content key');
         const hover = serial();
-        emit('vr-surface-scroll', { key: state.key, delta: 0.5 }); await settle();
+        emit('vr-surface-scroll', { key: state.key, delta: 0.5 }); frame(); await settle();
         check(viewport().scrollTop > 0 && serial() > hover, 'Scroll requests fresh captured pixels');
         const top = viewport().scrollTop;
         const idle = paints().length; await settle(); await settle();
@@ -54,7 +62,7 @@ test("surface sleep preserves reading position and visual receipts follow actual
         check(document.querySelector('main').dataset.active === 'false', 'Hidden surface pauses page work');
         check(calls.some(call => call.command === 'vr_surface_snapshot' && Math.abs(call.args.scrollTop - top) < 1), 'Reader sends a restorable position before cold release');
         const sleeping = paints().length;
-        emit('vr-surface-scroll', { key: state.key, delta: 0.5 }); await settle();
+        emit('vr-surface-scroll', { key: state.key, delta: 0.5 }); frame(); await settle();
         check(viewport().scrollTop === top && paints().length === sleeping, 'Hidden surfaces ignore input and stop paint requests');
         activity(true, 3); publish({ key: { generation: 3, revision: 2 } }); await settle();
         activity(false, 2); await settle();
@@ -66,7 +74,7 @@ test("surface sleep preserves reading position and visual receipts follow actual
         check(paints().length === awakePaints && document.querySelector('main').dataset.active === 'true', 'Late state cannot change a newer activity request');
         activity(false, 100, 'menu'); await settle();
         const beforeForeignActivityScroll = serial();
-        emit('vr-surface-scroll', { key: state.key, delta: 0.5 }); await settle();
+        emit('vr-surface-scroll', { key: state.key, delta: 0.5 }); frame(); await settle();
         check(document.querySelector('main').dataset.active === 'true' && serial() > beforeForeignActivityScroll, 'Hiding another surface cannot pause the reader or block fresh pixels');
         root.unmount();
         const coldRoot = createRoot(document.getElementById('root'));

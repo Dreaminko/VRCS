@@ -9,6 +9,9 @@ export function SurfaceHost({ surface }: { surface: Surface }) {
   const [state, setState] = useState<SurfaceState | null>(null);
   const [measured, setMeasured] = useState<SurfaceKey | null>(null);
   const current = useRef<SurfaceKey | null>(null);
+  const scrollKey = useRef<SurfaceKey | null>(null);
+  const pendingScroll = useRef<{ viewport: HTMLElement; top: number } | null>(null);
+  const scrollFrame = useRef<number | null>(null);
   const layoutRequest = useRef(0);
   const mounted = useRef(false);
   const [active, setActive] = useState(true);
@@ -16,6 +19,11 @@ export function SurfaceHost({ surface }: { surface: Surface }) {
   const [paintSerial, setPaintSerial] = useState(1);
   const serial = useRef(1);
   const restored = useRef<SurfaceKey | null>(null);
+  const cancelScroll = useCallback(() => {
+    if (scrollFrame.current !== null) cancelAnimationFrame(scrollFrame.current);
+    scrollFrame.current = null;
+    pendingScroll.current = null;
+  }, []);
   const markPaint = useCallback(() => {
     if (!mounted.current || !activity.current.active) return serial.current;
     serial.current = ((serial.current + 1) >>> 0) || 1;
@@ -32,6 +40,7 @@ export function SurfaceHost({ surface }: { surface: Surface }) {
       activity.current = next;
       setActive(next.active);
       if (!next.active) {
+        cancelScroll();
         const scrollTop = root.current?.querySelector<HTMLElement>("[data-vr-page-viewport]")?.scrollTop ?? null;
         void invoke("vr_surface_snapshot", { surface, key: current.current, activityRequest: next.request, scrollTop })
           .catch(error => console.error("VR surface snapshot failed", error));
@@ -42,6 +51,9 @@ export function SurfaceHost({ surface }: { surface: Surface }) {
       if (!disposed && next?.view.kind === surface && (newerKey(next.key, current.current) || (hoverUpdate && sameKey(current.current, next.key)))) {
         if (next.activity) receiveActivity(next.activity);
         if (!sameKey(current.current, next.key)) setMeasured(null);
+        const nextScrollKey = next.scroll_key ?? next.key;
+        if (!sameKey(scrollKey.current, nextScrollKey)) cancelScroll();
+        scrollKey.current = nextScrollKey;
         current.current = next.key;
         // Menu hold progress changes pixels under the same layout key.
         setState(previous => {
@@ -62,24 +74,36 @@ export function SurfaceHost({ surface }: { surface: Surface }) {
       subscriptions.push(viewListener, activityListener);
       receive(await invoke<SurfaceState | null>("vr_surface_ready", { surface }), false);
     })().catch((error) => { if (!disposed) console.error("VR surface connection failed", error); });
-    return () => { disposed = true; mounted.current = false; layoutRequest.current++; subscriptions.forEach(unlisten => unlisten()); };
-  }, [surface, markPaint]);
+    return () => { disposed = true; mounted.current = false; layoutRequest.current++; cancelScroll(); subscriptions.forEach(unlisten => unlisten()); };
+  }, [surface, markPaint, cancelScroll]);
 
   useEffect(() => {
     if (surface !== "reader" && surface !== "dialogue" && surface !== "player_audio" && surface !== "dashboard") return;
     let disposed = false;
     const subscription = listen<SurfaceScrollState>("vr-surface-scroll", ({ payload }) => {
-      if (disposed || !activity.current.active || !sameKey(current.current, payload.key) || !Number.isFinite(payload.delta)) return;
+      if (disposed || !activity.current.active || !sameKey(scrollKey.current, payload.key) || !Number.isFinite(payload.delta)) return;
       const viewport = root.current?.querySelector<HTMLElement>("[data-vr-page-viewport]");
-      if (viewport) {
+      if (!viewport) return;
+      const before = pendingScroll.current?.viewport === viewport ? pendingScroll.current.top : viewport.scrollTop;
+      // Clamp each input so reversing at an edge does not have to undo discarded overscroll.
+      const top = Math.max(0, Math.min(viewport.scrollHeight - viewport.clientHeight, before + payload.delta * viewport.clientHeight));
+      if (top === before) return;
+      pendingScroll.current = { viewport, top };
+      if (scrollFrame.current !== null) return;
+      scrollFrame.current = requestAnimationFrame(() => {
+        scrollFrame.current = null;
+        const pending = pendingScroll.current;
+        pendingScroll.current = null;
+        if (!pending || !activity.current.active || !pending.viewport.isConnected) return;
+        const { viewport, top } = pending;
         const before = viewport.scrollTop;
-        viewport.scrollTop += payload.delta * viewport.clientHeight;
+        viewport.scrollTop = top;
         if (viewport.scrollTop !== before) {
           // Update follow mode before incoming captions overtake the browser's scroll event.
           viewport.dispatchEvent(new Event("scroll"));
           markPaint();
         }
-      }
+      });
     });
     void subscription.catch((error) => console.error("VR surface scroll connection failed", error));
     return () => { disposed = true; void subscription.then((unlisten) => unlisten()).catch(() => {}); };

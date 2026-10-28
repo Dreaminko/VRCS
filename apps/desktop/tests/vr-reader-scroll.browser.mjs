@@ -33,10 +33,18 @@ test("VR reader and dialogue scrolling preserves position and bounds caption ren
         passed.push(message);
       };
       const settle = () => new Promise(resolve => setTimeout(resolve, 30));
+      let frameId = 0;
+      const frames = new Map();
+      window.requestAnimationFrame = callback => { frames.set(++frameId, callback); return frameId; };
+      window.cancelAnimationFrame = id => frames.delete(id);
+      const frame = () => {
+        const pending = [...frames.values()]; frames.clear();
+        flushSync(() => pending.forEach(callback => callback(performance.now())));
+      };
       const root = createRoot(document.getElementById('root'));
       const viewport = () => document.querySelector('[data-vr-page-viewport]');
       const initial = {
-        key: { generation: 1, revision: 1 }, hovered: null, pressed: null, pointer: null,
+        key: { generation: 1, revision: 1 }, scroll_key: { generation: 1, revision: 1 }, hovered: null, pressed: null, pointer: null,
         view: { kind: 'reader', dark: true, labels: {}, font_size: 28, opacity: 1,
           reader: { mode: 'vision', title: 'Vision', status: 'complete', detail: '',
             source: 'Question line.\\n'.repeat(100), translation: '**Answer** paragraph.\\n\\n'.repeat(100),
@@ -54,8 +62,12 @@ test("VR reader and dialogue scrolling preserves position and bounds caption ren
         state = { ...state, key: { ...state.key, revision: state.key.revision + 1 }, ...patch };
         flushSync(() => emit('vr-surface-view', state));
       };
-      const reader = patch => publish({ view: { ...state.view, reader: { ...state.view.reader, ...patch } } });
-      const scroll = (delta, key = state.key) => emit('vr-surface-scroll', { key, delta });
+      const reader = patch => {
+        const reset = ['mode', 'block_index', 'source', 'translation_label', 'source_only', 'page'].some(key => key in patch && patch[key] !== state.view.reader[key]);
+        publish({ view: { ...state.view, reader: { ...state.view.reader, ...patch } },
+          ...(reset ? { scroll_key: { ...state.key, revision: state.key.revision + 1 } } : {}) });
+      };
+      const scroll = (delta, key = state.scroll_key) => emit('vr-surface-scroll', { key, delta });
 
       async function run() {
         flushSync(() => root.render(<SurfaceHost surface="reader" />));
@@ -68,29 +80,51 @@ test("VR reader and dialogue scrolling preserves position and bounds caption ren
         check(!document.querySelector('.vr-surface-pointer'), 'In-game reader leaves the cursor to OpenVR');
         check(viewport().scrollHeight > viewport().clientHeight + 1000, 'Long reader content overflows');
         check(!document.querySelector('[data-vr-region="2"], [data-vr-region="3"]'), 'Page buttons are removed');
-        scroll(0.5);
+        scroll(0.2); scroll(0.3);
+        check(viewport().scrollTop === 0 && frames.size === 1, 'Input bursts wait for one animation frame');
+        frame();
         check(Math.abs(viewport().scrollTop - viewport().clientHeight / 2) <= 1, 'Scroll delta uses viewport height');
         const top = viewport().scrollTop;
         for (const delta of [NaN, Infinity, -Infinity]) scroll(delta);
         scroll(0.5, { generation: 0, revision: 1 });
         scroll(0.5, { generation: 1, revision: 0 });
+        frame();
         check(viewport().scrollTop === top, 'Invalid and stale scroll events are ignored');
         publish({ hovered: 6 });
         reader({ pinned: true });
         reader({ translation: state.view.reader.translation + 'Additional answer.\\n\\n'.repeat(10) });
         await settle();
         check(viewport().scrollTop === top, 'Hover, pin and streamed text preserve position');
+        scroll(0.1);
+        reader({ translation: state.view.reader.translation + 'Streamed while scrolling.' });
+        frame();
+        check(Math.abs(viewport().scrollTop - top - viewport().clientHeight * 0.1) <= 1, 'Pending scroll survives streamed text');
         scroll(1000);
+        frame();
         check(viewport().scrollTop === viewport().scrollHeight - viewport().clientHeight, 'Scroll clamps at the bottom');
+        const bottomBeforeReverse = viewport().scrollTop;
+        scroll(10); scroll(-0.1); frame();
+        check(Math.abs(viewport().scrollTop - bottomBeforeReverse + viewport().clientHeight * 0.1) <= 1, 'Reversal at the boundary retains valid movement');
         scroll(-1000);
+        frame();
         check(viewport().scrollTop === 0, 'Scroll clamps at the top');
 
         reader({ mode: 'ocr' });
         for (const patch of [{ block_index: 1 }, { translation_label: 'Japanese' }, { source_only: true }]) {
           scroll(0.5);
           reader(patch);
+          frame();
           check(viewport().scrollTop === 0, 'Content selection resets position: ' + Object.keys(patch)[0]);
         }
+        const selectedKey = state.scroll_key;
+        reader({ source: 'A different question.\\n'.repeat(100) });
+        scroll(0.5, selectedKey); frame();
+        check(viewport().scrollTop === 0, 'Old viewport input cannot scroll a new selection');
+        scroll(0.5);
+        flushSync(() => emit('vr-surface-activity', { active: false, request: 1 }));
+        frame();
+        check(viewport().scrollTop === 0 && frames.size === 0, 'Sleep cancels pending scroll without a trailing frame');
+        flushSync(() => emit('vr-surface-activity', { active: true, request: 2 }));
         reader({ page: 1 });
         check(viewport().scrollTop > 0, 'Custom SteamVR page actions remain supported');
         check(getComputedStyle(viewport(), '::-webkit-scrollbar').width === '8px', 'Desktop scrollbar width is reused');
@@ -123,20 +157,24 @@ test("VR reader and dialogue scrolling preserves position and bounds caption ren
         const atBottom = () => Math.abs(viewport().scrollHeight - viewport().clientHeight - viewport().scrollTop) <= 1;
         check(viewport().scrollTop > 1000 && atBottom(), 'Dialogue starts at the latest bubbles');
         const nodes = [...document.querySelectorAll('.vr-dialogue-bubble')];
+        const beforeStreamingScroll = viewport().scrollTop;
         scroll(-0.5);
-        const dialogueTop = viewport().scrollTop;
-        check(!atBottom(), 'Controller scroll reaches older bubbles');
         publish({ hovered: 1 });
         publish({ view: { ...state.view, messages: [...state.view.messages.slice(0, -1), { ...state.view.messages.at(-1), text: state.view.messages.at(-1).text + '\\nMore translation'.repeat(10) }] } });
+        frame();
+        const dialogueTop = viewport().scrollTop;
+        check(Math.abs(dialogueTop - beforeStreamingScroll + viewport().clientHeight * 0.5) <= 1 && !atBottom(), 'Queued controller scroll survives incoming captions before the frame');
         await settle();
         check(viewport().scrollTop === dialogueTop, 'Hover and immediate streamed captions do not jump while reading history');
         for (const delta of [NaN, Infinity, -Infinity]) scroll(delta);
         scroll(-1, { generation: 0, revision: 1 });
+        frame();
         check(viewport().scrollTop === dialogueTop, 'Dialogue ignores invalid and stale scroll events');
         const mutations = [];
         const observer = new MutationObserver(records => mutations.push(...records));
         observer.observe(document.querySelector('.vr-surface'), { childList: true, subtree: true, attributes: true, characterData: true });
         scroll(1000);
+        frame();
         await settle();
         observer.disconnect();
         check(!mutations.length && nodes.every((node, index) => node === document.querySelectorAll('.vr-dialogue-bubble')[index]), 'Scrolling does not rerender caption DOM');
@@ -150,6 +188,7 @@ test("VR reader and dialogue scrolling preserves position and bounds caption ren
         await settle();
         check(atBottom() && document.querySelector('.vr-dialogue-messages').textContent.includes('Caption 299'), 'Long-running updates retain the latest bounded captions');
         scroll(-1000);
+        frame();
         await settle();
         check(viewport().scrollTop === 0 && document.querySelector('.vr-dialogue-bubble').getBoundingClientRect().top >= viewport().getBoundingClientRect().top - 1, 'Oldest retained bubble is reachable');
         publish({ view: { ...state.view, max_entries: 3 } });

@@ -160,6 +160,33 @@ pub enum SurfaceView {
 }
 
 impl SurfaceView {
+    fn same_scroll_view(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Reader { .. }, Self::Reader { .. }) => {
+                reader_identity(self) == reader_identity(other)
+            }
+            (
+                Self::Dialogue {
+                    controls: a,
+                    mode: am,
+                    visibility: av,
+                    max_entries: ae,
+                    max_visible_players: ap,
+                    ..
+                },
+                Self::Dialogue {
+                    controls: b,
+                    mode: bm,
+                    visibility: bv,
+                    max_entries: be,
+                    max_visible_players: bp,
+                    ..
+                },
+            ) => a.owner_epoch == b.owner_epoch && am == bm && av == bv && ae == be && ap == bp,
+            _ => false,
+        }
+    }
+
     pub(super) fn same_layout(&self, other: &Self) -> bool {
         match (self, other) {
             (
@@ -184,6 +211,7 @@ impl SurfaceView {
 #[derive(Clone, Serialize)]
 pub struct SurfaceState {
     pub key: SurfaceKey,
+    pub scroll_key: SurfaceKey,
     pub view: SurfaceView,
     pub hovered: Option<u8>,
     pub pressed: Option<u8>,
@@ -466,6 +494,7 @@ struct Entry {
     state: Option<SurfaceState>,
     layout: Option<SurfaceLayout>,
     displayed_layout: Option<SurfaceLayout>,
+    displayed_scroll_key: Option<SurfaceKey>,
     submitted: Option<SurfaceKey>,
     hwnd: Option<isize>,
     creating: bool,
@@ -496,6 +525,7 @@ impl Default for Entry {
             state: None,
             layout: None,
             displayed_layout: None,
+            displayed_scroll_key: None,
             submitted: None,
             hwnd: None,
             creating: false,
@@ -537,6 +567,7 @@ impl Entry {
         self.host_awake = false;
         self.layout = None;
         self.displayed_layout = None;
+        self.displayed_scroll_key = None;
         self.submitted = None;
         self.paint = None;
         self.submitted_paint = None;
@@ -554,6 +585,7 @@ impl Entry {
             state.restore_scroll = None;
             if active {
                 state.key.revision = state.key.revision.wrapping_add(1).max(1);
+                state.scroll_key = state.key;
             } else {
                 self.snapshot_pending =
                     reader_identity(&state.view).map(|identity| (state.key, identity));
@@ -584,11 +616,18 @@ impl Entry {
                 .state
                 .as_ref()
                 .map_or(1, |state| state.key.revision.wrapping_add(1).max(1));
+            let key = SurfaceKey {
+                generation: self.generation,
+                revision,
+            };
+            let scroll_key = self
+                .state
+                .as_ref()
+                .filter(|state| state.view.same_scroll_view(&view))
+                .map_or(key, |state| state.scroll_key);
             self.state = Some(SurfaceState {
-                key: SurfaceKey {
-                    generation: self.generation,
-                    revision,
-                },
+                key,
+                scroll_key,
                 view,
                 hovered,
                 pressed,
@@ -633,6 +672,7 @@ impl Entry {
         self.generation = self.generation.wrapping_add(1).max(1);
         self.layout = None;
         self.displayed_layout = None;
+        self.displayed_scroll_key = None;
         self.submitted = None;
         self.ready = false;
         self.has_frame = false;
@@ -645,6 +685,7 @@ impl Entry {
                 generation: self.generation,
                 revision: 1,
             };
+            state.scroll_key = state.key;
             state.hovered = None;
             state.pressed = None;
             state.pointer = None;
@@ -772,6 +813,7 @@ impl Entry {
         {
             self.submitted = Some(key);
             self.displayed_layout = self.layout.clone();
+            self.displayed_scroll_key = self.state.as_ref().map(|state| state.scroll_key);
             self.pending_since = None;
             self.has_frame = true;
             true
@@ -835,6 +877,7 @@ impl Entry {
         self.submitted = Some(key);
         self.submitted_paint = Some(serial);
         self.displayed_layout = self.layout.clone();
+        self.displayed_scroll_key = self.state.as_ref().map(|state| state.scroll_key);
         self.pending_since = None;
         self.has_frame = true;
         if let Some(started) = self.wake_since.take() {
@@ -852,6 +895,16 @@ impl Entry {
                     .as_ref()
                     .is_some_and(|state| state.key == layout.key)
         })
+    }
+
+    fn scroll_key(&self) -> Option<SurfaceKey> {
+        let state = self.state.as_ref()?;
+        // Text can change while the same viewport stays on screen. Clicks still use active_layout.
+        (self.active
+            && self.ready
+            && self.has_frame
+            && self.displayed_scroll_key == Some(state.scroll_key))
+            .then_some(state.scroll_key)
     }
 
     fn pointer_layout(&self) -> Option<&SurfaceLayout> {
@@ -931,14 +984,7 @@ impl SurfaceHub {
         let update = {
             let entries = self.0.lock().map_err(|e| e.to_string())?;
             let entry = &entries[surface.index()];
-            entry
-                .ready
-                .then(|| entry.active_layout())
-                .flatten()
-                .map(|layout| SurfaceScroll {
-                    key: layout.key,
-                    delta,
-                })
+            entry.scroll_key().map(|key| SurfaceScroll { key, delta })
         };
         if let Some(update) = update {
             app.emit_to(surface.label(), "vr-surface-scroll", update)
@@ -2027,6 +2073,117 @@ mod tests {
                 previous = Some(now);
             }
         }
+    }
+
+    #[test]
+    fn reader_scroll_key_survives_text_but_not_selection_or_lifecycle_changes() {
+        use super::super::{ocr_status::OcrState, ocr_wrist::Reader};
+        let mut entry = active_entry();
+        let mut view = SurfaceView::Reader {
+            dark: true,
+            labels: WristLabels::default(),
+            reader: Reader::default().view(OcrState::Visible, false, false),
+            font_size: 28,
+            opacity: 1.0,
+        };
+        entry.publish(view.clone(), None, None);
+        let key = entry.state.as_ref().unwrap().key;
+        let mut reader_layout = layout(key);
+        reader_layout.regions[0].menu = None;
+        entry.accept_layout(SurfaceId::Reader, reader_layout).unwrap();
+        assert!(entry.commit(key));
+        assert!(entry.scroll_key().is_none(), "the host must be ready");
+        entry.ready = true;
+        let original = entry.state.as_ref().unwrap().scroll_key;
+        assert_eq!(original, key);
+        assert_eq!(entry.scroll_key(), Some(original));
+        if let SurfaceView::Reader { reader, .. } = &mut view {
+            reader.translation = "More streamed text".into();
+        }
+        entry.publish(view.clone(), None, None);
+        assert_eq!(entry.state.as_ref().unwrap().scroll_key, original);
+        assert_eq!(entry.scroll_key(), Some(original));
+        assert!(
+            entry.active_layout().is_none(),
+            "clicks still wait for new pixels"
+        );
+        if let SurfaceView::Reader { reader, .. } = &mut view {
+            reader.translation_label = "Japanese".into();
+        }
+        entry.publish(view, None, None);
+        assert_ne!(entry.state.as_ref().unwrap().scroll_key, original);
+        assert!(entry.scroll_key().is_none());
+        let selected = entry.state.as_ref().unwrap().scroll_key;
+        entry.set_active(false, Instant::now());
+        assert!(entry.scroll_key().is_none());
+        entry.set_active(true, Instant::now());
+        assert_ne!(entry.state.as_ref().unwrap().scroll_key, selected);
+        assert!(entry.scroll_key().is_none());
+        let awake = entry.state.as_ref().unwrap().scroll_key;
+        entry.reload();
+        assert_ne!(entry.state.as_ref().unwrap().scroll_key, awake);
+        assert!(entry.scroll_key().is_none());
+    }
+
+    #[test]
+    fn dialogue_scroll_survives_captions_but_waits_for_a_new_selection_to_be_displayed() {
+        let mut entry = active_entry();
+        entry.ready = true;
+        let mut view = SurfaceView::Dialogue {
+            visibility: Default::default(),
+            max_visible_players: None,
+            max_entries: 10,
+            controls: ControlSnapshot::default(),
+            messages: vec![],
+            notice: None,
+            labels: Default::default(),
+            mode: Mode::Wrist,
+            follow_view: false,
+            busy: false,
+            error: None,
+            font_size: 28,
+            opacity: 1.0,
+        };
+        entry.publish(view.clone(), None, None);
+        let key = entry.state.as_ref().unwrap().key;
+        assert!(entry.scroll_key().is_none());
+        let mut dialogue_layout = layout(key);
+        dialogue_layout.regions[0].menu = None;
+        assert!(entry
+            .accept_layout_paint(SurfaceId::Dialogue, dialogue_layout.clone(), 1)
+            .unwrap());
+        assert!(entry.commit_paint(key, 1));
+        assert_eq!(entry.scroll_key(), Some(key));
+
+        if let SurfaceView::Dialogue { messages, .. } = &mut view {
+            messages.push(WristMessage {
+                speaker: None,
+                text: "Streaming caption".into(),
+                side: super::super::presentation::MessageSide::Left,
+                original: None,
+            });
+        }
+        entry.publish(view.clone(), None, None);
+        assert_eq!(entry.scroll_key(), Some(key));
+        assert!(entry.active_layout().is_none());
+
+        if let SurfaceView::Dialogue { visibility, .. } = &mut view {
+            visibility.hidden_tracks.push("player".into());
+        }
+        entry.publish(view, None, None);
+        let selected = entry.state.as_ref().unwrap().key;
+        assert!(entry.scroll_key().is_none());
+        assert!(!entry.commit_paint(key, 1));
+        dialogue_layout.key = selected;
+        assert!(entry
+            .accept_layout_paint(SurfaceId::Dialogue, dialogue_layout, 2)
+            .unwrap());
+        assert!(
+            entry.scroll_key().is_none(),
+            "layout alone is not a displayed frame"
+        );
+        assert!(entry.commit_paint(selected, 2));
+        assert_eq!(entry.scroll_key(), Some(selected));
     }
 
     #[test]

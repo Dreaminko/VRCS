@@ -543,16 +543,17 @@ impl UiRuntime {
                 device: pointer.device,
                 point: pointer.point.map(|v| v * SurfaceId::Reader.size().0 as f32),
             });
-            if let Err(error) = surfaces.scroll_reader(app, scroll_delta(pointer.scroll_y, elapsed))
-            {
-                tracing::debug!(%error, "VR reader scroll unavailable");
-            }
         } else {
             events.push(LaserEvent::Leave);
         }
+        if let Some(pointer) = pointer.filter(|p| input_allowed && p.key.surface == Surface::Reader) {
+            if let Err(error) = surfaces.scroll_reader(app, scroll_delta(pointer.scroll_y, elapsed)) {
+                tracing::debug!(%error, "VR reader scroll unavailable");
+            }
+        }
         if let Some(pointer) = pointer.filter(|p| {
-            p.key.surface == Surface::Dialogue
-                && keys.contains(&p.key)
+            input_allowed
+                && p.key.surface == Surface::Dialogue
                 && !was_active
                 && !self.router.active()
         }) {
