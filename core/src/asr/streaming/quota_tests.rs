@@ -81,8 +81,13 @@ async fn qwen_rate_close_is_shared_with_new_tracks_and_stop_cancels_reconnect_wa
                     })))
                     .await
                     .unwrap();
-                let Some(CloudEvent::Failed { detail, .. }) = events.recv().await else {
-                    panic!("expected cloud failure")
+                let detail = loop {
+                    match events.recv().await {
+                        Some(CloudEvent::Failed { detail, .. }) => break detail,
+                        Some(CloudEvent::SpeakerSession { .. }) => {}
+                        Some(event) => panic!("expected cloud failure, got {event:?}"),
+                        None => panic!("event channel closed before cloud failure"),
+                    }
                 };
                 assert!(detail.contains("1007") && detail.contains("Requests rate limit"));
                 audio_tx
