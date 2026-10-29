@@ -104,7 +104,7 @@ test("compact chatbox shares sending state, respects IME, and restores native ge
       function Fixture(){
         const [state,setState]=useState({ready:true,enabled:true,osc:true,overlay:false,transparent:false,outputMode:'system'});
         flags=state;update=partial=>flushSync(()=>setState(current=>({...current,...partial})));
-        const settings={features:{osc_chatbox:state.enabled},osc:{enabled:state.osc},translation:{microphone_targets:[{target_language:'en'}]},audio:{output:{mode:state.outputMode}}};
+        const settings={features:{microphone_speaker_filter:state.enabled},osc:{enabled:state.osc},translation:{microphone_targets:[{target_language:'en'}]},audio:{output:{mode:state.outputMode}}};
         controller=useCompactWindow({clearErrorFrom:noop,reportError:reason=>nativeErrors.push(reason)});
         chat=useChatboxWorkspace(settings);
         stream=useSubtitleStream({coreConfigured:true,clearErrorFrom:noop,reportError:noop});
@@ -227,7 +227,7 @@ test("compact chatbox shares sending state, respects IME, and restores native ge
         update({osc:false});check(sendButton().disabled&&!input().disabled,'OSC off permits composing, not sending');
         click(toggle());await wait(()=>nativeSize.height===240);
         update({ready:false});check(toggle().disabled,'Core unready disables entry');
-        update({ready:true,enabled:false});check(!toggle(),'Feature off hides entry');
+        update({ready:true,enabled:false});check(toggle()&&!toggle().disabled,'Disabling microphone filtering keeps Chatbox available');
         update({enabled:true,osc:true,transparent:true});click(toggle());await fitComposer(240);
         applySize({width:880,height:320+composerSpace()});await settle();click(toggle());await wait(()=>nativeSize.height===320);
         check(nativeSize.width===880,'Closing after manual resize preserves width and subtitle height');

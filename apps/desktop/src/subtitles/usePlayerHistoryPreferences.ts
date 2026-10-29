@@ -22,6 +22,6 @@ export function usePlayerHistoryPreferences(translation?: TranslationSettings, s
   return {
     preferences, update, getCurrent, defaultLanguages,
     hiddenTracks: preferences.hiddenTracks,
-    hiddenSourceLanguages: preferences.hiddenSourceLanguages ?? defaultLanguages,
+    hiddenSourceLanguages: preferences.hiddenSourceLanguages ?? [],
   };
 }

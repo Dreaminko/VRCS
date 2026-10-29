@@ -50,6 +50,14 @@ impl PostCommitUpdates {
             .glossary
             .set_config(effective_candidate.glossary.clone());
         *state.config.config.write().expect("config lock") = candidate.clone();
+        if state
+            .content
+            .subtitle_output
+            .microphone_speakers()
+            .set_enabled(effective_candidate.audio.microphone.speaker_filter_enabled)
+        {
+            state.content.subtitle_output.asr_reset("microphone");
+        }
         state
             .config
             .download_sources

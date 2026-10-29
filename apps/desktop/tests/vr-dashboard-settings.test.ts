@@ -10,7 +10,7 @@ import type { ApiProfileView } from "../src/providers/types.ts";
 import { VR_OVERLAY_POSITION_RANGES, type VrOverlayPositionField } from "../src/settings/vr-overlay-settings.ts";
 
 const settings = {
-  schema_version: 34,
+  schema_version: 36,
   conversation_titles: { auto_generate: false, profile_id: null, model: "", output_language: "auto" },
   features: { ...DEFAULT_FEATURE_SETTINGS },
   asr: { backend: "qwen_local_managed", language: "auto", managed_qwen: { package_id: "qwen3-asr-0.6b-q8_0", device: "auto" } },
@@ -60,8 +60,6 @@ test("direct display selections preserve other settings and ignore unchanged or 
   assert.equal(strategy.osc.translation_strategy, "all_languages");
   assert.equal(strategy.osc.port, settings.osc.port);
   assert.equal(strategy.vr_overlay, settings.vr_overlay);
-  const unavailable = { ...settings, features: { ...settings.features, osc_chatbox: false } };
-  assert.equal(applyVrDashboardAction(unavailable, { set_osc_strategy: "all_languages" }), unavailable);
   assert.equal(applyVrDashboardAction(settings, { set_osc_strategy: "invalid" }), settings);
 });
 
@@ -282,9 +280,12 @@ test("dashboard actions cannot reactivate unavailable modules", () => {
   const disabledVr = { ...settings, features: { ...settings.features, vr_overlay: false } };
   assert.equal(applyVrDashboardAction(disabledVr, "toggle_master"), disabledVr);
   assert.equal(applyVrDashboardAction(disabledVr, { set_recognition_language: "en" }), disabledVr);
-  const disabledModules = { ...settings, features: { ...settings.features, ocr: false, osc_chatbox: false } };
-  for (const action of ["toggle_ocr", "toggle_ocr_gesture", "toggle_osc", "toggle_osc_mute_sync", "cycle_osc_strategy"] as const) {
+  const disabledModules = { ...settings, features: { ...settings.features, ocr: false } };
+  for (const action of ["toggle_ocr", "toggle_ocr_gesture"] as const) {
     assert.equal(applyVrDashboardAction(disabledModules, action), disabledModules);
+  }
+  for (const action of ["toggle_osc", "toggle_osc_mute_sync", "cycle_osc_strategy"] as const) {
+    assert.notEqual(applyVrDashboardAction(disabledModules, action), disabledModules);
   }
   assert.notEqual(applyVrDashboardAction(disabledModules, "toggle_headset"), disabledModules);
 });

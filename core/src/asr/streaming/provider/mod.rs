@@ -36,6 +36,9 @@ pub(super) struct NormalizationState {
 }
 
 impl NormalizationState {
+    pub(super) fn set_speaker_session(&mut self, generation: String) {
+        self.qwen_translation.session_id = generation;
+    }
     pub(super) fn live_source_len(&self) -> usize {
         self.live_translation.source_len() + self.qwen_translation.source_len()
     }

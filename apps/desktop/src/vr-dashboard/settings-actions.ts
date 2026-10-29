@@ -96,7 +96,6 @@ function step(value: number, delta: number, minimum: number, maximum: number): n
 export function applyVrDashboardAction(settings: Settings, action: VrDashboardAction, profiles: ApiProfileView[] = []): Settings {
   if (!settings.features.vr_overlay) return settings;
   if (typeof action === "string") {
-    if (action.includes("osc") && !settings.features.osc_chatbox) return settings;
     if (action.includes("ocr") && (!settings.features.ocr || !settings.ocr.master_enabled)) return settings;
     if (action === "toggle_vision" && !settings.features.visual_question_answering) return settings;
   }
@@ -113,7 +112,7 @@ export function applyVrDashboardAction(settings: Settings, action: VrDashboardAc
     }
     if ("set_osc_strategy" in action) {
       const value = action.set_osc_strategy as Settings["osc"]["translation_strategy"];
-      if (!settings.features.osc_chatbox || !OSC_STRATEGIES.includes(value) || settings.osc.translation_strategy === value) return settings;
+      if (!OSC_STRATEGIES.includes(value) || settings.osc.translation_strategy === value) return settings;
       return { ...settings, osc: { ...settings.osc, translation_strategy: value } };
     }
     if ("adjust_display_position" in action) {

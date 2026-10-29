@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { Check, ChevronLeft, ChevronRight, Eye, EyeOff, Languages, UsersRound, X } from "lucide-react";
+import { Check, ChevronLeft, ChevronRight, Eye, EyeOff, Languages, Mic, UsersRound, X } from "lucide-react";
 import type { PlayerDisplayView, WristMenuCommand, WristMenuUi } from "../vr-controls/player-display-protocol";
 import type { SurfaceState } from "./protocol";
 
@@ -7,7 +7,7 @@ export const DEFAULT_WRIST_MENU_UI: WristMenuUi = { page: "home", group: "curren
 
 const unavailableView: PlayerDisplayView = {
   available: false, processing_available: false, player_mode: false, selection_mode: "all", selected_count: 0,
-  players: [], languages: [], follow_default: true, default_languages: [], labels: {}, busy: false, error: null,
+  players: [], languages: [], follow_default: false, default_languages: [], labels: {}, busy: false, error: null,
 };
 
 function MenuButton({ state, id, command, children, label, active = false, disabled = false, className = "" }: {
@@ -30,7 +30,8 @@ function pageSlice<T>(items: readonly T[], requested: number, size: number) {
 export function PlayerDisplayMenu({ state, view = unavailableView, ui = DEFAULT_WRIST_MENU_UI }: {
   state: SurfaceState; view?: PlayerDisplayView; ui?: WristMenuUi;
 }) {
-  if (ui.page === "home") return null;
+  const page = ui.page === "microphone" && !view.microphone ? "players" : ui.page;
+  if (page === "home") return null;
   const label = (key: string, fallback: string) => view.labels[key] || fallback;
   const named = (key: string, fallback: string, name: string) => label(key, fallback).replaceAll("{{name}}", name);
   const locked = view.busy || !view.available;
@@ -39,11 +40,19 @@ export function PlayerDisplayMenu({ state, view = unavailableView, ui = DEFAULT_
   const current = view.players.filter(player => player.current);
   const players = pageSlice(ui.group === "current" ? current : view.players.filter(player => !player.current), ui.player_page, 5);
   const languages = pageSlice(view.languages, ui.language_page, 12);
-  const activePage = ui.page === "players" ? players : languages;
-  const paging = (page: number): WristMenuCommand => ui.page === "players" ? { player_page: page } : { language_page: page };
+  const mic = view.microphone;
+  const microphones = pageSlice(mic?.speakers ?? [], ui.microphone_page ?? 0, 5);
+  const micReady = !!mic?.supported && mic.running && !!mic.generation;
+  const micStatus = !mic ? label("mic_unavailable", "Waiting for microphone status")
+    : !mic.running ? null
+    : !mic.supported ? label("mic_unsupported", "Requires Qwen Live Translate with speaker detection")
+    : !mic.generation ? label("mic_connecting", "Waiting for recognition connection")
+    : label("mic_sessionOnly", "Blocks apply to this connection; block speakers again after reconnecting");
+  const activePage = page === "players" ? players : page === "microphone" ? microphones : languages;
+  const paging = (index: number): WristMenuCommand => page === "players" ? { player_page: index } : page === "microphone" ? { microphone_page: index } : { language_page: index };
   const message = view.error || (view.busy ? label("busy", "Working") : !view.available ? label("unavailable", "Player settings are unavailable")
-    : ui.page === "players" && (!view.processing_available || !view.player_mode) ? label("processingUnavailable", "Player processing is unavailable; display controls still work")
-      : ui.page === "players" && view.selection_mode === "selected" && !current.some(player => player.selected)
+    : page === "players" && (!view.processing_available || !view.player_mode) ? label("processingUnavailable", "Player processing is unavailable; display controls still work")
+      : page === "players" && view.selection_mode === "selected" && !current.some(player => player.selected)
         ? label("noneSelected", "No current players selected; other-party audio is not being processed.") : "");
   const pagination = <div className="vr-menu-pagination">
     <MenuButton state={state} id={15} command={paging(Math.max(0, activePage.page - 1))} label={label("previous", "Previous page")} disabled={activePage.page === 0}><ChevronLeft /></MenuButton>
@@ -59,10 +68,11 @@ export function PlayerDisplayMenu({ state, view = unavailableView, ui = DEFAULT_
       <MenuButton state={state} id={5} command={{ page: "home" }} label={label("close", "Close")}><X /></MenuButton>
     </header>
     <nav className="vr-menu-tabs">
-      <MenuButton state={state} id={6} command={{ page: "players" }} active={ui.page === "players"}><UsersRound /><span>{label("playersTab", "People")}</span></MenuButton>
-      <MenuButton state={state} id={7} command={{ page: "languages" }} active={ui.page === "languages"}><Languages /><span>{label("languages", "Hidden original languages (multiple)")}</span></MenuButton>
+      <MenuButton state={state} id={6} command={{ page: "players" }} active={page === "players"}><UsersRound /><span>{label("playersTab", "People")}</span></MenuButton>
+      <MenuButton state={state} id={7} command={{ page: "languages" }} active={page === "languages"}><Languages /><span>{label("languages", "Hidden original languages")}</span></MenuButton>
+      {mic && <MenuButton state={state} id={29} command={{ page: "microphone" }} active={page === "microphone"}><Mic /><span>{label("mic_title", "Microphone speakers")}</span></MenuButton>}
     </nav>
-    {ui.page === "players" ? <>
+    {page === "players" ? <>
       <div className="vr-menu-processing" aria-label={label("process", "Players to process")} data-available={!processingLocked}>
         <MenuButton state={state} id={8} command={{ display: { set_processing_mode: "all" } }} active={view.selection_mode === "all"} disabled={processingLocked || view.selection_mode === "all"}>{label("all", "Translate everyone")}</MenuButton>
         <MenuButton state={state} id={9} command={{ display: { set_processing_mode: "selected" } }} active={view.selection_mode === "selected"} disabled={processingLocked || view.selection_mode === "selected"}>{label("selected", "Translate selected people only")}</MenuButton>
@@ -90,17 +100,33 @@ export function PlayerDisplayMenu({ state, view = unavailableView, ui = DEFAULT_
           </MenuButton>
         </div>) : <p className="vr-surface-empty">{label("empty", "Waiting for tracks or loading history.")}</p>}
       </div>
+    </> : page === "microphone" ? <>
+      <div className="vr-menu-processing">
+        <MenuButton state={state} id={8} command={{ display: { set_microphone_filter: !mic?.enabled } }} active={mic?.enabled}
+          disabled={locked || !mic}>
+          <span className="vr-menu-check" aria-hidden="true">{mic?.enabled && <Check />}</span>{label("mic_enable", "Filter microphone speakers")}
+        </MenuButton>
+        {pagination}
+      </div>
+      {micStatus && <p className="vr-menu-status" role="status">{micStatus}</p>}
+      <div className="vr-menu-player-list">
+        {microphones.items.map((speaker, index) => <div className="vr-menu-player-row" key={speaker.id}>
+          <div className="vr-menu-player-name"><strong>{speaker.name}</strong><small>{label(`mic_${speaker.decision}`, speaker.decision)} · {speaker.last_active}</small></div>
+          {(["allow", "block"] as const).map((decision, offset) => <MenuButton state={state} id={17 + index * 2 + offset} key={decision}
+            command={{ display: { set_microphone_speaker: { generation: mic!.generation, revision: mic!.revision, id: speaker.id, decision } } }}
+            active={speaker.decision === decision} disabled={locked || !micReady || !mic?.enabled || speaker.decision === decision}>
+            {label(decision === "allow" ? "mic_allowAction" : "mic_blockAction", decision === "allow" ? "Allow" : "Block")}
+          </MenuButton>)}
+        </div>)}
+        {micReady && !microphones.items.length && <p className="vr-surface-empty">{label("mic_empty", "Speak to discover speakers")}</p>}
+      </div>
     </> : <>
       <div className="vr-menu-language-actions">
-        <MenuButton state={state} id={8} command={{ display: { set_follow_default: !view.follow_default } }} active={view.follow_default} disabled={locked}>
-          <span className="vr-menu-check" aria-hidden="true">{view.follow_default && <Check />}</span>
-          <span>{label("followDefault", "Follow default")}<small>{view.default_languages.map(code => view.languages.find(language => language.code === code)?.label ?? code).join(" / ") || label("noHiddenLanguages", "No languages hidden")}</small></span>
-        </MenuButton>
         <MenuButton state={state} id={9} command={{ display: { clear_hidden_languages: null } }} disabled={locked}>{label("noHiddenLanguages", "No languages hidden")}</MenuButton>
       </div>
       <div className="vr-menu-language-list">
         {languages.items.map((language, index) => <MenuButton state={state} id={17 + index} key={language.code} className="vr-menu-language-option"
-          command={{ display: { set_source_language_hidden: { language: language.code, hidden: !language.hidden } } }} active={language.hidden} disabled={locked || view.follow_default}>
+          command={{ display: { set_source_language_hidden: { language: language.code, hidden: !language.hidden } } }} active={language.hidden} disabled={locked}>
           <span className="vr-menu-check" aria-hidden="true">{language.hidden && <Check />}</span><span>{language.label}</span>
         </MenuButton>)}
         {!languages.items.length && <p className="vr-surface-empty">{label("noHiddenLanguages", "No languages hidden")}</p>}

@@ -1017,7 +1017,7 @@ fn selected_caption_mode(show_original: bool, show_translation: bool) -> &'stati
 }
 
 fn speaker_label(item: &PresentationItem) -> Option<String> {
-    if item.source != "speaker" {
+    if !matches!(item.source.as_str(), "speaker" | "microphone") {
         return None;
     }
     item.speaker.as_ref().map(|speaker| {

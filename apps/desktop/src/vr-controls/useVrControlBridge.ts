@@ -42,7 +42,7 @@ export function useVrControlBridge(options: {
     items: [
       item(overlay?.wrist.enabled ?? false, false, options.available && Boolean(settings?.features.vr_overlay), t("settings.vrDashboard.wrist"), false, overlay?.enabled ? null : t("settings.vrOverlay.masterOff")),
       item(overlay?.headset.enabled ?? false, false, options.available && Boolean(settings?.features.vr_overlay), t("settings.vrDashboard.headset"), false, overlay?.enabled ? null : t("settings.vrOverlay.masterOff")),
-      item(settings?.osc.enabled ?? false, Boolean(settings?.features.osc_chatbox && settings.osc.enabled), options.available && Boolean(settings?.features.osc_chatbox), "OSC"),
+      item(settings?.osc.enabled ?? false, settings?.osc.enabled ?? false, options.available && Boolean(settings), "OSC"),
       item(options.getRequested(), options.running, options.available, t(options.getRequested() ? "capture.stop" : "capture.start"), options.busy),
     ],
   };

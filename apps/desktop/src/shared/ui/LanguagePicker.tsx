@@ -14,6 +14,7 @@ export function LanguagePicker({
   label,
   helper,
   value,
+  placeholder,
   languageCodes,
   allowCustom = false,
   disabled = false,
@@ -24,6 +25,7 @@ export function LanguagePicker({
   label: string;
   helper?: string;
   value: string;
+  placeholder?: string;
   languageCodes: readonly string[];
   allowCustom?: boolean;
   disabled?: boolean;
@@ -34,7 +36,7 @@ export function LanguagePicker({
   const { t, i18n } = useTranslation();
   const locale = i18n.resolvedLanguage ?? "en-US";
   const options = useMemo(() => {
-    const codes = Array.from(new Set([value, ...languageCodes]));
+    const codes = Array.from(new Set([value, ...languageCodes].filter(Boolean)));
     return codes.map((code) => languageOption(code, locale));
   }, [languageCodes, locale, value]);
 
@@ -42,6 +44,7 @@ export function LanguagePicker({
     <DropdownField
       label={label}
       value={value}
+      placeholder={placeholder}
       options={options}
       disabled={disabled}
       compact={compact}

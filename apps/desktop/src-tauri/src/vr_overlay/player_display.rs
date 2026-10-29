@@ -10,14 +10,30 @@ pub const REQUEST_EVENT: &str = "vr-overlay-player-display-request";
 #[serde(rename_all = "snake_case")]
 pub enum Action {
     SetProcessingMode(String),
-    SetUserSelected { user_id: String, selected: bool },
+    SetUserSelected {
+        user_id: String,
+        selected: bool,
+    },
     SelectCurrent(()),
     ClearSelection(()),
-    SetTrackHidden { track_id: String, hidden: bool },
+    SetTrackHidden {
+        track_id: String,
+        hidden: bool,
+    },
     ShowAllTracks(()),
     SetFollowDefault(bool),
-    SetSourceLanguageHidden { language: String, hidden: bool },
+    SetSourceLanguageHidden {
+        language: String,
+        hidden: bool,
+    },
     ClearHiddenLanguages(()),
+    SetMicrophoneFilter(bool),
+    SetMicrophoneSpeaker {
+        generation: String,
+        revision: u64,
+        id: String,
+        decision: String,
+    },
 }
 
 impl Action {
@@ -25,6 +41,21 @@ impl Action {
         let processing = view.processing_available && view.player_mode;
         let selecting = processing && view.selection_mode == "selected";
         match self {
+            Self::SetMicrophoneFilter(_) => view.microphone.is_some(),
+            Self::SetMicrophoneSpeaker {
+                generation,
+                revision,
+                id,
+                decision,
+            } => view.microphone.as_ref().is_some_and(|mic| {
+                mic.enabled
+                    && mic.running
+                    && mic.supported
+                    && mic.generation == *generation
+                    && mic.revision == *revision
+                    && matches!(decision.as_str(), "allow" | "block")
+                    && mic.speakers.iter().any(|speaker| speaker.id == *id)
+            }),
             Self::SetProcessingMode(mode) => {
                 processing && matches!(mode.as_str(), "all" | "selected")
             }
@@ -87,6 +118,25 @@ pub struct Language {
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MicrophoneSpeaker {
+    pub id: String,
+    pub index: u64,
+    pub name: String,
+    pub decision: String,
+    pub last_active: String,
+}
+
+#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Microphone {
+    pub enabled: bool,
+    pub supported: bool,
+    pub running: bool,
+    pub generation: String,
+    pub revision: u64,
+    pub speakers: Vec<MicrophoneSpeaker>,
+}
+
+#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct View {
     pub available: bool,
     pub processing_available: bool,
@@ -94,6 +144,8 @@ pub struct View {
     pub selection_mode: String,
     pub selected_count: usize,
     pub players: Vec<Player>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub microphone: Option<Microphone>,
     pub languages: Vec<Language>,
     pub follow_default: bool,
     pub default_languages: Vec<String>,
@@ -107,8 +159,39 @@ mod tests {
     use super::*;
 
     #[test]
+    fn microphone_filter_can_be_enabled_before_capture_starts() {
+        let view = View {
+            microphone: Some(Microphone::default()),
+            ..Default::default()
+        };
+        assert!(Action::SetMicrophoneFilter(true).allowed(&view));
+        assert!(Action::SetMicrophoneFilter(false).allowed(&view));
+        assert!(!Action::SetMicrophoneSpeaker {
+            generation: String::new(),
+            revision: 0,
+            id: "unknown".into(),
+            decision: "allow".into(),
+        }
+        .allowed(&view));
+        assert!(!Action::SetMicrophoneFilter(true).allowed(&View::default()));
+    }
+
+    #[test]
     fn action_payloads_match_the_shared_typescript_contract() {
         let cases = [
+            (
+                Action::SetMicrophoneFilter(true),
+                serde_json::json!({"set_microphone_filter": true}),
+            ),
+            (
+                Action::SetMicrophoneSpeaker {
+                    generation: "session".into(),
+                    revision: 7,
+                    id: "speaker-1".into(),
+                    decision: "block".into(),
+                },
+                serde_json::json!({"set_microphone_speaker": {"generation": "session", "revision": 7, "id": "speaker-1", "decision": "block"}}),
+            ),
             (
                 Action::SetProcessingMode("selected".into()),
                 serde_json::json!({"set_processing_mode": "selected"}),

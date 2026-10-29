@@ -6,6 +6,22 @@ use tokio::net::UdpSocket;
 pub(super) const CHATBOX_ADDRESS: &str = "/chatbox/input";
 
 pub(super) async fn send_chatbox(socket: &UdpSocket, port: u16, text: &str) -> Result<(), String> {
+    let bytes = encode_chatbox(text)?;
+    socket
+        .send_to(&bytes, SocketAddrV4::new(Ipv4Addr::LOCALHOST, port))
+        .await
+        .map(|_| ())
+        .map_err(|error| error.to_string())
+}
+
+pub(super) fn try_send_chatbox(socket: &UdpSocket, port: u16, text: &str) -> std::io::Result<()> {
+    let bytes = encode_chatbox(text).map_err(std::io::Error::other)?;
+    socket
+        .try_send_to(&bytes, SocketAddrV4::new(Ipv4Addr::LOCALHOST, port).into())
+        .map(|_| ())
+}
+
+fn encode_chatbox(text: &str) -> Result<Vec<u8>, String> {
     let packet = OscPacket::Message(OscMessage {
         addr: CHATBOX_ADDRESS.into(),
         args: vec![
@@ -14,10 +30,5 @@ pub(super) async fn send_chatbox(socket: &UdpSocket, port: u16, text: &str) -> R
             OscType::Bool(false),
         ],
     });
-    let bytes = encoder::encode(&packet).map_err(|error| error.to_string())?;
-    socket
-        .send_to(&bytes, SocketAddrV4::new(Ipv4Addr::LOCALHOST, port))
-        .await
-        .map(|_| ())
-        .map_err(|error| error.to_string())
+    encoder::encode(&packet).map_err(|error| error.to_string())
 }

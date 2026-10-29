@@ -8,7 +8,7 @@ pub struct FeatureConfig {
     pub glossary: bool,
     pub learning: bool,
     pub anki: bool,
-    pub osc_chatbox: bool,
+    pub microphone_speaker_filter: bool,
     pub vrcx: bool,
     pub ocr: bool,
     pub visual_question_answering: bool,
@@ -22,7 +22,7 @@ impl Default for FeatureConfig {
             glossary: true,
             learning: true,
             anki: true,
-            osc_chatbox: true,
+            microphone_speaker_filter: false,
             vrcx: true,
             ocr: true,
             visual_question_answering: false,
@@ -37,7 +37,7 @@ pub enum FeatureKey {
     Glossary,
     Learning,
     Anki,
-    OscChatbox,
+    MicrophoneSpeakerFilter,
     Vrcx,
     Ocr,
     VisualQuestionAnswering,
@@ -51,7 +51,7 @@ impl FeatureKey {
             Self::Glossary => "glossary",
             Self::Learning => "learning",
             Self::Anki => "anki",
-            Self::OscChatbox => "osc_chatbox",
+            Self::MicrophoneSpeakerFilter => "microphone_speaker_filter",
             Self::Vrcx => "vrcx",
             Self::Ocr => "ocr",
             Self::VisualQuestionAnswering => "visual_question_answering",
@@ -65,7 +65,7 @@ impl FeatureKey {
             Self::Glossary => features.glossary,
             Self::Learning => features.learning,
             Self::Anki => features.anki,
-            Self::OscChatbox => features.osc_chatbox,
+            Self::MicrophoneSpeakerFilter => features.microphone_speaker_filter,
             Self::Vrcx => features.vrcx,
             Self::Ocr => features.ocr,
             Self::VisualQuestionAnswering => features.visual_question_answering,
@@ -91,7 +91,7 @@ pub fn apply_feature_gates(config: &AppConfig) -> AppConfig {
     }
     effective.dictionary.selection_lookup_enabled &= features.learning;
     effective.anki.enabled &= features.anki;
-    effective.osc.enabled &= features.osc_chatbox;
+    effective.audio.microphone.speaker_filter_enabled &= features.microphone_speaker_filter;
     effective.osc.mute_sync_enabled &= effective.osc.enabled;
     effective.vrcx.enabled &= features.vrcx;
     effective.external_api.enabled &= features.external_api;
@@ -108,23 +108,35 @@ mod tests {
     use super::*;
 
     #[test]
-    fn osc_master_switch_gates_all_runtime_features_without_changing_preferences() {
+    fn speaker_filter_feature_gates_only_microphone_filtering() {
         let mut config = AppConfig::default();
-        for available in [false, true] {
-            for enabled in [false, true] {
-                for mute_sync in [false, true] {
-                    config.features.osc_chatbox = available;
-                    config.osc.enabled = enabled;
-                    config.osc.mute_sync_enabled = mute_sync;
-                    let effective = apply_feature_gates(&config);
-                    assert_eq!(effective.osc.enabled, available && enabled);
-                    assert_eq!(
-                        effective.osc.mute_sync_enabled,
-                        available && enabled && mute_sync
-                    );
-                    assert_eq!(config.osc.enabled, enabled);
-                    assert_eq!(config.osc.mute_sync_enabled, mute_sync);
-                }
+        config.audio.microphone.speaker_filter_enabled = true;
+        config.osc.enabled = true;
+        let disabled = apply_feature_gates(&config);
+        assert!(!disabled.audio.microphone.speaker_filter_enabled);
+        assert!(disabled.osc.enabled);
+        config.features.microphone_speaker_filter = true;
+        assert!(
+            apply_feature_gates(&config)
+                .audio
+                .microphone
+                .speaker_filter_enabled
+        );
+        assert!(config.audio.microphone.speaker_filter_enabled);
+    }
+
+    #[test]
+    fn osc_master_switch_gates_mute_sync_without_changing_preferences() {
+        let mut config = AppConfig::default();
+        for enabled in [false, true] {
+            for mute_sync in [false, true] {
+                config.osc.enabled = enabled;
+                config.osc.mute_sync_enabled = mute_sync;
+                let effective = apply_feature_gates(&config);
+                assert_eq!(effective.osc.enabled, enabled);
+                assert_eq!(effective.osc.mute_sync_enabled, enabled && mute_sync);
+                assert_eq!(config.osc.enabled, enabled);
+                assert_eq!(config.osc.mute_sync_enabled, mute_sync);
             }
         }
     }

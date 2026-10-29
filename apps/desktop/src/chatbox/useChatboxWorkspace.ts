@@ -25,7 +25,7 @@ import type { Settings } from "../settings/types";
 
 export function useChatboxWorkspace(settings: Settings | null) {
   const { t } = useTranslation();
-  const available = settings?.features.osc_chatbox ?? false;
+  const available = settings !== null;
   const availableRef = useRef(available);
   availableRef.current = available;
   const [open, setOpen] = useState(false);

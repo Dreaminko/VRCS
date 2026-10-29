@@ -4,6 +4,7 @@ import type {
   LiveTranscription,
 } from "../capture/types";
 import type { VrchatMuteStatus } from "../integrations/types";
+import { isMicrophoneSpeakerSnapshot, type MicrophoneSpeakerSnapshot } from "../capture/microphone-speakers.ts";
 import type {
   Subtitle,
   SubtitleTranslation,
@@ -38,6 +39,7 @@ export interface ConversationCatalogEvent {
 }
 
 export type SubtitleStreamMessage =
+  | { type: "microphone_speakers"; snapshot: MicrophoneSpeakerSnapshot }
   | { type: "speaker_updated"; speaker: SpeakerIdentity }
   | { type: "subtitle"; subtitle: Subtitle; utterance_id?: string }
   | { type: "conversation_catalog"; catalog: ConversationCatalog }
@@ -213,6 +215,8 @@ export function parseSubtitleStreamMessage(
   }
   if (!isObject(value) || typeof value.type !== "string") return null;
   switch (value.type) {
+    case "microphone_speakers":
+      return isMicrophoneSpeakerSnapshot(value.snapshot) ? { type: "microphone_speakers", snapshot: value.snapshot } : null;
     case "speaker_updated":
       return isObject(value.speaker) && isSpeaker(value.speaker)
         ? { type: "speaker_updated", speaker: value.speaker as unknown as SpeakerIdentity } : null;

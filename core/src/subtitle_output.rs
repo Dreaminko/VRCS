@@ -99,6 +99,13 @@ pub struct SubtitleLifecyclePublisher {
 }
 
 impl SubtitleLifecyclePublisher {
+    pub(crate) fn microphone_speakers(&self) -> &crate::microphone_speakers::MicrophoneSpeakers {
+        &self.osc.microphone_speakers
+    }
+
+    pub(crate) fn allows(&self, source: &str, message_id: &str) -> bool {
+        self.microphone_speakers().allows(source, message_id)
+    }
     #[cfg(test)]
     pub fn new(
         subtitles: broadcast::Sender<Subtitle>,
@@ -136,13 +143,17 @@ impl SubtitleLifecyclePublisher {
     }
 
     pub fn live_translation(&self, source: &str, snapshot: crate::models::LiveTranslation) {
-        self.events.live_translation(source, &snapshot);
-        let _ = self
-            .presentation
-            .send(PresentationEvent::LiveTranslationUpdated {
-                source: source.into(),
-                snapshot,
-            });
+        let filter = self.microphone_speakers();
+        let message_id = snapshot.utterance_id.clone();
+        filter.with_allowed(source, &message_id, || {
+            self.events.live_translation(source, &snapshot);
+            let _ = self
+                .presentation
+                .send(PresentationEvent::LiveTranslationUpdated {
+                    source: source.into(),
+                    snapshot,
+                });
+        });
     }
 
     pub fn subscribe_translations(&self) -> broadcast::Receiver<TranslationEvent> {
@@ -160,14 +171,17 @@ impl SubtitleLifecyclePublisher {
         translation_targets: Vec<String>,
         message_id: &str,
     ) {
-        self.events.asr_final(message_id, &subtitle);
-        self.publish_subtitle(subtitle.clone(), Some(message_id));
-        self.osc.publish_subtitle_with_targets(
-            subtitle,
-            wait_for_translation,
-            translation_targets,
-            message_id.into(),
-        );
+        self.microphone_speakers()
+            .with_allowed(&subtitle.source.clone(), message_id, || {
+                self.events.asr_final(message_id, &subtitle);
+                self.publish_subtitle(subtitle.clone(), Some(message_id));
+                self.osc.publish_subtitle_with_targets(
+                    subtitle,
+                    wait_for_translation,
+                    translation_targets,
+                    message_id.into(),
+                );
+            });
     }
 
     pub fn subtitle_recorded(&self, subtitle: Subtitle) {
@@ -183,15 +197,18 @@ impl SubtitleLifecyclePublisher {
     }
 
     pub fn asr_partial(&self, message_id: &str, source: &str, text: &str, language: Option<&str>) {
-        self.events.asr_partial(message_id, source, text, language);
-        let _ = self
-            .presentation
-            .send(PresentationEvent::RecognitionPartial {
-                utterance_id: message_id.into(),
-                source: source.into(),
-                text: text.into(),
-                language: language.map(str::to_owned),
-                speaker: None,
+        self.microphone_speakers()
+            .with_allowed(source, message_id, || {
+                self.events.asr_partial(message_id, source, text, language);
+                let _ = self
+                    .presentation
+                    .send(PresentationEvent::RecognitionPartial {
+                        utterance_id: message_id.into(),
+                        source: source.into(),
+                        text: text.into(),
+                        language: language.map(str::to_owned),
+                        speaker: None,
+                    });
             });
     }
 
@@ -255,14 +272,17 @@ impl SubtitleLifecyclePublisher {
         message_id: &str,
         source: &str,
     ) {
-        self.events
-            .translation_started(message_id, source, subtitle_id, target_language);
-        let _ = self
-            .translations
-            .send(TranslationEvent::TranslationStarted {
-                subtitle_id,
-                target_language: target_language.into(),
-                preferred,
+        self.microphone_speakers()
+            .with_allowed(source, message_id, || {
+                self.events
+                    .translation_started(message_id, source, subtitle_id, target_language);
+                let _ = self
+                    .translations
+                    .send(TranslationEvent::TranslationStarted {
+                        subtitle_id,
+                        target_language: target_language.into(),
+                        preferred,
+                    });
             });
     }
 
@@ -275,23 +295,31 @@ impl SubtitleLifecyclePublisher {
         message_id: &str,
         source: &str,
     ) {
-        self.events
-            .translation_partial(message_id, source, subtitle_id, &text, &target_language);
-        let _ = self
-            .presentation
-            .send(PresentationEvent::TranslationPartial {
-                subtitle_id,
-                text: text.clone(),
-                target_language: target_language.clone(),
-                preferred,
-            });
-        let _ = self
-            .translations
-            .send(TranslationEvent::TranslationPartial {
-                subtitle_id,
-                text,
-                target_language,
-                preferred,
+        self.microphone_speakers()
+            .with_allowed(source, message_id, || {
+                self.events.translation_partial(
+                    message_id,
+                    source,
+                    subtitle_id,
+                    &text,
+                    &target_language,
+                );
+                let _ = self
+                    .presentation
+                    .send(PresentationEvent::TranslationPartial {
+                        subtitle_id,
+                        text: text.clone(),
+                        target_language: target_language.clone(),
+                        preferred,
+                    });
+                let _ = self
+                    .translations
+                    .send(TranslationEvent::TranslationPartial {
+                        subtitle_id,
+                        text,
+                        target_language,
+                        preferred,
+                    });
             });
     }
 
@@ -303,47 +331,53 @@ impl SubtitleLifecyclePublisher {
         message_id: &str,
         source: &str,
     ) {
-        self.events
-            .translation_completed(message_id, source, subtitle_id, &translation);
-        self.osc
-            .translation_completed(subtitle_id, translation.clone(), preferred);
-        let _ = self
-            .presentation
-            .send(PresentationEvent::TranslationCompleted {
-                subtitle_id,
-                translation: translation.clone(),
-                preferred,
-            });
-        let _ = self
-            .translations
-            .send(TranslationEvent::TranslationCompleted {
-                subtitle_id,
-                translation,
-                preferred,
+        self.microphone_speakers()
+            .with_allowed(source, message_id, || {
+                self.events
+                    .translation_completed(message_id, source, subtitle_id, &translation);
+                self.osc
+                    .translation_completed(subtitle_id, translation.clone(), preferred);
+                let _ = self
+                    .presentation
+                    .send(PresentationEvent::TranslationCompleted {
+                        subtitle_id,
+                        translation: translation.clone(),
+                        preferred,
+                    });
+                let _ = self
+                    .translations
+                    .send(TranslationEvent::TranslationCompleted {
+                        subtitle_id,
+                        translation,
+                        preferred,
+                    });
             });
     }
 
     pub fn translation_failed_with_message(&self, failure: TranslationFailure<'_>) {
-        self.events.translation_failed(
-            failure.message_id,
-            failure.source,
-            failure.subtitle_id,
-            failure.target_language,
-            &failure.code,
-            &failure.detail,
-        );
-        self.osc.translation_failed(
-            failure.subtitle_id,
-            failure.target_language,
-            failure.preferred,
-        );
-        let _ = self.translations.send(TranslationEvent::TranslationFailed {
-            subtitle_id: failure.subtitle_id,
-            target_language: failure.target_language.into(),
-            preferred: failure.preferred,
-            code: failure.code,
-            detail: failure.detail,
-        });
+        self.microphone_speakers()
+            .with_allowed(failure.source, failure.message_id, || {
+                self.events.translation_failed(
+                    failure.message_id,
+                    failure.source,
+                    failure.subtitle_id,
+                    failure.target_language,
+                    &failure.code,
+                    &failure.detail,
+                );
+                self.osc.translation_failed(
+                    failure.subtitle_id,
+                    failure.target_language,
+                    failure.preferred,
+                );
+                let _ = self.translations.send(TranslationEvent::TranslationFailed {
+                    subtitle_id: failure.subtitle_id,
+                    target_language: failure.target_language.into(),
+                    preferred: failure.preferred,
+                    code: failure.code,
+                    detail: failure.detail,
+                });
+            });
     }
 
     pub fn chatbox_sent(&self, message_id: &str, message: &ChatboxMessage) {

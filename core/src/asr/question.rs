@@ -233,6 +233,7 @@ fn merge_finals_with_empty(events: Vec<CloudEvent>, allow_empty: bool) -> Result
     let mut utterances: Vec<(String, Option<String>)> = Vec::new();
     for event in events {
         let (id, text) = match event {
+            CloudEvent::SpeakerSession { .. } => continue,
             CloudEvent::Partial { utterance_id, .. } => (utterance_id, None),
             CloudEvent::Final {
                 utterance_id, text, ..

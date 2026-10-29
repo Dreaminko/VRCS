@@ -4,7 +4,7 @@ import { useTranslation } from "react-i18next";
 import { PreferenceToggle } from "../SettingsControls";
 import type { FeatureKey, FeatureSettings } from "../types";
 
-const featureKeys: FeatureKey[] = ["glossary", "learning", "anki", "osc_chatbox", "ocr", "visual_question_answering", "vr_overlay", "external_api", "vrcx"];
+const featureKeys: FeatureKey[] = ["glossary", "learning", "anki", "microphone_speaker_filter", "ocr", "visual_question_answering", "vr_overlay", "external_api", "vrcx"];
 
 export function FeatureSettingsCard({ features, disabled, onChange }: {
   features: FeatureSettings;

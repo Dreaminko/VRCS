@@ -63,6 +63,20 @@ const emptyView = (): PlayerDisplayView => ({
   players: [], languages: [], follow_default: true, default_languages: [], labels: {}, busy: false, error: null,
 });
 
+test("microphone controls keep their capture generation and do not alter player selection or visibility", async () => {
+  const actions: unknown[] = [];
+  const execute = createPlayerDisplayExecutor({
+    getState: () => ({ available: true, processingAvailable: false, speakers: [], current: [], defaultLanguages: [], languages: [] }),
+    updateSettings: async () => { throw new Error("Unexpected player settings change"); },
+    updatePreferences: () => { throw new Error("Unexpected visibility change"); },
+    updateMicrophone: async action => { actions.push(action); },
+  });
+  await execute({ set_microphone_filter: true });
+  const selection = { set_microphone_speaker: { generation: "mic-session", revision: 4, id: "speaker-2", decision: "block" as const } };
+  await execute(selection);
+  assert.deepEqual(actions, [{ set_microphone_filter: true }, selection]);
+});
+
 test("snapshot deduplication waits for its in-flight update and does not lose a reverted state", async () => {
   let view = emptyView();
   const sent: Array<{ revision: number; selected: number }> = [];
@@ -111,11 +125,9 @@ test("display actions validate live identities, actual tracks, language candidat
   await assert.rejects(execute({ set_user_selected: { user_id: "unknown", selected: true } }), /identity/);
   await assert.rejects(execute({ set_track_hidden: { track_id: `saved-user:${bob.user_id}`, hidden: true } }), /track/i);
   await assert.rejects(execute({ set_track_hidden: { track_id: "missing", hidden: true } }), /track/i);
-  await assert.rejects(execute({ set_source_language_hidden: { language: "en", hidden: true } }), /mode changed/);
-  await execute({ set_follow_default: false });
   await assert.rejects(execute({ set_source_language_hidden: { language: "fr", hidden: true } }), /language/i);
   await execute({ set_source_language_hidden: { language: "en-US", hidden: true } });
-  assert.deepEqual(preferences.hiddenSourceLanguages, ["ja", "en"]);
+  assert.deepEqual(preferences.hiddenSourceLanguages, ["en"]);
   processingAvailable = false;
   await assert.rejects(execute({ set_processing_mode: "all" }), /unavailable/);
   await execute({ set_track_hidden: { track_id: "vrc:unknown", hidden: true } });

@@ -3,6 +3,7 @@ import type { SpeakerIdentity, Subtitle } from "./types";
 import { playerUserId } from "../capture/player-selection.ts";
 import { historySpeakers, sourceLanguageKey, subtitleSourceLanguage, type PlayerHistoryPreferences } from "./player-history.ts";
 import { TRANSLATION_LANGUAGE_CODES } from "../translation/translation-languages.ts";
+import type { MicrophoneSpeakerAction } from "../capture/microphone-speakers";
 
 export type PlayerSelectionAction =
   | { set_processing_mode: "all" | "selected" }
@@ -15,7 +16,7 @@ export type PlayerVisibilityAction =
   | { set_follow_default: boolean }
   | { set_source_language_hidden: { language: string; hidden: boolean } }
   | { clear_hidden_languages: null };
-export type PlayerDisplayAction = PlayerSelectionAction | PlayerVisibilityAction;
+export type PlayerDisplayAction = PlayerSelectionAction | PlayerVisibilityAction | MicrophoneSpeakerAction;
 
 export function isPlayerSelectionAction(action: PlayerDisplayAction): action is PlayerSelectionAction {
   return "set_processing_mode" in action || "set_user_selected" in action || "select_current" in action || "clear_selection" in action;
@@ -75,13 +76,13 @@ export function applyPlayerSelectionAction(settings: Settings, action: PlayerSel
   } } };
 }
 
-export function applyPlayerVisibilityAction(preferences: PlayerHistoryPreferences, action: PlayerVisibilityAction, defaults: readonly string[]): PlayerHistoryPreferences {
+export function applyPlayerVisibilityAction(preferences: PlayerHistoryPreferences, action: PlayerVisibilityAction, _defaults: readonly string[]): PlayerHistoryPreferences {
   if ("set_track_hidden" in action) return { ...preferences, hiddenTracks: setMembership(preferences.hiddenTracks, action.set_track_hidden.track_id, action.set_track_hidden.hidden) };
   if ("show_all_tracks" in action) return { ...preferences, hiddenTracks: [] };
-  if ("set_follow_default" in action) return { ...preferences, hiddenSourceLanguages: action.set_follow_default ? null : preferences.hiddenSourceLanguages ?? [...defaults] };
+  // Preserve the explicit list when an older VR client sends this action.
+  if ("set_follow_default" in action) return { ...preferences, hiddenSourceLanguages: preferences.hiddenSourceLanguages ?? [] };
   if ("clear_hidden_languages" in action) return { ...preferences, hiddenSourceLanguages: [] };
-  if (preferences.hiddenSourceLanguages === null) throw new Error("Language mode changed; try again");
   const language = sourceLanguageKey(action.set_source_language_hidden.language);
   if (!language) throw new Error("Invalid source language");
-  return { ...preferences, hiddenSourceLanguages: setMembership(preferences.hiddenSourceLanguages, language, action.set_source_language_hidden.hidden) };
+  return { ...preferences, hiddenSourceLanguages: setMembership(preferences.hiddenSourceLanguages ?? [], language, action.set_source_language_hidden.hidden) };
 }

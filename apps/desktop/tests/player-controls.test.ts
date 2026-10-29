@@ -44,13 +44,12 @@ test("a current track with pending metadata keeps its loaded historical name", (
   assert.equal(speaker.display_name, "Alice");
 });
 
-test("track hiding is independent of language filtering and follow-default differs from an empty list", () => {
+test("track hiding is independent of explicitly selected languages", () => {
   const initial = { hiddenTracks: [alice.id], hiddenSourceLanguages: null };
-  const manual = applyPlayerVisibilityAction(initial, { set_follow_default: false }, ["zh", "ja"]);
-  assert.deepEqual(manual, { hiddenTracks: [alice.id], hiddenSourceLanguages: ["zh", "ja"] });
-  assert.deepEqual(applyPlayerVisibilityAction(manual, { show_all_tracks: null }, []), { hiddenTracks: [], hiddenSourceLanguages: ["zh", "ja"] });
+  const manual = applyPlayerVisibilityAction(initial, { set_source_language_hidden: { language: "en", hidden: true } }, ["zh", "ja"]);
+  assert.deepEqual(manual, { hiddenTracks: [alice.id], hiddenSourceLanguages: ["en"] });
+  assert.deepEqual(applyPlayerVisibilityAction(manual, { show_all_tracks: null }, []), { hiddenTracks: [], hiddenSourceLanguages: ["en"] });
   const clear = applyPlayerVisibilityAction(manual, { clear_hidden_languages: null }, []);
   assert.deepEqual(clear, { hiddenTracks: [alice.id], hiddenSourceLanguages: [] });
-  assert.equal(applyPlayerVisibilityAction(clear, { set_follow_default: true }, []).hiddenSourceLanguages, null);
-  assert.throws(() => applyPlayerVisibilityAction(initial, { set_source_language_hidden: { language: "en", hidden: true } }, []));
+  assert.deepEqual(applyPlayerVisibilityAction(clear, { set_follow_default: true }, ["zh"]).hiddenSourceLanguages, []);
 });

@@ -1257,6 +1257,7 @@ fn sample_player_display(scene: Scene) -> player_display::View {
         selection_mode: "selected".into(),
         selected_count: usize::from(!players.is_empty()),
         players,
+        microphone: None,
         languages: [
             ("en", "English"),
             ("ja", "Japanese"),
@@ -1331,6 +1332,19 @@ fn sample_player_display(scene: Scene) -> player_display::View {
 fn apply_player_display(view: &mut player_display::View, action: player_display::Action) {
     use player_display::Action;
     match action {
+        Action::SetMicrophoneFilter(enabled) => {
+            if let Some(mic) = &mut view.microphone {
+                mic.enabled = enabled;
+            }
+        }
+        Action::SetMicrophoneSpeaker { id, decision, .. } => {
+            if let Some(mic) = &mut view.microphone {
+                if let Some(speaker) = mic.speakers.iter_mut().find(|speaker| speaker.id == id) {
+                    speaker.decision = decision;
+                }
+                mic.revision += 1;
+            }
+        }
         Action::SetProcessingMode(mode) => {
             view.selection_mode = mode;
             for player in &mut view.players {

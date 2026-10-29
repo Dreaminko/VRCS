@@ -212,7 +212,7 @@ export function useVrDashboardBridge(
       },
       ocr_available: settings.features.ocr,
       vision_available: settings.features.visual_question_answering,
-      osc_available: settings.features.osc_chatbox,
+      osc_available: true,
       headset: {
         enabled: overlay.headset.enabled,
         preview_visible: status?.headset.sample_visible ?? false,

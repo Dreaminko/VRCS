@@ -8,6 +8,40 @@ use crate::providers::{
 };
 
 #[test]
+fn microphone_speakers_filter_defaults_off_and_preserves_saved_choice() {
+    let migrated = config_from_value(&serde_json::json!({"schema_version": 34})).unwrap();
+    assert!(!migrated.audio.microphone.speaker_filter_enabled);
+    let mut raw = serde_json::to_value(migrated).unwrap();
+    raw["audio"]["microphone"]["speaker_filter_enabled"] = true.into();
+    assert!(
+        config_from_value(&raw)
+            .unwrap()
+            .audio
+            .microphone
+            .speaker_filter_enabled
+    );
+}
+
+#[test]
+fn speaker_filter_feature_replaces_legacy_osc_gate_without_enabling_output() {
+    let mut raw = serde_json::to_value(AppConfig::default()).unwrap();
+    raw["schema_version"] = 35.into();
+    raw["features"]
+        .as_object_mut()
+        .unwrap()
+        .remove("microphone_speaker_filter");
+    raw["features"]["osc_chatbox"] = false.into();
+    raw["osc"]["enabled"] = true.into();
+    raw["audio"]["microphone"]["speaker_filter_enabled"] = true.into();
+    let migrated = config_from_value(&raw).unwrap();
+    let saved = serde_json::to_value(&migrated).unwrap();
+    assert_eq!(saved["features"]["microphone_speaker_filter"], true);
+    assert!(saved["features"].get("osc_chatbox").is_none());
+    assert!(!migrated.osc.enabled);
+    assert_eq!(config_from_value(&saved).unwrap(), migrated);
+}
+
+#[test]
 fn mimo_recognition_defaults_are_backfilled_without_overwriting_saved_models() {
     let mut raw = serde_json::json!({
         "schema_version": SCHEMA_VERSION,
@@ -106,12 +140,12 @@ fn feature_switches_default_on_when_upgrading_v29() {
     let value = serde_json::to_value(config).unwrap();
     assert_eq!(value["schema_version"], SCHEMA_VERSION);
     assert_eq!(value["features"]["visual_question_answering"], false);
+    assert_eq!(value["features"]["microphone_speaker_filter"], false);
     assert_eq!(value["vision"]["enabled"], false);
     for key in [
         "glossary",
         "learning",
         "anki",
-        "osc_chatbox",
         "vrcx",
         "ocr",
         "vr_overlay",

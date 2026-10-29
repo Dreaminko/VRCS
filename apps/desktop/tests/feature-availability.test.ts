@@ -11,7 +11,7 @@ test("all modules retain the existing settings categories by default", () => {
 
 test("disabled modules disappear while core settings remain available", () => {
   const features = Object.fromEntries(Object.keys(DEFAULT_FEATURE_SETTINGS).map((key) => [key, false])) as unknown as typeof DEFAULT_FEATURE_SETTINGS;
-  assert.deepEqual(visibleSettingsCategories(features), ["system", "audio", "recognition", "translation", "api", "debug"]);
+  assert.deepEqual(visibleSettingsCategories(features), ["system", "audio", "recognition", "translation", "api", "connections", "debug"]);
   assert.equal(resolveSettingsCategory("ocr", features), "system");
   assert.equal(resolveSettingsCategory("translation", features), "translation");
 });
@@ -25,12 +25,10 @@ test("vision is independently visible and legacy OCR requests resolve to vision"
   assert.equal(resolveSettingsCategory("ocr", DEFAULT_FEATURE_SETTINGS), "vision");
 });
 
-test("connections remain visible when any integration is available", () => {
-  const features = { ...DEFAULT_FEATURE_SETTINGS, anki: false, osc_chatbox: false, vrcx: false, external_api: false };
-  assert.equal(visibleSettingsCategories(features).includes("connections"), false);
-  for (const key of ["anki", "osc_chatbox", "vrcx", "external_api"] as const) {
-    assert.equal(visibleSettingsCategories({ ...features, [key]: true }).includes("connections"), true);
-  }
+test("OSC connections remain available independently of optional features", () => {
+  const features = { ...DEFAULT_FEATURE_SETTINGS, anki: false, vrcx: false, external_api: false };
+  assert.equal(visibleSettingsCategories(features).includes("connections"), true);
+  assert.equal(DEFAULT_FEATURE_SETTINGS.microphone_speaker_filter, false);
 });
 
 test("desktop OCR settings remain available when VR is disabled", () => {

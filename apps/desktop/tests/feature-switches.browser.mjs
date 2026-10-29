@@ -23,7 +23,8 @@ test("feature switches commit menu visibility and restore the switch on save fai
         import { SettingsTabBar } from './src/settings/components/SettingsTabBar';
         import { DEFAULT_FEATURE_SETTINGS, visibleSettingsCategories } from './src/settings/feature-availability';
         await i18next.use(initReactI18next).init({ lng: 'en-US', resources: { 'en-US': { translation: en.translation } } });
-        let persisted = { features: { ...DEFAULT_FEATURE_SETTINGS }, audio: { microphone: { mode: 'off', device_id: null } } };
+        let persisted = { features: { ...DEFAULT_FEATURE_SETTINGS }, audio: { output: { mode: 'disabled' }, microphone: { mode: 'disabled', device_id: null } } };
+        window.savedFeatures = () => persisted.features;
         window.fetch = async (_url, init) => {
           if (init?.method === 'PUT') {
             return await new Promise(resolve => {
@@ -65,62 +66,28 @@ test("feature switches commit menu visibility and restore the switch on save fai
     await page.addStyleTag({ content: css.outputFiles[0].text });
     await page.addScriptTag({ type: "module", content: bundle.outputFiles[0].text });
     const featureMenu = page.locator(".system-features-group");
-    const featureHeading = featureMenu.locator("summary");
-    await featureHeading.waitFor();
-    assert.equal(await featureMenu.getAttribute("open"), null);
-    assert.equal(await page.getByRole("switch").count(), 0);
-    await featureHeading.focus();
-    await featureHeading.press("Enter");
     const learning = page.getByRole("switch", { name: "Dictionary and learning", exact: true });
     await learning.waitFor({ timeout: 5000 }).catch(async () => {
       assert.fail(JSON.stringify({ errors, content: await page.locator("body").innerText() }));
     });
-    assert.equal(await page.getByRole("switch").count(), 8);
-    await page.screenshot({ path: join(resolveDir, "../../docs/superpowers/plans/feature-switches-ui.png"), fullPage: true, animations: "disabled" });
-    await learning.click();
-    assert.equal(await learning.getAttribute("aria-checked"), "false");
-    assert.equal(await page.getByRole("tab", { name: "Learning", exact: true }).count(), 1);
-    assert.equal(await learning.isDisabled(), false);
+    const speakerFilter = featureMenu.getByRole("switch", { name: "Microphone speaker blocking", exact: true });
+    assert.equal(await featureMenu.getByRole("switch", { name: "OSC Chatbox", exact: true }).count(), 0);
+    assert.equal(await speakerFilter.getAttribute("aria-checked"), "false");
+    await speakerFilter.click();
+    assert.equal(await speakerFilter.getAttribute("aria-checked"), "true");
     await page.evaluate(() => window.completeSave(true));
     await page.getByRole("alert").waitFor();
-    await page.waitForFunction(() => document.querySelector('[role=switch][aria-label="Dictionary and learning"]').getAttribute('aria-checked') === 'true');
-    assert.equal(await page.getByRole("tab", { name: "Learning", exact: true }).count(), 1);
+    await page.waitForFunction(() => document.querySelector('[role=switch][aria-label="Microphone speaker blocking"]').getAttribute('aria-checked') === 'false');
+    await speakerFilter.click();
+    await page.evaluate(() => window.completeSave(false));
+    await page.waitForFunction(() => window.savedFeatures().microphone_speaker_filter === true);
+    assert.equal(await page.evaluate(() => "osc_chatbox" in window.savedFeatures()), false);
     await learning.click();
     await page.evaluate(() => window.completeSave(false));
     await page.getByRole("tab", { name: "Learning", exact: true }).waitFor({ state: "detached" });
     await learning.click();
     await page.evaluate(() => window.completeSave(false));
     await page.getByRole("tab", { name: "Learning", exact: true }).waitFor();
-    const toggleWithAnimation = () => featureMenu.evaluate(async (menu) => {
-      const start = menu.getBoundingClientRect().height;
-      menu.querySelector("summary").click();
-      const target = menu.querySelector("summary").getBoundingClientRect().height
-        + (menu.open ? menu.querySelector(".settings-toggle-list").getBoundingClientRect().height : 0);
-      const samples = [];
-      const deadline = performance.now() + 2000;
-      do {
-        await new Promise(requestAnimationFrame);
-        samples.push(menu.getBoundingClientRect().height);
-      } while (samples.at(-1) !== target && performance.now() < deadline);
-      return { start, samples, end: menu.getBoundingClientRect().height, target };
-    });
-    const collapse = await toggleWithAnimation();
-    assert.equal(collapse.end, collapse.target);
-    assert.ok(collapse.samples.some(height => collapse.start > height && height > collapse.end), JSON.stringify(collapse));
-    await learning.waitFor({ state: "hidden" });
-    assert.equal(await page.getByRole("switch").count(), 0);
-    const expand = await toggleWithAnimation();
-    assert.equal(expand.end, expand.target);
-    assert.ok(expand.samples.some(height => expand.start < height && height < expand.end), JSON.stringify(expand));
-    assert.equal(await learning.getAttribute("aria-checked"), "true");
-    assert.equal(await page.getByRole("switch").count(), 8);
-    await page.emulateMedia({ reducedMotion: "reduce" });
-    await featureHeading.press("Space");
-    await learning.waitFor({ state: "hidden" });
-    const reducedMotion = await toggleWithAnimation();
-    assert.equal(reducedMotion.end, reducedMotion.target);
-    assert.ok(reducedMotion.samples.every(height => height === reducedMotion.start || height === reducedMotion.end));
-    assert.equal(await page.getByRole("switch").count(), 8);
     assert.deepEqual(errors, []);
   } finally {
     await browser.close();

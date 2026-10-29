@@ -9,7 +9,7 @@ import type { Settings } from "../src/settings/types.ts";
 
 function settings(): Settings {
   return {
-    features: { vr_overlay: true, osc_chatbox: true },
+    features: { vr_overlay: true, microphone_speaker_filter: false },
     vr_overlay: structuredClone(DEFAULT_VR_OVERLAY_SETTINGS),
     osc: { enabled: false, port: 9001 },
   } as Settings;
@@ -24,10 +24,11 @@ test("content controls change only their requested layer", () => {
   assert.equal(applyControlAction(next, { set_wrist_enabled: false }), next);
 });
 
-test("OSC cannot enable a disabled feature", () => {
+test("OSC remains available while microphone speaker filtering is disabled", () => {
   const current = settings();
-  current.features.osc_chatbox = false;
-  assert.throws(() => applyControlAction(current, { set_osc_enabled: true }));
+  const next = applyControlAction(current, { set_osc_enabled: true });
+  assert.equal(next.osc.enabled, true);
+  assert.equal(next.features, current.features);
   assert.equal(current.osc.enabled, false);
 });
 

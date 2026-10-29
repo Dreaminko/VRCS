@@ -11,7 +11,7 @@ import type { Settings } from "../src/settings/types.ts";
 import type { ApiCapability, ApiProfile, ApiProfileView, AsrSettings, ProviderDefinition, ProviderServiceDefinition } from "../src/providers/types.ts";
 
 const settings = {
-  schema_version: 34,
+  schema_version: 36,
   conversation_titles: { auto_generate: false, profile_id: null, model: "", output_language: "auto" },
   features: { ...DEFAULT_FEATURE_SETTINGS },
   ocr: { ...DEFAULT_OCR_SETTINGS },

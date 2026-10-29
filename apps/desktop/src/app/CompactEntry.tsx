@@ -91,7 +91,7 @@ export function CompactEntry({
         chatboxOpen={chatboxVisible}
         chatboxDisabled={!runtime.ready || overlayOpen}
         chatboxButtonRef={chatboxButtonRef}
-        onChatbox={settings.value?.features.osc_chatbox ? () => {
+        onChatbox={settings.value ? () => {
           if (chatbox.open) closeChatbox();
           else {
             selection.clear();

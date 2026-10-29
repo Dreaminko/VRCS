@@ -39,8 +39,8 @@ fn required_features(path: &str, method: &Method) -> &'static [FeatureKey] {
     if path.starts_with("/api/anki/") {
         return &[Anki];
     }
-    if path.starts_with("/api/chatbox/") || path.starts_with("/api/osc/") {
-        return &[OscChatbox];
+    if path == "/api/capture/microphone/speakers" && method == Method::PATCH {
+        return &[MicrophoneSpeakerFilter];
     }
     if path.starts_with("/api/glossaries/") || path.starts_with("/api/translations/glossar") {
         return &[Glossary];

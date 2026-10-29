@@ -59,15 +59,26 @@ export function useVrPlayerDisplayBridge(epoch: number, workspace: AppWorkspace)
     for (const id of known) if (!order.current.has(id)) order.current.set(id, nextOrder.current++);
     const labels: Record<string, string> = {
       ...(translate("live.players", { returnObjects: true }) as Record<string, string>),
+      ...Object.fromEntries(Object.entries(translate("live.microphoneSpeakers", { returnObjects: true }) as Record<string, string>).map(([key, value]) => [`mic_${key}`, value])),
       close: translate("common.close"), previous: translate("wristReader.previousPage"),
       next: translate("wristReader.nextPage"), busy: translate("settings.vrOverlay.controlBusy"),
     };
-    const hiddenLanguages = state.preferences.hiddenSourceLanguages ?? state.defaultLanguages;
+    const hiddenLanguages = state.preferences.hiddenSourceLanguages ?? [];
     const languageName = (language: string) => localizedLanguageName(language, locale);
+    const micControl = current.current.workspace.microphoneSpeakers;
+    const mic = micControl.connected && current.current.workspace.settings.getCurrent()?.features.microphone_speaker_filter
+      ? micControl.getCurrent() : null;
     return {
       available: state.available,
       processing_available: state.processingAvailable,
       player_mode: state.playerMode,
+      ...(mic ? { microphone: {
+        enabled: mic.enabled, supported: mic.supported, running: mic.running,
+        generation: mic.generation, revision: mic.revision,
+        speakers: mic.speakers.map(speaker => ({ id: speaker.id, index: speaker.index, decision: speaker.decision,
+          name: translate("live.speakerNumber", { number: speaker.index + 1 }),
+          last_active: translate("live.microphoneSpeakers.lastActive", { time: new Date(speaker.last_active_at).toLocaleTimeString(locale) }) })),
+      } } : {}),
       selection_mode: state.selected === null ? "all" : "selected",
       selected_count: state.selected?.length ?? 0,
       players: [...state.speakers].sort((a, b) => order.current.get(a.id)! - order.current.get(b.id)!).map(speaker => {
@@ -87,7 +98,7 @@ export function useVrPlayerDisplayBridge(epoch: number, workspace: AppWorkspace)
         };
       }),
       languages: state.languages.map(code => ({ code, label: languageName(code), hidden: hiddenLanguages.includes(code) })),
-      follow_default: state.preferences.hiddenSourceLanguages === null,
+      follow_default: false,
       default_languages: state.defaultLanguages.map(languageName),
       labels, busy: false, error: null,
     };
@@ -116,6 +127,7 @@ export function useVrPlayerDisplayBridge(epoch: number, workspace: AppWorkspace)
       },
       updateSettings: apply => current.current.workspace.settings.update(apply),
       updatePreferences: apply => current.current.workspace.playerDisplay.update(apply),
+      updateMicrophone: action => current.current.workspace.microphoneSpeakers.execute(action),
     });
     const receive = createPlayerDisplayReceiver({
       epoch, revision: statePublisher.revision, active: () => !disposed,

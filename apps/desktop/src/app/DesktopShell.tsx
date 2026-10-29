@@ -204,6 +204,7 @@ export function DesktopShell({
               providerDefinitions={providers.catalog.providerDefinitions}
               controls={
                 <PlayerHistoryControls
+                  microphone={features?.microphone_speaker_filter ? workspace.microphoneSpeakers : undefined}
                   subtitles={conversations.selectedSubtitles}
                   status={runtime.health?.player_audio}
                   enabled={settings.value?.audio.output.mode === "vrchat_players"}
@@ -361,7 +362,7 @@ export function DesktopShell({
 
       <BottomDock
         learningAvailable={features?.learning ?? false}
-        chatboxAvailable={features?.osc_chatbox ?? false}
+        chatboxAvailable={settings.value !== null}
         onVision={features?.visual_question_answering && settings.value?.vision.enabled && settings.value.vision.desktop_enabled ? openVision : undefined}
         visionDisabled={!runtime.ready}
         page={page}

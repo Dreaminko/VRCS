@@ -11,7 +11,7 @@ import type { AsrSettings } from "../providers/types";
 export type ModelDownloadSource = "auto" | "official" | "modelscope";
 
 export interface Settings {
-  schema_version: 34;
+  schema_version: 36;
   conversation_titles: ConversationTitleSettings;
   features: FeatureSettings;
   server: {
@@ -63,7 +63,7 @@ export interface FeatureSettings {
   glossary: boolean;
   learning: boolean;
   anki: boolean;
-  osc_chatbox: boolean;
+  microphone_speaker_filter: boolean;
   vrcx: boolean;
   ocr: boolean;
   visual_question_answering: boolean;

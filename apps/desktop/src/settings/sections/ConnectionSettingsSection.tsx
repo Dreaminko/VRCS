@@ -116,7 +116,7 @@ export function ConnectionSettingsSection({
         </div>
       </div>
       <div className="connections-settings-list">
-        {features.osc_chatbox && <section className="connections-settings-group osc-section" aria-labelledby="connections-osc-title">
+        <section className="connections-settings-group osc-section" aria-labelledby="connections-osc-title">
           <div className="section-heading connections-feature-heading">
             <div>
               <RadioTower size={18} />
@@ -220,7 +220,7 @@ export function ConnectionSettingsSection({
               </div>
             </div>
           </SettingsDisclosure>
-        </section>}
+        </section>
         {features.anki && <AnkiSettingsSection
           draft={draft}
           status={anki.status}

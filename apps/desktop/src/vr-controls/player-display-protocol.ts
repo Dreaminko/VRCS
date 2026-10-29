@@ -4,6 +4,7 @@ import { playerUserId } from "../capture/player-selection.ts";
 import { sourceLanguageKey, type PlayerHistoryPreferences } from "../subtitles/player-history.ts";
 import { applyPlayerSelectionAction, applyPlayerVisibilityAction, isPlayerSelectionAction, type PlayerDisplayAction } from "../subtitles/player-controls.ts";
 import type { ControlAction, ControlSource } from "./protocol";
+import type { MicrophoneSpeakerAction, MicrophoneSpeakerSnapshot } from "../capture/microphone-speakers";
 
 export type { PlayerDisplayAction } from "../subtitles/player-controls.ts";
 
@@ -24,6 +25,9 @@ export interface PlayerDisplayView {
   selection_mode: "all" | "selected";
   selected_count: number;
   players: PlayerDisplayRow[];
+  microphone?: Omit<MicrophoneSpeakerSnapshot, "snapshot_sequence" | "speakers"> & {
+    speakers: Array<{ id: string; index: number; decision: "allow" | "block"; name: string; last_active: string }>;
+  };
   languages: Array<{ code: string; label: string; hidden: boolean }>;
   follow_default: boolean;
   default_languages: string[];
@@ -33,10 +37,11 @@ export interface PlayerDisplayView {
 }
 
 export interface WristMenuUi {
-  page: "home" | "players" | "languages";
+  page: "home" | "players" | "languages" | "microphone";
   group: "current" | "history";
   player_page: number;
   language_page: number;
+  microphone_page?: number;
 }
 
 export type WristMenuCommand =
@@ -45,6 +50,7 @@ export type WristMenuCommand =
   | { group: WristMenuUi["group"] }
   | { player_page: number }
   | { language_page: number }
+  | { microphone_page: number }
   | { display: PlayerDisplayAction };
 
 export interface PlayerDisplayRequest {
@@ -121,6 +127,7 @@ export function createPlayerDisplayExecutor(options: {
   getState: () => PlayerDisplayExecutionState;
   updateSettings: (apply: (settings: Settings) => Settings) => Promise<Settings>;
   updatePreferences: (apply: (preferences: PlayerHistoryPreferences) => PlayerHistoryPreferences) => void;
+  updateMicrophone?: (action: MicrophoneSpeakerAction) => Promise<void>;
 }) {
   const state = () => {
     const current = options.getState();
@@ -129,6 +136,11 @@ export function createPlayerDisplayExecutor(options: {
   };
   return async (action: PlayerDisplayAction): Promise<void> => {
     state();
+    if ("set_microphone_filter" in action || "set_microphone_speaker" in action) {
+      if (!options.updateMicrophone) throw new Error("Microphone speaker controls are unavailable");
+      await options.updateMicrophone(action);
+      return;
+    }
     if (isPlayerSelectionAction(action)) {
       let expected: string[] | null | undefined;
       const saved = await options.updateSettings(settings => {

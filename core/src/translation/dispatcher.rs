@@ -157,6 +157,9 @@ async fn process_job(
     let queue_wait_ms = job.queued_at.elapsed().as_millis() as u64;
     let started = Instant::now();
     let source = job.subtitle.source.clone();
+    if !output.allows(&source, &job.message_id) {
+        return;
+    }
     output.translation_started_with_message(
         subtitle_id,
         &target.target_language,
@@ -210,6 +213,9 @@ async fn process_job(
             context.push(entry);
         }
     }
+    if !output.allows(&source, &job.message_id) {
+        return;
+    }
     let first = service
         .translate_with_progress(
             &target,
@@ -224,6 +230,9 @@ async fn process_job(
     let result = match first {
         Err(error) if retry_delay(&error).is_some() => {
             tokio::time::sleep(retry_delay(&error).unwrap()).await;
+            if !output.allows(&source, &job.message_id) {
+                return;
+            }
             service
                 .translate_with_progress(
                     &target,
@@ -238,6 +247,9 @@ async fn process_job(
         }
         other => other,
     };
+    if !output.allows(&source, &job.message_id) {
+        return;
+    }
     tracing::info!(
         subtitle_id,
         queue_wait_ms,
@@ -251,17 +263,24 @@ async fn process_job(
             let stored = tokio::task::spawn_blocking({
                 let database = Arc::clone(&database);
                 let record = record.clone();
+                let filter = output.microphone_speakers().clone();
+                let source = source.clone();
+                let message_id = job.message_id.clone();
                 move || {
-                    let database = database
-                        .lock()
-                        .map_err(|_| "Database lock is unavailable".to_string())?;
-                    let catalog_changed = database
-                        .save_translation(subtitle_id, &record)
-                        .map_err(|error| error.to_string())?;
-                    if catalog_changed {
-                        catalog.request();
-                    }
-                    Ok::<_, String>(())
+                    filter
+                        .with_allowed(&source, &message_id, || {
+                            let database = database
+                                .lock()
+                                .map_err(|_| "Database lock is unavailable".to_string())?;
+                            let catalog_changed = database
+                                .save_translation(subtitle_id, &record)
+                                .map_err(|error| error.to_string())?;
+                            if catalog_changed {
+                                catalog.request();
+                            }
+                            Ok::<_, String>(())
+                        })
+                        .unwrap_or(Ok(()))
                 }
             })
             .await;

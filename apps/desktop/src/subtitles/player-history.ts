@@ -36,11 +36,11 @@ export function defaultHiddenSourceLanguages(translation?: TranslationSettings, 
 
 export interface PlayerHistoryPreferences {
   hiddenTracks: string[];
-  /** null follows the other-party targets; [] hides no source languages. */
+  /** Legacy null values are treated as an empty selection. */
   hiddenSourceLanguages: string[] | null;
 }
 
-export const EMPTY_PLAYER_HISTORY: PlayerHistoryPreferences = { hiddenTracks: [], hiddenSourceLanguages: null };
+export const EMPTY_PLAYER_HISTORY: PlayerHistoryPreferences = { hiddenTracks: [], hiddenSourceLanguages: [] };
 export const PLAYER_HISTORY_KEY = "vrcs.player-history.v1";
 
 export function parsePlayerHistory(value: string | null): PlayerHistoryPreferences {
@@ -51,8 +51,7 @@ export function parsePlayerHistory(value: string | null): PlayerHistoryPreferenc
       : [];
     return {
       hiddenTracks: strings(parsed?.hiddenTracks, 2000),
-      hiddenSourceLanguages: parsed?.hiddenSourceLanguages == null ? null
-        : [...new Set(strings(parsed.hiddenSourceLanguages, 64).map(sourceLanguageKey).filter((language): language is string => language !== null))],
+      hiddenSourceLanguages: [...new Set(strings(parsed?.hiddenSourceLanguages, 64).map(sourceLanguageKey).filter((language): language is string => language !== null))],
     };
   } catch { return { ...EMPTY_PLAYER_HISTORY }; }
 }

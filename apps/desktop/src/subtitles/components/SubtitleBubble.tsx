@@ -200,8 +200,8 @@ export const SubtitleBubble = memo(function SubtitleBubble({
       <div className="message-meta">
         {!mine && <Volume2 size={14} />}
         {mine && <time>{timestamp(subtitle.created_at, locale)}</time>}
-        <span className="speaker-name">{source === "chatbox" ? t("chatbox.title") : mine ? t("live.microphoneMe") : speaker?.display_name || t("live.speakerOther")}</span>
-        {speaker && !speaker.display_name && <span>{t(isAudioTrack(speaker) ? "live.trackNumber" : "live.speakerNumber", { number: speaker.index + 1 })}</span>}
+        <span className="speaker-name">{source === "chatbox" ? t("chatbox.title") : mine ? speaker ? t("live.speakerNumber", { number: speaker.index + 1 }) : t("live.microphoneMe") : speaker?.display_name || t("live.speakerOther")}</span>
+        {!mine && speaker && !speaker.display_name && <span>{t(isAudioTrack(speaker) ? "live.trackNumber" : "live.speakerNumber", { number: speaker.index + 1 })}</span>}
         {!mine && <time>{timestamp(subtitle.created_at, locale)}</time>}
         {source === "microphone" && <Mic size={14} />}
         {source === "chatbox" && <MessageSquare size={14} />}

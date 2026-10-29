@@ -17,7 +17,6 @@ export function applyControlAction(settings: Settings, action: SettingsAction): 
     ...settings, vr_overlay: { ...settings.vr_overlay, wrist: { ...settings.vr_overlay.wrist, anchor_mode: action.set_anchor_mode } },
   };
   if ("set_osc_enabled" in action) {
-    if (!settings.features.osc_chatbox) throw new Error("OSC is unavailable");
     return settings.osc.enabled === action.set_osc_enabled ? settings : {
       ...settings, osc: { ...settings.osc, enabled: action.set_osc_enabled },
     };

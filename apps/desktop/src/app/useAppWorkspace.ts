@@ -21,6 +21,7 @@ import {
 import { useAppUpdater } from "../updates/useAppUpdater";
 import { useInterfaceScale } from "./useInterfaceScale";
 import { usePlayerHistoryPreferences } from "../subtitles/usePlayerHistoryPreferences";
+import { useMicrophoneSpeakers } from "../capture/useMicrophoneSpeakers";
 
 export function useAppWorkspace({
   page,
@@ -37,6 +38,8 @@ export function useAppWorkspace({
   const core = useCoreSession(page === "settings" || onboardingFlow.status !== "complete");
   const { runtime, capture: captureRuntime, settings, dictionary, subtitles } = core;
   const playerDisplay = usePlayerHistoryPreferences(settings.value?.translation, runtime.health?.language_session);
+  const microphoneSpeakers = useMicrophoneSpeakers(runtime.ready && runtime.connection === "connected"
+    && Boolean(settings.value?.features.microphone_speaker_filter), settings.update);
   const learningAvailable = settings.value?.features.learning ?? false;
   useEffect(() => {
     if (settings.value && !learningAvailable && page === "learning") setPage("live");
@@ -139,6 +142,7 @@ export function useAppWorkspace({
     },
     runtime,
     playerDisplay,
+    microphoneSpeakers,
     capture: {
       ...captureRuntime,
       ...captureControl,

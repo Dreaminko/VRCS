@@ -47,10 +47,25 @@ pub(super) async fn handle_socket(state: RealtimeContext, socket: WebSocket) {
     let mut catalog_receiver = state.content.conversation_catalog_tx.subscribe();
     let mut translation_receiver = state.content.subtitle_output.subscribe_translations();
     let mut mute_receiver = state.integrations.vrchat_mute_sync.subscribe();
+    let mut speakers = state
+        .content
+        .subtitle_output
+        .microphone_speakers()
+        .subscribe();
     let mut shutdown = state.integrations.shutdown.clone();
     let (mut sender, mut incoming) = socket.split();
     if sender
         .send(Message::Text(r#"{"type":"connected"}"#.into()))
+        .await
+        .is_err()
+    {
+        return;
+    }
+    let initial_speakers =
+        json!({ "type": "microphone_speakers", "snapshot": speakers.borrow_and_update().clone() })
+            .to_string();
+    if sender
+        .send(Message::Text(initial_speakers.into()))
         .await
         .is_err()
     {
@@ -75,6 +90,11 @@ pub(super) async fn handle_socket(state: RealtimeContext, socket: WebSocket) {
     }
     loop {
         tokio::select! {
+            changed = speakers.changed() => {
+                if changed.is_err() { break; }
+                let payload = json!({ "type": "microphone_speakers", "snapshot": speakers.borrow_and_update().clone() }).to_string();
+                if sender.send(Message::Text(payload.into())).await.is_err() { break; }
+            }
             changed = shutdown.changed() => {
                 let _ = changed;
                 break;
@@ -103,6 +123,8 @@ pub(super) async fn handle_socket(state: RealtimeContext, socket: WebSocket) {
             event = recognition_receiver.recv() => {
                 match event {
                     Ok(event) => {
+                        if matches!(event.event_type.as_str(), "asr.partial" | "asr.final" | "translation.live_updated")
+                            && !state.content.subtitle_output.allows(&event.source, &event.message_id) { continue; }
                         let Some(payload) = recognition_payload(event) else {
                             continue;
                         };

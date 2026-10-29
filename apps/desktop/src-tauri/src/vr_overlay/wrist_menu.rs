@@ -15,6 +15,7 @@ pub enum Page {
     Home,
     Players,
     Languages,
+    Microphone,
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -33,6 +34,7 @@ pub enum Command {
     Group(Group),
     PlayerPage(usize),
     LanguagePage(usize),
+    MicrophonePage(usize),
     Display(Action),
 }
 
@@ -42,6 +44,8 @@ pub struct Ui {
     pub group: Group,
     pub player_page: usize,
     pub language_page: usize,
+    #[serde(default)]
+    pub microphone_page: usize,
 }
 
 impl Ui {
@@ -67,6 +71,7 @@ impl Ui {
             }
             Command::PlayerPage(page) => self.player_page = *page,
             Command::LanguagePage(page) => self.language_page = *page,
+            Command::MicrophonePage(page) => self.microphone_page = *page,
             Command::Control(_) | Command::Display(_) => return false,
         }
         self.clamp(view);
@@ -74,6 +79,9 @@ impl Ui {
     }
 
     pub fn clamp(&mut self, view: &View) {
+        if self.page == Page::Microphone && view.microphone.is_none() {
+            self.page = Page::Players;
+        }
         let players = view
             .players
             .iter()
@@ -88,6 +96,11 @@ impl Ui {
         self.language_page = self
             .language_page
             .min(view.languages.len().saturating_sub(1) / LANGUAGES_PER_PAGE);
+        self.microphone_page =
+            self.microphone_page
+                .min(view.microphone.as_ref().map_or(0, |mic| {
+                    mic.speakers.len().saturating_sub(1) / PLAYERS_PER_PAGE
+                }));
     }
 }
 
@@ -188,7 +201,9 @@ mod tests {
         assert_eq!(ui.language_page, 0);
         view.players.clear();
         view.languages.clear();
+        ui.page = Page::Microphone;
         ui.clamp(&view);
+        assert_eq!(ui.page, Page::Players);
         assert_eq!(ui.player_page, 0);
         assert_eq!(ui.language_page, 0);
     }

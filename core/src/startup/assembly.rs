@@ -71,6 +71,9 @@ impl RuntimeAssembly {
             osc.clone(),
             domain_events.clone(),
         );
+        subtitle_output
+            .microphone_speakers()
+            .set_enabled(effective.audio.microphone.speaker_filter_enabled);
         let glossary = Arc::new(glossary::GlossaryStore::new(
             plan.glossary_cache_path.clone(),
             effective.glossary.clone(),

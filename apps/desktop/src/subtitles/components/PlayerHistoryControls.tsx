@@ -9,10 +9,14 @@ import { collectPlayerSpeakers, playerLanguageOptions, applyPlayerVisibilityActi
 import { playerUserId } from "../../capture/player-selection";
 import { localizedLanguageName } from "../../translation/translation-languages";
 import { Select } from "../../settings/SettingsControls";
+import { LanguagePicker } from "../../shared/ui/LanguagePicker";
 import { useDismissibleLayer } from "../../shared/hooks/use-dismissible-layer";
 import { useDropdownMenuMotion } from "../../shared/hooks/use-dropdown-menu-motion";
+import { MicrophoneSpeakerControls } from "../../capture/MicrophoneSpeakerControls";
+import type { MicrophoneSpeakerControl } from "../../capture/useMicrophoneSpeakers";
 
-export function PlayerHistoryControls({ subtitles, status, enabled, selectedUserIds, selectedUserNames = {}, defaultLanguages, preferences, onPreferences, onSelection }: {
+export function PlayerHistoryControls({ subtitles, status, enabled, selectedUserIds, selectedUserNames = {}, defaultLanguages, preferences, onPreferences, onSelection, microphone }: {
+  microphone?: MicrophoneSpeakerControl;
   subtitles: Subtitle[];
   status?: PlayerAudioStatus | null;
   enabled: boolean;
@@ -59,10 +63,11 @@ export function PlayerHistoryControls({ subtitles, status, enabled, selectedUser
   const currentUsers = [...new Set(current.map((player) => playerUserId(player.speaker)).filter((id): id is string => id !== null))];
   const speakers = useMemo(() => collectPlayerSpeakers(subtitles, enabled ? (status?.players ?? []).map(p => p.speaker) : [], selectedUserIds, selectedUserNames),
     [subtitles, status?.players, enabled, selectedUserIds, selectedUserNames]);
-  const languageCodes = playerLanguageOptions(subtitles, defaultLanguages, preferences.hiddenSourceLanguages);
-  const languages = preferences.hiddenSourceLanguages ?? defaultLanguages;
+  const languages = preferences.hiddenSourceLanguages ?? [];
+  const languageCodes = playerLanguageOptions(subtitles, defaultLanguages, preferences.hiddenSourceLanguages).filter(language => !languages.includes(language));
   const languageName = (language: string) => localizedLanguageName(language, i18n.resolvedLanguage ?? "en-US");
   const display = (action: PlayerVisibilityAction) => onPreferences(value => applyPlayerVisibilityAction(value, action, defaultLanguages));
+  const setLanguageHidden = (language: string, hidden: boolean) => display({ set_source_language_hidden: { language, hidden } });
   const select = async (action: PlayerSelectionAction, updatedSpeaker?: SpeakerIdentity) => {
     setBusy(true);
     const known = updatedSpeaker ? speakers.map(s => s.id === updatedSpeaker.id ? updatedSpeaker : s) : speakers;
@@ -70,7 +75,10 @@ export function PlayerHistoryControls({ subtitles, status, enabled, selectedUser
     try { await onSelection(action, known, observed); } catch { /* The shared settings error banner reports persistence failures. */ }
     finally { setBusy(false); }
   };
-  return <div className="player-history-controls" ref={rootRef}>
+  return <div className="player-history-controls" ref={rootRef} onPointerDown={(event) => {
+    // Portaled child menus remain inside this panel's dismissal boundary.
+    if (!event.currentTarget.contains(event.target as Node)) event.stopPropagation();
+  }}>
     <button type="button" className="player-history-trigger" ref={triggerRef}
       data-tooltip={t("live.players.title")} aria-label={t("live.players.title")}
       aria-expanded={open} aria-controls={panelId} onClick={() => setOpen(!open)}>
@@ -84,6 +92,7 @@ export function PlayerHistoryControls({ subtitles, status, enabled, selectedUser
         <button type="button" className="player-history-close" aria-label={t("common.close")} onClick={close}><X size={16} aria-hidden="true" /></button>
       </header>
     <div className="player-history-body">
+      {microphone && <MicrophoneSpeakerControls control={microphone} />}
       {enabled && <div className="player-history-processing">
         <Select label={t("live.players.process")} value={selectedUserIds === null ? "all" : "selected"} disabled={busy}
           options={[{value:"all",label:t("live.players.all")},{value:"selected",label:t("live.players.selected")}]}
@@ -96,13 +105,13 @@ export function PlayerHistoryControls({ subtitles, status, enabled, selectedUser
       </div>}
       <fieldset className="player-history-languages">
         <legend>{t("live.players.languages")}</legend>
-        <label className="player-history-check"><input type="checkbox" checked={preferences.hiddenSourceLanguages === null}
-          onChange={(event) => display({ set_follow_default: event.target.checked })} />
-          <span>{t("live.players.followDefault")}<small>{defaultLanguages.map(languageName).join(" · ") || t("live.players.noHiddenLanguages")}</small></span>
-        </label>
-        {preferences.hiddenSourceLanguages !== null && <div className="player-history-language-list">{languageCodes.map((language) => <label className="player-history-check" key={language}>
-          <input type="checkbox" value={language} checked={languages.includes(language)} onChange={(event) => display({ set_source_language_hidden: { language, hidden: event.target.checked } })} />{languageName(language)}
-        </label>)}</div>}
+        <div className="player-history-language-list">{languages.map((language) => <button type="button" className="language-chip player-history-language" key={language} value={language}
+          aria-label={t("live.players.removeHiddenLanguage", { language: languageName(language) })} onClick={() => setLanguageHidden(language, false)}>
+          {languageName(language)}<X size={13} aria-hidden="true" />
+        </button>)}{!languages.length && <small>{t("live.players.noHiddenLanguages")}</small>}</div>
+        <LanguagePicker label={t("live.players.addHiddenLanguage")} placeholder={t("live.players.addHiddenLanguage")} value="" languageCodes={languageCodes}
+          compact floating disabled={!open || !languageCodes.length} onChange={(language) => setLanguageHidden(language, true)} />
+        <small>{t("live.players.hiddenLanguageHint")}</small>
       </fieldset>
       <div className="player-history-actions">
         <input className="player-history-search" type="search" value={query} placeholder={t("live.players.search")} aria-label={t("live.players.search")} onChange={(event) => setQuery(event.target.value)} />

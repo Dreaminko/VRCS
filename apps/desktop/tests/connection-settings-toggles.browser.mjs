@@ -44,7 +44,7 @@ test(`connection heading switches hide dependent controls and retain configurati
           const [draft, setDraft] = useState(initial);
           settings = draft;
           return <ConnectionSettingsSection draft={draft}
-            features={{ osc_chatbox: true, anki: true, vrcx: true, external_api: true }}
+            features={{ microphone_speaker_filter: false, anki: true, vrcx: true, external_api: true }}
             health={null} saveState="saved" applySettings={setDraft} onTest={async () => {}}
             anki={{ status: null, busy: false, message: '', portText: '8766', portError: '',
               deckNames: [], modelOptions: [], frontFieldOptions: [], backFieldOptions: [],

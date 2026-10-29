@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { coreWebSocketUrl } from "./transport";
 import { clearSpeakerIdentities, publishSpeakerIdentity } from "../subtitles/speaker-state";
+import { publishMicrophoneSpeakers } from "../capture/useMicrophoneSpeakers";
 import {
   clearAudioLevels,
   clearLivePartial,
@@ -68,6 +69,7 @@ export function useCoreEventStream({
   useEffect(() => {
     if (!coreConfigured) {
       setConnection("connecting");
+      publishMicrophoneSpeakers(null);
       clearPartials();
       setVrchatMuteStatus(null);
       setConversationCatalogEvent(null);
@@ -83,6 +85,7 @@ export function useCoreEventStream({
       socket = new WebSocket(coreWebSocketUrl());
       socket.onopen = () => {
         if (closed) return;
+        publishMicrophoneSpeakers(null);
         clearSpeakerIdentities();
         setConnection("connected");
         handlersRef.current.onConnected();
@@ -91,6 +94,9 @@ export function useCoreEventStream({
         const message = parseSubtitleStreamMessage(event.data);
         if (message === null) return;
         switch (message.type) {
+          case "microphone_speakers":
+            publishMicrophoneSpeakers(message.snapshot);
+            break;
           case "speaker_updated":
             publishSpeakerIdentity(message.speaker);
             break;
@@ -189,6 +195,7 @@ export function useCoreEventStream({
       socket.onclose = () => {
         if (closed) return;
         setConnection("disconnected");
+        publishMicrophoneSpeakers(null);
         clearPartials();
         setVrchatMuteStatus(null);
         retry = window.setTimeout(connect, 1500);

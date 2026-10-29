@@ -61,16 +61,17 @@ for (const mode of ["compact", "compact-qwen", "compact-filter", "headset", "wri
           }
           const render=(scene='compact',targets=['zh-CN','ja'])=>flushSync(()=>root.render(<Workspace scene={scene} targets={targets}/>));
           render('chat');
-          flushSync(()=>policy.update({hiddenTracks:['player-0'],hiddenSourceLanguages:null}));
+          check(policy.hiddenSourceLanguages.length===0,'translation targets do not hide languages by default');
+          flushSync(()=>policy.update({hiddenTracks:['player-0'],hiddenSourceLanguages:['zh','ja']}));
           for(let i=0;i<5;i++)publishLivePartial({...preview(i),language:['en','zh','ja','en','fr'][i]});
           publishLivePartial({...preview(7),utterance_id:'my-microphone',source:'microphone',speaker:null,language:'zh',text:'自己的中文',translation:'My words'});
           render();
           const visible=()=>document.querySelector('.compact-subtitle-stack').textContent;
           await wait(()=>visible().includes('小明')&&visible().includes('Player 4')&&visible().includes('自己的中文'));
-          check(!visible().includes('Alice')&&!visible().includes('Bob')&&!visible().includes('千夏'),'Hidden live tracks and all default languages are excluded before the cap');
+          check(!visible().includes('Alice')&&!visible().includes('Bob')&&!visible().includes('千夏'),'Hidden live tracks and selected languages are excluded before the cap');
           render('chat');render('compact',['fr','ja']);
-          await wait(()=>visible().includes('Bob')&&visible().includes('小明'));
-          check(!visible().includes('Player 4'),'Changed default targets are live after switching modes');
+          await wait(()=>visible().includes('小明')&&visible().includes('Player 4'));
+          check(!visible().includes('Bob')&&policy.hiddenSourceLanguages.join(',')==='zh,ja','Changing translation targets preserves the explicit hidden list');
           flushSync(()=>policy.update({hiddenTracks:['player-0'],hiddenSourceLanguages:['en','fr']}));
           await wait(()=>visible().includes('Bob')&&visible().includes('千夏'));
           render('chat');render();
@@ -81,7 +82,7 @@ for (const mode of ["compact", "compact-qwen", "compact-filter", "headset", "wri
           const chinese={id:91,utterance_id:'player-1-qwen-source-final',source:'speaker',speaker:players[1],text:'今天我们准备检查中文过滤功能。',language:null,translations:[],created_at:'2026-10-25T00:00:00Z'};
           const english={...chinese,id:92,utterance_id:'english',speaker:players[3],text:'This English original remains visible.',language:'en',translations:[{target_language:'zh',text:'中文翻译仍然显示'}]};
           compactProps.subtitles=[chinese,english];compactProps.subtitleHistory=[chinese,english];
-          flushSync(()=>policy.update({hiddenTracks:[],hiddenSourceLanguages:null}));render();
+          flushSync(()=>policy.update({hiddenTracks:[],hiddenSourceLanguages:['zh']}));render();
           publishLivePartial({...preview(1,''),utterance_id:'player-1-qwen-preview-late',source_utterance_id:chinese.utterance_id,language:null,translation:'A late English translation'});
           publishTranslationPartial(91,{target_language:'en',text:'Another late translation',preferred:true});
           await wait(()=>visible().includes('This English original')&&visible().includes('中文翻译仍然显示'));

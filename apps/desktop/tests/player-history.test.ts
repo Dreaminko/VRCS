@@ -18,10 +18,9 @@ test("history visibility is per track, preserves other tracks and does not hide 
 
 test("hidden source languages match scripts and regions, leaving other languages and own messages visible", () => {
   const preferences = parsePlayerHistory(null);
-  assert.equal(preferences.hiddenSourceLanguages, null);
-  for (const defaults of [["zh-Hans","en"], ["ja"]]) {
-    const hidden: readonly string[] = preferences.hiddenSourceLanguages ?? defaults;
-    assert.equal(sourceLanguageVisible("speaker", defaults[0], hidden), false);
+  assert.deepEqual(preferences.hiddenSourceLanguages, []);
+  for (const hidden of [["zh-Hans","en"], ["ja"]]) {
+    assert.equal(sourceLanguageVisible("speaker", hidden[0], hidden), false);
     assert.equal(sourceLanguageVisible("speaker", "fr", hidden), true);
   }
   for (const language of ["zh", "zh-CN", "zh_Hant", "zh-TW", "en-US", "cmn", "zho", "Chinese", "Chinese (Traditional)", "English"]) {
@@ -55,7 +54,8 @@ test("default hidden languages follow every other-party target and the active la
 test("display preferences persist without changing the audio selection; malformed storage falls back", () => {
   const preferences = {hiddenTracks:["vrc:track-b"], hiddenSourceLanguages:["en","ja"]};
   assert.deepEqual(parsePlayerHistory(JSON.stringify(preferences)), preferences);
-  assert.deepEqual(parsePlayerHistory("broken"), {hiddenTracks:[],hiddenSourceLanguages:null});
+  assert.deepEqual(parsePlayerHistory("broken"), {hiddenTracks:[],hiddenSourceLanguages:[]});
+  assert.deepEqual(parsePlayerHistory('{"hiddenTracks":["a"],"hiddenSourceLanguages":null}'), {hiddenTracks:["a"],hiddenSourceLanguages:[]});
   assert.deepEqual(parsePlayerHistory('{"hiddenTracks":["a","a",10],"hiddenSourceLanguages":["zh_Hant","zh","en-US",false]}'), {hiddenTracks:["a"], hiddenSourceLanguages:["zh","en"]});
   assert.deepEqual(parsePlayerHistory('{"hiddenSourceLanguages":[]}'), {hiddenTracks:[], hiddenSourceLanguages:[]});
 });

@@ -34,14 +34,14 @@ for (const [width,reduced] of [[1100,false],[860,false],[380,false],[1100,true]]
         const translation=(language,source_language)=>({text:'译文-'+language,source_language,target_language:language,provider:'local',created_at:'2026-10-25T00:00:00Z',model:null});
         const rows=[alice,bob,null].map((speaker,index)=>({id:index+1,source:speaker?'speaker':'microphone',speaker,
           text:'原文-'+index,language:['ja','zh-CN','zh'][index],started_at:null,ended_at:null,created_at:'2026-10-25T00:00:00Z',translations:['zh-Hans','en','ja'].map(language=>translation(language,['ja','zh-CN','zh'][index]))}));
-        let state,changeDefaults,changeRows,changeFocus,changePlayers,changeHeight,scrollApi;
+        let state,changeLanguages,changeRows,changeFocus,changePlayers,changeHeight,scrollApi;
         const noop=async()=>{};
         function Fixture(){
-          const [preferences,setPreferences]=useState({hiddenTracks:[],hiddenSourceLanguages:null});
+          const [preferences,setPreferences]=useState({hiddenTracks:[],hiddenSourceLanguages:['zh','en']});
           const [selected,setSelected]=useState(null);
           const [selectedNames,setSelectedNames]=useState({});
           const [players,setPlayers]=useState([alice,bob]);
-          const [defaults,setDefaults]=useState(['zh','en']);
+          const defaults=['zh','en'];
           const [subtitles,setSubtitles]=useState(rows);
           const [focused,setFocused]=useState(null);
           const [height,setHeight]=useState(850);
@@ -49,14 +49,14 @@ for (const [width,reduced] of [[1100,false],[860,false],[380,false],[1100,true]]
           changeFocus=setFocused;
           scrollApi=useLiveConversationScroll({page:'live',activeConversationId:'current',selectedConversationId:'current',openedConversationId:'current',loadingConversationSubtitles:false,selectedConversationUpdatedAt:String(subtitles.length),focusedSubtitleId:focused});
           const scroll=scrollApi.liveScrollRef;
-          state={preferences,selected,selectedNames,subtitles};changeDefaults=setDefaults;changeRows=setSubtitles;changePlayers=setPlayers;
+          state={preferences,selected,selectedNames,subtitles};changeLanguages=languages=>setPreferences(value=>({...value,hiddenSourceLanguages:languages}));changeRows=setSubtitles;changePlayers=setPlayers;
           return <div className="app-shell live-shell sidebar-collapsed" style={{height}}><div className="window-chrome">VRCS</div><div className="app-body">
             <WorkspaceFrame page="live" scrollRef={scroll} onScroll={scrollApi.onLiveScroll} toolbar={
             <TopStatus connection="connected" health={null} settings={null} controls={<PlayerHistoryControls subtitles={subtitles} status={{players:players.map(speaker=>({speaker,active:true,selected:true}))}}
               enabled={true} selectedUserIds={selected} selectedUserNames={selectedNames} defaultLanguages={defaults} preferences={preferences} onPreferences={setPreferences}
               onSelection={async (action,speakers,current)=>{await new Promise(resolve=>setTimeout(resolve,30));const next=applyPlayerSelectionAction({audio:{output:{mode:'vrchat_players',player_audio:{selected_tracks:selected,selected_user_names:selectedNames}}}},action,speakers,current).audio.output.player_audio;setSelected(next.selected_tracks);setSelectedNames(next.selected_user_names);}} />}/>
             }>
-            <LiveView subtitles={subtitles} hiddenTracks={preferences.hiddenTracks} hiddenSourceLanguages={preferences.hiddenSourceLanguages??defaults}
+            <LiveView subtitles={subtitles} hiddenTracks={preferences.hiddenTracks} hiddenSourceLanguages={preferences.hiddenSourceLanguages??[]}
               scrollContainerRef={scroll} running={true} hasOlder={true} loading={false} loadingOlder={false} onLoadOlder={noop} onSelect={noop} />
           </WorkspaceFrame></div>{!scrollApi.followingLiveSubtitles&&<button className="live-scroll-to-bottom" onClick={()=>scrollApi.scrollLiveViewToBottom()}>返回底部</button>}</div>;
         }
@@ -68,7 +68,27 @@ for (const [width,reduced] of [[1100,false],[860,false],[380,false],[1100,true]]
           for(const animation of panel?.getAnimations()??[])animation.finish();
           await wait(()=>!panel?.isConnected||!panel.getAnimations().length);
         };
-        const languageCheckbox=code=>document.querySelector('.player-history-language-list input[value="'+code+'"]');
+        const languageChip=code=>document.querySelector('.player-history-language-list button[value="'+code+'"]');
+        const addLanguage=async code=>{
+          const panel=document.querySelector('.player-history-panel'),height=panel.getBoundingClientRect().height;
+          const trigger=document.querySelector('.player-history-languages .dropdown-trigger');
+          trigger.click();
+          const list=()=>document.getElementById(trigger.getAttribute('aria-controls'));
+          await wait(()=>list());
+          const menu=list().closest('.dropdown-menu');
+          check(menu.parentElement===document.body&&getComputedStyle(menu).position==='fixed','language options float above the settings panel');
+          check(Math.abs(panel.getBoundingClientRect().height-height)<1,'opening language options does not resize the settings panel');
+          const search=menu.querySelector('.dropdown-search');
+          search.dispatchEvent(new PointerEvent('pointerdown',{button:0,bubbles:true}));
+          Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(search,code);
+          search.dispatchEvent(new Event('input',{bubbles:true}));
+          const option=()=>[...list().querySelectorAll('[role=option]')].find(item=>item.querySelector('small')?.textContent.split(' · ').at(-1)===code);
+          await wait(option);
+          option().dispatchEvent(new PointerEvent('pointerdown',{button:0,bubbles:true}));
+          option().click();
+          await wait(()=>languageChip(code));
+          check(document.querySelector('.player-history-trigger').getAttribute('aria-expanded')==='true','interacting with floating language options keeps the settings panel open');
+        };
         const row=id=>document.querySelector('[data-subtitle-id="'+id+'"]');
         try{
           check(matchMedia('(prefers-reduced-motion: reduce)').matches===${reduced},'the system motion preference is applied');
@@ -199,8 +219,8 @@ for (const [width,reduced] of [[1100,false],[860,false],[380,false],[1100,true]]
           trigger.click();await settled();
           changeHeight(620);await settled();
           check(document.querySelector('.player-history-panel').getBoundingClientRect().bottom<=document.querySelector('.app-shell').getBoundingClientRect().bottom,'the panel fits the minimum supported window height');
-          const followDefault=document.querySelector('.player-history-languages > label input');
-          followDefault.click();await wait(()=>languageCheckbox('en'));
+          check(!document.querySelector('.player-history-languages > label input'),'hidden languages have no follow-default option');
+          check(document.querySelector('.player-history-languages .dropdown-trigger'),'hidden languages use the shared searchable picker');
           changeHeight(500);await settled();
           const panel=document.querySelector('.player-history-body');
           check(panel.scrollHeight>panel.clientHeight&&region.clientHeight>=100,'short windows scroll the expanded panel internally and retain a chat viewport');
@@ -220,8 +240,7 @@ for (const [width,reduced] of [[1100,false],[860,false],[380,false],[1100,true]]
           changePlayers([alice,bob]);await wait(()=>document.querySelectorAll('.player-history-row').length===2);
           check(Math.abs(region.scrollTop-chatTop)<1&&!scrollApi.followingLiveSubtitles,'scrolling the personnel panel does not scroll the chat or change following');
           check(toolbar.getBoundingClientRect().top===region.getBoundingClientRect().top&&toolbar.getBoundingClientRect().bottom>region.getBoundingClientRect().top,'the toolbar stays above the conversation in short windows');
-          changeHeight(850);followDefault.click();
-          await wait(()=>state.preferences.hiddenSourceLanguages===null);await settled();trigger.click();await settled();
+          changeHeight(850);await settled();trigger.click();await settled();
 
           scrollApi.scrollLiveViewToBottom('auto');await settled();changeFocus(100);await settled();
           trigger.click();await settled();trigger.click();await settled();
@@ -247,29 +266,31 @@ for (const [width,reduced] of [[1100,false],[860,false],[380,false],[1100,true]]
           check(row(14).textContent.includes('这是自己的中文原文'),'text inference never hides the microphone');
           changeRows(rows);
           await wait(()=>state.subtitles.length===3&&!row(12));
-          check(document.querySelector('legend').textContent==='隐藏的原文语言（可多选）','control describes original-language hiding');
-          changeDefaults(['ja']);
+          check(document.querySelector('legend').textContent==='隐藏的原文语言','control describes original-language hiding');
+          changeLanguages(['ja']);
           await wait(()=>!row(1)&&row(2));
-          check(row(2).textContent.includes('译文-ja')&&row(3).textContent.includes('译文-en'),'default changes hide entire matching originals, not matching translation targets');
+          check(row(2).textContent.includes('译文-ja')&&row(3).textContent.includes('译文-en'),'selected languages hide entire matching originals, not matching translation targets');
           changeRows([...rows,{...rows[0],id:4,text:'English original',language:'en-US'}]);
           await wait(()=>row(4));
-          document.querySelector('.player-history-languages > label input').click();
-          await wait(()=>languageCheckbox('en'));
-          check(languageCheckbox('zh')&&!languageCheckbox('zh-Hans')&&!languageCheckbox('zh-Hant'),'Chinese script variants share one original-language option');
-          languageCheckbox('en').click();
+          await addLanguage('fr');
+          check(state.preferences.hiddenSourceLanguages.join(',')==='ja,fr','adding a language preserves the existing selection');
+          languageChip('fr').click();
+          await wait(()=>!languageChip('fr'));
+          await addLanguage('en');
           await wait(()=>state.preferences.hiddenSourceLanguages.includes('en')&&!row(4));
-          languageCheckbox('zh').click();
+          await addLanguage('zh');
           await wait(()=>state.preferences.hiddenSourceLanguages.includes('zh')&&!row(2));
+          check(languageChip('zh')&&!languageChip('zh-Hans')&&!languageChip('zh-Hant'),'Chinese script variants share one original-language option');
           check(!row(1)&&row(3),'multiple hidden languages leave the microphone visible');
-          languageCheckbox('ja').click();
+          languageChip('ja').click();
           await wait(()=>state.preferences.hiddenSourceLanguages.length===2&&row(1));
           check(!row(2)&&!row(4),'both remaining hidden source languages still apply');
-          languageCheckbox('zh').click();
+          languageChip('zh').click();
           await wait(()=>row(2));
-          languageCheckbox('en').click();
+          languageChip('en').click();
           await wait(()=>state.preferences.hiddenSourceLanguages.length===0&&row(4));
           check(row(1)&&row(2)&&row(3),'an empty selection hides no originals or translations');
-          languageCheckbox('en').click();
+          await addLanguage('en');
           await wait(()=>!row(4));
           changeRows(rows);
           await wait(()=>state.subtitles.length===3);
@@ -301,7 +322,7 @@ for (const [width,reduced] of [[1100,false],[860,false],[380,false],[1100,true]]
           publishLivePartial({type:'partial',source:'speaker',utterance_id:'alice-live',speaker:alice,language:'en-US',text:'Hidden English original',translation:'隐藏的英文译文',target_language:'zh-Hans'});
           await wait(()=>!liveText().includes('语言暂未确定'));
           check(!liveText().includes('Hidden English original')&&!liveText().includes('隐藏的英文译文'),'language metadata hides both parts of an existing live preview');
-          languageCheckbox('zh').click();
+          await addLanguage('zh');
           await wait(()=>state.preferences.hiddenSourceLanguages.includes('zh'));
           publishLivePartial({type:'partial',source:'speaker',utterance_id:'alice-live',speaker:alice,language:'zh-Hant',text:'隱藏的中文原文',translation:'Hidden Chinese translation',target_language:'en'});
           await new Promise(resolve=>setTimeout(resolve,40));
