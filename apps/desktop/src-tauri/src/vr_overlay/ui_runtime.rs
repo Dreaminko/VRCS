@@ -546,8 +546,10 @@ impl UiRuntime {
         } else {
             events.push(LaserEvent::Leave);
         }
-        if let Some(pointer) = pointer.filter(|p| input_allowed && p.key.surface == Surface::Reader) {
-            if let Err(error) = surfaces.scroll_reader(app, scroll_delta(pointer.scroll_y, elapsed)) {
+        if let Some(pointer) = pointer.filter(|p| input_allowed && p.key.surface == Surface::Reader)
+        {
+            if let Err(error) = surfaces.scroll_reader(app, scroll_delta(pointer.scroll_y, elapsed))
+            {
                 tracing::debug!(%error, "VR reader scroll unavailable");
             }
         }
