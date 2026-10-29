@@ -6,24 +6,40 @@ import { visibleCaptionMessages } from "./caption-visibility";
 
 function Caption({ text, lines, speaker, fontSize }: { text: string; lines: number; speaker: boolean; fontSize: number }) {
   const root = useRef<HTMLDivElement>(null);
+  const value = useRef({ text, lines, speaker, fontSize });
+  const measure = useRef(() => {});
   useLayoutEffect(() => {
     const slot = root.current;
     const content = slot?.firstElementChild as HTMLSpanElement | null;
     if (!slot || !content) return;
-    let disposed = false;
-    const measure = () => {
-      if (disposed) return;
+    let previous: (typeof value.current & { width: number; height: number }) | null = null;
+    measure.current = () => {
+      const next = value.current;
+      const width = slot.clientWidth;
+      const height = slot.clientHeight;
+      if (previous && previous.text === next.text && previous.lines === next.lines
+        && previous.speaker === next.speaker && previous.fontSize === next.fontSize
+        && previous.width === width && previous.height === height) return;
+      previous = { ...next, width, height };
       const fits = (candidate: string) => {
         content.textContent = candidate;
-        return content.scrollWidth <= slot.clientWidth && content.scrollHeight <= slot.clientHeight;
+        return content.scrollWidth <= width && content.scrollHeight <= height;
       };
-      content.textContent = (speaker ? visibleCaption : visibleTail)(text, fits);
+      content.textContent = (next.speaker ? visibleCaption : visibleTail)(next.text, fits);
     };
-    measure();
-    const observer = new ResizeObserver(measure);
+    const observer = new ResizeObserver(() => measure.current());
     observer.observe(slot);
-    void document.fonts.ready.then(measure);
-    return () => { disposed = true; observer.disconnect(); };
+    const fontsChanged = () => { previous = null; measure.current(); };
+    document.fonts.addEventListener("loadingdone", fontsChanged);
+    return () => {
+      observer.disconnect();
+      document.fonts.removeEventListener("loadingdone", fontsChanged);
+      measure.current = () => {};
+    };
+  }, []);
+  useLayoutEffect(() => {
+    value.current = { text, lines, speaker, fontSize };
+    measure.current();
   }, [text, lines, speaker, fontSize]);
   return <div ref={root} className="vr-headset-language" style={{ height: Math.ceil(fontSize * 1.2 * lines) + 1, fontSize }}>
     <span style={{ whiteSpace: lines === 1 ? "nowrap" : "pre-wrap" }}>{text}</span>

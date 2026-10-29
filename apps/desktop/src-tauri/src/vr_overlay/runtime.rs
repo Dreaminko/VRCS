@@ -202,7 +202,7 @@ pub struct Manager {
     event_sender: Mutex<Option<SyncSender<PresentationEvent>>>,
     pending_control: Arc<Mutex<PendingControl>>,
     latest_config: Arc<Mutex<Option<(VrOverlayConfig, VrOcrConfig)>>>,
-    latest_dashboard: Arc<Mutex<Option<DashboardViewModel>>>,
+    latest_dashboard: Arc<Mutex<Option<Arc<DashboardViewModel>>>>,
     stopping: Arc<AtomicBool>,
     worker: Mutex<Option<JoinHandle<()>>>,
     bridges: Mutex<Vec<tauri::async_runtime::JoinHandle<()>>>,
@@ -211,7 +211,7 @@ pub struct Manager {
 impl Manager {
     #[cfg(all(windows, debug_assertions, feature = "vr-preview"))]
     pub(super) fn preview_view(&self) -> Option<DashboardViewModel> {
-        self.latest_dashboard.lock().ok()?.clone()
+        self.latest_dashboard.lock().ok()?.as_deref().cloned()
     }
     pub fn revoke_controls(&self) {
         if let Ok(mut hub) = self.controls.lock() {
@@ -256,7 +256,7 @@ impl Manager {
         *self
             .latest_dashboard
             .lock()
-            .map_err(|error| error.to_string())? = Some(view);
+            .map_err(|error| error.to_string())? = Some(Arc::new(view));
         Ok(())
     }
 
@@ -433,7 +433,7 @@ struct WorkerState {
     headset_surface: super::surface::SurfaceRenderer,
     backend: Option<OpenVrBackend>,
     session: SteamVrSession,
-    dashboard_view: Option<DashboardViewModel>,
+    dashboard_view: Option<Arc<DashboardViewModel>>,
     dashboard: DashboardState,
     #[cfg(windows)]
     dashboard_surface: super::surface::SurfaceRenderer,
@@ -477,7 +477,7 @@ fn worker_loop(
     event_receiver: Receiver<PresentationEvent>,
     pending_control: Arc<Mutex<PendingControl>>,
     latest_config: Arc<Mutex<Option<(VrOverlayConfig, VrOcrConfig)>>>,
-    latest_dashboard: Arc<Mutex<Option<DashboardViewModel>>>,
+    latest_dashboard: Arc<Mutex<Option<Arc<DashboardViewModel>>>>,
     controls: Arc<Mutex<ControlHub>>,
     placement: Arc<Mutex<Placement>>,
     stopping: Arc<AtomicBool>,
@@ -1030,16 +1030,20 @@ fn update_dashboard(
 ) {
     use super::dashboard::{DASHBOARD_HEIGHT, DASHBOARD_WIDTH};
     use super::surface::{SurfaceHub, SurfaceId, SurfaceView};
-    let Some(mut view) = state.dashboard_view.clone() else {
+    let Some(view) = state.dashboard_view.as_mut() else {
         status.dashboard.state = ResourceState::Disabled;
         status.dashboard.visible = false;
         return;
     };
-    view.player_audio_notice = state
+    let notice = state
         .controls
         .lock()
         .ok()
         .and_then(|hub| hub.player_audio().notice.clone());
+    if view.player_audio_notice != notice {
+        Arc::make_mut(view).player_audio_notice = notice;
+    }
+    let view = view.clone();
     // Error backoff is not a user hide and must not reset the Surface recovery budget.
     if backend.dashboard_visible() {
         let _ = state.dashboard_surface.request(app);
@@ -1072,7 +1076,7 @@ fn update_dashboard(
             SurfaceId::Dashboard,
             SurfaceView::Dashboard {
                 dark,
-                dashboard: Box::new(view.clone()),
+                dashboard: view.clone(),
                 ui: state.dashboard.ui.clone(),
             },
             state.dashboard.hovered,
@@ -1142,7 +1146,7 @@ fn update_dashboard(
             OverlayKind::Dashboard,
             SurfaceView::Dashboard {
                 dark,
-                dashboard: Box::new(view),
+                dashboard: view,
                 ui: state.dashboard.ui.clone(),
             },
             state.dashboard.hovered,
@@ -1314,7 +1318,7 @@ fn update_headset(
     #[cfg(windows)]
     let presented = (|| {
         use super::surface::SurfaceView;
-        let PresentationContent::Headset(messages) = &frame.content else {
+        let PresentationContent::Headset(messages) = frame.content else {
             return Err("Invalid headset content".into());
         };
         let dark = state
@@ -1337,7 +1341,7 @@ fn update_headset(
                     .as_ref()
                     .and_then(|view| view.max_visible_players),
                 dark,
-                messages: messages.clone(),
+                messages,
                 notice: notice.clone(),
                 labels: state
                     .dashboard_view

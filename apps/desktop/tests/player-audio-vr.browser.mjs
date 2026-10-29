@@ -36,12 +36,23 @@ test("VR consent shares the pending start, enforces the reading gate and publish
 
       const resources = Object.fromEntries([en, zh, hant, ja].map(locale => [locale._meta.locale, { translation: locale.translation }]));
       await i18next.use(initReactI18next).init({ lng: 'zh-CN', resources });
-      const settings = { features: { vr_overlay: true, osc_chatbox: true },
+      const settings = { features: { vr_overlay: true, microphone_speaker_filter: false },
         vr_overlay: { enabled: true, wrist: { enabled: true }, headset: { enabled: true } },
         osc: { enabled: false }, audio: { output: { mode: 'vrchat_players' } } };
       const passed = [];
       const check = (condition, message) => { if (!condition) throw Error(message); passed.push(message); };
-      const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+      const frames = new Map();
+      let frameId = 0;
+      window.requestAnimationFrame = callback => { frames.set(++frameId, callback); return frameId; };
+      window.cancelAnimationFrame = id => frames.delete(id);
+      const frame = () => {
+        const pending = [...frames.values()]; frames.clear();
+        flushSync(() => pending.forEach(callback => callback(performance.now())));
+      };
+      const sleep = async ms => {
+        await new Promise(resolve => setTimeout(resolve, ms));
+        frame(); await Promise.resolve(); frame(); await Promise.resolve();
+      };
       const wait = async predicate => { for (let i = 0; i < 300; i++) { if (predicate()) return; await sleep(20); } throw Error('Timed out: ' + predicate); };
       let gate, setHealth, sequence = 0;
       const bridge = createRoot(document.getElementById('bridge'));

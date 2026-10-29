@@ -1,5 +1,6 @@
 use std::{
     cell::{Cell, RefCell},
+    collections::VecDeque,
     rc::Rc,
     sync::{
         atomic::{AtomicBool, AtomicU32, Ordering},
@@ -57,9 +58,32 @@ struct QueuedEvent {
     event: SurfaceEvent,
 }
 
+#[derive(Default)]
+struct EventMailbox(VecDeque<QueuedEvent>);
+
+impl EventMailbox {
+    fn push(&mut self, event: QueuedEvent) -> Result<(), String> {
+        self.0.retain(|pending| {
+            pending.session != event.session
+                || !matches!(
+                    (&pending.event, &event.event),
+                    (SurfaceEvent::View(_), SurfaceEvent::View(_))
+                        | (SurfaceEvent::Pointer(_), SurfaceEvent::Pointer(_))
+                        | (SurfaceEvent::Repaint, SurfaceEvent::Repaint)
+                )
+        });
+        // Scroll order matters when input reverses at a viewport edge.
+        if self.0.len() >= 256 {
+            return Err("Surface event queue is full".into());
+        }
+        self.0.push_back(event);
+        Ok(())
+    }
+}
+
 struct Shared {
     control: Mutex<ControlMailbox>,
-    events: mpsc::SyncSender<QueuedEvent>,
+    events: Mutex<EventMailbox>,
     thread_id: AtomicU32,
     notified: AtomicBool,
     error: Mutex<Option<String>>,
@@ -93,25 +117,22 @@ struct HostThread {
 pub(crate) struct NativeHostManager {
     app: AppHandle,
     shared: Arc<Shared>,
-    events: Mutex<Option<mpsc::Receiver<QueuedEvent>>>,
     thread: Mutex<Option<HostThread>>,
 }
 
 impl NativeHostManager {
     pub fn start(app: AppHandle) -> Result<Self, String> {
-        let (tx, rx) = mpsc::sync_channel(256);
         Ok(Self {
             app,
             shared: Arc::new(Shared {
                 control: Mutex::new(ControlMailbox::default()),
-                events: tx,
+                events: Mutex::new(EventMailbox::default()),
                 thread_id: AtomicU32::new(0),
                 notified: AtomicBool::new(false),
                 error: Mutex::new(None),
                 #[cfg(all(debug_assertions, feature = "vr-preview"))]
                 counts: Mutex::new((0, 0)),
             }),
-            events: Mutex::new(Some(rx)),
             thread: Mutex::new(None),
         })
     }
@@ -146,19 +167,13 @@ impl NativeHostManager {
         }
         let mut thread = self.thread.lock().unwrap_or_else(|e| e.into_inner());
         if thread.is_none() {
-            let events = self
-                .events
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .take()
-                .ok_or("Native surface thread has stopped")?;
             let shared = self.shared.clone();
             let app = self.app.clone();
             let (done, receiver) = mpsc::sync_channel(1);
             let join = std::thread::Builder::new()
                 .name("vr-surface-sta".into())
                 .spawn(move || {
-                    let result = run(app, shared.clone(), events);
+                    let result = run(app, shared.clone());
                     if let Err(error) = &result {
                         *shared.error.lock().unwrap_or_else(|e| e.into_inner()) =
                             Some(error.clone());
@@ -192,10 +207,14 @@ impl NativeHostManager {
         let Some(session) = session.filter(|session| session.host == id) else {
             return Ok(());
         };
+        if self.shared.thread_id.load(Ordering::Acquire) == 0 {
+            return Err("Native surface thread has stopped".into());
+        }
         self.shared
             .events
-            .try_send(QueuedEvent { session, event })
-            .map_err(|_| "Surface event queue is full or closed")?;
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .push(QueuedEvent { session, event })?;
         self.shared.wake();
         Ok(())
     }
@@ -403,11 +422,7 @@ fn host_error(app: &AppHandle, id: HostId, error: String) {
     }
 }
 
-fn run(
-    app: AppHandle,
-    shared: Arc<Shared>,
-    events: mpsc::Receiver<QueuedEvent>,
-) -> Result<(), String> {
+fn run(app: AppHandle, shared: Arc<Shared>) -> Result<(), String> {
     super::windows_wgc::ensure_capture_supported()?;
     unsafe { RoInitialize(RO_INIT_SINGLETHREADED) }
         .map_err(|e| failure("Initialize surface STA", e))?;
@@ -490,7 +505,7 @@ fn run(
             }
             start_environment(&state, &profile);
         }
-        let timeout = process(&state, &events);
+        let timeout = process(&state);
         #[cfg(all(debug_assertions, feature = "vr-preview"))]
         {
             let state = state.borrow();
@@ -646,7 +661,7 @@ fn environment_error(state: &mut Sta, error: String) {
     state.failure = Some(error);
 }
 
-fn process(state: &Rc<RefCell<Sta>>, events: &mpsc::Receiver<QueuedEvent>) -> u32 {
+fn process(state: &Rc<RefCell<Sta>>) -> u32 {
     if state.borrow().browser_failed.get() {
         let state = state.borrow();
         for host in state.hosts.iter().flatten() {
@@ -798,10 +813,16 @@ fn process(state: &Rc<RefCell<Sta>>, events: &mpsc::Receiver<QueuedEvent>) -> u3
             }
         }
     }
-    for _ in 0..256 {
-        let Ok(event) = events.try_recv() else {
-            break;
-        };
+    let events = std::mem::take(
+        &mut state
+            .borrow()
+            .shared
+            .events
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .0,
+    );
+    for event in events {
         let state = state.borrow();
         if state.shared.current(event.session.host).is_none() {
             continue;
@@ -1157,15 +1178,19 @@ impl NativeHost {
                 let request = args.Request()?;
                 let uri = read_string(|out| request.Uri(out))?;
                 let method = read_string(|out| request.Method(out))?;
-                let (status, bytes, mime, csp) = match policy.route(&method, &uri) {
+                let (status, bytes, mime, csp, cache) = match policy.route(&method, &uri) {
                     ResourceRoute::Network => return Ok(()),
-                    ResourceRoute::Reject(status) => (status, Vec::new(), "text/plain".into(), None),
-                    ResourceRoute::Asset(path) => match app.asset_resolver().get_for_scheme(path, true) {
-                        Some(asset) => (200, asset.bytes, asset.mime_type, asset.csp_header),
-                        None => (404, Vec::new(), "text/plain".into(), None),
+                    ResourceRoute::Reject(status) => (status, Vec::new(), "text/plain".into(), None, "no-store"),
+                    ResourceRoute::Asset(path) => {
+                        // Vite places content-hashed build assets in this directory.
+                        let cache = if path.starts_with("assets/") { "public, max-age=31536000, immutable" } else { "no-store" };
+                        match app.asset_resolver().get_for_scheme(path, true) {
+                            Some(asset) => (200, asset.bytes, asset.mime_type, asset.csp_header, cache),
+                            None => (404, Vec::new(), "text/plain".into(), None, "no-store"),
+                        }
                     },
                 };
-                let mut headers = format!("Content-Type: {mime}\r\nX-Content-Type-Options: nosniff\r\nContent-Security-Policy: {SURFACE_CSP}\r\nCache-Control: no-store\r\n");
+                let mut headers = format!("Content-Type: {mime}\r\nX-Content-Type-Options: nosniff\r\nContent-Security-Policy: {SURFACE_CSP}\r\nCache-Control: {cache}\r\n");
                 if let Some(csp) = csp { headers.push_str(&format!("Content-Security-Policy: {csp}\r\n")); }
                 let headers = CoTaskMemPWSTR::from(headers.as_str());
                 let stream = SHCreateMemStream(Some(if method == "HEAD" { &[] } else { &bytes }));
@@ -1295,7 +1320,99 @@ impl ControlMailbox {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::vr_overlay::surface::SurfaceId;
+    use crate::vr_overlay::surface::{SurfaceId, SurfaceKey, SurfacePointer, SurfaceScroll};
+
+    fn session(surface: SurfaceId) -> DocumentSession {
+        DocumentSession {
+            host: HostId {
+                surface,
+                host_epoch: 1,
+            },
+            navigation_id: 1,
+            nonce: "document-a".into(),
+            source: "https://vrcs-surface.invalid/vr-surface.html".into(),
+        }
+    }
+
+    #[test]
+    fn feedback_events_keep_only_the_latest_state_per_document() {
+        let session = session(SurfaceId::Menu);
+        let mut events = EventMailbox::default();
+        let mut entry = super::super::Entry::default();
+        entry.publish(
+            super::super::SurfaceView::Menu {
+                players: Default::default(),
+                ui: Default::default(),
+                controls: Default::default(),
+                hold_progress: None,
+            },
+            None,
+            None,
+        );
+        let mut state = entry.state.unwrap();
+        for revision in 1..=1000 {
+            state.key.revision = revision;
+            for event in [
+                SurfaceEvent::View(state.clone()),
+                SurfaceEvent::Pointer(SurfacePointer {
+                    key: state.key,
+                    point: Some([0.5, 0.5]),
+                }),
+                SurfaceEvent::Repaint,
+            ] {
+                events
+                    .push(QueuedEvent {
+                        session: session.clone(),
+                        event,
+                    })
+                    .unwrap();
+            }
+        }
+        assert_eq!(events.0.len(), 3);
+        assert!(
+            matches!(&events.0[0].event, SurfaceEvent::View(state) if state.key.revision == 1000)
+        );
+        assert!(
+            matches!(&events.0[1].event, SurfaceEvent::Pointer(pointer) if pointer.key.revision == 1000)
+        );
+    }
+
+    #[test]
+    fn event_coalescing_preserves_scroll_reversals_and_document_boundaries() {
+        let first = session(SurfaceId::Reader);
+        let mut second = first.clone();
+        second.navigation_id += 1;
+        second.nonce = "document-b".into();
+        let mut events = EventMailbox::default();
+        for delta in [1.0, -0.25] {
+            events
+                .push(QueuedEvent {
+                    session: first.clone(),
+                    event: SurfaceEvent::Scroll(SurfaceScroll {
+                        key: SurfaceKey {
+                            generation: 1,
+                            revision: 1,
+                        },
+                        delta,
+                    }),
+                })
+                .unwrap();
+        }
+        for session in [first.clone(), second.clone(), first] {
+            events
+                .push(QueuedEvent {
+                    session,
+                    event: SurfaceEvent::Repaint,
+                })
+                .unwrap();
+        }
+        assert_eq!(events.0.len(), 4);
+        assert!(matches!(&events.0[0].event, SurfaceEvent::Scroll(scroll) if scroll.delta == 1.0));
+        assert!(
+            matches!(&events.0[1].event, SurfaceEvent::Scroll(scroll) if scroll.delta == -0.25)
+        );
+        assert_eq!(events.0[2].session, second);
+    }
 
     #[test]
     fn full_event_queue_cannot_block_hide_close_or_shutdown() {
@@ -1311,11 +1428,22 @@ mod tests {
                 request: 1
             }
         }));
-        let (tx, _rx) = std::sync::mpsc::sync_channel(256);
+        let mut events = EventMailbox::default();
+        let session = session(SurfaceId::Reader);
+        let scroll = || QueuedEvent {
+            session: session.clone(),
+            event: SurfaceEvent::Scroll(SurfaceScroll {
+                key: SurfaceKey {
+                    generation: 1,
+                    revision: 1,
+                },
+                delta: 0.5,
+            }),
+        };
         for _ in 0..256 {
-            tx.try_send(SurfaceEvent::Repaint).unwrap();
+            events.push(scroll()).unwrap();
         }
-        assert!(tx.try_send(SurfaceEvent::Repaint).is_err());
+        assert!(events.push(scroll()).is_err());
         assert!(control.activity(
             id,
             SurfaceActivity {

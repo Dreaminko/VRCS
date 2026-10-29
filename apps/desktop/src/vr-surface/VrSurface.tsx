@@ -156,6 +156,8 @@ export const VrSurface = memo(function VrSurface({ state, onLayout }: { state: S
   const dark = "dark" in state.view ? state.view.dark : state.view.controls.dark;
   const fontSize = "font_size" in state.view ? Math.min(state.view.kind === "headset" ? 68 : 64, Math.max(16, state.view.font_size)) : 28;
   const opacity = "opacity" in state.view ? Math.min(1, Math.max(0, state.view.opacity)) : 1;
+  // Menu feedback changes pixels while keeping the layout key.
+  const layoutContent = state.view.kind === "menu" ? state.key : state.view;
 
   useLayoutEffect(() => {
     const element = root.current;
@@ -194,7 +196,7 @@ export const VrSurface = memo(function VrSurface({ state, onLayout }: { state: S
     void document.fonts.ready.then(measure);
     element.addEventListener("vr-surface-layout", measure);
     return () => { disposed = true; observer.disconnect(); element.removeEventListener("vr-surface-layout", measure); };
-  }, [state.view, state.key.generation, state.key.revision, onLayout, fontSize]);
+  }, [layoutContent, state.key.generation, state.key.revision, onLayout, fontSize]);
 
   const style = { width, height, "--vr-font-size": `${fontSize}px`, "--vr-background-opacity": opacity } as CSSProperties;
   return <div ref={root} className={`vr-surface vr-surface-${state.view.kind}`} data-theme={dark ? "dark" : "light"} style={style}>

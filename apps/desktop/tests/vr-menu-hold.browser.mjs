@@ -24,6 +24,7 @@ test("Menu hold feedback preserves hit bounds and the preview samples a stationa
       import { flushSync } from 'react-dom';
       import { VrSurface } from './src/vr-surface/VrSurface';
       import { SurfaceHost as Host } from './src/vr-surface/SurfaceHost';
+      import { Headset } from './src/vr-surface/PassiveSurfaces';
       import { connectFixture } from 'fixture:surface';
       const SurfaceHost = ({ surface }) => <Host surface={surface} connect={connectFixture} />;
       import { VrPreview } from './src/vr-preview/VrPreview';
@@ -31,12 +32,29 @@ test("Menu hold feedback preserves hit bounds and the preview samples a stationa
       import './src/styles.css';
 
       const root = createRoot(document.getElementById('root'));
+      const getBounds = Element.prototype.getBoundingClientRect;
+      let layoutMeasurements = 0;
+      Element.prototype.getBoundingClientRect = function () {
+        if (this.classList.contains('vr-surface')) layoutMeasurements++;
+        return getBounds.call(this);
+      };
       const passed = [];
       const check = (condition, message) => {
         if (!condition) throw new Error(message);
         passed.push(message);
       };
-      const settle = (ms = 40) => new Promise(resolve => setTimeout(resolve, ms));
+      const frames = new Map();
+      let frameId = 0;
+      window.requestAnimationFrame = callback => { frames.set(++frameId, callback); return frameId; };
+      window.cancelAnimationFrame = id => frames.delete(id);
+      const frame = () => {
+        const pending = [...frames.values()]; frames.clear();
+        flushSync(() => pending.forEach(callback => callback(performance.now())));
+      };
+      const settle = async (ms = 40) => {
+        await new Promise(resolve => setTimeout(resolve, ms));
+        frame(); await Promise.resolve(); frame(); await Promise.resolve();
+      };
       const ring = () => document.querySelector('.vr-menu-hold-progress');
       const buttons = () => [...document.querySelectorAll('[data-vr-region]')];
       const bounds = () => JSON.stringify(buttons().map(button => {
@@ -45,6 +63,24 @@ test("Menu hold feedback preserves hit bounds and the preview samples a stationa
       }));
 
       async function run() {
+        const observers = new Set();
+        const observe = ResizeObserver.prototype.observe;
+        ResizeObserver.prototype.observe = function (target, ...args) {
+          if (target.classList.contains('vr-headset-language')) observers.add(this);
+          return observe.call(this, target, ...args);
+        };
+        const headset = { kind: 'headset', dark: true, messages: [], max_visible_players: null,
+          lines_per_language: 1, font_size: 28, opacity: 1 };
+        for (let index = 0; index < 6; index++) {
+          flushSync(() => root.render(<Headset view={{ ...headset, messages: [
+            { text: 'Older words '.repeat(100) + 'latest' + index, side: 'left' },
+          ] }} />));
+        }
+        check(observers.size === 1, 'Streaming captions reuse their size observer');
+        const caption = document.querySelector('.vr-headset-language');
+        check(caption.textContent.endsWith('latest5') && caption.firstElementChild.scrollWidth <= caption.clientWidth,
+          'Streaming captions keep the latest fitting text');
+        ResizeObserver.prototype.observe = observe;
         let layout;
         const onLayout = next => { layout = next; };
         for (const dark of [false, true]) {
@@ -98,12 +134,20 @@ test("Menu hold feedback preserves hit bounds and the preview samples a stationa
         const publish = (hold_progress, pressed) => flushSync(() => emit('vr-surface-view', {
           ...preview.surface, pressed, view: { ...preview.surface.view, hold_progress },
         }));
+        publish(null, null);
+        await document.fonts.ready;
+        await settle();
+        const initialMeasurements = layoutMeasurements;
         publish(0.5, 0);
+        await settle();
         check(ring()?.getAttribute('aria-valuenow') === '50', 'Captured menu accepts progress under the same layout key');
         publish(1, 0);
+        await settle();
         check(ring()?.getAttribute('aria-valuenow') === '100', 'Captured menu displays completed progress');
         publish(null, null);
+        await settle();
         check(!ring(), 'Captured menu clears progress on release');
+        check(layoutMeasurements === initialMeasurements, 'Hold feedback does not measure unchanged menu geometry: ' + initialMeasurements + ' -> ' + layoutMeasurements);
 
         preview.surface.pointer = [0.18, 0.5];
         flushSync(() => root.render(<VrPreview />));

@@ -3,7 +3,7 @@ import { createRoot } from "react-dom/client";
 import { connectSurfaceBridge, type SurfaceBridge } from "./bridge";
 import { SurfaceHost } from "./SurfaceHost";
 import { isSurface } from "./protocol";
-import "../styles.css";
+import "../styles/base.css";
 
 let connection: SurfaceBridge | null = null;
 function fault(stage: "startup" | "render" | "unhandled") {

@@ -23,11 +23,14 @@ test("surface sleep preserves reading position and visual receipts follow actual
       import { connectFixture } from 'fixture:surface';
       const SurfaceHost = ({ surface }) => <Host surface={surface} connect={connectFixture} />;
       import { emit, calls } from 'fixture:tauri';
-      import './src/styles.css';
+      import './src/styles/base.css';
 
       const passed = [];
       const check = (condition, message) => { if (!condition) throw new Error(message); passed.push(message); };
-      const settle = () => new Promise(resolve => setTimeout(resolve, 80));
+      const settle = async () => {
+        await new Promise(resolve => setTimeout(resolve, 80));
+        frame(); await Promise.resolve(); frame(); await Promise.resolve();
+      };
       let frameId = 0;
       const frames = new Map();
       window.requestAnimationFrame = callback => { frames.set(++frameId, callback); return frameId; };
@@ -54,6 +57,11 @@ test("surface sleep preserves reading position and visual receipts follow actual
         check(document.querySelectorAll('.vr-surface-marker i').length === 128, 'Marker fits two rows at the minimum surface width');
         const initial = serial(); publish({ hovered: 6 }); await settle();
         check(serial() > initial, 'Hover changes pixels without changing the content key');
+        const beforeBurst = paints().length;
+        publish({ hovered: 1 }); publish({ hovered: 2 }); publish({ hovered: 3 });
+        check(paints().length === beforeBurst, 'A burst waits for the next browser frame');
+        frame(); await settle();
+        check(paints().length === beforeBurst + 1, 'A burst produces one visual receipt');
         const hover = serial();
         emit('vr-surface-scroll', { key: state.key, delta: 0.5 }); frame(); await settle();
         check(viewport().scrollTop > 0 && serial() > hover, 'Scroll requests fresh captured pixels');
@@ -140,7 +148,7 @@ test("surface sleep preserves reading position and visual receipts follow actual
     assert.ok(output, "The lifecycle fixture must finish");
     const result = JSON.parse(output);
     assert.equal(result.error, undefined, result.error);
-    assert.equal(result.passed.length, 16, JSON.stringify(result));
+    assert.equal(result.passed.length, 18, JSON.stringify(result));
   } finally {
     rmSync(directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
   }

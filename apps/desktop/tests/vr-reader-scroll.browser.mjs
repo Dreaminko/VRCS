@@ -27,14 +27,17 @@ test("VR reader and dialogue scrolling preserves position and bounds caption ren
       const SurfaceHost = ({ surface }) => <Host surface={surface} connect={connectFixture} />;
       import { VrPreview } from './src/vr-preview/VrPreview';
       import { emit, preview } from 'fixture:tauri';
-      import './src/styles.css';
+      import './src/styles/base.css';
 
       const passed = [];
       const check = (condition, message) => {
         if (!condition) throw new Error(message);
         passed.push(message);
       };
-      const settle = () => new Promise(resolve => setTimeout(resolve, 30));
+      const settle = async () => {
+        await new Promise(resolve => setTimeout(resolve, 30));
+        frame(); await Promise.resolve(); frame(); await Promise.resolve();
+      };
       let frameId = 0;
       const frames = new Map();
       window.requestAnimationFrame = callback => { frames.set(++frameId, callback); return frameId; };
@@ -63,6 +66,7 @@ test("VR reader and dialogue scrolling preserves position and bounds caption ren
       const publish = patch => {
         state = { ...state, key: { ...state.key, revision: state.key.revision + 1 }, ...patch };
         flushSync(() => emit('vr-surface-view', state));
+        frame();
       };
       const reader = patch => {
         const reset = ['mode', 'block_index', 'source', 'translation_label', 'source_only', 'page'].some(key => key in patch && patch[key] !== state.view.reader[key]);
@@ -82,6 +86,7 @@ test("VR reader and dialogue scrolling preserves position and bounds caption ren
         check(!document.querySelector('.vr-surface-pointer'), 'In-game reader leaves the cursor to OpenVR');
         check(viewport().scrollHeight > viewport().clientHeight + 1000, 'Long reader content overflows');
         check(!document.querySelector('[data-vr-region="2"], [data-vr-region="3"]'), 'Page buttons are removed');
+        await settle();
         scroll(0.2); scroll(0.3);
         check(viewport().scrollTop === 0 && frames.size === 1, 'Input bursts wait for one animation frame');
         frame();

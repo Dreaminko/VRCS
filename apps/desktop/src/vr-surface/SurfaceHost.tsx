@@ -18,6 +18,8 @@ export function SurfaceHost({ surface, connect = connectSurfaceBridge }: { surfa
   const activity = useRef<SurfaceActivity>({ active: true, request: 0 });
   const [paintSerial, setPaintSerial] = useState(1);
   const serial = useRef(1);
+  const paintFrame = useRef<number | null>(null);
+  const pendingState = useRef<SurfaceState | null>(null);
   const restored = useRef<SurfaceKey | null>(null);
   const cancelScroll = useCallback(() => {
     if (scrollFrame.current !== null) cancelAnimationFrame(scrollFrame.current);
@@ -27,7 +29,22 @@ export function SurfaceHost({ surface, connect = connectSurfaceBridge }: { surfa
   const markPaint = useCallback(() => {
     if (!mounted.current || !activity.current.active) return serial.current;
     serial.current = ((serial.current + 1) >>> 0) || 1;
-    setPaintSerial(serial.current);
+    if (paintFrame.current === null) paintFrame.current = requestAnimationFrame(() => {
+      paintFrame.current = null;
+      if (!mounted.current || !activity.current.active) return;
+      const next = pendingState.current;
+      pendingState.current = null;
+      if (next) {
+        setMeasured(previous => sameKey(previous, next.key) ? previous : null);
+        setState(previous => {
+          if (!previous || !sameKey(previous.key, next.key)) return next;
+          const view = next.view.kind === "menu" && previous.view.kind === "menu" && next.view.hold_progress !== previous.view.hold_progress
+            ? next.view : previous.view;
+          return { ...next, key: previous.key, view };
+        });
+      }
+      setPaintSerial(serial.current);
+    });
     return serial.current;
   }, []);
 
@@ -67,6 +84,9 @@ export function SurfaceHost({ surface, connect = connectSurfaceBridge }: { surfa
       setActive(next.active);
       if (!next.active) {
         cancelScroll();
+        if (paintFrame.current !== null) cancelAnimationFrame(paintFrame.current);
+        paintFrame.current = null;
+        pendingState.current = null;
         const scrollTop = root.current?.querySelector<HTMLElement>("[data-vr-page-viewport]")?.scrollTop ?? null;
         void connection.current?.snapshot(current.current, next.request, scrollTop)
           .catch(error => console.error("VR surface snapshot failed", error));
@@ -76,18 +96,11 @@ export function SurfaceHost({ surface, connect = connectSurfaceBridge }: { surfa
       if (next?.activity && (!Number.isSafeInteger(next.activity.request) || next.activity.request < activity.current.request)) return;
       if (!disposed && next?.view.kind === surface && (newerKey(next.key, current.current) || (hoverUpdate && sameKey(current.current, next.key)))) {
         if (next.activity) receiveActivity(next.activity);
-        if (!sameKey(current.current, next.key)) setMeasured(null);
         const nextScrollKey = next.scroll_key ?? next.key;
         if (!sameKey(scrollKey.current, nextScrollKey)) cancelScroll();
         scrollKey.current = nextScrollKey;
         current.current = next.key;
-        // Menu hold progress changes pixels under the same layout key.
-        setState(previous => {
-          if (!previous || !sameKey(previous.key, next.key)) return next;
-          const view = next.view.kind === "menu" && previous.view.kind === "menu" && next.view.hold_progress !== previous.view.hold_progress
-            ? next.view : previous.view;
-          return { ...next, key: previous.key, view };
-        });
+        pendingState.current = next;
         markPaint();
       }
     };
@@ -103,7 +116,12 @@ export function SurfaceHost({ surface, connect = connectSurfaceBridge }: { surfa
       if (surface === "reader" || surface === "dialogue" || surface === "player_audio" || surface === "dashboard") bridge.on("scroll", receiveScroll);
       receive(await bridge.ready(), false);
     })().catch((error) => { if (!disposed) console.error("VR surface connection failed", error); });
-    return () => { disposed = true; mounted.current = false; layoutRequest.current++; cancelScroll(); abort.abort(); connection.current = null; };
+    return () => {
+      disposed = true; mounted.current = false; layoutRequest.current++; cancelScroll();
+      if (paintFrame.current !== null) cancelAnimationFrame(paintFrame.current);
+      paintFrame.current = null; pendingState.current = null;
+      abort.abort(); connection.current = null;
+    };
   }, [surface, connect, markPaint, cancelScroll, receiveScroll]);
 
   const onLayout = useCallback((layout: SurfaceLayout) => {
@@ -126,7 +144,7 @@ export function SurfaceHost({ surface, connect = connectSurfaceBridge }: { surfa
   }, [state, markPaint]);
 
   useLayoutEffect(() => {
-    if (!active || !activity.current.active || !state || !sameKey(measured, state.key)) return;
+    if (!active || !activity.current.active || !state || !sameKey(measured, state.key) || paintSerial !== serial.current) return;
     // This is a request, not proof of a GPU paint. WGC verifies the same-frame marker.
     void connection.current?.paint(state.key, paintSerial)
       .catch(error => console.error("VR surface paint request failed", error));

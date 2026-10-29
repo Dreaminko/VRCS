@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use std::{
     cell::RefCell,
     rc::Rc,
-    sync::Mutex,
+    sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
 use tauri::{AppHandle, Manager};
@@ -160,7 +160,7 @@ pub enum SurfaceView {
     },
     Dashboard {
         dark: bool,
-        dashboard: Box<DashboardViewModel>,
+        dashboard: Arc<DashboardViewModel>,
         ui: DashboardUi,
     },
     #[cfg(all(debug_assertions, feature = "vr-preview"))]
@@ -206,6 +206,18 @@ impl SurfaceView {
 
     pub(super) fn same_layout(&self, other: &Self) -> bool {
         match (self, other) {
+            (
+                Self::Dashboard {
+                    dark: a,
+                    dashboard: av,
+                    ui: au,
+                },
+                Self::Dashboard {
+                    dark: b,
+                    dashboard: bv,
+                    ui: bu,
+                },
+            ) => a == b && au == bu && (Arc::ptr_eq(av, bv) || av == bv),
             (
                 Self::Menu {
                     controls: a,
@@ -647,8 +659,10 @@ impl Entry {
             .state
             .as_ref()
             .is_none_or(|state| !state.view.same_layout(&view));
-        let feedback = self.state.as_ref().is_none_or(|state| {
-            state.view != view || state.hovered != hovered || state.pressed != pressed
+        let feedback = changed || self.state.as_ref().is_some_and(|state| {
+            state.hovered != hovered || state.pressed != pressed
+                || matches!((&state.view, &view),
+                    (SurfaceView::Menu { hold_progress: a, .. }, SurfaceView::Menu { hold_progress: b, .. }) if a != b)
         });
         if changed {
             self.pending_since = self.recovery_observation(None).pending_since;
@@ -866,11 +880,16 @@ impl Entry {
         true
     }
 
-    fn cold(&self, now: Instant) -> bool {
+    fn cold(&self, surface: SurfaceId, now: Instant) -> bool {
+        let timeout = if surface == SurfaceId::Dashboard {
+            Duration::from_secs(300)
+        } else {
+            Duration::from_secs(60)
+        };
         !self.active
             && self
                 .hidden_since
-                .is_some_and(|at| now.saturating_duration_since(at) >= Duration::from_secs(60))
+                .is_some_and(|at| now.saturating_duration_since(at) >= timeout)
     }
 
     #[cfg(test)]
@@ -1018,6 +1037,33 @@ impl Entry {
 pub struct SurfaceHub(Mutex<[Entry; 10]>);
 
 impl SurfaceHub {
+    fn submit_frame(
+        &self,
+        surface: SurfaceId,
+        frame: windows_wgc::Captured,
+        upload: impl FnOnce() -> Result<(), String>,
+    ) -> Result<Option<u32>, windows_wgc::CaptureError> {
+        let key = SurfaceKey {
+            generation: frame.generation,
+            revision: frame.revision,
+        };
+        let identity = {
+            let entries = self.0.lock().map_err(|e| e.to_string())?;
+            let entry = &entries[surface.index()];
+            if !entry.accepts_frame(key, frame.paint_serial, frame.requested_serial) {
+                return Ok(None);
+            }
+            (entry.host_epoch, entry.activity_request)
+        };
+        upload()
+            .map_err(|error| windows_wgc::CaptureError::new(recovery::Fault::Submission, error))?;
+        let mut entries = self.0.lock().map_err(|e| e.to_string())?;
+        let entry = &mut entries[surface.index()];
+        Ok(((entry.host_epoch, entry.activity_request) == identity
+            && entry.commit_paint(key, frame.paint_serial))
+        .then_some(entry.activity_request))
+    }
+
     fn set_active(&self, app: &AppHandle, surface: SurfaceId, active: bool) -> Result<(), String> {
         let request = {
             let mut entries = self.0.lock().map_err(|e| e.to_string())?;
@@ -1278,7 +1324,7 @@ impl SurfaceRenderer {
             let (cold, release_host) = {
                 let entries = hub.0.lock().unwrap_or_else(|e| e.into_inner());
                 let entry = &entries[self.surface.index()];
-                let cold = entry.cold(Instant::now());
+                let cold = entry.cold(self.surface, Instant::now());
                 (cold, cold && entry.endpoint.is_some())
             };
             if cold && self.capture.is_some() {
@@ -1426,7 +1472,8 @@ impl SurfaceRenderer {
         }
         let entries = hub.0.lock().unwrap_or_else(|e| e.into_inner());
         let entry = &entries[self.surface.index()];
-        let visible = self.frame_visible(entry, Instant::now());
+        let visible = self.frame_visible(entry, Instant::now())
+            && (self.surface != SurfaceId::Dashboard || backend.has_surface_texture(kind));
         if !visible {
             backend.hide(kind);
         }
@@ -1479,11 +1526,25 @@ impl SurfaceRenderer {
         let same_host = self.identity.is_some_and(|(epoch, _, generation)| {
             epoch == entry.host_epoch && generation == entry.generation
         });
-        if !self.visible_frame
-            || !entry.active
-            || !same_host
-            || self.retained_activity != entry.activity_request
-        {
+        if !entry.active || !same_host {
+            return false;
+        }
+        if self.retained_activity != entry.activity_request {
+            // Reuse dashboard pixels during a normal wake; Entry still blocks stale input.
+            return self.surface == SurfaceId::Dashboard
+                && self.retained_key.is_some()
+                && entry.ready
+                && entry.error.is_none()
+                && self.capture_fault.is_none()
+                && matches!(
+                    entry.recovery.phase,
+                    recovery::Phase::Starting | recovery::Phase::AwaitingFrame
+                )
+                && entry.wake_since.is_some_and(|at| {
+                    now.saturating_duration_since(at) < Duration::from_millis(200)
+                });
+        }
+        if !self.visible_frame {
             return false;
         }
         if entry.recovery.input_allowed() && self.capture_fault.is_none() && entry.error.is_none() {
@@ -1627,19 +1688,22 @@ impl SurfaceRenderer {
                 generation: frame.generation,
                 revision: frame.revision,
             };
-            let mut entries = hub.0.lock().map_err(|e| e.to_string())?;
-            let entry = &mut entries[self.surface.index()];
-            if entry.accepts_frame(key, frame.paint_serial, frame.requested_serial) {
-                upload(frame).map_err(|error| {
-                    windows_wgc::CaptureError::new(recovery::Fault::Submission, error)
-                })?;
-                entry.commit_paint(key, frame.paint_serial);
+            let mut uploaded = false;
+            let activity = hub.submit_frame(self.surface, frame, || {
+                upload(frame)?;
+                // Protect the slot even if the document changes during the external call.
+                capture.submitted(frame).map_err(String::from)?;
+                uploaded = true;
+                Ok(())
+            })?;
+            if let Some(activity) = activity {
                 self.visible_frame = true;
                 self.retained_key = Some(key);
-                self.retained_activity = entry.activity_request;
-                drop(entries);
-                capture.submitted(frame)?;
+                self.retained_activity = activity;
             } else {
+                if uploaded {
+                    self.visible_frame = false;
+                }
                 capture.reject_frame(frame);
             }
         }
@@ -1882,6 +1946,54 @@ mod tests {
     }
 
     #[test]
+    fn frame_upload_releases_the_hub_lock_and_rechecks_state_before_commit() {
+        let hub = SurfaceHub::default();
+        let surface = SurfaceId::Menu;
+        let key = {
+            let mut entries = hub.0.lock().unwrap();
+            let entry = &mut entries[surface.index()];
+            entry.set_active(true, Instant::now());
+            entry.publish(SurfaceView::OcrSelection { dark: true }, None, None);
+            let key = entry.state.as_ref().unwrap().key;
+            entry.accept_layout_paint(surface, layout(key), 1).unwrap();
+            key
+        };
+        let mut frame = windows_wgc::Captured {
+            shared_handle: 1,
+            generation: key.generation,
+            revision: key.revision,
+            paint_serial: 1,
+            requested_serial: 1,
+        };
+        assert!(hub
+            .submit_frame(surface, frame, || {
+                assert!(
+                    hub.0.try_lock().is_ok(),
+                    "OpenVR must not hold the shared hub lock"
+                );
+                Ok(())
+            })
+            .unwrap()
+            .is_some());
+        frame.paint_serial = 2;
+        hub.0.lock().unwrap()[surface.index()].accept_paint(key, 2);
+        assert!(hub
+            .submit_frame(surface, frame, || {
+                hub.0.try_lock().unwrap()[surface.index()].publish(
+                    SurfaceView::OcrSelection { dark: false },
+                    None,
+                    None,
+                );
+                Ok(())
+            })
+            .unwrap()
+            .is_none());
+        assert!(hub.0.lock().unwrap()[surface.index()]
+            .active_layout()
+            .is_none());
+    }
+
+    #[test]
     fn retained_frame_expires_and_revokes_input_without_hiding_normal_updates() {
         let now = Instant::now();
         let mut entry = active_entry();
@@ -1920,6 +2032,41 @@ mod tests {
             !renderer.frame_visible(&entry, now),
             "fault retention cannot cross content keys"
         );
+    }
+
+    #[test]
+    fn dashboard_wake_keeps_old_pixels_briefly_but_waits_for_fresh_input() {
+        let mut entry = active_entry();
+        entry.publish(SurfaceView::OcrSelection { dark: true }, None, None);
+        entry.page_ready();
+        let old = entry.state.as_ref().unwrap().key;
+        entry
+            .accept_layout_paint(SurfaceId::Menu, layout(old), 1)
+            .unwrap();
+        assert!(entry.commit_paint(old, 1));
+        let mut renderer = SurfaceRenderer::new(SurfaceId::Dashboard);
+        renderer.identity = Some((entry.host_epoch, 0, entry.generation));
+        renderer.retained_key = Some(old);
+        renderer.retained_activity = entry.activity_request;
+
+        let now = Instant::now();
+        entry.set_active(false, now);
+        assert!(!renderer.frame_visible(&entry, now));
+        entry.set_active(true, now);
+        assert!(renderer.frame_visible(&entry, now + Duration::from_millis(199)));
+        assert!(!renderer.frame_visible(&entry, now + Duration::from_millis(200)));
+        assert!(entry.active_layout().is_none());
+        assert!(entry.pointer_layout().is_none());
+        assert!(!entry.commit_paint(old, 1));
+
+        renderer.surface = SurfaceId::Menu;
+        assert!(!renderer.frame_visible(&entry, now));
+        renderer.surface = SurfaceId::Dashboard;
+        entry.error = Some("host_failed".into());
+        assert!(!renderer.frame_visible(&entry, now));
+        entry.error = None;
+        entry.invalidate_host();
+        assert!(!renderer.frame_visible(&entry, now));
     }
 
     #[test]
@@ -2201,8 +2348,8 @@ mod tests {
         let key = entry.state.as_ref().unwrap().key;
         entry.set_active(false, now);
         let request = entry.activity_request;
-        assert!(!entry.cold(now + Duration::from_secs(59)));
-        assert!(entry.cold(now + Duration::from_secs(60)));
+        assert!(!entry.cold(SurfaceId::Reader, now + Duration::from_secs(59)));
+        assert!(entry.cold(SurfaceId::Reader, now + Duration::from_secs(60)));
         assert!(!entry.snapshot_done);
         assert!(!entry.accept_snapshot(Some(key), request - 1, Some(180.0)));
         assert!(!entry.accept_snapshot(None, request, Some(180.0)));
@@ -2211,7 +2358,7 @@ mod tests {
         entry.invalidate_host();
         assert_eq!(entry.state.as_ref().unwrap().restore_scroll, Some(180.0));
         entry.set_active(true, now + Duration::from_secs(61));
-        assert!(!entry.cold(now + Duration::from_secs(120)));
+        assert!(!entry.cold(SurfaceId::Reader, now + Duration::from_secs(120)));
         assert!(!entry.accept_snapshot(Some(key), request, Some(999.0)));
         if let SurfaceView::Reader { reader, .. } = &mut entry.state.as_mut().unwrap().view {
             reader.source = "A different question".into();
@@ -2219,7 +2366,17 @@ mod tests {
         entry.reload();
         assert_eq!(entry.state.as_ref().unwrap().restore_scroll, None);
         entry.set_active(false, now + Duration::from_secs(121));
-        assert!(!entry.cold(now + Duration::from_secs(122)));
+        assert!(!entry.cold(SurfaceId::Reader, now + Duration::from_secs(122)));
+    }
+
+    #[test]
+    fn dashboard_stays_warm_longer_without_disabling_cold_release() {
+        let now = Instant::now();
+        let mut entry = active_entry();
+        entry.set_active(false, now);
+        assert!(entry.cold(SurfaceId::Reader, now + Duration::from_secs(60)));
+        assert!(!entry.cold(SurfaceId::Dashboard, now + Duration::from_secs(299)));
+        assert!(entry.cold(SurfaceId::Dashboard, now + Duration::from_secs(300)));
     }
 
     fn layout(key: SurfaceKey) -> SurfaceLayout {
