@@ -638,16 +638,18 @@ fn worker_loop(
                 open_ocr_bindings = control.ocr_bindings;
             }
             if control.retry {
+                if let Some(mut backend) = state.backend.take() {
+                    backend.hide_all();
+                }
                 #[cfg(windows)]
                 {
                     state.ocr.clear();
                     state.reset_ui();
                 }
-                if let Some(mut backend) = state.backend.take() {
-                    backend.hide_all();
-                }
                 state.reset_headset();
                 state.reset_dashboard();
+                #[cfg(windows)]
+                app.state::<super::surface::SurfaceHub>().retry(&app);
                 state.next_reconnect = Instant::now();
                 state.next_probe = Instant::now();
                 status.reconnect_attempt = 0;
@@ -984,6 +986,16 @@ fn tick(app: &AppHandle, state: &mut WorkerState, status: &mut VrOverlayStatus, 
     let headset_failed =
         state.config.headset.enabled && status.headset.state == ResourceState::Error;
     let wrist_failed = state.config.wrist.enabled && status.wrist.state == ResourceState::Error;
+    #[cfg(windows)]
+    let (headset_failed, wrist_failed) = {
+        let hub = app.state::<super::surface::SurfaceHub>();
+        // Wrist captions render through Dialogue; the wrist menu is a separate surface.
+        (
+            headset_failed && !hub.recovery_failed(super::surface::SurfaceId::Headset),
+            wrist_failed && !hub.recovery_failed(super::surface::SurfaceId::Dialogue),
+        )
+    };
+    // A terminal Surface failure stays in Entry until business hide or explicit retry.
     if any_enabled
         && !ocr_enabled
         && !vision_enabled
@@ -1028,6 +1040,10 @@ fn update_dashboard(
         .lock()
         .ok()
         .and_then(|hub| hub.player_audio().notice.clone());
+    // Error backoff is not a user hide and must not reset the Surface recovery budget.
+    if backend.dashboard_visible() {
+        let _ = state.dashboard_surface.request(app);
+    }
     if state
         .dashboard_retry_at
         .is_some_and(|until| Instant::now() < until)
@@ -1050,7 +1066,7 @@ fn update_dashboard(
             .lock()
             .map(|hub| hub.snapshot().dark)
             .unwrap_or(false);
-        // Revoke stale input first, and recover hosts when publish bypasses the renderer.
+        // Revoke stale input before polling; only the renderer owns recovery decisions.
         hub.publish(
             app,
             SurfaceId::Dashboard,
@@ -1061,8 +1077,7 @@ fn update_dashboard(
             },
             state.dashboard.hovered,
             state.dashboard.pressed,
-        )
-        .inspect_err(|_| hub.invalidate_host(SurfaceId::Dashboard))?;
+        )?;
         let mut layout = hub.layout(SurfaceId::Dashboard);
         for event in backend.poll_dashboard_events()? {
             let (x, y) = match event {

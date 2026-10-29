@@ -19,7 +19,9 @@ test("surface sleep preserves reading position and visual receipts follow actual
       import React from 'react';
       import { createRoot } from 'react-dom/client';
       import { flushSync } from 'react-dom';
-      import { SurfaceHost } from './src/vr-surface/SurfaceHost';
+      import { SurfaceHost as Host } from './src/vr-surface/SurfaceHost';
+      import { connectFixture } from 'fixture:surface';
+      const SurfaceHost = ({ surface }) => <Host surface={surface} connect={connectFixture} />;
       import { emit, calls } from 'fixture:tauri';
       import './src/styles.css';
 
@@ -100,10 +102,12 @@ test("surface sleep preserves reading position and visual receipts follow actual
       run().catch(error => { document.getElementById('result').textContent = JSON.stringify({ error: error.stack, passed }); });
     ` },
     plugins: [{ name: "tauri-fixture", setup(build) {
+      build.onResolve({ filter: /^fixture:surface$/ }, () => ({ path: join(testDirectory, "fixtures/vr-surface-bridge.mjs") }));
       build.onResolve({ filter: /^(?:@tauri-apps\/api\/(?:core|event)|fixture:tauri)$/ }, () => ({ path: "tauri", namespace: "fixture" }));
       build.onLoad({ filter: /.*/, namespace: "fixture" }, () => ({ contents: `
+        import { emitSurface, surfaceCalls, surfaceTesting } from 'fixture:surface';
         const listeners = new Map();
-        export const calls = [];
+        export const calls = surfaceCalls;
         export async function invoke(command, args) { calls.push({ command, args }); return command === 'vr_surface_layout' || command === 'vr_surface_paint' ? true : null; }
         export async function listen(name, handler, options = {}) {
           const handlers = listeners.get(name) ?? new Set(); listeners.set(name, handlers);
@@ -111,6 +115,7 @@ test("surface sleep preserves reading position and visual receipts follow actual
           return () => handlers.delete(subscription);
         }
         export function emit(name, payload, label) {
+          if (name.startsWith("vr-surface-")) { emitSurface(name, payload, label); return; }
           for (const { handler, target } of listeners.get(name) ?? []) {
             if (!target || target.kind === 'Any' || target.label === label) handler({ payload });
           }

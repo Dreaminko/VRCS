@@ -6,9 +6,16 @@
   import { invoke } from "@tauri-apps/api/core";
   import { emit } from "@tauri-apps/api/event";
 
+  async function run() {
   let epoch = 0;
   let failure = null;
   try {
+    for (const command of ["vr_surface_ready", "vr_surface_layout", "vr_surface_paint", "vr_surface_snapshot"]) {
+      let denied = false;
+      try { await invoke(command, { surface: "reader" }); }
+      catch { denied = true; }
+      if (!denied) throw new Error(`Main WebView can still call ${command}`);
+    }
     const controls = await invoke("vr_overlay_control_ready", { view: {
       owner_epoch: 0, revision: 0, dark: true, labels: {},
       items: Array.from({ length: 4 }, () => ({ requested: false, effective: false, available: false, busy: false, label: "", reason: null })),
@@ -32,6 +39,8 @@
     }
     await emit("vr-player-display-smoke", failure);
   }
+  }
+  void run();
 </script>
 </body>
 </html>

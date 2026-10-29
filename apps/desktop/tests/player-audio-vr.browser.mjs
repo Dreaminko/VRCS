@@ -28,7 +28,9 @@ test("VR consent shares the pending start, enforces the reading gate and publish
       import { usePlayerAudioStart } from './src/capture/usePlayerAudioStart';
       import { useVrControlBridge } from './src/vr-controls/useVrControlBridge';
       import { playerAudioPrompt } from './src/capture/player-audio-vr';
-      import { SurfaceHost } from './src/vr-surface/SurfaceHost';
+      import { SurfaceHost as Host } from './src/vr-surface/SurfaceHost';
+      import { connectFixture } from 'fixture:surface';
+      const SurfaceHost = ({ surface }) => <Host surface={surface} connect={connectFixture} />;
       import { VrSurface } from './src/vr-surface/VrSurface';
       import { testing, emit } from 'fixture:native';
 
@@ -86,9 +88,11 @@ test("VR consent shares the pending start, enforces the reading gate and publish
           'Independent overlay contains all five sections with a disabled confirm button');
         check(testing.layout.regions.every(region => region.id >= 2), 'Disabled decisions have no native hit regions');
         emit('vr-surface-scroll', { key, delta: 0.85 });
+        await wait(() => viewport().scrollTop > 0);
         const top = viewport().scrollTop;
         check(top > 0, 'VR scroll events move the explanation');
         emit('vr-surface-scroll', { key: { generation: 0, revision: 0 }, delta: 1 });
+        await sleep(40);
         check(viewport().scrollTop === top, 'Stale scroll events cannot move a new explanation');
         await wait(() => testing.audio.notice.remaining_seconds === 0);
         decision(true, firstId + 1);
@@ -154,10 +158,12 @@ test("VR consent shares the pending start, enforces the reading gate and publish
       run().catch(error => { document.getElementById('result').textContent = JSON.stringify({ error: error.stack, passed }); });
     ` },
     plugins: [{ name: "native-fixture", setup(build) {
+      build.onResolve({ filter: /^fixture:surface$/ }, () => ({ path: join(testDirectory, "fixtures/vr-surface-bridge.mjs") }));
       build.onResolve({ filter: /^(?:@tauri-apps\/api\/(?:core|event)|fixture:native)$/ }, () => ({ path: "native", namespace: "fixture" }));
       build.onLoad({ filter: /.*/, namespace: "fixture" }, () => ({ contents: `
+        import { emitSurface, surfaceCalls, surfaceTesting } from 'fixture:surface';
         const listeners = new Map();
-        export const testing = { results: [], holdMemory: false };
+        export const testing = Object.assign(surfaceTesting, { results: [], holdMemory: false });
         export const isTauri = () => true;
         export async function invoke(command, args) {
           if (command === 'player_audio_pending_action') return null;
@@ -175,7 +181,8 @@ test("VR consent shares the pending start, enforces the reading gate and publish
           listeners.set(name, handlers); handlers.add(handler);
           return () => handlers.delete(handler);
         }
-        export function emit(name, payload) { for (const handler of listeners.get(name) ?? []) handler({ payload }); }
+        export function emit(name, payload) {
+          if (name.startsWith("vr-surface-")) { emitSurface(name, payload); return; } for (const handler of listeners.get(name) ?? []) handler({ payload }); }
       ` }));
     } }],
     bundle: true, write: false, outfile: "player-audio-vr.js", format: "esm", platform: "browser", jsx: "automatic",

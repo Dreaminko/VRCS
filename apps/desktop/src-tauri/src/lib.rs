@@ -375,9 +375,19 @@ fn minimize_to_tray_enabled(app: &tauri::AppHandle) -> bool {
 }
 
 pub(crate) fn prepare_for_exit(app: &tauri::AppHandle) {
+    #[cfg(windows)]
+    if let Some(hosts) = app.try_state::<vr_overlay::surface::NativeHostManager>() {
+        hosts.begin_shutdown();
+    }
     app.state::<desktop_ocr::Manager>().stop();
     app.state::<desktop_vision::Manager>().stop();
     app.state::<vr_overlay::Manager>().stop();
+    #[cfg(windows)]
+    if let Some(hosts) = app.try_state::<vr_overlay::surface::NativeHostManager>() {
+        if let Err(error) = hosts.finish_shutdown(std::time::Duration::from_secs(5)) {
+            tracing::warn!("{error}");
+        }
+    }
     stop_core(app);
 }
 
@@ -519,14 +529,10 @@ pub fn run() {
             vr_overlay::vr_overlay_control_release,
             vr_overlay::vr_overlay_placement_result,
             vr_overlay::vr_overlay_place_dialogue,
-            #[cfg(windows)]
-            vr_overlay::surface::vr_surface_ready,
-            #[cfg(windows)]
-            vr_overlay::surface::vr_surface_layout,
-            #[cfg(windows)]
-            vr_overlay::surface::vr_surface_paint,
-            #[cfg(windows)]
-            vr_overlay::surface::vr_surface_snapshot,
+
+
+
+
             #[cfg(all(windows, debug_assertions, feature = "vr-preview"))]
             vr_overlay::preview::vr_preview_open,
             #[cfg(all(windows, debug_assertions, feature = "vr-preview"))]
@@ -597,6 +603,8 @@ pub fn run() {
             app.manage(vr_overlay::Manager::new(app.handle().clone()));
             #[cfg(windows)]
             app.manage(vr_overlay::surface::SurfaceHub::default());
+            #[cfg(windows)]
+            app.manage(vr_overlay::surface::NativeHostManager::start(app.handle().clone()).map_err(std::io::Error::other)?);
             app.manage(desktop_ocr::Manager::new(app.handle().clone()));
             app.manage(desktop_vision::Manager::new(app.handle().clone()));
             app.manage(CoreRuntime {

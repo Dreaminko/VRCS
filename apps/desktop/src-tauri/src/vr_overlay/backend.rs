@@ -16,8 +16,10 @@ mod platform {
         EyeCapture, StereoCapture, OCR_MOVEMENT_LIMIT_M,
     };
     use crate::vr_overlay::renderer::{dashboard_placeholder, Texture};
+    use crate::vr_overlay::surface::windows_wgc::Capture;
     use crate::vr_overlay::surface::SurfaceId;
     use crate::vr_overlay::transform;
+    use std::{cell::RefCell, rc::Rc};
 
     const HEADSET_KEY: &str = "org.vrcs.overlay.headset\0";
     const HEADSET_NAME: &str = "VRCS Headset Subtitles\0";
@@ -27,6 +29,24 @@ mod platform {
     const DASHBOARD_NAME: &str = "VRCS\0";
     const DASHBOARD_THUMBNAIL: tauri::image::Image<'_> =
         tauri::include_image!("icons/128x128@2x.png");
+
+    fn clear_surface_reference<T>(
+        table: &openvr_sys::VR_IVROverlay_FnTable,
+        handle: Option<OverlayHandle>,
+        owner: &mut Option<T>,
+    ) -> Result<(), String> {
+        if let Some(handle) = handle {
+            let clear = table
+                .ClearOverlayTexture
+                .ok_or("ClearOverlayTexture is unavailable")?;
+            let error = unsafe { clear(handle.0) };
+            if error != openvr_sys::EVROverlayError_VROverlayError_None {
+                return Err(format!("Clear surface texture failed: {error}"));
+            }
+        }
+        *owner = None;
+        Ok(())
+    }
 
     pub struct OpenVrBackend {
         context: Context,
@@ -59,6 +79,8 @@ mod platform {
         ocr_input: Option<crate::vr_overlay::ocr_input::OcrInput>,
         cursor: crate::vr_overlay::cursor::CursorOverlay,
         cursor_interval: std::time::Duration,
+        // The backend also owns submitted textures, even if a caller resets its renderer.
+        surface_captures: [Option<Rc<RefCell<Capture>>>; 9],
     }
 
     #[derive(Default)]
@@ -187,15 +209,6 @@ mod platform {
             }
             self.placeholder = Some(message);
             Ok(())
-        }
-
-        fn clear_texture(&mut self, table: &openvr_sys::VR_IVROverlay_FnTable) {
-            if let (Some(main), Some(clear)) = (self.main(), table.ClearOverlayTexture) {
-                unsafe {
-                    let _ = clear(main.0);
-                }
-            }
-            self.placeholder = None;
         }
 
         fn destroy(&mut self, table: &openvr_sys::VR_IVROverlay_FnTable) {
@@ -579,6 +592,7 @@ mod platform {
                 ocr_frame_state: SubmittedState::default(),
                 ocr_result_state: SubmittedState::default(),
                 dashboard_state: SubmittedState::default(),
+                surface_captures: std::array::from_fn(|_| None),
                 ocr_input: None,
                 cursor: Default::default(),
                 cursor_interval,
@@ -596,6 +610,9 @@ mod platform {
         }
 
         pub fn show_dashboard_placeholder(&mut self, error: Option<&str>) -> Result<(), String> {
+            if self.has_surface_texture(OverlayKind::Dashboard) {
+                self.clear_surface_texture(OverlayKind::Dashboard)?;
+            }
             self.dashboard
                 .show_placeholder(unsafe { &*self.raw_overlay }, error)
         }
@@ -1086,17 +1103,29 @@ mod platform {
             dxgi_adapter_index()
         }
 
+        pub fn has_surface_texture(&self, kind: OverlayKind) -> bool {
+            self.surface_captures[kind as usize].is_some()
+        }
+
         pub fn upload_surface(
             &mut self,
             kind: OverlayKind,
             shared_handle: usize,
+            capture: Rc<RefCell<Capture>>,
         ) -> Result<(), String> {
+            if self.surface_captures[kind as usize]
+                .as_ref()
+                .is_some_and(|current| !Rc::ptr_eq(current, &capture))
+            {
+                self.clear_surface_texture(kind)?;
+            }
             let handle = self.handle(kind).ok_or("Overlay is not created")?;
             submit_shared_texture(
                 self.raw_overlay,
                 handle,
                 shared_handle as *mut std::ffi::c_void,
             )?;
+            self.surface_captures[kind as usize] = Some(capture);
             if kind == OverlayKind::Dashboard {
                 self.dashboard.placeholder = None;
             }
@@ -1104,17 +1133,9 @@ mod platform {
         }
 
         pub fn clear_surface_texture(&mut self, kind: OverlayKind) -> Result<(), String> {
-            let Some(handle) = self.handle(kind) else {
-                return Ok(());
-            };
+            let handle = self.handle(kind);
             let table = unsafe { &*self.raw_overlay };
-            let clear = table
-                .ClearOverlayTexture
-                .ok_or("ClearOverlayTexture is unavailable")?;
-            let error = unsafe { clear(handle.0) };
-            if error != openvr_sys::EVROverlayError_VROverlayError_None {
-                return Err(format!("Clear surface texture failed: {error}"));
-            }
+            clear_surface_reference(table, handle, &mut self.surface_captures[kind as usize])?;
             if kind == OverlayKind::Dashboard {
                 self.dashboard.placeholder = None;
             }
@@ -1182,8 +1203,11 @@ mod platform {
         pub fn reset(&mut self, kind: OverlayKind) {
             if kind == OverlayKind::Dashboard {
                 // Surface recovery must not unregister the SteamVR dashboard tab.
-                self.dashboard.clear_texture(unsafe { &*self.raw_overlay });
-                self.dashboard_state = SubmittedState::default();
+                if self.clear_surface_texture(kind).is_ok() {
+                    self.dashboard_state = SubmittedState::default();
+                } else {
+                    self.hide(kind);
+                }
                 return;
             }
             self.hide(kind);
@@ -1233,6 +1257,10 @@ mod platform {
         }
 
         fn destroy(&mut self, kind: OverlayKind) {
+            // Keep the original handle and Capture when detaching fails.
+            if self.clear_surface_texture(kind).is_err() {
+                return;
+            }
             let handle = match kind {
                 OverlayKind::Headset => self.headset.take(),
                 OverlayKind::Wrist => self.wrist.take(),
@@ -1519,6 +1547,49 @@ mod platform {
         use super::Mirror;
         use std::sync::atomic::{AtomicBool, AtomicI32, AtomicUsize, Ordering};
 
+        #[test]
+        fn renderer_reset_and_failed_detach_keep_the_submitted_texture_alive() {
+            use std::{cell::Cell, rc::Rc};
+            thread_local! { static FAIL: Cell<bool> = const { Cell::new(true) }; }
+            unsafe extern "C" fn clear(handle: u64) -> i32 {
+                assert_eq!(handle, 73);
+                if FAIL.get() {
+                    10
+                } else {
+                    0
+                }
+            }
+            struct Texture(Rc<Cell<bool>>);
+            impl Drop for Texture {
+                fn drop(&mut self) {
+                    self.0.set(true);
+                }
+            }
+            let dropped = Rc::new(Cell::new(false));
+            let renderer = Rc::new(Texture(dropped.clone()));
+            let mut submitted = Some(renderer.clone());
+            drop(renderer);
+            let mut api: openvr_sys::VR_IVROverlay_FnTable = unsafe { std::mem::zeroed() };
+            api.ClearOverlayTexture = Some(clear);
+            assert!(super::clear_surface_reference(
+                &api,
+                Some(openvr::overlay::OverlayHandle(73)),
+                &mut submitted
+            )
+            .is_err());
+            assert!(!dropped.get());
+            assert!(submitted.is_some());
+            FAIL.set(false);
+            super::clear_surface_reference(
+                &api,
+                Some(openvr::overlay::OverlayHandle(73)),
+                &mut submitted,
+            )
+            .unwrap();
+            assert!(dropped.get());
+            assert!(submitted.is_none());
+        }
+
         mod dashboard {
             use super::super::DashboardOverlay;
             use std::cell::{Cell, RefCell};
@@ -1630,7 +1701,12 @@ mod platform {
                     ]
                 );
 
-                dashboard.clear_texture(&api);
+                super::super::clear_surface_reference(
+                    &api,
+                    dashboard.main(),
+                    &mut dashboard.placeholder,
+                )
+                .unwrap();
                 dashboard.ensure(&api).unwrap();
                 assert_eq!(dashboard.main().unwrap().0, 73);
                 assert_eq!(calls(), [("clear", 73)]);

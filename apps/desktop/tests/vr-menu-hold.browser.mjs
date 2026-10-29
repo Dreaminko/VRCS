@@ -23,7 +23,9 @@ test("Menu hold feedback preserves hit bounds and the preview samples a stationa
       import { createRoot } from 'react-dom/client';
       import { flushSync } from 'react-dom';
       import { VrSurface } from './src/vr-surface/VrSurface';
-      import { SurfaceHost } from './src/vr-surface/SurfaceHost';
+      import { SurfaceHost as Host } from './src/vr-surface/SurfaceHost';
+      import { connectFixture } from 'fixture:surface';
+      const SurfaceHost = ({ surface }) => <Host surface={surface} connect={connectFixture} />;
       import { VrPreview } from './src/vr-preview/VrPreview';
       import { preview, operations, emit } from 'fixture:tauri';
       import './src/styles.css';
@@ -141,8 +143,10 @@ test("Menu hold feedback preserves hit bounds and the preview samples a stationa
       });
     ` },
     plugins: [{ name: "tauri-fixture", setup(build) {
+      build.onResolve({ filter: /^fixture:surface$/ }, () => ({ path: join(testDirectory, "fixtures/vr-surface-bridge.mjs") }));
       build.onResolve({ filter: /^(?:@tauri-apps\/api\/(?:core|event)|fixture:tauri)$/ }, () => ({ path: "tauri", namespace: "fixture" }));
       build.onLoad({ filter: /.*/, namespace: "fixture" }, () => ({ contents: `
+        import { emitSurface, surfaceCalls, surfaceTesting } from 'fixture:surface';
         const listeners = new Map();
         export const operations = [];
         export const preview = {
@@ -161,6 +165,7 @@ test("Menu hold feedback preserves hit bounds and the preview samples a stationa
           return () => handlers.delete(handler);
         }
         export function emit(name, payload) {
+          if (name.startsWith("vr-surface-")) { emitSurface(name, payload); return; }
           for (const handler of listeners.get(name) ?? []) handler({ payload });
         }
       ` }));

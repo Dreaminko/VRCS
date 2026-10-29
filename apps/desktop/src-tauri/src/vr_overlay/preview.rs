@@ -1548,7 +1548,7 @@ pub fn setup(app: &tauri::AppHandle, live: bool) -> Result<(), Box<dyn std::erro
     if std::env::var_os("VRCS_VR_SURFACE_SMOKE").is_some() {
         let mut preview = Preview::new(false, Arc::new(Mutex::new(Placement::default())));
         let mut views = Vec::new();
-        for panel in [0, 2, 3, 5, 8] {
+        for panel in [0, 2, 3, 5, 8, 10] {
             preview.panel = panel;
             views.push((
                 preview.surface_id().unwrap(),
@@ -1563,6 +1563,22 @@ pub fn setup(app: &tauri::AppHandle, live: bool) -> Result<(), Box<dyn std::erro
         views.push((SurfaceId::Menu, preview.surface_view().unwrap()));
         let dark = preview.controls.dark;
         views.extend([
+            (SurfaceId::PlayerAudio, SurfaceView::PlayerAudio {
+                dark,
+                notice: super::player_audio_ui::Prompt {
+                    request_id: 1,
+                    title: "Player audio consent".into(),
+                    intro: "Read the notice before continuing.".into(),
+                    sections: vec![super::player_audio_ui::Section {
+                        title: "Audio use".into(),
+                        paragraphs: vec!["Only explicitly selected audio is processed.".repeat(30)],
+                    }],
+                    remaining_seconds: 0,
+                    reading_status: "Ready".into(),
+                    confirm: "Confirm".into(), cancel: "Cancel".into(),
+                    previous: "Previous".into(), next: "Next".into(), scroll_hint: "Scroll to read".into(),
+                },
+            }),
             (SurfaceId::Dashboard, SurfaceView::Dashboard {
                 dark,
                 dashboard: Box::new(preview.view.clone()),

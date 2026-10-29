@@ -16,6 +16,10 @@ pub struct CaptureCounters {
     pub copies: AtomicU64,
     pub copy_bytes: AtomicU64,
     pub submissions: AtomicU64,
+    pub rejected_markers: AtomicU64,
+    pub rejected_frames: AtomicU64,
+    last_frame: AtomicU64,
+    last_submit: AtomicU64,
 }
 
 impl CaptureCounters {
@@ -24,6 +28,30 @@ impl CaptureCounters {
             counter.fetch_add(amount, Ordering::Relaxed);
         }
     }
+
+    pub fn frame(&self) {
+        if enabled() {
+            self.source_frames.fetch_add(1, Ordering::Relaxed);
+            self.last_frame.store(clock_ms(), Ordering::Relaxed);
+        }
+    }
+
+    pub fn submitted(&self) {
+        if enabled() {
+            self.submissions.fetch_add(1, Ordering::Relaxed);
+            self.last_submit.store(clock_ms(), Ordering::Relaxed);
+        }
+    }
+}
+
+fn clock_ms() -> u64 {
+    static START: OnceLock<Instant> = OnceLock::new();
+    START.get_or_init(Instant::now).elapsed().as_millis() as u64 + 1
+}
+
+fn age_ms(at: &AtomicU64) -> Option<u64> {
+    let at = at.load(Ordering::Relaxed);
+    (at != 0).then(|| clock_ms().saturating_sub(at))
 }
 
 pub(super) struct Metrics {
@@ -34,6 +62,7 @@ pub(super) struct Metrics {
     pub pauses: u64,
     pub resumes: u64,
     pub cold_releases: u64,
+    pub last_paint: Option<Instant>,
     wake_ms: [u64; 32],
     wake_count: usize,
     report_at: Instant,
@@ -49,6 +78,7 @@ impl Default for Metrics {
             pauses: 0,
             resumes: 0,
             cold_releases: 0,
+            last_paint: None,
             wake_ms: [0; 32],
             wake_count: 0,
             report_at: Instant::now(),
@@ -85,6 +115,11 @@ impl Metrics {
             full_copies = self.capture.copies.load(Ordering::Relaxed),
             estimated_copy_bytes = self.capture.copy_bytes.load(Ordering::Relaxed),
             submissions = self.capture.submissions.load(Ordering::Relaxed),
+            rejected_markers = self.capture.rejected_markers.load(Ordering::Relaxed),
+            rejected_frames = self.capture.rejected_frames.load(Ordering::Relaxed),
+            paint_age_ms = self.last_paint.map(|at| at.elapsed().as_millis() as u64),
+            frame_age_ms = age_ms(&self.capture.last_frame),
+            submit_age_ms = age_ms(&self.capture.last_submit),
             pauses = self.pauses, resumes = self.resumes, cold_releases = self.cold_releases,
             wake_samples = count, wake_p95_ms, "VR surface work totals");
     }

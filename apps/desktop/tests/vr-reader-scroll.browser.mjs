@@ -22,7 +22,9 @@ test("VR reader and dialogue scrolling preserves position and bounds caption ren
       import React from 'react';
       import { createRoot } from 'react-dom/client';
       import { flushSync } from 'react-dom';
-      import { SurfaceHost } from './src/vr-surface/SurfaceHost';
+      import { SurfaceHost as Host } from './src/vr-surface/SurfaceHost';
+      import { connectFixture } from 'fixture:surface';
+      const SurfaceHost = ({ surface }) => <Host surface={surface} connect={connectFixture} />;
       import { VrPreview } from './src/vr-preview/VrPreview';
       import { emit, preview } from 'fixture:tauri';
       import './src/styles.css';
@@ -215,8 +217,10 @@ test("VR reader and dialogue scrolling preserves position and bounds caption ren
       });
     ` },
     plugins: [{ name: "tauri-fixture", setup(build) {
+      build.onResolve({ filter: /^fixture:surface$/ }, () => ({ path: join(testDirectory, "fixtures/vr-surface-bridge.mjs") }));
       build.onResolve({ filter: /^(?:@tauri-apps\/api\/(?:core|event)|fixture:tauri)$/ }, () => ({ path: "tauri", namespace: "fixture" }));
       build.onLoad({ filter: /.*/, namespace: "fixture" }, () => ({ contents: `
+        import { emitSurface, surfaceCalls, surfaceTesting } from 'fixture:surface';
         const listeners = new Map();
         export const preview = { session: 1, panel: 4, scene: 'long', dark: true, mode: 'wrist' };
         export async function invoke(command) {
@@ -228,6 +232,7 @@ test("VR reader and dialogue scrolling preserves position and bounds caption ren
           return () => handlers.delete(handler);
         }
         export function emit(name, payload) {
+          if (name.startsWith("vr-surface-")) { emitSurface(name, payload); return; }
           for (const handler of listeners.get(name) ?? []) handler({ payload });
         }
       ` }));

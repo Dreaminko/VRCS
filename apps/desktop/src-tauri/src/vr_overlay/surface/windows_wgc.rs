@@ -5,11 +5,11 @@ use std::{
     rc::Rc,
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc,
+        Arc, OnceLock,
     },
 };
 use windows::{
-    core::{factory, IInspectable, Interface, BOOL},
+    core::{IInspectable, Interface, BOOL},
     Foundation::{TimeSpan, TypedEventHandler},
     Graphics::{
         Capture::{
@@ -20,7 +20,7 @@ use windows::{
         SizeInt32,
     },
     Win32::{
-        Foundation::{HMODULE, HWND},
+        Foundation::HMODULE,
         Graphics::{
             Direct3D::D3D_DRIVER_TYPE_UNKNOWN,
             Direct3D11::{
@@ -40,7 +40,6 @@ use windows::{
         },
         System::WinRT::{
             Direct3D11::{CreateDirect3D11DeviceFromDXGIDevice, IDirect3DDxgiInterfaceAccess},
-            Graphics::Capture::IGraphicsCaptureItemInterop,
             RoInitialize, RoUninitialize, RO_INIT_MULTITHREADED,
         },
     },
@@ -48,6 +47,48 @@ use windows::{
 
 const MARKER_WIDTH: u32 = 256;
 pub const MARKER_HEIGHT: u32 = 16;
+const MIN_CAPTURE_BUILD: u32 = 18_362;
+
+#[derive(Debug, Clone)]
+pub(super) struct CaptureError {
+    pub kind: super::recovery::Fault,
+    pub stage: String,
+    pub hresult: Option<i32>,
+}
+
+impl CaptureError {
+    pub fn new(kind: super::recovery::Fault, stage: impl Into<String>) -> Self {
+        Self {
+            kind,
+            stage: stage.into(),
+            hresult: None,
+        }
+    }
+}
+impl std::fmt::Display for CaptureError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.stage)?;
+        if let Some(code) = self.hresult {
+            write!(f, ": HRESULT {code:#010x}")?;
+        }
+        Ok(())
+    }
+}
+impl From<&str> for CaptureError {
+    fn from(value: &str) -> Self {
+        Self::new(super::recovery::Fault::InvalidFrame, value)
+    }
+}
+impl From<String> for CaptureError {
+    fn from(value: String) -> Self {
+        Self::new(super::recovery::Fault::InvalidFrame, value)
+    }
+}
+impl From<CaptureError> for String {
+    fn from(value: CaptureError) -> Self {
+        value.to_string()
+    }
+}
 
 #[derive(Clone, Copy, Debug)]
 pub struct Captured {
@@ -70,7 +111,8 @@ pub struct Capture {
     next_slot: usize,
     width: u32,
     height: u32,
-    hwnd: isize,
+    item: GraphicsCaptureItem,
+    repaint_requested: bool,
     counters: Arc<super::metrics::CaptureCounters>,
     // COM objects must be released before the apartment is uninitialized.
     _apartment: Apartment,
@@ -134,28 +176,27 @@ impl Drop for Source {
 
 impl Capture {
     pub(super) fn with_counters(
-        hwnd: isize,
+        item: &GraphicsCaptureItem,
         adapter_index: u32,
         width: u32,
         height: u32,
         counters: Arc<super::metrics::CaptureCounters>,
-    ) -> Result<Self, String> {
+    ) -> Result<Self, CaptureError> {
+        ensure_capture_supported()?;
         let capture_height = height
             .checked_add(MARKER_HEIGHT)
             .ok_or("Invalid surface size")?;
-        if hwnd == 0
-            || width < MARKER_WIDTH
-            || height == 0
-            || width > 16384
-            || capture_height > 16384
-        {
+        if width < MARKER_WIDTH || height == 0 || width > 16384 || capture_height > 16384 {
             return Err("Invalid WebView capture handle or dimensions".into());
         }
         unsafe { RoInitialize(RO_INIT_MULTITHREADED) }
             .map_err(|e| failure("Initialize WinRT", e))?;
         let apartment = Apartment(PhantomData);
         if !GraphicsCaptureSession::IsSupported().map_err(|e| failure("Check WGC support", e))? {
-            return Err("Windows Graphics Capture is unavailable".into());
+            return Err(CaptureError::new(
+                super::recovery::Fault::Unsupported,
+                "Windows Graphics Capture is unavailable",
+            ));
         }
 
         let (device, context) = create_device(adapter_index)?;
@@ -179,7 +220,7 @@ impl Capture {
         }
         .map_err(|e| failure("Create capture completion query", e))?;
         let query = query.ok_or("D3D11 returned no capture query")?;
-        let source = Source::new(&device, hwnd, width, capture_height, &counters)?;
+        let source = Source::new(&device, item, width, capture_height, &counters)?;
         Ok(Self {
             pending: None,
             source: Some(source),
@@ -191,7 +232,8 @@ impl Capture {
             next_slot: 0,
             width,
             height,
-            hwnd,
+            item: item.clone(),
+            repaint_requested: false,
             counters,
             _apartment: apartment,
         })
@@ -205,28 +247,42 @@ impl Capture {
         // Stop delivery before releasing in-flight frames. D3D keeps queued resources alive.
         self.source.take();
         self.pending.take();
+        self.repaint_requested = false;
     }
 
-    pub fn resume(&mut self) -> Result<(), String> {
+    pub(super) fn resume(&mut self) -> Result<(), CaptureError> {
         if self.source.is_none() {
             self.source = Some(Source::new(
                 &self.device,
-                self.hwnd,
+                &self.item,
                 self.width,
                 self.height + MARKER_HEIGHT,
                 &self.counters,
             )?);
+            self.repaint_requested = false;
         }
         Ok(())
     }
 
+    pub(super) fn restart_source(
+        &mut self,
+        item: &GraphicsCaptureItem,
+    ) -> Result<(), CaptureError> {
+        self.suspend();
+        self.item = item.clone();
+        self.resume()
+    }
+
     /// Completes a pending copy without waiting or starting another one.
-    pub fn poll(&mut self) -> Result<Option<Captured>, String> {
+    pub(super) fn poll(&mut self) -> Result<Option<Captured>, CaptureError> {
         let Some(source) = &self.source else {
             return Ok(None);
         };
         if source.closed.load(Ordering::Acquire) {
-            return Err("The WebView capture window was closed".into());
+            return Err(CaptureError::new(
+                super::recovery::Fault::SourceClosed,
+                "The visual capture source was closed",
+            ));
         }
         unsafe { self.device.GetDeviceRemovedReason() }
             .map_err(|e| failure("Capture device lost", e))?;
@@ -237,7 +293,7 @@ impl Capture {
     }
 
     /// Start only after handling the completed frame, so its submitted slot is protected.
-    pub fn start(&mut self, requested: Option<u32>) -> Result<bool, String> {
+    pub(super) fn start(&mut self, requested: Option<u32>) -> Result<bool, CaptureError> {
         if self.source.is_none() || self.pending.is_some() {
             return Ok(false);
         }
@@ -316,13 +372,13 @@ impl Capture {
         Ok(true)
     }
 
-    fn next_frame(&self) -> Result<Option<Frame>, String> {
+    fn next_frame(&self) -> Result<Option<Frame>, CaptureError> {
         let Some(source) = &self.source else {
             return Ok(None);
         };
         let mut latest = None;
         // Keep latency bounded without spinning while capture is producing frames.
-        for _ in 0..2 {
+        for _ in 0..3 {
             match source.pool.TryGetNextFrame() {
                 Ok(frame) => latest = Some(Frame(frame)),
                 Err(error) if error.code().0 == 0 => break,
@@ -332,7 +388,18 @@ impl Capture {
         Ok(latest)
     }
 
-    fn completed(&self, flags: u32) -> Result<bool, String> {
+    pub fn reject_frame(&mut self, frame: Captured) {
+        super::metrics::CaptureCounters::increment(&self.counters.rejected_frames, 1);
+        if !super::serial_at_least(frame.paint_serial, frame.requested_serial) {
+            self.repaint_requested = true;
+        }
+    }
+
+    pub fn take_repaint_request(&mut self) -> bool {
+        std::mem::take(&mut self.repaint_requested)
+    }
+
+    fn completed(&self, flags: u32) -> Result<bool, CaptureError> {
         let mut ready = BOOL(0);
         unsafe {
             self.context.GetData(
@@ -346,7 +413,7 @@ impl Capture {
         Ok(ready.as_bool())
     }
 
-    fn finish(&mut self) -> Result<Option<Captured>, String> {
+    fn finish(&mut self) -> Result<Option<Captured>, CaptureError> {
         if !self.completed(D3D11_ASYNC_GETDATA_DONOTFLUSH.0 as u32)? {
             return Ok(None);
         }
@@ -384,6 +451,7 @@ impl Capture {
             .take()
             .expect("capture completion requires an in-flight frame");
         let Some((generation, revision, paint_serial)) = key else {
+            super::metrics::CaptureCounters::increment(&self.counters.rejected_markers, 1);
             return Ok(None);
         };
         Ok(Some(Captured {
@@ -396,20 +464,21 @@ impl Capture {
     }
 
     /// Protect the submitted slot. Idle surfaces must never start a speculative copy.
-    pub fn submitted(&mut self, frame: Captured) -> Result<(), String> {
+    pub(super) fn submitted(&mut self, frame: Captured) -> Result<(), CaptureError> {
         let slot = self
             .slots
             .iter()
             .position(|slot| slot.handle == frame.shared_handle)
             .expect("submitted texture belongs to this capture");
         self.next_slot = 1 - slot;
-        super::metrics::CaptureCounters::increment(&self.counters.submissions, 1);
+        self.repaint_requested = false;
+        self.counters.submitted();
         Ok(())
     }
 
     /// Full readback is restricted to the development capture smoke test.
     #[cfg(all(debug_assertions, feature = "vr-preview"))]
-    pub fn snapshot(&self, frame: Captured) -> Result<Vec<u8>, String> {
+    pub(super) fn snapshot(&self, frame: Captured) -> Result<Vec<u8>, CaptureError> {
         let slot = self
             .slots
             .iter()
@@ -448,31 +517,26 @@ impl Capture {
 impl Source {
     fn new(
         device: &ID3D11Device,
-        hwnd: isize,
+        item: &GraphicsCaptureItem,
         width: u32,
         capture_height: u32,
         counters: &Arc<super::metrics::CaptureCounters>,
-    ) -> Result<Self, String> {
+    ) -> Result<Self, CaptureError> {
         let dxgi_device: IDXGIDevice = device.cast().map_err(|e| failure("Get DXGI device", e))?;
         let capture_device: IDirect3DDevice =
             unsafe { CreateDirect3D11DeviceFromDXGIDevice(&dxgi_device) }
                 .and_then(|value| value.cast())
                 .map_err(|e| failure("Create WinRT D3D11 device", e))?;
-        let interop: IGraphicsCaptureItemInterop =
-            factory::<GraphicsCaptureItem, IGraphicsCaptureItemInterop>()
-                .map_err(|e| failure("Create WGC factory", e))?;
-        let item: GraphicsCaptureItem = unsafe { interop.CreateForWindow(HWND(hwnd as *mut _)) }
-            .map_err(|e| failure("Capture WebView window", e))?;
         let size = item.Size().map_err(|e| failure("Read WGC item size", e))?;
         check_size(size, width, capture_height)?;
         let pool = Direct3D11CaptureFramePool::CreateFreeThreaded(
             &capture_device,
             DirectXPixelFormat::B8G8R8A8UIntNormalized,
-            2,
+            3,
             size,
         )
         .map_err(|e| failure("Create WGC frame pool", e))?;
-        let session = match pool.CreateCaptureSession(&item) {
+        let session = match pool.CreateCaptureSession(item) {
             Ok(session) => session,
             Err(error) => {
                 let _ = pool.Close();
@@ -482,7 +546,7 @@ impl Source {
         let mut source = Source {
             session,
             pool,
-            item,
+            item: item.clone(),
             closed_token: None,
             closed: Arc::new(AtomicBool::new(false)),
             frame_token: None,
@@ -499,10 +563,8 @@ impl Source {
                 )
                 .map_err(|e| failure("Observe capture closure", e))?,
         );
-        source
-            .session
-            .SetIsCursorCaptureEnabled(false)
-            .map_err(|e| failure("Disable capture cursor", e))?;
+        // This interface arrived after window capture; the offscreen host has no cursor to draw.
+        let _ = source.session.SetIsCursorCaptureEnabled(false);
         // Older Windows versions may not expose this interface.
         let interval_supported = source
             .session
@@ -521,10 +583,7 @@ impl Source {
                     .FrameArrived(
                         &TypedEventHandler::<Direct3D11CaptureFramePool, IInspectable>::new(
                             move |_, _| {
-                                super::metrics::CaptureCounters::increment(
-                                    &counters.source_frames,
-                                    1,
-                                );
+                                counters.frame();
                                 Ok(())
                             },
                         ),
@@ -541,6 +600,34 @@ impl Source {
     }
 }
 
+pub(super) fn ensure_capture_supported() -> Result<(), CaptureError> {
+    static BUILD: OnceLock<Result<u32, String>> = OnceLock::new();
+    let build = BUILD
+        .get_or_init(windows_build)
+        .clone()
+        .map_err(|error| CaptureError::new(super::recovery::Fault::Unsupported, error))?;
+    if build < MIN_CAPTURE_BUILD {
+        return Err(CaptureError::new(super::recovery::Fault::Unsupported, format!(
+            "Windows build {build} is too old for VR overlay capture; build {MIN_CAPTURE_BUILD} (Windows 10 1903) or newer is required"
+        )));
+    }
+    Ok(())
+}
+
+fn windows_build() -> Result<u32, String> {
+    let mut version = windows_sys::Win32::System::SystemInformation::OSVERSIONINFOW {
+        dwOSVersionInfoSize: std::mem::size_of::<
+            windows_sys::Win32::System::SystemInformation::OSVERSIONINFOW,
+        >() as u32,
+        ..Default::default()
+    };
+    let status = unsafe { windows_sys::Wdk::System::SystemServices::RtlGetVersion(&mut version) };
+    if status < 0 {
+        return Err(format!("Read Windows build: NTSTATUS {status:#x}"));
+    }
+    Ok(version.dwBuildNumber)
+}
+
 impl Drop for Capture {
     fn drop(&mut self) {
         // Close the pool before returning a frame, so WGC cannot reuse its surface.
@@ -554,7 +641,7 @@ impl Drop for Capture {
     }
 }
 
-fn create_device(adapter_index: u32) -> Result<(ID3D11Device, ID3D11DeviceContext), String> {
+fn create_device(adapter_index: u32) -> Result<(ID3D11Device, ID3D11DeviceContext), CaptureError> {
     let factory: IDXGIFactory1 =
         unsafe { CreateDXGIFactory1() }.map_err(|e| failure("Create capture DXGI factory", e))?;
     let adapter = unsafe { factory.EnumAdapters1(adapter_index) }
@@ -599,14 +686,14 @@ fn texture_desc(width: u32, height: u32) -> D3D11_TEXTURE2D_DESC {
 fn create_texture(
     device: &ID3D11Device,
     desc: &D3D11_TEXTURE2D_DESC,
-) -> Result<ID3D11Texture2D, String> {
+) -> Result<ID3D11Texture2D, CaptureError> {
     let mut texture = None;
     unsafe { device.CreateTexture2D(desc, None, Some(&mut texture)) }
         .map_err(|e| failure("Create capture texture", e))?;
     texture.ok_or_else(|| "D3D11 returned no capture texture".into())
 }
 
-fn create_slot(device: &ID3D11Device, width: u32, height: u32) -> Result<Slot, String> {
+fn create_slot(device: &ID3D11Device, width: u32, height: u32) -> Result<Slot, CaptureError> {
     let mut desc = texture_desc(width, height);
     desc.BindFlags = (D3D11_BIND_SHADER_RESOURCE.0 | D3D11_BIND_RENDER_TARGET.0) as u32;
     desc.MiscFlags = D3D11_RESOURCE_MISC_SHARED.0 as u32;
@@ -625,12 +712,13 @@ fn create_slot(device: &ID3D11Device, width: u32, height: u32) -> Result<Slot, S
     })
 }
 
-fn check_size(size: SizeInt32, width: u32, height: u32) -> Result<(), String> {
+fn check_size(size: SizeInt32, width: u32, height: u32) -> Result<(), CaptureError> {
     if size.Width != width as i32 || size.Height != height as i32 {
         return Err(format!(
             "WebView capture size changed: expected {width}x{height}, got {}x{}",
             size.Width, size.Height
-        ));
+        )
+        .into());
     }
     Ok(())
 }
@@ -650,8 +738,17 @@ fn decode_marker(rows: &[u8], row_pitch: usize) -> Option<(u32, u32, u32)> {
         .then_some((values[0], values[1], values[2]))
 }
 
-fn failure(operation: &str, error: windows::core::Error) -> String {
-    format!("{operation}: {error}")
+fn failure(operation: &str, error: windows::core::Error) -> CaptureError {
+    let kind = match error.code().0 as u32 {
+        0x887a0005 | 0x887a0006 | 0x887a0007 => super::recovery::Fault::DeviceLost,
+        0x80004002 | 0x80004001 => super::recovery::Fault::Unsupported,
+        _ => super::recovery::Fault::Session,
+    };
+    CaptureError {
+        kind,
+        stage: operation.into(),
+        hresult: Some(error.code().0),
+    }
 }
 
 #[cfg(test)]

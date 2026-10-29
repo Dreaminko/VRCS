@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
+import { connectSurfaceBridge, type SurfaceBridge } from "./bridge";
 import { VrSurface } from "./VrSurface";
 import { markerBits, newerKey, sameKey, type Surface, type SurfaceActivity, type SurfaceKey, type SurfaceLayout, type SurfaceScrollState, type SurfaceState } from "./protocol";
 
-export function SurfaceHost({ surface }: { surface: Surface }) {
+export function SurfaceHost({ surface, connect = connectSurfaceBridge }: { surface: Surface; connect?: (surface: Surface, signal: AbortSignal) => Promise<SurfaceBridge> }) {
+  const connection = useRef<SurfaceBridge | null>(null);
   const root = useRef<HTMLElement>(null);
   const [state, setState] = useState<SurfaceState | null>(null);
   const [measured, setMeasured] = useState<SurfaceKey | null>(null);
@@ -31,9 +31,35 @@ export function SurfaceHost({ surface }: { surface: Surface }) {
     return serial.current;
   }, []);
 
+  const receiveScroll = useCallback((payload: SurfaceScrollState) => {
+    if (!activity.current.active || !sameKey(scrollKey.current, payload.key) || !Number.isFinite(payload.delta)) return;
+    const viewport = root.current?.querySelector<HTMLElement>("[data-vr-page-viewport]");
+    if (!viewport) return;
+    const before = pendingScroll.current?.viewport === viewport ? pendingScroll.current.top : viewport.scrollTop;
+    // Clamp each input so reversing at an edge does not have to undo discarded overscroll.
+    const top = Math.max(0, Math.min(viewport.scrollHeight - viewport.clientHeight, before + payload.delta * viewport.clientHeight));
+    if (top === before) return;
+    pendingScroll.current = { viewport, top };
+    if (scrollFrame.current !== null) return;
+    scrollFrame.current = requestAnimationFrame(() => {
+      scrollFrame.current = null;
+      const pending = pendingScroll.current;
+      pendingScroll.current = null;
+      if (!pending || !activity.current.active || !pending.viewport.isConnected) return;
+      const { viewport, top } = pending;
+      const before = viewport.scrollTop;
+      viewport.scrollTop = top;
+      if (viewport.scrollTop !== before) {
+        // Update follow mode before incoming captions overtake the browser's scroll event.
+        viewport.dispatchEvent(new Event("scroll"));
+        markPaint();
+      }
+    });
+  }, [markPaint]);
+
   useEffect(() => {
     let disposed = false;
-    const subscriptions: (() => void)[] = [];
+    const abort = new AbortController();
     mounted.current = true;
     const receiveActivity = (next: SurfaceActivity) => {
       if (disposed || !Number.isSafeInteger(next.request) || next.request < activity.current.request) return;
@@ -42,7 +68,7 @@ export function SurfaceHost({ surface }: { surface: Surface }) {
       if (!next.active) {
         cancelScroll();
         const scrollTop = root.current?.querySelector<HTMLElement>("[data-vr-page-viewport]")?.scrollTop ?? null;
-        void invoke("vr_surface_snapshot", { surface, key: current.current, activityRequest: next.request, scrollTop })
+        void connection.current?.snapshot(current.current, next.request, scrollTop)
           .catch(error => console.error("VR surface snapshot failed", error));
       } else markPaint();
     };
@@ -66,54 +92,25 @@ export function SurfaceHost({ surface }: { surface: Surface }) {
       }
     };
     void (async () => {
-      const viewListener = await listen<SurfaceState>("vr-surface-view", (event) => receive(event.payload));
-      const activityListener = await listen<SurfaceActivity>("vr-surface-activity", (event) => receiveActivity(event.payload), {
-        target: { kind: "WebviewWindow", label: `vr-surface-${surface}` },
+      const bridge = await connect(surface, abort.signal);
+      if (disposed) { bridge.dispose(); return; }
+      connection.current = bridge;
+      bridge.on("view", receive);
+      bridge.on("activity", receiveActivity);
+      bridge.on("repaint", () => {
+        if (!disposed) markPaint();
       });
-      if (disposed) { viewListener(); activityListener(); return; }
-      subscriptions.push(viewListener, activityListener);
-      receive(await invoke<SurfaceState | null>("vr_surface_ready", { surface }), false);
+      if (surface === "reader" || surface === "dialogue" || surface === "player_audio" || surface === "dashboard") bridge.on("scroll", receiveScroll);
+      receive(await bridge.ready(), false);
     })().catch((error) => { if (!disposed) console.error("VR surface connection failed", error); });
-    return () => { disposed = true; mounted.current = false; layoutRequest.current++; cancelScroll(); subscriptions.forEach(unlisten => unlisten()); };
-  }, [surface, markPaint, cancelScroll]);
-
-  useEffect(() => {
-    if (surface !== "reader" && surface !== "dialogue" && surface !== "player_audio" && surface !== "dashboard") return;
-    let disposed = false;
-    const subscription = listen<SurfaceScrollState>("vr-surface-scroll", ({ payload }) => {
-      if (disposed || !activity.current.active || !sameKey(scrollKey.current, payload.key) || !Number.isFinite(payload.delta)) return;
-      const viewport = root.current?.querySelector<HTMLElement>("[data-vr-page-viewport]");
-      if (!viewport) return;
-      const before = pendingScroll.current?.viewport === viewport ? pendingScroll.current.top : viewport.scrollTop;
-      // Clamp each input so reversing at an edge does not have to undo discarded overscroll.
-      const top = Math.max(0, Math.min(viewport.scrollHeight - viewport.clientHeight, before + payload.delta * viewport.clientHeight));
-      if (top === before) return;
-      pendingScroll.current = { viewport, top };
-      if (scrollFrame.current !== null) return;
-      scrollFrame.current = requestAnimationFrame(() => {
-        scrollFrame.current = null;
-        const pending = pendingScroll.current;
-        pendingScroll.current = null;
-        if (!pending || !activity.current.active || !pending.viewport.isConnected) return;
-        const { viewport, top } = pending;
-        const before = viewport.scrollTop;
-        viewport.scrollTop = top;
-        if (viewport.scrollTop !== before) {
-          // Update follow mode before incoming captions overtake the browser's scroll event.
-          viewport.dispatchEvent(new Event("scroll"));
-          markPaint();
-        }
-      });
-    });
-    void subscription.catch((error) => console.error("VR surface scroll connection failed", error));
-    return () => { disposed = true; void subscription.then((unlisten) => unlisten()).catch(() => {}); };
-  }, [surface, markPaint]);
+    return () => { disposed = true; mounted.current = false; layoutRequest.current++; cancelScroll(); abort.abort(); connection.current = null; };
+  }, [surface, connect, markPaint, cancelScroll, receiveScroll]);
 
   const onLayout = useCallback((layout: SurfaceLayout) => {
     if (!activity.current.active) return;
     const request = ++layoutRequest.current;
     const paintSerial = markPaint();
-    void invoke<boolean>("vr_surface_layout", { surface, layout, paintSerial }).then((accepted) => {
+    void connection.current?.layout(layout, paintSerial).then((accepted) => {
       if (mounted.current && request === layoutRequest.current && sameKey(current.current, layout.key)) setMeasured(accepted ? layout.key : null);
     }).catch((error) => { if (mounted.current) console.error("VR surface layout failed", error); });
   }, [surface, markPaint]);
@@ -131,7 +128,7 @@ export function SurfaceHost({ surface }: { surface: Surface }) {
   useLayoutEffect(() => {
     if (!active || !activity.current.active || !state || !sameKey(measured, state.key)) return;
     // This is a request, not proof of a GPU paint. WGC verifies the same-frame marker.
-    void invoke("vr_surface_paint", { surface, key: state.key, paintSerial })
+    void connection.current?.paint(state.key, paintSerial)
       .catch(error => console.error("VR surface paint request failed", error));
   }, [active, state?.key, measured, paintSerial, surface]);
 

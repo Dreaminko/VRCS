@@ -5548,6 +5548,7 @@ dependencies = [
  "tracing",
  "uuid",
  "vrcs-core",
+ "webview2-com",
  "windows",
  "windows-sys 0.61.2",
 ]
