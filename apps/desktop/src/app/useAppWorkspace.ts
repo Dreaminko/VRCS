@@ -70,8 +70,6 @@ export function useAppWorkspace({
     openConversationAt: subtitles.openConversationAt,
     page,
     hasOlderSubtitles: subtitles.hasOlder,
-    loadingConversationSubtitles: subtitles.loadingConversation,
-    focusedSubtitleId: subtitles.focusedSubtitleId,
     reportError: runtime.reportError,
     clearErrorFrom: runtime.clearErrorFrom,
   });

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import type { UIEvent } from "react";
 
 import type { Page } from "../app/app-types";
+import { prefersReducedMotion } from "../app/app-motion";
 import { shouldFollowLiveScroll } from "../shared/lib/live-scroll";
 
 export function useLiveConversationScroll({
@@ -24,6 +25,7 @@ export function useLiveConversationScroll({
   const liveScrollRef = useRef<HTMLDivElement>(null);
   const previousLiveScrollTopRef = useRef(0);
   const followingLiveSubtitlesRef = useRef(true);
+  const smoothLiveScrollRef = useRef(false);
   const [followingLiveSubtitles, setFollowingLiveSubtitles] = useState(true);
   const liveAutoScrollActive = page === "live"
     && focusedSubtitleId === null
@@ -34,6 +36,7 @@ export function useLiveConversationScroll({
 
   const setFollowingLive = useCallback((following: boolean) => {
     followingLiveSubtitlesRef.current = following;
+    if (!following) smoothLiveScrollRef.current = false;
     setFollowingLiveSubtitles(following);
   }, []);
 
@@ -41,8 +44,11 @@ export function useLiveConversationScroll({
     (behavior: ScrollBehavior = "smooth") => {
       const scrollRegion = liveScrollRef.current;
       if (!scrollRegion) return;
+      const scrollBehavior = behavior === "smooth" && prefersReducedMotion() ? "auto" : behavior;
+      smoothLiveScrollRef.current = scrollBehavior === "smooth"
+        && scrollRegion.scrollHeight - scrollRegion.clientHeight - scrollRegion.scrollTop > 1;
       setFollowingLive(true);
-      scrollRegion.scrollTo({ top: scrollRegion.scrollHeight, behavior });
+      scrollRegion.scrollTo({ top: scrollRegion.scrollHeight, behavior: scrollBehavior });
       previousLiveScrollTopRef.current = scrollRegion.scrollTop;
     },
     [setFollowingLive],
@@ -52,11 +58,16 @@ export function useLiveConversationScroll({
     if (!followingLiveSubtitlesRef.current) return;
     const scrollRegion = liveScrollRef.current;
     if (!scrollRegion) return;
-    scrollRegion.scrollTo({ top: scrollRegion.scrollHeight, behavior: "auto" });
+    // Resize updates must not replace an active smooth return with an instant jump.
+    scrollRegion.scrollTo({
+      top: scrollRegion.scrollHeight,
+      behavior: smoothLiveScrollRef.current ? "smooth" : "auto",
+    });
     previousLiveScrollTopRef.current = scrollRegion.scrollTop;
   }, []);
 
   useLayoutEffect(() => {
+    smoothLiveScrollRef.current = false;
     if (page === "live") return;
     const scrollRegion = liveScrollRef.current;
     if (!scrollRegion) return;
@@ -72,6 +83,7 @@ export function useLiveConversationScroll({
       || loadingConversationSubtitles
       || focusedSubtitleId !== null
     ) return;
+    smoothLiveScrollRef.current = false;
     setFollowingLive(true);
     autoScrollLiveViewToBottom();
   }, [
@@ -176,6 +188,9 @@ export function useLiveConversationScroll({
   const onLiveScroll = useCallback((event: UIEvent<HTMLDivElement>) => {
     if (page !== "live") return;
     const scrollRegion = event.currentTarget;
+    if (scrollRegion.scrollHeight - scrollRegion.clientHeight - scrollRegion.scrollTop <= 1) {
+      smoothLiveScrollRef.current = false;
+    }
     // Layout can clamp the offset before another translation grows the content.
     // Input pauses following; only movement back toward the bottom resumes it.
     if (!followingLiveSubtitlesRef.current && scrollRegion.scrollTop > previousLiveScrollTopRef.current) {

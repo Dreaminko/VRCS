@@ -9,6 +9,7 @@ import { PastConversationNotice } from "./components/PastConversationNotice";
 import { WorkspaceFrame } from "./components/WorkspaceFrame";
 import { ChatboxComposer } from "../chatbox/ChatboxComposer";
 import { ConversationSidebar } from "../conversations/ConversationSidebar";
+import { useLiveConversationScroll } from "../conversations/useLiveConversationScroll";
 
 import type { SettingsCategory } from "../settings/settings-types";
 import { BottomDock } from "../shell/BottomDock";
@@ -93,6 +94,15 @@ export function DesktopShell({
     locale,
     playerDisplay,
   } = workspace;
+  const liveScroll = useLiveConversationScroll({
+    page,
+    activeConversationId: conversations.activeConversation?.id ?? null,
+    selectedConversationId: conversations.selectedConversation?.id ?? null,
+    openedConversationId: subtitles.openedConversationId,
+    loadingConversationSubtitles: subtitles.loadingConversation,
+    selectedConversationUpdatedAt: conversations.selectedConversation?.updatedAt ?? null,
+    focusedSubtitleId: subtitles.focusedSubtitleId,
+  });
   const features = settings.value?.features;
   const titleConfig = settings.value?.conversation_titles;
   const titleConfigured = Boolean(titleConfig?.model.trim()
@@ -193,8 +203,8 @@ export function DesktopShell({
         )}
         <WorkspaceFrame
           page={page}
-          scrollRef={conversations.liveScrollRef}
-          onScroll={conversations.onLiveScroll}
+          scrollRef={liveScroll.liveScrollRef}
+          onScroll={liveScroll.onLiveScroll}
           toolbar={
             <TopStatus
               connection={runtime.connection}
@@ -249,7 +259,7 @@ export function DesktopShell({
                   hiddenTracks={playerDisplay.hiddenTracks}
                   hiddenSourceLanguages={playerDisplay.hiddenSourceLanguages}
                   playerAudioPhase={runtime.health?.player_audio?.phase}
-                  scrollContainerRef={conversations.liveScrollRef}
+                  scrollContainerRef={liveScroll.liveScrollRef}
                   running={
                     (runtime.health?.capture_requested ?? false)
                     && conversations.selectedConversation?.id === conversations.activeConversation?.id
@@ -338,7 +348,7 @@ export function DesktopShell({
         </WorkspaceFrame>
       </div>
 
-      {page === "live" && !conversations.followingLiveSubtitles && !chatbox.open && (
+      {page === "live" && !liveScroll.followingLiveSubtitles && !chatbox.open && (
         <button
           className="live-scroll-to-bottom"
           type="button"
@@ -352,7 +362,7 @@ export function DesktopShell({
             if (subtitles.focusedSubtitleId !== null && conversations.selectedConversation) {
               void subtitles.openConversation(conversations.selectedConversation.id);
             } else {
-              conversations.scrollLiveViewToBottom();
+              liveScroll.scrollLiveViewToBottom();
             }
           }}
         >

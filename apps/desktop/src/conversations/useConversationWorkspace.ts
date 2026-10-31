@@ -11,7 +11,6 @@ import {
 import type { ConversationCatalogEvent } from "../subtitles/subtitle-stream";
 import type { Subtitle } from "../subtitles/types";
 import { useConversationCatalog } from "./useConversationCatalog";
-import { useLiveConversationScroll } from "./useLiveConversationScroll";
 import { useConversationSearch } from "./useConversationSearch";
 
 const SIDEBAR_OPEN_KEY = "vrcs.conversation-sidebar-open";
@@ -30,8 +29,6 @@ export function useConversationWorkspace({
   openConversationAt,
   page,
   hasOlderSubtitles,
-  loadingConversationSubtitles,
-  focusedSubtitleId,
   reportError,
   clearErrorFrom,
 }: {
@@ -43,8 +40,6 @@ export function useConversationWorkspace({
   openConversationAt: (conversationId: string, subtitleId: number) => Promise<void>;
   page: Page;
   hasOlderSubtitles: boolean;
-  loadingConversationSubtitles: boolean;
-  focusedSubtitleId: number | null;
   reportError: (reason: unknown, fallbackKey: string, source?: string) => void;
   clearErrorFrom: (source: string) => void;
 }) {
@@ -83,15 +78,6 @@ export function useConversationWorkspace({
     && selectedConversation.id === openedConversationId
     && hasOlderSubtitles,
   );
-  const liveScroll = useLiveConversationScroll({
-    page,
-    activeConversationId: activeConversation?.id ?? null,
-    selectedConversationId: selectedConversation?.id ?? null,
-    openedConversationId,
-    loadingConversationSubtitles,
-    selectedConversationUpdatedAt: selectedConversation?.updatedAt ?? null,
-    focusedSubtitleId,
-  });
 
   const focusSearch = () => {
     setSidebarOpen(true);
@@ -153,11 +139,7 @@ export function useConversationWorkspace({
     resetConversationCustomization,
     deleteConversation: catalogState.deleteConversation,
     generateTitle: catalogState.generateTitle,
-    liveScrollRef: liveScroll.liveScrollRef,
-    followingLiveSubtitles: liveScroll.followingLiveSubtitles,
     selectedConversationHasOlder,
-    scrollLiveViewToBottom: liveScroll.scrollLiveViewToBottom,
-    onLiveScroll: liveScroll.onLiveScroll,
     search: {
       ...search,
       inputRef: searchInputRef,
