@@ -164,13 +164,12 @@ html[data-vr-surface], html[data-vr-surface] body, html[data-vr-surface] #root {
 .vr-progress-stage-label svg { width: 22px; height: 22px; }
 .vr-progress-track { height: 8px; margin-top: 10px; border-radius: 999px; background: var(--surface-subtle); overflow: hidden; }
 .vr-progress-track i { display: block; width: 0; height: 100%; border-radius: inherit; background: currentColor; }
+.vr-progress-stages [data-stage="active"] .vr-progress-track i.smooth { transition: width 180ms linear; }
 .vr-progress-stages [data-stage="active"], .vr-progress-stages [data-stage="complete"] { color: var(--primary-ink); }
 .vr-progress-stages [data-stage="failed"] { color: var(--error); }
 .vr-progress-track.indeterminate i { width: 35%; animation: vr-progress-sweep 1.4s ease-in-out infinite; }
 .vr-progress-stages [data-stage="skipped"] .vr-progress-track { background: transparent; border: 1px dashed var(--border-strong); }
 .vr-progress-panel > p { margin: 0; overflow: hidden; color: var(--text-secondary); font-size: 22px; text-overflow: ellipsis; white-space: nowrap; }
-.vr-progress-spinner { animation: vr-progress-spin 1.5s linear infinite; }
-@keyframes vr-progress-spin { to { transform: rotate(360deg); } }
 @keyframes vr-progress-sweep { 0%, 100% { transform: translateX(-100%); } 50% { transform: translateX(285%); } }
 .vr-surface-host[data-active="false"] *, .vr-surface-host[data-active="false"] *::before, .vr-surface-host[data-active="false"] *::after { animation-play-state: paused !important; }
 .vr-surface-marker { position: absolute; z-index: 100; bottom: 0; left: 0; display: flex; flex-wrap: wrap; width: 256px; height: 16px; pointer-events: none; }

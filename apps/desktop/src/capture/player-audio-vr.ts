@@ -44,7 +44,7 @@ export function playerAudioPrompt(notice: { requestId: number; openedAt: number 
 }
 
 export function playerAudioProgress(preparation: PlayerAudioPreparation | null, status: PlayerAudioStatus | null | undefined, requested: boolean, t: TFunction): ProgressView | null {
-  if (!preparation && (!requested || !status || status.phase === "stopped" || status.phase === "streaming")) return null;
+  if (!preparation && (!requested || !status || status.phase === "stopped")) return null;
   const stages: ProgressView["stages"] = ["pending", "pending", "pending", "pending"];
   let label: string;
   let detail = "";
@@ -63,14 +63,19 @@ export function playerAudioProgress(preparation: PlayerAudioPreparation | null, 
     label = t(`settings.audio.players.phase.${phase}`);
     detail = status!.detail ?? "";
     const scan = status!.key_scan;
-    if (phase === "acquiring_key" && scan) {
-      label = t(`warnings.playerAudio.vrPreparation.${scan.stage === "paging" ? "paging" : "scanning"}`);
+    if (phase === "streaming") {
+      stages.fill("complete");
+      label = t("warnings.playerAudio.vrPreparation.ready");
+    } else if (phase === "acquiring_key" && scan) {
+      const scanning = scan.stage === "scanning" && (scan.total_bytes === 0 || scan.scanned_bytes < scan.total_bytes);
+      const stage = scan.stage === "paging" ? "paging" : scanning ? "scanning" : "verifying";
+      label = t(`warnings.playerAudio.vrPreparation.${stage}`);
       detail = t("settings.audio.players.keyElapsed", { seconds: (scan.elapsed_ms / 1000).toFixed(1) });
-      if (scan.stage === "scanning" && scan.total_bytes > 0) fraction = [Math.min(scan.scanned_bytes, scan.total_bytes), scan.total_bytes];
+      if (scanning && scan.total_bytes > 0) fraction = [Math.min(scan.scanned_bytes, scan.total_bytes), scan.total_bytes];
     }
   }
   return {
-    scan_id: 0, status: label, detail, elapsed_seconds: Math.floor((status?.key_scan?.elapsed_ms ?? 0) / 1_000),
+    task: "key", scan_id: 0, status: label, detail, elapsed_seconds: Math.floor((status?.key_scan?.elapsed_ms ?? 0) / 1_000),
     stages, stage_labels: ["prerequisites", "game", "key", "audio"].map(key => t(`warnings.playerAudio.vrPreparation.${key}`)),
     translation_fraction: fraction,
   };

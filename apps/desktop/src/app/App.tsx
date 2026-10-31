@@ -24,7 +24,7 @@ function App() {
     getSettings: workspace.settings.getCurrent,
     update: workspace.settings.update,
     available: workspace.runtime.ready && workspace.onboarding.status === "complete",
-    requested: workspace.runtime.health?.capture_requested ?? false,
+    requested: workspace.runtime.health?.capture_requested,
     getRequested: workspace.capture.getRunning,
     running: workspace.runtime.health?.capture_running ?? false,
     busy: workspace.capture.pending,

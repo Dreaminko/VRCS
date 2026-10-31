@@ -31,7 +31,13 @@ test("VR preparation uses the OCR stages for prerequisites and the actual player
   assert.deepEqual(build("failed").stages, ["complete", "complete", "failed", "pending"]);
   assert.equal(playerAudioProgress(null, status, false, t), null);
   assert.equal(playerAudioProgress(null, { ...status, phase: "stopped" }, true, t), null);
-  assert.equal(playerAudioProgress(null, { ...status, phase: "streaming" }, true, t), null);
+});
+
+test("VR confirms key acquisition without waiting for a player to speak", () => {
+  const view = playerAudioProgress(null, { ...status, phase: "streaming" }, true, t)!;
+  assert.ok(view);
+  assert.deepEqual(view.stages, ["complete", "complete", "complete", "complete"]);
+  assert.match(view.status, /ready/);
 });
 
 test("VR key acquisition reports measured scan progress without treating paging or retry as success", () => {
@@ -43,6 +49,17 @@ test("VR key acquisition reports measured scan progress without treating paging 
   assert.match(scan.status, /scanning/);
   assert.equal(playerAudioProgress(null, { ...status, phase: "acquiring_key", key_scan: { ...key_scan, stage: "paging" } }, true, t)!.translation_fraction, null);
   assert.equal(playerAudioProgress(null, { ...status, phase: "retrying_key", key_scan }, true, t)!.translation_fraction, null);
+});
+
+test("finishing the scan keeps VR progress active until the backend confirms the key", () => {
+  for (const stage of ["scanning", "verified", "cached"] as const) {
+    const key_scan = { stage, scanned_bytes: 400, total_bytes: 400, elapsed_ms: 2_500,
+      scan_elapsed_ms: 1_000, candidates_tested: 2, workers: 2 };
+    const view = playerAudioProgress(null, { ...status, phase: "acquiring_key", key_scan }, true, t)!;
+    assert.deepEqual(view.stages, ["complete", "complete", "active", "pending"]);
+    assert.match(view.status, /verifying/);
+    assert.equal(view.translation_fraction, null);
+  }
 });
 
 test("blocked prerequisites and failures stay explicit and take priority over stale capture status", () => {

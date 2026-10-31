@@ -19,7 +19,7 @@ use std::time::{Duration, Instant};
 use tauri::{Emitter, Manager as _, State, WebviewWindow};
 use vrcs_core::ocr::{BlockTranslation, TextBlock, TranslatedBlock};
 
-const PANELS: [&str; 11] = [
+const PANELS: [&str; 12] = [
     "Wrist menu",
     "SteamVR Dashboard",
     "Dialogue",
@@ -31,6 +31,7 @@ const PANELS: [&str; 11] = [
     "OCR progress",
     "Vision recording / confirmation",
     "Dashboard thumbnail",
+    "Voice key acquisition",
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -81,7 +82,7 @@ pub struct Input {
 pub struct Info {
     session: u32,
     live: bool,
-    panels: [&'static str; 11],
+    panels: [&'static str; 12],
     panel: u32,
     scene: Scene,
     generation: u32,
@@ -337,6 +338,8 @@ impl Preview {
                 }
                 self.cancel();
                 self.panel = panel;
+                self.advance = 0;
+                self.closed = false;
                 self.generation += 1;
                 self.layout_changed();
             }
@@ -463,7 +466,7 @@ impl Preview {
             4 | 5 | 9 => Some(SurfaceId::Reader),
             6 => Some(SurfaceId::OcrSelection),
             7 => Some(SurfaceId::OcrResult),
-            8 => Some(SurfaceId::OcrProgress),
+            8 | 11 => Some(SurfaceId::OcrProgress),
             10 => Some(SurfaceId::DashboardThumbnail),
             _ => None,
         }
@@ -1037,13 +1040,14 @@ impl Preview {
                 scene: sample_scene(self.scene),
             },
             8 => {
-                use super::ocr_progress::{ProgressView, Stage};
+                use super::ocr_progress::{ProgressTask, ProgressView, Stage};
                 let step = self.advance % 4;
                 let failed = matches!(self.scene, Scene::Error | Scene::Timeout);
                 SurfaceView::OcrProgress {
                     dark: self.controls.dark,
                     progress: (!matches!(self.scene, Scene::Empty | Scene::Expired)).then(|| {
                         ProgressView {
+                            task: ProgressTask::Ocr,
                             scan_id: 1,
                             status: if self.scene == Scene::Timeout {
                                 "Timed out"
@@ -1084,6 +1088,10 @@ impl Preview {
             }
             10 => SurfaceView::DashboardThumbnail {
                 dark: self.controls.dark,
+            },
+            11 => SurfaceView::OcrProgress {
+                dark: self.controls.dark,
+                progress: sample_key_progress(self.scene, self.advance),
             },
             _ => return None,
         })
@@ -1209,6 +1217,90 @@ fn sample_scene(scene: Scene) -> OcrScene {
         opacity: 0.94,
         aspect: 1.5,
     }
+}
+
+fn sample_key_progress(scene: Scene, advance: usize) -> Option<super::ocr_progress::ProgressView> {
+    use super::ocr_progress::{ProgressTask, ProgressView, Stage};
+    if matches!(scene, Scene::Empty | Scene::Expired) {
+        return None;
+    }
+    let mut stages = [
+        Stage::Complete,
+        Stage::Complete,
+        Stage::Active,
+        Stage::Pending,
+    ];
+    let mut fraction = None;
+    let (status, detail) = match scene {
+        Scene::Unavailable => {
+            stages = [
+                Stage::Failed,
+                Stage::Pending,
+                Stage::Pending,
+                Stage::Pending,
+            ];
+            (
+                "System preparation needs attention",
+                "Complete the required steps on the desktop.",
+            )
+        }
+        Scene::Busy => {
+            stages = [
+                Stage::Active,
+                Stage::Pending,
+                Stage::Pending,
+                Stage::Pending,
+            ];
+            (
+                [
+                    "Checking administrator access",
+                    "Checking memory compression",
+                    "Restarting with administrator access",
+                ][advance % 3],
+                "Advance to inspect system preparation.",
+            )
+        }
+        Scene::Error => {
+            stages[2] = Stage::Failed;
+            (
+                "Voice key acquisition failed",
+                "Check the pagefile drive and Windows memory compression.",
+            )
+        }
+        Scene::Timeout => (
+            "Retrying voice key acquisition",
+            "The scan timed out; acquisition will retry.",
+        ),
+        _ => match advance % 6 {
+            0 => ("Preparing memory pages", "The game may pause briefly."),
+            step @ (1 | 2) => {
+                fraction = Some((step * 2 - 1, 4));
+                (
+                    "Scanning for the voice key",
+                    "Checking key candidates for the current session.",
+                )
+            }
+            3 => (
+                "Verifying the voice key",
+                "Checking the key against current session traffic.",
+            ),
+            4 => {
+                stages.fill(Stage::Complete);
+                ("Voice key acquired", "Audio reception is ready.")
+            }
+            _ => return None,
+        },
+    };
+    Some(ProgressView {
+        task: ProgressTask::Key,
+        scan_id: 0,
+        status: status.into(),
+        detail: format!("Elapsed {}s · {detail}", advance + 1),
+        elapsed_seconds: advance as u64 + 1,
+        stages,
+        stage_labels: ["System", "Game", "Voice key", "Audio ready"].map(String::from),
+        translation_fraction: fraction,
+    })
 }
 
 fn sample_player_display(scene: Scene) -> player_display::View {
@@ -2066,7 +2158,7 @@ mod tests {
                 dashboard: None,
                 menu: None,
             }],
-            3 | 6 | 7 | 8 | 10 => vec![],
+            3 | 6 | 7 | 8 | 10 | 11 => vec![],
             _ => return,
         };
         p.update(Operation::Layout {
@@ -2108,8 +2200,11 @@ mod tests {
     #[test]
     fn passive_panels_use_react_without_pointer_actions_and_hide_expired_content() {
         let mut p = mock();
-        for (panel, kind, content) in [(3, "headset", "messages"), (8, "ocr_progress", "progress")]
-        {
+        for (panel, kind, content) in [
+            (3, "headset", "messages"),
+            (8, "ocr_progress", "progress"),
+            (11, "ocr_progress", "progress"),
+        ] {
             apply(&mut p, Operation::Select { panel });
             let surface = p.info().surface.expect("passive panel uses React");
             let view = serde_json::to_value(surface.view).unwrap();
@@ -2133,6 +2228,49 @@ mod tests {
                     scene: Scene::Normal,
                 },
             );
+        }
+    }
+
+    #[test]
+    fn key_progress_preview_confirms_success_before_hiding() {
+        use super::super::ocr_progress::Stage;
+        let mut p = mock();
+        apply(&mut p, Operation::Select { panel: 11 });
+        let mut steps = Vec::new();
+        for _ in 0..6 {
+            let SurfaceView::OcrProgress { progress, .. } = p.surface_view().unwrap() else {
+                panic!("Key acquisition must use the production progress surface");
+            };
+            steps.push(progress.map(|view| (view.stages, view.translation_fraction)));
+            apply(&mut p, Operation::Advance);
+        }
+        let acquiring = [
+            Stage::Complete,
+            Stage::Complete,
+            Stage::Active,
+            Stage::Pending,
+        ];
+        assert_eq!(
+            steps,
+            vec![
+                Some((acquiring, None)),
+                Some((acquiring, Some((1, 4)))),
+                Some((acquiring, Some((3, 4)))),
+                Some((acquiring, None)),
+                Some(([Stage::Complete; 4], None)),
+                None,
+            ]
+        );
+        for (scene, failed_stage) in [(Scene::Unavailable, 0), (Scene::Error, 2)] {
+            apply(&mut p, Operation::Scene { scene });
+            let SurfaceView::OcrProgress {
+                progress: Some(view),
+                ..
+            } = p.surface_view().unwrap()
+            else {
+                panic!("Key failures must remain visible in the preview");
+            };
+            assert_eq!(view.stages[failed_stage], Stage::Failed);
         }
     }
 

@@ -20,7 +20,7 @@ use super::backend::{OpenVrBackend, OverlayKind};
 use super::control_protocol::ControlSnapshot;
 use super::dashboard::{DashboardCommand, DashboardUi, DashboardViewModel};
 use super::ocr_plane::OcrScene;
-use super::ocr_progress::ProgressView;
+use super::ocr_progress::{ProgressView, Stage};
 use super::ocr_wrist::{Action, Button, View};
 use super::placement::Mode;
 use super::presentation::WristMessage;
@@ -1037,6 +1037,15 @@ impl Entry {
 pub struct SurfaceHub(Mutex<[Entry; 10]>);
 
 impl SurfaceHub {
+    pub(super) fn progress_animating(&self) -> bool {
+        let entries = self.0.lock().unwrap_or_else(|error| error.into_inner());
+        let entry = &entries[SurfaceId::OcrProgress.index()];
+        entry.active
+            && matches!(entry.state.as_ref().map(|state| &state.view),
+                Some(SurfaceView::OcrProgress { progress: Some(progress), .. })
+                    if progress.stages.contains(&Stage::Active))
+    }
+
     fn submit_frame(
         &self,
         surface: SurfaceId,
@@ -1730,11 +1739,7 @@ impl SurfaceRenderer {
     }
 
     fn copied(&mut self, now: Instant) {
-        let interval = if self.surface == SurfaceId::OcrProgress {
-            Duration::from_millis(34)
-        } else {
-            super::runtime::SURFACE_FRAME_INTERVAL
-        };
+        let interval = super::runtime::SURFACE_FRAME_INTERVAL;
         // Carry sub-tick lateness forward without accumulating work across idle periods.
         self.next_copy = Some(
             self.next_copy
@@ -1920,18 +1925,18 @@ mod tests {
     }
 
     #[test]
-    fn copy_budget_keeps_ocr_slower_and_does_not_catch_up_after_idle() {
+    fn copy_budget_keeps_progress_smooth_and_does_not_catch_up_after_idle() {
         let mut renderer = SurfaceRenderer::new(SurfaceId::OcrProgress);
         let started = Instant::now();
         renderer.copied(started);
-        assert!(!renderer.copy_due(started + Duration::from_millis(33)));
-        assert!(renderer.copy_due(started + Duration::from_millis(34)));
+        assert!(!renderer.copy_due(started + Duration::from_millis(16)));
+        assert!(renderer.copy_due(started + Duration::from_millis(17)));
         let resumed = started + Duration::from_secs(10);
         assert!(renderer.copy_due(resumed));
         renderer.copied(resumed);
         assert!(!renderer.copy_due(resumed));
-        assert!(!renderer.copy_due(resumed + Duration::from_millis(33)));
-        assert!(renderer.copy_due(resumed + Duration::from_millis(34)));
+        assert!(!renderer.copy_due(resumed + Duration::from_millis(16)));
+        assert!(renderer.copy_due(resumed + Duration::from_millis(17)));
     }
 
     fn active_entry() -> Entry {

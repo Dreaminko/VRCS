@@ -223,10 +223,12 @@
           "desktop": "Complete the required steps on the desktop.",
           "paging": "Preparing memory pages; the game may pause briefly",
           "scanning": "Scanning for the voice key",
+          "verifying": "Verifying the voice key",
+          "ready": "Voice key acquired",
           "prerequisites": "System",
           "game": "Game",
           "key": "Voice key",
-          "audio": "Audio"
+          "audio": "Audio ready"
         },
         "title": "Start VRChat per-player independent tracks",
         "intro": "This experimental feature provides translation for separate players. Please read how it works, its requirements and its risks before continuing.",

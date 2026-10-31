@@ -14,7 +14,7 @@ export function useVrControlBridge(options: {
   getSettings: () => Settings | null;
   update: (apply: (settings: Settings) => Settings) => Promise<Settings>;
   available: boolean;
-  requested: boolean;
+  requested: boolean | undefined;
   getRequested: () => boolean;
   running: boolean;
   busy: boolean;
@@ -28,6 +28,8 @@ export function useVrControlBridge(options: {
   const [epoch, setEpoch] = useState(0);
   const revision = useRef(0);
   const audioRevision = useRef(0);
+  const lastAudio = useRef<{ requested: boolean; status?: PlayerAudioStatus | null }>({ requested: false });
+  const [audioReadyHidden, setAudioReadyHidden] = useState(false);
   const [now, setNow] = useState(() => performance.now());
   const view = useRef<ControlSnapshot>({ owner_epoch: 0, revision: 0, items: [], dark: false, labels: {} });
   const settings = options.getSettings();
@@ -137,8 +139,19 @@ export function useVrControlBridge(options: {
   }, [options.playerAudioStart.notice]);
 
   const notice = playerAudioPrompt(options.playerAudioStart.notice, now, t);
-  const progress = notice ? null : playerAudioProgress(options.playerAudioStart.preparation, options.playerAudioStatus,
-    settings?.audio.output.mode === "vrchat_players" && options.requested, t);
+  // A missing health snapshot is not a confirmed stop.
+  const requested = settings?.audio.output.mode === "vrchat_players" && (options.requested ?? lastAudio.current.requested);
+  const status = options.playerAudioStatus ?? lastAudio.current.status;
+  lastAudio.current = { requested, status: requested ? status : null };
+  const ready = !notice && !options.playerAudioStart.preparation && requested && status?.phase === "streaming";
+  useEffect(() => {
+    setAudioReadyHidden(false);
+    if (!ready) return;
+    const timer = window.setTimeout(() => setAudioReadyHidden(true), 2_000);
+    return () => window.clearTimeout(timer);
+  }, [ready]);
+  const progress = notice || (ready && audioReadyHidden) ? null
+    : playerAudioProgress(options.playerAudioStart.preparation, status, requested, t);
   const audioView = JSON.stringify({ notice, progress });
   useEffect(() => {
     if (!epoch) return;

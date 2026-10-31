@@ -32,8 +32,18 @@ pub enum Stage {
     Failed,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ProgressTask {
+    #[default]
+    Ocr,
+    Key,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProgressView {
+    #[serde(default)]
+    pub task: ProgressTask,
     pub scan_id: u64,
     pub status: String,
     pub detail: String,
@@ -303,6 +313,7 @@ impl Feedback {
             }
         }
         Some(ProgressView {
+            task: ProgressTask::Ocr,
             scan_id: self.scan_id,
             status: status.into(),
             detail,

@@ -29,22 +29,31 @@ export function SurfaceHost({ surface, connect = connectSurfaceBridge }: { surfa
   const markPaint = useCallback(() => {
     if (!mounted.current || !activity.current.active) return serial.current;
     serial.current = ((serial.current + 1) >>> 0) || 1;
-    if (paintFrame.current === null) paintFrame.current = requestAnimationFrame(() => {
-      paintFrame.current = null;
-      if (!mounted.current || !activity.current.active) return;
-      const next = pendingState.current;
-      pendingState.current = null;
-      if (next) {
-        setMeasured(previous => sameKey(previous, next.key) ? previous : null);
-        setState(previous => {
-          if (!previous || !sameKey(previous.key, next.key)) return next;
-          const view = next.view.kind === "menu" && previous.view.kind === "menu" && next.view.hold_progress !== previous.view.hold_progress
-            ? next.view : previous.view;
-          return { ...next, key: previous.key, view };
-        });
-      }
-      setPaintSerial(serial.current);
-    });
+    if (paintFrame.current === null) {
+      const paint = () => {
+        paintFrame.current = null;
+        if (!mounted.current || !activity.current.active) return;
+        const next = pendingState.current;
+        pendingState.current = null;
+        if (next) {
+          setMeasured(previous => sameKey(previous, next.key) ? previous : null);
+          setState(previous => {
+            if (!previous || !sameKey(previous.key, next.key)) return next;
+            const view = next.view.kind === "menu" && previous.view.kind === "menu" && next.view.hold_progress !== previous.view.hold_progress
+              ? next.view : previous.view;
+            return { ...next, key: previous.key, view };
+          });
+        }
+        setPaintSerial(serial.current);
+        if (root.current?.getAnimations({ subtree: true }).some(animation => animation.playState === "running" || animation.pending)) {
+          paintFrame.current = requestAnimationFrame(() => {
+            serial.current = ((serial.current + 1) >>> 0) || 1;
+            paint();
+          });
+        }
+      };
+      paintFrame.current = requestAnimationFrame(paint);
+    }
     return serial.current;
   }, []);
 
@@ -159,14 +168,7 @@ export function SurfaceHost({ surface, connect = connectSurfaceBridge }: { surfa
 
   useEffect(() => {
     if (!active || !state) return;
-    let timer: ReturnType<typeof setTimeout>;
-    const refreshAnimation = () => {
-      if (!activity.current.active || !root.current?.getAnimations({ subtree: true }).some(animation => animation.playState === "running" || animation.pending)) return;
-      markPaint();
-      timer = setTimeout(refreshAnimation, 34);
-    };
-    refreshAnimation();
-    return () => clearTimeout(timer);
+    if (root.current?.getAnimations({ subtree: true }).some(animation => animation.playState === "running" || animation.pending)) markPaint();
   }, [active, state, markPaint]);
 
   return <main ref={root} className="vr-surface-host" data-active={active}>

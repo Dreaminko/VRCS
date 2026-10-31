@@ -134,15 +134,60 @@ test("VR consent shares the pending start, enforces the reading gate and publish
         await wait(() => testing.results.length === 2 && testing.audio.progress === null);
         check(testing.results[1].error === null, 'VR acceptance completes the original pending start');
 
-        const status = { phase: 'acquiring_key', detail: null, key_scan: { stage: 'scanning', scanned_bytes: 120,
+        const status = { phase: 'acquiring_key', detail: null, captured_packets: 0, decrypted_packets: 0, pcm_frames: 0,
+          active_players: 0, dropped_frames: 0, decode_errors: 0, key_scan: { stage: 'scanning', scanned_bytes: 120,
           total_bytes: 400, elapsed_ms: 2500, scan_elapsed_ms: 1000, candidates_tested: 0, workers: 2 } };
         flushSync(() => setHealth({ requested: true, status }));
         await wait(() => testing.audio.progress?.translation_fraction?.[0] === 120);
         await host('ocr_progress');
         check(document.querySelectorAll('[role="progressbar"]')[2].getAttribute('aria-valuenow') === '0.3', 'OCR progress renders the measured voice-key scan fraction');
-        flushSync(() => setHealth({ requested: true, status: { ...status, phase: 'streaming' } }));
+        flushSync(() => setHealth({ requested: undefined, status: undefined }));
+        await sleep(40);
+        check(testing.audio.progress?.translation_fraction?.[0] === 120, 'A missing health snapshot keeps acquisition feedback visible');
+        flushSync(() => setHealth({ requested: true, status: { ...status, key_scan: { ...status.key_scan, stage: 'verified' } } }));
+        await wait(() => testing.audio.progress?.status === i18next.t('warnings.playerAudio.vrPreparation.verifying'));
+        check(testing.audio.progress.stages[2] === 'active', 'A scanned candidate remains pending until the backend confirms it');
+        const ready = { ...status, phase: 'streaming', key_scan: { ...status.key_scan, stage: 'verified' } };
+        flushSync(() => setHealth({ requested: true, status: ready }));
+        await wait(() => testing.audio.progress?.stages.every(stage => stage === 'complete'));
+        flushSync(() => surface.render(<VrSurface state={show('ocr_progress')} />));
+        check(document.querySelector('.vr-progress-panel header').textContent.includes(i18next.t('warnings.playerAudio.vrPreparation.ready')),
+          'VR shows successful key acquisition without speech or subtitles');
+        check([...document.querySelectorAll('[role="progressbar"]')].every(bar => bar.getAttribute('aria-valuenow') === '1'),
+          'All preparation stages finish before the feedback closes');
+        check(document.querySelector('.vr-progress-panel header .lucide-check'), 'Successful preparation uses a check mark');
+        await sleep(900);
+        flushSync(() => setHealth({ requested: true, status: { ...ready, captured_packets: 1 } }));
+        await sleep(900);
+        check(testing.audio.progress?.stages.every(stage => stage === 'complete'), 'Success remains visible for two seconds');
+        await sleep(300);
         await wait(() => testing.audio.progress === null);
-        check(testing.audio.progress === null, 'Ready audio closes preparation feedback');
+        check(testing.audio.progress === null, 'Health updates do not restart the success deadline');
+
+        flushSync(() => setHealth({ requested: true, status }));
+        await wait(() => testing.audio.progress?.stages[2] === 'active');
+        flushSync(() => setHealth({ requested: true, status: ready }));
+        await wait(() => testing.audio.progress?.stages.every(stage => stage === 'complete'));
+        await sleep(1000);
+        flushSync(() => setHealth({ requested: true, status: { ...status, phase: 'retrying_key', detail: 'Retrying' } }));
+        await wait(() => testing.audio.progress?.detail === 'Retrying');
+        await sleep(1100);
+        check(testing.audio.progress?.stages[2] === 'active', 'A retry cancels the previous success deadline');
+        flushSync(() => setHealth({ requested: true, status: ready }));
+        await wait(() => testing.audio.progress?.stages.every(stage => stage === 'complete'));
+        await sleep(500);
+        flushSync(() => setHealth({ requested: false, status: { ...ready, phase: 'stopped' } }));
+        await wait(() => testing.audio.progress === null);
+        check(testing.audio.progress === null, 'Stopping capture closes success feedback immediately');
+        flushSync(() => setHealth({ requested: true, status }));
+        await wait(() => testing.audio.progress?.stages[2] === 'active');
+        flushSync(() => setHealth({ requested: true, status: { ...ready, key_scan: { ...ready.key_scan, stage: 'cached' } } }));
+        await wait(() => testing.audio.progress?.stages.every(stage => stage === 'complete'));
+        await sleep(1600);
+        check(testing.audio.progress?.stages.every(stage => stage === 'complete'), 'A previous start cannot close a new success message');
+        await sleep(500);
+        await wait(() => testing.audio.progress === null);
+        check(testing.audio.progress === null, 'A verified cached key has its own success deadline');
 
         let layout;
         for (const language of Object.keys(resources)) {
@@ -206,7 +251,7 @@ test("VR consent shares the pending start, enforces the reading gate and publish
     const html = join(directory, "test.html");
     writeFileSync(html, '<!doctype html><style>body{margin:0;background:#171b22}' + css + '</style><div id="bridge"></div><div id="root"></div><output id="result" style="display:none"></output><script type="module">'
       + javascript.replace(/<\/script/gi, "<\\/script") + '</script>');
-    const { stdout } = await promisify(execFile)(browser, ["--headless=new", "--dump-dom", "--virtual-time-budget=15000", "--disable-gpu", "--no-first-run",
+    const { stdout } = await promisify(execFile)(browser, ["--headless=new", "--dump-dom", "--virtual-time-budget=25000", "--disable-gpu", "--no-first-run",
       "--disable-background-networking", "--disable-extensions", "--window-size=1100,1150",
       "--screenshot=" + resolve(testDirectory, "../../../core/target/player-audio-vr.png"),
       "--user-data-dir=" + join(directory, "profile"), pathToFileURL(html).href], { timeout: 35000, maxBuffer: 8 * 1024 * 1024, windowsHide: true });

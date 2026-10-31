@@ -50,6 +50,7 @@ export type SurfaceView =
   | { kind: "ocr_result"; dark: boolean; scene: OcrScene };
 
 export interface ProgressView {
+  task?: "ocr" | "key";
   scan_id: number;
   status: string;
   detail: string;

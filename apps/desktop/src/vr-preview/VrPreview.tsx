@@ -17,7 +17,7 @@ interface Info {
   surface: SurfaceState | null;
   closed: boolean;
 }
-const panels = ["手腕菜单", "SteamVR Dashboard", "手腕对话", "面前字幕", "OCR 阅读器", "视觉问答", "OCR 选区", "空间 OCR 结果", "OCR 进度", "问答录音 / 确认", "Dashboard 缩略图"];
+const panels = ["手腕菜单", "SteamVR Dashboard", "手腕对话", "面前字幕", "OCR 阅读器", "视觉问答", "OCR 选区", "空间 OCR 结果", "OCR 进度", "问答录音 / 确认", "Dashboard 缩略图", "Key 获取进度"];
 const scenes = [["normal", "正常"], ["empty", "空内容"], ["long", "长文本"], ["partial", "流式 / 部分结果"], ["expired", "内容过期"], ["busy", "处理中"], ["unavailable", "不可用"], ["error", "错误"], ["timeout", "超时"]];
 
 export function VrPreview() {
@@ -137,7 +137,7 @@ export function VrPreview() {
     <div className="vr-preview-layout">
       <section className="vr-preview-main">
         <div className="vr-preview-toolbar">
-          <DropdownField label="面板" value={String(info?.panel ?? 0)} options={panels.map((label, i) => ({ label, value: String(i) }))} disabled={!ready}
+          <DropdownField label="面板" value={String(info?.panel ?? 0)} options={(info?.panels ?? panels).map((label, i) => ({ label: panels[i] ?? label, value: String(i) }))} disabled={!ready}
             onChange={(value) => { cancel(); send({ type: "select", panel: Number(value) }); }} />
           <DropdownField label="场景" value={info?.scene ?? "normal"} options={scenes.map(([value, label]) => ({ value, label }))} disabled={!ready}
             onChange={(scene) => { cancel(); send({ type: "scene", scene }); }} />

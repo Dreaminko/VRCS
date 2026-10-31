@@ -739,6 +739,9 @@ fn worker_loop(
         #[cfg(windows)]
         let ui_active = state.ui.fast_tick()
             || state.player_audio.active()
+            || app
+                .state::<super::surface::SurfaceHub>()
+                .progress_animating()
             || state.ocr.status.wrist_state == super::ocr_status::OcrWristState::Visible;
         #[cfg(not(windows))]
         let ui_active = false;

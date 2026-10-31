@@ -1,5 +1,5 @@
 import { useLayoutEffect, useRef } from "react";
-import { Check, Circle, LoaderCircle, Minus, ScanEye, X } from "lucide-react";
+import { AudioLines, Camera, Check, Gamepad2, KeyRound, Languages, Minus, Monitor, ScanText, Shield, X } from "lucide-react";
 import type { CaptionMessage, CaptionLabels, SurfaceView } from "./protocol";
 import { visibleCaption, visibleTail } from "./headset-layout";
 import { visibleCaptionMessages } from "./caption-visibility";
@@ -74,27 +74,38 @@ export function Headset({ view }: { view: Extract<SurfaceView, { kind: "headset"
   </section>;
 }
 
-const stageIcons = { pending: Circle, active: LoaderCircle, complete: Check, skipped: Minus, failed: X };
+const progressIcons = {
+  ocr: [Camera, ScanText, Languages, Monitor],
+  key: [Shield, Gamepad2, KeyRound, AudioLines],
+};
+const stageIcons = { complete: Check, skipped: Minus, failed: X };
 
 export function OcrProgress({ view }: { view: Extract<SurfaceView, { kind: "ocr_progress" }> }) {
   const progress = view.progress;
+  const fraction = progress?.translation_fraction;
+  const value = fraction && fraction[1] > 0 ? Math.min(1, fraction[0] / fraction[1]) : null;
+  const previous = useRef<{ scanId?: number; value: number | null }>({ value: null });
+  const smooth = value !== null && previous.current.value !== null
+    && previous.current.scanId === progress?.scan_id && value >= previous.current.value;
+  useLayoutEffect(() => { previous.current = { scanId: progress?.scan_id, value }; }, [progress?.scan_id, value]);
   if (!progress) return null;
+  const icons = progressIcons[progress.task ?? "ocr"];
   const failed = progress.stages.includes("failed");
-  const active = progress.stages.includes("active");
-  const StatusIcon = failed ? X : active ? LoaderCircle : ScanEye;
+  const complete = progress.stages.every(stage => stage === "complete");
+  const StatusIcon = failed ? X : complete ? Check : progress.task === "key" ? KeyRound : ScanText;
   return <section className="vr-progress-panel vr-surface-panel" role="status">
     <header className={failed ? "vr-surface-error" : undefined}>
-      <StatusIcon className={active && !failed ? "vr-progress-spinner" : undefined} /><strong>{progress.status}</strong>
+      <StatusIcon /><strong>{progress.status}</strong>
     </header>
     <ol className="vr-progress-stages">
       {progress.stages.map((stage, index) => {
-        const Icon = stageIcons[stage];
+        const Icon = stage === "pending" || stage === "active" ? icons[index] ?? ScanText : stageIcons[stage];
         const fraction = index === 2 ? progress.translation_fraction : null;
         return <li key={index} data-stage={stage}>
-          <span className="vr-progress-stage-label"><Icon className={stage === "active" ? "vr-progress-spinner" : undefined} />{progress.stage_labels[index]}</span>
+          <span className="vr-progress-stage-label"><Icon />{progress.stage_labels[index]}</span>
           <div className={`vr-progress-track${stage === "active" && (!fraction || fraction[1] <= 0) ? " indeterminate" : ""}`} role="progressbar" aria-label={progress.stage_labels[index]} aria-valuemin={0} aria-valuemax={1}
             aria-valuenow={stage === "complete" ? 1 : fraction && fraction[1] > 0 ? Math.min(1, fraction[0] / fraction[1]) : undefined}>
-            <i style={{ width: stage === "complete" ? "100%" : fraction && fraction[1] > 0 ? `${Math.min(1, fraction[0] / fraction[1]) * 100}%` : undefined }} />
+            <i className={index === 2 && smooth ? "smooth" : undefined} style={{ width: stage === "complete" ? "100%" : fraction && fraction[1] > 0 ? `${Math.min(1, fraction[0] / fraction[1]) * 100}%` : undefined }} />
           </div>
         </li>;
       })}

@@ -100,9 +100,11 @@ export function useCoreRuntime({
     let cancelled = false;
     let timer: number | null = null;
     const poll = async () => {
+      let interval = 2500;
       try {
         const next = await runtimeApi.health();
         if (cancelled) return;
+        if (next.capture_requested && ["waiting_key", "acquiring_key", "retrying_key"].includes(next.player_audio?.phase ?? "")) interval = 250;
         setHealth(next);
         clearErrorFrom("core");
       } catch (reason) {
@@ -110,7 +112,7 @@ export function useCoreRuntime({
         if (healthRef.current === null) reportError(reason, "errors.core.connect", "core");
         else setHealth(null);
       }
-      if (!cancelled) timer = window.setTimeout(() => void poll(), 2500);
+      if (!cancelled) timer = window.setTimeout(() => void poll(), interval);
     };
     void poll();
     return () => {

@@ -95,11 +95,27 @@ test("surface sleep preserves reading position and visual receipts follow actual
         const animationRoot = createRoot(document.getElementById('root'));
         flushSync(() => animationRoot.render(<SurfaceHost surface="ocr_progress" />)); await settle();
         const progress = { scan_id: 1, status: 'working', detail: '', elapsed_seconds: 0,
-          stages: ['active'], stage_labels: ['OCR'], translation_fraction: null };
-        flushSync(() => emit('vr-surface-view', { key: { generation: 5, revision: 1 }, hovered: null, pressed: null, pointer: null,
-          view: { kind: 'ocr_progress', dark: true, progress } }));
+          stages: ['complete', 'complete', 'active', 'pending'], stage_labels: ['Prepare', 'OCR', 'Translate', 'Display'], translation_fraction: null };
+        let progressRevision = 0;
+        const publishProgress = value => flushSync(() => emit('vr-surface-view', {
+          key: { generation: 5, revision: ++progressRevision }, hovered: null, pressed: null, pointer: null,
+          view: { kind: 'ocr_progress', dark: true, progress: value } }));
+        publishProgress(progress);
         await settle(); const running = paints().length; await settle();
         check(paints().length > running, 'Visible progress animation requests bounded refreshes');
+        const beforeFrames = paints().length;
+        for (let i = 0; i < 6; i++) { frame(); await Promise.resolve(); }
+        check(paints().length >= beforeFrames + 5, 'Progress follows browser frames without waiting for a separate timer');
+        const fill = () => document.querySelectorAll('[role="progressbar"]')[2].firstElementChild;
+        const fraction = () => fill().getBoundingClientRect().width / fill().parentElement.clientWidth;
+        publishProgress({ ...progress, translation_fraction: [2, 10] }); frame(); await settle();
+        publishProgress({ ...progress, translation_fraction: [8, 10] }); frame(); await settle();
+        const transition = fill().getAnimations().find(animation => animation instanceof CSSTransition && animation.transitionProperty === 'width');
+        if (transition) { transition.pause(); transition.currentTime = 90; }
+        check(transition && fraction() > 0.2 && fraction() < 0.8, 'Measured progress moves smoothly toward its confirmed value');
+        publishProgress({ ...progress, scan_id: 2, translation_fraction: [1, 10] }); frame(); await settle();
+        check(Math.abs(fraction() - 0.1) < 0.01, 'A new task resets its fill immediately');
+        publishProgress({ ...progress, scan_id: 2 }); frame(); await settle();
         activity(false, 4, 'ocr_progress'); await settle(); const stopped = paints().length; await settle();
         check(paints().length === stopped, 'Hidden progress animation stops requesting captures');
         const animations = document.querySelector('main').getAnimations({ subtree: true });
@@ -148,7 +164,7 @@ test("surface sleep preserves reading position and visual receipts follow actual
     assert.ok(output, "The lifecycle fixture must finish");
     const result = JSON.parse(output);
     assert.equal(result.error, undefined, result.error);
-    assert.equal(result.passed.length, 18, JSON.stringify(result));
+    assert.equal(result.passed.length, 21, JSON.stringify(result));
   } finally {
     rmSync(directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
   }
