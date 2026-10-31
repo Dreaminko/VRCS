@@ -4,11 +4,19 @@
 .device-group-icon { display: grid; flex: 0 0 20px; place-items: center; }
 .device-group-title > div { min-width: 0; }
 .device-group-title h3 { margin: 0; font-size: var(--settings-text-group-title); font-weight: var(--settings-weight-heading); line-height: var(--settings-leading-tight); }
+.audio-section .device-group-title h3 { color: var(--text); }
 .device-group-title > div > span { display: block; margin-top: 2px; color: var(--text-quiet); font-size: var(--settings-text-caption); line-height: var(--settings-leading-copy); }
 .device-group + .device-group { margin-top: 24px; }
 .device-group-content { display: grid; grid-column: 2; min-width: 0; gap: 16px; }
 .device-group-content > * { min-width: 0; margin: 0; }
-.audio-section .device-group + .device-group { padding-top: 24px; border-top: 1px solid var(--border); }
+.audio-section > .device-group {
+  min-width: 0;
+  padding: var(--settings-card-padding);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+.audio-section > .device-group + .device-group { margin-top: var(--settings-group-gap); }
 .player-audio-settings { margin: 16px 0 24px; }
 .device-group-content > .player-audio-settings { margin: 0; }
 .player-audio-settings .settings-field-note { margin: 0; color: var(--text-secondary); font-size: var(--settings-text-caption); line-height: var(--settings-leading-copy); }

@@ -1,8 +1,16 @@
 .dictionary-file-input { display: none; }
 
+.learning-settings-list,
 .system-settings-list,
-.learning-settings-list { display: grid; gap: 0; }
 .connections-settings-list { display: grid; gap: var(--settings-group-gap); }
+.learning-settings-group,
+.system-settings-group {
+  min-width: 0;
+  padding: var(--settings-card-padding);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
 .connections-settings-group {
   display: grid;
   min-width: 0;
@@ -17,8 +25,6 @@
 .connections-settings-group > .connections-feature-heading > .connections-heading-actions { display: flex; flex: 0 0 auto; align-items: center; gap: 10px; }
 .connections-settings-group .connections-feature-heading .settings-toggle-row { display: flex; min-height: 0; flex: 0 0 auto; align-items: center; padding: 0; }
 .connections-settings-group .connections-feature-heading h3 { font-size: var(--settings-text-group-title); }
-.system-settings-group + .system-settings-group,
-.learning-settings-group + .learning-settings-group { padding-top: var(--settings-group-gap); }
 .system-settings-group > .section-heading,
 .learning-settings-group > .section-heading { margin-bottom: 14px; }
 .system-features-group > .settings-toggle-list {
