@@ -9,7 +9,6 @@ import type {
   TranslationSettings,
 } from "../types";
 import type { ApplySettings } from "../settings-types";
-import { Select } from "../SettingsControls";
 import { LanguagePresetSettings } from "../translation/LanguagePresetSettings";
 import { TranslationEnhancementSettings } from "../translation/TranslationEnhancementSettings";
 import { TranslationRouteList } from "../translation/TranslationRouteList";
@@ -22,6 +21,7 @@ export function TranslationSettingsSection({ draft, apiProfiles, applySettings }
   const { t } = useTranslation();
   const liveTranslate = Boolean(liveTranslationServiceName(draft.asr.backend));
   const translationProfiles = apiProfiles.filter(supportsTranslation);
+  const translationUnavailable = !liveTranslate && !translationProfiles.length;
   const nativeFirstRoute = liveTranslate && draft.translation.mode === "automatic";
   const enhancementRoutes = [draft.translation.speaker_targets, draft.translation.microphone_targets]
     .flatMap((targets) => nativeFirstRoute ? targets.slice(1) : targets)
@@ -51,22 +51,22 @@ export function TranslationSettingsSection({ draft, apiProfiles, applySettings }
             <Workflow size={17} />
             <span><strong>{t("settings.translation.mode")}</strong></span>
           </div>
-          <div className="translation-config-fields translation-config-fields-single">
-            <Select
-              label={t("settings.translation.mode")}
-              hideLabel
-              value={draft.translation.mode}
-              disabled={!liveTranslate && !translationProfiles.length}
-              helper={!liveTranslate && !translationProfiles.length ? t("settings.translation.noProfiles") : undefined}
-              options={["disabled", "manual", "automatic"].map((value) => ({
-                value,
-                label: t(`settings.translation.modes.${value}`),
-              }))}
-              onChange={(mode) => updateTranslation({
-                ...draft.translation,
-                mode: mode as TranslationSettings["mode"],
-              })}
-            />
+          <div className="field">
+            <div className="theme-toggle-group translation-mode-options" role="group" aria-label={t("settings.translation.mode")}>
+              {(["disabled", "manual", "automatic"] as const).map((mode) => (
+                <button
+                  key={mode}
+                  type="button"
+                  aria-pressed={draft.translation.mode === mode}
+                  className={draft.translation.mode === mode ? "active" : ""}
+                  disabled={translationUnavailable}
+                  onClick={() => updateTranslation({ ...draft.translation, mode })}
+                >
+                  {t(`settings.translation.modes.${mode}`)}
+                </button>
+              ))}
+            </div>
+            {translationUnavailable && <small>{t("settings.translation.noProfiles")}</small>}
           </div>
         </div>
 

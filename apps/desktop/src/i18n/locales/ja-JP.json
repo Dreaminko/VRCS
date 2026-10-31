@@ -736,7 +736,6 @@
       "reasoning": {
         "strength": "思考の強度",
         "applicationDefault": "アプリの既定値",
-        "description": "強度を上げると待ち時間とトークン使用量が増える場合があります。アプリの既定値は従来のリクエスト設定を維持します。",
         "mandatory": "このモデルは常に思考を使用します。",
         "unknown": "このモデルの思考設定はまだ確認されていません。",
         "budget": "トークン予算",
@@ -1206,8 +1205,8 @@
           "microphone": "自分のマイクのみ"
         },
         "targetLanguageSettings": "翻訳先言語",
-        "targetLanguageForOtherParty": "相手",
-        "targetLanguageForSelf": "自分",
+        "targetLanguageForOtherParty": "相手の発言の翻訳先",
+        "targetLanguageForSelf": "自分の発言の翻訳先",
         "profile": "API プロファイル",
         "profileDescription": "翻訳に対応する名前付き API 接続を選びます。",
         "selectProfile": "API プロファイルを選択",

@@ -736,7 +736,6 @@
       "reasoning": {
         "strength": "思考强度",
         "applicationDefault": "应用默认",
-        "description": "较高强度可能增加等待时间和 token 消耗。应用默认沿用原有请求策略。",
         "mandatory": "该模型始终启用思考。",
         "unknown": "暂未确认此模型的思考调整能力。",
         "budget": "Token 预算",
@@ -1206,8 +1205,8 @@
           "microphone": "仅自己的麦克风"
         },
         "targetLanguageSettings": "目标语言",
-        "targetLanguageForOtherParty": "对方",
-        "targetLanguageForSelf": "己方",
+        "targetLanguageForOtherParty": "将对方的语言翻译为",
+        "targetLanguageForSelf": "将自己的语言翻译为",
         "profile": "API 配置",
         "profileDescription": "选择提供翻译能力的已命名 API 配置。",
         "selectProfile": "选择 API 配置",

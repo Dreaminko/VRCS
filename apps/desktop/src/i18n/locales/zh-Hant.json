@@ -736,7 +736,6 @@
       "reasoning": {
         "strength": "思考強度",
         "applicationDefault": "應用程式預設",
-        "description": "較高強度可能增加等待時間和 token 用量。應用程式預設沿用原有請求策略。",
         "mandatory": "此模型始終啟用思考。",
         "unknown": "尚未確認此模型的思考調整能力。",
         "budget": "Token 預算",
@@ -1206,8 +1205,8 @@
           "microphone": "僅麥克風"
         },
         "targetLanguageSettings": "目標語言",
-        "targetLanguageForOtherParty": "對方",
-        "targetLanguageForSelf": "自己",
+        "targetLanguageForOtherParty": "將對方的語言翻譯為",
+        "targetLanguageForSelf": "將自己的語言翻譯為",
         "profile": "API 設定檔",
         "profileDescription": "選擇支援翻譯的具名 API 連線。",
         "selectProfile": "選擇 API 設定檔",

@@ -736,7 +736,6 @@
       "reasoning": {
         "strength": "Thinking strength",
         "applicationDefault": "Application default",
-        "description": "Higher strength can increase waiting time and token usage. Application default keeps the existing request policy.",
         "mandatory": "This model always uses thinking.",
         "unknown": "Thinking controls have not been confirmed for this model.",
         "budget": "Token budget",
@@ -1206,8 +1205,8 @@
           "microphone": "Microphone only"
         },
         "targetLanguageSettings": "Target languages",
-        "targetLanguageForOtherParty": "Other party",
-        "targetLanguageForSelf": "Me",
+        "targetLanguageForOtherParty": "Translate the other party's speech into",
+        "targetLanguageForSelf": "Translate my speech into",
         "profile": "API profile",
         "profileDescription": "Choose a named API connection that supports translation.",
         "selectProfile": "Select an API profile",
