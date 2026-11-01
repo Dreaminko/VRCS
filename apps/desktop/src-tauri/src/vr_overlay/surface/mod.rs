@@ -172,7 +172,7 @@ pub enum SurfaceView {
     },
     OcrResult {
         dark: bool,
-        scene: OcrScene,
+        scene: Arc<OcrScene>,
     },
 }
 
@@ -206,6 +206,9 @@ impl SurfaceView {
 
     pub(super) fn same_layout(&self, other: &Self) -> bool {
         match (self, other) {
+            (Self::OcrResult { dark: a, scene: av }, Self::OcrResult { dark: b, scene: bv }) => {
+                a == b && (Arc::ptr_eq(av, bv) || av == bv)
+            }
             (
                 Self::Dashboard {
                     dark: a,
@@ -347,10 +350,18 @@ pub struct SurfaceLayout {
     pub page_count: usize,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub unplaced: Vec<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub capture_bounds: Option<[u32; 4]>,
 }
 
 impl SurfaceLayout {
     pub fn validate(&self, surface: SurfaceId) -> Result<(), String> {
+        if let Some([l, t, r, b]) = self.capture_bounds {
+            let (width, height) = surface.size();
+            if surface != SurfaceId::OcrResult || l >= r || t >= b || r > width || b > height {
+                return Err("Invalid OCR capture bounds".into());
+            }
+        }
         if self.regions.len() > surface.region_count()
             || !(1..=10000).contains(&self.page_count)
             || surface.region_count() == 0 && self.page_count != 1
@@ -943,6 +954,19 @@ impl Entry {
             && (self.paint != self.submitted_paint || self.submitted.is_none())
     }
 
+    fn capture_request(&self) -> Option<u32> {
+        if !self.needs_paint() {
+            return None;
+        }
+        // Finish outstanding work even when the browser paints ahead of capture.
+        let serial = self.pending_paints.first_serial().or(self.paint)?;
+        Some(
+            self.layout_paint
+                .filter(|&layout| serial_at_least(layout, serial))
+                .unwrap_or(serial),
+        )
+    }
+
     fn capture_generation(&self) -> Option<u32> {
         // Layout gates new pixels and input, not the last submitted texture.
         (self.ready
@@ -956,26 +980,78 @@ impl Entry {
     }
 
     fn accepts_frame(&self, key: SurfaceKey, serial: u32, requested: u32) -> bool {
-        self.active
-            && self.error.is_none()
-            && !matches!(
+        self.frame_rejection(key, serial, requested).is_none()
+    }
+
+    fn frame_rejection(
+        &self,
+        key: SurfaceKey,
+        serial: u32,
+        requested: u32,
+    ) -> Option<&'static str> {
+        if !self.active {
+            Some("inactive")
+        } else if self.error.is_some()
+            || matches!(
                 self.recovery.phase,
                 recovery::Phase::Failed | recovery::Phase::Closing
             )
-            && serial != 0
-            && requested != 0
-            && serial_at_least(serial, requested)
-            && self
-                .paint
-                .is_some_and(|latest| serial_at_least(latest, serial))
-            && self
+        {
+            Some("unavailable")
+        } else if self.state.as_ref().is_none_or(|state| state.key != key) {
+            Some("content_changed")
+        } else if serial == 0 || requested == 0 {
+            Some("invalid_serial")
+        } else if self.layout.as_ref().is_none_or(|layout| layout.key != key)
+            || self
                 .layout_paint
-                .is_none_or(|layout| serial_at_least(serial, layout))
-            && self
-                .submitted_paint
-                .is_none_or(|previous| serial_at_least(serial, previous))
-            && self.state.as_ref().is_some_and(|state| state.key == key)
-            && self.layout.as_ref().is_some_and(|layout| layout.key == key)
+                .is_some_and(|layout| !serial_at_least(serial, layout))
+        {
+            Some("layout_changed")
+        } else if !serial_at_least(serial, requested) {
+            Some("paint_behind_request")
+        } else if self
+            .paint
+            .is_none_or(|latest| !serial_at_least(latest, serial))
+        {
+            Some("paint_not_received")
+        } else if self
+            .submitted_paint
+            .is_some_and(|previous| !serial_at_least(serial, previous))
+        {
+            Some("paint_regressed")
+        } else {
+            None
+        }
+    }
+
+    fn reject_frame(
+        &mut self,
+        surface: SurfaceId,
+        frame: windows_wgc::Captured,
+        reason: &'static str,
+    ) {
+        if !metrics::enabled() {
+            return;
+        }
+        metrics::CaptureCounters::increment(&self.metrics.capture.rejected_frames, 1);
+        *self.metrics.frame_rejections.entry(reason).or_default() += 1;
+        let now = Instant::now();
+        if self
+            .metrics
+            .last_rejection
+            .is_some_and(|at| now.duration_since(at) < Duration::from_secs(1))
+        {
+            return;
+        }
+        self.metrics.last_rejection = Some(now);
+        tracing::info!(target: "vr_surface_metrics", surface = surface.name(), reason,
+            host_epoch = self.host_epoch, activity_request = self.activity_request,
+            generation = frame.generation, revision = frame.revision,
+            current_key = ?self.state.as_ref().map(|state| state.key),
+            captured_serial = frame.paint_serial, requested_serial = frame.requested_serial,
+            latest_serial = self.paint, layout_serial = self.layout_paint,
+            submitted_serial = self.submitted_paint, "Surface frame rejected");
     }
 
     fn commit_paint(&mut self, key: SurfaceKey, serial: u32) -> bool {
@@ -1057,9 +1133,18 @@ impl SurfaceHub {
             revision: frame.revision,
         };
         let identity = {
-            let entries = self.0.lock().map_err(|e| e.to_string())?;
-            let entry = &entries[surface.index()];
-            if !entry.accepts_frame(key, frame.paint_serial, frame.requested_serial) {
+            let mut entries = self.0.lock().map_err(|e| e.to_string())?;
+            let entry = &mut entries[surface.index()];
+            let bounds = entry
+                .layout
+                .as_ref()
+                .and_then(|layout| layout.capture_bounds)
+                .unwrap_or([0, 0, surface.size().0, surface.size().1]);
+            let rejection = entry
+                .frame_rejection(key, frame.paint_serial, frame.requested_serial)
+                .or_else(|| (bounds != frame.bounds).then_some("capture_bounds_changed"));
+            if let Some(reason) = rejection {
+                entry.reject_frame(surface, frame, reason);
                 return Ok(None);
             }
             (entry.host_epoch, entry.activity_request)
@@ -1068,9 +1153,18 @@ impl SurfaceHub {
             .map_err(|error| windows_wgc::CaptureError::new(recovery::Fault::Submission, error))?;
         let mut entries = self.0.lock().map_err(|e| e.to_string())?;
         let entry = &mut entries[surface.index()];
-        Ok(((entry.host_epoch, entry.activity_request) == identity
-            && entry.commit_paint(key, frame.paint_serial))
-        .then_some(entry.activity_request))
+        let committed = (entry.host_epoch, entry.activity_request) == identity
+            && entry.layout.as_ref().is_some_and(|layout| {
+                layout
+                    .capture_bounds
+                    .unwrap_or([0, 0, surface.size().0, surface.size().1])
+                    == frame.bounds
+            })
+            && entry.commit_paint(key, frame.paint_serial);
+        if !committed {
+            entry.reject_frame(surface, frame, "state_changed_during_upload");
+        }
+        Ok(committed.then_some(entry.activity_request))
     }
 
     fn set_active(&self, app: &AppHandle, surface: SurfaceId, active: bool) -> Result<(), String> {
@@ -1277,6 +1371,8 @@ pub struct SurfaceRenderer {
     pending_action: Option<(recovery::Action, Instant)>,
     requested: bool,
     next_copy: Option<Instant>,
+    idle_since: Option<Instant>,
+    output_bounds: Option<[u32; 4]>,
 }
 
 impl SurfaceRenderer {
@@ -1292,6 +1388,8 @@ impl SurfaceRenderer {
             pending_action: None,
             requested: false,
             next_copy: None,
+            idle_since: None,
+            output_bounds: None,
         }
     }
     pub fn reset(&mut self) {
@@ -1306,9 +1404,11 @@ impl SurfaceRenderer {
         self.capture_fault = None;
         self.pending_action = None;
         self.next_copy = None;
+        self.idle_since = None;
+        self.output_bounds = None;
     }
 
-    /// Every business tick ends here, including early returns and disconnected states.
+    /// Every worker tick ends here, including early returns and disconnected states.
     pub fn finish_tick(
         &mut self,
         app: &AppHandle,
@@ -1318,6 +1418,7 @@ impl SurfaceRenderer {
         let requested = std::mem::take(&mut self.requested) && backend.is_some();
         let hub = app.state::<SurfaceHub>();
         if !requested {
+            self.idle_since = None;
             if let Some(backend) = backend.as_deref_mut() {
                 backend.hide(kind);
             }
@@ -1421,6 +1522,50 @@ impl SurfaceRenderer {
         if let Some(error) = fault {
             self.capture_fault = Some(error);
         }
+        self.service(app, backend, kind)
+    }
+
+    /// Service existing pixels without rebuilding or republishing business content.
+    pub fn refresh(
+        &mut self,
+        app: &AppHandle,
+        backend: &mut OpenVrBackend,
+        kind: OverlayKind,
+        feedback: Option<(Option<u8>, Option<u8>, Option<f32>)>,
+    ) -> Result<bool, String> {
+        let hub = app.state::<SurfaceHub>();
+        let update = {
+            let mut entries = hub.0.lock().map_err(|e| e.to_string())?;
+            let entry = &mut entries[self.surface.index()];
+            if !entry.active {
+                return Ok(false);
+            }
+            self.requested = true;
+            feedback.and_then(|(hovered, pressed, progress)| {
+                let state = entry.state.as_mut()?;
+                let mut changed = state.hovered != hovered || state.pressed != pressed;
+                state.hovered = hovered;
+                state.pressed = pressed;
+                if let SurfaceView::Menu { hold_progress, .. } = &mut state.view {
+                    changed |= *hold_progress != progress;
+                    *hold_progress = progress;
+                }
+                changed.then(|| state.clone())
+            })
+        };
+        if let Some(state) = update {
+            hub.send(app, self.surface, SurfaceEvent::View(state))?;
+        }
+        self.service(app, backend, kind)
+    }
+
+    fn service(
+        &mut self,
+        app: &AppHandle,
+        backend: &mut OpenVrBackend,
+        kind: OverlayKind,
+    ) -> Result<bool, String> {
+        let hub = app.state::<SurfaceHub>();
         let now = Instant::now();
         self.advance_recovery(&hub, now);
         if self.pending_action.is_some() {
@@ -1523,7 +1668,8 @@ impl SurfaceRenderer {
             || !matches!(action, recovery::Action::None | recovery::Action::Fail)
         {
             tracing::info!(surface = self.surface.name(), host_epoch = entry.host_epoch,
-                generation = entry.generation, ?previous, state = ?entry.recovery.phase, ?fault, ?action,
+                generation = entry.generation, ?previous, state = ?entry.recovery.phase,
+                fault = ?entry.recovery.fault, ?action,
                 capture_attempts = entry.recovery.capture_attempts, host_attempts = entry.recovery.host_attempts,
                 stage = self.capture_fault.as_ref().map(|error| error.stage.as_str()),
                 hresult = self.capture_fault.as_ref().and_then(|error| error.hresult),
@@ -1678,20 +1824,22 @@ impl SurfaceRenderer {
             self.identity = Some(identity);
         }
         let capture = self.capture.as_ref().expect("capture exists").clone();
-        self.capture_frame(app, &hub, |frame| {
+        let previous_bounds = self.output_bounds;
+        self.capture_frame(&hub, |frame| {
+            if kind == OverlayKind::OcrResult && previous_bounds != Some(frame.bounds) {
+                backend.hide(kind);
+            }
             backend.upload_surface(kind, frame.shared_handle, capture)
         })
     }
 
     fn capture_frame(
         &mut self,
-        app: &AppHandle,
         hub: &SurfaceHub,
         upload: impl FnOnce(windows_wgc::Captured) -> Result<(), String>,
     ) -> Result<bool, windows_wgc::CaptureError> {
         let capture = self.capture.as_ref().expect("capture exists").clone();
         let mut capture = capture.borrow_mut();
-        capture.resume()?;
         if let Some(frame) = capture.poll()? {
             let key = SurfaceKey {
                 generation: frame.generation,
@@ -1709,29 +1857,55 @@ impl SurfaceRenderer {
                 self.visible_frame = true;
                 self.retained_key = Some(key);
                 self.retained_activity = activity;
-            } else {
-                if uploaded {
-                    self.visible_frame = false;
-                }
-                capture.reject_frame(frame);
+                self.output_bounds = Some(frame.bounds);
+            } else if uploaded {
+                self.visible_frame = false;
             }
         }
         let now = Instant::now();
-        let requested = {
+        let (needed, requested, bounds) = {
             let entries = hub.0.lock().map_err(|e| e.to_string())?;
             let entry = &entries[self.surface.index()];
-            (entry.needs_paint() && self.copy_due(now))
-                .then_some(entry.paint)
-                .flatten()
+            let requested = self
+                .copy_due(now)
+                .then(|| entry.capture_request())
+                .flatten();
+            let bounds = entry
+                .layout
+                .as_ref()
+                .and_then(|layout| layout.capture_bounds)
+                .unwrap_or([0, 0, self.surface.size().0, self.surface.size().1]);
+            (self.capture_needed(entry, now), requested, bounds)
         };
-        if capture.start(requested)? {
-            self.copied(now);
-        }
-        if capture.take_repaint_request() {
-            hub.send(app, self.surface, SurfaceEvent::Repaint)
-                .map_err(|error| windows_wgc::CaptureError::new(recovery::Fault::Host, error))?;
+        if needed {
+            capture.resume()?;
+            if capture.start_cropped(requested, bounds)? {
+                self.copied(now);
+            }
+        } else {
+            capture.suspend();
         }
         Ok(self.visible_frame)
+    }
+
+    fn capture_needed(&mut self, entry: &Entry, now: Instant) -> bool {
+        if !matches!(self.surface, SurfaceId::OcrResult | SurfaceId::Reader)
+            || !self.visible_frame
+            || entry.active_layout().is_none()
+            || entry.needs_paint()
+            || entry.pending_since.is_some()
+        {
+            self.idle_since = None;
+            return true;
+        }
+        // Keep short translation bursts on one source; output textures survive suspension.
+        now.saturating_duration_since(*self.idle_since.get_or_insert(now))
+            < Duration::from_millis(250)
+    }
+
+    pub fn output_bounds(&self) -> [u32; 4] {
+        self.output_bounds
+            .unwrap_or([0, 0, self.surface.size().0, self.surface.size().1])
     }
 
     fn copy_due(&self, now: Instant) -> bool {
@@ -1808,6 +1982,117 @@ mod tests {
                 renderer.copied(now);
                 previous = Some(now);
             }
+        }
+    }
+
+    #[test]
+    fn ocr_idle_capture_waits_for_committed_pixels_and_wakes_on_updates() {
+        use super::super::{ocr_status::OcrState, ocr_wrist::Reader};
+        for surface in [SurfaceId::OcrResult, SurfaceId::Reader] {
+            let now = Instant::now();
+            let mut renderer = SurfaceRenderer::new(surface);
+            let mut entry = active_entry();
+            entry.page_ready();
+            entry.host_awake = true;
+            let mut view = match surface {
+                SurfaceId::Reader => SurfaceView::Reader {
+                    dark: true,
+                    labels: WristLabels::default(),
+                    reader: Reader::default().view(OcrState::Visible, false, false),
+                    font_size: 28,
+                    opacity: 0.8,
+                },
+                _ => SurfaceView::OcrResult {
+                    dark: true,
+                    scene: Arc::new(OcrScene {
+                        blocks: vec![],
+                        excluded: vec![],
+                        opacity: 0.8,
+                        aspect: 1.,
+                    }),
+                },
+            };
+            entry.publish(view.clone(), None, None);
+            let key = entry.state.as_ref().unwrap().key;
+            let mut value = layout(key);
+            value.regions.clear();
+            assert!(entry.accept_layout_paint(surface, value, 1).unwrap());
+            assert!(renderer.capture_needed(&entry, now));
+            assert!(renderer.capture_needed(&entry, now + Duration::from_secs(1)));
+
+            assert!(entry.commit_paint(key, 1));
+            renderer.visible_frame = true;
+            assert!(renderer.capture_needed(&entry, now));
+            assert!(renderer.capture_needed(&entry, now + Duration::from_millis(249)));
+            assert!(!renderer.capture_needed(&entry, now + Duration::from_millis(250)));
+            assert!(
+                entry.active_layout().is_some(),
+                "idle capture must retain input"
+            );
+
+            // Font changes and reader scroll keep the same content key.
+            assert!(entry.accept_paint(key, 2));
+            assert!(renderer.capture_needed(&entry, now + Duration::from_secs(2)));
+            assert!(entry.commit_paint(key, 1));
+            assert!(renderer.capture_needed(&entry, now + Duration::from_secs(3)));
+            assert!(entry.commit_paint(key, 2));
+            assert!(renderer.capture_needed(&entry, now + Duration::from_secs(3)));
+            assert!(!renderer.capture_needed(&entry, now + Duration::from_secs(4)));
+
+            match &mut view {
+                SurfaceView::Reader { dark, .. } | SurfaceView::OcrResult { dark, .. } => {
+                    *dark = false
+                }
+                _ => unreachable!(),
+            }
+            assert!(entry.publish(view, None, None));
+            assert!(entry.paint.is_none());
+            assert!(
+                renderer.capture_needed(&entry, now + Duration::from_secs(5)),
+                "a revision must wake capture before its first paint receipt"
+            );
+            let key = entry.state.as_ref().unwrap().key;
+            let mut value = layout(key);
+            value.regions.clear();
+            assert!(entry
+                .accept_layout_paint(surface, value.clone(), 3)
+                .unwrap());
+            assert!(entry.commit_paint(key, 3));
+            assert!(renderer.capture_needed(&entry, now + Duration::from_secs(6)));
+            assert!(!renderer.capture_needed(&entry, now + Duration::from_secs(7)));
+
+            assert!(entry.accept_layout_paint(surface, value, 4).unwrap());
+            assert!(
+                renderer.capture_needed(&entry, now + Duration::from_secs(8)),
+                "same-key layout changes must wait for their pixels"
+            );
+            assert!(entry.commit_paint(key, 4));
+            assert!(renderer.capture_needed(&entry, now + Duration::from_secs(8)));
+            assert!(!renderer.capture_needed(&entry, now + Duration::from_secs(9)));
+            entry.clear_frame();
+            assert!(renderer.capture_needed(&entry, now + Duration::from_secs(10)));
+            renderer.reset();
+        }
+    }
+
+    #[test]
+    fn idle_capture_does_not_suspend_animated_or_unrelated_surfaces() {
+        let now = Instant::now();
+        let mut entry = active_entry();
+        entry.publish(SurfaceView::OcrSelection { dark: true }, None, None);
+        let key = entry.state.as_ref().unwrap().key;
+        entry
+            .accept_layout_paint(SurfaceId::Menu, layout(key), 1)
+            .unwrap();
+        assert!(entry.commit_paint(key, 1));
+        for surface in SurfaceId::ALL {
+            if matches!(surface, SurfaceId::Reader | SurfaceId::OcrResult) {
+                continue;
+            }
+            let mut renderer = SurfaceRenderer::new(surface);
+            renderer.visible_frame = true;
+            assert!(renderer.capture_needed(&entry, now));
+            assert!(renderer.capture_needed(&entry, now + Duration::from_secs(10)));
         }
     }
 
@@ -1951,6 +2236,60 @@ mod tests {
     }
 
     #[test]
+    fn capture_commits_lagging_frames_while_new_paints_arrive() {
+        for serials in [[1, 2, 3, 4, 5], [u32::MAX - 1, u32::MAX, 1, 2, 3]] {
+            let mut entry = active_entry();
+            entry.publish(SurfaceView::OcrSelection { dark: true }, None, None);
+            let key = entry.state.as_ref().unwrap().key;
+            entry
+                .accept_layout_paint(SurfaceId::Menu, layout(key), serials[0])
+                .unwrap();
+            assert!(entry.commit_paint(key, serials[0]));
+            assert!(entry.accept_paint(key, serials[1]));
+
+            for pair in serials[1..].windows(2) {
+                let (captured, latest) = (pair[0], pair[1]);
+                assert!(entry.accept_paint(key, latest));
+                let requested = entry.capture_request().unwrap();
+                assert!(
+                    entry.accepts_frame(key, captured, requested),
+                    "a newer paint must not starve an outstanding frame"
+                );
+                assert!(entry.commit_paint(key, captured));
+                assert!(entry.needs_paint());
+            }
+
+            assert!(entry.commit_paint(key, serials[4]));
+            assert_eq!(entry.capture_request(), None);
+        }
+    }
+
+    #[test]
+    fn capture_request_keeps_new_layout_pixels_ahead_of_pending_paints() {
+        let mut entry = active_entry();
+        entry.publish(SurfaceView::OcrSelection { dark: true }, None, None);
+        let key = entry.state.as_ref().unwrap().key;
+        entry
+            .accept_layout_paint(SurfaceId::Menu, layout(key), 1)
+            .unwrap();
+        assert!(entry.commit_paint(key, 1));
+        assert!(entry.accept_paint(key, 2));
+        let in_flight = entry.capture_request().unwrap();
+        entry
+            .accept_layout_paint(SurfaceId::Menu, layout(key), 4)
+            .unwrap();
+        assert!(entry.accept_paint(key, 5));
+
+        assert!(!entry.accepts_frame(key, 3, in_flight));
+        assert!(entry.active_layout().is_none());
+        assert_eq!(entry.capture_request(), Some(4));
+        assert!(entry.accepts_frame(key, 4, in_flight));
+        assert!(entry.commit_paint(key, 4));
+        assert!(entry.active_layout().is_some());
+        assert_eq!(entry.capture_request(), Some(5));
+    }
+
+    #[test]
     fn frame_upload_releases_the_hub_lock_and_rechecks_state_before_commit() {
         let hub = SurfaceHub::default();
         let surface = SurfaceId::Menu;
@@ -1969,6 +2308,7 @@ mod tests {
             revision: key.revision,
             paint_serial: 1,
             requested_serial: 1,
+            bounds: [0, 0, 1280, 1280],
         };
         assert!(hub
             .submit_frame(surface, frame, || {
@@ -2400,6 +2740,7 @@ mod tests {
             panels: vec![],
             page_count: 1,
             unplaced: vec![],
+            capture_bounds: None,
         }
     }
     #[test]
@@ -2709,6 +3050,7 @@ mod tests {
                 panels: vec![],
                 page_count: 1,
                 unplaced: vec![],
+                capture_bounds: None,
             };
             assert!(value.validate(surface).is_ok());
             assert_eq!(value.hit([0.5, 0.5]), None);
@@ -2744,7 +3086,7 @@ mod tests {
         entry.publish(
             SurfaceView::OcrResult {
                 dark: false,
-                scene: OcrScene {
+                scene: Arc::new(OcrScene {
                     blocks: vec![super::super::ocr_plane::OcrSceneBlock {
                         id: 7,
                         text: "translation".into(),
@@ -2754,7 +3096,7 @@ mod tests {
                     excluded: vec![],
                     opacity: 0.5,
                     aspect: 1.,
-                },
+                }),
             },
             None,
             None,
@@ -2767,6 +3109,7 @@ mod tests {
             panels: vec![],
             page_count: 1,
             unplaced: vec![9],
+            capture_bounds: None,
         };
         assert!(entry
             .accept_layout(SurfaceId::OcrResult, value.clone())
@@ -2785,6 +3128,82 @@ mod tests {
         entry.reload();
         assert!(!entry.accept_layout(SurfaceId::OcrResult, value).unwrap());
         assert!(entry.active_layout().is_none());
+    }
+
+    #[test]
+    fn ocr_crop_is_validated_and_stale_bounds_cannot_be_submitted() {
+        let hub = SurfaceHub::default();
+        let surface = SurfaceId::OcrResult;
+        let key = {
+            let mut entries = hub.0.lock().unwrap();
+            let entry = &mut entries[surface.index()];
+            entry.set_active(true, Instant::now());
+            entry.publish(SurfaceView::OcrSelection { dark: true }, None, None);
+            let key = entry.state.as_ref().unwrap().key;
+            let mut value = layout(key);
+            value.regions.clear();
+            for bounds in [
+                [0, 0, 0, 1],
+                [100, 0, 50, 100],
+                [0, 0, 2049, 100],
+                [0, 0, 100, 2049],
+            ] {
+                value.capture_bounds = Some(bounds);
+                assert!(value.validate(surface).is_err());
+            }
+            value.capture_bounds = Some([100, 200, 500, 600]);
+            assert!(value.validate(SurfaceId::Reader).is_err());
+            assert!(entry.accept_layout_paint(surface, value, 1).unwrap());
+            key
+        };
+        let frame = windows_wgc::Captured {
+            shared_handle: 1,
+            generation: key.generation,
+            revision: key.revision,
+            paint_serial: 1,
+            requested_serial: 1,
+            bounds: [0, 0, 2048, 2048],
+        };
+        assert!(hub
+            .submit_frame(surface, frame, || panic!("stale crop uploaded"))
+            .unwrap()
+            .is_none());
+        let frame = windows_wgc::Captured {
+            bounds: [100, 200, 500, 600],
+            ..frame
+        };
+        assert!(hub
+            .submit_frame(surface, frame, || Ok(()))
+            .unwrap()
+            .is_some());
+        let mut value = hub.0.lock().unwrap()[surface.index()]
+            .layout
+            .clone()
+            .unwrap();
+        value.capture_bounds = Some([200, 200, 600, 600]);
+        assert!(hub
+            .submit_frame(surface, frame, || {
+                assert!(hub.0.lock().unwrap()[surface.index()]
+                    .accept_layout_paint(surface, value, 2)
+                    .unwrap());
+                Ok(())
+            })
+            .unwrap()
+            .is_none());
+        assert!(hub.0.lock().unwrap()[surface.index()]
+            .active_layout()
+            .is_none());
+        assert!(hub
+            .submit_frame(
+                surface,
+                windows_wgc::Captured {
+                    paint_serial: 2,
+                    ..frame
+                },
+                || panic!("old crop accepted under the new layout")
+            )
+            .unwrap()
+            .is_none());
     }
 
     #[test]

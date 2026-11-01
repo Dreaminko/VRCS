@@ -213,6 +213,14 @@ impl ControlHub {
         self.active
     }
 
+    pub(super) fn owns_epoch(&self, epoch: u32) -> bool {
+        self.active && self.snapshot.owner_epoch == epoch
+    }
+
+    pub(super) fn dark(&self) -> bool {
+        self.snapshot.dark
+    }
+
     pub fn snapshot(&self) -> ControlSnapshot {
         let mut view = self.snapshot.clone();
         if let Some(effective) = self.overlay_effective {
@@ -643,8 +651,11 @@ mod tests {
             )
             .unwrap();
         let old_epoch = first.owner_epoch;
+        assert!(hub.owns_epoch(old_epoch));
         hub.register(ControlSnapshot::default()).unwrap();
         assert_ne!(hub.snapshot().owner_epoch, old_epoch);
+        assert!(!hub.owns_epoch(old_epoch));
+        assert!(hub.owns_epoch(hub.snapshot().owner_epoch));
         assert!(!hub.finish(&first, None));
         assert!(hub.update(old_epoch, ControlSnapshot::default()).is_err());
     }
@@ -680,7 +691,10 @@ mod tests {
     #[test]
     fn owner_revocation_disables_actions_without_replaying_them() {
         let mut hub = ready();
+        let observed_epoch = hub.snapshot().owner_epoch;
+        assert!(hub.owns_epoch(observed_epoch));
         hub.revoke();
+        assert!(!hub.owns_epoch(observed_epoch));
         assert!(hub
             .begin(ControlSource::WristMenu, ControlAction::SetOscEnabled(true))
             .is_none());

@@ -113,7 +113,7 @@ pub fn smoke(app: AppHandle, views: Vec<(SurfaceId, SurfaceView)>) {
                 let hub = app.state::<SurfaceHub>();
                 let entries = hub.0.lock().map_err(|e| e.to_string())?;
                 let entry = &entries[surface.index()];
-                entry.needs_paint().then_some(entry.paint).flatten()
+                entry.capture_request()
             };
             if let Some(frame) = capture.poll()? {
                 let hub = app.state::<SurfaceHub>();
@@ -143,6 +143,9 @@ pub fn smoke(app: AppHandle, views: Vec<(SurfaceId, SurfaceView)>) {
         let result = (|| -> Result<Vec<serde_json::Value>, String> {
             let directory = std::path::Path::new("target/vr-surface-smoke");
             std::fs::create_dir_all(directory).map_err(|e| e.to_string())?;
+            if std::env::var("VRCS_VR_SURFACE_SMOKE").as_deref() == Ok("ocr-idle") {
+                return ocr_idle(&app, &views);
+            }
             let hub = app.state::<SurfaceHub>();
             let mut results = Vec::new();
             let lifecycle_view = views
@@ -238,7 +241,7 @@ pub fn smoke(app: AppHandle, views: Vec<(SurfaceId, SurfaceView)>) {
                     let requested = {
                         let entries = hub.0.lock().map_err(|e| e.to_string())?;
                         let entry = &entries[surface.index()];
-                        entry.needs_paint().then_some(entry.paint).flatten()
+                        entry.capture_request()
                     };
                     capture.start(requested)?;
                     std::thread::sleep(Duration::from_millis(15));
@@ -251,7 +254,7 @@ pub fn smoke(app: AppHandle, views: Vec<(SurfaceId, SurfaceView)>) {
                         let requested = {
                             let entries = hub.0.lock().map_err(|e| e.to_string())?;
                             let entry = &entries[surface.index()];
-                            entry.needs_paint().then_some(entry.paint).flatten()
+                            entry.capture_request()
                         };
                         if capture.poll()?.is_some() || capture.start(requested)? {
                             return Err("Static surface requested another copy".into());
@@ -336,7 +339,7 @@ pub fn smoke(app: AppHandle, views: Vec<(SurfaceId, SurfaceView)>) {
                             progress.translation_fraction = Some((2, 3));
                         }
                         SurfaceView::OcrResult { scene, .. } => {
-                            for block in &mut scene.blocks {
+                            for block in &mut std::sync::Arc::make_mut(scene).blocks {
                                 block.text = "Updated OCR translation / 已更新".into();
                             }
                         }
@@ -469,7 +472,7 @@ pub fn smoke(app: AppHandle, views: Vec<(SurfaceId, SurfaceView)>) {
                         hub.publish(&app, surface, holding, Some(0), Some(0))?;
                         let copies = counters.copies.load(std::sync::atomic::Ordering::Relaxed);
                         let mut submitted = false;
-                        renderer.capture_frame(&app, &hub, |_| {
+                        renderer.capture_frame(&hub, |_| {
                             submitted = true;
                             Ok(())
                         })?;
@@ -514,7 +517,8 @@ pub fn smoke(app: AppHandle, views: Vec<(SurfaceId, SurfaceView)>) {
         })();
         let report = match &result {
             Ok(surfaces) => {
-                serde_json::json!({"ok":true,"desktop_webview_coexisted":true,"player_display_bridge":true,"surfaces":surfaces})
+                let full = std::env::var("VRCS_VR_SURFACE_SMOKE").as_deref() != Ok("ocr-idle");
+                serde_json::json!({"ok":true,"desktop_webview_coexisted":full,"player_display_bridge":full,"surfaces":surfaces})
             }
             Err(error) => serde_json::json!({"ok":false,"error":error}),
         };
@@ -525,6 +529,233 @@ pub fn smoke(app: AppHandle, views: Vec<(SurfaceId, SurfaceView)>) {
         );
         app.exit(if result.is_ok() { 0 } else { 1 });
     });
+}
+
+fn ocr_idle(
+    app: &AppHandle,
+    views: &[(SurfaceId, SurfaceView)],
+) -> Result<Vec<serde_json::Value>, String> {
+    fn settle(
+        app: &AppHandle,
+        renderer: &mut SurfaceRenderer,
+        view: &SurfaceView,
+        previous: Option<(windows_wgc::Captured, &[u8])>,
+    ) -> Result<(windows_wgc::Captured, Vec<u8>), String> {
+        let hub = app.state::<SurfaceHub>();
+        let surface = renderer.surface;
+        let started = Instant::now();
+        let mut submitted = None;
+        loop {
+            renderer.request(app)?;
+            hub.publish(app, surface, view.clone(), None, None)?;
+            renderer.advance_recovery(&hub, Instant::now());
+            renderer.apply_recovery(app, || Ok(()), Instant::now())?;
+            let endpoint = {
+                let entries = hub.0.lock().map_err(|e| e.to_string())?;
+                let entry = &entries[surface.index()];
+                if let Some(error) = &entry.error {
+                    return Err(error.clone());
+                }
+                entry.capture_generation().and_then(|generation| {
+                    entry
+                        .endpoint
+                        .clone()
+                        .map(|endpoint| (endpoint, generation))
+                })
+            };
+            if let Some((endpoint, generation)) = endpoint {
+                if renderer.capture.is_none() {
+                    let (width, height) = surface.size();
+                    let counters = hub.0.lock().map_err(|e| e.to_string())?[surface.index()]
+                        .metrics
+                        .capture
+                        .clone();
+                    renderer.capture =
+                        Some(Rc::new(RefCell::new(windows_wgc::Capture::with_counters(
+                            &endpoint.item,
+                            0,
+                            width,
+                            height,
+                            counters,
+                        )?)));
+                    renderer.identity = Some((endpoint.host.host_epoch, 0, generation));
+                }
+                if submitted.is_none() {
+                    if let Some((frame, pixels)) = previous {
+                        if renderer
+                            .capture
+                            .as_ref()
+                            .unwrap()
+                            .borrow()
+                            .snapshot(frame)?
+                            != pixels
+                        {
+                            return Err("Idle wake overwrote the submitted texture".into());
+                        }
+                    }
+                }
+                renderer.capture_frame(&hub, |frame| {
+                    submitted = Some(frame);
+                    Ok(())
+                })?;
+                let capture = renderer.capture.as_ref().unwrap().borrow();
+                if let Some(frame) = submitted.filter(|_| !capture.active()) {
+                    let entries = hub.0.lock().map_err(|e| e.to_string())?;
+                    let entry = &entries[surface.index()];
+                    if entry.active_layout().is_none()
+                        || !renderer.frame_visible(entry, Instant::now())
+                    {
+                        return Err("Idle source lost its visible frame or input layout".into());
+                    }
+                    return Ok((frame, capture.snapshot(frame)?));
+                }
+            }
+            if started.elapsed() >= Duration::from_secs(10) {
+                return Err(format!("{} idle capture did not settle", surface.name()));
+            }
+            std::thread::sleep(Duration::from_millis(15));
+        }
+    }
+
+    if !metrics::enabled() {
+        return Err("OCR idle smoke requires VRCS_VR_SURFACE_METRICS=1".into());
+    }
+    let hub = app.state::<SurfaceHub>();
+    let mut results = Vec::new();
+    for surface in [SurfaceId::OcrResult, SurfaceId::Reader] {
+        let mut view = views
+            .iter()
+            .find(|(id, _)| *id == surface)
+            .ok_or("OCR smoke view is missing")?
+            .1
+            .clone();
+        if let SurfaceView::Reader { reader, .. } = &mut view {
+            reader.translation = "Reader line for scrolling.\n".repeat(120);
+            reader.source_only = false;
+        }
+        let mut renderer = SurfaceRenderer::new(surface);
+        let (mut frame, mut pixels) = settle(app, &mut renderer, &view, None)?;
+        let initial_bounds = frame.bounds;
+        if surface == SurfaceId::OcrResult {
+            let [l, t, r, b] = frame.bounds;
+            if (r - l) * (b - t) >= 2048 * 2048 || l == 0 && t == 0 {
+                return Err("OCR output was not cropped".into());
+            }
+            if pixels.len() != ((r - l) * (b - t) * 4) as usize {
+                return Err("OCR output size does not match its crop".into());
+            }
+            let mut capture = renderer.capture.as_ref().unwrap().borrow_mut();
+            capture.resume()?;
+            let started = Instant::now();
+            let full = loop {
+                if let Some(full) = capture.poll()? {
+                    break full;
+                }
+                capture.start(Some(frame.paint_serial))?;
+                if started.elapsed() >= Duration::from_secs(3) {
+                    return Err("Full source comparison timed out".into());
+                }
+                std::thread::sleep(Duration::from_millis(15));
+            };
+            let source = capture.snapshot(full)?;
+            let expected: Vec<u8> = (t..b)
+                .flat_map(|y| {
+                    let start = ((y * 2048 + l) * 4) as usize;
+                    source[start..start + ((r - l) * 4) as usize]
+                        .iter()
+                        .copied()
+                })
+                .collect();
+            if expected != pixels || capture.snapshot(frame)? != pixels {
+                return Err("Cropped pixels differ from the original source or overwrote the submitted slot".into());
+            }
+            capture.suspend();
+        }
+        let counters = hub.0.lock().map_err(|e| e.to_string())?[surface.index()]
+            .metrics
+            .capture
+            .clone();
+        // Let any already-dispatched FrameArrived callback drain after source shutdown.
+        std::thread::sleep(Duration::from_millis(50));
+        let totals = || {
+            use std::sync::atomic::Ordering::Relaxed;
+            (
+                counters.copies.load(Relaxed),
+                counters.source_frames.load(Relaxed),
+            )
+        };
+        let before = totals();
+        let until = Instant::now() + Duration::from_millis(400);
+        while Instant::now() < until {
+            renderer.capture_frame(&hub, |_| Err("Idle source submitted again".into()))?;
+            if renderer.capture.as_ref().unwrap().borrow().active() {
+                return Err("Idle tick resumed its source".into());
+            }
+            std::thread::sleep(Duration::from_millis(15));
+        }
+        if totals() != before
+            || renderer
+                .capture
+                .as_ref()
+                .unwrap()
+                .borrow()
+                .snapshot(frame)?
+                != pixels
+        {
+            return Err("Idle source produced work or changed its submitted image".into());
+        }
+        let identity = renderer.identity;
+        match &mut view {
+            SurfaceView::OcrResult { scene, .. } => {
+                let scene = Arc::make_mut(scene);
+                scene.blocks.truncate(1);
+                scene.blocks[0].text = "Updated translation after idle".into();
+            }
+            SurfaceView::Reader { reader, .. } => reader.detail = "Updated after idle".into(),
+            _ => unreachable!(),
+        }
+        let updated = settle(app, &mut renderer, &view, Some((frame, &pixels)))?;
+        if updated.1 == pixels {
+            return Err("Content revision did not update the idle image".into());
+        }
+        (frame, pixels) = updated;
+        if surface == SurfaceId::OcrResult && frame.bounds == initial_bounds {
+            return Err("OCR output size did not follow changed content".into());
+        }
+        for _ in 0..3 {
+            let key = hub.0.lock().map_err(|e| e.to_string())?[surface.index()]
+                .state
+                .as_ref()
+                .unwrap()
+                .key;
+            hub.send(app, surface, SurfaceEvent::Repaint)?;
+            (frame, pixels) = settle(app, &mut renderer, &view, Some((frame, &pixels)))?;
+            if (frame.generation, frame.revision) != (key.generation, key.revision) {
+                return Err("Repaint unexpectedly changed the content key".into());
+            }
+        }
+        if surface == SurfaceId::Reader {
+            hub.scroll_reader(app, 0.5)?;
+            let scrolled = settle(app, &mut renderer, &view, Some((frame, &pixels)))?;
+            if scrolled.1 == pixels {
+                return Err("Scroll did not update the idle reader image".into());
+            }
+        }
+        if renderer.identity != identity {
+            return Err("Idle wake recreated its host or device".into());
+        }
+        renderer.finish_tick(app, None, OverlayKind::OcrResult);
+        renderer.reset();
+        results.push(serde_json::json!({"surface":surface,"idle_source_closed":true,
+            "idle_no_copies_or_source_frames":true,"submitted_texture_preserved":true,
+            "content_updated":true,"same_key_repaints":3,"scroll_updated":surface == SurfaceId::Reader,
+            "initial_bounds":initial_bounds,"output_bounds":frame.bounds,"output_pixels":pixels.len()/4,
+            "source_crop_matches":surface == SurfaceId::OcrResult}));
+    }
+    let hosts = app.state::<NativeHostManager>();
+    hosts.begin_shutdown();
+    hosts.finish_shutdown(Duration::from_secs(5))?;
+    Ok(results)
 }
 
 fn lifecycle(app: &AppHandle, view: SurfaceView) -> Result<serde_json::Value, String> {
@@ -577,7 +808,7 @@ fn lifecycle(app: &AppHandle, view: SurfaceView) -> Result<serde_json::Value, St
                         )?)));
                     renderer.identity = Some((endpoint.host.host_epoch, 0, generation));
                 }
-                renderer.capture_frame(app, &hub, |_| Ok(()))?;
+                renderer.capture_frame(&hub, |_| Ok(()))?;
                 let entries = hub.0.lock().map_err(|e| e.to_string())?;
                 let entry = &entries[surface.index()];
                 if entry.active_layout().is_some() && renderer.frame_visible(entry, Instant::now())
@@ -717,7 +948,7 @@ fn native_reader(app: &AppHandle, mut view: SurfaceView) -> Result<serde_json::V
                 let requested = {
                     let entries = hub.0.lock().map_err(|e| e.to_string())?;
                     let entry = &entries[surface.index()];
-                    entry.needs_paint().then_some(entry.paint).flatten()
+                    entry.capture_request()
                 };
                 if let Some(frame) = capture.poll()? {
                     let key = SurfaceKey {

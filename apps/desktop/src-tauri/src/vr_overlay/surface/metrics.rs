@@ -1,4 +1,5 @@
 //! Opt-in, bounded diagnostics. Counts describe application work, not GPU duration.
+use std::collections::BTreeMap;
 use std::sync::{
     atomic::{AtomicU64, Ordering},
     Arc, OnceLock,
@@ -63,6 +64,8 @@ pub(super) struct Metrics {
     pub resumes: u64,
     pub cold_releases: u64,
     pub last_paint: Option<Instant>,
+    pub frame_rejections: BTreeMap<&'static str, u64>,
+    pub last_rejection: Option<Instant>,
     wake_ms: [u64; 32],
     wake_count: usize,
     report_at: Instant,
@@ -79,6 +82,8 @@ impl Default for Metrics {
             resumes: 0,
             cold_releases: 0,
             last_paint: None,
+            frame_rejections: BTreeMap::new(),
+            last_rejection: None,
             wake_ms: [0; 32],
             wake_count: 0,
             report_at: Instant::now(),
@@ -117,6 +122,7 @@ impl Metrics {
             submissions = self.capture.submissions.load(Ordering::Relaxed),
             rejected_markers = self.capture.rejected_markers.load(Ordering::Relaxed),
             rejected_frames = self.capture.rejected_frames.load(Ordering::Relaxed),
+            frame_rejections = ?self.frame_rejections,
             paint_age_ms = self.last_paint.map(|at| at.elapsed().as_millis() as u64),
             frame_age_ms = age_ms(&self.capture.last_frame),
             submit_age_ms = age_ms(&self.capture.last_submit),

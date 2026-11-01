@@ -240,6 +240,9 @@ impl PendingPaints {
     pub fn oldest(&self) -> Option<Instant> {
         self.0.front().map(|(_, at)| *at)
     }
+    pub fn first_serial(&self) -> Option<u32> {
+        self.0.front().map(|(serial, _)| *serial)
+    }
     pub fn clear(&mut self) {
         self.0.clear();
     }

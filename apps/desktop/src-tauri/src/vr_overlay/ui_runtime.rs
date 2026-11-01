@@ -112,6 +112,12 @@ pub struct UiRuntime {
     cursor_error: Option<String>,
     menu_surface: SurfaceRenderer,
     pub dialogue_surface: SurfaceRenderer,
+    snapshot: Arc<(
+        super::control_protocol::ControlSnapshot,
+        super::player_display::View,
+        u32,
+        bool,
+    )>,
 }
 
 impl UiRuntime {
@@ -138,6 +144,7 @@ impl UiRuntime {
             cursor_error: None,
             menu_surface: SurfaceRenderer::new(SurfaceId::Menu),
             dialogue_surface: SurfaceRenderer::new(SurfaceId::Dialogue),
+            snapshot: Default::default(),
         }
     }
 
@@ -307,7 +314,7 @@ impl UiRuntime {
         }
     }
 
-    pub fn tick(
+    pub fn tick_with_cadence(
         &mut self,
         app: &AppHandle,
         backend: &mut OpenVrBackend,
@@ -315,18 +322,32 @@ impl UiRuntime {
         controls: &Mutex<ControlHub>,
         reader_revision: u64,
         content_owns_input: bool,
+        business: bool,
     ) -> (Vec<LaserEvent>, bool) {
-        let (view, players, players_revision, owner_active) = controls
-            .lock()
-            .map(|hub| {
-                (
-                    hub.snapshot(),
-                    hub.player_display().clone(),
-                    hub.player_display_revision(),
-                    hub.active(),
-                )
-            })
-            .unwrap_or_default();
+        if business {
+            self.snapshot = Arc::new(
+                controls
+                    .lock()
+                    .map(|hub| {
+                        (
+                            hub.snapshot(),
+                            hub.player_display().clone(),
+                            hub.player_display_revision(),
+                            hub.active(),
+                        )
+                    })
+                    .unwrap_or_default(),
+            );
+        }
+        let snapshot = self.snapshot.clone();
+        let (view, players, players_revision, owner_active) = snapshot.as_ref();
+        let (players_revision, owner_active) = (
+            *players_revision,
+            *owner_active
+                && controls
+                    .lock()
+                    .is_ok_and(|hub| hub.owns_epoch(view.owner_epoch)),
+        );
         let context = (
             config.wrist_menu.hand.clone(),
             format!("{}:{}", config.wrist.hand, config.wrist.dominant_hand),
@@ -398,12 +419,12 @@ impl UiRuntime {
         let generation =
             |surface| (self.generation << 32) | u64::from(surfaces.generation(surface));
         let menu_layout = surfaces.layout(SurfaceId::Menu);
-        let menu_view = SurfaceView::Menu {
+        let menu_view = business.then(|| SurfaceView::Menu {
             controls: view.clone(),
             players: players.clone(),
             ui: self.menu_ui.clone(),
             hold_progress: None,
-        };
+        });
         let menu_key = Key {
             surface: Surface::Menu,
             generation: generation(SurfaceId::Menu),
@@ -431,10 +452,11 @@ impl UiRuntime {
         ];
         if self.menu_visible
             && menu_layout.is_some()
-            && self
-                .menu_frame
-                .as_ref()
-                .is_some_and(|frame| frame.same_layout(&menu_view))
+            && self.menu_frame.as_ref().is_some_and(|frame| {
+                menu_view
+                    .as_ref()
+                    .is_none_or(|view| frame.same_layout(view))
+            })
         {
             keys.push(menu_key);
         }
@@ -661,30 +683,48 @@ impl UiRuntime {
             }
         }
         if self.menu_visible {
-            let frame = SurfaceView::Menu {
-                controls: view,
-                players,
-                ui: self.menu_ui.clone(),
-                hold_progress,
-            };
-            let result = backend
-                .ensure_wrist_menu(&config.wrist_menu.hand)
-                .and_then(|_| {
-                    if self.menu_surface.present(
+            let result = if !business {
+                self.menu_surface
+                    .refresh(
                         app,
                         backend,
                         OverlayKind::WristMenu,
-                        frame.clone(),
-                        hovered,
-                        self.pressed,
-                    )? {
-                        self.menu_frame = Some(frame);
-                        backend.show(OverlayKind::WristMenu)
-                    } else {
-                        backend.hide(OverlayKind::WristMenu);
-                        Ok(())
-                    }
-                });
+                        Some((hovered, self.pressed, hold_progress)),
+                    )
+                    .and_then(|visible| {
+                        if visible {
+                            backend.show(OverlayKind::WristMenu)
+                        } else {
+                            backend.hide(OverlayKind::WristMenu);
+                            Ok(())
+                        }
+                    })
+            } else {
+                let frame = SurfaceView::Menu {
+                    controls: view.clone(),
+                    players: players.clone(),
+                    ui: self.menu_ui.clone(),
+                    hold_progress,
+                };
+                backend
+                    .ensure_wrist_menu(&config.wrist_menu.hand)
+                    .and_then(|_| {
+                        if self.menu_surface.present(
+                            app,
+                            backend,
+                            OverlayKind::WristMenu,
+                            frame.clone(),
+                            hovered,
+                            self.pressed,
+                        )? {
+                            self.menu_frame = Some(frame);
+                            backend.show(OverlayKind::WristMenu)
+                        } else {
+                            backend.hide(OverlayKind::WristMenu);
+                            Ok(())
+                        }
+                    })
+            };
             if let Err(error) = result {
                 backend.reset(OverlayKind::WristMenu);
                 self.menu_frame = None;
@@ -732,6 +772,7 @@ mod tests {
             panels: Vec::new(),
             page_count: 1,
             unplaced: Vec::new(),
+            capture_bounds: None,
         };
         layout.validate(SurfaceId::Menu).unwrap();
 

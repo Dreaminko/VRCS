@@ -1037,7 +1037,7 @@ impl Preview {
             },
             7 => SurfaceView::OcrResult {
                 dark: self.controls.dark,
-                scene: sample_scene(self.scene),
+                scene: sample_scene(self.scene).into(),
             },
             8 => {
                 use super::ocr_progress::{ProgressTask, ProgressView, Stage};
@@ -1711,7 +1711,7 @@ pub fn setup(app: &tauri::AppHandle, live: bool) -> Result<(), Box<dyn std::erro
                         },
                     ],
                     excluded: vec![[[0.78, 0.52], [0.90, 0.52], [0.90, 0.74], [0.78, 0.74]]],
-                },
+                }.into(),
             }),
         ]);
         super::surface::smoke(app.clone(), views);
@@ -2192,6 +2192,7 @@ mod tests {
                 },
                 page_count: 1,
                 unplaced: Vec::new(),
+                capture_bounds: None,
             },
         })
         .unwrap();

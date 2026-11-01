@@ -1,4 +1,4 @@
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use tauri::{AppHandle, Manager};
 
@@ -17,6 +17,7 @@ pub struct Runtime {
     pointer: Option<([f32; 3], i32)>,
     last_input: Instant,
     error: Option<String>,
+    snapshot: Arc<(u32, bool, Option<Prompt>)>,
 }
 
 impl Default for Runtime {
@@ -30,6 +31,7 @@ impl Default for Runtime {
             pointer: None,
             last_input: Instant::now(),
             error: None,
+            snapshot: Default::default(),
         }
     }
 }
@@ -147,19 +149,31 @@ impl Runtime {
         app: &AppHandle,
         backend: &mut OpenVrBackend,
         controls: &Mutex<ControlHub>,
+        business: bool,
     ) -> bool {
-        let (epoch, dark, notice) = controls
-            .lock()
-            .map(|hub| {
-                (
-                    hub.snapshot().owner_epoch,
-                    hub.snapshot().dark,
-                    hub.player_audio().notice.clone(),
-                )
-            })
-            .unwrap_or_default();
+        if business {
+            self.snapshot = Arc::new(
+                controls
+                    .lock()
+                    .map(|hub| {
+                        let controls = hub.snapshot();
+                        (
+                            controls.owner_epoch,
+                            controls.dark,
+                            hub.player_audio().notice.clone(),
+                        )
+                    })
+                    .unwrap_or_default(),
+            );
+        }
+        let snapshot = self.snapshot.clone();
+        let (epoch, dark, notice) = snapshot.as_ref();
+        let (epoch, dark) = (*epoch, *dark);
         let dashboard = backend.system_dashboard_visible();
-        let Some(notice) = notice else {
+        let Some(notice) = notice
+            .as_ref()
+            .filter(|_| controls.lock().is_ok_and(|hub| hub.owns_epoch(epoch)))
+        else {
             self.notice = None;
             self.identity = None;
             self.pointer = None;
@@ -167,7 +181,9 @@ impl Runtime {
             backend.hide(OverlayKind::PlayerAudio);
             return false;
         };
-        self.notice = Some(notice.clone());
+        if business {
+            self.notice = Some(notice.clone());
+        }
         if dashboard {
             self.router.cancel();
             self.pointer = None;
@@ -220,14 +236,27 @@ impl Runtime {
         let result = backend
             .ensure_player_audio(self.pose.expect("consent pose"), origin)
             .and_then(|_| {
-                if self.renderer.present(
-                    app,
-                    backend,
-                    OverlayKind::PlayerAudio,
-                    SurfaceView::PlayerAudio { dark, notice },
-                    hovered,
-                    pressed,
-                )? {
+                let visible = if business {
+                    self.renderer.present(
+                        app,
+                        backend,
+                        OverlayKind::PlayerAudio,
+                        SurfaceView::PlayerAudio {
+                            dark,
+                            notice: notice.clone(),
+                        },
+                        hovered,
+                        pressed,
+                    )?
+                } else {
+                    self.renderer.refresh(
+                        app,
+                        backend,
+                        OverlayKind::PlayerAudio,
+                        Some((hovered, pressed, None)),
+                    )?
+                };
+                if visible {
                     backend.show(OverlayKind::PlayerAudio)
                 } else {
                     backend.hide(OverlayKind::PlayerAudio);

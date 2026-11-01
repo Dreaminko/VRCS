@@ -97,6 +97,7 @@ pub struct Captured {
     pub revision: u32,
     pub paint_serial: u32,
     pub requested_serial: u32,
+    pub bounds: [u32; 4],
 }
 
 /// Construct, poll, and drop on the same VR worker thread.
@@ -107,12 +108,11 @@ pub struct Capture {
     device: ID3D11Device,
     marker: ID3D11Texture2D,
     query: ID3D11Query,
-    slots: [Slot; 2],
+    slots: [Option<Slot>; 2],
     next_slot: usize,
     width: u32,
     height: u32,
     item: GraphicsCaptureItem,
-    repaint_requested: bool,
     counters: Arc<super::metrics::CaptureCounters>,
     // COM objects must be released before the apartment is uninitialized.
     _apartment: Apartment,
@@ -136,6 +136,7 @@ struct Pending {
     _frame: Frame,
     slot: usize,
     requested_serial: u32,
+    bounds: [u32; 4],
 }
 
 struct Frame(Direct3D11CaptureFrame);
@@ -200,10 +201,6 @@ impl Capture {
         }
 
         let (device, context) = create_device(adapter_index)?;
-        let slots = [
-            create_slot(&device, width, height)?,
-            create_slot(&device, width, height)?,
-        ];
         let mut marker_desc = texture_desc(MARKER_WIDTH, 2);
         marker_desc.Usage = D3D11_USAGE_STAGING;
         marker_desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ.0 as u32;
@@ -228,12 +225,11 @@ impl Capture {
             device,
             marker,
             query,
-            slots,
+            slots: [None, None],
             next_slot: 0,
             width,
             height,
             item: item.clone(),
-            repaint_requested: false,
             counters,
             _apartment: apartment,
         })
@@ -247,7 +243,6 @@ impl Capture {
         // Stop delivery before releasing in-flight frames. D3D keeps queued resources alive.
         self.source.take();
         self.pending.take();
-        self.repaint_requested = false;
     }
 
     pub(super) fn resume(&mut self) -> Result<(), CaptureError> {
@@ -259,7 +254,6 @@ impl Capture {
                 self.height + MARKER_HEIGHT,
                 &self.counters,
             )?);
-            self.repaint_requested = false;
         }
         Ok(())
     }
@@ -275,6 +269,8 @@ impl Capture {
 
     /// Completes a pending copy without waiting or starting another one.
     pub(super) fn poll(&mut self) -> Result<Option<Captured>, CaptureError> {
+        unsafe { self.device.GetDeviceRemovedReason() }
+            .map_err(|e| failure("Capture device lost", e))?;
         let Some(source) = &self.source else {
             return Ok(None);
         };
@@ -284,8 +280,6 @@ impl Capture {
                 "The visual capture source was closed",
             ));
         }
-        unsafe { self.device.GetDeviceRemovedReason() }
-            .map_err(|e| failure("Capture device lost", e))?;
         if self.pending.is_some() {
             return self.finish();
         }
@@ -293,7 +287,16 @@ impl Capture {
     }
 
     /// Start only after handling the completed frame, so its submitted slot is protected.
+    #[cfg(all(debug_assertions, feature = "vr-preview"))]
     pub(super) fn start(&mut self, requested: Option<u32>) -> Result<bool, CaptureError> {
+        self.start_cropped(requested, [0, 0, self.width, self.height])
+    }
+
+    pub(super) fn start_cropped(
+        &mut self,
+        requested: Option<u32>,
+        bounds: [u32; 4],
+    ) -> Result<bool, CaptureError> {
         if self.source.is_none() || self.pending.is_some() {
             return Ok(false);
         }
@@ -303,6 +306,21 @@ impl Capture {
         let Some(frame) = self.next_frame()? else {
             return Ok(false);
         };
+        let [l, t, r, b] = bounds;
+        if l >= r || t >= b || r > self.width || b > self.height {
+            return Err("Invalid capture crop".into());
+        }
+        let slot = &mut self.slots[self.next_slot];
+        if slot.as_ref().is_none_or(|slot| {
+            let mut desc = D3D11_TEXTURE2D_DESC::default();
+            unsafe {
+                slot.texture.GetDesc(&mut desc);
+            }
+            desc.Width != r - l || desc.Height != b - t
+        }) {
+            // Only next_slot may be resized; OpenVR still owns the other output.
+            *slot = Some(create_slot(&self.device, r - l, b - t)?);
+        }
         let size = frame
             .0
             .ContentSize()
@@ -318,16 +336,16 @@ impl Capture {
         let texture: ID3D11Texture2D = unsafe { access.GetInterface() }
             .map_err(|e| failure("Get captured D3D11 texture", e))?;
         let content = D3D11_BOX {
-            left: 0,
-            top: 0,
+            left: l,
+            top: t,
             front: 0,
-            right: self.width,
-            bottom: self.height,
+            right: r,
+            bottom: b,
             back: 1,
         };
         unsafe {
             self.context.CopySubresourceRegion(
-                &self.slots[self.next_slot].texture,
+                &self.slots[self.next_slot].as_ref().unwrap().texture,
                 0,
                 0,
                 0,
@@ -362,12 +380,13 @@ impl Capture {
         super::metrics::CaptureCounters::increment(&self.counters.copies, 1);
         super::metrics::CaptureCounters::increment(
             &self.counters.copy_bytes,
-            u64::from(self.width) * u64::from(self.height) * 4,
+            u64::from(r - l) * u64::from(b - t) * 4,
         );
         self.pending = Some(Pending {
             _frame: frame,
             slot: self.next_slot,
             requested_serial,
+            bounds,
         });
         Ok(true)
     }
@@ -386,17 +405,6 @@ impl Capture {
             }
         }
         Ok(latest)
-    }
-
-    pub fn reject_frame(&mut self, frame: Captured) {
-        super::metrics::CaptureCounters::increment(&self.counters.rejected_frames, 1);
-        if !super::serial_at_least(frame.paint_serial, frame.requested_serial) {
-            self.repaint_requested = true;
-        }
-    }
-
-    pub fn take_repaint_request(&mut self) -> bool {
-        std::mem::take(&mut self.repaint_requested)
     }
 
     fn completed(&self, flags: u32) -> Result<bool, CaptureError> {
@@ -455,11 +463,12 @@ impl Capture {
             return Ok(None);
         };
         Ok(Some(Captured {
-            shared_handle: self.slots[pending.slot].handle,
+            shared_handle: self.slots[pending.slot].as_ref().unwrap().handle,
             generation,
             revision,
             paint_serial,
             requested_serial: pending.requested_serial,
+            bounds: pending.bounds,
         }))
     }
 
@@ -468,10 +477,12 @@ impl Capture {
         let slot = self
             .slots
             .iter()
-            .position(|slot| slot.handle == frame.shared_handle)
+            .position(|slot| {
+                slot.as_ref()
+                    .is_some_and(|slot| slot.handle == frame.shared_handle)
+            })
             .expect("submitted texture belongs to this capture");
         self.next_slot = 1 - slot;
-        self.repaint_requested = false;
         self.counters.submitted();
         Ok(())
     }
@@ -482,9 +493,12 @@ impl Capture {
         let slot = self
             .slots
             .iter()
+            .flatten()
             .find(|slot| slot.handle == frame.shared_handle)
             .ok_or("Unknown capture texture")?;
-        let mut desc = texture_desc(self.width, self.height);
+        let [l, t, r, b] = frame.bounds;
+        let (width, height) = (r - l, b - t);
+        let mut desc = texture_desc(width, height);
         desc.Usage = D3D11_USAGE_STAGING;
         desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ.0 as u32;
         let staging = create_texture(&self.device, &desc)?;
@@ -497,12 +511,12 @@ impl Capture {
                 .Map(&staging, 0, D3D11_MAP_READ, 0, Some(&mut mapped))
         }
         .map_err(|e| failure("Read smoke test texture", e))?;
-        let mut pixels = Vec::with_capacity((self.width * self.height * 4) as usize);
-        for y in 0..self.height as usize {
+        let mut pixels = Vec::with_capacity((width * height * 4) as usize);
+        for y in 0..height as usize {
             let row = unsafe {
                 std::slice::from_raw_parts(
                     mapped.pData.cast::<u8>().add(y * mapped.RowPitch as usize),
-                    self.width as usize * 4,
+                    width as usize * 4,
                 )
             };
             pixels.extend_from_slice(row);

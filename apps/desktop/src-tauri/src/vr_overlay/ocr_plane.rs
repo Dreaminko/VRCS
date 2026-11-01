@@ -1,12 +1,27 @@
 use super::{ocr_capture::EyeCapture, ocr_geometry::Homography, transform};
 use serde::Serialize;
+use std::sync::Arc;
 use vrcs_core::ocr::{TextBlock, TranslatedBlock};
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub struct PlaneOverlay {
     pub pose: [[f32; 4]; 3],
     pub width_m: f32,
     pub texel_aspect: f32,
+}
+
+impl PlaneOverlay {
+    pub fn cropped(&self, [l, t, r, b]: [u32; 4], [width, height]: [u32; 2]) -> Self {
+        let mut plane = self.clone();
+        let dx = ((l + r) as f32 / (2. * width as f32) - 0.5) * self.width_m;
+        let dy = (0.5 - (t + b) as f32 / (2. * height as f32)) * self.width_m * height as f32
+            / (width as f32 * self.texel_aspect);
+        for row in &mut plane.pose {
+            row[3] += row[0] * dx + row[1] * dy;
+        }
+        plane.width_m *= (r - l) as f32 / width as f32;
+        plane
+    }
 }
 
 pub type Quad = [[f32; 2]; 4];
@@ -29,189 +44,283 @@ pub struct OcrScene {
 
 pub struct OcrPresentation {
     pub plane: PlaneOverlay,
-    pub scene: OcrScene,
+    pub scene: Arc<OcrScene>,
     pub blocks: Vec<TranslatedBlock>,
 }
 
-pub fn render(
+#[derive(Default)]
+pub struct PlaneRenderer {
+    geometry: Option<Geometry>,
+}
+
+struct GroupMatch {
+    matched: bool,
+    translation_peer: Option<usize>,
+    on_plane: bool,
+}
+
+struct Geometry {
+    eyes: [EyeCapture; 2],
+    sources: [Vec<(TextBlock, Vec<TextBlock>)>; 2],
+    primary: usize,
+    right_id_offset: usize,
+    plane: Option<([f32; 3], [f32; 3])>,
+    groups: Vec<GroupMatch>,
+    paired_right: Vec<bool>,
+}
+
+impl Geometry {
+    fn matches(&self, eyes: &[EyeCapture; 2], blocks: &[Vec<TranslatedBlock>; 2]) -> bool {
+        self.eyes.iter().zip(eyes).all(|(a, b)| {
+            a.image.width == b.image.width
+                && a.image.height == b.image.height
+                && a.projection == b.projection
+                && a.eye_to_head == b.eye_to_head
+                && a.head_pose == b.head_pose
+        }) && self.sources.iter().zip(blocks).all(|(sources, groups)| {
+            sources.len() == groups.len()
+                && sources
+                    .iter()
+                    .zip(groups)
+                    .all(|((source, fragments), group)| {
+                        source == &group.source && fragments == &group.fragments
+                    })
+        })
+    }
+
+    fn new(eyes: &[EyeCapture; 2], blocks: &[Vec<TranslatedBlock>; 2]) -> Self {
+        let completeness = blocks.each_ref().map(|groups| {
+            (
+                groups
+                    .iter()
+                    .map(|group| group.fragments().len())
+                    .sum::<usize>(),
+                groups
+                    .iter()
+                    .map(|group| group.fragments().len())
+                    .max()
+                    .unwrap_or(0),
+            )
+        });
+        let primary = usize::from(completeness[1] > completeness[0]);
+        let ordered_eyes = &[&eyes[primary], &eyes[1 - primary]];
+        let ordered_blocks = &[&blocks[primary], &blocks[1 - primary]];
+        let eye_pose = transform::compose(ordered_eyes[0].head_pose, ordered_eyes[0].eye_to_head);
+        let to_reference = transform::inverse(eye_pose);
+        let fragments: [Vec<_>; 2] = ordered_blocks.each_ref().map(|groups| {
+            groups
+                .iter()
+                .enumerate()
+                .flat_map(|(index, group)| {
+                    group
+                        .fragments()
+                        .iter()
+                        .map(move |fragment| (index, fragment))
+                })
+                .collect()
+        });
+        let matches = match_blocks(ordered_eyes, &fragments, to_reference);
+        let points: Vec<_> = matches.iter().map(|(_, _, point)| *point).collect();
+        let other_pose = transform::compose(
+            to_reference,
+            transform::compose(ordered_eyes[1].head_pose, ordered_eyes[1].eye_to_head),
+        );
+        let baseline = other_pose.map(|row| row[3]);
+        // Cache source geometry independently of streamed translations.
+        let error_per_m2 = ordered_eyes
+            .iter()
+            .map(|eye| (eye.projection[1] - eye.projection[0]) / eye.image.width as f32)
+            .sum::<f32>()
+            * 0.5
+            / dot(baseline, baseline).sqrt();
+        let plane = fit_plane(&points, error_per_m2);
+        let mut paired_right = vec![false; ordered_blocks[1].len()];
+        let groups = ordered_blocks[0]
+            .iter()
+            .enumerate()
+            .map(|(left, group)| {
+                let member_matches: Vec<_> = matches
+                    .iter()
+                    .filter(|(member, _, _)| fragments[0][*member].0 == left)
+                    .collect();
+                let text = normalized_text(&group.source.text);
+                let related: Vec<_> = ordered_blocks[1]
+                    .iter()
+                    .enumerate()
+                    .filter(|(right, other)| {
+                        member_matches
+                            .iter()
+                            .any(|(_, member, _)| fragments[1][*member].0 == *right)
+                            && (text == normalized_text(&other.source.text)
+                                || member_matches
+                                    .iter()
+                                    .filter(|(_, member, _)| fragments[1][*member].0 == *right)
+                                    .count()
+                                    == other.fragments().len())
+                    })
+                    .map(|(right, _)| right)
+                    .collect();
+                for &right in &related {
+                    paired_right[right] = true;
+                }
+                let translation_peer = related
+                    .iter()
+                    .copied()
+                    .find(|&right| text == normalized_text(&ordered_blocks[1][right].source.text));
+                let on_plane = plane.is_some_and(|(center, normal)| {
+                    member_matches.iter().all(|(_, _, point)| {
+                        dot(sub(*point, center), normal).abs()
+                            <= plane_tolerance(-center[2], error_per_m2)
+                    })
+                });
+                GroupMatch {
+                    matched: !related.is_empty(),
+                    translation_peer,
+                    on_plane,
+                }
+            })
+            .collect();
+        Self {
+            eyes: eyes.each_ref().map(EyeCapture::calibration),
+            sources: blocks.each_ref().map(|groups| {
+                groups
+                    .iter()
+                    .map(|group| (group.source.clone(), group.fragments.clone()))
+                    .collect()
+            }),
+            primary,
+            right_id_offset: ordered_blocks[0]
+                .iter()
+                .map(|block| block.source.id)
+                .max()
+                .map_or(0, |id| id + 1),
+            plane,
+            groups,
+            paired_right,
+        }
+    }
+}
+
+impl PlaneRenderer {
+    pub fn render(
+        &mut self,
+        eyes: &[EyeCapture; 2],
+        blocks: &[Vec<TranslatedBlock>; 2],
+        opacity: f32,
+        source_view: bool,
+    ) -> Result<(Option<OcrPresentation>, Vec<TranslatedBlock>), String> {
+        if blocks.iter().any(|eye| eye.len() > 256) {
+            return Err("OCR render exceeds the block limit".into());
+        }
+        if self
+            .geometry
+            .as_ref()
+            .is_none_or(|geometry| !geometry.matches(eyes, blocks))
+        {
+            self.geometry = Some(Geometry::new(eyes, blocks));
+        }
+        let geometry = self.geometry.as_ref().unwrap();
+        let blocks = &[&blocks[geometry.primary], &blocks[1 - geometry.primary]];
+        let Some((center, normal)) = geometry.plane else {
+            let fallback = blocks
+                .iter()
+                .enumerate()
+                .flat_map(|(eye, groups)| {
+                    groups.iter().cloned().map(move |mut group| {
+                        if eye == 1 {
+                            group.source.id += geometry.right_id_offset;
+                        }
+                        group
+                    })
+                })
+                .collect();
+            return Ok((None, fallback));
+        };
+        let mut selected = Vec::new();
+        let mut fallback = Vec::new();
+        for (group, matched) in blocks[0].iter().zip(&geometry.groups) {
+            if !matched.matched {
+                fallback.push(group.clone());
+                continue;
+            }
+            let mut block = group.clone();
+            let other = matched.translation_peer.map(|right| &blocks[1][right]);
+            for (target, translation) in block.translations.iter_mut().enumerate() {
+                if translation
+                    .text
+                    .as_deref()
+                    .is_some_and(|text| !text.trim().is_empty())
+                {
+                    continue;
+                }
+                if let Some(ready) = other
+                    .and_then(|other| other.translations.get(target))
+                    .filter(|other| {
+                        other.target_language == translation.target_language
+                            && other
+                                .text
+                                .as_deref()
+                                .is_some_and(|text| !text.trim().is_empty())
+                    })
+                {
+                    *translation = ready.clone();
+                }
+            }
+            if matched.on_plane {
+                selected.push(block);
+            } else {
+                fallback.push(block);
+            }
+        }
+        fallback.extend(
+            blocks[1]
+                .iter()
+                .enumerate()
+                .filter(|(index, _)| !geometry.paired_right[*index])
+                .map(|(_, block)| {
+                    let mut block = block.clone();
+                    block.source.id += geometry.right_id_offset;
+                    block
+                }),
+        );
+        let excluded: Vec<_> = blocks[0]
+            .iter()
+            .filter(|group| {
+                !selected
+                    .iter()
+                    .any(|block| block.source.id == group.source.id)
+            })
+            .cloned()
+            .collect();
+        let eye = &geometry.eyes[geometry.primary];
+        let eye_pose = transform::compose(eye.head_pose, eye.eye_to_head);
+        let (presentation, unplaced) = build_scene(
+            eye,
+            eye_pose,
+            &selected,
+            &excluded,
+            center,
+            normal,
+            opacity,
+            source_view,
+        );
+        fallback.extend(
+            selected
+                .into_iter()
+                .filter(|block| unplaced.contains(&block.source.id)),
+        );
+        Ok((presentation, fallback))
+    }
+}
+
+#[cfg(test)]
+fn render(
     eyes: &[EyeCapture; 2],
     blocks: &[Vec<TranslatedBlock>; 2],
     opacity: f32,
     source_view: bool,
 ) -> Result<(Option<OcrPresentation>, Vec<TranslatedBlock>), String> {
-    if blocks.iter().any(|eye| eye.len() > 256) {
-        return Err("OCR render exceeds the block limit".into());
-    }
-    // Use the more complete recognition without copying the captured images.
-    let completeness = blocks.each_ref().map(|groups| {
-        (
-            groups
-                .iter()
-                .map(|group| group.fragments().len())
-                .sum::<usize>(),
-            groups
-                .iter()
-                .map(|group| group.fragments().len())
-                .max()
-                .unwrap_or(0),
-        )
-    });
-    let primary = usize::from(completeness[1] > completeness[0]);
-    let eyes = &[&eyes[primary], &eyes[1 - primary]];
-    let blocks = &[&blocks[primary], &blocks[1 - primary]];
-    let eye = eyes[0];
-    let eye_pose = transform::compose(eye.head_pose, eye.eye_to_head);
-    let to_reference = transform::inverse(eye_pose);
-    let fragments: [Vec<_>; 2] = blocks.each_ref().map(|groups| {
-        groups
-            .iter()
-            .enumerate()
-            .flat_map(|(index, group)| {
-                group
-                    .fragments()
-                    .iter()
-                    .map(move |fragment| (index, fragment))
-            })
-            .collect()
-    });
-    let matches = match_blocks(eyes, &fragments, to_reference);
-    let right_id_offset = blocks[0]
-        .iter()
-        .map(|block| block.source.id)
-        .max()
-        .map_or(0, |id| id + 1);
-    let points: Vec<_> = matches.iter().map(|(_, _, point)| *point).collect();
-    let other_pose = transform::compose(
-        to_reference,
-        transform::compose(eyes[1].head_pose, eyes[1].eye_to_head),
-    );
-    let baseline = other_pose.map(|row| row[3]);
-    // One pixel of disparity error grows quadratically with source depth.
-    let error_per_m2 = eyes
-        .iter()
-        .map(|eye| (eye.projection[1] - eye.projection[0]) / eye.image.width as f32)
-        .sum::<f32>()
-        * 0.5
-        / dot(baseline, baseline).sqrt();
-    let Some((center, normal)) = fit_plane(&points, error_per_m2) else {
-        tracing::debug!(
-            matches = points.len(),
-            fallback_groups = blocks.iter().map(|groups| groups.len()).sum::<usize>(),
-            "OCR source plane could not be estimated"
-        );
-        let fallback = blocks
-            .iter()
-            .enumerate()
-            .flat_map(|(eye, groups)| {
-                groups.iter().cloned().map(move |mut group| {
-                    if eye == 1 {
-                        group.source.id += right_id_offset;
-                    }
-                    group
-                })
-            })
-            .collect();
-        return Ok((None, fallback));
-    };
-    let mut selected = Vec::new();
-    let mut fallback = Vec::new();
-    let mut paired_right = vec![false; blocks[1].len()];
-    for (left, group) in blocks[0].iter().enumerate() {
-        let member_matches: Vec<_> = matches
-            .iter()
-            .filter(|(member, _, _)| fragments[0][*member].0 == left)
-            .collect();
-        let related: Vec<_> = blocks[1]
-            .iter()
-            .enumerate()
-            .filter(|(right, other)| {
-                member_matches
-                    .iter()
-                    .any(|(_, member, _)| fragments[1][*member].0 == *right)
-                    && (normalized_text(&group.source.text) == normalized_text(&other.source.text)
-                        || member_matches
-                            .iter()
-                            .filter(|(_, member, _)| fragments[1][*member].0 == *right)
-                            .count()
-                            == other.fragments().len())
-            })
-            .map(|(right, _)| right)
-            .collect();
-        if related.is_empty() {
-            fallback.push(group.clone());
-            continue;
-        }
-        for &right in &related {
-            paired_right[right] = true;
-        }
-        let mut block = group.clone();
-        let other = related.iter().find_map(|&right| {
-            (normalized_text(&group.source.text) == normalized_text(&blocks[1][right].source.text))
-                .then_some(&blocks[1][right])
-        });
-        for (target, translation) in block.translations.iter_mut().enumerate() {
-            if translation
-                .text
-                .as_deref()
-                .is_some_and(|s| !s.trim().is_empty())
-            {
-                continue;
-            }
-            if let Some(ready) = other
-                .and_then(|other| other.translations.get(target))
-                .filter(|t| {
-                    t.target_language == translation.target_language
-                        && t.text.as_deref().is_some_and(|s| !s.trim().is_empty())
-                })
-            {
-                *translation = ready.clone();
-            }
-        }
-        if member_matches.iter().all(|(_, _, point)| {
-            dot(sub(*point, center), normal).abs() <= plane_tolerance(-center[2], error_per_m2)
-        }) {
-            selected.push(block);
-        } else {
-            fallback.push(block);
-        }
-    }
-    fallback.extend(
-        blocks[1]
-            .iter()
-            .enumerate()
-            .filter(|(index, _)| !paired_right[*index])
-            .map(|(_, block)| {
-                let mut block = block.clone();
-                block.source.id += right_id_offset;
-                block
-            }),
-    );
-    // Keep scene geometry in Rust. The surface reports text that does not fit.
-    let excluded: Vec<_> = blocks[0]
-        .iter()
-        .filter(|group| {
-            !selected
-                .iter()
-                .any(|block| block.source.id == group.source.id)
-        })
-        .cloned()
-        .collect();
-    let (presentation, unplaced) = build_scene(
-        eye,
-        eye_pose,
-        &selected,
-        &excluded,
-        center,
-        normal,
-        opacity,
-        source_view,
-    );
-    fallback.extend(
-        selected
-            .into_iter()
-            .filter(|block| unplaced.contains(&block.source.id)),
-    );
-    Ok((presentation, fallback))
+    PlaneRenderer::default().render(eyes, blocks, opacity, source_view)
 }
 
 fn match_blocks(
@@ -564,12 +673,12 @@ fn build_scene(
                 .filter(|source| blocks.iter().any(|block| block.id == source.source.id))
                 .cloned()
                 .collect(),
-            scene: OcrScene {
+            scene: Arc::new(OcrScene {
                 blocks,
                 excluded,
                 opacity: opacity.clamp(0., 1.),
                 aspect,
-            },
+            }),
         }),
         unplaced,
     )
@@ -581,8 +690,69 @@ mod tests {
     use crate::vr_overlay::{renderer::Texture, transform};
     use vrcs_core::ocr::{BlockTranslation, TextBlock};
 
+    #[test]
+    fn cropped_plane_preserves_world_pixel_positions_and_texel_density() {
+        let plane = PlaneOverlay {
+            pose: transform::matrix(10., 25., 5., [1., 2., -3.]),
+            width_m: 2.,
+            texel_aspect: 2.,
+        };
+        for (bottom, pixel_height, height_m) in [(1536, 1024., 0.5), (1024, 512., 0.25)] {
+            let cropped = plane.cropped([256, 512, 1280, bottom], [2048, 2048]);
+            assert_eq!(cropped.width_m, 1.);
+            assert_eq!(cropped.texel_aspect, 2.);
+            for (u, v) in [(0., 0.), (1., 1.), (0.5, 0.5)] {
+                let point = |pose, xyz| {
+                    transform::compose(pose, transform::matrix(0., 0., 0., xyz)).map(|row| row[3])
+                };
+                let original = point(
+                    plane.pose,
+                    [
+                        ((256. + u * 1024.) / 2048. - 0.5) * 2.,
+                        0.5 - (512. + v * pixel_height) / 2048.,
+                        0.,
+                    ],
+                );
+                let actual = point(cropped.pose, [u - 0.5, (0.5 - v) * height_m, 0.]);
+                for i in 0..3 {
+                    assert!((actual[i] - original[i]).abs() < 1e-5);
+                }
+            }
+        }
+    }
+
     fn fixture(depth: f32, head: [[f32; 4]; 3]) -> ([EyeCapture; 2], [Vec<TranslatedBlock>; 2]) {
         fixture_with_tilt(depth, head, [0.; 2])
+    }
+
+    #[test]
+    fn cached_geometry_reuses_sources_but_updates_translations_from_either_eye() {
+        let (eyes, mut blocks) = fixture(2., transform::matrix(0., 0., 0., [0.; 3]));
+        let mut renderer = PlaneRenderer::default();
+        let original = renderer
+            .render(&eyes, &blocks, 0.8, false)
+            .unwrap()
+            .0
+            .unwrap();
+        blocks[0][0].translations[0].text = None;
+        blocks[1][0].translations[0].text = Some("updated".into());
+        assert!(renderer.geometry.as_ref().unwrap().matches(&eyes, &blocks));
+        let updated = renderer
+            .render(&eyes, &blocks, 0.8, false)
+            .unwrap()
+            .0
+            .unwrap();
+        assert_eq!(updated.scene.blocks[0].text, "updated");
+        assert_eq!(updated.plane.pose, original.plane.pose);
+        blocks[0][0].source.polygon[0][0] += 1.;
+        assert!(!renderer.geometry.as_ref().unwrap().matches(&eyes, &blocks));
+        let (other_eyes, other_blocks) = fixture(3., transform::matrix(0., 0., 0., [0.; 3]));
+        let changed = renderer
+            .render(&other_eyes, &other_blocks, 0.8, false)
+            .unwrap()
+            .0
+            .unwrap();
+        assert!((changed.plane.pose[2][3] + 3.).abs() < 0.01);
     }
 
     fn fixture_with_tilt(

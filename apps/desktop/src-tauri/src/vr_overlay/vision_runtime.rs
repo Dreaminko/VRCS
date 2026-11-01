@@ -397,11 +397,12 @@ impl VisionRuntime {
         super::ocr_wrist::input_revision(self.rendered.as_ref(), self.id)
     }
 
-    pub fn render(
+    pub fn render_with_cadence(
         &mut self,
         app: &AppHandle,
         backend: &mut OpenVrBackend,
         surface: &mut SurfaceRenderer,
+        business: bool,
     ) -> Result<bool, String> {
         let (Some(view), Some(config)) = (&mut self.view, &self.configuration) else {
             return Ok(false);
@@ -415,14 +416,29 @@ impl VisionRuntime {
         {
             return Ok(false);
         }
+        backend.set_opacity(OverlayKind::OcrWrist, wrist.opacity)?;
         let hovered = super::surface::reader_hover(view.hovered);
+        if !business {
+            let visible = surface.refresh(
+                app,
+                backend,
+                OverlayKind::OcrWrist,
+                Some((hovered, None, None)),
+            )?;
+            if visible {
+                backend.show(OverlayKind::OcrWrist)?;
+            } else {
+                backend.hide(OverlayKind::OcrWrist);
+            }
+            return Ok(visible);
+        }
         let mut reader = view.clone();
         reader.hovered = None;
         let dark = app
             .state::<super::runtime::Manager>()
             .controls
             .lock()
-            .map(|hub| hub.snapshot().dark)
+            .map(|hub| hub.dark())
             .unwrap_or(false);
         let visible = surface.present(
             app,
@@ -449,7 +465,6 @@ impl VisionRuntime {
             backend.hide(OverlayKind::OcrWrist);
             return Ok(false);
         }
-        backend.set_opacity(OverlayKind::OcrWrist, wrist.opacity)?;
         backend.show(OverlayKind::OcrWrist)?;
         Ok(true)
     }

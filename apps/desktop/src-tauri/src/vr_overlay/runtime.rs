@@ -28,6 +28,18 @@ const RECONNECT_INTERVAL: Duration = Duration::from_secs(2);
 const EVENT_QUEUE_CAPACITY: usize = 256;
 const DROP_WARNING_INTERVAL: Duration = Duration::from_secs(5);
 
+struct BusinessClock(Instant);
+
+impl BusinessClock {
+    fn due(&mut self, now: Instant) -> bool {
+        if now < self.0 {
+            return false;
+        }
+        self.0 = now + UPDATE_INTERVAL;
+        true
+    }
+}
+
 pub(super) fn dispatch_control(
     app: &AppHandle,
     controls: &Mutex<ControlHub>,
@@ -423,6 +435,8 @@ struct WorkerState {
     ui: super::ui_runtime::UiRuntime,
     #[cfg(windows)]
     player_audio: super::player_audio_ui::Runtime,
+    #[cfg(windows)]
+    player_progress: Option<super::ocr_progress::ProgressView>,
     config: VrOverlayConfig,
     ocr_config: VrOcrConfig,
     headset: HeadsetPresentation,
@@ -506,6 +520,8 @@ fn worker_loop(
         ui: super::ui_runtime::UiRuntime::new(placement),
         #[cfg(windows)]
         player_audio: Default::default(),
+        #[cfg(windows)]
+        player_progress: None,
         config,
         ocr_config,
         headset: HeadsetPresentation::default(),
@@ -532,6 +548,7 @@ fn worker_loop(
     };
     let mut status = VrOverlayStatus::initial();
     let mut next_tick = Instant::now();
+    let mut business_clock = BusinessClock(next_tick);
     #[cfg(windows)]
     let mut next_pointer = Instant::now();
 
@@ -585,93 +602,96 @@ fn worker_loop(
             continue;
         }
 
-        if let Ok(mut pending) = latest_config.lock() {
-            if let Some((config, ocr_config)) = pending.take() {
-                #[cfg(windows)]
-                if state.ocr_config != ocr_config && !state.ocr.vision.visible() {
-                    state.ocr.clear();
-                }
-                state.wrist.set_max_entries(config.wrist.max_entries);
-                state.headset.set_show_partials(
-                    config.headset.show_partials || config.headset.show_translation_partials,
-                );
-                state.wrist.set_show_partials(
-                    config.wrist.show_partials || config.wrist.show_translation_partials,
-                );
-                if !config.enabled || !config.headset.enabled {
-                    state.headset_sample = false;
-                }
-                if !config.enabled || !config.wrist.enabled {
-                    state.wrist_sample = false;
-                }
-                state.config = config;
-                state.ocr_config = ocr_config;
-                status.last_error_detail = None;
-            }
-        }
-        if let Ok(mut pending) = latest_dashboard.lock() {
-            if let Some(view) = pending.take() {
-                if state.dashboard_view.as_ref() != Some(&view) {
-                    #[cfg(windows)]
-                    {
-                        state.ocr.progress_labels = view.labels.ocr_progress.clone();
-                        state
-                            .ocr
-                            .set_reader_labels(view.labels.wrist_reader.clone());
-                    }
-                    state
-                        .caption_status
-                        .update(view.caption_notice.clone(), Instant::now());
-                    state.dashboard.update_view(&view);
-                    state.dashboard_view = Some(view);
-                }
-            }
-        }
+        let business = business_clock.due(started);
         #[cfg(windows)]
         let mut open_ocr_bindings = false;
         let mut placement_mode = None;
-        if let Ok(mut pending) = pending_control.lock() {
-            let control = std::mem::take(&mut *pending);
-            placement_mode = control.placement_mode;
-            #[cfg(windows)]
-            {
-                open_ocr_bindings = control.ocr_bindings;
-            }
-            if control.retry {
-                if let Some(mut backend) = state.backend.take() {
-                    backend.hide_all();
+        if business {
+            if let Ok(mut pending) = latest_config.lock() {
+                if let Some((config, ocr_config)) = pending.take() {
+                    #[cfg(windows)]
+                    if state.ocr_config != ocr_config && !state.ocr.vision.visible() {
+                        state.ocr.clear();
+                    }
+                    state.wrist.set_max_entries(config.wrist.max_entries);
+                    state.headset.set_show_partials(
+                        config.headset.show_partials || config.headset.show_translation_partials,
+                    );
+                    state.wrist.set_show_partials(
+                        config.wrist.show_partials || config.wrist.show_translation_partials,
+                    );
+                    if !config.enabled || !config.headset.enabled {
+                        state.headset_sample = false;
+                    }
+                    if !config.enabled || !config.wrist.enabled {
+                        state.wrist_sample = false;
+                    }
+                    state.config = config;
+                    state.ocr_config = ocr_config;
+                    status.last_error_detail = None;
                 }
+            }
+            if let Ok(mut pending) = latest_dashboard.lock() {
+                if let Some(view) = pending.take() {
+                    if state.dashboard_view.as_ref() != Some(&view) {
+                        #[cfg(windows)]
+                        {
+                            state.ocr.progress_labels = view.labels.ocr_progress.clone();
+                            state
+                                .ocr
+                                .set_reader_labels(view.labels.wrist_reader.clone());
+                        }
+                        state
+                            .caption_status
+                            .update(view.caption_notice.clone(), Instant::now());
+                        state.dashboard.update_view(&view);
+                        state.dashboard_view = Some(view);
+                    }
+                }
+            }
+            if let Ok(mut pending) = pending_control.lock() {
+                let control = std::mem::take(&mut *pending);
+                placement_mode = control.placement_mode;
                 #[cfg(windows)]
                 {
-                    state.ocr.clear();
-                    state.reset_ui();
+                    open_ocr_bindings = control.ocr_bindings;
                 }
-                state.reset_headset();
-                state.reset_dashboard();
-                #[cfg(windows)]
-                app.state::<super::surface::SurfaceHub>().retry(&app);
-                state.next_reconnect = Instant::now();
-                state.next_probe = Instant::now();
-                status.reconnect_attempt = 0;
-                status.last_error_detail = None;
+                if control.retry {
+                    if let Some(mut backend) = state.backend.take() {
+                        backend.hide_all();
+                    }
+                    #[cfg(windows)]
+                    {
+                        state.ocr.clear();
+                        state.reset_ui();
+                    }
+                    state.reset_headset();
+                    state.reset_dashboard();
+                    #[cfg(windows)]
+                    app.state::<super::surface::SurfaceHub>().retry(&app);
+                    state.next_reconnect = Instant::now();
+                    state.next_probe = Instant::now();
+                    status.reconnect_attempt = 0;
+                    status.last_error_detail = None;
+                }
+                if let Some(visible) = control.headset_sample {
+                    state.headset_sample = visible;
+                }
+                if let Some(visible) = control.wrist_sample {
+                    state.wrist_sample = visible;
+                }
             }
-            if let Some(visible) = control.headset_sample {
-                state.headset_sample = visible;
+            // Send uncapped candidates: the WebViews share the desktop visibility
+            // policy and apply player/history limits after filtering original text.
+            state.headset.set_player_limit(Some(0));
+            state.wrist.set_player_limit(Some(0));
+            for event in event_receiver.try_iter().take(EVENT_QUEUE_CAPACITY) {
+                let now = Instant::now();
+                state
+                    .headset
+                    .apply(event.clone(), now, &state.config.headset);
+                state.wrist.apply(event, now, &state.config.wrist);
             }
-            if let Some(visible) = control.wrist_sample {
-                state.wrist_sample = visible;
-            }
-        }
-        // Send uncapped candidates: the WebViews share the desktop visibility
-        // policy and apply player/history limits after filtering original text.
-        state.headset.set_player_limit(Some(0));
-        state.wrist.set_player_limit(Some(0));
-        for event in event_receiver.try_iter().take(EVENT_QUEUE_CAPACITY) {
-            let now = Instant::now();
-            state
-                .headset
-                .apply(event.clone(), now, &state.config.headset);
-            state.wrist.apply(event, now, &state.config.wrist);
         }
 
         let available = features.borrow().vr_overlay;
@@ -683,7 +703,7 @@ fn worker_loop(
         }
         // The panic hook records details; keep the worker alive and reconnect.
         let ticked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            tick(&app, &mut state, &mut status, available)
+            tick(&app, &mut state, &mut status, available, business)
         }));
         if ticked.is_err() {
             recover_from_panic(&mut state, &mut status);
@@ -721,20 +741,25 @@ fn worker_loop(
                 .player_audio
                 .finish_surfaces(&app, state.backend.as_mut());
             state.ocr.finish_surfaces(&app, state.backend.as_mut());
-            status.ocr = state.ocr.status.clone();
         }
-        update_status(&app, &shared_status, &status);
-        if let Ok(mut hub) = state.controls.lock() {
-            let ready = |resource: &ResourceState| {
-                matches!(
-                    resource,
-                    ResourceState::ReadyHidden | ResourceState::Visible | ResourceState::Fading
-                )
-            };
-            hub.set_overlay_effective(
-                status.state == RuntimeState::Ready && ready(&status.wrist.state),
-                status.state == RuntimeState::Ready && ready(&status.headset.state),
-            );
+        if business {
+            #[cfg(windows)]
+            {
+                status.ocr = state.ocr.status.clone();
+            }
+            update_status(&app, &shared_status, &status);
+            if let Ok(mut hub) = state.controls.lock() {
+                let ready = |resource: &ResourceState| {
+                    matches!(
+                        resource,
+                        ResourceState::ReadyHidden | ResourceState::Visible | ResourceState::Fading
+                    )
+                };
+                hub.set_overlay_effective(
+                    status.state == RuntimeState::Ready && ready(&status.wrist.state),
+                    status.state == RuntimeState::Ready && ready(&status.headset.state),
+                );
+            }
         }
         #[cfg(windows)]
         let ui_active = state.ui.fast_tick()
@@ -750,7 +775,7 @@ fn worker_loop(
         } else {
             UPDATE_INTERVAL
         };
-        next_tick = started + interval;
+        next_tick = (started + interval).min(business_clock.0);
         #[cfg(windows)]
         if let Some(backend) = state.backend.as_mut() {
             if Instant::now() >= next_pointer || !ui_active {
@@ -781,7 +806,13 @@ fn recover_from_panic(state: &mut WorkerState, status: &mut VrOverlayStatus) {
     status.last_error_detail = Some("VR Overlay worker panicked".into());
 }
 
-fn tick(app: &AppHandle, state: &mut WorkerState, status: &mut VrOverlayStatus, available: bool) {
+fn tick(
+    app: &AppHandle,
+    state: &mut WorkerState,
+    status: &mut VrOverlayStatus,
+    available: bool,
+    business: bool,
+) {
     if state
         .backend
         .as_mut()
@@ -960,32 +991,80 @@ fn tick(app: &AppHandle, state: &mut WorkerState, status: &mut VrOverlayStatus, 
             }
             state.ocr.status.last_error = Some(error);
         }
-        let modal = state.player_audio.tick(app, &mut backend, &state.controls);
-        let (events, focused) = state.ui.tick(
+        let modal = state
+            .player_audio
+            .tick(app, &mut backend, &state.controls, business);
+        let (events, focused) = state.ui.tick_with_cadence(
             app,
             &mut backend,
             &state.config,
             &state.controls,
             state.ocr.input_revision(),
             state.ocr.owns_input() || modal,
+            business,
         );
         state.ocr.pointer_input(events, focused || modal);
-        let player_progress = state
-            .controls
-            .lock()
-            .ok()
-            .and_then(|hub| hub.player_audio().progress.clone());
-        state.ocr.tick(
+        if business {
+            state.player_progress = state
+                .controls
+                .lock()
+                .ok()
+                .and_then(|hub| hub.player_audio().progress.clone());
+        }
+        state.ocr.tick_with_cadence(
             app,
             &mut backend,
             &state.ocr_config,
             &state.config.wrist,
-            player_progress.as_ref(),
+            state.player_progress.as_ref(),
+            business,
         );
     }
-    update_headset(app, state, status, &mut backend);
-    update_wrist(app, state, status, &mut backend);
-    update_dashboard(app, state, status, &mut backend);
+    if business {
+        update_headset(app, state, status, &mut backend);
+        update_wrist(app, state, status, &mut backend);
+    } else {
+        #[cfg(windows)]
+        {
+            match state
+                .headset_surface
+                .refresh(app, &mut backend, OverlayKind::Headset, None)
+                .and_then(|visible| {
+                    if visible {
+                        backend.show(OverlayKind::Headset)?;
+                    }
+                    Ok(visible)
+                }) {
+                Err(error) => {
+                    backend.reset(OverlayKind::Headset);
+                    state.reset_headset();
+                    resource_error(
+                        &mut status.headset,
+                        "headset_render",
+                        error,
+                        &mut status.last_error_detail,
+                    );
+                }
+                Ok(true) => {
+                    if status.headset.state != ResourceState::Fading {
+                        status.headset.state = ResourceState::Visible;
+                    }
+                    status.headset.last_error_code = None;
+                }
+                Ok(false)
+                    if matches!(
+                        status.headset.state,
+                        ResourceState::Visible | ResourceState::Fading
+                    ) =>
+                {
+                    status.headset.state = ResourceState::Creating;
+                }
+                _ => {}
+            }
+            refresh_wrist(app, state, status, &mut backend);
+        }
+    }
+    update_dashboard(app, state, status, &mut backend, business);
     let headset_failed =
         state.config.headset.enabled && status.headset.state == ResourceState::Error;
     let wrist_failed = state.config.wrist.enabled && status.wrist.state == ResourceState::Error;
@@ -1030,6 +1109,7 @@ fn update_dashboard(
     state: &mut WorkerState,
     status: &mut VrOverlayStatus,
     backend: &mut OpenVrBackend,
+    business: bool,
 ) {
     use super::dashboard::{DASHBOARD_HEIGHT, DASHBOARD_WIDTH};
     use super::surface::{SurfaceHub, SurfaceId, SurfaceView};
@@ -1038,13 +1118,15 @@ fn update_dashboard(
         status.dashboard.visible = false;
         return;
     };
-    let notice = state
-        .controls
-        .lock()
-        .ok()
-        .and_then(|hub| hub.player_audio().notice.clone());
-    if view.player_audio_notice != notice {
-        Arc::make_mut(view).player_audio_notice = notice;
+    if business {
+        let notice = state
+            .controls
+            .lock()
+            .ok()
+            .and_then(|hub| hub.player_audio().notice.clone());
+        if view.player_audio_notice != notice {
+            Arc::make_mut(view).player_audio_notice = notice;
+        }
     }
     let view = view.clone();
     // Error backoff is not a user hide and must not reset the Surface recovery budget.
@@ -1068,23 +1150,22 @@ fn update_dashboard(
             state.dashboard_pressed_key = None;
             return Ok(false);
         }
-        let dark = state
-            .controls
-            .lock()
-            .map(|hub| hub.snapshot().dark)
-            .unwrap_or(false);
+        let dark = state.controls.lock().map(|hub| hub.dark()).unwrap_or(false);
         // Revoke stale input before polling; only the renderer owns recovery decisions.
-        hub.publish(
-            app,
-            SurfaceId::Dashboard,
-            SurfaceView::Dashboard {
-                dark,
-                dashboard: view.clone(),
-                ui: state.dashboard.ui.clone(),
-            },
-            state.dashboard.hovered,
-            state.dashboard.pressed,
-        )?;
+        if business {
+            hub.publish(
+                app,
+                SurfaceId::Dashboard,
+                SurfaceView::Dashboard {
+                    dark,
+                    dashboard: view.clone(),
+                    ui: state.dashboard.ui.clone(),
+                },
+                state.dashboard.hovered,
+                state.dashboard.pressed,
+            )?;
+        }
+        let previous_ui = state.dashboard.ui.clone();
         let mut layout = hub.layout(SurfaceId::Dashboard);
         for event in backend.poll_dashboard_events()? {
             let (x, y) = match event {
@@ -1143,18 +1224,27 @@ fn update_dashboard(
                 _ => {}
             }
         }
-        let ready = state.dashboard_surface.present(
-            app,
-            backend,
-            OverlayKind::Dashboard,
-            SurfaceView::Dashboard {
-                dark,
-                dashboard: view,
-                ui: state.dashboard.ui.clone(),
-            },
-            state.dashboard.hovered,
-            state.dashboard.pressed,
-        )?;
+        let ready = if business || previous_ui != state.dashboard.ui {
+            state.dashboard_surface.present(
+                app,
+                backend,
+                OverlayKind::Dashboard,
+                SurfaceView::Dashboard {
+                    dark,
+                    dashboard: view,
+                    ui: state.dashboard.ui.clone(),
+                },
+                state.dashboard.hovered,
+                state.dashboard.pressed,
+            )?
+        } else {
+            state.dashboard_surface.refresh(
+                app,
+                backend,
+                OverlayKind::Dashboard,
+                Some((state.dashboard.hovered, state.dashboard.pressed, None)),
+            )?
+        };
         if !ready {
             backend.show_dashboard_placeholder(None)?;
         }
@@ -1242,6 +1332,7 @@ fn update_dashboard(
     _state: &mut WorkerState,
     status: &mut VrOverlayStatus,
     _backend: &mut OpenVrBackend,
+    _business: bool,
 ) {
     status.dashboard.state = ResourceState::Disabled;
     status.dashboard.visible = false;
@@ -1324,11 +1415,7 @@ fn update_headset(
         let PresentationContent::Headset(messages) = frame.content else {
             return Err("Invalid headset content".into());
         };
-        let dark = state
-            .controls
-            .lock()
-            .map(|hub| hub.snapshot().dark)
-            .unwrap_or(false);
+        let dark = state.controls.lock().map(|hub| hub.dark()).unwrap_or(false);
         let visible = state.headset_surface.present(
             app,
             backend,
@@ -1358,22 +1445,24 @@ fn update_headset(
             None,
             None,
         )?;
-        if visible {
-            let shown = backend
-                .set_opacity(
-                    OverlayKind::Headset,
-                    state.config.headset.opacity
-                        * if notice.is_some() { 1.0 } else { frame.opacity },
-                )
-                .and_then(|()| backend.show(OverlayKind::Headset));
-            if shown.is_err() {
-                backend.reset(OverlayKind::Headset);
-                state.reset_headset();
-            }
-            shown?;
-        } else {
-            backend.hide(OverlayKind::Headset);
+        let shown = backend
+            .set_opacity(
+                OverlayKind::Headset,
+                state.config.headset.opacity * if notice.is_some() { 1.0 } else { frame.opacity },
+            )
+            .and_then(|()| {
+                if visible {
+                    backend.show(OverlayKind::Headset)
+                } else {
+                    backend.hide(OverlayKind::Headset);
+                    Ok(())
+                }
+            });
+        if shown.is_err() {
+            backend.reset(OverlayKind::Headset);
+            state.reset_headset();
         }
+        shown?;
         Ok(visible)
     })();
     #[cfg(not(windows))]
@@ -1397,6 +1486,67 @@ fn update_headset(
                 error,
                 &mut status.last_error_detail,
             );
+        }
+    }
+}
+
+#[cfg(windows)]
+fn refresh_wrist(
+    app: &AppHandle,
+    state: &mut WorkerState,
+    status: &mut VrOverlayStatus,
+    backend: &mut OpenVrBackend,
+) {
+    if !state.config.enabled
+        || !state.config.wrist.enabled
+        || (!state.ui.dialogue_visible && !state.wrist_sample)
+    {
+        backend.hide(OverlayKind::Wrist);
+        return;
+    }
+    let result = (|| -> Result<bool, String> {
+        let placement = state.ui.placement.lock().unwrap_or_else(|e| e.into_inner());
+        if placement.display_mode() == Mode::World {
+            let pose = placement
+                .absolute_pose()
+                .ok_or("Dialogue pose unavailable")?;
+            let (_, _, origin) = backend.ocr_tracking()?;
+            backend.ensure_world_wrist(
+                &state.config.wrist,
+                pose,
+                origin,
+                placement.head_relative_pose(),
+            )?;
+        }
+        let revision = placement.revision;
+        drop(placement);
+        let visible = state.ui.dialogue_surface.refresh(
+            app,
+            backend,
+            OverlayKind::Wrist,
+            Some((state.ui.dialogue_hover, None, None)),
+        )?;
+        if visible {
+            backend.show(OverlayKind::Wrist)?;
+            state.ui.dialogue_revision = Some(revision);
+        }
+        Ok(visible)
+    })();
+    match result {
+        Ok(true) => {
+            status.wrist.state = ResourceState::Visible;
+            status.wrist.last_error_code = None;
+        }
+        Ok(false) => {
+            state.ui.dialogue_revision = None;
+            if status.wrist.state == ResourceState::Visible {
+                status.wrist.state = ResourceState::Creating;
+            }
+        }
+        Err(error) => {
+            state.ui.dialogue_revision = None;
+            backend.hide(OverlayKind::Wrist);
+            wrist_error(status, "wrist_render", error);
         }
     }
 }
@@ -1630,6 +1780,21 @@ fn unix_timestamp() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn business_clock_stays_at_twenty_hz_during_fast_interaction() {
+        let now = Instant::now();
+        let mut clock = BusinessClock(now);
+        let updates = (0..60)
+            .filter(|tick| clock.due(now + SURFACE_FRAME_INTERVAL * *tick))
+            .count();
+        assert_eq!(updates, 20);
+        let resumed = now + Duration::from_secs(5);
+        assert!(clock.due(resumed));
+        assert!(!clock.due(resumed));
+        assert!(!clock.due(resumed + Duration::from_millis(49)));
+        assert!(clock.due(resumed + Duration::from_millis(50)));
+    }
 
     #[test]
     fn question_draft_uses_the_headset_subtitle_frame() {

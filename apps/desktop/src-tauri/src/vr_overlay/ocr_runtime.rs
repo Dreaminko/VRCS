@@ -2,7 +2,7 @@ use super::{
     backend::{OpenVrBackend, OverlayKind},
     ocr_capture::{center_crop, CropTransform, StereoCapture},
     ocr_input::{install_manifest, InputActions},
-    ocr_plane::OcrPresentation,
+    ocr_plane::{OcrPresentation, PlaneRenderer},
     ocr_progress::{Feedback, ProgressLabels},
     ocr_selection::Selection,
     ocr_status::{failure_code, OcrState, OcrStatus, OcrWristState},
@@ -93,7 +93,10 @@ pub struct OcrRuntime {
     sender: mpsc::Sender<Update>,
     receiver: mpsc::Receiver<Update>,
     capture: Option<CaptureMetadata>,
+    pending_capture: Option<std::time::Instant>,
     source_capture: Option<Arc<StereoCapture>>,
+    plane_renderer: PlaneRenderer,
+    last_progress: Option<std::time::Instant>,
     fallback_blocks: Vec<TranslatedBlock>,
     result_dirty: bool,
     result_presentation: Option<OcrPresentation>,
@@ -119,6 +122,7 @@ pub struct OcrRuntime {
     wrist_pages: usize,
     wrist_pointer: Pointer,
     wrist_hovered: Option<Action>,
+    reader_dirty: bool,
     reader_surface: SurfaceRenderer,
     encoder: Arc<tokio::sync::Semaphore>,
     pub blocks: [Vec<TranslatedBlock>; 2],
@@ -139,7 +143,10 @@ impl OcrRuntime {
             sender,
             receiver,
             capture: None,
+            pending_capture: None,
             source_capture: None,
+            plane_renderer: PlaneRenderer::default(),
+            last_progress: None,
             fallback_blocks: Vec::new(),
             result_dirty: false,
             result_presentation: None,
@@ -165,6 +172,7 @@ impl OcrRuntime {
             wrist_pages: 1,
             wrist_pointer: Pointer::default(),
             wrist_hovered: None,
+            reader_dirty: false,
             reader_surface: SurfaceRenderer::new(SurfaceId::Reader),
             encoder: Arc::new(tokio::sync::Semaphore::new(1)),
             blocks: Default::default(),
@@ -219,7 +227,10 @@ impl OcrRuntime {
         }
         self.status.scan_id = self.status.scan_id.wrapping_add(1);
         self.capture = None;
+        self.pending_capture = None;
         self.source_capture = None;
+        self.plane_renderer = PlaneRenderer::default();
+        self.last_progress = None;
         self.fallback_blocks.clear();
         self.result_dirty = false;
         self.result_presentation = None;
@@ -243,6 +254,7 @@ impl OcrRuntime {
         self.wrist_pages = 1;
         self.wrist_pointer = Pointer::default();
         self.wrist_hovered = None;
+        self.reader_dirty = true;
         self.blocks = Default::default();
         self.status.block_count = 0;
         self.status.layout_limited = false;
@@ -337,15 +349,21 @@ impl OcrRuntime {
         true
     }
 
-    pub fn tick(
+    pub fn tick_with_cadence(
         &mut self,
         app: &AppHandle,
         backend: &mut OpenVrBackend,
         config: &VrOcrConfig,
         wrist: &vrcs_core::VrOverlayWristConfig,
         player_progress: Option<&super::ocr_progress::ProgressView>,
+        business: bool,
     ) {
-        self.vision.tick();
+        if self.pending_capture.is_none() {
+            backend.cancel_ocr_capture();
+        }
+        if business {
+            self.vision.tick();
+        }
         if self.capture.is_none() && !self.selecting {
             backend.hide_ocr();
         }
@@ -353,17 +371,19 @@ impl OcrRuntime {
             backend.hide_ocr();
             backend.reset(OverlayKind::OcrWrist);
             self.unavailable(false);
-            if let Err(error) = self.update_feedback(app, backend, player_progress) {
+            backend.cancel_ocr_capture();
+            if let Err(error) = self.update_feedback(app, backend, player_progress, business) {
                 backend.reset(OverlayKind::OcrProgress);
                 self.progress_surface.reset();
                 self.status.progress_error = Some(error);
             }
             return;
         }
-        let result = self.update(app, backend, config).and_then(|_| {
-            if self.update_result(app, backend, config)? {
+        let result = self.update(app, backend, config, business).and_then(|_| {
+            if self.update_result(app, backend, config, business)? {
                 let blocks = self.reading_blocks(config.display_mode);
                 self.reader.sync(self.status.scan_id, &blocks);
+                self.reader_dirty = true;
             }
             Ok(())
         });
@@ -398,7 +418,7 @@ impl OcrRuntime {
         let wrist_result = if self.vision.visible() {
             self.wrist_view = None;
             self.vision
-                .render(app, backend, &mut self.reader_surface)
+                .render_with_cadence(app, backend, &mut self.reader_surface, business)
                 .map(|visible| {
                     self.status.wrist_state = if visible {
                         OcrWristState::Visible
@@ -408,7 +428,31 @@ impl OcrRuntime {
                     self.status.wrist_error = None;
                 })
         } else {
-            self.update_wrist(app, backend, config, wrist)
+            if business || self.reader_dirty {
+                self.reader_dirty = false;
+                self.update_wrist(app, backend, config, wrist)
+            } else {
+                self.reader_surface
+                    .refresh(
+                        app,
+                        backend,
+                        OverlayKind::OcrWrist,
+                        Some((super::surface::reader_hover(self.wrist_hovered), None, None)),
+                    )
+                    .and_then(|visible| {
+                        self.status.wrist_state = if visible {
+                            OcrWristState::Visible
+                        } else {
+                            OcrWristState::Hidden
+                        };
+                        if visible {
+                            backend.show(OverlayKind::OcrWrist)
+                        } else {
+                            backend.hide(OverlayKind::OcrWrist);
+                            Ok(())
+                        }
+                    })
+            }
         };
         if let Err(error) = wrist_result {
             backend.reset(OverlayKind::OcrWrist);
@@ -430,12 +474,15 @@ impl OcrRuntime {
                 feedback.finish(state, std::time::Instant::now());
             }
         }
-        if let Err(error) = self.update_feedback(app, backend, player_progress) {
+        if let Err(error) = self.update_feedback(app, backend, player_progress, business) {
             if self.status.progress_error.as_deref() != Some(error.as_str()) {
                 tracing::warn!(error, "OCR progress overlay unavailable");
             }
             backend.reset(OverlayKind::OcrProgress);
             self.status.progress_error = Some(error);
+        }
+        if self.pending_capture.is_none() {
+            backend.cancel_ocr_capture();
         }
     }
 
@@ -455,7 +502,21 @@ impl OcrRuntime {
         app: &AppHandle,
         backend: &mut OpenVrBackend,
         player_progress: Option<&super::ocr_progress::ProgressView>,
+        business: bool,
     ) -> Result<(), String> {
+        if !business {
+            return self
+                .progress_surface
+                .refresh(app, backend, OverlayKind::OcrProgress, None)
+                .and_then(|visible| {
+                    if visible {
+                        backend.show(OverlayKind::OcrProgress)
+                    } else {
+                        backend.hide(OverlayKind::OcrProgress);
+                        Ok(())
+                    }
+                });
+        }
         let now = std::time::Instant::now();
         self.status.progress = self
             .feedback
@@ -474,7 +535,7 @@ impl OcrRuntime {
             .state::<super::runtime::Manager>()
             .controls
             .lock()
-            .map(|hub| hub.snapshot().dark)
+            .map(|hub| hub.dark())
             .unwrap_or(false);
         let visible = self.progress_surface.present(
             app,
@@ -487,13 +548,16 @@ impl OcrRuntime {
             None,
             None,
         )?;
-        if !visible {
-            backend.hide(OverlayKind::OcrProgress);
-            return Ok(());
-        }
         let shown = backend
             .set_opacity(OverlayKind::OcrProgress, 0.94)
-            .and_then(|()| backend.show(OverlayKind::OcrProgress));
+            .and_then(|()| {
+                if visible {
+                    backend.show(OverlayKind::OcrProgress)
+                } else {
+                    backend.hide(OverlayKind::OcrProgress);
+                    Ok(())
+                }
+            });
         if shown.is_err() {
             backend.reset(OverlayKind::OcrProgress);
             self.progress_surface.reset();
@@ -567,6 +631,7 @@ impl OcrRuntime {
         app: &AppHandle,
         backend: &mut OpenVrBackend,
         config: &VrOcrConfig,
+        business: bool,
     ) -> Result<(), String> {
         let events = std::mem::take(&mut self.ui_events);
         let focused = self.ui_focus;
@@ -608,11 +673,12 @@ impl OcrRuntime {
             backend.hide_ocr();
         }
         if let Some(capture) = &self.capture {
-            let configuration_valid = self.configuration.as_deref().is_some_and(|snapshot| {
-                self.service
-                    .as_ref()
-                    .is_some_and(|service| service.configuration_matches(snapshot))
-            });
+            let configuration_valid = !business
+                || self.configuration.as_deref().is_some_and(|snapshot| {
+                    self.service
+                        .as_ref()
+                        .is_some_and(|service| service.configuration_matches(snapshot))
+                });
             let valid = backend
                 .ocr_tracking()
                 .is_ok_and(|(pose, pid, origin)| tracking_valid(capture, pose, pid, origin));
@@ -635,7 +701,11 @@ impl OcrRuntime {
             return Ok(());
         }
         let mut capture_requested = false;
-        if let Some(frame) = &input.frame {
+        if let Some(frame) = input
+            .frame
+            .as_ref()
+            .filter(|_| self.pending_capture.is_none())
+        {
             let was_selecting = self.selecting;
             self.vision_frame_valid = false;
             if !self.selecting {
@@ -713,7 +783,7 @@ impl OcrRuntime {
                     .state::<super::runtime::Manager>()
                     .controls
                     .lock()
-                    .map(|hub| hub.snapshot().dark)
+                    .map(|hub| hub.dark())
                     .unwrap_or(false);
                 let ready = self.selection_surface.present(
                     app,
@@ -734,14 +804,22 @@ impl OcrRuntime {
         if capture_requested {
             backend.hide(OverlayKind::OcrProgress);
             let started = std::time::Instant::now();
-            let scan_id = self.status.scan_id;
-            let capture = match backend.capture_ocr(config, self.selection.as_ref()) {
-                Ok(capture) => Arc::new(capture),
-                Err(error) => {
-                    tracing::warn!(scan_id, %error, "VR OCR capture failed");
-                    return Err(error);
-                }
+            backend.begin_ocr_capture(config, self.selection.as_ref())?;
+            self.pending_capture = Some(started);
+        }
+        if let Some(started) = self.pending_capture {
+            if !self.service.as_ref().is_some_and(|service| {
+                service
+                    .configuration()
+                    .is_ok_and(|settings| settings.ocr() == config)
+            }) {
+                return Err("OCR configuration changed".into());
+            }
+            let Some(capture) = backend.poll_ocr_capture()? else {
+                return Ok(());
             };
+            self.pending_capture = None;
+            let capture = Arc::new(capture);
             if self.selection.as_ref().is_some_and(|selection| {
                 selection.scene_pid != capture.scene_pid || selection.origin != capture.origin
             }) {
@@ -753,6 +831,9 @@ impl OcrRuntime {
                 "OCR captured"
             );
             self.start(capture, config)?;
+        }
+        if !business {
+            return Ok(());
         }
         self.sync_pipeline();
         while let Some(update) = self.next_current_update() {
@@ -816,6 +897,7 @@ impl OcrRuntime {
             self.vision.action(action);
             return;
         }
+        self.reader_dirty = true;
         if action == Action::Close {
             self.clear();
             return;
@@ -880,7 +962,7 @@ impl OcrRuntime {
             .state::<super::runtime::Manager>()
             .controls
             .lock()
-            .map(|hub| hub.snapshot().dark)
+            .map(|hub| hub.dark())
             .unwrap_or(false);
         let visible = self.reader_surface.present(
             app,
@@ -925,8 +1007,18 @@ impl OcrRuntime {
             return;
         };
         let mut progress = progress.lock().unwrap_or_else(|error| error.into_inner());
+        let first_stereo_pair = self.blocks.iter().any(Vec::is_empty)
+            && progress.blocks.iter().all(|blocks| !blocks.is_empty());
+        if self
+            .last_progress
+            .is_some_and(|last| last.elapsed() < std::time::Duration::from_millis(100))
+            && !first_stereo_pair
+        {
+            return;
+        }
         if self.capture.is_some() && progress.scan_id == self.status.scan_id && progress.dirty {
             self.blocks = progress.blocks.clone();
+            self.last_progress = Some(std::time::Instant::now());
             self.result_dirty = true;
             progress.dirty = false;
             self.status.block_count = self.blocks.iter().map(Vec::len).max().unwrap_or(0);
@@ -952,16 +1044,18 @@ impl OcrRuntime {
             return Ok(None);
         }
         let result = if let Some(capture) = &self.source_capture {
-            Some(super::ocr_plane::render(
-                capture
-                    .eyes
-                    .as_slice()
-                    .try_into()
-                    .map_err(|_| "Missing stereo capture")?,
-                &self.blocks,
-                config.background_opacity,
-                source_view(config),
-            )?)
+            Some(
+                self.plane_renderer.render(
+                    capture
+                        .eyes
+                        .as_slice()
+                        .try_into()
+                        .map_err(|_| "Missing stereo capture")?,
+                    &self.blocks,
+                    config.background_opacity,
+                    source_view(config),
+                )?,
+            )
         } else {
             None
         };
@@ -1004,6 +1098,7 @@ impl OcrRuntime {
         app: &AppHandle,
         backend: &mut OpenVrBackend,
         config: &VrOcrConfig,
+        business: bool,
     ) -> Result<bool, String> {
         if self.selecting {
             return Ok(false);
@@ -1039,30 +1134,42 @@ impl OcrRuntime {
             .as_ref()
             .ok_or("OCR capture is missing")?
             .origin;
-        backend.ensure_ocr_plane(OverlayKind::OcrResult, &presentation.plane, origin)?;
-        let dark = app
-            .state::<super::runtime::Manager>()
-            .controls
-            .lock()
-            .map(|hub| hub.snapshot().dark)
-            .unwrap_or(false);
-        let ready = self.result_surface.present(
-            app,
-            backend,
-            OverlayKind::OcrResult,
-            SurfaceView::OcrResult {
-                dark,
-                scene: presentation.scene.clone(),
-            },
-            None,
-            None,
-        )?;
+        let plane = presentation
+            .plane
+            .cropped(self.result_surface.output_bounds(), [2048, 2048]);
+        backend.ensure_ocr_plane(OverlayKind::OcrResult, &plane, origin)?;
+        let ready = if business || changed {
+            let dark = app
+                .state::<super::runtime::Manager>()
+                .controls
+                .lock()
+                .map(|hub| hub.dark())
+                .unwrap_or(false);
+            self.result_surface.present(
+                app,
+                backend,
+                OverlayKind::OcrResult,
+                SurfaceView::OcrResult {
+                    dark,
+                    scene: presentation.scene.clone(),
+                },
+                None,
+                None,
+            )?
+        } else {
+            self.result_surface
+                .refresh(app, backend, OverlayKind::OcrResult, None)?
+        };
         // present can retain the previous texture while the new scene is pending.
         let layout = app.state::<SurfaceHub>().layout(SurfaceId::OcrResult);
         let Some(layout) = layout.filter(|_| ready) else {
             backend.hide(OverlayKind::OcrResult);
             return Ok(changed);
         };
+        let plane = presentation
+            .plane
+            .cropped(self.result_surface.output_bounds(), [2048, 2048]);
+        backend.ensure_ocr_plane(OverlayKind::OcrResult, &plane, origin)?;
         let layout_changed = self.apply_result_layout(&layout);
         self.status.layout_limited = !self.fallback_blocks.is_empty();
         backend.set_opacity(OverlayKind::OcrResult, 1.)?;
@@ -1136,8 +1243,8 @@ impl OcrRuntime {
         ));
         self.capture = Some(metadata);
         // Keep stereo calibration and source bounds for spatial results.
-        self.source_capture =
-            (config.display_mode == VrOcrDisplayMode::Stereo).then(|| capture.clone());
+        self.source_capture = (config.display_mode == VrOcrDisplayMode::Stereo)
+            .then(|| Arc::new(capture.calibration()));
         let id = self.status.scan_id;
         let selection = self.selection.take();
         let sender = self.sender.clone();
@@ -1671,6 +1778,59 @@ mod tests {
         })
     }
 
+    #[test]
+    fn display_calibration_does_not_retain_captured_pixels() {
+        let capture = capture();
+        let calibration = capture.calibration();
+        assert_eq!(calibration.eyes[0].image.width, 2);
+        assert!(calibration
+            .eyes
+            .iter()
+            .all(|eye| eye.image.pixels.is_empty()));
+        assert_eq!(capture.eyes[0].image.pixels.len(), 16);
+    }
+
+    #[test]
+    fn clearing_ocr_discards_a_pending_capture() {
+        let mut runtime = OcrRuntime::new(None, None);
+        runtime.pending_capture = Some(std::time::Instant::now());
+        runtime.status.state = OcrState::Capturing;
+        runtime.clear();
+        assert!(runtime.pending_capture.is_none());
+        assert!(runtime.capture.is_none());
+        assert_eq!(runtime.status.state, OcrState::Ready);
+    }
+
+    #[test]
+    fn finished_result_flushes_a_coalesced_partial_without_waiting() {
+        let mut runtime = OcrRuntime::new(None, None);
+        runtime.capture = Some(capture().as_ref().into());
+        runtime.last_progress = Some(std::time::Instant::now());
+        let blocks = [vec![block(0, "source", Some("final"))], vec![]];
+        let summary = ScanSummary::from_blocks(&blocks, false, false);
+        runtime.finish_frame(OcrFrame { blocks, summary });
+        assert_eq!(runtime.wrist_texts(), ["final"]);
+        assert!(runtime.result_dirty);
+    }
+
+    #[test]
+    fn first_stereo_pair_is_not_delayed_by_partial_coalescing() {
+        let mut runtime = OcrRuntime::new(None, None);
+        runtime.capture = Some(capture().as_ref().into());
+        let progress = Arc::new(Mutex::new(ScanProgress::new(runtime.status.scan_id)));
+        runtime.progress = Some(progress.clone());
+        for eye in 0..2 {
+            progress.lock().unwrap().apply(BlockUpdate {
+                scan_id: runtime.status.scan_id,
+                eye,
+                target_language: None,
+                block: block(0, "source", None),
+            });
+            runtime.sync_progress();
+        }
+        assert!(runtime.blocks.iter().all(|blocks| !blocks.is_empty()));
+    }
+
     fn block(id: usize, source: &str, translation: Option<&str>) -> TranslatedBlock {
         TranslatedBlock {
             fragments: vec![],
@@ -1873,6 +2033,7 @@ mod tests {
             panels: vec![],
             page_count: 1,
             unplaced: vec![1],
+            capture_bounds: None,
         };
         assert!(runtime.apply_result_layout(&layout));
         assert!(!runtime.apply_result_layout(&layout));
@@ -1927,6 +2088,14 @@ mod tests {
             .lock()
             .unwrap()
             .apply(update(runtime.status.scan_id, Some("translated")));
+        runtime.sync_progress();
+        assert_eq!(
+            runtime.wrist_texts(),
+            ["source"],
+            "partial translations must coalesce"
+        );
+        runtime.last_progress =
+            Some(std::time::Instant::now() - std::time::Duration::from_millis(101));
         runtime.sync_progress();
         assert_eq!(runtime.wrist_texts(), ["translated"]);
         assert_eq!(runtime.status.state, OcrState::Translating);
