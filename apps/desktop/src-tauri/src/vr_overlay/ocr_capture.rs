@@ -76,6 +76,19 @@ pub struct EyeCapture {
 }
 
 impl EyeCapture {
+    pub fn calibration(&self) -> Self {
+        Self {
+            image: Texture {
+                width: self.image.width,
+                height: self.image.height,
+                pixels: Vec::new(),
+            },
+            projection: self.projection,
+            eye_to_head: self.eye_to_head,
+            head_pose: self.head_pose,
+        }
+    }
+
     pub fn tracking_to_eye(&self) -> [[f32; 4]; 3] {
         super::transform::inverse(super::transform::compose(self.head_pose, self.eye_to_head))
     }
@@ -130,6 +143,19 @@ pub struct StereoCapture {
     pub scene_pid: u32,
     pub captured_at: Instant,
     pub origin: i32,
+}
+
+impl StereoCapture {
+    pub fn calibration(&self) -> Self {
+        Self {
+            eyes: self.eyes.iter().map(EyeCapture::calibration).collect(),
+            #[cfg(test)]
+            pose: self.pose,
+            scene_pid: self.scene_pid,
+            captured_at: self.captured_at,
+            origin: self.origin,
+        }
+    }
 }
 
 pub struct CaptureCrop {

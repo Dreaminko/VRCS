@@ -7,7 +7,7 @@ mod platform {
     use vrcs_core::{VrOcrWristConfig, VrOverlayHeadsetConfig, VrOverlayWristConfig};
 
     use super::{menu_config, ControllerBinding, OverlayKind};
-    use crate::vr_overlay::d3d11_texture::Device;
+    use crate::vr_overlay::d3d11_texture::{Device, Readback};
     use crate::vr_overlay::dashboard::{
         pointer_from_openvr, DashboardPointerEvent, DASHBOARD_HEIGHT, DASHBOARD_WIDTH,
     };
@@ -54,8 +54,7 @@ mod platform {
         raw_system: *const openvr_sys::VR_IVRSystem_FnTable,
         overlay: Overlay,
         raw_overlay: *const openvr_sys::VR_IVROverlay_FnTable,
-        texture_device: Option<Device>,
-        ocr_mirrors: [Option<Mirror>; 2],
+        capture_resources: CaptureResources,
         headset: Option<OverlayHandle>,
         wrist: Option<OverlayHandle>,
         wrist_menu: Option<OverlayHandle>,
@@ -83,11 +82,40 @@ mod platform {
         surface_captures: [Option<Rc<RefCell<Capture>>>; 9],
     }
 
+    struct PendingCapture {
+        capture: StereoCapture,
+        readbacks: Vec<Readback>,
+        head: [[f32; 4]; 3],
+    }
+
+    #[derive(Default)]
+    struct CaptureResources {
+        pending: Option<PendingCapture>,
+        mirrors: [Option<Mirror>; 2],
+        device: Option<Device>,
+    }
+
+    impl CaptureResources {
+        fn reset(&mut self) {
+            self.pending = None;
+            self.mirrors = [None, None];
+            self.device = None;
+        }
+
+        fn checked<T>(&mut self, result: Result<T, String>) -> Result<T, String> {
+            if result.is_err() {
+                self.reset();
+            }
+            result
+        }
+    }
+
     #[derive(Default)]
     struct SubmittedState {
         visible: bool,
         opacity: Option<f32>,
         interactive: Option<bool>,
+        plane: Option<(crate::vr_overlay::ocr_plane::PlaneOverlay, i32)>,
     }
 
     #[derive(Default)]
@@ -233,6 +261,18 @@ mod platform {
         release: unsafe extern "C" fn(*mut std::ffi::c_void),
     }
 
+    impl Mirror {
+        fn get_or_create(
+            slot: &mut Option<Self>,
+            acquire: impl FnOnce() -> Result<Self, String>,
+        ) -> Result<*mut std::ffi::c_void, String> {
+            if slot.is_none() {
+                *slot = Some(acquire()?);
+            }
+            Ok(slot.as_ref().unwrap().view)
+        }
+    }
+
     impl Drop for Mirror {
         fn drop(&mut self) {
             if !self.view.is_null() {
@@ -363,12 +403,80 @@ mod platform {
             config: &vrcs_core::VrOcrConfig,
             selection: Option<&crate::vr_overlay::ocr_selection::Selection>,
         ) -> Result<StereoCapture, String> {
+            self.begin_ocr_capture(config, selection)?;
+            loop {
+                if let Some(capture) = self.poll_ocr_capture()? {
+                    return Ok(capture);
+                }
+                std::thread::sleep(std::time::Duration::from_millis(1));
+            }
+        }
+
+        pub fn cancel_ocr_capture(&mut self) {
+            self.capture_resources.pending = None;
+        }
+
+        pub fn poll_ocr_capture(&mut self) -> Result<Option<StereoCapture>, String> {
+            let result = self.poll_ocr_capture_inner();
+            self.capture_resources.checked(result)
+        }
+
+        fn poll_ocr_capture_inner(&mut self) -> Result<Option<StereoCapture>, String> {
+            let Some(pending) = &mut self.capture_resources.pending else {
+                return Ok(None);
+            };
+            if pending.capture.captured_at.elapsed() >= std::time::Duration::from_secs(2) {
+                return Err("OCR capture timed out".into());
+            }
+            let device = self
+                .capture_resources
+                .device
+                .as_ref()
+                .ok_or("OCR texture device unavailable")?;
+            for (eye, readback) in pending.capture.eyes.iter_mut().zip(&pending.readbacks) {
+                if eye.image.pixels.is_empty() {
+                    let Some(image) = device.poll_readback(readback)? else {
+                        return Ok(None);
+                    };
+                    eye.image = image;
+                }
+            }
+            let pending = self.capture_resources.pending.take().unwrap();
+            let (head, pid, origin) = self.ocr_tracking()?;
+            if pid != pending.capture.scene_pid
+                || origin != pending.capture.origin
+                || !pose_within_translation_limit_m(pending.head, head, OCR_MOVEMENT_LIMIT_M)
+            {
+                return Err("Headset position or scene changed during capture; scan again".into());
+            }
+            Ok(Some(pending.capture))
+        }
+
+        pub fn begin_ocr_capture(
+            &mut self,
+            config: &vrcs_core::VrOcrConfig,
+            selection: Option<&crate::vr_overlay::ocr_selection::Selection>,
+        ) -> Result<(), String> {
+            let result = self.begin_ocr_capture_inner(config, selection);
+            self.capture_resources.checked(result)
+        }
+
+        fn begin_ocr_capture_inner(
+            &mut self,
+            config: &vrcs_core::VrOcrConfig,
+            selection: Option<&crate::vr_overlay::ocr_selection::Selection>,
+        ) -> Result<(), String> {
+            self.cancel_ocr_capture();
+            if self.capture_resources.device.is_none() {
+                self.capture_resources.device = create_texture_device();
+            }
             let system = load_raw_system()?;
             let compositor = load_raw_interface(openvr_sys::IVRCompositor_Version, "compositor")?
                 as *const openvr_sys::VR_IVRCompositor_FnTable;
             let device = self
-                .texture_device
-                .as_ref()
+                .capture_resources
+                .device
+                .as_mut()
                 .ok_or("OCR requires a D3D11 texture device")?;
             unsafe {
                 let compositor = &*compositor;
@@ -400,10 +508,10 @@ mod platform {
                     .ReleaseMirrorTextureD3D11
                     .ok_or("D3D11 mirror release unavailable")?;
                 let mut eyes = Vec::new();
+                let mut readbacks = Vec::new();
                 let eye_count = if config.display_mode == vrcs_core::VrOcrDisplayMode::Stereo {
                     2
                 } else {
-                    self.ocr_mirrors[1] = None;
                     1
                 };
                 for (index, eye) in [openvr_sys::EVREye_Eye_Left, openvr_sys::EVREye_Eye_Right]
@@ -411,20 +519,20 @@ mod platform {
                     .take(eye_count)
                     .enumerate()
                 {
-                    // Releasing just after readback can make SteamVR return the previous image.
-                    // Keep the mirror alive until the next acquisition (OpenVR issue #1888).
-                    self.ocr_mirrors[index] = None;
-                    let mut mirror = Mirror {
-                        view: std::ptr::null_mut(),
-                        release,
-                    };
-                    if get_mirror(eye, device.raw_device(), &mut mirror.view) != 0
-                        || mirror.view.is_null()
-                    {
-                        return Err("Could not acquire SteamVR eye mirror".into());
-                    }
-                    let view = mirror.view;
-                    self.ocr_mirrors[index] = Some(mirror);
+                    // OpenVR #1888: acquire once per eye and reuse until this backend ends.
+                    let view =
+                        Mirror::get_or_create(&mut self.capture_resources.mirrors[index], || {
+                            let mut mirror = Mirror {
+                                view: std::ptr::null_mut(),
+                                release,
+                            };
+                            if get_mirror(eye, device.raw_device(), &mut mirror.view) != 0
+                                || mirror.view.is_null()
+                            {
+                                return Err("Could not acquire SteamVR eye mirror".into());
+                            }
+                            Ok(mirror)
+                        })?;
                     let mut eye_pose: openvr_sys::TrackedDevicePose_t = std::mem::zeroed();
                     if pose_fn(
                         tracked_device_index::HMD.0,
@@ -484,21 +592,24 @@ mod platform {
                     {
                         return Err("Invalid eye projection".into());
                     }
-                    let (image, bounds, size) =
-                        device.read_shader_resource_region(view, |width, height| {
-                            eye_capture.image.width = width;
-                            eye_capture.image.height = height;
-                            if let Some(selection) = selection {
-                                selection
-                                    .crop_bounds(&eye_capture)
-                                    .ok_or_else(|| "OCR frame left the view before capture".into())
-                            } else {
-                                center_bounds(width, height, config.region_fraction)
-                            }
-                        })?;
-                    eye_capture.projection = crop_projection(eye_capture.projection, size, bounds);
-                    eye_capture.image = image;
+                    let readback = device.begin_readback(index, view, |width, height| {
+                        eye_capture.image.width = width;
+                        eye_capture.image.height = height;
+                        if let Some(selection) = selection {
+                            selection
+                                .crop_bounds(&eye_capture)
+                                .ok_or_else(|| "OCR frame left the view before capture".into())
+                        } else {
+                            center_bounds(width, height, config.region_fraction)
+                        }
+                    })?;
+                    let [left, top, right, bottom] = readback.bounds;
+                    eye_capture.projection =
+                        crop_projection(eye_capture.projection, readback.size, readback.bounds);
+                    eye_capture.image.width = right - left;
+                    eye_capture.image.height = bottom - top;
                     eyes.push(eye_capture);
+                    readbacks.push(readback);
                 }
                 let mut after: openvr_sys::TrackedDevicePose_t = std::mem::zeroed();
                 if pose_fn(
@@ -526,14 +637,19 @@ mod platform {
                         "Headset position or scene changed during capture; scan again".into(),
                     );
                 }
-                Ok(StereoCapture {
-                    eyes,
-                    #[cfg(test)]
-                    pose: after.mDeviceToAbsoluteTracking.m,
-                    scene_pid,
-                    captured_at,
-                    origin,
-                })
+                self.capture_resources.pending = Some(PendingCapture {
+                    readbacks,
+                    head: pose.mDeviceToAbsoluteTracking.m,
+                    capture: StereoCapture {
+                        eyes,
+                        #[cfg(test)]
+                        pose: after.mDeviceToAbsoluteTracking.m,
+                        scene_pid,
+                        captured_at,
+                        origin,
+                    },
+                });
+                Ok(())
             }
         }
         pub fn runtime_installed() -> bool {
@@ -570,8 +686,10 @@ mod platform {
                 raw_system,
                 overlay,
                 raw_overlay,
-                texture_device,
-                ocr_mirrors: [None, None],
+                capture_resources: CaptureResources {
+                    device: texture_device,
+                    ..Default::default()
+                },
                 headset: None,
                 wrist: None,
                 wrist_menu: None,
@@ -778,6 +896,14 @@ mod platform {
                 );
             }
             let handle = slot.expect("OCR overlay exists");
+            if self
+                .state(kind)
+                .plane
+                .as_ref()
+                .is_some_and(|(current, space)| current == plane && *space == origin)
+            {
+                return Ok(());
+            }
             self.overlay
                 .set_width(handle, plane.width_m)
                 .map_err(|error| format!("Configure OCR width failed: {error:?}"))?;
@@ -795,6 +921,7 @@ mod platform {
             if error != openvr_sys::EVROverlayError_VROverlayError_None {
                 return Err(format!("Position OCR overlay failed: {error}"));
             }
+            self.state_mut(kind).plane = Some((plane.clone(), origin));
             Ok(())
         }
 
@@ -1295,7 +1422,7 @@ mod platform {
 
     impl Drop for OpenVrBackend {
         fn drop(&mut self) {
-            self.ocr_mirrors = [None, None];
+            self.capture_resources.reset();
             self.hide_all();
             self.destroy(OverlayKind::Headset);
             self.destroy(OverlayKind::Wrist);
@@ -2077,6 +2204,55 @@ mod platform {
             assert_eq!(released.load(Ordering::Relaxed), 3);
             drop(mirrors);
             assert_eq!(released.load(Ordering::Relaxed), 3);
+        }
+
+        #[test]
+        fn mirror_reuse_acquires_once_and_releases_on_shutdown() {
+            let acquired = AtomicUsize::new(0);
+            let released = AtomicUsize::new(0);
+            unsafe extern "C" fn release(view: *mut std::ffi::c_void) {
+                (&*view.cast::<AtomicUsize>()).fetch_add(1, Ordering::Relaxed);
+            }
+            let mut slot = None;
+            for _ in 0..3 {
+                let view = Mirror::get_or_create(&mut slot, || {
+                    acquired.fetch_add(1, Ordering::Relaxed);
+                    Ok(Mirror {
+                        view: std::ptr::from_ref(&released).cast_mut().cast(),
+                        release,
+                    })
+                })
+                .unwrap();
+                assert!(!view.is_null());
+            }
+            assert_eq!(acquired.load(Ordering::Relaxed), 1);
+            assert_eq!(released.load(Ordering::Relaxed), 0);
+            drop(slot);
+            assert_eq!(released.load(Ordering::Relaxed), 1);
+        }
+
+        #[test]
+        fn failed_capture_discards_mirrors_before_reacquisition() {
+            let released = AtomicUsize::new(0);
+            unsafe extern "C" fn release(view: *mut std::ffi::c_void) {
+                (&*view.cast::<AtomicUsize>()).fetch_add(1, Ordering::Relaxed);
+            }
+            let mirror = || Mirror {
+                view: std::ptr::from_ref(&released).cast_mut().cast(),
+                release,
+            };
+            let mut resources = super::CaptureResources::default();
+            resources.mirrors[0] = Some(mirror());
+            assert!(resources.checked(Ok(())).is_ok());
+            assert_eq!(released.load(Ordering::Relaxed), 0);
+            assert!(resources
+                .checked(Err::<(), _>("device removed".into()))
+                .is_err());
+            assert_eq!(released.load(Ordering::Relaxed), 1);
+            assert!(resources.mirrors.iter().all(Option::is_none));
+            Mirror::get_or_create(&mut resources.mirrors[0], || Ok(mirror())).unwrap();
+            drop(resources);
+            assert_eq!(released.load(Ordering::Relaxed), 2);
         }
     }
 }

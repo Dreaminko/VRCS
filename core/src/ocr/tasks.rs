@@ -173,8 +173,11 @@ impl VrOcrService {
 
     pub(super) fn matches_config(&self, snapshot: &crate::config::AppConfig) -> bool {
         self.config.read().is_ok_and(|current| {
-            let current = crate::config::apply_feature_gates(&current);
-            current.ocr == snapshot.ocr
+            let mut ocr = current.ocr.clone();
+            ocr.enabled &=
+                current.features.ocr && current.features.vr_overlay && ocr.master_enabled;
+            ocr.desktop_enabled &= current.features.ocr && ocr.master_enabled;
+            ocr == snapshot.ocr
                 && current.translation.prompt == snapshot.translation.prompt
                 && current.asr.api_profiles == snapshot.asr.api_profiles
         })
@@ -968,6 +971,26 @@ mod tests {
             )),
         );
         (service, config)
+    }
+
+    #[test]
+    fn scan_configuration_checks_gates_without_rejecting_unrelated_changes() {
+        let (service, _) = service(None);
+        {
+            let mut config = service.config.write().unwrap();
+            config.ocr.enabled = true;
+            config.ocr.desktop_enabled = true;
+            config.features.ocr = false;
+        }
+        let snapshot = service.configuration().unwrap();
+        assert!(service.configuration_matches(&snapshot));
+        service.config.write().unwrap().features.learning = false;
+        assert!(service.configuration_matches(&snapshot));
+        service.config.write().unwrap().features.ocr = true;
+        assert!(!service.configuration_matches(&snapshot));
+        let snapshot = service.configuration().unwrap();
+        service.config.write().unwrap().ocr.timeout_seconds += 1;
+        assert!(!service.configuration_matches(&snapshot));
     }
 
     #[tokio::test]

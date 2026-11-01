@@ -1,5 +1,6 @@
 use std::ffi::c_void;
 use std::ptr::{null, null_mut};
+use std::rc::Rc;
 
 use super::renderer::Texture;
 
@@ -102,6 +103,21 @@ unsafe extern "system" {
 pub struct Device {
     device: ComPtr,
     context: ComPtr,
+    staging: [Option<Rc<StagingTexture>>; 2],
+}
+
+struct StagingTexture {
+    texture: ComPtr,
+    width: u32,
+    height: u32,
+    format: u32,
+}
+
+pub struct Readback {
+    staging: Rc<StagingTexture>,
+    bgra: bool,
+    pub bounds: [u32; 4],
+    pub size: [u32; 2],
 }
 
 impl Device {
@@ -109,26 +125,37 @@ impl Device {
         self.device.0
     }
 
-    /// The view must belong to this device and remain alive until readback ends.
+    #[cfg(test)]
     pub unsafe fn read_shader_resource_region(
-        &self,
+        &mut self,
         view: *mut c_void,
         region: impl FnOnce(u32, u32) -> Result<[u32; 4], String>,
     ) -> Result<(Texture, [u32; 4], [u32; 2]), String> {
+        let readback = unsafe { self.begin_readback(0, view, region)? };
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        loop {
+            if let Some(image) = self.poll_readback(&readback)? {
+                return Ok((image, readback.bounds, readback.size));
+            }
+            if std::time::Instant::now() >= deadline {
+                return Err("Mirror readback timed out".into());
+            }
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+    }
+
+    /// The view must belong to this device; the copy stays on its owning context.
+    pub unsafe fn begin_readback(
+        &mut self,
+        eye: usize,
+        view: *mut c_void,
+        region: impl FnOnce(u32, u32) -> Result<[u32; 4], String>,
+    ) -> Result<Readback, String> {
         if view.is_null() {
             return Err("Mirror shader resource is null".into());
         }
         type GetResource = unsafe extern "system" fn(*mut c_void, *mut *mut c_void);
         type GetDesc = unsafe extern "system" fn(*mut c_void, *mut Texture2dDesc);
-        type Map = unsafe extern "system" fn(
-            *mut c_void,
-            *mut c_void,
-            u32,
-            u32,
-            u32,
-            *mut MappedSubresource,
-        ) -> i32;
-        type Unmap = unsafe extern "system" fn(*mut c_void, *mut c_void, u32);
         let get_resource: GetResource = unsafe { std::mem::transmute(method(view, 7)) };
         let mut resource = null_mut();
         unsafe {
@@ -170,19 +197,32 @@ impl Device {
         desc.bind_flags = 0;
         desc.cpu_access_flags = 0x20000; // D3D11_CPU_ACCESS_READ
         desc.misc_flags = 0;
-        let create: CreateTexture2d =
-            unsafe { std::mem::transmute(method(self.device.0, CREATE_TEXTURE_2D_INDEX)) };
-        let mut staging = null_mut();
-        let result = unsafe { create(self.device.0, &desc, null(), &mut staging) };
-        if result < 0 || staging.is_null() {
-            unsafe {
-                release(staging);
+        let slot = self.staging.get_mut(eye).ok_or("Invalid capture eye")?;
+        if slot.as_ref().is_none_or(|cached| {
+            cached.width != desc.width
+                || cached.height != desc.height
+                || cached.format != desc.format
+        }) {
+            let create: CreateTexture2d =
+                unsafe { std::mem::transmute(method(self.device.0, CREATE_TEXTURE_2D_INDEX)) };
+            let mut texture = null_mut();
+            let result = unsafe { create(self.device.0, &desc, null(), &mut texture) };
+            if result < 0 || texture.is_null() {
+                unsafe {
+                    release(texture);
+                }
+                return Err(format!(
+                    "Create mirror staging texture failed: 0x{result:08x}"
+                ));
             }
-            return Err(format!(
-                "Create mirror staging texture failed: 0x{result:08x}"
-            ));
+            *slot = Some(Rc::new(StagingTexture {
+                texture: ComPtr(texture),
+                width: desc.width,
+                height: desc.height,
+                format: desc.format,
+            }));
         }
-        let staging = ComPtr(staging);
+        let staging = slot.as_ref().unwrap().clone();
         // Copy only selected pixels from subresource zero before CPU readback.
         type CopyRegion = unsafe extern "system" fn(
             *mut c_void,
@@ -201,7 +241,7 @@ impl Device {
         unsafe {
             copy(
                 self.context.0,
-                staging.0,
+                staging.texture.0,
                 0,
                 0,
                 0,
@@ -211,6 +251,30 @@ impl Device {
                 source_box.as_ptr().cast(),
             );
         }
+        type Flush = unsafe extern "system" fn(*mut c_void);
+        let flush: Flush = unsafe { std::mem::transmute(method(self.context.0, 111)) };
+        unsafe {
+            flush(self.context.0);
+        }
+        Ok(Readback {
+            staging,
+            bgra,
+            bounds,
+            size,
+        })
+    }
+
+    pub fn poll_readback(&self, readback: &Readback) -> Result<Option<Texture>, String> {
+        type Map = unsafe extern "system" fn(
+            *mut c_void,
+            *mut c_void,
+            u32,
+            u32,
+            u32,
+            *mut MappedSubresource,
+        ) -> i32;
+        type Unmap = unsafe extern "system" fn(*mut c_void, *mut c_void, u32);
+        let staging = &readback.staging;
         let map: Map = unsafe { std::mem::transmute(method(self.context.0, 14)) };
         let unmap: Unmap = unsafe { std::mem::transmute(method(self.context.0, 15)) };
         let mut mapped = MappedSubresource {
@@ -218,19 +282,32 @@ impl Device {
             row_pitch: 0,
             depth_pitch: 0,
         };
-        let result = unsafe { map(self.context.0, staging.0, 0, 1, 0, &mut mapped) };
+        // D3D11_MAP_FLAG_DO_NOT_WAIT: never wait on the VR worker for GPU completion.
+        let result = unsafe {
+            map(
+                self.context.0,
+                staging.texture.0,
+                0,
+                1,
+                0x10_0000,
+                &mut mapped,
+            )
+        };
+        if result == 0x887A_000Au32 as i32 {
+            return Ok(None);
+        }
         if result < 0 {
             return Err(format!("Map mirror texture failed: 0x{result:08x}"));
         }
-        if mapped.data.is_null() || mapped.row_pitch < desc.width * 4 {
+        if mapped.data.is_null() || mapped.row_pitch < staging.width * 4 {
             unsafe {
-                unmap(self.context.0, staging.0, 0);
+                unmap(self.context.0, staging.texture.0, 0);
             }
             return Err("Invalid mapped mirror row pitch".into());
         }
-        let row_bytes = desc.width as usize * 4;
-        let mut pixels = Vec::with_capacity(row_bytes * desc.height as usize);
-        for row in 0..desc.height as usize {
+        let row_bytes = staging.width as usize * 4;
+        let mut pixels = Vec::with_capacity(row_bytes * staging.height as usize);
+        for row in 0..staging.height as usize {
             let data = unsafe {
                 std::slice::from_raw_parts(
                     mapped
@@ -243,26 +320,19 @@ impl Device {
             pixels.extend_from_slice(data);
         }
         unsafe {
-            unmap(self.context.0, staging.0, 0);
+            unmap(self.context.0, staging.texture.0, 0);
         }
-        if bgra {
-            for pixel in pixels.as_chunks_mut::<4>().0 {
+        for pixel in pixels.as_chunks_mut::<4>().0 {
+            if readback.bgra {
                 pixel.swap(0, 2);
             }
-        }
-        // The compositor's alpha is not meaningful for recognition.
-        for pixel in pixels.as_chunks_mut::<4>().0 {
             pixel[3] = 255;
         }
-        Ok((
-            Texture {
-                width: desc.width,
-                height: desc.height,
-                pixels,
-            },
-            bounds,
-            size,
-        ))
+        Ok(Some(Texture {
+            width: staging.width,
+            height: staging.height,
+            pixels,
+        }))
     }
     pub fn create(adapter_index: u32) -> Result<Self, String> {
         let adapter = dxgi_adapter(adapter_index)?;
@@ -295,6 +365,7 @@ impl Device {
         Ok(Self {
             device: ComPtr(device),
             context: ComPtr(context),
+            staging: [None, None],
         })
     }
 }
@@ -400,7 +471,7 @@ mod tests {
     #[test]
     #[ignore = "requires a Windows D3D11 adapter"]
     fn ocr_readback_preserves_rgba_and_row_pitch() {
-        let device = Device::create(0).unwrap();
+        let mut device = Device::create(0).unwrap();
         let source = Texture {
             width: 3,
             height: 2,
@@ -435,5 +506,23 @@ mod tests {
         assert!(
             unsafe { device.read_shader_resource_region(view.0, |_, _| Ok([2, 0, 4, 2])) }.is_err()
         );
+        let readback =
+            unsafe { device.begin_readback(0, view.0, |_, _| Ok([1, 0, 2, 2])) }.unwrap();
+        let staging = readback.staging.texture.0;
+        let until = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        let pixels = loop {
+            if let Some(image) = device.poll_readback(&readback).unwrap() {
+                break image.pixels;
+            }
+            assert!(
+                std::time::Instant::now() < until,
+                "readback did not complete"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        };
+        assert_eq!(pixels, [40, 50, 60, 255, 130, 140, 150, 255]);
+        drop(readback);
+        let reused = unsafe { device.begin_readback(0, view.0, |_, _| Ok([1, 0, 2, 2])) }.unwrap();
+        assert_eq!(reused.staging.texture.0, staging);
     }
 }
