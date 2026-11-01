@@ -17,6 +17,19 @@ const WIDTH = 2048;
 const PADDING = 12;
 const LINE_HEIGHT = 1.4;
 
+export function memoizeTextMeasure(measure: Measure): Measure {
+  const widths = new Map<string, number>();
+  return (text, size) => {
+    const key = `${size}\0${text}`;
+    const cached = widths.get(key);
+    if (cached !== undefined) return cached;
+    const width = measure(text, size);
+    if (widths.size >= 2048) widths.clear();
+    widths.set(key, width);
+    return width;
+  };
+}
+
 const bounds = (quad: Quad): Bounds => [Math.min(...quad.map(([x]) => x)), Math.min(...quad.map(([, y]) => y)), Math.max(...quad.map(([x]) => x)), Math.max(...quad.map(([, y]) => y))];
 const rectangle = ([l, t, r, b]: Bounds): Quad => [[l, t], [r, t], [r, b], [l, b]];
 const edge = (a: number[], b: number[]) => Math.hypot(a[0]! - b[0]!, a[1]! - b[1]!);
@@ -95,9 +108,9 @@ export function quadTransform(quad: Quad, width: number, height: number): number
   ];
 }
 
-export function layoutOcrScene(scene: OcrScene, measure: Measure): { cards: OcrCard[]; unplaced: number[]; height: number } {
+export function layoutOcrScene(scene: OcrScene, measure: Measure): { cards: OcrCard[]; unplaced: number[]; height: number; captureBounds: Bounds } {
   const height = WIDTH / scene.aspect;
-  if (!Number.isFinite(height) || height <= 0 || scene.blocks.length > 256) return { cards: [], unplaced: [...new Set(scene.blocks.map(({ id }) => id))], height: WIDTH };
+  if (!Number.isFinite(height) || height <= 0 || scene.blocks.length > 256) return { cards: [], unplaced: [...new Set(scene.blocks.map(({ id }) => id))], height: WIDTH, captureBounds: [0, 0, WIDTH, WIDTH] };
   const scale = (quad: Quad): Quad => quad.map(([x, y]) => [x * WIDTH, y * height]) as Quad;
   const blocks = scene.blocks.map((block) => ({ ...block, quad: scale(block.quad), masks: block.masks.map(scale) }));
   const occupied = [
@@ -153,5 +166,26 @@ export function layoutOcrScene(scene: OcrScene, measure: Measure): { cards: OcrC
     }
     if (!placed) unplaced.push(block.id);
   }
-  return { cards, unplaced: [...new Set(unplaced)], height };
+  const placed = new Set(cards.map(({ id }) => id));
+  const points = [
+    ...cards.flatMap(card => [...card.quad, ...(card.connected ? card.source : [])]),
+    ...blocks.filter(({ id }) => placed.has(id)).flatMap(block => block.masks.flat()),
+  ];
+  // Include the 3px round connector stroke before the aspect transform.
+  for (const card of cards.filter(({ connected }) => connected)) {
+    for (const quad of [card.source, card.quad]) {
+      const x = quad.reduce((sum, point) => sum + point[0], 0) / 4;
+      const y = quad.reduce((sum, point) => sum + point[1], 0) / 4;
+      points.push([x - 1.5, y - 1.5], [x + 1.5, y + 1.5]);
+    }
+  }
+  // Convert to source pixels after the aspect transform, with room for antialiasing.
+  const captureBounds: Bounds = points.length ? [WIDTH, WIDTH, 0, 0] : [0, 0, 1, 1];
+  for (const [x, y] of points) {
+    captureBounds[0] = Math.min(captureBounds[0], Math.max(0, Math.floor(x) - 4));
+    captureBounds[1] = Math.min(captureBounds[1], Math.max(0, Math.floor(y * scene.aspect) - 4));
+    captureBounds[2] = Math.max(captureBounds[2], Math.min(WIDTH, Math.ceil(x) + 4));
+    captureBounds[3] = Math.max(captureBounds[3], Math.min(WIDTH, Math.ceil(y * scene.aspect) + 4));
+  }
+  return { cards, unplaced: [...new Set(unplaced)], height, captureBounds };
 }

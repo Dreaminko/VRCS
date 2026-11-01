@@ -1,5 +1,5 @@
 import { useLayoutEffect, useRef, useState, type CSSProperties } from "react";
-import { layoutOcrScene, quadTransform, type OcrScene, type Quad } from "./ocr-scene";
+import { layoutOcrScene, memoizeTextMeasure, quadTransform, type OcrScene, type Quad } from "./ocr-scene";
 import "./ocr-surface.css";
 
 export function OcrSelectionSurface() {
@@ -8,23 +8,32 @@ export function OcrSelectionSurface() {
 
 export function OcrResultSurface({ scene }: { scene: OcrScene }) {
   const root = useRef<HTMLDivElement>(null);
+  const context = useRef<CanvasRenderingContext2D | null>(null);
+  const measurement = useRef<{ family: string; measure: ReturnType<typeof memoizeTextMeasure> } | null>(null);
   const [layout, setLayout] = useState<{ scene: OcrScene; result: ReturnType<typeof layoutOcrScene> } | null>(null);
   const current = layout?.scene === scene ? layout.result : null;
   useLayoutEffect(() => {
     let cancelled = false;
     const measure = () => {
       const element = root.current;
-      const context = document.createElement("canvas").getContext("2d");
-      if (!element || !context || cancelled) return;
+      if (!element || cancelled) return;
+      const canvas = context.current ??= document.createElement("canvas").getContext("2d");
+      if (!canvas) return;
       const family = getComputedStyle(element).fontFamily;
-      const result = layoutOcrScene(scene, (text, size) => {
-        context.font = `600 ${size}px ${family}`;
-        return context.measureText(text).width;
-      });
+      if (measurement.current?.family !== family) {
+        measurement.current = { family, measure: memoizeTextMeasure((text, size) => {
+          const font = `600 ${size}px ${family}`;
+          if (canvas.font !== font) canvas.font = font;
+          return canvas.measureText(text).width;
+        }) };
+      }
+      const result = layoutOcrScene(scene, measurement.current.measure);
       setLayout({ scene, result });
     };
+    const fontsChanged = () => { measurement.current = null; measure(); };
+    document.fonts.addEventListener("loadingdone", fontsChanged);
     void document.fonts.ready.then(measure);
-    return () => { cancelled = true; };
+    return () => { cancelled = true; document.fonts.removeEventListener("loadingdone", fontsChanged); };
   }, [scene]);
   useLayoutEffect(() => {
     if (current) root.current?.dispatchEvent(new CustomEvent("vr-surface-layout", { bubbles: true }));
@@ -34,6 +43,7 @@ export function OcrResultSurface({ scene }: { scene: OcrScene }) {
   const placed = new Set(current?.cards.map(({ id }) => id));
   return <div ref={root} className="vr-ocr-result" data-vr-pending={current ? undefined : "true"}
     data-vr-unplaced={JSON.stringify(current?.unplaced ?? [])}
+    data-vr-capture-bounds={current ? JSON.stringify(current.captureBounds) : undefined}
     style={{ "--vr-background-opacity": scene.opacity } as CSSProperties}>
     <div className="vr-ocr-canvas" style={{ height, transform: `scaleY(${scene.aspect})` }}>
       <svg className="vr-ocr-masks" viewBox={`0 0 2048 ${height}`} aria-hidden="true">

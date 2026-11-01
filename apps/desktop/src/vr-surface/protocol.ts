@@ -82,6 +82,7 @@ export interface SurfaceLayout {
   panels?: { bounds: [number, number, number, number]; radius: [number, number] }[];
   page_count: number;
   unplaced?: number[];
+  capture_bounds?: [number, number, number, number];
 }
 
 export const SURFACE_SIZE = { menu: [1280, 1280], dialogue: [768, 768], reader: [1024, 1024], headset: [1024, 1360], ocr_progress: [768, 224], dashboard: [1440, 900], dashboard_thumbnail: [256, 256], ocr_selection: [256, 256], ocr_result: [2048, 2048], player_audio: [1024, 1024] } as const;

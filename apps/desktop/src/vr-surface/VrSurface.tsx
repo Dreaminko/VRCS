@@ -183,7 +183,8 @@ export const VrSurface = memo(function VrSurface({ state, onLayout }: { state: S
         return { bounds: normalize(rect), radius: [radius / bounds.width, radius / bounds.height] as [number, number] };
       });
       const unplaced = element.querySelector<HTMLElement>("[data-vr-unplaced]")?.dataset.vrUnplaced;
-      const layout: SurfaceLayout = { key: state.key, regions, ...(menu ? { menu_bounds: normalize(menu.getBoundingClientRect()) } : {}), ...(panels.length ? { panels } : {}), page_count: next.count, ...(unplaced ? { unplaced: JSON.parse(unplaced) as number[] } : {}) };
+      const captureBounds = element.querySelector<HTMLElement>("[data-vr-capture-bounds]")?.dataset.vrCaptureBounds;
+      const layout: SurfaceLayout = { key: state.key, regions, ...(menu ? { menu_bounds: normalize(menu.getBoundingClientRect()) } : {}), ...(panels.length ? { panels } : {}), page_count: next.count, ...(unplaced ? { unplaced: JSON.parse(unplaced) as number[] } : {}), ...(captureBounds ? { capture_bounds: JSON.parse(captureBounds) as [number, number, number, number] } : {}) };
       const signature = JSON.stringify(layout);
       if (lastLayout.current !== signature) { lastLayout.current = signature; onLayout?.(layout); }
     };
