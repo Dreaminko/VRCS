@@ -13,6 +13,7 @@ use crate::{
 
 // Qwen AI / Model Studio LiveTranslate publish 10 RPM. Space starts slightly
 // beyond six seconds so sliding minute windows do not include eleven starts.
+// QwenCloud uses the same conservative local policy, with a separate gate per region.
 const START_INTERVAL: Duration = Duration::from_millis(6_100);
 const BACKOFF_RESET: Duration = Duration::from_secs(300);
 
@@ -27,7 +28,9 @@ fn quota_key(config: &AsrConfig, profile: &ApiProfile) -> Option<QuotaKey> {
     if config.backend != providers::SERVICE_QWEN_LIVE_TRANSLATE
         || !matches!(
             profile.provider.as_str(),
-            providers::QWEN_AI_PROVIDER | providers::ALIBABA_PROVIDER
+            providers::QWEN_AI_PROVIDER
+                | providers::QWEN_CLOUD_PROVIDER
+                | providers::ALIBABA_PROVIDER
         )
     {
         return None;
@@ -223,6 +226,26 @@ mod tests {
         let reset = Instant::now();
         gate.acquire().await;
         assert_eq!(Instant::now().duration_since(reset), Duration::from_secs(5));
+    }
+
+    #[test]
+    fn qwen_cloud_connection_gates_are_shared_only_within_a_region() {
+        let config = AsrConfig {
+            backend: providers::SERVICE_QWEN_LIVE_TRANSLATE.into(),
+            ..Default::default()
+        };
+        let mut profile = ApiProfile {
+            provider: "qwen_cloud".into(),
+            region: Some("ap-southeast-1".into()),
+            ..Default::default()
+        };
+        let singapore = gate(&config, &profile).unwrap();
+        profile.id = "another-profile".into();
+        assert!(Arc::ptr_eq(&singapore, &gate(&config, &profile).unwrap()));
+        profile.region = Some("cn-hongkong".into());
+        assert!(!Arc::ptr_eq(&singapore, &gate(&config, &profile).unwrap()));
+        profile.provider = providers::QWEN_AI_PROVIDER.into();
+        assert!(!Arc::ptr_eq(&singapore, &gate(&config, &profile).unwrap()));
     }
 
     #[test]

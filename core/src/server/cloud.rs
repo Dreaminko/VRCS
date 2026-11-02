@@ -118,6 +118,16 @@ fn provider_value(provider: ProviderDefinition) -> Value {
                 "default": null
             }),
         ],
+        providers::QWEN_CLOUD_PROVIDER => vec![json!({
+            "id": "region",
+            "label": "Region",
+            "type": "select",
+            "required": true,
+            "default": "ap-southeast-1",
+            "options": providers::QWEN_CLOUD_REGIONS.iter().map(|(value, label, _)| {
+                json!({ "value": value, "label": label })
+            }).collect::<Vec<_>>()
+        })],
         MICROSOFT_PROVIDER => vec![json!({
             "id": "region",
             "label": "Region",
@@ -788,6 +798,7 @@ fn normalize_profile_fields(profile: &mut ApiProfile) -> Result<(), String> {
                         profile.region = Some("singapore".into());
                     }
                 }
+                providers::QWEN_CLOUD_PROVIDER => {}
                 MICROSOFT_PROVIDER => profile.workspace_id = None,
                 _ => {
                     profile.region = None;
@@ -1163,7 +1174,7 @@ mod tests {
     #[test]
     fn qwen_ai_catalog_and_readiness_do_not_require_model_studio_metadata() {
         let value = provider_value(providers::definition(providers::QWEN_AI_PROVIDER).unwrap());
-        assert_eq!(value["display_name"], "Qwen AI");
+        assert_eq!(value["display_name"], "千问AI平台");
         assert_eq!(value["connection"]["fields"], json!([]));
         assert_eq!(
             value["connection"]["base_url"]["default"],
@@ -1179,6 +1190,29 @@ mod tests {
             ..Default::default()
         };
         assert!(ensure_asr_profile_ready(&profile).is_ok());
+    }
+
+    #[test]
+    fn qwen_cloud_catalog_and_normalization_preserve_the_selected_region() {
+        let value = provider_value(providers::definition("qwen_cloud").unwrap());
+        let fields = value["connection"]["fields"].as_array().unwrap();
+        assert_eq!(fields.len(), 1);
+        assert_eq!(fields[0]["id"], "region");
+        assert_eq!(fields[0]["default"], "ap-southeast-1");
+        let regions = fields[0]["options"].as_array().unwrap();
+        assert_eq!(regions.len(), 6);
+        for region in regions {
+            let mut profile = ApiProfile {
+                provider: "qwen_cloud".into(),
+                region: Some(format!(" {} ", region["value"].as_str().unwrap())),
+                enabled_capabilities: vec![CAPABILITY_SPEECH_TO_TEXT.into()],
+                ..Default::default()
+            };
+            normalize_profile_fields(&mut profile).unwrap();
+            assert_eq!(profile.region.as_deref(), region["value"].as_str());
+            assert!(profile.workspace_id.is_none());
+            assert!(ensure_asr_profile_ready(&profile).is_ok());
+        }
     }
 
     #[test]

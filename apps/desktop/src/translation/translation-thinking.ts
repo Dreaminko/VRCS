@@ -81,7 +81,7 @@ export function thinkingControlForModel(
   if (currentReasoning && details?.reasoning?.supported === true) {
     const options = details.reasoning;
     if (options.mandatory === true) return "hide_only";
-    if (["alibaba_cloud", "alibaba_token_plan", "qwen_ai", "deepseek"].includes(provider)
+    if (["alibaba_cloud", "alibaba_token_plan", "qwen_ai", "qwen_cloud", "deepseek"].includes(provider)
       && currentField(details, "reasoning.controls")
       && options.controls?.some((control) => control.type === "toggle")) return "disable_supported";
     if (["openai", "gemini", "groq"].includes(provider) && options.supported_efforts?.length
@@ -98,7 +98,7 @@ export function thinkingControlForModel(
   if (provider === "gemini" && normalizedModel.startsWith("gemini-2.5-flash")) return "disable_supported";
   if (provider === "gemini" && normalizedModel.startsWith("gemini-2.5-pro")) return "hide_only";
   if (provider === "groq") return groqThinkingControl(normalizedModel);
-  if (provider === "alibaba_cloud" || provider === "alibaba_token_plan" || provider === "qwen_ai") {
+  if (["alibaba_cloud", "alibaba_token_plan", "qwen_ai", "qwen_cloud"].includes(provider)) {
     return alibabaThinkingControl(normalizedModel);
   }
   return "unsupported";

@@ -8,12 +8,13 @@ use crate::providers::SERVICE_FUN_ASR_REALTIME;
 use super::{authenticated_request, pcm16_bytes, service_settings, CloudEvent, NormalizationState};
 
 pub(super) fn build_request(profile: &ApiProfile, key: &str) -> Result<Request<()>, String> {
-    if profile.provider == crate::providers::QWEN_AI_PROVIDER {
-        return authenticated_request(
-            "wss://maas.qianwenaiapi.com/api-ws/v1/inference".into(),
-            key,
-            false,
-        );
+    let platform_host = match profile.provider.as_str() {
+        crate::providers::QWEN_AI_PROVIDER => Some("maas.qianwenaiapi.com"),
+        crate::providers::QWEN_CLOUD_PROVIDER => Some(crate::providers::qwen_cloud_host(profile)?),
+        _ => None,
+    };
+    if let Some(host) = platform_host {
+        return authenticated_request(format!("wss://{host}/api-ws/v1/inference"), key, false);
     }
     let workspace = profile.workspace_id.as_deref().unwrap_or("").trim();
     if workspace.is_empty() {

@@ -467,9 +467,10 @@ fn select_listed_model(provider: &str, models: Vec<String>) -> Option<String> {
         DEEPSEEK_PROVIDER => DEEPSEEK_DIAGNOSTIC_MODELS,
         providers::MIMO_PROVIDER => &["mimo-v2.6-flash", "mimo-v2.6-pro"],
         GEMINI_PROVIDER => GEMINI_DIAGNOSTIC_MODELS,
-        ALIBABA_PROVIDER | ALIBABA_TOKEN_PLAN_PROVIDER | providers::QWEN_AI_PROVIDER => {
-            ALIBABA_DIAGNOSTIC_MODELS
-        }
+        ALIBABA_PROVIDER
+        | ALIBABA_TOKEN_PLAN_PROVIDER
+        | providers::QWEN_AI_PROVIDER
+        | providers::QWEN_CLOUD_PROVIDER => ALIBABA_DIAGNOSTIC_MODELS,
         OPENROUTER_PROVIDER => OPENROUTER_DIAGNOSTIC_MODELS,
         _ => return None,
     };

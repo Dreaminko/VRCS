@@ -526,8 +526,13 @@ fn check_request_size(endpoint: &str, body: &Value) -> Result<(), LlmError> {
         return Ok(());
     }
     let host = url.host_str().unwrap_or_default();
-    if host == "maas.qianwenaiapi.com" {
-        // Qwen AI limits each encoded image to 20 MB and the JSON body to 64 MB.
+    if host == "maas.qianwenaiapi.com"
+        || providers::QWEN_CLOUD_REGIONS
+            .iter()
+            .any(|(_, _, expected)| host == *expected)
+    {
+        // Qwen AI and QwenCloud limit each Data URI to 20 MB and the body to 64 MB.
+        // https://docs.qwencloud.com/developer-guides/multimodal/vision
         // https://platform.qianwenai.com/docs/developer-guides/multimodal/vision
         for content in body["messages"]
             .as_array()
@@ -540,7 +545,7 @@ fn check_request_size(endpoint: &str, body: &Value) -> Result<(), LlmError> {
                     return Err(LlmError {
                         code: "llm.request_failed",
                         detail:
-                            "Qwen AI image Data URI exceeds the 20 MB limit. Reduce the image size."
+                            "Qwen image Data URI exceeds the 20 MB limit. Reduce the image size."
                                 .into(),
                         retryable: false,
                         retry_after: None,
@@ -548,7 +553,7 @@ fn check_request_size(endpoint: &str, body: &Value) -> Result<(), LlmError> {
                 }
             }
         }
-        super::http::max_serialized_body(body, 64_000_000, "Qwen AI request (64 MB)")?;
+        super::http::max_serialized_body(body, 64_000_000, "Qwen request (64 MB)")?;
     } else if host.ends_with(".maas.aliyuncs.com") {
         // The 20 MB JSON body cap also bounds every embedded Data URI to 20 MB.
         super::http::max_serialized_body(
@@ -893,6 +898,31 @@ mod tests {
     }
 
     #[test]
+    fn qwen_cloud_http_endpoints_follow_the_profile_region() {
+        for region in [
+            "ap-southeast-1",
+            "cn-beijing",
+            "eu-central-1",
+            "cn-hongkong",
+            "ap-northeast-1",
+            "us-east-1",
+        ] {
+            let profile = ApiProfile {
+                provider: providers::QWEN_CLOUD_PROVIDER.into(),
+                region: Some(region.into()),
+                ..Default::default()
+            };
+            let base = format!("https://{region}.maas.qwencloudapi.com/compatible-mode/v1");
+            assert_eq!(crate::llm::alibaba::base_url(&profile).unwrap(), base);
+            assert_eq!(
+                chat_completions_url(&profile).unwrap(),
+                format!("{base}/chat/completions")
+            );
+            assert_eq!(models_url(&profile).unwrap(), format!("{base}/models"));
+        }
+    }
+
+    #[test]
     fn alibaba_limits_use_the_serialized_body_and_confirmed_endpoint() {
         let mut body = json!({"messages": [{"content": [
             {"type": "text", "text": ""},
@@ -1033,7 +1063,7 @@ mod tests {
     }
 
     #[test]
-    fn qwen_ai_bounds_each_data_uri_and_the_total_json_body() {
+    fn qwen_platforms_bound_each_data_uri_and_the_total_json_body() {
         let endpoint = "https://maas.qianwenaiapi.com/compatible-mode/v1/chat/completions";
         let mut body = json!({"messages": [{"content": [{
             "type": "image_url", "image_url": {"url": ""}
@@ -1050,6 +1080,13 @@ mod tests {
         assert_eq!(error.code, "llm.request_failed");
         assert!(!error.retryable);
         assert!(error.detail.contains("Data URI"));
+        for (_, _, host) in providers::QWEN_CLOUD_REGIONS {
+            let endpoint = format!("https://{host}/compatible-mode/v1/chat/completions");
+            assert!(check_request_size(&endpoint, &body)
+                .unwrap_err()
+                .detail
+                .contains("Data URI"));
+        }
         check_request_size(
             "https://maas.qianwenaiapi.com.example/compatible-mode/v1/chat/completions",
             &body,

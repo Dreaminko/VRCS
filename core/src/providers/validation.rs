@@ -3,8 +3,8 @@ use std::collections::HashSet;
 use crate::config::{ApiAuthMode, ApiProfile};
 
 use super::{
-    definition, provider_capability_ids, BaseUrlPolicy, ProviderCategory, ALIBABA_PROVIDER,
-    MICROSOFT_PROVIDER, QWEN_LOCAL_PROVIDER,
+    definition, provider_capability_ids, qwen_cloud_host, BaseUrlPolicy, ProviderCategory,
+    ALIBABA_PROVIDER, MICROSOFT_PROVIDER, QWEN_CLOUD_PROVIDER, QWEN_LOCAL_PROVIDER,
 };
 
 pub(crate) fn validate_profile(profile: &ApiProfile) -> Result<(), String> {
@@ -14,6 +14,7 @@ pub(crate) fn validate_profile(profile: &ApiProfile) -> Result<(), String> {
     validate_capabilities(profile)?;
     match profile.provider.as_str() {
         ALIBABA_PROVIDER => validate_alibaba_profile(profile)?,
+        QWEN_CLOUD_PROVIDER => validate_qwen_cloud_profile(profile)?,
         MICROSOFT_PROVIDER => validate_microsoft_profile(profile)?,
         _ => validate_connection_fields(profile)?,
     }
@@ -105,6 +106,17 @@ fn validate_connection_fields(profile: &ApiProfile) -> Result<(), String> {
             "API profile {} connection metadata is inconsistent",
             profile.provider
         ));
+    }
+    Ok(())
+}
+
+fn validate_qwen_cloud_profile(profile: &ApiProfile) -> Result<(), String> {
+    qwen_cloud_host(profile)?;
+    if profile.workspace_id.is_some() || profile.base_url.is_some() {
+        return Err("QwenCloud profiles cannot contain a Workspace ID or Base URL".into());
+    }
+    if profile.auth_mode != ApiAuthMode::Bearer || profile.is_local {
+        return Err("QwenCloud profile connection metadata is inconsistent".into());
     }
     Ok(())
 }
@@ -278,6 +290,7 @@ mod tests {
             MIMO_PROVIDER,
             OLLAMA_PROVIDER,
             QWEN_AI_PROVIDER,
+            QWEN_CLOUD_PROVIDER,
         ];
         for provider in catalog() {
             let expected = supported.contains(&provider.id);
@@ -300,6 +313,8 @@ mod tests {
             }
             if provider.id == ALIBABA_PROVIDER {
                 profile.region = Some("singapore".into());
+            } else if provider.id == QWEN_CLOUD_PROVIDER {
+                profile.region = Some("ap-southeast-1".into());
             }
             assert_eq!(
                 validate_capabilities(&profile).is_ok(),

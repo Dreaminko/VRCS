@@ -8,6 +8,41 @@ pub(crate) use validation::validate_profile;
 
 pub const ALIBABA_PROVIDER: &str = "alibaba_cloud";
 pub const QWEN_AI_PROVIDER: &str = "qwen_ai";
+pub const QWEN_CLOUD_PROVIDER: &str = "qwen_cloud";
+
+// Region IDs are QwenCloud API values, independent of Model Studio's settings.
+pub(crate) const QWEN_CLOUD_REGIONS: &[(&str, &str, &str)] = &[
+    (
+        "ap-southeast-1",
+        "Singapore",
+        "ap-southeast-1.maas.qwencloudapi.com",
+    ),
+    (
+        "cn-beijing",
+        "China (Beijing)",
+        "cn-beijing.maas.qwencloudapi.com",
+    ),
+    (
+        "eu-central-1",
+        "Germany (Frankfurt)",
+        "eu-central-1.maas.qwencloudapi.com",
+    ),
+    (
+        "cn-hongkong",
+        "China (Hong Kong)",
+        "cn-hongkong.maas.qwencloudapi.com",
+    ),
+    (
+        "ap-northeast-1",
+        "Japan (Tokyo)",
+        "ap-northeast-1.maas.qwencloudapi.com",
+    ),
+    (
+        "us-east-1",
+        "US (Virginia)",
+        "us-east-1.maas.qwencloudapi.com",
+    ),
+];
 pub const ALIBABA_TOKEN_PLAN_PROVIDER: &str = "alibaba_token_plan";
 pub const OPENAI_PROVIDER: &str = "openai";
 pub const OPENAI_COMPATIBLE_PROVIDER: &str = "openai_compatible";
@@ -373,6 +408,18 @@ const QWEN_AI_SERVICES: &[ProviderServiceDefinition] = &[
     ALIBABA_SERVICES[3],
 ];
 
+const QWEN_CLOUD_SERVICES: &[ProviderServiceDefinition] = &[
+    multimodal_service(
+        "qwen_cloud_chat_completions",
+        "QwenCloud Chat Completions",
+        ServiceAdapter::AlibabaChatCompletions,
+        SupportLevel::ProtocolCompatible,
+    ),
+    ALIBABA_SERVICES[1],
+    ALIBABA_SERVICES[2],
+    ALIBABA_SERVICES[3],
+];
+
 const ALIBABA_TOKEN_PLAN_SERVICES: &[ProviderServiceDefinition] = &[
     text_service(
         "alibaba_token_plan_chat_completions",
@@ -691,6 +738,7 @@ pub fn catalog() -> Vec<ProviderDefinition> {
     [
         ALIBABA_PROVIDER,
         QWEN_AI_PROVIDER,
+        QWEN_CLOUD_PROVIDER,
         ALIBABA_TOKEN_PLAN_PROVIDER,
         OPENAI_PROVIDER,
         GROQ_PROVIDER,
@@ -729,7 +777,7 @@ pub fn definition(provider: &str) -> Option<ProviderDefinition> {
                 true,
             ),
             QWEN_AI_PROVIDER => (
-                "Qwen AI",
+                "千问AI平台",
                 ProviderCategory::CloudProvider,
                 connection(
                     ApiAuthMode::Bearer,
@@ -739,6 +787,21 @@ pub fn definition(provider: &str) -> Option<ProviderDefinition> {
                     false,
                 ),
                 QWEN_AI_SERVICES,
+                SHARED_PURPOSES,
+                LLM_TRANSLATION_LANGUAGES,
+                true,
+            ),
+            QWEN_CLOUD_PROVIDER => (
+                "QwenCloud",
+                ProviderCategory::CloudProvider,
+                connection(
+                    ApiAuthMode::Bearer,
+                    BaseUrlPolicy::Regional,
+                    &["VRCS_QWEN_CLOUD_API_KEY"],
+                    &[],
+                    false,
+                ),
+                QWEN_CLOUD_SERVICES,
                 SHARED_PURPOSES,
                 LLM_TRANSLATION_LANGUAGES,
                 true,
@@ -987,6 +1050,7 @@ fn provider_id(provider: &str) -> &'static str {
     match provider {
         ALIBABA_PROVIDER => ALIBABA_PROVIDER,
         QWEN_AI_PROVIDER => QWEN_AI_PROVIDER,
+        QWEN_CLOUD_PROVIDER => QWEN_CLOUD_PROVIDER,
         ALIBABA_TOKEN_PLAN_PROVIDER => ALIBABA_TOKEN_PLAN_PROVIDER,
         OPENAI_PROVIDER => OPENAI_PROVIDER,
         OPENAI_COMPATIBLE_PROVIDER => OPENAI_COMPATIBLE_PROVIDER,
@@ -1230,11 +1294,28 @@ pub fn resolve_profile_capability(
     Ok(ResolvedService { provider, service })
 }
 
+pub(crate) fn qwen_cloud_host(profile: &ApiProfile) -> Result<&'static str, String> {
+    QWEN_CLOUD_REGIONS
+        .iter()
+        .find(|(region, _, _)| Some(*region) == profile.region.as_deref())
+        .map(|(_, _, host)| *host)
+        .ok_or_else(|| {
+            format!(
+                "Unsupported QwenCloud region: {}",
+                profile.region.as_deref().unwrap_or_default()
+            )
+        })
+}
+
 pub fn effective_base_url(profile: &ApiProfile) -> Result<String, String> {
     let provider = definition(&profile.provider)
         .ok_or_else(|| format!("Unsupported API provider: {}", profile.provider))?;
     match provider.connection.base_url {
         BaseUrlPolicy::Fixed(value) => Ok(value.into()),
+        BaseUrlPolicy::Regional if profile.provider == QWEN_CLOUD_PROVIDER => Ok(format!(
+            "https://{}/compatible-mode/v1",
+            qwen_cloud_host(profile)?
+        )),
         BaseUrlPolicy::Regional => Err(format!(
             "Provider {} uses a region-specific endpoint",
             profile.provider
@@ -1544,6 +1625,66 @@ mod tests {
             enabled_capabilities: capabilities.iter().map(|value| (*value).into()).collect(),
             ..ApiProfile::default()
         }
+    }
+
+    #[test]
+    fn qwen_cloud_profiles_route_all_regions_without_model_studio_metadata() {
+        for (region, host) in [
+            ("ap-southeast-1", "ap-southeast-1.maas.qwencloudapi.com"),
+            ("cn-beijing", "cn-beijing.maas.qwencloudapi.com"),
+            ("eu-central-1", "eu-central-1.maas.qwencloudapi.com"),
+            ("cn-hongkong", "cn-hongkong.maas.qwencloudapi.com"),
+            ("ap-northeast-1", "ap-northeast-1.maas.qwencloudapi.com"),
+            ("us-east-1", "us-east-1.maas.qwencloudapi.com"),
+        ] {
+            let mut profile = profile("qwen_cloud", MULTIMODAL_CAPABILITIES);
+            profile
+                .enabled_capabilities
+                .push(CAPABILITY_SPEECH_TO_TEXT.into());
+            profile.region = Some(region.into());
+            validation::validate_profile(&profile).unwrap();
+            assert_eq!(
+                effective_base_url(&profile).unwrap(),
+                format!("https://{host}/compatible-mode/v1")
+            );
+            assert_eq!(
+                resolve_profile_capability(&profile, CAPABILITY_IMAGE_UNDERSTANDING)
+                    .unwrap()
+                    .service
+                    .adapter,
+                ServiceAdapter::AlibabaChatCompletions
+            );
+            for service in [
+                SERVICE_QWEN_REALTIME,
+                SERVICE_QWEN_LIVE_TRANSLATE,
+                SERVICE_FUN_ASR_REALTIME,
+            ] {
+                assert!(resolve_profile_service(&profile, service).is_ok());
+            }
+            assert!(resolve_profile_service(&profile, SERVICE_TOKEN_PLAN_REALTIME).is_err());
+        }
+        let provider = definition("qwen_cloud").unwrap();
+        assert_eq!(
+            provider.connection.environment_variables,
+            &["VRCS_QWEN_CLOUD_API_KEY"]
+        );
+        assert!(provider.connection.legacy_environment_variables.is_empty());
+    }
+
+    #[test]
+    fn qwen_cloud_rejects_missing_regions_and_connection_overrides() {
+        let mut profile = profile("qwen_cloud", TEXT_CAPABILITIES);
+        for region in [None, Some("singapore"), Some("unknown")] {
+            profile.region = region.map(str::to_owned);
+            assert!(validation::validate_profile(&profile).is_err());
+            assert!(effective_base_url(&profile).is_err());
+        }
+        profile.region = Some("cn-hongkong".into());
+        profile.workspace_id = Some("workspace".into());
+        assert!(validation::validate_profile(&profile).is_err());
+        profile.workspace_id = None;
+        profile.base_url = Some("https://example.com/v1".into());
+        assert!(validation::validate_profile(&profile).is_err());
     }
 
     #[test]

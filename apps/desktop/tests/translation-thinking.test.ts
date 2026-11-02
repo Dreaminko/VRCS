@@ -110,14 +110,14 @@ test("custom OpenAI-compatible profiles do not inherit branded parameters", () =
   );
 });
 
-test("Qwen AI exposes the thinking controls supported by its vision models", () => {
+for (const provider of ["qwen_ai", "qwen_cloud"]) test(`${provider} exposes the thinking controls supported by its vision models`, () => {
   for (const model of ["qwen3.8-max", "qwen3.8-flash", "qwen3-vl-plus", "qwen3-vl-8b-thinking"]) {
-    assert.equal(thinkingControlForModel("qwen_ai", model), model.includes("-thinking") ? "hide_only" : "disable_supported", model);
+    assert.equal(thinkingControlForModel(provider, model), model.includes("-thinking") ? "hide_only" : "disable_supported", model);
   }
-  assert.equal(thinkingControlForModel("qwen_ai", "qwen3-vl-8b-instruct"), "unsupported");
-  assert.equal(thinkingControlForModel("qwen_ai", "unknown-model"), "unsupported");
-  assert.equal(thinkingControlForModel("qwen_ai", "qwen3.8-flash", { reasoning: { supported: false } }), "unsupported");
-  assert.equal(thinkingControlForModel("qwen_ai", "future-model", {
+  assert.equal(thinkingControlForModel(provider, "qwen3-vl-8b-instruct"), "unsupported");
+  assert.equal(thinkingControlForModel(provider, "unknown-model"), "unsupported");
+  assert.equal(thinkingControlForModel(provider, "qwen3.8-flash", { reasoning: { supported: false } }), "unsupported");
+  assert.equal(thinkingControlForModel(provider, "future-model", {
     reasoning: { supported: true, controls: [{ type: "toggle" }] },
   }), "disable_supported");
 });

@@ -307,6 +307,7 @@ fn translation_output_token_limit(text: &str, provider: &str, thinking_enabled: 
         provider,
         providers::ALIBABA_PROVIDER
             | providers::QWEN_AI_PROVIDER
+            | providers::QWEN_CLOUD_PROVIDER
             | providers::ALIBABA_TOKEN_PLAN_PROVIDER
     );
     let openrouter = provider == providers::OPENROUTER_PROVIDER;
@@ -476,6 +477,7 @@ mod tests {
         for provider in [
             providers::ALIBABA_PROVIDER,
             providers::QWEN_AI_PROVIDER,
+            providers::QWEN_CLOUD_PROVIDER,
             providers::ALIBABA_TOKEN_PLAN_PROVIDER,
         ] {
             assert_eq!(

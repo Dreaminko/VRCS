@@ -27,6 +27,7 @@ const PROVIDER_ICONS: Record<string, IconType> = {
   alibaba_cloud: AlibabaCloud,
   alibaba_token_plan: AlibabaCloud,
   qwen_ai: Qwen,
+  qwen_cloud: Qwen,
   qwen_local: Qwen,
   lm_studio: LmStudio,
   ollama: Ollama,

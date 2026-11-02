@@ -17,12 +17,14 @@ pub(super) fn build_request(
     key: &str,
 ) -> Result<Request<()>, String> {
     let settings = service_settings(config, &config.backend)?;
-    if profile.provider == crate::providers::QWEN_AI_PROVIDER {
+    let platform_host = match profile.provider.as_str() {
+        crate::providers::QWEN_AI_PROVIDER => Some("maas.qianwenaiapi.com"),
+        crate::providers::QWEN_CLOUD_PROVIDER => Some(crate::providers::qwen_cloud_host(profile)?),
+        _ => None,
+    };
+    if let Some(host) = platform_host {
         return authenticated_request(
-            format!(
-                "wss://maas.qianwenaiapi.com/api-ws/v1/realtime?model={}",
-                settings.model
-            ),
+            format!("wss://{host}/api-ws/v1/realtime?model={}", settings.model),
             key,
             true,
         );

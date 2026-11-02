@@ -698,6 +698,34 @@ mod tests {
     }
 
     #[test]
+    fn qwen_cloud_websockets_use_the_selected_region_without_a_workspace() {
+        for region in [
+            "ap-southeast-1",
+            "cn-beijing",
+            "eu-central-1",
+            "cn-hongkong",
+            "ap-northeast-1",
+            "us-east-1",
+        ] {
+            let profile = crate::config::ApiProfile {
+                provider: "qwen_cloud".into(),
+                region: Some(region.into()),
+                ..Default::default()
+            };
+            let request =
+                super::super::qwen::build_request(&config(), &profile, "test-key").unwrap();
+            assert_eq!(request.uri().to_string(), format!("wss://{region}.maas.qwencloudapi.com/api-ws/v1/realtime?model=qwen3.8-livetranslate-flash-realtime"));
+            assert_eq!(request.headers()["authorization"], "Bearer test-key");
+            let request = super::super::fun_asr::build_request(&profile, "test-key").unwrap();
+            assert_eq!(
+                request.uri().to_string(),
+                format!("wss://{region}.maas.qwencloudapi.com/api-ws/v1/inference")
+            );
+            assert_eq!(request.headers()["authorization"], "Bearer test-key");
+        }
+    }
+
+    #[test]
     fn glossary_mapping_is_native_runtime_only_and_keeps_text_only_output() {
         let mut config = config();
         assert!(session_update(&config)

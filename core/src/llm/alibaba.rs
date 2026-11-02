@@ -20,7 +20,8 @@ pub(super) async fn generate(
         format!("{}/chat/completions", base_url(profile)?),
         api_key,
         request,
-        "Alibaba Cloud",
+        crate::providers::definition(&profile.provider)
+            .map_or("Alibaba Cloud", |provider| provider.display_name),
         OpenAiProtocolBehavior::Alibaba,
         on_progress,
     )
@@ -41,7 +42,10 @@ pub(super) async fn list_models(
 }
 
 pub(super) fn base_url(profile: &ApiProfile) -> Result<String, LlmError> {
-    if profile.provider == crate::providers::QWEN_AI_PROVIDER {
+    if matches!(
+        profile.provider.as_str(),
+        crate::providers::QWEN_AI_PROVIDER | crate::providers::QWEN_CLOUD_PROVIDER
+    ) {
         return crate::providers::effective_base_url(profile).map_err(|detail| LlmError {
             code: "llm.invalid_profile",
             detail,
