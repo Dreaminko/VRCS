@@ -30,6 +30,7 @@ export function useApiProfiles(onRefreshSettings: () => Promise<void>) {
   const [modelCatalogs, setModelCatalogs] = useState<Record<string, ApiModelCatalogState>>({});
   const [diagnostics, setDiagnostics] = useState<Record<string, ConnectionDiagnostic>>({});
   const requestedModels = useRef(new Set<string>());
+  const profileVersions = useRef(new Map<string, number>());
 
   const load = useCallback(async () => {
     const [profileResponse, providerResponse] = await Promise.all([
@@ -49,6 +50,7 @@ export function useApiProfiles(onRefreshSettings: () => Promise<void>) {
   const refreshModels = useCallback(async (profileId: string, force = true) => {
     if (!force && requestedModels.current.has(profileId)) return false;
     requestedModels.current.add(profileId);
+    const version = profileVersions.current.get(profileId);
     setModelCatalogs((current) => ({
       ...current,
       [profileId]: {
@@ -59,12 +61,14 @@ export function useApiProfiles(onRefreshSettings: () => Promise<void>) {
     }));
     try {
       const response = await providersApi.apiProfileModels(profileId);
+      if (profileVersions.current.get(profileId) !== version) return false;
       setModelCatalogs((current) => ({
         ...current,
         [profileId]: { models: response.models, loading: false, error: "" },
       }));
       return true;
     } catch (reason) {
+      if (profileVersions.current.get(profileId) !== version) return false;
       setModelCatalogs((current) => ({
         ...current,
         [profileId]: {
@@ -88,8 +92,14 @@ export function useApiProfiles(onRefreshSettings: () => Promise<void>) {
     }
   }, [profiles, refreshModels]);
 
-  const invalidateModels = (profileId: string) => {
+  const invalidateProfile = (profileId: string) => {
+    profileVersions.current.set(profileId, (profileVersions.current.get(profileId) ?? 0) + 1);
     requestedModels.current.delete(profileId);
+    setDiagnostics((current) => {
+      const next = { ...current };
+      delete next[profileId];
+      return next;
+    });
     setModelCatalogs((current) => {
       const next = { ...current };
       delete next[profileId];
@@ -147,7 +157,7 @@ export function useApiProfiles(onRefreshSettings: () => Promise<void>) {
       true,
     ),
     update: (profile: ApiProfile, apiKey: string) => {
-      invalidateModels(profile.id);
+      invalidateProfile(profile.id);
       return run(
         profile.id,
         async () => {
@@ -172,12 +182,14 @@ export function useApiProfiles(onRefreshSettings: () => Promise<void>) {
       serviceId?: string,
       model?: string,
     ) => {
+      const version = profileVersions.current.get(profileId);
       const result = await run(
         profileId,
         () => providersApi.testApiProfile(profileId, capability, serviceId, model),
         "settings.apiManagement.connectionSucceeded",
         false,
       );
+      if (profileVersions.current.get(profileId) !== version) return null;
       if (result) {
         setDiagnostics((current) => ({ ...current, [profileId]: result }));
         if (!result.ok) setMessage(t("settings.apiManagement.connectionFailed"));
