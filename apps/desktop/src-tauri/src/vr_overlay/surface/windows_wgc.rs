@@ -754,7 +754,7 @@ fn decode_marker(rows: &[u8], row_pitch: usize) -> Option<(u32, u32, u32)> {
 
 fn failure(operation: &str, error: windows::core::Error) -> CaptureError {
     let kind = match error.code().0 as u32 {
-        0x887a0005 | 0x887a0006 | 0x887a0007 => super::recovery::Fault::DeviceLost,
+        0x887a0005..=0x887a0007 => super::recovery::Fault::DeviceLost,
         0x80004002 | 0x80004001 => super::recovery::Fault::Unsupported,
         _ => super::recovery::Fault::Session,
     };

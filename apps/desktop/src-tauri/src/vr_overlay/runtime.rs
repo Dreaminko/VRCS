@@ -994,15 +994,15 @@ fn tick(
         let modal = state
             .player_audio
             .tick(app, &mut backend, &state.controls, business);
-        let (events, focused) = state.ui.tick_with_cadence(
-            app,
-            &mut backend,
-            &state.config,
-            &state.controls,
-            state.ocr.input_revision(),
-            state.ocr.owns_input() || modal,
+        let tick = super::ui_runtime::UiTick {
+            reader_revision: state.ocr.input_revision(),
+            content_owns_input: state.ocr.owns_input() || modal,
             business,
-        );
+        };
+        let (events, focused) =
+            state
+                .ui
+                .tick_with_cadence(app, &mut backend, &state.config, &state.controls, tick);
         state.ocr.pointer_input(events, focused || modal);
         if business {
             state.player_progress = state

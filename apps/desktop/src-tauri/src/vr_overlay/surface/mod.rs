@@ -1348,7 +1348,7 @@ impl SurfaceHub {
             })?;
         }
         if let Some(state) = update {
-            self.send(app, surface, SurfaceEvent::View(state))?;
+            self.send(app, surface, SurfaceEvent::View(Box::new(state)))?;
         }
         Ok(())
     }
@@ -1554,7 +1554,7 @@ impl SurfaceRenderer {
             })
         };
         if let Some(state) = update {
-            hub.send(app, self.surface, SurfaceEvent::View(state))?;
+            hub.send(app, self.surface, SurfaceEvent::View(Box::new(state)))?;
         }
         self.service(app, backend, kind)
     }

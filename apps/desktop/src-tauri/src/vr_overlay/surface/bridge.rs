@@ -98,14 +98,14 @@ pub(super) enum PageRequest {
 #[derive(Serialize)]
 #[serde(untagged)]
 pub(super) enum PageReply {
-    State(Option<SurfaceState>),
+    State(Box<Option<SurfaceState>>),
     Accepted(bool),
 }
 
 #[derive(Clone, Serialize)]
 #[serde(tag = "event", content = "payload", rename_all = "snake_case")]
 pub(super) enum SurfaceEvent {
-    View(SurfaceState),
+    View(Box<SurfaceState>),
     Activity(SurfaceActivity),
     Pointer(SurfacePointer),
     Scroll(SurfaceScroll),
@@ -235,7 +235,7 @@ impl SurfaceHub {
             return Err(BridgeError::InvalidRequest);
         };
         Ok(match operation {
-            Operation::Ready {} => PageReply::State(entry.page_ready()),
+            Operation::Ready {} => PageReply::State(Box::new(entry.page_ready())),
             Operation::Layout {
                 layout,
                 paint_serial,

@@ -1007,7 +1007,7 @@ fn native_reader(app: &AppHandle, mut view: SurfaceView) -> Result<serde_json::V
                 entry.publish(next, None, None);
                 entry.state.clone().unwrap()
             };
-            hosts.send(id, bridge::SurfaceEvent::View(state))?;
+            hosts.send(id, bridge::SurfaceEvent::View(Box::new(state)))?;
             let pixels = frame()?;
             if pixels != previous {
                 changes += 1;

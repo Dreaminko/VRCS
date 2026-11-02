@@ -22,6 +22,13 @@ struct Pointer {
     origin: i32,
 }
 
+#[derive(Clone, Copy)]
+pub(super) struct UiTick {
+    pub reader_revision: u64,
+    pub content_owns_input: bool,
+    pub business: bool,
+}
+
 fn pointer_overlay(surface: Surface) -> (OverlayKind, SurfaceId) {
     match surface {
         Surface::Menu => (OverlayKind::WristMenu, SurfaceId::Menu),
@@ -320,10 +327,13 @@ impl UiRuntime {
         backend: &mut OpenVrBackend,
         config: &VrOverlayConfig,
         controls: &Mutex<ControlHub>,
-        reader_revision: u64,
-        content_owns_input: bool,
-        business: bool,
+        tick: UiTick,
     ) -> (Vec<LaserEvent>, bool) {
+        let UiTick {
+            reader_revision,
+            content_owns_input,
+            business,
+        } = tick;
         if business {
             self.snapshot = Arc::new(
                 controls
@@ -397,7 +407,7 @@ impl UiRuntime {
         if menu_angle.is_none() {
             self.menu_ui = Default::default();
         }
-        self.menu_ui.clamp(&players);
+        self.menu_ui.clamp(players);
         self.menu_visible = config.wrist_menu.enabled
             && self
                 .lift
@@ -678,7 +688,7 @@ impl UiRuntime {
                     action,
                 ),
                 navigation => {
-                    self.menu_ui.apply(&navigation, &players);
+                    self.menu_ui.apply(&navigation, players);
                 }
             }
         }

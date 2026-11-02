@@ -23,7 +23,7 @@ test("VR reader and dialogue scrolling preserves position and bounds caption ren
       import { createRoot } from 'react-dom/client';
       import { flushSync } from 'react-dom';
       import { SurfaceHost as Host } from './src/vr-surface/SurfaceHost';
-      import { connectFixture } from 'fixture:surface';
+      import { connectFixture, surfaceCalls } from 'fixture:surface';
       const SurfaceHost = ({ surface }) => <Host surface={surface} connect={connectFixture} />;
       import { VrPreview } from './src/vr-preview/VrPreview';
       import { emit, preview } from 'fixture:tauri';
@@ -163,6 +163,16 @@ test("VR reader and dialogue scrolling preserves position and bounds caption ren
         check(viewport(), 'Dialogue exposes a scrollable viewport');
         const atBottom = () => Math.abs(viewport().scrollHeight - viewport().clientHeight - viewport().scrollTop) <= 1;
         check(viewport().scrollTop > 1000 && atBottom(), 'Dialogue starts at the latest bubbles');
+        for (let i = 0; i < 6; i++) {
+          const before = surfaceCalls.length;
+          scroll(-0.005);
+          // Input arriving after paint work must not invalidate that frame's receipt.
+          requestAnimationFrame(() => scroll(-0.005));
+          frame();
+          check(surfaceCalls.slice(before).some(call => call.command === 'vr_surface_paint'), 'Continuous dialogue scrolling requests pixels before input stops');
+          await Promise.resolve();
+        }
+        await settle();
         const nodes = [...document.querySelectorAll('.vr-dialogue-bubble')];
         const beforeStreamingScroll = viewport().scrollTop;
         scroll(-0.5);

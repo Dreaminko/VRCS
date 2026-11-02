@@ -94,10 +94,11 @@ struct Shared {
 impl Shared {
     fn wake(&self) {
         let thread = self.thread_id.load(Ordering::Acquire);
-        if thread != 0 && !self.notified.swap(true, Ordering::AcqRel) {
-            if unsafe { PostThreadMessageW(thread, WAKE, WPARAM(0), LPARAM(0)) }.is_err() {
-                self.notified.store(false, Ordering::Release);
-            }
+        if thread != 0
+            && !self.notified.swap(true, Ordering::AcqRel)
+            && unsafe { PostThreadMessageW(thread, WAKE, WPARAM(0), LPARAM(0)) }.is_err()
+        {
+            self.notified.store(false, Ordering::Release);
         }
     }
 
@@ -805,7 +806,8 @@ fn process(state: &Rc<RefCell<Sta>>) -> u32 {
                     .flatten();
                 drop(entries);
                 if let (Some(view), Some(session)) = (view, host.session.borrow().as_ref()) {
-                    if let Err(error) = post_event(&host.webview, session, SurfaceEvent::View(view))
+                    if let Err(error) =
+                        post_event(&host.webview, session, SurfaceEvent::View(Box::new(view)))
                     {
                         host_error(&app, host.id, failure("Wake surface view", error));
                     }
@@ -1353,7 +1355,7 @@ mod tests {
         for revision in 1..=1000 {
             state.key.revision = revision;
             for event in [
-                SurfaceEvent::View(state.clone()),
+                SurfaceEvent::View(Box::new(state.clone())),
                 SurfaceEvent::Pointer(SurfacePointer {
                     key: state.key,
                     point: Some([0.5, 0.5]),

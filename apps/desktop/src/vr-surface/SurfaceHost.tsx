@@ -11,7 +11,6 @@ export function SurfaceHost({ surface, connect = connectSurfaceBridge }: { surfa
   const current = useRef<SurfaceKey | null>(null);
   const scrollKey = useRef<SurfaceKey | null>(null);
   const pendingScroll = useRef<{ viewport: HTMLElement; top: number } | null>(null);
-  const scrollFrame = useRef<number | null>(null);
   const layoutRequest = useRef(0);
   const mounted = useRef(false);
   const [active, setActive] = useState(true);
@@ -22,8 +21,6 @@ export function SurfaceHost({ surface, connect = connectSurfaceBridge }: { surfa
   const pendingState = useRef<SurfaceState | null>(null);
   const restored = useRef<SurfaceKey | null>(null);
   const cancelScroll = useCallback(() => {
-    if (scrollFrame.current !== null) cancelAnimationFrame(scrollFrame.current);
-    scrollFrame.current = null;
     pendingScroll.current = null;
   }, []);
   const markPaint = useCallback(() => {
@@ -33,6 +30,17 @@ export function SurfaceHost({ surface, connect = connectSurfaceBridge }: { surfa
       const paint = () => {
         paintFrame.current = null;
         if (!mounted.current || !activity.current.active) return;
+        const pending = pendingScroll.current;
+        pendingScroll.current = null;
+        if (pending?.viewport.isConnected) {
+          const { viewport, top } = pending;
+          const before = viewport.scrollTop;
+          viewport.scrollTop = top;
+          if (viewport.scrollTop !== before) {
+            // Update follow mode before incoming captions change the content.
+            viewport.dispatchEvent(new Event("scroll"));
+          }
+        }
         const next = pendingState.current;
         pendingState.current = null;
         if (next) {
@@ -66,21 +74,7 @@ export function SurfaceHost({ surface, connect = connectSurfaceBridge }: { surfa
     const top = Math.max(0, Math.min(viewport.scrollHeight - viewport.clientHeight, before + payload.delta * viewport.clientHeight));
     if (top === before) return;
     pendingScroll.current = { viewport, top };
-    if (scrollFrame.current !== null) return;
-    scrollFrame.current = requestAnimationFrame(() => {
-      scrollFrame.current = null;
-      const pending = pendingScroll.current;
-      pendingScroll.current = null;
-      if (!pending || !activity.current.active || !pending.viewport.isConnected) return;
-      const { viewport, top } = pending;
-      const before = viewport.scrollTop;
-      viewport.scrollTop = top;
-      if (viewport.scrollTop !== before) {
-        // Update follow mode before incoming captions overtake the browser's scroll event.
-        viewport.dispatchEvent(new Event("scroll"));
-        markPaint();
-      }
-    });
+    markPaint();
   }, [markPaint]);
 
   useEffect(() => {
@@ -153,8 +147,9 @@ export function SurfaceHost({ surface, connect = connectSurfaceBridge }: { surfa
   }, [state, markPaint]);
 
   useLayoutEffect(() => {
-    if (!active || !activity.current.active || !state || !sameKey(measured, state.key) || paintSerial !== serial.current) return;
-    // This is a request, not proof of a GPU paint. WGC verifies the same-frame marker.
+    if (!active || !activity.current.active || !state || !sameKey(measured, state.key)) return;
+    // Notify the committed marker even if newer input has queued another frame.
+    // WGC verifies the same-frame marker before accepting captured pixels.
     void connection.current?.paint(state.key, paintSerial)
       .catch(error => console.error("VR surface paint request failed", error));
   }, [active, state?.key, measured, paintSerial, surface]);
