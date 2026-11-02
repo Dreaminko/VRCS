@@ -135,7 +135,11 @@ fn vision_accepts_all_registered_image_providers() {
             enabled_capabilities: vec![crate::providers::CAPABILITY_IMAGE_UNDERSTANDING.into()],
             auth_mode: provider.connection.auth_mode,
             is_local: provider.category == crate::providers::ProviderCategory::LocalService,
-            region: (provider.id == crate::providers::ALIBABA_PROVIDER).then(|| "singapore".into()),
+            region: match provider.id {
+                crate::providers::ALIBABA_PROVIDER => Some("singapore".into()),
+                crate::providers::QWEN_CLOUD_PROVIDER => Some("ap-southeast-1".into()),
+                _ => None,
+            },
             base_url: (provider.id == crate::providers::OPENAI_COMPATIBLE_PROVIDER)
                 .then(|| "https://example.com/v1".into()),
             ..ApiProfile::default()
@@ -143,7 +147,8 @@ fn vision_accepts_all_registered_image_providers() {
         config.vision.profile_id = Some("images".into());
         config.vision.model = "user-selected-model".into();
         config.vision.enabled = true;
-        assert!(config.validate_settings().is_ok(), "{}", provider.id);
+        let result = config.validate_settings();
+        assert!(result.is_ok(), "{}: {result:?}", provider.id);
     }
 }
 
