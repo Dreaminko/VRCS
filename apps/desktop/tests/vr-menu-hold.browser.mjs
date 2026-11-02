@@ -120,7 +120,7 @@ test("Menu hold feedback preserves hit bounds and the preview samples a stationa
             state.view.ui = { page, group: 'current', player_page: 0, language_page: 0 };
             render(0.5, 0);
             check(ring()?.getAttribute('aria-valuenow') === '50' && ring().closest('[data-vr-region]')?.dataset.vrRegion === '0', 'Expanded settings preserve wrist relocation progress on the original control: ' + page + ' ' + dark);
-            check(buttons().filter(button => button.closest('.vr-menu-capsule')).map(button => button.dataset.vrRegion).join(',') === '0,1,2,4,3', 'Expanded settings preserve quick-control region IDs: ' + page + ' ' + dark);
+            check(buttons().filter(button => button.closest('.vr-menu-capsule')).map(button => button.dataset.vrRegion).join(',') === '0,1,2,30,4,3', 'Expanded settings preserve quick-control region IDs: ' + page + ' ' + dark);
             const settingsIds = buttons().filter(button => button.closest('.vr-player-display-panel')).map(button => Number(button.dataset.vrRegion));
             for (const id of settingsIds) {
               render(0.5, id);
@@ -137,6 +137,11 @@ test("Menu hold feedback preserves hit bounds and the preview samples a stationa
         publish(null, null);
         await document.fonts.ready;
         await settle();
+        // Flush the initial resize notification before counting hold-only measurements.
+        await new Promise(resolve => {
+          const observer = new ResizeObserver(() => { observer.disconnect(); resolve(); });
+          observer.observe(document.querySelector('.vr-surface'));
+        });
         const initialMeasurements = layoutMeasurements;
         publish(0.5, 0);
         await settle();
@@ -197,7 +202,7 @@ test("Menu hold feedback preserves hit bounds and the preview samples a stationa
           session: 1, panel: 0, scene: 'normal', dark: false, mode: 'world', tracking: true,
           surface: { key: { generation: 1, revision: 1 }, hovered: null, pressed: null, pointer: null,
             view: { kind: 'menu', hold_progress: null, controls: { owner_epoch: 1, revision: 1, dark: false, labels: {},
-              items: ['Wrist', 'Headset', 'OSC', 'Capture'].map(label => ({ label, requested: true, effective: true, available: true, busy: false, reason: null })) } } }
+              items: ['Wrist', 'Headset', 'OSC', 'Capture', 'Frame gesture'].map(label => ({ label, requested: true, effective: true, available: true, busy: false, reason: null })) } } }
         };
         export async function invoke(command, args) {
           if (args?.operation) operations.push(args.operation);

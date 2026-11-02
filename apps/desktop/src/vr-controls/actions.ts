@@ -6,6 +6,11 @@ type SettingsAction = ControlAction | { set_anchor_mode: "wrist" | "world" }
 
 export function applyControlAction(settings: Settings, action: SettingsAction): Settings {
   if ("set_capture_running" in action) return settings;
+  if ("set_ocr_gesture_enabled" in action) {
+    return settings.ocr.hand_gesture_enabled === action.set_ocr_gesture_enabled ? settings : {
+      ...settings, ocr: { ...settings.ocr, hand_gesture_enabled: action.set_ocr_gesture_enabled },
+    };
+  }
   if ("set_dialogue_placement" in action) {
     const { mode, follow_view } = action.set_dialogue_placement;
     const wrist = settings.vr_overlay.wrist;

@@ -4,13 +4,14 @@ import test from "node:test";
 import { createCaptureController } from "../src/capture/capture-control.ts";
 import { createSettingsAutosave } from "../src/settings/settings-autosave.ts";
 import { applyControlAction, createControlExecutor } from "../src/vr-controls/actions.ts";
-import { DEFAULT_VR_OVERLAY_SETTINGS } from "../src/settings/vr-overlay-settings.ts";
+import { DEFAULT_OCR_SETTINGS, DEFAULT_VR_OVERLAY_SETTINGS } from "../src/settings/vr-overlay-settings.ts";
 import type { Settings } from "../src/settings/types.ts";
 
 function settings(): Settings {
   return {
     features: { vr_overlay: true, microphone_speaker_filter: false },
     vr_overlay: structuredClone(DEFAULT_VR_OVERLAY_SETTINGS),
+    ocr: structuredClone(DEFAULT_OCR_SETTINGS),
     osc: { enabled: false, port: 9001 },
   } as Settings;
 }
@@ -30,6 +31,33 @@ test("OSC remains available while microphone speaker filtering is disabled", () 
   assert.equal(next.osc.enabled, true);
   assert.equal(next.features, current.features);
   assert.equal(current.osc.enabled, false);
+});
+
+test("the photo gesture control saves either state without changing OCR or other layers", async () => {
+  let current = settings();
+  const original = current;
+  const execute = createControlExecutor({
+    update: async (apply) => { current = apply(current); return current; },
+    setCaptureRunning: async () => { throw new Error("Gesture controls must not start capture"); },
+  });
+  for (const enabled of [false, true]) {
+    await execute({ set_ocr_gesture_enabled: enabled });
+    assert.equal(current.ocr.hand_gesture_enabled, enabled);
+    assert.deepEqual(current.ocr, { ...original.ocr, hand_gesture_enabled: enabled });
+    assert.equal(current.vr_overlay, original.vr_overlay);
+    assert.equal(current.osc, original.osc);
+    assert.equal(current.features, original.features);
+    assert.equal(applyControlAction(current, { set_ocr_gesture_enabled: enabled }), current);
+  }
+  assert.equal(original.ocr.hand_gesture_enabled, true);
+});
+
+test("the photo gesture control rejects a save that did not apply its target", async () => {
+  const execute = createControlExecutor({
+    update: async () => settings(),
+    setCaptureRunning: async () => true,
+  });
+  await assert.rejects(execute({ set_ocr_gesture_enabled: false }), /not applied/);
 });
 
 test("dialogue placement saves anchor and follow preference together without changing other layers", async () => {

@@ -2,9 +2,10 @@ export type ControlAction =
   | { set_wrist_enabled: boolean }
   | { set_headset_enabled: boolean }
   | { set_osc_enabled: boolean }
-  | { set_capture_running: boolean };
+  | { set_capture_running: boolean }
+  | { set_ocr_gesture_enabled: boolean };
 
-export type ControlKey = "wrist" | "headset" | "osc" | "capture";
+export type ControlKey = "wrist" | "headset" | "osc" | "capture" | "ocr_gesture";
 export type ControlSource = "dashboard" | "wrist_menu" | "dev_preview";
 
 export interface ControlRequest {

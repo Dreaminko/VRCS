@@ -13,6 +13,7 @@ pub enum ControlAction {
     SetHeadsetEnabled(bool),
     SetOscEnabled(bool),
     SetCaptureRunning(bool),
+    SetOcrGestureEnabled(bool),
 }
 
 impl ControlAction {
@@ -22,6 +23,15 @@ impl ControlAction {
             Self::SetHeadsetEnabled(_) => 1,
             Self::SetOscEnabled(_) => 2,
             Self::SetCaptureRunning(_) => 3,
+            Self::SetOcrGestureEnabled(_) => 4,
+        }
+    }
+
+    pub fn region_id(self) -> u8 {
+        match self {
+            // Keep regions 4..=29 for personnel navigation and pages.
+            Self::SetOcrGestureEnabled(_) => 30,
+            _ => self.index() as u8,
         }
     }
 
@@ -31,7 +41,8 @@ impl ControlAction {
             Self::SetWristEnabled(v)
             | Self::SetHeadsetEnabled(v)
             | Self::SetOscEnabled(v)
-            | Self::SetCaptureRunning(v) => v,
+            | Self::SetCaptureRunning(v)
+            | Self::SetOcrGestureEnabled(v) => v,
         }
     }
 }
@@ -67,7 +78,7 @@ pub struct ControlItem {
 pub struct ControlSnapshot {
     pub owner_epoch: u32,
     pub revision: u32,
-    pub items: [ControlItem; 4],
+    pub items: [ControlItem; 5],
     pub dark: bool,
     #[serde(default)]
     pub labels: std::collections::BTreeMap<String, String>,
@@ -78,8 +89,8 @@ pub struct ControlHub {
     active: bool,
     snapshot: ControlSnapshot,
     sequence: u32,
-    pending: [Option<ControlRequest>; 4],
-    failures: [Option<String>; 4],
+    pending: [Option<ControlRequest>; 5],
+    failures: [Option<String>; 5],
     overlay_effective: Option<[bool; 2]>,
     player_audio: super::player_audio_ui::View,
     player_audio_revision: u32,
@@ -639,6 +650,35 @@ mod tests {
         }
         hub.register(view).unwrap();
         hub
+    }
+
+    #[test]
+    fn photo_gesture_requests_track_their_own_pending_state_and_save_failure() {
+        let mut hub = ready();
+        let request = hub
+            .begin(
+                ControlSource::WristMenu,
+                ControlAction::SetOcrGestureEnabled(false),
+            )
+            .unwrap();
+        assert_eq!(
+            serde_json::to_value(request.action).unwrap(),
+            serde_json::json!({"set_ocr_gesture_enabled": false})
+        );
+        let view = hub.snapshot();
+        assert!(view.items[4].busy);
+        assert!(view.items[..4].iter().all(|item| !item.busy));
+        assert!(hub
+            .begin(
+                ControlSource::WristMenu,
+                ControlAction::SetOcrGestureEnabled(true)
+            )
+            .is_none());
+        assert!(hub.finish(&request, Some("Save failed".into())));
+        let view = hub.snapshot();
+        assert!(!view.items[4].busy);
+        assert_eq!(view.items[4].reason.as_deref(), Some("Save failed"));
+        assert!(view.items[..4].iter().all(|item| item.reason.is_none()));
     }
 
     #[test]

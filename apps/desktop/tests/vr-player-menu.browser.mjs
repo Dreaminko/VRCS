@@ -36,7 +36,8 @@ async function setup() {
       let revision = 0;
       window.renderMenu = (options = {}) => {
         const controls = { owner_epoch: 1, revision: 1, dark: !!options.dark, labels: {},
-          items: ['Wrist', 'Headset', 'OSC', 'Capture'].map((label, i) => ({ label, requested: i !== 3, effective: i !== 3, available: true, busy: false, reason: null })) };
+          items: ['Wrist', 'Headset', 'OSC', 'Capture', 'Frame gesture'].map((label, i) => ({ label, requested: i !== 3, effective: i !== 3, available: true, busy: false, reason: null,
+            ...(i === 4 ? options.gesture : {}) })) };
         window.menuState = { key: { generation: 1, revision: ++revision }, hovered: options.hovered ?? null, pressed: options.pressed ?? null, pointer: null,
           view: { kind: 'menu', controls, hold_progress: options.hold_progress ?? null,
             ui: { page: options.page ?? 'players', group: options.group ?? 'current', player_page: options.player_page ?? 0, language_page: options.language_page ?? 0 },
@@ -72,11 +73,12 @@ test("the player panel expands above persistent wrist controls with stable seman
       await render(page, { dark, page: "home" });
       const capsule = await page.locator(".vr-menu-capsule").boundingBox();
       assert.deepEqual(capsule, { x: 16, y: 1032, width: 1248, height: 240 });
-      assert.deepEqual(await page.locator(".vr-menu-capsule [data-vr-region]").evaluateAll(nodes => nodes.map(node => +node.dataset.vrRegion)), [0, 1, 2, 4, 3]);
+      assert.deepEqual(await page.locator(".vr-menu-capsule [data-vr-region]").evaluateAll(nodes => nodes.map(node => +node.dataset.vrRegion)), [0, 1, 2, 30, 4, 3]);
       const quick = await page.locator(".vr-menu-capsule [data-vr-region]").evaluateAll(nodes => nodes.map(node => ({ id: +node.dataset.vrRegion, width: node.offsetWidth, height: node.offsetHeight, command: JSON.parse(node.dataset.vrMenu) })));
-      assert.deepEqual(quick.map(item => [item.width, item.height]), Array(5).fill([160, 160]));
+      assert.deepEqual(quick.map(item => [item.width, item.height]), Array(6).fill([160, 160]));
       assert.deepEqual(quick.map(item => item.command), [
         { control: { set_wrist_enabled: false } }, { control: { set_headset_enabled: false } }, { control: { set_osc_enabled: false } },
+        { control: { set_ocr_gesture_enabled: false } },
         { page: "players" }, { control: { set_capture_running: true } },
       ]);
       await page.screenshot({ path: join(screenshots, `menu-home-${dark ? "dark" : "light"}.png`) });
@@ -100,6 +102,27 @@ test("the player panel expands above persistent wrist controls with stable seman
         const before = JSON.stringify(layout);
         await commandButton(page, { page: "home" }).first().evaluate(button => button.click());
         assert.equal(await page.evaluate(() => JSON.stringify(window.menuLayout)), before, "DOM clicks do not dispatch native menu commands");
+      }
+    }
+  } finally { await browser.close(); }
+});
+
+test("the wrist photo gesture control exposes saved state and gates unavailable or pending writes", { timeout: 60000 }, async () => {
+  const { browser, page } = await setup();
+  try {
+    for (const dark of [false, true]) for (const enabled of [false, true]) {
+      await render(page, { dark, page: "home", hovered: 30, gesture: { requested: enabled, effective: enabled } });
+      const button = commandButton(page, { control: { set_ocr_gesture_enabled: !enabled } });
+      assert.equal(await button.getAttribute("aria-pressed"), String(enabled));
+      assert.equal(await button.isDisabled(), false);
+      assert.equal(await button.locator("svg.lucide-crop").count(), 1);
+      assert.match(await button.getAttribute("aria-label"), /Frame gesture/);
+      assert.deepEqual(await page.evaluate(() => window.menuLayout.regions.find(region => region.id === 30)?.menu),
+        { control: { set_ocr_gesture_enabled: !enabled } });
+      for (const gesture of [{ busy: true }, { available: false }]) {
+        await render(page, { dark, gesture: { requested: enabled, effective: enabled, ...gesture } });
+        assert.equal(await commandButton(page, { control: { set_ocr_gesture_enabled: !enabled } }).isDisabled(), true);
+        assert.equal(await page.evaluate(() => window.menuLayout.regions.some(region => region.id === 30)), false);
       }
     }
   } finally { await browser.close(); }

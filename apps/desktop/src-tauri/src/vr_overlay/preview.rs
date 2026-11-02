@@ -138,7 +138,7 @@ struct Preview {
     source: String,
     translation: String,
     advance: usize,
-    pending: [Option<(bool, Instant)>; 4],
+    pending: [Option<(bool, Instant)>; 5],
     player_pending: Option<(player_display::Action, Instant)>,
     fail_save: bool,
     tracking: bool,
@@ -154,15 +154,18 @@ impl Preview {
             revision: 1,
             ..Default::default()
         };
-        for (item, label) in
-            controls
-                .items
-                .iter_mut()
-                .zip(["Dialogue", "Subtitles", "OSC", "Transcribe"])
-        {
+        for (item, label) in controls.items.iter_mut().zip([
+            "Dialogue",
+            "Subtitles",
+            "OSC",
+            "Transcribe",
+            "Frame gesture",
+        ]) {
             item.available = !live;
             item.label = label.into();
         }
+        controls.items[4].requested = view.ocr.gesture;
+        controls.items[4].effective = view.ocr.gesture;
         let mut dashboard = DashboardState::new();
         dashboard.update_view(&view);
         dashboard.set_interactive(true);
@@ -746,6 +749,9 @@ impl Preview {
             ToggleCapture => Some(ControlAction::SetCaptureRunning(
                 !self.controls.items[3].requested,
             )),
+            ToggleOcrGesture => Some(ControlAction::SetOcrGestureEnabled(
+                !self.controls.items[4].requested,
+            )),
             _ => None,
         };
         if let Some(control) = control {
@@ -907,6 +913,7 @@ impl Preview {
             self.view.headset.enabled = self.controls.items[1].requested;
             self.view.osc.enabled = self.controls.items[2].requested;
             self.view.capture.running = self.controls.items[3].requested;
+            self.view.ocr.gesture = self.controls.items[4].requested;
             let placement = self.placement.lock().unwrap_or_else(|e| e.into_inner());
             self.view.wrist.anchor_mode = match placement.mode() {
                 Mode::Wrist => "wrist",

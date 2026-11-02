@@ -46,6 +46,8 @@ export function useVrControlBridge(options: {
       item(overlay?.headset.enabled ?? false, false, options.available && Boolean(settings?.features.vr_overlay), t("settings.vrDashboard.headset"), false, overlay?.enabled ? null : t("settings.vrOverlay.masterOff")),
       item(settings?.osc.enabled ?? false, settings?.osc.enabled ?? false, options.available && Boolean(settings), "OSC"),
       item(options.getRequested(), options.running, options.available, t(options.getRequested() ? "capture.stop" : "capture.start"), options.busy),
+      item(settings?.ocr.hand_gesture_enabled ?? false, settings?.ocr.hand_gesture_enabled ?? false,
+        options.available && Boolean(settings?.features.ocr && settings.ocr.master_enabled), t("settings.vrDashboard.gesture")),
     ],
   };
 
@@ -63,6 +65,8 @@ export function useVrControlBridge(options: {
         nextView.items[0].requested = confirmed.vr_overlay.wrist.enabled;
         nextView.items[1].requested = confirmed.vr_overlay.headset.enabled;
         nextView.items[2].requested = confirmed.osc.enabled;
+        nextView.items[4].requested = confirmed.ocr.hand_gesture_enabled;
+        nextView.items[4].effective = confirmed.ocr.hand_gesture_enabled;
       }
       nextView.items[3].requested = current.current.getRequested();
       const next = await invoke<ControlSnapshot>("vr_overlay_control_update", { view: nextView });

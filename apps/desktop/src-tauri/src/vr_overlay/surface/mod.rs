@@ -433,7 +433,7 @@ impl SurfaceLayout {
             if let Some(command) = &region.menu {
                 use super::wrist_menu::Command;
                 let valid = match command {
-                    Command::Control(action) => usize::from(region.id) == action.index(),
+                    Command::Control(action) => region.id == action.region_id(),
                     _ => region.id >= 4,
                 };
                 if !valid {
@@ -2743,6 +2743,35 @@ mod tests {
             capture_bounds: None,
         }
     }
+
+    #[test]
+    fn photo_gesture_region_keeps_the_personnel_navigation_region() {
+        use super::super::{control_protocol::ControlAction, wrist_menu};
+        let mut layout = layout(SurfaceKey {
+            generation: 1,
+            revision: 1,
+        });
+        let gesture = wrist_menu::Command::Control(ControlAction::SetOcrGestureEnabled(false));
+        layout.regions[0].id = 4;
+        layout.regions[0].menu = Some(wrist_menu::Command::Page(wrist_menu::Page::Players));
+        layout.regions.push(Region {
+            id: 30,
+            bounds: [0.3, 0., 0.5, 0.2],
+            circle: true,
+            dashboard: None,
+            menu: Some(gesture.clone()),
+        });
+        assert!(layout.validate(SurfaceId::Menu).is_ok());
+        assert_eq!(layout.hit([0.4, 0.1]), Some(30));
+        assert_eq!(layout.menu_command(30), Some(gesture.clone()));
+        assert_eq!(
+            layout.menu_command(4),
+            Some(wrist_menu::Command::Page(wrist_menu::Page::Players))
+        );
+        layout.regions[0].menu = Some(gesture);
+        assert!(layout.validate(SurfaceId::Menu).is_err());
+    }
+
     #[test]
     fn pointer_updates_keep_the_submitted_layout_and_reject_inactive_or_invalid_hits() {
         let mut entry = active_entry();
