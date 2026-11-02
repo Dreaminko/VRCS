@@ -30,6 +30,7 @@
 - 本機 Qwen ASR 支援 CPU 或 Vulkan，請在辨識設定中下載執行元件及模型。
 - 首次使用需連網下載 Silero VAD 模型；啟用語意斷句時還需下載 Smart Turn 模型。
 - 雲端辨識、翻譯及學習分析需要對應服務供應商的 API 認證資訊，供應商可能收取費用。
+- 千问AI平台與 [QwenCloud](https://www.qwencloud.com/) 為獨立供應商。QwenCloud 支援新加坡、北京、法蘭克福、香港、東京及維吉尼亞端點；請使用所選地區的按量計費 API Key，多地區使用時分別建立設定。模型可用性因地區而異，Token Plan 金鑰不適用。
 - OCR 需下載本機 PP-OCRv6 模型。
 
 ## 開始使用

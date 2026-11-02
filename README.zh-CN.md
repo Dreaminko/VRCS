@@ -30,6 +30,7 @@
 - 本地 Qwen ASR 支持 CPU 或 Vulkan，请在识别设置中下载运行组件和模型。
 - 首次使用需联网下载 Silero VAD 模型；启用语义断句时还需下载 Smart Turn 模型。
 - 云端识别、翻译和学习分析需要对应服务商的 API 凭据，服务商可能收取费用。
+- 千问AI平台与 [QwenCloud](https://www.qwencloud.com/) 为独立供应商。QwenCloud 支持新加坡、北京、法兰克福、香港、东京和弗吉尼亚端点；请选择对应地区的按量计费 API Key，多地区使用时分别创建配置。模型可用性因地区而异，Token Plan 密钥不适用。
 - OCR 需下载本地 PP-OCRv6 模型。
 
 ## 首次使用

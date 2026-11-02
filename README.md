@@ -30,6 +30,7 @@ Download `VRCS-<version>-windows-x64.exe` from [GitHub Releases](https://github.
 - Local Qwen ASR supports CPU or Vulkan. Download its runtime and model in recognition settings.
 - An internet connection is needed for the initial Silero VAD download and, if enabled, Smart Turn semantic endpointing.
 - Cloud recognition, translation, and learning analysis require the selected provider's API credentials. Provider charges may apply.
+- Select 千问AI平台 or [QwenCloud](https://www.qwencloud.com/) as separate providers. QwenCloud supports Singapore, Beijing, Frankfurt, Hong Kong, Tokyo, and Virginia endpoints. Use a pay-as-you-go API key from the selected region and separate profiles for different regions. Model availability varies by region; Token Plan keys require a different endpoint.
 - For OCR, download the local PP-OCRv6 models.
 
 ## Getting started
