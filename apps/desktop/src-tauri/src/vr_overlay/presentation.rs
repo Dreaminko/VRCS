@@ -672,7 +672,9 @@ impl WristPresentation {
             .partials
             .iter()
             .chain(self.entries.iter().rev())
-            .filter(|item| source_enabled(&item.source, config) && other_player_source(&item.source))
+            .filter(|item| {
+                source_enabled(&item.source, config) && other_player_source(&item.source)
+            })
         {
             let player = item.speaker.as_ref().map(|speaker| speaker.id.clone());
             if !visible.iter().any(|other| same_lane(other, item))
@@ -1069,7 +1071,10 @@ fn selected_caption_mode(show_original: bool, show_translation: bool) -> &'stati
 }
 
 fn speaker_label(item: &PresentationItem) -> Option<String> {
-    if !matches!(item.source.as_str(), "speaker" | "microphone" | "vrchat_chatbox") {
+    if !matches!(
+        item.source.as_str(),
+        "speaker" | "microphone" | "vrchat_chatbox"
+    ) {
         return None;
     }
     item.speaker.as_ref().map(|speaker| {

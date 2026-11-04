@@ -46,12 +46,20 @@ fn remote_chatbox_uses_independent_other_player_lanes_and_late_metadata() {
             headset.frame(now, &headset_config).unwrap().content,
             wrist.frame(now, &wrist_config).unwrap().content,
         ] {
-            let (PresentationContent::Headset(messages) | PresentationContent::Wrist(messages)) = content;
+            let (PresentationContent::Headset(messages) | PresentationContent::Wrist(messages)) =
+                content;
             assert_eq!(messages.len(), 2);
-            assert!(messages.iter().all(|message| message.side == MessageSide::Left));
-            assert!(messages.iter().all(|message| message.speaker.as_deref() == Some("#3")));
+            assert!(messages
+                .iter()
+                .all(|message| message.side == MessageSide::Left));
+            assert!(messages
+                .iter()
+                .all(|message| message.speaker.as_deref() == Some("#3")));
             assert_eq!(messages[0].original.as_ref().unwrap().source, "speaker");
-            assert_eq!(messages[1].original.as_ref().unwrap().source, "vrchat_chatbox");
+            assert_eq!(
+                messages[1].original.as_ref().unwrap().source,
+                "vrchat_chatbox"
+            );
         }
         for event in [
             PresentationEvent::TranslationCompleted {
@@ -73,10 +81,13 @@ fn remote_chatbox_uses_independent_other_player_lanes_and_late_metadata() {
             headset.frame(now, &headset_config).unwrap().content,
             wrist.frame(now, &wrist_config).unwrap().content,
         ] {
-            let (PresentationContent::Headset(messages) | PresentationContent::Wrist(messages)) = content;
+            let (PresentationContent::Headset(messages) | PresentationContent::Wrist(messages)) =
+                content;
             assert_eq!(messages[0].text, "Spoken words");
             assert_eq!(messages[1].text, "Typed words\nTranslated remote text");
-            assert!(messages.iter().all(|message| message.speaker.as_deref() == Some("Late name")));
+            assert!(messages
+                .iter()
+                .all(|message| message.speaker.as_deref() == Some("Late name")));
         }
     }
 }
@@ -104,7 +115,10 @@ fn remote_chatbox_follows_other_player_source_switch_and_supports_text_only() {
         let event = final_event(text);
         headset.apply(event.clone(), now, &headset_config);
         wrist.apply(event, now, &wrist_config);
-        assert_eq!(headset.frame(now, &headset_config).is_some(), include_speaker);
+        assert_eq!(
+            headset.frame(now, &headset_config).is_some(),
+            include_speaker
+        );
         assert_eq!(wrist.frame(now, &wrist_config).is_some(), include_speaker);
         let expired = now + Duration::from_secs(300);
         assert!(headset.frame(expired, &headset_config).is_none());
