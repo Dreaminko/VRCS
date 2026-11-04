@@ -45,17 +45,29 @@
 ## 主要功能
 
 - 采集系统或 VRChat 进程音频与麦克风，生成双路实时字幕，支持独立音源控制、紧凑窗口和本地会话历史。
-- 在「设置 › 音频来源」启用「VRChat 分玩家独立音轨（实验性）」，为每位玩家分别识别、翻译，可选择处理对象，并在桌面与 VR 字幕中显示讲话人。详见[功能与使用说明](docs/experimental-player-audio.md)。
+- 在「设置 › 采集」选择「VRChat 分玩家独立音轨（实验性）」，为每位玩家分别识别、翻译，可选择处理对象，并在桌面与 VR 字幕中显示讲话人。高级配置位于该页底部的「VRChat 网络采集」。详见[功能与使用说明](docs/experimental-player-audio.md)。
 - 为已结束的会话生成 AI 总结标题，并按标题查找历史。可在“设置 › 系统 › 会话管理”配置模型并开启自动生成，默认关闭；新建对话会结束旧会话，停止转写仅暂停。也可在历史会话菜单中手动生成或重新生成，手动命名始终优先。
 - 本地 Qwen3 ASR 支持 CPU 或 Vulkan；云端识别支持 Qwen3 ASR、Fun-ASR、OpenAI Realtime、Gemini、Groq 和 OpenRouter 等服务，配合 Silero VAD 与可选 Smart Turn 进行语音分段。
 - 每路音源最多翻译为三种语言，可分别选择服务与模型，支持手动或自动翻译，以及 DeepL、Microsoft Translator、OpenAI、Gemini、Alibaba Cloud LLM 和 OpenAI 兼容服务。
-- Qwen Live Translate、Gemini Live Translate和 OpenAI Realtime Translation 直接生成实时原文与译文。
+- Qwen Live Translate、Gemini Live Translate 和 OpenAI Realtime Translation 直接生成实时原文与译文。
 - 自定义提示词、本地与订阅术语表、字幕上下文，可接入 [VRCX-0](https://vrcx-0.dev/) 的世界与成员信息，通过语言预设切换识别、翻译和 Chatbox 设置。
 - 将麦克风字幕和译文发送到 VRChat OSC Chatbox，支持快速输入、翻译预览、多语言输出和可选的 OSCQuery 静音同步。
 - 在 SteamVR 头显或手腕上阅读多语言字幕，通过仪表盘调整字幕布局、语言和 Chatbox 设置。
 - 在桌面或 VR 中框选文字进行 OCR 翻译，使用本地 PP-OCRv6（CPU / DirectML GPU），结果可显示在桌面窗口、手腕面板或 VR 原文位置。
 - 对桌面或 VR 中的选区图片提问：桌面支持键入或语音输入，VR 中按住左扳机讲话。回答显示在独立窗口或支持 Markdown 的手腕面板上，无需启用 OCR。
 - 导入 Yomitan 词典，在字幕中查词或“问 AI”，进行词义解释、句型分析和会话回顾；编辑词汇、句型或完形填空卡，通过 AnkiConnect 发送到 Anki。
+
+## 接收 VRChat Chatbox
+
+此功能为实验性功能，仅支持 Windows。真实 VRC 环境中的接收和展示仍需实机验收。
+
+在「设置 › 采集」打开「接收并翻译 VRChat Chatbox」，默认关闭。它独立于语音来源，实际接收由全局「开始／停止采集」控制。只接收文字时，将「其他人的声音」和麦克风均设为关闭，再开始采集；纯文字模式不需要 Opus、ASR 或 VAD。
+
+Chatbox 和分玩家音轨共用 Windows 网络准备：以管理员权限运行、选择实际分页文件所在盘，并关闭 Windows 内存压缩。分页文件所在盘及内存压缩管理位于「设置 › 采集」底部的「VRChat 网络采集」；修改内存压缩后需重启电脑，程序不会自动替你更改系统设置。使用前请阅读网络采集的服务条款、隐私与账号风险提示。
+
+自动翻译使用当前语言会话中「其他玩家」的目标语言，需要配置支持文字翻译的服务；实时音频翻译服务不能替代文字翻译。手动或禁用翻译时仍保留原文。接收到的其他玩家文字及译文不会通过 OSC 再次发送回 VRChat，本机 Chatbox 输出仍是独立功能。
+
+同一玩家持续刷新相同正文时只保留一条消息；静默超过 8 秒后再出现相同正文，可视为新消息。正文从 A 变为 B 再变回 A 时分别保留。由于没有可靠的消息唯一 ID，8 秒内刻意重发同文与自动刷新无法区分。清空动作、本机回显及不同客户端版本的行为仍需实测；本次不包含 Photon 诊断工具。
 
 ## 隐私
 
