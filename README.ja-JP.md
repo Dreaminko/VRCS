@@ -17,7 +17,7 @@
 </p>
 
 <p align="center">
-    <a href="https://github.com/Dreaminko/VRCS/releases/latest">ダウンロード</a> · <a href="https://github.com/Dreaminko/VRCS/issues">問題を報告</a> · <a href="CONTRIBUTING.md">コントリビュート</a> · <a href="https://discord.gg/53H872eYq">Discord</a> · <a href="https://qm.qq.com/q/i9kOOxFn44">QQグループ</a>
+    <a href="https://github.com/Dreaminko/VRCS/releases/latest">ダウンロード</a> · <a href="https://github.com/Dreaminko/VRCS/issues">問題を報告</a> · <a href="CONTRIBUTING.md">コントリビュート</a> · <a href="https://discord.gg/aCDnfX7paC">Discord</a> · <a href="https://qm.qq.com/q/i9kOOxFn44">QQグループ</a>
 </p>
 
 ![](./screenshots/01.png)
