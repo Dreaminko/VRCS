@@ -22,7 +22,7 @@ for (const width of [1100, 380]) {
         import i18next from 'i18next';
         import { initReactI18next } from 'react-i18next';
         import locale from './src/i18n/locales/zh-CN.json';
-        import { AudioSettingsSection } from './src/settings/sections/AudioSettingsSection';
+        import { CaptureSettingsSection } from './src/settings/sections/CaptureSettingsSection';
         import { EmptyLiveView, LivePartials } from './src/subtitles/components/LivePartials';
         import { SubtitleBubble } from './src/subtitles/components/SubtitleBubble';
         import { publishSpeakerIdentity } from './src/subtitles/speaker-state';
@@ -34,7 +34,7 @@ for (const width of [1100, 380]) {
         const noop = async () => {};
         let current, updateStatus, updateDraft, updateSaveState;
         function Fixture() {
-          const [draft,setDraft] = useState({ audio: { output:{mode:'system', device_id:null, trigger_threshold_dbfs:-45},
+          const [draft,setDraft] = useState({ vrchat_chatbox:{enabled:false}, translation:{mode:'manual',speaker_targets:[]}, audio: { output:{mode:'system', device_id:null, trigger_threshold_dbfs:-45},
             microphone:{mode:'disabled',device_id:null,trigger_threshold_dbfs:-45} } });
           current = draft;
           updateDraft = setDraft;
@@ -45,7 +45,7 @@ for (const width of [1100, 380]) {
             key_scan:{stage:'scanning',scanned_bytes:4096*1048576,total_bytes:8455*1048576,
               candidates_tested:42,elapsed_ms:2700,scan_elapsed_ms:2000,workers:8}});
           updateStatus = setStatus;
-          return <><AudioSettingsSection draft={draft} devices={[]} devicesReady={true} deviceErrors={[]}
+          return <><CaptureSettingsSection draft={draft} devices={[]} devicesReady={true} deviceErrors={[]}
             outputDevices={[]} microphoneDevices={[]} microphoneRunning={false} transcriptionRunning={false}
             microphoneTestRunning={false} saveState={saveState} onRefresh={noop} applySettings={setDraft}
             onStartMicrophoneTest={noop} onStopMicrophoneTest={noop}
@@ -74,8 +74,9 @@ for (const width of [1100, 380]) {
           document.querySelector('.device-select .dropdown-trigger').click();
           await wait(()=>document.querySelector('[role=option]'));
           [...document.querySelectorAll('[role=option]')].find(e=>e.querySelector('.dropdown-option-copy > span')?.textContent===name).click();
+          await wait(()=>current.audio.output.mode==='vrchat_players');
           await wait(()=>document.querySelector('.player-audio-settings'));
-          check(current.audio.output.mode==='vrchat_players','experimental source saved');
+          check(document.getElementById('settings-panel-audio').lastElementChild.classList.contains('player-audio-settings'),'network settings stay at the bottom of capture settings');
           const card=document.querySelector('.player-audio-settings');
           const controls=['limit','visibleLimit'].map(key=>card.querySelector('input[type="range"][aria-label="'+locale.translation.settings.audio.players[key]+'"]'));
           check(controls.every(Boolean),'both player counts use labeled sliders');

@@ -25,11 +25,15 @@ test("autosave keeps settings visually stable, queues edits, and rolls back fail
       import { TranslationSettingsSection } from './src/settings/sections/TranslationSettingsSection';
       import { GlossarySettingsSection } from './src/settings/sections/GlossarySettingsSection';
       import { MicrophoneLevelSetting } from './src/settings/sections/MicrophoneLevelSetting';
+      import { SystemSettingsSection } from './src/settings/sections/SystemSettingsSection';
       import { PreferenceToggle } from './src/settings/SettingsControls';
+      import { useDesktopPreferences } from './src/settings/hooks/useDesktopPreferences';
       import { useSettingsDraft } from './src/settings/hooks/useSettingsDraft';
       import { createSettingsAutosave } from './src/settings/settings-autosave';
       import './src/styles.css';
       await i18next.use(initReactI18next).init({ lng: 'en', resources: { en: { translation: {} } } });
+      localStorage.setItem('vrcs.theme', 'light');
+      document.documentElement.dataset.theme = 'light';
       window.fetch = async () => new Response('[]', { status: 200 });
       const target = { target_language: 'ja', profile_id: 'p1', model: 'test-model', thinking_enabled: false };
       const profile = { id: 'p1', name: 'Test', provider: 'openai_compatible', provider_display_name: 'Test',
@@ -38,10 +42,13 @@ test("autosave keeps settings visually stable, queues edits, and rolls back fail
         asr: { backend: 'qwen_local_managed' },
         translation: { mode: 'manual', microphone_targets: [target], speaker_targets: [target] },
         language_presets: [], glossary: { llm_enabled: false, asr_enabled: false, sources: [] },
+        features: {}, conversation_titles: { auto_generate: false, profile_id: null, model: '', output_language: 'auto' },
+        storage: { subtitle_history_max_bytes: 10485760, model_download_source: 'auto' },
       };
       const pending = [];
       let persisted = initial;
       let state;
+      let desktop;
       function Harness() {
         const [settings, setSettings] = useState(initial);
         const [save] = useState(() => createSettingsAutosave({
@@ -53,7 +60,15 @@ test("autosave keeps settings visually stable, queues edits, and rolls back fail
         }));
         const controller = useSettingsDraft(settings, save);
         state = controller;
+        desktop = useDesktopPreferences();
         return <section className="settings-surface">
+          <SystemSettingsSection desktopPreferences={desktop.desktopPreferences} desktopPreferencesReady={desktop.ready}
+            uiLanguageSaving={desktop.uiLanguageSaving}
+            desktopMessage={desktop.message} uiLanguagePreference={desktop.uiLanguagePreference}
+            interfaceScale={100} onUpdateDesktop={desktop.updateDesktop} onInterfaceScaleChange={() => {}}
+            onUpdateUiLanguage={desktop.updateUiLanguage} onboardingDisabled={false} onStartOnboarding={() => {}}
+            locale="en-US" draft={controller.draft} profiles={[]} onManageProfiles={() => {}} debugRows={[]}
+            applySettings={controller.applySettings} updater={{ phase: 'idle', automaticChecks: false }} />
           <TranslationSettingsSection {...controller} apiProfiles={[profile]} />
           <GlossarySettingsSection {...controller} />
           <MicrophoneLevelSetting level={null} enabled={true} captureRunning={false} transcriptionRunning={false}
@@ -74,9 +89,9 @@ test("autosave keeps settings visually stable, queues edits, and rolls back fail
         throw new Error('Timed out waiting for the frontend');
       };
       try {
-        await wait(() => document.querySelectorAll('.glossary-usage-toggles button').length === 2);
+        await wait(() => desktop?.ready && document.querySelectorAll('.glossary-usage-toggles button').length === 2);
         const switches = [...document.querySelectorAll('.glossary-usage-toggles button')];
-        const controls = [...document.querySelectorAll('.dropdown-trigger, .range-input, .glossary-usage-toggles button')];
+        const controls = [...document.querySelectorAll('.dropdown-trigger, .range-input, .settings-toggle-row button')];
         const snapshot = () => controls.map(el => {
           const style = getComputedStyle(el);
           return [el.disabled, style.color, style.backgroundColor, style.opacity,
@@ -117,10 +132,59 @@ test("autosave keeps settings visually stable, queues edits, and rolls back fail
         await wait(() => state.saveState === 'error');
         check(!state.draft.glossary.llm_enabled && state.draft.glossary.asr_enabled, 'Failed saves restore persisted settings');
         stable();
+        const [startup, administrator, tray] = [...document.querySelectorAll('[aria-labelledby=system-general-title] [role=switch]')].slice(1);
+        startup.click();
+        await wait(() => window.desktopPending.length === 1);
+        stable();
+        administrator.click();
+        await settle();
+        tray.click();
+        await settle();
+        check(startup.getAttribute('aria-checked') === 'true' && administrator.getAttribute('aria-checked') === 'true'
+          && tray.getAttribute('aria-checked') === 'false', 'Desktop edits update immediately while earlier saves are pending');
+        check(window.desktopPending.length === 1, 'Desktop writes run one at a time');
+        window.desktopPending[0].resolve();
+        await wait(() => window.desktopPending.length === 2);
+        check(administrator.getAttribute('aria-checked') === 'true' && tray.getAttribute('aria-checked') === 'false', 'Earlier desktop responses preserve newer edits');
+        window.desktopPending[1].reject(new Error('Desktop save failed'));
+        await wait(() => window.desktopPending.length === 3);
+        check(startup.getAttribute('aria-checked') === 'true' && administrator.getAttribute('aria-checked') === 'false'
+          && tray.getAttribute('aria-checked') === 'false', 'A failed desktop save only rolls back its own setting');
+        check(document.querySelector('[aria-labelledby=system-general-title] [role=alert]')?.textContent === 'Desktop save failed', 'Desktop save errors stay visible');
+        window.desktopPending[2].resolve();
+        await settle();
+        stable();
+        startup.click();
+        await wait(() => window.desktopPending.length === 4);
+        startup.click();
+        await settle();
+        window.desktopPending[3].reject(new Error('Superseded save failed'));
+        await wait(() => window.desktopPending.length === 5);
+        check(startup.getAttribute('aria-checked') === 'true', 'A superseded failure does not roll back the latest choice');
+        window.desktopPending[4].resolve();
+        await settle();
+        check(desktop.desktopPreferences.launchAtStartup && !desktop.desktopPreferences.runAsAdministrator
+          && !desktop.desktopPreferences.minimizeToTray, 'Confirmed desktop choices retain changes across settings');
+        stable();
         root.unmount();
         document.getElementById('result').textContent = 'PASS';
       } catch (error) { document.getElementById('result').textContent = 'FAIL: ' + error.message; }
     ` },
+    plugins: [{ name: 'desktop-fixture', setup(build) {
+      build.onResolve({ filter: /shell\/desktop-preferences$/ }, () => ({ path: 'desktop', namespace: 'fixture' }));
+      build.onResolve({ filter: /(?:i18n\/catalog|^\.\/catalog)$/ }, () => ({ path: 'locale', namespace: 'fixture' }));
+      build.onLoad({ filter: /.*/, namespace: 'fixture' }, ({ path }) => path === 'locale' ? {
+        resolveDir: join(testDirectory, '..'),
+        contents: 'import en from "./src/i18n/locales/en-US.json"; export const localeCatalog=[en]; export const supportedUiLocales=["en-US"]; export const localeResources={"en-US":{translation:en.translation}};',
+      } : { contents: `
+        export const defaultDesktopPreferences = { launchAtStartup: false, runAsAdministrator: false, minimizeToTray: true };
+        export const loadDesktopPreferences = async () => defaultDesktopPreferences;
+        window.desktopPending = [];
+        export const updateDesktopPreference = (current, key, enabled) => new Promise((resolve, reject) => {
+          window.desktopPending.push({ resolve: () => resolve({ ...current, [key]: enabled }), reject });
+        });
+      ` });
+    } }],
     bundle: true, write: false, outfile: "settings-autosave-test.js", format: "esm", platform: "browser", jsx: "automatic",
     define: { "import.meta.env.VITE_VRCS_SESSION_TOKEN": '""' },
   });

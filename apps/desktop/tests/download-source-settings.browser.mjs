@@ -14,7 +14,7 @@ const browser = [process.env.PROGRAMFILES, process.env["PROGRAMFILES(X86)"], pro
   ]).find(existsSync);
 
 for (const width of [1200, 380]) {
-  test(`download source selection stays compact in onboarding and general settings at ${width}px`, {
+  test(`system settings keep download sources compact and Debug collapsed at the bottom at ${width}px`, {
     timeout: 45000, skip: !browser && "No installed Chrome or Edge executable was found.",
   }, async () => {
     const bundle = await build({
@@ -28,6 +28,8 @@ for (const width of [1200, 380]) {
         import { WelcomeStep } from './src/onboarding/steps/WelcomeStep';
         import { SystemSettingsSection } from './src/settings/sections/SystemSettingsSection';
         import './src/styles.css';
+        // Keep virtual-clock layout checks deterministic; settings-motion covers animations.
+        document.documentElement.dataset.reducedMotion = 'true';
         window.requestAnimationFrame = callback => window.setTimeout(() => callback(performance.now()), 16);
         window.cancelAnimationFrame = id => window.clearTimeout(id);
         const i18n = i18next.createInstance();
@@ -59,10 +61,11 @@ for (const width of [1200, 380]) {
             ? <WelcomeStep languagePreference="en-US" busy={busy} onUpdateLanguage={() => {}}
                 downloadSource={draft.storage.model_download_source} onUpdateDownloadSource={onChange} />
             : <SystemSettingsSection desktopPreferences={{ launchAtStartup: false, runAsAdministrator: false, minimizeToTray: false }}
-                desktopPreferencesReady={true} desktopSaveState="saved" desktopMessage="" uiLanguagePreference="en-US"
+                desktopPreferencesReady={true} uiLanguageSaving={false} desktopMessage="" uiLanguagePreference="en-US"
                 interfaceScale={100} onUpdateDesktop={async () => {}} onInterfaceScaleChange={() => {}}
                 onUpdateUiLanguage={async () => {}} onboardingDisabled={false} onStartOnboarding={() => {}}
                 locale="en-US" draft={draft} profiles={[]} onManageProfiles={() => {}} applySettings={applySettings}
+                debugRows={[{ label: 'Schema version', value: 'v37' }]}
                 updater={{ phase: 'idle', automaticChecks: false }} />}</I18nextProvider>;
         }
         const root = createRoot(document.getElementById('root'));
@@ -110,14 +113,33 @@ for (const width of [1200, 380]) {
           checkCompact();
           check(panel().closest('section')?.getAttribute('aria-labelledby') === 'system-general-title', 'The source selector belongs to General settings');
           check(trigger().textContent.includes('ModelScope mirror'), 'The saved source preference is displayed');
+          const debug = document.querySelector('.debug-section');
+          check(debug && debug === document.querySelector('.system-settings-list').lastElementChild, 'Debug is the last group in system settings');
+          check(debug.tagName === 'DETAILS' && !debug.open, 'Debug is collapsed by default');
+          const debugList = debug.querySelector('.debug-list');
+          check(!debugList.checkVisibility(), 'Collapsed Debug hides diagnostic rows');
+          const collapsedHeight = debug.getBoundingClientRect().height;
+          click(debug.querySelector('summary'));
+          await wait(() => Number(getComputedStyle(debug, '::details-content').opacity) === 1);
+          check(debug.open && debugList.checkVisibility(), 'Debug can be expanded');
+          check(debug.getBoundingClientRect().height > collapsedHeight, 'Expanded Debug includes diagnostic content');
+          check(debugList.textContent.includes('Schema versionv37'), 'Expanded Debug preserves diagnostic rows');
+          check(debug.querySelectorAll('.diagnostic-actions button').length === 2, 'Log and error-report actions remain available');
+          check(debug.getBoundingClientRect().right <= innerWidth, 'Expanded Debug fits the viewport');
           await select('Official source');
           await select('Automatic');
           await select('ModelScope mirror');
+          check(debug.open, 'Unrelated settings updates do not collapse Debug');
+          click(debug.querySelector('summary'));
+          await wait(() => Math.abs(debug.getBoundingClientRect().height - collapsedHeight) <= 0.1);
+          check(!debug.open && !debugList.checkVisibility(), 'Debug can be collapsed again');
           check(JSON.stringify(updates) === JSON.stringify(['official', 'official', 'auto', 'modelscope']), 'All source choices use the settings save callback');
           check(applied.every(next => next.storage.database_path === 'data' && next.storage.model_directory === 'models'
             && next.storage.subtitle_history_max_bytes === 10485760), 'Source changes preserve the other storage settings');
           check(!requests.some(url => url.includes('/downloads/')), 'The selector does not request removed detection controls');
           checkCompact();
+          flushSync(() => root.render(<Harness key="reopened" welcome={false} />));
+          check(!document.querySelector('.debug-section').open, 'Reopening system settings starts with Debug collapsed');
           document.getElementById('result').textContent = 'PASS';
         } catch (error) { document.getElementById('result').textContent = 'FAIL: ' + stage + ': ' + error.message; }
         parent.postMessage(document.getElementById('result').textContent, '*');

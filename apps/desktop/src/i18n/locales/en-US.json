@@ -230,13 +230,13 @@
           "key": "Voice key",
           "audio": "Audio ready"
         },
-        "title": "Start VRChat per-player independent tracks",
-        "intro": "This experimental feature provides translation for separate players. Please read how it works, its requirements and its risks before continuing.",
+        "title": "Start VRChat network capture",
+        "intro": "Per-player voice and Chatbox share an experimental network capture session. Read the requirements and risks before continuing.",
         "principleTitle": "How it works",
-        "principle": "VRCS passively receives local VRChat voice network traffic through native Windows interfaces. Once enabled, it attempts to find and authenticate the voice key in the local pagefile when the first world finishes loading after login. Each player is decrypted and decoded into a separate PCM track for the selected recognition and translation services.",
+        "principle": "VRCS passively receives local VRChat network traffic through native Windows interfaces. After the first world loads following login, it attempts to recover and verify the network key from the local pagefile. Voice is decoded into separate PCM tracks only when enabled; Chatbox text goes directly to subtitles and text translation.",
         "paging": "To obtain the key, VRCS asks Windows to page out some game memory pages to the pagefile on disk, then attempts to extract the key from it. This may briefly pause the game.",
         "privacyTitle": "Audio and data handling",
-        "privacy": "Each player track goes to your configured recognition and translation services. Cloud services receive voice audio and concurrent requests may increase charges. VRCS does not save raw audio or session keys to disk; text, translations and player display names are saved in history. Raw tracks do not apply in-game distance attenuation, volume or mute filtering.",
+        "privacy": "Enabled voice tracks go to the configured recognition and translation services. Received Chatbox text goes to the configured text translation service when translation is requested. Cloud services receive this data and concurrent requests may increase charges. VRCS does not save raw audio or session keys to disk; text, translations and player display names are saved in history. Voice tracks do not apply in-game distance attenuation, volume or mute filtering.",
         "privacyConsent": "Inform all participants, obtain their consent and follow applicable privacy requirements. Do not use this feature for nonconsensual monitoring, harassment or infringement.",
         "disclaimerTitle": "Experimental feature disclaimer",
         "disclaimer": "This experimental feature is provided as is, without guarantees of accuracy, stability or fitness. Packets, names or recognition results may be missing or incorrect. To the extent permitted by applicable law, developers are not liable for account penalties, data loss, system instability or other losses arising from its use. Follow the terms and licenses of third-party services and resources. If you disagree, cancel and stop using this feature.",
@@ -992,7 +992,7 @@
         "label": "Settings categories",
         "system": "System",
         "storage": "Storage",
-        "audio": "Audio",
+        "audio": "Capture",
         "recognition": "Recognition",
         "translation": "Translation",
         "glossary": "Glossaries",
@@ -1231,7 +1231,7 @@
         "contextEnabledDescription": "Add recent final source text from selected sources to the LLM prompt in chronological order. Off by default.",
         "contextSourcesTitle": "Source types",
         "contextSources": {
-          "speaker": "Speaker",
+          "speaker": "Other players’ voice and Chatbox",
           "microphone": "Microphone",
           "chatbox": "Chatbox"
         },
@@ -1590,7 +1590,7 @@
         }
       },
       "audio": {
-        "title": "Audio sources",
+        "title": "Capture",
         "memory": {
           "title": "Windows memory compression",
           "manage": "Check and manage",
@@ -1607,7 +1607,7 @@
           "disableTitle": "Turn off Windows memory compression?",
           "enableTitle": "Restore Windows memory compression?",
           "disableImpact": "This changes Windows memory management for the entire computer and pauses current transcription. Turning it off may increase physical memory use and disk paging under memory pressure, affecting other apps. The setting persists after VRCS exits. You can restore compression here at any time.",
-          "enableImpact": "This turns Windows memory compression back on for the entire computer and pauses current transcription. Per-player independent tracks will no longer meet their requirements. To use them again, turn compression off and restart the computer.",
+          "enableImpact": "This enables Windows memory compression for the whole computer and pauses capture. VRChat network capture will not meet its requirements until memory compression is disabled again and the computer restarts.",
           "confirmRestart": "Save your work and restart the computer after changing this setting. VRCS verifies the setting and keeps a restart reminder; it will not restart the computer for you.",
           "confirmDisable": "Confirm turn off",
           "confirmEnable": "Confirm restore",
@@ -1616,7 +1616,6 @@
         },
         "players": {
           "title": "VRChat per-player independent tracks (Experimental)",
-          "requirements": "VRCS needs administrator privileges and Windows memory compression turned off. Once enabled, VRCS automatically attempts to obtain the voice key when the first world finishes loading after login.",
           "nameHint": "To match player names, start capture before entering a world, or reload the current world.",
           "drive": "Pagefile drive",
           "limit": "Concurrent players",
@@ -1832,6 +1831,27 @@
         "exported": "The error report was exported.",
         "exportFailed": "Could not export the error report.",
         "openFailed": "Could not open the log folder."
+      },
+      "capture": {
+        "openTranslation": "Open translation settings",
+        "unsupported": "VRChat network capture is supported only in the Windows desktop app.",
+        "networkTitle": "VRChat network capture",
+        "chatbox": {
+          "title": "Chatbox capture",
+          "enable": "Receive and translate VRChat Chatbox",
+          "translationUnavailable": "Automatic translation is off or no usable text translation profile is configured for Other players. Original text is still saved; manual translation remains available.",
+          "counts": "Received {{received}} · Accepted {{accepted}} · Duplicates {{duplicates}} · Dropped {{dropped}}",
+          "phase": {
+            "waiting_game": "Waiting for VRChat to start",
+            "waiting_world": "Waiting for the VRChat world to finish loading",
+            "waiting_traffic": "Waiting for VRChat network traffic",
+            "waiting_key": "Verifying the network connection",
+            "acquiring_key": "Acquiring the network key",
+            "retrying_key": "Key acquisition did not succeed; retrying shortly",
+            "streaming": "Receiving VRChat Chatbox",
+            "failed": "Chatbox reception stopped with an error"
+          }
+        }
       }
     },
     "onboarding": {

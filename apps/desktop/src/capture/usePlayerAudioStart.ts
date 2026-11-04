@@ -26,6 +26,7 @@ export function usePlayerAudioStart(options?: { beforeMemoryChange: () => Promis
   const resumeApproved = useRef(false);
   const [memoryStatus, setMemoryStatus] = useState<MemoryCompressionStatus | null>(null);
   const [memoryDialog, setMemoryDialog] = useState<MemoryDialog>(null);
+  const memoryChangeReturnDialog = useRef<"manage" | null>("manage");
   const [memoryError, setMemoryError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [changing, setChanging] = useState(false);
@@ -73,7 +74,7 @@ export function usePlayerAudioStart(options?: { beforeMemoryChange: () => Promis
     }
     const status = await invoke<MemoryCompressionStatus>("player_audio_set_memory_compression", { enabled });
     setMemoryStatus(status);
-    setMemoryDialog("manage");
+    setMemoryDialog(memoryChangeReturnDialog.current);
   }), [elevate, runMemoryOperation, t]);
 
   const authorizeMemory = useCallback(() => runMemoryOperation(async () => {
@@ -174,8 +175,12 @@ export function usePlayerAudioStart(options?: { beforeMemoryChange: () => Promis
     changing, refresh: () => { void refreshMemory().catch(() => undefined); },
     open: () => { setMemoryDialog("manage"); void refreshMemory().catch(() => undefined); },
     close: () => { if (!changePending.current) setMemoryDialog(null); },
-    requestChange: (enabled: boolean) => { setMemoryError(null); setMemoryDialog(enabled ? "enable" : "disable"); },
-    cancelChange: () => { if (!changePending.current) setMemoryDialog("manage"); },
+    requestChange: (enabled: boolean) => {
+      memoryChangeReturnDialog.current = memoryDialog === "manage" ? "manage" : null;
+      setMemoryError(null);
+      setMemoryDialog(enabled ? "enable" : "disable");
+    },
+    cancelChange: () => { if (!changePending.current) setMemoryDialog(memoryChangeReturnDialog.current); },
     confirmChange: () => { if (memoryDialog === "enable" || memoryDialog === "disable") void changeMemory(memoryDialog === "enable"); },
     authorize: () => { void authorizeMemory(); },
   } };

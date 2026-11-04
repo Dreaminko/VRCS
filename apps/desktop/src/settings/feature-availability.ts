@@ -14,7 +14,6 @@ export function visibleSettingsCategories(features: FeatureSettings): SettingsCa
   categories.push("api");
   if (features.learning) categories.push("learning");
   categories.push("connections");
-  categories.push("debug");
   return categories;
 }
 

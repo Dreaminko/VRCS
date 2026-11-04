@@ -10,7 +10,7 @@ const testDirectory = dirname(fileURLToPath(import.meta.url));
 const browser = [process.env.PROGRAMFILES, process.env["PROGRAMFILES(X86)"], process.env.LOCALAPPDATA]
   .filter(Boolean).flatMap(root => [join(root, "Google/Chrome/Application/chrome.exe"), join(root, "Microsoft/Edge/Application/msedge.exe")]).find(existsSync);
 
-for (const width of [1100, 380]) test(`${width === 1100 ? 'memory compression consent, restoration and reboot gate' : 'memory compression confirmation layout'} at ${width}px`, {
+for (const width of [1100, 860, 380]) test(`${width === 1100 ? 'memory compression consent, restoration and reboot gate' : 'memory compression confirmation layout'} at ${width}px`, {
   timeout: 45000, skip: !browser && "Chrome or Edge is required",
 }, async () => {
   const fullScenario = width === 1100;
@@ -31,7 +31,9 @@ for (const width of [1100, 380]) test(`${width === 1100 ? 'memory compression co
     let gate;
     function Fixture(){
       gate=usePlayerAudioStart({beforeMemoryChange:async()=>{testing.events.push('pause');testing.running=false;return true;}});
-      return <><MemoryCompressionControls memory={gate.memory}/>
+      return <><div className="settings-surface"><div className="settings-section audio-section">
+        <section className="vr-overlay-card player-audio-settings"><MemoryCompressionControls memory={gate.memory}/></section>
+        </div></div>
         {gate.memory.dialog&&<MemoryCompressionDialog memory={gate.memory}/>}</>;
     }
     const root=createRoot(document.getElementById('root'));
@@ -40,12 +42,42 @@ for (const width of [1100, 380]) test(`${width === 1100 ? 'memory compression co
     const wait=async predicate=>{for(let i=0;i<250;i++){await sleep(20);if(predicate())return;}throw Error('Timed out: '+predicate);};
     const check=(value,message)=>{if(!value)throw Error(message);};
     const dialog=()=>document.querySelector('.memory-compression-dialog');
+    const inline=()=>document.querySelector('.memory-compression-setting');
+    const checkInlineButtons=()=>{
+      const actions=[...inline().querySelectorAll('button')];
+      const [refresh,change]=actions.map(button=>button.getBoundingClientRect());
+      check(Math.abs(refresh.top-change.top)<1&&Math.abs(refresh.bottom-change.bottom)<1,'refresh and memory change buttons have aligned tops and bottoms');
+      const height=parseFloat(getComputedStyle(inline()).getPropertyValue('--settings-control-height'));
+      check(Math.abs(refresh.height-height)<1&&Math.abs(change.height-height)<1,'both inline buttons use the standard control height');
+      check(actions[1].getAttribute('aria-haspopup')==='dialog','the memory change button announces its confirmation dialog');
+      check([refresh,change].every(button=>button.left>=0&&button.right<=innerWidth+1),'inline actions fit the viewport');
+      const heading=inline().querySelector('.memory-compression-heading').getBoundingClientRect();
+      if(innerWidth>680)check([refresh,change].every(button=>button.left>=heading.right&&button.top<heading.bottom&&button.bottom>heading.top),'memory actions sit to the right of the setting');
+    };
+    const clickInline=async label=>{const button=[...inline().querySelectorAll('button')].find(button=>button.textContent.trim()===label);check(button&&!button.disabled,'available inline button: '+label);button.click();await wait(()=>!gate.memory.busy);};
     const click=async label=>{await wait(()=>[...(dialog()?.querySelectorAll('button')??[])].some(button=>button.textContent.trim()===label&&!button.disabled));const button=[...dialog().querySelectorAll('button')].find(button=>button.textContent.trim()===label);check(button&&!button.disabled,'available button: '+label);button.click();};
     const open=async()=>{gate.memory.open();await wait(()=>dialog()&&!gate.memory.busy);};
     const reset=async()=>{gate.memory.close();await wait(()=>!dialog());testing.events=[];};
     const remount=async()=>{root.render(null);await sleep(40);mount();await sleep(80);await wait(()=>gate.memory.status&&!gate.memory.busy);};
     try{
       mount();await wait(()=>gate?.memory.status&&!gate.memory.busy);
+      check(inline().querySelectorAll('button').length===2,'refresh and memory change are available directly in the setting');
+      check(!inline().textContent.includes(words.manage),'the setting has no secondary management entry');
+      checkInlineButtons();
+      await clickInline(words.refresh);
+      check(!dialog()&&testing.events.length===0,'inline refresh does not open a dialog or change Windows');
+      for(const enabled of [false,true]){
+        testing.enabled=enabled;gate.memory.refresh();
+        await wait(()=>!gate.memory.busy&&gate.memory.status.enabled===enabled);
+        checkInlineButtons();
+        await clickInline(enabled?words.disable:words.enable);
+        await wait(()=>dialog()&&gate.memory.dialog===(enabled?'disable':'enable'));
+        check(dialog().getAttribute('aria-modal')==='true'&&dialog().getAttribute('aria-label')===(enabled?words.disableTitle:words.enableTitle),'each action opens its own confirmation dialog');
+        check(dialog().textContent.includes(enabled?words.disableImpact:words.enableImpact)&&dialog().textContent.includes(words.confirmRestart),'confirmation explains the selected system change and restart');
+        check(testing.events.length===0&&testing.enabled===enabled,'opening confirmation does not elevate, pause capture, or change Windows');
+        await click(locale.translation.common.cancel);await wait(()=>!dialog());
+        check(testing.enabled===enabled&&testing.events.length===0,'cancelling either inline action returns to settings without changing Windows');
+      }
       if(${fullScenario}){
       check(gate.memory.status.enabled===true&&testing.events.length===0,'initial detection is read-only');
       check(!await gate.ensurePrivileges(),'enabled compression blocks capture');
@@ -56,32 +88,38 @@ for (const width of [1100, 380]) test(`${width === 1100 ? 'memory compression co
       check(dialog().textContent.includes(words.disableImpact)&&dialog().textContent.includes(words.confirmRestart),'system impact and restart are explained before confirmation');
       await click(locale.translation.common.cancel);await wait(()=>gate.memory.dialog==='manage');
       check(testing.events.length===0&&testing.enabled,'cancellation does not elevate or change Windows');
-      await click(words.disable);await wait(()=>gate.memory.dialog==='disable');
+      await reset();
+      await clickInline(words.disable);await wait(()=>gate.memory.dialog==='disable');
       testing.running=true;
       await click(words.confirmDisable);gate.memory.confirmChange();
       await wait(()=>!gate.memory.busy&&gate.memory.status.enabled===false);
       check(testing.events.join('|')==='elevate:disable_memory_compression|pause|change:false','confirmation and elevation precede one system change');
       check(!testing.running&&gate.memory.status.restart_required,'capture stops and a reboot is required');
-      check(dialog().textContent.includes(words.restart),'success visibly requests a computer restart');
+      await wait(()=>!dialog());
+      check(inline().textContent.includes(words.restart),'success visibly requests a computer restart');
       check(!await gate.ensurePrivileges(),'restarting VRCS alone cannot bypass the reboot gate');
       await reset();
       await remount();
       check(gate.memory.status.restart_required,'restart reminder survives app relaunch');
       testing.restart=false;
       check(await gate.ensurePrivileges(),'confirmed disabled state after a computer restart allows capture');
-      await open();testing.events=[];
-      await click(words.enable);await wait(()=>gate.memory.dialog==='enable');
+      testing.events=[];
+      await clickInline(words.enable);await wait(()=>gate.memory.dialog==='enable');
       check(dialog().textContent.includes(words.enableImpact),'restoration has its own impact explanation');
       await click(words.confirmEnable);await wait(()=>!gate.memory.busy&&gate.memory.status.enabled===true);
       check(testing.events.join('|')==='elevate:enable_memory_compression|pause|change:true','restore executes only after explicit confirmation');
       check(gate.memory.status.restart_required,'restoration also requires restart');
+      await wait(()=>!dialog());
+      check(inline().textContent.includes(words.restart),'inline restoration shows the restart reminder without a management dialog');
       await reset();
 
-      testing.elevated=false;testing.outcome='cancelled';await open();
+      testing.elevated=false;testing.outcome='cancelled';gate.memory.refresh();
+      await wait(()=>!gate.memory.busy&&gate.memory.status.elevated===false);
       check(gate.memory.status.enabled===null,'missing privileges are not reported as disabled compression');
-      await click(words.authorize);await wait(()=>!gate.memory.busy&&gate.memory.error);
+      await clickInline(words.authorize);await wait(()=>!gate.memory.busy&&gate.memory.error);
       check(testing.events.join('|')==='elevate:inspect_memory_compression','cancelled UAC cannot mutate settings');
       check(!gate.resumeRequested,'inspect action cannot request audio capture');
+      check(!dialog()&&inline().querySelector('[role=alert]'),'authorization errors stay in the setting');
       await reset();
       testing.elevated=true;testing.outcome='ready';testing.restart=false;testing.queryFail=true;
       check(!await gate.ensurePrivileges(),'a detection failure cannot allow capture');
@@ -113,6 +151,7 @@ for (const width of [1100, 380]) test(`${width === 1100 ? 'memory compression co
       check(bounds.left>=0&&bounds.right<=innerWidth+1&&bounds.top>=0&&footer.bottom<=innerHeight+1,'memory confirmation fits the viewport');
       const copy=dialog().querySelector('.player-audio-start-copy');copy.scrollTop=copy.scrollHeight;
       check(copy.scrollTop+copy.clientHeight>=copy.scrollHeight-1,'the entire impact notice is readable');copy.scrollTop=0;
+      gate.memory.close();await wait(()=>!dialog());
       document.getElementById('result').textContent='PASS';
     }catch(error){document.getElementById('result').textContent='FAIL: '+error.message;}
   ` }, plugins: [{ name: 'memory-native-fixture', setup(build) {

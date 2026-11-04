@@ -5,15 +5,27 @@ import { DEFAULT_FEATURE_SETTINGS, resolveSettingsCategory, visibleSettingsCateg
 
 test("all modules retain the existing settings categories by default", () => {
   assert.deepEqual(visibleSettingsCategories(DEFAULT_FEATURE_SETTINGS), [
-    "system", "audio", "recognition", "translation", "vr_overlay", "vision", "glossary", "api", "learning", "connections", "debug",
+    "system", "audio", "recognition", "translation", "vr_overlay", "vision", "glossary", "api", "learning", "connections",
   ]);
 });
 
 test("disabled modules disappear while core settings remain available", () => {
   const features = Object.fromEntries(Object.keys(DEFAULT_FEATURE_SETTINGS).map((key) => [key, false])) as unknown as typeof DEFAULT_FEATURE_SETTINGS;
-  assert.deepEqual(visibleSettingsCategories(features), ["system", "audio", "recognition", "translation", "api", "connections", "debug"]);
+  assert.deepEqual(visibleSettingsCategories(features), ["system", "audio", "recognition", "translation", "api", "connections"]);
   assert.equal(resolveSettingsCategory("ocr", features), "system");
   assert.equal(resolveSettingsCategory("translation", features), "translation");
+});
+
+test("capture keeps its audio navigation alias without a separate experimental category", () => {
+  for (const features of [DEFAULT_FEATURE_SETTINGS, { ...DEFAULT_FEATURE_SETTINGS, vr_overlay: false, learning: false }]) {
+    assert.equal(visibleSettingsCategories(features).at(-1), "connections");
+    assert.equal(resolveSettingsCategory("audio", features), "audio");
+  }
+});
+
+test("legacy debug navigation opens system settings without a separate tab", () => {
+  assert.equal(visibleSettingsCategories(DEFAULT_FEATURE_SETTINGS).includes("debug"), false);
+  assert.equal(resolveSettingsCategory("debug", DEFAULT_FEATURE_SETTINGS), "system");
 });
 
 test("vision is independently visible and legacy OCR requests resolve to vision", () => {

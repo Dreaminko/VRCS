@@ -61,6 +61,7 @@
   .device-group-title { display: grid; grid-template-columns: 20px minmax(0, 1fr); }
   .microphone-test-control { align-items: stretch; flex-direction: column; gap: 8px; }
   .microphone-test-button { align-self: flex-start; }
+  .memory-compression-setting { grid-template-columns: minmax(0, 1fr); }
   .debug-row { grid-template-columns: 1fr; gap: 4px; }
 
   .dictionary-section .section-heading { align-items: flex-start; flex-direction: column; }

@@ -21,7 +21,14 @@ export function MemoryCompressionControls({ memory }: { memory: Memory }) {
       <strong>{t("settings.audio.memory.title")}</strong>
       <small>{t(`settings.audio.memory.${statusKey(memory)}`)}</small>
     </div></div>
-    <button type="button" className="secondary-button" disabled={memory.busy} onClick={memory.open}>{t("settings.audio.memory.manage")}</button>
+    <div className="settings-inline-actions memory-compression-actions">
+      <button type="button" className="secondary-button" disabled={memory.busy} onClick={memory.refresh}><RefreshCw size={15} />{t("settings.audio.memory.refresh")}</button>
+      {memory.status?.supported && (!memory.status.elevated
+        ? <button type="button" className="primary-button" disabled={memory.busy} onClick={memory.authorize}>{t("settings.audio.memory.authorize")}</button>
+        : memory.status.enabled !== null && <button type="button" className="primary-button" disabled={memory.busy} aria-haspopup="dialog"
+          onClick={() => memory.requestChange(!memory.status!.enabled)}>{t(`settings.audio.memory.${memory.status.enabled ? "disable" : "enable"}`)}</button>)}
+    </div>
+    {memory.status?.supported && !memory.status.elevated && <p className="settings-field-note">{t("settings.audio.memory.authorization")}</p>}
     {memory.status?.restart_required && <p className="settings-field-note">{t("settings.audio.memory.restart")}</p>}
     {memory.error && <p className="settings-validation-error" role="alert">{memory.error}</p>}
   </div>;

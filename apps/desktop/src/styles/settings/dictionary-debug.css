@@ -20,6 +20,26 @@
 .dictionary-empty { margin: 0; padding: 16px; border: 1px dashed var(--border); border-radius: var(--radius-md); color: var(--text-quiet); font-size: var(--settings-text-body); line-height: var(--settings-leading-reading); text-align: center; }
 .dictionary-feedback { margin: 12px 2px 0; color: var(--text-secondary); font-size: var(--settings-text-caption); line-height: var(--settings-leading-copy); }
 .dictionary-import-progress { margin: 7px 2px 0; }
+.debug-section { interpolate-size: allow-keywords; }
+.debug-section > .section-heading { margin-bottom: 0; list-style: none; cursor: pointer; }
+.debug-section > summary::-webkit-details-marker { display: none; }
+.debug-section > summary:focus-visible { outline: 3px solid var(--primary); outline-offset: 4px; border-radius: var(--radius-sm); }
+.debug-section > .section-heading > div { flex-wrap: wrap; }
+.debug-section > summary > .debug-chevron { flex: 0 0 auto; color: var(--text-secondary); transition: transform 220ms cubic-bezier(0.16, 1, 0.3, 1); }
+.debug-section::details-content {
+  display: flow-root;
+  block-size: 0;
+  overflow: clip;
+  overflow-clip-margin: 4px;
+  opacity: 0;
+  transition:
+    block-size 220ms cubic-bezier(0.4, 0, 0.2, 1),
+    opacity 160ms cubic-bezier(0.16, 1, 0.3, 1),
+    content-visibility 220ms allow-discrete;
+}
+.debug-section[open]::details-content { block-size: auto; opacity: 1; }
+.debug-section > .diagnostic-card { margin-top: 14px; }
+.debug-section[open] > summary > .debug-chevron { transform: rotate(180deg); }
 .diagnostic-card {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -70,4 +90,8 @@
 @media (max-width: 680px) {
   .diagnostic-card { grid-template-columns: 1fr; }
   .diagnostic-actions { justify-content: flex-start; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .debug-section > summary > .debug-chevron { transition: none; }
+  .debug-section::details-content { transition: none; }
 }

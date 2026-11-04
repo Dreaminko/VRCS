@@ -27,11 +27,11 @@ export function PlayerAudioSettings({ value, status, memory, disabled, onChange 
   const formatPlayerCount = (count: number) => count === 0 ? t("settings.audio.players.unlimited") : String(count);
   return <section className="vr-overlay-card player-audio-settings" aria-labelledby="player-audio-title">
     <div className="vr-overlay-card-heading"><div><FlaskConical size={18} />
-      <span><strong id="player-audio-title">{t("settings.audio.players.title")}</strong></span>
+      <span><strong id="player-audio-title">{t("settings.capture.networkTitle")}</strong></span>
     </div></div>
-    <p className="settings-field-note">{t("settings.audio.players.requirements")}</p>
+    {memory?.status?.supported === false && <p className="settings-field-note" role="status">{t("settings.capture.unsupported")}</p>}
     {memory && memory.status?.supported !== false && <MemoryCompressionControls memory={memory} />}
-    <div className="vr-overlay-field-grid">
+    <div className="form-grid">
       <Select label={t("settings.audio.players.drive")} value={options.pagefile_drive.toUpperCase()}
         values={Array.from({ length: 26 }, (_, i) => `${String.fromCharCode(65 + i)}:`)}
         disabled={disabled} onChange={(pagefile_drive) => onChange({ pagefile_drive })} />

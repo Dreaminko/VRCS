@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { save as saveDialog } from "@tauri-apps/plugin-dialog";
-import { Download, FolderOpen, Wrench } from "lucide-react";
+import { ChevronDown, Download, FolderOpen, Wrench } from "lucide-react";
 
 import {
   exportErrorReport,
@@ -57,10 +57,11 @@ export function DebugSettingsSection({ rows }: { rows: DebugRow[] }) {
   };
 
   return (
-    <div className="settings-section settings-section-active debug-section" id="settings-panel-debug" role="tabpanel" aria-labelledby="settings-tab-debug">
-      <div className="section-heading">
-        <div><Wrench size={18} /><h2>Debug</h2><span>{t("settings.debug.subtitle")}</span></div>
-      </div>
+    <details className="system-settings-group debug-section" aria-labelledby="system-debug-title">
+      <summary className="section-heading">
+        <div><Wrench size={18} aria-hidden="true" /><h3 id="system-debug-title">Debug</h3></div>
+        <ChevronDown className="debug-chevron" size={16} aria-hidden="true" />
+      </summary>
 
       <section className="diagnostic-card">
         <div className="diagnostic-card-copy">
@@ -91,6 +92,6 @@ export function DebugSettingsSection({ rows }: { rows: DebugRow[] }) {
           </div>
         ))}
       </div>
-    </div>
+    </details>
   );
 }

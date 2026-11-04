@@ -12,7 +12,6 @@ import {
   Link,
   SlidersHorizontal,
   Volume2,
-  Wrench,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
@@ -73,7 +72,6 @@ export function SettingsTabBar({
     { id: "api", label: t("settings.categories.api"), icon: <KeyRound size={18} /> },
     { id: "learning", label: t("settings.categories.learning"), icon: <GraduationCap size={18} /> },
     { id: "connections", label: t("settings.categories.connections"), icon: <Link size={18} /> },
-    { id: "debug", label: "Debug", icon: <Wrench size={18} /> },
   ] satisfies Array<{ id: SettingsCategory; label: string; icon: ReactNode }>;
   const visibleTabs = categories.filter((category) => visibleCategories.includes(category.id));
 

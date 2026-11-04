@@ -19,7 +19,7 @@ import {
 import type { ApiProfileView } from "../../providers/types";
 import type { Settings } from "../types";
 import type { UiLanguagePreference } from "../../app/ui-language";
-import type { ApplySettings, SaveState } from "../settings-types";
+import type { ApplySettings, DebugRow } from "../settings-types";
 import { PreferenceToggle, Select } from "../SettingsControls";
 import { StorageSettingsSection } from "./StorageSettingsSection";
 import { FeatureSettingsCard } from "../system/FeatureSettingsCard";
@@ -27,11 +27,12 @@ import { DownloadSourceSettings } from "../system/DownloadSourceSettings";
 import { SoftwareUpdateSettings } from "../../updates/SoftwareUpdateSettings";
 import type { AppUpdaterState } from "../../updates/useAppUpdater";
 import { ConversationTitleSettingsSection } from "./ConversationTitleSettingsSection";
+import { DebugSettingsSection } from "./DebugSettingsSection";
 
 export function SystemSettingsSection({
   desktopPreferences,
   desktopPreferencesReady,
-  desktopSaveState,
+  uiLanguageSaving,
   desktopMessage,
   uiLanguagePreference,
   interfaceScale,
@@ -46,10 +47,11 @@ export function SystemSettingsSection({
   updater,
   profiles,
   onManageProfiles,
+  debugRows,
 }: {
   desktopPreferences: DesktopPreferences;
   desktopPreferencesReady: boolean;
-  desktopSaveState: SaveState;
+  uiLanguageSaving: boolean;
   desktopMessage: string;
   uiLanguagePreference: UiLanguagePreference;
   interfaceScale: number;
@@ -64,6 +66,7 @@ export function SystemSettingsSection({
   updater: AppUpdaterState;
   profiles: ApiProfileView[];
   onManageProfiles: () => void;
+  debugRows: DebugRow[];
 }) {
   const { t } = useTranslation();
   const { themePreference, setThemePreference } = useAppTheme();
@@ -115,7 +118,7 @@ export function SystemSettingsSection({
                   label: _meta.name,
                 })),
               ]}
-              disabled={desktopSaveState === "saving"}
+              disabled={uiLanguageSaving}
               hideLabel
               onChange={(value) => void onUpdateUiLanguage(value as UiLanguagePreference)}
             />
@@ -216,19 +219,19 @@ export function SystemSettingsSection({
             <PreferenceToggle
               title={t("settings.system.launchAtStartup")}
               checked={desktopPreferences.launchAtStartup}
-              disabled={!desktopPreferencesReady || desktopSaveState === "saving"}
+              disabled={!desktopPreferencesReady}
               onChange={(enabled) => void onUpdateDesktop("launchAtStartup", enabled)}
             />
             <PreferenceToggle
               title={t("settings.system.runAsAdministrator")}
               checked={desktopPreferences.runAsAdministrator}
-              disabled={!desktopPreferencesReady || desktopSaveState === "saving"}
+              disabled={!desktopPreferencesReady}
               onChange={(enabled) => void onUpdateDesktop("runAsAdministrator", enabled)}
             />
             <PreferenceToggle
               title={t("settings.system.minimizeToTray")}
               checked={desktopPreferences.minimizeToTray}
-              disabled={!desktopPreferencesReady || desktopSaveState === "saving"}
+              disabled={!desktopPreferencesReady}
               onChange={(enabled) => void onUpdateDesktop("minimizeToTray", enabled)}
             />
           </div>
@@ -255,6 +258,7 @@ export function SystemSettingsSection({
           applySettings={applySettings}
         />
         <SoftwareUpdateSettings updater={updater} />
+        <DebugSettingsSection rows={debugRows} />
       </div>
     </div>
   );

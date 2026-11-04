@@ -6,19 +6,25 @@ import { useMicrophoneCalibration } from "../hooks/useMicrophoneCalibration";
 import { DEFAULT_MICROPHONE_THRESHOLD_DBFS } from "../../capture/microphone-calibration";
 import { useAudioLevel } from "../../core-client/realtime-state";
 import type { AudioDevice } from "../../capture/types";
-import type { Settings } from "../types";
+import type { Settings, TranslationSettings } from "../types";
 import type { ApplySettings, SaveState } from "../settings-types";
 import { DeviceGroup } from "../SettingsControls";
 import { MicrophoneLevelSetting } from "./MicrophoneLevelSetting";
 import { OtherVoiceLevelSetting } from "./OtherVoiceLevelSetting";
+import { VrchatChatboxSettings } from "./VrchatChatboxSettings";
 import { DEFAULT_PLAYER_AUDIO, PlayerAudioSettings } from "./PlayerAudioSettings";
-import type { PlayerAudioStatus } from "../../core-client/types";
+import type { ChatboxStatus, PlayerAudioStatus } from "../../core-client/types";
+import type { ApiProfileView } from "../../providers/types";
 import type { PlayerAudioStart } from "../../capture/usePlayerAudioStart";
 
-export function AudioSettingsSection({
+export function CaptureSettingsSection({
   draft,
   playerAudioStatus,
   playerAudioStart,
+  chatboxStatus,
+  translation = draft.translation,
+  profiles = [],
+  onOpenTranslation = () => undefined,
   devices,
   devicesReady,
   deviceErrors,
@@ -28,6 +34,7 @@ export function AudioSettingsSection({
   transcriptionRunning,
   microphoneTestRunning,
   saveState,
+  saveMessage,
   onRefresh,
   applySettings,
   onStartMicrophoneTest,
@@ -36,6 +43,10 @@ export function AudioSettingsSection({
   draft: Settings;
   playerAudioStatus?: PlayerAudioStatus | null;
   playerAudioStart?: PlayerAudioStart;
+  chatboxStatus?: ChatboxStatus | null;
+  translation?: TranslationSettings;
+  profiles?: ApiProfileView[];
+  onOpenTranslation?: () => void;
   devices: AudioDevice[];
   devicesReady: boolean;
   deviceErrors: string[];
@@ -45,6 +56,7 @@ export function AudioSettingsSection({
   transcriptionRunning: boolean;
   microphoneTestRunning: boolean;
   saveState: SaveState;
+  saveMessage?: string;
   onRefresh: () => Promise<void>;
   applySettings: ApplySettings;
   onStartMicrophoneTest: () => Promise<void>;
@@ -131,24 +143,14 @@ export function AudioSettingsSection({
             icon={<Volume2 size={18} />}
             title={t("settings.audio.otherVoice")}
             beforeList={(
-              <>
-                <OtherVoiceLevelSetting
-                  level={speakerLevel}
-                  enabled={draft.audio.output.mode !== "disabled"}
-                  captureRunning={transcriptionRunning}
-                  threshold={draft.audio.output.trigger_threshold_dbfs}
-                  disabled={draft.audio.output.mode === "disabled"}
-                  onCommit={updateOutputThreshold}
-                />
-                {draft.audio.output.mode === "vrchat_players" && <PlayerAudioSettings
-                  value={draft.audio.output.player_audio} status={playerAudioStatus} disabled={saveState === "saving"}
-                  memory={playerAudioStart?.memory}
-                  onChange={(patch) => applySettings((current) => ({
-                    ...current, audio: { ...current.audio, output: { ...current.audio.output,
-                      player_audio: { ...(current.audio.output.player_audio ?? DEFAULT_PLAYER_AUDIO), ...patch },
-                    } },
-                  }))} />}
-              </>
+              <OtherVoiceLevelSetting
+                level={speakerLevel}
+                enabled={draft.audio.output.mode !== "disabled"}
+                captureRunning={transcriptionRunning}
+                threshold={draft.audio.output.trigger_threshold_dbfs}
+                disabled={draft.audio.output.mode === "disabled"}
+                onCommit={updateOutputThreshold}
+              />
             )}
             devices={outputDevices}
             devicesReady={devicesReady}
@@ -321,6 +323,18 @@ export function AudioSettingsSection({
               }));
             }}
           />
+          <VrchatChatboxSettings draft={draft} translation={translation} profiles={profiles} status={chatboxStatus}
+            supported={playerAudioStart?.memory.status?.supported} saveState={saveState} saveMessage={saveMessage}
+            applySettings={applySettings} onOpenTranslation={onOpenTranslation} />
+          <PlayerAudioSettings value={draft.audio.output.player_audio} status={playerAudioStatus}
+            memory={playerAudioStart?.memory}
+            disabled={playerAudioStart?.memory.status?.supported === false}
+            onChange={(patch) => applySettings((current) => ({
+              ...current,
+              audio: { ...current.audio, output: { ...current.audio.output,
+                player_audio: { ...(current.audio.output.player_audio ?? DEFAULT_PLAYER_AUDIO), ...patch },
+              } },
+            }))} />
         </div>
   );
 }

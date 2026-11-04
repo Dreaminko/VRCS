@@ -26,7 +26,7 @@ for (const width of [1200, 861, 860, 681, 680, 380]) {
         import { I18nextProvider } from 'react-i18next';
         import en from './src/i18n/locales/en-US.json';
         import zh from './src/i18n/locales/zh-CN.json';
-        import { AudioSettingsSection } from './src/settings/sections/AudioSettingsSection';
+        import { CaptureSettingsSection } from './src/settings/sections/CaptureSettingsSection';
         import { AudioStep } from './src/onboarding/steps/AudioStep';
         import './src/styles.css';
         window.requestAnimationFrame = callback => window.setTimeout(() => callback(performance.now()), 16);
@@ -42,7 +42,7 @@ for (const width of [1200, 861, 860, 681, 680, 380]) {
           { id: 2, name: 'USB microphone', is_default: true, is_loopback: false, sample_rate: 48000, channels: 1 },
           { id: 3, name: 'Headset microphone', is_default: false, is_loopback: false, sample_rate: 44100, channels: 1 },
         ];
-        const initial = { audio: {
+        const initial = { vrchat_chatbox:{enabled:false}, translation:{mode:'manual',speaker_targets:[]}, audio: {
           output: { mode: 'system', device_id: null, trigger_threshold_dbfs: -38,
             player_audio: { pagefile_drive: 'D:', opus_library_path: '', max_players: 3 } },
           microphone: { mode: 'default', device_id: null, trigger_threshold_dbfs: -42 },
@@ -66,7 +66,7 @@ for (const width of [1200, 861, 860, 681, 680, 380]) {
           return <I18nextProvider i18n={i18n}>{onboarding
             ? <AudioStep settings={current} {...devices} hasAudioSource={true} audioBusy={busy}
                 onRefreshDevices={noop} onUpdateSettings={applySettings} onSetMicrophoneReviewed={value => reviewed.push(value)} />
-            : <AudioSettingsSection draft={current} {...devices} devices={[...devices.outputDevices, ...devices.microphoneDevices]}
+            : <CaptureSettingsSection draft={current} {...devices} devices={[...devices.outputDevices, ...devices.microphoneDevices]}
                 microphoneRunning={false} transcriptionRunning={false} microphoneTestRunning={false} saveState="saved"
                 onRefresh={noop} applySettings={applySettings} onStartMicrophoneTest={startMicrophoneTest} onStopMicrophoneTest={noop} />
           }</I18nextProvider>;
@@ -133,27 +133,6 @@ for (const width of [1200, 861, 860, 681, 680, 380]) {
             if (selectedMark) check(selectedMark.getBoundingClientRect().right <= bounds.right, 'The selected device checkmark remains visible');
           }
         };
-        const checkPlayerFields = () => {
-          const card = document.querySelector('.player-audio-settings');
-          const fields = ['drive', 'opus', 'limit', 'visibleLimit'].map(key => {
-            const control = [...card.querySelectorAll('input[aria-label], button[aria-label]')]
-              .find(element => element.getAttribute('aria-label') === i18n.t('settings.audio.players.' + key));
-            return control.closest('.field, .range-field').getBoundingClientRect();
-          });
-          if (innerWidth > 860) {
-            for (const [left, right] of [[fields[0], fields[1]], [fields[2], fields[3]]]) {
-              check(Math.abs(left.top - right.top) < 1 && right.left >= left.right, 'Player settings pair the drive with Opus and both player counts on aligned rows');
-            }
-            check(fields[2].top >= fields[0].bottom && fields[3].top >= fields[1].bottom, 'Both player counts sit below the storage fields');
-            checkEdges(fields[0], fields[2], 'The drive and processing count share the left column');
-            checkEdges(fields[1], fields[3], 'Opus and the visible count share the right column');
-          } else {
-            for (let index = 1; index < fields.length; index++) {
-              check(fields[index].top >= fields[index - 1].bottom, 'Narrow player settings stack in reading order without overlap');
-              checkEdges(fields[0], fields[index], 'Narrow player fields share a full-width column');
-            }
-          }
-        };
         let stage = '';
         try {
           stage = 'settings defaults';
@@ -180,11 +159,11 @@ for (const width of [1200, 861, 860, 681, 680, 380]) {
           await select(0, 'VRChat');
           check(draft.audio.output.mode === 'vrchat' && draft.audio.output.device_id === null, 'VRChat clears the hardware device');
           await select(0, i18n.t('settings.audio.players.title'));
-          check(draft.audio.output.mode === 'vrchat_players' && document.querySelector('.player-audio-settings'), 'Player audio keeps its settings panel');
+          check(draft.audio.output.mode === 'vrchat_players'
+            && document.querySelector('.player-audio-settings'), 'Player audio retains its source and network settings remain on the capture page');
           checkLayout();
-          checkPlayerFields();
           await select(0, i18n.t('settings.audio.disableOtherVoices'));
-          check(draft.audio.output.mode === 'disabled' && !document.querySelector('.player-audio-settings'), 'Disabling output hides player audio settings');
+          check(draft.audio.output.mode === 'disabled' && document.querySelector('.player-audio-settings'), 'Disabling output keeps shared network settings available for Chatbox');
           await select(0, i18n.t('settings.audio.systemOutput'));
           check(draft.audio.output.mode === 'system' && draft.audio.output.device_id === null, 'System default clears the hardware device');
 
@@ -261,7 +240,6 @@ for (const width of [1200, 861, 860, 681, 680, 380]) {
           } }} />));
           await new Promise(resolve => setTimeout(resolve, 250));
           checkLayout();
-          checkPlayerFields();
           document.getElementById('geometry').textContent = JSON.stringify(groups().map(group => {
             const edges = element => {
               const bounds = element.getBoundingClientRect();

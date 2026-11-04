@@ -230,13 +230,13 @@
           "key": "語音金鑰",
           "audio": "接收就緒"
         },
-        "title": "啟動 VRChat 分玩家獨立音軌",
-        "intro": "這是用於多人即時翻譯的實驗功能。繼續前，請了解其運作方式、使用條件與風險。",
+        "title": "開始 VRChat 網路擷取",
+        "intro": "分玩家語音與 Chatbox 共用實驗性網路擷取工作階段。繼續前請閱讀執行條件及風險。",
         "principleTitle": "實作原理",
-        "principle": "VRCS 使用 Windows 原生介面被動接收本機的 VRChat 語音網路資料。啟用後，登入後首次進入世界並完成載入時，會從本機分頁檔中嘗試解析並驗證語音金鑰，為每位玩家分別解密、解碼為獨立 PCM 音軌，再交給所選辨識與翻譯服務。",
+        "principle": "VRCS 透過 Windows 原生介面被動接收本機 VRChat 網路流量。登入後首次進入世界並完成載入時，程式會嘗試從本機分頁檔復原並驗證網路金鑰。僅在啟用語音時解碼為獨立 PCM 音軌；Chatbox 文字直接進入字幕和文字翻譯。",
         "paging": "取得金鑰時，會要求 Windows 將部分遊戲記憶體頁換出至磁碟分頁檔，再從中嘗試解析金鑰，期間可能使遊戲短暫停頓。",
         "privacyTitle": "音訊與資料處理",
-        "privacy": "每位玩家的獨立音軌會交給目前設定的辨識與翻譯服務，使用雲端服務時會傳送語音，並行請求可能增加費用。VRCS 不將原始音訊或工作階段金鑰儲存至磁碟；文字、譯文與玩家顯示名稱會隨歷史記錄儲存。原始音軌不套用遊戲內距離衰減、音量及靜音過濾。",
+        "privacy": "啟用的語音音軌會傳送至設定的辨識和翻譯服務；接收的 Chatbox 文字會在要求翻譯時傳送至文字翻譯服務。雲端服務會接收這些資料，並行要求可能增加費用。VRCS 不將原始音訊或工作階段金鑰儲存到磁碟；文字、譯文和玩家顯示名稱會儲存到歷史記錄。語音音軌不套用遊戲內距離衰減、音量或靜音篩選。",
         "privacyConsent": "請告知所有參與者並取得其同意，遵守適用的隱私與個人資料保護要求；禁止用於未經同意的監聽、騷擾或侵權。",
         "disclaimerTitle": "實驗功能免責聲明",
         "disclaimer": "本實驗功能依「現狀」提供，不保證準確性、穩定性或適用性，可能出現漏包、延遲、姓名缺失或辨識錯誤。在適用法律允許的範圍內，開發者不對使用本功能造成的帳戶處罰、資料遺失、系統不穩定或其他損失負責。使用第三方服務或資源時還需遵守其條款與授權。如不同意這些說明，請取消並停止使用此功能。",
@@ -992,7 +992,7 @@
         "label": "設定分類",
         "system": "系統",
         "storage": "儲存",
-        "audio": "音訊",
+        "audio": "擷取",
         "recognition": "辨識",
         "translation": "翻譯",
         "glossary": "術語表",
@@ -1231,7 +1231,7 @@
         "contextEnabledDescription": "依時間順序將所選來源最近完成的原文加入 LLM 提示詞。預設關閉。",
         "contextSourcesTitle": "原文來源",
         "contextSources": {
-          "speaker": "其他人的聲音",
+          "speaker": "其他玩家的語音和 Chatbox",
           "microphone": "麥克風",
           "chatbox": "Chatbox"
         },
@@ -1590,7 +1590,7 @@
         }
       },
       "audio": {
-        "title": "音訊來源",
+        "title": "擷取",
         "memory": {
           "title": "Windows 記憶體壓縮",
           "manage": "檢查與管理",
@@ -1607,7 +1607,7 @@
           "disableTitle": "關閉 Windows 記憶體壓縮？",
           "enableTitle": "恢復 Windows 記憶體壓縮？",
           "disableImpact": "這會修改整台電腦的 Windows 記憶體管理設定，並暫停目前轉錄。關閉後，系統可能使用更多實體記憶體，記憶體不足時也可能增加磁碟分頁、影響其他應用程式的效能。設定不會隨 VRCS 結束自動恢復，可隨時在這裡恢復開啟。",
-          "enableImpact": "這會重新開啟整台電腦的 Windows 記憶體壓縮，並暫停目前轉錄。恢復後，分玩家獨立音軌所需的執行條件將不再滿足；再次使用時需要重新關閉記憶體壓縮並重新啟動電腦。",
+          "enableImpact": "這會重新開啟整台電腦的 Windows 記憶體壓縮，並暫停目前擷取。復原後，VRChat 網路擷取所需的執行條件將不再符合；再次使用時需重新關閉記憶體壓縮並重新啟動電腦。",
           "confirmRestart": "修改後請儲存工作並重新啟動電腦。VRCS 會驗證設定並保留重新啟動提醒，不會替你重新啟動電腦。",
           "confirmDisable": "確認關閉",
           "confirmEnable": "確認恢復",
@@ -1616,7 +1616,6 @@
         },
         "players": {
           "title": "VRChat 分玩家獨立音軌（實驗性）",
-          "requirements": "需要以系統管理員權限執行 VRCS，並關閉 Windows 記憶體壓縮。啟用後，登入後首次進入世界並完成載入時，程式會自動嘗試解析語音金鑰。",
           "nameHint": "要配對玩家姓名，請先開啟擷取再進入世界，或重新載入目前世界。",
           "drive": "分頁檔所在磁碟",
           "limit": "同時處理的玩家數",
@@ -1832,6 +1831,27 @@
         "exported": "錯誤報告已匯出。",
         "exportFailed": "無法匯出錯誤報告。",
         "openFailed": "無法開啟記錄檔資料夾。"
+      },
+      "capture": {
+        "openTranslation": "開啟翻譯設定",
+        "unsupported": "VRChat 網路擷取僅支援 Windows 桌面版。",
+        "networkTitle": "VRChat 網路擷取",
+        "chatbox": {
+          "title": "Chatbox 擷取",
+          "enable": "接收並翻譯 VRChat Chatbox",
+          "translationUnavailable": "尚未啟用自動翻譯，或「其他玩家」未設定可用的文字翻譯服務。原文仍會儲存，可手動翻譯。",
+          "counts": "收到 {{received}} · 接受 {{accepted}} · 重複 {{duplicates}} · 捨棄 {{dropped}}",
+          "phase": {
+            "waiting_game": "等待 VRChat 啟動",
+            "waiting_world": "等待 VRChat 世界載入完成",
+            "waiting_traffic": "等待 VRChat 網路資料",
+            "waiting_key": "正在驗證網路連線",
+            "acquiring_key": "正在取得網路金鑰",
+            "retrying_key": "金鑰取得未成功，稍後自動重試",
+            "streaming": "正在接收 VRChat Chatbox",
+            "failed": "Chatbox 接收因錯誤停止"
+          }
+        }
       }
     },
     "onboarding": {

@@ -16,8 +16,7 @@ import { useDictionaryActions } from "./hooks/useDictionaryActions";
 import { useSettingsDraft } from "./hooks/useSettingsDraft";
 import { createDebugRows } from "./settings-derived";
 import { ApiManagementSettingsSection } from "./sections/ApiManagementSettingsSection";
-import { AudioSettingsSection } from "./sections/AudioSettingsSection";
-import { DebugSettingsSection } from "./sections/DebugSettingsSection";
+import { CaptureSettingsSection } from "./sections/CaptureSettingsSection";
 import { GlossarySettingsSection } from "./sections/GlossarySettingsSection";
 import { LearningSettingsSection } from "./sections/LearningSettingsSection";
 import { RecognitionSettingsSection } from "./sections/RecognitionSettingsSection";
@@ -109,7 +108,9 @@ export function SettingsPanel({
     onDelete: onDeleteDictionary,
   });
 
-  const { draft, saveState, applySettings } = draftController;
+  const { draft, saveState, saveMessage, applySettings } = draftController;
+  const sessionTranslation = health?.language_session && health.language_session.kind !== "global"
+    ? health.language_session.translation : draft.translation;
 
   const outputDevices = devices.filter((device) => device.is_loopback);
   const microphoneDevices = devices.filter((device) => !device.is_loopback);
@@ -136,7 +137,7 @@ export function SettingsPanel({
         <SystemSettingsSection
           desktopPreferences={desktop.desktopPreferences}
           desktopPreferencesReady={desktop.ready}
-          desktopSaveState={desktop.saveState}
+          uiLanguageSaving={desktop.uiLanguageSaving}
           desktopMessage={desktop.message}
           uiLanguagePreference={desktop.uiLanguagePreference}
           interfaceScale={interfaceScale}
@@ -151,6 +152,7 @@ export function SettingsPanel({
           updater={updater}
           profiles={apiProfileCatalog.profiles}
           onManageProfiles={() => setActiveCategory("api")}
+          debugRows={debugRows}
         />
       )}
 
@@ -190,10 +192,14 @@ export function SettingsPanel({
       )}
 
       {activeCategory === "audio" && (
-        <AudioSettingsSection
+        <CaptureSettingsSection
           draft={draft}
           playerAudioStatus={health?.player_audio}
           playerAudioStart={playerAudioStart}
+          chatboxStatus={health?.vrchat_chatbox}
+          translation={sessionTranslation}
+          profiles={apiProfileCatalog.profiles}
+          onOpenTranslation={() => setActiveCategory("translation")}
           devices={devices}
           devicesReady={devicesReady}
           microphoneRunning={Boolean(health?.capture_running && health.microphone_device)}
@@ -203,6 +209,7 @@ export function SettingsPanel({
           outputDevices={outputDevices}
           microphoneDevices={microphoneDevices}
           saveState={saveState}
+          saveMessage={saveMessage}
           onRefresh={onRefresh}
           applySettings={applySettings}
           onStartMicrophoneTest={onStartMicrophoneTest}
@@ -291,10 +298,6 @@ export function SettingsPanel({
           saveState={saveState}
           applySettings={applySettings}
         />
-      )}
-
-      {activeCategory === "debug" && (
-        <DebugSettingsSection rows={debugRows} />
       )}
     </section>
   );

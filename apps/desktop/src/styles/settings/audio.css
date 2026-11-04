@@ -1,4 +1,5 @@
-.device-group { display: grid; grid-template-columns: minmax(150px, 176px) minmax(0, 1fr); gap: 16px; }
+.device-group,
+.capture-chatbox-settings { display: grid; grid-template-columns: minmax(150px, 176px) minmax(0, 1fr); gap: 16px; }
 .device-group-heading { display: grid; grid-column: 1 / -1; grid-template-columns: inherit; align-items: center; gap: 16px; }
 .device-group-title { display: flex; min-width: 0; align-items: center; gap: 9px; color: var(--primary-ink); }
 .device-group-icon { display: grid; flex: 0 0 20px; place-items: center; }
@@ -9,18 +10,24 @@
 .device-group + .device-group { margin-top: 24px; }
 .device-group-content { display: grid; grid-column: 2; min-width: 0; gap: 16px; }
 .device-group-content > * { min-width: 0; margin: 0; }
-.audio-section > .device-group {
+.audio-section > :is(.device-group, .capture-chatbox-settings) {
   min-width: 0;
   padding: var(--settings-card-padding);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   background: var(--surface);
 }
-.audio-section > .device-group + .device-group { margin-top: var(--settings-group-gap); }
+.audio-section > .device-group + :is(.device-group, .capture-chatbox-settings) { margin-top: var(--settings-group-gap); }
 .player-audio-settings { margin: 16px 0 24px; }
+.audio-section > .player-audio-settings { margin: var(--settings-group-gap) 0 0; }
 .device-group-content > .player-audio-settings { margin: 0; }
-.player-audio-settings .settings-field-note { margin: 0; color: var(--text-secondary); font-size: var(--settings-text-caption); line-height: var(--settings-leading-copy); }
-.player-audio-settings [role="status"] p { margin: 6px 0 0; overflow-wrap: anywhere; }
+.player-audio-settings .settings-field-note,
+.capture-chatbox-settings .settings-field-note { margin: 0; color: var(--text-secondary); font-size: var(--settings-text-caption); line-height: var(--settings-leading-copy); }
+.player-audio-settings [role="status"] p,
+.capture-chatbox-settings [role="status"] p { margin: 6px 0 0; overflow-wrap: anywhere; }
+.capture-chatbox-settings > .device-group-heading { grid-template-columns: minmax(0, 1fr) auto; }
+.capture-chatbox-settings .settings-toggle-row { min-height: 0; padding: 0; }
+.capture-chatbox-translation { display: grid; justify-items: start; gap: 10px; }
 
 .microphone-level-setting {
   display: grid;
@@ -128,6 +135,7 @@
 .memory-compression-heading > div { display: grid; gap: 4px; min-width: 0; }
 .memory-compression-heading strong { font-size: var(--settings-text-label); }
 .memory-compression-heading small { color: var(--text-secondary); font-size: var(--settings-text-caption); }
-.memory-compression-setting > button { white-space: nowrap; }
+.memory-compression-actions { align-items: stretch; justify-content: flex-end; }
+.memory-compression-actions > button { height: var(--settings-control-height); white-space: nowrap; }
 .memory-compression-setting > p { grid-column: 1 / -1; margin: 0; overflow-wrap: anywhere; }
 .memory-compression-restart { padding: 12px; border: 1px solid var(--border); border-radius: var(--radius-md); color: var(--primary-ink); background: var(--primary-softer); }

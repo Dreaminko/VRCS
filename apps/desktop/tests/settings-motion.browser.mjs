@@ -26,6 +26,7 @@ for (const [width, systemReduced] of [[1200, false], [380, false], [1200, true]]
         import { initReactI18next } from 'react-i18next';
         import en from './src/i18n/locales/en-US.json';
         import { SystemSettingsSection } from './src/settings/sections/SystemSettingsSection';
+        import { createDebugRows } from './src/settings/settings-derived';
         import { VisionSettingsCard } from './src/settings/sections/VisionSettingsCard';
         import { DEFAULT_VISION_SETTINGS } from './src/settings/vision-settings';
         import { initializeMotionPreference, readReducedMotionPreference } from './src/app/app-motion';
@@ -41,6 +42,14 @@ for (const [width, systemReduced] of [[1200, false], [380, false], [1200, true]]
           themeTransitions++; callback(); return { finished: Promise.resolve() };
         } });
         const noop = () => {};
+        const draft = {
+          schema_version: 37, features: {}, server: { host: '127.0.0.1', port: 8766 },
+          conversation_titles: { auto_generate: false, profile_id: null, model: '', output_language: 'auto' },
+          storage: { database_path: 'data/vrcs.db', model_directory: 'models/asr', subtitle_history_max_bytes: 10485760, model_download_source: 'auto' },
+          audio: { sample_rate: 16000 }, vad: { silence_seconds: 0.4, max_speech_seconds: 6 },
+        };
+        const debugRows = createDebugRows({ draft, modelStatus: 'Ready', disabled: false,
+          outputDeviceCount: 4, microphoneDeviceCount: 2, dictionaryCount: 1, locale: 'en-US', t: i18next.t.bind(i18next) });
         function Harness() {
           const [vision, setVision] = useState(DEFAULT_VISION_SETTINGS);
           const [desktopPreferences, setDesktopPreferences] = useState({
@@ -48,13 +57,13 @@ for (const [width, systemReduced] of [[1200, false], [380, false], [1200, true]]
           });
           return <>
             <SystemSettingsSection desktopPreferences={desktopPreferences}
-              desktopPreferencesReady={true} desktopSaveState="saved" desktopMessage="" uiLanguagePreference="en-US"
+              desktopPreferencesReady={true} uiLanguageSaving={false} desktopMessage="" uiLanguagePreference="en-US"
               interfaceScale={100} onUpdateDesktop={async (key, enabled) => {
                 setDesktopPreferences(current => ({ ...current, [key]: enabled }));
               }} onInterfaceScaleChange={noop}
               onUpdateUiLanguage={async () => {}} onboardingDisabled={false} onStartOnboarding={noop}
-              locale="en-US" draft={{ features: {}, conversation_titles: { auto_generate: false, profile_id: null, model: '', output_language: 'auto' }, storage: { subtitle_history_max_bytes: 10485760, model_download_source: 'auto' } }}
-              profiles={[]} onManageProfiles={noop} applySettings={noop} updater={{ phase: 'idle', automaticChecks: false }} />
+              locale="en-US" draft={draft}
+              profiles={[]} onManageProfiles={noop} debugRows={debugRows} applySettings={noop} updater={{ phase: 'idle', automaticChecks: false }} />
             <VisionSettingsCard config={vision} profiles={[]} disabled={false} vrAvailable={true}
               providerDefinitions={[]} recognition={{ backend: 'qwen_local_managed', active_profile_id: null, language: 'auto',
                 managed_qwen: { package_id: 'qwen3-asr-0.6b-q8_0', device: 'auto' }, service_settings: {} }}
@@ -82,6 +91,49 @@ for (const [width, systemReduced] of [[1200, false], [380, false], [1200, true]]
           }
           return animations;
         };
+        const checkDebugMotion = async reduced => {
+          const debug = document.querySelector('.debug-section');
+          const summary = debug.querySelector('summary');
+          const chevron = summary.querySelector('svg:last-child');
+          const content = () => getComputedStyle(debug, '::details-content');
+          check(!debug.open, 'Debug starts collapsed');
+          const closedHeight = height(debug);
+          content().blockSize;
+          click(summary);
+          const initialHeight = height(debug);
+          let openingStart;
+          if (!reduced) {
+            check(Math.abs(initialHeight - closedHeight) <= 1, 'Starting to expand Debug does not jump its height');
+            await wait(() => height(debug) > initialHeight + 1 && Number(content().opacity) > 0 && Number(content().opacity) < 1);
+            const animation = chevron.getAnimations()[0];
+            openingStart = { height: height(debug), time: Number(animation.currentTime) / Number(animation.effect.getTiming().duration) };
+            check(Math.abs(new DOMMatrix(getComputedStyle(chevron).transform).b) > 0.01, 'Debug arrow rotates during expansion');
+          } else {
+            check(content().transitionProperty === 'none'
+              && chevron.getAnimations().every(animation => Number(animation.effect.getTiming().duration) <= 0.01),
+              'Reduced motion skips Debug content and arrow animations');
+          }
+          await wait(() => Number(content().opacity) === 1 && !chevron.getAnimations().length);
+          const openedHeight = height(debug);
+          check(openedHeight > closedHeight + 500, 'Expanded Debug includes the full diagnostic list');
+          if (!reduced) {
+            check(openingStart.time < 0.4, 'The browser samples Debug during the start of expansion');
+            check((openingStart.height - closedHeight) / (openedHeight - closedHeight) <= openingStart.time * 2 + 0.02,
+              'Debug starts expanding gradually instead of jumping through most of its height');
+          }
+          click(summary);
+          if (!reduced) {
+            check(Math.abs(height(debug) - openedHeight) <= 1, 'Starting to collapse Debug does not jump its spacing');
+            await wait(() => height(debug) > closedHeight + 1 && height(debug) < openedHeight - 1);
+            const animation = chevron.getAnimations()[0];
+            const elapsed = Number(animation.currentTime) / Number(animation.effect.getTiming().duration);
+            check(elapsed < 0.4, 'The browser samples Debug during the start of collapse');
+            check((openedHeight - height(debug)) / (openedHeight - closedHeight) <= elapsed * 2 + 0.02,
+              'Debug starts collapsing gradually instead of dropping most of its height');
+          }
+          await wait(() => Math.abs(height(debug) - closedHeight) <= 0.1 && content().contentVisibility === 'hidden');
+          check(!debug.querySelector('.debug-list').checkVisibility(), 'Collapsed Debug hides its diagnostic rows');
+        };
         try {
           await settle();
           const administratorSwitch = document.querySelector('[role="switch"][aria-label="Run as administrator by default"]');
@@ -90,16 +142,17 @@ for (const [width, systemReduced] of [[1200, false], [380, false], [1200, true]]
           check(administratorSwitch.getAttribute('aria-checked') === 'true', 'Administrator launches can be enabled');
           click(administratorSwitch);
           check(administratorSwitch.getAttribute('aria-checked') === 'false', 'Administrator launches can be disabled');
-          const groups = [...document.querySelectorAll('.system-settings-list > .system-settings-group:not(.software-update-settings)')];
+          const groups = [...document.querySelectorAll('.system-settings-list > .system-settings-group:not(.software-update-settings, .debug-section)')];
           check(groups.length === 4, 'All system settings groups are available');
-          check(document.querySelector('.system-settings-list > :last-child').classList.contains('software-update-settings'),
-            'Software updates appear last in system settings');
+          check(document.querySelector('.system-settings-list > :last-child').classList.contains('debug-section'),
+            'Debug appears last in system settings');
           for (const group of groups) {
             const control = group.querySelector('button, input');
             check(control?.checkVisibility(), 'System settings are visible without expanding a group: ' + group.getAttribute('aria-labelledby'));
             click(group.querySelector(':scope > .section-heading'));
             check(control.checkVisibility(), 'Clicking a system settings heading does not hide its controls');
           }
+          await checkDebugMotion(${systemReduced});
           const card = document.querySelector('.vision-settings-card');
           const master = card.querySelector('[role=switch]');
           const collapsedHeight = height(card);
@@ -164,6 +217,7 @@ for (const [width, systemReduced] of [[1200, false], [380, false], [1200, true]]
           await settle();
           check(readReducedMotionPreference() && localStorage.getItem('vrcs.reducedMotion') === 'true', 'The app preference is persisted');
           check(document.documentElement.dataset.reducedMotion === 'true', 'The preference applies to the document immediately');
+          await checkDebugMotion(true);
           if (!${systemReduced}) check(!region.isConnected, 'Enabling reduced motion settles an in-progress collapse');
           if (master.getAttribute('aria-checked') === 'false') click(master);
           region = card.querySelector(':scope > .settings-disclosure');
