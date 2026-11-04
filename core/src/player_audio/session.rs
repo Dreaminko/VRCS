@@ -105,12 +105,11 @@ impl Outputs {
     pub(super) fn speaker(&mut self, speaker: SpeakerIdentity) {
         self.audio(AudioEvent::Speaker(speaker.clone()));
         if let Some(tx) = &self.chatbox {
-            if tx.try_send(ChatboxEvent::Speaker(speaker.clone())).is_err() {
-                if self.pending_speakers.len() < 512
-                    || self.pending_speakers.contains_key(&speaker.id)
-                {
-                    self.pending_speakers.insert(speaker.id.clone(), speaker);
-                }
+            if tx.try_send(ChatboxEvent::Speaker(speaker.clone())).is_err()
+                && (self.pending_speakers.len() < 512
+                    || self.pending_speakers.contains_key(&speaker.id))
+            {
+                self.pending_speakers.insert(speaker.id.clone(), speaker);
             }
         }
     }
@@ -155,6 +154,7 @@ impl Outputs {
     }
 }
 
+#[derive(Default)]
 pub(crate) struct VrchatNetworkSession {
     capture: Option<Capture>,
     status: SharedStatus,
@@ -162,19 +162,6 @@ pub(crate) struct VrchatNetworkSession {
     consumers: NetworkConsumers,
     #[cfg(windows)]
     cache: Arc<super::SessionCache>,
-}
-
-impl Default for VrchatNetworkSession {
-    fn default() -> Self {
-        Self {
-            capture: None,
-            status: Arc::default(),
-            outputs: Arc::default(),
-            consumers: NetworkConsumers::default(),
-            #[cfg(windows)]
-            cache: Arc::default(),
-        }
-    }
 }
 
 impl VrchatNetworkSession {
@@ -463,8 +450,10 @@ mod tests {
     #[test]
     fn name_updates_retry_after_text_backpressure() {
         let (tx, mut rx) = mpsc::channel(1);
-        let mut outputs = Outputs::default();
-        outputs.chatbox = Some(tx);
+        let mut outputs = Outputs {
+            chatbox: Some(tx),
+            ..Outputs::default()
+        };
         let speaker = |name: &str| SpeakerIdentity {
             id: "scope".into(),
             index: 0,

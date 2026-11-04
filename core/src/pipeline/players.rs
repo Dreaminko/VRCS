@@ -3,6 +3,7 @@ use crate::player_audio::{AudioEvent, SharedStatus};
 use std::collections::HashMap;
 
 impl TranscriptionPipeline {
+    #[allow(clippy::too_many_arguments)]
     pub(crate) async fn start_players(
         &mut self,
         config: &crate::config::PlayerAudioConfig,
