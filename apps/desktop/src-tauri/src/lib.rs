@@ -134,6 +134,39 @@ fn write_glossary_file(path: PathBuf, contents: String) -> Result<(), String> {
 
 #[tauri::command]
 fn open_vrcx_repository() -> Result<(), String> {
+    open_browser(VRCX_REPOSITORY_URL)
+}
+
+fn project_link(target: &str) -> Result<String, String> {
+    if let Some(login) = target.strip_prefix("contributor:") {
+        if !login.is_empty()
+            && login.len() <= 39
+            && login.starts_with(|c: char| c.is_ascii_alphanumeric())
+            && login.ends_with(|c: char| c.is_ascii_alphanumeric())
+            && login
+                .bytes()
+                .all(|character| character.is_ascii_alphanumeric() || character == b'-')
+        {
+            return Ok(format!("https://github.com/{login}"));
+        }
+        return Err("Invalid GitHub username".into());
+    }
+    let links: serde_json::Value =
+        serde_json::from_str(include_str!("../../src/about/project-links.json"))
+            .map_err(|error| error.to_string())?;
+    links
+        .get(target)
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_owned)
+        .ok_or_else(|| "Unknown project link".into())
+}
+
+#[tauri::command]
+fn open_project_link(target: String) -> Result<(), String> {
+    open_browser(&project_link(&target)?)
+}
+
+fn open_browser(url: &str) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     let mut command = std::process::Command::new("explorer.exe");
     #[cfg(target_os = "macos")]
@@ -142,10 +175,10 @@ fn open_vrcx_repository() -> Result<(), String> {
     let mut command = std::process::Command::new("xdg-open");
 
     command
-        .arg(VRCX_REPOSITORY_URL)
+        .arg(url)
         .spawn()
         .map(|_| ())
-        .map_err(|error| format!("Failed to open VRCX-0 repository: {error}"))
+        .map_err(|error| format!("Failed to open browser: {error}"))
 }
 
 fn launch_core(app: &tauri::AppHandle) -> Result<(), String> {
@@ -505,6 +538,7 @@ pub fn run() {
             memory_compression::player_audio_set_memory_compression,
             write_glossary_file,
             open_vrcx_repository,
+            open_project_link,
             diagnostics::diagnostic_status,
             diagnostics::report_frontend_error,
             diagnostics::open_log_directory,
@@ -752,9 +786,28 @@ pub fn release_self_test() -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{core_connection_config, DEFAULT_CORE_PORT};
+    use super::{core_connection_config, project_link, DEFAULT_CORE_PORT};
 
     const CAPABILITIES: &str = include_str!("../capabilities/default.json");
+
+    #[test]
+    fn project_links_accept_known_destinations_and_github_users_only() {
+        assert_eq!(
+            project_link("vrchat").unwrap(),
+            "https://vrc.group/VRCS.0627"
+        );
+        assert_eq!(
+            project_link("contributor:Dreaminko").unwrap(),
+            "https://github.com/Dreaminko"
+        );
+        for target in [
+            "https://example.com",
+            "contributor:",
+            "contributor:../settings",
+        ] {
+            assert!(project_link(target).is_err(), "accepted {target}");
+        }
+    }
 
     #[test]
     fn custom_window_actions_are_allowed() {
@@ -789,6 +842,7 @@ mod tests {
                 "allow-player-audio-memory-status",
                 "allow-player-audio-set-memory-compression",
                 "allow-write-glossary-file",
+                "allow-open-project-link",
                 "allow-export-error-report",
                 "allow-download-and-install-update",
             ] {

@@ -1,0 +1,54 @@
+.about-section {
+  display: grid;
+  justify-items: center;
+  gap: var(--settings-group-gap);
+  text-align: center;
+}
+.about-section > section { width: 100%; max-width: 600px; }
+.about-section .section-heading { justify-content: center; }
+.about-brand {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  padding: 8px 0 4px;
+}
+.about-brand img { display: block; width: min(220px, 100%); height: auto; }
+.about-brand > span,
+.about-description,
+.about-contributor-status,
+.about-feedback { color: var(--text-quiet); font-size: var(--settings-text-body); line-height: var(--settings-leading-copy); }
+.about-description { margin: 0 0 16px; }
+.about-avatars { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; }
+.about-avatar {
+  position: relative;
+  display: grid;
+  width: 40px;
+  height: 40px;
+  flex: 0 0 40px;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--text-secondary);
+  background: var(--surface-subtle);
+  text-decoration: none;
+  outline: 2px solid transparent;
+  outline-offset: 2px;
+  transition: outline-color 140ms ease-out;
+}
+.about-avatar img { position: absolute; inset: 0; border: 1px solid var(--border); border-radius: inherit; }
+.about-avatar:hover { outline-color: var(--border-strong); }
+.about-avatar:focus-visible,
+.about-link-row a:focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 3px; }
+.about-avatar:focus-visible { transition: none; }
+.about-contributor-status { display: grid; gap: 4px; margin-top: 14px; }
+.about-contributor-status:empty { display: none; }
+.about-links { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 28px; }
+.about-link-row { display: flex; min-width: 0; align-items: center; justify-content: center; gap: 12px; }
+.about-link-row > a { display: grid; min-width: 0; justify-items: center; gap: 5px; padding-block: 4px; text-decoration: none; }
+.about-link-row strong { display: flex; align-items: center; justify-content: center; gap: 6px; color: var(--text); font-size: var(--settings-text-label); font-weight: var(--settings-weight-label); }
+.about-link-row strong svg { color: var(--text-quiet); }
+.about-link-row a:hover strong { color: var(--primary-ink); }
+.about-link-row a > span { overflow-wrap: anywhere; color: var(--text-secondary); font-size: var(--settings-text-caption); line-height: var(--settings-leading-copy); }
+.about-feedback { margin: 14px 0 0; }
+@media (max-width: 680px) {
+  .about-links { grid-template-columns: 1fr; }
+}

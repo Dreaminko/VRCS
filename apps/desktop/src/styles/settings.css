@@ -18,6 +18,7 @@
 @import "./settings/storage.css";
 @import "./settings/downloads.css";
 @import "./settings/updates.css";
+@import "./settings/about.css";
 @import "./settings/dictionary-debug.css";
 
 :root {

@@ -13,7 +13,7 @@ export function visibleSettingsCategories(features: FeatureSettings): SettingsCa
   if (features.glossary) categories.push("glossary");
   categories.push("api");
   if (features.learning) categories.push("learning");
-  categories.push("connections");
+  categories.push("connections", "about");
   return categories;
 }
 

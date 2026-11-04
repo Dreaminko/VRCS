@@ -11,6 +11,7 @@ const COMMANDS: &[&str] = &[
     "player_audio_set_memory_compression",
     "write_glossary_file",
     "open_vrcx_repository",
+    "open_project_link",
     "diagnostic_status",
     "report_frontend_error",
     "open_log_directory",

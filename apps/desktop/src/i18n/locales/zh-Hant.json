@@ -999,9 +999,27 @@
         "api": "API 存取",
         "learning": "學習",
         "connections": "連線",
+        "about": "關於",
         "vrOverlay": "VR Overlay",
         "vision": "視覺",
         "ocr": "OCR"
+      },
+      "about": {
+        "version": "版本 {{version}}",
+        "contributors": "貢獻者",
+        "thanks": "感謝每一位為 VRCS 作出貢獻的朋友。",
+        "failed": "暫時無法載入貢獻者，請稍後重試。",
+        "rateLimited": "已達到 GitHub 請求限制，請稍後重試。",
+        "cached": "目前顯示已快取的名單。",
+        "empty": "暫無可顯示的貢獻者。",
+        "community": "專案與社群",
+        "openFailed": "無法開啟瀏覽器，請稍後重試。",
+        "links": {
+          "github": "GitHub",
+          "discord": "Discord",
+          "qq": "QQ 群組",
+          "vrchat": "VRChat Group"
+        }
       },
       "vrOverlay": {
         "title": "VR Overlay",

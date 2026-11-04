@@ -999,9 +999,27 @@
         "api": "API 管理",
         "learning": "学習",
         "connections": "接続",
+        "about": "このアプリについて",
         "vrOverlay": "VR Overlay",
         "vision": "ビジョン",
         "ocr": "OCR"
+      },
+      "about": {
+        "version": "バージョン {{version}}",
+        "contributors": "貢献者",
+        "thanks": "VRCS に貢献してくださる皆さまに感謝します。",
+        "failed": "貢献者を読み込めませんでした。後でもう一度お試しください。",
+        "rateLimited": "GitHub のリクエスト上限に達しました。後でもう一度お試しください。",
+        "cached": "保存済みの一覧を表示しています。",
+        "empty": "表示できる貢献者はまだいません。",
+        "community": "プロジェクトとコミュニティ",
+        "openFailed": "ブラウザーを開けませんでした。後でもう一度お試しください。",
+        "links": {
+          "github": "GitHub",
+          "discord": "Discord",
+          "qq": "QQ グループ",
+          "vrchat": "VRChat Group"
+        }
       },
       "vrOverlay": {
         "title": "VR Overlay",

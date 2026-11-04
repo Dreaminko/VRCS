@@ -34,6 +34,7 @@
     "allow-player-audio-set-memory-compression",
     "allow-write-glossary-file",
     "allow-open-vrcx-repository",
+    "allow-open-project-link",
     "allow-diagnostic-status",
     "allow-report-frontend-error",
     "allow-open-log-directory",

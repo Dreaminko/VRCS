@@ -5,20 +5,21 @@ import { DEFAULT_FEATURE_SETTINGS, resolveSettingsCategory, visibleSettingsCateg
 
 test("all modules retain the existing settings categories by default", () => {
   assert.deepEqual(visibleSettingsCategories(DEFAULT_FEATURE_SETTINGS), [
-    "system", "audio", "recognition", "translation", "vr_overlay", "vision", "glossary", "api", "learning", "connections",
+    "system", "audio", "recognition", "translation", "vr_overlay", "vision", "glossary", "api", "learning", "connections", "about",
   ]);
 });
 
 test("disabled modules disappear while core settings remain available", () => {
   const features = Object.fromEntries(Object.keys(DEFAULT_FEATURE_SETTINGS).map((key) => [key, false])) as unknown as typeof DEFAULT_FEATURE_SETTINGS;
-  assert.deepEqual(visibleSettingsCategories(features), ["system", "audio", "recognition", "translation", "api", "connections"]);
+  assert.deepEqual(visibleSettingsCategories(features), ["system", "audio", "recognition", "translation", "api", "connections", "about"]);
   assert.equal(resolveSettingsCategory("ocr", features), "system");
   assert.equal(resolveSettingsCategory("translation", features), "translation");
 });
 
 test("capture keeps its audio navigation alias without a separate experimental category", () => {
   for (const features of [DEFAULT_FEATURE_SETTINGS, { ...DEFAULT_FEATURE_SETTINGS, vr_overlay: false, learning: false }]) {
-    assert.equal(visibleSettingsCategories(features).at(-1), "connections");
+    assert.equal(visibleSettingsCategories(features).at(-1), "about");
+    assert.equal(resolveSettingsCategory("about", features), "about");
     assert.equal(resolveSettingsCategory("audio", features), "audio");
   }
 });

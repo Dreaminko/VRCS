@@ -21,6 +21,7 @@ import { GlossarySettingsSection } from "./sections/GlossarySettingsSection";
 import { LearningSettingsSection } from "./sections/LearningSettingsSection";
 import { RecognitionSettingsSection } from "./sections/RecognitionSettingsSection";
 import { ConnectionSettingsSection } from "./sections/ConnectionSettingsSection";
+import { AboutSettingsSection } from "./sections/AboutSettingsSection";
 import { SystemSettingsSection } from "./sections/SystemSettingsSection";
 import { TranslationSettingsSection } from "./sections/TranslationSettingsSection";
 import { OcrSettingsSection } from "./sections/OcrSettingsSection";
@@ -291,6 +292,8 @@ export function SettingsPanel({
           providerDefinitions={apiProfileCatalog.providerDefinitions}
           applySettings={applySettings} />
       )}
+
+      {activeCategory === "about" && <AboutSettingsSection version={updater.buildInfo?.version} />}
 
       {activeCategory === "vr_overlay" && (
         <VrOverlaySettingsSection

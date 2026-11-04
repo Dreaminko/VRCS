@@ -999,9 +999,27 @@
         "api": "API access",
         "learning": "Learning",
         "connections": "Connections",
+        "about": "About",
         "vrOverlay": "VR Overlay",
         "vision": "Vision",
         "ocr": "OCR"
+      },
+      "about": {
+        "version": "Version {{version}}",
+        "contributors": "Contributors",
+        "thanks": "Thanks to everyone who contributes to VRCS.",
+        "failed": "Could not load contributors. Try again later.",
+        "rateLimited": "GitHub request limit reached. Try again later.",
+        "cached": "Showing the saved list.",
+        "empty": "No contributors to show yet.",
+        "community": "Project & community",
+        "openFailed": "Could not open the browser. Try again later.",
+        "links": {
+          "github": "GitHub",
+          "discord": "Discord",
+          "qq": "QQ Group",
+          "vrchat": "VRChat Group"
+        }
       },
       "vrOverlay": {
         "title": "VR Overlay",
