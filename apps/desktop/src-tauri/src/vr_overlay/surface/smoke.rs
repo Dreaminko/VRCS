@@ -367,6 +367,18 @@ pub fn smoke(app: AppHandle, views: Vec<(SurfaceId, SurfaceView)>) {
                 }
                 // The same source shutdown and host request used by the worker must be reversible.
                 capture.suspend();
+                if matches!(surface, SurfaceId::Menu | SurfaceId::Dialogue) {
+                    let host_active =
+                        hub.0.lock().map_err(|e| e.to_string())?[surface.index()].active;
+                    if !host_active || capture.active() || capture.snapshot(first_frame)? != first {
+                        return Err(
+                            "Fade suspension lost the submitted texture or host identity".into(),
+                        );
+                    }
+                    if capture.poll()?.is_some() || capture.start(Some(1))? {
+                        return Err("Fade suspension restarted capture".into());
+                    }
+                }
                 hub.set_active(&app, surface, false)?;
                 if capture.active() {
                     return Err("Hidden source remained active".into());

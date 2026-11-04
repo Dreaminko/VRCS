@@ -37,6 +37,7 @@ pub(crate) mod preview;
 pub(crate) mod surface;
 #[cfg(windows)]
 mod ui_runtime;
+mod visibility;
 #[cfg(windows)]
 mod vision_runtime;
 mod wrist_menu;

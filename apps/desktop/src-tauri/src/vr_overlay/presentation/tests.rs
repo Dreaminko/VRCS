@@ -18,6 +18,101 @@ fn headset_content(text: String) -> PresentationContent {
 }
 
 #[test]
+fn remote_chatbox_uses_independent_other_player_lanes_and_late_metadata() {
+    let now = Instant::now();
+    let headset_config = VrOverlayHeadsetConfig::default();
+    let wrist_config = VrOverlayWristConfig::default();
+    for player_limit in [None, Some(1), Some(4)] {
+        let mut headset = HeadsetPresentation::default();
+        let mut wrist = WristPresentation::default();
+        headset.set_player_limit(player_limit);
+        wrist.set_player_limit(player_limit);
+        let speaker = vrcs_core::SpeakerIdentity {
+            id: "vrc:text-player".into(),
+            index: 2,
+            display_name: None,
+            user_id: None,
+        };
+        let mut voice = subtitle(81, "Spoken words");
+        voice.speaker = Some(speaker.clone());
+        let mut text = subtitle(82, "Typed words");
+        text.source = "vrchat_chatbox".into();
+        text.speaker = Some(speaker.clone());
+        for event in [final_event(voice), final_event(text)] {
+            headset.apply(event.clone(), now, &headset_config);
+            wrist.apply(event, now, &wrist_config);
+        }
+        for content in [
+            headset.frame(now, &headset_config).unwrap().content,
+            wrist.frame(now, &wrist_config).unwrap().content,
+        ] {
+            let (PresentationContent::Headset(messages) | PresentationContent::Wrist(messages)) = content;
+            assert_eq!(messages.len(), 2);
+            assert!(messages.iter().all(|message| message.side == MessageSide::Left));
+            assert!(messages.iter().all(|message| message.speaker.as_deref() == Some("#3")));
+            assert_eq!(messages[0].original.as_ref().unwrap().source, "speaker");
+            assert_eq!(messages[1].original.as_ref().unwrap().source, "vrchat_chatbox");
+        }
+        for event in [
+            PresentationEvent::TranslationCompleted {
+                subtitle_id: 82,
+                translation: translation("Translated remote text"),
+                preferred: true,
+            },
+            PresentationEvent::SpeakerUpdated {
+                speaker: vrcs_core::SpeakerIdentity {
+                    display_name: Some("Late name".into()),
+                    ..speaker
+                },
+            },
+        ] {
+            headset.apply(event.clone(), now, &headset_config);
+            wrist.apply(event, now, &wrist_config);
+        }
+        for content in [
+            headset.frame(now, &headset_config).unwrap().content,
+            wrist.frame(now, &wrist_config).unwrap().content,
+        ] {
+            let (PresentationContent::Headset(messages) | PresentationContent::Wrist(messages)) = content;
+            assert_eq!(messages[0].text, "Spoken words");
+            assert_eq!(messages[1].text, "Typed words\nTranslated remote text");
+            assert!(messages.iter().all(|message| message.speaker.as_deref() == Some("Late name")));
+        }
+    }
+}
+
+#[test]
+fn remote_chatbox_follows_other_player_source_switch_and_supports_text_only() {
+    let now = Instant::now();
+    for include_speaker in [true, false] {
+        let headset_config = VrOverlayHeadsetConfig {
+            include_speaker,
+            include_microphone: false,
+            include_chatbox: false,
+            ..Default::default()
+        };
+        let wrist_config = VrOverlayWristConfig {
+            include_speaker,
+            include_microphone: false,
+            include_chatbox: false,
+            ..Default::default()
+        };
+        let mut headset = HeadsetPresentation::default();
+        let mut wrist = WristPresentation::default();
+        let mut text = subtitle(83, "Text-only capture");
+        text.source = "vrchat_chatbox".into();
+        let event = final_event(text);
+        headset.apply(event.clone(), now, &headset_config);
+        wrist.apply(event, now, &wrist_config);
+        assert_eq!(headset.frame(now, &headset_config).is_some(), include_speaker);
+        assert_eq!(wrist.frame(now, &wrist_config).is_some(), include_speaker);
+        let expired = now + Duration::from_secs(300);
+        assert!(headset.frame(expired, &headset_config).is_none());
+        assert!(wrist.frame(expired, &wrist_config).is_none());
+    }
+}
+
+#[test]
 fn preview_switches_select_original_and_translation_in_previews_and_finals() {
     let now = Instant::now();
     for (show_original, show_translation, expected_preview, expected_final) in [
@@ -240,6 +335,88 @@ fn wrist_without_visible_content_has_no_frame() {
         config.include_speaker = false;
         assert!(wrist.frame(now, &config).is_none());
     }
+}
+
+#[test]
+fn unrelated_events_do_not_invalidate_the_retained_wrist_frame() {
+    let now = Instant::now();
+    let config = VrOverlayWristConfig {
+        include_speaker: false,
+        include_microphone: true,
+        ..Default::default()
+    };
+    let mut wrist = WristPresentation::default();
+    let mut caption = subtitle(1, "microphone caption");
+    caption.source = "microphone".into();
+    wrist.apply(final_event(caption), now, &config);
+    let revision = wrist.retention_revision();
+    wrist.apply(
+        PresentationEvent::Final {
+            utterance_id: Some("unrelated".into()),
+            subtitle: subtitle(2, "ignored speaker"),
+        },
+        now,
+        &config,
+    );
+    wrist.apply(
+        PresentationEvent::RecognitionCancelled {
+            utterance_id: "unrelated".into(),
+            source: "speaker".into(),
+        },
+        now,
+        &config,
+    );
+    wrist.apply(
+        PresentationEvent::RecognitionReset {
+            source: "speaker".into(),
+        },
+        now,
+        &config,
+    );
+    assert_eq!(wrist.retention_revision(), revision);
+    assert!(wrist.frame(now, &config).is_some());
+}
+
+#[test]
+fn wrist_idle_query_and_retention_invalidation_preserve_history() {
+    let now = Instant::now();
+    let mut config = VrOverlayWristConfig::default();
+    let mut wrist = WristPresentation::default();
+    wrist.apply(final_event(subtitle(1, "hello")), now, &config);
+    assert!(!wrist.idle_expired(now + Duration::from_secs(14), &config));
+    assert!(wrist.idle_expired(now + Duration::from_secs(15), &config));
+    wrist.set_player_limit(Some(0));
+    let revision = wrist.retention_revision();
+    wrist.set_player_limit(Some(0));
+    wrist.set_show_partials(true);
+    assert_eq!(wrist.retention_revision(), revision);
+    wrist.apply(
+        PresentationEvent::RecognitionPartial {
+            utterance_id: "pending".into(),
+            source: "speaker".into(),
+            text: "draft".into(),
+            language: None,
+            speaker: None,
+        },
+        now + Duration::from_secs(16),
+        &config,
+    );
+    let revision = wrist.retention_revision();
+    wrist.apply(
+        PresentationEvent::RecognitionCancelled {
+            utterance_id: "pending".into(),
+            source: "speaker".into(),
+        },
+        now + Duration::from_secs(17),
+        &config,
+    );
+    assert!(wrist.retention_revision() > revision);
+    assert_eq!(wrist.entries.len(), 1);
+    config.idle_hide_seconds = 0;
+    assert!(!wrist.idle_expired(now + Duration::from_secs(100), &config));
+    assert!(wrist
+        .frame(now + Duration::from_secs(100), &config)
+        .is_some());
 }
 
 #[test]

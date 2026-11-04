@@ -69,3 +69,26 @@ test("wrist entry limits stay bounded even with unlimited players or missing set
   current.max_entries = 4;
   assert.equal(visibleCaptionMessages(current).length, 4);
 });
+
+for (const kind of ["headset", "dialogue"] as const) {
+  test(`${kind} keeps voice and remote text in separate lanes and filters text as another player`, () => {
+    const voice = message("same", "en", "Spoken", false);
+    const text = message("same", "en", "Typed", false, "vrchat_chatbox");
+    text.side = "left";
+    const current = view([voice, text], kind);
+    current.max_visible_players = 1;
+    assert.deepEqual(visibleCaptionMessages(current), [voice, text]);
+    current.visibility!.hidden_tracks = ["same"];
+    assert.deepEqual(visibleCaptionMessages(current), []);
+    current.visibility = { hidden_tracks: [], hidden_source_languages: ["en"] };
+    assert.deepEqual(visibleCaptionMessages(current), []);
+  });
+}
+
+test("mixed-audio headset preserves remote text alongside the latest audio caption", () => {
+  const voice = message("mixed", "en", "Speech", false);
+  const text = message("same", "en", "Typed", false, "vrchat_chatbox");
+  const current = view([voice, text]);
+  current.max_visible_players = null;
+  assert.deepEqual(visibleCaptionMessages(current), [voice, text]);
+});

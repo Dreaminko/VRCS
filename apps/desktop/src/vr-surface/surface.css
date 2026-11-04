@@ -149,10 +149,10 @@ html[data-vr-surface], html[data-vr-surface] body, html[data-vr-surface] #root {
 .vr-reader-toolbar { flex: none; align-self: center; gap: 8px; padding: 8px; }
 .vr-reader-toolbar .vr-surface-button { width: 68px; height: 68px; flex-basis: 68px; }
 .vr-reader-toolbar .vr-surface-tooltip { max-width: 220px; }
-.vr-surface-headset { display: flex; align-items: center; justify-content: center; padding: 0 8px 8px; }
-.vr-headset-panel { width: 100%; padding: 14px 26px; text-align: center; font-weight: 600; }
-.vr-headset-language { display: flex; align-items: center; overflow: hidden; }
-.vr-headset-language span { display: block; width: 100%; flex: none; line-height: 1.2; overflow-wrap: anywhere; }
+.vr-surface-headset { display: flex; align-items: center; justify-content: center; padding: 16px; }
+.vr-headset-panel { width: 100%; min-width: 0; padding: 16px 24px; text-align: center; font-weight: 600; }
+.vr-headset-language { width: 100%; min-width: 0; overflow: hidden; }
+.vr-headset-language span { display: block; width: 100%; overflow-wrap: anywhere; }
 .vr-progress-panel { position: absolute; inset: 8px 12px 16px; padding: 18px 24px; }
 .vr-progress-panel header { display: flex; align-items: center; gap: 12px; font-size: 28px; }
 .vr-progress-panel header strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -179,5 +179,5 @@ html[data-vr-surface], html[data-vr-surface] body, html[data-vr-surface] #root {
 .vr-caption-grid { display: grid; width: 100%; min-width: 0; gap: 12px; }
 .vr-caption-card { min-width: 0; padding: 4px 8px; overflow: hidden; }
 .vr-caption-speaker { color: var(--primary-ink); font-weight: 650; line-height: 1.1; margin-bottom: 6px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-.vr-caption-card .vr-headset-language + .vr-headset-language { color: var(--text-secondary); }
+.vr-caption-card .vr-headset-language + .vr-headset-language { margin-top: var(--vr-caption-language-gap); color: var(--text-secondary); }
 .vr-caption-notice { flex: none; margin: 0 0 16px; color: var(--text-secondary); font-size: 26px; line-height: 1.35; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 120px; overflow: hidden; }

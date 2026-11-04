@@ -434,6 +434,8 @@ struct WorkerState {
     #[cfg(windows)]
     ui: super::ui_runtime::UiRuntime,
     #[cfg(windows)]
+    dialogue_policy: u64,
+    #[cfg(windows)]
     player_audio: super::player_audio_ui::Runtime,
     #[cfg(windows)]
     player_progress: Option<super::ocr_progress::ProgressView>,
@@ -518,6 +520,8 @@ fn worker_loop(
         controls,
         #[cfg(windows)]
         ui: super::ui_runtime::UiRuntime::new(placement),
+        #[cfg(windows)]
+        dialogue_policy: 1,
         #[cfg(windows)]
         player_audio: Default::default(),
         #[cfg(windows)]
@@ -610,6 +614,12 @@ fn worker_loop(
             if let Ok(mut pending) = latest_config.lock() {
                 if let Some((config, ocr_config)) = pending.take() {
                     #[cfg(windows)]
+                    if state.config.wrist != config.wrist
+                        || state.config.translation_display != config.translation_display
+                    {
+                        state.dialogue_policy += 1;
+                    }
+                    #[cfg(windows)]
                     if state.ocr_config != ocr_config && !state.ocr.vision.visible() {
                         state.ocr.clear();
                     }
@@ -634,6 +644,13 @@ fn worker_loop(
             if let Ok(mut pending) = latest_dashboard.lock() {
                 if let Some(view) = pending.take() {
                     if state.dashboard_view.as_ref() != Some(&view) {
+                        #[cfg(windows)]
+                        if state.dashboard_view.as_ref().is_none_or(|previous| {
+                            previous.caption_visibility != view.caption_visibility
+                                || previous.max_visible_players != view.max_visible_players
+                        }) {
+                            state.dialogue_policy += 1;
+                        }
                         #[cfg(windows)]
                         {
                             state.ocr.progress_labels = view.labels.ocr_progress.clone();
@@ -678,6 +695,10 @@ fn worker_loop(
                     state.headset_sample = visible;
                 }
                 if let Some(visible) = control.wrist_sample {
+                    #[cfg(windows)]
+                    if state.wrist_sample != visible {
+                        state.dialogue_policy += 1;
+                    }
                     state.wrist_sample = visible;
                 }
             }
@@ -998,6 +1019,14 @@ fn tick(
             reader_revision: state.ocr.input_revision(),
             content_owns_input: state.ocr.owns_input() || modal,
             business,
+            dialogue_sample: state.wrist_sample,
+            dialogue_content_active: state.wrist_sample
+                || state.wrist.has_candidates()
+                    && !state
+                        .wrist
+                        .idle_expired(Instant::now(), &state.config.wrist)
+                || state.caption_status.text(Instant::now()).is_some(),
+            dialogue_retention: dialogue_retention(state),
         };
         let (events, focused) =
             state
@@ -1491,64 +1520,21 @@ fn update_headset(
 }
 
 #[cfg(windows)]
+fn dialogue_retention(state: &WorkerState) -> super::ui_runtime::DialogueRetentionKey {
+    super::ui_runtime::DialogueRetentionKey {
+        content: state.wrist.retention_revision(),
+        policy: state.dialogue_policy,
+    }
+}
+
+#[cfg(windows)]
 fn refresh_wrist(
     app: &AppHandle,
     state: &mut WorkerState,
     status: &mut VrOverlayStatus,
     backend: &mut OpenVrBackend,
 ) {
-    if !state.config.enabled
-        || !state.config.wrist.enabled
-        || (!state.ui.dialogue_visible && !state.wrist_sample)
-    {
-        backend.hide(OverlayKind::Wrist);
-        return;
-    }
-    let result = (|| -> Result<bool, String> {
-        let placement = state.ui.placement.lock().unwrap_or_else(|e| e.into_inner());
-        if placement.display_mode() == Mode::World {
-            let pose = placement
-                .absolute_pose()
-                .ok_or("Dialogue pose unavailable")?;
-            let (_, _, origin) = backend.ocr_tracking()?;
-            backend.ensure_world_wrist(
-                &state.config.wrist,
-                pose,
-                origin,
-                placement.head_relative_pose(),
-            )?;
-        }
-        let revision = placement.revision;
-        drop(placement);
-        let visible = state.ui.dialogue_surface.refresh(
-            app,
-            backend,
-            OverlayKind::Wrist,
-            Some((state.ui.dialogue_hover, None, None)),
-        )?;
-        if visible {
-            backend.show(OverlayKind::Wrist)?;
-            state.ui.dialogue_revision = Some(revision);
-        }
-        Ok(visible)
-    })();
-    match result {
-        Ok(true) => {
-            status.wrist.state = ResourceState::Visible;
-            status.wrist.last_error_code = None;
-        }
-        Ok(false) => {
-            state.ui.dialogue_revision = None;
-            if status.wrist.state == ResourceState::Visible {
-                status.wrist.state = ResourceState::Creating;
-            }
-        }
-        Err(error) => {
-            state.ui.dialogue_revision = None;
-            backend.hide(OverlayKind::Wrist);
-            wrist_error(status, "wrist_render", error);
-        }
-    }
+    render_wrist(app, state, status, backend, false);
 }
 
 #[cfg(windows)]
@@ -1558,15 +1544,35 @@ fn update_wrist(
     status: &mut VrOverlayStatus,
     backend: &mut OpenVrBackend,
 ) {
+    render_wrist(app, state, status, backend, true);
+}
+
+#[cfg(windows)]
+fn render_wrist(
+    app: &AppHandle,
+    state: &mut WorkerState,
+    status: &mut VrOverlayStatus,
+    backend: &mut OpenVrBackend,
+    business: bool,
+) {
     use super::surface::SurfaceView;
+    let now = Instant::now();
     if !state.config.enabled || !state.config.wrist.enabled {
         backend.reset(OverlayKind::Wrist);
-        state.ui.dialogue_revision = None;
+        state.ui.reset_dialogue_visibility();
         status.wrist.state = ResourceState::Disabled;
         status.wrist.bound_role = None;
         status.wrist.tracked_device_available = false;
         status.wrist.last_error_code = None;
         return;
+    }
+    let retention = dialogue_retention(state);
+    if state
+        .ui
+        .dialogue_retention
+        .is_some_and(|previous| previous.policy != retention.policy)
+    {
+        state.ui.reset_dialogue_visibility();
     }
     let (mode, pose, relative, follow_view, busy, error, revision) = {
         let placement = state.ui.placement.lock().unwrap_or_else(|e| e.into_inner());
@@ -1588,12 +1594,13 @@ fn update_wrist(
             }
             _ => {
                 backend.hide(OverlayKind::Wrist);
+                state.ui.reset_dialogue_visibility();
                 status.wrist.state = ResourceState::DeviceUnavailable;
                 status.wrist.tracked_device_available = false;
                 return;
             }
         }
-    } else {
+    } else if business {
         backend
             .ensure_wrist(&state.config.wrist)
             .and_then(|binding| {
@@ -1604,9 +1611,12 @@ fn update_wrist(
                     Err("Controller tracking unavailable".into())
                 }
             })
+    } else {
+        Ok(())
     };
     if let Err(error) = setup {
         backend.hide(OverlayKind::Wrist);
+        state.ui.reset_dialogue_visibility();
         status.wrist.tracked_device_available = false;
         if error == "Controller tracking unavailable" {
             status.wrist.state = ResourceState::DeviceUnavailable;
@@ -1617,112 +1627,156 @@ fn update_wrist(
         return;
     }
     status.wrist.tracked_device_available = true;
-    if !state.ui.dialogue_visible && !state.wrist_sample {
+    if !state.ui.dialogue_available || state.ui.dialogue_occluded {
         backend.hide(OverlayKind::Wrist);
-        status.wrist.state = ResourceState::ReadyHidden;
+        state.ui.reset_dialogue_visibility();
+        status.wrist.tracked_device_available = state.ui.dialogue_available;
+        status.wrist.state = if state.ui.dialogue_available {
+            ResourceState::ReadyHidden
+        } else {
+            ResourceState::DeviceUnavailable
+        };
         return;
     }
-    let frame = if state.wrist_sample {
-        Some(PresentationFrame::wrist(vec![
-            WristMessage {
-                original: None,
-                speaker: None,
-                text: "你好，欢迎使用 VRCS。".into(),
-                side: MessageSide::Left,
-            },
-            WristMessage {
-                original: None,
-                speaker: None,
-                text: "Conversation stays on your wrist or in front of you.".into(),
-                side: MessageSide::Right,
-            },
-        ]))
-    } else {
-        state.wrist.frame_with_translation_display(
-            Instant::now(),
-            &state.config.wrist,
-            &state.config.translation_display,
-        )
-    };
-    let notice = state.caption_status.text(Instant::now());
-    let frame = frame.or_else(|| {
-        notice
-            .as_ref()
-            .map(|_| PresentationFrame::wrist(Vec::new()))
-    });
-    let Some(frame) = frame else {
+    let target = state.ui.dialogue_visible;
+    if !business && target && state.ui.dialogue_pending.is_none() {
         backend.hide(OverlayKind::Wrist);
-        state.ui.dialogue_revision = None;
-        status.wrist.state = ResourceState::ReadyHidden;
-        status.wrist.last_error_code = None;
         return;
-    };
-    let controls = state
-        .controls
-        .lock()
-        .map(|hub| hub.snapshot())
-        .unwrap_or_default();
-    let messages = match frame.content {
-        PresentationContent::Wrist(messages) => messages,
-        _ => Vec::new(),
-    };
-    let result = (|| {
-        let visible = state.ui.dialogue_surface.present(
-            app,
-            backend,
-            OverlayKind::Wrist,
-            SurfaceView::Dialogue {
-                visibility: state
-                    .dashboard_view
+    }
+    let result = (|| -> Result<(), String> {
+        let ready = if !target {
+            state.ui.dialogue_retention == Some(retention)
+                && state.ui.dialogue_fade.active()
+                && state
+                    .ui
+                    .dialogue_surface
+                    .hold_for_fade(app, backend, OverlayKind::Wrist)
+        } else if !business {
+            state.ui.dialogue_surface.refresh(
+                app,
+                backend,
+                OverlayKind::Wrist,
+                Some((state.ui.dialogue_hover, None, None)),
+            )?
+        } else {
+            let frame = if state.wrist_sample {
+                Some(PresentationFrame::wrist(vec![
+                    WristMessage {
+                        original: None,
+                        speaker: None,
+                        text: "你好，欢迎使用 VRCS。".into(),
+                        side: MessageSide::Left,
+                    },
+                    WristMessage {
+                        original: None,
+                        speaker: None,
+                        text: "Conversation stays on your wrist or in front of you.".into(),
+                        side: MessageSide::Right,
+                    },
+                ]))
+            } else {
+                state.wrist.frame_with_translation_display(
+                    now,
+                    &state.config.wrist,
+                    &state.config.translation_display,
+                )
+            };
+            let notice = state.caption_status.text(now);
+            let frame = frame.or_else(|| {
+                notice
                     .as_ref()
-                    .map(|view| view.caption_visibility.clone())
-                    .unwrap_or_default(),
-                max_visible_players: state
-                    .dashboard_view
-                    .as_ref()
-                    .and_then(|view| view.max_visible_players),
-                max_entries: state.config.wrist.max_entries.clamp(3, 10) as usize,
-                controls,
-                messages,
-                notice,
-                labels: state
-                    .dashboard_view
-                    .as_ref()
-                    .map(|view| view.labels.captions.clone())
-                    .unwrap_or_default(),
-                mode,
-                follow_view,
-                busy,
-                error,
-                font_size: state.config.wrist.font_size_px,
-                opacity: state.config.wrist.background_opacity,
-            },
-            state.ui.dialogue_hover,
-            None,
-        )?;
-        backend.set_opacity(OverlayKind::Wrist, state.config.wrist.opacity)?;
-        if visible {
+                    .map(|_| PresentationFrame::wrist(Vec::new()))
+            });
+            let Some(frame) = frame else {
+                state.ui.reset_dialogue_visibility();
+                backend.hide(OverlayKind::Wrist);
+                status.wrist.state = ResourceState::ReadyHidden;
+                status.wrist.last_error_code = None;
+                return Ok(());
+            };
+            let controls = state
+                .controls
+                .lock()
+                .map(|hub| hub.snapshot())
+                .unwrap_or_default();
+            let messages = match frame.content {
+                PresentationContent::Wrist(messages) => messages,
+                _ => Vec::new(),
+            };
+            let ready = state.ui.dialogue_surface.present(
+                app,
+                backend,
+                OverlayKind::Wrist,
+                SurfaceView::Dialogue {
+                    visibility: state
+                        .dashboard_view
+                        .as_ref()
+                        .map(|view| view.caption_visibility.clone())
+                        .unwrap_or_default(),
+                    max_visible_players: state
+                        .dashboard_view
+                        .as_ref()
+                        .and_then(|view| view.max_visible_players),
+                    max_entries: state.config.wrist.max_entries.clamp(3, 10) as usize,
+                    controls,
+                    messages,
+                    notice,
+                    labels: state
+                        .dashboard_view
+                        .as_ref()
+                        .map(|view| view.labels.captions.clone())
+                        .unwrap_or_default(),
+                    mode,
+                    follow_view,
+                    busy,
+                    error,
+                    font_size: state.config.wrist.font_size_px,
+                    opacity: state.config.wrist.background_opacity,
+                },
+                state.ui.dialogue_hover,
+                None,
+            )?;
+            state.ui.dialogue_pending = Some(retention);
+            ready
+        };
+        if state.ui.dialogue_surface.current_frame(app) {
+            state.ui.dialogue_retention = state.ui.dialogue_pending;
+        }
+        // Ordinary content updates keep their current alpha while the renderer replaces pixels.
+        let ready = ready
+            && (target && state.ui.dialogue_fade.active()
+                || state.ui.dialogue_retention == Some(retention));
+        let fade = state.ui.dialogue_fade.advance(target, ready, now);
+        state.ui.dialogue_active = target || fade.animating;
+        state.ui.dialogue_revision = ready.then_some(revision);
+        if ready && (fade.factor > 0.0 || fade.animating) {
+            backend.set_opacity(OverlayKind::Wrist, state.config.wrist.opacity * fade.factor)?;
             backend.show(OverlayKind::Wrist)?;
         } else {
             backend.hide(OverlayKind::Wrist);
         }
-        Ok::<_, String>(visible)
+        status.wrist.state = if fade.animating {
+            ResourceState::Fading
+        } else if target && ready {
+            ResourceState::Visible
+        } else if target {
+            ResourceState::Creating
+        } else {
+            ResourceState::ReadyHidden
+        };
+        if !target && !fade.animating {
+            state
+                .ui
+                .dialogue_surface
+                .stop(app, Some(backend), OverlayKind::Wrist);
+        }
+        status.wrist.last_error_code = None;
+        Ok(())
     })();
-    match result {
-        Ok(visible) => {
-            state.ui.dialogue_revision = visible.then_some(revision);
-            status.wrist.state = if visible {
-                ResourceState::Visible
-            } else {
-                ResourceState::Creating
-            };
-            status.wrist.last_error_code = None;
-        }
-        Err(error) => {
-            state.ui.dialogue_revision = None;
-            backend.reset(OverlayKind::Wrist);
-            wrist_error(status, "wrist_render", error);
-        }
+    if let Err(error) = result {
+        state.ui.reset_dialogue_visibility();
+        backend.reset(OverlayKind::Wrist);
+        wrist_error(status, "wrist_render", error);
     }
 }
 

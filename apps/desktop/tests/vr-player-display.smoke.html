@@ -18,7 +18,7 @@
     }
     const controls = await invoke("vr_overlay_control_ready", { view: {
       owner_epoch: 0, revision: 0, dark: true, labels: {},
-      items: Array.from({ length: 4 }, () => ({ requested: false, effective: false, available: false, busy: false, label: "", reason: null })),
+      items: Array.from({ length: 5 }, () => ({ requested: false, effective: false, available: false, busy: false, label: "", reason: null })),
     } });
     epoch = controls.owner_epoch;
     const accepted = await invoke("vr_overlay_player_display_update", { epoch, revision: 1, view: {

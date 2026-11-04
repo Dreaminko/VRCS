@@ -336,30 +336,44 @@ impl HeadsetPresentation {
             }
         }
         if self.player_limit.is_none() {
-            // Preserve the original single-caption behavior for mixed audio.
-            lanes = lanes
-                .into_iter()
+            // Mixed audio keeps its single caption; remote text has its own lanes.
+            let latest_audio = lanes
+                .iter()
+                .copied()
+                .filter(|(item, _)| item.source != "vrchat_chatbox")
                 .rev()
                 .find(|(_, preview)| *preview)
                 .or_else(|| {
                     self.recent
-                        .back()
-                        .filter(|item| {
-                            source_enabled(&item.source, config)
+                        .iter()
+                        .rev()
+                        .find(|item| {
+                            item.source != "vrchat_chatbox"
+                                && source_enabled(&item.source, config)
                                 && fade_opacity(now, item.expires_at, config.fade_seconds).is_some()
                         })
                         .map(|item| (item, false))
-                })
-                .into_iter()
-                .collect();
+                });
+            lanes.retain(|(item, _)| item.source == "vrchat_chatbox");
+            if let Some(audio) = latest_audio {
+                lanes.insert(0, audio);
+            }
         } else {
             lanes.sort_by_key(|(_, preview)| !*preview);
-            let mut count = 0;
+            let mut players = Vec::new();
             lanes.retain(|(item, _)| {
-                item.source != "speaker" || {
-                    count += 1;
-                    self.player_limit == Some(0) || count <= self.player_limit.unwrap_or(0)
+                if !other_player_source(&item.source) || self.player_limit == Some(0) {
+                    return true;
                 }
+                let player = item.speaker.as_ref().map(|speaker| speaker.id.clone());
+                if players.contains(&player) {
+                    return true;
+                }
+                if players.len() >= self.player_limit.unwrap_or(0) {
+                    return false;
+                }
+                players.push(player);
+                true
             });
         }
         let mut opacity = 0.0_f32;
@@ -420,11 +434,31 @@ pub struct WristPresentation {
     player_limit: Option<usize>,
     terminated: TerminatedUtterances,
     last_activity: Option<Instant>,
+    retention_revision: u64,
 }
 
 impl WristPresentation {
     pub fn set_player_limit(&mut self, limit: Option<usize>) {
+        if self.player_limit != limit {
+            self.retention_revision += 1;
+        }
         self.player_limit = limit;
+    }
+
+    pub fn retention_revision(&self) -> u64 {
+        self.retention_revision
+    }
+
+    pub fn has_candidates(&self) -> bool {
+        !self.entries.is_empty() || !self.partials.is_empty()
+    }
+
+    pub fn idle_expired(&self, now: Instant, config: &VrOverlayWristConfig) -> bool {
+        config.idle_hide_seconds > 0
+            && self.last_activity.is_some_and(|last| {
+                now.saturating_duration_since(last)
+                    >= Duration::from_secs(config.idle_hide_seconds.into())
+            })
     }
     pub fn apply(&mut self, event: PresentationEvent, now: Instant, config: &VrOverlayWristConfig) {
         match event {
@@ -467,7 +501,10 @@ impl WristPresentation {
                 )
                 .trim()
                 .is_empty();
-                upsert_partial(&mut self.partials, item);
+                let replaced = upsert_partial(&mut self.partials, item);
+                if !has_content && replaced {
+                    self.retention_revision += 1;
+                }
                 if has_content {
                     self.last_activity = Some(now);
                 }
@@ -492,25 +529,37 @@ impl WristPresentation {
                 utterance_id,
                 source,
             } => {
+                let previous = self.partials.len();
                 self.terminated.remember(&source, &utterance_id);
                 self.partials.retain(|item| {
                     item.source != source || item.utterance_id.as_deref() != Some(&utterance_id)
                 });
+                if self.partials.len() != previous {
+                    self.retention_revision += 1;
+                }
             }
             PresentationEvent::RecognitionReset { source } => {
+                let previous = self.partials.len();
                 self.terminated.reset_source(&source);
                 self.partials.retain(|item| item.source != source);
+                if self.partials.len() != previous {
+                    self.retention_revision += 1;
+                }
             }
             PresentationEvent::Final {
                 utterance_id,
                 subtitle,
             } => {
                 if let Some(utterance_id) = utterance_id.as_deref() {
+                    let previous = self.partials.len();
                     self.terminated.remember(&subtitle.source, utterance_id);
                     self.partials.retain(|item| {
                         item.source != subtitle.source
                             || item.utterance_id.as_deref() != Some(utterance_id)
                     });
+                    if self.partials.len() != previous {
+                        self.retention_revision += 1;
+                    }
                 }
                 if source_enabled(&subtitle.source, config) {
                     let item = item_from_subtitle(subtitle, utterance_id, now);
@@ -595,7 +644,8 @@ impl WristPresentation {
     }
 
     pub fn set_show_partials(&mut self, enabled: bool) {
-        if !enabled {
+        if !enabled && !self.partials.is_empty() {
+            self.retention_revision += 1;
             self.partials.clear();
         }
     }
@@ -611,33 +661,34 @@ impl WristPresentation {
         config: &VrOverlayWristConfig,
         translation_display: &str,
     ) -> Option<PresentationFrame> {
-        if config.idle_hide_seconds > 0
-            && self.last_activity.is_some_and(|last| {
-                now.saturating_duration_since(last)
-                    >= Duration::from_secs(config.idle_hide_seconds.into())
-            })
-        {
+        if self.idle_expired(now, config) {
             return None;
         }
 
         let limit = config.max_entries.clamp(3, 10) as usize;
         let mut visible: Vec<&PresentationItem> = Vec::new();
+        let mut players = Vec::new();
         for item in self
             .partials
             .iter()
             .chain(self.entries.iter().rev())
-            .filter(|item| source_enabled(&item.source, config) && item.source == "speaker")
+            .filter(|item| source_enabled(&item.source, config) && other_player_source(&item.source))
         {
+            let player = item.speaker.as_ref().map(|speaker| speaker.id.clone());
             if !visible.iter().any(|other| same_lane(other, item))
-                && self
-                    .player_limit
-                    .is_none_or(|limit| limit == 0 || visible.len() < limit)
+                && (players.contains(&player)
+                    || self
+                        .player_limit
+                        .is_none_or(|limit| limit == 0 || players.len() < limit))
             {
+                if !players.contains(&player) {
+                    players.push(player);
+                }
                 visible.push(item);
             }
         }
         let selected = |item: &&PresentationItem| {
-            item.source != "speaker" || visible.iter().any(|other| same_lane(other, item))
+            !other_player_source(&item.source) || visible.iter().any(|other| same_lane(other, item))
         };
         let active_count = self.partials.iter().filter(selected).count();
         let mut messages: Vec<WristMessage> = self
@@ -712,6 +763,7 @@ impl WristPresentation {
             max_entries.clamp(3, 10) as usize
         };
         while self.entries.len() > limit {
+            self.retention_revision += 1;
             self.entries.pop_front();
         }
     }
@@ -1017,7 +1069,7 @@ fn selected_caption_mode(show_original: bool, show_translation: bool) -> &'stati
 }
 
 fn speaker_label(item: &PresentationItem) -> Option<String> {
-    if !matches!(item.source.as_str(), "speaker" | "microphone") {
+    if !matches!(item.source.as_str(), "speaker" | "microphone" | "vrchat_chatbox") {
         return None;
     }
     item.speaker.as_ref().map(|speaker| {
@@ -1040,14 +1092,16 @@ fn matches_original(preview: &PresentationItem, completed: &PresentationItem) ->
         && preview.source_utterance_id == completed.utterance_id
 }
 
-fn upsert_partial(partials: &mut VecDeque<PresentationItem>, item: PresentationItem) {
+fn upsert_partial(partials: &mut VecDeque<PresentationItem>, item: PresentationItem) -> bool {
     if let Some(previous) = partials
         .iter_mut()
         .find(|previous| same_lane(previous, &item))
     {
         *previous = item;
+        true
     } else {
         partials.push_back(item);
+        false
     }
 }
 
@@ -1150,11 +1204,15 @@ impl SourceConfig for VrOverlayWristConfig {
 
 fn source_enabled(source: &str, config: &impl SourceConfig) -> bool {
     match source {
-        "speaker" => config.include_speaker(),
+        "speaker" | "vrchat_chatbox" => config.include_speaker(),
         "microphone" => config.include_microphone(),
         "chatbox" => config.include_chatbox(),
         _ => false,
     }
+}
+
+fn other_player_source(source: &str) -> bool {
+    matches!(source, "speaker" | "vrchat_chatbox")
 }
 
 #[cfg(test)]

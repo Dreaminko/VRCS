@@ -9,6 +9,7 @@ use super::interaction::{Hit, Key, Kind, Router, Sample, Surface};
 use super::ocr_wrist::LaserEvent;
 use super::placement::{Mode, Placement, Request};
 use super::surface::{SurfaceHub, SurfaceId, SurfaceLayout, SurfaceRenderer, SurfaceView};
+use super::visibility::Fade;
 use super::{dialogue, wrist_menu};
 
 #[derive(Clone, Copy)]
@@ -27,6 +28,15 @@ pub(super) struct UiTick {
     pub reader_revision: u64,
     pub content_owns_input: bool,
     pub business: bool,
+    pub dialogue_sample: bool,
+    pub dialogue_content_active: bool,
+    pub dialogue_retention: DialogueRetentionKey,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) struct DialogueRetentionKey {
+    pub content: u64,
+    pub policy: u64,
 }
 
 fn pointer_overlay(surface: Surface) -> (OverlayKind, SurfaceId) {
@@ -102,6 +112,13 @@ pub struct UiRuntime {
     router: Router,
     lift: wrist_menu::Visibility,
     dialogue_lift: wrist_menu::Visibility,
+    menu_fade: Fade,
+    pub dialogue_fade: Fade,
+    pub dialogue_active: bool,
+    pub dialogue_available: bool,
+    pub dialogue_occluded: bool,
+    pub dialogue_retention: Option<DialogueRetentionKey>,
+    pub dialogue_pending: Option<DialogueRetentionKey>,
     menu_frame: Option<SurfaceView>,
     menu_ui: wrist_menu::Ui,
     pub menu_visible: bool,
@@ -134,6 +151,13 @@ impl UiRuntime {
             router: Router::default(),
             lift: Default::default(),
             dialogue_lift: Default::default(),
+            menu_fade: Default::default(),
+            dialogue_fade: Default::default(),
+            dialogue_active: false,
+            dialogue_available: false,
+            dialogue_occluded: false,
+            dialogue_retention: None,
+            dialogue_pending: None,
             menu_frame: None,
             menu_ui: Default::default(),
             menu_visible: false,
@@ -169,7 +193,23 @@ impl UiRuntime {
     }
 
     pub fn fast_tick(&self) -> bool {
-        self.menu_visible || self.dialogue_visible || self.router.active()
+        self.menu_visible || self.menu_fade.active() || self.dialogue_active || self.router.active()
+    }
+
+    pub fn reset_dialogue_visibility(&mut self) {
+        self.dialogue_fade.reset();
+        self.dialogue_active = false;
+        self.dialogue_retention = None;
+        self.dialogue_pending = None;
+        self.dialogue_revision = None;
+        self.dialogue_hover = None;
+    }
+
+    fn dialogue_input_allowed(&self, current: DialogueRetentionKey) -> bool {
+        self.dialogue_fade.input_allowed(self.dialogue_visible)
+            && self
+                .dialogue_retention
+                .is_some_and(|retained| retained.policy == current.policy)
     }
 
     fn suspend_input(&mut self) {
@@ -201,6 +241,8 @@ impl UiRuntime {
         self.dialogue_hover = None;
         self.lift = Default::default();
         self.dialogue_lift = Default::default();
+        self.menu_fade.reset();
+        self.reset_dialogue_visibility();
         self.pressed = None;
         if let Ok(mut p) = self.placement.lock() {
             p.reset_tracking();
@@ -333,7 +375,11 @@ impl UiRuntime {
             reader_revision,
             content_owns_input,
             business,
+            dialogue_sample,
+            dialogue_content_active,
+            dialogue_retention,
         } = tick;
+        let now = Instant::now();
         if business {
             self.snapshot = Arc::new(
                 controls
@@ -378,6 +424,10 @@ impl UiRuntime {
         if context != self.context || dashboard || content_owns_input {
             self.suspend_input();
             if context != self.context {
+                self.menu_fade.reset();
+                self.reset_dialogue_visibility();
+                self.lift = Default::default();
+                self.dialogue_lift = Default::default();
                 self.menu_ui = Default::default();
                 if let Ok(mut p) = self.placement.lock() {
                     p.cancel();
@@ -403,28 +453,41 @@ impl UiRuntime {
             }
         }
         let menu_config = menu_config(&config.wrist_menu.hand);
-        let menu_angle = backend.wrist_angle(&menu_config);
-        if menu_angle.is_none() {
+        let menu_angle = backend
+            .wrist_angle(&menu_config)
+            .filter(|angle| angle.is_finite());
+        if menu_angle.is_none() || !config.wrist_menu.enabled {
             self.menu_ui = Default::default();
+            self.menu_fade.reset();
+            self.lift = Default::default();
         }
         self.menu_ui.clamp(players);
-        self.menu_visible = config.wrist_menu.enabled
-            && self
-                .lift
-                .update(menu_angle, self.pressed.is_some(), Instant::now());
+        self.menu_visible =
+            config.wrist_menu.enabled && self.lift.update(menu_angle, self.pressed.is_some(), now);
+        let dialogue_angle = backend
+            .wrist_angle(&config.wrist)
+            .filter(|angle| angle.is_finite());
+        self.dialogue_available = match placement.display_mode() {
+            Mode::World => placement.absolute_pose().is_some() && tracking.is_some(),
+            Mode::Wrist => dialogue_angle.is_some(),
+        };
+        self.dialogue_occluded = placement.display_mode() == Mode::Wrist
+            && !dialogue_sample
+            && backend.visible(OverlayKind::OcrWrist)
+            && backend.ocr_wrist_on_same_hand(&config.wrist);
+        if !self.dialogue_available {
+            self.dialogue_lift = Default::default();
+        }
+        let dialogue_lift_visible = placement.display_mode() == Mode::World
+            || self
+                .dialogue_lift
+                .update(dialogue_angle, self.router.active(), now);
         self.dialogue_visible = config.enabled
             && config.wrist.enabled
-            && match placement.display_mode() {
-                Mode::World => placement.absolute_pose().is_some() && tracking.is_some(),
-                Mode::Wrist => {
-                    self.dialogue_lift.update(
-                        backend.wrist_angle(&config.wrist),
-                        self.router.active(),
-                        Instant::now(),
-                    ) && !(backend.visible(OverlayKind::OcrWrist)
-                        && backend.ocr_wrist_on_same_hand(&config.wrist))
-                }
-            };
+            && self.dialogue_available
+            && !self.dialogue_occluded
+            && dialogue_content_active
+            && (dialogue_sample || dialogue_lift_visible);
         let surfaces = app.state::<SurfaceHub>();
         let generation =
             |surface| (self.generation << 32) | u64::from(surfaces.generation(surface));
@@ -460,7 +523,9 @@ impl UiRuntime {
             surfaces.pointer_layout(SurfaceId::Dialogue),
             surfaces.pointer_layout(SurfaceId::Reader),
         ];
-        if self.menu_visible
+        let menu_input_ready = self.menu_fade.input_allowed(self.menu_visible);
+        let dialogue_input_ready = self.dialogue_input_allowed(dialogue_retention);
+        if menu_input_ready
             && menu_layout.is_some()
             && self.menu_frame.as_ref().is_some_and(|frame| {
                 menu_view
@@ -470,7 +535,7 @@ impl UiRuntime {
         {
             keys.push(menu_key);
         }
-        if self.dialogue_visible
+        if dialogue_input_ready
             && backend.visible(OverlayKind::Wrist)
             && self.dialogue_revision == Some(placement.revision)
             && (dialogue_layout.is_some() || placement.dragging().is_some())
@@ -485,8 +550,8 @@ impl UiRuntime {
             keys.clear();
         }
         let pointer_visible = [
-            self.menu_visible && backend.visible(OverlayKind::WristMenu),
-            self.dialogue_visible
+            menu_input_ready && backend.visible(OverlayKind::WristMenu),
+            dialogue_input_ready
                 && backend.visible(OverlayKind::Wrist)
                 && self.dialogue_revision == Some(placement.revision),
             backend.visible(OverlayKind::OcrWrist),
@@ -692,61 +757,62 @@ impl UiRuntime {
                 }
             }
         }
-        if self.menu_visible {
-            let result = if !business {
-                self.menu_surface
-                    .refresh(
-                        app,
-                        backend,
-                        OverlayKind::WristMenu,
-                        Some((hovered, self.pressed, hold_progress)),
-                    )
-                    .and_then(|visible| {
-                        if visible {
-                            backend.show(OverlayKind::WristMenu)
-                        } else {
-                            backend.hide(OverlayKind::WristMenu);
-                            Ok(())
-                        }
-                    })
-            } else {
+        let result = (|| -> Result<(), String> {
+            let ready = if self.menu_visible && business {
                 let frame = SurfaceView::Menu {
                     controls: view.clone(),
                     players: players.clone(),
                     ui: self.menu_ui.clone(),
                     hold_progress,
                 };
-                backend
-                    .ensure_wrist_menu(&config.wrist_menu.hand)
-                    .and_then(|_| {
-                        if self.menu_surface.present(
-                            app,
-                            backend,
-                            OverlayKind::WristMenu,
-                            frame.clone(),
-                            hovered,
-                            self.pressed,
-                        )? {
-                            self.menu_frame = Some(frame);
-                            backend.show(OverlayKind::WristMenu)
-                        } else {
-                            backend.hide(OverlayKind::WristMenu);
-                            Ok(())
-                        }
-                    })
-            };
-            if let Err(error) = result {
-                backend.reset(OverlayKind::WristMenu);
-                self.menu_frame = None;
-                if self.menu_error.as_ref() != Some(&error) {
-                    tracing::warn!(%error,"Wrist menu unavailable");
-                }
-                self.menu_error = Some(error);
+                backend.ensure_wrist_menu(&config.wrist_menu.hand)?;
+                let ready = self.menu_surface.present(
+                    app,
+                    backend,
+                    OverlayKind::WristMenu,
+                    frame.clone(),
+                    hovered,
+                    self.pressed,
+                )?;
+                self.menu_frame = Some(frame);
+                ready
+            } else if self.menu_visible {
+                self.menu_surface.refresh(
+                    app,
+                    backend,
+                    OverlayKind::WristMenu,
+                    Some((hovered, self.pressed, hold_progress)),
+                )?
+            } else if self.menu_fade.active() {
+                self.menu_surface
+                    .hold_for_fade(app, backend, OverlayKind::WristMenu)
             } else {
-                self.menu_error = None;
+                false
+            };
+            let ready = ready && (self.menu_fade.active() || self.menu_surface.current_frame(app));
+            let fade = self.menu_fade.advance(self.menu_visible, ready, now);
+            if ready && (fade.factor > 0.0 || fade.animating) {
+                backend.set_opacity(OverlayKind::WristMenu, fade.factor)?;
+                backend.show(OverlayKind::WristMenu)?;
+            } else {
+                backend.hide(OverlayKind::WristMenu);
             }
+            if !self.menu_visible && !fade.animating {
+                self.menu_surface
+                    .stop(app, Some(backend), OverlayKind::WristMenu);
+            }
+            Ok(())
+        })();
+        if let Err(error) = result {
+            backend.reset(OverlayKind::WristMenu);
+            self.menu_fade.reset();
+            self.menu_frame = None;
+            if self.menu_error.as_ref() != Some(&error) {
+                tracing::warn!(%error,"Wrist menu unavailable");
+            }
+            self.menu_error = Some(error);
         } else {
-            backend.hide(OverlayKind::WristMenu);
+            self.menu_error = None;
         }
         (events, ui_focus)
     }
@@ -756,6 +822,28 @@ impl UiRuntime {
 mod tests {
     use super::super::surface;
     use super::*;
+
+    #[test]
+    fn dialogue_input_survives_content_updates_but_not_policy_or_visibility_changes() {
+        let mut ui = UiRuntime::new(Arc::new(Mutex::new(Placement::default())));
+        let now = Instant::now();
+        let key = DialogueRetentionKey {
+            content: 1,
+            policy: 1,
+        };
+        ui.dialogue_visible = true;
+        ui.dialogue_retention = Some(key);
+        ui.dialogue_fade.advance(true, true, now);
+        assert!(!ui.dialogue_input_allowed(key));
+        ui.dialogue_fade
+            .advance(true, true, now + Duration::from_millis(160));
+        assert!(ui.dialogue_input_allowed(DialogueRetentionKey { content: 2, ..key }));
+        assert!(!ui.dialogue_input_allowed(DialogueRetentionKey { policy: 2, ..key }));
+        ui.dialogue_visible = false;
+        assert!(!ui.dialogue_input_allowed(key));
+        ui.reset_dialogue_visibility();
+        assert!(!ui.fast_tick());
+    }
 
     #[test]
     fn menu_pointer_covers_visible_capsule() {

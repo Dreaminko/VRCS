@@ -1,12 +1,14 @@
-import { useLayoutEffect, useRef } from "react";
-import { AudioLines, Camera, Check, Gamepad2, KeyRound, Languages, Minus, Monitor, ScanText, Shield, X } from "lucide-react";
+import { useLayoutEffect, useRef, useState, type CSSProperties } from "react";
+import { AudioLines, Camera, Check, Gamepad2, KeyRound, Languages, MessageSquare, Minus, Monitor, ScanText, Shield, X } from "lucide-react";
 import type { CaptionMessage, CaptionLabels, SurfaceView } from "./protocol";
-import { visibleCaption, visibleTail } from "./headset-layout";
+import { visibleTail } from "./headset-layout";
 import { visibleCaptionMessages } from "./caption-visibility";
 
-function Caption({ text, lines, speaker, fontSize }: { text: string; lines: number; speaker: boolean; fontSize: number }) {
+const CAPTION_LINE_HEIGHT = 1.3;
+
+function Caption({ text, lines, fontSize }: { text: string; lines: number; fontSize: number }) {
   const root = useRef<HTMLDivElement>(null);
-  const value = useRef({ text, lines, speaker, fontSize });
+  const value = useRef({ text, lines, fontSize });
   const measure = useRef(() => {});
   useLayoutEffect(() => {
     const slot = root.current;
@@ -16,16 +18,18 @@ function Caption({ text, lines, speaker, fontSize }: { text: string; lines: numb
     measure.current = () => {
       const next = value.current;
       const width = slot.clientWidth;
-      const height = slot.clientHeight;
+      if (!width) return;
+      const height = Math.ceil(parseFloat(getComputedStyle(content).lineHeight) * next.lines);
       if (previous && previous.text === next.text && previous.lines === next.lines
-        && previous.speaker === next.speaker && previous.fontSize === next.fontSize
+        && previous.fontSize === next.fontSize
         && previous.width === width && previous.height === height) return;
       previous = { ...next, width, height };
+      slot.style.maxHeight = `${height}px`;
       const fits = (candidate: string) => {
         content.textContent = candidate;
-        return content.scrollWidth <= width && content.scrollHeight <= height;
+        return content.scrollWidth <= width + 1 && content.scrollHeight <= height + 1;
       };
-      content.textContent = (next.speaker ? visibleCaption : visibleTail)(next.text, fits);
+      content.textContent = visibleTail(next.text, fits);
     };
     const observer = new ResizeObserver(() => measure.current());
     observer.observe(slot);
@@ -38,11 +42,11 @@ function Caption({ text, lines, speaker, fontSize }: { text: string; lines: numb
     };
   }, []);
   useLayoutEffect(() => {
-    value.current = { text, lines, speaker, fontSize };
+    value.current = { text, lines, fontSize };
     measure.current();
-  }, [text, lines, speaker, fontSize]);
-  return <div ref={root} className="vr-headset-language" style={{ height: Math.ceil(fontSize * 1.2 * lines) + 1, fontSize }}>
-    <span style={{ whiteSpace: lines === 1 ? "nowrap" : "pre-wrap" }}>{text}</span>
+  }, [text, lines, fontSize]);
+  return <div ref={root} className="vr-headset-language" style={{ fontSize }}>
+    <span style={{ lineHeight: CAPTION_LINE_HEIGHT, whiteSpace: lines === 1 ? "nowrap" : "pre-wrap" }}>{text}</span>
   </div>;
 }
 
@@ -50,27 +54,53 @@ function HeadsetCaptions({ messages, labels, lines, fontSize, height }: {
   messages: CaptionMessage[]; labels?: CaptionLabels; lines: number; fontSize: number; height: number;
 }) {
   const rows = messages.length;
-  const languageCount = Math.max(1, ...messages.map(message => message.text.split("\n", 4).length));
-  const scale = Math.max(0.01, Math.min(1, (height / Math.max(1, rows) - languageCount * 2)
-    / (fontSize * (0.85 + languageCount * lines * 1.2) + 26)));
+  const languageCount = messages.reduce((count, message) => count + message.text.split("\n", 4).length, 0);
+  const requiredHeight = fontSize * (rows * 0.75 * 1.1 + languageCount * lines * CAPTION_LINE_HEIGHT)
+    + rows * 14 + (languageCount - rows) * 8 + Math.max(0, rows - 1) * 12;
+  const scale = height > 0 ? Math.max(0.01, Math.min(1, (height - languageCount) / Math.max(1, requiredHeight))) : 1;
   const size = fontSize * scale;
-  return <div className="vr-caption-grid" style={{ gridTemplateColumns: "minmax(0, 1fr)", gap: 12 * scale }}>
+  return <div className="vr-caption-grid" style={{ gridTemplateColumns: "minmax(0, 1fr)", gap: 12 * scale,
+    "--vr-caption-language-gap": `${8 * scale}px` } as CSSProperties}>
     {messages.map((message, index) => <article key={index} className={`vr-caption-card ${message.side}`} style={{ padding: `${4 * scale}px 8px` }}>
       <div className="vr-caption-speaker" style={{ fontSize: size * 0.75, marginBottom: 6 * scale }} title={message.speaker || undefined}>
+        {message.original?.source === "vrchat_chatbox" && <MessageSquare size="1em" aria-label="Chatbox" />}
         {message.speaker || (message.side === "right" ? labels?.me ?? "Me" : labels?.other ?? "Others")}
       </div>
-      {message.text.split("\n", 4).map((text, language) => <Caption key={language} text={text} lines={lines} speaker={false} fontSize={size} />)}
+      {message.text.split("\n", 4).map((text, language) => <Caption key={language} text={text} lines={lines} fontSize={size} />)}
     </article>)}
   </div>;
 }
 
 export function Headset({ view }: { view: Extract<SurfaceView, { kind: "headset" }> }) {
+  const root = useRef<HTMLElement>(null);
+  const [height, setHeight] = useState(0);
   const messages = visibleCaptionMessages(view);
-  if (!messages.length && !view.notice) return null;
+  const visible = messages.length > 0 || !!view.notice;
+  useLayoutEffect(() => {
+    const panel = root.current;
+    const surface = panel?.parentElement;
+    if (!panel || !surface) return;
+    const measure = () => {
+      const outer = getComputedStyle(surface);
+      const inner = getComputedStyle(panel);
+      const notice = panel.querySelector<HTMLElement>(".vr-caption-notice");
+      const noticeStyle = notice && getComputedStyle(notice);
+      setHeight(surface.clientHeight - parseFloat(outer.paddingTop) - parseFloat(outer.paddingBottom)
+        - parseFloat(inner.paddingTop) - parseFloat(inner.paddingBottom)
+        - parseFloat(inner.borderTopWidth) - parseFloat(inner.borderBottomWidth)
+        - (notice && noticeStyle ? notice.offsetHeight + parseFloat(noticeStyle.marginTop) + parseFloat(noticeStyle.marginBottom) : 0));
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(surface);
+    observer.observe(panel);
+    return () => observer.disconnect();
+  }, [visible, view.notice]);
+  if (!visible) return null;
   const lines = Math.min(4, Math.max(1, view.lines_per_language));
-  return <section className="vr-headset-panel vr-surface-panel" aria-live="polite">
+  return <section ref={root} className="vr-headset-panel vr-surface-panel" aria-live="polite">
     {view.notice && <p className="vr-caption-notice" role="status">{view.notice}</p>}
-    <HeadsetCaptions messages={messages} labels={view.labels} lines={lines} fontSize={Math.min(68, view.font_size)} height={view.notice ? 1160 : 1290} />
+    <HeadsetCaptions messages={messages} labels={view.labels} lines={lines} fontSize={Math.min(68, Math.max(16, view.font_size))} height={height} />
   </section>;
 }
 

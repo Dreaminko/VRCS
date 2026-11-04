@@ -204,6 +204,38 @@ for (const mode of ["compact", "compact-qwen", "compact-filter", "headset", "wri
           surface(filtered.slice(0,3),'等待 VRChat 启动',false,selection);
           check(!document.querySelector(captionSelector)&&document.querySelector('[role="status"]'),'Hiding every caption preserves capture notices');
           surface(filtered,null,false,selection);
+          if(mode==='headset'){
+            const samples=[
+              '这是一句需要自动换行的较长字幕，第二行应当完整显示。',
+              'A longer English caption should wrap and keep every word visible.',
+              'https://example.com/abcdefghijklmnopqrstuvwxyz0123456789',
+            ];
+            for(const text of samples){
+              surface([{speaker:'Alex',text,side:'left'}],null,true,{font_size:54});
+              const slot=document.querySelector('.vr-headset-language'),content=slot.firstElementChild;
+              const lineHeight=parseFloat(getComputedStyle(content).lineHeight);
+              check(content.textContent===text,'Two-line captions retain the complete sentence: '+text);
+              check(content.scrollWidth<=slot.clientWidth+1,'Long captions wrap within the available width');
+              check(content.clientHeight>lineHeight+1&&content.clientHeight<=lineHeight*2+1,'Long captions use two complete lines');
+            }
+            surface([{speaker:'Alex',text:'短句',side:'left'}],null,false,{font_size:54});
+            const shortSlot=document.querySelector('.vr-headset-language');
+            check(shortSlot.clientHeight<=parseFloat(getComputedStyle(shortSlot.firstElementChild).lineHeight)+1,'Short captions occupy only one line');
+            surface([{speaker:'Alex',text:samples[0].repeat(10),side:'left'}],null,true,{font_size:54});
+            const clipped=document.querySelector('.vr-headset-language');
+            check(clipped.textContent.startsWith('…')&&samples[0].repeat(10).endsWith(clipped.textContent.slice(1)),'Only captions exceeding the line limit retain the newest tail');
+            check(clipped.firstElementChild.scrollHeight<=clipped.clientHeight+1,'Truncated captions keep their last line visible');
+            surface([{speaker:'Alex',text:samples[0],side:'left'}],null,true,{font_size:54,lines_per_language:1});
+            const single=document.querySelector('.vr-headset-language');
+            check(single.textContent.startsWith('…')&&single.firstElementChild.scrollWidth<=single.clientWidth+1,'Explicit single-line mode remains bounded');
+            surface(players.slice(0,4).map(player=>({speaker:player.display_name.repeat(30),text:Array(4).fill(samples[0].repeat(10)).join('\n'),side:'left'})),
+              '等待 VRChat 世界加载完成',true,{font_size:68,lines_per_language:4});
+            const bounds=document.querySelector('.vr-surface').getBoundingClientRect();
+            const panel=document.querySelector('.vr-headset-panel').getBoundingClientRect();
+            check(panel.top>=bounds.top+15&&panel.bottom<=bounds.bottom-15,'Crowded captions and notices stay inside the safe area');
+            check([...document.querySelectorAll('.vr-headset-language')].every(slot=>slot.firstElementChild.scrollHeight<=slot.clientHeight+1),'Every language retains complete lines when many players speak');
+            surface([{speaker:'Alex',text:samples[1]+'\n'+samples[0],side:'left'}],null,true,{font_size:54});
+          }
           if(mode==='wrist'){
             const bubbles=[...document.querySelectorAll(captionSelector)];
             const left=bubbles[0].getBoundingClientRect(),right=bubbles.at(-1).getBoundingClientRect();

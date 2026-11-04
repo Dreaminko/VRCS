@@ -1293,8 +1293,8 @@ impl SurfaceHub {
         view: SurfaceView,
         hovered: Option<u8>,
         pressed: Option<u8>,
-    ) -> Result<(), String> {
-        let (create, update) = {
+    ) -> Result<Option<SurfaceKey>, String> {
+        let (create, update, key) = {
             let mut entries = self.0.lock().map_err(|e| e.to_string())?;
             let entry = &mut entries[surface.index()];
             if matches!(
@@ -1307,7 +1307,7 @@ impl SurfaceHub {
                     .unwrap_or_else(|| "Surface recovery exhausted".into()));
             }
             if entry.error.is_some() {
-                return Ok(());
+                return Ok(None);
             }
             let content_changed = entry
                 .state
@@ -1321,7 +1321,7 @@ impl SurfaceHub {
                     .is_some_and(|at| at.elapsed() < Duration::from_millis(50))
             {
                 // present runs on every business tick with the latest view, including the final result.
-                return Ok(());
+                return Ok(None);
             }
             let changed = entry.publish(view, hovered, pressed);
             if changed && entry.active {
@@ -1339,6 +1339,7 @@ impl SurfaceHub {
                 (changed && entry.ready && entry.active)
                     .then(|| entry.state.clone())
                     .flatten(),
+                entry.state.as_ref().map(|state| state.key),
             )
         };
         if let Some(epoch) = create {
@@ -1350,7 +1351,7 @@ impl SurfaceHub {
         if let Some(state) = update {
             self.send(app, surface, SurfaceEvent::View(Box::new(state)))?;
         }
-        Ok(())
+        Ok(key)
     }
 }
 
@@ -1366,6 +1367,7 @@ pub struct SurfaceRenderer {
     identity: Option<(u32, u32, u32)>,
     visible_frame: bool,
     retained_key: Option<SurfaceKey>,
+    published_key: Option<SurfaceKey>,
     retained_activity: u32,
     capture_fault: Option<windows_wgc::CaptureError>,
     pending_action: Option<(recovery::Action, Instant)>,
@@ -1383,6 +1385,7 @@ impl SurfaceRenderer {
             identity: None,
             visible_frame: false,
             retained_key: None,
+            published_key: None,
             retained_activity: 0,
             capture_fault: None,
             pending_action: None,
@@ -1400,6 +1403,7 @@ impl SurfaceRenderer {
         self.identity = None;
         self.visible_frame = false;
         self.retained_key = None;
+        self.published_key = None;
         self.retained_activity = 0;
         self.capture_fault = None;
         self.pending_action = None;
@@ -1515,9 +1519,13 @@ impl SurfaceRenderer {
         self.request(app)?;
         let hub = app.state::<SurfaceHub>();
         let fault = windows_wgc::ensure_capture_supported().err().or_else(|| {
-            hub.publish(app, self.surface, view, hovered, pressed)
-                .err()
-                .map(|error| windows_wgc::CaptureError::new(recovery::Fault::Host, error))
+            match hub.publish(app, self.surface, view, hovered, pressed) {
+                Ok(key) => {
+                    self.published_key = key;
+                    None
+                }
+                Err(error) => Some(windows_wgc::CaptureError::new(recovery::Fault::Host, error)),
+            }
         });
         if let Some(error) = fault {
             self.capture_fault = Some(error);
@@ -1557,6 +1565,46 @@ impl SurfaceRenderer {
             hub.send(app, self.surface, SurfaceEvent::View(Box::new(state)))?;
         }
         self.service(app, backend, kind)
+    }
+
+    fn fade_frame_ready(&self, entry: &Entry) -> bool {
+        self.pending_action.is_none()
+            && self.capture_fault.is_none()
+            && entry.error.is_none()
+            && entry.recovery.input_allowed()
+            && self.retained_key.is_some()
+            && self.retained_key == entry.state.as_ref().map(|state| state.key)
+            && self.retained_key == entry.submitted
+            && self.frame_visible(entry, Instant::now())
+    }
+
+    pub fn current_frame(&self, app: &AppHandle) -> bool {
+        let hub = app.state::<SurfaceHub>();
+        let entries = hub.0.lock().unwrap_or_else(|e| e.into_inner());
+        self.published_key.is_some()
+            && self.published_key == self.retained_key
+            && self.fade_frame_ready(&entries[self.surface.index()])
+    }
+
+    pub fn hold_for_fade(
+        &mut self,
+        app: &AppHandle,
+        backend: &OpenVrBackend,
+        kind: OverlayKind,
+    ) -> bool {
+        let ready = {
+            let hub = app.state::<SurfaceHub>();
+            let entries = hub.0.lock().unwrap_or_else(|e| e.into_inner());
+            self.fade_frame_ready(&entries[self.surface.index()])
+        };
+        if !ready || !backend.has_surface_texture(kind) {
+            return false;
+        }
+        if let Some(capture) = &self.capture {
+            capture.borrow_mut().suspend();
+        }
+        self.requested = true;
+        true
     }
 
     fn service(
@@ -2336,6 +2384,34 @@ mod tests {
         assert!(hub.0.lock().unwrap()[surface.index()]
             .active_layout()
             .is_none());
+    }
+
+    #[test]
+    fn fade_retention_requires_the_current_healthy_submitted_frame() {
+        let mut entry = active_entry();
+        entry.publish(SurfaceView::OcrSelection { dark: true }, None, None);
+        entry.page_ready();
+        entry.host_awake = true;
+        let key = entry.state.as_ref().unwrap().key;
+        entry
+            .accept_layout_paint(SurfaceId::Menu, layout(key), 1)
+            .unwrap();
+        assert!(entry.commit_paint(key, 1));
+        let mut renderer = SurfaceRenderer::new(SurfaceId::Menu);
+        renderer.identity = Some((entry.host_epoch, 0, entry.generation));
+        renderer.visible_frame = true;
+        renderer.retained_key = Some(key);
+        renderer.retained_activity = entry.activity_request;
+        assert!(renderer.fade_frame_ready(&entry));
+        entry.publish(SurfaceView::OcrSelection { dark: false }, None, None);
+        assert!(!renderer.fade_frame_ready(&entry));
+        entry.publish(SurfaceView::OcrSelection { dark: true }, None, None);
+        renderer.retained_key = entry.state.as_ref().map(|state| state.key);
+        entry.error = Some("capture failed".into());
+        assert!(!renderer.fade_frame_ready(&entry));
+        entry.error = None;
+        entry.set_active(false, Instant::now());
+        assert!(!renderer.fade_frame_ready(&entry));
     }
 
     #[test]

@@ -98,7 +98,7 @@ function Dialogue({ state, view }: { state: SurfaceState; view: Extract<SurfaceV
         following.current = element.scrollHeight - element.clientHeight - element.scrollTop <= 2;
       }}>
         <div className="vr-dialogue-messages">{messages.length ? messages.map((message, index) => <div className={`vr-dialogue-bubble ${message.side}`} key={index}>
-          <div className="vr-caption-speaker">{message.speaker || (message.side === "right" ? view.labels?.me ?? "Me" : view.labels?.other ?? "Others")}</div>
+          <div className="vr-caption-speaker">{message.original?.source === "vrchat_chatbox" && <MessageSquare size="1em" aria-label="Chatbox" />} {message.speaker || (message.side === "right" ? view.labels?.me ?? "Me" : view.labels?.other ?? "Others")}</div>
           {message.text}
         </div>) : !view.notice && <p className="vr-surface-empty">{labels.emptyDialogue || "No recent dialogue"}</p>}</div>
       </div>
