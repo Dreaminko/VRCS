@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use super::{
     AnkiConfig, AsrConfig, AudioConfig, DictionaryConfig, ExternalApiConfig, FeatureConfig,
     GlossaryConfig, LanguagePreset, OscConfig, ServerConfig, StorageConfig, TranslationConfig,
-    VadConfig, VrOcrConfig, VrOverlayConfig, VrcxConfig, VrchatChatboxConfig,
+    VadConfig, VrOcrConfig, VrOverlayConfig, VrchatChatboxConfig, VrcxConfig,
 };
 
 pub const SCHEMA_VERSION: u32 = 37;

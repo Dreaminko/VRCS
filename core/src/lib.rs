@@ -31,8 +31,8 @@ mod subtitle_output;
 mod translation;
 mod vad;
 pub mod vision;
-mod vrchat_mute_sync;
 mod vrchat_chatbox;
+mod vrchat_mute_sync;
 mod vrcx;
 mod yomitan;
 
