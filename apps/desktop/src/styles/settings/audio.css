@@ -133,7 +133,7 @@
 .memory-compression-heading { display: flex; align-items: flex-start; gap: 10px; color: var(--primary-ink); }
 .memory-compression-heading > svg { flex-shrink: 0; }
 .memory-compression-heading > div { display: grid; gap: 4px; min-width: 0; }
-.memory-compression-heading strong { font-size: var(--settings-text-label); }
+.memory-compression-heading strong { color: var(--text); font-size: var(--settings-text-label); }
 .memory-compression-heading small { color: var(--text-secondary); font-size: var(--settings-text-caption); }
 .memory-compression-actions { align-items: stretch; justify-content: flex-end; }
 .memory-compression-actions > button { height: var(--settings-control-height); white-space: nowrap; }
