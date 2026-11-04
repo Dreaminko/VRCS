@@ -16,6 +16,7 @@ export function useCaptureControl({
   coreReady,
   getRunning,
   outputMode,
+  networkCaptureEnabled = outputMode === "vrchat_players",
   preparePlayerAudioStart,
   createConversation,
   clearLookup,
@@ -26,6 +27,7 @@ export function useCaptureControl({
   coreReady: boolean;
   getRunning: () => boolean;
   outputMode: string | undefined;
+  networkCaptureEnabled?: boolean;
   preparePlayerAudioStart: () => Promise<boolean>;
   createConversation: () => Promise<boolean>;
   clearLookup: () => void;
@@ -35,14 +37,14 @@ export function useCaptureControl({
 }) {
   const [vrchatWarningOpen, setVrchatWarningOpen] = useState(false);
   const [pending, setPending] = useState(false);
-  const current = useRef({ coreReady, getRunning, createConversation, clearLookup, setCoreCaptureRunning, outputMode, preparePlayerAudioStart });
-  current.current = { coreReady, getRunning, createConversation, clearLookup, setCoreCaptureRunning, outputMode, preparePlayerAudioStart };
+  const current = useRef({ coreReady, getRunning, createConversation, clearLookup, setCoreCaptureRunning, networkCaptureEnabled, preparePlayerAudioStart });
+  current.current = { coreReady, getRunning, createConversation, clearLookup, setCoreCaptureRunning, networkCaptureEnabled, preparePlayerAudioStart };
   const controller = useRef<ReturnType<typeof createCaptureController> | null>(null);
   if (!controller.current) controller.current = createCaptureController({
     available: () => current.current.coreReady,
     running: () => current.current.getRunning(),
     newConversation: () => readTranscriptionStartBehavior() === "new_conversation",
-    beforeStart: () => current.current.outputMode === "vrchat_players" ? current.current.preparePlayerAudioStart() : Promise.resolve(true),
+    beforeStart: () => current.current.networkCaptureEnabled ? current.current.preparePlayerAudioStart() : Promise.resolve(true),
     createConversation: async () => {
       if (!await current.current.createConversation()) return false;
       current.current.clearLookup();

@@ -10,6 +10,8 @@ use crate::audio;
 use crate::config::{AppConfig, AsrConfig, QWEN_MANAGED_BACKEND};
 use crate::error::AppError;
 use crate::pipeline::{AsrEchoGuard, PipelineDependencies};
+use crate::player_audio::{session::NetworkConsumers, AudioEvent};
+use tokio::sync::mpsc;
 
 use super::{api_domain_error, api_error, ApiResult, CaptureContext};
 
@@ -17,6 +19,8 @@ use super::{api_domain_error, api_error, ApiResult, CaptureContext};
 pub(crate) struct CaptureReloadPlan {
     speaker: bool,
     microphone: bool,
+    chatbox: bool,
+    network_restart: bool,
 }
 
 impl CaptureReloadPlan {
@@ -31,6 +35,10 @@ impl CaptureReloadPlan {
         candidate_output.player_audio.selected_tracks = None;
         current_output.player_audio.selected_user_names.clear();
         candidate_output.player_audio.selected_user_names.clear();
+        let network_restart = current_output.player_audio.pagefile_drive
+            != candidate_output.player_audio.pagefile_drive;
+        current_output.player_audio.pagefile_drive.clear();
+        candidate_output.player_audio.pagefile_drive.clear();
         let shared = current.vad != candidate.vad
             || (current.vrcx.enabled && current.vrcx.include_in_asr_context)
                 != (candidate.vrcx.enabled && candidate.vrcx.include_in_asr_context)
@@ -55,6 +63,9 @@ impl CaptureReloadPlan {
                     && target(&current.translation.speaker_targets)
                         != target(&candidate.translation.speaker_targets))
                 || sample_rate_changed
+                || (network_restart
+                    && (current_output.mode == "vrchat_players"
+                        || candidate_output.mode == "vrchat_players"))
                 || current_output != candidate_output,
             microphone: shared
                 || live_mode_changed
@@ -63,6 +74,8 @@ impl CaptureReloadPlan {
                         != target(&candidate.translation.microphone_targets))
                 || sample_rate_changed
                 || current_microphone != candidate_microphone,
+            chatbox: current.vrchat_chatbox.enabled != candidate.vrchat_chatbox.enabled,
+            network_restart,
         }
     }
 
@@ -70,12 +83,30 @@ impl CaptureReloadPlan {
         Self {
             speaker: true,
             microphone: true,
+            chatbox: true,
+            network_restart: true,
         }
     }
 
     pub(crate) fn is_empty(self) -> bool {
-        !self.speaker && !self.microphone
+        !self.speaker && !self.microphone && !self.chatbox && !self.network_restart
     }
+
+    pub(crate) fn audio_changed(self) -> bool {
+        self.speaker || self.microphone
+    }
+
+    fn audio() -> Self {
+        Self {
+            speaker: true,
+            microphone: true,
+            ..Self::default()
+        }
+    }
+}
+
+pub(crate) fn has_audio_sources(config: &AppConfig) -> bool {
+    config.audio.output.mode != "disabled" || config.audio.microphone.mode != "disabled"
 }
 
 pub(crate) fn asr_runtime_changed(current: &AppConfig, candidate: &AppConfig) -> bool {
@@ -233,19 +264,8 @@ pub(crate) async fn validate_capture_config(
     state: &CaptureContext,
     config: &AppConfig,
 ) -> ApiResult<()> {
-    if config.audio.sample_rate != 16_000 {
-        return Err(api_error(
-            StatusCode::UNPROCESSABLE_ENTITY,
-            "capture.invalid_sample_rate",
-            "The Rust ASR pipeline requires a 16000 Hz sample rate",
-        ));
-    }
-    if config.audio.output.mode == "disabled" && config.audio.microphone.mode == "disabled" {
-        return Err(api_error(
-            StatusCode::UNPROCESSABLE_ENTITY,
-            "capture.no_audio_sources",
-            "At least one audio source must be enabled",
-        ));
+    if !validate_capture_sources(config)? {
+        return Ok(());
     }
     if crate::providers::is_live_translation(&config.asr.backend) {
         if config.translation.mode != "automatic" {
@@ -255,10 +275,19 @@ pub(crate) async fn validate_capture_config(
                 "Live translation requires automatic translation",
             ));
         }
-        for targets in [
-            &config.translation.speaker_targets,
-            &config.translation.microphone_targets,
+        for (enabled, targets) in [
+            (
+                config.audio.output.mode != "disabled",
+                &config.translation.speaker_targets,
+            ),
+            (
+                config.audio.microphone.mode != "disabled",
+                &config.translation.microphone_targets,
+            ),
         ] {
+            if !enabled {
+                continue;
+            }
             let target = targets.first().ok_or_else(|| {
                 api_error(
                     StatusCode::CONFLICT,
@@ -306,6 +335,29 @@ pub(crate) async fn validate_capture_config(
             .map_err(|error| api_error(StatusCode::CONFLICT, "asr.cloud_profile_invalid", error))?;
     }
     Ok(())
+}
+
+// Return whether audio resources must be validated and loaded.
+fn validate_capture_sources(config: &AppConfig) -> ApiResult<bool> {
+    if !has_audio_sources(config) {
+        return if config.vrchat_chatbox.enabled {
+            Ok(false)
+        } else {
+            Err(api_error(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "capture.no_audio_sources",
+                "At least one capture source must be enabled",
+            ))
+        };
+    }
+    if config.audio.sample_rate != 16_000 {
+        return Err(api_error(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "capture.invalid_sample_rate",
+            "The Rust ASR pipeline requires a 16000 Hz sample rate",
+        ));
+    }
+    Ok(true)
 }
 
 fn effective_asr_config(
@@ -361,6 +413,7 @@ fn pipeline_dependencies(state: &CaptureContext) -> PipelineDependencies {
 async fn start_speaker_pipeline(
     state: &CaptureContext,
     config: &AppConfig,
+    voice: Option<mpsc::Receiver<AudioEvent>>,
 ) -> ApiResult<Option<crate::models::AudioDevice>> {
     let output = &config.audio.output;
     if output.mode == "disabled" {
@@ -372,6 +425,14 @@ async fn start_speaker_pipeline(
     let process_name = (output.mode == "vrchat").then_some("VRChat.exe");
     let (asr, echo_guard) = effective_asr_config(state, config, "speaker");
     if output.mode == "vrchat_players" {
+        let events = voice.ok_or_else(|| {
+            api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "capture.network_subscription_missing",
+                "The player audio subscription is unavailable",
+            )
+        })?;
+        let status = state.capture.network_session.lock().await.shared_status();
         return state
             .capture
             .speaker_pipeline
@@ -379,6 +440,8 @@ async fn start_speaker_pipeline(
             .await
             .start_players(
                 &output.player_audio,
+                events,
+                status,
                 output.trigger_threshold_dbfs,
                 &config.vad,
                 asr,
@@ -468,15 +531,22 @@ async fn start_microphone_pipeline(
 async fn start_planned_pipelines(
     state: &CaptureContext,
     config: &AppConfig,
-    plan: CaptureReloadPlan,
+    mut plan: CaptureReloadPlan,
 ) -> ApiResult<(
     Option<crate::models::AudioDevice>,
     Option<crate::models::AudioDevice>,
 )> {
-    if config.asr.backend == QWEN_MANAGED_BACKEND
-        && ((config.audio.output.mode != "disabled"
+    let voice = reconcile_network(state, config).await?;
+    if voice.is_some() && !plan.speaker {
+        // A failed worker can produce a new subscription during a text-only reload.
+        state.capture.speaker_pipeline.lock().await.stop().await;
+        plan.speaker = true;
+    }
+    let preparation_error = if config.asr.backend == QWEN_MANAGED_BACKEND
+        && ((plan.speaker
+            && config.audio.output.mode != "disabled"
             && config.audio.output.mode != "vrchat_players")
-            || config.audio.microphone.mode != "disabled")
+            || (plan.microphone && config.audio.microphone.mode != "disabled"))
     {
         crate::asr::prepare_managed_qwen(
             &config.asr,
@@ -484,40 +554,153 @@ async fn start_planned_pipelines(
             &state.capture.model_manager,
         )
         .await
-        .map_err(|error| {
-            api_error(
-                StatusCode::SERVICE_UNAVAILABLE,
-                "asr.cloud_connect_failed",
-                error,
-            )
-        })?;
-    }
-    let result = tokio::try_join!(
+        .err()
+    } else {
+        None
+    };
+    let preparation_failure = || {
+        api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "asr.cloud_connect_failed",
+            preparation_error.as_ref().unwrap().clone(),
+        )
+    };
+    // Wait for both starts: one failing audio device must not cancel its sibling.
+    let (speaker, microphone) = tokio::join!(
         async {
             if plan.speaker {
-                start_speaker_pipeline(state, config).await
+                if preparation_error.is_some()
+                    && config.audio.output.mode != "disabled"
+                    && config.audio.output.mode != "vrchat_players"
+                {
+                    return Err(preparation_failure());
+                }
+                start_speaker_pipeline(state, config, voice).await
             } else {
                 Ok(None)
             }
         },
         async {
             if plan.microphone {
+                if preparation_error.is_some() && config.audio.microphone.mode != "disabled" {
+                    return Err(preparation_failure());
+                }
                 start_microphone_pipeline(state, config).await
             } else {
                 Ok(None)
             }
         }
     );
-    match result {
-        Ok(devices) => Ok(devices),
-        Err(error) => {
+    let text_active = config.vrchat_chatbox.enabled && {
+        let network = state.capture.network_session.lock().await;
+        network.running()
+            && network
+                .chatbox_status()
+                .is_some_and(|status| !matches!(status.phase, "failed" | "stopped"))
+    };
+    let speaker = {
+        let pipeline = state.capture.speaker_pipeline.lock().await;
+        isolate_audio_failure(speaker, text_active, |error| {
+            pipeline.set_start_error(error)
+        })
+    };
+    let microphone = {
+        let pipeline = state.capture.microphone_pipeline.lock().await;
+        isolate_audio_failure(microphone, text_active, |error| {
+            pipeline.set_start_error(error)
+        })
+    };
+    match (speaker, microphone) {
+        (Ok(speaker), Ok(microphone)) => Ok((speaker, microphone)),
+        (Err(error), _) | (_, Err(error)) => {
             stop_pipelines(state, plan).await;
             Err(error)
         }
     }
 }
 
+fn isolate_audio_failure<T>(
+    result: ApiResult<Option<T>>,
+    text_active: bool,
+    record_error: impl FnOnce(String),
+) -> ApiResult<Option<T>> {
+    match result {
+        Ok(device) => Ok(device),
+        Err(error) => {
+            record_error(
+                error.1["detail"]
+                    .as_str()
+                    .unwrap_or("Audio startup failed")
+                    .to_owned(),
+            );
+            if text_active {
+                Ok(None)
+            } else {
+                Err(error)
+            }
+        }
+    }
+}
+
+pub(crate) async fn reconcile_network(
+    state: &CaptureContext,
+    config: &AppConfig,
+) -> ApiResult<Option<mpsc::Receiver<AudioEvent>>> {
+    let subscriptions = state
+        .capture
+        .network_session
+        .lock()
+        .await
+        .reconcile(
+            config,
+            NetworkConsumers::from_config(config),
+            Arc::clone(&state.config.config),
+        )
+        .await
+        .map_err(|detail| {
+            api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "capture.network_start_failed",
+                detail,
+            )
+        })?;
+    if let Some(receiver) = subscriptions.chatbox {
+        if let Some(task) = state.capture.chatbox_task.lock().await.take() {
+            task.abort();
+        }
+        let consumer = crate::vrchat_chatbox::ChatboxConsumer::new(
+            Arc::clone(&state.content.db),
+            state.content.conversation_catalog_tx.clone(),
+            state.content.subtitle_output.clone(),
+            state.content.translation_dispatcher.clone(),
+            Arc::clone(&state.config.config),
+            Arc::clone(&state.config.language_session),
+        );
+        *state.capture.chatbox_task.lock().await = Some(tokio::spawn(consumer.run(receiver)));
+    }
+    Ok(subscriptions.voice)
+}
+
 pub(crate) async fn stop_pipelines(state: &CaptureContext, plan: CaptureReloadPlan) {
+    {
+        let mut network = state.capture.network_session.lock().await;
+        if plan.network_restart {
+            network.stop().await;
+        } else {
+            let consumers = NetworkConsumers {
+                voice: !plan.speaker && network.voice_status().is_some(),
+                chatbox: !plan.chatbox && network.chatbox_status().is_some(),
+            };
+            // Detach before aborting the consumer so in-flight text loses validity.
+            network.detach(consumers).await;
+        }
+    }
+    if plan.chatbox || plan.network_restart {
+        if let Some(task) = state.capture.chatbox_task.lock().await.take() {
+            task.abort();
+            let _ = task.await;
+        }
+    }
     match (plan.speaker, plan.microphone) {
         (true, true) => {
             let mut speaker = state.capture.speaker_pipeline.lock().await;
@@ -556,7 +739,7 @@ pub(crate) async fn reload_glossary_asr_context(state: &CaptureContext) -> ApiRe
     {
         return Ok(());
     }
-    let plan = CaptureReloadPlan::all();
+    let plan = CaptureReloadPlan::audio();
     stop_pipelines(state, plan).await;
     start_pipelines(state, &config, plan).await
 }
@@ -577,7 +760,8 @@ pub(super) async fn capture_start(
     })?;
     let config = session.apply_to(&global);
     validate_capture_config(&state, &config).await?;
-    if state.capture.speaker_pipeline.lock().await.running()
+    if state.capture.capture_requested.load(Ordering::SeqCst)
+        || state.capture.speaker_pipeline.lock().await.running()
         || state.capture.microphone_pipeline.lock().await.running()
     {
         return Err(api_error(
@@ -634,9 +818,7 @@ pub(super) async fn capture_stop(State(state): State<CaptureContext>) -> Json<Va
         .capture
         .capture_requested
         .store(false, Ordering::SeqCst);
-    let mut speaker = state.capture.speaker_pipeline.lock().await;
-    let mut microphone = state.capture.microphone_pipeline.lock().await;
-    tokio::join!(speaker.stop(), microphone.stop());
+    stop_pipelines(&state, CaptureReloadPlan::all()).await;
     if let Err(error) = state.capture.qwen_runtime.stop().await {
         tracing::warn!(%error, "could not stop managed Qwen ASR runtime after capture");
     }
@@ -695,6 +877,73 @@ pub(crate) async fn resume_microphone(state: &CaptureContext) -> Result<(), Stri
 #[cfg(test)]
 mod tests {
     use super::{asr_runtime_changed, CaptureReloadPlan};
+
+    #[test]
+    fn audio_start_failures_preserve_text_and_record_each_error_without_hiding_success() {
+        let failure = || {
+            super::api_error(
+                axum::http::StatusCode::SERVICE_UNAVAILABLE,
+                "audio.fixture_failed",
+                "Audio device unavailable",
+            )
+        };
+        let mut errors = Vec::new();
+        let speaker =
+            super::isolate_audio_failure::<u8>(Err(failure()), true, |error| errors.push(error));
+        let microphone =
+            super::isolate_audio_failure::<u8>(Err(failure()), true, |error| errors.push(error));
+        assert_eq!((speaker.unwrap(), microphone.unwrap()), (None, None));
+        assert_eq!(
+            errors,
+            ["Audio device unavailable", "Audio device unavailable"]
+        );
+        assert_eq!(
+            super::isolate_audio_failure(Ok(Some(7)), true, |_| panic!(
+                "successful audio must not record an error"
+            ))
+            .unwrap(),
+            Some(7)
+        );
+        assert!(super::isolate_audio_failure::<u8>(Err(failure()), false, |_| {}).is_err());
+    }
+
+    #[test]
+    fn chatbox_toggle_only_reloads_text_and_pagefile_restarts_shared_network() {
+        let mut current = crate::config::AppConfig::default();
+        current.audio.output.mode = "vrchat_players".into();
+        let mut next = current.clone();
+        next.vrchat_chatbox.enabled = true;
+        let plan = CaptureReloadPlan::between(&current, &next);
+        assert!(plan.chatbox);
+        assert!(!plan.audio_changed() && !plan.network_restart);
+        next.audio.output.player_audio.pagefile_drive = "D:".into();
+        let plan = CaptureReloadPlan::between(&current, &next);
+        assert!(plan.network_restart && plan.speaker && !plan.microphone);
+
+        current.audio.output.mode = "system".into();
+        next = current.clone();
+        next.audio.output.player_audio.pagefile_drive = "D:".into();
+        let plan = CaptureReloadPlan::between(&current, &next);
+        assert!(plan.network_restart && !plan.audio_changed());
+    }
+
+    #[test]
+    fn pure_text_capture_does_not_require_audio_resources_but_no_sources_is_rejected() {
+        let mut config = crate::config::AppConfig::default();
+        config.audio.output.mode = "disabled".into();
+        config.audio.microphone.mode = "disabled".into();
+        config.vrchat_chatbox.enabled = true;
+        config.audio.sample_rate = 48_000;
+        config.asr.managed_qwen.package_id.clear();
+        assert!(!super::validate_capture_sources(&config).unwrap());
+        config.vrchat_chatbox.enabled = false;
+        assert!(super::validate_capture_sources(&config).is_err());
+        config.audio.output.mode = "system".into();
+        assert!(super::validate_capture_sources(&config).is_err());
+        config.audio.sample_rate = 16_000;
+        assert!(super::validate_capture_sources(&config).unwrap());
+    }
+
     #[test]
     fn track_selection_changes_do_not_restart_capture_or_other_players() {
         let mut current = crate::config::AppConfig::default();
@@ -724,7 +973,7 @@ mod tests {
             next.vrcx.include_in_asr_context = !enabled;
             assert_eq!(
                 CaptureReloadPlan::between(&current, &next),
-                CaptureReloadPlan::all()
+                CaptureReloadPlan::audio()
             );
         }
     }
@@ -758,14 +1007,14 @@ mod tests {
             });
             assert_eq!(
                 CaptureReloadPlan::between(&current, &next),
-                CaptureReloadPlan::all()
+                CaptureReloadPlan::audio()
             );
             assert!(super::glossary_used_by_capture(&current));
             next = current.clone();
             next.glossary.llm_enabled = false;
             assert_eq!(
                 CaptureReloadPlan::between(&current, &next),
-                CaptureReloadPlan::all()
+                CaptureReloadPlan::audio()
             );
         }
         current.glossary.asr_enabled = false;
@@ -782,7 +1031,7 @@ mod tests {
         next.glossary.asr_enabled = true;
         assert_eq!(
             CaptureReloadPlan::between(&current, &next),
-            CaptureReloadPlan::all()
+            CaptureReloadPlan::audio()
         );
     }
 
@@ -889,7 +1138,7 @@ mod tests {
 
         assert_eq!(
             CaptureReloadPlan::between(&current, &candidate),
-            CaptureReloadPlan::all()
+            CaptureReloadPlan::audio()
         );
     }
 
@@ -907,7 +1156,7 @@ mod tests {
 
         assert_eq!(
             CaptureReloadPlan::between(&current, &candidate),
-            CaptureReloadPlan::all()
+            CaptureReloadPlan::audio()
         );
         assert!(!asr_runtime_changed(&current, &candidate));
     }
@@ -934,6 +1183,7 @@ mod tests {
             CaptureReloadPlan {
                 speaker: true,
                 microphone: false,
+                ..CaptureReloadPlan::default()
             }
         );
     }
@@ -949,6 +1199,7 @@ mod tests {
             CaptureReloadPlan {
                 speaker: true,
                 microphone: false,
+                ..CaptureReloadPlan::default()
             }
         );
     }
@@ -972,6 +1223,7 @@ mod tests {
             CaptureReloadPlan {
                 speaker: false,
                 microphone: true,
+                ..CaptureReloadPlan::default()
             }
         );
     }
@@ -984,7 +1236,7 @@ mod tests {
 
         assert_eq!(
             CaptureReloadPlan::between(&current, &candidate),
-            CaptureReloadPlan::all()
+            CaptureReloadPlan::audio()
         );
     }
 }

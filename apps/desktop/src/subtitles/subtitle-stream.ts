@@ -101,7 +101,7 @@ function isSource(value: unknown): value is LiveTranscription["source"] {
 }
 
 function isSubtitleSource(value: unknown): value is NonNullable<Subtitle["source"]> {
-  return isSource(value) || value === "chatbox";
+  return isSource(value) || value === "chatbox" || value === "vrchat_chatbox";
 }
 
 function isDbfs(value: unknown): value is number {

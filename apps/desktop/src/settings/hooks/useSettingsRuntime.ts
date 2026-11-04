@@ -10,6 +10,7 @@ import { createSettingsAutosave } from "../settings-autosave";
 import type { Settings } from "../types";
 import type { PlayerAudioStart } from "../../capture/usePlayerAudioStart";
 import { withCurrentPlayerNames } from "../../capture/player-selection";
+import { usesVrchatNetwork } from "../../capture/vrchat-network";
 
 export function useSettingsRuntime({
   active,
@@ -90,6 +91,12 @@ export function useSettingsRuntime({
     const previous = persistedSettingsRef.current;
     const switchToPlayers = previous !== null && previous.audio.output.mode !== "vrchat_players"
       && next.audio.output.mode === "vrchat_players" && health.getCurrent()?.capture_requested;
+    const enableNetwork = previous !== null && !usesVrchatNetwork(previous) && usesVrchatNetwork(next)
+      && health.getCurrent()?.capture_requested;
+    if (enableNetwork && !switchToPlayers) {
+      // Core hot-enables Chatbox on save. Never submit it before preparation succeeds.
+      if (!await playerAudioStart.confirm() || !await playerAudioStart.ensurePrivileges()) return previous;
+    }
     // Stop before saving: Core normally restarts active inputs as part of saving settings.
     if (switchToPlayers) {
       if (!await playerAudioStart.confirm()) return previous;

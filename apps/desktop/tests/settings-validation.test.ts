@@ -11,7 +11,8 @@ import { DEFAULT_VISION_SETTINGS } from "../src/settings/vision-settings.ts";
 import type { Settings } from "../src/settings/types.ts";
 
 const settings: Settings = {
-  schema_version: 36,
+  schema_version: 37,
+  vrchat_chatbox: { enabled: false },
   conversation_titles: { auto_generate: false, profile_id: null, model: "", output_language: "auto" },
   features: { ...DEFAULT_FEATURE_SETTINGS },
   server: { host: "127.0.0.1", port: 8766 },

@@ -82,9 +82,6 @@ pub struct TranscriptionPipeline {
     device: Option<AudioDevice>,
     last_error: Arc<Mutex<Option<String>>>,
     discard_on_stop: Arc<AtomicBool>,
-    player_status: Option<crate::player_audio::SharedStatus>,
-    #[cfg(windows)]
-    player_cache: Arc<crate::player_audio::SessionCache>,
 }
 
 impl TranscriptionPipeline {
@@ -108,9 +105,6 @@ impl TranscriptionPipeline {
             device: None,
             last_error: Arc::new(Mutex::new(None)),
             discard_on_stop: Arc::new(AtomicBool::new(false)),
-            player_status: None,
-            #[cfg(windows)]
-            player_cache: Arc::default(),
         }
     }
 
@@ -130,10 +124,8 @@ impl TranscriptionPipeline {
         self.last_error.lock().expect("pipeline error lock").clone()
     }
 
-    pub(crate) fn player_status(&self) -> Option<crate::player_audio::Status> {
-        self.player_status
-            .as_ref()
-            .map(|status| status.lock().expect("player status").clone())
+    pub(crate) fn set_start_error(&self, error: String) {
+        *self.last_error.lock().expect("pipeline error lock") = Some(error);
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -169,7 +161,6 @@ impl TranscriptionPipeline {
             None
         };
         self.task.take();
-        self.player_status = None;
         self.stop.take();
         self.device = None;
         *self.last_error.lock().expect("pipeline error lock") = None;

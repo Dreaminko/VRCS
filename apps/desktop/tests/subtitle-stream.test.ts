@@ -26,6 +26,14 @@ function subtitle(id: number, text: string): Subtitle {
   };
 }
 
+test("remote Chatbox subtitles preserve player identity, Unicode and whitespace without ASR events", () => {
+  const message = { type: "subtitle", subtitle: { ...subtitle(31, "  Hello 🦊\n你好  "),
+    source: "vrchat_chatbox", language: null, speaker: { id: "vrc:text-player", index: 3 } } };
+  assert.deepEqual(parseSubtitleStreamMessage(JSON.stringify(message)), message);
+  assert.equal(parseSubtitleStreamMessage(JSON.stringify({ type: "partial", source: "vrchat_chatbox",
+    utterance_id: "text-is-not-asr", text: "hello", language: null })), null);
+});
+
 test("native stream carries cumulative conversation text separately from subtitle preview", () => {
   const event = {
     type: "live_translation_updated", source: "speaker", utterance_id: "preview-1",

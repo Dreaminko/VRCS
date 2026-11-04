@@ -10,7 +10,7 @@ pub(super) enum Update {
     Left(u16),
 }
 
-enum Value<'a> {
+pub(super) enum Value<'a> {
     Int(i64),
     Text(&'a str),
     Map(Vec<(Value<'a>, Value<'a>)>),
@@ -23,7 +23,7 @@ impl<'a> Value<'a> {
             matches!(key, Self::Text(text) if *text == name).then_some(value)
         })
     }
-    fn actor(&self) -> Option<u16> {
+    pub(super) fn actor(&self) -> Option<u16> {
         let Self::Int(value) = self else { return None };
         u16::try_from(*value).ok().filter(|v| *v != 0)
     }
@@ -32,19 +32,29 @@ enum Descriptor {
     Plain(u8),
     Dictionary(Box<(Descriptor, Descriptor)>),
 }
-struct Reader<'a> {
+pub(super) struct Reader<'a> {
     bytes: &'a [u8],
     offset: usize,
     nodes: usize,
 }
 impl<'a> Reader<'a> {
+    pub(super) fn new(bytes: &'a [u8]) -> Self {
+        Self {
+            bytes,
+            offset: 0,
+            nodes: 0,
+        }
+    }
+    pub(super) fn finished(&self) -> bool {
+        self.offset == self.bytes.len()
+    }
     fn take(&mut self, length: usize) -> Option<&'a [u8]> {
         let end = self.offset.checked_add(length)?;
         let result = self.bytes.get(self.offset..end)?;
         self.offset = end;
         Some(result)
     }
-    fn byte(&mut self) -> Option<u8> {
+    pub(super) fn byte(&mut self) -> Option<u8> {
         Some(self.take(1)?[0])
     }
     fn varint(&mut self) -> Option<u64> {
@@ -80,7 +90,7 @@ impl<'a> Reader<'a> {
             Descriptor::Plain(kind)
         })
     }
-    fn dynamic(&mut self, depth: usize) -> Option<Value<'a>> {
+    pub(super) fn dynamic(&mut self, depth: usize) -> Option<Value<'a>> {
         let kind = self.byte()?;
         // Zero means dynamic only inside a dictionary descriptor.
         if kind == 0 {

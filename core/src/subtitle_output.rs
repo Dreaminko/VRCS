@@ -188,6 +188,11 @@ impl SubtitleLifecyclePublisher {
         self.publish_subtitle(subtitle, None);
     }
 
+    pub(crate) fn remote_subtitle_recorded(&self, subtitle: Subtitle, message_id: &str) {
+        debug_assert_eq!(subtitle.source, "vrchat_chatbox");
+        self.publish_subtitle(subtitle, Some(message_id));
+    }
+
     fn publish_subtitle(&self, subtitle: Subtitle, utterance_id: Option<&str>) {
         let _ = self.subtitles.send(subtitle.clone());
         let _ = self.presentation.send(PresentationEvent::Final {
@@ -335,8 +340,10 @@ impl SubtitleLifecyclePublisher {
             .with_allowed(source, message_id, || {
                 self.events
                     .translation_completed(message_id, source, subtitle_id, &translation);
-                self.osc
-                    .translation_completed(subtitle_id, translation.clone(), preferred);
+                if source != "vrchat_chatbox" {
+                    self.osc
+                        .translation_completed(subtitle_id, translation.clone(), preferred);
+                }
                 let _ = self
                     .presentation
                     .send(PresentationEvent::TranslationCompleted {
@@ -365,11 +372,13 @@ impl SubtitleLifecyclePublisher {
                     &failure.code,
                     &failure.detail,
                 );
-                self.osc.translation_failed(
-                    failure.subtitle_id,
-                    failure.target_language,
-                    failure.preferred,
-                );
+                if failure.source != "vrchat_chatbox" {
+                    self.osc.translation_failed(
+                        failure.subtitle_id,
+                        failure.target_language,
+                        failure.preferred,
+                    );
+                }
                 let _ = self.translations.send(TranslationEvent::TranslationFailed {
                     subtitle_id: failure.subtitle_id,
                     target_language: failure.target_language.into(),
@@ -390,6 +399,73 @@ mod tests {
     use super::*;
     use crate::config::OscConfig;
     use crate::models::now_iso8601;
+
+    #[tokio::test]
+    async fn remote_chatbox_original_success_and_failure_never_send_osc() {
+        let receiver = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let config = OscConfig {
+            enabled: true,
+            port: receiver.local_addr().unwrap().port(),
+            mute_sync_enabled: false,
+            preserve_original_text: true,
+            ..Default::default()
+        };
+        let (subtitles, _) = broadcast::channel(8);
+        let (translations, _) = broadcast::channel(8);
+        let osc = OscChatboxDispatcher::new(config);
+        // A wrongly forwarded remote result would release this local pending send.
+        let mut local = subtitle(91);
+        local.source = "microphone".into();
+        osc.publish_subtitle_with_targets(local, true, vec!["ja".into()], "local-91".into());
+        let output = SubtitleLifecyclePublisher::new(subtitles, translations, osc);
+        let mut events = output.subscribe_presentation_events();
+        let mut remote = subtitle(91);
+        remote.source = "vrchat_chatbox".into();
+        output.remote_subtitle_recorded(remote, "remote-91");
+        let translation = SubtitleTranslation {
+            source_group: None,
+            text: "Translated remote text".into(),
+            source_language: None,
+            target_language: "ja".into(),
+            provider: "test".into(),
+            model: None,
+            created_at: now_iso8601(),
+        };
+        output.translation_completed_with_message(
+            91,
+            translation,
+            true,
+            "remote-91",
+            "vrchat_chatbox",
+        );
+        output.translation_failed_with_message(TranslationFailure {
+            subtitle_id: 91,
+            code: "translation.not_configured".into(),
+            detail: "test".into(),
+            target_language: "ja",
+            preferred: false,
+            message_id: "remote-91",
+            source: "vrchat_chatbox",
+        });
+        assert!(
+            matches!(events.recv().await.unwrap(), PresentationEvent::Final { utterance_id, subtitle }
+            if utterance_id.as_deref() == Some("remote-91") && subtitle.source == "vrchat_chatbox")
+        );
+        assert!(matches!(
+            events.recv().await.unwrap(),
+            PresentationEvent::TranslationCompleted {
+                subtitle_id: 91,
+                ..
+            }
+        ));
+        let mut bytes = [0; 1024];
+        assert!(tokio::time::timeout(
+            std::time::Duration::from_millis(150),
+            receiver.recv(&mut bytes)
+        )
+        .await
+        .is_err());
+    }
 
     fn subtitle(id: i64) -> Subtitle {
         Subtitle {

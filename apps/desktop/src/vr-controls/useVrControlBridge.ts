@@ -6,8 +6,9 @@ import type { Settings } from "../settings/types";
 import { createControlExecutor } from "./actions";
 import type { ControlRequest, ControlSnapshot, PlacementRequest } from "./protocol";
 import type { PlayerAudioStart } from "../capture/usePlayerAudioStart";
-import type { PlayerAudioStatus } from "../core-client/types";
+import type { ChatboxStatus, PlayerAudioStatus } from "../core-client/types";
 import { playerAudioProgress, playerAudioPrompt, type PlayerAudioDecision } from "../capture/player-audio-vr";
+import { usesVrchatNetwork } from "../capture/vrchat-network";
 
 export function useVrControlBridge(options: {
   settings: Settings | null;
@@ -21,6 +22,7 @@ export function useVrControlBridge(options: {
   setCaptureRunning: (target: boolean) => Promise<boolean>;
   playerAudioStart: PlayerAudioStart;
   playerAudioStatus?: PlayerAudioStatus | null;
+  chatboxStatus?: ChatboxStatus | null;
 }) {
   const { t } = useTranslation();
   const current = useRef(options);
@@ -28,7 +30,7 @@ export function useVrControlBridge(options: {
   const [epoch, setEpoch] = useState(0);
   const revision = useRef(0);
   const audioRevision = useRef(0);
-  const lastAudio = useRef<{ requested: boolean; status?: PlayerAudioStatus | null }>({ requested: false });
+  const lastAudio = useRef<{ requested: boolean; status?: PlayerAudioStatus | ChatboxStatus | null; chatbox?: boolean }>({ requested: false });
   const [audioReadyHidden, setAudioReadyHidden] = useState(false);
   const [now, setNow] = useState(() => performance.now());
   const view = useRef<ControlSnapshot>({ owner_epoch: 0, revision: 0, items: [], dark: false, labels: {} });
@@ -144,9 +146,11 @@ export function useVrControlBridge(options: {
 
   const notice = playerAudioPrompt(options.playerAudioStart.notice, now, t);
   // A missing health snapshot is not a confirmed stop.
-  const requested = settings?.audio.output.mode === "vrchat_players" && (options.requested ?? lastAudio.current.requested);
-  const status = options.playerAudioStatus ?? lastAudio.current.status;
-  lastAudio.current = { requested, status: requested ? status : null };
+  const chatbox = settings?.audio.output.mode !== "vrchat_players" && Boolean(settings?.vrchat_chatbox?.enabled);
+  const requested = usesVrchatNetwork(settings) && (options.requested ?? lastAudio.current.requested);
+  const status = (chatbox ? options.chatboxStatus : options.playerAudioStatus)
+    ?? (lastAudio.current.chatbox === chatbox ? lastAudio.current.status : null);
+  lastAudio.current = { requested, status: requested ? status : null, chatbox };
   const ready = !notice && !options.playerAudioStart.preparation && requested && status?.phase === "streaming";
   useEffect(() => {
     setAudioReadyHidden(false);
@@ -155,7 +159,7 @@ export function useVrControlBridge(options: {
     return () => window.clearTimeout(timer);
   }, [ready]);
   const progress = notice || (ready && audioReadyHidden) ? null
-    : playerAudioProgress(options.playerAudioStart.preparation, status, requested, t);
+    : playerAudioProgress(options.playerAudioStart.preparation, status, requested, t, chatbox);
   const audioView = JSON.stringify({ notice, progress });
   useEffect(() => {
     if (!epoch) return;

@@ -18,8 +18,8 @@ impl Database {
             "SELECT source, text, created_at FROM (
                  SELECT source, text, created_at, 0 AS source_order, id
                  FROM subtitles
-                 WHERE source IN ('speaker', 'microphone')
-                   AND ((source = 'speaker' AND ?1) OR (source = 'microphone' AND ?2))
+                 WHERE source IN ('speaker', 'microphone', 'vrchat_chatbox')
+                   AND ((source IN ('speaker', 'vrchat_chatbox') AND ?1) OR (source = 'microphone' AND ?2))
                    AND (?4 IS NULL OR id != ?4)
                  UNION ALL
                  SELECT 'chatbox' AS source, original AS text, created_at, 1 AS source_order, id
@@ -55,6 +55,49 @@ impl Database {
 mod tests {
     use super::*;
     use crate::models::Subtitle;
+
+    #[test]
+    fn remote_chatbox_is_other_player_context_independent_of_local_sends() {
+        let directory = tempfile::tempdir().unwrap();
+        let database = Database::open(&directory.path().join("remote-context.db")).unwrap();
+        let mut current = None;
+        for text in ["remote history", "current remote text"] {
+            current = database
+                .add_subtitle(&Subtitle {
+                    id: None,
+                    speaker: None,
+                    conversation_id: None,
+                    text: text.into(),
+                    language: None,
+                    started_at: None,
+                    ended_at: None,
+                    source: "vrchat_chatbox".into(),
+                    created_at: "2026-11-04T00:00:00Z".into(),
+                    translations: Vec::new(),
+                })
+                .unwrap()
+                .id;
+        }
+        let mut config = TranslationPromptConfig {
+            context_enabled: true,
+            include_speaker: true,
+            include_microphone: false,
+            include_chatbox: false,
+            ..Default::default()
+        };
+        let entries = database
+            .recent_translation_context(&config, current)
+            .unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].source, "vrchat_chatbox");
+        assert_eq!(entries[0].text, "remote history");
+        config.include_speaker = false;
+        config.include_chatbox = true;
+        assert!(database
+            .recent_translation_context(&config, None)
+            .unwrap()
+            .is_empty());
+    }
 
     #[test]
     fn context_filters_sources_orders_messages_and_excludes_current_subtitle() {

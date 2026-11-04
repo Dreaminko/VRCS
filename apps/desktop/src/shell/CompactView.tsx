@@ -229,7 +229,7 @@ function CompactFontMenu({ value, onChange }: { value: CompactFontSize; onChange
 function CompactSpeaker({ speaker: identity, source }: { speaker?: SpeakerIdentity | null; source?: string }) {
   const { t } = useTranslation();
   const speaker = useSpeakerIdentity(identity);
-  return <div className="compact-speaker">{source === "chatbox" ? t("chatbox.title") : speaker?.display_name || (source === "microphone" ? t("live.microphoneMe")
+  return <div className="compact-speaker">{source === "vrchat_chatbox" && <MessageSquare size={12} aria-label={t("chatbox.title")} />} {source === "vrchat_chatbox" ? speaker?.display_name || t("live.speakerNumber", { number: (speaker?.index ?? 0) + 1 }) : source === "chatbox" ? t("chatbox.title") : speaker?.display_name || (source === "microphone" ? t("live.microphoneMe")
     : speaker ? t("live.trackNumber", { number: speaker.index + 1 }) : t("live.speakerOther"))}</div>;
 }
 

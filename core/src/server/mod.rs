@@ -423,14 +423,22 @@ async fn health(State(state): State<HealthContext>) -> Json<Value> {
     } else {
         ("not_loaded", None)
     };
-    let (speaker_running, audio_device, speaker_error, player_audio) = {
+    let (speaker_running, audio_device, speaker_error) = {
         let pipeline = state.capture.speaker_pipeline.lock().await;
         (
             pipeline.running(),
             pipeline.device().cloned(),
             pipeline.last_error(),
-            pipeline.player_status(),
         )
+    };
+    let (network_running, player_audio, vrchat_chatbox) = {
+        let network = state.capture.network_session.lock().await;
+        let voice = network.voice_status();
+        let text = network.chatbox_status();
+        let receiving_text = text
+            .as_ref()
+            .is_some_and(|status| status.phase != "failed" && status.phase != "stopped");
+        (network.running() && receiving_text, voice, text)
     };
     let (microphone_running, microphone_device, microphone_error) = {
         let pipeline = state.capture.microphone_pipeline.lock().await;
@@ -462,7 +470,7 @@ async fn health(State(state): State<HealthContext>) -> Json<Value> {
         "service": "vrcs-core",
         "version": CORE_VERSION,
         "config_schema": config_schema,
-        "capture_running": speaker_running || microphone_running,
+        "capture_running": speaker_running || microphone_running || network_running,
         "capture_requested": capture_requested,
         "microphone_capture_state": if capture_requested && microphone_enabled
             && vrchat_mute_sync.muted == Some(true) {
@@ -474,6 +482,7 @@ async fn health(State(state): State<HealthContext>) -> Json<Value> {
         },
         "audio_device": audio_device,
         "player_audio": player_audio,
+        "vrchat_chatbox": vrchat_chatbox,
         "microphone_device": microphone_device,
         "microphone_test_running": microphone_test_running,
         "microphone_test_device": microphone_test_device,

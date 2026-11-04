@@ -1,6 +1,249 @@
 use super::*;
 
 #[tokio::test]
+async fn vrchat_chatbox_only_startup_does_not_prepare_audio_models() {
+    let directory = tempfile::tempdir().unwrap();
+    let config_path = directory.path().join("config.json");
+    let mut config = config::AppConfig::default();
+    config.audio.output.mode = "disabled".into();
+    config.audio.microphone.mode = "disabled".into();
+    config.vrchat_chatbox.enabled = true;
+    config::save_config(&config_path, &config).unwrap();
+    let prepared = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let observed = Arc::clone(&prepared);
+    let handle = start_inner_with_vad_preparation(
+        CoreOptions {
+            config_path,
+            host: Some("127.0.0.1".into()),
+            port: Some(0),
+            session_token: None,
+            vad_model_path: None,
+            asr_model_dir: None,
+        },
+        false,
+        move |_| async move {
+            observed.store(true, std::sync::atomic::Ordering::SeqCst);
+            Ok(())
+        },
+    )
+    .await
+    .unwrap();
+    let loaded = prepared.load(std::sync::atomic::Ordering::SeqCst);
+    handle.shutdown().await.unwrap();
+    assert!(!loaded, "Text-only startup must not prepare VAD");
+}
+
+#[cfg(windows)]
+#[tokio::test]
+#[ignore = "requires VRChat to be closed; starts the native waiting-game network worker"]
+async fn vrchat_chatbox_text_only_http_lifecycle_and_settings_rollback() {
+    let directory = tempfile::tempdir().unwrap();
+    let config_path = directory.path().join("config.json");
+    let mut config = config::AppConfig::default();
+    config.audio.output.mode = "disabled".into();
+    config.audio.microphone.mode = "disabled".into();
+    config.audio.output.player_audio.opus_library_path = directory
+        .path()
+        .join("missing-opus.dll")
+        .to_string_lossy()
+        .into_owned();
+    config.asr.backend = config::QWEN_MANAGED_BACKEND.into();
+    config.asr.managed_qwen.package_id.clear();
+    config.vrchat_chatbox.enabled = true;
+    config::save_config(&config_path, &config).unwrap();
+    let port = std::net::TcpListener::bind("127.0.0.1:0")
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .port();
+    let handle = start(CoreOptions {
+        config_path: config_path.clone(),
+        host: Some("127.0.0.1".into()),
+        port: Some(port),
+        session_token: Some("chatbox-lifecycle".into()),
+        vad_model_path: Some(directory.path().join("missing-silero.onnx")),
+        asr_model_dir: Some(directory.path().join("missing-asr-models")),
+    })
+    .await
+    .unwrap();
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+    let base = format!("http://{}", handle.address());
+    let request = |method, path: &str| {
+        client
+            .request(method, format!("{base}{path}"))
+            .bearer_auth("chatbox-lifecycle")
+    };
+    let response = request(reqwest::Method::POST, "/api/capture/start")
+        .send()
+        .await
+        .unwrap();
+    let status = response.status();
+    let body: serde_json::Value = response.json().await.unwrap();
+    assert_eq!(status, reqwest::StatusCode::OK, "{body}");
+    assert_eq!(body["running"], true);
+    assert_eq!(
+        request(reqwest::Method::POST, "/api/capture/start")
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        reqwest::StatusCode::CONFLICT,
+    );
+    let mut health = serde_json::Value::Null;
+    for _ in 0..40 {
+        health = request(reqwest::Method::GET, "/health")
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        if health["vrchat_chatbox"]["phase"] == "waiting_game" {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+    }
+    assert_eq!(
+        health["vrchat_chatbox"]["phase"], "waiting_game",
+        "{health}"
+    );
+    assert_eq!(health["capture_running"], true);
+    assert_eq!(health["capture_requested"], true);
+    assert_eq!(health["asr_status"], "not_loaded");
+    assert!(health["audio_device"].is_null() && health["microphone_device"].is_null());
+
+    let response = request(reqwest::Method::GET, "/api/settings")
+        .send()
+        .await
+        .unwrap();
+    let revision = response.headers()["x-vrcs-config-revision"]
+        .to_str()
+        .unwrap()
+        .to_owned();
+    let settings: serde_json::Value = response.json().await.unwrap();
+    assert_eq!(settings["schema_version"], 37);
+    assert_eq!(settings["vrchat_chatbox"]["enabled"], true);
+
+    // The runtime failure happens after the text subscription was detached and persisted.
+    let occupied = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let mut invalid = settings.clone();
+    invalid["vrchat_chatbox"]["enabled"] = false.into();
+    invalid["external_api"]["enabled"] = true.into();
+    invalid["external_api"]["require_token"] = false.into();
+    invalid["external_api"]["port"] = occupied.local_addr().unwrap().port().into();
+    let response = request(reqwest::Method::PUT, "/api/settings")
+        .header("x-vrcs-config-revision", &revision)
+        .json(&invalid)
+        .send()
+        .await
+        .unwrap();
+    let status = response.status();
+    let body: serde_json::Value = response.json().await.unwrap();
+    assert_eq!(status, reqwest::StatusCode::CONFLICT, "{body}");
+    assert_eq!(body["code"], "settings.external_api_reload_failed");
+    let restored: serde_json::Value = request(reqwest::Method::GET, "/api/settings")
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(restored, settings);
+    assert!(
+        config::load_config(&config_path)
+            .unwrap()
+            .vrchat_chatbox
+            .enabled
+    );
+    for _ in 0..40 {
+        health = request(reqwest::Method::GET, "/health")
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        if health["vrchat_chatbox"]["phase"] == "waiting_game" {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+    }
+    assert_eq!(
+        health["vrchat_chatbox"]["phase"], "waiting_game",
+        "{health}"
+    );
+    assert_eq!(health["capture_requested"], true);
+    assert_eq!(health["capture_running"], true);
+
+    let mut disabled = settings;
+    disabled["vrchat_chatbox"]["enabled"] = false.into();
+    let response = request(reqwest::Method::PUT, "/api/settings")
+        .header("x-vrcs-config-revision", &revision)
+        .json(&disabled)
+        .send()
+        .await
+        .unwrap();
+    let status = response.status();
+    let body: serde_json::Value = response.json().await.unwrap();
+    assert_eq!(status, reqwest::StatusCode::OK, "{body}");
+    let health: serde_json::Value = request(reqwest::Method::GET, "/health")
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(health["capture_running"], false);
+    assert_eq!(health["capture_requested"], false);
+    assert!(health["vrchat_chatbox"].is_null());
+    let response = request(reqwest::Method::POST, "/api/capture/start")
+        .send()
+        .await
+        .unwrap();
+    let status = response.status();
+    let body: serde_json::Value = response.json().await.unwrap();
+    assert_eq!(status, reqwest::StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+    assert_eq!(body["code"], "capture.no_audio_sources");
+
+    let response = request(reqwest::Method::GET, "/api/settings")
+        .send()
+        .await
+        .unwrap();
+    let revision = response.headers()["x-vrcs-config-revision"]
+        .to_str()
+        .unwrap()
+        .to_owned();
+    let mut enabled: serde_json::Value = response.json().await.unwrap();
+    enabled["vrchat_chatbox"]["enabled"] = true.into();
+    assert_eq!(
+        request(reqwest::Method::PUT, "/api/settings")
+            .header("x-vrcs-config-revision", revision)
+            .json(&enabled)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        reqwest::StatusCode::OK
+    );
+    let health: serde_json::Value = request(reqwest::Method::GET, "/health")
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(health["capture_running"], false);
+    assert_eq!(health["capture_requested"], false);
+    assert!(
+        config::load_config(&config_path)
+            .unwrap()
+            .vrchat_chatbox
+            .enabled
+    );
+    handle.shutdown().await.unwrap();
+}
+
+#[tokio::test]
 async fn public_model_catalog_does_not_prove_completion_authentication() {
     use axum::{
         routing::{get, post},

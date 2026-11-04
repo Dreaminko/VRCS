@@ -23,9 +23,19 @@ export interface Health {
   vad_model_version: string | null;
   last_error: string | null;
   player_audio?: PlayerAudioStatus | null;
+  vrchat_chatbox?: ChatboxStatus | null;
   osc?: OscRuntimeStatus;
   vrchat_mute_sync: VrchatMuteStatus;
   language_session?: ActiveLanguageSession;
+}
+
+export interface ChatboxStatus {
+  phase: PlayerAudioStatus["phase"];
+  received: number;
+  accepted: number;
+  duplicates: number;
+  dropped: number;
+  detail: string | null;
 }
 
 export interface PlayerAudioStatus {

@@ -3,6 +3,26 @@ use std::fs;
 use super::{load_config, AppConfig};
 
 #[test]
+fn vrchat_chatbox_upgrade_defaults_off_and_preserves_enabled_on_save() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("config.json");
+    fs::write(&path, br#"{"schema_version":36}"#).unwrap();
+    let config = load_config(&path).unwrap();
+    let mut value = serde_json::to_value(&config).unwrap();
+    assert_eq!(value["schema_version"], 37);
+    assert_eq!(value["vrchat_chatbox"]["enabled"], false);
+    value["vrchat_chatbox"] = serde_json::json!({ "enabled": true });
+    let enabled: AppConfig = serde_json::from_value(value).unwrap();
+    super::save_config(&path, &enabled).unwrap();
+    assert_eq!(
+        serde_json::to_value(load_config(&path).unwrap()).unwrap()["vrchat_chatbox"]["enabled"],
+        true
+    );
+    super::save_config(&path, &config).unwrap();
+    assert_eq!(load_config(&path).unwrap(), config);
+}
+
+#[test]
 fn player_user_selection_and_labels_survive_config_save_and_reload() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("config.json");

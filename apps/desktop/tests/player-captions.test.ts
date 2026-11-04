@@ -4,7 +4,8 @@ import type { TFunction } from "i18next";
 import type { LiveTranscription } from "../src/capture/types.ts";
 import type { PlayerAudioStatus } from "../src/core-client/types.ts";
 import { playerCaptionMinimumHeight } from "../src/shell/compact-layout.ts";
-import { latestCaptionsByTrack, selectPlayerPreviews } from "../src/shell/player-previews.ts";
+import { latestCaptionsByTrack, selectPlayerHistory, selectPlayerPreviews } from "../src/shell/player-previews.ts";
+import type { Subtitle } from "../src/subtitles/types.ts";
 import { playerAudioNotice } from "../src/capture/player-audio-notice.ts";
 
 const preview = (index: number): LiveTranscription => ({ type: "partial", source: "speaker", utterance_id: `player-${index}-utterance`,
@@ -41,6 +42,18 @@ test("Chatbox messages keep their recent history instead of replacing a speaker 
   assert.deepEqual(latestCaptionsByTrack(captions), [latestPlayer, first, second, third]);
   assert.deepEqual(latestCaptionsByTrack(captions, 2), [latestPlayer, second, third]);
   assert.equal(captions.length, 5);
+});
+
+test("a player's remote text and late translation cannot replace their voice caption", () => {
+  const voice = preview(0);
+  const text = { ...voice, source: "vrchat_chatbox", text: "Typed message" };
+  const translated = { ...text, translation: "Translated text" };
+  assert.deepEqual(latestCaptionsByTrack([voice, text, translated]), [voice, translated]);
+  const row = (source: Subtitle["source"], index: number): Subtitle => ({ id: index + 1, source,
+    speaker: preview(index).speaker, text: "Message", language: "en", translations: [],
+    started_at: null, ended_at: null, created_at: "" });
+  const samePlayer = [row("speaker", 0), row("vrchat_chatbox", 0)];
+  assert.deepEqual(selectPlayerHistory([...samePlayer, row("speaker", 1)], [voice], 1), samePlayer);
 });
 
 test("VR captions keep waiting and failure notices without duplicating key acquisition progress", () => {

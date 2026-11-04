@@ -38,7 +38,8 @@ test("VR consent shares the pending start, enforces the reading gate and publish
       await i18next.use(initReactI18next).init({ lng: 'zh-CN', resources });
       const settings = { features: { vr_overlay: true, microphone_speaker_filter: false },
         vr_overlay: { enabled: true, wrist: { enabled: true }, headset: { enabled: true } },
-        osc: { enabled: false }, audio: { output: { mode: 'vrchat_players' } } };
+        osc: { enabled: false }, ocr: { hand_gesture_enabled: false, master_enabled: false },
+        audio: { output: { mode: 'vrchat_players' } } };
       const passed = [];
       const check = (condition, message) => { if (!condition) throw Error(message); passed.push(message); };
       const frames = new Map();
@@ -64,7 +65,7 @@ test("VR consent shares the pending start, enforces the reading gate and publish
         useVrControlBridge({ settings, getSettings: () => settings, update: async apply => apply(settings),
           available: true, requested: health.requested, getRequested: () => health.requested,
           running: false, busy: false, setCaptureRunning: () => gate.prepare(),
-          playerAudioStart: gate, playerAudioStatus: health.status });
+          playerAudioStart: gate, playerAudioStatus: health.status, chatboxStatus: health.chatboxStatus });
         return null;
       }
       const request = () => emit('vr-overlay-control-request', { owner_epoch: 7, request_id: ++sequence,
@@ -188,6 +189,19 @@ test("VR consent shares the pending start, enforces the reading gate and publish
         await sleep(500);
         await wait(() => testing.audio.progress === null);
         check(testing.audio.progress === null, 'A verified cached key has its own success deadline');
+
+        settings.audio.output.mode = 'disabled';
+        settings.vrchat_chatbox = { enabled: true };
+        const chatboxStatus = { phase: 'waiting_world', received: 0, accepted: 0, duplicates: 0, dropped: 0, detail: null };
+        flushSync(() => setHealth({ requested: true, status: null, chatboxStatus }));
+        await wait(() => testing.audio.progress?.status === i18next.t('settings.capture.chatbox.phase.waiting_world'));
+        check(testing.audio.progress.stage_labels[3] === i18next.t('settings.capture.chatbox.title'),
+          'Pure Chatbox preparation has a text consumer instead of an audio prerequisite');
+        flushSync(() => setHealth({ requested: true, status: null, chatboxStatus: { ...chatboxStatus, phase: 'streaming' } }));
+        await wait(() => testing.audio.progress?.status === i18next.t('settings.capture.chatbox.phase.streaming'));
+        check(testing.audio.progress.stages.every(stage => stage === 'complete'), 'Pure Chatbox completes network preparation without speech');
+        flushSync(() => setHealth({ requested: false, status: null, chatboxStatus: { ...chatboxStatus, phase: 'stopped' } }));
+        await wait(() => testing.audio.progress === null);
 
         let layout;
         for (const language of Object.keys(resources)) {

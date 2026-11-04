@@ -18,7 +18,7 @@ import {
 } from "../subtitle-actions";
 import type { Subtitle } from "../types";
 import { useSpeakerIdentity } from "../speaker-state";
-import { isAudioTrack } from "../player-history";
+import { isAudioTrack, isOtherPlayerSource } from "../player-history";
 import { SubtitleAnalysisPopover } from "./SubtitleAnalysisPopover";
 import { SubtitleContextMenu } from "./SubtitleContextMenu";
 
@@ -73,7 +73,7 @@ export const SubtitleBubble = memo(function SubtitleBubble({
   const locale = i18n.resolvedLanguage ?? "en-US";
   const source: SubtitleSource = subtitle.source ?? "speaker";
   const speaker = useSpeakerIdentity(subtitle.speaker);
-  const mine = source !== "speaker";
+  const mine = !isOtherPlayerSource(source);
   const translationPartials = useTranslationPartials(subtitle.id);
   const completedTranslations = subtitle.translations.filter(
     (translation) =>
@@ -198,10 +198,10 @@ export const SubtitleBubble = memo(function SubtitleBubble({
       }}
     >
       <div className="message-meta">
-        {!mine && <Volume2 size={14} />}
+        {!mine && (source === "vrchat_chatbox" ? <MessageSquare size={14} aria-label={t("chatbox.title")} /> : <Volume2 size={14} />)}
         {mine && <time>{timestamp(subtitle.created_at, locale)}</time>}
-        <span className="speaker-name">{source === "chatbox" ? t("chatbox.title") : mine ? speaker ? t("live.speakerNumber", { number: speaker.index + 1 }) : t("live.microphoneMe") : speaker?.display_name || t("live.speakerOther")}</span>
-        {!mine && speaker && !speaker.display_name && <span>{t(isAudioTrack(speaker) ? "live.trackNumber" : "live.speakerNumber", { number: speaker.index + 1 })}</span>}
+        <span className="speaker-name">{source === "vrchat_chatbox" ? speaker?.display_name || t("live.speakerNumber", { number: (speaker?.index ?? 0) + 1 }) : source === "chatbox" ? t("chatbox.title") : mine ? speaker ? t("live.speakerNumber", { number: speaker.index + 1 }) : t("live.microphoneMe") : speaker?.display_name || t("live.speakerOther")}</span>
+        {source === "speaker" && speaker && !speaker.display_name && <span>{t(isAudioTrack(speaker) ? "live.trackNumber" : "live.speakerNumber", { number: speaker.index + 1 })}</span>}
         {!mine && <time>{timestamp(subtitle.created_at, locale)}</time>}
         {source === "microphone" && <Mic size={14} />}
         {source === "chatbox" && <MessageSquare size={14} />}

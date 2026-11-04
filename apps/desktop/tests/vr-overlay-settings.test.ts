@@ -28,7 +28,8 @@ import {
 } from "../src/integrations/vr-overlay-native.ts";
 
 const settings = {
-  schema_version: 36,
+  schema_version: 37,
+  vrchat_chatbox: { enabled: false },
   conversation_titles: { auto_generate: false, profile_id: null, model: "", output_language: "auto" },
   features: { ...DEFAULT_FEATURE_SETTINGS },
   vr_overlay: DEFAULT_VR_OVERLAY_SETTINGS,

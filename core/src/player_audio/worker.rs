@@ -8,6 +8,7 @@ use super::cache::{self, Lookup, SessionCache, Verification};
 use super::crypto::SessionKey;
 use super::opus::{Decoder, Opus};
 use super::protocol::{self, Parser, VoicePacket};
+use super::session::SharedOutputs;
 use super::windows::{self, Connection, Network};
 use super::{AudioEvent, Capture, SharedStatus};
 use crate::config::PlayerAudioConfig;
@@ -16,14 +17,15 @@ use crate::models::SpeakerIdentity;
 pub(super) fn start(
     config: PlayerAudioConfig,
     status: SharedStatus,
+    outputs: SharedOutputs,
     cache: Arc<SessionCache>,
     settings: Arc<std::sync::RwLock<crate::config::AppConfig>>,
 ) -> Result<Capture, String> {
-    let (tx, events) = tokio::sync::mpsc::channel(2048);
+    let tx = EventSender(outputs);
     let stop = Arc::new(AtomicBool::new(false));
     let thread_stop = Arc::clone(&stop);
     let thread = std::thread::Builder::new()
-        .name("vrcs-player-audio".into())
+        .name("vrcs-vrchat-network".into())
         .spawn(move || {
             let result = supervise(config, tx, &thread_stop, &status, &cache, &settings);
             let mut state = status.lock().expect("player status");
@@ -37,10 +39,37 @@ pub(super) fn start(
         })
         .map_err(|e| e.to_string())?;
     Ok(Capture {
-        events,
         stop,
         thread: Some(thread),
     })
+}
+
+#[derive(Clone)]
+struct EventSender(SharedOutputs);
+
+impl EventSender {
+    fn try_send(&self, event: AudioEvent) -> Result<(), ()> {
+        self.0
+            .lock()
+            .expect("network outputs")
+            .audio(event)
+            .then_some(())
+            .ok_or(())
+    }
+
+    fn is_closed(&self) -> bool {
+        let outputs = self.0.lock().expect("network outputs");
+        !outputs.voice_enabled() && !outputs.chatbox_enabled()
+    }
+}
+
+#[cfg(test)]
+impl From<tokio::sync::mpsc::Sender<AudioEvent>> for EventSender {
+    fn from(sender: tokio::sync::mpsc::Sender<AudioEvent>) -> Self {
+        Self(Arc::new(std::sync::Mutex::new(
+            super::session::Outputs::with_voice(sender),
+        )))
+    }
 }
 
 type Game = (u32, std::path::PathBuf);
@@ -80,7 +109,7 @@ fn wait_cancellable(stop: &AtomicBool, duration: Duration) {
 
 fn supervise(
     config: PlayerAudioConfig,
-    tx: tokio::sync::mpsc::Sender<AudioEvent>,
+    tx: EventSender,
     stop: &Arc<AtomicBool>,
     status: &SharedStatus,
     cache: &SessionCache,
@@ -99,20 +128,16 @@ fn supervise(
                 continue;
             }
         };
-        let opus_path = if config.opus_library_path.is_empty() {
-            path.parent()
-                .ok_or("Cannot find the VRChat installation")?
-                .join("VRChat_Data/Plugins/x86_64/opus.dll")
-        } else {
-            std::path::PathBuf::from(&config.opus_library_path)
-        };
-        let opus = Opus::load(&opus_path)?;
+        let default_opus_path = path
+            .parent()
+            .ok_or("Cannot find the VRChat installation")?
+            .join("VRChat_Data/Plugins/x86_64/opus.dll");
         let network = Network::open()?;
         let ports = windows::game_ports(pid)?;
         status.lock().expect("player status").phase = "waiting_world";
         run(
             owner,
-            opus,
+            default_opus_path,
             network,
             ports,
             &config,
@@ -129,7 +154,7 @@ fn supervise(
     Ok(())
 }
 
-type Pending = (Connection, bool, Vec<u8>, Instant);
+type Pending = (Connection, bool, Vec<u8>, Instant, Option<u64>);
 
 // Only identity and connection metadata survive a capture restart; no PCM,
 // compressed audio or incomplete Photon fragments are kept here.
@@ -175,18 +200,18 @@ fn acquisition_samples(
 #[allow(clippy::too_many_arguments)]
 fn run(
     owner: cache::ProcessIdentity,
-    opus: Arc<Opus>,
+    opus_path: std::path::PathBuf,
     network: Network,
     mut ports: HashSet<u16>,
     config: &PlayerAudioConfig,
-    tx: tokio::sync::mpsc::Sender<AudioEvent>,
+    tx: EventSender,
     stop: &Arc<AtomicBool>,
     status: &SharedStatus,
     cache: &SessionCache,
     settings: &Arc<std::sync::RwLock<crate::config::AppConfig>>,
 ) -> Result<(), String> {
     let pid = owner.pid;
-    let mut engine = Engine::new(opus, config.max_players, tx, Arc::clone(status));
+    let mut engine = Engine::new(None, config.max_players, tx, Arc::clone(status));
     let mut packet_buffer = vec![0u8; 65_535];
     let mut pending: VecDeque<Pending> = VecDeque::new();
     let mut pending_bytes = 0usize;
@@ -209,6 +234,8 @@ fn run(
     let mut room_restored = false;
     let result = (|| {
         while !stop.load(Ordering::Relaxed) {
+            engine.reconcile_voice(&opus_path);
+            engine.reconcile_text();
             if selection_poll.elapsed() >= Duration::from_millis(50) {
                 engine.set_selection(
                     settings
@@ -241,6 +268,7 @@ fn run(
                 world_ready = world.poll();
                 if was_ready && !world_ready {
                     engine.close_tracks();
+                    engine.clear_text();
                 }
                 world_poll = Instant::now();
                 if key.is_some() && !room_restored {
@@ -264,6 +292,8 @@ fn run(
                     return;
                 };
                 let now = Instant::now();
+                engine.reconcile_text();
+                let text_generation = engine.text_enabled.then_some(engine.text_generation);
                 status.lock().expect("player status").captured_packets += 1;
                 if let Some(plaintext) = key
                     .as_ref()
@@ -277,10 +307,17 @@ fn run(
                         &plaintext,
                         now,
                         world_ready,
+                        world_ready,
                     );
                 } else {
                     pending_bytes += packet.len();
-                    pending.push_back((connection, incoming, packet.to_vec(), now));
+                    pending.push_back((
+                        connection,
+                        incoming,
+                        packet.to_vec(),
+                        now,
+                        text_generation,
+                    ));
                     // Keep join/property messages received during acquisition;
                     // voice older than 300 ms is discarded only after decrypting.
                     while pending.len() > 4096
@@ -365,7 +402,7 @@ fn run(
                             if key.take().is_some() {
                                 engine.clear();
                             }
-                            for (connection, incoming, packet, at) in
+                            for (connection, incoming, packet, at, text_generation) in
                                 startup_packets.drain(..).chain(pending.drain(..))
                             {
                                 if let Some(plaintext) = acquired.decrypt(&packet) {
@@ -376,6 +413,9 @@ fn run(
                                         &plaintext,
                                         Instant::now(),
                                         world_ready && at.elapsed() <= Duration::from_millis(300),
+                                        world_ready
+                                            && at.elapsed() < Duration::from_secs(8)
+                                            && text_generation == Some(engine.text_generation),
                                     );
                                 }
                             }
@@ -449,6 +489,7 @@ fn run(
         let _ = thread.join();
     }
     engine.close_tracks();
+    engine.clear_text();
     engine.publish_roster();
     if result.is_ok() && key.is_some() && stop.load(Ordering::Relaxed) {
         if let Some(token) = world.room_token() {
@@ -504,7 +545,11 @@ struct Track {
     position: u64,
 }
 struct Engine {
-    opus: Arc<Opus>,
+    opus: Option<Arc<Opus>>,
+    voice_generation: u64,
+    text_enabled: bool,
+    text_generation: u64,
+    recent_text: super::chatbox::Deduplicator,
     maximum: usize,
     session: String,
     next_flow: u64,
@@ -515,11 +560,96 @@ struct Engine {
     selection: Option<HashSet<String>>,
     roster_dirty: bool,
     active_world: Option<String>,
-    tx: tokio::sync::mpsc::Sender<AudioEvent>,
+    tx: EventSender,
     status: SharedStatus,
 }
 
 impl Engine {
+    fn reconcile_voice(&mut self, path: &std::path::Path) {
+        let (enabled, generation, path) = {
+            let outputs = self.tx.0.lock().expect("network outputs");
+            self.maximum = outputs.max_players;
+            (
+                outputs.voice_enabled(),
+                outputs.voice_generation,
+                if outputs.opus_library_path.is_empty() {
+                    path.to_path_buf()
+                } else {
+                    outputs.opus_library_path.clone().into()
+                },
+            )
+        };
+        if !enabled {
+            self.tracks.clear();
+            self.opus = None;
+        } else if self.opus.is_none() || generation != self.voice_generation {
+            self.tracks.clear();
+            self.voice_generation = generation;
+            match Opus::load(&path) {
+                Ok(opus) => self.opus = Some(opus),
+                Err(error) => self
+                    .tx
+                    .0
+                    .lock()
+                    .expect("network outputs")
+                    .voice_failed(error),
+            }
+        }
+    }
+
+    fn reconcile_text(&mut self) {
+        let (enabled, generation) = {
+            let outputs = self.tx.0.lock().expect("network outputs");
+            (outputs.chatbox_enabled(), outputs.text_generation)
+        };
+        if enabled != self.text_enabled || generation != self.text_generation {
+            self.clear_text();
+            self.text_enabled = enabled;
+        }
+    }
+
+    fn clear_text(&mut self) {
+        self.recent_text.clear();
+        let mut outputs = self.tx.0.lock().expect("network outputs");
+        outputs.invalidate_text();
+        outputs.text_generation += 1;
+        self.text_generation = outputs.text_generation;
+    }
+
+    fn text(&mut self, speaker: SpeakerIdentity, text: String, now: Instant) {
+        use super::chatbox::Outcome;
+        use crate::vrchat_chatbox::{ChatboxEvent, ChatboxMessage};
+        let mut outputs = self.tx.0.lock().expect("network outputs");
+        if !outputs.chatbox_enabled() || outputs.text_generation != self.text_generation {
+            return;
+        }
+        outputs.chatbox_status.received += 1;
+        match self.recent_text.classify(&speaker.id, &text, now) {
+            Outcome::Duplicate => outputs.chatbox_status.duplicates += 1,
+            Outcome::TooLong => outputs.chatbox_status.dropped += 1,
+            Outcome::Cleared => {}
+            Outcome::Candidate => {
+                let validity = outputs.validity(&speaker.id, now);
+                let event = ChatboxEvent::Message(ChatboxMessage {
+                    text: text.clone(),
+                    speaker: speaker.clone(),
+                    received_at: crate::models::now_iso8601(),
+                    validity,
+                });
+                if outputs
+                    .chatbox
+                    .as_ref()
+                    .is_some_and(|tx| tx.try_send(event).is_ok())
+                {
+                    self.recent_text.commit(&speaker.id, &text, now);
+                    outputs.chatbox_status.accepted += 1;
+                } else {
+                    outputs.chatbox_status.dropped += 1;
+                }
+            }
+        }
+    }
+
     fn take_metadata(&mut self, owner: cache::ProcessIdentity, token: u64) -> RoomMetadata {
         let mut flows = std::mem::take(&mut self.flows);
         for flow in flows.values_mut() {
@@ -555,13 +685,17 @@ impl Engine {
         self.roster_dirty = true;
     }
     fn new(
-        opus: Arc<Opus>,
+        opus: impl Into<Option<Arc<Opus>>>,
         maximum: usize,
-        tx: tokio::sync::mpsc::Sender<AudioEvent>,
+        tx: impl Into<EventSender>,
         status: SharedStatus,
     ) -> Self {
         Self {
-            opus,
+            opus: opus.into(),
+            voice_generation: 0,
+            text_enabled: false,
+            text_generation: 0,
+            recent_text: Default::default(),
             maximum,
             session: format!("vrc:{}", uuid::Uuid::new_v4()),
             next_flow: 0,
@@ -572,7 +706,7 @@ impl Engine {
             selection: None,
             roster_dirty: false,
             active_world: None,
-            tx,
+            tx: tx.into(),
             status,
         }
     }
@@ -631,7 +765,11 @@ impl Engine {
         let speaker = speaker.clone();
         if changed {
             self.roster_dirty = true;
-            let _ = self.tx.try_send(AudioEvent::Speaker(speaker.clone()));
+            self.tx
+                .0
+                .lock()
+                .expect("network outputs")
+                .speaker(speaker.clone());
         }
         speaker
     }
@@ -644,7 +782,7 @@ impl Engine {
         plaintext: &[u8],
         now: Instant,
     ) {
-        self.receive_packet(connection, incoming, packet, plaintext, now, true);
+        self.receive_packet(connection, incoming, packet, plaintext, now, true, true);
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -656,6 +794,7 @@ impl Engine {
         plaintext: &[u8],
         now: Instant,
         allow_voice: bool,
+        allow_text: bool,
     ) {
         self.status.lock().expect("player status").decrypted_packets += 1;
         if !self.flows.contains_key(&connection) {
@@ -699,6 +838,7 @@ impl Engine {
         };
         let messages = parser.messages(plaintext, now);
         let mut voices = Vec::new();
+        let mut texts = Vec::new();
         let mut updates = Vec::new();
         let mut departures = Vec::new();
         let mut changed = false;
@@ -754,7 +894,14 @@ impl Engine {
                         }
                     }
                 }
-                if allow_voice {
+                if self.text_enabled && allow_text {
+                    if let Some((actor, text)) = super::chatbox::parse(&message) {
+                        if let Some(participant) = flow.participant(actor) {
+                            texts.push((actor, text, participant.clone()));
+                        }
+                    }
+                }
+                if allow_voice && self.opus.is_some() {
                     if let Some(packets) = protocol::voice(&message) {
                         for packet in packets {
                             if let Some(participant) = flow.participant(packet.actor) {
@@ -770,6 +917,7 @@ impl Engine {
         if let Some(world) = joined_room {
             if self.active_world.as_ref() != Some(&world) {
                 self.close_tracks();
+                self.clear_text();
                 self.identities.clear();
                 self.flows.retain(|_, flow| flow.number == flow_number);
                 self.active_world = Some(world);
@@ -777,6 +925,7 @@ impl Engine {
             }
         }
         if changed {
+            self.clear_text();
             let prefix = format!("{}:{flow_number}:", self.session);
             let ids: Vec<_> = self
                 .tracks
@@ -793,6 +942,11 @@ impl Engine {
         for (voice, participant) in voices {
             self.voice(flow_number, epoch, voice, participant, now);
         }
+        for (actor, text, participant) in texts {
+            let id = self.speaker_id(flow_number, epoch, actor, participant.generation);
+            let speaker = self.remember(id, participant.display_name, participant.user_id);
+            self.text(speaker, text, now);
+        }
         for (actor, participant) in updates {
             let id = self.speaker_id(flow_number, epoch, actor, participant.generation);
             let speaker = self.remember(id.clone(), participant.display_name, participant.user_id);
@@ -806,6 +960,12 @@ impl Engine {
         for (actor, generation) in departures {
             let id = self.speaker_id(flow_number, epoch, actor, generation);
             self.close(&id);
+            self.recent_text.remove(&id);
+            self.tx
+                .0
+                .lock()
+                .expect("network outputs")
+                .invalidate_scope(&id);
             self.identities.remove(&id);
             self.roster_dirty = true;
         }
@@ -845,7 +1005,8 @@ impl Engine {
                     return;
                 }
             }
-            let decoder = match self.opus.decoder() {
+            let Some(opus) = &self.opus else { return };
+            let decoder = match opus.decoder() {
                 Ok(decoder) => decoder,
                 Err(_) => {
                     self.status.lock().expect("player status").decode_errors += 1;
@@ -876,6 +1037,7 @@ impl Engine {
     }
 
     fn tick(&mut self, now: Instant) {
+        self.tx.0.lock().expect("network outputs").flush_speakers();
         let expired: Vec<_> = self
             .tracks
             .iter()
@@ -894,7 +1056,7 @@ impl Engine {
                 }
                 track.next_playout += Duration::from_millis(20);
                 if std::mem::take(&mut track.buffer.reset) {
-                    if let Ok(decoder) = self.opus.decoder() {
+                    if let Some(Ok(decoder)) = self.opus.as_ref().map(|opus| opus.decoder()) {
                         track.decoder = decoder;
                     }
                 }
@@ -961,6 +1123,7 @@ impl Engine {
     }
     fn clear(&mut self) {
         self.close_tracks();
+        self.clear_text();
         self.flows.clear();
         self.identities.clear();
         self.active_world = None;
@@ -979,6 +1142,87 @@ impl Engine {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn chatbox_without_audio_preserves_identity_suppresses_refreshes_and_invalidates_departures() {
+        use crate::vrchat_chatbox::ChatboxEvent;
+        let (text_tx, mut text_rx) = tokio::sync::mpsc::channel(64);
+        let (voice_tx, mut voice_rx) = tokio::sync::mpsc::channel(8);
+        let mut output = super::super::session::Outputs::with_voice(voice_tx);
+        output.chatbox = Some(text_tx);
+        let outputs = Arc::new(std::sync::Mutex::new(output));
+        let status = Arc::default();
+        let mut engine = Engine::new(None, 1, EventSender(Arc::clone(&outputs)), status);
+        engine.set_selection(Some(Vec::new()));
+        engine.reconcile_voice(std::path::Path::new("missing-opus.dll"));
+        assert!(voice_rx.try_recv().is_err());
+        assert!(voice_rx.is_closed());
+        engine.reconcile_text();
+        let connection = Connection {
+            local: "127.0.0.1:42000".parse().unwrap(),
+            remote: "127.0.0.2:27002".parse().unwrap(),
+            challenge: [1; 4],
+        };
+        let now = Instant::now();
+        let mut counter = 0;
+        let mut receive = |engine: &mut Engine, message: Vec<u8>, incoming: bool| {
+            counter += 1;
+            let mut bytes = vec![1, 0, 0, 0, 0, 7, 0, 0, 0];
+            bytes.extend((message.len() as u32 + 12).to_be_bytes());
+            bytes.extend([0; 4]);
+            bytes.extend(message);
+            let packet = super::super::crypto::seal(&[3; 32], counter, &bytes);
+            engine.receive_packet(
+                connection.clone(),
+                incoming,
+                &packet,
+                &bytes,
+                now,
+                false,
+                true,
+            );
+        };
+        let message = vec![
+            0xf3, 4, 43, 2, 254, 11, 7, 245, 7, 5, b'h', b'e', b'l', b'l', b'o',
+        ];
+        receive(&mut engine, message.clone(), false);
+        assert!(text_rx.try_recv().is_err());
+        for _ in 0..6 {
+            receive(&mut engine, message.clone(), true);
+        }
+        let mut accepted = Vec::new();
+        while let Ok(event) = text_rx.try_recv() {
+            if let ChatboxEvent::Message(message) = event {
+                accepted.push(message);
+            }
+        }
+        assert_eq!(accepted.len(), 1);
+        assert_eq!(accepted[0].text, "hello");
+        let old = accepted.remove(0);
+        assert!(old.speaker.user_id.is_none());
+        receive(
+            &mut engine,
+            super::super::names::tests::fixture(7, "Named player"),
+            true,
+        );
+        let ChatboxEvent::Speaker(named) = text_rx.try_recv().unwrap() else {
+            panic!("name update")
+        };
+        assert_eq!(named.id, old.speaker.id);
+        assert_eq!(named.display_name.as_deref(), Some("Named player"));
+        receive(&mut engine, vec![0xf3, 4, 254, 1, 254, 11, 7], true);
+        assert!(!old.validity.is_current());
+        receive(&mut engine, message, true);
+        while let Ok(event) = text_rx.try_recv() {
+            if let ChatboxEvent::Message(message) = event {
+                assert_ne!(message.speaker.id, old.speaker.id);
+            }
+        }
+        assert!(engine.tracks.is_empty());
+        let outputs = outputs.lock().unwrap();
+        assert_eq!(outputs.chatbox_status.accepted, 2);
+        assert_eq!(outputs.chatbox_status.duplicates, 5);
+    }
 
     #[test]
     #[ignore = "Requires VRCS_TEST_CAPTURE, VRCS_TEST_PHOTON_KEY and VRCS_TEST_OPUS_DLL"]
@@ -1256,15 +1500,19 @@ mod tests {
         let cache = Arc::new(SessionCache::default());
         for _ in 0..2 {
             let status = Arc::new(std::sync::Mutex::new(super::super::Status::default()));
+            let (sender, events) = tokio::sync::mpsc::channel(2048);
             let capture = start(
                 PlayerAudioConfig::default(),
                 Arc::clone(&status),
+                Arc::new(std::sync::Mutex::new(
+                    super::super::session::Outputs::with_voice(sender),
+                )),
                 Arc::clone(&cache),
                 Arc::new(std::sync::RwLock::new(crate::config::AppConfig::default())),
             )
             .unwrap();
             tokio::time::sleep(Duration::from_millis(30)).await;
-            assert!(!capture.events.is_closed());
+            assert!(!events.is_closed());
             assert_eq!(status.lock().unwrap().phase, "waiting_game");
             let stopping = Instant::now();
             capture.shutdown().await;
@@ -1344,8 +1592,8 @@ mod tests {
         };
         let packet = |counter| super::super::crypto::seal(&[3; 32], counter, b"sample packet");
         let mut pending = VecDeque::from([
-            (connection.clone(), true, packet(1), now),
-            (connection.clone(), true, packet(2), now),
+            (connection.clone(), true, packet(1), now, None),
+            (connection.clone(), true, packet(2), now, None),
         ]);
         assert_eq!(acquisition_samples(&pending, now, None).len(), 2);
         assert!(acquisition_samples(&pending, now, Some(now)).is_empty());
@@ -1388,7 +1636,15 @@ mod tests {
         let mut receive = |engine: &mut Engine, bytes: Vec<u8>, incoming: bool, voice: bool| {
             counter += 1;
             let packet = super::super::crypto::seal(&[3; 32], counter, &bytes);
-            engine.receive_packet(connection.clone(), incoming, &packet, &bytes, now, voice);
+            engine.receive_packet(
+                connection.clone(),
+                incoming,
+                &packet,
+                &bytes,
+                now,
+                voice,
+                true,
+            );
         };
         receive(
             &mut engine,

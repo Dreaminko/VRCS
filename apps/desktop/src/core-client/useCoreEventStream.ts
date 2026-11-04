@@ -102,7 +102,7 @@ export function useCoreEventStream({
             break;
           case "subtitle": {
             const source = message.subtitle.source ?? "speaker";
-            if (source !== "chatbox") {
+            if (source === "speaker" || source === "microphone") {
               if (message.utterance_id) {
                 completeLivePartial(source, message.utterance_id);
               } else {

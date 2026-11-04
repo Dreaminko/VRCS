@@ -43,7 +43,7 @@ export function playerAudioPrompt(notice: { requestId: number; openedAt: number 
   };
 }
 
-export function playerAudioProgress(preparation: PlayerAudioPreparation | null, status: PlayerAudioStatus | null | undefined, requested: boolean, t: TFunction): ProgressView | null {
+export function playerAudioProgress(preparation: PlayerAudioPreparation | null, status: Pick<PlayerAudioStatus, "phase" | "detail" | "key_scan"> | null | undefined, requested: boolean, t: TFunction, chatbox = false): ProgressView | null {
   if (!preparation && (!requested || !status || status.phase === "stopped")) return null;
   const stages: ProgressView["stages"] = ["pending", "pending", "pending", "pending"];
   let label: string;
@@ -60,12 +60,12 @@ export function playerAudioProgress(preparation: PlayerAudioPreparation | null, 
     const waitingGame = phase === "waiting_game" || phase === "waiting_world";
     stages[1] = waitingGame ? "active" : "complete";
     if (!waitingGame) stages[2] = phase === "failed" ? "failed" : "active";
-    label = t(`settings.audio.players.phase.${phase}`);
+    label = t(chatbox ? `settings.capture.chatbox.phase.${phase}` : `settings.audio.players.phase.${phase}`);
     detail = status!.detail ?? "";
     const scan = status!.key_scan;
     if (phase === "streaming") {
       stages.fill("complete");
-      label = t("warnings.playerAudio.vrPreparation.ready");
+      label = t(chatbox ? "settings.capture.chatbox.phase.streaming" : "warnings.playerAudio.vrPreparation.ready");
     } else if (phase === "acquiring_key" && scan) {
       const scanning = scan.stage === "scanning" && (scan.total_bytes === 0 || scan.scanned_bytes < scan.total_bytes);
       const stage = scan.stage === "paging" ? "paging" : scanning ? "scanning" : "verifying";
@@ -76,7 +76,8 @@ export function playerAudioProgress(preparation: PlayerAudioPreparation | null, 
   }
   return {
     task: "key", scan_id: 0, status: label, detail, elapsed_seconds: Math.floor((status?.key_scan?.elapsed_ms ?? 0) / 1_000),
-    stages, stage_labels: ["prerequisites", "game", "key", "audio"].map(key => t(`warnings.playerAudio.vrPreparation.${key}`)),
+    stages, stage_labels: ["prerequisites", "game", "key", "audio"].map(key => t(chatbox && key === "audio"
+      ? "settings.capture.chatbox.title" : `warnings.playerAudio.vrPreparation.${key}`)),
     translation_fraction: fraction,
   };
 }

@@ -31,6 +31,7 @@ function App() {
     setCaptureRunning: workspace.capture.setCaptureRunning,
     playerAudioStart: workspace.capture.playerAudioStart,
     playerAudioStatus: workspace.runtime.health?.player_audio,
+    chatboxStatus: workspace.runtime.health?.vrchat_chatbox,
   });
   useVrPlayerDisplayBridge(controlEpoch, workspace);
   useVrDashboardBridge(workspace.settings.value, workspace.settings.update, workspace.providers.catalog.profiles, {

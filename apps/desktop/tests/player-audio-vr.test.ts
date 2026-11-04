@@ -40,6 +40,16 @@ test("VR confirms key acquisition without waiting for a player to speak", () => 
   assert.match(view.status, /ready/);
 });
 
+test("pure Chatbox VR progress does not require audio frames or a speech consumer", () => {
+  const chatbox = { phase: "waiting_game" as const, received: 0, accepted: 0, duplicates: 0, dropped: 0, detail: null };
+  const waiting = playerAudioProgress(null, chatbox, true, t, true)!;
+  assert.match(waiting.status, /settings.capture.chatbox.phase.waiting_game/);
+  const ready = playerAudioProgress(null, { ...chatbox, phase: "streaming" }, true, t, true)!;
+  assert.match(ready.status, /settings.capture.chatbox.phase.streaming/);
+  assert.equal(ready.stage_labels.at(-1), "settings.capture.chatbox.title");
+  assert.deepEqual(ready.stages, ["complete", "complete", "complete", "complete"]);
+});
+
 test("VR key acquisition reports measured scan progress without treating paging or retry as success", () => {
   const key_scan = { stage: "scanning" as const, scanned_bytes: 120, total_bytes: 400, elapsed_ms: 2_500,
     scan_elapsed_ms: 1_000, candidates_tested: 0, workers: 2 };

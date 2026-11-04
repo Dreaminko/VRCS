@@ -11,7 +11,8 @@ import type { AsrSettings } from "../providers/types";
 export type ModelDownloadSource = "auto" | "official" | "modelscope";
 
 export interface Settings {
-  schema_version: 36;
+  schema_version: 37;
+  vrchat_chatbox: VrchatChatboxConfig;
   conversation_titles: ConversationTitleSettings;
   features: FeatureSettings;
   server: {
@@ -50,6 +51,10 @@ export interface Settings {
   vr_overlay: VrOverlaySettings;
   ocr: VrOcrSettings;
   vision: VisionSettings;
+}
+
+export interface VrchatChatboxConfig {
+  enabled: boolean;
 }
 
 export interface ConversationTitleSettings {

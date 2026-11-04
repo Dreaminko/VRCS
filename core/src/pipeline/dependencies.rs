@@ -47,10 +47,6 @@ pub(crate) struct PipelineDependencies {
 }
 
 impl PipelineDependencies {
-    pub(super) fn player_settings(&self) -> Arc<RwLock<AppConfig>> {
-        Arc::clone(&self.config)
-    }
-
     pub(super) fn player_selected(&self, speaker: &crate::models::SpeakerIdentity) -> bool {
         self.config
             .read()

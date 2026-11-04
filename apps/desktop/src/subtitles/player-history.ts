@@ -60,8 +60,12 @@ export function isAudioTrack(speaker: SpeakerIdentity): boolean {
   return speaker.id.startsWith("vrc:") || /^[0-9a-f-]{36}:\d+:\d+:\d+:\d+$/i.test(speaker.id);
 }
 
+export function isOtherPlayerSource(source: string | undefined): boolean {
+  return source === undefined || source === "speaker" || source === "vrchat_chatbox";
+}
+
 export function historyTrackKey(source: string | undefined, speaker?: SpeakerIdentity | null): string | null {
-  return (source ?? "speaker") === "speaker" ? speaker?.id ?? "other:unidentified" : null;
+  return isOtherPlayerSource(source) ? speaker?.id ?? "other:unidentified" : null;
 }
 
 export function trackVisible(source: string | undefined, speaker: SpeakerIdentity | null | undefined, hidden: readonly string[]): boolean {
@@ -95,14 +99,14 @@ export function livePartialSourceLanguage(partial: LiveTranscription): string | 
 }
 
 export function sourceLanguageVisible(source: string | undefined, language: string | null | undefined, hidden: readonly string[] = []): boolean {
-  if ((source ?? "speaker") !== "speaker") return true;
+  if (!isOtherPlayerSource(source)) return true;
   const key = sourceLanguageKey(language);
   return key === null || !hidden.some((value) => sourceLanguageKey(value) === key);
 }
 
 export function subtitleVisible(subtitle: Subtitle, hiddenTracks: readonly string[] = [], hiddenSourceLanguages: readonly string[] = []): boolean {
   return trackVisible(subtitle.source, subtitle.speaker, hiddenTracks)
-    && (!hiddenSourceLanguages.length || (subtitle.source ?? "speaker") !== "speaker"
+    && (!hiddenSourceLanguages.length || !isOtherPlayerSource(subtitle.source)
       || sourceLanguageVisible(subtitle.source, subtitleSourceLanguage(subtitle), hiddenSourceLanguages));
 }
 
@@ -115,7 +119,7 @@ export function livePartialVisible(partial: LiveTranscription, hiddenTracks: rea
 export function historySpeakers(subtitles: readonly Subtitle[]): SpeakerIdentity[] {
   const speakers = new Map<string, SpeakerIdentity>();
   for (const subtitle of subtitles) {
-    if ((subtitle.source ?? "speaker") !== "speaker") continue;
+    if (!isOtherPlayerSource(subtitle.source)) continue;
     const speaker = subtitle.speaker ?? { id: "other:unidentified", index: 0 };
     const previous = speakers.get(speaker.id);
     if (!previous || speaker.display_name) speakers.set(speaker.id, speaker);

@@ -18,7 +18,7 @@ export interface Subtitle {
   ended_at: number | null;
   created_at: string;
   conversation_id?: string | null;
-  source?: "speaker" | "microphone" | "chatbox";
+  source?: "speaker" | "microphone" | "chatbox" | "vrchat_chatbox";
   translations: SubtitleTranslation[];
   translation_partial?: {
     text: string;

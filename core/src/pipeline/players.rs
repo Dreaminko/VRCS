@@ -1,11 +1,13 @@
 use super::*;
-use crate::player_audio::{AudioEvent, Capture, SharedStatus, Status};
+use crate::player_audio::{AudioEvent, SharedStatus};
 use std::collections::HashMap;
 
 impl TranscriptionPipeline {
     pub(crate) async fn start_players(
         &mut self,
         config: &crate::config::PlayerAudioConfig,
+        events: mpsc::Receiver<AudioEvent>,
+        status: SharedStatus,
         threshold: f32,
         vad: &VadConfig,
         asr: AsrConfig,
@@ -21,8 +23,6 @@ impl TranscriptionPipeline {
         self.task.take();
         self.stop.take();
         self.device = None;
-        let status = Arc::new(Mutex::new(Status::default()));
-        self.player_status = Some(Arc::clone(&status));
         *self.last_error.lock().expect("pipeline error") = None;
         let smart_turn = if vad.endpointing == "smart_turn"
             && asr.backend != crate::providers::SERVICE_FUN_ASR_REALTIME
@@ -32,28 +32,6 @@ impl TranscriptionPipeline {
         } else {
             None
         };
-        let options = config.clone();
-        let settings = dependencies.player_settings();
-        let shared = Arc::clone(&status);
-        #[cfg(windows)]
-        let cache = Arc::clone(&self.player_cache);
-        let capture = tokio::task::spawn_blocking(move || {
-            Capture::start(
-                options,
-                shared,
-                #[cfg(windows)]
-                cache,
-                settings,
-            )
-        })
-        .await
-        .map_err(|e| AudioError::with_code("audio.player_audio_unavailable", e.to_string()))?
-        .map_err(|e| {
-            let mut state = status.lock().expect("player status");
-            state.phase = "failed";
-            state.detail = Some(e.clone());
-            AudioError::with_code("audio.player_audio_unavailable", e)
-        })?;
         let (stop, stop_rx) = watch::channel(false);
         self.stop = Some(stop);
         self.discard_on_stop.store(false, Ordering::SeqCst);
@@ -74,7 +52,7 @@ impl TranscriptionPipeline {
         };
         let last_error = Arc::clone(&self.last_error);
         self.task = Some(tokio::spawn(async move {
-            if let Err(error) = run_players(capture, input).await {
+            if let Err(error) = run_players(events, input).await {
                 *last_error.lock().expect("pipeline error") = Some(error);
             }
         }));
@@ -134,7 +112,10 @@ fn retire_player(
     });
 }
 
-async fn run_players(mut capture: Capture, mut input: PlayerRun) -> Result<(), String> {
+async fn run_players(
+    mut events: mpsc::Receiver<AudioEvent>,
+    mut input: PlayerRun,
+) -> Result<(), String> {
     let keep_warm = crate::asr::connection_rate_controlled(&input.asr);
     let mut tasks: HashMap<String, PlayerTask> = HashMap::new();
     let mut retired = tokio::task::JoinSet::new();
@@ -168,7 +149,7 @@ async fn run_players(mut capture: Capture, mut input: PlayerRun) -> Result<(), S
                 }
                 continue;
             }
-            event = capture.events.recv() => match event { Some(event) => event, None => break },
+            event = events.recv() => match event { Some(event) => event, None => break },
         };
         match event {
             AudioEvent::Speaker(speaker) => {
@@ -334,7 +315,6 @@ async fn run_players(mut capture: Capture, mut input: PlayerRun) -> Result<(), S
         }
         retire_player(id, task, &mut retired, &mut retiring);
     }
-    capture.shutdown().await;
     while retired.join_next().await.is_some() {}
     let status = input.status.lock().expect("player status");
     if status.phase == "failed" {

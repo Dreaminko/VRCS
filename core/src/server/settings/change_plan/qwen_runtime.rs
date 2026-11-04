@@ -15,7 +15,12 @@ impl QwenRuntimeChange {
         reload_capture: bool,
     ) -> Self {
         Self {
-            preload: reload_capture && candidate.asr.backend == QWEN_MANAGED_BACKEND,
+            preload: reload_capture
+                && crate::server::capture::has_audio_sources(candidate)
+                && (model_directory_changed
+                    || crate::server::capture::CaptureReloadPlan::between(current, candidate)
+                        .audio_changed())
+                && candidate.asr.backend == QWEN_MANAGED_BACKEND,
             stop: current.asr.backend == QWEN_MANAGED_BACKEND
                 && (model_directory_changed
                     || candidate.asr.backend != QWEN_MANAGED_BACKEND
@@ -59,8 +64,21 @@ mod tests {
         let current = AppConfig::default();
         let mut candidate = current.clone();
         candidate.asr.backend = QWEN_MANAGED_BACKEND.into();
+        candidate.asr.managed_qwen.device = "cpu".into();
         assert!(!QwenRuntimeChange::between(&current, &candidate, false, false).preload);
         assert!(QwenRuntimeChange::between(&current, &candidate, false, true).preload);
+    }
+
+    #[test]
+    fn chatbox_toggle_and_text_only_do_not_preload_qwen() {
+        let mut current = AppConfig::default();
+        current.asr.backend = QWEN_MANAGED_BACKEND.into();
+        let mut candidate = current.clone();
+        candidate.vrchat_chatbox.enabled = true;
+        assert!(!QwenRuntimeChange::between(&current, &candidate, false, true).preload);
+        candidate.audio.output.mode = "disabled".into();
+        candidate.audio.microphone.mode = "disabled".into();
+        assert!(!QwenRuntimeChange::between(&current, &candidate, false, true).preload);
     }
 
     #[test]

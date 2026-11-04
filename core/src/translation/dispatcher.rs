@@ -8,6 +8,7 @@ use crate::db::conversations::{CatalogRefresh, ConversationCatalog};
 use crate::db::Database;
 use crate::models::Subtitle;
 use crate::subtitle_output::{SubtitleLifecyclePublisher, TranslationFailure};
+use crate::vrchat_chatbox::TaskValidity;
 
 use super::TranslationService;
 
@@ -40,6 +41,41 @@ mod retry_tests {
         error.retryable = false;
         assert_eq!(retry_delay(&error), None);
     }
+
+    #[tokio::test]
+    async fn full_queue_reports_backpressure_without_enqueuing_invalidated_work() {
+        let (sender, _receiver) = mpsc::channel(1);
+        let dispatcher = TranslationDispatcher { sender };
+        let subtitle = Subtitle {
+            id: Some(1),
+            conversation_id: None,
+            speaker: None,
+            text: "Synthetic remote text".into(),
+            language: None,
+            started_at: None,
+            ended_at: None,
+            source: "vrchat_chatbox".into(),
+            created_at: crate::models::now_iso8601(),
+            translations: Vec::new(),
+        };
+        let enqueue = |validity| {
+            dispatcher.enqueue_guarded(
+                subtitle.clone(),
+                vec![TranslationTargetConfig::new("ja")],
+                TranslationPromptConfig::default(),
+                Vec::new(),
+                "synthetic-message".into(),
+                false,
+                true,
+                validity,
+            )
+        };
+        assert!(enqueue(TaskValidity::new()).is_ok());
+        assert!(enqueue(TaskValidity::new()).is_err());
+        let cancelled = TaskValidity::new();
+        cancelled.invalidate();
+        assert!(enqueue(cancelled).is_ok());
+    }
 }
 
 #[derive(Clone)]
@@ -57,6 +93,7 @@ struct TranslationJob {
     include_vrcx_context: bool,
     first_preferred: bool,
     queued_at: Instant,
+    validity: TaskValidity,
 }
 
 #[derive(Clone)]
@@ -87,9 +124,16 @@ impl TranslationDispatcher {
         tokio::spawn(async move {
             let concurrency = Arc::new(Semaphore::new(4));
             while let Some(job) = receiver.recv().await {
+                if !job.validity.is_current() {
+                    continue;
+                }
                 let mut permits = Vec::with_capacity(job.targets.len());
                 for _ in &job.targets {
-                    let permit = Arc::clone(&concurrency).acquire_owned().await;
+                    let permit = tokio::select! {
+                        biased;
+                        _ = job.validity.cancelled() => break,
+                        permit = Arc::clone(&concurrency).acquire_owned() => permit,
+                    };
                     let Ok(permit) = permit else { return };
                     permits.push(permit);
                 }
@@ -123,18 +167,47 @@ impl TranslationDispatcher {
         include_vrcx_context: bool,
         first_preferred: bool,
     ) -> Result<(), String> {
-        self.sender
-            .try_send(TranslationJob {
-                subtitle,
-                message_id,
-                targets,
-                prompt,
-                profiles,
-                include_vrcx_context,
-                first_preferred,
-                queued_at: Instant::now(),
+        self.enqueue_guarded(
+            subtitle,
+            targets,
+            prompt,
+            profiles,
+            message_id,
+            include_vrcx_context,
+            first_preferred,
+            TaskValidity::new(),
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn enqueue_guarded(
+        &self,
+        subtitle: Subtitle,
+        targets: Vec<TranslationTargetConfig>,
+        prompt: TranslationPromptConfig,
+        profiles: Vec<ApiProfile>,
+        message_id: String,
+        include_vrcx_context: bool,
+        first_preferred: bool,
+        validity: TaskValidity,
+    ) -> Result<(), String> {
+        validity
+            .with_current(|| {
+                self.sender
+                    .try_send(TranslationJob {
+                        subtitle,
+                        message_id,
+                        targets,
+                        prompt,
+                        profiles,
+                        include_vrcx_context,
+                        first_preferred,
+                        queued_at: Instant::now(),
+                        validity: validity.clone(),
+                    })
+                    .map_err(|_| "Translation queue is full".to_string())
             })
-            .map_err(|_| "Translation queue is full".to_string())
+            .unwrap_or(Ok(()))
     }
 }
 
@@ -157,20 +230,23 @@ async fn process_job(
     let queue_wait_ms = job.queued_at.elapsed().as_millis() as u64;
     let started = Instant::now();
     let source = job.subtitle.source.clone();
-    if !output.allows(&source, &job.message_id) {
+    if !job.validity.is_current() || !output.allows(&source, &job.message_id) {
         return;
     }
-    output.translation_started_with_message(
-        subtitle_id,
-        &target.target_language,
-        preferred,
-        &job.message_id,
-        &source,
-    );
+    job.validity.with_current(|| {
+        output.translation_started_with_message(
+            subtitle_id,
+            &target.target_language,
+            preferred,
+            &job.message_id,
+            &source,
+        )
+    });
     let progress_output = output.clone();
     let progress_message_id = job.message_id.clone();
     let progress_source = source.clone();
     let target_language = target.target_language.clone();
+    let progress_validity = job.validity.clone();
     let last_progress = Mutex::new(Instant::now() - Duration::from_millis(80));
     let progress = move |text: &str| {
         let Ok(mut last) = last_progress.lock() else {
@@ -180,14 +256,16 @@ async fn process_job(
             return;
         }
         *last = Instant::now();
-        progress_output.translation_partial_with_message(
-            subtitle_id,
-            text.to_owned(),
-            target_language.clone(),
-            preferred,
-            &progress_message_id,
-            &progress_source,
-        );
+        progress_validity.with_current(|| {
+            progress_output.translation_partial_with_message(
+                subtitle_id,
+                text.to_owned(),
+                target_language.clone(),
+                preferred,
+                &progress_message_id,
+                &progress_source,
+            )
+        });
     };
     // Waiting for the shared database lock must not stall an async worker.
     let mut context = tokio::task::spawn_blocking({
@@ -213,41 +291,50 @@ async fn process_job(
             context.push(entry);
         }
     }
-    if !output.allows(&source, &job.message_id) {
+    if !job.validity.is_current() || !output.allows(&source, &job.message_id) {
         return;
     }
-    let first = service
-        .translate_with_progress(
-            &target,
-            &job.prompt,
-            &job.profiles,
-            &job.subtitle.text,
-            job.subtitle.language.as_deref(),
-            &context,
-            Some(&progress),
-        )
-        .await;
-    let result = match first {
-        Err(error) if retry_delay(&error).is_some() => {
-            tokio::time::sleep(retry_delay(&error).unwrap()).await;
-            if !output.allows(&source, &job.message_id) {
-                return;
+    let translation = async {
+        let first = service
+            .translate_with_progress(
+                &target,
+                &job.prompt,
+                &job.profiles,
+                &job.subtitle.text,
+                job.subtitle.language.as_deref(),
+                &context,
+                Some(&progress),
+            )
+            .await;
+        let result = match first {
+            Err(error) if retry_delay(&error).is_some() => {
+                tokio::time::sleep(retry_delay(&error).unwrap()).await;
+                if !job.validity.is_current() || !output.allows(&source, &job.message_id) {
+                    return None;
+                }
+                service
+                    .translate_with_progress(
+                        &target,
+                        &job.prompt,
+                        &job.profiles,
+                        &job.subtitle.text,
+                        job.subtitle.language.as_deref(),
+                        &context,
+                        Some(&progress),
+                    )
+                    .await
             }
-            service
-                .translate_with_progress(
-                    &target,
-                    &job.prompt,
-                    &job.profiles,
-                    &job.subtitle.text,
-                    job.subtitle.language.as_deref(),
-                    &context,
-                    Some(&progress),
-                )
-                .await
-        }
-        other => other,
+            other => other,
+        };
+        Some(result)
     };
-    if !output.allows(&source, &job.message_id) {
+    let result = tokio::select! {
+        biased;
+        _ = job.validity.cancelled() => return,
+        result = translation => result,
+    };
+    let Some(result) = result else { return };
+    if !job.validity.is_current() || !output.allows(&source, &job.message_id) {
         return;
     }
     tracing::info!(
@@ -266,25 +353,30 @@ async fn process_job(
                 let filter = output.microphone_speakers().clone();
                 let source = source.clone();
                 let message_id = job.message_id.clone();
+                let validity = job.validity.clone();
                 move || {
                     filter
                         .with_allowed(&source, &message_id, || {
                             let database = database
                                 .lock()
                                 .map_err(|_| "Database lock is unavailable".to_string())?;
-                            let catalog_changed = database
-                                .save_translation(subtitle_id, &record)
-                                .map_err(|error| error.to_string())?;
-                            if catalog_changed {
-                                catalog.request();
-                            }
-                            Ok::<_, String>(())
+                            validity
+                                .with_current(|| {
+                                    let catalog_changed = database
+                                        .save_translation(subtitle_id, &record)
+                                        .map_err(|error| error.to_string())?;
+                                    if catalog_changed {
+                                        catalog.request();
+                                    }
+                                    Ok::<_, String>(())
+                                })
+                                .unwrap_or(Ok(()))
                         })
                         .unwrap_or(Ok(()))
                 }
             })
             .await;
-            match stored {
+            let _current = job.validity.with_current(|| match stored {
                 Ok(Ok(())) => {
                     output.translation_completed_with_message(
                         subtitle_id,
@@ -316,17 +408,19 @@ async fn process_job(
                         source: &source,
                     });
                 }
-            }
+            });
         }
         Err(error) => {
-            output.translation_failed_with_message(TranslationFailure {
-                subtitle_id,
-                code: error.code.into(),
-                detail: error.detail,
-                target_language: &target.target_language,
-                preferred,
-                message_id: &job.message_id,
-                source: &source,
+            job.validity.with_current(|| {
+                output.translation_failed_with_message(TranslationFailure {
+                    subtitle_id,
+                    code: error.code.into(),
+                    detail: error.detail,
+                    target_language: &target.target_language,
+                    preferred,
+                    message_id: &job.message_id,
+                    source: &source,
+                })
             });
         }
     }

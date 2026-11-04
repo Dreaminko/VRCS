@@ -34,27 +34,7 @@ pub(super) async fn update_settings(
             crate::config::SCHEMA_VERSION
         )));
     }
-    let candidate = AppConfig {
-        schema_version: update.schema_version,
-        features: update.features,
-        server: update.server,
-        storage: update.storage,
-        conversation_titles: update.conversation_titles,
-        audio: update.audio,
-        vad: update.vad,
-        asr: update.asr,
-        glossary: update.glossary,
-        translation: update.translation,
-        language_presets: update.language_presets,
-        osc: update.osc,
-        dictionary: update.dictionary,
-        anki: update.anki,
-        external_api: update.external_api,
-        vrcx: update.vrcx,
-        vr_overlay: update.vr_overlay,
-        ocr: update.ocr,
-        vision: update.vision,
-    };
+    let candidate = config_from_update(update);
 
     let expected_revision = headers
         .get(CONFIG_REVISION_HEADER)
@@ -92,6 +72,31 @@ pub(super) async fn update_settings(
         revision_headers(&state, result.revision),
         Json(json!(result.config)),
     ))
+}
+
+fn config_from_update(update: SettingsUpdate) -> AppConfig {
+    AppConfig {
+        schema_version: update.schema_version,
+        features: update.features,
+        server: update.server,
+        storage: update.storage,
+        conversation_titles: update.conversation_titles,
+        audio: update.audio,
+        vrchat_chatbox: update.vrchat_chatbox,
+        vad: update.vad,
+        asr: update.asr,
+        glossary: update.glossary,
+        translation: update.translation,
+        language_presets: update.language_presets,
+        osc: update.osc,
+        dictionary: update.dictionary,
+        anki: update.anki,
+        external_api: update.external_api,
+        vrcx: update.vrcx,
+        vr_overlay: update.vr_overlay,
+        ocr: update.ocr,
+        vision: update.vision,
+    }
 }
 
 pub(super) async fn commit_candidate(
@@ -243,6 +248,22 @@ mod tests {
             enabled_capabilities: vec![CAPABILITY_SPEECH_TO_TEXT.into()],
             ..ApiProfile::default()
         }
+    }
+
+    #[test]
+    fn settings_payload_preserves_chatbox_in_candidate_and_defaults_missing_to_off() {
+        let mut config = AppConfig::default();
+        config.vrchat_chatbox.enabled = true;
+        let mut raw = serde_json::to_value(&config).unwrap();
+        let update = parse_settings_update(&serde_json::to_vec(&raw).unwrap()).unwrap();
+        assert_eq!(config_from_update(update), config);
+
+        raw.as_object_mut().unwrap().remove("vrchat_chatbox");
+        let update = parse_settings_update(&serde_json::to_vec(&raw).unwrap()).unwrap();
+        assert!(!config_from_update(update).vrchat_chatbox.enabled);
+
+        raw["vrchat_chatbox"] = serde_json::json!({ "enabled": "true" });
+        assert!(parse_settings_update(&serde_json::to_vec(&raw).unwrap()).is_err());
     }
 
     #[test]

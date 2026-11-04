@@ -1,7 +1,7 @@
 import type { Settings } from "../settings/types";
 import type { SpeakerIdentity, Subtitle } from "./types";
 import { playerUserId } from "../capture/player-selection.ts";
-import { historySpeakers, sourceLanguageKey, subtitleSourceLanguage, type PlayerHistoryPreferences } from "./player-history.ts";
+import { historySpeakers, isOtherPlayerSource, sourceLanguageKey, subtitleSourceLanguage, type PlayerHistoryPreferences } from "./player-history.ts";
 import { TRANSLATION_LANGUAGE_CODES } from "../translation/translation-languages.ts";
 import type { MicrophoneSpeakerAction } from "../capture/microphone-speakers";
 
@@ -34,7 +34,7 @@ export function collectPlayerSpeakers(subtitles: readonly Subtitle[], current: r
 
 export function playerLanguageOptions(subtitles: readonly Subtitle[], defaults: readonly string[], hidden: readonly string[] | null): string[] {
   return [...new Set([...defaults, ...(hidden ?? []),
-    ...subtitles.filter(s => (s.source ?? "speaker") === "speaker").map(subtitleSourceLanguage),
+    ...subtitles.filter(s => isOtherPlayerSource(s.source)).map(subtitleSourceLanguage),
     ...TRANSLATION_LANGUAGE_CODES].map(sourceLanguageKey).filter((code): code is string => code !== null))];
 }
 

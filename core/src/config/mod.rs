@@ -17,6 +17,7 @@ mod schema;
 mod translation;
 mod validation;
 mod vr_overlay;
+mod vrchat_chatbox;
 
 #[cfg(test)]
 mod io_tests;
@@ -51,6 +52,7 @@ pub use validation::{validate_glossary_source_url, validate_translation_prompt};
 pub use vr_overlay::{
     VrOverlayConfig, VrOverlayHeadsetConfig, VrOverlayWristConfig, VrOverlayWristMenuConfig,
 };
+pub use vrchat_chatbox::VrchatChatboxConfig;
 
 #[cfg(test)]
 pub use ocr::VisionAsrConfig;

@@ -3,6 +3,8 @@
 mod buffer;
 #[cfg(any(windows, test))]
 mod cache;
+#[cfg(any(windows, test))]
+mod chatbox;
 #[cfg(windows)]
 pub(crate) use cache::SessionCache;
 #[cfg(any(windows, test))]
@@ -19,6 +21,7 @@ mod opus;
 mod protocol;
 #[cfg(test)]
 mod replay_tests;
+pub(crate) mod session;
 #[cfg(windows)]
 mod windows;
 #[cfg(windows)]
@@ -92,26 +95,31 @@ pub(crate) enum AudioEvent {
 }
 
 pub(crate) struct Capture {
-    pub events: tokio::sync::mpsc::Receiver<AudioEvent>,
     stop: Arc<std::sync::atomic::AtomicBool>,
     thread: Option<std::thread::JoinHandle<()>>,
 }
 
 impl Capture {
-    pub(crate) fn start(
+    pub(crate) fn finished(&self) -> bool {
+        self.thread
+            .as_ref()
+            .is_none_or(std::thread::JoinHandle::is_finished)
+    }
+    fn start(
         config: crate::config::PlayerAudioConfig,
         status: SharedStatus,
+        outputs: session::SharedOutputs,
         #[cfg(windows)] cache: Arc<SessionCache>,
         settings: Arc<std::sync::RwLock<crate::config::AppConfig>>,
     ) -> Result<Self, String> {
         #[cfg(windows)]
         {
-            worker::start(config, status, cache, settings)
+            worker::start(config, status, outputs, cache, settings)
         }
         #[cfg(not(windows))]
         {
-            let _ = (config, status, settings);
-            Err("Player audio is available only on Windows".into())
+            let _ = (config, status, outputs, settings);
+            Err("VRChat network capture is available only on Windows".into())
         }
     }
     pub(crate) async fn shutdown(mut self) {

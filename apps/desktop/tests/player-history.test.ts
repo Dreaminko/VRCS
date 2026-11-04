@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { defaultHiddenSourceLanguages, parsePlayerHistory, trackVisible, sourceLanguageVisible, subtitleSourceLanguage, livePartialSourceLanguage, historySpeakers, isAudioTrack } from "../src/subtitles/player-history.ts";
+import { defaultHiddenSourceLanguages, parsePlayerHistory, trackVisible, sourceLanguageVisible, subtitleVisible, subtitleSourceLanguage, livePartialSourceLanguage, historySpeakers, isAudioTrack } from "../src/subtitles/player-history.ts";
 import type { LiveTranscription } from "../src/capture/types.ts";
 import type { TranslationSettings } from "../src/settings/types.ts";
 import type { Subtitle } from "../src/subtitles/types.ts";
@@ -131,4 +131,15 @@ test("history roster preserves distinct tracks with the same name and discovers 
   const row = (speaker?: Subtitle["speaker"], source: Subtitle["source"] = "speaker"): Subtitle => ({speaker,source,translations:[], id:null, text:"record", language:null, started_at:null, ended_at:null, created_at:"2026-10-25T00:00:00Z"});
   const a={id:"vrc:a",index:0,display_name:"Same"}, b={id:"vrc:b",index:1,display_name:"Same"};
   assert.deepEqual(historySpeakers([row(a),row(b),row(a),row(undefined),row(a,"microphone")]).map((speaker)=>speaker.id), ["vrc:a","vrc:b","other:unidentified"]);
+});
+
+test("remote Chatbox shares other-player visibility and discovers text-only players", () => {
+  const speaker = { id: "vrc:text-only", index: 4 };
+  const row = { id: 41, source: "vrchat_chatbox", speaker, translations: [], text: "Bonjour tout le monde",
+    language: "fr", started_at: null, ended_at: null, created_at: "" } as Subtitle;
+  assert.equal(subtitleVisible(row, [speaker.id]), false);
+  assert.equal(subtitleVisible(row, [], ["fr"]), false);
+  assert.equal(subtitleVisible(row, [], ["en"]), true);
+  assert.deepEqual(historySpeakers([row]), [speaker]);
+  assert.equal(subtitleVisible({ ...row, source: "chatbox" }, [speaker.id], ["fr"]), true);
 });

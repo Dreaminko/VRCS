@@ -170,6 +170,11 @@ async fn prepare_vad<F>(
 where
     F: std::future::Future<Output = Result<(), String>> + Send + 'static,
 {
+    if plan.config.audio.output.mode == "disabled"
+        && plan.config.audio.microphone.mode == "disabled"
+    {
+        return (vad::VadRuntimeState::default(), None);
+    }
     let prepare_task = if plan.managed_vad_model && plan.defer_managed_vad {
         Some(tokio::spawn(async move {
             let started = Instant::now();

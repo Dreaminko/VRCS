@@ -50,6 +50,7 @@
 .source-microphone .bubble,
 .source-chatbox .bubble { border-color: var(--border-strong); border-radius: 20px; border-top-right-radius: 5px; background: var(--primary-soft); }
 .bubble-original, .bubble-translation { margin: 0; }
+.source-vrchat_chatbox .bubble-original { white-space: pre-wrap; }
 .bubble-translation-divider { height: 1px; margin: 10px 0 9px; background: var(--border); }
 .source-microphone .bubble-translation-divider,
 .source-chatbox .bubble-translation-divider { background: var(--primary-ink); opacity: 0.14; }

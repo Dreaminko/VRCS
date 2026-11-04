@@ -17,12 +17,14 @@ impl CaptureChange {
         current: &AppConfig,
         candidate: &AppConfig,
     ) -> Self {
-        let resume = match candidate.asr.backend.as_str() {
-            crate::config::QWEN_MANAGED_BACKEND => {
-                !candidate.asr.managed_qwen.package_id.is_empty()
-            }
-            _ => true,
-        };
+        let resume = candidate.vrchat_chatbox.enabled
+            || (capture::has_audio_sources(candidate)
+                && match candidate.asr.backend.as_str() {
+                    crate::config::QWEN_MANAGED_BACKEND => {
+                        !candidate.asr.managed_qwen.package_id.is_empty()
+                    }
+                    _ => true,
+                });
         let plan = if resume {
             capture::CaptureReloadPlan::between(current, candidate)
         } else {
@@ -40,7 +42,7 @@ impl CaptureChange {
         state: &SettingsContext,
         candidate: &AppConfig,
     ) -> ApiResult<()> {
-        if self.reload && self.resume {
+        if self.reload && self.resume && self.plan.audio_changed() {
             capture::validate_capture_config(state, candidate).await?;
         }
         Ok(())
@@ -53,7 +55,9 @@ impl CaptureChange {
     }
 
     pub(super) async fn stop_for_rollback(&self, state: &SettingsContext) {
-        capture::stop_pipelines(state, self.plan).await;
+        if self.reload {
+            capture::stop_pipelines(state, self.plan).await;
+        }
     }
 
     pub(super) async fn start_candidate(

@@ -32,6 +32,7 @@ mod translation;
 mod vad;
 pub mod vision;
 mod vrchat_mute_sync;
+mod vrchat_chatbox;
 mod vrcx;
 mod yomitan;
 
@@ -193,6 +194,11 @@ impl CoreHandle {
             server.stop().await;
         }
         let _control = self.state.capture.capture_control.lock().await;
+        self.state.capture.network_session.lock().await.stop().await;
+        if let Some(task) = self.state.capture.chatbox_task.lock().await.take() {
+            task.abort();
+            let _ = task.await;
+        }
         self.state
             .capture
             .speaker_pipeline

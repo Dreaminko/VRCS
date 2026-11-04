@@ -22,6 +22,7 @@ import { useAppUpdater } from "../updates/useAppUpdater";
 import { useInterfaceScale } from "./useInterfaceScale";
 import { usePlayerHistoryPreferences } from "../subtitles/usePlayerHistoryPreferences";
 import { useMicrophoneSpeakers } from "../capture/useMicrophoneSpeakers";
+import { usesVrchatNetwork } from "../capture/vrchat-network";
 
 export function useAppWorkspace({
   page,
@@ -77,6 +78,7 @@ export function useAppWorkspace({
     coreReady: runtime.ready,
     getRunning: captureRuntime.getRunning,
     outputMode: settings.value?.audio.output.mode,
+    networkCaptureEnabled: usesVrchatNetwork(settings.value),
     preparePlayerAudioStart: captureRuntime.playerAudioStart.prepare,
     createConversation: conversation.createConversation,
     clearLookup: selection.clear,
@@ -91,7 +93,7 @@ export function useAppWorkspace({
   useEffect(() => {
     if (!captureRuntime.playerAudioStart.resumeRequested || resumedPlayerAudio.current || !runtime.ready || !settings.value || onboardingFlow.status !== "complete") return;
     resumedPlayerAudio.current = true;
-    if (settings.value.audio.output.mode === "vrchat_players") void captureControl.setCaptureRunning(true);
+    if (usesVrchatNetwork(settings.value)) void captureControl.setCaptureRunning(true);
   }, [captureRuntime.playerAudioStart.resumeRequested, runtime.ready, settings.value, onboardingFlow.status, captureControl.setCaptureRunning]);
   const { interfaceScale, setInterfaceScale } = useInterfaceScale(runtime.reportError);
   const chatboxRoute = settings.value?.translation.microphone_targets[0];

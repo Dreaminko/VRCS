@@ -80,6 +80,8 @@ pub(crate) struct CaptureRuntime {
     pub(crate) qwen_runtime: Arc<asr::QwenRuntime>,
     pub(crate) capture_control: AsyncMutex<()>,
     pub(crate) capture_requested: AtomicBool,
+    pub(crate) network_session: AsyncMutex<crate::player_audio::session::VrchatNetworkSession>,
+    pub(crate) chatbox_task: AsyncMutex<Option<tokio::task::JoinHandle<()>>>,
     pub(crate) speaker_pipeline: AsyncMutex<TranscriptionPipeline>,
     pub(crate) microphone_pipeline: AsyncMutex<TranscriptionPipeline>,
     pub(crate) microphone_monitor: AsyncMutex<MicrophoneMonitor>,
@@ -110,6 +112,8 @@ impl CaptureRuntime {
             qwen_runtime: Arc::new(asr::QwenRuntime::new(input.qwen_runtime_dir)),
             capture_control: AsyncMutex::new(()),
             capture_requested: AtomicBool::new(false),
+            network_session: AsyncMutex::new(Default::default()),
+            chatbox_task: AsyncMutex::new(None),
             speaker_pipeline: AsyncMutex::new(TranscriptionPipeline::new(
                 crate::audio::CaptureSource::Speaker,
                 "speaker",

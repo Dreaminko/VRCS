@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use crate::config::{
     AnkiConfig, AsrConfig, AudioConfig, DictionaryConfig, ExternalApiConfig, GlossaryConfig,
     OscConfig, ServerConfig, StorageConfig, TranslationConfig, VadConfig, VrOcrConfig,
-    VrOverlayConfig,
+    VrOverlayConfig, VrchatChatboxConfig,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -99,6 +99,8 @@ pub struct SettingsUpdate {
     #[serde(default)]
     pub conversation_titles: crate::config::ConversationTitleConfig,
     pub audio: AudioConfig,
+    #[serde(default)]
+    pub vrchat_chatbox: VrchatChatboxConfig,
     #[serde(default)]
     pub vad: VadConfig,
     pub asr: AsrConfig,

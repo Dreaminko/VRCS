@@ -234,7 +234,7 @@ export function LearningSourceBrowser({
             icon={
               source === "microphone" ? (
                 <Mic size={15} />
-              ) : source === "chatbox" ? (
+              ) : source === "chatbox" || source === "vrchat_chatbox" ? (
                 <MessageSquare size={15} />
               ) : source === "speaker" ? (
                 <Headphones size={15} />
@@ -249,6 +249,7 @@ export function LearningSourceBrowser({
               { value: "speaker", label: t("learning.materials.sources.speaker") },
               { value: "microphone", label: t("learning.materials.sources.microphone") },
               { value: "chatbox", label: t("learning.materials.sources.chatbox") },
+              { value: "vrchat_chatbox", label: `VRChat ${t("chatbox.title")}` },
             ]}
             onChange={setSource}
           />
@@ -421,7 +422,9 @@ const LearningMaterialRow = memo(function LearningMaterialRow({
   const collecting = workspace.isCollecting(key);
   const captured = workspace.isCaptured(key);
   const sourceKind = subtitle.source ?? "speaker";
-  const sourceLabel = t(`learning.materials.sources.${sourceKind}`);
+  const sourceLabel = sourceKind === "vrchat_chatbox"
+    ? `VRChat ${t("chatbox.title")}`
+    : t(`learning.materials.sources.${sourceKind}`);
   const origin: LookupOrigin = {
     id: subtitle.id,
     language: subtitle.language,
@@ -450,7 +453,7 @@ const LearningMaterialRow = memo(function LearningMaterialRow({
         <span className={`learning-material-source learning-material-source-${sourceKind}`} aria-label={sourceLabel}>
           {sourceKind === "microphone" ? (
             <Mic size={11} />
-          ) : sourceKind === "chatbox" ? (
+          ) : sourceKind === "chatbox" || sourceKind === "vrchat_chatbox" ? (
             <MessageSquare size={11} />
           ) : (
             <Headphones size={11} />
