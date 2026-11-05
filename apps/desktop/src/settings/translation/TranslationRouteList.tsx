@@ -189,16 +189,21 @@ function TranslationRouteRow({
       <div className="translation-route-rank">
         {index + 1}
       </div>
-      <div className="translation-route-fields">
-        <LanguagePicker
-          compact
-          label={t("settings.translation.targetLanguageSettings")}
-          value={target.target_language}
-          languageCodes={languageCodes}
-          allowCustom={!native && (profile?.capabilities.supports_custom_translation_language ?? false)}
-          disabled={disabled}
-          onChange={(target_language) => onChange({ ...target, target_language })}
-        />
+      <LanguagePicker
+        compact
+        label={t("settings.translation.targetLanguageSettings")}
+        value={target.target_language}
+        languageCodes={languageCodes}
+        allowCustom={!native && (profile?.capabilities.supports_custom_translation_language ?? false)}
+        disabled={disabled}
+        onChange={(target_language) => onChange({ ...target, target_language })}
+      />
+      <div className="translation-route-actions">
+        <button type="button" aria-label={t("settings.translation.moveUp")} disabled={disabled || index === 0} onClick={onMoveUp}><ArrowUp size={14} /></button>
+        <button type="button" aria-label={t("settings.translation.moveDown")} disabled={disabled || !canMoveDown} onClick={onMoveDown}><ArrowDown size={14} /></button>
+        <button type="button" aria-label={t("common.delete")} disabled={disabled || !canDelete} onClick={onDelete}><Trash2 size={14} /></button>
+      </div>
+      {liveService !== "qwen_live_translate" && <div className="translation-route-fields">
         {native ? <small>{native}</small> : <Select
           hideLabel
           label={t("settings.translation.profile")}
@@ -239,12 +244,7 @@ function TranslationRouteRow({
           details={modelDetails[target.model]} thinkingEnabled={target.thinking_enabled} value={target.reasoning_control}
           disabled={disabled} onChange={(patch) => { setReasoningReset(false); onChange({ ...target, ...patch }); }} />}
         {reasoningReset && <small>{t("settings.reasoning.reset")}</small>}
-      </div>
-      <div className="translation-route-actions">
-        <button type="button" aria-label={t("settings.translation.moveUp")} disabled={disabled || index === 0} onClick={onMoveUp}><ArrowUp size={14} /></button>
-        <button type="button" aria-label={t("settings.translation.moveDown")} disabled={disabled || !canMoveDown} onClick={onMoveDown}><ArrowDown size={14} /></button>
-        <button type="button" aria-label={t("common.delete")} disabled={disabled || !canDelete} onClick={onDelete}><Trash2 size={14} /></button>
-      </div>
+      </div>}
     </div>
   );
 }

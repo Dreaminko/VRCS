@@ -12,7 +12,6 @@ import {
 } from "../../app/interface-scale";
 import type { SubtitleAnalysisOutcome } from "../subtitle-actions";
 import type { Subtitle } from "../types";
-import type { PlayerAudioStatus } from "../../core-client/types";
 import { usePrependScrollAnchor } from "../hooks/usePrependScrollAnchor";
 import {
   useSubtitleBoxSelection,
@@ -29,7 +28,6 @@ export const LiveView = memo(function LiveView({
   hiddenSourceLanguages,
   scrollContainerRef,
   running,
-  playerAudioPhase,
   hasOlder,
   loading,
   loadingOlder,
@@ -55,7 +53,6 @@ export const LiveView = memo(function LiveView({
   hiddenSourceLanguages?: readonly string[];
   scrollContainerRef: RefObject<HTMLDivElement | null>;
   running: boolean;
-  playerAudioPhase?: PlayerAudioStatus["phase"];
   hasOlder: boolean;
   loading: boolean;
   loadingOlder: boolean;
@@ -216,9 +213,9 @@ export const LiveView = memo(function LiveView({
       ) : subtitles.length ? (
         <div className="empty-state"><p>{t("live.players.filteredEmpty")}</p></div>
       ) : (
-        <EmptyLiveView running={running} playerAudioPhase={playerAudioPhase} />
+        <EmptyLiveView running={running} />
       )}
-      {running && <LivePartials subtitles={subtitles} playerAudioPhase={playerAudioPhase} hiddenTracks={hiddenTracks} hiddenSourceLanguages={hiddenSourceLanguages} />}
+      {running && <LivePartials subtitles={subtitles} hiddenTracks={hiddenTracks} hiddenSourceLanguages={hiddenSourceLanguages} />}
     </section>
   );
 });

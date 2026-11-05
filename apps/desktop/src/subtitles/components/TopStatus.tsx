@@ -2,6 +2,7 @@ import { useState, type MouseEvent, type ReactNode } from "react";
 import { Activity } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
+import { vrchatNetworkStatus } from "../../capture/vrchat-network-status";
 import { recognitionEngineLabel } from "../../providers/recognition-services";
 import type {
   ConnectionState,
@@ -31,6 +32,8 @@ export function TopStatus({ connection, health, settings, apiProfiles = [], prov
   });
   const motion = useTopStatusMotion(expanded);
   const connectionLabel = t(`status.connection.${connection}`);
+  const networkStatus = vrchatNetworkStatus(health, settings, t);
+  const statusLabel = networkStatus?.label ?? transcriptionStatusLabel(health, t);
   const toggleLabel = t(expanded ? "common.collapseNamed" : "common.expandNamed", { name: t("status.summary") });
   const toggle = (event: MouseEvent<HTMLButtonElement>) => {
     motion.prepare(event.detail > 0);
@@ -52,7 +55,10 @@ export function TopStatus({ connection, health, settings, apiProfiles = [], prov
         {expanded ? <>
           <span className={`status-summary-item core-summary connection-${connection}`}><span className="status-summary-label">Core</span><strong><i aria-hidden="true" />{connectionLabel}</strong></span>
           <i aria-hidden="true" />
-          <span className="status-summary-item"><span className="status-summary-label">{t("status.label")}</span><strong>{transcriptionStatusLabel(health, t)}</strong></span>
+          <span className={`status-summary-item status-main${networkStatus ? ` network-status ${networkStatus.tone}` : ""}`}>
+            <span className="status-summary-label">{t("status.label")}</span>
+            <strong>{statusLabel}</strong>
+          </span>
           <i aria-hidden="true" />
           <span className={`status-summary-item mute-summary${health?.osc?.send_gate === "open" ? "" : " muted"}`}>
             <span className="status-summary-label">{t("status.vrchat")}</span>

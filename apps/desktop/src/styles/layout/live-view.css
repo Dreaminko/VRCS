@@ -30,6 +30,7 @@
 .message-meta { display: flex; align-items: center; gap: 7px; margin: 0 8px 5px; color: var(--text-secondary); font-size: 11px; }
 .message-meta time { color: var(--text-quiet); }
 .message-meta svg { flex: 0 0 auto; }
+.message-meta .message-source-icon { display: block; width: 14px; height: 14px; stroke-width: 2; }
 .message-meta .speaker-name { min-width: 0; overflow-wrap: anywhere; }
 .message-meta time { flex-shrink: 0; }
 .bubble {

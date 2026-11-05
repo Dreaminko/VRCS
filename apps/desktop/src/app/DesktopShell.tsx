@@ -258,7 +258,6 @@ export function DesktopShell({
                   subtitles={conversations.selectedSubtitles}
                   hiddenTracks={playerDisplay.hiddenTracks}
                   hiddenSourceLanguages={playerDisplay.hiddenSourceLanguages}
-                  playerAudioPhase={runtime.health?.player_audio?.phase}
                   scrollContainerRef={liveScroll.liveScrollRef}
                   running={
                     (runtime.health?.capture_requested ?? false)

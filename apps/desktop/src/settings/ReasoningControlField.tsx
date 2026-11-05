@@ -31,7 +31,7 @@ export function ReasoningControlField({ provider, model, details, thinkingEnable
   if (options.thinking === "unsupported" && !adjustable && !value) {
     return details?.reasoning?.supported === false ? null : <small>{t("settings.reasoning.unknown")}</small>;
   }
-  return <div className={`field reasoning-control-field ${options.thinking === "disable_supported" && showStrength ? "reasoning-control-paired" : ""}`}>
+  return <div className={`field reasoning-control-field ${options.thinking === "disable_supported" ? "reasoning-control-paired" : ""}`}>
     {options.thinking === "disable_supported" && <PreferenceToggle title={t("settings.translation.thinkingMode")}
       checked={thinkingEnabled} disabled={disabled} onChange={(thinking_enabled) => onChange({ thinking_enabled })} />}
     {options.thinking === "hide_only" && <small>{t("settings.reasoning.mandatory")}</small>}

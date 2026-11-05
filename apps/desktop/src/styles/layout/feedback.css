@@ -44,6 +44,7 @@
 .core-summary.connection-connected strong i { background: var(--primary); box-shadow: 0 0 0 3px rgba(116, 214, 255, 0.25); }
 .core-summary.connection-disconnected strong i { background: var(--error); box-shadow: 0 0 0 3px rgba(201, 68, 68, 0.2); }
 .mute-summary.muted strong { color: var(--warning); }
+.network-status.error strong { color: var(--error); }
 
 .error-banner {
   display: flex;

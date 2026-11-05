@@ -50,8 +50,8 @@ for (const width of [1100, 380]) {
             microphoneTestRunning={false} saveState={saveState} onRefresh={noop} applySettings={setDraft}
             onStartMicrophoneTest={noop} onStopMicrophoneTest={noop}
             playerAudioStatus={status} />
-            <div id="waiting"><EmptyLiveView running={true} playerAudioPhase={status.phase} /></div>
-            <div id="previews"><LivePartials subtitles={[]} playerAudioPhase={status.phase} /></div>
+            <div id="waiting"><EmptyLiveView running={true} /></div>
+            <div id="previews"><LivePartials subtitles={[]} /></div>
             <div id="history"><SubtitleBubble subtitle={{id:1,text:'已保存的玩家发言',language:'zh',created_at:'2026-10-25T00:00:00Z',
               started_at:null,ended_at:null,source:'speaker',speaker:{id:'actor-1',index:1},translations:[]}}
               focused={false} selected={false} selectionActive={false} selection={null} onClearSelection={()=>{}}
@@ -114,10 +114,13 @@ for (const width of [1100, 380]) {
           const statusText=()=>card.querySelector('[role=status]').textContent;
           check(statusText().includes('正在获取语音密钥')&&statusText().includes('已用时 2.7 秒'),'acquisition shows a plain status and elapsed time');
           check(!/MiB|PCM|认证包|候选|解码错误|丢弃/.test(statusText()),'diagnostic counters are hidden');
+          check(document.querySelector('#waiting').textContent===locale.translation.live.listening,'network phases no longer replace the empty transcript state');
+          check(!document.querySelector('#previews').textContent.trim(),'network phases no longer create a standalone transcript bubble');
           for (const [phase,label] of [['waiting_game','等待 VRChat 启动'],['waiting_world','等待 VRChat 世界加载完成'],['retrying_key','密钥获取未成功，稍后自动重试']]) {
             updateStatus(previous=>({...previous,phase}));
             await wait(()=>card.querySelector('[role=status]').textContent.includes(label));
-            await wait(()=>document.querySelector('#waiting').textContent.includes(label));
+            check(!document.querySelector('#waiting').textContent.includes(label),'network phases stay out of the empty transcript state');
+            check(!document.querySelector('#previews').textContent.includes(label),'network phases stay out of transcript bubbles');
             check(!statusText().includes('已用时'),'waiting and retrying do not show stale scan progress');
           }
           updateStatus(previous=>({...previous,phase:'streaming',decrypted_packets:480,pcm_frames:256,active_players:2,

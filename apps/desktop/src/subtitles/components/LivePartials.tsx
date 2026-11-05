@@ -5,12 +5,7 @@ import { contentLanguageTag } from "../../app/ui-language";
 import { livePartialHasSubtitle, useLivePartials } from "../../core-client/realtime-state";
 import type { SpeakerIdentity, Subtitle } from "../types";
 import { useSpeakerIdentity } from "../speaker-state";
-import type { PlayerAudioStatus } from "../../core-client/types";
 import { isAudioTrack, livePartialVisible } from "../player-history";
-
-function isWaiting(phase?: PlayerAudioStatus["phase"]) {
-  return phase?.startsWith("waiting_") || phase === "acquiring_key" || phase === "retrying_key";
-}
 
 function SpeakerLabel({ identity }: { identity: SpeakerIdentity }) {
   const { t } = useTranslation();
@@ -18,16 +13,16 @@ function SpeakerLabel({ identity }: { identity: SpeakerIdentity }) {
   return <div className="message-meta"><span className="speaker-name">{speaker.display_name || t(isAudioTrack(speaker) ? "live.trackNumber" : "live.speakerNumber", { number: speaker.index + 1 })}</span></div>;
 }
 
-export function LivePartials({ subtitles, playerAudioPhase, hiddenTracks = [], hiddenSourceLanguages }: { subtitles: Subtitle[]; playerAudioPhase?: PlayerAudioStatus["phase"]; hiddenTracks?: readonly string[]; hiddenSourceLanguages?: readonly string[] }) {
+export function LivePartials({ subtitles, hiddenTracks = [], hiddenSourceLanguages }: { subtitles: Subtitle[]; hiddenTracks?: readonly string[]; hiddenSourceLanguages?: readonly string[] }) {
   const { t } = useTranslation();
   const speaker = useLivePartials("speaker");
   const microphone = useLivePartials("microphone");
   const partials = [...speaker, ...microphone];
   if (!partials.length) {
-    if (isWaiting(playerAudioPhase) && !subtitles.length) return null;
+    if (!subtitles.length) return null;
     return (
       <div className="message-group source-speaker streaming-message">
-        <div className="bubble" role="status">{isWaiting(playerAudioPhase) ? t(`settings.audio.players.phase.${playerAudioPhase}`) : t("live.transcribing")}<span className="streaming-ellipsis" aria-hidden="true">…</span></div>
+        <div className="bubble" role="status">{t("live.transcribing")}<span className="streaming-ellipsis" aria-hidden="true">…</span></div>
       </div>
     );
   }
@@ -49,12 +44,12 @@ export function LivePartials({ subtitles, playerAudioPhase, hiddenTracks = [], h
   });
 }
 
-export function EmptyLiveView({ running, playerAudioPhase }: { running: boolean; playerAudioPhase?: PlayerAudioStatus["phase"] }) {
+export function EmptyLiveView({ running }: { running: boolean }) {
   const { t } = useTranslation();
   return (
     <div className="empty-state">
       <MessageSquare size={22} />
-      <p>{running ? isWaiting(playerAudioPhase) ? t(`settings.audio.players.phase.${playerAudioPhase}`) : t("live.listening") : t("live.startHint")}</p>
+      <p>{running ? t("live.listening") : t("live.startHint")}</p>
     </div>
   );
 }

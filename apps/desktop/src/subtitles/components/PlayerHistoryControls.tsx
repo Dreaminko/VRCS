@@ -8,7 +8,6 @@ import { isAudioTrack, type PlayerHistoryPreferences } from "../player-history";
 import { collectPlayerSpeakers, playerLanguageOptions, applyPlayerVisibilityAction, type PlayerSelectionAction, type PlayerVisibilityAction } from "../player-controls";
 import { playerUserId } from "../../capture/player-selection";
 import { localizedLanguageName } from "../../translation/translation-languages";
-import { Select } from "../../settings/SettingsControls";
 import { LanguagePicker } from "../../shared/ui/LanguagePicker";
 import { useDismissibleLayer } from "../../shared/hooks/use-dismissible-layer";
 import { useDropdownMenuMotion } from "../../shared/hooks/use-dropdown-menu-motion";
@@ -57,6 +56,7 @@ export function PlayerHistoryControls({ subtitles, status, enabled, selectedUser
   };
   useDismissibleLayer(open, rootRef, close);
   const [busy, setBusy] = useState(false);
+  const processingMode = selectedUserIds === null ? "all" : "selected";
   const [query, setQuery] = useState("");
   const current = enabled ? status?.players ?? [] : [];
   const currentIds = current.map((player) => player.speaker.id);
@@ -94,9 +94,16 @@ export function PlayerHistoryControls({ subtitles, status, enabled, selectedUser
     <div className="player-history-body">
       {microphone && <MicrophoneSpeakerControls control={microphone} />}
       {enabled && <div className="player-history-processing">
-        <Select label={t("live.players.process")} value={selectedUserIds === null ? "all" : "selected"} disabled={busy}
-          options={[{value:"all",label:t("live.players.all")},{value:"selected",label:t("live.players.selected")}]}
-          onChange={(value) => void select({ set_processing_mode: value === "all" ? "all" : "selected" })} />
+        <div className="field">
+          <span>{t("live.players.process")}</span>
+          <div className="theme-toggle-group" role="group" aria-label={t("live.players.process")}>
+            {(["all", "selected"] as const).map((mode) => <button key={mode} type="button"
+              aria-pressed={processingMode === mode} className={processingMode === mode ? "active" : ""} disabled={busy}
+              onClick={() => { if (processingMode !== mode) void select({ set_processing_mode: mode }); }}>
+              {t(`live.players.${mode}`)}
+            </button>)}
+          </div>
+        </div>
         {selectedUserIds !== null && <div className="player-history-actions">
           <button type="button" className="secondary-button" disabled={busy || !currentUsers.length} onClick={() => void select({ select_current: null })}>{t("live.players.selectCurrent")}</button>
           <button type="button" className="secondary-button" disabled={busy || !selectedUserIds.length} onClick={() => void select({ clear_selection: null })}>{t("live.players.selectNone")}</button>

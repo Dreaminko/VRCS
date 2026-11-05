@@ -128,6 +128,9 @@ html[data-vr-surface], html[data-vr-surface] body, html[data-vr-surface] #root {
 .vr-dialogue-messages { display: flex; min-height: 100%; flex-direction: column; justify-content: flex-end; gap: 18px; }
 .vr-dialogue-bubble { min-width: 0; max-width: 92%; flex: none; align-self: flex-start; margin: 0; padding: 16px 24px; border: 1px solid var(--border); border-radius: 28px; border-top-left-radius: 6px; background: var(--surface); white-space: pre-wrap; overflow-wrap: anywhere; }
 .vr-dialogue-bubble.right { align-self: flex-end; border-color: var(--border-strong); border-radius: 28px; border-top-right-radius: 6px; background: var(--primary-soft); }
+.vr-dialogue-bubble .vr-caption-speaker { display: flex; align-items: center; gap: 0.35em; }
+.vr-dialogue-bubble .vr-caption-speaker > svg { width: 1em; height: 1em; }
+.vr-dialogue-bubble .vr-caption-speaker > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .vr-surface-empty { margin: auto; color: var(--text-secondary); text-align: center; }
 .vr-surface-error { color: var(--error); }
 .vr-dialogue-body > .vr-surface-error { flex: none; margin: 12px 0 0; font-size: 22px; overflow-wrap: anywhere; }

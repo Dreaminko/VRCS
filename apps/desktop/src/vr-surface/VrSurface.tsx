@@ -1,5 +1,5 @@
 import { memo, useCallback, useLayoutEffect, useMemo, useRef, type CSSProperties, type ReactNode } from "react";
-import { Captions, ChevronLeft, ChevronRight, Crop, Eye, GripHorizontal, Hand, Languages, MessageSquare, Mic, Pin, PinOff, Radio, ScanEye, Square, UsersRound, X } from "lucide-react";
+import { Captions, ChevronLeft, ChevronRight, Crop, Eye, GripHorizontal, Hand, Languages, MessageSquare, Mic, Pin, PinOff, Radio, ScanEye, Square, UsersRound, Volume2, X } from "lucide-react";
 import type { WristMenuCommand } from "../vr-controls/player-display-protocol";
 import type { ControlAction } from "../vr-controls/protocol";
 import { VisionAnswerMarkdown } from "../vision/VisionAnswerMarkdown";
@@ -98,7 +98,12 @@ function Dialogue({ state, view }: { state: SurfaceState; view: Extract<SurfaceV
         following.current = element.scrollHeight - element.clientHeight - element.scrollTop <= 2;
       }}>
         <div className="vr-dialogue-messages">{messages.length ? messages.map((message, index) => <div className={`vr-dialogue-bubble ${message.side}`} key={index}>
-          <div className="vr-caption-speaker">{message.original?.source === "vrchat_chatbox" && <MessageSquare size="1em" aria-label="Chatbox" />} {message.speaker || (message.side === "right" ? view.labels?.me ?? "Me" : view.labels?.other ?? "Others")}</div>
+          <div className="vr-caption-speaker">
+            {message.original?.source === "vrchat_chatbox" || message.original?.source === "chatbox" ? <MessageSquare size="1em" aria-label="Chatbox" />
+              : message.original?.source === "microphone" ? <Mic size="1em" aria-label="Microphone" />
+                : <Volume2 size="1em" aria-label="Voice" />}
+            <span title={message.speaker || undefined}>{message.speaker || (message.side === "right" ? view.labels?.me ?? "Me" : view.labels?.other ?? "Others")}</span>
+          </div>
           {message.text}
         </div>) : !view.notice && <p className="vr-surface-empty">{labels.emptyDialogue || "No recent dialogue"}</p>}</div>
       </div>

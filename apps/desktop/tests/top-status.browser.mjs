@@ -36,17 +36,27 @@ for (const [width, reduced] of [[1100, false], [860, false], [380, false], [1100
           'zh-CN': {translation: zh.translation}, 'en-US': {translation: en.translation},
         }});
         localStorage.clear();
-        let reconnect, remount;
+        let reconnect, remount, setNetworkState;
         function Fixture() {
           const scroll = useRef(null);
           const [connection, setConnection] = useState('connected');
+          const [network, setNetwork] = useState({enabled: false, captureRequested: true, phase: 'waiting_world', activePlayers: 0});
           const [version, setVersion] = useState(0);
           reconnect = setConnection;
+          setNetworkState = setNetwork;
           remount = () => setVersion(value => value + 1);
+          const networkSettings = network.enabled ? {
+            audio: {output: {mode: 'vrchat_players'}}, vrchat_chatbox: {enabled: false}, osc: {enabled: false},
+            asr: {backend: 'qwen_local_managed', active_profile_id: null, service_settings: {}},
+          } : null;
+          const networkHealth = network.enabled ? {
+            capture_requested: network.captureRequested, microphone_capture_state: 'stopped', osc: null,
+            player_audio: {phase: network.phase, active_players: network.activePlayers},
+          } : null;
           return <div className="app-shell live-shell sidebar-collapsed">
             <div className="window-chrome">VRCS</div><div className="app-body">
               <WorkspaceFrame page="live" scrollRef={scroll} onScroll={() => {}} toolbar={
-                <TopStatus key={version} connection={connection} health={null} settings={null} controls={
+                <TopStatus key={version} connection={connection} health={networkHealth} settings={networkSettings} controls={
                   <PlayerHistoryControls subtitles={[]} enabled={false} selectedUserIds={null}
                     defaultLanguages={[]} preferences={{hiddenTracks: [], hiddenSourceLanguages: null}}
                     onPreferences={() => {}} onSelection={async () => {}} />
@@ -98,6 +108,23 @@ for (const [width, reduced] of [[1100, false], [860, false], [380, false], [1100
           check(button.querySelectorAll('button').length === 0, 'there is no separate collapse button');
           check(button.textContent.includes('Core') && button.textContent.includes('Qwen3-ASR 0.6B'), 'the existing status information is retained');
           check(button.getAttribute('aria-label') === '收起 应用状态', 'expanded status announces its collapse action');
+          const summaryItems = () => button.querySelectorAll('.status-summary-item').length;
+          check(summaryItems() === 4, 'network capture does not add another status item');
+          check(!button.querySelector('.status-main.network-status'), 'network capture stays out of the status value while the feature is off');
+          flushSync(() => setNetworkState({enabled: true, captureRequested: true, phase: 'waiting_world', activePlayers: 0}));
+          await wait(() => button.querySelector('.status-main.network-status'));
+          check(summaryItems() === 4, 'network capture reuses the existing status item');
+          check(button.querySelector('.status-main').textContent.includes('状态'), 'the merged item retains its status label');
+          check(button.querySelector('.status-main').textContent.includes('等待世界加载'), 'network phase appears in the status value');
+          checkBounds(button);
+          flushSync(() => setNetworkState({enabled: true, captureRequested: true, phase: 'streaming', activePlayers: 2}));
+          await wait(() => button.querySelector('.status-main')?.textContent.includes('接收 2 位玩家'));
+          check(button.querySelector('.status-main.network-status.active'), 'active player tracks are marked as receiving');
+          checkBounds(button);
+          flushSync(() => setNetworkState({enabled: true, captureRequested: true, phase: 'failed', activePlayers: 0}));
+          await wait(() => button.querySelector('.status-main.network-status.error')?.textContent.includes('网络采集异常'));
+          flushSync(() => setNetworkState({enabled: false, captureRequested: true, phase: 'waiting_world', activePlayers: 0}));
+          await wait(() => !button.querySelector('.status-main.network-status'));
           const initialText = button.textContent;
           checkBounds(button);
           check(!motion().length, 'initial rendering does not animate');
