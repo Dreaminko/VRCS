@@ -78,6 +78,7 @@ impl FeatureKey {
 /// Apply module availability without changing the user's stored preferences.
 pub fn apply_feature_gates(config: &AppConfig) -> AppConfig {
     let mut effective = config.clone();
+    effective.resolve_model_assignments();
     let features = &config.features;
     if !features.glossary {
         effective.glossary.asr_enabled = false;

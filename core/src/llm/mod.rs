@@ -278,40 +278,6 @@ impl LlmClient {
         result
     }
 
-    pub async fn list_models(
-        &self,
-        profile: &ApiProfile,
-        api_key: &str,
-    ) -> Result<Vec<String>, LlmError> {
-        let resolved = [
-            CAPABILITY_TEXT_GENERATION,
-            providers::CAPABILITY_TEXT_TRANSLATION,
-            CAPABILITY_IMAGE_UNDERSTANDING,
-        ]
-        .into_iter()
-        .find_map(|capability| providers::resolve_profile_capability(profile, capability).ok())
-        .ok_or_else(|| LlmError {
-            code: "llm.models_unsupported",
-            detail: format!(
-                "API profile {} has not enabled an LLM capability",
-                profile.id
-            ),
-            retryable: false,
-            retry_after: None,
-        })?;
-        if !resolved.service.supports_model_listing {
-            return Err(LlmError {
-                code: "llm.models_unsupported",
-                detail: format!("Service {} does not expose LLM models", resolved.service.id),
-                retryable: false,
-                retry_after: None,
-            });
-        }
-        self.list_models_with_adapter(profile, api_key, resolved.service.adapter)
-            .await
-            .map(|models| providers::compatible_service_models(resolved.service, models))
-    }
-
     pub async fn list_provider_models(
         &self,
         profile: &ApiProfile,
@@ -688,9 +654,10 @@ mod tests {
             ..ApiProfile::default()
         };
         let models = LlmClient::new(reqwest::Client::new())
-            .list_models(&profile, "")
+            .list_model_catalog(&profile, "")
             .await
-            .unwrap();
+            .unwrap()
+            .models;
         server.abort();
         assert_eq!(models, ["vision-model"]);
     }

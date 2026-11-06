@@ -46,10 +46,15 @@ pub struct LanguageOverrideInput {
 
 impl ActiveLanguageSession {
     pub fn resolve(&self, global: &AppConfig) -> LanguageRuntimeConfig {
-        match self {
+        let mut runtime = match self {
             Self::Global => LanguageRuntimeConfig::from_global(global),
             Self::Preset { snapshot, .. } | Self::Override { snapshot } => snapshot.clone(),
-        }
+        };
+        runtime.translation.model_selection = global.translation.model_selection.clone();
+        runtime
+            .translation
+            .resolve_model_assignments(&global.model_defaults.text);
+        runtime
     }
 
     pub fn apply_to(&self, global: &AppConfig) -> AppConfig {
@@ -92,6 +97,7 @@ pub fn select_session(
                 snapshot: LanguageRuntimeConfig {
                     recognition_language: preset.recognition_language.clone(),
                     translation: TranslationConfig {
+                        model_selection: global.translation.model_selection.clone(),
                         mode: preset.translation_mode.clone(),
                         speaker_targets: preset.speaker_targets.clone(),
                         microphone_targets: preset.microphone_targets.clone(),
@@ -105,6 +111,7 @@ pub fn select_session(
             let snapshot = LanguageRuntimeConfig {
                 recognition_language: override_config.recognition_language,
                 translation: TranslationConfig {
+                    model_selection: global.translation.model_selection.clone(),
                     mode: override_config.translation_mode,
                     speaker_targets: override_config.speaker_targets,
                     microphone_targets: override_config.microphone_targets,
@@ -116,6 +123,7 @@ pub fn select_session(
             candidate.asr.language = snapshot.recognition_language.clone();
             candidate.translation = snapshot.translation.clone();
             candidate.osc.translation_strategy = snapshot.osc_translation_strategy.clone();
+            candidate.resolve_model_assignments();
             candidate.validate_settings()?;
             Ok(ActiveLanguageSession::Override { snapshot })
         }

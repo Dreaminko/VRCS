@@ -40,6 +40,7 @@ pub(super) struct SettingsChangePlan {
     persisted_config: PersistedConfigChange,
     external_api: ExternalApiChange,
     post_commit: PostCommitUpdates,
+    credential: Option<(crate::config::ApiProfile, Option<String>)>,
 }
 
 impl SettingsChangePlan {
@@ -60,19 +61,52 @@ impl SettingsChangePlan {
         }
         super::protect_profile_owned_settings(&mut candidate, &current, has_current_revision);
         validation::validate_candidate(state, &mut candidate, &current).await?;
-        Self::build(state, candidate, current).await
+        Self::build(state, candidate, current, None).await
     }
 
     pub(super) async fn prepare(state: &SettingsContext, candidate: AppConfig) -> ApiResult<Self> {
         let current = state.config.config.read().expect("config lock").clone();
-        Self::build(state, candidate, current).await
+        Self::build(state, candidate, current, None).await
+    }
+
+    pub(super) async fn prepare_profile_update(
+        state: &SettingsContext,
+        candidate: AppConfig,
+        profile: &crate::config::ApiProfile,
+        api_key: &str,
+    ) -> ApiResult<Self> {
+        let current = state.config.config.read().expect("config lock").clone();
+        let credential_error = |detail| {
+            api_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "profile.credential_store_failed",
+                detail,
+            )
+        };
+        let previous = crate::asr::read_stored_credential(&profile.id, &profile.provider)
+            .map_err(credential_error)?;
+        crate::asr::write_credential(&profile.id, &profile.provider, api_key)
+            .map_err(credential_error)?;
+        match Self::build(state, candidate, current, Some(&profile.id)).await {
+            Ok(mut plan) => {
+                plan.credential = Some((profile.clone(), previous));
+                Ok(plan)
+            }
+            Err(error) => match super::super::cloud::restore_credential(profile, previous) {
+                Ok(()) => Err(error),
+                Err(recovery) => Err(rollback_error(api_detail(&error), recovery)),
+            },
+        }
     }
 
     async fn build(
         state: &SettingsContext,
-        candidate: AppConfig,
+        mut candidate: AppConfig,
         current: AppConfig,
+        credential_profile: Option<&str>,
     ) -> ApiResult<Self> {
+        candidate.resolve_model_assignments();
+        candidate.clear_changed_inherited_reasoning(&current);
         let language_session = state
             .config
             .language_session
@@ -81,7 +115,12 @@ impl SettingsChangePlan {
             .clone();
         let effective_current = language_session.apply_to(&current);
         let effective_candidate = language_session.apply_to(&candidate);
-        let capture = CaptureChange::between(state, &effective_current, &effective_candidate);
+        let mut capture = CaptureChange::between(state, &effective_current, &effective_candidate);
+        if credential_profile
+            .is_some_and(|id| super::super::capture::uses_asr_profile(&effective_candidate, id))
+        {
+            capture.include_credential_change(state);
+        }
         capture.prepare(state, &effective_candidate).await?;
 
         let model_directory = ModelDirectoryChange::between(state, &current, &candidate);
@@ -104,6 +143,7 @@ impl SettingsChangePlan {
             persisted_config: PersistedConfigChange::default(),
             external_api,
             post_commit,
+            credential: None,
         })
     }
 
@@ -175,6 +215,11 @@ impl SettingsChangePlan {
     async fn rollback(&mut self, state: &SettingsContext) -> Result<(), String> {
         let mut errors = Vec::new();
         self.capture.stop_for_rollback(state).await;
+        if let Some((profile, previous)) = self.credential.take() {
+            if let Err(error) = super::super::cloud::restore_credential(&profile, previous) {
+                errors.push(format!("credential rollback failed: {error}"));
+            }
+        }
         if let Err(error) = self.model_directory.rollback(state).await {
             errors.push(error);
         }

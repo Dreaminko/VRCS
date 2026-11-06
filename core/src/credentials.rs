@@ -146,7 +146,6 @@ pub(crate) fn read_stored_credential(
     profile_id: &str,
     provider: &str,
 ) -> Result<Option<String>, String> {
-    validate_provider(provider)?;
     read_profile_stored(profile_id, provider)
 }
 
@@ -160,7 +159,6 @@ pub fn write_credential(profile_id: &str, provider: &str, value: &str) -> Result
 }
 
 pub fn delete_credential(profile_id: &str, provider: &str) -> Result<(), String> {
-    validate_provider(provider)?;
     delete_stored(&target(profile_id))?;
     delete_stored(&old_profile_target(profile_id))?;
     if let Some(target) = legacy_target(profile_id, provider) {

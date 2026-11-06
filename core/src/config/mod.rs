@@ -9,6 +9,7 @@ mod integrations;
 mod io;
 mod language;
 mod migration;
+mod model_assignment;
 mod ocr;
 mod profile;
 mod recognition;
@@ -33,6 +34,8 @@ pub use glossary::{GlossaryCategory, GlossaryConfig, GlossaryEntry, GlossarySour
 pub use integrations::{AnkiConfig, DictionaryConfig, OscConfig};
 pub use io::{load_config, save_config};
 pub use language::LanguagePreset;
+#[allow(unused_imports)]
+pub use model_assignment::{LearningAiConfig, ModelBinding, ModelDefaultsConfig, ModelSelection};
 pub use profile::{ApiAuthMode, ApiProfile, HttpHeaderConfig, DEFAULT_PROFILE_TIMEOUT_MS};
 #[allow(unused_imports)]
 pub use recognition::{

@@ -32,6 +32,26 @@ Core 默认构建和 `--no-default-features` 均支持云端功能和托管 Qwen
 
 Windows 构建的本地 PP-OCRv6 small 支持 ONNX Runtime DirectML，无需 CUDA 或 Vulkan SDK。`ocr.device` 默认为 `cpu`，设为 `directml` 时会优先选择高性能兼容 GPU；模型加载或推理失败后回退 CPU。回退后的 CPU 会话保持使用，直到切换推理设备或重新启动服务。`GET /api/ocr/runtime` 返回最近请求的设备、实际加载的设备和回退原因。其他平台会回退 CPU。
 
+## API Profile 接口
+
+API 管理使用 `/api/profile`。旧路径 `/api/asr/profiles` 已移除，调用方需要同步更新。
+
+| 方法 | 路径 | 用途 |
+|---|---|---|
+| GET / POST | `/api/profile` | 列出 / 创建配置 |
+| PUT / DELETE | `/api/profile/{profile_id}` | 更新 / 删除配置 |
+| PUT / DELETE | `/api/profile/{profile_id}/credential` | 保存 / 删除密钥 |
+| POST | `/api/profile/{profile_id}/test` | 测试连接 |
+| GET | `/api/profile/{profile_id}/models` | 获取模型列表 |
+| GET | `/api/profile/{profile_id}/services/{service_id}/models` | 获取服务模型列表 |
+| PUT | `/api/asr/active` | 设置默认语音识别配置 |
+
+更新时，省略的字段保持原值，`region`、`workspace_id`、`base_url` 和 `preset_id` 可用 `null` 清空。更新请求可包含 `api_key`，配置与密钥在同一次操作中保存，失败时回滚。列表中的 `usages` 列出关联功能；翻译关联包含 `scope`、`index` 和 `target_language`，语言预设还包含 `preset_id` 和 `preset_name`。单个配置不可用时只标记该项，不影响其他配置加载。
+
+更新和删除支持 `?dry_run=true`，仅校验并返回 `side_effects`，不修改配置、凭据或运行管线。正式提交会重新计算影响。诊断请求断开时，上游请求随处理任务释放。
+
+模型列表按连接配置、服务和凭据缓存 10 分钟。`?refresh=true` 强制刷新，`?cached_only=true` 只读缓存，未命中时返回空列表及 `updated_at: null`；有缓存时 `updated_at` 为 Unix 秒时间戳。更新和删除的响应包含实际清除的 `side_effects`。Profile 参数、查找和凭据错误统一使用 `profile.*` 错误码；可定位的参数校验错误还包含 `field`。诊断结果包含 `ok`、`latency_ms` 和 `checks`。
+
 ## 运行与测试
 
 在 Windows 上安装 Rustup、Visual Studio C++ Build Tools，并将 CMake 加入 `PATH`。Rustup 会使用仓库根目录 `rust-toolchain.toml` 指定的版本和组件。CPU 和 Vulkan 构建均无需 GPU SDK。从仓库根目录的 PowerShell 开始：

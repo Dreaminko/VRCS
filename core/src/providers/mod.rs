@@ -4,7 +4,7 @@ use crate::config::{ApiAuthMode, ApiProfile};
 
 mod validation;
 
-pub(crate) use validation::validate_profile;
+pub(crate) use validation::{validate_profile, validate_profile_fields, ProfileValidationError};
 
 pub const ALIBABA_PROVIDER: &str = "alibaba_cloud";
 pub const QWEN_AI_PROVIDER: &str = "qwen_ai";
@@ -202,6 +202,17 @@ const OPENROUTER_ASR_MODELS: &[&str] = &[
 ];
 const GEMINI_ASR_MODELS: &[&str] = &["gemini-3.5-transcribe-live"];
 const QWEN_LOCAL_ASR_MODELS: &[&str] = &["Qwen/Qwen3-ASR-0.6B", "Qwen/Qwen3-ASR-1.7B"];
+const OPENAI_DIAGNOSTIC_MODELS: &[&str] = &["gpt-4.1-mini", "gpt-4o-mini", "gpt-5-mini"];
+const GROQ_DIAGNOSTIC_MODELS: &[&str] = &["openai/gpt-oss-20b", "openai/gpt-oss-120b"];
+const DEEPSEEK_DIAGNOSTIC_MODELS: &[&str] = &["deepseek-v4-flash", "deepseek-v4-pro"];
+const GEMINI_DIAGNOSTIC_MODELS: &[&str] =
+    &["gemini-3.7-flash", "gemini-3.6-flash", "gemini-2.5-flash"];
+const ALIBABA_DIAGNOSTIC_MODELS: &[&str] = &["qwen3.6-flash", "qwen3.7-plus", "qwen3.7-max"];
+const OPENROUTER_DIAGNOSTIC_MODELS: &[&str] = &[
+    "openai/gpt-4o-mini",
+    "google/gemini-2.5-flash",
+    "openai/gpt-5-mini",
+];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -328,6 +339,7 @@ pub struct ProviderDefinition {
     pub category: ProviderCategory,
     pub connection: ProviderConnectionDefinition,
     pub services: &'static [ProviderServiceDefinition],
+    pub diagnostic_models: &'static [&'static str],
     pub purposes: &'static [&'static str],
     pub support_levels: CapabilitySupportLevels,
     pub capabilities: ProviderCapabilities,
@@ -1019,6 +1031,19 @@ pub fn definition(provider: &str) -> Option<ProviderDefinition> {
         category,
         connection,
         services,
+        diagnostic_models: match provider {
+            OPENAI_PROVIDER => OPENAI_DIAGNOSTIC_MODELS,
+            GROQ_PROVIDER => GROQ_DIAGNOSTIC_MODELS,
+            DEEPSEEK_PROVIDER => DEEPSEEK_DIAGNOSTIC_MODELS,
+            MIMO_PROVIDER => &MIMO_CHAT_MODELS[..2],
+            GEMINI_PROVIDER => GEMINI_DIAGNOSTIC_MODELS,
+            ALIBABA_PROVIDER
+            | ALIBABA_TOKEN_PLAN_PROVIDER
+            | QWEN_AI_PROVIDER
+            | QWEN_CLOUD_PROVIDER => ALIBABA_DIAGNOSTIC_MODELS,
+            OPENROUTER_PROVIDER => OPENROUTER_DIAGNOSTIC_MODELS,
+            _ => &[],
+        },
         purposes,
         support_levels,
         capabilities,
@@ -1523,6 +1548,58 @@ pub fn translation_language_name(language: &str) -> Option<&'static str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn diagnostic_metadata_preserves_recommended_model_order() {
+        let recommendations: &[(&str, &[&str])] = &[
+            (
+                OPENAI_PROVIDER,
+                &["gpt-4.1-mini", "gpt-4o-mini", "gpt-5-mini"],
+            ),
+            (
+                GROQ_PROVIDER,
+                &["openai/gpt-oss-20b", "openai/gpt-oss-120b"],
+            ),
+            (DEEPSEEK_PROVIDER, &["deepseek-v4-flash", "deepseek-v4-pro"]),
+            (MIMO_PROVIDER, &["mimo-v2.6-flash", "mimo-v2.6-pro"]),
+            (
+                GEMINI_PROVIDER,
+                &["gemini-3.7-flash", "gemini-3.6-flash", "gemini-2.5-flash"],
+            ),
+            (
+                OPENROUTER_PROVIDER,
+                &[
+                    "openai/gpt-4o-mini",
+                    "google/gemini-2.5-flash",
+                    "openai/gpt-5-mini",
+                ],
+            ),
+        ];
+        for &(provider, expected) in recommendations {
+            assert_eq!(definition(provider).unwrap().diagnostic_models, expected);
+        }
+        for provider in [
+            ALIBABA_PROVIDER,
+            ALIBABA_TOKEN_PLAN_PROVIDER,
+            QWEN_AI_PROVIDER,
+            QWEN_CLOUD_PROVIDER,
+        ] {
+            assert_eq!(
+                definition(provider).unwrap().diagnostic_models,
+                &["qwen3.6-flash", "qwen3.7-plus", "qwen3.7-max"]
+            );
+        }
+        for provider in [
+            DEEPL_PROVIDER,
+            MICROSOFT_PROVIDER,
+            OPENAI_COMPATIBLE_PROVIDER,
+            LM_STUDIO_PROVIDER,
+            OLLAMA_PROVIDER,
+            QWEN_LOCAL_PROVIDER,
+        ] {
+            assert!(definition(provider).unwrap().diagnostic_models.is_empty());
+        }
+    }
 
     #[test]
     fn mimo_exposes_native_chat_vision_and_segmented_asr() {

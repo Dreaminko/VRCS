@@ -12,6 +12,11 @@ pub(super) struct CaptureChange {
 }
 
 impl CaptureChange {
+    pub(super) fn include_credential_change(&mut self, state: &SettingsContext) {
+        self.plan = capture::CaptureReloadPlan::all();
+        self.reload = state.capture.capture_requested.load(Ordering::SeqCst);
+    }
+
     pub(super) fn between(
         state: &SettingsContext,
         current: &AppConfig,

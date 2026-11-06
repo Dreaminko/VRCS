@@ -8,10 +8,34 @@ use super::{
 };
 
 pub(crate) fn validate_profile(profile: &ApiProfile) -> Result<(), String> {
-    let provider = definition(&profile.provider)
-        .ok_or_else(|| format!("Unsupported API provider: {}", profile.provider))?;
+    validate_profile_fields(profile).map_err(|error| error.detail)
+}
 
-    validate_capabilities(profile)?;
+#[derive(Debug)]
+pub(crate) struct ProfileValidationError {
+    pub(crate) field: &'static str,
+    pub(crate) detail: String,
+}
+
+impl ProfileValidationError {
+    pub(crate) fn new(field: &'static str, detail: impl Into<String>) -> Self {
+        Self {
+            field,
+            detail: detail.into(),
+        }
+    }
+}
+
+pub(crate) fn validate_profile_fields(profile: &ApiProfile) -> Result<(), ProfileValidationError> {
+    let provider = definition(&profile.provider).ok_or_else(|| {
+        ProfileValidationError::new(
+            "provider",
+            format!("Unsupported API provider: {}", profile.provider),
+        )
+    })?;
+
+    validate_capabilities(profile)
+        .map_err(|detail| ProfileValidationError::new("enabled_capabilities", detail))?;
     match profile.provider.as_str() {
         ALIBABA_PROVIDER => validate_alibaba_profile(profile)?,
         QWEN_CLOUD_PROVIDER => validate_qwen_cloud_profile(profile)?,
@@ -20,16 +44,23 @@ pub(crate) fn validate_profile(profile: &ApiProfile) -> Result<(), String> {
     }
 
     if profile.timeout_ms < 1_000 || profile.timeout_ms > 120_000 {
-        return Err("API profile timeout_ms must be between 1000 and 120000".into());
+        return Err(ProfileValidationError::new(
+            "timeout_ms",
+            "API profile timeout_ms must be between 1000 and 120000",
+        ));
     }
     if !provider.connection.allow_custom_headers && !profile.headers.is_empty() {
-        return Err(format!(
-            "API profile {} does not support custom HTTP headers",
-            profile.provider
+        return Err(ProfileValidationError::new(
+            "headers",
+            format!(
+                "API profile {} does not support custom HTTP headers",
+                profile.provider
+            ),
         ));
     }
     if provider.connection.allow_custom_headers {
-        validate_custom_headers(profile)?;
+        validate_custom_headers(profile)
+            .map_err(|detail| ProfileValidationError::new("headers", detail))?;
     }
     Ok(())
 }
@@ -57,37 +88,58 @@ fn validate_capabilities(profile: &ApiProfile) -> Result<(), String> {
     Ok(())
 }
 
-fn validate_connection_fields(profile: &ApiProfile) -> Result<(), String> {
+fn validate_connection_fields(profile: &ApiProfile) -> Result<(), ProfileValidationError> {
     let provider = definition(&profile.provider).expect("provider validated before connection");
     if profile.region.is_some() || profile.workspace_id.is_some() {
-        return Err(format!(
-            "API profile {} contains unsupported connection fields",
-            profile.provider
+        return Err(ProfileValidationError::new(
+            if profile.region.is_some() {
+                "region"
+            } else {
+                "workspace_id"
+            },
+            format!(
+                "API profile {} contains unsupported connection fields",
+                profile.provider
+            ),
         ));
     }
     match provider.connection.base_url {
         BaseUrlPolicy::Fixed(_) => {
             if profile.base_url.is_some() {
-                return Err(format!(
-                    "API profile {} cannot override its Base URL",
-                    profile.provider
+                return Err(ProfileValidationError::new(
+                    "base_url",
+                    format!(
+                        "API profile {} cannot override its Base URL",
+                        profile.provider
+                    ),
                 ));
             }
         }
         BaseUrlPolicy::Regional => {
-            return Err(format!(
-                "API profile {} requires provider-specific regional validation",
-                profile.provider
+            return Err(ProfileValidationError::new(
+                "region",
+                format!(
+                    "API profile {} requires provider-specific regional validation",
+                    profile.provider
+                ),
             ));
         }
         BaseUrlPolicy::Editable(default) => {
             let base_url = profile.base_url.as_deref().unwrap_or(default);
-            validate_editable_base_url(base_url, profile.requires_api_key())?;
+            validate_editable_base_url(base_url, profile.requires_api_key())
+                .map_err(|detail| ProfileValidationError::new("base_url", detail))?;
             if profile.provider == QWEN_LOCAL_PROVIDER {
-                let url = reqwest::Url::parse(base_url)
-                    .map_err(|_| "The local Qwen ASR Base URL is invalid".to_string())?;
+                let url = reqwest::Url::parse(base_url).map_err(|_| {
+                    ProfileValidationError::new(
+                        "base_url",
+                        "The local Qwen ASR Base URL is invalid",
+                    )
+                })?;
                 if !is_loopback_url(&url) {
-                    return Err("Local Qwen ASR requires a loopback Base URL".into());
+                    return Err(ProfileValidationError::new(
+                        "base_url",
+                        "Local Qwen ASR requires a loopback Base URL",
+                    ));
                 }
             }
         }
@@ -102,56 +154,110 @@ fn validate_connection_fields(profile: &ApiProfile) -> Result<(), String> {
     let local_is_valid =
         provider.category == ProviderCategory::CustomProtocol || profile.is_local == expected_local;
     if !auth_is_valid || !local_is_valid {
-        return Err(format!(
-            "API profile {} connection metadata is inconsistent",
-            profile.provider
+        return Err(ProfileValidationError::new(
+            if !auth_is_valid {
+                "auth_mode"
+            } else {
+                "is_local"
+            },
+            format!(
+                "API profile {} connection metadata is inconsistent",
+                profile.provider
+            ),
         ));
     }
     Ok(())
 }
 
-fn validate_qwen_cloud_profile(profile: &ApiProfile) -> Result<(), String> {
-    qwen_cloud_host(profile)?;
+fn validate_qwen_cloud_profile(profile: &ApiProfile) -> Result<(), ProfileValidationError> {
+    qwen_cloud_host(profile).map_err(|detail| ProfileValidationError::new("region", detail))?;
     if profile.workspace_id.is_some() || profile.base_url.is_some() {
-        return Err("QwenCloud profiles cannot contain a Workspace ID or Base URL".into());
+        return Err(ProfileValidationError::new(
+            if profile.workspace_id.is_some() {
+                "workspace_id"
+            } else {
+                "base_url"
+            },
+            "QwenCloud profiles cannot contain a Workspace ID or Base URL",
+        ));
     }
     if profile.auth_mode != ApiAuthMode::Bearer || profile.is_local {
-        return Err("QwenCloud profile connection metadata is inconsistent".into());
+        return Err(ProfileValidationError::new(
+            if profile.auth_mode != ApiAuthMode::Bearer {
+                "auth_mode"
+            } else {
+                "is_local"
+            },
+            "QwenCloud profile connection metadata is inconsistent",
+        ));
     }
     Ok(())
 }
 
-fn validate_alibaba_profile(profile: &ApiProfile) -> Result<(), String> {
+fn validate_alibaba_profile(profile: &ApiProfile) -> Result<(), ProfileValidationError> {
     if profile.base_url.is_some() {
-        return Err("Alibaba Cloud profiles cannot contain a Base URL".into());
+        return Err(ProfileValidationError::new(
+            "base_url",
+            "Alibaba Cloud profiles cannot contain a Base URL",
+        ));
     }
     let region = profile.region.as_deref().unwrap_or("");
     if !["singapore", "china_beijing"].contains(&region) {
-        return Err(format!("Unsupported Alibaba Cloud region: {region}"));
+        return Err(ProfileValidationError::new(
+            "region",
+            format!("Unsupported Alibaba Cloud region: {region}"),
+        ));
     }
     let workspace = profile.workspace_id.as_deref().unwrap_or("").trim();
     let valid_workspace = workspace
         .bytes()
         .all(|value| value.is_ascii_alphanumeric() || value == b'-');
     if !workspace.is_empty() && (workspace.len() > 128 || !valid_workspace) {
-        return Err("The Alibaba Cloud Workspace ID is invalid".into());
+        return Err(ProfileValidationError::new(
+            "workspace_id",
+            "The Alibaba Cloud Workspace ID is invalid",
+        ));
     }
     if profile.auth_mode != ApiAuthMode::Bearer || profile.is_local {
-        return Err("Alibaba Cloud profile connection metadata is inconsistent".into());
+        return Err(ProfileValidationError::new(
+            if profile.auth_mode != ApiAuthMode::Bearer {
+                "auth_mode"
+            } else {
+                "is_local"
+            },
+            "Alibaba Cloud profile connection metadata is inconsistent",
+        ));
     }
     Ok(())
 }
 
-fn validate_microsoft_profile(profile: &ApiProfile) -> Result<(), String> {
+fn validate_microsoft_profile(profile: &ApiProfile) -> Result<(), ProfileValidationError> {
     let region = profile.region.as_deref().unwrap_or("").trim();
     if region.is_empty() || region.len() > 64 {
-        return Err("Microsoft Translator region must contain 1 to 64 characters".into());
+        return Err(ProfileValidationError::new(
+            "region",
+            "Microsoft Translator region must contain 1 to 64 characters",
+        ));
     }
     if profile.workspace_id.is_some() || profile.base_url.is_some() {
-        return Err("Microsoft Translator profiles contain unsupported connection fields".into());
+        return Err(ProfileValidationError::new(
+            if profile.workspace_id.is_some() {
+                "workspace_id"
+            } else {
+                "base_url"
+            },
+            "Microsoft Translator profiles contain unsupported connection fields",
+        ));
     }
     if profile.auth_mode != ApiAuthMode::Bearer || profile.is_local {
-        return Err("Microsoft Translator profile connection metadata is inconsistent".into());
+        return Err(ProfileValidationError::new(
+            if profile.auth_mode != ApiAuthMode::Bearer {
+                "auth_mode"
+            } else {
+                "is_local"
+            },
+            "Microsoft Translator profile connection metadata is inconsistent",
+        ));
     }
     Ok(())
 }

@@ -15,7 +15,8 @@ mod change_plan;
 
 pub(super) async fn get_settings(State(state): State<SettingsContext>) -> (HeaderMap, Json<Value>) {
     let _config_control = state.config.config_control.lock().await;
-    let config = state.config.config.read().expect("config lock").clone();
+    let mut config = state.config.config.read().expect("config lock").clone();
+    config.resolve_model_assignments();
     let revision = state.config.config_revision.load(Ordering::SeqCst);
     (revision_headers(&state, revision), Json(json!(config)))
 }
@@ -77,6 +78,8 @@ pub(super) async fn update_settings(
 fn config_from_update(update: SettingsUpdate) -> AppConfig {
     AppConfig {
         schema_version: update.schema_version,
+        model_defaults: update.model_defaults,
+        learning_ai: update.learning_ai,
         features: update.features,
         server: update.server,
         storage: update.storage,
@@ -109,6 +112,20 @@ pub(super) async fn commit_candidate(
         .apply(state)
         .await?;
     Ok(result.revision)
+}
+
+pub(super) async fn commit_profile_candidate(
+    state: &SettingsContext,
+    candidate: AppConfig,
+    profile: &crate::config::ApiProfile,
+    api_key: &str,
+) -> ApiResult<()> {
+    let _capture_control = state.capture.capture_control.lock().await;
+    change_plan::SettingsChangePlan::prepare_profile_update(state, candidate, profile, api_key)
+        .await?
+        .apply(state)
+        .await?;
+    Ok(())
 }
 
 pub(super) async fn reload_external_api_runtime(
@@ -171,6 +188,7 @@ fn protect_profile_owned_settings(
         .speaker_targets
         .iter()
         .chain(&candidate.translation.microphone_targets)
+        .filter(|target| !target.use_default_model)
         .filter_map(|target| target.profile_id.as_deref())
         .any(|profile_id| !profile_exists(profile_id))
     {
@@ -253,6 +271,18 @@ mod tests {
     #[test]
     fn settings_payload_preserves_chatbox_in_candidate_and_defaults_missing_to_off() {
         let mut config = AppConfig::default();
+        config.audio.output.player_audio.enabled = true;
+        config.model_defaults.text.model = "text-model".into();
+        config.model_defaults.vision.model = "image-model".into();
+        config.learning_ai.use_default_model = false;
+        config.learning_ai.model = "learning-model".into();
+        config.learning_ai.thinking_enabled = true;
+        config.learning_ai.reasoning_control =
+            Some(crate::config::ReasoningSetting::Effort("high".into()));
+        config.translation.model_selection.use_default_model = false;
+        config.translation.model_selection.model = "translation-model".into();
+        config.ocr.model_selection.use_default_model = false;
+        config.ocr.model_selection.model = "ocr-model".into();
         config.vrchat_chatbox.enabled = true;
         let mut raw = serde_json::to_value(&config).unwrap();
         let update = parse_settings_update(&serde_json::to_vec(&raw).unwrap()).unwrap();

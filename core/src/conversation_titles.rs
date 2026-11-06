@@ -311,6 +311,7 @@ mod tests {
         config.audio.microphone.mode = "disabled".into();
         config.conversation_titles = crate::config::ConversationTitleConfig {
             auto_generate: true,
+            use_default_model: false,
             profile_id: Some("titles".into()),
             model: "title-model".into(),
             output_language: "zh-CN".into(),

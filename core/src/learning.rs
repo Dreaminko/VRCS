@@ -565,7 +565,9 @@ where
 #[serde(deny_unknown_fields)]
 pub struct AnalyzeLearningItemRequest {
     pub task_type: AnalysisTaskType,
+    #[serde(default)]
     pub profile_id: String,
+    #[serde(default)]
     pub model: String,
     pub explanation_language: String,
     pub level: LearningLevel,
@@ -587,7 +589,9 @@ pub struct SelectionQueryRequest {
     #[serde(default)]
     pub source_language: Option<String>,
     pub question: String,
+    #[serde(default)]
     pub profile_id: String,
+    #[serde(default)]
     pub model: String,
     pub explanation_language: String,
     pub level: LearningLevel,

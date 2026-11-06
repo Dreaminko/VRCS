@@ -159,6 +159,7 @@ fn feature_switches_default_on_when_upgrading_v29() {
 fn v31_vision_modes_preserve_old_preferences_and_shared_settings() {
     for enabled in [false, true] {
         let mut original = AppConfig::default();
+        original.vision.use_default_model = false;
         original.features.visual_question_answering = true;
         original.vision.enabled = enabled;
         original.vision.model = "image-model".into();

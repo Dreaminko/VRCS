@@ -13,6 +13,7 @@ mod feature_gate;
 mod glossaries;
 mod learning;
 mod microphone_speakers;
+mod model_cache;
 mod ocr;
 mod osc;
 mod provider_diagnostics;
@@ -286,15 +287,15 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/api/vision/test", post(vision::test_image))
         .route("/api/providers", get(cloud::provider_list))
         .route(
-            "/api/asr/profiles",
+            "/api/profile",
             get(cloud::profile_list).post(cloud::profile_create),
         )
         .route(
-            "/api/asr/profiles/{profile_id}",
+            "/api/profile/{profile_id}",
             axum::routing::put(cloud::profile_update).delete(cloud::profile_delete),
         )
         .route(
-            "/api/asr/profiles/{profile_id}/credential",
+            "/api/profile/{profile_id}/credential",
             axum::routing::put(cloud::credential_write).delete(cloud::credential_delete),
         )
         .route(
@@ -302,15 +303,15 @@ pub fn router(state: Arc<AppState>) -> Router {
             axum::routing::put(cloud::profile_activate),
         )
         .route(
-            "/api/asr/profiles/{profile_id}/test",
+            "/api/profile/{profile_id}/test",
             post(provider_diagnostics::credential_test),
         )
         .route(
-            "/api/asr/profiles/{profile_id}/models",
+            "/api/profile/{profile_id}/models",
             get(cloud::profile_models),
         )
         .route(
-            "/api/asr/profiles/{profile_id}/services/{service_id}/models",
+            "/api/profile/{profile_id}/services/{service_id}/models",
             get(cloud::profile_service_models),
         )
         .route("/api/asr/local-models/qwen", get(qwen_models::list))

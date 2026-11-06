@@ -6,7 +6,7 @@ use super::{
     VadConfig, VrOcrConfig, VrOverlayConfig, VrchatChatboxConfig, VrcxConfig,
 };
 
-pub const SCHEMA_VERSION: u32 = 37;
+pub const SCHEMA_VERSION: u32 = 38;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AppConfig {
@@ -14,6 +14,10 @@ pub struct AppConfig {
     pub schema_version: u32,
     #[serde(default)]
     pub features: FeatureConfig,
+    #[serde(default)]
+    pub model_defaults: super::ModelDefaultsConfig,
+    #[serde(default)]
+    pub learning_ai: super::LearningAiConfig,
     #[serde(default)]
     pub server: ServerConfig,
     #[serde(default)]
@@ -58,9 +62,11 @@ fn schema_version() -> u32 {
 
 impl Default for AppConfig {
     fn default() -> Self {
-        Self {
+        let mut config = Self {
             schema_version: SCHEMA_VERSION,
             features: FeatureConfig::default(),
+            model_defaults: super::ModelDefaultsConfig::default(),
+            learning_ai: super::LearningAiConfig::default(),
             server: ServerConfig::default(),
             storage: StorageConfig::default(),
             conversation_titles: super::ConversationTitleConfig::default(),
@@ -82,7 +88,9 @@ impl Default for AppConfig {
                 wrist: Some(super::VrOcrWristConfig::default()),
                 ..Default::default()
             },
-        }
+        };
+        config.resolve_model_assignments();
+        config
     }
 }
 
@@ -134,6 +142,8 @@ mod tests {
                 "features",
                 "glossary",
                 "language_presets",
+                "learning_ai",
+                "model_defaults",
                 "ocr",
                 "osc",
                 "schema_version",
@@ -169,15 +179,6 @@ mod tests {
             ],
         );
         assert_keys(
-            &value["audio"]["microphone"],
-            [
-                "device_id",
-                "mode",
-                "speaker_filter_enabled",
-                "trigger_threshold_dbfs",
-            ],
-        );
-        assert_keys(
             &value["audio"]["output"]["player_audio"],
             [
                 "enabled",
@@ -187,6 +188,15 @@ mod tests {
                 "pagefile_drive",
                 "selected_tracks",
                 "selected_user_names",
+            ],
+        );
+        assert_keys(
+            &value["audio"]["microphone"],
+            [
+                "device_id",
+                "mode",
+                "speaker_filter_enabled",
+                "trigger_threshold_dbfs",
             ],
         );
         assert_keys(
@@ -228,11 +238,23 @@ mod tests {
         );
         assert_keys(
             &value["translation"],
-            ["microphone_targets", "mode", "prompt", "speaker_targets"],
+            [
+                "microphone_targets",
+                "mode",
+                "model_selection",
+                "prompt",
+                "speaker_targets",
+            ],
         );
         assert_keys(
             &value["translation"]["speaker_targets"][0],
-            ["model", "profile_id", "target_language", "thinking_enabled"],
+            [
+                "model",
+                "profile_id",
+                "target_language",
+                "thinking_enabled",
+                "use_default_model",
+            ],
         );
         assert_keys(
             &value["translation"]["prompt"],
@@ -362,6 +384,7 @@ mod tests {
                 "request_timeout_seconds",
                 "system_prompt",
                 "thinking_enabled",
+                "use_default_model",
                 "vr_enabled",
                 "wrist",
             ],

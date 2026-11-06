@@ -93,6 +93,10 @@ pub struct DictionarySource {
 #[derive(Debug, Deserialize)]
 pub struct SettingsUpdate {
     pub schema_version: u32,
+    #[serde(default)]
+    pub model_defaults: crate::config::ModelDefaultsConfig,
+    #[serde(default)]
+    pub learning_ai: crate::config::LearningAiConfig,
     pub features: crate::config::FeatureConfig,
     pub server: ServerConfig,
     pub storage: StorageConfig,

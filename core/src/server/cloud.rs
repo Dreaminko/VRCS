@@ -1,4 +1,4 @@
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::Json;
 use serde::Deserialize;
@@ -44,17 +44,18 @@ pub(super) struct CreateProfileInput {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct UpdateProfileInput {
-    name: String,
+    #[serde(default)]
+    name: Option<String>,
     #[serde(default)]
     enabled_capabilities: Option<Vec<String>>,
-    #[serde(default)]
-    region: Option<String>,
-    #[serde(default)]
-    workspace_id: Option<String>,
-    #[serde(default)]
-    base_url: Option<String>,
-    #[serde(default)]
-    preset_id: Option<String>,
+    #[serde(default, deserialize_with = "nullable_field")]
+    region: Option<Option<String>>,
+    #[serde(default, deserialize_with = "nullable_field")]
+    workspace_id: Option<Option<String>>,
+    #[serde(default, deserialize_with = "nullable_field")]
+    base_url: Option<Option<String>>,
+    #[serde(default, deserialize_with = "nullable_field")]
+    preset_id: Option<Option<String>>,
     #[serde(default)]
     auth_mode: Option<ApiAuthMode>,
     #[serde(default)]
@@ -63,6 +64,14 @@ pub(super) struct UpdateProfileInput {
     timeout_ms: Option<u64>,
     #[serde(default)]
     headers: Option<Vec<HttpHeaderConfig>>,
+    #[serde(default)]
+    api_key: Option<String>,
+}
+
+fn nullable_field<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<Option<String>>, D::Error> {
+    Option::<String>::deserialize(deserializer).map(Some)
 }
 
 #[derive(Deserialize)]
@@ -76,6 +85,20 @@ pub(super) struct CredentialInput {
 pub(super) struct ActiveProfileInput {
     profile_id: String,
     service_id: String,
+}
+
+#[derive(Default, Deserialize)]
+pub(super) struct ModelCatalogQuery {
+    #[serde(default)]
+    refresh: bool,
+    #[serde(default)]
+    cached_only: bool,
+}
+
+#[derive(Default, Deserialize)]
+pub(super) struct ProfileMutationQuery {
+    #[serde(default)]
+    dry_run: bool,
 }
 
 pub(super) async fn provider_list() -> Json<Value> {
@@ -101,7 +124,7 @@ fn provider_value(provider: ProviderDefinition) -> Value {
         ALIBABA_PROVIDER => vec![
             json!({
                 "id": "region",
-                "label": "Region",
+                "label_key": "settings.apiManagement.connectionFields.region",
                 "type": "select",
                 "required": true,
                 "default": "singapore",
@@ -112,7 +135,7 @@ fn provider_value(provider: ProviderDefinition) -> Value {
             }),
             json!({
                 "id": "workspace_id",
-                "label": "Workspace ID",
+                "label_key": "settings.apiManagement.connectionFields.workspace_id",
                 "type": "text",
                 "required": false,
                 "default": null
@@ -120,7 +143,7 @@ fn provider_value(provider: ProviderDefinition) -> Value {
         ],
         providers::QWEN_CLOUD_PROVIDER => vec![json!({
             "id": "region",
-            "label": "Region",
+            "label_key": "settings.apiManagement.connectionFields.region",
             "type": "select",
             "required": true,
             "default": "ap-southeast-1",
@@ -130,7 +153,7 @@ fn provider_value(provider: ProviderDefinition) -> Value {
         })],
         MICROSOFT_PROVIDER => vec![json!({
             "id": "region",
-            "label": "Region",
+            "label_key": "settings.apiManagement.connectionFields.region",
             "type": "text",
             "required": true,
             "default": null
@@ -159,6 +182,7 @@ fn provider_value(provider: ProviderDefinition) -> Value {
         "support_levels": provider.support_levels,
         "capabilities": provider.capabilities,
         "presets": provider.presets,
+        "diagnostic_models": provider.diagnostic_models,
     })
 }
 
@@ -239,7 +263,196 @@ fn profile_value(profile: &ApiProfile, config: &crate::config::AppConfig) -> Res
         "capabilities": providers::profile_capabilities(profile),
         "support_levels": providers::profile_support_levels(profile),
         "services": services,
+        "status": "ready",
+        "usages": profile_usages(config, &profile.id),
     }))
+}
+
+fn unavailable_profile_value(profile: &ApiProfile, config: &crate::config::AppConfig) -> Value {
+    let provider = providers::definition(&profile.provider);
+    let mut value = json!(profile);
+    let object = value.as_object_mut().expect("profile object");
+    object.extend(json!({
+        "provider_display_name": provider.as_ref().map_or(profile.provider.as_str(), |provider| provider.display_name),
+        "active": false,
+        "translation_active": false,
+        "status": if provider.is_some() { "credential_error" } else { "unsupported" },
+        "credential": { "configured": false, "stored_configured": false, "environment_override": false, "source": null },
+        "capabilities": providers::profile_capabilities(profile).map_or_else(|| json!({
+            "supports_asr": false, "supports_translation": false, "supports_text_generation": false,
+            "supports_image_understanding": false, "supports_model_listing": false,
+            "supports_context": false, "supports_streaming": false, "requires_api_key": false,
+            "is_local": false, "supports_custom_translation_language": false, "supported_languages": []
+        }), |capabilities| json!(capabilities)),
+        "support_levels": { "asr": null, "translation": null },
+        "usages": profile_usages(config, &profile.id),
+    }).as_object().expect("profile status object").clone());
+    value
+}
+
+fn profile_usages(config: &crate::config::AppConfig, profile_id: &str) -> Vec<Value> {
+    let mut config = config.clone();
+    config.resolve_model_assignments();
+    let mut usages = Vec::new();
+    if config.asr.active_profile_id.as_deref() == Some(profile_id) {
+        usages.push(json!({ "kind": "transcription", "capability": CAPABILITY_SPEECH_TO_TEXT }));
+    }
+    for (binding, kind, capability) in [
+        (
+            &config.model_defaults.text,
+            "model_default_text",
+            CAPABILITY_TEXT_GENERATION,
+        ),
+        (
+            &config.model_defaults.vision,
+            "model_default_vision",
+            CAPABILITY_IMAGE_UNDERSTANDING,
+        ),
+    ] {
+        if binding.profile_id.as_deref() == Some(profile_id) {
+            usages.push(json!({ "kind": kind, "capability": capability }));
+        }
+    }
+    for (selection, kind) in [
+        (&config.translation.model_selection, "translation"),
+        (&config.ocr.model_selection, "ocr_translation"),
+    ] {
+        if selection.profile_id.as_deref() == Some(profile_id) {
+            usages.push(json!({
+                "kind": kind, "capability": CAPABILITY_TEXT_TRANSLATION,
+                "scope": "model_selection",
+            }));
+        }
+    }
+    for (scope, targets) in [
+        ("speaker", &config.translation.speaker_targets),
+        ("microphone", &config.translation.microphone_targets),
+    ] {
+        append_target_usages(
+            &mut usages,
+            targets,
+            profile_id,
+            "translation",
+            Some(scope),
+            None,
+        );
+    }
+    append_target_usages(
+        &mut usages,
+        &config.ocr.targets,
+        profile_id,
+        "ocr_translation",
+        None,
+        None,
+    );
+    for preset in &config.language_presets {
+        for (scope, targets) in [
+            ("speaker", &preset.speaker_targets),
+            ("microphone", &preset.microphone_targets),
+        ] {
+            append_target_usages(
+                &mut usages,
+                targets,
+                profile_id,
+                "language_preset",
+                Some(scope),
+                Some(preset),
+            );
+        }
+    }
+    for (used, kind, capability) in [
+        (
+            config.vision.profile_id.as_deref() == Some(profile_id),
+            "vision",
+            CAPABILITY_IMAGE_UNDERSTANDING,
+        ),
+        (
+            config
+                .vision
+                .asr
+                .as_ref()
+                .is_some_and(|asr| asr.profile_id.as_deref() == Some(profile_id)),
+            "vision_asr",
+            CAPABILITY_SPEECH_TO_TEXT,
+        ),
+        (
+            config.conversation_titles.profile_id.as_deref() == Some(profile_id),
+            "conversation_titles",
+            CAPABILITY_TEXT_GENERATION,
+        ),
+        (
+            config.learning_ai.profile_id.as_deref() == Some(profile_id),
+            "learning_ai",
+            CAPABILITY_TEXT_GENERATION,
+        ),
+    ] {
+        if used {
+            usages.push(json!({ "kind": kind, "capability": capability }));
+        }
+    }
+    usages
+}
+
+fn append_target_usages(
+    usages: &mut Vec<Value>,
+    targets: &[crate::config::TranslationTargetConfig],
+    profile_id: &str,
+    kind: &str,
+    scope: Option<&str>,
+    preset: Option<&crate::config::LanguagePreset>,
+) {
+    for (index, target) in targets.iter().enumerate() {
+        if target.profile_id.as_deref() != Some(profile_id) {
+            continue;
+        }
+        let mut usage = json!({
+            "kind": kind, "capability": CAPABILITY_TEXT_TRANSLATION,
+            "index": index, "target_language": target.target_language,
+        });
+        if let Some(scope) = scope {
+            usage["scope"] = json!(scope);
+        }
+        if let Some(preset) = preset {
+            usage["preset_id"] = json!(preset.id);
+            usage["preset_name"] = json!(preset.name);
+        }
+        usages.push(usage);
+    }
+}
+
+fn profile_side_effects(
+    current: &crate::config::AppConfig,
+    candidate: &crate::config::AppConfig,
+    profile_id: &str,
+) -> Vec<Value> {
+    let remaining = profile_usages(candidate, profile_id);
+    profile_usages(current, profile_id)
+        .into_iter()
+        .filter(|usage| {
+            !remaining.contains(usage)
+                || usage["capability"].as_str().is_some_and(|capability| {
+                    candidate
+                        .asr
+                        .api_profiles
+                        .iter()
+                        .find(|profile| profile.id == profile_id)
+                        .is_none_or(|profile| {
+                            providers::resolve_profile_capability(profile, capability).is_err()
+                        })
+                })
+        })
+        .collect()
+}
+
+fn connection_origin_changed(previous: &ApiProfile, updated: &ApiProfile) -> bool {
+    let origin = |profile: &ApiProfile| {
+        profile
+            .base_url
+            .as_deref()
+            .and_then(|url| reqwest::Url::parse(url).ok())
+            .map(|url| url.origin())
+    };
+    origin(previous) != origin(updated)
 }
 
 pub(super) async fn profile_list(State(state): State<SettingsContext>) -> ApiResult<Json<Value>> {
@@ -252,9 +465,11 @@ fn profile_list_response(state: &SettingsContext) -> ApiResult<Json<Value>> {
         .asr
         .api_profiles
         .iter()
-        .map(|profile| profile_value(profile, &config))
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|error| credential_error("list", error))?;
+        .map(|profile| {
+            profile_value(profile, &config)
+                .unwrap_or_else(|_| unavailable_profile_value(profile, &config))
+        })
+        .collect::<Vec<_>>();
     Ok(Json(json!({ "profiles": profiles })))
 }
 
@@ -287,11 +502,24 @@ pub(super) async fn profile_create(
         timeout_ms: input.timeout_ms.unwrap_or(DEFAULT_PROFILE_TIMEOUT_MS),
         headers: input.headers.unwrap_or_default(),
     };
-    normalize_profile_fields(&mut profile).map_err(profile_invalid)?;
+    normalize_profile_fields(&mut profile).map_err(profile_validation_error)?;
+    if profile.requires_api_key()
+        && input
+            .api_key
+            .as_ref()
+            .is_some_and(|key| key.trim().len() > 4096)
+    {
+        return Err(profile_validation_error(
+            providers::ProfileValidationError::new("api_key", "API key length is invalid"),
+        ));
+    }
     let mut candidate = state.config.config.read().expect("config lock").clone();
     candidate.asr.api_profiles.push(profile.clone());
     commit_profile_config(&state, candidate).await?;
-    if let Some(api_key) = input.api_key.filter(|value| !value.trim().is_empty()) {
+    if let Some(api_key) = input
+        .api_key
+        .filter(|value| profile.requires_api_key() && !value.trim().is_empty())
+    {
         if let Err(error) = asr::write_credential(&profile.id, &profile.provider, &api_key) {
             let mut rollback = state.config.config.read().expect("config lock").clone();
             rollback
@@ -299,22 +527,24 @@ pub(super) async fn profile_create(
                 .api_profiles
                 .retain(|item| item.id != profile.id);
             let _ = commit_profile_config(&state, rollback).await;
-            return Err(credential_error(&profile.id, error));
+            return Err(credential_error(error));
         }
     }
     let config = state.config.config.read().expect("config lock").clone();
     Ok(Json(
-        profile_value(&profile, &config).map_err(|error| credential_error(&profile.id, error))?,
+        profile_value(&profile, &config).map_err(credential_error)?,
     ))
 }
 
 pub(super) async fn profile_update(
     State(state): State<SettingsContext>,
     Path(profile_id): Path<String>,
+    Query(query): Query<ProfileMutationQuery>,
     Json(input): Json<UpdateProfileInput>,
 ) -> ApiResult<Json<Value>> {
     let _config_control = state.config.config_control.lock().await;
-    let mut candidate = state.config.config.read().expect("config lock").clone();
+    let current = state.config.config.read().expect("config lock").clone();
+    let mut candidate = current.clone();
     let updated = {
         let profile = candidate
             .asr
@@ -322,14 +552,24 @@ pub(super) async fn profile_update(
             .iter_mut()
             .find(|profile| profile.id == profile_id)
             .ok_or_else(profile_not_found)?;
-        profile.name = input.name;
+        if let Some(name) = input.name {
+            profile.name = name;
+        }
         if let Some(enabled_capabilities) = input.enabled_capabilities {
             profile.enabled_capabilities = enabled_capabilities;
         }
-        profile.region = input.region;
-        profile.workspace_id = input.workspace_id;
-        profile.base_url = input.base_url;
-        profile.preset_id = input.preset_id;
+        if let Some(region) = input.region {
+            profile.region = region;
+        }
+        if let Some(workspace_id) = input.workspace_id {
+            profile.workspace_id = workspace_id;
+        }
+        if let Some(base_url) = input.base_url {
+            profile.base_url = base_url;
+        }
+        if let Some(preset_id) = input.preset_id {
+            profile.preset_id = preset_id;
+        }
         if let Some(auth_mode) = input.auth_mode {
             profile.auth_mode = auth_mode;
         }
@@ -342,20 +582,72 @@ pub(super) async fn profile_update(
         if let Some(headers) = input.headers {
             profile.headers = headers;
         }
-        normalize_profile_fields(profile).map_err(profile_invalid)?;
+        normalize_profile_fields(profile).map_err(profile_validation_error)?;
         profile.clone()
     };
+    let api_key = input
+        .api_key
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| updated.requires_api_key() && !value.is_empty());
+    let previous = current
+        .asr
+        .api_profiles
+        .iter()
+        .find(|profile| profile.id == profile_id)
+        .expect("profile exists");
+    if updated.requires_api_key()
+        && connection_origin_changed(previous, &updated)
+        && api_key.is_none()
+        && asr::credential_status(&profile_id, &updated.provider)
+            .map_err(credential_error)?
+            .configured
+    {
+        return Err(api_error(
+            StatusCode::CONFLICT,
+            "profile.credential_reconfirm_required",
+            "Enter an API key again before changing the connection origin",
+        ));
+    }
+    if let Some(api_key) = api_key {
+        if api_key.len() > 4096 {
+            return Err(profile_validation_error(
+                providers::ProfileValidationError::new("api_key", "API key length is invalid"),
+            ));
+        }
+        if asr::credential_status(&profile_id, &updated.provider)
+            .map_err(credential_error)?
+            .environment_override
+        {
+            return Err(api_error(
+                StatusCode::CONFLICT,
+                "profile.credential_environment_managed",
+                "This API key is managed by an environment variable",
+            ));
+        }
+    }
     apply_profile_compatibility_fallbacks(&mut candidate, &updated);
-    commit_profile_config(&state, candidate).await?;
+    let side_effects = profile_side_effects(&current, &candidate, &profile_id);
+    if query.dry_run {
+        candidate.validate_settings().map_err(profile_invalid)?;
+        return Ok(Json(json!({ "side_effects": side_effects })));
+    }
+    if let Some(api_key) = api_key {
+        candidate.validate_settings().map_err(profile_invalid)?;
+        super::settings::commit_profile_candidate(&state, candidate, &updated, api_key).await?;
+    } else {
+        commit_profile_config(&state, candidate).await?;
+    }
     let config = state.config.config.read().expect("config lock").clone();
-    Ok(Json(
-        profile_value(&updated, &config).map_err(|error| credential_error(&profile_id, error))?,
-    ))
+    let mut response = profile_value(&updated, &config).map_err(credential_error)?;
+    response["side_effects"] = json!(side_effects);
+    Ok(Json(response))
 }
 
 pub(super) async fn profile_delete(
     State(state): State<SettingsContext>,
     Path(profile_id): Path<String>,
+    Query(query): Query<ProfileMutationQuery>,
 ) -> ApiResult<Json<Value>> {
     let _config_control = state.config.config_control.lock().await;
     let current = state.config.config.read().expect("config lock").clone();
@@ -371,6 +663,7 @@ pub(super) async fn profile_delete(
         .asr
         .api_profiles
         .retain(|item| item.id != profile_id);
+    clear_model_bindings(&mut candidate, &profile_id);
     if candidate.asr.active_profile_id.as_deref() == Some(profile_id.as_str()) {
         disable_cloud_recognition(&mut candidate);
     }
@@ -380,13 +673,21 @@ pub(super) async fn profile_delete(
     disable_vision_profile(&mut candidate, &profile_id);
     clear_vision_asr_profile(&mut candidate, &profile_id);
     disable_title_profile(&mut candidate, &profile_id);
-    let previous_credential = asr::read_stored_credential(&profile.id, &profile.provider)
-        .map_err(|error| credential_error(&profile_id, error))?;
+    candidate.resolve_model_assignments();
+    if query.dry_run {
+        candidate.validate_settings().map_err(profile_invalid)?;
+        return Ok(Json(
+            json!({ "side_effects": profile_usages(&current, &profile_id) }),
+        ));
+    }
+    let previous_credential = asr::read_stored_credential(&profile.id, &profile.provider);
     commit_profile_config(&state, candidate).await?;
     if let Err(error) = asr::delete_credential(&profile.id, &profile.provider) {
         let mut recovery_errors = Vec::new();
-        if let Err(recovery) = restore_credential(&profile, previous_credential) {
-            recovery_errors.push(format!("credential rollback failed: {recovery}"));
+        if let Ok(previous) = previous_credential {
+            if let Err(recovery) = restore_credential(&profile, previous) {
+                recovery_errors.push(format!("credential rollback failed: {recovery}"));
+            }
         }
         if let Err(recovery) = commit_profile_config(&state, current).await {
             recovery_errors.push(api_detail(&recovery));
@@ -398,9 +699,11 @@ pub(super) async fn profile_delete(
                 format!("{error}; {}", recovery_errors.join("; ")),
             ));
         }
-        return Err(credential_error(&profile_id, error));
+        return Err(credential_error(error));
     }
-    Ok(Json(json!({ "deleted": true })))
+    Ok(Json(
+        json!({ "deleted": true, "side_effects": profile_usages(&current, &profile_id) }),
+    ))
 }
 
 pub(super) async fn credential_write(
@@ -408,6 +711,11 @@ pub(super) async fn credential_write(
     Path(profile_id): Path<String>,
     Json(input): Json<CredentialInput>,
 ) -> ApiResult<Json<Value>> {
+    if input.api_key.trim().is_empty() || input.api_key.trim().len() > 4096 {
+        return Err(profile_validation_error(
+            providers::ProfileValidationError::new("api_key", "API key length is invalid"),
+        ));
+    }
     let _config_control = state.config.config_control.lock().await;
     let config = state.config.config.read().expect("config lock").clone();
     let profile = config
@@ -417,13 +725,16 @@ pub(super) async fn credential_write(
         .find(|profile| profile.id == profile_id)
         .cloned()
         .ok_or_else(profile_not_found)?;
-    let previous = asr::read_stored_credential(&profile.id, &profile.provider)
-        .map_err(|error| credential_error(&profile_id, error))?;
+    providers::definition(&profile.provider).ok_or_else(|| {
+        profile_invalid(format!("Unsupported API provider: {}", profile.provider))
+    })?;
+    let previous =
+        asr::read_stored_credential(&profile.id, &profile.provider).map_err(credential_error)?;
     asr::write_credential(&profile.id, &profile.provider, &input.api_key)
-        .map_err(|error| credential_error(&profile_id, error))?;
+        .map_err(credential_error)?;
     reload_after_credential_change(&state, &config, &profile, previous).await?;
     Ok(Json(
-        profile_value(&profile, &config).map_err(|error| credential_error(&profile_id, error))?,
+        profile_value(&profile, &config).map_err(credential_error)?,
     ))
 }
 
@@ -441,22 +752,21 @@ pub(super) async fn credential_delete(
         .cloned()
         .ok_or_else(profile_not_found)?;
     if asr::credential_status(&profile.id, &profile.provider)
-        .map_err(|error| credential_error(&profile_id, error))?
+        .map_err(credential_error)?
         .environment_override
     {
         return Err(api_error(
             StatusCode::CONFLICT,
-            "asr.credential_environment_managed",
+            "profile.credential_environment_managed",
             "This API key is managed by an environment variable",
         ));
     }
-    let previous = asr::read_stored_credential(&profile.id, &profile.provider)
-        .map_err(|error| credential_error(&profile_id, error))?;
-    asr::delete_credential(&profile.id, &profile.provider)
-        .map_err(|error| credential_error(&profile_id, error))?;
+    let previous =
+        asr::read_stored_credential(&profile.id, &profile.provider).map_err(credential_error)?;
+    asr::delete_credential(&profile.id, &profile.provider).map_err(credential_error)?;
     reload_after_credential_change(&state, &config, &profile, previous).await?;
     Ok(Json(
-        profile_value(&profile, &config).map_err(|error| credential_error(&profile_id, error))?,
+        profile_value(&profile, &config).map_err(credential_error)?,
     ))
 }
 
@@ -484,12 +794,12 @@ pub(super) async fn profile_activate(
             "The selected service does not support speech recognition".into(),
         ));
     }
-    let status = asr::credential_status(&profile.id, &profile.provider)
-        .map_err(|error| credential_error(&profile.id, error))?;
+    let status =
+        asr::credential_status(&profile.id, &profile.provider).map_err(credential_error)?;
     if profile.requires_api_key() && !status.configured {
         return Err(api_error(
             StatusCode::CONFLICT,
-            "asr.credential_missing",
+            "profile.credential_missing",
             "Configure an API key before activating this profile",
         ));
     }
@@ -522,6 +832,7 @@ pub(super) async fn profile_activate(
 pub(super) async fn profile_models(
     State(state): State<SettingsContext>,
     Path(profile_id): Path<String>,
+    Query(query): Query<ModelCatalogQuery>,
 ) -> ApiResult<Json<Value>> {
     let config = state.config.config.read().expect("config lock").clone();
     let profile = config
@@ -544,12 +855,13 @@ pub(super) async fn profile_models(
             "This API profile does not expose LLM models",
         )
     })?;
-    service_models(&state, profile, resolved.service).await
+    service_models(&state, profile, resolved.service, query).await
 }
 
 pub(super) async fn profile_service_models(
     State(state): State<SettingsContext>,
     Path((profile_id, service_id)): Path<(String, String)>,
+    Query(query): Query<ModelCatalogQuery>,
 ) -> ApiResult<Json<Value>> {
     let config = state.config.config.read().expect("config lock").clone();
     let profile = config
@@ -560,29 +872,64 @@ pub(super) async fn profile_service_models(
         .ok_or_else(profile_not_found)?;
     let resolved =
         providers::resolve_profile_service(profile, &service_id).map_err(profile_invalid)?;
-    service_models(&state, profile, resolved.service).await
+    service_models(&state, profile, resolved.service, query).await
 }
 
 async fn service_models(
     state: &SettingsContext,
     profile: &ApiProfile,
     service: &ProviderServiceDefinition,
+    query: ModelCatalogQuery,
+) -> ApiResult<Json<Value>> {
+    let api_key = if service.supports_model_listing
+        || service.id == providers::SERVICE_OPENROUTER_TRANSCRIPTION
+    {
+        profile_api_key(profile)?
+    } else {
+        String::new()
+    };
+    if !query.refresh {
+        if let Some(catalog) = state
+            .integrations
+            .model_catalogs
+            .get(profile, service.id, &api_key)
+        {
+            return Ok(Json(catalog));
+        }
+    }
+    if query.cached_only {
+        return Ok(Json(
+            json!({ "models": [], "model_details": {}, "updated_at": null }),
+        ));
+    }
+    let mut catalog = fetch_service_models(state, profile, service, &api_key).await?;
+    catalog.0["updated_at"] = json!(chrono::Utc::now().timestamp());
+    state
+        .integrations
+        .model_catalogs
+        .insert(profile, service.id, &api_key, catalog.0.clone());
+    Ok(catalog)
+}
+
+async fn fetch_service_models(
+    state: &SettingsContext,
+    profile: &ApiProfile,
+    service: &ProviderServiceDefinition,
+    api_key: &str,
 ) -> ApiResult<Json<Value>> {
     if service.id == providers::SERVICE_OPENROUTER_TRANSCRIPTION {
-        let api_key = profile_api_key(profile)?;
         let catalog = crate::llm::openrouter::fetch_transcription_catalog(
             &state.integrations.http,
             profile,
-            &api_key,
+            api_key,
         )
         .await
         .map_err(|error| api_error(StatusCode::BAD_GATEWAY, error.code, error.detail))?;
         return Ok(Json(json!(catalog)));
     }
     if service.supports_model_listing {
-        let api_key = profile_api_key(profile)?;
         let mut catalog = crate::llm::LlmClient::new(state.integrations.http.clone())
-            .list_model_catalog(profile, &api_key)
+            .list_model_catalog(profile, api_key)
             .await
             .map_err(|error| api_error(StatusCode::BAD_GATEWAY, error.code, error.detail))?;
         catalog.models = providers::compatible_service_models(service, catalog.models);
@@ -624,11 +971,11 @@ pub(super) fn profile_api_key(profile: &ApiProfile) -> ApiResult<String> {
         return Ok(String::new());
     }
     asr::read_credential(&profile.id, &profile.provider)
-        .map_err(|error| credential_error(&profile.id, error))?
+        .map_err(credential_error)?
         .ok_or_else(|| {
             api_error(
                 StatusCode::CONFLICT,
-                "translation.credential_missing",
+                "profile.credential_missing",
                 "Configure an API key before using this profile",
             )
         })
@@ -636,15 +983,12 @@ pub(super) fn profile_api_key(profile: &ApiProfile) -> ApiResult<String> {
 
 async fn commit_profile_config(
     state: &SettingsContext,
-    candidate: crate::config::AppConfig,
+    mut candidate: crate::config::AppConfig,
 ) -> ApiResult<()> {
-    candidate.validate_settings().map_err(|error| {
-        api_error(
-            StatusCode::UNPROCESSABLE_ENTITY,
-            "asr.profile_invalid",
-            error,
-        )
-    })?;
+    candidate.resolve_model_assignments();
+    candidate
+        .validate_settings()
+        .map_err(|error| api_error(StatusCode::UNPROCESSABLE_ENTITY, "profile.invalid", error))?;
     super::settings::commit_candidate(state, candidate).await?;
     Ok(())
 }
@@ -709,7 +1053,10 @@ async fn reload_after_credential_change(
     Ok(())
 }
 
-fn restore_credential(profile: &ApiProfile, previous: Option<String>) -> Result<(), String> {
+pub(crate) fn restore_credential(
+    profile: &ApiProfile,
+    previous: Option<String>,
+) -> Result<(), String> {
     match previous {
         Some(api_key) => asr::write_credential(&profile.id, &profile.provider, &api_key),
         None => asr::delete_credential(&profile.id, &profile.provider),
@@ -728,7 +1075,7 @@ fn api_detail(error: &(StatusCode, Json<Value>)) -> String {
 pub(super) fn profile_not_found() -> (StatusCode, Json<Value>) {
     api_error(
         StatusCode::NOT_FOUND,
-        "asr.profile_not_found",
+        "profile.not_found",
         "The API profile does not exist",
     )
 }
@@ -749,33 +1096,42 @@ pub(super) fn ensure_asr_profile_ready(profile: &ApiProfile) -> ApiResult<()> {
     Ok(())
 }
 
-fn credential_error(profile_id: &str, detail: String) -> (StatusCode, Json<Value>) {
-    let status = if detail.contains("Unsupported") || detail.contains("length") {
-        StatusCode::UNPROCESSABLE_ENTITY
-    } else {
-        StatusCode::INTERNAL_SERVER_ERROR
-    };
+fn credential_error(detail: String) -> (StatusCode, Json<Value>) {
     api_error(
-        status,
-        "asr.credential_failed",
-        format!("{profile_id}: {detail}"),
-    )
-}
-
-fn profile_invalid(detail: String) -> (StatusCode, Json<Value>) {
-    api_error(
-        StatusCode::UNPROCESSABLE_ENTITY,
-        "asr.profile_invalid",
+        StatusCode::INTERNAL_SERVER_ERROR,
+        "profile.credential_store_failed",
         detail,
     )
 }
 
-fn normalize_profile_fields(profile: &mut ApiProfile) -> Result<(), String> {
-    let provider = providers::definition(&profile.provider)
-        .ok_or_else(|| format!("Unsupported API provider: {}", profile.provider))?;
+fn profile_invalid(detail: String) -> (StatusCode, Json<Value>) {
+    api_error(StatusCode::UNPROCESSABLE_ENTITY, "profile.invalid", detail)
+}
+
+fn profile_validation_error(error: providers::ProfileValidationError) -> (StatusCode, Json<Value>) {
+    let mut response = profile_invalid(error.detail);
+    response.1["field"] = json!(error.field);
+    response
+}
+
+fn normalize_profile_fields(
+    profile: &mut ApiProfile,
+) -> Result<(), providers::ProfileValidationError> {
+    let provider = providers::definition(&profile.provider).ok_or_else(|| {
+        providers::ProfileValidationError::new(
+            "provider",
+            format!("Unsupported API provider: {}", profile.provider),
+        )
+    })?;
     profile.name = profile.name.trim().to_string();
     if profile.name.is_empty() {
         profile.name = provider.display_name.to_string();
+    }
+    if profile.name.chars().count() > 50 {
+        return Err(providers::ProfileValidationError::new(
+            "name",
+            "An API profile name must contain 1 to 50 characters",
+        ));
     }
     profile.region = trimmed_option(profile.region.take());
     profile.workspace_id = trimmed_option(profile.workspace_id.take());
@@ -838,7 +1194,7 @@ fn normalize_profile_fields(profile: &mut ApiProfile) -> Result<(), String> {
     } else {
         profile.headers.clear();
     }
-    providers::validate_profile(profile)
+    providers::validate_profile_fields(profile)
 }
 
 fn trimmed_option(value: Option<String>) -> Option<String> {
@@ -851,6 +1207,7 @@ fn apply_profile_compatibility_fallbacks(
     config: &mut crate::config::AppConfig,
     profile: &ApiProfile,
 ) {
+    config.resolve_model_assignments();
     if config.vision.asr.as_ref().is_some_and(|asr| {
         asr.profile_id.as_deref() == Some(profile.id.as_str())
             && providers::resolve_profile_service(profile, &asr.backend).is_err()
@@ -870,6 +1227,29 @@ fn apply_profile_compatibility_fallbacks(
     }
     if providers::resolve_profile_capability(profile, CAPABILITY_TEXT_GENERATION).is_err() {
         disable_title_profile(config, &profile.id);
+    }
+    config.resolve_model_assignments();
+}
+
+fn clear_model_bindings(config: &mut crate::config::AppConfig, profile_id: &str) {
+    for binding in [
+        &mut config.model_defaults.text,
+        &mut config.model_defaults.vision,
+    ] {
+        if binding.profile_id.as_deref() == Some(profile_id) {
+            binding.profile_id = None;
+        }
+    }
+    for selection in [
+        &mut config.translation.model_selection,
+        &mut config.ocr.model_selection,
+    ] {
+        if selection.profile_id.as_deref() == Some(profile_id) {
+            selection.profile_id = None;
+        }
+    }
+    if config.learning_ai.profile_id.as_deref() == Some(profile_id) {
+        config.learning_ai.profile_id = None;
     }
 }
 
@@ -983,6 +1363,250 @@ mod tests {
     };
 
     #[test]
+    fn model_assignment_profile_impact_keeps_invalid_followers_without_rebinding() {
+        let mut config = crate::config::AppConfig::default();
+        let profile = ApiProfile {
+            id: "shared".into(),
+            name: "Shared".into(),
+            provider: OPENAI_COMPATIBLE_PROVIDER.into(),
+            base_url: Some("http://127.0.0.1:9000/v1".into()),
+            auth_mode: ApiAuthMode::None,
+            enabled_capabilities: vec![
+                CAPABILITY_TEXT_GENERATION.into(),
+                CAPABILITY_TEXT_TRANSLATION.into(),
+                CAPABILITY_IMAGE_UNDERSTANDING.into(),
+            ],
+            ..Default::default()
+        };
+        config.asr.api_profiles = vec![
+            profile.clone(),
+            ApiProfile {
+                id: "other".into(),
+                name: "Other".into(),
+                ..profile
+            },
+        ];
+        config.model_defaults.text = crate::config::ModelBinding {
+            profile_id: Some("shared".into()),
+            model: "text-model".into(),
+        };
+        config.model_defaults.vision = crate::config::ModelBinding {
+            profile_id: Some("shared".into()),
+            model: "vision-model".into(),
+        };
+        config.translation.mode = "manual".into();
+        config.ocr.enabled = true;
+        config.conversation_titles.auto_generate = true;
+        let custom = &mut config.translation.microphone_targets[0];
+        custom.use_default_model = false;
+        custom.profile_id = Some("other".into());
+        custom.model = "custom-model".into();
+        config.resolve_model_assignments();
+        let current = config.clone();
+        config.asr.api_profiles[0].enabled_capabilities =
+            vec![CAPABILITY_IMAGE_UNDERSTANDING.into()];
+        let changed = config.asr.api_profiles[0].clone();
+        apply_profile_compatibility_fallbacks(&mut config, &changed);
+        assert_eq!(config.translation.mode, "disabled");
+        assert!(!config.ocr.enabled && !config.conversation_titles.auto_generate);
+        assert_eq!(config.learning_ai.profile_id.as_deref(), Some("shared"));
+        assert_eq!(
+            config.translation.microphone_targets[0],
+            current.translation.microphone_targets[0]
+        );
+        config.validate_settings().unwrap();
+        let effects = profile_side_effects(&current, &config, "shared");
+        for kind in [
+            "model_default_text",
+            "learning_ai",
+            "translation",
+            "ocr_translation",
+            "conversation_titles",
+        ] {
+            assert!(effects.iter().any(|usage| usage["kind"] == kind), "{kind}");
+        }
+        assert!(profile_usages(&config, "shared")
+            .iter()
+            .any(|usage| usage["kind"] == "model_default_vision"));
+        clear_model_bindings(&mut config, "shared");
+        disable_translation_profile(&mut config, "shared");
+        disable_vision_profile(&mut config, "shared");
+        disable_title_profile(&mut config, "shared");
+        config
+            .asr
+            .api_profiles
+            .retain(|profile| profile.id != "shared");
+        config.resolve_model_assignments();
+        assert!(profile_usages(&config, "shared").is_empty());
+        assert!(config.learning_ai.use_default_model && config.learning_ai.profile_id.is_none());
+        assert_eq!(
+            config.translation.microphone_targets[0],
+            current.translation.microphone_targets[0]
+        );
+        config.validate_settings().unwrap();
+    }
+
+    #[test]
+    fn profile_validation_errors_identify_the_rejected_field() {
+        let base = ApiProfile {
+            provider: OPENAI_COMPATIBLE_PROVIDER.into(),
+            base_url: Some("https://example.com/v1".into()),
+            enabled_capabilities: vec![CAPABILITY_TEXT_GENERATION.into()],
+            ..Default::default()
+        };
+        for (field, mut profile) in [
+            (
+                "base_url",
+                ApiProfile {
+                    base_url: Some("ftp://example.com".into()),
+                    ..base.clone()
+                },
+            ),
+            (
+                "timeout_ms",
+                ApiProfile {
+                    timeout_ms: 1,
+                    ..base.clone()
+                },
+            ),
+            (
+                "enabled_capabilities",
+                ApiProfile {
+                    enabled_capabilities: Vec::new(),
+                    ..base.clone()
+                },
+            ),
+            (
+                "headers",
+                ApiProfile {
+                    headers: vec![HttpHeaderConfig {
+                        name: "Authorization".into(),
+                        value: "secret".into(),
+                    }],
+                    ..base.clone()
+                },
+            ),
+        ] {
+            let error = normalize_profile_fields(&mut profile).unwrap_err();
+            let (status, Json(body)) = profile_validation_error(error);
+            assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+            assert_eq!(body["code"], "profile.invalid");
+            assert_eq!(body["field"], field);
+        }
+    }
+
+    #[test]
+    fn profile_update_distinguishes_omitted_fields_from_explicit_nulls() {
+        let omitted: UpdateProfileInput = serde_json::from_value(json!({})).unwrap();
+        assert!(omitted.name.is_none());
+        assert!(omitted.region.is_none());
+        assert!(omitted.base_url.is_none());
+        assert!(omitted.preset_id.is_none());
+        let cleared: UpdateProfileInput = serde_json::from_value(json!({
+            "region": null, "workspace_id": null, "base_url": null, "preset_id": null
+        }))
+        .unwrap();
+        assert_eq!(cleared.region, Some(None));
+        assert_eq!(cleared.workspace_id, Some(None));
+        assert_eq!(cleared.base_url, Some(None));
+        assert_eq!(cleared.preset_id, Some(None));
+    }
+
+    #[test]
+    fn profile_usages_cover_features_cleared_by_capability_changes() {
+        let mut config = crate::config::AppConfig::default();
+        config.translation.microphone_targets[0].use_default_model = false;
+        config.ocr.targets[0].use_default_model = false;
+        config.vision.use_default_model = false;
+        config.conversation_titles.use_default_model = false;
+        config.asr.active_profile_id = Some("shared".into());
+        config.translation.microphone_targets[0].profile_id = Some("shared".into());
+        config.ocr.targets[0].profile_id = Some("shared".into());
+        config.vision.profile_id = Some("shared".into());
+        config.conversation_titles.profile_id = Some("shared".into());
+        config.language_presets.push(crate::config::LanguagePreset {
+            id: "meeting".into(),
+            name: "Meeting".into(),
+            recognition_language: "auto".into(),
+            translation_mode: "manual".into(),
+            speaker_targets: config.translation.microphone_targets.clone(),
+            microphone_targets: Vec::new(),
+            osc_translation_strategy: "preferred_only".into(),
+        });
+        let usages = profile_usages(&config, "shared");
+        assert_eq!(
+            usages
+                .iter()
+                .map(|usage| usage["kind"].as_str().unwrap())
+                .collect::<Vec<_>>(),
+            [
+                "transcription",
+                "translation",
+                "ocr_translation",
+                "language_preset",
+                "vision",
+                "conversation_titles"
+            ]
+        );
+        assert_eq!(usages[1]["scope"], "microphone");
+        assert_eq!(usages[1]["index"], 0);
+        assert_eq!(usages[1]["target_language"], "en");
+        assert_eq!(usages[3]["scope"], "speaker");
+        assert_eq!(usages[3]["preset_id"], "meeting");
+        assert_eq!(usages[3]["preset_name"], "Meeting");
+        let profile = ApiProfile {
+            id: "shared".into(),
+            provider: OPENAI_PROVIDER.into(),
+            enabled_capabilities: vec![CAPABILITY_TEXT_GENERATION.into()],
+            ..Default::default()
+        };
+        apply_profile_compatibility_fallbacks(&mut config, &profile);
+        assert_eq!(
+            profile_usages(&config, "shared"),
+            vec![json!({
+                "kind": "conversation_titles", "capability": CAPABILITY_TEXT_GENERATION
+            })]
+        );
+    }
+
+    #[test]
+    fn credential_reconfirmation_tracks_origin_changes_but_allows_path_changes() {
+        let mut profile = ApiProfile {
+            base_url: Some("https://example.com/v1".into()),
+            ..Default::default()
+        };
+        let original = profile.clone();
+        profile.base_url = Some("https://example.com/v2".into());
+        assert!(!connection_origin_changed(&original, &profile));
+        for url in [
+            "https://other.example/v1",
+            "https://example.com:8443/v1",
+            "http://example.com/v1",
+        ] {
+            profile.base_url = Some(url.into());
+            assert!(connection_origin_changed(&original, &profile));
+        }
+    }
+
+    #[test]
+    fn unavailable_profiles_keep_identity_and_usage_information() {
+        let profile = ApiProfile {
+            id: "removed".into(),
+            name: "Removed".into(),
+            provider: "removed-provider".into(),
+            ..Default::default()
+        };
+        let mut config = crate::config::AppConfig::default();
+        config.vision.profile_id = Some(profile.id.clone());
+        config.vision.use_default_model = false;
+        let value = unavailable_profile_value(&profile, &config);
+        assert_eq!(value["id"], "removed");
+        assert_eq!(value["status"], "unsupported");
+        assert_eq!(value["usages"][0]["kind"], "vision");
+        assert_eq!(value["credential"]["configured"], false);
+    }
+
+    #[test]
     fn losing_ocr_translation_profile_disables_ocr_without_changing_voice_translation() {
         let mut config = crate::config::AppConfig::default();
         config.ocr.enabled = true;
@@ -993,7 +1617,7 @@ mod tests {
         assert_eq!(config.ocr.targets[0].profile_id, None);
         assert_eq!(
             config.translation,
-            crate::config::TranslationConfig::default()
+            crate::config::AppConfig::default().translation
         );
     }
 
@@ -1043,6 +1667,10 @@ mod tests {
     #[test]
     fn losing_active_capabilities_falls_back_to_local_services() {
         let mut config = crate::config::AppConfig::default();
+        config.translation.speaker_targets[0].use_default_model = false;
+        config.translation.microphone_targets[0].use_default_model = false;
+        config.translation.speaker_targets[0].model = "gpt-5-mini".into();
+        config.translation.microphone_targets[0].model = "gpt-5-mini".into();
         config.asr.backend = SERVICE_GROQ_TRANSCRIPTION.into();
         config.asr.active_profile_id = Some("groq".into());
         config.translation.mode = "automatic".into();
@@ -1068,6 +1696,7 @@ mod tests {
     #[test]
     fn losing_or_deleting_vision_asr_profile_preserves_independent_question_settings() {
         let mut config = crate::config::AppConfig::default();
+        config.vision.use_default_model = false;
         config.asr.backend = providers::SERVICE_QWEN_LIVE_TRANSLATE.into();
         config.asr.api_profiles.push(ApiProfile {
             id: "image".into(),
@@ -1116,6 +1745,7 @@ mod tests {
     #[test]
     fn losing_or_deleting_image_profile_disables_only_its_visual_questions() {
         let mut config = crate::config::AppConfig::default();
+        config.vision.use_default_model = false;
         config.vision.enabled = true;
         config.vision.profile_id = Some("image".into());
         config.vision.model = "image-model".into();
@@ -1141,6 +1771,7 @@ mod tests {
     #[test]
     fn losing_or_deleting_text_profile_disables_conversation_titles() {
         let mut config = crate::config::AppConfig::default();
+        config.conversation_titles.use_default_model = false;
         config.conversation_titles.auto_generate = true;
         config.conversation_titles.profile_id = Some("text".into());
         config.conversation_titles.model = "title-model".into();

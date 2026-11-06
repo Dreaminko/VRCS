@@ -45,6 +45,8 @@ pub const DEFAULT_TRANSLATION_SYSTEM_PROMPT: &str = concat!(
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TranslationConfig {
+    #[serde(default)]
+    pub model_selection: super::ModelSelection,
     #[serde(default = "default_translation_mode")]
     pub mode: String,
     #[serde(default = "default_speaker_targets")]
@@ -58,6 +60,8 @@ pub struct TranslationConfig {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TranslationTargetConfig {
     pub target_language: String,
+    #[serde(default)]
+    pub use_default_model: bool,
     #[serde(default)]
     pub profile_id: Option<String>,
     #[serde(default = "default_translation_model")]
@@ -125,6 +129,7 @@ fn default_translation_context_chars() -> u32 {
 impl Default for TranslationConfig {
     fn default() -> Self {
         Self {
+            model_selection: super::ModelSelection::default(),
             mode: default_translation_mode(),
             speaker_targets: default_speaker_targets(),
             microphone_targets: default_microphone_targets(),
@@ -137,6 +142,7 @@ impl TranslationTargetConfig {
     pub fn new(target_language: impl Into<String>) -> Self {
         Self {
             target_language: target_language.into(),
+            use_default_model: true,
             profile_id: None,
             model: default_translation_model(),
             model_by_profile: BTreeMap::new(),

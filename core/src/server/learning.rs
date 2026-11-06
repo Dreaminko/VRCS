@@ -130,19 +130,16 @@ pub(super) async fn learning_item_delete(
 pub(super) async fn learning_item_analyze(
     State(state): State<ServiceContext>,
     Path(id): Path<i64>,
-    Json(request): Json<AnalyzeLearningItemRequest>,
+    Json(mut request): Json<AnalyzeLearningItemRequest>,
 ) -> ApiResult<Json<Value>> {
     validate_id(id)?;
+    let (profiles, learning) = learning_ai_config(&state)?;
+    request.profile_id = learning.profile_id.unwrap_or_default();
+    request.model = learning.model;
+    request.thinking_enabled = learning.thinking_enabled;
+    request.reasoning_control = learning.reasoning_control;
     request.validate().map_err(learning_validation_error)?;
     let item = load_editable_item(&state, id).await?;
-    let profiles = state
-        .config
-        .config
-        .read()
-        .expect("config lock")
-        .asr
-        .api_profiles
-        .clone();
     let analysis = state
         .content
         .learning_service
@@ -158,17 +155,14 @@ pub(super) async fn learning_item_analyze(
 
 pub(super) async fn selection_query(
     State(state): State<ServiceContext>,
-    Json(request): Json<SelectionQueryRequest>,
+    Json(mut request): Json<SelectionQueryRequest>,
 ) -> ApiResult<Json<Value>> {
+    let (profiles, learning) = learning_ai_config(&state)?;
+    request.profile_id = learning.profile_id.unwrap_or_default();
+    request.model = learning.model;
+    request.thinking_enabled = learning.thinking_enabled;
+    request.reasoning_control = learning.reasoning_control;
     request.validate().map_err(learning_validation_error)?;
-    let profiles = state
-        .config
-        .config
-        .read()
-        .expect("config lock")
-        .asr
-        .api_profiles
-        .clone();
     let response = state
         .content
         .learning_service
@@ -176,6 +170,26 @@ pub(super) async fn selection_query(
         .await
         .map_err(learning_service_error)?;
     Ok(Json(json!(response)))
+}
+
+fn learning_ai_config(
+    state: &ServiceContext,
+) -> ApiResult<(
+    Vec<crate::config::ApiProfile>,
+    crate::config::LearningAiConfig,
+)> {
+    let config = state.config.config.read().expect("config lock");
+    let mut learning = config.learning_ai.clone();
+    learning.resolve_model_assignment(&config.model_defaults.text);
+    if learning.profile_id.as_deref().is_none_or(str::is_empty) || learning.model.trim().is_empty()
+    {
+        return Err(learning_service_error(LearningError {
+            code: "learning.not_configured",
+            detail: "Select an AI profile and model in Learning settings".into(),
+            retryable: false,
+        }));
+    }
+    Ok((config.asr.api_profiles.clone(), learning))
 }
 
 pub(super) async fn learning_item_draft(
@@ -380,6 +394,92 @@ fn learning_service_error(error: LearningError) -> (StatusCode, Json<Value>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn model_assignment_learning_endpoints_use_core_binding_before_validation() {
+        let (requests, mut received) = tokio::sync::mpsc::unbounded_channel();
+        let app = axum::Router::new().route("/v1/chat/completions", axum::routing::post(move |Json(body): Json<Value>| {
+            let requests = requests.clone();
+            async move {
+                requests.send(body).unwrap();
+                Json(json!({"choices":[{"finish_reason":"stop", "message":{"content":"{\"summary\":\"Analysis\",\"confidence\":\"high\"}"}}]}))
+            }
+        }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let provider = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let directory = tempfile::tempdir().unwrap();
+        let handle = crate::start(crate::CoreOptions {
+            config_path: directory.path().join("config.json"),
+            host: Some("127.0.0.1".into()),
+            port: Some(0),
+            session_token: Some("model-assignment-test".into()),
+            vad_model_path: Some(directory.path().join("missing.onnx")),
+            asr_model_dir: None,
+        })
+        .await
+        .unwrap();
+        let state = ServiceContext::from_app(&handle.state);
+        {
+            let mut config = state.config.config.write().unwrap();
+            config.asr.api_profiles.push(crate::config::ApiProfile {
+                id: "core".into(),
+                name: "Core".into(),
+                provider: "openai_compatible".into(),
+                base_url: Some(format!("http://{address}/v1")),
+                auth_mode: crate::config::ApiAuthMode::None,
+                enabled_capabilities: vec![crate::providers::CAPABILITY_TEXT_GENERATION.into()],
+                ..Default::default()
+            });
+            config.model_defaults.text = crate::config::ModelBinding {
+                profile_id: Some("core".into()),
+                model: "core-model".into(),
+            };
+            config.resolve_model_assignments();
+        }
+        let (_, Json(item)) = learning_item_create(
+            State(state.clone()),
+            Json(
+                serde_json::from_value(json!({"kind":"sentence", "source_text":"I eat"})).unwrap(),
+            ),
+        )
+        .await
+        .unwrap();
+        let analysis: AnalyzeLearningItemRequest = serde_json::from_value(json!({
+            "task_type":"sentence_analysis", "profile_id":"invalid!", "model":"", "thinking_enabled":true,
+            "reasoning_control":{"type":"budget_tokens", "value":0}, "explanation_language":"en", "level":"intermediate"
+        })).unwrap();
+        let _ = learning_item_analyze(
+            State(state.clone()),
+            Path(item["id"].as_i64().unwrap()),
+            Json(analysis),
+        )
+        .await
+        .unwrap();
+        let selection: SelectionQueryRequest = serde_json::from_value(json!({
+            "selected_text":"eat", "source_text":"I eat", "question":"Explain", "explanation_language":"en", "level":"intermediate"
+        })).unwrap();
+        let _ = selection_query(State(state.clone()), Json(selection.clone()))
+            .await
+            .unwrap();
+        for _ in 0..2 {
+            assert_eq!(received.try_recv().unwrap()["model"], "core-model");
+        }
+        state
+            .config
+            .config
+            .write()
+            .unwrap()
+            .model_defaults
+            .text
+            .profile_id = None;
+        let error = selection_query(State(state), Json(selection))
+            .await
+            .unwrap_err();
+        assert_eq!(error.1["code"], "learning.not_configured");
+        provider.abort();
+        handle.shutdown().await.unwrap();
+    }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn feature_switches_recheck_learning_before_queued_database_work() {

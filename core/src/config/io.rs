@@ -51,10 +51,12 @@ pub fn load_config(path: &Path) -> Result<AppConfig, String> {
 
 /// 原子写入：先写临时文件再替换，避免崩溃时留下半截配置。
 pub fn save_config(path: &Path, config: &AppConfig) -> Result<(), String> {
+    let mut config = config.clone();
+    config.resolve_model_assignments();
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|error| error.to_string())?;
     }
-    let payload = serde_json::to_string_pretty(config).map_err(|error| error.to_string())?;
+    let payload = serde_json::to_string_pretty(&config).map_err(|error| error.to_string())?;
     let nonce = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_err(|error| error.to_string())?

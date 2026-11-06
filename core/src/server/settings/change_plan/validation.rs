@@ -34,6 +34,8 @@ pub(super) async fn validate_candidate(
             "The sample rate cannot be changed at runtime".into(),
         ));
     }
+    candidate.resolve_model_assignments();
+    candidate.clear_changed_inherited_reasoning(current);
     candidate.validate_settings().map_err(invalid)?;
     if candidate.features.external_api
         && candidate.external_api.enabled

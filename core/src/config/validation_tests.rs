@@ -159,6 +159,7 @@ fn vision_rejects_unknown_fields_and_missing_profiles() {
     )
     .is_err());
     let mut config = AppConfig::default();
+    config.vision.use_default_model = false;
     config.vision.profile_id = Some("missing".into());
     assert!(config
         .validate_settings()
@@ -443,6 +444,10 @@ fn set_translation_profile(config: &mut AppConfig, profile_id: Option<&str>) {
         .chain(&mut config.translation.microphone_targets)
     {
         target.profile_id = profile_id.map(str::to_owned);
+        target.use_default_model = false;
+        if target.model.is_empty() {
+            target.model = "gpt-5-mini".into();
+        }
     }
 }
 
@@ -1137,6 +1142,7 @@ fn ocr_source_view_can_be_enabled_without_a_translation_profile() {
     config.ocr.enabled = true;
     assert!(config.validate_settings().is_ok());
     config.ocr.targets[0].profile_id = Some("missing".into());
+    config.ocr.targets[0].use_default_model = false;
     assert!(config.validate_settings().is_err());
 }
 

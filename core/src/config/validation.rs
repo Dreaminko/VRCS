@@ -30,6 +30,48 @@ impl AppConfig {
         validate_audio(&self.audio, &self.vad)?;
         validate_recognition_options(&self.asr)?;
         validate_api_profiles(&self.asr)?;
+        for (name, profile_id, model) in [
+            (
+                "model_defaults.text",
+                &self.model_defaults.text.profile_id,
+                &self.model_defaults.text.model,
+            ),
+            (
+                "model_defaults.vision",
+                &self.model_defaults.vision.profile_id,
+                &self.model_defaults.vision.model,
+            ),
+            (
+                "translation.model_selection",
+                &self.translation.model_selection.profile_id,
+                &self.translation.model_selection.model,
+            ),
+            (
+                "ocr.model_selection",
+                &self.ocr.model_selection.profile_id,
+                &self.ocr.model_selection.model,
+            ),
+            (
+                "learning_ai",
+                &self.learning_ai.profile_id,
+                &self.learning_ai.model,
+            ),
+        ] {
+            if profile_id
+                .as_ref()
+                .is_some_and(|id| id.is_empty() || id.len() > 64 || contains_control(id))
+            {
+                return Err(format!("Invalid {name}.profile_id"));
+            }
+            if model.len() > 200 || contains_control(model) || model.trim() != model {
+                return Err(format!(
+                    "{name}.model must be a single-line identifier of at most 200 bytes"
+                ));
+            }
+        }
+        if let Some(control) = &self.learning_ai.reasoning_control {
+            control.validate()?;
+        }
         validate_glossary(&self.glossary)?;
         validate_translation(&self.translation, &self.asr.api_profiles, &self.asr.backend)?;
         validate_language_presets(
@@ -211,7 +253,11 @@ fn validate_vision(config: &AppConfig) -> Result<(), String> {
             "vision.model must not exceed 256 characters or contain control characters".into(),
         );
     }
-    if let Some(id) = &vision.profile_id {
+    if let Some(id) = vision
+        .profile_id
+        .as_ref()
+        .filter(|_| vision.enabled || !vision.use_default_model)
+    {
         let profile = config
             .asr
             .api_profiles
@@ -721,6 +767,10 @@ fn validate_translation_targets(
         }
         if providers::is_live_translation(live_service) && index == 0 {
             providers::validate_live_translation_language(live_service, &target.target_language)?;
+            continue;
+        }
+        if target.use_default_model && !require_profile {
+            // Optional followers retain unavailable bindings for diagnostics and provider repair.
             continue;
         }
         let Some(profile_id) = target.profile_id.as_deref() else {

@@ -123,7 +123,7 @@ async fn vrchat_chatbox_text_only_http_lifecycle_and_settings_rollback() {
         .unwrap()
         .to_owned();
     let settings: serde_json::Value = response.json().await.unwrap();
-    assert_eq!(settings["schema_version"], 37);
+    assert_eq!(settings["schema_version"], crate::config::SCHEMA_VERSION);
     assert_eq!(settings["vrchat_chatbox"]["enabled"], true);
 
     // The runtime failure happens after the text subscription was detached and persisted.
@@ -297,9 +297,18 @@ async fn public_model_catalog_does_not_prove_completion_authentication() {
     })
     .await
     .unwrap();
-    let response = reqwest::Client::builder().no_proxy().build().unwrap()
-        .post(format!("http://{}/api/asr/profiles/public-catalog/test?capability=text_generation&model=fixture", handle.address()))
-        .bearer_auth("diagnostic-fixture").send().await.unwrap();
+    let response = reqwest::Client::builder()
+        .no_proxy()
+        .build()
+        .unwrap()
+        .post(format!(
+            "http://{}/api/profile/public-catalog/test?capability=text_generation&model=fixture",
+            handle.address()
+        ))
+        .bearer_auth("diagnostic-fixture")
+        .send()
+        .await
+        .unwrap();
     let status = response.status();
     let value: serde_json::Value = response.json().await.unwrap();
     handle.shutdown().await.unwrap();
@@ -548,7 +557,11 @@ async fn local_recognition_sources_can_be_saved_without_an_api_profile() {
             .status(),
         reqwest::StatusCode::UNPROCESSABLE_ENTITY
     );
-    for path in ["/api/asr/capabilities", "/api/asr/models"] {
+    for path in [
+        "/api/asr/capabilities",
+        "/api/asr/models",
+        "/api/asr/profiles",
+    ] {
         assert_eq!(
             client
                 .get(format!("{base}{path}"))
@@ -1926,7 +1939,7 @@ async fn concurrent_api_profile_creates_do_not_lose_updates() {
     .await
     .unwrap();
     let client = reqwest::Client::new();
-    let url = format!("http://{}/api/asr/profiles", handle.address());
+    let url = format!("http://{}/api/profile", handle.address());
     let mut requests = tokio::task::JoinSet::new();
     for index in 0..16 {
         let client = client.clone();
@@ -1964,6 +1977,283 @@ async fn concurrent_api_profile_creates_do_not_lose_updates() {
         .unwrap();
     assert_eq!(profiles["profiles"].as_array().unwrap().len(), 16);
     handle.shutdown().await.unwrap();
+}
+
+#[tokio::test]
+async fn api_profile_diagnostic_disconnect_stops_the_upstream_request() {
+    let (started, mut completion_started) = tokio::sync::mpsc::unbounded_channel();
+    let (dropped, mut completion_dropped) = tokio::sync::mpsc::unbounded_channel();
+    struct NotifyDrop(tokio::sync::mpsc::UnboundedSender<()>);
+    impl Drop for NotifyDrop {
+        fn drop(&mut self) {
+            let _ = self.0.send(());
+        }
+    }
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let upstream_address = listener.local_addr().unwrap();
+    let upstream = axum::Router::new()
+        .route(
+            "/v1/models",
+            axum::routing::get(|| async {
+                axum::Json(serde_json::json!({ "data": [{ "id": "chat-test" }] }))
+            }),
+        )
+        .route(
+            "/v1/chat/completions",
+            axum::routing::post(move || {
+                let started = started.clone();
+                let guard = NotifyDrop(dropped.clone());
+                async move {
+                    let body = futures_util::stream::once(async move {
+                        let _guard = guard;
+                        let _ = started.send(());
+                        std::future::pending::<Result<String, std::io::Error>>().await
+                    });
+                    axum::body::Body::from_stream(body)
+                }
+            }),
+        );
+    let worker = tokio::spawn(async move { axum::serve(listener, upstream).await.unwrap() });
+    let directory = tempfile::tempdir().unwrap();
+    let config_path = directory.path().join("config.json");
+    let mut config = config::AppConfig::default();
+    config.audio.output.mode = "disabled".into();
+    config.audio.microphone.mode = "disabled".into();
+    config.asr.api_profiles.push(config::ApiProfile {
+        id: "cancel-test".into(),
+        name: "Cancel test".into(),
+        provider: providers::OPENAI_COMPATIBLE_PROVIDER.into(),
+        base_url: Some(format!("http://{upstream_address}/v1")),
+        auth_mode: config::ApiAuthMode::None,
+        enabled_capabilities: vec![providers::CAPABILITY_TEXT_GENERATION.into()],
+        timeout_ms: 30_000,
+        ..Default::default()
+    });
+    config::save_config(&config_path, &config).unwrap();
+    let handle = start(CoreOptions {
+        config_path,
+        host: Some("127.0.0.1".into()),
+        port: Some(0),
+        session_token: Some("test-token".into()),
+        vad_model_path: Some(directory.path().join("missing-silero.onnx")),
+        asr_model_dir: None,
+    })
+    .await
+    .unwrap();
+    let url = format!(
+        "http://{}/api/profile/cancel-test/test?capability=text_generation&model=chat-test",
+        handle.address()
+    );
+    let request = tokio::spawn(async move {
+        reqwest::Client::builder()
+            .no_proxy()
+            .build()
+            .unwrap()
+            .post(url)
+            .bearer_auth("test-token")
+            .send()
+            .await
+    });
+    tokio::time::timeout(std::time::Duration::from_secs(5), completion_started.recv())
+        .await
+        .expect("The diagnostic must reach the upstream completion")
+        .unwrap();
+    request.abort();
+    assert!(request.await.unwrap_err().is_cancelled());
+    let stopped =
+        tokio::time::timeout(std::time::Duration::from_secs(2), completion_dropped.recv()).await;
+    handle.shutdown().await.unwrap();
+    worker.abort();
+    assert_eq!(
+        stopped.expect("Disconnect must cancel the upstream body"),
+        Some(())
+    );
+}
+
+#[tokio::test]
+async fn api_profile_model_catalogs_only_contact_the_service_when_needed() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    let requests = Arc::new(AtomicUsize::new(0));
+    let observed = Arc::clone(&requests);
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let upstream = listener.local_addr().unwrap();
+    let router = axum::Router::new().route(
+        "/v1/models",
+        axum::routing::get(move || {
+            let requests = Arc::clone(&observed);
+            async move {
+                requests.fetch_add(1, Ordering::SeqCst);
+                axum::Json(serde_json::json!({ "data": [{ "id": "test-model" }] }))
+            }
+        }),
+    );
+    let worker = tokio::spawn(async move {
+        axum::serve(listener, router).await.unwrap();
+    });
+    let directory = tempfile::tempdir().unwrap();
+    let config_path = directory.path().join("config.json");
+    let mut config = config::AppConfig::default();
+    config.asr.api_profiles.push(config::ApiProfile {
+        id: "cached-models".into(),
+        name: "Cached models".into(),
+        provider: providers::OPENAI_COMPATIBLE_PROVIDER.into(),
+        base_url: Some(format!("http://{upstream}/v1")),
+        auth_mode: config::ApiAuthMode::None,
+        enabled_capabilities: vec![providers::CAPABILITY_TEXT_GENERATION.into()],
+        ..Default::default()
+    });
+    config.asr.api_profiles.push(config::ApiProfile {
+        id: "static-models".into(),
+        name: "Static models".into(),
+        provider: providers::GROQ_PROVIDER.into(),
+        enabled_capabilities: vec![providers::CAPABILITY_SPEECH_TO_TEXT.into()],
+        ..Default::default()
+    });
+    config::save_config(&config_path, &config).unwrap();
+    let port = std::net::TcpListener::bind("127.0.0.1:0")
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .port();
+    let handle = start(CoreOptions {
+        config_path,
+        host: Some("127.0.0.1".into()),
+        port: Some(port),
+        session_token: Some("test-token".into()),
+        vad_model_path: Some(directory.path().join("missing-silero.onnx")),
+        asr_model_dir: None,
+    })
+    .await
+    .unwrap();
+    let client = reqwest::Client::new();
+    for (query, expected) in [
+        ("?cached_only=true", 0),
+        ("", 1),
+        ("", 1),
+        ("?refresh=true", 2),
+    ] {
+        let response = client
+            .get(format!(
+                "http://{}/api/profile/cached-models/models{query}",
+                handle.address()
+            ))
+            .bearer_auth("test-token")
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), reqwest::StatusCode::OK);
+        let catalog: serde_json::Value = response.json().await.unwrap();
+        assert_eq!(requests.load(Ordering::SeqCst), expected);
+        assert_eq!(
+            catalog["models"].as_array().unwrap().len(),
+            usize::from(expected > 0)
+        );
+        assert_eq!(catalog["updated_at"].is_null(), expected == 0);
+    }
+    let response = client
+        .get(format!(
+            "http://{}/api/profile/static-models/services/{}/models",
+            handle.address(),
+            providers::SERVICE_GROQ_TRANSCRIPTION
+        ))
+        .bearer_auth("test-token")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), reqwest::StatusCode::OK);
+    let catalog: serde_json::Value = response.json().await.unwrap();
+    assert!(!catalog["models"].as_array().unwrap().is_empty());
+    assert_eq!(requests.load(Ordering::SeqCst), 2);
+    handle.shutdown().await.unwrap();
+    worker.abort();
+}
+
+#[cfg(windows)]
+#[tokio::test]
+async fn api_profile_update_rolls_back_credentials_when_config_cannot_be_saved() {
+    let directory = tempfile::tempdir().unwrap();
+    let config_path = directory.path().join("config.json");
+    let profile_id = uuid::Uuid::new_v4().to_string();
+    let provider = providers::OPENAI_COMPATIBLE_PROVIDER;
+    let port = std::net::TcpListener::bind(("127.0.0.1", 0))
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .port();
+    struct CredentialCleanup(String);
+    impl Drop for CredentialCleanup {
+        fn drop(&mut self) {
+            let _ = credentials::delete_credential(&self.0, providers::OPENAI_COMPATIBLE_PROVIDER);
+        }
+    }
+    let _cleanup = CredentialCleanup(profile_id.clone());
+    let mut config = config::AppConfig::default();
+    config.asr.api_profiles.push(config::ApiProfile {
+        id: profile_id.clone(),
+        name: "Before".into(),
+        provider: provider.into(),
+        base_url: Some("https://before.example/v1".into()),
+        enabled_capabilities: vec![providers::CAPABILITY_TEXT_TRANSLATION.into()],
+        ..Default::default()
+    });
+    config::save_config(&config_path, &config).unwrap();
+    credentials::write_credential(&profile_id, provider, "initial-test-key").unwrap();
+    let handle = start(CoreOptions {
+        config_path: config_path.clone(),
+        host: Some("127.0.0.1".into()),
+        port: Some(port),
+        session_token: Some("test-token".into()),
+        vad_model_path: Some(directory.path().join("missing-silero.onnx")),
+        asr_model_dir: None,
+    })
+    .await
+    .unwrap();
+    let client = reqwest::Client::new();
+    let url = format!("http://{}/api/profile/{profile_id}", handle.address());
+    let update = |body: serde_json::Value| client.put(&url).bearer_auth("test-token").json(&body);
+    let rejected = update(serde_json::json!({ "base_url": "https://other.example/v1" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(rejected.status(), reqwest::StatusCode::CONFLICT);
+    let saved = update(serde_json::json!({ "name": "Saved", "api_key": "saved-test-key" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        saved.status(),
+        reqwest::StatusCode::OK,
+        "{}",
+        saved.text().await.unwrap()
+    );
+
+    let backup_path = directory.path().join("before-failure.json");
+    std::fs::rename(&config_path, &backup_path).unwrap();
+    std::fs::create_dir(&config_path).unwrap();
+    let failed = update(serde_json::json!({ "name": "Failed", "api_key": "failed-test-key" }))
+        .send()
+        .await
+        .unwrap();
+    std::fs::remove_dir(&config_path).unwrap();
+    std::fs::rename(&backup_path, &config_path).unwrap();
+    let stored_key = credentials::read_stored_credential(&profile_id, provider).unwrap();
+    let profiles: serde_json::Value = client
+        .get(format!("http://{}/api/profile", handle.address()))
+        .bearer_auth("test-token")
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    handle.shutdown().await.unwrap();
+    assert!(!failed.status().is_success());
+    assert_eq!(stored_key.as_deref(), Some("saved-test-key"));
+    assert_eq!(profiles["profiles"][0]["name"], "Saved");
+    let persisted = std::fs::read_to_string(config_path).unwrap();
+    assert!(!persisted.contains("test-key"));
+    assert!(persisted.contains("Saved"));
 }
 
 #[tokio::test]
@@ -2029,7 +2319,7 @@ async fn stale_settings_cannot_restore_a_deleted_api_profile() {
         .to_owned();
     let initial_settings: serde_json::Value = initial_response.json().await.unwrap();
     let response = client
-        .post(format!("{base_url}/api/asr/profiles"))
+        .post(format!("{base_url}/api/profile"))
         .bearer_auth("test-token")
         .json(&serde_json::json!({
             "name": "Temporary Alibaba",
@@ -2091,8 +2381,52 @@ async fn stale_settings_cannot_restore_a_deleted_api_profile() {
         serde_json::json!(profile_id)
     );
 
+    let persisted_before_preview = std::fs::read(directory.path().join("config.json")).unwrap();
+    for (method, input) in [
+        (
+            reqwest::Method::PUT,
+            serde_json::json!({
+                "enabled_capabilities": ["text_generation"],
+                "api_key": "preview-must-not-save-this-key"
+            }),
+        ),
+        (reqwest::Method::DELETE, serde_json::Value::Null),
+    ] {
+        let preview = client
+            .request(
+                method,
+                format!("{base_url}/api/profile/{profile_id}?dry_run=true"),
+            )
+            .bearer_auth("test-token")
+            .json(&input)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(preview.status(), reqwest::StatusCode::OK);
+        let body: serde_json::Value = preview.json().await.unwrap();
+        assert_eq!(body["side_effects"][0]["kind"], "transcription");
+        assert_eq!(
+            std::fs::read(directory.path().join("config.json")).unwrap(),
+            persisted_before_preview
+        );
+        let listed: serde_json::Value = client
+            .get(format!("{base_url}/api/profile"))
+            .bearer_auth("test-token")
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert_eq!(listed["profiles"][0]["active"], true);
+        assert_eq!(
+            listed["profiles"][0]["credential"]["stored_configured"],
+            false
+        );
+    }
+
     let deleted = client
-        .delete(format!("{base_url}/api/asr/profiles/{profile_id}"))
+        .delete(format!("{base_url}/api/profile/{profile_id}"))
         .bearer_auth("test-token")
         .send()
         .await
