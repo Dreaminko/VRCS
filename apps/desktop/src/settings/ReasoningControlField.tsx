@@ -5,13 +5,14 @@ import { normalizeReasoningControlForModel, reasoningOptionsForModel } from "../
 import type { ReasoningSetting } from "../translation/translation-thinking";
 import { PreferenceToggle, Select } from "./SettingsControls";
 
-export function ReasoningControlField({ provider, model, details, thinkingEnabled, value, disabled = false, onChange }: {
+export function ReasoningControlField({ provider, model, details, thinkingEnabled, value, disabled = false, floatingLayer, onChange }: {
   provider?: string;
   model: string;
   details?: ApiModelDetails;
   thinkingEnabled: boolean;
   value?: ReasoningSetting | null;
   disabled?: boolean;
+  floatingLayer?: "page" | "dialog";
   onChange: (patch: { thinking_enabled?: boolean; reasoning_control?: ReasoningSetting | null }) => void;
 }) {
   const { t } = useTranslation();
@@ -36,7 +37,7 @@ export function ReasoningControlField({ provider, model, details, thinkingEnable
       checked={thinkingEnabled} disabled={disabled} onChange={(thinking_enabled) => onChange({ thinking_enabled })} />}
     {options.thinking === "hide_only" && <small>{t("settings.reasoning.mandatory")}</small>}
     {showStrength && <>
-      <Select label={t("settings.reasoning.strength")} value={selected} disabled={disabled}
+      <Select label={t("settings.reasoning.strength")} value={selected} disabled={disabled} floating={floatingLayer}
         options={[
           { value: "default", label: t("settings.reasoning.applicationDefault") },
           ...options.efforts.map((effort) => ({ value: `effort:${effort}`, label: t(`settings.reasoning.efforts.${effort}`, { defaultValue: effort }) })),

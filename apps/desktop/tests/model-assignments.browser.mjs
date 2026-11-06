@@ -45,12 +45,15 @@ for (const width of [1100, 380]) {
             translation: { mode: 'manual', model_selection: binding('text-one'),
               speaker_targets: [{ ...binding('custom-translation', false), target_language: 'ja', thinking_enabled: false }],
               microphone_targets: [{ ...binding('text-one'), target_language: 'en', thinking_enabled: false }] },
-            ocr: { model_selection: binding('text-one'), targets: [] },
+            ocr: { model_selection: binding('text-one'), targets: [
+              { ...binding('text-one'), target_language: 'zh-Hans', thinking_enabled: false },
+            ] },
             conversation_titles: binding('text-one'), vision: { ...binding('image-one'), thinking_enabled: false },
             learning_ai: { ...binding('text-one'), thinking_enabled: false },
           }));
           draft = value;
-          return <><ApiSettingsSection settings={value} profiles={profiles} onRefreshSettings={async () => {}}
+          return <><ApiSettingsSection settings={value} profiles={profiles}
+            onRefreshSettings={async () => {}}
             applySettings={change => setValue(current => applyModelDefaults(change(current)))} /><ControlTooltip /></>;
         }
         const root = createRoot(document.getElementById('root'));
@@ -65,22 +68,66 @@ for (const width of [1100, 380]) {
         };
         try {
           await wait(() => document.querySelectorAll('.model-default-card input').length === 2);
+          check([...document.querySelectorAll('.model-default-card')].every(card => {
+            const cardRect = card.getBoundingClientRect();
+            const saveRect = card.querySelector('.model-default-heading .model-default-actions .primary-button').getBoundingClientRect();
+            const editorRect = card.querySelector('.model-binding-editor').getBoundingClientRect();
+            return saveRect.top < editorRect.top && cardRect.right - saveRect.right < 24;
+          }), 'Default model save buttons align to each card top-right');
           const asr = draft.asr;
           const textInput = () => document.querySelector('.model-default-card input');
           await fill(textInput(), 'text-two');
           document.querySelector('.model-default-card .primary-button').click(); await settle();
           check(draft.learning_ai.model === 'text-two' && draft.conversation_titles.model === 'text-two', 'Followers update together');
           check(draft.translation.speaker_targets[0].model === 'custom-translation', 'Independent translation targets survive');
-          check(draft.asr === asr && !document.querySelector('.model-assignment-list').textContent.includes('Speech recognition'), 'Recognition stays in its original section');
-          check(document.querySelector('.model-assignment-list').textContent.includes('Japanese')
-            && !document.querySelector('.model-assignment-list').textContent.includes('OCR translation targets'),
-            'Subroutes use localized language names and hide empty target groups');
+          check(draft.asr === asr, 'Global speech recognition settings stay untouched');
+          const mainList = () => document.querySelector('.model-assignment-list').textContent;
+          check(!mainList().includes('Japanese') && !mainList().includes('OCR translation targets'),
+            'Target-language overrides stay collapsed in task dialogs');
+          check(document.querySelectorAll('.model-assignment-item').length === 5
+            && !mainList().includes('Question speech recognition'),
+            'Visual questions use the global speech recognition selection');
+          document.querySelector('[aria-label="Edit · Subtitle translation"]').click();
+          await wait(() => document.querySelector('[role=dialog]'));
+          check(document.querySelector('[role=dialog]').textContent.includes('Target-language models')
+            && document.querySelector('[role=dialog]').textContent.includes('Japanese'),
+            'Subtitle translation exposes target-language models in its edit dialog');
+          check(document.querySelectorAll('[role=dialog] .model-target-route').length === 2
+            && document.querySelectorAll('[role=dialog] .model-target-route [aria-label^="Model source"]').length === 2
+            && !document.querySelector('[role=dialog] .model-target-route .model-selection-change'),
+            'Target models render inline in the task dialog without another edit level');
+          check(document.querySelectorAll('[role=dialog] .model-target-route .model-target-route-heading .model-source-toggle').length === 2
+            && !document.querySelector('[role=dialog] .model-target-route .model-source-heading'),
+            'Target model source controls sit beside each language');
+          check(document.querySelectorAll('[role=dialog] .model-target-route [role=group][aria-label^="Model source"] button').length === 4,
+            'Target model sources use segmented controls');
+          check(document.querySelector('[role=dialog] .model-target-route .model-target-route-inherited')?.textContent.includes('Shared API · text-two'),
+            'Following targets show the inherited model inline');
+          document.querySelector('[role=dialog] .api-profile-dialog-close').click();
+          await wait(() => !document.querySelector('[role=dialog]'));
+          document.querySelector('[aria-label="Edit · OCR translation"]').click();
+          await wait(() => document.querySelector('[role=dialog]'));
+          check(document.querySelector('[role=dialog]').textContent.includes('OCR translation targets'),
+            'OCR translation keeps its target-language group in the edit dialog');
+          [...document.querySelectorAll('[role=dialog] .model-target-route [role=group][aria-label^="Model source"] button')]
+            .find(button => button.textContent === 'Independent selection').click();
+          await wait(() => document.querySelector('[role=dialog] .model-target-route .model-binding-editor'));
+          check(draft.ocr.targets[0].use_default_model === false && draft.ocr.targets[0].profile_id === 'shared',
+            'Inline target model controls update the target directly');
+          document.querySelector('[role=dialog] .api-profile-dialog-close').click();
+          await wait(() => !document.querySelector('[role=dialog]'));
           const editLearning = () => document.querySelector('[aria-label="Edit · Learning AI"]');
           editLearning().click(); await wait(() => document.querySelector('[role=dialog]'));
           check(document.querySelector('[role=dialog] .model-selection-dialog-heading')?.textContent === 'Learning AI', 'The model dialog renders a visible task heading');
-          document.querySelector('[aria-label="Model source"]').click();
-          await wait(() => [...document.querySelectorAll('[role=option]')].some(option => option.textContent === 'Independent selection'));
-          [...document.querySelectorAll('[role=option]')].find(option => option.textContent === 'Independent selection').click();
+          const sourceRow = document.querySelector('[role=dialog] .model-selection-dialog-body > .model-source-row');
+          check(sourceRow?.querySelector('h3')?.textContent === 'Model source', 'The model source label renders as a heading');
+          const sourceToggle = sourceRow?.querySelector('[role=group][aria-label="Model source"]');
+          check(sourceToggle?.querySelectorAll('button').length === 2, 'Task model source uses a segmented control');
+          if (innerWidth > 500) {
+            check(sourceToggle.getBoundingClientRect().left > sourceRow.querySelector('h3').getBoundingClientRect().right,
+              'The model source selector sits to the right of its heading');
+          }
+          [...sourceToggle.querySelectorAll('button')].find(button => button.textContent === 'Independent selection').click();
           await wait(() => document.querySelector('[role=dialog] input'));
           await fill(document.querySelector('[role=dialog] input'), 'custom-learning');
           document.querySelector('[role=dialog] .primary-button').click(); await settle();

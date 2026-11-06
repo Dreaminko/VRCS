@@ -7,10 +7,44 @@ import { liveTranslationServiceName } from "../../providers/recognition-services
 import { profileSupportsCapability } from "../../providers/provider-catalog";
 import type { ApiProfileView } from "../../providers/types";
 import { localizedLanguageName } from "../../translation/translation-languages";
-import { DefaultModelEditor, ModelSelectionField } from "../api/ModelSelectionField";
-import { applyModelDefaults, DEFAULT_LEARNING_AI, DEFAULT_MODEL_SELECTION, EMPTY_MODEL_BINDING, translationModelSelection } from "../model-selection";
+import { DefaultModelEditor, ModelBindingEditor, ModelSelectionField, ModelSourceToggle, modelBindingLabel } from "../api/ModelSelectionField";
+import { applyModelDefaults, DEFAULT_LEARNING_AI, DEFAULT_MODEL_SELECTION, EMPTY_MODEL_BINDING, resolveModelSelection, translationModelSelection } from "../model-selection";
 import type { ApplySettings } from "../settings-types";
-import type { Settings, TranslationTargetSettings } from "../types";
+import type { ModelBinding, Settings, TranslationTargetSettings } from "../types";
+
+function TargetModelRow({ index, label, code, target, fallback, profiles, onChange }: {
+  index: number;
+  label: string;
+  code?: string;
+  target: TranslationTargetSettings;
+  fallback: ModelBinding;
+  profiles: ApiProfileView[];
+  onChange: (target: TranslationTargetSettings) => void;
+}) {
+  const { t } = useTranslation();
+  const resolved = resolveModelSelection(target, fallback);
+  const usesDefault = Boolean(target.use_default_model);
+  return <div className="model-target-route">
+    <div className="model-target-route-heading">
+      <span className="model-target-route-rank">{index + 1}</span>
+      <div className="model-target-route-title">
+        <strong>{label}</strong>
+        {code && <code className="model-selection-code">{code}</code>}
+      </div>
+      <ModelSourceToggle useDefaultModel={usesDefault} label={`${t("settings.modelAssignments.source")} · ${label}`}
+        onChange={(useDefaultModel) => onChange({
+          ...target, ...resolved, use_default_model: useDefaultModel,
+        })} />
+    </div>
+    {usesDefault
+      ? <div className="model-target-route-inherited">
+        <span>{t("settings.modelAssignments.followingDefault")}</span>
+        <strong>{modelBindingLabel(fallback, profiles, t("settings.apiManagement.notConfigured"))}</strong>
+      </div>
+      : <ModelBindingEditor value={resolved} profiles={profiles} capability="text_translation" floatingLayer="dialog"
+        onChange={(value) => onChange({ ...target, ...value, use_default_model: false })} />}
+  </div>;
+}
 
 export function ModelAssignmentsSection({ settings, profiles, applySettings }: {
   settings: Settings;
@@ -51,6 +85,7 @@ export function ModelAssignmentsSection({ settings, profiles, applySettings }: {
     if (!items.length) return null;
     const scope = t(ocr ? "settings.modelAssignments.ocrTargets" : key === "microphone_targets"
       ? "settings.translation.targetLanguageForSelf" : "settings.translation.targetLanguageForOtherParty");
+    const fallback = translationModelSelection(settings, ocr);
     const overrideCount = items.filter((target) => !target.use_default_model).length;
     return <div className="model-route-group">
       <div className="model-route-group-header">
@@ -62,14 +97,12 @@ export function ModelAssignmentsSection({ settings, profiles, applySettings }: {
       <div className="model-route-list">
         {items.map((target, index) => {
           const languageName = localizedLanguageName(target.target_language, locale);
-          return <ModelSelectionField key={`${index}-${target.target_language}`}
-            compact
-            icon={<span className="model-route-rank">{index + 1}</span>}
+          return <TargetModelRow key={`${index}-${target.target_language}`}
+            index={index}
             label={languageName}
             code={languageName.toLowerCase() !== target.target_language.toLowerCase() ? target.target_language : undefined}
-            dialogLabel={`${scope} · ${languageName}`}
-            value={target} fallback={translationModelSelection(settings, ocr)}
-            profiles={profiles} capability="text_translation" onChange={(value) => update((current) => {
+            target={target} fallback={fallback} profiles={profiles}
+            onChange={(value) => update((current) => {
               const patch = (targets: TranslationTargetSettings[]) => targets.map((item, i) => i === index ? { ...item, ...value } : item);
               return key === "ocr" ? { ...current, ocr: { ...current.ocr, targets: patch(current.ocr.targets) } }
                 : { ...current, translation: { ...current.translation, [key]: patch(current.translation[key]) } };
@@ -78,26 +111,37 @@ export function ModelAssignmentsSection({ settings, profiles, applySettings }: {
       </div>
     </div>;
   };
-  const hasTranslationSubroutes = Boolean(
-    nativeTranslation
-    || settings.translation.microphone_targets.length > 0
-    || settings.translation.speaker_targets.length > 0,
-  );
+  const translationDialogContent = <section className="model-selection-dialog-routes">
+    <div className="model-selection-dialog-routes-heading">
+      <strong>{t("settings.modelAssignments.targetLanguageModels")}</strong>
+      <small>{t("settings.modelAssignments.targetLanguageModelsHint")}</small>
+    </div>
+    {nativeTranslation && <p className="settings-field-note model-assignment-note">
+      <Info size={14} aria-hidden="true" />
+      <span>{t("settings.modelAssignments.nativeTranslation", { service: nativeTranslation })}</span>
+    </p>}
+    {routes("microphone_targets")}
+    {routes("speaker_targets")}
+  </section>;
+  const ocrDialogContent = settings.ocr.targets.length > 0
+    ? <section className="model-selection-dialog-routes">
+      <div className="model-selection-dialog-routes-heading">
+        <strong>{t("settings.modelAssignments.targetLanguageModels")}</strong>
+        <small>{t("settings.modelAssignments.targetLanguageModelsHint")}</small>
+      </div>
+      {routes("ocr")}
+    </section>
+    : undefined;
   return <div className="model-assignments-section">
     <div className="model-defaults-grid">
-      {(["text", "vision"] as const).map((kind) => <section className="system-settings-group model-default-card" key={kind}>
-        <div className="section-heading model-default-heading">
-          <div>
-            {kind === "vision" ? <Eye size={17} /> : <FileText size={17} />}
-            <h3>{t(`settings.modelAssignments.${kind}Default`)}</h3>
-          </div>
-        </div>
-        <DefaultModelEditor value={defaults[kind]} profiles={profiles}
-          capability={kind === "vision" ? "image_understanding" : "text_generation"}
-          onChange={(value) => update((current) => ({ ...current, model_defaults: {
-            ...current.model_defaults, [kind]: { profile_id: value.profile_id, model: value.model },
-          } }))} />
-      </section>)}
+      {(["text", "vision"] as const).map((kind) => <DefaultModelEditor key={kind}
+        title={t(`settings.modelAssignments.${kind}Default`)}
+        icon={kind === "vision" ? <Eye size={17} /> : <FileText size={17} />}
+        value={defaults[kind]} profiles={profiles}
+        capability={kind === "vision" ? "image_understanding" : "text_generation"}
+        onChange={(value) => update((current) => ({ ...current, model_defaults: {
+          ...current.model_defaults, [kind]: { profile_id: value.profile_id, model: value.model },
+        } }))} />)}
     </div>
     <section className="system-settings-group model-assignments-group">
       <div className="section-heading model-assignments-heading">
@@ -110,25 +154,14 @@ export function ModelAssignmentsSection({ settings, profiles, applySettings }: {
         <div className="model-assignment-item">
           <ModelSelectionField icon={<Languages size={16} />} label={t("settings.modelAssignments.translation")}
             value={settings.translation.model_selection ?? DEFAULT_MODEL_SELECTION}
-            fallback={defaults.text} profiles={profiles} capability="text_translation"
+            fallback={defaults.text} profiles={profiles} capability="text_translation" dialogContent={translationDialogContent}
             onChange={(value) => update((current) => ({ ...current, translation: { ...current.translation, model_selection: value } }))} />
-          {hasTranslationSubroutes && <div className="model-assignment-subroutes">
-            {nativeTranslation && <p className="settings-field-note model-assignment-note">
-              <Info size={14} aria-hidden="true" />
-              <span>{t("settings.modelAssignments.nativeTranslation", { service: nativeTranslation })}</span>
-            </p>}
-            {routes("microphone_targets")}
-            {routes("speaker_targets")}
-          </div>}
         </div>
         <div className="model-assignment-item">
           <ModelSelectionField icon={<ScanText size={16} />} label={t("settings.modelAssignments.ocrTranslation")}
             value={settings.ocr.model_selection ?? DEFAULT_MODEL_SELECTION}
-            fallback={defaults.text} profiles={profiles} capability="text_translation"
+            fallback={defaults.text} profiles={profiles} capability="text_translation" dialogContent={ocrDialogContent}
             onChange={(value) => update((current) => ({ ...current, ocr: { ...current.ocr, model_selection: value } }))} />
-          {settings.ocr.targets.length > 0 && <div className="model-assignment-subroutes">
-            {routes("ocr")}
-          </div>}
         </div>
         <div className="model-assignment-item">
           <ModelSelectionField icon={<MessageSquareText size={16} />} label={t("settings.modelAssignments.conversationTitles")}

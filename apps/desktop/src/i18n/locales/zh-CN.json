@@ -1949,7 +1949,9 @@
         "learningAi": "学习 AI",
         "visionQuestions": "视觉提问",
         "nativeTranslation": "自动翻译的第一个目标使用 {{service}}。",
-        "routeOverrides": "{{count}} 个独立设置"
+        "routeOverrides": "{{count}} 个独立设置",
+        "targetLanguageModels": "目标语言模型",
+        "targetLanguageModelsHint": "每个目标语言可单独指定模型；跟随任务模型的目标会自动使用该模型。"
       }
     },
     "onboarding": {

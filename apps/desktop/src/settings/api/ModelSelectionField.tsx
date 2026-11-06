@@ -26,7 +26,25 @@ export function modelBindingLabel(value: ModelBinding, profiles: ApiProfileView[
   return [profile?.name ?? value.profile_id, value.model].filter(Boolean).join(" · ");
 }
 
-export function DefaultModelEditor({ value, profiles, capability, onChange }: {
+export function ModelSourceToggle({ useDefaultModel, label, onChange }: {
+  useDefaultModel: boolean;
+  label: string;
+  onChange: (useDefaultModel: boolean) => void;
+}) {
+  const { t } = useTranslation();
+  return <div className="theme-toggle-group model-source-toggle" role="group" aria-label={label}>
+    {([
+      [true, t("settings.modelAssignments.followingDefault")],
+      [false, t("settings.modelAssignments.independent")],
+    ] as const).map(([value, text]) => <button key={String(value)} type="button"
+      aria-pressed={useDefaultModel === value} className={useDefaultModel === value ? "active" : ""}
+      onClick={() => onChange(value)}>{text}</button>)}
+  </div>;
+}
+
+export function DefaultModelEditor({ title, icon, value, profiles, capability, onChange }: {
+  title: string;
+  icon?: ReactNode;
   value: ModelBinding;
   profiles: ApiProfileView[];
   capability: ApiCapability;
@@ -36,14 +54,17 @@ export function DefaultModelEditor({ value, profiles, capability, onChange }: {
   const [draft, setDraft] = useState<ModelChoice>(value);
   useEffect(() => setDraft(value), [value.profile_id, value.model]);
   const changed = draft.profile_id !== value.profile_id || draft.model !== value.model;
-  return <>
-    <ModelBindingEditor value={draft} profiles={profiles} capability={capability} onChange={setDraft} />
-    <div className="model-default-actions">
-      <button className="primary-button" type="button" disabled={!changed || !draft.profile_id || !draft.model.trim()}
-        onClick={() => onChange({ profile_id: draft.profile_id, model: draft.model.trim() })}>{t("common.save")}</button>
-      {changed && <button className="secondary-button" type="button" onClick={() => setDraft(value)}>{t("common.cancel")}</button>}
+  return <section className="system-settings-group model-default-card">
+    <div className="section-heading model-default-heading">
+      <div>{icon}<h3>{title}</h3></div>
+      <div className="model-default-actions">
+        {changed && <button className="secondary-button" type="button" onClick={() => setDraft(value)}>{t("common.cancel")}</button>}
+        <button className="primary-button" type="button" disabled={!changed || !draft.profile_id || !draft.model.trim()}
+          onClick={() => onChange({ profile_id: draft.profile_id, model: draft.model.trim() })}>{t("common.save")}</button>
+      </div>
     </div>
-  </>;
+    <ModelBindingEditor value={draft} profiles={profiles} capability={capability} onChange={setDraft} />
+  </section>;
 }
 
 export function ModelBindingEditor({ value, profiles, capability, disabled = false, hideBinding = false, floatingLayer = "page", onChange }: {
@@ -111,22 +132,22 @@ export function ModelBindingEditor({ value, profiles, capability, disabled = fal
       && <small>{t("settings.apiManagement.modelsUnavailable")}</small>}
     {"thinking_enabled" in value && <ReasoningControlField provider={selected?.provider} model={value.model}
       details={catalog.modelDetails[value.model]} thinkingEnabled={value.thinking_enabled ?? false}
-      value={value.reasoning_control} disabled={disabled || !selected}
+      value={value.reasoning_control} disabled={disabled || !selected} floatingLayer={floatingLayer}
       onChange={(patch) => onChange({ ...value, ...patch })} />}
   </div>;
 }
 
-export function ModelSelectionField({ label, dialogLabel, icon, code, compact = false, value, fallback, profiles, capability, disabled = false, onChange }: {
+export function ModelSelectionField({ label, dialogLabel, icon, code, value, fallback, profiles, capability, disabled = false, dialogContent, onChange }: {
   label: string;
   dialogLabel?: string;
   icon?: ReactNode;
   code?: string;
-  compact?: boolean;
   value: ModelChoice;
   fallback: ModelBinding;
   profiles: ApiProfileView[];
   capability: ApiCapability;
   disabled?: boolean;
+  dialogContent?: ReactNode;
   onChange: (value: ModelChoice) => void;
 }) {
   const { t } = useTranslation();
@@ -142,12 +163,12 @@ export function ModelSelectionField({ label, dialogLabel, icon, code, compact = 
   const modelRequired = capability !== "text_translation" || draftProfile?.capabilities.supports_model_listing;
   const canSave = Boolean(draftProfile && profileSupportsCapability(draftProfile, capability)
     && (!modelRequired || draftResolved.model.trim()));
-  const changeSource = (source: string) => setDraft({ ...draft, ...draftResolved, use_default_model: source === "default" });
+  const changeSource = (useDefaultModel: boolean) => setDraft({ ...draft, ...draftResolved, use_default_model: useDefaultModel });
   const targetTitle = dialogLabel ?? label;
-  return <div className={`model-selection-field${compact ? " compact" : ""}`}>
+  return <div className="model-selection-field">
     <div className="model-selection-copy">
       <div className="model-selection-identity">
-        {icon && <span className={`model-selection-icon${compact ? " compact" : ""}`} aria-hidden="true">{icon}</span>}
+        {icon && <span className="model-selection-icon" aria-hidden="true">{icon}</span>}
         <div className="model-selection-title">
           <strong>{label}</strong>
           {code && <code className="model-selection-code">{code}</code>}
@@ -169,19 +190,16 @@ export function ModelSelectionField({ label, dialogLabel, icon, code, compact = 
       aria-label={`${t("common.edit")} · ${targetTitle}`} data-tooltip={t("settings.modelAssignments.changeModel")}
       onClick={() => { setDraft(value); setOpen(true); }}><Pencil size={14} /><span>{t("common.edit")}</span></button>
     {open && <SettingsDialog label={targetTitle} saving={false} returnFocusRef={triggerRef} autoFocus
-      className="model-selection-dialog" onClose={() => setOpen(false)}>
+      className={`model-selection-dialog${dialogContent ? " with-dialog-content" : ""}`} onClose={() => setOpen(false)}>
       <div className="model-selection-dialog-shell">
         <div className="model-selection-dialog-heading">
           <strong>{targetTitle}</strong>
         </div>
         <div className="model-selection-dialog-body" data-floating-boundary>
-          <div className="field">
-            <span>{t("settings.modelAssignments.source")}</span>
-            <DropdownField label={t("settings.modelAssignments.source")} value={draft.use_default_model ? "default" : "custom"}
-              floating floatingLayer="dialog" options={[
-                { value: "default", label: t("settings.modelAssignments.followingDefault") },
-                { value: "custom", label: t("settings.modelAssignments.independent") },
-              ]} onChange={changeSource} />
+          <div className="model-source-row">
+            <h3 className="model-source-heading">{t("settings.modelAssignments.source")}</h3>
+            <ModelSourceToggle useDefaultModel={Boolean(draft.use_default_model)}
+              label={t("settings.modelAssignments.source")} onChange={changeSource} />
           </div>
           {draft.use_default_model && <div className="model-selection-inherited-card">
             <span>{t("settings.modelAssignments.followingDefault")}</span>
@@ -190,6 +208,7 @@ export function ModelSelectionField({ label, dialogLabel, icon, code, compact = 
           {(!draft.use_default_model || "thinking_enabled" in draft) && <ModelBindingEditor value={draftResolved}
             profiles={profiles} capability={capability} hideBinding={draft.use_default_model}
             floatingLayer="dialog" onChange={setDraft} />}
+          {dialogContent}
         </div>
         <div className="model-default-actions model-selection-dialog-actions">
           <button className="secondary-button" type="button" onClick={() => setOpen(false)}>{t("common.cancel")}</button>

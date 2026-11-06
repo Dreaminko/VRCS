@@ -1949,7 +1949,9 @@
         "learningAi": "学習 AI",
         "visionQuestions": "画像への質問",
         "nativeTranslation": "自動翻訳の最初の翻訳先には {{service}} を使います。",
-        "routeOverrides": "個別設定 {{count}} 件"
+        "routeOverrides": "個別設定 {{count}} 件",
+        "targetLanguageModels": "翻訳先モデル",
+        "targetLanguageModelsHint": "翻訳先ごとにモデルを指定できます。タスクモデルに従う翻訳先はそのモデルを自動で使用します。"
       }
     },
     "onboarding": {

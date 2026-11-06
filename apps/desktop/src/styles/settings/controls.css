@@ -3,6 +3,7 @@
   min-height: var(--settings-control-height);
   align-items: center;
   gap: 7px;
+  margin-left: auto;
   padding: 0 16px;
   border: 0;
   border-radius: var(--radius-md);
@@ -80,7 +81,7 @@
   white-space: nowrap;
   transition: background-color 140ms ease-out, color 140ms ease-out, transform 120ms ease-out;
 }
-.theme-toggle-group button:hover { color: var(--text); background: var(--surface-hover); }
+.theme-toggle-group button:hover { color: var(--text); }
 .theme-toggle-group button:active:not(.active) { transform: scale(0.97); }
 .theme-toggle-group button:focus-visible { outline: 2px solid var(--primary); outline-offset: 1px; }
 .theme-toggle-group button.active { color: var(--primary-ink); background: var(--surface-selected); box-shadow: var(--control-shadow); }

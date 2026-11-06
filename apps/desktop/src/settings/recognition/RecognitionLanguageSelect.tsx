@@ -6,11 +6,13 @@ import { Select } from "../SettingsControls";
 export function RecognitionLanguageSelect({
   value,
   disabled,
+  floating,
   supportedLanguages,
   onChange,
 }: {
   value: Settings["asr"]["language"];
   disabled: boolean;
+  floating?: "page" | "dialog";
   supportedLanguages?: readonly string[];
   onChange: (value: Settings["asr"]["language"]) => void;
 }) {
@@ -34,6 +36,7 @@ export function RecognitionLanguageSelect({
         ? options.filter((option) => supportedLanguages.includes(option.value)) : options}
       placeholder={options.find((option) => option.value === value)?.label ?? value}
       disabled={disabled}
+      floating={floating}
       onChange={(language) => onChange(language as Settings["asr"]["language"])}
     />
   );

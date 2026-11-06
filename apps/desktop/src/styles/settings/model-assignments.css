@@ -2,7 +2,6 @@
 .api-settings-view > .section-heading > div:first-child { flex-wrap: nowrap; }
 .api-settings-view > .section-heading h2 { overflow-wrap: anywhere; }
 .api-settings-view > .section-heading > .api-settings-tabs { width: fit-content; flex-wrap: nowrap; gap: 2px; }
-.api-settings-tabs button:hover:not(.active) { background: transparent; }
 .api-settings-view > .api-section { padding: 0; }
 .settings-field-note {
   margin: 0;
@@ -18,10 +17,14 @@
   gap: 12px;
   min-width: 0;
 }
-.model-default-card > .section-heading.model-default-heading { min-height: var(--settings-control-compact-height); margin-bottom: 0; }
-.model-default-card > .model-default-actions { margin-top: auto; }
+.model-default-card > .section-heading.model-default-heading { min-height: var(--settings-control-compact-height); margin-bottom: 0; flex-wrap: wrap; }
+.model-default-heading > .model-default-actions { margin-left: auto; flex-wrap: wrap; gap: 8px; }
 .model-binding-editor { display: grid; gap: 12px; min-width: 0; }
 .model-default-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.model-source-row { display: flex; min-width: 0; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; }
+.model-source-heading { margin: 0; color: var(--text); font-size: var(--settings-text-section-title); font-weight: var(--settings-weight-heading); line-height: var(--settings-leading-tight); }
+.model-source-row > .model-source-toggle { margin-left: auto; }
+.model-source-toggle button { min-width: 0; }
 .model-binding-editor > small { color: var(--text-quiet); font-size: var(--settings-text-caption); line-height: var(--settings-leading-copy); }
 .model-assignments-heading { flex-wrap: wrap; }
 .model-assignments-heading > .secondary-button { min-height: var(--settings-control-compact-height); padding-inline: 12px; font-size: var(--settings-text-caption); }
@@ -64,19 +67,6 @@
   border-radius: var(--radius-sm);
   color: var(--primary-ink);
   background: var(--canvas);
-}
-.model-selection-icon.compact {
-  width: 24px;
-  height: 24px;
-  flex-basis: 24px;
-  background: var(--surface-subtle);
-  color: var(--text-secondary);
-}
-.model-route-rank {
-  font-size: var(--settings-text-micro);
-  font-weight: var(--settings-weight-heading);
-  font-variant-numeric: tabular-nums;
-  line-height: 1;
 }
 .model-selection-title {
   display: flex;
@@ -154,11 +144,27 @@
   padding-inline: 11px;
   font-size: var(--settings-text-caption);
 }
-.model-assignment-subroutes {
+.model-selection-dialog-routes {
   display: grid;
   min-width: 0;
-  gap: 6px;
-  margin: 8px 0 0 42px;
+  gap: 10px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+.model-selection-dialog-routes-heading {
+  display: grid;
+  gap: 3px;
+}
+.model-selection-dialog-routes-heading strong {
+  color: var(--text);
+  font-size: var(--settings-text-label);
+  font-weight: var(--settings-weight-heading);
+  line-height: var(--settings-leading-label);
+}
+.model-selection-dialog-routes-heading small {
+  color: var(--text-quiet);
+  font-size: var(--settings-text-caption);
+  line-height: var(--settings-leading-copy);
 }
 .model-assignment-note {
   display: flex;
@@ -206,18 +212,74 @@
   min-width: 0;
   background: var(--surface);
 }
-.model-selection-field.compact {
-  padding: 6px 12px;
+.model-target-route {
+  display: grid;
+  min-width: 0;
+  gap: 8px;
+  padding: 10px 12px;
   border-bottom: 1px solid var(--border);
+  background: var(--surface);
 }
-.model-selection-field.compact:last-child { border-bottom: 0; }
-.model-selection-field.compact .model-selection-copy {
-  grid-template-columns: minmax(114px, 156px) minmax(0, 1fr);
+.model-target-route:last-child { border-bottom: 0; }
+.model-target-route-heading {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
 }
-.model-selection-field.compact .model-selection-title strong {
+.model-target-route-rank {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  flex: 0 0 24px;
+  place-items: center;
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  background: var(--surface-subtle);
+  font-size: var(--settings-text-micro);
+  font-weight: var(--settings-weight-heading);
+  line-height: 1;
+}
+.model-target-route-title {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 72px;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.model-target-route-title strong {
+  color: var(--text);
   font-size: var(--settings-text-body);
+  font-weight: var(--settings-weight-heading);
+  line-height: var(--settings-leading-label);
+}
+.model-target-route-heading > .model-source-toggle { margin-left: auto; }
+.model-target-route-inherited {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 3px 8px;
+  color: var(--text-quiet);
+  font-size: var(--settings-text-caption);
+  line-height: var(--settings-leading-copy);
+}
+.model-target-route-inherited > strong {
+  overflow-wrap: anywhere;
+  color: var(--text-secondary);
+  font-weight: var(--settings-weight-label);
+}
+.model-target-route > .model-binding-editor {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.model-target-route > .model-binding-editor > small,
+.model-target-route > .model-binding-editor > .reasoning-control-field {
+  grid-column: 1 / -1;
 }
 .model-selection-dialog { max-width: 500px; }
+.model-selection-dialog.with-dialog-content { width: min(640px, 100%); max-width: 640px; }
 .model-selection-dialog-shell {
   display: grid;
   min-height: 0;
@@ -272,8 +334,6 @@
   .model-assignments-section { gap: 16px; }
   .model-defaults-grid { grid-template-columns: minmax(0, 1fr); gap: 12px; }
   .model-assignment-item { padding: 8px 0; }
-  .model-selection-copy,
-  .model-selection-field.compact .model-selection-copy { grid-template-columns: minmax(0, 1fr); gap: 3px; }
-  .model-assignment-subroutes { margin-top: 6px; margin-left: 0; }
-  .model-selection-field.compact { padding: 5px 10px; }
+  .model-selection-copy { grid-template-columns: minmax(0, 1fr); gap: 3px; }
+  .model-target-route > .model-binding-editor { grid-template-columns: minmax(0, 1fr); }
 }

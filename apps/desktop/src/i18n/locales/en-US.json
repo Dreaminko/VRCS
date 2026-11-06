@@ -1949,7 +1949,9 @@
         "learningAi": "Learning AI",
         "visionQuestions": "Visual questions",
         "nativeTranslation": "The first automatic translation target uses {{service}}.",
-        "routeOverrides": "{{count}} independent"
+        "routeOverrides": "{{count}} independent",
+        "targetLanguageModels": "Target-language models",
+        "targetLanguageModelsHint": "Each target language can use its own model. Targets set to follow the task model use it automatically."
       }
     },
     "onboarding": {

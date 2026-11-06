@@ -1949,7 +1949,9 @@
         "learningAi": "學習 AI",
         "visionQuestions": "視覺提問",
         "nativeTranslation": "自動翻譯的第一個目標使用 {{service}}。",
-        "routeOverrides": "{{count}} 個獨立設定"
+        "routeOverrides": "{{count}} 個獨立設定",
+        "targetLanguageModels": "目標語言模型",
+        "targetLanguageModelsHint": "每個目標語言可單獨指定模型；跟隨任務模型的目標會自動使用該模型。"
       }
     },
     "onboarding": {
