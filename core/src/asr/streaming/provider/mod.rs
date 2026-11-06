@@ -4,6 +4,7 @@ mod gemini_live_translate;
 mod live_translation;
 mod openai;
 mod openai_live_translate;
+mod question_source;
 mod qwen;
 mod qwen_live_translate;
 
@@ -33,6 +34,7 @@ pub(super) struct NormalizationState {
     snapshot_id: Option<String>,
     live_translation: live_translation::State,
     qwen_translation: qwen_live_translate::State,
+    question_source: question_source::State,
 }
 
 impl NormalizationState {
@@ -40,7 +42,9 @@ impl NormalizationState {
         self.qwen_translation.session_id = generation;
     }
     pub(super) fn live_source_len(&self) -> usize {
-        self.live_translation.source_len() + self.qwen_translation.source_len()
+        self.live_translation.source_len()
+            + self.qwen_translation.source_len()
+            + self.question_source.source_len()
     }
 
     fn delta_id(&mut self, value: &Value) -> String {
@@ -169,6 +173,9 @@ impl Provider {
         config: &AsrConfig,
         state: &mut NormalizationState,
     ) -> Option<CloudEvent> {
+        if config.question_source {
+            return None;
+        }
         if matches!(self, Self::GeminiLiveTranslate | Self::OpenAiLiveTranslate) {
             live_translation::poll(config, &mut state.live_translation)
         } else {
@@ -181,6 +188,9 @@ impl Provider {
         config: &AsrConfig,
         state: &mut NormalizationState,
     ) -> Option<CloudEvent> {
+        if config.question_source {
+            return None;
+        }
         if self == Self::QwenLiveTranslate {
             return state.qwen_translation.finish(config);
         }
@@ -308,6 +318,14 @@ impl Provider {
         value: &Value,
         state: &mut NormalizationState,
     ) -> Result<Option<CloudEvent>, String> {
+        if config.question_source {
+            return question_source::normalize_event(
+                self,
+                config,
+                value,
+                &mut state.question_source,
+            );
+        }
         match self {
             Self::Qwen | Self::TokenPlan => qwen::normalize_event(config, value, state),
             Self::QwenLiveTranslate => {
@@ -378,6 +396,13 @@ impl Provider {
             Self::OpenAiLiveTranslate => value["type"].as_str() == Some("session.closed"),
             Self::Gemini | Self::GeminiLiveTranslate => false,
         }
+    }
+
+    pub(super) fn finish_question_source(
+        self,
+        state: &mut NormalizationState,
+    ) -> Result<Vec<CloudEvent>, String> {
+        question_source::finish(self, &mut state.question_source)
     }
 
     pub(super) fn connection_error(self, error: impl std::fmt::Display) -> String {

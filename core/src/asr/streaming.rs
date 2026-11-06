@@ -974,7 +974,13 @@ async fn finish_question(
     state: &mut NormalizationState,
     events: &mpsc::Sender<CloudEvent>,
 ) -> Result<(), String> {
-    if !matches!(provider, Provider::Qwen | Provider::FunAsr) {
+    if !matches!(
+        provider,
+        Provider::Qwen
+            | Provider::FunAsr
+            | Provider::QwenLiveTranslate
+            | Provider::OpenAiLiveTranslate
+    ) {
         return Err("Unsupported question recognition completion protocol".into());
     }
     let message = provider
@@ -999,6 +1005,14 @@ async fn finish_question(
                 .map_err(|_| "Question result receiver is closed".to_string())?;
         }
         if finished {
+            if config.question_source {
+                for event in provider.finish_question_source(state)? {
+                    events
+                        .send(event)
+                        .await
+                        .map_err(|_| "Question result receiver is closed".to_string())?;
+                }
+            }
             return Ok(());
         }
     }

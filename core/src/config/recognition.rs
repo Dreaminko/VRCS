@@ -35,6 +35,9 @@ pub struct AsrConfig {
     /// A separated audio track already has an authoritative identity.
     #[serde(skip)]
     pub single_speaker: bool,
+    /// Collect source transcript events for an isolated question session.
+    #[serde(skip)]
+    pub question_source: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -173,6 +176,7 @@ impl Default for AsrConfig {
             live_translation_target: None,
             live_translation_phrases: BTreeMap::new(),
             single_speaker: false,
+            question_source: false,
         }
     }
 }

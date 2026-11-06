@@ -38,12 +38,13 @@ pub(crate) fn validate_backend(config: &AsrConfig) -> Result<(), String> {
         ServiceAdapter::OpenAiAudioTranscriptions
         | ServiceAdapter::MimoTranscription
         | ServiceAdapter::QwenRealtime
-        | ServiceAdapter::FunAsrRealtime => Ok(()),
-        ServiceAdapter::QwenLiveTranslate
-        | ServiceAdapter::OpenAiRealtimeTranslate
-        | ServiceAdapter::GeminiLiveTranslate => {
-            Err("Question ASR does not support live translation backends; a source transcript is required".into())
-        }
+        | ServiceAdapter::FunAsrRealtime
+        | ServiceAdapter::QwenLiveTranslate
+        | ServiceAdapter::OpenAiRealtimeTranslate => Ok(()),
+        ServiceAdapter::GeminiLiveTranslate => Err(
+            "Question ASR does not support this live translation backend because reliable end-of-audio completion is unavailable"
+                .into(),
+        ),
         _ => Err(format!(
             "Unsupported question ASR backend {}: reliable end-of-audio completion is not available",
             config.backend
@@ -104,6 +105,14 @@ pub(crate) async fn recognize_live_question(
     draft: QuestionDraft,
 ) -> Result<String, String> {
     validate_backend(&config)?;
+    let mut config = config;
+    if providers::is_live_translation(&config.backend) {
+        config.language = "auto".into();
+        config.live_translation_target = Some("en".into());
+        config.live_translation_phrases.clear();
+        config.single_speaker = true;
+        config.question_source = true;
+    }
     let session = if config.backend == QWEN_MANAGED_BACKEND {
         spawn_managed_qwen_session(config, runtime, manager).await?
     } else {
@@ -386,9 +395,9 @@ mod tests {
     }
 
     #[test]
-    fn rejects_translation_and_unreliable_realtime_backends() {
+    fn rejects_translation_backends_without_reliable_completion() {
         for backend in [
-            providers::SERVICE_QWEN_LIVE_TRANSLATE,
+            providers::SERVICE_GEMINI_LIVE_TRANSLATE,
             providers::SERVICE_OPENAI_REALTIME,
         ] {
             let config = AsrConfig {
