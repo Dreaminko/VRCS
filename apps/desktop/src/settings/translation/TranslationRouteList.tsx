@@ -55,7 +55,6 @@ export function TranslationRouteList({ title, liveService, targets, profiles, mo
             <button type="button" aria-label={t("common.delete")} data-tooltip={t("common.delete")}
               disabled={disabled || targets.length <= 1} onClick={() => onChange(targets.filter((_, i) => i !== index))}><Trash2 size={14} /></button>
           </div>
-          {native && <small className="translation-route-fields">{native}</small>}
         </div>;
       })}
     </div>

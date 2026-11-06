@@ -1235,6 +1235,7 @@
           "microphone": "自分のマイクのみ"
         },
         "targetLanguageSettings": "翻訳先言語",
+        "liveTranslateFirstTargetHint": "各翻訳先言語リストの最初の項目はこのサービスで直接翻訳され、それ以降の項目は設定された翻訳モデルを使用します。",
         "targetLanguageForOtherParty": "相手の発言の翻訳先",
         "targetLanguageForSelf": "自分の発言の翻訳先",
         "profile": "API プロファイル",

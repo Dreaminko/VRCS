@@ -1235,6 +1235,7 @@
           "microphone": "Microphone only"
         },
         "targetLanguageSettings": "Target languages",
+        "liveTranslateFirstTargetHint": "The first target language in each list is translated directly. Additional target languages use their configured translation models.",
         "targetLanguageForOtherParty": "Translate the other party's speech into",
         "targetLanguageForSelf": "Translate my speech into",
         "profile": "API profile",

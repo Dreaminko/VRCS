@@ -165,6 +165,7 @@ test("settings follow the configured translation, recognition, network and VR se
       };
       const update = async patch => { setDraft(current => ({ ...current, ...patch })); await settle(); };
       const enhancement = () => document.querySelector('.translation-enhancement-row');
+      const liveRouteHint = () => document.querySelector('.translation-live-route-hint');
       const addRoute = () => document.querySelector('.translation-route-add').click();
       const setRoutes = async (microphone_targets, speaker_targets = [target('deepl')], mode = 'manual', backend = 'qwen_realtime') => {
         await update({ asr: { ...draft.asr, backend }, translation: { ...draft.translation, mode, microphone_targets, speaker_targets } });
@@ -300,6 +301,10 @@ test("settings follow the configured translation, recognition, network and VR se
         const native = target(null, 'ja', '');
         await setRoutes([native], [native], 'automatic', 'qwen_live_translate');
         check(!enhancement(), 'Native Live routes do not expose LLM enhancement');
+        check(liveRouteHint()?.textContent.includes('Qwen Live Translate'),
+          'Native Live translation shows its service in a note above the target routes');
+        check(!document.querySelector('.translation-route-row .translation-route-fields'),
+          'The Live service name is not repeated below the target language selector');
         addRoute();
         await wait(() => draft.translation.microphone_targets.length === 2);
         check(draft.translation.microphone_targets[1].model === 'deepseek-v4-flash'
@@ -308,6 +313,7 @@ test("settings follow the configured translation, recognition, network and VR se
         check(enhancement(), 'Extra LLM routes expose enhancement alongside native Live translation');
         await setRoutes([target('deepseek')], [target('deepl')], 'manual', 'qwen_live_translate');
         check(enhancement(), 'Manual translation exposes enhancement with a Live ASR backend');
+        check(!liveRouteHint(), 'The Live route note is limited to automatic translation');
 
         await update({ asr: { ...draft.asr, backend: 'qwen_realtime' } });
         asrActions.updateRecognitionService('fun_asr_realtime');

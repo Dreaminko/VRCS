@@ -20,7 +20,8 @@ export function TranslationSettingsSection({ draft, apiProfiles, applySettings }
   applySettings: ApplySettings;
 }) {
   const { t } = useTranslation();
-  const liveTranslate = Boolean(liveTranslationServiceName(draft.asr.backend));
+  const liveService = liveTranslationServiceName(draft.asr.backend);
+  const liveTranslate = Boolean(liveService);
   const translationProfiles = apiProfiles.filter(supportsTranslation);
   const translationUnavailable = !liveTranslate && !translationProfiles.length;
   const nativeFirstRoute = liveTranslate && draft.translation.mode === "automatic";
@@ -79,6 +80,12 @@ export function TranslationSettingsSection({ draft, apiProfiles, applySettings }
             </span>
           </div>
           <div className="translation-route-groups">
+            {nativeFirstRoute && liveService && (
+              <div className="translation-live-route-hint" role="note">
+                <strong>{liveService}</strong>
+                <small>{t("settings.translation.liveTranslateFirstTargetHint")}</small>
+              </div>
+            )}
             <TranslationRouteList
               modelSelection={translationModelSelection(draft)}
               title={t("settings.translation.targetLanguageForSelf")}

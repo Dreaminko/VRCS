@@ -1235,6 +1235,7 @@
           "microphone": "仅自己的麦克风"
         },
         "targetLanguageSettings": "目标语言",
+        "liveTranslateFirstTargetHint": "每组目标语言的第一项直接由此服务翻译，后续目标语言使用各自配置的翻译模型。",
         "targetLanguageForOtherParty": "将对方的语言翻译为",
         "targetLanguageForSelf": "将自己的语言翻译为",
         "profile": "API 配置",
