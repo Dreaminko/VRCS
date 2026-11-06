@@ -26,7 +26,8 @@ export function ApiSettingsSection({ settings, profiles, applySettings, onRefres
         </button>)}
       </div>
     </div>
-    {tab === "models" ? <ModelAssignmentsSection settings={settings} profiles={profiles} applySettings={applySettings} />
+    {tab === "models" ? <ModelAssignmentsSection settings={settings} profiles={profiles}
+      applySettings={applySettings} />
       : <ApiManagementSettingsSection settings={settings} onRefreshSettings={onRefreshSettings} embedded />}
   </div>;
 }

@@ -1,4 +1,4 @@
-import { Check, Cloud, FlaskConical, KeyRound, Pencil, Plus, RefreshCw, Square, Trash2 } from "lucide-react";
+import { Check, Cloud, FlaskConical, Pencil, Plus, RefreshCw, Square, Trash2 } from "lucide-react";
 import { useRef, useState, type ReactNode, type RefObject } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -227,7 +227,6 @@ export function ApiManagementSettingsSection({
   return (
     <div className="settings-section settings-section-active api-section" id={embedded ? undefined : "settings-panel-api"} role={embedded ? undefined : "tabpanel"} aria-labelledby={embedded ? undefined : "settings-tab-api"}>
       <div className="section-heading">
-        <div><KeyRound size={18} /><h2>{t("settings.apiManagement.title")}</h2></div>
         <button
           className="primary-button api-add-button"
           type="button"
