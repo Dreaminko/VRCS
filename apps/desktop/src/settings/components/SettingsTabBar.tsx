@@ -18,6 +18,7 @@ import { useTranslation } from "react-i18next";
 
 import { INTERFACE_LAYOUT_CHANGE_EVENT, interfaceLayoutPixels } from "../../app/interface-scale";
 import type { SettingsCategory } from "../settings-types";
+import { useSettingsTabReorder } from "../hooks/useSettingsTabReorder";
 
 export function SettingsTabBar({
   activeCategory,
@@ -29,10 +30,12 @@ export function SettingsTabBar({
   onChange: (category: SettingsCategory) => void;
 }) {
   const { t } = useTranslation();
+  const reorder = useSettingsTabReorder();
   const [tooltip, setTooltip] = useState<{ label: string; top: number; left: number; keyboard: boolean } | null>(null);
   const tooltipRef = useRef<HTMLDivElement>(null);
   const hideTooltip = () => setTooltip(null);
   const showTooltip = (target: HTMLButtonElement, label: string, keyboard = false) => {
+    if (reorder.editing) return;
     const rect = target.getBoundingClientRect();
     setTooltip({
       label,
@@ -41,6 +44,10 @@ export function SettingsTabBar({
       keyboard,
     });
   };
+
+  useEffect(() => {
+    if (reorder.editing) hideTooltip();
+  }, [reorder.editing]);
 
   useLayoutEffect(() => {
     const element = tooltipRef.current;
@@ -75,53 +82,68 @@ export function SettingsTabBar({
     { id: "connections", label: t("settings.categories.connections"), icon: <Link size={18} /> },
     { id: "about", label: t("settings.categories.about"), icon: <Info size={18} /> },
   ] satisfies Array<{ id: SettingsCategory; label: string; icon: ReactNode }>;
-  const visibleTabs = categories.filter((category) => visibleCategories.includes(category.id));
+  const visibleTabs = reorder.order.flatMap(id => {
+    const category = categories.find(category => category.id === id);
+    return category && visibleCategories.includes(id) ? [category] : [];
+  });
 
   return (
-    <div className="settings-tabbar-wrap">
-      <div className="settings-tabbar" role="tablist" aria-label={t("settings.categories.label")}>
-        {visibleTabs.map((category, index) => {
-          const active = activeCategory === category.id;
-          return (
-            <button
-              key={category.id}
-              id={`settings-tab-${category.id}`}
-              className={active ? "active" : ""}
-              type="button"
-              role="tab"
-              aria-selected={active}
-              aria-controls={`settings-panel-${category.id}`}
-              aria-label={category.label}
-              tabIndex={active ? 0 : -1}
-              onPointerEnter={(event) => {
-                if (event.pointerType !== "touch") showTooltip(event.currentTarget, category.label);
-              }}
-              onPointerLeave={hideTooltip}
-              onFocus={(event) => {
-                if (event.currentTarget.matches(":focus-visible")) showTooltip(event.currentTarget, category.label, true);
-              }}
-              onBlur={hideTooltip}
-              onKeyDown={(event) => {
-                let nextIndex: number;
-                switch (event.key) {
-                  case "Escape": hideTooltip(); return;
-                  case "ArrowRight": nextIndex = (index + 1) % visibleTabs.length; break;
-                  case "ArrowLeft": nextIndex = (index - 1 + visibleTabs.length) % visibleTabs.length; break;
-                  case "Home": nextIndex = 0; break;
-                  case "End": nextIndex = visibleTabs.length - 1; break;
-                  default: return;
-                }
-                event.preventDefault();
-                onChange(visibleTabs[nextIndex].id);
-                event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>("button")[nextIndex]?.focus();
-              }}
-              onClick={() => { hideTooltip(); onChange(category.id); }}
-            >
-              <span className="settings-tab-icon" aria-hidden="true">{category.icon}</span>
-              <span className="settings-tab-label">{category.label}</span>
-            </button>
-          );
-        })}
+    <div className="settings-tabbar-container">
+      <div className="settings-tabbar-wrap" ref={reorder.scrollRef}>
+        <div className={`settings-tabbar${reorder.editing ? " settings-tabbar-reordering" : ""}`} ref={reorder.tabbarRef}
+          role="tablist" aria-label={t("settings.categories.label")}>
+          {visibleTabs.map((category, index) => {
+            const active = activeCategory === category.id;
+            return (
+              <button
+                key={category.id}
+                id={`settings-tab-${category.id}`}
+                className={`${active ? "active" : ""}${reorder.dragging === category.id ? " settings-tab-dragging" : ""}`}
+                data-settings-category={category.id}
+                type="button"
+                role="tab"
+                aria-selected={active}
+                aria-controls={`settings-panel-${category.id}`}
+                aria-label={category.label}
+                tabIndex={active ? 0 : -1}
+                onPointerDown={(event) => { hideTooltip(); reorder.onPointerDown(category.id, event); }}
+                onContextMenu={(event) => event.preventDefault()}
+                onDragStart={(event) => event.preventDefault()}
+                onPointerEnter={(event) => {
+                  if (event.pointerType !== "touch") showTooltip(event.currentTarget, category.label);
+                }}
+                onPointerLeave={hideTooltip}
+                onFocus={(event) => {
+                  if (event.currentTarget.matches(":focus-visible")) showTooltip(event.currentTarget, category.label, true);
+                }}
+                onBlur={hideTooltip}
+                onKeyDown={(event) => {
+                  if (reorder.editing || event.altKey) return;
+                  let nextIndex: number;
+                  switch (event.key) {
+                    case "Escape": hideTooltip(); return;
+                    case "ArrowRight": nextIndex = (index + 1) % visibleTabs.length; break;
+                    case "ArrowLeft": nextIndex = (index - 1 + visibleTabs.length) % visibleTabs.length; break;
+                    case "Home": nextIndex = 0; break;
+                    case "End": nextIndex = visibleTabs.length - 1; break;
+                    default: return;
+                  }
+                  event.preventDefault();
+                  onChange(visibleTabs[nextIndex].id);
+                  event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>("button")[nextIndex]?.focus();
+                }}
+                onClick={(event) => {
+                  hideTooltip();
+                  if (reorder.suppressClick()) { event.preventDefault(); return; }
+                  onChange(category.id);
+                }}
+              >
+                <span className="settings-tab-icon" aria-hidden="true">{category.icon}</span>
+                <span className="settings-tab-label">{category.label}</span>
+              </button>
+            );
+          })}
+        </div>
       </div>
       {tooltip && createPortal(
         <div
