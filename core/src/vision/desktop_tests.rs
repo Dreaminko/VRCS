@@ -58,6 +58,7 @@ impl Fixture {
         config.features.ocr = false;
         config.vision.enabled = true;
         config.vision.desktop_enabled = true;
+        config.vision.use_default_model = false;
         config.vision.profile_id = Some("images".into());
         config.vision.model = "image-model".into();
         config.audio.microphone.mode = "disabled".into();

@@ -434,6 +434,7 @@ mod tests {
                 .into_iter()
                 .map(|language| {
                     let mut target = TranslationTargetConfig::new(language);
+                    target.use_default_model = false;
                     target.profile_id = Some("text-service".into());
                     target.model = "test-model".into();
                     target
@@ -520,6 +521,7 @@ mod tests {
                 enabled_capabilities: vec![crate::providers::CAPABILITY_TEXT_TRANSLATION.into()],
                 ..Default::default()
             }];
+            config.translation.speaker_targets[0].use_default_model = false;
             config.translation.speaker_targets[0].profile_id = Some("delayed".into());
         }
         let mut translations = fixture.consumer.output.subscribe_translations();

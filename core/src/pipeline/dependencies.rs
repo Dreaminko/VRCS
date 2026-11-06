@@ -1543,6 +1543,7 @@ mod tests {
             config.asr = asr.clone();
             config.translation.mode = "automatic".into();
             let mut target = TranslationTargetConfig::new("zh-Hans");
+            target.use_default_model = false;
             target.profile_id = Some("translator".into());
             target.model = "test-translator".into();
             config.translation.speaker_targets = vec![target];
@@ -1852,6 +1853,7 @@ mod tests {
         {
             let mut config = dependencies.config.write().unwrap();
             let mut target = TranslationTargetConfig::new("zh-Hans");
+            target.use_default_model = false;
             target.profile_id = Some("repair".into());
             config.translation.mode = "automatic".into();
             config.translation.microphone_targets = vec![target];
