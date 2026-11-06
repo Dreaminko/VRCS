@@ -64,7 +64,7 @@ pub struct TranslationTargetConfig {
     pub use_default_model: bool,
     #[serde(default)]
     pub profile_id: Option<String>,
-    #[serde(default = "default_translation_model")]
+    #[serde(default)]
     pub model: String,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub model_by_profile: BTreeMap<String, String>,
@@ -110,10 +110,6 @@ fn default_microphone_targets() -> Vec<TranslationTargetConfig> {
     vec![TranslationTargetConfig::new("en")]
 }
 
-fn default_translation_model() -> String {
-    "gpt-5-mini".into()
-}
-
 fn default_translation_system_prompt() -> String {
     DEFAULT_TRANSLATION_SYSTEM_PROMPT.into()
 }
@@ -144,7 +140,7 @@ impl TranslationTargetConfig {
             target_language: target_language.into(),
             use_default_model: true,
             profile_id: None,
-            model: default_translation_model(),
+            model: String::new(),
             model_by_profile: BTreeMap::new(),
             thinking_enabled: false,
             reasoning_control: None,
@@ -170,6 +166,15 @@ impl Default for TranslationPromptConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn translation_models_remain_unconfigured_without_a_saved_model() {
+        assert!(TranslationTargetConfig::new("en").model.is_empty());
+        let target: TranslationTargetConfig =
+            serde_json::from_value(serde_json::json!({"target_language": "en"})).unwrap();
+        assert!(target.model.is_empty());
+    }
+
     #[test]
     fn translation_reasoning_control_survives_config_round_trip() {
         for control in [

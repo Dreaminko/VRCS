@@ -850,6 +850,28 @@ fn migrates_v12_with_translation_context_enabled() {
 }
 
 #[test]
+fn legacy_translation_migration_preserves_only_saved_models() {
+    for model in [None, Some("gpt-5-mini"), Some("qwen3:8b")] {
+        let mut raw = serde_json::json!({
+            "schema_version": 25,
+            "translation": {"target_language": "ja"}
+        });
+        if let Some(model) = model {
+            raw["translation"]["model"] = model.into();
+        }
+        let config = config_from_value(&raw).unwrap();
+        for target in config
+            .translation
+            .speaker_targets
+            .iter()
+            .chain(&config.translation.microphone_targets)
+        {
+            assert_eq!(target.model, model.unwrap_or(""));
+        }
+    }
+}
+
+#[test]
 fn migrates_v25_translation_fields_into_ordered_routes() {
     let config = config_from_value(&serde_json::json!({
         "schema_version": 25,

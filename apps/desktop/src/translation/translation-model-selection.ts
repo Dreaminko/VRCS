@@ -1,6 +1,5 @@
 import type { ApiModelDetails, ApiProfileView } from "../providers/types";
 import type { TranslationTargetSettings } from "../settings/types";
-import { supportsLlmModels } from "../providers/api-profile-purpose.ts";
 
 const PREFERRED_MODELS: Record<string, readonly string[]> = {
   openai: ["gpt-4.1-mini", "gpt-4o-mini", "gpt-5-mini"],
@@ -14,13 +13,14 @@ const PREFERRED_MODELS: Record<string, readonly string[]> = {
 };
 
 const NON_TEXT_MODEL_MARKERS = [
-  "embedding",
+  "embed",
   "rerank",
   "whisper",
-  "transcribe",
-  "-asr",
+  "transcri",
+  "asr",
   "tts",
   "speech",
+  "orpheus",
   "realtime",
   "audio",
   "image",
@@ -33,6 +33,7 @@ function preferredModel(provider: string, models: readonly string[]): string | u
 }
 
 function likelyTextModel(model: string, details?: ApiModelDetails): boolean {
+  if (!model.trim()) return false;
   if (details?.input_modalities?.length && !details.input_modalities.includes("text")) return false;
   if (details?.output_modalities?.length && !details.output_modalities.includes("text")) return false;
   if (details?.input_modalities?.includes("text") && details.output_modalities?.includes("text")) return true;
@@ -79,10 +80,6 @@ export function switchTranslationProfile(
 ): TranslationTargetSettings {
   const remembered = updateTranslationModel(target, target.model).model_by_profile;
   const savedModel = Object.hasOwn(remembered ?? {}, profile.id) ? remembered?.[profile.id] : undefined;
-  const model = savedModel ?? (
-    supportsLlmModels(profile) && profile.provider !== "openai_compatible"
-      ? selectTranslationModel(profile.provider, models, target.model, modelDetails) ?? ""
-      : target.model
-  );
+  const model = savedModel ?? selectTranslationModel(profile.provider, models, target.model, modelDetails) ?? "";
   return updateTranslationModel({ ...target, profile_id: profile.id, model_by_profile: remembered }, model);
 }

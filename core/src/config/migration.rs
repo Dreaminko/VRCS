@@ -358,7 +358,7 @@ fn normalize_translation_targets(
         .unwrap_or(serde_json::Value::Null);
     let model = translation
         .remove("model")
-        .unwrap_or_else(|| serde_json::json!("gpt-5-mini"));
+        .unwrap_or_else(|| serde_json::json!(""));
     let thinking_enabled = translation
         .remove("thinking_enabled")
         .unwrap_or(serde_json::Value::Bool(false));

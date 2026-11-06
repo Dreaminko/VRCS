@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   selectTranslationModel,
   switchTranslationProfile,
+  translationModels,
   updateTranslationModel,
 } from "../src/translation/translation-model-selection.ts";
 import type { ApiProfileView } from "../src/providers/types.ts";
@@ -118,6 +119,22 @@ test("switching away and back restores each profile's last model after saving", 
   assert.equal(target.model, "gpt-5-mini");
   assert.equal(original.model, "deepseek-v4-pro");
   assert.equal(original.model_by_profile, undefined);
+});
+
+test("local catalogs exclude embedding models and empty model names", () => {
+  const models = [" ", "nomic-embed-text", "canopylabs/orpheus-v1", "qwen3:8b"];
+  assert.deepEqual(translationModels(models), ["qwen3:8b"]);
+  assert.equal(selectTranslationModel("ollama", models, "gpt-5-mini"), "qwen3:8b");
+});
+
+test("new compatible profiles use their own catalog or wait for a model selection", () => {
+  const target: TranslationTargetSettings = {
+    target_language: "en", profile_id: "openai", model: "gpt-5-mini", thinking_enabled: false,
+  };
+  for (const provider of ["openai_compatible", "ollama", "lm_studio"]) {
+    assert.equal(switchTranslationProfile(target, profile(provider)).model, "", provider);
+    assert.equal(switchTranslationProfile(target, profile(provider), ["qwen3:8b"]).model, "qwen3:8b", provider);
+  }
 });
 
 test("manual models survive unavailable catalogs and profiles of the same provider stay separate", () => {
