@@ -1867,6 +1867,8 @@
         "openTranslation": "翻訳設定を開く",
         "unsupported": "VRChat のネットワークキャプチャは Windows デスクトップ版でのみ利用できます。",
         "networkTitle": "VRChat ネットワークキャプチャ",
+        "networkEnable": "VRChat ネットワークキャプチャを有効にする",
+        "networkRequired": "Chatbox キャプチャやプレイヤー別の音声トラックを使用するには、下の「VRChat ネットワークキャプチャ」を有効にしてください。",
         "chatbox": {
           "title": "Chatbox キャプチャ",
           "enable": "VRChat Chatbox を受信して翻訳",

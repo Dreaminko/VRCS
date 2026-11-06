@@ -1867,6 +1867,8 @@
         "openTranslation": "打开翻译设置",
         "unsupported": "VRChat 网络采集仅支持 Windows 桌面版。",
         "networkTitle": "VRChat 网络采集",
+        "networkEnable": "启用 VRChat 网络采集",
+        "networkRequired": "请先开启下方的「VRChat 网络采集」，才能使用 Chatbox 采集或分玩家独立音轨。",
         "chatbox": {
           "title": "Chatbox 采集",
           "enable": "接收并翻译 VRChat Chatbox",

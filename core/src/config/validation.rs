@@ -992,6 +992,7 @@ mod player_audio_tests {
         let vad = VadConfig::default();
         assert_eq!(audio.output.mode, "system");
         assert_eq!(audio.output.player_audio.max_players, 0);
+        audio.output.player_audio.enabled = true;
         audio.output.mode = "vrchat_players".into();
         assert!(validate_audio(&audio, &vad).is_ok());
         audio.output.player_audio.max_players = 9;

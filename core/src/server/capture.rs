@@ -29,6 +29,9 @@ impl CaptureReloadPlan {
         // It must not tear down every other player's session or the capture.
         let mut current_output = current.audio.output.clone();
         let mut candidate_output = candidate.audio.output.clone();
+        // Effective output mode and Chatbox state account for the network master switch.
+        current_output.player_audio.enabled = false;
+        candidate_output.player_audio.enabled = false;
         current_output.player_audio.max_visible_players = 0;
         candidate_output.player_audio.max_visible_players = 0;
         current_output.player_audio.selected_tracks = None;
@@ -908,8 +911,56 @@ mod tests {
     }
 
     #[test]
+    fn network_capture_master_reloads_only_affected_consumers() {
+        for enabled in [false, true] {
+            for mode in ["vrchat_players", "system", "vrchat", "disabled"] {
+                for chatbox in [false, true] {
+                    let mut current = crate::config::AppConfig::default();
+                    current.audio.output.player_audio.enabled = enabled;
+                    current.audio.output.mode = mode.into();
+                    current.audio.microphone.mode = "device".into();
+                    current.audio.microphone.device_id = Some(7);
+                    current.vrchat_chatbox.enabled = chatbox;
+                    let mut next = current.clone();
+                    next.audio.output.player_audio.enabled = !enabled;
+                    let session = crate::language_session::ActiveLanguageSession::Global;
+                    let plan = CaptureReloadPlan::between(
+                        &session.apply_to(&current),
+                        &session.apply_to(&next),
+                    );
+                    assert_eq!(
+                        plan,
+                        CaptureReloadPlan {
+                            speaker: mode == "vrchat_players",
+                            chatbox,
+                            ..CaptureReloadPlan::default()
+                        },
+                        "enabled={enabled}, mode={mode}, chatbox={chatbox}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn network_capture_master_rejects_stale_sources_when_disabled() {
+        let mut config = crate::config::AppConfig::default();
+        config.audio.output.mode = "vrchat_players".into();
+        config.vrchat_chatbox.enabled = true;
+        let session = crate::language_session::ActiveLanguageSession::Global;
+        let effective = session.apply_to(&config);
+        let error = super::validate_capture_sources(&effective).unwrap_err();
+        assert_eq!(error.1["code"], "capture.no_audio_sources");
+        config.audio.output.player_audio.enabled = true;
+        assert!(super::validate_capture_sources(&session.apply_to(&config)).unwrap());
+        config.audio.output.mode = "disabled".into();
+        assert!(!super::validate_capture_sources(&session.apply_to(&config)).unwrap());
+    }
+
+    #[test]
     fn chatbox_toggle_only_reloads_text_and_pagefile_restarts_shared_network() {
         let mut current = crate::config::AppConfig::default();
+        current.audio.output.player_audio.enabled = true;
         current.audio.output.mode = "vrchat_players".into();
         let mut next = current.clone();
         next.vrchat_chatbox.enabled = true;
@@ -930,6 +981,7 @@ mod tests {
     #[test]
     fn pure_text_capture_does_not_require_audio_resources_but_no_sources_is_rejected() {
         let mut config = crate::config::AppConfig::default();
+        config.audio.output.player_audio.enabled = true;
         config.audio.output.mode = "disabled".into();
         config.audio.microphone.mode = "disabled".into();
         config.vrchat_chatbox.enabled = true;
@@ -947,6 +999,7 @@ mod tests {
     #[test]
     fn track_selection_changes_do_not_restart_capture_or_other_players() {
         let mut current = crate::config::AppConfig::default();
+        current.audio.output.player_audio.enabled = true;
         current.audio.output.mode = "vrchat_players".into();
         let mut next = current.clone();
         let user = "usr_00000000-0000-4000-8000-000000000007";

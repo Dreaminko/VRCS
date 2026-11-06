@@ -178,6 +178,18 @@ mod tests {
             ],
         );
         assert_keys(
+            &value["audio"]["output"]["player_audio"],
+            [
+                "enabled",
+                "max_players",
+                "max_visible_players",
+                "opus_library_path",
+                "pagefile_drive",
+                "selected_tracks",
+                "selected_user_names",
+            ],
+        );
+        assert_keys(
             &value["vad"],
             ["endpointing", "max_speech_seconds", "silence_seconds"],
         );

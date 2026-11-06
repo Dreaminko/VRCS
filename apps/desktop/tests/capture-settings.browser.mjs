@@ -26,11 +26,12 @@ for (const width of [1100, 860, 380]) {
         import { SettingsTabBar } from './src/settings/components/SettingsTabBar';
         import { visibleSettingsCategories, DEFAULT_FEATURE_SETTINGS } from './src/settings/feature-availability';
         import { useSettingsDraft } from './src/settings/hooks/useSettingsDraft';
+        import { ControlTooltip } from './src/shared/ui/ControlTooltip';
         import './src/styles.css';
         await i18next.use(initReactI18next).init({lng:'en-US',resources:{'en-US':{translation:locale.translation}}});
         const initial={schema_version:37,vrchat_chatbox:{enabled:false},translation:{mode:'manual',speaker_targets:[]},
           audio:{output:{mode:'system',device_id:null,trigger_threshold_dbfs:-45,
-            player_audio:{pagefile_drive:'D:',opus_library_path:'invalid-opus.dll',max_players:2,max_visible_players:4}},
+            player_audio:{enabled:false,pagefile_drive:'D:',opus_library_path:'invalid-opus.dll',max_players:2,max_visible_players:4}},
             microphone:{mode:'disabled',device_id:null,trigger_threshold_dbfs:-45}}};
         const noop=async()=>{};
         let failSave=true, latest, saveState, switchPlatform, updateChatboxStatus, saves=0;
@@ -59,18 +60,49 @@ for (const width of [1100, 860, 380]) {
               onOpenTranslation={()=>setCategory('translation')}/>}
             {category==='translation'&&<div id="translation-destination">Translation destination</div>}
             {category==='connections'&&<div id="settings-panel-connections">Connections</div>}
+            {category==='about'&&<div id="settings-panel-about">About</div>}
+            <ControlTooltip />
           </>;
         }
         createRoot(document.getElementById('root')).render(<Fixture/>);
         const check=(ok,message)=>{if(!ok)throw Error(message);};
         const wait=async predicate=>{for(let i=0;i<160;i++){if(predicate())return;await new Promise(r=>setTimeout(r,15));}throw Error('Timed out: '+predicate);};
         const click=element=>flushSync(()=>element.click());
-        const toggle=()=>document.querySelector('[role=switch]');
+        const toggle=()=>document.querySelector('.capture-chatbox-settings [role=switch]');
+        const networkToggle=()=>document.querySelector('.player-audio-settings [role=switch]');
         const text=locale.translation.settings;
+        const selectPlayers=async()=>{
+          click(document.querySelector('.device-group .dropdown-trigger'));
+          await wait(()=>document.querySelector('[role=listbox][aria-hidden=false]'));
+          click([...document.querySelectorAll('[role=option]')].find(option=>
+            option.querySelector('.dropdown-option-copy > span')?.textContent===text.audio.players.title));
+          await wait(()=>!document.querySelector('[role=listbox][aria-hidden=false]'));
+        };
         try{
           await wait(toggle);
           check(document.querySelector('h2').textContent===text.audio.title,'capture heading is localized');
           check(toggle().getAttribute('aria-checked')==='false','Chatbox defaults off');
+          check(networkToggle()?.getAttribute('aria-checked')==='false','network capture defaults off');
+          check(toggle().disabled&&parseFloat(getComputedStyle(toggle().closest('.settings-toggle-row')).opacity)<1,'Chatbox is disabled and dimmed while network capture is off');
+          check(!toggle().closest('[title]'),'Chatbox does not use a native tooltip');
+          check(!document.querySelector('.capture-chatbox-settings').textContent.includes(text.capture.networkRequired),'The network requirement is not a permanent Chatbox note');
+          flushSync(()=>toggle().dispatchEvent(new PointerEvent('pointerover',{bubbles:true,pointerType:'mouse'})));
+          await wait(()=>document.querySelector('.control-tooltip[role=tooltip]')?.textContent===text.capture.networkRequired);
+          const tooltipBounds=document.querySelector('.control-tooltip').getBoundingClientRect();
+          check(tooltipBounds.left>=0&&tooltipBounds.right<=innerWidth&&tooltipBounds.width>0,'the custom tooltip stays within the window');
+          flushSync(()=>toggle().dispatchEvent(new PointerEvent('pointerout',{bubbles:true,pointerType:'mouse',relatedTarget:document.body})));
+          await wait(()=>!document.querySelector('.control-tooltip'));
+          click(toggle());check(saves===0&&!latest.vrchat_chatbox.enabled,'disabled Chatbox cannot save or enable reception');
+          await selectPlayers();
+          await wait(()=>document.querySelector('[role=dialog]'));
+          check(document.querySelector('[role=dialog]').textContent.includes(text.capture.networkRequired),'blocked player audio opens the network requirement dialog');
+          check(latest.audio.output.mode==='system'&&saves===0,'blocked player audio preserves the current output');
+          click(document.querySelector('[role=dialog] .primary-button'));
+          await wait(()=>!document.querySelector('[role=dialog]'));
+          failSave=false;click(networkToggle());
+          await wait(()=>saveState==='saved'&&networkToggle().getAttribute('aria-checked')==='true');
+          check(!toggle().disabled&&!latest.vrchat_chatbox.enabled,'network enable unlocks Chatbox without enabling it');
+          check(!toggle().closest('[data-tooltip]'),'enabled Chatbox does not show the network requirement tooltip');
           const network=document.querySelector('.player-audio-settings');
           check(network&&document.getElementById('settings-panel-audio').lastElementChild===network,'network configuration is last in capture settings');
           check(document.getElementById('player-audio-title').textContent===text.capture.networkTitle,'network card has a shared capture title');
@@ -96,7 +128,7 @@ for (const width of [1100, 860, 380]) {
           check(!card.querySelector('[role=status]'),'stopped Chatbox has no status block');
           flushSync(()=>updateChatboxStatus({phase:'waiting_game',received:7,accepted:2,duplicates:4,dropped:1,detail:null}));
           check(document.body.textContent.includes('Received 7'),'Chatbox counters are visible');
-          click(toggle());
+          failSave=true;click(toggle());
           check(!toggle().disabled&&getComputedStyle(toggle().closest('.settings-toggle-row')).opacity==='1','Chatbox stays available without dimming while saving');
           check([...network.querySelectorAll('input, .dropdown-trigger')].every(control=>!control.disabled),'Saving Chatbox does not disable unrelated network settings');
           await wait(()=>document.querySelector('[role=alert]')?.textContent==='Chatbox save failed');
@@ -104,20 +136,30 @@ for (const width of [1100, 860, 380]) {
           failSave=false;click(toggle());
           await wait(()=>saveState==='saved'&&toggle().getAttribute('aria-checked')==='true');
           check(latest.audio.output.mode==='system'&&latest.audio.output.player_audio.opus_library_path==='invalid-opus.dll','Chatbox does not change audio or require Opus');
+          await selectPlayers();
+          await wait(()=>saveState==='saved'&&latest.audio.output.mode==='vrchat_players');
+          failSave=true;click(networkToggle());
+          check(toggle().disabled&&!latest.vrchat_chatbox.enabled&&latest.audio.output.mode==='disabled','network disable immediately stops both dependent selections');
+          await wait(()=>saveState==='error');
+          check(networkToggle().getAttribute('aria-checked')==='true'&&!toggle().disabled&&latest.vrchat_chatbox.enabled&&latest.audio.output.mode==='vrchat_players','failed network save restores the master and its consumers');
+          failSave=false;click(networkToggle());
+          await wait(()=>saveState==='saved'&&networkToggle().getAttribute('aria-checked')==='false');
+          check(toggle().disabled&&!latest.vrchat_chatbox.enabled&&latest.audio.output.mode==='disabled','saving network disable clears both consumers');
+          check(latest.audio.output.player_audio.pagefile_drive==='D:'&&latest.audio.output.player_audio.opus_library_path==='invalid-opus.dll'&&latest.audio.output.player_audio.max_players===2,'network disable preserves capture parameters');
           click([...document.querySelectorAll('button')].find(e=>e.textContent===text.capture.openTranslation));
           await wait(()=>document.getElementById('translation-destination'));
           const audio=document.getElementById('settings-tab-audio');
           click(audio);await wait(toggle);
           flushSync(()=>switchPlatform(false));
-          check(toggle().disabled&&document.body.textContent.includes(text.capture.unsupported),'unsupported platforms cannot enable reception and show the reason');
+          check(toggle().disabled&&networkToggle().disabled&&document.body.textContent.includes(text.capture.unsupported),'unsupported platforms cannot enable network capture or reception and show the reason');
           check([...document.querySelectorAll('.player-audio-settings input, .player-audio-settings .dropdown-trigger')].every(control=>control.disabled),'Unsupported network settings remain disabled');
           const tabs=[...document.querySelectorAll('[role=tab]')];
-          check(tabs.at(-1).id==='settings-tab-connections'&&!document.getElementById('settings-tab-debug')
-            &&!document.getElementById('settings-tab-experimental'),'Connections is last with no separate Debug or experimental tab');
+          check(tabs.at(-1).id==='settings-tab-about'&&!document.getElementById('settings-tab-debug')
+            &&!document.getElementById('settings-tab-experimental'),'About is last with no separate Debug or experimental tab');
           flushSync(()=>audio.dispatchEvent(new KeyboardEvent('keydown',{key:'End',bubbles:true,cancelable:true})));
-          await wait(()=>document.getElementById('settings-panel-connections'));
-          check(document.activeElement?.id==='settings-tab-connections','End selects and focuses the final category');
-          check(saves===2,'navigation and unsupported state do not save settings');
+          await wait(()=>document.getElementById('settings-panel-about'));
+          check(document.activeElement?.id==='settings-tab-about','End selects and focuses the final category');
+          check(saves===6,'blocked selections, navigation and unsupported state do not save settings');
           check(document.documentElement.scrollWidth<=innerWidth+1,'settings fit the narrow viewport');
           click(audio);await wait(toggle);
           flushSync(()=>{switchPlatform(true);updateChatboxStatus(null);});

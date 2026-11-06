@@ -26,7 +26,7 @@ test("Chatbox capture prepares before start and hot save without restarting othe
       import {createControlExecutor} from './src/vr-controls/actions';
       await i18next.use(initReactI18next).init({lng:'en-US',resources:{'en-US':{translation:en.translation}}});
       const testing=window.testing={events:[],config:{features:{},vrchat_chatbox:{enabled:false},
-        audio:{output:{mode:'system',device_id:null},microphone:{mode:'disabled',device_id:null}}},running:true};
+        audio:{output:{mode:'system',device_id:null,player_audio:{enabled:true}},microphone:{mode:'disabled',device_id:null}}},running:true};
       let confirmed=true, privileges='ready', rejectSave=false, runtime, capture;
       const noop=()=>{};
       const setRunning=async target=>{testing.events.push(target?'start':'stop');testing.running=target;return true;};

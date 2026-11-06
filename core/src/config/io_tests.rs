@@ -9,9 +9,11 @@ fn vrchat_chatbox_upgrade_defaults_off_and_preserves_enabled_on_save() {
     fs::write(&path, br#"{"schema_version":36}"#).unwrap();
     let config = load_config(&path).unwrap();
     let mut value = serde_json::to_value(&config).unwrap();
-    assert_eq!(value["schema_version"], 37);
+    assert_eq!(value["schema_version"], super::SCHEMA_VERSION);
     assert_eq!(value["vrchat_chatbox"]["enabled"], false);
+    assert_eq!(value["audio"]["output"]["player_audio"]["enabled"], false);
     value["vrchat_chatbox"] = serde_json::json!({ "enabled": true });
+    value["audio"]["output"]["player_audio"]["enabled"] = true.into();
     let enabled: AppConfig = serde_json::from_value(value).unwrap();
     super::save_config(&path, &enabled).unwrap();
     assert_eq!(
@@ -27,6 +29,7 @@ fn player_user_selection_and_labels_survive_config_save_and_reload() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("config.json");
     let mut config = AppConfig::default();
+    config.audio.output.player_audio.enabled = true;
     let user = "usr_00000000-0000-4000-8000-000000000007";
     config.audio.output.player_audio.max_visible_players = 8;
     config.audio.output.player_audio.selected_tracks = Some(vec![user.into()]);

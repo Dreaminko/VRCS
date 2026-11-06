@@ -16,6 +16,7 @@ import { DEFAULT_PLAYER_AUDIO, PlayerAudioSettings } from "./PlayerAudioSettings
 import type { ChatboxStatus, PlayerAudioStatus } from "../../core-client/types";
 import type { ApiProfileView } from "../../providers/types";
 import type { PlayerAudioStart } from "../../capture/usePlayerAudioStart";
+import { ConfirmDialog } from "../../app/components/ConfirmDialog";
 
 export function CaptureSettingsSection({
   draft,
@@ -66,6 +67,9 @@ export function CaptureSettingsSection({
   const microphoneLevel = useAudioLevel("microphone");
   const speakerLevel = useAudioLevel("speaker");
   const [microphoneTestBusy, setMicrophoneTestBusy] = useState(false);
+  const [networkRequiredOpen, setNetworkRequiredOpen] = useState(false);
+  const networkEnabled = draft.audio.output.player_audio?.enabled === true;
+  const networkSupported = playerAudioStart?.memory.status?.supported !== false;
   const calibration = useMicrophoneCalibration({
     level: microphoneLevel,
     testing: microphoneTestRunning,
@@ -179,10 +183,16 @@ export function CaptureSettingsSection({
                 name: t("settings.audio.players.title"),
                 description: t("settings.audio.players.nameHint"),
                 chosen: draft.audio.output.mode === "vrchat_players",
-                onSelect: () => applySettings((current) => ({
-                  ...current,
-                  audio: { ...current.audio, output: { ...current.audio.output, mode: "vrchat_players", device_id: null } },
-                })),
+                onSelect: () => {
+                  if (!networkEnabled || !networkSupported) {
+                    setNetworkRequiredOpen(true);
+                    return;
+                  }
+                  applySettings((current) => ({
+                    ...current,
+                    audio: { ...current.audio, output: { ...current.audio.output, mode: "vrchat_players", device_id: null } },
+                  }));
+                },
               },
               {
                 key: "disabled",
@@ -331,10 +341,17 @@ export function CaptureSettingsSection({
             disabled={playerAudioStart?.memory.status?.supported === false}
             onChange={(patch) => applySettings((current) => ({
               ...current,
+              vrchat_chatbox: patch.enabled === false ? { enabled: false } : current.vrchat_chatbox,
               audio: { ...current.audio, output: { ...current.audio.output,
+                mode: patch.enabled === false && current.audio.output.mode === "vrchat_players"
+                  ? "disabled" : current.audio.output.mode,
                 player_audio: { ...(current.audio.output.player_audio ?? DEFAULT_PLAYER_AUDIO), ...patch },
               } },
             }))} />
+          {networkRequiredOpen && <ConfirmDialog
+            title={t("settings.capture.networkTitle")}
+            message={t(networkSupported ? "settings.capture.networkRequired" : "settings.capture.unsupported")}
+            onClose={() => setNetworkRequiredOpen(false)} />}
         </div>
   );
 }

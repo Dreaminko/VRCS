@@ -1867,6 +1867,8 @@
         "openTranslation": "開啟翻譯設定",
         "unsupported": "VRChat 網路擷取僅支援 Windows 桌面版。",
         "networkTitle": "VRChat 網路擷取",
+        "networkEnable": "啟用 VRChat 網路擷取",
+        "networkRequired": "請先開啟下方的「VRChat 網路擷取」，才能使用 Chatbox 擷取或分玩家獨立音軌。",
         "chatbox": {
           "title": "Chatbox 擷取",
           "enable": "接收並翻譯 VRChat Chatbox",

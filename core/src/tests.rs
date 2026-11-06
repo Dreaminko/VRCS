@@ -5,6 +5,7 @@ async fn vrchat_chatbox_only_startup_does_not_prepare_audio_models() {
     let directory = tempfile::tempdir().unwrap();
     let config_path = directory.path().join("config.json");
     let mut config = config::AppConfig::default();
+    config.audio.output.player_audio.enabled = true;
     config.audio.output.mode = "disabled".into();
     config.audio.microphone.mode = "disabled".into();
     config.vrchat_chatbox.enabled = true;
@@ -40,6 +41,7 @@ async fn vrchat_chatbox_text_only_http_lifecycle_and_settings_rollback() {
     let directory = tempfile::tempdir().unwrap();
     let config_path = directory.path().join("config.json");
     let mut config = config::AppConfig::default();
+    config.audio.output.player_audio.enabled = true;
     config.audio.output.mode = "disabled".into();
     config.audio.microphone.mode = "disabled".into();
     config.audio.output.player_audio.opus_library_path = directory

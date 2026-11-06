@@ -1867,6 +1867,8 @@
         "openTranslation": "Open translation settings",
         "unsupported": "VRChat network capture is supported only in the Windows desktop app.",
         "networkTitle": "VRChat network capture",
+        "networkEnable": "Enable VRChat network capture",
+        "networkRequired": "Enable VRChat network capture below before using Chatbox capture or separate player audio tracks.",
         "chatbox": {
           "title": "Chatbox capture",
           "enable": "Receive and translate VRChat Chatbox",

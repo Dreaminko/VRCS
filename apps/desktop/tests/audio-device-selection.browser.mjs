@@ -44,7 +44,7 @@ for (const width of [1200, 861, 860, 681, 680, 380]) {
         ];
         const initial = { vrchat_chatbox:{enabled:false}, translation:{mode:'manual',speaker_targets:[]}, audio: {
           output: { mode: 'system', device_id: null, trigger_threshold_dbfs: -38,
-            player_audio: { pagefile_drive: 'D:', opus_library_path: '', max_players: 3 } },
+            player_audio: { enabled: true, pagefile_drive: 'D:', opus_library_path: '', max_players: 3 } },
           microphone: { mode: 'default', device_id: null, trigger_threshold_dbfs: -42 },
         }, untouched: 'keep' };
         const updates = [];

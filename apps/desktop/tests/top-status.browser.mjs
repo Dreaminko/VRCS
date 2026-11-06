@@ -46,7 +46,7 @@ for (const [width, reduced] of [[1100, false], [860, false], [380, false], [1100
           setNetworkState = setNetwork;
           remount = () => setVersion(value => value + 1);
           const networkSettings = network.enabled ? {
-            audio: {output: {mode: 'vrchat_players'}}, vrchat_chatbox: {enabled: false}, osc: {enabled: false},
+            audio: {output: {mode: 'vrchat_players', player_audio: {enabled: true}}}, vrchat_chatbox: {enabled: false}, osc: {enabled: false},
             asr: {backend: 'qwen_local_managed', active_profile_id: null, service_settings: {}},
           } : null;
           const networkHealth = network.enabled ? {

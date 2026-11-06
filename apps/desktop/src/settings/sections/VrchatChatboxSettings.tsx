@@ -20,6 +20,7 @@ export function VrchatChatboxSettings({ draft, translation, profiles, status, su
   onOpenTranslation: () => void;
 }) {
   const { t } = useTranslation();
+  const networkEnabled = draft.audio.output.player_audio?.enabled === true;
   const phase = status?.phase ?? "stopped";
   const showTranslationHint = !chatboxTranslationReady(translation, profiles);
   const showStatus = supported === false || phase !== "stopped";
@@ -33,8 +34,9 @@ export function VrchatChatboxSettings({ draft, translation, profiles, status, su
         </div>
       </div>
       <PreferenceToggle title={t("settings.capture.chatbox.enable")} hideLabel
-        checked={(draft.vrchat_chatbox ?? DEFAULT_VRCHAT_CHATBOX_CONFIG).enabled}
-        disabled={supported === false}
+        tooltip={!networkEnabled ? t("settings.capture.networkRequired") : undefined}
+        checked={networkEnabled && (draft.vrchat_chatbox ?? DEFAULT_VRCHAT_CHATBOX_CONFIG).enabled}
+        disabled={supported === false || !networkEnabled}
         onChange={(enabled) => applySettings((current) => ({ ...current, vrchat_chatbox: { enabled } }))} />
     </div>
     {(showTranslationHint || showStatus || saveError) && <div className="device-group-content">

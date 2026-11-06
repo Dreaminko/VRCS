@@ -92,6 +92,11 @@ pub fn apply_feature_gates(config: &AppConfig) -> AppConfig {
     effective.dictionary.selection_lookup_enabled &= features.learning;
     effective.anki.enabled &= features.anki;
     effective.audio.microphone.speaker_filter_enabled &= features.microphone_speaker_filter;
+    effective.vrchat_chatbox.enabled &= config.audio.output.player_audio.enabled;
+    if !config.audio.output.player_audio.enabled && effective.audio.output.mode == "vrchat_players"
+    {
+        effective.audio.output.mode = "disabled".into();
+    }
     effective.osc.mute_sync_enabled &= effective.osc.enabled;
     effective.vrcx.enabled &= features.vrcx;
     effective.external_api.enabled &= features.external_api;
@@ -106,6 +111,43 @@ pub fn apply_feature_gates(config: &AppConfig) -> AppConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn network_capture_master_gates_both_consumers_without_changing_preferences() {
+        let mut config = AppConfig::default();
+        config.audio.output.mode = "vrchat_players".into();
+        config.audio.output.player_audio.pagefile_drive = "D:".into();
+        config.audio.output.player_audio.max_players = 3;
+        config.audio.output.player_audio.selected_tracks = Some(vec![]);
+        config.vrchat_chatbox.enabled = true;
+        let stored = config.clone();
+
+        let effective = apply_feature_gates(&config);
+        assert!(!effective.vrchat_chatbox.enabled);
+        let mut expected_audio = config.audio.clone();
+        expected_audio.output.mode = "disabled".into();
+        assert_eq!(effective.audio, expected_audio);
+        assert_eq!(config, stored);
+
+        config.audio.output.player_audio.enabled = true;
+        let effective = apply_feature_gates(&config);
+        assert!(effective.vrchat_chatbox.enabled);
+        assert_eq!(effective.audio, config.audio);
+    }
+
+    #[test]
+    fn network_capture_master_preserves_loopback_and_microphone_settings() {
+        for mode in ["system", "vrchat", "disabled"] {
+            let mut config = AppConfig::default();
+            config.audio.output.mode = mode.into();
+            config.audio.microphone.mode = "device".into();
+            config.audio.microphone.device_id = Some(7);
+            config.vrchat_chatbox.enabled = true;
+            let effective = apply_feature_gates(&config);
+            assert!(!effective.vrchat_chatbox.enabled);
+            assert_eq!(effective.audio, config.audio);
+        }
+    }
 
     #[test]
     fn speaker_filter_feature_gates_only_microphone_filtering() {

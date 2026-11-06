@@ -7,10 +7,13 @@ import type { Settings } from "../src/settings/types.ts";
 import { usesVrchatNetwork } from "../src/capture/vrchat-network.ts";
 import { vrchatNetworkStatus } from "../src/capture/vrchat-network-status.ts";
 
-test("network preparation applies to player voice or Chatbox independently", () => {
+test("network preparation requires the master switch and a voice or Chatbox consumer", () => {
   for (const mode of ["system", "vrchat", "disabled", "vrchat_players"]) {
     for (const enabled of [false, true]) {
-      assert.equal(usesVrchatNetwork({ audio: { output: { mode } }, vrchat_chatbox: { enabled } }), enabled || mode === "vrchat_players");
+      const consumers = { audio: { output: { mode } }, vrchat_chatbox: { enabled } };
+      assert.equal(usesVrchatNetwork(consumers), false, "A missing master switch defaults off");
+      assert.equal(usesVrchatNetwork({ ...consumers, audio: { output: { mode, player_audio: { enabled: false } } } }), false);
+      assert.equal(usesVrchatNetwork({ ...consumers, audio: { output: { mode, player_audio: { enabled: true } } } }), enabled || mode === "vrchat_players");
     }
   }
   assert.equal(usesVrchatNetwork(null), false);
@@ -22,7 +25,7 @@ test("the status bar reports the active VRChat network capture phase", () => {
   const t = ((key: string, values?: { players?: number }) =>
     values?.players === undefined ? key : `${key}:${values.players}`) as TFunction;
   const settings = {
-    audio: { output: { mode: "vrchat_players" } },
+    audio: { output: { mode: "vrchat_players", player_audio: { enabled: true } } },
     vrchat_chatbox: { enabled: false },
   } as Settings;
   const health = (
@@ -37,6 +40,10 @@ test("the status bar reports the active VRChat network capture phase", () => {
   assert.equal(vrchatNetworkStatus(health("streaming"), {
     audio: { output: { mode: "system" } },
     vrchat_chatbox: { enabled: false },
+  } as Settings, t), null);
+  assert.equal(vrchatNetworkStatus(health("streaming"), {
+    ...settings, audio: { output: { mode: "vrchat_players", player_audio: { enabled: false } } },
+    vrchat_chatbox: { enabled: true },
   } as Settings, t), null);
   assert.deepEqual(vrchatNetworkStatus(null, settings, t), {
     label: "status.networkChecking", tone: "waiting",

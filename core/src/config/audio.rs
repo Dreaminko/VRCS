@@ -16,6 +16,7 @@ pub struct OutputConfig {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct PlayerAudioConfig {
+    pub enabled: bool,
     pub pagefile_drive: String,
     pub opus_library_path: String,
     /// Zero disables the concurrent-player limit; individual audio queues remain bounded.
@@ -32,6 +33,7 @@ pub struct PlayerAudioConfig {
 impl Default for PlayerAudioConfig {
     fn default() -> Self {
         Self {
+            enabled: false,
             pagefile_drive: "C:".into(),
             opus_library_path: String::new(),
             max_players: 0,
@@ -145,5 +147,42 @@ impl Default for VadConfig {
             silence_seconds: default_silence_seconds(),
             max_speech_seconds: default_max_speech_seconds(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn network_capture_master_defaults_off_and_accepts_legacy_parameters() {
+        let defaults = serde_json::to_value(PlayerAudioConfig::default()).unwrap();
+        assert_eq!(defaults["enabled"], false);
+
+        let legacy = serde_json::json!({
+            "pagefile_drive": "D:",
+            "opus_library_path": "custom-opus.dll",
+            "max_players": 3,
+            "max_visible_players": 2,
+            "selected_tracks": [],
+            "selected_user_names": {}
+        });
+        let config: PlayerAudioConfig = serde_json::from_value(legacy.clone()).unwrap();
+        let mut saved = serde_json::to_value(config).unwrap();
+        assert_eq!(
+            saved.as_object_mut().unwrap().remove("enabled"),
+            Some(false.into())
+        );
+        assert_eq!(saved, legacy);
+    }
+
+    #[test]
+    fn network_capture_master_persists_explicit_opt_in_and_rejects_non_boolean() {
+        let mut saved = serde_json::to_value(PlayerAudioConfig::default()).unwrap();
+        saved["enabled"] = true.into();
+        let config: PlayerAudioConfig = serde_json::from_value(saved.clone()).unwrap();
+        assert_eq!(serde_json::to_value(config).unwrap(), saved);
+        saved["enabled"] = "true".into();
+        assert!(serde_json::from_value::<PlayerAudioConfig>(saved).is_err());
     }
 }

@@ -39,6 +39,7 @@ export interface AudioOutputSettings {
 }
 
 export interface PlayerAudioSettings {
+  enabled?: boolean;
   pagefile_drive: string;
   opus_library_path: string;
   max_players: number;

@@ -72,6 +72,7 @@ mod tests {
     #[test]
     fn chatbox_toggle_and_text_only_do_not_preload_qwen() {
         let mut current = AppConfig::default();
+        current.audio.output.player_audio.enabled = true;
         current.asr.backend = QWEN_MANAGED_BACKEND.into();
         let mut candidate = current.clone();
         candidate.vrchat_chatbox.enabled = true;

@@ -20,8 +20,9 @@ pub(crate) struct NetworkConsumers {
 impl NetworkConsumers {
     pub(crate) fn from_config(config: &AppConfig) -> Self {
         Self {
-            voice: config.audio.output.mode == "vrchat_players",
-            chatbox: config.vrchat_chatbox.enabled,
+            voice: config.audio.output.player_audio.enabled
+                && config.audio.output.mode == "vrchat_players",
+            chatbox: config.audio.output.player_audio.enabled && config.vrchat_chatbox.enabled,
         }
     }
 
@@ -310,6 +311,54 @@ impl VrchatNetworkSession {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn network_capture_master_blocks_stale_consumer_preferences() {
+        let mut config = AppConfig::default();
+        config.audio.output.mode = "vrchat_players".into();
+        config.vrchat_chatbox.enabled = true;
+        assert_eq!(
+            NetworkConsumers::from_config(&config),
+            NetworkConsumers::default()
+        );
+    }
+
+    #[test]
+    fn network_capture_master_keeps_enabled_consumers_independent() {
+        let mut config = AppConfig::default();
+        config.audio.output.player_audio.enabled = true;
+        for (mode, chatbox, expected) in [
+            (
+                "vrchat_players",
+                true,
+                NetworkConsumers {
+                    voice: true,
+                    chatbox: true,
+                },
+            ),
+            (
+                "vrchat_players",
+                false,
+                NetworkConsumers {
+                    voice: true,
+                    chatbox: false,
+                },
+            ),
+            (
+                "vrchat",
+                true,
+                NetworkConsumers {
+                    voice: false,
+                    chatbox: true,
+                },
+            ),
+            ("system", false, NetworkConsumers::default()),
+        ] {
+            config.audio.output.mode = mode.into();
+            config.vrchat_chatbox.enabled = chatbox;
+            assert_eq!(NetworkConsumers::from_config(&config), expected);
+        }
+    }
 
     #[tokio::test]
     async fn subscriptions_are_independent_and_old_text_is_invalidated() {
