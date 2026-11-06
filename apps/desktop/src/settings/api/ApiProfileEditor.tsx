@@ -1,8 +1,9 @@
 import { Plus, Trash2 } from "lucide-react";
+import { useEffect, useRef, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
 import {
-  apiProfileDraftCanSave,
+  apiProfileDraftErrors,
   createApiProfileDraft,
   toggleDraftCapability,
   type ApiProfileEditorDraft,
@@ -20,7 +21,7 @@ import type {
   ProviderDefinition,
 } from "../../providers/types";
 import { Select } from "../SettingsControls";
-import { ApiCapabilitySelector } from "./ApiCapabilitySelector";
+import { ApiCapabilitySelector, type ApiCapabilityTests } from "./ApiCapabilitySelector";
 
 export type { ApiProfileEditorDraft } from "../../providers/api-profile-draft";
 
@@ -32,6 +33,11 @@ export function ApiProfileEditor({
   requireCredential = false,
   requiredCapability,
   floatingSelects = false,
+  error,
+  errorField,
+  warning,
+  capabilityTests,
+  capabilityFeedback,
   onChange,
   onSave,
   onCancel,
@@ -44,12 +50,24 @@ export function ApiProfileEditor({
   requireCredential?: boolean;
   requiredCapability?: ApiCapability;
   floatingSelects?: boolean;
+  error?: string;
+  errorField?: string;
+  warning?: string;
+  capabilityTests?: ApiCapabilityTests;
+  capabilityFeedback?: ReactNode;
   onChange: (draft: ApiProfileEditorDraft) => void;
   onSave: () => void;
   onCancel?: () => void;
   onRemoveCredential?: () => void;
 }) {
   const { t } = useTranslation();
+  const formRef = useRef<HTMLFormElement>(null);
+  useEffect(() => {
+    if (!errorField || saving) return;
+    const field = [...(formRef.current?.querySelectorAll<HTMLElement>("[data-profile-field]") ?? [])]
+      .find((element) => element.dataset.profileField === errorField);
+    field?.querySelector<HTMLElement>("input:not(:disabled), button:not(:disabled)")?.focus();
+  }, [errorField, saving]);
   const editing = Boolean(draft.id);
   const definition = providerDefinition(providerDefinitions, draft.provider);
   const availableCapabilities = providerCapabilities(definition);
@@ -57,12 +75,14 @@ export function ApiProfileEditor({
     ? providerDefinitions.filter((item) => providerCapabilities(item).includes(requiredCapability))
     : providerDefinitions;
   const credentialAvailable = credential?.configured || Boolean(draft.api_key.trim());
-  const canSave = (!requiredCapability || draft.enabled_capabilities.includes(requiredCapability)) && apiProfileDraftCanSave(
+  const errors = apiProfileDraftErrors(
     draft,
     definition,
     Boolean(credential?.configured),
     requireCredential,
-  ) && !saving;
+  );
+  const canSave = (!requiredCapability || draft.enabled_capabilities.includes(requiredCapability))
+    && Object.keys(errors).length === 0 && !saving;
   const providerOptions = groupedProviderOptions(eligibleDefinitions, {
     cloud_provider: t("settings.apiManagement.providerCategories.cloudProvider"),
     local_service: t("settings.apiManagement.providerCategories.localService"),
@@ -71,16 +91,17 @@ export function ApiProfileEditor({
   const showAdvancedHttp = definition?.category === "custom_protocol";
 
   return (
-    <form className="api-profile-editor" onSubmit={(event) => { event.preventDefault(); onSave(); }}>
+    <form ref={formRef} className="api-profile-editor" onSubmit={(event) => { event.preventDefault(); if (canSave) onSave(); }}>
       <div className="api-profile-editor-heading">
         <strong>{t(editing ? "settings.apiManagement.editProfile" : "settings.apiManagement.addProfile")}</strong>
       </div>
       <div className="api-profile-editor-content" data-floating-boundary>
         <div className="api-profile-form-grid">
-          <label className="field cloud-text-field">
+          <label className="field cloud-text-field" data-profile-field="name">
             <span>{t("settings.apiManagement.profileName")}</span>
             <input
               value={draft.name}
+              aria-invalid={errorField === "name"}
               maxLength={50}
               autoFocus
               disabled={saving}
@@ -106,22 +127,26 @@ export function ApiProfileEditor({
             }}
           />
 
-          {availableCapabilities.length > 1 && (
+          {(availableCapabilities.length > 1 || capabilityTests) && (
             <ApiCapabilitySelector
               available={availableCapabilities}
               enabled={draft.enabled_capabilities}
               disabled={saving}
               requiredCapability={requiredCapability}
               onToggle={(capability) => onChange(toggleDraftCapability(draft, capability))}
-            />
+              tests={capabilityTests}
+            >
+              {capabilityFeedback}
+            </ApiCapabilitySelector>
           )}
 
           {definition?.connection.base_url.mode === "editable" && (
-            <label className="field cloud-text-field api-compatible-url-field">
+            <label className="field cloud-text-field api-compatible-url-field" data-profile-field="base_url">
               <span>{t("settings.apiManagement.baseUrl")}</span>
               <input
                 type="url"
                 value={draft.base_url}
+                aria-invalid={Boolean(errors.base_url) || errorField === "base_url"}
                 disabled={saving}
                 spellCheck={false}
                 placeholder={definition.connection.base_url.default ?? "https://api.example.com/v1"}
@@ -136,6 +161,7 @@ export function ApiProfileEditor({
               field={field}
               value={draft.fields[field.id] ?? ""}
               disabled={saving}
+              invalid={Boolean(errors[field.id]) || errorField === field.id}
               floating={floatingSelects ? "dialog" : undefined}
               onChange={(value) => onChange({
                 ...draft,
@@ -154,12 +180,12 @@ export function ApiProfileEditor({
               }))}
               disabled={saving}
               floating={floatingSelects ? "dialog" : undefined}
-              onChange={(value) => onChange({ ...draft, auth_mode: value as ApiAuthMode })}
+              onChange={(value) => onChange({ ...draft, auth_mode: value as ApiAuthMode, api_key: value === "none" ? "" : draft.api_key })}
             />
           )}
 
-          {(showAdvancedHttp || definition?.id === "qwen_local") && (
-            <label className="field cloud-text-field">
+          {definition && (
+            <label className="field cloud-text-field" data-profile-field="timeout_ms">
               <span>{t("settings.apiManagement.timeout")}</span>
               <input
                 type="number"
@@ -167,6 +193,7 @@ export function ApiProfileEditor({
                 max={120000}
                 step={1000}
                 value={draft.timeout_ms}
+                aria-invalid={Boolean(errors.timeout_ms) || errorField === "timeout_ms"}
                 disabled={saving}
                 onChange={(event) => onChange({ ...draft, timeout_ms: Number(event.target.value) })}
               />
@@ -174,7 +201,7 @@ export function ApiProfileEditor({
           )}
 
           {draft.auth_mode !== "none" && (
-            <label className="field cloud-text-field api-profile-key-field">
+            <label className="field cloud-text-field api-profile-key-field" data-profile-field="api_key">
               <span>{t("settings.apiManagement.apiKey")}</span>
               <input
                 type="password"
@@ -187,7 +214,7 @@ export function ApiProfileEditor({
                   : requireCredential
                     ? t("onboarding.recognition.apiKeyRequired")
                     : t("settings.apiManagement.apiKeyOptional")}
-                aria-invalid={requireCredential && !credentialAvailable}
+                aria-invalid={(requireCredential && !credentialAvailable) || errorField === "api_key"}
                 onChange={(event) => onChange({ ...draft, api_key: event.target.value })}
               />
             </label>
@@ -195,7 +222,7 @@ export function ApiProfileEditor({
         </div>
 
         {showAdvancedHttp && (
-          <div className="api-profile-headers-field">
+          <div className="api-profile-headers-field" data-profile-field="headers" aria-invalid={Boolean(errors.headers) || errorField === "headers"}>
             <div className="api-profile-headers-heading">
               <span>{t("settings.apiManagement.customHeaders")}</span>
               <button className="secondary-button api-add-header-button" type="button" disabled={saving || draft.headers.length >= 16} onClick={() => onChange({
@@ -253,6 +280,15 @@ export function ApiProfileEditor({
         {draft.auth_mode !== "none" && credential?.environment_override && (
           <small className="api-environment-note">{t("settings.apiManagement.environmentManaged")}</small>
         )}
+        {Object.entries(errors).map(([field, key]) => (
+          <small className="api-model-catalog-error" key={field}>
+            {t(`settings.apiManagement.validation.${key}`, {
+              field: t(`settings.apiManagement.connectionFields.${field}`, { defaultValue: field }),
+            })}
+          </small>
+        ))}
+        {warning && <p className="api-environment-note" role="status">{warning}</p>}
+        {error && <p className="api-model-catalog-error" role="alert">{error}</p>}
       </div>
       <div className="api-profile-editor-actions">
         <div>
@@ -275,32 +311,36 @@ function ConnectionField({
   field,
   value,
   disabled,
+  invalid,
   floating,
   onChange,
 }: {
   field: ProviderConnectionField;
   value: string | number | boolean;
   disabled: boolean;
+  invalid: boolean;
   floating?: "dialog";
   onChange: (value: string | number | boolean) => void;
 }) {
   const { t } = useTranslation();
-  const label = field.label ?? (field.label_key ? t(field.label_key) : t(`settings.apiManagement.connectionFields.${field.id}`));
+  const label = t(field.label_key ?? `settings.apiManagement.connectionFields.${field.id}`, { defaultValue: field.label ?? field.id });
   if (field.type === "select" || field.options?.length) {
     return (
-      <Select
-        label={label}
-        value={String(value)}
-        options={(field.options ?? []).map((option) => ({ value: option.value, label: option.label }))}
-        disabled={disabled}
-        floating={floating}
-        onChange={onChange}
-      />
+      <div data-profile-field={field.id} aria-invalid={invalid}>
+        <Select
+          label={label}
+          value={String(value)}
+          options={(field.options ?? []).map((option) => ({ value: option.value, label: option.label }))}
+          disabled={disabled}
+          floating={floating}
+          onChange={onChange}
+        />
+      </div>
     );
   }
   if (field.type === "boolean") {
     return (
-      <div className={`field api-profile-local-field ${disabled ? "disabled" : ""}`}>
+      <div className={`field api-profile-local-field ${disabled ? "disabled" : ""}`} data-profile-field={field.id} aria-invalid={invalid}>
         <span>{label}</span>
         <div className="api-profile-local-control">
           <button
@@ -319,11 +359,12 @@ function ConnectionField({
     );
   }
   return (
-    <label className="field cloud-text-field">
+    <label className="field cloud-text-field" data-profile-field={field.id}>
       <span>{label}</span>
       <input
         type={field.type === "number" ? "number" : "text"}
         value={String(value)}
+        aria-invalid={invalid}
         min={field.min}
         max={field.max}
         step={field.step}

@@ -131,6 +131,8 @@ export function RecognitionStep({
             <ApiProfileEditor
               draft={apiEditor}
               saving={apiProfiles.busy === "create"}
+              error={apiProfiles.editorError}
+              errorField={apiProfiles.editorErrorField}
               providerDefinitions={apiProfiles.providerDefinitions}
               requireCredential
               requiredCapability="speech_to_text"

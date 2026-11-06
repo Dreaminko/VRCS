@@ -7,7 +7,8 @@ import {
   supportsRecognition,
   supportsTranslation,
 } from "../src/providers/api-profile-purpose.ts";
-import type { ApiCapability, ApiProfileView } from "../src/providers/types.ts";
+import { apiProfileDraftErrors, createApiProfileDraft } from "../src/providers/api-profile-draft.ts";
+import type { ApiCapability, ApiProfileView, ProviderDefinition } from "../src/providers/types.ts";
 
 function profileView(
   enabledCapabilities: ApiCapability[],
@@ -57,7 +58,7 @@ test("profile helpers use enabled capabilities", () => {
   assert.equal(supportsContext(view), true);
 });
 
-test("compatibility capability fields remain supported for older profile views", () => {
+test("provider capability flags cannot enable capabilities disabled in a profile", () => {
   const view = profileView([], {
     supports_asr: true,
     supports_translation: true,
@@ -65,7 +66,37 @@ test("compatibility capability fields remain supported for older profile views",
     supports_model_listing: true,
   });
 
-  assert.equal(supportsRecognition(view), true);
-  assert.equal(supportsTranslation(view), true);
-  assert.equal(supportsLlmModels(view), true);
+  assert.equal(supportsRecognition(view), false);
+  assert.equal(supportsTranslation(view), false);
+  assert.equal(supportsLlmModels(view), false);
+});
+
+test("translation and image profiles expose models without text generation", () => {
+  for (const capability of ["text_translation", "image_understanding"] as const) {
+    const view = profileView([capability], { supports_model_listing: true, supports_asr: true });
+    assert.equal(supportsLlmModels(view), true);
+    assert.equal(supportsRecognition(view), false);
+  }
+});
+
+test("profile drafts explain unsafe URLs and invalid custom headers before saving", () => {
+  const definition: ProviderDefinition = {
+    id: "openai_compatible", display_name: "Compatible", category: "custom_protocol",
+    connection: { base_url: { mode: "editable" }, auth_modes: ["bearer", "none"], default_auth_mode: "bearer", fields: [] },
+    services: [], support_levels: { asr: null, translation: null },
+    capabilities: profileView([]).capabilities,
+  };
+  const draft = {
+    ...createApiProfileDraft([definition]), base_url: "https://example.com/v1",
+    enabled_capabilities: ["text_translation"] as ApiCapability[],
+    headers: [{ name: "X-Client", value: "VRCS" }],
+  };
+  const errors = (patch: Partial<typeof draft>) => apiProfileDraftErrors({ ...draft, ...patch }, definition, false, false);
+  assert.deepEqual(errors({}), {});
+  assert.equal(errors({ base_url: "http://example.com/v1" }).base_url, "httpsRequired");
+  assert.equal(errors({ base_url: "https://example.com/v1?" }).base_url, "baseUrl");
+  assert.deepEqual(errors({ base_url: "http://127.0.0.1:8000/v1" }), {});
+  assert.equal(errors({ headers: [{ name: "Authorization", value: "secret" }] }).headers, "headerName");
+  assert.equal(errors({ headers: [...draft.headers, { name: "x-client", value: "duplicate" }] }).headers, "headerDuplicate");
+  assert.equal(errors({ headers: [{ name: "X-Client", value: "injected\r\nheader" }] }).headers, "headerValue");
 });

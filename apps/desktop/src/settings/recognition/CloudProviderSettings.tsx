@@ -1,9 +1,8 @@
 import { useEffect, useState } from "react";
-import { HardDrive, RefreshCw } from "lucide-react";
+import { HardDrive } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { providersApi } from "../../providers/api";
-import { localizedError } from "../../app/app-utils";
 import {
   liveTranslationServiceName,
   currentRecognitionProfile,
@@ -75,31 +74,28 @@ export function CloudProviderSettings({
     : { model: "", context: "" };
   const [discoveredModels, setDiscoveredModels] = useState<string[]>([]);
   const [modelsLoading, setModelsLoading] = useState(false);
-  const [modelsError, setModelsError] = useState("");
 
   useEffect(() => {
     if (!selectedProfile || !service?.model_listing) {
       setDiscoveredModels([]);
       setModelsLoading(false);
-      setModelsError("");
       return;
     }
     let cancelled = false;
     setDiscoveredModels([]);
     setModelsLoading(true);
-    setModelsError("");
     void providersApi.recognitionServiceModels(selectedProfile.id, service.id).then(
       (response) => {
         if (!cancelled) setDiscoveredModels(response.models);
       },
-      (reason) => {
-        if (!cancelled) setModelsError(localizedError(reason, t, "errors.apiProfiles.models"));
+      () => {
+        if (!cancelled) setDiscoveredModels([]);
       },
     ).finally(() => {
       if (!cancelled) setModelsLoading(false);
     });
     return () => { cancelled = true; };
-  }, [selectedProfile?.id, service?.id, service?.model_listing, t]);
+  }, [selectedProfile?.id, service?.id, service?.model_listing]);
 
   const models = discoveredModels.length ? discoveredModels : service?.models ?? [];
   const updateServiceSettings = (update: Partial<{ model: string; context: string }>) => {
@@ -143,13 +139,6 @@ export function CloudProviderSettings({
             />
           </label>
         )}
-        {service?.model_listing && (
-          <small className={`cloud-api-hint${modelsError ? " api-model-catalog-error" : ""}`}>
-            {modelsLoading && <RefreshCw className="spin" size={12} />} {modelsLoading
-              ? t("settings.apiManagement.loadingModels")
-              : modelsError || t("settings.apiManagement.modelsAvailable", { count: models.length })}
-          </small>
-        )}
         {service?.supports_context && (
           <AsrContextField
             value={settings.context}
@@ -164,9 +153,6 @@ export function CloudProviderSettings({
           onChange={(value) => onUpdateAsr("language", value)}
         />
         {Boolean(liveTranslationServiceName(service?.id)) && <div className="cloud-transport-hint" role="note"><strong>{liveTranslationServiceName(service?.id)}</strong><small>{t("settings.translation.liveTranslateHint")}</small><small>{t("settings.translation.liveTranslatePreview")}</small></div>}
-        {selectedProfile && <small className="cloud-api-hint">{selectedProfile.provider === "qwen_local"
-          ? t("settings.recognition.selectedLocalQwenHint", { name: selectedProfile.name })
-          : t("settings.recognition.selectedApiHint", { name: selectedProfile.name })}</small>}
       </div>
     </div>
   );

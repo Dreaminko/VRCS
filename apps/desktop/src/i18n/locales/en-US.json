@@ -1480,6 +1480,7 @@
         },
         "profileCreated": "API connection added.",
         "profileSaved": "API connection saved.",
+        "refreshFailed": "The page data could not be refreshed. Reopen settings to load the latest state.",
         "profileActivated": "Set as this provider's default transcription API.",
         "profileDeleted": "API connection deleted.",
         "credentialRemoved": "API key removed.",
@@ -1504,7 +1505,8 @@
             "authentication": "Authentication",
             "models": "Model list",
             "completion": "Standard generation",
-            "streaming": "Streaming generation"
+            "streaming": "Streaming generation",
+            "recognition": "Speech recognition"
           },
           "status": {
             "passed": "Passed",
@@ -1532,9 +1534,50 @@
         },
         "refreshModels": "Refresh models",
         "loadingModels": "Loading available models…",
-        "modelsAvailable": "Loaded {{count}} models",
         "modelsUnavailable": "No models were returned; you can still enter a model name manually.",
-        "environmentManaged": "The current key comes from an environment variable. Change or remove it outside the app."
+        "environmentManaged": "The current key comes from an environment variable. Change or remove it outside the app.",
+        "usedBy": "Linked features: {{features}}",
+        "affectedFeatures": "This will disable or clear settings for: {{features}}. ",
+        "testLatency": "Test duration: {{ms}} ms",
+        "usages": {
+          "transcription": "transcription",
+          "translation": "speaker / microphone translation",
+          "ocr_translation": "OCR translation",
+          "language_preset": "language preset translation",
+          "vision": "visual questions",
+          "vision_asr": "vision speech recognition",
+          "conversation_titles": "automatic conversation titles",
+          "model_default_text": "Default text model",
+          "model_default_vision": "Default vision model",
+          "learning_ai": "Learning AI"
+        },
+        "profileStatus": {
+          "unsupported": "This provider is unavailable. You can delete this profile.",
+          "credential_error": "Could not read system credentials. Check the credential manager and try again."
+        },
+        "validation": {
+          "provider": "Select a provider.",
+          "capabilities": "Enable at least one capability.",
+          "baseUrl": "Enter a valid HTTP / HTTPS URL without credentials, a query, or a fragment.",
+          "httpsRequired": "Remote services with Bearer authentication require HTTPS.",
+          "apiKey": "Enter an API key.",
+          "timeout": "The timeout must be an integer from 1000 to 120000 milliseconds.",
+          "required": "Enter {{field}}.",
+          "headerCount": "Add no more than 16 headers.",
+          "headerName": "A header name is invalid or cannot be customized.",
+          "headerDuplicate": "Header names must be unique.",
+          "headerValue": "Header values must contain at most 2048 bytes and no control characters."
+        },
+        "testCapability": "Test capability",
+        "saveBeforeTest": "Save your changes before testing this API connection.",
+        "testModel": "Test model",
+        "automaticModel": "Use a configured or recommended model",
+        "imageModelRequired": "Enter an image-capable model name",
+        "testText": "Test text generation",
+        "testImage": "Test image understanding",
+        "cancelTest": "Cancel test",
+        "testCancelled": "Test cancelled.",
+        "appliedEffects": "Disabled or cleared settings for: {{features}}."
       },
       "recognition": {
         "title": "Speech recognition",
@@ -1571,8 +1614,6 @@
           "realtime_stream": "Real-time stream",
           "segmented_upload": "Segmented upload"
         },
-        "selectedApiHint": "Using the “{{name}}” API connection. Manage its details and key under API access.",
-        "selectedLocalQwenHint": "Using the local Qwen ASR connection “{{name}}”. Change its address under API access. VRCS sends audio to that service; the service controls any further processing.",
         "cloudDescription": "Audio is sent only while speech is detected.",
         "region": "Service region",
         "context": "Recognition context",
@@ -2096,6 +2137,7 @@
         "tls_failed": "TLS validation failed for the LLM service.",
         "path_not_found": "The LLM API path does not exist.",
         "models_unsupported": "The service does not support model listing.",
+        "test_model_unavailable": "The API model list has no available model that matches this test capability. Refresh models and try again.",
         "model_required": "Enter an LLM model name.",
         "sse_incompatible": "The service streaming response is incompatible.",
         "invalid_request": "The LLM request is invalid.",
@@ -2215,6 +2257,14 @@
       },
       "auth": {
         "unauthorized": "The local session is not authorized."
+      },
+      "profile": {
+        "credential_reconfirm_required": "The connection host or port changed. Enter the API key again. For a key managed by an environment variable, update the environment configuration first.",
+        "not_found": "The API profile does not exist.",
+        "invalid": "The API profile is invalid. Check its name, capabilities, and connection settings.",
+        "credential_missing": "This API profile has no key.",
+        "credential_store_failed": "Could not read or write system credentials. Check the credential manager and try again.",
+        "credential_environment_managed": "The key is managed by an environment variable. Change or remove it outside the app."
       }
     },
     "visionWindow": {

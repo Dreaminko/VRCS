@@ -1,5 +1,6 @@
 import { AudioLines, Languages, Sparkles, Image, type LucideIcon } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import type { ReactNode } from "react";
 
 import type { ApiCapability } from "../../providers/types";
 
@@ -13,18 +14,24 @@ const CAPABILITY_OPTIONS: ReadonlyArray<{
   { id: "image_understanding", icon: Image },
 ];
 
+export type ApiCapabilityTests = Partial<Record<ApiCapability, ReactNode>>;
+
 export function ApiCapabilitySelector({
   available,
   enabled,
   disabled,
   requiredCapability,
   onToggle,
+  tests,
+  children,
 }: {
   available: ApiCapability[];
   enabled: ApiCapability[];
   disabled: boolean;
   requiredCapability?: ApiCapability;
   onToggle: (capability: ApiCapability) => void;
+  tests?: ApiCapabilityTests;
+  children?: ReactNode;
 }) {
   const { t } = useTranslation();
   const options = CAPABILITY_OPTIONS.filter(({ id }) => available.includes(id));
@@ -52,21 +59,25 @@ export function ApiCapabilitySelector({
                 </span>
                 <small>{t(`settings.apiManagement.capabilities.${id}_description`)}</small>
               </span>
-              <button
-                className="settings-switch-button api-profile-capability-switch"
-                type="button"
-                role="switch"
-                aria-checked={checked}
-                aria-label={label}
-                disabled={controlDisabled}
-                onClick={() => onToggle(id)}
-              >
-                <span className="switch-track" aria-hidden="true"><span /></span>
-              </button>
+              <div className="api-profile-capability-actions">
+                {tests?.[id]}
+                <button
+                  className="settings-switch-button api-profile-capability-switch"
+                  type="button"
+                  role="switch"
+                  aria-checked={checked}
+                  aria-label={label}
+                  disabled={controlDisabled}
+                  onClick={() => onToggle(id)}
+                >
+                  <span className="switch-track" aria-hidden="true"><span /></span>
+                </button>
+              </div>
             </div>
           );
         })}
       </div>
+      {children}
     </fieldset>
   );
 }

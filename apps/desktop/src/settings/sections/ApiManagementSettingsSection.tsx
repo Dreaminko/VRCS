@@ -1,12 +1,8 @@
-import { Check, Cloud, KeyRound, Pencil, Plus, RefreshCw, Trash2 } from "lucide-react";
-import { useRef, useState, type RefObject } from "react";
+import { Check, Cloud, FlaskConical, KeyRound, Pencil, Plus, RefreshCw, Square, Trash2 } from "lucide-react";
+import { useRef, useState, type ReactNode, type RefObject } from "react";
 import { useTranslation } from "react-i18next";
 
-import {
-  supportsLlmModels,
-  supportsRecognition,
-  supportsTranslation,
-} from "../../providers/api-profile-purpose";
+import { supportsLlmModels } from "../../providers/api-profile-purpose";
 import {
   apiProfileDraftFromView,
   apiProfileFromEditorDraft,
@@ -16,14 +12,17 @@ import {
 import { profileEnabledCapabilities, providerDefinition, providerDetail } from "../../providers/provider-catalog";
 import { providerIcon } from "../../providers/provider-icon";
 import { recognitionServicesForProfile, selectRecognitionProfile } from "../../providers/recognition-services";
-import { translationDiagnosticModel } from "../../translation/translation-model-selection";
+import { localizedLanguageName } from "../../translation/translation-languages";
 import type {
+  ApiCapability,
   ApiProfileView,
+  ApiProfileUsage,
   ProviderDefinition,
 } from "../../providers/types";
 import type { Settings } from "../types";
 import { ConfirmDialog } from "../../app/components/ConfirmDialog";
 import { ApiProfileEditor } from "../api/ApiProfileEditor";
+import type { ApiCapabilityTests } from "../api/ApiCapabilitySelector";
 import { SettingsDialog } from "../components/SettingsDialog";
 import { useApiProfiles } from "../useApiProfiles";
 
@@ -40,6 +39,11 @@ function ApiProfileEditorDialog({
   saving,
   credential,
   providerDefinitions,
+  error,
+  errorField,
+  warning,
+  capabilityTests,
+  capabilityFeedback,
   returnFocusRef,
   onChange,
   onSave,
@@ -50,6 +54,11 @@ function ApiProfileEditorDialog({
   saving: boolean;
   credential?: ApiProfileView["credential"];
   providerDefinitions: ProviderDefinition[];
+  error: string;
+  errorField?: string;
+  warning: string;
+  capabilityTests?: ApiCapabilityTests;
+  capabilityFeedback?: ReactNode;
   returnFocusRef: RefObject<HTMLButtonElement | null>;
   onChange: (draft: ApiProfileEditorDraft) => void;
   onSave: () => void;
@@ -70,6 +79,11 @@ function ApiProfileEditorDialog({
         credential={credential}
         providerDefinitions={providerDefinitions}
         floatingSelects
+        error={error}
+        errorField={errorField}
+        warning={warning}
+        capabilityTests={capabilityTests}
+        capabilityFeedback={capabilityFeedback}
         onChange={onChange}
         onSave={onSave}
         onCancel={onClose}
@@ -82,45 +96,115 @@ function ApiProfileEditorDialog({
 export function ApiManagementSettingsSection({
   settings,
   onRefreshSettings,
+  embedded = false,
 }: {
   settings: Settings;
   onRefreshSettings: () => Promise<void>;
+  embedded?: boolean;
 }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const profiles = useApiProfiles(onRefreshSettings);
   const [editor, setEditor] = useState<ApiProfileEditorDraft | null>(null);
+  const [testingCapability, setTestingCapability] = useState<ApiCapability | null>(null);
   const [pendingRemoval, setPendingRemoval] = useState<{
     profile: ApiProfileView;
     message: string;
   } | null>(null);
+  const [pendingUpdate, setPendingUpdate] = useState<{ draft: ApiProfileEditorDraft; message: string } | null>(null);
   const [removing, setRemoving] = useState(false);
   const editorTriggerRef = useRef<HTMLButtonElement>(null);
   const removalTriggerRef = useRef<HTMLButtonElement>(null);
-  const locked = profiles.busy !== null;
+  const locked = profiles.isBusy("create");
   const editingProfile = editor?.id
     ? profiles.profiles.find((profile) => profile.id === editor.id)
     : undefined;
+  const testableCapabilities = editingProfile ? profileEnabledCapabilities(editingProfile).filter(
+    (capability) => capability !== "speech_to_text"
+      || recognitionServicesForProfile(editingProfile, profiles.providerDefinitions).length > 0,
+  ) : [];
+  const testBusy = Boolean(editingProfile && profiles.isBusy(editingProfile.id));
+  const testRequiresSave = Boolean(editingProfile && editor && (editor.api_key.trim()
+    || JSON.stringify(apiProfileFromEditorDraft(editor)) !== JSON.stringify(apiProfileFromEditorDraft(
+      apiProfileDraftFromView(editingProfile, profiles.providerDefinitions),
+    ))));
+  const credentialReadyForTest = editingProfile && (!editingProfile.capabilities.requires_api_key || editingProfile.credential.configured);
+  const editorModels = editingProfile ? profiles.modelCatalogs[editingProfile.id] : undefined;
+  const capabilityTests: ApiCapabilityTests | undefined = editingProfile && editor
+    ? Object.fromEntries(testableCapabilities.map((capability) => {
+      const label = capability === "speech_to_text" ? "testAsr" : capability === "text_translation" ? "testTranslation"
+        : capability === "image_understanding" ? "testImage" : "testText";
+      const testing = profiles.isTesting(editingProfile.id) && testingCapability === capability;
+      const actionLabel = t(`settings.apiManagement.${testing ? "cancelTest" : label}`);
+      return [capability,
+        <button className="api-row-icon-button api-profile-test-button" type="button"
+          aria-label={actionLabel}
+          data-tooltip={actionLabel}
+          disabled={!testing && (testBusy || testRequiresSave || !credentialReadyForTest
+            || !editor.enabled_capabilities.includes(capability))}
+          onClick={() => {
+            if (testing) { profiles.cancelTest(editingProfile.id); return; }
+            setTestingCapability(capability);
+            void profiles.test(editingProfile.id, capability,
+              capability === "speech_to_text" ? selectRecognitionProfile(
+                settings.asr, editingProfile.id, profiles.profiles, profiles.providerDefinitions,
+              ).backend : undefined);
+          }}
+        >{testing ? <Square size={15} aria-hidden="true" /> : <FlaskConical size={15} aria-hidden="true" />}</button>,
+      ];
+    })) : undefined;
+  const usageLabel = (usage: ApiProfileUsage) => {
+    const details = [
+      usage.preset_name,
+      usage.scope === "model_selection" ? t("settings.modelAssignments.models")
+        : usage.scope ? t(`settings.translation.contextSources.${usage.scope}`) : "",
+      usage.index !== undefined ? `#${usage.index + 1}` : "",
+      usage.target_language ? localizedLanguageName(usage.target_language, i18n.language) : "",
+    ].filter(Boolean).join(" · ");
+    return t(`settings.apiManagement.usages.${usage.kind}`) + (details ? ` (${details})` : "");
+  };
+  const affectedFeatures = (editingProfile?.usages ?? [])
+    .filter((usage) => editor && !editor.enabled_capabilities.includes(usage.capability))
+    .map(usageLabel).join(", ");
 
-  const saveEditor = async () => {
-    if (!editor) return;
-    const profile = apiProfileFromEditorDraft(editor);
-    const saved = editor.id
-      ? await profiles.update({ id: editor.id, ...profile }, editor.api_key)
-      : await profiles.create(profile, editor.api_key);
+  const commitEditor = async (draft: ApiProfileEditorDraft) => {
+    const profile = apiProfileFromEditorDraft(draft);
+    const saved = draft.id
+      ? await profiles.update({ id: draft.id, ...profile }, draft.api_key)
+      : await profiles.create(profile, draft.api_key);
     if (saved) setEditor(null);
   };
 
-  const requestRemoval = (profile: ApiProfileView, button: HTMLButtonElement) => {
-    const affectsTranscription = settings.asr.active_profile_id === profile.id;
-    const affectsTranslation = profile.translation_active;
-    const impact = affectsTranscription && affectsTranslation
-      ? t("settings.apiManagement.deleteImpacts.transcriptionAndTranslation")
-      : affectsTranscription
-        ? t("settings.apiManagement.deleteImpacts.transcription")
-        : affectsTranslation
-          ? t("settings.apiManagement.deleteImpacts.translation")
-          : "";
+  const saveEditor = async () => {
+    if (!editor) return;
+    if (editor.id) {
+      const preview = await profiles.previewUpdate({ id: editor.id, ...apiProfileFromEditorDraft(editor) }, editor.api_key);
+      if (!preview) return;
+      if (preview.side_effects.length) {
+        setPendingUpdate({
+          draft: editor,
+          message: t("settings.apiManagement.affectedFeatures", { features: preview.side_effects.map(usageLabel).join(", ") }),
+        });
+        return;
+      }
+    }
+    await commitEditor(editor);
+  };
+
+  const confirmUpdate = async () => {
+    if (!pendingUpdate) return;
+    try {
+      await commitEditor(pendingUpdate.draft);
+    } finally {
+      setPendingUpdate(null);
+    }
+  };
+
+  const requestRemoval = async (profile: ApiProfileView, button: HTMLButtonElement) => {
     removalTriggerRef.current = button;
+    const preview = await profiles.previewDeletion(profile.id);
+    if (!preview) return;
+    const features = preview.side_effects.map(usageLabel).join(", ");
+    const impact = features ? t("settings.apiManagement.affectedFeatures", { features }) : "";
     setPendingRemoval({
       profile,
       message: t("settings.apiManagement.confirmDelete", { name: profile.name, impact }),
@@ -141,7 +225,7 @@ export function ApiManagementSettingsSection({
   };
 
   return (
-    <div className="settings-section settings-section-active api-section" id="settings-panel-api" role="tabpanel" aria-labelledby="settings-tab-api">
+    <div className="settings-section settings-section-active api-section" id={embedded ? undefined : "settings-panel-api"} role={embedded ? undefined : "tabpanel"} aria-labelledby={embedded ? undefined : "settings-tab-api"}>
       <div className="section-heading">
         <div><KeyRound size={18} /><h2>{t("settings.apiManagement.title")}</h2></div>
         <button
@@ -150,6 +234,7 @@ export function ApiManagementSettingsSection({
           disabled={locked || Boolean(editor)}
           onClick={(event) => {
             editorTriggerRef.current = event.currentTarget;
+            profiles.clearEditorError();
             setEditor(createApiProfileDraft(profiles.providerDefinitions));
           }}
         >
@@ -169,34 +254,18 @@ export function ApiManagementSettingsSection({
         )}
         {profiles.profiles.map((profile) => {
           const definition = providerDefinition(profiles.providerDefinitions, profile.provider);
+          const locked = profiles.isBusy(profile.id);
+          const unavailable = Boolean(profile.status && profile.status !== "ready");
           const recognitionServices = recognitionServicesForProfile(profile, profiles.providerDefinitions);
-          const recognitionCapable = supportsRecognition(profile) && recognitionServices.length > 0;
-          const activationServiceId = selectRecognitionProfile(
-            settings.asr,
-            profile.id,
-            profiles.profiles,
-            profiles.providerDefinitions,
-          ).backend;
-          const translationCapable = supportsTranslation(profile);
           const supportsModels = supportsLlmModels(profile);
           const profileSupportLevel = supportLevel(profile);
           const modelCatalog = profiles.modelCatalogs[profile.id];
-          const diagnostic = profiles.diagnostics[profile.id];
           const credentialReady = !profile.capabilities.requires_api_key
             || profile.credential.configured;
-          const transcriptionActive = settings.asr.active_profile_id === profile.id
-            && recognitionServices.some((service) => service.id === settings.asr.backend);
+          const transcriptionActive = profile.active ?? (settings.asr.active_profile_id === profile.id
+            && recognitionServices.some((service) => service.id === settings.asr.backend));
           const translationActive = profile.translation_active
             && settings.translation.mode !== "disabled";
-          const translationTestModel = translationActive
-            ? translationDiagnosticModel(
-              profile,
-              modelCatalog,
-              settings.translation.speaker_targets.find(
-                (target) => target.profile_id === profile.id,
-              )?.model ?? "",
-            )
-            : undefined;
           const detail = providerDetail(profile, definition);
           const Logo = providerIcon(profile);
           const initial = (definition?.display_name ?? profile.provider_display_name ?? profile.provider)
@@ -219,45 +288,29 @@ export function ApiManagementSettingsSection({
                   <span>
                     <strong>{profile.name}</strong>
                     <small>{definition?.display_name ?? profile.provider_display_name ?? profile.provider} · {capabilityLabels}{profileSupportLevel ? ` · ${t(`settings.apiManagement.supportLevels.${profileSupportLevel}`)}` : ""}{detail ? ` · ${detail}` : ""}</small>
-                    {supportsModels && modelCatalog && (
-                      <small className={modelCatalog.error ? "api-model-catalog-error" : ""}>
-                        {modelCatalog.loading
-                          ? t("settings.apiManagement.loadingModels")
-                          : modelCatalog.error
-                            ? modelCatalog.error
-                            : modelCatalog.models.length
-                              ? t("settings.apiManagement.modelsAvailable", { count: modelCatalog.models.length })
-                              : t("settings.apiManagement.modelsUnavailable")}
-                      </small>
-                    )}
-                    {diagnostic?.checks?.map((check) => (
-                      <small className={check.status === "failed" ? "api-model-catalog-error" : ""} key={check.name}>
-                        {t(`settings.apiManagement.diagnostics.checks.${check.name}`)}: {t(`settings.apiManagement.diagnostics.status.${check.status}`)}
-                        {check.code ? ` · ${t(`settings.apiManagement.diagnostics.codes.${check.code.replaceAll(".", "_")}`, { defaultValue: check.detail ?? check.code })}` : ""}
-                      </small>
-                    ))}
+                    {unavailable && <small className="api-model-catalog-error">{t(`settings.apiManagement.profileStatus.${profile.status}`)}</small>}
+                    {profiles.rowMessages[profile.id] && <small role="status">{profiles.rowMessages[profile.id]}</small>}
+                    {modelCatalog?.error && <small className="api-model-catalog-error">{modelCatalog.error}</small>}
                   </span>
                 </div>
                 <div className="api-profile-actions">
-                  {transcriptionActive ? (
+                  {!unavailable && <>
+                  {transcriptionActive && (
                     <span className="api-active-badge"><Check size={13} aria-hidden="true" />{t("settings.apiManagement.transcriptionActive")}</span>
-                  ) : recognitionCapable ? (
-                    <button className="secondary-button" type="button" disabled={locked || !credentialReady} onClick={() => void profiles.activate(profile.id, activationServiceId)}>{t("settings.apiManagement.setDefault")}</button>
-                  ) : null}
+                  )}
                   {translationActive && <span className="api-active-badge"><Check size={13} aria-hidden="true" />{t("settings.apiManagement.translationActive")}</span>}
                   {supportsModels && (
                     <button
-                      className="secondary-button"
+                      className="api-row-icon-button"
                       type="button"
+                      aria-label={t("settings.apiManagement.refreshModels")}
+                      data-tooltip={t("settings.apiManagement.refreshModels")}
                       disabled={locked || !credentialReady || modelCatalog?.loading}
                       onClick={() => void profiles.refreshModels(profile.id)}
                     >
-                      <RefreshCw className={modelCatalog?.loading ? "spin" : ""} size={14} />
-                      {t("settings.apiManagement.refreshModels")}
+                      <RefreshCw className={modelCatalog?.loading ? "spin" : ""} size={15} aria-hidden="true" />
                     </button>
                   )}
-                  {recognitionCapable && <button className="secondary-button" type="button" disabled={profiles.busy !== null || !credentialReady} onClick={() => void profiles.test(profile.id, "speech_to_text", activationServiceId)}>{t("settings.apiManagement.testAsr")}</button>}
-                  {translationCapable && <button className="secondary-button" type="button" disabled={profiles.busy !== null || !credentialReady} onClick={() => void profiles.test(profile.id, "text_translation", undefined, translationTestModel)}>{t("settings.apiManagement.testTranslation")}</button>}
                   <button
                     className="api-row-icon-button"
                     type="button"
@@ -265,12 +318,14 @@ export function ApiManagementSettingsSection({
                     disabled={locked || Boolean(editor)}
                     onClick={(event) => {
                       editorTriggerRef.current = event.currentTarget;
+                      profiles.clearEditorError();
                       setEditor(apiProfileDraftFromView(profile, profiles.providerDefinitions));
                     }}
                   >
                     <Pencil size={15} />
                   </button>
-                  <button className="api-row-icon-button danger" type="button" aria-label={t("common.delete")} disabled={locked} onClick={(event) => requestRemoval(profile, event.currentTarget)}><Trash2 size={15} /></button>
+                  </>}
+                  <button className="api-row-icon-button danger" type="button" aria-label={t("common.delete")} disabled={locked} onClick={(event) => void requestRemoval(profile, event.currentTarget)}><Trash2 size={15} /></button>
                 </div>
             </section>
           );
@@ -279,11 +334,22 @@ export function ApiManagementSettingsSection({
       {editor && (
         <ApiProfileEditorDialog
           draft={editor}
-          saving={profiles.busy === (editor.id ?? "create")}
+          saving={profiles.isBusy(editor.id ?? "create")}
+          error={profiles.editorError}
+          errorField={profiles.editorErrorField}
+          warning={affectedFeatures ? t("settings.apiManagement.affectedFeatures", { features: affectedFeatures }) : ""}
+          capabilityTests={capabilityTests}
+          capabilityFeedback={editingProfile && (
+            <div className="api-profile-tests">
+              {testRequiresSave && <small className="api-environment-note">{t("settings.apiManagement.saveBeforeTest")}</small>}
+              {profiles.rowMessages[editingProfile.id] && <small className="api-environment-note" role="status">{profiles.rowMessages[editingProfile.id]}</small>}
+              {editorModels?.error && <small className="api-model-catalog-error">{editorModels.error}</small>}
+            </div>
+          )}
           credential={editingProfile?.credential}
           providerDefinitions={profiles.providerDefinitions}
           returnFocusRef={editorTriggerRef}
-          onChange={setEditor}
+          onChange={(draft) => { profiles.clearEditorError(); setEditor(draft); }}
           onSave={() => void saveEditor()}
           onClose={() => setEditor(null)}
           onRemoveCredential={editingProfile
@@ -301,6 +367,16 @@ export function ApiManagementSettingsSection({
           returnFocusRef={removalTriggerRef}
           onClose={() => setPendingRemoval(null)}
           onConfirm={confirmRemoval}
+        />
+      )}
+      {pendingUpdate && (
+        <ConfirmDialog
+          title={t("settings.apiManagement.editProfile")}
+          message={pendingUpdate.message}
+          confirmLabel={t("common.save")}
+          busy={profiles.isBusy(pendingUpdate.draft.id ?? "create")}
+          onClose={() => setPendingUpdate(null)}
+          onConfirm={confirmUpdate}
         />
       )}
       {profiles.message && <small className="api-credential-message" role="status">{profiles.message}</small>}

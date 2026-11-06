@@ -10,8 +10,11 @@ export function supportsTranslation(profile: ApiProfileView): boolean {
 }
 
 export function supportsLlmModels(profile: ApiProfileView): boolean {
-  return profileSupportsCapability(profile, "text_generation")
-    && profile.capabilities.supports_model_listing;
+  return profile.capabilities.supports_model_listing && (
+    profileSupportsCapability(profile, "text_generation")
+    || profileSupportsCapability(profile, "text_translation")
+    || profileSupportsCapability(profile, "image_understanding")
+  );
 }
 
 export function supportsContext(profile: ApiProfileView): boolean {

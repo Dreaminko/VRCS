@@ -56,7 +56,7 @@ export interface ProviderSupportLevels {
 }
 
 export interface ProviderConnectionField {
-  id: string;
+  id: "region" | "workspace_id";
   label?: string;
   label_key?: string;
   type?: "text" | "select" | "boolean" | "number";
@@ -101,6 +101,7 @@ export interface ProviderDefinition {
   support_levels: ProviderSupportLevels;
   capabilities: ProviderCapabilities;
   presets?: ProviderPreset[];
+  diagnostic_models?: string[];
 }
 
 export interface ApiProfileInput {
@@ -129,11 +130,25 @@ export interface ApiProfileView extends ApiProfile {
   credential: CredentialStatus;
   capabilities: ProviderCapabilities;
   support_levels: ProviderSupportLevels;
+  usages?: ApiProfileUsage[];
+  side_effects?: ApiProfileUsage[];
+  status?: "ready" | "unsupported" | "credential_error";
+}
+
+export interface ApiProfileUsage {
+  kind: "transcription" | "translation" | "ocr_translation" | "language_preset" | "vision" | "vision_asr" | "conversation_titles" | "model_default_text" | "model_default_vision" | "learning_ai";
+  capability: ApiCapability;
+  scope?: "speaker" | "microphone" | "model_selection";
+  index?: number;
+  target_language?: string;
+  preset_id?: string;
+  preset_name?: string;
 }
 
 export interface ApiModelCatalog {
   models: string[];
   model_details?: Record<string, ApiModelDetails>;
+  updated_at?: number | null;
 }
 
 export interface ApiModelDetails {
@@ -162,7 +177,7 @@ export interface ApiModelDetails {
 }
 
 export interface ConnectionDiagnosticCheck {
-  name: "configuration" | "endpoint" | "authentication" | "models" | "completion" | "streaming";
+  name: "configuration" | "endpoint" | "authentication" | "models" | "completion" | "streaming" | "recognition";
   status: "passed" | "warning" | "failed" | "skipped";
   code?: string;
   detail?: string;

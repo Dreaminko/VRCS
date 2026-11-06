@@ -2,16 +2,15 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { providersApi } from "../providers/api";
-import { supportsLlmModels } from "../providers/api-profile-purpose";
 import { localizedError } from "../app/app-utils";
-import { notifyApiProfilesChanged } from "../providers/api-profile-events";
+import { ApiError } from "../core-client/api-error";
+import { refreshApiProfileCatalog, useApiProfileCatalog } from "../providers/useApiProfileCatalog";
+import { supportsLlmModels } from "../providers/api-profile-purpose";
 import type {
   ApiCapability,
   ApiProfile,
   ApiProfileInput,
-  ApiProfileView,
-  ConnectionDiagnostic,
-  ProviderDefinition,
+  ApiProfileUsage,
 } from "../providers/types";
 
 export interface ApiModelCatalogState {
@@ -22,34 +21,23 @@ export interface ApiModelCatalogState {
 
 export function useApiProfiles(onRefreshSettings: () => Promise<void>) {
   const { t } = useTranslation();
-  const [profiles, setProfiles] = useState<ApiProfileView[]>([]);
-  const [providerDefinitions, setProviderDefinitions] = useState<ProviderDefinition[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [busy, setBusy] = useState<string | null>(null);
+  const catalog = useApiProfileCatalog();
+  const [busyKeys, setBusyKeys] = useState(new Set<string>());
+  const operations = useRef(new Set<string>());
   const [message, setMessage] = useState("");
+  const [editorError, setEditorError] = useState("");
+  const [editorErrorField, setEditorErrorField] = useState<string>();
+  const [rowMessages, setRowMessages] = useState<Record<string, string>>({});
   const [modelCatalogs, setModelCatalogs] = useState<Record<string, ApiModelCatalogState>>({});
-  const [diagnostics, setDiagnostics] = useState<Record<string, ConnectionDiagnostic>>({});
-  const requestedModels = useRef(new Set<string>());
   const profileVersions = useRef(new Map<string, number>());
+  const testControllers = useRef(new Map<string, AbortController>());
+  const [testing, setTesting] = useState(new Set<string>());
 
-  const load = useCallback(async () => {
-    const [profileResponse, providerResponse] = await Promise.all([
-      providersApi.apiProfiles(),
-      providersApi.providers(),
-    ]);
-    setProfiles(profileResponse.profiles);
-    setProviderDefinitions(providerResponse.providers);
+  useEffect(() => () => {
+    testControllers.current.forEach((controller) => controller.abort());
   }, []);
 
-  useEffect(() => {
-    void load()
-      .catch((reason) => setMessage(localizedError(reason, t, "errors.apiProfiles.operation")))
-      .finally(() => setLoading(false));
-  }, [load]);
-
-  const refreshModels = useCallback(async (profileId: string, force = true) => {
-    if (!force && requestedModels.current.has(profileId)) return false;
-    requestedModels.current.add(profileId);
+  const refreshModels = useCallback(async (profileId: string, cachedOnly = false) => {
     const version = profileVersions.current.get(profileId);
     setModelCatalogs((current) => ({
       ...current,
@@ -60,7 +48,7 @@ export function useApiProfiles(onRefreshSettings: () => Promise<void>) {
       },
     }));
     try {
-      const response = await providersApi.apiProfileModels(profileId);
+      const response = await providersApi.apiProfileModels(profileId, cachedOnly ? { cached_only: true } : { refresh: true });
       if (profileVersions.current.get(profileId) !== version) return false;
       setModelCatalogs((current) => ({
         ...current,
@@ -82,24 +70,16 @@ export function useApiProfiles(onRefreshSettings: () => Promise<void>) {
   }, [t]);
 
   useEffect(() => {
-    for (const profile of profiles) {
-      if (
-        supportsLlmModels(profile)
-        && (!profile.capabilities.requires_api_key || profile.credential.configured)
-      ) {
-        void refreshModels(profile.id, false);
+    for (const profile of catalog.profiles) {
+      if (supportsLlmModels(profile) && (!profile.status || profile.status === "ready")
+        && !busyKeys.has(profile.id) && (!profile.capabilities.requires_api_key || profile.credential.configured) && !modelCatalogs[profile.id]) {
+        void refreshModels(profile.id, true);
       }
     }
-  }, [profiles, refreshModels]);
+  }, [catalog.profiles, modelCatalogs, refreshModels, busyKeys]);
 
   const invalidateProfile = (profileId: string) => {
     profileVersions.current.set(profileId, (profileVersions.current.get(profileId) ?? 0) + 1);
-    requestedModels.current.delete(profileId);
-    setDiagnostics((current) => {
-      const next = { ...current };
-      delete next[profileId];
-      return next;
-    });
     setModelCatalogs((current) => {
       const next = { ...current };
       delete next[profileId];
@@ -113,46 +93,78 @@ export function useApiProfiles(onRefreshSettings: () => Promise<void>) {
     successKey: string,
     refreshSettings: boolean,
     refreshProfiles = false,
+    editorOperation = false,
   ): Promise<T | null> => {
-    setBusy(busyKey);
+    if (operations.current.has(busyKey)) return null;
+    operations.current.add(busyKey);
+    setBusyKeys(new Set(operations.current));
     setMessage("");
+    if (editorOperation) { setEditorError(""); setEditorErrorField(undefined); }
+    setRowMessages((current) => ({ ...current, [busyKey]: "" }));
     try {
       const result = await action();
-      if (refreshProfiles) notifyApiProfilesChanged();
-      if (refreshSettings) await onRefreshSettings();
-      await load();
-      setMessage(t(successKey));
+      if (!successKey) return result;
+      const refreshes: Promise<void>[] = [];
+      if (refreshSettings) refreshes.push(Promise.resolve().then(onRefreshSettings));
+      if (refreshProfiles || refreshSettings) refreshes.push(Promise.resolve().then(() => refreshApiProfileCatalog(true)));
+      const refreshed = await Promise.allSettled(refreshes);
+      const effects = (result as { side_effects?: ApiProfileUsage[] }).side_effects;
+      const features = effects && [...new Set(effects.map((usage) => t(`settings.apiManagement.usages.${usage.kind}`)))].join(", ");
+      const success = t(successKey)
+        + (features ? ` ${t("settings.apiManagement.appliedEffects", { features })}` : "")
+        + (refreshed.some((refresh) => refresh.status === "rejected") ? ` ${t("settings.apiManagement.refreshFailed")}` : "");
+      if (busyKey === "create" || successKey === "settings.apiManagement.profileDeleted") setMessage(success);
+      else setRowMessages((current) => ({ ...current, [busyKey]: success }));
       return result;
     } catch (reason) {
-      setMessage(localizedError(reason, t, "errors.apiProfiles.operation"));
-      try {
-        await load();
-        if (refreshSettings) await onRefreshSettings();
-      } catch {
-        // Keep the original operation error because it is more actionable.
+      const error = reason instanceof DOMException && reason.name === "AbortError"
+        ? t("settings.apiManagement.testCancelled")
+        : localizedError(reason, t, "errors.apiProfiles.operation");
+      if (editorOperation) {
+        setEditorError(error);
+        setEditorErrorField(reason instanceof ApiError ? reason.field : undefined);
       }
+      else setRowMessages((current) => ({ ...current, [busyKey]: error }));
       return null;
     } finally {
-      setBusy(null);
+      operations.current.delete(busyKey);
+      setBusyKeys(new Set(operations.current));
     }
   };
 
   return {
-    profiles,
-    providerDefinitions,
-    loading,
-    busy,
-    message,
+    profiles: catalog.profiles,
+    providerDefinitions: catalog.providerDefinitions,
+    loading: catalog.loading,
+    busy: busyKeys.values().next().value ?? null,
+    isBusy: (profileId: string) => busyKeys.has(profileId),
+    isTesting: (profileId: string) => testing.has(profileId),
+    cancelTest: (profileId: string) => testControllers.current.get(profileId)?.abort(),
+    message: message || (catalog.error ? localizedError(catalog.error, t, "errors.apiProfiles.operation") : ""),
+    editorError,
+    editorErrorField,
+    clearEditorError: () => { setEditorError(""); setEditorErrorField(undefined); },
+    rowMessages,
     modelCatalogs,
-    diagnostics,
-    refreshModels: (profileId: string) => refreshModels(profileId, true),
+    refreshModels: (profileId: string) => refreshModels(profileId),
+    previewUpdate: (profile: ApiProfile, apiKey: string) => run(
+      profile.id,
+      () => providersApi.previewApiProfileUpdate(profile, apiKey),
+      "", false, false, true,
+    ),
+    previewDeletion: (profileId: string) => run(
+      profileId,
+      () => providersApi.previewApiProfileDeletion(profileId),
+      "", false,
+    ),
     create: (profile: ApiProfileInput, apiKey: string) => run(
       "create",
       () => providersApi.createApiProfile({
         ...profile,
-        api_key: apiKey.trim() || undefined,
+        api_key: profile.auth_mode === "none" ? undefined : apiKey.trim() || undefined,
       }),
       "settings.apiManagement.profileCreated",
+      true,
       true,
       true,
     ),
@@ -160,12 +172,9 @@ export function useApiProfiles(onRefreshSettings: () => Promise<void>) {
       invalidateProfile(profile.id);
       return run(
         profile.id,
-        async () => {
-          let saved = await providersApi.updateApiProfile(profile);
-          if (apiKey.trim()) saved = await providersApi.saveApiProfileCredential(profile.id, apiKey);
-          return saved;
-        },
+        () => providersApi.updateApiProfile(profile, apiKey),
         "settings.apiManagement.profileSaved",
+        true,
         true,
         true,
       );
@@ -182,25 +191,46 @@ export function useApiProfiles(onRefreshSettings: () => Promise<void>) {
       serviceId?: string,
       model?: string,
     ) => {
+      if (operations.current.has(profileId)) return null;
+      const controller = new AbortController();
+      testControllers.current.set(profileId, controller);
+      setTesting(new Set(testControllers.current.keys()));
       const version = profileVersions.current.get(profileId);
-      const result = await run(
-        profileId,
-        () => providersApi.testApiProfile(profileId, capability, serviceId, model),
-        "settings.apiManagement.connectionSucceeded",
-        false,
-      );
-      if (profileVersions.current.get(profileId) !== version) return null;
-      if (result) {
-        setDiagnostics((current) => ({ ...current, [profileId]: result }));
-        if (!result.ok) setMessage(t("settings.apiManagement.connectionFailed"));
+      try {
+        const profile = catalog.profiles.find((item) => item.id === profileId);
+        const result = await run(
+          profileId,
+          () => providersApi.testApiProfile(profileId, capability, serviceId, model, {
+            signal: controller.signal,
+            timeoutMs: (profile?.timeout_ms ?? 8_000) * 3 + 5_000,
+          }),
+          "settings.apiManagement.connectionSucceeded",
+          false,
+        );
+        if (controller.signal.aborted || profileVersions.current.get(profileId) !== version) return null;
+        if (result && !result.ok) {
+          const failure = result.checks?.find((check) => check.status === "failed" && check.code);
+          const message = failure?.code
+            ? localizedError(new ApiError({
+              code: failure.code,
+              detail: failure.detail ?? "",
+              status: 502,
+            }), t, "settings.apiManagement.connectionFailed")
+            : t("settings.apiManagement.connectionFailed");
+          setRowMessages((current) => ({ ...current, [profileId]: message }));
+        }
+        return result;
+      } finally {
+        testControllers.current.delete(profileId);
+        setTesting(new Set(testControllers.current.keys()));
       }
-      return result;
     },
     removeCredential: (profileId: string) => run(
       profileId,
       () => providersApi.deleteApiProfileCredential(profileId),
       "settings.apiManagement.credentialRemoved",
       false,
+      true,
       true,
     ),
     remove: (profileId: string) => run(

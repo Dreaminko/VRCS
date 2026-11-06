@@ -46,24 +46,14 @@ export function defaultEnabledCapabilities(definition: ProviderDefinition | unde
 }
 
 export function profileEnabledCapabilities(profile: ApiProfileView): ApiCapability[] {
-  if (profile.enabled_capabilities.length > 0) return profile.enabled_capabilities;
-  const capabilities: ApiCapability[] = [];
-  if (profile.capabilities.supports_text_generation) capabilities.push("text_generation");
-  if (profile.capabilities.supports_translation) capabilities.push("text_translation");
-  if (profile.capabilities.supports_asr) capabilities.push("speech_to_text");
-  if (profile.capabilities.supports_image_understanding) capabilities.push("image_understanding");
-  return capabilities;
+  return profile.enabled_capabilities;
 }
 
 export function profileSupportsCapability(
   profile: ApiProfileView,
   capability: ApiCapability,
 ): boolean {
-  if (profileEnabledCapabilities(profile).includes(capability)) return true;
-  if (capability === "speech_to_text") return profile.capabilities.supports_asr;
-  if (capability === "text_translation") return profile.capabilities.supports_translation;
-  if (capability === "image_understanding") return profile.capabilities.supports_image_understanding;
-  return profile.capabilities.supports_text_generation;
+  return (!profile.status || profile.status === "ready") && profile.enabled_capabilities.includes(capability);
 }
 
 export function connectionFieldValue(

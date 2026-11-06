@@ -53,6 +53,11 @@
 .field > .api-model-catalog-error { color: var(--error); }
 .api-profile-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 7px; }
 .api-profile-actions .secondary-button { min-height: var(--settings-control-compact-height); padding: 0 10px; font-size: var(--settings-text-caption); white-space: nowrap; }
+.api-profile-tests { display: grid; gap: 8px; margin-top: 8px; }
+.api-profile-capability-actions { display: flex; align-items: center; gap: 8px; }
+.api-profile-editor input[aria-invalid="true"],
+.api-profile-editor [aria-invalid="true"] input,
+.api-profile-editor [aria-invalid="true"] button { border-color: var(--error); }
 .api-active-badge {
   display: inline-flex;
   min-height: 28px;
@@ -79,6 +84,7 @@
   background: transparent;
   cursor: pointer;
 }
+.api-profile-test-button { border-color: var(--border); }
 .api-row-icon-button:hover { border-color: var(--border); color: var(--text-secondary); background: var(--surface); }
 .api-row-icon-button.danger:hover,
 .api-danger-button { color: var(--error); }

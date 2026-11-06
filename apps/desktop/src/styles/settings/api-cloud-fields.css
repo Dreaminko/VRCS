@@ -10,8 +10,6 @@
 .cloud-text-field input { width: 100%; height: var(--settings-control-height); padding-block: 0; font-size: var(--settings-text-label); line-height: var(--settings-leading-label); }
 .cloud-text-field textarea { min-height: 72px; resize: vertical; font: inherit; }
 .cloud-context-field { grid-column: 1 / -1; }
-.cloud-api-hint { grid-column: 1 / -1; margin: 0; overflow-wrap: anywhere; color: var(--text-quiet); font-size: var(--settings-text-caption); line-height: var(--settings-leading-copy); }
-.cloud-api-hint.api-model-catalog-error { color: var(--error); }
 .cloud-transport-hint { grid-column: 1 / -1; display: grid; gap: 3px; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-elevated); }
 .cloud-transport-hint strong { color: var(--text); font-size: var(--settings-text-body); font-weight: var(--settings-weight-heading); line-height: var(--settings-leading-label); }
 .cloud-transport-hint small { color: var(--text-quiet); font-size: var(--settings-text-caption); line-height: var(--settings-leading-copy); }

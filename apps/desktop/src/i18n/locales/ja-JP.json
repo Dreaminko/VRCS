@@ -1480,6 +1480,7 @@
         },
         "profileCreated": "API 接続を追加しました。",
         "profileSaved": "API 接続を保存しました。",
+        "refreshFailed": "画面のデータを更新できませんでした。設定を開き直して最新の状態を読み込んでください。",
         "profileActivated": "このプロバイダーの既定の文字起こし API に設定しました。",
         "profileDeleted": "API 接続を削除しました。",
         "credentialRemoved": "API キーを削除しました。",
@@ -1504,7 +1505,8 @@
             "authentication": "認証",
             "models": "モデル一覧",
             "completion": "通常生成",
-            "streaming": "ストリーミング生成"
+            "streaming": "ストリーミング生成",
+            "recognition": "音声認識"
           },
           "status": {
             "passed": "成功",
@@ -1532,9 +1534,50 @@
         },
         "refreshModels": "モデルを更新",
         "loadingModels": "利用可能なモデルを取得中…",
-        "modelsAvailable": "{{count}} 件のモデルを取得しました",
         "modelsUnavailable": "利用可能なモデルが返されませんでした。モデル名は手動で入力できます。",
-        "environmentManaged": "現在のキーは環境変数から提供されています。アプリ外で変更または削除してください。"
+        "environmentManaged": "現在のキーは環境変数から提供されています。アプリ外で変更または削除してください。",
+        "usedBy": "関連機能：{{features}}",
+        "affectedFeatures": "次の関連機能を無効にするか、設定を解除します：{{features}}。",
+        "testLatency": "テスト所要時間：{{ms}} ms",
+        "usages": {
+          "transcription": "音声文字起こし",
+          "translation": "スピーカー / マイク翻訳",
+          "ocr_translation": "OCR 翻訳",
+          "language_preset": "言語プリセットの翻訳",
+          "vision": "画像への質問",
+          "vision_asr": "ビジョン音声認識",
+          "conversation_titles": "会話タイトルの自動生成",
+          "model_default_text": "既定のテキストモデル",
+          "model_default_vision": "既定の画像モデル",
+          "learning_ai": "学習 AI"
+        },
+        "profileStatus": {
+          "unsupported": "このプロバイダーは利用できません。設定を削除できます。",
+          "credential_error": "システムの認証情報を読み取れません。資格情報マネージャーを確認して再試行してください。"
+        },
+        "validation": {
+          "provider": "プロバイダーを選択してください。",
+          "capabilities": "少なくとも一つの機能を有効にしてください。",
+          "baseUrl": "認証情報、クエリ、フラグメントを含まない有効な HTTP / HTTPS URL を入力してください。",
+          "httpsRequired": "Bearer 認証を使うリモートサービスには HTTPS が必要です。",
+          "apiKey": "API Key を入力してください。",
+          "timeout": "タイムアウトは 1000～120000 ミリ秒の整数で指定してください。",
+          "required": "{{field}}を入力してください。",
+          "headerCount": "Header は 16 個まで追加できます。",
+          "headerName": "Header 名が無効か、カスタマイズできない項目です。",
+          "headerDuplicate": "Header 名が重複しています。",
+          "headerValue": "Header 値は 2048 バイト以下で、制御文字を含めることはできません。"
+        },
+        "testCapability": "テストする機能",
+        "saveBeforeTest": "変更を保存してから、この API 接続をテストしてください。",
+        "testModel": "テスト用モデル",
+        "automaticModel": "設定済みまたは推奨モデルを自動選択",
+        "imageModelRequired": "画像対応モデル名を入力してください",
+        "testText": "テキスト生成をテスト",
+        "testImage": "画像理解をテスト",
+        "cancelTest": "テストをキャンセル",
+        "testCancelled": "テストをキャンセルしました。",
+        "appliedEffects": "次の機能を無効にするか、設定を解除しました：{{features}}。"
       },
       "recognition": {
         "title": "音声認識",
@@ -1571,8 +1614,6 @@
           "realtime_stream": "リアルタイムストリーム",
           "segmented_upload": "区間ごとのアップロード"
         },
-        "selectedApiHint": "API 接続「{{name}}」を使用中です。接続情報とキーは「API 管理」で管理できます。",
-        "selectedLocalQwenHint": "ローカル Qwen ASR 接続「{{name}}」を使用中です。アドレスは「API 管理」で変更できます。VRCS は音声をこのサービスに送信し、その後の処理はサービス側で決まります。",
         "cloudDescription": "ローカルで音声を検出した間だけ音声を送信します。",
         "region": "サービス地域",
         "context": "認識コンテキスト",
@@ -2096,6 +2137,7 @@
         "tls_failed": "LLM サービスの TLS 検証に失敗しました。",
         "path_not_found": "LLM API パスが存在しません。",
         "models_unsupported": "サービスはモデル一覧に対応していません。",
+        "test_model_unavailable": "API のモデル一覧に、このテスト機能に対応する利用可能なモデルがありません。モデルを更新して再試行してください。",
         "model_required": "LLM モデル名を入力してください。",
         "sse_incompatible": "サービスのストリーミング応答に互換性がありません。",
         "invalid_request": "LLM リクエストが無効です。",
@@ -2215,6 +2257,14 @@
       },
       "auth": {
         "unauthorized": "ローカルセッションが認証されていません。"
+      },
+      "profile": {
+        "credential_reconfirm_required": "接続先のホストまたはポートが変更されました。API Key を再入力してください。環境変数で管理するキーは、先に環境設定を更新してください。",
+        "not_found": "API 設定が存在しません。",
+        "invalid": "API 設定が無効です。名前、機能、接続設定を確認してください。",
+        "credential_missing": "この API 設定にはキーがありません。",
+        "credential_store_failed": "システムの認証情報を読み書きできません。資格情報マネージャーを確認して再試行してください。",
+        "credential_environment_managed": "キーは環境変数で管理されています。アプリの外で変更または削除してください。"
       }
     },
     "visionWindow": {

@@ -21,6 +21,7 @@ export interface ApiErrorPayload {
   code?: unknown;
   params?: unknown;
   detail?: unknown;
+  field?: unknown;
 }
 
 function isRecord(value: unknown): value is ApiErrorParams {
@@ -32,12 +33,14 @@ export class ApiError extends Error {
   readonly params: ApiErrorParams;
   readonly detail: string;
   readonly status: number;
+  readonly field?: string;
 
   constructor(options: {
     code: string;
     params?: ApiErrorParams;
     detail: string;
     status: number;
+    field?: string;
   }) {
     super(options.detail);
     this.name = "ApiError";
@@ -45,6 +48,7 @@ export class ApiError extends Error {
     this.params = options.params ?? {};
     this.detail = options.detail;
     this.status = options.status;
+    this.field = options.field;
   }
 }
 
@@ -76,5 +80,6 @@ export async function apiErrorFromResponse(response: Response): Promise<ApiError
       ? body.detail
       : fallbackDetail,
     status: response.status,
+    field: typeof body?.field === "string" ? body.field : undefined,
   });
 }

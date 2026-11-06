@@ -1480,6 +1480,7 @@
         },
         "profileCreated": "API 配置已添加。",
         "profileSaved": "API 配置已保存。",
+        "refreshFailed": "页面数据刷新失败，请重新打开设置以获取最新状态。",
         "profileActivated": "已设为该供应商的默认转写 API。",
         "profileDeleted": "API 配置已删除。",
         "credentialRemoved": "API Key 已移除。",
@@ -1504,7 +1505,8 @@
             "authentication": "鉴权",
             "models": "模型列表",
             "completion": "普通生成",
-            "streaming": "流式生成"
+            "streaming": "流式生成",
+            "recognition": "语音识别"
           },
           "status": {
             "passed": "通过",
@@ -1532,9 +1534,50 @@
         },
         "refreshModels": "刷新模型",
         "loadingModels": "正在获取可用模型…",
-        "modelsAvailable": "已获取 {{count}} 个模型",
         "modelsUnavailable": "未返回可用模型，可继续手动填写模型名。",
-        "environmentManaged": "当前密钥由环境变量提供，请在应用外修改或删除。"
+        "environmentManaged": "当前密钥由环境变量提供，请在应用外修改或删除。",
+        "usedBy": "关联功能：{{features}}",
+        "affectedFeatures": "将停用或清除以下关联功能的配置：{{features}}。",
+        "testLatency": "测试耗时：{{ms}} ms",
+        "usages": {
+          "transcription": "语音转写",
+          "translation": "扬声器 / 麦克风翻译",
+          "ocr_translation": "OCR 翻译",
+          "language_preset": "语言预设翻译",
+          "vision": "视觉问答",
+          "vision_asr": "视觉语音识别",
+          "conversation_titles": "会话标题自动生成",
+          "model_default_text": "默认文本模型",
+          "model_default_vision": "默认视觉模型",
+          "learning_ai": "学习 AI"
+        },
+        "profileStatus": {
+          "unsupported": "供应商已不可用，可删除此配置。",
+          "credential_error": "无法读取系统凭据，请检查凭据管理器后重试。"
+        },
+        "validation": {
+          "provider": "请选择供应商。",
+          "capabilities": "请至少启用一项能力。",
+          "baseUrl": "请输入有效的 HTTP / HTTPS 地址，不含账号密码、查询参数或片段。",
+          "httpsRequired": "远程服务使用 Bearer 鉴权时必须使用 HTTPS。",
+          "apiKey": "请输入 API Key。",
+          "timeout": "超时必须为 1000–120000 毫秒之间的整数。",
+          "required": "请填写{{field}}。",
+          "headerCount": "最多可添加 16 个 Header。",
+          "headerName": "Header 名称无效或属于禁止自定义的字段。",
+          "headerDuplicate": "Header 名称重复，请合并或删除重复项。",
+          "headerValue": "Header 值不能超过 2048 字节，也不能包含控制字符。"
+        },
+        "testCapability": "测试能力",
+        "saveBeforeTest": "请先保存修改，再测试此 API 配置。",
+        "testModel": "测试模型",
+        "automaticModel": "自动选择已配置或推荐模型",
+        "imageModelRequired": "请输入支持图片的模型名称",
+        "testText": "测试文本生成",
+        "testImage": "测试图片理解",
+        "cancelTest": "取消测试",
+        "testCancelled": "测试已取消。",
+        "appliedEffects": "已停用或清除以下功能的配置：{{features}}。"
       },
       "recognition": {
         "title": "语音识别",
@@ -1571,8 +1614,6 @@
           "realtime_stream": "实时流式传输",
           "segmented_upload": "分段上传"
         },
-        "selectedApiHint": "当前使用 API 配置“{{name}}”；连接详情和密钥请在“API 管理”中维护。",
-        "selectedLocalQwenHint": "当前使用本机 Qwen ASR 连接“{{name}}”；服务地址可在“API 管理”中修改。VRCS 将音频发送给该服务，后续处理由服务决定。",
         "cloudDescription": "仅在本地检测到语音时上传音频。",
         "region": "服务区域",
         "context": "识别上下文",
@@ -2096,6 +2137,7 @@
         "tls_failed": "LLM 服务 TLS 校验失败。",
         "path_not_found": "LLM API 路径不存在。",
         "models_unsupported": "服务不支持模型列表。",
+        "test_model_unavailable": "此 API 返回的模型列表中，没有匹配当前测试能力的可用模型。请刷新模型后重试。",
         "model_required": "请填写 LLM 模型名。",
         "sse_incompatible": "服务的流式响应不兼容。",
         "invalid_request": "LLM 请求参数无效。",
@@ -2215,6 +2257,14 @@
       },
       "auth": {
         "unauthorized": "本地会话未获授权。"
+      },
+      "profile": {
+        "credential_reconfirm_required": "连接地址的主机或端口已改变，请重新输入 API Key。环境变量管理的密钥需要先更新环境配置。",
+        "not_found": "API 配置不存在。",
+        "invalid": "API 配置无效，请检查名称、能力和连接参数。",
+        "credential_missing": "此 API 配置尚未设置密钥。",
+        "credential_store_failed": "无法读写系统凭据，请检查凭据管理器后重试。",
+        "credential_environment_managed": "密钥由环境变量管理，请在应用外修改或移除。"
       }
     },
     "visionWindow": {
