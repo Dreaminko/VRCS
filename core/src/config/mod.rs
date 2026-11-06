@@ -57,6 +57,4 @@ pub use vr_overlay::{
 };
 pub use vrchat_chatbox::VrchatChatboxConfig;
 
-#[cfg(test)]
-pub use ocr::VisionAsrConfig;
 pub use ocr::{OcrDevice, VisionConfig, VrOcrConfig, VrOcrDisplayMode, VrOcrWristConfig};

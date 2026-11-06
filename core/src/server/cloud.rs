@@ -367,15 +367,6 @@ fn profile_usages(config: &crate::config::AppConfig, profile_id: &str) -> Vec<Va
             CAPABILITY_IMAGE_UNDERSTANDING,
         ),
         (
-            config
-                .vision
-                .asr
-                .as_ref()
-                .is_some_and(|asr| asr.profile_id.as_deref() == Some(profile_id)),
-            "vision_asr",
-            CAPABILITY_SPEECH_TO_TEXT,
-        ),
-        (
             config.conversation_titles.profile_id.as_deref() == Some(profile_id),
             "conversation_titles",
             CAPABILITY_TEXT_GENERATION,
@@ -671,7 +662,6 @@ pub(super) async fn profile_delete(
         disable_translation_profile(&mut candidate, &profile_id);
     }
     disable_vision_profile(&mut candidate, &profile_id);
-    clear_vision_asr_profile(&mut candidate, &profile_id);
     disable_title_profile(&mut candidate, &profile_id);
     candidate.resolve_model_assignments();
     if query.dry_run {
@@ -1208,12 +1198,6 @@ fn apply_profile_compatibility_fallbacks(
     profile: &ApiProfile,
 ) {
     config.resolve_model_assignments();
-    if config.vision.asr.as_ref().is_some_and(|asr| {
-        asr.profile_id.as_deref() == Some(profile.id.as_str())
-            && providers::resolve_profile_service(profile, &asr.backend).is_err()
-    }) {
-        clear_vision_asr_profile(config, &profile.id);
-    }
     if config.asr.active_profile_id.as_deref() == Some(profile.id.as_str())
         && providers::resolve_profile_service(profile, &config.asr.backend).is_err()
     {
@@ -1250,14 +1234,6 @@ fn clear_model_bindings(config: &mut crate::config::AppConfig, profile_id: &str)
     }
     if config.learning_ai.profile_id.as_deref() == Some(profile_id) {
         config.learning_ai.profile_id = None;
-    }
-}
-
-fn clear_vision_asr_profile(config: &mut crate::config::AppConfig, profile_id: &str) {
-    if let Some(asr) = &mut config.vision.asr {
-        if asr.profile_id.as_deref() == Some(profile_id) {
-            asr.profile_id = None;
-        }
     }
 }
 
@@ -1691,55 +1667,6 @@ mod tests {
         assert_eq!(config.translation.mode, "disabled");
         assert_eq!(config.translation.speaker_targets[0].profile_id, None);
         assert_eq!(config.translation.microphone_targets[0].profile_id, None);
-    }
-
-    #[test]
-    fn losing_or_deleting_vision_asr_profile_preserves_independent_question_settings() {
-        let mut config = crate::config::AppConfig::default();
-        config.vision.use_default_model = false;
-        config.asr.backend = providers::SERVICE_QWEN_LIVE_TRANSLATE.into();
-        config.asr.api_profiles.push(ApiProfile {
-            id: "image".into(),
-            name: "Image".into(),
-            provider: OPENAI_COMPATIBLE_PROVIDER.into(),
-            base_url: Some("http://127.0.0.1:8000/v1".into()),
-            auth_mode: crate::config::ApiAuthMode::None,
-            enabled_capabilities: vec![CAPABILITY_IMAGE_UNDERSTANDING.into()],
-            ..Default::default()
-        });
-        config.vision.enabled = true;
-        config.vision.profile_id = Some("image".into());
-        config.vision.model = "image-model".into();
-        config.vision.asr = Some(crate::config::VisionAsrConfig {
-            backend: SERVICE_GROQ_TRANSCRIPTION.into(),
-            profile_id: Some("speech".into()),
-            language: "en".into(),
-            model: "question-model".into(),
-        });
-        let profile = ApiProfile {
-            id: "speech".into(),
-            name: "Speech".into(),
-            provider: GROQ_PROVIDER.into(),
-            enabled_capabilities: vec![CAPABILITY_SPEECH_TO_TEXT.into()],
-            ..Default::default()
-        };
-        let original = config.clone();
-        apply_profile_compatibility_fallbacks(&mut config, &profile);
-        assert_eq!(config, original);
-        let incompatible = ApiProfile {
-            enabled_capabilities: vec![CAPABILITY_TEXT_GENERATION.into()],
-            ..profile
-        };
-        apply_profile_compatibility_fallbacks(&mut config, &incompatible);
-        let mut expected = original.clone();
-        expected.vision.asr.as_mut().unwrap().profile_id = None;
-        assert_eq!(config, expected);
-        config = original.clone();
-        clear_vision_asr_profile(&mut config, "unrelated");
-        assert_eq!(config, original);
-        clear_vision_asr_profile(&mut config, "speech");
-        assert_eq!(config, expected);
-        config.validate_settings().unwrap();
     }
 
     #[test]
