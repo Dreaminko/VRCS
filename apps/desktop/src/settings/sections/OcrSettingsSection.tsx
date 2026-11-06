@@ -11,7 +11,7 @@ import { applyDesktopOcrStatus, type DesktopOcrStatus } from "../../ocr/status";
 import { patchOcr } from "../vr-overlay-settings";
 import { OcrSettingsCard } from "./OcrSettingsCard";
 import { VisionSettingsCard } from "./VisionSettingsCard";
-import { patchVision, selectVisionProfile } from "../vision-settings";
+import { patchVision } from "../vision-settings";
 import { PreferenceToggle } from "../SettingsControls";
 
 export function OcrSettingsSection({ vrAvailable, draft, profiles, providerDefinitions, applySettings }: {
@@ -65,12 +65,12 @@ export function OcrSettingsSection({ vrAvailable, draft, profiles, providerDefin
       {bindingError && <p className="vr-overlay-native-error" role="alert">{bindingError}</p>}
     </section>}
     {draft.features.ocr && <div id="vision-ocr"><OcrSettingsCard vrAvailable={vrAvailable} config={draft.ocr} profiles={profiles} disabled={false}
+      defaultModel={draft.model_defaults?.text}
       runtime={runtime} desktopStatus={desktopStatus}
       onChange={(patch) => applySettings((current) => patchOcr(current, patch))} /></div>}
     {draft.features.visual_question_answering && <VisionSettingsCard config={draft.vision} profiles={profiles}
       recognition={draft.asr} providerDefinitions={providerDefinitions}
       vrAvailable={vrAvailable} disabled={false}
-      onChange={(patch) => applySettings((current) => patchVision(current, patch))}
-      onSelectProfile={(profileId) => applySettings((current) => selectVisionProfile(current, profileId))} />}
+      onChange={(patch) => applySettings((current) => patchVision(current, patch))} />}
   </div>;
 }

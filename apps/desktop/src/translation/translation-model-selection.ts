@@ -2,12 +2,6 @@ import type { ApiModelDetails, ApiProfileView } from "../providers/types";
 import type { TranslationTargetSettings } from "../settings/types";
 import { supportsLlmModels } from "../providers/api-profile-purpose.ts";
 
-type ModelCatalog = {
-  models: string[];
-  loading: boolean;
-  error: string;
-};
-
 const PREFERRED_MODELS: Record<string, readonly string[]> = {
   openai: ["gpt-4.1-mini", "gpt-4o-mini", "gpt-5-mini"],
   groq: ["openai/gpt-oss-20b", "openai/gpt-oss-120b"],
@@ -91,19 +85,4 @@ export function switchTranslationProfile(
       : target.model
   );
   return updateTranslationModel({ ...target, profile_id: profile.id, model_by_profile: remembered }, model);
-}
-
-export function translationDiagnosticModel(
-  profile: ApiProfileView,
-  catalog: ModelCatalog | undefined,
-  configuredModel: string,
-): string | undefined {
-  const model = configuredModel.trim();
-  if (!model) return undefined;
-  if (!profile.capabilities.supports_model_listing) return model;
-  if (catalog?.error) return model;
-  if (!catalog || catalog.loading) {
-    return profile.provider === "openai_compatible" ? model : undefined;
-  }
-  return catalog.models.includes(model) ? model : undefined;
 }

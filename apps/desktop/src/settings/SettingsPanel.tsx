@@ -15,7 +15,7 @@ import { useDesktopPreferences } from "./hooks/useDesktopPreferences";
 import { useDictionaryActions } from "./hooks/useDictionaryActions";
 import { useSettingsDraft } from "./hooks/useSettingsDraft";
 import { createDebugRows } from "./settings-derived";
-import { ApiManagementSettingsSection } from "./sections/ApiManagementSettingsSection";
+import { ApiSettingsSection } from "./sections/ApiSettingsSection";
 import { CaptureSettingsSection } from "./sections/CaptureSettingsSection";
 import { GlossarySettingsSection } from "./sections/GlossarySettingsSection";
 import { LearningSettingsSection } from "./sections/LearningSettingsSection";
@@ -29,6 +29,8 @@ import { VrOverlaySettingsSection } from "./sections/VrOverlaySettingsSection";
 import type { SettingsCategory } from "./settings-types";
 import type { AppUpdaterState } from "../updates/useAppUpdater";
 import type { PlayerAudioStart } from "../capture/usePlayerAudioStart";
+import { applyModelDefaults } from "./model-selection";
+import type { ApplySettings } from "./settings-types";
 
 export function SettingsPanel({
   initialCategory = "system",
@@ -87,7 +89,7 @@ export function SettingsPanel({
   useEffect(() => {
     if (activeCategory !== requestedCategory) setActiveCategory(activeCategory);
   }, [activeCategory, requestedCategory]);
-  const apiProfileCatalog = useApiProfileViews(`${settings.asr.active_profile_id ?? "local"}:${settings.asr.backend}`);
+  const apiProfileCatalog = useApiProfileViews(settings);
   const draftController = useSettingsDraft(settings, onSave);
   const desktop = useDesktopPreferences();
   const asr = useAsrModels({
@@ -109,7 +111,10 @@ export function SettingsPanel({
     onDelete: onDeleteDictionary,
   });
 
-  const { draft, saveState, saveMessage, applySettings } = draftController;
+  const { draft, saveState, saveMessage } = draftController;
+  const applySettings: ApplySettings = (update, afterSave, afterError) => draftController.applySettings(
+    (current) => applyModelDefaults(update(current)), afterSave, afterError,
+  );
   const sessionTranslation = health?.language_session && health.language_session.kind !== "global"
     ? health.language_session.translation : draft.translation;
 
@@ -234,14 +239,17 @@ export function SettingsPanel({
       )}
 
       {activeCategory === "api" && (
-        <ApiManagementSettingsSection
+        <ApiSettingsSection
           settings={draft}
+          profiles={apiProfileCatalog.profiles}
+          applySettings={applySettings}
           onRefreshSettings={onRefreshSettings}
         />
       )}
 
       {activeCategory === "learning" && (
         <LearningSettingsSection
+          settings={draft}
           locale={locale}
           selectionLookupEnabled={draft.dictionary.selection_lookup_enabled}
           dictionaries={dictionaries}

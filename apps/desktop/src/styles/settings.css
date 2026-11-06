@@ -5,6 +5,7 @@
 @import "./settings/api-cloud-fields.css";
 @import "./primitives/fields.css";
 @import "./settings/api.css";
+@import "./settings/model-assignments.css";
 @import "./primitives/range.css";
 @import "./primitives/buttons.css";
 @import "./settings/controls.css";

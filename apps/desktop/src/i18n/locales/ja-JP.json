@@ -1009,7 +1009,7 @@
         "recognition": "音声認識",
         "translation": "翻訳",
         "glossary": "用語集",
-        "api": "API 管理",
+        "api": "API とモデル",
         "learning": "学習",
         "connections": "接続",
         "about": "このアプリについて",
@@ -1136,8 +1136,7 @@
       "conversationTitles": {
         "title": "会話管理",
         "autoGenerate": "会話タイトルを自動生成",
-        "configureFirst": "利用可能なテキスト生成 API プロファイルとモデルを先に設定してください。",
-        "modelSettings": "タイトル生成モデル",
+        "configureFirst": "「API とモデル → モデルの割り当て」で会話タイトル用のモデルを設定してください。",
         "profile": "API プロファイル",
         "noProfiles": "テキスト生成に対応する API プロファイルがありません。",
         "selectProfile": "API プロファイルを選択",
@@ -1757,7 +1756,7 @@
       },
       "learning": {
         "title": "学習設定",
-        "aiDescription": "学習ワークスペースの分析に使用する AI サービスと既定の説明方法を設定します。",
+        "aiDescription": "学習ワークスペースで使う解説の言語とレベルを設定します。",
         "noAiProfiles": "テキスト生成に対応する AI プロファイルがありません"
       },
       "dictionary": {
@@ -1926,6 +1925,31 @@
             "failed": "エラーにより Chatbox の受信を停止しました"
           }
         }
+      },
+      "modelAssignments": {
+        "title": "API とモデル",
+        "models": "モデルの割り当て",
+        "profiles": "API プロファイル",
+        "textDefault": "既定のテキストモデル",
+        "visionDefault": "既定の画像モデル",
+        "tasks": "用途別のモデル",
+        "useDefaults": "対応する用途を既定に合わせる",
+        "confirmDefaults": "次の用途を既定のモデルに合わせます：{{tasks}}。現在の翻訳先は用途別モデルを使います。言語プリセットと機能の有効・無効は現在の設定を維持します。",
+        "reuseTextModel": "テキストモデルをコピー",
+        "followingDefault": "既定に合わせる",
+        "independent": "個別設定",
+        "source": "モデルの設定元",
+        "selectProfile": "API プロファイルを選択",
+        "unavailable": "プロファイルが存在しないか、この用途に対応していません。",
+        "changeModel": "モデルを変更",
+        "translation": "字幕翻訳",
+        "ocrTranslation": "OCR 翻訳",
+        "ocrTargets": "OCR 翻訳先",
+        "conversationTitles": "会話タイトル",
+        "learningAi": "学習 AI",
+        "visionQuestions": "画像への質問",
+        "nativeTranslation": "自動翻訳の最初の翻訳先には {{service}} を使います。",
+        "routeOverrides": "個別設定 {{count}} 件"
       }
     },
     "onboarding": {

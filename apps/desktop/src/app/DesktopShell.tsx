@@ -185,7 +185,7 @@ export function DesktopShell({
             onGenerateTitle={conversations.generateTitle}
             titleConfigured={titleConfigured}
             onOpenTitleSettings={() => {
-              setSettingsInitialCategory("system");
+              setSettingsInitialCategory("api");
               setPage("settings");
             }}
             onSelectAt={selectConversationAt}
@@ -299,7 +299,7 @@ export function DesktopShell({
                   ankiAvailable={features?.anki ?? false}
                   ankiEnabled={Boolean(features?.anki && settings.value?.anki.enabled)}
                   onOpenAiSettings={() => {
-                    setSettingsInitialCategory("learning");
+                    setSettingsInitialCategory("api");
                     setPage("settings");
                   }}
                   onSelect={selection.selectText}

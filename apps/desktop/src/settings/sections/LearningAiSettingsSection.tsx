@@ -1,25 +1,16 @@
 import { Sparkles } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
-import { DropdownField, EditableDropdownField } from "../../shared/ui/DropdownField";
+import { DropdownField } from "../../shared/ui/DropdownField";
 import { useLearningAiConfiguration } from "../../learning/hooks/useLearningAiConfiguration";
 import { localeCatalog } from "../../i18n/catalog";
-import { ReasoningControlField } from "../ReasoningControlField";
+import type { Settings } from "../types";
 
-export function LearningAiSettingsSection() {
+export function LearningAiSettingsSection({ settings }: {
+  settings: Settings;
+}) {
   const { t } = useTranslation();
-  const ai = useLearningAiConfiguration(true);
-  const profileOptions = ai.profiles.length
-    ? ai.profiles.map((profile) => ({
-        value: profile.id,
-        label: profile.name || profile.provider_display_name,
-        description: profile.provider_display_name,
-      }))
-    : [{
-        value: "",
-        label: ai.profilesLoading ? t("common.loading") : t("settings.learning.noAiProfiles"),
-      }];
-
+  const ai = useLearningAiConfiguration(settings);
   return (
     <section className="learning-settings-group learning-ai-settings" aria-labelledby="learning-ai-settings-title">
       <div className="section-heading">
@@ -29,42 +20,7 @@ export function LearningAiSettingsSection() {
         </div>
       </div>
       <p className="learning-ai-settings-description">{t("settings.learning.aiDescription")}</p>
-
-      {ai.error && <p className="learning-ai-settings-message error" role="alert">{ai.error}</p>}
-
       <div className="learning-ai-settings-grid">
-        <div className="field">
-          <span>{t("learning.ai.profile")}</span>
-          <DropdownField
-            label={t("learning.ai.profile")}
-            value={ai.preferences.profileId}
-            options={profileOptions}
-            disabled={ai.profilesLoading || !ai.profiles.length}
-            onChange={ai.setProfileId}
-          />
-        </div>
-        <div className="field">
-          <span>{t("learning.ai.model")}</span>
-          <EditableDropdownField
-            label={t("learning.ai.model")}
-            value={ai.preferences.model}
-            options={ai.models.map((model) => ({ value: model, label: model }))}
-            disabled={!ai.preferences.profileId}
-            optionsDisabled={ai.modelsLoading || !ai.models.length}
-            placeholder={t("learning.ai.modelPlaceholder")}
-            onChange={ai.setModel}
-          />
-          {ai.modelsError && <small className="learning-ai-settings-message error">{ai.modelsError}</small>}
-        </div>
-        <ReasoningControlField
-          provider={ai.selectedProfile?.provider}
-          model={ai.preferences.model}
-          details={ai.modelDetails[ai.preferences.model]}
-          thinkingEnabled={ai.preferences.thinkingEnabled}
-          value={ai.preferences.reasoningControl}
-          disabled={!ai.preferences.profileId}
-          onChange={ai.setReasoningControl}
-        />
         <div className="field">
           <span>{t("learning.ai.explanationLanguage")}</span>
           <DropdownField

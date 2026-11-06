@@ -12,6 +12,7 @@ import type { ApplySettings } from "../settings-types";
 import { LanguagePresetSettings } from "../translation/LanguagePresetSettings";
 import { TranslationEnhancementSettings } from "../translation/TranslationEnhancementSettings";
 import { TranslationRouteList } from "../translation/TranslationRouteList";
+import { translationModelSelection } from "../model-selection";
 
 export function TranslationSettingsSection({ draft, apiProfiles, applySettings }: {
   draft: Settings;
@@ -79,6 +80,7 @@ export function TranslationSettingsSection({ draft, apiProfiles, applySettings }
           </div>
           <div className="translation-route-groups">
             <TranslationRouteList
+              modelSelection={translationModelSelection(draft)}
               title={t("settings.translation.targetLanguageForSelf")}
               targets={draft.translation.microphone_targets}
               liveService={liveTranslate && draft.translation.mode === "automatic" ? draft.asr.backend : undefined}
@@ -90,6 +92,7 @@ export function TranslationSettingsSection({ draft, apiProfiles, applySettings }
               })}
             />
             <TranslationRouteList
+              modelSelection={translationModelSelection(draft)}
               title={t("settings.translation.targetLanguageForOtherParty")}
               targets={draft.translation.speaker_targets}
               liveService={liveTranslate && draft.translation.mode === "automatic" ? draft.asr.backend : undefined}

@@ -5,23 +5,19 @@ import { useTranslation } from "react-i18next";
 import type { ApiProfileView, AsrSettings, ProviderDefinition } from "../../providers/types";
 import type { VrOcrWristSettings } from "../../integrations/types";
 import { TRANSLATION_LANGUAGE_CODES } from "../../translation/translation-languages";
-import { normalizeReasoningControlForModel } from "../../translation/translation-thinking";
-import { ReasoningControlField } from "../ReasoningControlField";
-import { EditableDropdownField } from "../../shared/ui/DropdownField";
 import { LanguagePicker } from "../../shared/ui/LanguagePicker";
 import { ShortcutField } from "../../shared/ui/ShortcutField";
 import type { VisionSettings } from "../types";
 import { PreferenceToggle, RangeField, Select } from "../SettingsControls";
-import { useProfileModels } from "../hooks/useProfileModels";
 import { DEFAULT_OCR_WRIST_SETTINGS, VR_OVERLAY_POSITION_RANGES } from "../vr-overlay-settings";
-import { supportsVision, visionModels, VISION_LIMITS } from "../vision-settings";
+import { supportsVision, VISION_LIMITS } from "../vision-settings";
 import { formatBytes } from "../settings-derived";
 import { openDesktopVision } from "../../vision/api";
 import { useDesktopVisionSession } from "../../vision/useDesktopVisionSession";
 import { SettingsDisclosure } from "../components/SettingsDisclosure";
 import { VisionAsrSettings } from "./VisionAsrSettings";
 
-export function VisionSettingsCard({ config, profiles, recognition, providerDefinitions, vrAvailable, disabled, onChange, onSelectProfile }: {
+export function VisionSettingsCard({ config, profiles, recognition, providerDefinitions, vrAvailable, disabled, onChange }: {
   config: VisionSettings;
   profiles: ApiProfileView[];
   recognition: AsrSettings;
@@ -29,7 +25,6 @@ export function VisionSettingsCard({ config, profiles, recognition, providerDefi
   vrAvailable: boolean;
   disabled: boolean;
   onChange: (patch: Partial<VisionSettings>) => void;
-  onSelectProfile: (profileId: string | null) => void;
 }) {
   const { t, i18n } = useTranslation();
   const locale = i18n.resolvedLanguage ?? "en-US";
@@ -77,74 +72,22 @@ export function VisionSettingsCard({ config, profiles, recognition, providerDefi
   };
   const compatibleProfiles = profiles.filter(supportsVision);
   const selected = compatibleProfiles.find((profile) => profile.id === config.profile_id);
-  const catalog = useProfileModels(selected, Boolean(selected));
-  const { loading, error, refresh } = catalog;
-  const [reasoningReset, setReasoningReset] = useState(false);
-  const models = visionModels(selected?.provider, { models: catalog.models, model_details: catalog.modelDetails });
-  const modelOptions = [
-    { value: "", label: t("settings.vision.selectModel") },
-    ...(config.model && !models.includes(config.model) ? [{
-      value: config.model,
-      label: config.model,
-      description: t("settings.vision.savedModelUnavailable"),
-    }] : []),
-    ...models.map((model) => ({ value: model, label: model })),
-  ];
   const wrist = config.wrist ?? DEFAULT_OCR_WRIST_SETTINGS;
   const updateWrist = (patch: Partial<VrOcrWristSettings>) => onChange({ wrist: { ...wrist, ...patch } });
   const connectionSettings = <>
-    <Select label={t("settings.vision.profile")} value={config.profile_id ?? ""} disabled={disabled}
-      helper={!compatibleProfiles.length ? t("settings.vision.noProfiles") : undefined}
-      options={[
-        { value: "", label: t("settings.vision.noProfile") },
-        ...compatibleProfiles.map((profile) => ({ value: profile.id, label: profile.name === profile.provider_display_name
-          ? profile.name : `${profile.name} · ${profile.provider_display_name}` })),
-        ...(config.profile_id && !selected ? [{ value: config.profile_id, label: t("settings.vision.unavailableProfile") }] : []),
-      ]}
-      onChange={(value) => { setReasoningReset(Boolean(config.reasoning_control)); onSelectProfile(value || null); }} />
     <LanguagePicker label={t("settings.vision.answerLanguage")} value={config.answer_language}
       languageCodes={TRANSLATION_LANGUAGE_CODES} disabled={disabled}
       onChange={(answer_language) => onChange({ answer_language })} />
     <div className="field vision-settings-model-field">
-      <span>{t("settings.vision.model")}</span>
-      <div className="translation-model-input-row">
-        <EditableDropdownField label={t("settings.vision.model")} value={config.model} options={modelOptions}
-          commitOnBlur placeholder={t("settings.vision.selectModel")}
-          disabled={disabled || !selected} optionsDisabled={loading || !models.length}
-          onChange={(model) => {
-            const nextModel = model.trim();
-            const reasoning_control = normalizeReasoningControlForModel(selected?.provider, nextModel, config.reasoning_control, catalog.modelDetails[nextModel]);
-            setReasoningReset(Boolean(config.reasoning_control && !reasoning_control));
-            onChange({ model: nextModel, reasoning_control });
-          }} />
-        <button className="secondary-button" type="button" aria-label={t("settings.apiManagement.refreshModels")}
-          data-tooltip={t("settings.apiManagement.refreshModels")} disabled={disabled || !selected || loading}
-          onClick={() => void refresh()}>
-          <RefreshCw size={15} className={loading ? "spin" : undefined} />
-        </button>
-        <button className="secondary-button" type="button"
-          aria-label={t(testing ? "settings.vision.testing" : "settings.vision.testButton")}
-          data-tooltip={`${t(testing ? "settings.vision.testing" : "settings.vision.testButton")}\n${t("settings.vision.testDescription")}`}
-          disabled={disabled || testing || !selected || !config.model.trim()}
-          onClick={() => void testImage()}>
-          {testing ? <RefreshCw size={15} className="spin" /> : <FlaskConical size={15} />}
-        </button>
-      </div>
-      {loading && <small>{t("settings.apiManagement.loadingModels")}</small>}
-      {error && <small className="api-model-catalog-error" role="alert">{error}</small>}
-      {selected && !loading && !error && !models.length && <small>{t("settings.vision.noModels")}</small>}
-      {selected && !loading && !error && config.model && !models.includes(config.model)
-        && <small>{t("settings.vision.savedModelUnavailable")}</small>}
+      <button className="secondary-button" type="button"
+        aria-label={t(testing ? "settings.vision.testing" : "settings.vision.testButton")}
+        data-tooltip={`${t("settings.vision.testButton")}\n${t("settings.vision.testDescription")}`}
+        disabled={disabled || testing || !selected || !config.model.trim()} onClick={() => void testImage()}>
+        {testing ? <RefreshCw size={15} className="spin" /> : <FlaskConical size={15} />}
+        {t("settings.vision.testButton")}
+      </button>
       {testResult && <p className="vision-settings-note vision-settings-result" role="status">{testResult}</p>}
       {testError && <p className="vr-overlay-native-error" role="alert">{testError}</p>}
-    </div>
-    <div className="field vision-settings-reasoning-field">
-      <ReasoningControlField provider={selected?.provider} model={config.model} details={catalog.modelDetails[config.model]}
-        thinkingEnabled={config.thinking_enabled} value={config.reasoning_control} disabled={disabled}
-        onChange={(patch) => { setReasoningReset(false); onChange(patch); }} />
-      {reasoningReset && <small>{t("settings.reasoning.reset")}</small>}
-      {config.reasoning_control?.type === "budget_tokens" && config.reasoning_control.value > 0
-        && <small>{t("settings.reasoning.remainingTokens", { count: Math.max(0, config.max_output_tokens - config.reasoning_control.value) })}</small>}
     </div>
   </>;
   return <section className="vr-overlay-card vision-settings-card" id="vision-question-answering" aria-labelledby="vision-heading">

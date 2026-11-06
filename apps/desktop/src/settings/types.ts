@@ -11,7 +11,9 @@ import type { AsrSettings } from "../providers/types";
 export type ModelDownloadSource = "auto" | "official" | "modelscope";
 
 export interface Settings {
-  schema_version: 37;
+  schema_version: 38;
+  model_defaults: ModelDefaults;
+  learning_ai: LearningAiSettings;
   vrchat_chatbox: VrchatChatboxConfig;
   conversation_titles: ConversationTitleSettings;
   features: FeatureSettings;
@@ -58,6 +60,7 @@ export interface VrchatChatboxConfig {
 }
 
 export interface ConversationTitleSettings {
+  use_default_model?: boolean;
   auto_generate: boolean;
   profile_id: string | null;
   model: string;
@@ -86,6 +89,7 @@ export interface VisionAsrSettings {
 }
 
 export interface VisionSettings {
+  use_default_model?: boolean;
   enabled: boolean;
   vr_enabled: boolean;
   desktop_enabled: boolean;
@@ -108,6 +112,7 @@ export interface VisionSettings {
 }
 
 export interface TranslationSettings {
+  model_selection?: ModelSelection;
   mode: "disabled" | "manual" | "automatic";
   speaker_targets: TranslationTargetSettings[];
   microphone_targets: TranslationTargetSettings[];
@@ -115,10 +120,30 @@ export interface TranslationSettings {
 }
 
 export interface TranslationTargetSettings {
+  use_default_model?: boolean;
   target_language: string;
   profile_id: string | null;
   model: string;
   model_by_profile?: Record<string, string>;
+  thinking_enabled: boolean;
+  reasoning_control?: import("../translation/translation-thinking").ReasoningSetting | null;
+}
+
+export interface ModelBinding {
+  profile_id: string | null;
+  model: string;
+}
+
+export interface ModelSelection extends ModelBinding {
+  use_default_model?: boolean;
+}
+
+export interface ModelDefaults {
+  text: ModelBinding;
+  vision: ModelBinding;
+}
+
+export interface LearningAiSettings extends ModelSelection {
   thinking_enabled: boolean;
   reasoning_control?: import("../translation/translation-thinking").ReasoningSetting | null;
 }

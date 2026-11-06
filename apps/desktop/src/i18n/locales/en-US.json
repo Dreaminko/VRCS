@@ -1009,7 +1009,7 @@
         "recognition": "Recognition",
         "translation": "Translation",
         "glossary": "Glossaries",
-        "api": "API access",
+        "api": "API and models",
         "learning": "Learning",
         "connections": "Connections",
         "about": "About",
@@ -1136,8 +1136,7 @@
       "conversationTitles": {
         "title": "Conversation management",
         "autoGenerate": "Generate conversation titles automatically",
-        "configureFirst": "Select an available text generation API profile and set a model first.",
-        "modelSettings": "Title generation model",
+        "configureFirst": "Configure the title model in API and models > Model assignments.",
         "profile": "API profile",
         "noProfiles": "No API profiles support text generation.",
         "selectProfile": "Select an API profile",
@@ -1757,7 +1756,7 @@
       },
       "learning": {
         "title": "Learning settings",
-        "aiDescription": "Choose the AI service and default explanation style used by the learning workspace.",
+        "aiDescription": "Set the explanation language and level used by the learning workspace.",
         "noAiProfiles": "No AI profiles support text generation"
       },
       "dictionary": {
@@ -1926,6 +1925,31 @@
             "failed": "Chatbox reception stopped with an error"
           }
         }
+      },
+      "modelAssignments": {
+        "title": "API and models",
+        "models": "Model assignments",
+        "profiles": "API profiles",
+        "textDefault": "Default text model",
+        "visionDefault": "Default vision model",
+        "tasks": "Models by task",
+        "useDefaults": "Use defaults for compatible tasks",
+        "confirmDefaults": "These tasks will follow their defaults: {{tasks}}. Their current translation targets will follow the task model. Language presets and feature switches keep their current settings.",
+        "reuseTextModel": "Copy the text model",
+        "followingDefault": "Follow default",
+        "independent": "Independent selection",
+        "source": "Model source",
+        "selectProfile": "Select an API profile",
+        "unavailable": "The profile is missing or does not support this task.",
+        "changeModel": "Change model",
+        "translation": "Subtitle translation",
+        "ocrTranslation": "OCR translation",
+        "ocrTargets": "OCR translation targets",
+        "conversationTitles": "Conversation titles",
+        "learningAi": "Learning AI",
+        "visionQuestions": "Visual questions",
+        "nativeTranslation": "The first automatic translation target uses {{service}}.",
+        "routeOverrides": "{{count}} independent"
       }
     },
     "onboarding": {

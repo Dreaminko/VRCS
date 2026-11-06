@@ -5,7 +5,6 @@ import {
   selectTranslationModel,
   switchTranslationProfile,
   updateTranslationModel,
-  translationDiagnosticModel,
 } from "../src/translation/translation-model-selection.ts";
 import type { ApiProfileView } from "../src/providers/types.ts";
 import type { TranslationTargetSettings } from "../src/settings/types.ts";
@@ -102,24 +101,6 @@ test("automatic selection skips obvious non-text models", () => {
       "",
     ),
     "qwen3.6-flash",
-  );
-});
-
-test("custom profiles keep manual model control when a catalog is unavailable", () => {
-  const custom = profile("openai_compatible");
-  assert.equal(translationDiagnosticModel(custom, undefined, "manual-model"), "manual-model");
-  assert.equal(selectTranslationModel(custom.provider, ["embedding-only"], "manual-model"), undefined);
-});
-
-test("successful model catalogs only pass models they contain to diagnostics", () => {
-  const deepseek = profile("deepseek");
-  assert.equal(
-    translationDiagnosticModel(deepseek, { models: ["deepseek-v4-flash"], loading: false, error: "" }, "gpt-5-mini"),
-    undefined,
-  );
-  assert.equal(
-    translationDiagnosticModel(deepseek, { models: ["deepseek-v4-flash"], loading: false, error: "" }, "deepseek-v4-flash"),
-    "deepseek-v4-flash",
   );
 });
 

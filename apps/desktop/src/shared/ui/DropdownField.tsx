@@ -271,6 +271,7 @@ export function EditableDropdownField({
   placeholder,
   commitOnBlur = false,
   floating = true,
+  floatingLayer = "page",
   onChange,
 }: {
   label: string;
@@ -281,6 +282,7 @@ export function EditableDropdownField({
   placeholder?: string;
   commitOnBlur?: boolean;
   floating?: boolean;
+  floatingLayer?: "page" | "dialog";
   onChange: (value: string) => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -332,7 +334,7 @@ export function EditableDropdownField({
 
   const menu = (
     <div
-      className={`dropdown-menu editable-dropdown-menu ${floating ? "dropdown-menu-floating" : ""}`}
+      className={`dropdown-menu editable-dropdown-menu ${floating ? "dropdown-menu-floating" : ""} ${floating && floatingLayer === "dialog" ? "dropdown-menu-floating-dialog" : ""}`}
       id={menuId}
       ref={menuRef}
       role="listbox"

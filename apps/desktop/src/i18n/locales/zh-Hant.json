@@ -1009,7 +1009,7 @@
         "recognition": "辨識",
         "translation": "翻譯",
         "glossary": "術語表",
-        "api": "API 存取",
+        "api": "API 與模型",
         "learning": "學習",
         "connections": "連線",
         "about": "關於",
@@ -1136,8 +1136,7 @@
       "conversationTitles": {
         "title": "對話管理",
         "autoGenerate": "自動產生對話標題",
-        "configureFirst": "請先選擇可用的文字生成 API 設定檔並設定模型。",
-        "modelSettings": "標題生成模型",
+        "configureFirst": "請在「API 與模型 → 模型分配」中設定標題生成模型。",
         "profile": "API 設定檔",
         "noProfiles": "目前沒有支援文字生成的 API 設定檔。",
         "selectProfile": "選擇 API 設定檔",
@@ -1757,7 +1756,7 @@
       },
       "learning": {
         "title": "學習設定",
-        "aiDescription": "設定學習工作區進行分析時使用的 AI 服務和預設解釋方式。",
+        "aiDescription": "設定學習工作台使用的講解語言與程度。",
         "noAiProfiles": "沒有支援文字產生的 AI 設定檔"
       },
       "dictionary": {
@@ -1926,6 +1925,31 @@
             "failed": "Chatbox 接收因錯誤停止"
           }
         }
+      },
+      "modelAssignments": {
+        "title": "API 與模型",
+        "models": "模型分配",
+        "profiles": "API 設定檔",
+        "textDefault": "預設文字模型",
+        "visionDefault": "預設視覺模型",
+        "tasks": "依用途分配",
+        "useDefaults": "相容用途跟隨預設",
+        "confirmDefaults": "以下用途將跟隨預設模型：{{tasks}}。其目前的翻譯目標將跟隨所屬用途的模型。語言預設與功能開關保留目前設定。",
+        "reuseTextModel": "複製文字模型",
+        "followingDefault": "跟隨預設",
+        "independent": "獨立設定",
+        "source": "模型來源",
+        "selectProfile": "選擇 API 設定檔",
+        "unavailable": "設定檔不存在或不支援此用途。",
+        "changeModel": "變更模型",
+        "translation": "字幕翻譯",
+        "ocrTranslation": "截圖翻譯",
+        "ocrTargets": "截圖翻譯目標",
+        "conversationTitles": "總結標題",
+        "learningAi": "學習 AI",
+        "visionQuestions": "視覺提問",
+        "nativeTranslation": "自動翻譯的第一個目標使用 {{service}}。",
+        "routeOverrides": "{{count}} 個獨立設定"
       }
     },
     "onboarding": {

@@ -5,8 +5,10 @@ import { useTranslation } from "react-i18next";
 import type { DictionarySource } from "../../dictionary/types";
 import { DictionarySettingsSection } from "./DictionarySettingsSection";
 import { LearningAiSettingsSection } from "./LearningAiSettingsSection";
+import type { Settings } from "../types";
 
 export function LearningSettingsSection({
+  settings,
   locale,
   selectionLookupEnabled,
   dictionaries,
@@ -18,6 +20,7 @@ export function LearningSettingsSection({
   onChooseDictionary,
   onRemoveDictionary,
 }: {
+  settings: Settings;
   locale: string;
   selectionLookupEnabled: boolean;
   dictionaries: DictionarySource[];
@@ -40,7 +43,7 @@ export function LearningSettingsSection({
         </div>
       </div>
       <div className="learning-settings-list">
-        <LearningAiSettingsSection />
+        <LearningAiSettingsSection settings={settings} />
         <DictionarySettingsSection
           locale={locale}
           selectionLookupEnabled={selectionLookupEnabled}

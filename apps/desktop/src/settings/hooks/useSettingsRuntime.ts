@@ -11,6 +11,7 @@ import type { Settings } from "../types";
 import type { PlayerAudioStart } from "../../capture/usePlayerAudioStart";
 import { withCurrentPlayerNames } from "../../capture/player-selection";
 import { usesVrchatNetwork } from "../../capture/vrchat-network";
+import { clearLegacyLearningBinding, learningPreferencesSnapshot, legacyLearningBinding } from "../../learning/preferences";
 
 export function useSettingsRuntime({
   active,
@@ -158,6 +159,21 @@ export function useSettingsRuntime({
       },
     });
   }
+
+  const migratingLearningBinding = useRef(false);
+  useEffect(() => {
+    if (!settings || migratingLearningBinding.current) return;
+    const legacy = legacyLearningBinding(learningPreferencesSnapshot());
+    if (!legacy) return;
+    migratingLearningBinding.current = true;
+    void settingsAutosaveRef.current!.update((latest) => {
+      const binding = latest.learning_ai;
+      if (binding && (!binding.use_default_model || binding.profile_id || binding.model)) return latest;
+      return { ...latest, learning_ai: legacy };
+    }).then(clearLegacyLearningBinding)
+      .catch(() => { /* Keep the browser binding until it is stored in Core. */ })
+      .finally(() => { migratingLearningBinding.current = false; });
+  }, [settings]);
 
   const refreshingPlayerNames = useRef(false);
   const observedPlayers = health.value?.player_audio?.players;

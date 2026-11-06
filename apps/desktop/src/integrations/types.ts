@@ -89,6 +89,7 @@ export interface VrOverlaySettings {
 }
 
 export interface VrOcrSettings {
+  model_selection?: import("../settings/types").ModelSelection;
   master_enabled: boolean;
   enabled: boolean;
   desktop_enabled: boolean;

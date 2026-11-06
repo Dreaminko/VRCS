@@ -1009,7 +1009,7 @@
         "recognition": "识别",
         "translation": "翻译",
         "glossary": "术语表",
-        "api": "API 管理",
+        "api": "API 与模型",
         "learning": "学习",
         "connections": "连接",
         "about": "关于",
@@ -1136,8 +1136,7 @@
       "conversationTitles": {
         "title": "会话管理",
         "autoGenerate": "自动生成会话标题",
-        "configureFirst": "请先选择可用的文本生成 API 档案并设置模型。",
-        "modelSettings": "标题生成模型",
+        "configureFirst": "请在「API 与模型 → 模型分配」中配置标题生成模型。",
         "profile": "API 档案",
         "noProfiles": "暂无支持文本生成的 API 档案。",
         "selectProfile": "选择 API 档案",
@@ -1757,7 +1756,7 @@
       },
       "learning": {
         "title": "学习设置",
-        "aiDescription": "设置学习工作台进行分析时使用的 AI 服务和默认解释方式。",
+        "aiDescription": "设置学习工作台使用的讲解语言与程度。",
         "noAiProfiles": "没有支持文本生成的 AI Profile"
       },
       "dictionary": {
@@ -1926,6 +1925,31 @@
             "failed": "Chatbox 接收因错误停止"
           }
         }
+      },
+      "modelAssignments": {
+        "title": "API 与模型",
+        "models": "模型分配",
+        "profiles": "API 档案",
+        "textDefault": "默认文本模型",
+        "visionDefault": "默认视觉模型",
+        "tasks": "按用途分配",
+        "useDefaults": "兼容用途跟随默认",
+        "confirmDefaults": "以下用途将跟随默认模型：{{tasks}}。它们当前的翻译目标将跟随所属用途的模型。语言预设和功能开关保留当前设置。",
+        "reuseTextModel": "复制文本模型",
+        "followingDefault": "跟随默认",
+        "independent": "独立设置",
+        "source": "模型来源",
+        "selectProfile": "选择 API 档案",
+        "unavailable": "档案不存在或不支持此用途。",
+        "changeModel": "更改模型",
+        "translation": "字幕翻译",
+        "ocrTranslation": "截图翻译",
+        "ocrTargets": "截图翻译目标",
+        "conversationTitles": "总结标题",
+        "learningAi": "学习 AI",
+        "visionQuestions": "视觉提问",
+        "nativeTranslation": "自动翻译的第一个目标使用 {{service}}。",
+        "routeOverrides": "{{count}} 个独立设置"
       }
     },
     "onboarding": {

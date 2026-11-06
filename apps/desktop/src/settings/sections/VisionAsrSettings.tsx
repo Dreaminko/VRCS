@@ -1,6 +1,6 @@
 import { useCallback } from "react";
 import { useTranslation } from "react-i18next";
-import { providersApi } from "../../providers/api";
+import { providersApi, type ModelCatalogRequest } from "../../providers/api";
 import { MANAGED_QWEN_RECOGNITION_SOURCE } from "../../providers/recognition-services";
 import type { ApiProfileView, AsrSettings, ProviderDefinition } from "../../providers/types";
 import { EditableDropdownField } from "../../shared/ui/DropdownField";
@@ -25,7 +25,7 @@ export function VisionAsrSettings({ config, shared, profiles, definitions, disab
   const service = services.find((item) => item.id === config?.backend);
   const managed = config?.backend === "qwen_local_managed";
   const source = config ? managed ? MANAGED_QWEN_RECOGNITION_SOURCE : config.profile_id ?? "unavailable" : "";
-  const loadModels = useCallback((profileId: string) => providersApi.recognitionServiceModels(profileId, config?.backend ?? ""), [config?.backend]);
+  const loadModels = useCallback((profileId: string, options?: ModelCatalogRequest) => providersApi.recognitionServiceModels(profileId, config?.backend ?? "", options), [config?.backend]);
   const catalog = useProfileModels(selected, Boolean(service?.model_listing), loadModels);
   const models = catalog.models.length ? catalog.models : service?.models ?? [];
   const globalService = definitions.flatMap((provider) => provider.services).find((item) => item.id === shared.backend);

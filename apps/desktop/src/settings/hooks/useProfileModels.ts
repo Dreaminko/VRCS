@@ -23,7 +23,7 @@ export function useProfileModels(
     return loadModels(profileId);
   }, [loadModels]);
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (force = true) => {
     const currentRequest = ++request.current;
     if (!profile || !enabled) {
       setCatalog({ scope, value: EMPTY_CATALOG });
@@ -34,7 +34,7 @@ export function useProfileModels(
     setLoading(true);
     setError("");
     try {
-      const value = await loadModels(profile.id);
+      const value = await loadModels(profile.id, { refresh: force });
       if (currentRequest === request.current) {
         setCatalog({ scope, value });
       }
@@ -49,7 +49,7 @@ export function useProfileModels(
   }, [enabled, loadModels, scope, t]);
 
   useEffect(() => {
-    void refresh();
+    void refresh(false);
     return () => { request.current += 1; };
   }, [refresh]);
 

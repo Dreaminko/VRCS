@@ -46,11 +46,12 @@ for (const width of [1200, 380]) {
         };
         const noop = () => {};
         const profile = { id: 'titles', name: 'Title service', provider: 'openai_compatible',
-          provider_display_name: 'OpenAI Compatible', capabilities: { supports_text_generation: true } };
-        let config;
+          provider_display_name: 'OpenAI Compatible', enabled_capabilities: ['text_generation'], credential: { configured: true }, capabilities: { supports_text_generation: true, supports_model_listing: true } };
+        let config, setConfig;
         function Settings() {
           const [value, setValue] = useState({ auto_generate: false, profile_id: null, model: '', output_language: 'auto' });
           config = value;
+          setConfig = setValue;
           return <div className="settings-section settings-section-active system-section">
             <ConversationTitleSettingsSection config={value} profiles={[profile]}
               onChange={patch => setValue(current => ({ ...current, ...patch }))} />
@@ -59,12 +60,6 @@ for (const width of [1200, 380]) {
         const root = createRoot(document.getElementById('root'));
         const render = element => flushSync(() => root.render(element));
         const buttonNamed = label => [...document.querySelectorAll('button[aria-label]')].find(button => button.getAttribute('aria-label') === label);
-        const choose = async (label, text) => {
-          buttonNamed(label).click();
-          await wait(() => [...document.querySelectorAll('[role=option]')].some(option => option.textContent.trim() === text));
-          [...document.querySelectorAll('[role=option]')].find(option => option.textContent.trim() === text).click();
-          await settle();
-        };
         const conversation = conversationsFromCatalog({ conversations: [{
           id: 'past', started_at: '2026-10-19T10:00:00Z', ended_at: '2026-10-19T11:00:00Z',
           automatic_title: 'Hello', summary_title: 'Japanese interview practice', custom_title: null,
@@ -87,44 +82,21 @@ for (const width of [1200, 380]) {
           render(<Settings />);
           await settle();
           const group = document.querySelector('[aria-labelledby="system-conversations-title"]');
-          const modelSettings = group.querySelector('.conversation-title-model-settings');
           const toggle = () => document.querySelector('[role=switch]');
-          check(toggle().disabled, 'Automatic titles require a profile and model');
-          check(Boolean(modelSettings.querySelector('input[role=combobox]')), 'Model settings are always visible');
-          await choose(t('settings.conversationTitles.profile'), 'Title service · OpenAI Compatible');
-          check(toggle().disabled, 'A profile alone does not enable automatic titles');
-          await wait(() => !buttonNamed(t('settings.conversationTitles.model')).disabled);
-          await choose(t('settings.conversationTitles.model'), 'title-model');
-          check(!toggle().disabled, 'A configured model enables the automatic title switch');
+          check(toggle().disabled, 'Automatic titles require a configured model');
+          check(!group.querySelector('.model-selection-field, input[role=combobox]'), 'System settings do not expose a model selector');
+          check(buttonNamed(t('settings.conversationTitles.language')), 'Title output language stays in system settings');
+          flushSync(() => setConfig(current => ({ ...current, profile_id: 'titles', model: 'title-model' })));
+          check(!toggle().disabled, 'A model configured through assignments enables automatic titles');
           toggle().click();
           await settle();
           check(config.auto_generate, 'The switch enables automatic generation');
           toggle().click();
           await settle();
           check(!config.auto_generate && config.profile_id === 'titles' && config.model === 'title-model',
-            'Disabling automatic titles preserves manual generation configuration');
-          const input = document.querySelector('input[role=combobox]');
-          const refresh = buttonNamed(t('settings.apiManagement.refreshModels'));
-          const inputRect = input.getBoundingClientRect();
-          const refreshRect = refresh.getBoundingClientRect();
-          check(Math.abs(inputRect.top - refreshRect.top) <= 1 && inputRect.right <= refreshRect.left,
-            'The model input and refresh button align without overlap');
+            'Disabling automatic titles preserves the assigned model');
           check(innerWidth === ${width}, 'The test uses the expected CSS viewport');
           check(document.documentElement.scrollWidth <= innerWidth + 1, 'Conversation settings do not overflow horizontally');
-          flushSync(() => {
-            input.focus();
-            Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, 'deeps');
-            input.dispatchEvent(new Event('input', { bubbles: true }));
-          });
-          await wait(() => input.getAttribute('aria-expanded') === 'true');
-          const suggestions = () => document.getElementById(input.getAttribute('aria-controls'));
-          await wait(() => suggestions());
-          check(suggestions().querySelectorAll('[role=option]').length === 2, 'Title model input filters its provider catalog while typing');
-          check(config.model === 'title-model' && document.activeElement === input, 'Model filtering preserves the saved title model and input focus');
-          for (const key of ['ArrowDown', 'ArrowDown', 'Enter']) {
-            flushSync(() => input.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true })));
-          }
-          check(config.model === 'provider/deepseek-r1', 'Title models use the shared keyboard selection behavior');
 
           for (const state of [{ loading: true }, { failed: true }, { searchable: false }]) {
             render(search(state));

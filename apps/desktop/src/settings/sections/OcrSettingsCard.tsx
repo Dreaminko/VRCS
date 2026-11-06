@@ -12,11 +12,14 @@ import type { DesktopOcrStatus } from "../../ocr/status";
 import { ConfirmDialog } from "../../app/components/ConfirmDialog";
 import { ShortcutField } from "../../shared/ui/ShortcutField";
 import { SettingsDisclosure } from "../components/SettingsDisclosure";
+import { DEFAULT_MODEL_SELECTION, EMPTY_MODEL_BINDING, resolveModelSelection } from "../model-selection";
+import type { ModelBinding } from "../types";
 
-export function OcrSettingsCard({ vrAvailable, config, profiles, disabled: saving, runtime, desktopStatus, onChange }: {
+export function OcrSettingsCard({ vrAvailable, config, profiles, defaultModel = EMPTY_MODEL_BINDING, disabled: saving, runtime, desktopStatus, onChange }: {
   vrAvailable: boolean;
   config: VrOcrSettings;
   profiles: ApiProfileView[];
+  defaultModel?: ModelBinding;
   disabled: boolean;
   runtime?: VrOcrStatus;
   desktopStatus: DesktopOcrStatus | null;
@@ -162,6 +165,7 @@ export function OcrSettingsCard({ vrAvailable, config, profiles, disabled: savin
             </div>
           </div>
           <TranslationRouteList title={t("settings.vrOcr.translation")} targets={config.targets}
+            modelSelection={resolveModelSelection(config.model_selection ?? DEFAULT_MODEL_SELECTION, defaultModel)}
             profiles={profiles} disabled={disabled} onChange={(targets) => onChange({ targets })} />
           <div className="vr-overlay-range-grid">
             <RangeField label={t("settings.vrOcr.timeout")} value={config.timeout_seconds} min={5} max={120} step={5}

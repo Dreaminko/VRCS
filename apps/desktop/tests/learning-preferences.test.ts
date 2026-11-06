@@ -7,6 +7,8 @@ import {
   readLearningPreferences,
   subscribeLearningPreferences,
   updateLearningPreferences,
+  legacyLearningBinding,
+  clearLegacyLearningBinding,
 } from "../src/learning/preferences.ts";
 
 test("follows the app language for new, missing, or invalid preferences", () => {
@@ -72,7 +74,7 @@ function mockWindow(t: TestContext) {
   return target;
 }
 
-test("synchronizes consumers immediately and preserves follow mode when saving a model", (t) => {
+test("synchronizes display preferences without storing model bindings", (t) => {
   mockWindow(t);
   const first: string[] = [];
   const second: string[] = [];
@@ -85,7 +87,7 @@ test("synchronizes consumers immediately and preserves follow mode when saving a
     updateLearningPreferences((current) => ({ ...current, explanationLanguage: "zh-Hant" }));
     assert.deepEqual(first, ["ui", "zh-Hant"]);
     assert.deepEqual(second, first);
-    assert.equal(readLearningPreferences(learningPreferencesSnapshot()).model, "model-one");
+    assert.equal(readLearningPreferences(learningPreferencesSnapshot()).model, "");
 
     stopFirst();
     updateLearningPreferences((current) => ({ ...current, explanationLanguage: "ui" }));
@@ -96,6 +98,22 @@ test("synchronizes consumers immediately and preserves follow mode when saving a
     stopFirst();
     stopSecond();
   }
+});
+
+test("keeps legacy bindings for import and clears only model fields after migration", (t) => {
+  const target = mockWindow(t);
+  target.localStorage.setItem("vrcs.learning.preferences.v1", JSON.stringify({
+    profileId: "old-profile", model: "old-model", thinkingEnabled: true,
+    reasoningControl: { type: "effort", value: "high" }, explanationLanguage: "ja-JP", explanationLevel: "advanced",
+  }));
+  updateLearningPreferences((current) => ({ ...current, explanationLanguage: "zh-Hant" }));
+  assert.deepEqual(legacyLearningBinding(learningPreferencesSnapshot()), {
+    profile_id: "old-profile", model: "old-model", use_default_model: false, thinking_enabled: true,
+    reasoning_control: { type: "effort", value: "high" },
+  });
+  clearLegacyLearningBinding();
+  assert.equal(legacyLearningBinding(learningPreferencesSnapshot()), null);
+  assert.deepEqual(JSON.parse(learningPreferencesSnapshot()!), { explanationLanguage: "zh-Hant", explanationLevel: "advanced" });
 });
 
 test("notifies consumers when another window changes or clears preferences", (t) => {

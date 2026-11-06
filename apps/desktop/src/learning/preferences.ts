@@ -1,6 +1,7 @@
 import { canonicalLanguageTag } from "../translation/translation-languages.ts";
 import type { LearningLevel } from "./types";
 import type { ReasoningSetting } from "../translation/translation-thinking";
+import type { LearningAiSettings } from "../settings/types";
 
 const LEARNING_PREFERENCES_KEY = "vrcs.learning.preferences.v1";
 const PREFERENCES_CHANGED = "vrcs:learning-preferences-changed";
@@ -78,10 +79,31 @@ export function updateLearningPreferences(
   update: (current: LearningPreferences) => LearningPreferences,
 ): void {
   const serialized = learningPreferencesSnapshot();
-  const next = JSON.stringify(update(readLearningPreferences(serialized)));
+  const updated = update(readLearningPreferences(serialized));
+  let stored: Record<string, unknown> = {};
+  try { stored = JSON.parse(serialized ?? "{}") ?? {}; } catch { /* Replace invalid preferences. */ }
+  const next = JSON.stringify({ ...stored, explanationLanguage: updated.explanationLanguage, explanationLevel: updated.explanationLevel });
   if (next === serialized) return;
   window.localStorage.setItem(LEARNING_PREFERENCES_KEY, next);
   window.dispatchEvent(new Event(PREFERENCES_CHANGED));
+}
+
+export function legacyLearningBinding(serialized: string | null): LearningAiSettings | null {
+  const saved = readLearningPreferences(serialized);
+  if (!saved.profileId && !saved.model) return null;
+  return { profile_id: saved.profileId || null, model: saved.model, use_default_model: false,
+    thinking_enabled: saved.thinkingEnabled, reasoning_control: saved.reasoningControl };
+}
+
+export function clearLegacyLearningBinding(): void {
+  const serialized = learningPreferencesSnapshot();
+  if (!serialized) return;
+  try {
+    const stored = JSON.parse(serialized);
+    for (const key of ["profileId", "model", "thinkingEnabled", "reasoningControl"]) delete stored[key];
+    window.localStorage.setItem(LEARNING_PREFERENCES_KEY, JSON.stringify(stored));
+    window.dispatchEvent(new Event(PREFERENCES_CHANGED));
+  } catch { /* Leave unreadable preferences unchanged. */ }
 }
 
 export function subscribeLearningPreferences(listener: () => void): () => void {

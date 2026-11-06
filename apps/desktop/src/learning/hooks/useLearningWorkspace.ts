@@ -9,15 +9,16 @@ import { useLearningAiConfiguration } from "./useLearningAiConfiguration";
 import { useLearningCapture } from "./useLearningCapture";
 import { useLearningInbox } from "./useLearningInbox";
 import { updateLearningItemEdits, type LearningItemEdits } from "../learning-edits";
+import type { Settings } from "../../settings/types";
 
 export type { LearningPreferences } from "./useLearningAiConfiguration";
 export type { LearningBusyAction, LearningStatusFilter } from "./useLearningInbox";
 
-export function useLearningWorkspace(active: boolean, ready = active) {
+export function useLearningWorkspace(active: boolean, ready = active, settings?: Settings | null) {
   const { i18n } = useTranslation();
   const inbox = useLearningInbox(ready);
   const capture = useLearningCapture(ready, inbox.applyItem);
-  const ai = useLearningAiConfiguration(ready, false);
+  const ai = useLearningAiConfiguration(settings);
   const [itemEdits, setItemEdits] = useState<Record<number, LearningItemEdits>>({});
   const editItem = useCallback((itemId: number, patch: LearningItemEdits) => {
     setItemEdits((current) => updateLearningItemEdits(current, itemId, patch));
@@ -69,11 +70,10 @@ export function useLearningWorkspace(active: boolean, ready = active) {
     hasMore: inbox.hasMore,
     reload: inbox.reload,
     loadMore: inbox.loadMore,
-    error: inbox.error || capture.error || ai.error,
+    error: inbox.error || capture.error,
     clearError: () => {
       inbox.clearError();
       capture.clearError();
-      ai.clearError();
     },
     itemErrors: inbox.itemErrors,
     busyByItem: inbox.busyByItem,

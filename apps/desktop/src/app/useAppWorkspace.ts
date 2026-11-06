@@ -54,7 +54,7 @@ export function useAppWorkspace({
     dictionaryLookupEnabled: settings.value?.dictionary.selection_lookup_enabled ?? true,
     reportError: runtime.reportError,
   });
-  const learningWorkspace = useLearningWorkspace(page === "learning" && runtime.ready && learningAvailable, runtime.ready && learningAvailable);
+  const learningWorkspace = useLearningWorkspace(page === "learning" && runtime.ready && learningAvailable, runtime.ready && learningAvailable, settings.value);
   const openLearningPage = useCallback(() => setPage("learning"), [setPage]);
   const learningActions = useSubtitleLearningActions({
     workspace: learningWorkspace,
@@ -121,7 +121,7 @@ export function useAppWorkspace({
   const openSelectionAiSettings = useCallback(async () => {
     if (compactWindow.compact && !(await compactWindow.exitCompact())) return;
     selection.clear();
-    setSettingsInitialCategory("learning");
+    setSettingsInitialCategory("api");
     setPage("settings");
   }, [compactWindow, selection, setPage, setSettingsInitialCategory]);
 
