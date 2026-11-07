@@ -129,44 +129,33 @@ fn conversation_subtitle(
     message: &ChatboxMessage,
     translation_origin: Option<&ChatboxTranslationOrigin>,
 ) -> Subtitle {
-    let mut text = message.original.trim().to_owned();
-    let mut language = message.source_language.clone();
     let mut translations = Vec::new();
 
-    match message.send_mode.as_str() {
-        "translation" => {
-            if let Some(translation) = message.translation.as_deref() {
-                text = translation.trim().to_owned();
-                language = message.target_language.clone();
-            }
+    if matches!(message.send_mode.as_str(), "translation" | "bilingual") {
+        if let Some(translation) = message.translation.as_deref() {
+            translations.push(SubtitleTranslation {
+                source_group: None,
+                text: translation.trim().to_owned(),
+                source_language: message.source_language.clone(),
+                target_language: message
+                    .target_language
+                    .clone()
+                    .unwrap_or_else(|| "und".into()),
+                provider: translation_origin
+                    .map(|origin| origin.provider.clone())
+                    .unwrap_or_else(|| "local".into()),
+                model: translation_origin.and_then(|origin| origin.model.clone()),
+                created_at: message.created_at.clone(),
+            });
         }
-        "bilingual" => {
-            if let Some(translation) = message.translation.as_deref() {
-                translations.push(SubtitleTranslation {
-                    source_group: None,
-                    text: translation.trim().to_owned(),
-                    source_language: message.source_language.clone(),
-                    target_language: message
-                        .target_language
-                        .clone()
-                        .unwrap_or_else(|| "und".into()),
-                    provider: translation_origin
-                        .map(|origin| origin.provider.clone())
-                        .unwrap_or_else(|| "local".into()),
-                    model: translation_origin.and_then(|origin| origin.model.clone()),
-                    created_at: message.created_at.clone(),
-                });
-            }
-        }
-        _ => {}
     }
 
     Subtitle {
         speaker: None,
         id: None,
         conversation_id: None,
-        text,
-        language,
+        text: message.original.trim().to_owned(),
+        language: message.source_language.clone(),
         started_at: None,
         ended_at: None,
         source: "chatbox".into(),
@@ -234,8 +223,13 @@ mod tests {
         );
 
         let translated = conversation_subtitle(&message("translation"), Some(&local));
-        assert_eq!(translated.text, "こんにちは");
-        assert_eq!(translated.language.as_deref(), Some("ja"));
-        assert!(translated.translations.is_empty());
+        assert_eq!(translated.text, "hello");
+        assert_eq!(translated.language.as_deref(), Some("en"));
+        assert_eq!(translated.translations[0].text, "こんにちは");
+        assert_eq!(translated.translations[0].provider, "plamo_local");
+        assert_eq!(
+            translated.translations[0].model.as_deref(),
+            Some("plamo-3-translate-0.8b-q4_k_m")
+        );
     }
 }
