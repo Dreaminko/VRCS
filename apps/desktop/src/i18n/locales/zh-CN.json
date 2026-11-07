@@ -1239,7 +1239,6 @@
           "plamo_local": "本地 PLaMo"
         },
         "localModel": "本地翻译模型",
-        "localModelHint": "PLaMo 在本机运行，不使用 API 配置。模型需要单独下载。",
         "localTranslation": "本地 PLaMo 翻译",
         "localPromptNotice": "PLaMo 使用固定的 PFML3 翻译格式，不发送 API 系统提示词；上下文与术语表设置仍然生效。",
         "checkingLocalModel": "正在检查本地模型…",
@@ -1248,7 +1247,6 @@
         "localRuntimeMissing": "共享 llama.cpp 运行时尚未安装，使用本地翻译前请先下载。",
         "localDownloadRuntime": "下载运行时",
         "localLicenseConsent": "我接受此固定版本对应的模型许可证。",
-        "localLicenseNotice": "模型按需单独下载；公开译文会标明由 PLaMo 生成。",
         "deleteLocalModel": "删除本地 PLaMo 模型",
         "confirmDeleteLocalModel": "删除 PLaMo 模型及本地许可证副本？已有译文会保留。",
         "localStatus": {
@@ -1295,7 +1293,6 @@
         "maxMessages": "最近消息数（1–50）",
         "maxChars": "上下文字符上限（200–12000）",
         "contextPrivacyCloud": "最近原文会与当前文本一起发送给这些路线配置的云服务商。",
-        "contextPrivacyLocal": "最近原文只会发送到这些路线配置的本机地址。",
         "addRoute": "添加目标语言",
         "moveUp": "上移",
         "moveDown": "下移",
@@ -1573,6 +1570,7 @@
           "vision_asr": "视觉语音识别",
           "conversation_titles": "会话标题自动生成",
           "model_default_text": "默认文本模型",
+          "model_default_translation": "默认翻译模型",
           "model_default_vision": "默认视觉模型",
           "learning_ai": "学习 AI"
         },
@@ -1669,8 +1667,6 @@
         "maxSegment": "目标片段长度",
         "maxSegmentDescription": "达到目标时长后优先在停顿处分段；连续讲话只会在安全上限强制切断。",
         "localModels": "本地模型",
-        "downloadingCount": "正在下载 {{count}} 个模型",
-        "installedCount": "已安装 {{count}} 个模型",
         "modelDirectory": "模型目录",
         "modelDirectoryDescription": "下载的 Qwen 模型包存放在此目录。",
         "modelDirectoryRequired": "请先选择模型目录。",
@@ -1960,6 +1956,7 @@
         "globalModelDirectoryDescription": "ASR、OCR 和本地翻译模型分别存放在此目录下的独立子目录中。",
         "profiles": "API 档案",
         "textDefault": "默认文本模型",
+        "translationDefault": "默认翻译模型",
         "visionDefault": "默认视觉模型",
         "tasks": "按用途分配",
         "useDefaults": "跟随默认",
@@ -1973,14 +1970,9 @@
         "changeModel": "更改模型",
         "translation": "字幕翻译",
         "ocrTranslation": "截图翻译",
-        "ocrTargets": "截图翻译目标",
         "conversationTitles": "总结标题",
         "learningAi": "学习 AI",
-        "visionQuestions": "视觉提问",
-        "nativeTranslation": "自动翻译的第一个目标使用 {{service}}。",
-        "routeOverrides": "{{count}} 个独立设置",
-        "targetLanguageModels": "目标语言模型",
-        "targetLanguageModelsHint": "每个目标语言可单独指定模型；跟随任务模型的目标会自动使用该模型。"
+        "visionQuestions": "视觉提问"
       }
     },
     "onboarding": {

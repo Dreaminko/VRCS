@@ -1239,7 +1239,6 @@
           "plamo_local": "ローカル PLaMo"
         },
         "localModel": "ローカル翻訳モデル",
-        "localModelHint": "PLaMo はこの PC で実行され、API プロファイルを使用しません。モデルは別途ダウンロードします。",
         "localTranslation": "ローカル PLaMo 翻訳",
         "localPromptNotice": "PLaMo は固定の PFML3 翻訳形式を使用します。API のシステムプロンプトは送信されませんが、コンテキストと用語集は有効です。",
         "checkingLocalModel": "ローカルモデルを確認しています…",
@@ -1248,7 +1247,6 @@
         "localRuntimeMissing": "共有の llama.cpp ランタイムがインストールされていません。ローカル翻訳を使用する前にダウンロードしてください。",
         "localDownloadRuntime": "ランタイムをダウンロード",
         "localLicenseConsent": "この固定リビジョンのモデルライセンスに同意します。",
-        "localLicenseNotice": "モデルは別途ダウンロードされ、公開される翻訳には PLaMo による生成であることを示します。",
         "deleteLocalModel": "ローカル PLaMo モデルを削除",
         "confirmDeleteLocalModel": "PLaMo モデルとローカルライセンスのコピーを削除しますか？既存の翻訳は保持されます。",
         "localStatus": {
@@ -1295,7 +1293,6 @@
         "maxMessages": "最近のメッセージ数（1–50）",
         "maxChars": "コンテキスト文字数上限（200–12000）",
         "contextPrivacyCloud": "最近の原文は現在のテキストとともに各ルートに設定したクラウドプロバイダーへ送信されます。",
-        "contextPrivacyLocal": "最近の原文は各ルートに設定したローカルアドレスだけに送信されます。",
         "addRoute": "翻訳先言語を追加",
         "moveUp": "上へ移動",
         "moveDown": "下へ移動",
@@ -1573,6 +1570,7 @@
           "vision_asr": "ビジョン音声認識",
           "conversation_titles": "会話タイトルの自動生成",
           "model_default_text": "既定のテキストモデル",
+          "model_default_translation": "既定の翻訳モデル",
           "model_default_vision": "既定の画像モデル",
           "learning_ai": "学習 AI"
         },
@@ -1669,8 +1667,6 @@
         "maxSegment": "区間の目標長",
         "maxSegmentDescription": "目標時間以降は無音を優先して分割し、連続音声は安全上限でのみ強制分割します。",
         "localModels": "ローカルモデル",
-        "downloadingCount": "{{count}} 件をダウンロード中",
-        "installedCount": "{{count}} 個のモデルをインストール済み",
         "modelDirectory": "モデルフォルダー",
         "modelDirectoryDescription": "ダウンロードした Qwen モデルパッケージはここに保存されます。",
         "modelDirectoryRequired": "先にモデルフォルダーを選んでください。",
@@ -1960,6 +1956,7 @@
         "globalModelDirectoryDescription": "ASR、OCR、ローカル翻訳モデルは、このフォルダー内の個別のサブフォルダーに保存されます。",
         "profiles": "API プロファイル",
         "textDefault": "既定のテキストモデル",
+        "translationDefault": "既定の翻訳モデル",
         "visionDefault": "既定の画像モデル",
         "tasks": "用途別のモデル",
         "useDefaults": "対応する用途を既定に合わせる",
@@ -1973,14 +1970,9 @@
         "changeModel": "モデルを変更",
         "translation": "字幕翻訳",
         "ocrTranslation": "OCR 翻訳",
-        "ocrTargets": "OCR 翻訳先",
         "conversationTitles": "会話タイトル",
         "learningAi": "学習 AI",
-        "visionQuestions": "画像への質問",
-        "nativeTranslation": "自動翻訳の最初の翻訳先には {{service}} を使います。",
-        "routeOverrides": "個別設定 {{count}} 件",
-        "targetLanguageModels": "翻訳先モデル",
-        "targetLanguageModelsHint": "翻訳先ごとにモデルを指定できます。タスクモデルに従う翻訳先はそのモデルを自動で使用します。"
+        "visionQuestions": "画像への質問"
       }
     },
     "onboarding": {
