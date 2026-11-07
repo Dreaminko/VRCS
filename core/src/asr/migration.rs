@@ -34,7 +34,7 @@ pub(crate) fn paths_equivalent(left: &std::path::Path, right: &std::path::Path) 
                     .trim_end_matches('\\')
                     .to_lowercase()
             };
-            return normalize(left) == normalize(right);
+            normalize(left) == normalize(right)
         }
         #[cfg(not(windows))]
         {
