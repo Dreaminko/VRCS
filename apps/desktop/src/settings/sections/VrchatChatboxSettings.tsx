@@ -35,7 +35,7 @@ export function VrchatChatboxSettings({ draft, translation, profiles, status, su
       </div>
       <PreferenceToggle title={t("settings.capture.chatbox.enable")} hideLabel
         tooltip={!networkEnabled ? t("settings.capture.networkRequired") : undefined}
-        checked={networkEnabled && (draft.vrchat_chatbox ?? DEFAULT_VRCHAT_CHATBOX_CONFIG).enabled}
+        checked={(draft.vrchat_chatbox ?? DEFAULT_VRCHAT_CHATBOX_CONFIG).enabled}
         disabled={supported === false || !networkEnabled}
         onChange={(enabled) => applySettings((current) => ({ ...current, vrchat_chatbox: { enabled } }))} />
     </div>

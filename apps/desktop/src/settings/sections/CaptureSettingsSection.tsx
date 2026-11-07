@@ -341,10 +341,7 @@ export function CaptureSettingsSection({
             disabled={playerAudioStart?.memory.status?.supported === false}
             onChange={(patch) => applySettings((current) => ({
               ...current,
-              vrchat_chatbox: patch.enabled === false ? { enabled: false } : current.vrchat_chatbox,
               audio: { ...current.audio, output: { ...current.audio.output,
-                mode: patch.enabled === false && current.audio.output.mode === "vrchat_players"
-                  ? "disabled" : current.audio.output.mode,
                 player_audio: { ...(current.audio.output.player_audio ?? DEFAULT_PLAYER_AUDIO), ...patch },
               } },
             }))} />

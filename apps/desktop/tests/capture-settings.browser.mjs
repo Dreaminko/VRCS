@@ -139,13 +139,16 @@ for (const width of [1100, 860, 380]) {
           await selectPlayers();
           await wait(()=>saveState==='saved'&&latest.audio.output.mode==='vrchat_players');
           failSave=true;click(networkToggle());
-          check(toggle().disabled&&!latest.vrchat_chatbox.enabled&&latest.audio.output.mode==='disabled','network disable immediately stops both dependent selections');
+          check(toggle().disabled&&toggle().getAttribute('aria-checked')==='true'&&parseFloat(getComputedStyle(toggle().closest('.settings-toggle-row')).opacity)<1&&latest.vrchat_chatbox.enabled&&latest.audio.output.mode==='vrchat_players','network disable greys out Chatbox while preserving both dependent preferences');
           await wait(()=>saveState==='error');
           check(networkToggle().getAttribute('aria-checked')==='true'&&!toggle().disabled&&latest.vrchat_chatbox.enabled&&latest.audio.output.mode==='vrchat_players','failed network save restores the master and its consumers');
           failSave=false;click(networkToggle());
           await wait(()=>saveState==='saved'&&networkToggle().getAttribute('aria-checked')==='false');
-          check(toggle().disabled&&!latest.vrchat_chatbox.enabled&&latest.audio.output.mode==='disabled','saving network disable clears both consumers');
+          check(toggle().disabled&&toggle().getAttribute('aria-checked')==='true'&&latest.vrchat_chatbox.enabled&&latest.audio.output.mode==='vrchat_players','saving network disable keeps both consumers checked and selected');
           check(latest.audio.output.player_audio.pagefile_drive==='D:'&&latest.audio.output.player_audio.opus_library_path==='invalid-opus.dll'&&latest.audio.output.player_audio.max_players===2,'network disable preserves capture parameters');
+          click(networkToggle());
+          await wait(()=>saveState==='saved'&&networkToggle().getAttribute('aria-checked')==='true');
+          check(!toggle().disabled&&toggle().getAttribute('aria-checked')==='true'&&latest.audio.output.mode==='vrchat_players','network re-enable restores both consumers without manual toggles');
           click([...document.querySelectorAll('button')].find(e=>e.textContent===text.capture.openTranslation));
           await wait(()=>document.getElementById('translation-destination'));
           const audio=document.getElementById('settings-tab-audio');
@@ -159,7 +162,7 @@ for (const width of [1100, 860, 380]) {
           flushSync(()=>audio.dispatchEvent(new KeyboardEvent('keydown',{key:'End',bubbles:true,cancelable:true})));
           await wait(()=>document.getElementById('settings-panel-about'));
           check(document.activeElement?.id==='settings-tab-about','End selects and focuses the final category');
-          check(saves===6,'blocked selections, navigation and unsupported state do not save settings');
+          check(saves===7,'blocked selections, navigation and unsupported state do not save settings');
           check(document.documentElement.scrollWidth<=innerWidth+1,'settings fit the narrow viewport');
           click(audio);await wait(toggle);
           flushSync(()=>{switchPlatform(true);updateChatboxStatus(null);});
