@@ -1929,7 +1929,7 @@
         "textDefault": "默认文本模型",
         "visionDefault": "默认视觉模型",
         "tasks": "按用途分配",
-        "useDefaults": "兼容用途跟随默认",
+        "useDefaults": "跟随默认",
         "confirmDefaults": "以下用途将跟随默认模型：{{tasks}}。它们当前的翻译目标将跟随所属用途的模型。语言预设和功能开关保留当前设置。",
         "reuseTextModel": "复制文本模型",
         "followingDefault": "跟随默认",

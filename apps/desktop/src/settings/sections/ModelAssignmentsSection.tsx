@@ -132,7 +132,7 @@ export function ModelAssignmentsSection({ settings, profiles, applySettings }: {
       {routes("ocr")}
     </section>
     : undefined;
-  return <div className="model-assignments-section">
+  return <div className="model-assignments-section settings-section-active">
     <div className="model-defaults-grid">
       {(["text", "vision"] as const).map((kind) => <DefaultModelEditor key={kind}
         title={t(`settings.modelAssignments.${kind}Default`)}

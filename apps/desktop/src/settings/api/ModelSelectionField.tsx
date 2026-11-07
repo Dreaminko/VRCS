@@ -23,7 +23,7 @@ export interface ModelChoice extends ModelSelection {
 export function modelBindingLabel(value: ModelBinding, profiles: ApiProfileView[], empty: string): string {
   if (!value.profile_id) return empty;
   const profile = profiles.find((item) => item.id === value.profile_id);
-  return [profile?.name ?? value.profile_id, value.model].filter(Boolean).join(" · ");
+  return [profile?.name ?? value.profile_id, value.model].filter(Boolean).join(" / ");
 }
 
 export function ModelSourceToggle({ useDefaultModel, label, onChange }: {
