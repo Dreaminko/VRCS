@@ -114,7 +114,7 @@ impl SettingsChangePlan {
             .expect("language session lock")
             .clone();
         let effective_current = language_session.apply_to(&current);
-        let effective_candidate = language_session.apply_to(&candidate);
+        let effective_candidate = validate_effective_candidate(&language_session, &candidate)?;
         let mut capture = CaptureChange::between(state, &effective_current, &effective_candidate);
         if credential_profile
             .is_some_and(|id| super::super::capture::uses_asr_profile(&effective_candidate, id))
@@ -257,10 +257,70 @@ fn api_detail(error: &ApiError) -> String {
         .to_string()
 }
 
+fn validate_effective_candidate(
+    language_session: &crate::language_session::ActiveLanguageSession,
+    candidate: &AppConfig,
+) -> ApiResult<AppConfig> {
+    let effective = language_session.apply_to(candidate);
+    effective.validate_settings().map_err(|detail| {
+        api_error(StatusCode::UNPROCESSABLE_ENTITY, "settings.invalid", detail)
+    })?;
+    Ok(effective)
+}
+
 fn rollback_error(error: impl std::fmt::Display, recovery: impl std::fmt::Display) -> ApiError {
     api_error(
         StatusCode::INTERNAL_SERVER_ERROR,
         "settings.rollback_failed",
         format!("{error}; rollback failed: {recovery}"),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::{ModelSelection, TranslationBackend};
+    use crate::language_session::{ActiveLanguageSession, LanguageRuntimeConfig};
+    use crate::translation::MODEL_ID;
+
+    #[test]
+    fn rejects_an_active_language_session_that_breaks_with_the_new_model() {
+        let mut candidate = AppConfig::default();
+        candidate.translation.mode = "automatic".into();
+        candidate.translation.model_selection = ModelSelection {
+            use_default_model: false,
+            backend: TranslationBackend::PlamoLocal,
+            profile_id: None,
+            model: MODEL_ID.into(),
+        };
+        for target in candidate
+            .translation
+            .speaker_targets
+            .iter_mut()
+            .chain(&mut candidate.translation.microphone_targets)
+        {
+            target.use_default_model = false;
+            target.backend = TranslationBackend::PlamoLocal;
+            target.profile_id = None;
+            target.model = MODEL_ID.into();
+        }
+        candidate.validate_settings().unwrap();
+
+        let mut active_translation = candidate.translation.clone();
+        active_translation.speaker_targets[0].target_language = "pt-BR".into();
+        let session = ActiveLanguageSession::Override {
+            snapshot: LanguageRuntimeConfig {
+                recognition_language: "auto".into(),
+                translation: active_translation,
+                osc_translation_strategy: "preferred_only".into(),
+            },
+        };
+
+        let error = validate_effective_candidate(&session, &candidate).unwrap_err();
+        assert_eq!(error.0, StatusCode::UNPROCESSABLE_ENTITY);
+        assert!(error.1["detail"]
+            .as_str()
+            .unwrap()
+            .contains("PLaMo does not support target language: pt-BR"));
+    }
 }
