@@ -174,7 +174,6 @@ export function RecognitionStep({
               ready: asr.qwenModelsReady,
               message: asr.qwenMessage,
               selectedId: draftController.draft.asr.managed_qwen.package_id,
-              onLoad: asr.loadQwenModels,
               onDownload: asr.downloadQwenModel,
               onCancel: asr.cancelQwenDownload,
               onRemove: asr.removeQwenModel,

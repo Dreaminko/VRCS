@@ -1,4 +1,4 @@
-import { Download, HardDrive, RefreshCw, Trash2 } from "lucide-react";
+import { AudioLines, Download, RefreshCw, Trash2 } from "lucide-react";
 import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -32,7 +32,6 @@ export function ModelManagerPanel({
     ready: boolean;
     message: string;
     selectedId: string | null;
-    onLoad: () => Promise<void>;
     onDownload: (model: QwenModelRecord) => Promise<void>;
     onCancel: (model: QwenModelRecord) => Promise<void>;
     onRemove: (model: QwenModelRecord) => Promise<void>;
@@ -71,23 +70,14 @@ export function ModelManagerPanel({
   const downloadingCount = qwen.models.filter(
     (model) => model.status === "downloading" || model.status === "verifying",
   ).length;
-  const installedCount = qwen.models.filter((model) => model.status === "installed").length;
   const ready = qwen.ready;
   return (
     <section className="model-section recognition-models" aria-labelledby="local-models-heading">
       <div className="section-heading">
         <div>
-          <HardDrive size={18} />
+          <AudioLines size={18} />
           <h3 id="local-models-heading">{title ?? t("settings.recognition.localModels")}</h3>
-          <span>
-            {downloadingCount
-              ? t("settings.recognition.downloadingCount", { count: downloadingCount })
-              : ready
-                ? t("settings.recognition.installedCount", { count: installedCount })
-                : t("common.loading")}
-          </span>
         </div>
-        <button className="secondary-button" type="button" disabled={!qwen.ready} onClick={() => void qwen.onLoad()}><RefreshCw size={15} />{t("common.refresh")}</button>
       </div>
 
       {showDirectory && <ModelDirectorySetting
@@ -129,7 +119,7 @@ export function ModelManagerPanel({
                 <code>{model.repository}</code>
                 {busy && <div className="model-progress-wrap">
                   <div className="model-progress-track" role="progressbar" aria-label={t("settings.recognition.downloadProgress", { name: model.id })} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(model.progress * 100)}>
-                    <span style={{ transform: `scaleX(${Math.max(0.02, model.progress)})` }} />
+                    <span style={{ width: `${Math.max(0.02, model.progress) * 100}%` }} />
                   </div>
                   <span>{Math.round(model.progress * 100)}%</span>
                 </div>}

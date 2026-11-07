@@ -1,4 +1,5 @@
-import { Download, HardDrive, RefreshCw, Square, Trash2 } from "lucide-react";
+import { invoke, isTauri } from "@tauri-apps/api/core";
+import { Download, Languages, RefreshCw, Square, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -73,16 +74,9 @@ export function LocalTranslationPanel({
   return <section className="model-section local-translation-model" aria-labelledby="local-translation-heading">
     <div className="section-heading">
       <div>
-        <HardDrive size={18} />
+        <Languages size={18} />
         <h3 id="local-translation-heading">{t("settings.translation.localTranslation")}</h3>
-        <span>{model
-          ? t(`settings.translation.localStatus.${model.status}`)
-          : t("common.loading")}</span>
       </div>
-      <button className="secondary-button" type="button" disabled={disabled || busy}
-        onClick={() => void load()}>
-        <RefreshCw size={15} />{t("common.refresh")}
-      </button>
     </div>
 
     {!model || !runtime || !license ? <div className="model-list-pending" role="status">
@@ -126,7 +120,7 @@ export function LocalTranslationPanel({
               <div className="model-progress-track" role="progressbar"
                 aria-label={t("settings.translation.localDownloadProgress")}
                 aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(model.progress * 100)}>
-                <span style={{ transform: `scaleX(${Math.max(0.02, model.progress)})` }} />
+                <span style={{ width: `${Math.max(0.02, model.progress) * 100}%` }} />
               </div>
               <span>{Math.round(model.progress * 100)}%</span>
             </div>}
@@ -155,12 +149,21 @@ export function LocalTranslationPanel({
         {model.status !== "installed" && <label className="local-license-consent">
           <input type="checkbox" checked={accepted} disabled={disabled || downloading}
             onChange={(event) => setAccepted(event.target.checked)} />
-          <span>{t("settings.translation.localLicenseConsent")} </span>
-          <a href={license.url} target="_blank" rel="noreferrer">{license.name}</a>
+          <span>
+            {t("settings.translation.localLicenseConsent")}{" "}
+            <a href={license.url} target="_blank" rel="noopener noreferrer"
+              onClick={(event) => {
+                if (!isTauri()) return;
+                event.preventDefault();
+                setActionMessage("");
+                void invoke("open_project_link", { target: license.url })
+                  .catch(() => setActionMessage(t("settings.about.openFailed")));
+              }}>{license.name}</a>
+          </span>
         </label>}
       </div>}
     {license && <p className="local-model-license-note">
-      {license.attribution} · {t("settings.translation.localLicenseNotice")}
+      {license.attribution}
     </p>}
     {(statusError || actionMessage) && <p className="model-manager-feedback" role="alert">
       {statusError || actionMessage}

@@ -1,4 +1,4 @@
-import { Download, HardDrive, RefreshCw, Trash2 } from "lucide-react";
+import { Download, RefreshCw, ScanText, Trash2 } from "lucide-react";
 import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -11,7 +11,7 @@ export function OcrModelManagerPanel({ locale, disabled }: {
   disabled: boolean;
 }) {
   const { t } = useTranslation();
-  const { models, busy, removing, error, refresh, download, remove } = useOcrModels();
+  const { models, busy, removing, error, download, remove } = useOcrModels();
   const [confirmDelete, setConfirmDelete] = useState(false);
   const deleteButtonRef = useRef<HTMLButtonElement>(null);
   const state = models?.state ?? "missing";
@@ -22,14 +22,9 @@ export function OcrModelManagerPanel({ locale, disabled }: {
   return <section className="model-section local-ocr-model" aria-labelledby="local-ocr-heading">
     <div className="section-heading">
       <div>
-        <HardDrive size={18} />
+        <ScanText size={18} />
         <h3 id="local-ocr-heading">{t("settings.vrOcr.localModel")}</h3>
-        <span>{models ? t(`settings.vrOcr.modelStates.${state}`) : t("common.loading")}</span>
       </div>
-      <button className="secondary-button" type="button" disabled={busy || removing}
-        onClick={() => void refresh()}>
-        <RefreshCw size={15} />{t("common.refresh")}
-      </button>
     </div>
     <div className="model-list">
       <article className={`model-row model-status-${state}`}>
@@ -37,7 +32,7 @@ export function OcrModelManagerPanel({ locale, disabled }: {
           <div className="model-row-title">
             <strong>PP-OCRv6 small</strong>
             {models && <span className="model-size">
-              {formatBytes(models.downloaded_bytes, locale)} / {formatBytes(models.total_bytes, locale)}
+              {formatBytes(models.total_bytes, locale)}
             </span>}
           </div>
           <p role="status">{models
@@ -47,7 +42,7 @@ export function OcrModelManagerPanel({ locale, disabled }: {
             <div className="model-progress-track" role="progressbar"
               aria-label={t("settings.recognition.downloadProgress", { name: "PP-OCRv6" })}
               aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(progress * 100)}>
-              <span style={{ transform: `scaleX(${Math.max(0.02, progress)})` }} />
+              <span style={{ width: `${Math.max(0.02, progress) * 100}%` }} />
             </div>
             <span>{Math.round(progress * 100)}%</span>
           </div>}

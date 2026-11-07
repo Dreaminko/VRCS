@@ -119,7 +119,7 @@ export function DictionarySettingsSection({
                 aria-valuemax={100}
                 aria-valuenow={progressPercentage}
               >
-                <span style={{ transform: `scaleX(${dictionaryProgress})` }} />
+                <span style={{ width: `${dictionaryProgress * 100}%` }} />
               </div>
               <span aria-hidden="true">{progressPercentage}%</span>
             </div>

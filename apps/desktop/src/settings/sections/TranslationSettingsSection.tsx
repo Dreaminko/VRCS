@@ -1,4 +1,4 @@
-import { HardDrive, Languages, Workflow } from "lucide-react";
+import { Languages, Workflow } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { liveTranslationServiceName } from "../../providers/recognition-services";
@@ -14,11 +14,10 @@ import { TranslationEnhancementSettings } from "../translation/TranslationEnhanc
 import { TranslationRouteList } from "../translation/TranslationRouteList";
 import { translationModelSelection, translationPromptBackend } from "../model-selection";
 
-export function TranslationSettingsSection({ draft, apiProfiles, applySettings, onManageLocalModels }: {
+export function TranslationSettingsSection({ draft, apiProfiles, applySettings }: {
   draft: Settings;
   apiProfiles: ApiProfileView[];
   applySettings: ApplySettings;
-  onManageLocalModels?: () => void;
 }) {
   const { t } = useTranslation();
   const liveService = liveTranslationServiceName(draft.asr.backend);
@@ -51,9 +50,6 @@ export function TranslationSettingsSection({ draft, apiProfiles, applySettings, 
           <Languages size={18} />
           <h2>{t("settings.translation.title")}</h2>
         </div>
-        {onManageLocalModels && <button className="secondary-button" type="button" onClick={onManageLocalModels}>
-          <HardDrive size={15} />{t("settings.modelAssignments.manageLocalModels")}
-        </button>}
       </div>
 
       <div className="translation-config">

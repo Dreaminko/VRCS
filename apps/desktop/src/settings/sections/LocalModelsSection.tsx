@@ -54,7 +54,6 @@ export function LocalModelsSection({
           selectedId: settings.asr.backend === "qwen_local_managed"
             ? settings.asr.managed_qwen.package_id
             : null,
-          onLoad: actions.loadQwenModels,
           onDownload: actions.downloadQwenModel,
           onCancel: actions.cancelQwenDownload,
           onRemove: actions.removeQwenModel,

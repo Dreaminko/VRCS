@@ -81,7 +81,6 @@ export function useOcrModels() {
     busy,
     removing,
     error,
-    refresh: load,
     download,
     remove,
   };

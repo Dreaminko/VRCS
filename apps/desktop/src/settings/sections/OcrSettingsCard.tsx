@@ -5,7 +5,6 @@ import { request } from "../../core-client/transport";
 import type { ApiProfileView } from "../../providers/types";
 import type { OcrExecutionStatus, VrOcrSettings, VrOcrStatus, VrOcrWristSettings } from "../../integrations/types";
 import { PreferenceToggle, RangeField, Select } from "../SettingsControls";
-import { formatBytes } from "../settings-derived";
 import { DEFAULT_OCR_WRIST_SETTINGS, isOcrReady, VR_OVERLAY_POSITION_RANGES } from "../vr-overlay-settings";
 import { TranslationRouteList } from "../translation/TranslationRouteList";
 import type { DesktopOcrStatus } from "../../ocr/status";
@@ -25,11 +24,10 @@ export function OcrSettingsCard({ vrAvailable, config, profiles, defaultModel = 
   desktopStatus: DesktopOcrStatus | null;
   onChange: (patch: Partial<VrOcrSettings>) => void;
 }) {
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
   const disabled = saving || !config.master_enabled;
-  const { models, error: modelError } = useOcrModels();
+  const { models } = useOcrModels();
   const [execution, setExecution] = useState<OcrExecutionStatus | null>(null);
-  const locale = i18n.resolvedLanguage ?? "en-US";
 
   useEffect(() => {
     let disposed = false;
@@ -51,7 +49,6 @@ export function OcrSettingsCard({ vrAvailable, config, profiles, defaultModel = 
 
   const wrist = config.wrist ?? DEFAULT_OCR_WRIST_SETTINGS;
   const updateWrist = (patch: Partial<VrOcrWristSettings>) => onChange({ wrist: { ...wrist, ...patch } });
-  const modelProgress = models?.total_bytes ? Math.min(1, Math.max(0, models.downloaded_bytes / models.total_bytes)) : 0;
   const vrState = runtime?.state ?? "disabled";
   const gestureUnavailable = config.hand_gesture_enabled && !runtime?.gesture_available;
   return (
@@ -80,23 +77,6 @@ export function OcrSettingsCard({ vrAvailable, config, profiles, defaultModel = 
           {execution?.fallback_reason && <p className="vr-overlay-native-error" role="status" data-tooltip={execution.fallback_reason}>
             {t("settings.vrOcr.cpuFallback")}
           </p>}
-          <div className="local-model-config-note" role="status">
-            <div>
-              <strong>PP-OCRv6 small</strong>
-              <span>{models
-                ? `${t(`settings.vrOcr.modelStates.${models.state}`)} · ${formatBytes(models.downloaded_bytes, locale)} / ${formatBytes(models.total_bytes, locale)}`
-                : t("common.loading")}</span>
-            </div>
-            {models?.state === "downloading" && <div className="model-progress-wrap">
-              <div className="model-progress-track" role="progressbar"
-                aria-label={t("settings.recognition.downloadProgress", { name: "PP-OCRv6" })}
-                aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(modelProgress * 100)}>
-                <span style={{ transform: `scaleX(${Math.max(0.02, modelProgress)})` }} />
-              </div>
-              <span>{Math.round(modelProgress * 100)}%</span>
-            </div>}
-            {(modelError || models?.error) && <p className="vr-overlay-native-error" role="alert">{modelError || models?.error}</p>}
-          </div>
           <TranslationRouteList title={t("settings.vrOcr.translation")} targets={config.targets}
             modelSelection={resolveModelSelection(config.model_selection ?? DEFAULT_MODEL_SELECTION, defaultModel)}
             profiles={profiles} disabled={disabled} onChange={(targets) => onChange({ targets })} />

@@ -69,7 +69,7 @@ test("autosave keeps settings visually stable, queues edits, and rolls back fail
             onUpdateUiLanguage={desktop.updateUiLanguage} onboardingDisabled={false} onStartOnboarding={() => {}}
             locale="en-US" draft={controller.draft} profiles={[]} onManageProfiles={() => {}} debugRows={[]}
             applySettings={controller.applySettings} updater={{ phase: 'idle', automaticChecks: false }} />
-          <TranslationSettingsSection {...controller} apiProfiles={[profile]} />
+          <TranslationSettingsSection {...controller} apiProfiles={[profile]} onManageLocalModels={() => {}} />
           <GlossarySettingsSection {...controller} />
           <MicrophoneLevelSetting level={null} enabled={true} captureRunning={false} transcriptionRunning={false}
             testing={false} busy={false} threshold={-40} disabled={false} testDisabled={controller.saveState === 'saving'}
@@ -90,6 +90,8 @@ test("autosave keeps settings visually stable, queues edits, and rolls back fail
       };
       try {
         await wait(() => desktop?.ready && document.querySelectorAll('.glossary-usage-toggles button').length === 2);
+          check(!document.querySelector('#settings-panel-translation > .section-heading > .secondary-button'),
+            'Translation settings do not expose a local model manager action');
         const switches = [...document.querySelectorAll('.glossary-usage-toggles button')];
         const controls = [...document.querySelectorAll('.dropdown-trigger, .range-input, .settings-toggle-row button')];
         const snapshot = () => controls.map(el => {
@@ -196,7 +198,7 @@ test("autosave keeps settings visually stable, queues edits, and rolls back fail
     writeFileSync(html, '<style>' + stylesheet + '</style><div id="root"></div><pre id="result">PENDING</pre><script type="module">'
       + javascript.replace(/<\/script/gi, "<\\/script") + '</script>');
     const result = spawnSync(browser, [
-      "--headless=new", "--dump-dom", "--virtual-time-budget=10000", "--disable-gpu", "--no-first-run",
+      "--headless=new", "--no-sandbox", "--dump-dom", "--virtual-time-budget=10000", "--disable-gpu", "--no-first-run",
       "--disable-background-networking", "--disable-extensions", "--user-data-dir=" + join(directory, "profile"),
       pathToFileURL(html).href,
     ], { encoding: "utf8", timeout: 30000, maxBuffer: 8 * 1024 * 1024 });

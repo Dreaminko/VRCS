@@ -9,7 +9,6 @@ import type { Settings } from "./types";
 import { SettingsTabBar } from "./components/SettingsTabBar";
 import { resolveSettingsCategory, visibleSettingsCategories } from "./feature-availability";
 import { useAnkiSettings } from "./hooks/useAnkiSettings";
-import { useApiProfileViews } from "./hooks/useApiProfileViews";
 import { useAsrModels } from "./hooks/useAsrModels";
 import { useDesktopPreferences } from "./hooks/useDesktopPreferences";
 import { useDictionaryActions } from "./hooks/useDictionaryActions";
@@ -32,6 +31,7 @@ import type { AppUpdaterState } from "../updates/useAppUpdater";
 import type { PlayerAudioStart } from "../capture/usePlayerAudioStart";
 import { applyModelDefaults } from "./model-selection";
 import type { ApplySettings } from "./settings-types";
+import { useApiProfileCatalog } from "../providers/useApiProfileCatalog";
 
 export function SettingsPanel({
   initialCategory = "system",
@@ -91,7 +91,7 @@ export function SettingsPanel({
   useEffect(() => {
     if (activeCategory !== requestedCategory) setActiveCategory(activeCategory);
   }, [activeCategory, requestedCategory]);
-  const apiProfileCatalog = useApiProfileViews(settings);
+  const apiProfileCatalog = useApiProfileCatalog();
   const draftController = useSettingsDraft(settings, onSave);
   const desktop = useDesktopPreferences();
   const asr = useAsrModels({
@@ -118,7 +118,6 @@ export function SettingsPanel({
     setModelDirectoryText: asr.setModelDirectoryText,
     updateModelDirectory: asr.updateModelDirectory,
     chooseModelDirectory: asr.chooseModelDirectory,
-    loadQwenModels: asr.loadQwenModels,
     downloadQwenModel: asr.downloadQwenModel,
     downloadQwenRuntime: asr.downloadQwenRuntime,
     cancelQwenRuntimeDownload: asr.cancelQwenRuntimeDownload,
@@ -235,7 +234,6 @@ export function SettingsPanel({
           draft={draft}
           apiProfiles={apiProfileCatalog.profiles}
           applySettings={applySettings}
-          onManageLocalModels={openLocalModels}
         />
       )}
 

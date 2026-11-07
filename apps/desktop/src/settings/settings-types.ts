@@ -44,7 +44,6 @@ export type RecognitionActions = {
   setModelDirectoryText: (value: string) => void;
   updateModelDirectory: (value: string) => void;
   chooseModelDirectory: () => Promise<void>;
-  loadQwenModels: () => Promise<void>;
   downloadQwenModel: (model: QwenModelRecord) => Promise<void>;
   downloadQwenRuntime: () => Promise<void>;
   cancelQwenRuntimeDownload: () => Promise<void>;

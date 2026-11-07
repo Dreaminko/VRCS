@@ -205,7 +205,6 @@ export function useAsrModels({
     qwenMessage,
     modelDirectoryText,
     setModelDirectoryText,
-    loadQwenModels,
     updateAsr,
     updateRecognitionSource,
     updateRecognitionService,

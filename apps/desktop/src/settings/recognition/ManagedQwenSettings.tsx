@@ -49,7 +49,7 @@ export function QwenRuntimePanel({
             name: t("settings.recognition.qwenRuntimeComponents"),
           })}
           aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(installation.progress * 100)}>
-          <span style={{ transform: `scaleX(${Math.max(0.02, installation.progress)})` }} />
+          <span style={{ width: `${Math.max(0.02, installation.progress) * 100}%` }} />
         </div>
         <span>{Math.round(installation.progress * 100)}%</span>
       </div>}
