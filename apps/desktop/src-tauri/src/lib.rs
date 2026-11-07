@@ -151,6 +151,11 @@ fn project_link(target: &str) -> Result<String, String> {
         }
         return Err("Invalid GitHub username".into());
     }
+    if let Ok(url) = tauri::Url::parse(target) {
+        if url.scheme() == "https" && url.host_str().is_some() {
+            return Ok(url.to_string());
+        }
+    }
     let links: serde_json::Value =
         serde_json::from_str(include_str!("../../src/about/project-links.json"))
             .map_err(|error| error.to_string())?;
@@ -800,8 +805,14 @@ mod tests {
             project_link("contributor:Dreaminko").unwrap(),
             "https://github.com/Dreaminko"
         );
+        assert_eq!(
+            project_link("https://plamo.preferredai.jp/info/plamo-community-license-en").unwrap(),
+            "https://plamo.preferredai.jp/info/plamo-community-license-en"
+        );
         for target in [
-            "https://example.com",
+            "http://example.com",
+            "javascript:alert(1)",
+            "file:///C:/Windows/win.ini",
             "contributor:",
             "contributor:../settings",
         ] {
