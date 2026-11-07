@@ -1,4 +1,5 @@
 import { profileSupportsCapability } from "../providers/provider-catalog.ts";
+import { liveTranslationServiceName } from "../providers/recognition-services.ts";
 import type { ApiProfileView } from "../providers/types";
 import {
   PLAMO_LOCAL_MODEL_ID,
@@ -25,8 +26,12 @@ export function resolveModelSelection<T extends ModelSelection>(selection: T, fa
     (selection.backend ?? "api") !== (fallback.backend ?? "api")
     || selection.profile_id !== fallback.profile_id
     || selection.model !== fallback.model
+    || resolved.backend === "plamo_local"
   )) {
     resolved.reasoning_control = null;
+  }
+  if ("thinking_enabled" in resolved && resolved.backend === "plamo_local") {
+    resolved.thinking_enabled = false;
   }
   return resolved;
 }
@@ -34,7 +39,7 @@ export function resolveModelSelection<T extends ModelSelection>(selection: T, fa
 export function translationModelSelection(settings: Settings, ocr = false): ModelSelection {
   return resolveModelSelection(
     (ocr ? settings.ocr.model_selection : settings.translation.model_selection) ?? DEFAULT_MODEL_SELECTION,
-    settings.model_defaults?.text ?? EMPTY_MODEL_BINDING,
+    settings.model_defaults?.translation ?? settings.model_defaults?.text ?? EMPTY_MODEL_BINDING,
   );
 }
 
@@ -69,22 +74,34 @@ function withoutBackend<T extends object>(selection: T): T {
 // Keep optimistic settings aligned with the Core's inherited selections.
 export function applyModelDefaults(settings: Settings): Settings {
   const text = settings.model_defaults?.text ?? EMPTY_MODEL_BINDING;
+  const translationDefault = settings.model_defaults?.translation
+    ?? settings.model_defaults?.text ?? EMPTY_MODEL_BINDING;
   const vision = settings.model_defaults?.vision ?? EMPTY_MODEL_BINDING;
-  const translation = translationModelSelection(settings);
+  const translation = resolveModelSelection(
+    settings.translation.model_selection ?? DEFAULT_MODEL_SELECTION,
+    translationDefault,
+  );
   const ocr = translationModelSelection(settings, true);
   const targets = <T extends ModelSelection & { target_language: string }>(
     items: T[],
     fallback: ModelBinding,
+    liveFirst = false,
   ): T[] => {
-    const resolved = items.map((item) => ({
-      ...item,
-      ...resolveModelSelection(item, fallback),
-    }));
+    const preserveFirst = liveFirst && Boolean(liveTranslationServiceName(settings.asr?.backend));
+    const hasSharedBinding = fallback.backend === "plamo_local"
+      || Boolean(fallback.profile_id || fallback.model.trim());
+    const resolved = items.map((item, index) => preserveFirst && index === 0
+      ? { ...item, use_default_model: true }
+      : !hasSharedBinding
+        ? { ...item, use_default_model: true }
+      : resolveModelSelection({ ...item, use_default_model: true }, fallback));
     const used = new Set(resolved
-      .filter((item) => item.backend !== "plamo_local"
+      .filter((item, index) => (preserveFirst && index === 0)
+        || item.backend !== "plamo_local"
         || supportsPlamoTranslationLanguage(item.target_language))
       .map((item) => item.target_language.toLowerCase()));
-    return resolved.map((item) => {
+    return resolved.map((item, index) => {
+      if (preserveFirst && index === 0) return item;
       if (item.backend !== "plamo_local"
         || supportsPlamoTranslationLanguage(item.target_language)) return item;
       const targetLanguage = PLAMO_TRANSLATION_LANGUAGE_CODES.find(
@@ -98,8 +115,8 @@ export function applyModelDefaults(settings: Settings): Settings {
     ...settings,
     translation: {
       ...settings.translation, model_selection: translation,
-      speaker_targets: targets(settings.translation.speaker_targets, translation),
-      microphone_targets: targets(settings.translation.microphone_targets, translation),
+      speaker_targets: targets(settings.translation.speaker_targets, translation, true),
+      microphone_targets: targets(settings.translation.microphone_targets, translation, true),
     },
     ocr: { ...settings.ocr, model_selection: ocr, targets: targets(settings.ocr.targets, ocr) },
     conversation_titles: withoutBackend({
@@ -112,8 +129,8 @@ export function applyModelDefaults(settings: Settings): Settings {
     }),
     learning_ai: withoutBackend(learningModelSelection(settings)),
     language_presets: (settings.language_presets ?? []).map((preset) => ({ ...preset,
-      speaker_targets: targets(preset.speaker_targets, translation),
-      microphone_targets: targets(preset.microphone_targets, translation),
+      speaker_targets: targets(preset.speaker_targets, translation, true),
+      microphone_targets: targets(preset.microphone_targets, translation, true),
     })),
   };
 }

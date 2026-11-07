@@ -11,8 +11,12 @@ import { DEFAULT_VISION_SETTINGS } from "../src/settings/vision-settings.ts";
 import type { Settings } from "../src/settings/types.ts";
 
 const settings: Settings = {
-  schema_version: 39,
-  model_defaults: { text: { profile_id: null, model: "" }, vision: { profile_id: null, model: "" } },
+  schema_version: 40,
+  model_defaults: {
+    text: { profile_id: null, model: "" },
+    translation: { profile_id: null, model: "" },
+    vision: { profile_id: null, model: "" },
+  },
   learning_ai: { profile_id: null, model: "", use_default_model: true, thinking_enabled: false },
   vrchat_chatbox: { enabled: false },
   conversation_titles: { auto_generate: false, profile_id: null, model: "", output_language: "auto" },

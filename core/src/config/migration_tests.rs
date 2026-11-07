@@ -23,6 +23,35 @@ fn microphone_speakers_filter_defaults_off_and_preserves_saved_choice() {
 }
 
 #[test]
+fn v39_translation_default_inherits_text_default_and_round_trips() {
+    let mut raw = serde_json::to_value(AppConfig::default()).unwrap();
+    raw["schema_version"] = 39.into();
+    raw["model_defaults"]["text"] = serde_json::json!({
+        "backend": "api",
+        "profile_id": "shared",
+        "model": "legacy-default"
+    });
+    raw["model_defaults"]
+        .as_object_mut()
+        .unwrap()
+        .remove("translation");
+
+    let migrated = config_from_value(&raw).unwrap();
+
+    assert_eq!(
+        migrated.model_defaults.translation,
+        migrated.model_defaults.text
+    );
+    let saved = serde_json::to_value(&migrated).unwrap();
+    assert_eq!(saved["schema_version"], SCHEMA_VERSION);
+    assert_eq!(
+        saved["model_defaults"]["translation"],
+        saved["model_defaults"]["text"]
+    );
+    assert_eq!(config_from_value(&saved).unwrap(), migrated);
+}
+
+#[test]
 fn speaker_filter_feature_replaces_legacy_osc_gate_without_enabling_output() {
     let mut raw = serde_json::to_value(AppConfig::default()).unwrap();
     raw["schema_version"] = 35.into();

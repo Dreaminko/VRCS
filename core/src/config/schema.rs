@@ -6,7 +6,7 @@ use super::{
     VadConfig, VrOcrConfig, VrOverlayConfig, VrchatChatboxConfig, VrcxConfig,
 };
 
-pub const SCHEMA_VERSION: u32 = 39;
+pub const SCHEMA_VERSION: u32 = 40;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AppConfig {

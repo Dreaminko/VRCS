@@ -1,5 +1,6 @@
 import type { ApiModelDetails, ApiProfileView } from "../providers/types";
-import type { TranslationTargetSettings } from "../settings/types";
+import type { ModelSelection, TranslationTargetSettings } from "../settings/types";
+import { PLAMO_LOCAL_MODEL_ID } from "./translation-languages.ts";
 
 const PREFERRED_MODELS: Record<string, readonly string[]> = {
   openai: ["gpt-4.1-mini", "gpt-4o-mini", "gpt-5-mini"],
@@ -42,6 +43,10 @@ function likelyTextModel(model: string, details?: ApiModelDetails): boolean {
     && !NON_TEXT_MODEL_MARKERS.some((marker) => normalized.includes(marker));
 }
 
+function isTranslationTarget(value: ModelSelection): value is TranslationTargetSettings {
+  return "target_language" in value && "thinking_enabled" in value;
+}
+
 export function selectTranslationModel(
   provider: string,
   models: readonly string[],
@@ -70,6 +75,25 @@ export function updateTranslationModel(
       model_by_profile: { ...target.model_by_profile, [target.profile_id]: model },
     } : {}),
   };
+}
+
+export function switchTranslationBackend<T extends ModelSelection>(
+  target: T,
+  backend: "api" | "plamo_local",
+): T {
+  const remembered = isTranslationTarget(target) && target.profile_id
+    ? updateTranslationModel(target, target.model)
+    : target;
+  return {
+    ...remembered,
+    backend,
+    ...(backend === "plamo_local"
+      ? { profile_id: null, model: PLAMO_LOCAL_MODEL_ID }
+      : {}),
+    ...("thinking_enabled" in remembered && backend === "plamo_local"
+      ? { thinking_enabled: false, reasoning_control: null }
+      : {}),
+  } as T;
 }
 
 export function switchTranslationProfile(

@@ -814,10 +814,26 @@ fn normalize_removed_whisper(value: &mut serde_json::Value) -> Result<(), String
     Ok(())
 }
 
+fn normalize_translation_default(value: &mut serde_json::Value) -> Result<(), String> {
+    let Some(defaults) = value
+        .get_mut("model_defaults")
+        .and_then(serde_json::Value::as_object_mut)
+    else {
+        return Ok(());
+    };
+    if !defaults.contains_key("translation") {
+        if let Some(text) = defaults.get("text").cloned() {
+            defaults.insert("translation".into(), text);
+        }
+    }
+    Ok(())
+}
+
 pub fn config_from_value(raw: &serde_json::Value) -> Result<AppConfig, String> {
     let version = config_version(raw)?;
     let mut normalized = raw.clone();
     if version < SCHEMA_VERSION as u64 {
+        normalize_translation_default(&mut normalized)?;
         normalize_removed_whisper(&mut normalized)?;
         if let Some(features) = normalized
             .get_mut("features")
@@ -870,7 +886,7 @@ pub fn config_from_value(raw: &serde_json::Value) -> Result<AppConfig, String> {
         version if version == SCHEMA_VERSION as u64 => {
             serde_json::from_value(raw.clone()).map_err(|error| error.to_string())?
         }
-        26..=38 => serde_json::from_value(raw.clone()).map_err(|error| error.to_string())?,
+        26..=39 => serde_json::from_value(raw.clone()).map_err(|error| error.to_string())?,
         23..=25 => deserialize_v24(raw.clone())?,
         22 => migrate_v22(raw)?,
         21 => migrate_v21(raw)?,

@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   selectTranslationModel,
+  switchTranslationBackend,
   switchTranslationProfile,
   translationModels,
   updateTranslationModel,
@@ -119,6 +120,23 @@ test("switching away and back restores each profile's last model after saving", 
   assert.equal(target.model, "gpt-5-mini");
   assert.equal(original.model, "deepseek-v4-pro");
   assert.equal(original.model_by_profile, undefined);
+});
+
+test("switching to local translation remembers the active API model", () => {
+  const original: TranslationTargetSettings = {
+    target_language: "ja",
+    backend: "api",
+    profile_id: "openai",
+    model: "gpt-5-mini",
+    thinking_enabled: false,
+  };
+  const local = switchTranslationBackend(original, "plamo_local");
+  const api = switchTranslationBackend(local, "api");
+  const restored = switchTranslationProfile(api, profile("openai"));
+
+  assert.equal(local.profile_id, null);
+  assert.equal(restored.profile_id, "openai");
+  assert.equal(restored.model, "gpt-5-mini");
 });
 
 test("local catalogs exclude embedding models and empty model names", () => {

@@ -12,7 +12,7 @@ export type ModelDownloadSource = "auto" | "official" | "modelscope";
 export type TranslationBackend = "api" | "plamo_local";
 
 export interface Settings {
-  schema_version: 39;
+  schema_version: 40;
   model_defaults: ModelDefaults;
   learning_ai: LearningAiSettings;
   vrchat_chatbox: VrchatChatboxConfig;
@@ -138,6 +138,7 @@ export interface ModelSelection extends ModelBinding {
 
 export interface ModelDefaults {
   text: ModelBinding;
+  translation: ModelBinding;
   vision: ModelBinding;
 }
 

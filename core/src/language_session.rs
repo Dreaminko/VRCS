@@ -53,7 +53,7 @@ impl ActiveLanguageSession {
         runtime.translation.model_selection = global.translation.model_selection.clone();
         runtime
             .translation
-            .resolve_model_assignments(&global.model_defaults.text);
+            .resolve_model_assignments(&global.model_defaults.translation);
         runtime
     }
 

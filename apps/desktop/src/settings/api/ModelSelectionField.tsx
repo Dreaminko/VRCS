@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Pencil, RefreshCw } from "lucide-react";
+import { Cloud, Cpu, Pencil, RefreshCw } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { profileSupportsCapability } from "../../providers/provider-catalog";
@@ -7,14 +7,19 @@ import type { ApiCapability, ApiProfileView } from "../../providers/types";
 import { DropdownField, EditableDropdownField } from "../../shared/ui/DropdownField";
 import {
   PLAMO_LOCAL_MODEL_ID,
-  supportsPlamoTranslationLanguage,
 } from "../../translation/translation-languages";
-import { switchTranslationProfile, translationModels, updateTranslationModel } from "../../translation/translation-model-selection";
+import {
+  switchTranslationBackend,
+  switchTranslationProfile,
+  selectTranslationModel,
+  translationModels,
+  updateTranslationModel,
+} from "../../translation/translation-model-selection";
 import { normalizeReasoningControlForModel } from "../../translation/translation-thinking";
 import type { ReasoningSetting } from "../../translation/translation-thinking";
 import { SettingsDialog } from "../components/SettingsDialog";
 import { useProfileModels } from "../hooks/useProfileModels";
-import { resolveModelSelection } from "../model-selection";
+import { resolveModelSelection, translationSelectionReady } from "../model-selection";
 import { ReasoningControlField } from "../ReasoningControlField";
 import type { ModelBinding, ModelSelection, TranslationTargetSettings } from "../types";
 import { visionModels } from "../vision-settings";
@@ -47,6 +52,55 @@ export function ModelSourceToggle({ useDefaultModel, label, onChange }: {
   </div>;
 }
 
+function TranslationBackendToggle({ value, profiles, disabled = false, iconOnly = false, onChange }: {
+  value: ModelChoice;
+  profiles: ApiProfileView[];
+  disabled?: boolean;
+  iconOnly?: boolean;
+  onChange: (value: ModelChoice) => void;
+}) {
+  const { t } = useTranslation();
+  const apiBinding = useRef<ModelBinding | null>(
+    (value.backend ?? "api") === "api"
+      ? { backend: "api", profile_id: value.profile_id, model: value.model }
+      : null,
+  );
+  const compatible = profiles.filter((profile) => profileSupportsCapability(profile, "text_translation"));
+  return <div className={`theme-toggle-group translation-backend-toggle${iconOnly ? " icon-only" : ""}`}
+    role="group" aria-label={t("settings.translation.backend")}>
+    {(["api", "plamo_local"] as const).map((backend) => {
+      const label = t(`settings.translation.backends.${backend}`);
+      return <button key={backend} type="button" aria-label={label}
+        aria-pressed={(value.backend ?? "api") === backend}
+        className={(value.backend ?? "api") === backend ? "active" : ""} disabled={disabled}
+        data-tooltip={iconOnly ? label : undefined}
+        onClick={() => {
+          if ((value.backend ?? "api") === backend) return;
+          if (backend === "plamo_local") {
+            apiBinding.current = {
+              backend: "api",
+              profile_id: value.profile_id,
+              model: value.model,
+            };
+            onChange(switchTranslationBackend(value, backend));
+          } else {
+            onChange({
+              ...value,
+              ...(apiBinding.current ?? {
+                backend: "api",
+                profile_id: compatible[0]?.id ?? null,
+                model: "",
+              }),
+              backend: "api",
+            });
+          }
+        }}>
+        {iconOnly ? (backend === "api" ? <Cloud size={14} /> : <Cpu size={14} />) : label}
+      </button>;
+    })}
+  </div>;
+}
+
 export function DefaultModelEditor({ title, icon, value, profiles, capability, onChange }: {
   title: string;
   icon?: ReactNode;
@@ -55,29 +109,51 @@ export function DefaultModelEditor({ title, icon, value, profiles, capability, o
   capability: ApiCapability;
   onChange: (value: ModelBinding) => void;
 }) {
-  const { t } = useTranslation();
-  const [draft, setDraft] = useState<ModelChoice>(value);
-  useEffect(() => setDraft(value), [value.profile_id, value.model]);
-  const changed = draft.profile_id !== value.profile_id || draft.model !== value.model;
+  const translation = capability === "text_translation";
+  const [pendingApi, setPendingApi] = useState<ModelBinding | null>(null);
+  const displayed = translation ? pendingApi ?? value : value;
+  const apply = (next: ModelChoice) => {
+    const binding = {
+      backend: next.backend ?? "api",
+      profile_id: next.profile_id,
+      model: next.model.trim(),
+    } satisfies ModelBinding;
+    if (translation && binding.backend === "api" && !translationSelectionReady(binding, profiles)) {
+      setPendingApi(binding);
+      return;
+    }
+    setPendingApi(null);
+    onChange(binding);
+  };
   return <section className="system-settings-group model-default-card">
     <div className="section-heading model-default-heading">
-      <div>{icon}<h3>{title}</h3></div>
-      <div className="model-default-actions">
-        {changed && <button className="secondary-button" type="button" onClick={() => setDraft(value)}>{t("common.cancel")}</button>}
-        <button className="primary-button" type="button" disabled={!changed || !draft.profile_id || !draft.model.trim()}
-          onClick={() => onChange({ profile_id: draft.profile_id, model: draft.model.trim() })}>{t("common.save")}</button>
+      <div>{icon}<h3>{title}</h3>
+        {translation && <TranslationBackendToggle iconOnly value={displayed} profiles={profiles} onChange={apply} />}
       </div>
     </div>
-    <ModelBindingEditor value={draft} profiles={profiles} capability={capability} onChange={setDraft} />
+    <ModelBindingEditor value={displayed} profiles={profiles} capability={capability}
+      autoSelectModel={translation} hideBackend={translation} onChange={apply} />
   </section>;
 }
 
-export function ModelBindingEditor({ value, profiles, capability, disabled = false, hideBinding = false, floatingLayer = "page", onChange }: {
+export function ModelBindingEditor({
+  value,
+  profiles,
+  capability,
+  disabled = false,
+  hideBinding = false,
+  hideBackend = false,
+  autoSelectModel = false,
+  floatingLayer = "page",
+  onChange,
+}: {
   value: ModelChoice;
   profiles: ApiProfileView[];
   capability: ApiCapability;
   disabled?: boolean;
   hideBinding?: boolean;
+  hideBackend?: boolean;
+  autoSelectModel?: boolean;
   floatingLayer?: "page" | "dialog";
   onChange: (value: ModelChoice) => void;
 }) {
@@ -91,37 +167,30 @@ export function ModelBindingEditor({ value, profiles, capability, disabled = fal
     ? visionModels(selected?.provider, { models: catalog.models, model_details: catalog.modelDetails })
     : translationModels(catalog.models, catalog.modelDetails);
   const unavailable = Boolean(value.profile_id && !selected);
-  return <div className="model-binding-editor">
-    {!hideBinding && capability === "text_translation" && <div className="field">
+  useEffect(() => {
+    if (!autoSelectModel || local || !selected?.capabilities.supports_model_listing
+      || value.model.trim() || catalog.loading || catalog.error || !models.length) return;
+    const model = selectTranslationModel(selected.provider, models, "", catalog.modelDetails);
+    if (model) onChange({ ...value, model });
+  }, [
+    autoSelectModel,
+    catalog.error,
+    catalog.loading,
+    catalog.modelDetails,
+    local,
+    models,
+    onChange,
+    selected,
+    value,
+  ]);
+  return <div className="model-binding-editor" data-backend={value.backend ?? "api"}>
+    {!hideBinding && !hideBackend && capability === "text_translation" && <div className="field model-backend-field">
       <span>{t("settings.translation.backend")}</span>
-      <div className="theme-toggle-group" role="group" aria-label={t("settings.translation.backend")}>
-        {(["api", "plamo_local"] as const).map((backend) => <button key={backend} type="button"
-          aria-pressed={(value.backend ?? "api") === backend}
-          className={(value.backend ?? "api") === backend ? "active" : ""} disabled={disabled}
-          onClick={() => {
-            if (backend === "plamo_local") {
-              const targetLanguage = (
-                "target_language" in value ? value.target_language : "en"
-              ) as string;
-              onChange({
-                ...value,
-                backend,
-                profile_id: null,
-                model: PLAMO_LOCAL_MODEL_ID,
-                ...(targetLanguage && !supportsPlamoTranslationLanguage(targetLanguage)
-                  ? { target_language: "en" } : {}),
-                ...("thinking_enabled" in value ? { thinking_enabled: false, reasoning_control: null } : {}),
-              });
-            } else {
-              onChange({ ...value, backend, ...("thinking_enabled" in value ? { reasoning_control: null } : {}) });
-            }
-          }}>{t(`settings.translation.backends.${backend}`)}</button>)}
-      </div>
+      <TranslationBackendToggle iconOnly value={value} profiles={profiles} disabled={disabled} onChange={onChange} />
     </div>}
     {local && <div className="model-selection-inherited-card" role="status">
       <span>{t("settings.translation.localModel")}</span>
       <strong>PLaMo 3 Translate 0.8B · CPU</strong>
-      <small>{t("settings.translation.localModelHint")}</small>
     </div>}
     {!local && !hideBinding && <div className="field">
       <span>{t("settings.translation.profile")}</span>
@@ -174,7 +243,7 @@ export function ModelBindingEditor({ value, profiles, capability, disabled = fal
   </div>;
 }
 
-export function ModelSelectionField({ label, dialogLabel, icon, code, value, fallback, profiles, capability, disabled = false, dialogContent, onChange }: {
+export function ModelSelectionField({ label, dialogLabel, icon, code, value, fallback, profiles, capability, disabled = false, onChange }: {
   label: string;
   dialogLabel?: string;
   icon?: ReactNode;
@@ -184,7 +253,6 @@ export function ModelSelectionField({ label, dialogLabel, icon, code, value, fal
   profiles: ApiProfileView[];
   capability: ApiCapability;
   disabled?: boolean;
-  dialogContent?: ReactNode;
   onChange: (value: ModelChoice) => void;
 }) {
   const { t } = useTranslation();
@@ -228,7 +296,7 @@ export function ModelSelectionField({ label, dialogLabel, icon, code, value, fal
       aria-label={`${t("common.edit")} · ${targetTitle}`} data-tooltip={t("settings.modelAssignments.changeModel")}
       onClick={() => { setDraft(value); setOpen(true); }}><Pencil size={14} /><span>{t("common.edit")}</span></button>
     {open && <SettingsDialog label={targetTitle} saving={false} returnFocusRef={triggerRef} autoFocus
-      className={`model-selection-dialog${dialogContent ? " with-dialog-content" : ""}`} onClose={() => setOpen(false)}>
+      className="model-selection-dialog" onClose={() => setOpen(false)}>
       <div className="model-selection-dialog-shell">
         <div className="model-selection-dialog-heading">
           <strong>{targetTitle}</strong>
@@ -246,7 +314,6 @@ export function ModelSelectionField({ label, dialogLabel, icon, code, value, fal
           {(!draft.use_default_model || "thinking_enabled" in draft) && <ModelBindingEditor value={draftResolved}
             profiles={profiles} capability={capability} hideBinding={draft.use_default_model}
             floatingLayer="dialog" onChange={setDraft} />}
-          {dialogContent}
         </div>
         <div className="model-default-actions model-selection-dialog-actions">
           <button className="secondary-button" type="button" onClick={() => setOpen(false)}>{t("common.cancel")}</button>

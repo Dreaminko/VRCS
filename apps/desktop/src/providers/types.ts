@@ -136,7 +136,7 @@ export interface ApiProfileView extends ApiProfile {
 }
 
 export interface ApiProfileUsage {
-  kind: "transcription" | "translation" | "ocr_translation" | "language_preset" | "vision" | "vision_asr" | "conversation_titles" | "model_default_text" | "model_default_vision" | "learning_ai";
+  kind: "transcription" | "translation" | "ocr_translation" | "language_preset" | "vision" | "vision_asr" | "conversation_titles" | "model_default_text" | "model_default_translation" | "model_default_vision" | "learning_ai";
   capability: ApiCapability;
   scope?: "speaker" | "microphone" | "model_selection";
   index?: number;

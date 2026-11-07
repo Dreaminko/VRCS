@@ -39,6 +39,7 @@ impl Default for ModelSelection {
 #[serde(default, deny_unknown_fields)]
 pub struct ModelDefaultsConfig {
     pub text: ModelBinding,
+    pub translation: ModelBinding,
     pub vision: ModelBinding,
 }
 
@@ -68,6 +69,10 @@ impl Default for LearningAiConfig {
 impl LearningAiConfig {
     pub(crate) fn resolve_model_assignment(&mut self, default: &ModelBinding) {
         if self.use_default_model && inherit_api(&mut self.profile_id, &mut self.model, default) {
+            self.reasoning_control = None;
+        }
+        if self.use_default_model && default.backend == TranslationBackend::PlamoLocal {
+            self.thinking_enabled = false;
             self.reasoning_control = None;
         }
     }
@@ -117,8 +122,13 @@ impl ModelSelection {
 }
 
 fn resolve_targets(targets: &mut [TranslationTargetConfig], binding: &ModelBinding) {
+    let has_shared_binding = binding.backend == TranslationBackend::PlamoLocal
+        || binding.profile_id.is_some()
+        || !binding.model.trim().is_empty();
     for target in targets {
-        if target.use_default_model
+        target.use_default_model = true;
+        // Preserve legacy route copies until the user configures a shared task model.
+        if has_shared_binding
             && inherit(
                 &mut target.profile_id,
                 &mut target.model,
@@ -128,10 +138,14 @@ fn resolve_targets(targets: &mut [TranslationTargetConfig], binding: &ModelBindi
         {
             target.reasoning_control = None;
         }
+        if target.backend == TranslationBackend::PlamoLocal {
+            target.thinking_enabled = false;
+            target.reasoning_control = None;
+        }
     }
 }
 
-fn clear_changed_target_reasoning(
+fn clear_changed_target_controls(
     targets: &mut [TranslationTargetConfig],
     previous: &[TranslationTargetConfig],
 ) {
@@ -145,6 +159,7 @@ fn clear_changed_target_reasoning(
             })
         {
             target.reasoning_control = None;
+            target.thinking_enabled = false;
         }
     }
 }
@@ -159,23 +174,23 @@ impl TranslationConfig {
 
 impl AppConfig {
     pub(crate) fn clear_changed_inherited_reasoning(&mut self, previous: &Self) {
-        clear_changed_target_reasoning(
+        clear_changed_target_controls(
             &mut self.translation.speaker_targets,
             &previous.translation.speaker_targets,
         );
-        clear_changed_target_reasoning(
+        clear_changed_target_controls(
             &mut self.translation.microphone_targets,
             &previous.translation.microphone_targets,
         );
-        clear_changed_target_reasoning(&mut self.ocr.targets, &previous.ocr.targets);
+        clear_changed_target_controls(&mut self.ocr.targets, &previous.ocr.targets);
         for preset in &mut self.language_presets {
             if let Some(old) = previous
                 .language_presets
                 .iter()
                 .find(|old| old.id == preset.id)
             {
-                clear_changed_target_reasoning(&mut preset.speaker_targets, &old.speaker_targets);
-                clear_changed_target_reasoning(
+                clear_changed_target_controls(&mut preset.speaker_targets, &old.speaker_targets);
+                clear_changed_target_controls(
                     &mut preset.microphone_targets,
                     &old.microphone_targets,
                 );
@@ -197,9 +212,10 @@ impl AppConfig {
 
     /// Refresh effective pairs without changing inheritance or feature switches.
     pub fn resolve_model_assignments(&mut self) {
+        let translation_default = &self.model_defaults.translation;
         self.translation
-            .resolve_model_assignments(&self.model_defaults.text);
-        let ocr = self.ocr.model_selection.resolve(&self.model_defaults.text);
+            .resolve_model_assignments(translation_default);
+        let ocr = self.ocr.model_selection.resolve(translation_default);
         resolve_targets(&mut self.ocr.targets, &ocr);
         let binding = ModelBinding {
             backend: self.translation.model_selection.backend,
@@ -246,16 +262,21 @@ mod tests {
             profile_id: Some("shared".into()),
             model: "text-one".into(),
         };
+        config.model_defaults.translation = ModelBinding {
+            backend: TranslationBackend::Api,
+            profile_id: Some("shared".into()),
+            model: "translation-one".into(),
+        };
         config.model_defaults.vision = ModelBinding {
             backend: TranslationBackend::Api,
             profile_id: Some("images".into()),
             model: "vision-one".into(),
         };
-        let custom = &mut config.translation.microphone_targets[0];
-        custom.use_default_model = false;
-        custom.profile_id = Some("custom".into());
-        custom.model = "custom-model".into();
-        custom
+        let legacy_override = &mut config.translation.microphone_targets[0];
+        legacy_override.use_default_model = false;
+        legacy_override.profile_id = Some("custom".into());
+        legacy_override.model = "custom-model".into();
+        legacy_override
             .model_by_profile
             .insert("custom".into(), "remembered".into());
         config.ocr.model_selection = ModelSelection {
@@ -276,7 +297,6 @@ mod tests {
             osc_translation_strategy: "preferred_only".into(),
         });
         config.resolve_model_assignments();
-        let custom = config.translation.microphone_targets[0].clone();
         let session = select_session(
             CaptureStartInput {
                 language_preset_id: Some("preset".into()),
@@ -292,8 +312,21 @@ mod tests {
         let previous = config.clone();
         config.model_defaults.text.model = "text-two".into();
         config.resolve_model_assignments();
-        assert_eq!(config.translation.speaker_targets[0].model, "text-two");
-        assert_eq!(config.translation.microphone_targets[0], custom);
+        assert_eq!(
+            config.translation.speaker_targets[0].model,
+            "translation-one"
+        );
+        config.model_defaults.translation.model = "translation-two".into();
+        config.resolve_model_assignments();
+        assert_eq!(
+            config.translation.speaker_targets[0].model,
+            "translation-two"
+        );
+        assert_eq!(
+            config.translation.microphone_targets[0].model,
+            "translation-two"
+        );
+        assert!(config.translation.microphone_targets[0].use_default_model);
         assert_eq!(config.ocr.targets[0].model, "ocr-model");
         assert_eq!(config.conversation_titles.model, "text-two");
         assert_eq!(config.vision.model, "vision-one");
@@ -318,7 +351,32 @@ mod tests {
         config.resolve_model_assignments();
         let runtime = session.apply_to(&config);
         assert_eq!(runtime.translation.speaker_targets[0].model, "task-model");
-        assert_eq!(runtime.translation.microphone_targets[0], custom);
+        assert_eq!(
+            runtime.translation.microphone_targets[0].model,
+            "task-model"
+        );
+    }
+
+    #[test]
+    fn local_translation_inheritance_clears_thinking_controls() {
+        let mut config = AppConfig::default();
+        config.translation.model_selection = ModelSelection {
+            use_default_model: false,
+            backend: TranslationBackend::PlamoLocal,
+            profile_id: None,
+            model: crate::translation::MODEL_ID.into(),
+        };
+        let target = &mut config.translation.speaker_targets[0];
+        target.use_default_model = true;
+        target.thinking_enabled = true;
+        target.reasoning_control = Some(ReasoningSetting::Effort("high".into()));
+
+        config.resolve_model_assignments();
+
+        let target = &config.translation.speaker_targets[0];
+        assert_eq!(target.backend, TranslationBackend::PlamoLocal);
+        assert!(!target.thinking_enabled);
+        assert!(target.reasoning_control.is_none());
     }
 
     #[test]
@@ -342,15 +400,20 @@ mod tests {
                 "speaker_targets":[{"target_language":"en", "profile_id":"shared", "model":"legacy-preset"}],
                 "microphone_targets":[{"target_language":"ja"}], "osc_translation_strategy":"preferred_only"}]
         })).unwrap();
-        assert!(!config.translation.speaker_targets[0].use_default_model);
-        assert!(!config.ocr.targets[0].use_default_model);
+        assert!(config.translation.speaker_targets[0].use_default_model);
+        assert!(config.ocr.targets[0].use_default_model);
         assert!(!config.conversation_titles.use_default_model);
         assert!(!config.vision.use_default_model);
-        assert!(!config.language_presets[0].speaker_targets[0].use_default_model);
+        assert!(config.language_presets[0].speaker_targets[0].use_default_model);
         config.model_defaults.text = ModelBinding {
             backend: TranslationBackend::Api,
             profile_id: Some("shared".into()),
             model: "new-text".into(),
+        };
+        config.model_defaults.translation = ModelBinding {
+            backend: TranslationBackend::Api,
+            profile_id: Some("shared".into()),
+            model: "new-translation".into(),
         };
         config.model_defaults.vision = ModelBinding {
             backend: TranslationBackend::Api,
@@ -358,8 +421,19 @@ mod tests {
             model: "new-vision".into(),
         };
         config.resolve_model_assignments();
-        assert_eq!(config.translation.speaker_targets[0].model, "legacy-text");
-        assert_eq!(config.translation.microphone_targets[0].model, "new-text");
+        assert_eq!(
+            config.translation.speaker_targets[0].model,
+            "new-translation"
+        );
+        assert_eq!(
+            config.translation.microphone_targets[0].model,
+            "new-translation"
+        );
+        assert_eq!(config.ocr.targets[0].model, "new-translation");
+        assert_eq!(
+            config.language_presets[0].speaker_targets[0].model,
+            "new-translation"
+        );
         assert_eq!(config.learning_ai.model, "new-text");
         assert_eq!(config.vision.model, "legacy-vision");
         let directory = tempfile::tempdir().unwrap();
@@ -368,7 +442,7 @@ mod tests {
         assert_eq!(super::super::load_config(&path).unwrap(), config);
         config.validate_settings().unwrap();
         let raw = serde_json::to_value(config).unwrap();
-        assert_eq!(raw["schema_version"], 39);
+        assert_eq!(raw["schema_version"], 40);
         assert_eq!(
             raw["learning_ai"]["reasoning_control"],
             serde_json::Value::Null

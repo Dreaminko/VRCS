@@ -92,8 +92,8 @@ pub(super) async fn credential_test(
                 &config.ocr.model_selection.model,
             ),
             (
-                &config.model_defaults.text.profile_id,
-                &config.model_defaults.text.model,
+                &config.model_defaults.translation.profile_id,
+                &config.model_defaults.translation.model,
             ),
         ]
     };
@@ -103,6 +103,7 @@ pub(super) async fn credential_test(
     let text_model = configured_test_model(
         service,
         &config.translation,
+        &config.ocr.targets,
         &profile.id,
         query
             .model
@@ -527,6 +528,7 @@ async fn test_model(
 fn configured_test_model(
     service: &ProviderServiceDefinition,
     translation: &crate::config::TranslationConfig,
+    ocr_targets: &[crate::config::TranslationTargetConfig],
     profile_id: &str,
     requested: Option<&str>,
 ) -> Option<String> {
@@ -537,7 +539,8 @@ fn configured_test_model(
             let targets = translation
                 .speaker_targets
                 .iter()
-                .chain(&translation.microphone_targets);
+                .chain(&translation.microphone_targets)
+                .chain(ocr_targets);
             targets
                 .clone()
                 .filter(|target| target.profile_id.as_deref() == Some(profile_id))
@@ -1130,18 +1133,19 @@ mod tests {
         };
 
         assert_eq!(
-            configured_test_model(service, &translation, "groq", Some(" custom-model ")).as_deref(),
+            configured_test_model(service, &translation, &[], "groq", Some(" custom-model "))
+                .as_deref(),
             Some("custom-model")
         );
         assert_eq!(
-            configured_test_model(service, &translation, "groq", Some(" ")).as_deref(),
+            configured_test_model(service, &translation, &[], "groq", Some(" ")).as_deref(),
             Some("microphone-model")
         );
 
         translation.speaker_targets[0].profile_id = Some("groq".into());
         translation.speaker_targets[0].model = "speaker-model".into();
         assert_eq!(
-            configured_test_model(service, &translation, "groq", None).as_deref(),
+            configured_test_model(service, &translation, &[], "groq", None).as_deref(),
             Some("speaker-model")
         );
     }
@@ -1167,13 +1171,32 @@ mod tests {
         };
 
         assert_eq!(
-            configured_test_model(&service, &translation, "groq", None).as_deref(),
+            configured_test_model(&service, &translation, &[], "groq", None).as_deref(),
             Some("remembered-model")
         );
         translation.microphone_targets.clear();
         assert_eq!(
-            configured_test_model(&service, &translation, "groq", None).as_deref(),
+            configured_test_model(&service, &translation, &[], "groq", None).as_deref(),
             Some("service-default")
+        );
+    }
+
+    #[test]
+    fn diagnostic_uses_an_ocr_target_model() {
+        let service = ProviderServiceDefinition {
+            models: &[],
+            ..providers::definition(GROQ_PROVIDER).unwrap().services[0]
+        };
+        let translation = crate::config::TranslationConfig::default();
+        let ocr_targets = [crate::config::TranslationTargetConfig {
+            profile_id: Some("groq".into()),
+            model: "ocr-model".into(),
+            ..crate::config::TranslationTargetConfig::new("en")
+        }];
+
+        assert_eq!(
+            configured_test_model(&service, &translation, &ocr_targets, "groq", None).as_deref(),
+            Some("ocr-model")
         );
     }
 }

@@ -26,8 +26,6 @@ export function useProfileModels(
   const refresh = useCallback(async (force = true) => {
     const currentRequest = ++request.current;
     if (!profile || !enabled) {
-      setCatalog({ scope, value: EMPTY_CATALOG });
-      setError("");
       setLoading(false);
       return;
     }
@@ -49,10 +47,22 @@ export function useProfileModels(
   }, [enabled, loadModels, scope, t]);
 
   useEffect(() => {
-    void refresh(false);
+    if (!enabled || !scope) {
+      setLoading(false);
+      return;
+    }
+    if (catalog.scope !== scope) void refresh(false);
     return () => { request.current += 1; };
-  }, [refresh]);
+  }, [catalog.scope, enabled, refresh, scope]);
 
   const value = catalog.scope === scope ? catalog.value : EMPTY_CATALOG;
-  return { models: value.models, modelDetails: value.model_details ?? {}, loading, error, refresh, load };
+  const scopePending = enabled && Boolean(profile) && catalog.scope !== scope;
+  return {
+    models: value.models,
+    modelDetails: value.model_details ?? {},
+    loading: scopePending || loading,
+    error: scopePending || !enabled ? "" : error,
+    refresh,
+    load,
+  };
 }

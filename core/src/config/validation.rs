@@ -38,6 +38,12 @@ impl AppConfig {
                 &self.model_defaults.text.model,
             ),
             (
+                "model_defaults.translation",
+                self.model_defaults.translation.backend,
+                &self.model_defaults.translation.profile_id,
+                &self.model_defaults.translation.model,
+            ),
+            (
                 "model_defaults.vision",
                 self.model_defaults.vision.backend,
                 &self.model_defaults.vision.profile_id,
@@ -62,7 +68,10 @@ impl AppConfig {
                 &self.learning_ai.model,
             ),
         ] {
-            if name.starts_with("model_defaults.") && backend != TranslationBackend::Api {
+            if name.starts_with("model_defaults.")
+                && name != "model_defaults.translation"
+                && backend != TranslationBackend::Api
+            {
                 return Err(format!("{name} does not support the local PLaMo backend"));
             }
             if profile_id
@@ -74,6 +83,20 @@ impl AppConfig {
             if model.len() > 200 || contains_control(model) || model.trim() != model {
                 return Err(format!(
                     "{name}.model must be a single-line identifier of at most 200 bytes"
+                ));
+            }
+        }
+        if self.model_defaults.translation.backend == TranslationBackend::PlamoLocal {
+            if self.model_defaults.translation.profile_id.is_some() {
+                return Err(
+                    "model_defaults.translation cannot select an API profile for local PLaMo translation"
+                        .into(),
+                );
+            }
+            if self.model_defaults.translation.model != crate::translation::MODEL_ID {
+                return Err(format!(
+                    "model_defaults.translation.model must be {}",
+                    crate::translation::MODEL_ID
                 ));
             }
         }

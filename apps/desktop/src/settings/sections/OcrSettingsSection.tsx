@@ -74,7 +74,7 @@ export function OcrSettingsSection({ vrAvailable, draft, profiles, applySettings
       {bindingError && <p className="vr-overlay-native-error" role="alert">{bindingError}</p>}
     </section>}
     {draft.features.ocr && <div id="vision-ocr"><OcrSettingsCard vrAvailable={vrAvailable} config={draft.ocr} profiles={profiles} disabled={false}
-      defaultModel={draft.model_defaults?.text}
+      defaultModel={draft.model_defaults?.translation}
       runtime={runtime} desktopStatus={desktopStatus}
       onChange={(patch) => applySettings((current) => patchOcr(current, patch))} /></div>}
     {draft.features.visual_question_answering && <VisionSettingsCard config={draft.vision} profiles={profiles}
