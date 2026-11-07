@@ -11,14 +11,6 @@ export const localTranslationApi = {
     "/api/local-translation/cancel",
     { method: "POST" },
   ),
-  verify: () => request<LocalTranslationStatus>(
-    "/api/local-translation/verify",
-    { method: "POST" },
-  ),
-  unload: () => request<LocalTranslationStatus>(
-    "/api/local-translation/unload",
-    { method: "POST" },
-  ),
   delete: (id: string) => request<{ deleted: boolean }>(
     `/api/local-translation/models/${encodeURIComponent(id)}`,
     { method: "DELETE" },

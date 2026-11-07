@@ -1249,8 +1249,6 @@
         "localDownloadRuntime": "下载运行时",
         "localLicenseConsent": "我接受此固定版本对应的模型许可证。",
         "localLicenseNotice": "模型按需单独下载；公开译文会标明由 PLaMo 生成。",
-        "verify": "校验",
-        "unload": "释放资源",
         "deleteLocalModel": "删除本地 PLaMo 模型",
         "confirmDeleteLocalModel": "删除 PLaMo 模型及本地许可证副本？已有译文会保留。",
         "localStatus": {
@@ -1260,7 +1258,7 @@
           "installed": "已安装",
           "corrupt": "需要修复",
           "error": "安装失败",
-          "not_loaded": "模型已释放",
+          "not_loaded": "未加载",
           "loading": "正在加载模型",
           "ready": "模型已就绪",
           "unavailable": "运行时不可用"

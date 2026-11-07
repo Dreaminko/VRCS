@@ -1249,8 +1249,6 @@
         "localDownloadRuntime": "ランタイムをダウンロード",
         "localLicenseConsent": "この固定リビジョンのモデルライセンスに同意します。",
         "localLicenseNotice": "モデルは別途ダウンロードされ、公開される翻訳には PLaMo による生成であることを示します。",
-        "verify": "検証",
-        "unload": "リソースを解放",
         "deleteLocalModel": "ローカル PLaMo モデルを削除",
         "confirmDeleteLocalModel": "PLaMo モデルとローカルライセンスのコピーを削除しますか？既存の翻訳は保持されます。",
         "localStatus": {
@@ -1260,7 +1258,7 @@
           "installed": "インストール済み",
           "corrupt": "修復が必要",
           "error": "インストール失敗",
-          "not_loaded": "モデルを解放済み",
+          "not_loaded": "未読み込み",
           "loading": "モデルを読み込み中",
           "ready": "モデルの準備完了",
           "unavailable": "ランタイム利用不可"

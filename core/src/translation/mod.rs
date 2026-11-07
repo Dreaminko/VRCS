@@ -6,7 +6,7 @@ use std::time::Duration;
 use serde_json::Value;
 
 use crate::config::{
-    ApiProfile, TranslationBackend, TranslationPromptConfig, TranslationTargetConfig,
+    ApiProfile, AppConfig, TranslationBackend, TranslationPromptConfig, TranslationTargetConfig,
 };
 use crate::credentials;
 use crate::llm::{LlmClient, LlmProgress, LlmRequest};
@@ -76,6 +76,24 @@ pub(crate) struct LocalTranslation {
 }
 
 impl TranslationService {
+    pub(crate) async fn prepare_capture_runtime(
+        &self,
+        config: &AppConfig,
+    ) -> Result<(), TranslationError> {
+        if !capture_requires_local_runtime(config) {
+            return Ok(());
+        }
+        let (local, model_path, _lifecycle) = self.checked_local_model().await?;
+        local.runtime.ensure_started(&model_path).await
+    }
+
+    pub(crate) async fn stop_capture_runtime(&self) -> Result<(), String> {
+        match self.local.as_ref() {
+            Some(local) => local.runtime.stop().await,
+            None => Ok(()),
+        }
+    }
+
     pub(crate) fn ocr_glossary_fingerprint(&self, prompt: &TranslationPromptConfig) -> [u8; 32] {
         use sha2::{Digest, Sha256};
         let formatted = self.glossary.as_ref().map(|store| store.llm_snapshot());
@@ -282,14 +300,7 @@ impl TranslationService {
         context: &[TranslationContextEntry],
         on_progress: Option<&LlmProgress>,
     ) -> Result<TranslationResult, TranslationError> {
-        let local = self.local.as_ref().ok_or_else(|| {
-            error(
-                "translation.local_runtime_unavailable",
-                "Local PLaMo translation is not available in this process",
-                false,
-            )
-        })?;
-        let lifecycle = local.models.lock_shared().await;
+        let (local, model_path, lifecycle) = self.checked_local_model().await?;
         if !plamo_supports_language(&target_config.target_language) {
             return Err(error(
                 "translation.invalid_target_language",
@@ -300,17 +311,6 @@ impl TranslationService {
                 false,
             ));
         }
-        let models = Arc::clone(&local.models);
-        let model_path = tokio::task::spawn_blocking(move || models.verified_model_path())
-            .await
-            .map_err(|join_error| {
-                error(
-                    "translation.local_model_missing",
-                    format!("Local PLaMo verification task failed: {join_error}"),
-                    true,
-                )
-            })?
-            .map_err(|detail| error("translation.local_model_missing", detail, false))?;
         local.runtime.ensure_started(&model_path).await?;
         let glossary = self
             .glossary
@@ -339,6 +339,38 @@ impl TranslationService {
             provider: "plamo_local".into(),
             model: Some(MODEL_ID.into()),
         })
+    }
+
+    async fn checked_local_model(
+        &self,
+    ) -> Result<
+        (
+            Arc<LocalTranslation>,
+            std::path::PathBuf,
+            tokio::sync::OwnedRwLockReadGuard<()>,
+        ),
+        TranslationError,
+    > {
+        let local = self.local.as_ref().cloned().ok_or_else(|| {
+            error(
+                "translation.local_runtime_unavailable",
+                "Local PLaMo translation is not available in this process",
+                false,
+            )
+        })?;
+        let lifecycle = local.models.lock_shared().await;
+        let models = Arc::clone(&local.models);
+        let model_path = tokio::task::spawn_blocking(move || models.verified_model_path())
+            .await
+            .map_err(|join_error| {
+                error(
+                    "translation.local_model_missing",
+                    format!("Local PLaMo verification task failed: {join_error}"),
+                    true,
+                )
+            })?
+            .map_err(|detail| error("translation.local_model_missing", detail, false))?;
+        Ok((local, model_path, lifecycle))
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -411,6 +443,24 @@ impl TranslationService {
             model: Some(model.to_owned()),
         })
     }
+}
+
+pub(crate) fn capture_requires_local_runtime(config: &AppConfig) -> bool {
+    if config.translation.mode != "automatic" {
+        return false;
+    }
+    let uses_local = |targets: &[TranslationTargetConfig]| {
+        targets
+            .iter()
+            .any(|target| target.backend == TranslationBackend::PlamoLocal)
+    };
+    let speaker_active = config.audio.output.mode != "disabled"
+        && (config.audio.output.mode != "vrchat_players"
+            || config.audio.output.player_audio.enabled);
+    (speaker_active && uses_local(&config.translation.speaker_targets))
+        || (config.audio.microphone.mode != "disabled"
+            && uses_local(&config.translation.microphone_targets))
+        || (config.vrchat_chatbox.enabled && uses_local(&config.translation.speaker_targets))
 }
 
 fn translation_output_token_limit(text: &str, provider: &str, thinking_enabled: bool) -> u32 {
@@ -513,6 +563,65 @@ pub(super) fn http_error(status: reqwest::StatusCode, value: &Value) -> Translat
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::{AppConfig, TranslationBackend};
+
+    fn local_target() -> TranslationTargetConfig {
+        let mut target = TranslationTargetConfig::new("ja");
+        target.backend = TranslationBackend::PlamoLocal;
+        target
+    }
+
+    #[test]
+    fn automatic_capture_requires_local_runtime_for_active_audio() {
+        let mut config = AppConfig::default();
+        config.translation.mode = "automatic".into();
+        config.translation.speaker_targets = vec![local_target()];
+        assert!(capture_requires_local_runtime(&config));
+
+        config.audio.output.mode = "disabled".into();
+        config.audio.microphone.mode = "disabled".into();
+        config.vrchat_chatbox.enabled = false;
+        assert!(!capture_requires_local_runtime(&config));
+
+        config.audio.microphone.mode = "device".into();
+        config.translation.microphone_targets = vec![local_target()];
+        assert!(capture_requires_local_runtime(&config));
+    }
+
+    #[test]
+    fn chatbox_uses_local_runtime_even_without_voice_sources() {
+        let mut config = AppConfig::default();
+        config.translation.mode = "automatic".into();
+        config.translation.speaker_targets = vec![local_target()];
+        config.audio.output.mode = "disabled".into();
+        config.audio.microphone.mode = "disabled".into();
+        config.vrchat_chatbox.enabled = true;
+
+        assert!(capture_requires_local_runtime(&config));
+    }
+
+    #[test]
+    fn manual_or_api_translation_does_not_preload_local_runtime() {
+        let mut config = AppConfig::default();
+        config.translation.mode = "manual".into();
+        config.translation.speaker_targets = vec![local_target()];
+        config.translation.microphone_targets = vec![local_target()];
+        assert!(!capture_requires_local_runtime(&config));
+
+        config.translation.mode = "automatic".into();
+        config.translation.speaker_targets = vec![TranslationTargetConfig::new("ja")];
+        config.translation.microphone_targets = vec![TranslationTargetConfig::new("ja")];
+        assert!(!capture_requires_local_runtime(&config));
+    }
+
+    #[tokio::test]
+    async fn capture_preparation_skips_api_only_configuration() {
+        TranslationService::new()
+            .unwrap()
+            .prepare_capture_runtime(&AppConfig::default())
+            .await
+            .unwrap();
+    }
 
     #[test]
     fn compares_language_codes_by_script_and_base_language() {

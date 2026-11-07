@@ -539,6 +539,26 @@ async fn start_planned_pipelines(
     Option<crate::models::AudioDevice>,
     Option<crate::models::AudioDevice>,
 )> {
+    if let Err(error) = state
+        .content
+        .translation_service
+        .prepare_capture_runtime(config)
+        .await
+    {
+        if let Err(stop_error) = state
+            .content
+            .translation_service
+            .stop_capture_runtime()
+            .await
+        {
+            tracing::warn!(%stop_error, "could not clean up PLaMo after capture start failed");
+        }
+        return Err(api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            error.code,
+            error.detail,
+        ));
+    }
     let voice = reconcile_network(state, config).await?;
     if voice.is_some() && !plan.speaker {
         // A failed worker can produce a new subscription during a text-only reload.
@@ -788,6 +808,14 @@ pub(super) async fn capture_start(
             if let Err(stop_error) = state.capture.qwen_runtime.stop().await {
                 tracing::warn!(%stop_error, "could not stop Qwen ASR after capture start failed");
             }
+            if let Err(stop_error) = state
+                .content
+                .translation_service
+                .stop_capture_runtime()
+                .await
+            {
+                tracing::warn!(%stop_error, "could not stop PLaMo after capture start failed");
+            }
             *state
                 .config
                 .language_session
@@ -824,6 +852,14 @@ pub(super) async fn capture_stop(State(state): State<CaptureContext>) -> Json<Va
     stop_pipelines(&state, CaptureReloadPlan::all()).await;
     if let Err(error) = state.capture.qwen_runtime.stop().await {
         tracing::warn!(%error, "could not stop managed Qwen ASR runtime after capture");
+    }
+    if let Err(error) = state
+        .content
+        .translation_service
+        .stop_capture_runtime()
+        .await
+    {
+        tracing::warn!(%error, "could not stop PLaMo translation runtime after capture");
     }
     *state
         .config

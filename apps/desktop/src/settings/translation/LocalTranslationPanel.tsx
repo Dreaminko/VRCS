@@ -104,12 +104,8 @@ export function LocalTranslationPanel({
             }, t, "errors.apiStatus.translation.failed")}</p>}
           </div>
           <div className="model-row-action">
-            {runtime.runtime_available
-              ? <button className="secondary-button" type="button" disabled={disabled || busy}
-                onClick={() => void run(localTranslationApi.unload)}>
-                {t("settings.translation.unload")}
-              </button>
-              : <button className="model-download-button" type="button" disabled={disabled || busy}
+            {!runtime.runtime_available
+              && <button className="model-download-button" type="button" disabled={disabled || busy}
                 onClick={() => void run(providersApi.downloadQwenRuntime)}>
                 <Download size={16} />{t("settings.translation.localDownloadRuntime")}
               </button>}
@@ -145,16 +141,12 @@ export function LocalTranslationPanel({
                 onClick={() => void run(localTranslationApi.cancel)}>
                 <Square size={14} />{t("common.cancel")}
               </button>
-              : model.status === "installed" ? <>
-                <button className="secondary-button" type="button" disabled={disabled || busy}
-                  onClick={() => void run(localTranslationApi.verify)}>{t("settings.translation.verify")}</button>
-                <button className="secondary-button" type="button" disabled={disabled || busy || runtime.status === "not_loaded"}
-                  onClick={() => void run(localTranslationApi.unload)}>{t("settings.translation.unload")}</button>
+              : model.status === "installed" ?
                 <button ref={deleteButton} className="model-delete-button" type="button" disabled={disabled || busy}
                   aria-label={t("settings.translation.deleteLocalModel")} onClick={() => setConfirmDelete(true)}>
                   <Trash2 size={16} />{t("common.delete")}
                 </button>
-              </> : <button className="model-download-button" type="button" disabled={disabled || busy || !accepted}
+              : <button className="model-download-button" type="button" disabled={disabled || busy || !accepted}
                 onClick={() => void run(() => localTranslationApi.download(model.id, model.revision))}>
                 <Download size={16} />{t(model.status === "error" ? "common.retry" : "common.download")}
               </button>}
