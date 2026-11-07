@@ -178,7 +178,10 @@ export function useAppWorkspace({
     providers: {
       catalog: providerCatalog,
       translationProfile,
-      translationLanguageCodes: translationLanguageCodesForProfile(translationProfile),
+      translationLanguageCodes: translationLanguageCodesForProfile(
+        translationProfile,
+        chatboxRoute?.backend,
+      ),
       allowCustomTranslationLanguage: supportsCustomTranslationLanguage(translationProfile),
     },
     chatbox,

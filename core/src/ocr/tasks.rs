@@ -107,7 +107,15 @@ pub fn source_view(config: &crate::config::VrOcrConfig) -> bool {
     config
         .targets
         .iter()
-        .all(|target| target.profile_id.is_none())
+        .all(|target| !target_configured(target))
+}
+
+fn target_configured(target: &crate::config::TranslationTargetConfig) -> bool {
+    target.backend == crate::config::TranslationBackend::PlamoLocal
+        || target
+            .profile_id
+            .as_deref()
+            .is_some_and(|id| !id.trim().is_empty())
 }
 
 impl ScanSummary {
@@ -335,7 +343,7 @@ impl VrOcrService {
                             ocr.targets.iter().map(|target| BlockTranslation {
                                 target_language: target.target_language.clone(),
                                 text: None,
-                                error_code: Some(if target.profile_id.is_some() {
+                                error_code: Some(if target_configured(target) {
                                     "translation.timeout"
                                 } else { "translation.not_configured" }.into()),
                             }).collect()
@@ -345,7 +353,7 @@ impl VrOcrService {
                         completed(BlockUpdate { scan_id, eye, target_language: None, block: block.clone() });
                         if source_only { continue; }
                         for (target_index, target) in ocr.targets.iter().enumerate()
-                            .filter(|(_, target)| target.profile_id.is_some())
+                            .filter(|(_, target)| target_configured(target))
                         {
                             if !translating { progress(super::Phase::Translating); translating = true; }
                             let context = &contexts[index];
@@ -356,6 +364,8 @@ impl VrOcrService {
                             let key: [u8; 32] = Sha256::digest(serde_json::to_vec(&(
                                 &block.source.text, target, profile, &config.translation.prompt,
                                 context_key, glossary,
+                                crate::translation::MODEL_REVISION,
+                                crate::translation::PROMPT_VERSION,
                             )).expect("OCR translation cache key is serializable")).into();
                             // Pending and completed requests share subscribers; target slots stay separate.
                             if let Some(&request_index) = seen.get(&(key, target_index)) {

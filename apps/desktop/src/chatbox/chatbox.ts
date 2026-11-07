@@ -5,8 +5,11 @@ import type {
   ChatboxPreview,
   ChatboxSendMode,
 } from "./types";
+import { PLAMO_LOCAL_MODEL_ID } from "../translation/translation-languages.ts";
 
 export const CHATBOX_LIMIT = 144;
+const PLAMO_MARKER = "[PLaMo]";
+const PLAMO_ATTRIBUTION = " [PLaMo]";
 const SEND_MODES = new Set<ChatboxSendMode>(["original", "translation", "bilingual"]);
 const MESSAGE_FORMATS = new Set<ChatboxMessageFormat>([
   "original_newline_translation",
@@ -28,6 +31,7 @@ export function createChatboxDraft(targetLanguage = "ja"): ChatboxComposeInput {
   return {
     original: "",
     translation: null,
+    translation_origin: null,
     source_language: null,
     target_language: targetLanguage,
     send_mode: "bilingual",
@@ -39,7 +43,7 @@ export function createChatboxDraft(targetLanguage = "ja"): ChatboxComposeInput {
 
 export function previewChatboxLocally(input: ChatboxComposeInput): ChatboxPreview {
   const original = compact(input.original);
-  const translation = compact(input.translation ?? "");
+  const translation = attributedTranslation(input);
   const text = renderDraft(input, original, translation);
   const charCount = [...text].length;
   const hasRequiredText = input.send_mode === "original"
@@ -61,7 +65,18 @@ export function previewChatboxLocally(input: ChatboxComposeInput): ChatboxPrevie
 }
 
 export function clearSentDraft(input: ChatboxComposeInput): ChatboxComposeInput {
-  return { ...input, original: "", translation: null };
+  return { ...input, original: "", translation: null, translation_origin: null };
+}
+
+export function updateChatboxTranslation(
+  input: ChatboxComposeInput,
+  translation: string,
+): ChatboxComposeInput {
+  return {
+    ...input,
+    translation: translation || null,
+    translation_origin: null,
+  };
 }
 
 export function chatboxPreferencesFromDraft(draft: ChatboxComposeInput): ChatboxPreferences {
@@ -127,6 +142,17 @@ function renderDraft(
 
 function compact(value: string): string {
   return value.replace(/[\u0000-\u001f\u007f]+/g, " ").trim().replace(/\s+/g, " ");
+}
+
+function attributedTranslation(input: ChatboxComposeInput): string {
+  const translation = compact(input.translation ?? "");
+  if (input.translation_origin?.provider !== "plamo_local"
+    || input.translation_origin.model !== PLAMO_LOCAL_MODEL_ID) return translation;
+  let content = translation;
+  while (content.endsWith(PLAMO_MARKER)) {
+    content = content.slice(0, -PLAMO_MARKER.length).trimEnd();
+  }
+  return `${content}${PLAMO_ATTRIBUTION}`;
 }
 
 function validCustomFormat(value: string): boolean {

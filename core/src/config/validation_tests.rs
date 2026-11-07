@@ -552,6 +552,45 @@ fn automatic_translation_requires_a_profile() {
 }
 
 #[test]
+fn local_translation_requires_no_api_profile_and_rejects_unsupported_languages() {
+    let mut config = AppConfig::default();
+    config.translation.mode = "automatic".into();
+    config.translation.model_selection.use_default_model = false;
+    config.translation.model_selection.backend = crate::config::TranslationBackend::PlamoLocal;
+    config.translation.model_selection.profile_id = None;
+    config.translation.model_selection.model = crate::translation::MODEL_ID.into();
+    for targets in [
+        &mut config.translation.speaker_targets,
+        &mut config.translation.microphone_targets,
+    ] {
+        for target in targets {
+            target.use_default_model = false;
+            target.backend = crate::config::TranslationBackend::PlamoLocal;
+            target.profile_id = None;
+            target.model = crate::translation::MODEL_ID.into();
+        }
+    }
+    assert!(config.validate_settings().is_ok());
+
+    config.translation.speaker_targets[0].target_language = "pt-BR".into();
+    assert_eq!(
+        config.validate_settings().unwrap_err(),
+        "PLaMo does not support target language: pt-BR"
+    );
+}
+
+#[test]
+fn plamo_local_is_not_a_general_generation_model() {
+    let mut config = AppConfig::default();
+    config.model_defaults.text.backend = crate::config::TranslationBackend::PlamoLocal;
+    config.model_defaults.text.model = crate::translation::MODEL_ID.into();
+    assert_eq!(
+        config.validate_settings().unwrap_err(),
+        "model_defaults.text does not support the local PLaMo backend"
+    );
+}
+
+#[test]
 fn translation_routes_are_bounded_and_unique_per_source() {
     let mut config = AppConfig::default();
     config

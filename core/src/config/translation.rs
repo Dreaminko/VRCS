@@ -4,6 +4,14 @@ use serde::{Deserialize, Serialize};
 
 use super::GlossaryEntry;
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TranslationBackend {
+    #[default]
+    Api,
+    PlamoLocal,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(
     tag = "type",
@@ -63,6 +71,8 @@ pub struct TranslationTargetConfig {
     #[serde(default)]
     pub use_default_model: bool,
     #[serde(default)]
+    pub backend: TranslationBackend,
+    #[serde(default)]
     pub profile_id: Option<String>,
     #[serde(default)]
     pub model: String,
@@ -92,6 +102,20 @@ pub struct TranslationPromptConfig {
     pub max_chars: u32,
     #[serde(skip)]
     pub glossary: Vec<GlossaryEntry>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct LocalTranslationConfig {
+    pub device: String,
+}
+
+impl Default for LocalTranslationConfig {
+    fn default() -> Self {
+        Self {
+            device: "cpu".into(),
+        }
+    }
 }
 
 fn default_enabled() -> bool {
@@ -139,6 +163,7 @@ impl TranslationTargetConfig {
         Self {
             target_language: target_language.into(),
             use_default_model: true,
+            backend: TranslationBackend::Api,
             profile_id: None,
             model: String::new(),
             model_by_profile: BTreeMap::new(),
@@ -173,6 +198,27 @@ mod tests {
         let target: TranslationTargetConfig =
             serde_json::from_value(serde_json::json!({"target_language": "en"})).unwrap();
         assert!(target.model.is_empty());
+        assert_eq!(target.backend, super::TranslationBackend::Api);
+    }
+
+    #[test]
+    fn local_translation_bindings_round_trip_without_an_api_profile() {
+        let target: TranslationTargetConfig = serde_json::from_value(serde_json::json!({
+            "target_language": "zh-Hans",
+            "use_default_model": false,
+            "backend": "plamo_local",
+            "profile_id": null,
+            "model": "plamo-3-translate-0.8b-q4_k_m",
+            "thinking_enabled": false
+        }))
+        .unwrap();
+
+        assert_eq!(target.backend, super::TranslationBackend::PlamoLocal);
+        assert_eq!(target.profile_id, None);
+        assert_eq!(
+            serde_json::to_value(target).unwrap()["backend"],
+            "plamo_local"
+        );
     }
 
     #[test]

@@ -110,6 +110,10 @@ export function useChatboxWorkspace(settings: Settings | null) {
     return {
       ...input,
       translation: result.text,
+      translation_origin: {
+        provider: result.provider,
+        model: result.model,
+      },
       source_language: result.source_language,
       target_language: result.target_language,
     };

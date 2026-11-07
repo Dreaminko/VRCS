@@ -45,9 +45,29 @@ export const TRANSLATION_LANGUAGES: readonly TranslationLanguage[] = [
 
 export const TRANSLATION_LANGUAGE_CODES = TRANSLATION_LANGUAGES.map(({ code }) => code);
 
+// PLaMo uses lowercase script subtags; keep UI codes aligned with Intl while
+// sending the canonical model code through the backend.
+export const PLAMO_TRANSLATION_LANGUAGE_CODES = [
+  "ja", "en", "zh-Hans", "zh-Hant", "ko", "ar", "az", "be", "bg", "bn",
+  "ca", "ceb", "de", "es", "et", "eu", "fa", "fr", "gu", "he", "hi",
+  "hr", "hu", "hy", "id", "it", "jv", "ka", "kk", "km", "lt", "lv",
+  "ml", "mr", "ms", "my", "ne", "nl", "pa", "pl", "ru", "si", "sk",
+  "sl", "sr", "sw", "ta", "te", "th", "tl", "ur", "uz", "vi",
+] as const;
+
+export const PLAMO_LOCAL_MODEL_ID = "plamo-3-translate-0.8b-q4_k_m";
+
+const PLAMO_TRANSLATION_LANGUAGE_SET = new Set<string>(PLAMO_TRANSLATION_LANGUAGE_CODES);
+
+export function supportsPlamoTranslationLanguage(code: string): boolean {
+  return PLAMO_TRANSLATION_LANGUAGE_SET.has(code);
+}
+
 export function translationLanguageCodesForProfile(
   profile?: Pick<ApiProfileView, "capabilities">,
+  backend: "api" | "plamo_local" = "api",
 ): string[] {
+  if (backend === "plamo_local") return [...PLAMO_TRANSLATION_LANGUAGE_CODES];
   return profile?.capabilities.supported_languages.length
     ? [...profile.capabilities.supported_languages]
     : [...TRANSLATION_LANGUAGE_CODES];

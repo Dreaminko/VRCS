@@ -11,24 +11,31 @@ import type {
 import type { ApplySettings } from "../settings-types";
 import { LanguagePresetSettings } from "../translation/LanguagePresetSettings";
 import { TranslationEnhancementSettings } from "../translation/TranslationEnhancementSettings";
+import { LocalTranslationPanel } from "../translation/LocalTranslationPanel";
 import { TranslationRouteList } from "../translation/TranslationRouteList";
-import { translationModelSelection } from "../model-selection";
+import { translationModelSelection, translationPromptBackend } from "../model-selection";
 
 export function TranslationSettingsSection({ draft, apiProfiles, applySettings }: {
   draft: Settings;
   apiProfiles: ApiProfileView[];
   applySettings: ApplySettings;
 }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const locale = i18n.resolvedLanguage ?? "en-US";
   const liveService = liveTranslationServiceName(draft.asr.backend);
   const liveTranslate = Boolean(liveService);
   const translationProfiles = apiProfiles.filter(supportsTranslation);
-  const translationUnavailable = !liveTranslate && !translationProfiles.length;
+  const configuredTargets = [...draft.translation.speaker_targets, ...draft.translation.microphone_targets];
+  const localConfigured = translationModelSelection(draft).backend === "plamo_local"
+    || configuredTargets.some((target) => target.backend === "plamo_local");
+  const translationUnavailable = !liveTranslate && !translationProfiles.length && !localConfigured;
   const nativeFirstRoute = liveTranslate && draft.translation.mode === "automatic";
   const enhancementRoutes = [draft.translation.speaker_targets, draft.translation.microphone_targets]
     .flatMap((targets) => nativeFirstRoute ? targets.slice(1) : targets)
-    .filter((target) => translationProfiles.some((profile) => profile.id === target.profile_id && supportsLlmModels(profile) && supportsContext(profile)));
+    .filter((target) => target.backend === "plamo_local"
+      || translationProfiles.some((profile) => profile.id === target.profile_id && supportsLlmModels(profile) && supportsContext(profile)));
   const localContextOnly = enhancementRoutes.every((target) => {
+    if (target.backend === "plamo_local") return true;
     const profile = translationProfiles.find((item) => item.id === target.profile_id);
     return profile?.is_local ?? profile?.capabilities.is_local ?? false;
   });
@@ -122,6 +129,7 @@ export function TranslationSettingsSection({ draft, apiProfiles, applySettings }
           <TranslationEnhancementSettings
             translation={draft.translation}
             preferredTarget={enhancementRoutes[0].target_language}
+            backend={translationPromptBackend(enhancementRoutes)}
             localContextOnly={localContextOnly}
             disabled={false}
             onChange={(patch) => updateTranslation({
@@ -130,6 +138,10 @@ export function TranslationSettingsSection({ draft, apiProfiles, applySettings }
             })}
           />
         )}
+        <LocalTranslationPanel
+          locale={locale}
+          disabled={false}
+        />
       </div>
     </div>
   );

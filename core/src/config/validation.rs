@@ -30,33 +30,41 @@ impl AppConfig {
         validate_audio(&self.audio, &self.vad)?;
         validate_recognition_options(&self.asr)?;
         validate_api_profiles(&self.asr)?;
-        for (name, profile_id, model) in [
+        for (name, backend, profile_id, model) in [
             (
                 "model_defaults.text",
+                self.model_defaults.text.backend,
                 &self.model_defaults.text.profile_id,
                 &self.model_defaults.text.model,
             ),
             (
                 "model_defaults.vision",
+                self.model_defaults.vision.backend,
                 &self.model_defaults.vision.profile_id,
                 &self.model_defaults.vision.model,
             ),
             (
                 "translation.model_selection",
+                self.translation.model_selection.backend,
                 &self.translation.model_selection.profile_id,
                 &self.translation.model_selection.model,
             ),
             (
                 "ocr.model_selection",
+                self.ocr.model_selection.backend,
                 &self.ocr.model_selection.profile_id,
                 &self.ocr.model_selection.model,
             ),
             (
                 "learning_ai",
+                TranslationBackend::Api,
                 &self.learning_ai.profile_id,
                 &self.learning_ai.model,
             ),
         ] {
+            if name.starts_with("model_defaults.") && backend != TranslationBackend::Api {
+                return Err(format!("{name} does not support the local PLaMo backend"));
+            }
             if profile_id
                 .as_ref()
                 .is_some_and(|id| id.is_empty() || id.len() > 64 || contains_control(id))
@@ -72,6 +80,14 @@ impl AppConfig {
         if let Some(control) = &self.learning_ai.reasoning_control {
             control.validate()?;
         }
+        if self.local_translation.device != "cpu" {
+            return Err("Local translation device must be cpu".into());
+        }
+        validate_translation_selection(
+            "translation.model_selection",
+            &self.translation.model_selection,
+        )?;
+        validate_translation_selection("ocr.model_selection", &self.ocr.model_selection)?;
         validate_glossary(&self.glossary)?;
         validate_translation(&self.translation, &self.asr.api_profiles, &self.asr.backend)?;
         validate_language_presets(
@@ -735,24 +751,54 @@ fn validate_translation_targets(
         if let Some(control) = &target.reasoning_control {
             control.validate()?;
         }
-        if !providers::is_valid_translation_language(&target.target_language) {
-            return Err(format!(
-                "Invalid {source} translation target language: {}",
-                target.target_language
-            ));
-        }
         if !languages.insert(target.target_language.to_ascii_lowercase()) {
             return Err(format!(
                 "Translation {source} target languages must be unique"
             ));
         }
         if providers::is_live_translation(live_service) && index == 0 {
+            if !providers::is_valid_translation_language(&target.target_language) {
+                return Err(format!(
+                    "Invalid {source} translation target language: {}",
+                    target.target_language
+                ));
+            }
             providers::validate_live_translation_language(live_service, &target.target_language)?;
             continue;
         }
         if target.use_default_model && !require_profile {
             // Optional followers retain unavailable bindings for diagnostics and provider repair.
             continue;
+        }
+        if target.backend == TranslationBackend::PlamoLocal {
+            if target.profile_id.is_some() {
+                return Err(format!(
+                    "A local PLaMo translation binding cannot select an API profile for {}",
+                    target.target_language
+                ));
+            }
+            if target.model != crate::translation::MODEL_ID {
+                return Err(format!(
+                    "The local PLaMo translation model must be {}",
+                    crate::translation::MODEL_ID
+                ));
+            }
+            if target.thinking_enabled || target.reasoning_control.is_some() {
+                return Err("Local PLaMo translation does not support reasoning controls".into());
+            }
+            if !crate::translation::plamo_supports_language(&target.target_language) {
+                return Err(format!(
+                    "PLaMo does not support target language: {}",
+                    target.target_language
+                ));
+            }
+            continue;
+        }
+        if !providers::is_valid_translation_language(&target.target_language) {
+            return Err(format!(
+                "Invalid {source} translation target language: {}",
+                target.target_language
+            ));
         }
         let Some(profile_id) = target.profile_id.as_deref() else {
             if require_profile {
@@ -779,6 +825,27 @@ fn validate_translation_targets(
         if providers::supports_llm_models(profile) && target.model.trim().is_empty() {
             return Err("The LLM translation model cannot be empty".into());
         }
+    }
+    Ok(())
+}
+
+fn validate_translation_selection(
+    name: &str,
+    selection: &super::ModelSelection,
+) -> Result<(), String> {
+    if selection.use_default_model || selection.backend == TranslationBackend::Api {
+        return Ok(());
+    }
+    if selection.profile_id.is_some() {
+        return Err(format!(
+            "{name} cannot select an API profile for local PLaMo translation"
+        ));
+    }
+    if selection.model != crate::translation::MODEL_ID {
+        return Err(format!(
+            "{name}.model must be {}",
+            crate::translation::MODEL_ID
+        ));
     }
     Ok(())
 }

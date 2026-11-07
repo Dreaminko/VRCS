@@ -9,9 +9,10 @@ import type {
 import type { AsrSettings } from "../providers/types";
 
 export type ModelDownloadSource = "auto" | "official" | "modelscope";
+export type TranslationBackend = "api" | "plamo_local";
 
 export interface Settings {
-  schema_version: 38;
+  schema_version: 39;
   model_defaults: ModelDefaults;
   learning_ai: LearningAiSettings;
   vrchat_chatbox: VrchatChatboxConfig;
@@ -35,6 +36,9 @@ export interface Settings {
   vad: VadSettings;
   asr: AsrSettings;
   translation: TranslationSettings;
+  local_translation: {
+    device: "cpu";
+  };
   language_presets: LanguagePreset[];
   glossary: GlossarySettings;
   osc: {
@@ -114,6 +118,7 @@ export interface TranslationSettings {
 export interface TranslationTargetSettings {
   use_default_model?: boolean;
   target_language: string;
+  backend?: TranslationBackend;
   profile_id: string | null;
   model: string;
   model_by_profile?: Record<string, string>;
@@ -122,6 +127,7 @@ export interface TranslationTargetSettings {
 }
 
 export interface ModelBinding {
+  backend?: TranslationBackend;
   profile_id: string | null;
   model: string;
 }
@@ -212,7 +218,43 @@ export interface GlossarySourceStatus {
 }
 
 export interface TranslationPromptPreview {
+  format?: "api" | "pfml3";
   instructions: string;
+  prompt?: string;
   context_message_count: number;
   context_char_count: number;
+}
+
+export interface LocalTranslationModelStatus {
+  id: "plamo-3-translate-0.8b-q4_k_m";
+  revision: string;
+  bytes: number;
+  sha256: string;
+  license: string;
+  license_url: string;
+  license_accepted: boolean;
+  status: "not_downloaded" | "downloading" | "verifying" | "installed" | "corrupt" | "error";
+  downloaded_bytes: number;
+  total_bytes: number;
+  progress: number;
+  error: string | null;
+}
+
+export interface LocalTranslationRuntimeStatus {
+  status: "not_loaded" | "loading" | "ready" | "error";
+  device: "cpu";
+  model: "plamo-3-translate-0.8b-q4_k_m";
+  runtime_available: boolean;
+  error: string | null;
+}
+
+export interface LocalTranslationStatus {
+  model: LocalTranslationModelStatus;
+  runtime: LocalTranslationRuntimeStatus;
+  languages: string[];
+  license: {
+    name: string;
+    url: string;
+    attribution: string;
+  };
 }

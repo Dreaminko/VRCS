@@ -90,6 +90,7 @@ fn config_from_update(update: SettingsUpdate) -> AppConfig {
         asr: update.asr,
         glossary: update.glossary,
         translation: update.translation,
+        local_translation: update.local_translation,
         language_presets: update.language_presets,
         osc: update.osc,
         dictionary: update.dictionary,

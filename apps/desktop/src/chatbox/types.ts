@@ -6,9 +6,15 @@ export type ChatboxMessageFormat =
   | "custom";
 export type ChatboxOverflowPolicy = "block" | "smart_truncate";
 
+export interface ChatboxTranslationOrigin {
+  provider: string;
+  model: string | null;
+}
+
 export interface ChatboxComposeInput {
   original: string;
   translation: string | null;
+  translation_origin: ChatboxTranslationOrigin | null;
   source_language: string | null;
   target_language: string | null;
   send_mode: ChatboxSendMode;

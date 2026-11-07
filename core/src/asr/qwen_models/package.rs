@@ -113,6 +113,19 @@ pub(super) fn verify_package(
 }
 
 pub(super) fn verify_asset(path: &Path, spec: AssetSpec, force: bool) -> Result<bool, String> {
+    verify_asset_with_cache(path, spec, force, true)
+}
+
+pub(super) fn verify_asset_readonly(path: &Path, spec: AssetSpec) -> Result<bool, String> {
+    verify_asset_with_cache(path, spec, false, false)
+}
+
+fn verify_asset_with_cache(
+    path: &Path,
+    spec: AssetSpec,
+    force: bool,
+    write_cache: bool,
+) -> Result<bool, String> {
     let metadata = match std::fs::symlink_metadata(path) {
         Ok(metadata) => metadata,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
@@ -136,10 +149,14 @@ pub(super) fn verify_asset(path: &Path, spec: AssetSpec, force: bool) -> Result<
     }
     let digest = file_sha256(path)?;
     if digest != spec.sha256 {
-        let _ = std::fs::remove_file(verification_path(path));
+        if write_cache {
+            let _ = std::fs::remove_file(verification_path(path));
+        }
         return Ok(false);
     }
-    cache_verified_asset(path, spec, digest)?;
+    if write_cache {
+        cache_verified_asset(path, spec, digest)?;
+    }
     Ok(true)
 }
 

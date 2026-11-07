@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 
 pub const CHATBOX_LIMIT: usize = 144;
+const PLAMO_MARKER: &str = "[PLaMo]";
+const PLAMO_ATTRIBUTION: &str = " [PLaMo]";
 const MAX_TEXT_LENGTH: usize = 5_000;
 const MAX_CUSTOM_FORMAT_LENGTH: usize = 200;
 
@@ -49,12 +51,29 @@ pub enum ChatboxOverflowPolicy {
     SmartTruncate,
 }
 
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct ChatboxTranslationOrigin {
+    pub provider: String,
+    #[serde(default)]
+    pub model: Option<String>,
+}
+
+impl ChatboxTranslationOrigin {
+    pub(crate) fn uses_plamo(&self) -> bool {
+        self.provider == "plamo_local"
+            && self.model.as_deref() == Some(crate::translation::MODEL_ID)
+    }
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ChatboxComposeInput {
     pub original: String,
     #[serde(default)]
     pub translation: Option<String>,
+    #[serde(default)]
+    pub translation_origin: Option<ChatboxTranslationOrigin>,
     #[serde(default)]
     pub source_language: Option<String>,
     #[serde(default)]
@@ -130,9 +149,12 @@ pub fn preview_chatbox(
 ) -> Result<ChatboxPreview, ChatboxValidationError> {
     validate_input(input)?;
     let original = compact_text(&input.original);
-    let translation = input.translation.as_deref().map(compact_text);
+    let (translation, attribution) = prepared_translation(
+        input.translation.as_deref(),
+        input.translation_origin.as_ref(),
+    );
     let template = format_template(input)?;
-    let full_text = render(&template, &original, translation.as_deref());
+    let full_text = render(&template, &original, translation.as_deref(), &attribution);
     let full_length = full_text.chars().count();
 
     if full_length <= CHATBOX_LIMIT {
@@ -159,13 +181,16 @@ pub fn preview_chatbox(
 
     let text = match input.send_mode {
         ChatboxSendMode::Original => truncate(&original, CHATBOX_LIMIT),
-        ChatboxSendMode::Translation => {
-            truncate(translation.as_deref().unwrap_or_default(), CHATBOX_LIMIT)
-        }
+        ChatboxSendMode::Translation => truncate_attributed(
+            translation.as_deref().unwrap_or_default(),
+            CHATBOX_LIMIT,
+            &attribution,
+        ),
         ChatboxSendMode::Bilingual => truncate_bilingual(
             &template,
             &original,
             translation.as_deref().unwrap_or_default(),
+            &attribution,
         )?,
     };
     Ok(ChatboxPreview {
@@ -181,11 +206,13 @@ pub fn preview_chatbox(
 pub fn automatic_chatbox(
     original: &str,
     translation: Option<&str>,
+    translation_origin: Option<&ChatboxTranslationOrigin>,
     preserve_original_text: bool,
 ) -> String {
     let input = ChatboxComposeInput {
         original: original.into(),
         translation: translation.map(str::to_owned),
+        translation_origin: translation_origin.cloned(),
         source_language: None,
         target_language: None,
         send_mode: match (translation.is_some(), preserve_original_text) {
@@ -211,7 +238,10 @@ fn validate_input(input: &ChatboxComposeInput) -> Result<(), ChatboxValidationEr
     }
 
     let original = compact_text(&input.original);
-    let translation = input.translation.as_deref().map(compact_text);
+    let (translation, _) = prepared_translation(
+        input.translation.as_deref(),
+        input.translation_origin.as_ref(),
+    );
     match input.send_mode {
         ChatboxSendMode::Original if original.is_empty() => Err(validation(
             "chatbox.missing_original",
@@ -303,12 +333,14 @@ fn truncate_bilingual(
     template: &str,
     original: &str,
     translation: &str,
+    attribution: &str,
 ) -> Result<String, ChatboxValidationError> {
     let fixed = template
         .replace("{original}", "")
         .replace("{translation}", "")
         .chars()
-        .count();
+        .count()
+        + attribution.chars().count();
     if fixed >= CHATBOX_LIMIT {
         return Err(validation(
             "chatbox.invalid_format",
@@ -331,13 +363,43 @@ fn truncate_bilingual(
         template,
         &truncate(original, original_budget),
         Some(&truncate(translation, translation_budget)),
+        attribution,
     ))
 }
 
-fn render(template: &str, original: &str, translation: Option<&str>) -> String {
+fn render(template: &str, original: &str, translation: Option<&str>, attribution: &str) -> String {
+    let translated = translation
+        .map(|value| format!("{value}{attribution}"))
+        .unwrap_or_default();
     template
         .replace("{original}", original)
-        .replace("{translation}", translation.unwrap_or_default())
+        .replace("{translation}", &translated)
+}
+
+fn prepared_translation(
+    translation: Option<&str>,
+    origin: Option<&ChatboxTranslationOrigin>,
+) -> (Option<String>, String) {
+    translation.map_or_else(
+        || (None, String::new()),
+        |translation| {
+            let translation = compact_text(translation);
+            if origin.is_some_and(ChatboxTranslationOrigin::uses_plamo) {
+                let mut content = translation.trim_end();
+                while let Some(stripped) = content.strip_suffix(PLAMO_MARKER) {
+                    content = stripped.trim_end();
+                }
+                (Some(content.to_owned()), PLAMO_ATTRIBUTION.to_owned())
+            } else {
+                (Some(translation), String::new())
+            }
+        },
+    )
+}
+
+fn truncate_attributed(value: &str, limit: usize, attribution: &str) -> String {
+    let content_limit = limit.saturating_sub(attribution.chars().count());
+    format!("{}{}", truncate(value, content_limit), attribution)
 }
 
 pub(crate) fn compact_text(value: &str) -> String {
@@ -385,6 +447,7 @@ mod tests {
         ChatboxComposeInput {
             original: original.into(),
             translation: translation.map(str::to_owned),
+            translation_origin: None,
             source_language: None,
             target_language: Some("ja".into()),
             send_mode: if translation.is_some() {
@@ -430,5 +493,45 @@ mod tests {
             preview_chatbox(&input).unwrap_err().code,
             "chatbox.invalid_format"
         );
+    }
+
+    #[test]
+    fn attributes_plamo_translations_without_duplicating_the_suffix() {
+        let mut input = input("hello", Some("こんにちは [PLaMo]"));
+        input.translation_origin = Some(ChatboxTranslationOrigin {
+            provider: "plamo_local".into(),
+            model: Some("plamo-3-translate-0.8b-q4_k_m".into()),
+        });
+
+        let preview = preview_chatbox(&input).unwrap();
+
+        assert_eq!(preview.text, "hello\nこんにちは [PLaMo]");
+        assert_eq!(preview.char_count, preview.text.chars().count());
+    }
+
+    #[test]
+    fn smart_truncation_keeps_the_plamo_attribution_inside_the_limit() {
+        let mut input = input("original", Some(&"訳".repeat(200)));
+        input.translation_origin = Some(ChatboxTranslationOrigin {
+            provider: "plamo_local".into(),
+            model: Some("plamo-3-translate-0.8b-q4_k_m".into()),
+        });
+        input.overflow_policy = ChatboxOverflowPolicy::SmartTruncate;
+
+        let preview = preview_chatbox(&input).unwrap();
+
+        assert_eq!(preview.char_count, CHATBOX_LIMIT);
+        assert!(preview.text.ends_with(PLAMO_ATTRIBUTION));
+    }
+
+    #[test]
+    fn leaves_api_translations_unattributed() {
+        let mut input = input("hello", Some("こんにちは"));
+        input.translation_origin = Some(ChatboxTranslationOrigin {
+            provider: "openai".into(),
+            model: Some("gpt-5-mini".into()),
+        });
+
+        assert_eq!(preview_chatbox(&input).unwrap().text, "hello\nこんにちは");
     }
 }

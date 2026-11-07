@@ -4,7 +4,10 @@ import { useTranslation } from "react-i18next";
 import { liveTranslationServiceName } from "../../providers/recognition-services";
 import type { ApiProfileView } from "../../providers/types";
 import { LanguagePicker } from "../../shared/ui/LanguagePicker";
-import { TRANSLATION_LANGUAGE_CODES } from "../../translation/translation-languages";
+import {
+  PLAMO_TRANSLATION_LANGUAGE_CODES,
+  TRANSLATION_LANGUAGE_CODES,
+} from "../../translation/translation-languages";
 import { EMPTY_MODEL_BINDING, resolveModelSelection } from "../model-selection";
 import type { ModelBinding, TranslationTargetSettings } from "../types";
 import { targetLanguageCodes } from "./language-settings";
@@ -23,8 +26,10 @@ export function TranslationRouteList({ title, liveService, targets, profiles, mo
     if (targets.length >= 3) return;
     const used = new Set(targets.map((target) => target.target_language));
     const profile = profiles.find((item) => item.id === modelSelection.profile_id);
-    const languages = profile?.capabilities.supported_languages.length
-      ? profile.capabilities.supported_languages : TRANSLATION_LANGUAGE_CODES;
+    const languages = modelSelection.backend === "plamo_local"
+      ? [...PLAMO_TRANSLATION_LANGUAGE_CODES]
+      : profile?.capabilities.supported_languages.length
+        ? profile.capabilities.supported_languages : TRANSLATION_LANGUAGE_CODES;
     const target_language = languages.find((code) => !used.has(code)) ?? "en";
     onChange([...targets, { target_language, ...modelSelection, use_default_model: true, thinking_enabled: false }]);
   };

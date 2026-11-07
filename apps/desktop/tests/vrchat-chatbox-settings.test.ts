@@ -23,3 +23,17 @@ test("Chatbox automatic translation requires an other-player text translation ro
   assert.equal(chatboxTranslationReady(translation, []), false);
   assert.equal(chatboxTranslationReady(translation, [{ ...textProfile, enabled_capabilities: ["speech_to_text"] }]), false);
 });
+
+test("Chatbox automatic translation accepts a local PLaMo route", () => {
+  const local = {
+    ...translation,
+    speaker_targets: [{
+      target_language: "en",
+      backend: "plamo_local",
+      profile_id: null,
+      model: "plamo-3-translate-0.8b-q4_k_m",
+    }],
+  } as TranslationSettings;
+
+  assert.equal(chatboxTranslationReady(local, []), true);
+});

@@ -115,6 +115,8 @@ pub struct SettingsUpdate {
     #[serde(default)]
     pub translation: TranslationConfig,
     #[serde(default)]
+    pub local_translation: crate::config::LocalTranslationConfig,
+    #[serde(default)]
     pub language_presets: Vec<crate::config::LanguagePreset>,
     #[serde(default)]
     pub osc: OscConfig,

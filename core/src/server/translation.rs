@@ -10,7 +10,7 @@ use crate::db::conversations::publish_latest_catalog;
 use crate::subtitle_output::TranslationFailure;
 use crate::translation::TranslationError;
 use crate::{
-    config::{validate_translation_prompt, TranslationPromptConfig},
+    config::{validate_translation_prompt, TranslationBackend, TranslationPromptConfig},
     translation::TranslationPromptBuilder,
 };
 
@@ -34,6 +34,8 @@ pub(super) struct PromptPreviewInput {
     source_language: Option<String>,
     #[serde(default)]
     target_language: Option<String>,
+    #[serde(default)]
+    backend: TranslationBackend,
 }
 
 pub(super) async fn prompt_preview(
@@ -63,6 +65,24 @@ pub(super) async fn prompt_preview(
     let target = input.target_language.as_deref().unwrap_or("zh-Hans");
     let mut prompt = input.prompt;
     prompt.glossary = state.content.glossary.entries_for_llm();
+    if input.backend == TranslationBackend::PlamoLocal {
+        let preview = crate::translation::build_plamo_prompt(
+            "",
+            input.source_language.as_deref(),
+            target,
+            &context,
+            &prompt.glossary,
+            prompt.context_enabled,
+        )
+        .map_err(translation_error)?;
+        return Ok(Json(json!({
+            "format": "pfml3",
+            "instructions": preview,
+            "prompt": preview,
+            "context_message_count": context.len(),
+            "context_char_count": context.iter().map(|entry| entry.text.chars().count()).sum::<usize>(),
+        })));
+    }
     let preview = TranslationPromptBuilder::new(&prompt).build(
         input.source_language.as_deref(),
         target,
@@ -70,7 +90,9 @@ pub(super) async fn prompt_preview(
         "",
     );
     Ok(Json(json!({
+        "format": "api",
         "instructions": preview.instructions,
+        "prompt": preview.instructions,
         "context_message_count": preview.context_message_count,
         "context_char_count": preview.context_char_count,
     })))
@@ -313,16 +335,20 @@ fn translation_error(error: TranslationError) -> (StatusCode, Json<Value>) {
         | "llm.reasoning_budget_invalid"
         | "llm.reasoning_capability_unavailable"
         | "translation.invalid_target_language"
-        | "translation.unsupported_provider" => StatusCode::UNPROCESSABLE_ENTITY,
+        | "translation.unsupported_provider"
+        | "translation.unsupported_markup" => StatusCode::UNPROCESSABLE_ENTITY,
         "translation.not_configured"
         | "translation.credential_missing"
-        | "translation.disabled" => StatusCode::CONFLICT,
+        | "translation.disabled"
+        | "translation.local_model_missing" => StatusCode::CONFLICT,
         "translation.authentication_failed"
         | "translation.credential_failed"
         | "llm.authentication_failed" => StatusCode::UNAUTHORIZED,
-        "translation.rate_limited" | "translation.quota_exceeded" | "llm.rate_limited" => {
-            StatusCode::TOO_MANY_REQUESTS
-        }
+        "translation.rate_limited"
+        | "translation.quota_exceeded"
+        | "translation.local_queue_full"
+        | "llm.rate_limited" => StatusCode::TOO_MANY_REQUESTS,
+        "translation.local_runtime_unavailable" => StatusCode::SERVICE_UNAVAILABLE,
         "translation.timeout" | "llm.timeout" => StatusCode::GATEWAY_TIMEOUT,
         _ => StatusCode::BAD_GATEWAY,
     };

@@ -7,9 +7,12 @@ const binding = (model: string, use_default_model = true) => ({ profile_id: "pro
 function settings(): Settings {
   return {
     model_defaults: { text: binding("text"), vision: binding("image") },
-    translation: { model_selection: binding("translation", false), speaker_targets: [binding("old")],
-      microphone_targets: [binding("custom", false)] },
-    ocr: { model_selection: binding("old"), targets: [binding("old")] },
+    translation: {
+      model_selection: binding("translation", false),
+      speaker_targets: [{ ...binding("old"), target_language: "en" }],
+      microphone_targets: [{ ...binding("custom", false), target_language: "ja" }],
+    },
+    ocr: { model_selection: binding("old"), targets: [{ ...binding("old"), target_language: "zh-Hans" }] },
     conversation_titles: binding("old"), vision: binding("old"),
     learning_ai: { ...binding("old"), thinking_enabled: false },
   } as unknown as Settings;

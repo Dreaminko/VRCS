@@ -78,9 +78,18 @@ impl RuntimeAssembly {
             plan.glossary_cache_path.clone(),
             effective.glossary.clone(),
         )?);
-        let translation_service = Arc::new(translation::TranslationService::with_glossary(
-            Arc::clone(&glossary),
+        let qwen_runtime_dir = plan.config_path.with_file_name("runtimes").join("qwen");
+        let local_translation_models = Arc::new(translation::LocalTranslationModels::new(
+            plan.asr_model_dir.clone(),
+            Arc::clone(&config_runtime.download_sources),
         )?);
+        let plamo_runtime = Arc::new(translation::PlamoRuntime::new(qwen_runtime_dir.clone()));
+        let translation_service =
+            Arc::new(translation::TranslationService::with_local_translation(
+                Arc::clone(&glossary),
+                Arc::clone(&plamo_runtime),
+                Arc::clone(&local_translation_models),
+            )?);
         let learning_service = Arc::new(learning::LearningService::new()?);
 
         let (shutdown_tx, shutdown_rx) = watch::channel(false);
@@ -114,7 +123,6 @@ impl RuntimeAssembly {
         let (vr_overlay_config_tx, _) =
             watch::channel((effective.vr_overlay.clone(), effective.ocr.clone()));
 
-        let qwen_runtime_dir = plan.config_path.with_file_name("runtimes").join("qwen");
         let capture_runtime = CaptureRuntime::new(CaptureRuntimeInput {
             qwen_runtime_dir,
             live_tx,
@@ -131,6 +139,8 @@ impl RuntimeAssembly {
             learning_service,
             translation_dispatcher,
             glossary,
+            local_translation_models,
+            plamo_runtime,
         });
         let integration_runtime = IntegrationRuntime::new(IntegrationRuntimeInput {
             vr_overlay_config_tx,

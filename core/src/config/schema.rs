@@ -6,7 +6,7 @@ use super::{
     VadConfig, VrOcrConfig, VrOverlayConfig, VrchatChatboxConfig, VrcxConfig,
 };
 
-pub const SCHEMA_VERSION: u32 = 38;
+pub const SCHEMA_VERSION: u32 = 39;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AppConfig {
@@ -38,6 +38,8 @@ pub struct AppConfig {
     pub glossary: GlossaryConfig,
     #[serde(default)]
     pub translation: TranslationConfig,
+    #[serde(default)]
+    pub local_translation: super::LocalTranslationConfig,
     #[serde(default)]
     pub language_presets: Vec<LanguagePreset>,
     #[serde(default)]
@@ -77,6 +79,7 @@ impl Default for AppConfig {
             dictionary: DictionaryConfig::default(),
             glossary: GlossaryConfig::default(),
             translation: TranslationConfig::default(),
+            local_translation: super::LocalTranslationConfig::default(),
             language_presets: Vec::new(),
             osc: OscConfig::default(),
             anki: AnkiConfig::default(),
@@ -143,6 +146,7 @@ mod tests {
                 "glossary",
                 "language_presets",
                 "learning_ai",
+                "local_translation",
                 "model_defaults",
                 "ocr",
                 "osc",
@@ -246,9 +250,11 @@ mod tests {
                 "speaker_targets",
             ],
         );
+        assert_keys(&value["local_translation"], ["device"]);
         assert_keys(
             &value["translation"]["speaker_targets"][0],
             [
+                "backend",
                 "model",
                 "profile_id",
                 "target_language",

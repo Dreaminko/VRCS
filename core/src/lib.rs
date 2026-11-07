@@ -220,8 +220,11 @@ impl CoreHandle {
             .await
             .stop()
             .await;
+        self.state.content.local_translation_models.cancel().await;
+        let plamo_stop = self.state.content.plamo_runtime.stop().await;
         let qwen_stop = self.state.capture.qwen_runtime.stop().await;
         self.model_manager.cancel_all_and_wait().await;
+        plamo_stop?;
         qwen_stop?;
         result
     }

@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   canonicalLanguageTag,
   localizedLanguageName,
+  PLAMO_TRANSLATION_LANGUAGE_CODES,
   supportsCustomTranslationLanguage,
   translationLanguageCodesForProfile,
 } from "../src/translation/translation-languages.ts";
@@ -45,6 +46,10 @@ test("language choices come from profile capability data", () => {
   assert.equal(supportsCustomTranslationLanguage(restricted), false);
   assert.equal(translationLanguageCodesForProfile(unrestricted).includes("hi"), true);
   assert.deepEqual(translationLanguageCodesForProfile(restricted), ["en", "ja"]);
+  assert.deepEqual(
+    translationLanguageCodesForProfile(restricted, "plamo_local"),
+    [...PLAMO_TRANSLATION_LANGUAGE_CODES],
+  );
 });
 
 test("language labels have a stable fallback", () => {

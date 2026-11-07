@@ -12,6 +12,7 @@ mod external;
 mod feature_gate;
 mod glossaries;
 mod learning;
+mod local_translation;
 mod microphone_speakers;
 mod model_cache;
 mod ocr;
@@ -234,6 +235,27 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route(
             "/api/translations/prompt-preview",
             post(translation::prompt_preview),
+        )
+        .route("/api/local-translation", get(local_translation::status))
+        .route(
+            "/api/local-translation/download",
+            post(local_translation::download),
+        )
+        .route(
+            "/api/local-translation/cancel",
+            post(local_translation::cancel),
+        )
+        .route(
+            "/api/local-translation/verify",
+            post(local_translation::verify),
+        )
+        .route(
+            "/api/local-translation/unload",
+            post(local_translation::unload),
+        )
+        .route(
+            "/api/local-translation/models/{id}",
+            delete(local_translation::delete),
         )
         .route("/api/glossaries/status", get(glossaries::statuses))
         .route("/api/glossaries/{id}/refresh", post(glossaries::refresh))

@@ -432,6 +432,7 @@ mod tests {
                 ..Default::default()
             });
             config.model_defaults.text = crate::config::ModelBinding {
+                backend: crate::config::TranslationBackend::Api,
                 profile_id: Some("core".into()),
                 model: "core-model".into(),
             };

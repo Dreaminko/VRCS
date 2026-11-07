@@ -1,10 +1,14 @@
 use serde::{Deserialize, Serialize};
 
-use super::{AppConfig, ReasoningSetting, TranslationConfig, TranslationTargetConfig};
+use super::{
+    AppConfig, ReasoningSetting, TranslationBackend, TranslationConfig, TranslationTargetConfig,
+};
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct ModelBinding {
+    #[serde(default)]
+    pub backend: TranslationBackend,
     pub profile_id: Option<String>,
     pub model: String,
 }
@@ -14,6 +18,8 @@ pub struct ModelBinding {
 pub struct ModelSelection {
     #[serde(default)]
     pub use_default_model: bool,
+    #[serde(default)]
+    pub backend: TranslationBackend,
     pub profile_id: Option<String>,
     pub model: String,
 }
@@ -22,6 +28,7 @@ impl Default for ModelSelection {
     fn default() -> Self {
         Self {
             use_default_model: true,
+            backend: TranslationBackend::Api,
             profile_id: None,
             model: String::new(),
         }
@@ -60,25 +67,49 @@ impl Default for LearningAiConfig {
 
 impl LearningAiConfig {
     pub(crate) fn resolve_model_assignment(&mut self, default: &ModelBinding) {
-        if self.use_default_model && inherit(&mut self.profile_id, &mut self.model, default) {
+        if self.use_default_model && inherit_api(&mut self.profile_id, &mut self.model, default) {
             self.reasoning_control = None;
         }
     }
 }
 
-fn inherit(profile_id: &mut Option<String>, model: &mut String, binding: &ModelBinding) -> bool {
+fn inherit_api(
+    profile_id: &mut Option<String>,
+    model: &mut String,
+    binding: &ModelBinding,
+) -> bool {
     let changed = *profile_id != binding.profile_id || *model != binding.model;
     profile_id.clone_from(&binding.profile_id);
     model.clone_from(&binding.model);
     changed
 }
 
+fn inherit(
+    profile_id: &mut Option<String>,
+    model: &mut String,
+    backend: &mut TranslationBackend,
+    binding: &ModelBinding,
+) -> bool {
+    let changed =
+        *profile_id != binding.profile_id || *model != binding.model || *backend != binding.backend;
+    profile_id.clone_from(&binding.profile_id);
+    model.clone_from(&binding.model);
+    *backend = binding.backend;
+    changed
+}
+
 impl ModelSelection {
     fn resolve(&mut self, default: &ModelBinding) -> ModelBinding {
         if self.use_default_model {
-            inherit(&mut self.profile_id, &mut self.model, default);
+            inherit(
+                &mut self.profile_id,
+                &mut self.model,
+                &mut self.backend,
+                default,
+            );
         }
         ModelBinding {
+            backend: self.backend,
             profile_id: self.profile_id.clone(),
             model: self.model.clone(),
         }
@@ -87,7 +118,14 @@ impl ModelSelection {
 
 fn resolve_targets(targets: &mut [TranslationTargetConfig], binding: &ModelBinding) {
     for target in targets {
-        if target.use_default_model && inherit(&mut target.profile_id, &mut target.model, binding) {
+        if target.use_default_model
+            && inherit(
+                &mut target.profile_id,
+                &mut target.model,
+                &mut target.backend,
+                binding,
+            )
+        {
             target.reasoning_control = None;
         }
     }
@@ -101,7 +139,9 @@ fn clear_changed_target_reasoning(
         if target.use_default_model
             && previous.iter().any(|old| {
                 old.target_language == target.target_language
-                    && (old.profile_id != target.profile_id || old.model != target.model)
+                    && (old.backend != target.backend
+                        || old.profile_id != target.profile_id
+                        || old.model != target.model)
             })
         {
             target.reasoning_control = None;
@@ -162,6 +202,7 @@ impl AppConfig {
         let ocr = self.ocr.model_selection.resolve(&self.model_defaults.text);
         resolve_targets(&mut self.ocr.targets, &ocr);
         let binding = ModelBinding {
+            backend: self.translation.model_selection.backend,
             profile_id: self.translation.model_selection.profile_id.clone(),
             model: self.translation.model_selection.model.clone(),
         };
@@ -171,7 +212,7 @@ impl AppConfig {
         }
         let titles = &mut self.conversation_titles;
         if titles.use_default_model {
-            inherit(
+            inherit_api(
                 &mut titles.profile_id,
                 &mut titles.model,
                 &self.model_defaults.text,
@@ -179,7 +220,7 @@ impl AppConfig {
         }
         let vision = &mut self.vision;
         if vision.use_default_model
-            && inherit(
+            && inherit_api(
                 &mut vision.profile_id,
                 &mut vision.model,
                 &self.model_defaults.vision,
@@ -201,10 +242,12 @@ mod tests {
     fn model_assignment_refreshes_followers_and_language_snapshots_only() {
         let mut config = AppConfig::default();
         config.model_defaults.text = ModelBinding {
+            backend: TranslationBackend::Api,
             profile_id: Some("shared".into()),
             model: "text-one".into(),
         };
         config.model_defaults.vision = ModelBinding {
+            backend: TranslationBackend::Api,
             profile_id: Some("images".into()),
             model: "vision-one".into(),
         };
@@ -217,6 +260,7 @@ mod tests {
             .insert("custom".into(), "remembered".into());
         config.ocr.model_selection = ModelSelection {
             use_default_model: false,
+            backend: TranslationBackend::Api,
             profile_id: Some("ocr".into()),
             model: "ocr-model".into(),
         };
@@ -267,6 +311,7 @@ mod tests {
         assert!(config.learning_ai.reasoning_control.is_none());
         config.translation.model_selection = ModelSelection {
             use_default_model: false,
+            backend: TranslationBackend::Api,
             profile_id: Some("task".into()),
             model: "task-model".into(),
         };
@@ -303,10 +348,12 @@ mod tests {
         assert!(!config.vision.use_default_model);
         assert!(!config.language_presets[0].speaker_targets[0].use_default_model);
         config.model_defaults.text = ModelBinding {
+            backend: TranslationBackend::Api,
             profile_id: Some("shared".into()),
             model: "new-text".into(),
         };
         config.model_defaults.vision = ModelBinding {
+            backend: TranslationBackend::Api,
             profile_id: Some("shared".into()),
             model: "new-vision".into(),
         };
@@ -321,7 +368,7 @@ mod tests {
         assert_eq!(super::super::load_config(&path).unwrap(), config);
         config.validate_settings().unwrap();
         let raw = serde_json::to_value(config).unwrap();
-        assert_eq!(raw["schema_version"], 38);
+        assert_eq!(raw["schema_version"], 39);
         assert_eq!(
             raw["learning_ai"]["reasoning_control"],
             serde_json::Value::Null

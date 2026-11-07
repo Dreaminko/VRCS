@@ -4,6 +4,7 @@ pub(super) use crate::chatbox::CHATBOX_LIMIT;
 pub(super) fn format_chatbox(
     original: &str,
     translation: Option<&str>,
+    translation_origin: Option<&crate::chatbox::ChatboxTranslationOrigin>,
     preserve_original_text: bool,
 ) -> String {
     let compact_original = crate::chatbox::compact_text(original);
@@ -11,5 +12,10 @@ pub(super) fn format_chatbox(
     let translation = compact_translation
         .as_deref()
         .filter(|value| !value.is_empty() && *value != compact_original.as_str());
-    crate::chatbox::automatic_chatbox(original, translation, preserve_original_text)
+    crate::chatbox::automatic_chatbox(
+        original,
+        translation,
+        translation_origin,
+        preserve_original_text,
+    )
 }

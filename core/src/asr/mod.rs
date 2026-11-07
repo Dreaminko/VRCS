@@ -28,6 +28,10 @@ pub(crate) use question::{
     recognize_live_question, validate_backend as validate_question_backend, QuestionDraft,
 };
 pub(crate) use qwen_models::is_supported as is_supported_qwen_package;
+pub(crate) use qwen_models::{
+    download_file as download_model_file, verify_file as verify_model_file,
+    verify_file_readonly as verify_model_file_readonly, AssetSpec as ModelAssetSpec,
+};
 pub(crate) use qwen_runtime::QwenRuntime;
 pub(crate) use session::{prepare_managed_qwen, spawn_managed_qwen_session};
 pub use session::{
@@ -44,6 +48,12 @@ pub(crate) type SharedAudio = std::sync::Arc<Vec<f32>>;
 
 pub(crate) fn share_audio(samples: Vec<f32>) -> SharedAudio {
     std::sync::Arc::new(samples)
+}
+
+pub(crate) fn llama_server_executable_path(
+    runtime_directory: &std::path::Path,
+) -> Result<std::path::PathBuf, String> {
+    QwenRuntime::new(runtime_directory.to_path_buf()).executable_path()
 }
 
 #[cfg(test)]

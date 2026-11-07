@@ -338,6 +338,7 @@ async fn test_translation(
     let target = crate::config::TranslationTargetConfig {
         target_language: "en".into(),
         use_default_model: false,
+        backend: crate::config::TranslationBackend::Api,
         profile_id: Some(profile.id.clone()),
         model,
         model_by_profile: Default::default(),

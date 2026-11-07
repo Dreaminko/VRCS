@@ -5,7 +5,10 @@ use axum::http::StatusCode;
 use axum::Json;
 use serde_json::{json, Value};
 
-use crate::chatbox::{preview_chatbox, ChatboxComposeInput, ChatboxMessage, NewChatboxMessage};
+use crate::chatbox::{
+    preview_chatbox, ChatboxComposeInput, ChatboxMessage, ChatboxTranslationOrigin,
+    NewChatboxMessage,
+};
 use crate::db::conversations::publish_latest_catalog;
 use crate::models::{now_iso8601, Subtitle, SubtitleTranslation};
 use crate::osc::ManualSendError;
@@ -42,6 +45,7 @@ async fn send_input(state: &OutputContext, input: ChatboxComposeInput) -> ApiRes
         .osc
         .send_manual(preview.text.clone())
         .await;
+    let translation_origin = input.translation_origin.clone();
     let record = NewChatboxMessage {
         source: "manual".into(),
         original: input.original,
@@ -63,7 +67,7 @@ async fn send_input(state: &OutputContext, input: ChatboxComposeInput) -> ApiRes
     };
     let saved = record_delivery(state, record).await;
     match sent {
-        Ok(_) => finish_delivery(state, saved, &message_id).await,
+        Ok(_) => finish_delivery(state, saved, &message_id, translation_origin).await,
         Err(error) => {
             let _ = saved;
             Err(osc_error(error))
@@ -85,9 +89,10 @@ async fn finish_delivery(
     state: &OutputContext,
     saved: crate::error::AppResult<ChatboxMessage>,
     message_id: &str,
+    translation_origin: Option<ChatboxTranslationOrigin>,
 ) -> ApiResult<Json<Value>> {
     let message = saved.map_err(|error| api_domain_error(error, "chatbox.history_store_failed"))?;
-    let subtitle = record_conversation_message(state, &message)
+    let subtitle = record_conversation_message(state, &message, translation_origin.as_ref())
         .await
         .map_err(|error| api_domain_error(error, "chatbox.conversation_store_failed"))?;
     state.content.subtitle_output.subtitle_recorded(subtitle);
@@ -101,8 +106,9 @@ async fn finish_delivery(
 async fn record_conversation_message(
     state: &OutputContext,
     message: &ChatboxMessage,
+    translation_origin: Option<&ChatboxTranslationOrigin>,
 ) -> crate::error::AppResult<Subtitle> {
-    let subtitle = conversation_subtitle(message);
+    let subtitle = conversation_subtitle(message, translation_origin);
     let conversation_catalog = state.content.conversation_catalog_tx.clone();
     db_call(Arc::clone(&state.content.db), move |db| {
         let translations = subtitle.translations.clone();
@@ -119,7 +125,10 @@ async fn record_conversation_message(
     .await
 }
 
-fn conversation_subtitle(message: &ChatboxMessage) -> Subtitle {
+fn conversation_subtitle(
+    message: &ChatboxMessage,
+    translation_origin: Option<&ChatboxTranslationOrigin>,
+) -> Subtitle {
     let mut text = message.original.trim().to_owned();
     let mut language = message.source_language.clone();
     let mut translations = Vec::new();
@@ -141,8 +150,10 @@ fn conversation_subtitle(message: &ChatboxMessage) -> Subtitle {
                         .target_language
                         .clone()
                         .unwrap_or_else(|| "und".into()),
-                    provider: "local".into(),
-                    model: None,
+                    provider: translation_origin
+                        .map(|origin| origin.provider.clone())
+                        .unwrap_or_else(|| "local".into()),
+                    model: translation_origin.and_then(|origin| origin.model.clone()),
                     created_at: message.created_at.clone(),
                 });
             }
@@ -208,12 +219,21 @@ mod tests {
 
     #[test]
     fn sent_chatbox_messages_become_conversation_subtitles() {
-        let bilingual = conversation_subtitle(&message("bilingual"));
+        let local = ChatboxTranslationOrigin {
+            provider: "plamo_local".into(),
+            model: Some("plamo-3-translate-0.8b-q4_k_m".into()),
+        };
+        let bilingual = conversation_subtitle(&message("bilingual"), Some(&local));
         assert_eq!(bilingual.source, "chatbox");
         assert_eq!(bilingual.text, "hello");
         assert_eq!(bilingual.translations[0].text, "こんにちは");
+        assert_eq!(bilingual.translations[0].provider, "plamo_local");
+        assert_eq!(
+            bilingual.translations[0].model.as_deref(),
+            Some("plamo-3-translate-0.8b-q4_k_m")
+        );
 
-        let translated = conversation_subtitle(&message("translation"));
+        let translated = conversation_subtitle(&message("translation"), Some(&local));
         assert_eq!(translated.text, "こんにちは");
         assert_eq!(translated.language.as_deref(), Some("ja"));
         assert!(translated.translations.is_empty());

@@ -1,14 +1,19 @@
 import type { ApiProfileView } from "../../providers/types";
 import { liveTranslationServiceName } from "../../providers/recognition-services.ts";
-import { TRANSLATION_LANGUAGE_CODES } from "../../translation/translation-languages.ts";
+import {
+  PLAMO_TRANSLATION_LANGUAGE_CODES,
+  TRANSLATION_LANGUAGE_CODES,
+} from "../../translation/translation-languages.ts";
 import type { Settings, TranslationTargetSettings } from "../types";
 
 export function targetLanguageCodes(target: TranslationTargetSettings, usedLanguages: string[], profiles: ApiProfileView[], liveService?: string): string[] {
   const native = liveTranslationServiceName(liveService);
   const profile = profiles.find((item) => item.id === target.profile_id);
-  const codes = native
-    ? TRANSLATION_LANGUAGE_CODES.filter((code) => liveService !== "gemini_live_translate" || !["yue-Hant", "nl"].includes(code))
-    : profile?.capabilities.supported_languages ?? TRANSLATION_LANGUAGE_CODES;
+  const codes = target.backend === "plamo_local"
+    ? [...PLAMO_TRANSLATION_LANGUAGE_CODES]
+    : native
+      ? TRANSLATION_LANGUAGE_CODES.filter((code) => liveService !== "gemini_live_translate" || !["yue-Hant", "nl"].includes(code))
+      : profile?.capabilities.supported_languages ?? TRANSLATION_LANGUAGE_CODES;
   return codes.filter((code) => code === target.target_language || !usedLanguages.includes(code));
 }
 

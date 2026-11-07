@@ -9,7 +9,7 @@ use serde::Serialize;
 use tokio::net::UdpSocket;
 use tokio::sync::{mpsc, oneshot, watch};
 
-use crate::chatbox::NewChatboxMessage;
+use crate::chatbox::{ChatboxTranslationOrigin, NewChatboxMessage};
 use crate::config::OscConfig;
 use crate::db::Database;
 use crate::domain_events::DomainEventHub;
@@ -139,6 +139,7 @@ struct PendingMessage {
     preferred_target: Option<String>,
     desired_target: Option<String>,
     translations: HashMap<String, String>,
+    translation_origins: HashMap<String, ChatboxTranslationOrigin>,
     translation_originals: HashMap<String, String>,
     completed_targets: Vec<String>,
     expected_targets: Vec<String>,
@@ -165,6 +166,7 @@ impl PendingMessage {
             preferred_target: self.preferred_target.clone(),
             desired_target: self.desired_target.clone(),
             translations: self.translations.clone(),
+            translation_origins: self.translation_origins.clone(),
             translation_originals: self.translation_originals.clone(),
             completed_targets: self.completed_targets.clone(),
             expected_targets: self.expected_targets.clone(),
@@ -546,6 +548,7 @@ fn reduce_received_event(
                 original: "VRCS OSC test".into(),
                 preferred_target: None,
                 desired_target: None,
+                translation_origins: HashMap::new(),
                 translation_originals: HashMap::new(),
                 translations: HashMap::new(),
                 completed_targets: Vec::new(),
@@ -567,6 +570,7 @@ fn reduce_received_event(
                 original: String::new(),
                 preferred_target: None,
                 desired_target: None,
+                translation_origins: HashMap::new(),
                 translation_originals: HashMap::new(),
                 translations: HashMap::new(),
                 completed_targets: Vec::new(),
@@ -602,6 +606,7 @@ fn reduce_received_event(
                     original: subtitle.text,
                     preferred_target,
                     desired_target,
+                    translation_origins: HashMap::new(),
                     translation_originals: HashMap::new(),
                     translations: HashMap::new(),
                     completed_targets: Vec::new(),
@@ -657,6 +662,10 @@ fn reduce_translation_completed(
     preferred: bool,
     now: Instant,
 ) -> Vec<OscEffect> {
+    let origin = ChatboxTranslationOrigin {
+        provider: translation.provider.clone(),
+        model: translation.model.clone(),
+    };
     if let Some(group) = &translation.source_group {
         if group.subtitle_ids.last().copied() != Some(subtitle_id) {
             state.queue.retain_mut(|message| {
@@ -695,6 +704,10 @@ fn reduce_translation_completed(
             message.subtitle_id == Some(subtitle_id)
                 && (message.translations.get(&translation.target_language)
                     != Some(&translation.text)
+                    || message
+                        .translation_origins
+                        .get(&translation.target_language)
+                        != Some(&origin)
                     || translation.source_group.as_ref().is_some_and(|group| {
                         message
                             .translation_originals
@@ -727,6 +740,7 @@ fn reduce_translation_completed(
         if !message.translations.contains_key(&language) {
             message.completed_targets.push(language.clone());
         }
+        message.translation_origins.insert(language.clone(), origin);
         message
             .translations
             .insert(language.clone(), translation.text);
@@ -770,10 +784,13 @@ fn reduce_tick(state: &mut OscWorkerState, now: Instant) -> Vec<OscEffect> {
     };
     let translation =
         selected_translation_text(&message, &state.config.config.translation_strategy);
+    let translation_origin =
+        selected_translation_origin(&message, &state.config.config.translation_strategy);
     let rendered_text = message.rendered_text.clone().unwrap_or_else(|| {
         format_chatbox(
             selected_original(&message, &state.config.config.translation_strategy),
             translation.as_deref(),
+            translation_origin,
             state.config.config.preserve_original_text,
         )
     });
@@ -1196,6 +1213,37 @@ fn selected_translation_text(message: &PendingMessage, strategy: &str) -> Option
     (!translations.is_empty()).then(|| translations.join(" / "))
 }
 
+fn selected_translation_origin<'a>(
+    message: &'a PendingMessage,
+    strategy: &str,
+) -> Option<&'a ChatboxTranslationOrigin> {
+    if strategy == "all_languages" {
+        return message
+            .expected_targets
+            .iter()
+            .filter_map(|target| message.translation_origins.get(target))
+            .find(|origin| origin.uses_plamo());
+    }
+    message
+        .desired_target
+        .as_ref()
+        .filter(|target| message.translations.contains_key(*target))
+        .or_else(|| {
+            message
+                .preferred_target
+                .as_ref()
+                .filter(|target| message.translations.contains_key(*target))
+        })
+        .or_else(|| {
+            message
+                .completed_targets
+                .iter()
+                .find(|target| message.translations.contains_key(*target))
+        })
+        .and_then(|target| message.translation_origins.get(target))
+        .filter(|origin| origin.uses_plamo())
+}
+
 fn selected_target_language(message: &PendingMessage, strategy: &str) -> Option<String> {
     if strategy != "all_languages" {
         return message
@@ -1305,6 +1353,7 @@ mod tests {
             original: "こんにちは".into(),
             preferred_target: targets.first().map(|target| (*target).into()),
             desired_target: None,
+            translation_origins: HashMap::new(),
             translation_originals: HashMap::new(),
             translations: HashMap::new(),
             completed_targets: Vec::new(),
@@ -1375,6 +1424,7 @@ mod tests {
             original: String::new(),
             preferred_target: None,
             desired_target: None,
+            translation_origins: HashMap::new(),
             translation_originals: HashMap::new(),
             translations: HashMap::new(),
             completed_targets: Vec::new(),
@@ -1879,6 +1929,7 @@ mod tests {
                 original: "こんにちは".into(),
                 preferred_target: Some("en".into()),
                 desired_target: Some("en".into()),
+                translation_origins: HashMap::new(),
                 translation_originals: HashMap::new(),
                 translations: HashMap::from([("en".into(), "Hello".into())]),
                 completed_targets: vec!["en".into()],
@@ -2017,7 +2068,7 @@ mod tests {
 
     #[test]
     fn formats_bilingual_messages_within_vrchat_limit() {
-        let formatted = format_chatbox(&"原".repeat(100), Some(&"訳".repeat(100)), true);
+        let formatted = format_chatbox(&"原".repeat(100), Some(&"訳".repeat(100)), None, true);
         let mut lines = formatted.lines();
         assert_eq!(lines.next().unwrap().chars().count(), 71);
         assert_eq!(lines.next().unwrap().chars().count(), 72);
@@ -2027,15 +2078,63 @@ mod tests {
     #[test]
     fn removes_control_characters_and_avoids_duplicate_translation() {
         assert_eq!(
-            format_chatbox(" hello\0\nworld ", Some("hello world"), true),
+            format_chatbox(" hello\0\nworld ", Some("hello world"), None, true),
             "hello world"
         );
     }
 
     #[test]
     fn omits_original_text_when_disabled_and_translation_is_available() {
-        assert_eq!(format_chatbox("こんにちは", Some("你好"), false), "你好");
-        assert_eq!(format_chatbox("こんにちは", None, false), "こんにちは");
+        assert_eq!(
+            format_chatbox("こんにちは", Some("你好"), None, false),
+            "你好"
+        );
+        assert_eq!(
+            format_chatbox("こんにちは", None, None, false),
+            "こんにちは"
+        );
+    }
+
+    #[test]
+    fn automatic_output_attributes_plamo_translations_once() {
+        let origin = ChatboxTranslationOrigin {
+            provider: "plamo_local".into(),
+            model: Some("plamo-3-translate-0.8b-q4_k_m".into()),
+        };
+        assert_eq!(
+            format_chatbox("こんにちは", Some("Hello [PLaMo]"), Some(&origin), false,),
+            "Hello [PLaMo]"
+        );
+        assert_eq!(
+            format_chatbox("こんにちは", Some("Hello"), Some(&origin), true),
+            "こんにちは\nHello [PLaMo]"
+        );
+    }
+
+    #[test]
+    fn automatic_output_leaves_api_translations_unattributed() {
+        let origin = ChatboxTranslationOrigin {
+            provider: "openai".into(),
+            model: Some("gpt-5-mini".into()),
+        };
+        assert_eq!(
+            format_chatbox("こんにちは", Some("Hello"), Some(&origin), true),
+            "こんにちは\nHello"
+        );
+    }
+
+    #[test]
+    fn translation_completion_carries_the_plamo_origin_into_automatic_output() {
+        let now = Instant::now();
+        let mut state = OscWorkerState::new(config_state());
+        receive_subtitle(&mut state, 1, "こんにちは", &["en"], now);
+        let mut translated = translation("en", "Hello");
+        translated.provider = "plamo_local".into();
+        translated.model = Some("plamo-3-translate-0.8b-q4_k_m".into());
+
+        reduce_translation_completed(&mut state, 1, translated, true, now);
+
+        assert_eq!(send_next(&mut state, now), "こんにちは\nHello [PLaMo]");
     }
 
     #[tokio::test]

@@ -5,7 +5,9 @@ use std::time::Duration;
 
 use serde_json::Value;
 
-use crate::config::{ApiProfile, TranslationPromptConfig, TranslationTargetConfig};
+use crate::config::{
+    ApiProfile, TranslationBackend, TranslationPromptConfig, TranslationTargetConfig,
+};
 use crate::credentials;
 use crate::llm::{LlmClient, LlmProgress, LlmRequest};
 use crate::models::{now_iso8601, SubtitleTranslation};
@@ -13,10 +15,19 @@ use crate::providers::{self, ServiceAdapter, CAPABILITY_TEXT_TRANSLATION, OPENAI
 
 mod deepl;
 mod dispatcher;
+mod local_models;
 mod microsoft;
+mod plamo;
+mod plamo_runtime;
 mod prompt;
 
 pub use dispatcher::TranslationDispatcher;
+pub(crate) use local_models::LocalTranslationModels;
+pub(crate) use plamo::{
+    build_prompt as build_plamo_prompt, supports_language as plamo_supports_language, MODEL_ID,
+    MODEL_REVISION, PROMPT_VERSION, SUPPORTED_LANGUAGE_CODES,
+};
+pub(crate) use plamo_runtime::PlamoRuntime;
 pub use prompt::{TranslationContextEntry, TranslationPromptBuilder};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -55,6 +66,13 @@ pub struct TranslationService {
     http: reqwest::Client,
     llm: LlmClient,
     glossary: Option<Arc<crate::glossary::GlossaryStore>>,
+    local: Option<Arc<LocalTranslation>>,
+}
+
+#[derive(Clone)]
+pub(crate) struct LocalTranslation {
+    pub(crate) runtime: Arc<PlamoRuntime>,
+    pub(crate) models: Arc<LocalTranslationModels>,
 }
 
 impl TranslationService {
@@ -74,14 +92,29 @@ impl TranslationService {
 
     #[cfg(test)]
     pub fn new() -> Result<Self, String> {
-        Self::build(None)
+        Self::build(None, None)
     }
 
+    #[cfg(test)]
     pub fn with_glossary(glossary: Arc<crate::glossary::GlossaryStore>) -> Result<Self, String> {
-        Self::build(Some(glossary))
+        Self::build(Some(glossary), None)
     }
 
-    fn build(glossary: Option<Arc<crate::glossary::GlossaryStore>>) -> Result<Self, String> {
+    pub(crate) fn with_local_translation(
+        glossary: Arc<crate::glossary::GlossaryStore>,
+        runtime: Arc<PlamoRuntime>,
+        models: Arc<LocalTranslationModels>,
+    ) -> Result<Self, String> {
+        Self::build(
+            Some(glossary),
+            Some(Arc::new(LocalTranslation { runtime, models })),
+        )
+    }
+
+    fn build(
+        glossary: Option<Arc<crate::glossary::GlossaryStore>>,
+        local: Option<Arc<LocalTranslation>>,
+    ) -> Result<Self, String> {
         let http = reqwest::Client::builder()
             .timeout(Duration::from_secs(8))
             .build()
@@ -90,6 +123,7 @@ impl TranslationService {
             llm: LlmClient::new(http.clone()),
             http,
             glossary,
+            local,
         })
     }
 
@@ -149,6 +183,18 @@ impl TranslationService {
                 provider: "local".into(),
                 model: None,
             });
+        }
+        if target_config.backend == TranslationBackend::PlamoLocal {
+            return self
+                .translate_local(
+                    target_config,
+                    prompt,
+                    text,
+                    source_language,
+                    context,
+                    on_progress,
+                )
+                .await;
         }
         let profile_id = target_config.profile_id.as_deref().ok_or_else(|| {
             error(
@@ -225,6 +271,74 @@ impl TranslationService {
                 false,
             )),
         }
+    }
+
+    async fn translate_local(
+        &self,
+        target_config: &TranslationTargetConfig,
+        prompt: &TranslationPromptConfig,
+        text: &str,
+        source_language: Option<&str>,
+        context: &[TranslationContextEntry],
+        on_progress: Option<&LlmProgress>,
+    ) -> Result<TranslationResult, TranslationError> {
+        let local = self.local.as_ref().ok_or_else(|| {
+            error(
+                "translation.local_runtime_unavailable",
+                "Local PLaMo translation is not available in this process",
+                false,
+            )
+        })?;
+        let lifecycle = local.models.lock_shared().await;
+        if !plamo_supports_language(&target_config.target_language) {
+            return Err(error(
+                "translation.invalid_target_language",
+                format!(
+                    "PLaMo does not support target language: {}",
+                    target_config.target_language
+                ),
+                false,
+            ));
+        }
+        let models = Arc::clone(&local.models);
+        let model_path = tokio::task::spawn_blocking(move || models.verified_model_path())
+            .await
+            .map_err(|join_error| {
+                error(
+                    "translation.local_model_missing",
+                    format!("Local PLaMo verification task failed: {join_error}"),
+                    true,
+                )
+            })?
+            .map_err(|detail| error("translation.local_model_missing", detail, false))?;
+        local.runtime.ensure_started(&model_path).await?;
+        let glossary = self
+            .glossary
+            .as_ref()
+            .map(|glossary| glossary.entries_for_llm())
+            .unwrap_or_else(|| prompt.glossary.clone());
+        let translated = local
+            .runtime
+            .translate(
+                plamo::CompletionRequest {
+                    text,
+                    source: source_language,
+                    target: &target_config.target_language,
+                    context,
+                    glossary: &glossary,
+                    context_enabled: prompt.context_enabled,
+                },
+                on_progress,
+            )
+            .await?;
+        drop(lifecycle);
+        Ok(TranslationResult {
+            text: translated,
+            source_language: source_language.map(str::to_owned),
+            target_language: target_config.target_language.clone(),
+            provider: "plamo_local".into(),
+            model: Some(MODEL_ID.into()),
+        })
     }
 
     #[allow(clippy::too_many_arguments)]

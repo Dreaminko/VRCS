@@ -11,7 +11,8 @@ notices and license terms remain applicable.
 - Axum and Tokio — MIT
 - rusqlite and SQLite — MIT / Public Domain
 - Vulkan Loader — Apache-2.0
-- llama.cpp (Qwen ASR runtime) — MIT
+- llama.cpp (Qwen ASR and local translation runtimes) — MIT
+- PLaMo 3 Translate 0.8B GGUF — PLaMo Community License
 - LLVM OpenMP runtime — Apache-2.0 WITH LLVM-exception
 - wasapi-rs — MIT
 - Silero VAD — MIT
@@ -31,6 +32,11 @@ The Qwen ASR model and audio projector are downloaded through recognition settin
 and remain subject to their upstream Apache-2.0 license. The llama.cpp runtime
 is downloaded on demand through recognition settings. It includes its MIT
 license and the LLVM OpenMP license.
+The PLaMo 3 Translate model is downloaded on demand through translation
+settings and remains subject to the upstream PLaMo Community License. Its
+official license copy is retained with the model package. Model outputs that
+are published through VRChat Chatbox include the `[PLaMo]` attribution required
+for public output.
 The bundled Vulkan loader includes the VulkanRT license notices.
 The Smart Turn model is downloaded only when semantic endpointing is enabled
 and remains subject to the upstream BSD-2-Clause license.

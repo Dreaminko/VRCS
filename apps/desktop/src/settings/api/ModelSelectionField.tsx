@@ -5,6 +5,10 @@ import { useTranslation } from "react-i18next";
 import { profileSupportsCapability } from "../../providers/provider-catalog";
 import type { ApiCapability, ApiProfileView } from "../../providers/types";
 import { DropdownField, EditableDropdownField } from "../../shared/ui/DropdownField";
+import {
+  PLAMO_LOCAL_MODEL_ID,
+  supportsPlamoTranslationLanguage,
+} from "../../translation/translation-languages";
 import { switchTranslationProfile, translationModels, updateTranslationModel } from "../../translation/translation-model-selection";
 import { normalizeReasoningControlForModel } from "../../translation/translation-thinking";
 import type { ReasoningSetting } from "../../translation/translation-thinking";
@@ -21,6 +25,7 @@ export interface ModelChoice extends ModelSelection {
 }
 
 export function modelBindingLabel(value: ModelBinding, profiles: ApiProfileView[], empty: string): string {
+  if (value.backend === "plamo_local") return "PLaMo 3 Translate 0.8B";
   if (!value.profile_id) return empty;
   const profile = profiles.find((item) => item.id === value.profile_id);
   return [profile?.name ?? value.profile_id, value.model].filter(Boolean).join(" / ");
@@ -77,6 +82,7 @@ export function ModelBindingEditor({ value, profiles, capability, disabled = fal
   onChange: (value: ModelChoice) => void;
 }) {
   const { t } = useTranslation();
+  const local = capability === "text_translation" && value.backend === "plamo_local";
   const compatible = profiles.filter((profile) => profileSupportsCapability(profile, capability));
   const selected = compatible.find((profile) => profile.id === value.profile_id);
   const usesModels = capability !== "text_translation" || Boolean(selected?.capabilities.supports_model_listing);
@@ -86,7 +92,38 @@ export function ModelBindingEditor({ value, profiles, capability, disabled = fal
     : translationModels(catalog.models, catalog.modelDetails);
   const unavailable = Boolean(value.profile_id && !selected);
   return <div className="model-binding-editor">
-    {!hideBinding && <div className="field">
+    {!hideBinding && capability === "text_translation" && <div className="field">
+      <span>{t("settings.translation.backend")}</span>
+      <div className="theme-toggle-group" role="group" aria-label={t("settings.translation.backend")}>
+        {(["api", "plamo_local"] as const).map((backend) => <button key={backend} type="button"
+          aria-pressed={(value.backend ?? "api") === backend}
+          className={(value.backend ?? "api") === backend ? "active" : ""} disabled={disabled}
+          onClick={() => {
+            if (backend === "plamo_local") {
+              const targetLanguage = (
+                "target_language" in value ? value.target_language : "en"
+              ) as string;
+              onChange({
+                ...value,
+                backend,
+                profile_id: null,
+                model: PLAMO_LOCAL_MODEL_ID,
+                ...(targetLanguage && !supportsPlamoTranslationLanguage(targetLanguage)
+                  ? { target_language: "en" } : {}),
+                ...("thinking_enabled" in value ? { thinking_enabled: false, reasoning_control: null } : {}),
+              });
+            } else {
+              onChange({ ...value, backend, ...("thinking_enabled" in value ? { reasoning_control: null } : {}) });
+            }
+          }}>{t(`settings.translation.backends.${backend}`)}</button>)}
+      </div>
+    </div>}
+    {local && <div className="model-selection-inherited-card" role="status">
+      <span>{t("settings.translation.localModel")}</span>
+      <strong>PLaMo 3 Translate 0.8B · CPU</strong>
+      <small>{t("settings.translation.localModelHint")}</small>
+    </div>}
+    {!local && !hideBinding && <div className="field">
       <span>{t("settings.translation.profile")}</span>
       <DropdownField label={t("settings.translation.profile")} value={value.profile_id ?? ""}
         floating floatingLayer={floatingLayer} searchable disabled={disabled}
@@ -104,7 +141,7 @@ export function ModelBindingEditor({ value, profiles, capability, disabled = fal
               ...("thinking_enabled" in value ? { reasoning_control: null } : {}) });
         }} />
     </div>}
-    {!hideBinding && usesModels && <div className="field">
+    {!local && !hideBinding && usesModels && <div className="field">
       <span>{t("settings.translation.model")}</span>
       <div className="translation-model-input-row">
         <EditableDropdownField label={t("settings.translation.model")} value={value.model}
@@ -124,13 +161,13 @@ export function ModelBindingEditor({ value, profiles, capability, disabled = fal
         </button>
       </div>
     </div>}
-    {unavailable && <small className="api-model-catalog-error" role="status">{t("settings.modelAssignments.unavailable")}</small>}
-    {selected && selected.capabilities.requires_api_key && !selected.credential.configured
+    {!local && unavailable && <small className="api-model-catalog-error" role="status">{t("settings.modelAssignments.unavailable")}</small>}
+    {!local && selected && selected.capabilities.requires_api_key && !selected.credential.configured
       && <small className="api-model-catalog-error">{t("settings.apiManagement.validation.apiKey")}</small>}
-    {catalog.error && <small className="api-model-catalog-error" role="alert">{catalog.error}</small>}
-    {usesModels && selected && !catalog.loading && !catalog.error && !models.length
+    {!local && catalog.error && <small className="api-model-catalog-error" role="alert">{catalog.error}</small>}
+    {!local && usesModels && selected && !catalog.loading && !catalog.error && !models.length
       && <small>{t("settings.apiManagement.modelsUnavailable")}</small>}
-    {"thinking_enabled" in value && <ReasoningControlField provider={selected?.provider} model={value.model}
+    {!local && "thinking_enabled" in value && <ReasoningControlField provider={selected?.provider} model={value.model}
       details={catalog.modelDetails[value.model]} thinkingEnabled={value.thinking_enabled ?? false}
       value={value.reasoning_control} disabled={disabled || !selected} floatingLayer={floatingLayer}
       onChange={(patch) => onChange({ ...value, ...patch })} />}
@@ -159,9 +196,10 @@ export function ModelSelectionField({ label, dialogLabel, icon, code, value, fal
   const unavailable = Boolean(resolved.profile_id && (!profile || !profileSupportsCapability(profile, capability)
     || (profile.status && profile.status !== "ready")));
   const draftResolved = resolveModelSelection(draft, fallback);
+  const draftLocal = capability === "text_translation" && draftResolved.backend === "plamo_local";
   const draftProfile = profiles.find((item) => item.id === draftResolved.profile_id);
-  const modelRequired = capability !== "text_translation" || draftProfile?.capabilities.supports_model_listing;
-  const canSave = Boolean(draftProfile && profileSupportsCapability(draftProfile, capability)
+  const modelRequired = !draftLocal && (capability !== "text_translation" || draftProfile?.capabilities.supports_model_listing);
+  const canSave = draftLocal || Boolean(draftProfile && profileSupportsCapability(draftProfile, capability)
     && (!modelRequired || draftResolved.model.trim()));
   const changeSource = (useDefaultModel: boolean) => setDraft({ ...draft, ...draftResolved, use_default_model: useDefaultModel });
   const targetTitle = dialogLabel ?? label;

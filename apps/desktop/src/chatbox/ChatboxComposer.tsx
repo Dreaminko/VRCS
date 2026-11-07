@@ -12,6 +12,7 @@ import type {
   ChatboxComposeInput,
   ChatboxPreview,
 } from "./types";
+import { updateChatboxTranslation } from "./chatbox";
 import { DropdownField } from "../shared/ui/DropdownField";
 import { LanguagePicker } from "../shared/ui/LanguagePicker";
 
@@ -134,7 +135,7 @@ export function ChatboxComposer({
           maxLength={5000}
           placeholder={t("chatbox.translationPlaceholder")}
           disabled={busy === "translate" || busy === "send"}
-          onChange={(event) => update({ translation: event.target.value || null })}
+          onChange={(event) => onDraftChange(updateChatboxTranslation(draft, event.target.value))}
         />
       </label>
 

@@ -18,6 +18,7 @@ import { ConfirmDialog } from "../../app/components/ConfirmDialog";
 import type {
   TranslationPromptPreview,
   TranslationSettings,
+  TranslationBackend,
 } from "../types";
 import { PreferenceToggle } from "../SettingsControls";
 import { translationPromptVariableError } from "./translation-prompt-validation";
@@ -73,17 +74,20 @@ function ContextLimitInput({ value, min, max, step, disabled, onCommit }: {
 export function TranslationEnhancementSettings({
   translation,
   preferredTarget,
+  backend = "api",
   localContextOnly,
   disabled,
   onChange,
 }: {
   translation: TranslationSettings;
   preferredTarget: string;
+  backend?: TranslationBackend;
   localContextOnly: boolean;
   disabled: boolean;
   onChange: (patch: Partial<TranslationSettings["prompt"]>) => void;
 }) {
   const { t } = useTranslation();
+  const local = backend === "plamo_local";
   const [preview, setPreview] = useState<TranslationPromptPreview | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState("");
@@ -179,6 +183,7 @@ export function TranslationEnhancementSettings({
         { ...translation.prompt, system_prompt: systemPromptDraftRef.current },
         null,
         preferredTarget,
+        backend,
       ));
     } catch (reason) {
       setPreview(null);
@@ -197,7 +202,9 @@ export function TranslationEnhancementSettings({
         </span>
       </div>
       <div className="translation-enhancement-fields">
-        <label className="field translation-prompt-field">
+        {local ? <p className="settings-field-note">
+          {t("settings.translation.localPromptNotice")}
+        </p> : <label className="field translation-prompt-field">
           <span>{t("settings.translation.systemPrompt")}</span>
           <textarea
             maxLength={8000}
@@ -220,7 +227,7 @@ export function TranslationEnhancementSettings({
               {promptValidationError}
             </small>
           )}
-        </label>
+        </label>}
         <div className="translation-prompt-actions">
           <button
             className="secondary-button"

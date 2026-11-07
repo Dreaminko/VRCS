@@ -1363,10 +1363,12 @@ mod tests {
             },
         ];
         config.model_defaults.text = crate::config::ModelBinding {
+            backend: crate::config::TranslationBackend::Api,
             profile_id: Some("shared".into()),
             model: "text-model".into(),
         };
         config.model_defaults.vision = crate::config::ModelBinding {
+            backend: crate::config::TranslationBackend::Api,
             profile_id: Some("shared".into()),
             model: "vision-model".into(),
         };

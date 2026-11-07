@@ -144,6 +144,8 @@ pub(crate) struct ContentServices {
     pub(crate) learning_service: Arc<crate::learning::LearningService>,
     pub(crate) translation_dispatcher: TranslationDispatcher,
     pub(crate) glossary: Arc<crate::glossary::GlossaryStore>,
+    pub(crate) local_translation_models: Arc<crate::translation::LocalTranslationModels>,
+    pub(crate) plamo_runtime: Arc<crate::translation::PlamoRuntime>,
 }
 
 pub(crate) struct ContentServicesInput {
@@ -154,6 +156,8 @@ pub(crate) struct ContentServicesInput {
     pub(crate) learning_service: Arc<crate::learning::LearningService>,
     pub(crate) translation_dispatcher: TranslationDispatcher,
     pub(crate) glossary: Arc<crate::glossary::GlossaryStore>,
+    pub(crate) local_translation_models: Arc<crate::translation::LocalTranslationModels>,
+    pub(crate) plamo_runtime: Arc<crate::translation::PlamoRuntime>,
 }
 
 impl ContentServices {
@@ -167,6 +171,8 @@ impl ContentServices {
             learning_service: input.learning_service,
             translation_dispatcher: input.translation_dispatcher,
             glossary: input.glossary,
+            local_translation_models: input.local_translation_models,
+            plamo_runtime: input.plamo_runtime,
         }
     }
 }

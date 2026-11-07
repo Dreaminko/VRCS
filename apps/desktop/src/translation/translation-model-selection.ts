@@ -81,5 +81,10 @@ export function switchTranslationProfile(
   const remembered = updateTranslationModel(target, target.model).model_by_profile;
   const savedModel = Object.hasOwn(remembered ?? {}, profile.id) ? remembered?.[profile.id] : undefined;
   const model = savedModel ?? selectTranslationModel(profile.provider, models, target.model, modelDetails) ?? "";
-  return updateTranslationModel({ ...target, profile_id: profile.id, model_by_profile: remembered }, model);
+  return updateTranslationModel({
+    ...target,
+    backend: "api",
+    profile_id: profile.id,
+    model_by_profile: remembered,
+  }, model);
 }

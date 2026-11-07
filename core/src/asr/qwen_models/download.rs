@@ -40,7 +40,7 @@ pub(crate) async fn download_into_staging(
     on_progress(completed, total);
     for asset in spec.files {
         if *cancel.borrow() {
-            return Err("Qwen ASR download was cancelled".into());
+            return Err("Model download was cancelled".into());
         }
         let path = stage.join(asset.name);
         let check = path.clone();
@@ -59,7 +59,7 @@ pub(crate) async fn download_into_staging(
             .map_err(|_| "Invalid Qwen ASR download URL".to_string())?
             .push(asset.name);
         let urls = tokio::select! {
-            _ = cancel.changed() => return Err("Qwen ASR download was cancelled".into()),
+            _ = cancel.changed() => return Err("Model download was cancelled".into()),
             urls = sources.urls(url.as_str()) => urls,
         };
         download_file_from_sources(
@@ -75,7 +75,7 @@ pub(crate) async fn download_into_staging(
         completed += asset.bytes;
     }
     if *cancel.borrow() {
-        return Err("Qwen ASR download was cancelled".into());
+        return Err("Model download was cancelled".into());
     }
     activate_staging(root, spec)
 }
@@ -92,7 +92,7 @@ async fn download_file_from_sources(
     let mut last_error = "No model download source is available".to_string();
     for url in urls {
         if *cancel.borrow() {
-            return Err("Qwen ASR download was cancelled".into());
+            return Err("Model download was cancelled".into());
         }
         on_progress(0);
         let url = reqwest::Url::parse(url).map_err(|error| error.to_string())?;
@@ -132,13 +132,13 @@ pub(crate) async fn download_file(
 ) -> Result<(), String> {
     let request = client.get(url).send();
     let response = tokio::select! {
-        _ = cancel.changed() => return Err("Qwen ASR download was cancelled".into()),
+        _ = cancel.changed() => return Err("Model download was cancelled".into()),
         response = request => response,
     }
     .and_then(reqwest::Response::error_for_status)
     .map_err(|error| {
         format!(
-            "Could not download Qwen ASR asset {}: {}",
+            "Could not download model asset {}: {}",
             asset.name,
             error.without_url()
         )
@@ -147,63 +147,59 @@ pub(crate) async fn download_file(
         .content_length()
         .is_some_and(|size| size != asset.bytes)
     {
-        return Err(format!(
-            "Qwen ASR asset {} has an unexpected size",
-            asset.name
-        ));
+        return Err(format!("Model asset {} has an unexpected size", asset.name));
     }
     let mut file = tokio::fs::File::create(temporary)
         .await
-        .map_err(|error| format!("Could not create Qwen ASR download file: {error}"))?;
+        .map_err(|error| format!("Could not create model download file: {error}"))?;
     let mut stream = response.bytes_stream();
     let mut downloaded = 0u64;
     let mut digest = Sha256::new();
     loop {
         let chunk = tokio::select! {
-            _ = cancel.changed() => return Err("Qwen ASR download was cancelled".into()),
+            _ = cancel.changed() => return Err("Model download was cancelled".into()),
             chunk = stream.next() => chunk,
         };
         let Some(chunk) = chunk else { break };
-        let chunk = chunk.map_err(|error| {
-            format!("Qwen ASR download was interrupted: {}", error.without_url())
-        })?;
+        let chunk = chunk
+            .map_err(|error| format!("Model download was interrupted: {}", error.without_url()))?;
         downloaded = downloaded
             .checked_add(chunk.len() as u64)
-            .ok_or_else(|| "Qwen ASR download size overflow".to_string())?;
+            .ok_or_else(|| "Model download size overflow".to_string())?;
         if downloaded > asset.bytes {
             return Err(format!(
-                "Qwen ASR asset {} exceeds its expected size",
+                "Model asset {} exceeds its expected size",
                 asset.name
             ));
         }
         file.write_all(&chunk)
             .await
-            .map_err(|error| format!("Could not write Qwen ASR download: {error}"))?;
+            .map_err(|error| format!("Could not write model download: {error}"))?;
         digest.update(&chunk);
         on_progress(downloaded);
     }
     if downloaded != asset.bytes {
-        return Err(format!("Qwen ASR asset {} is incomplete", asset.name));
+        return Err(format!("Model asset {} is incomplete", asset.name));
     }
     let digest = format!("{:x}", digest.finalize());
     if digest != asset.sha256 {
         return Err(format!(
-            "Qwen ASR asset {} failed SHA-256 verification",
+            "Model asset {} failed SHA-256 verification",
             asset.name
         ));
     }
     file.sync_all()
         .await
-        .map_err(|error| format!("Could not save Qwen ASR download: {error}"))?;
+        .map_err(|error| format!("Could not save model download: {error}"))?;
     drop(file);
     if path.exists() {
         tokio::fs::remove_file(path)
             .await
-            .map_err(|error| format!("Could not replace invalid Qwen ASR asset: {error}"))?;
+            .map_err(|error| format!("Could not replace invalid model asset: {error}"))?;
     }
     tokio::fs::rename(temporary, path)
         .await
-        .map_err(|error| format!("Could not stage Qwen ASR asset: {error}"))?;
+        .map_err(|error| format!("Could not stage model asset: {error}"))?;
     cache_verified_asset(path, asset, digest)
 }
 

@@ -8,7 +8,15 @@ import { profileSupportsCapability } from "../../providers/provider-catalog";
 import type { ApiProfileView } from "../../providers/types";
 import { localizedLanguageName } from "../../translation/translation-languages";
 import { DefaultModelEditor, ModelBindingEditor, ModelSelectionField, ModelSourceToggle, modelBindingLabel } from "../api/ModelSelectionField";
-import { applyModelDefaults, DEFAULT_LEARNING_AI, DEFAULT_MODEL_SELECTION, EMPTY_MODEL_BINDING, resolveModelSelection, translationModelSelection } from "../model-selection";
+import {
+  applyModelDefaults,
+  DEFAULT_LEARNING_AI,
+  DEFAULT_MODEL_SELECTION,
+  EMPTY_MODEL_BINDING,
+  resolveModelSelection,
+  translationModelSelection,
+  translationSelectionReady,
+} from "../model-selection";
 import type { ApplySettings } from "../settings-types";
 import type { ModelBinding, Settings, TranslationTargetSettings } from "../types";
 
@@ -61,20 +69,22 @@ export function ModelAssignmentsSection({ settings, profiles, applySettings }: {
   const textProfile = profiles.find((profile) => profile.id === defaults.text.profile_id);
   const visionProfile = profiles.find((profile) => profile.id === defaults.vision.profile_id);
   const textReady = Boolean(defaults.text.model.trim() && textProfile && profileSupportsCapability(textProfile, "text_generation"));
-  const translationReady = Boolean(textReady && textProfile && profileSupportsCapability(textProfile, "text_translation"));
+  // Batch defaults only apply when the shared API text model can also translate.
+  // An independently selected local task remains valid even when it cannot follow that default.
+  const translationDefaultReady = translationSelectionReady(defaults.text, profiles);
   const visionReady = Boolean(defaults.vision.model.trim() && visionProfile && profileSupportsCapability(visionProfile, "image_understanding"));
   const batchTasks = [
-    translationReady && t("settings.modelAssignments.translation"), translationReady && t("settings.modelAssignments.ocrTranslation"),
+    translationDefaultReady && t("settings.modelAssignments.translation"), translationDefaultReady && t("settings.modelAssignments.ocrTranslation"),
     textReady && t("settings.modelAssignments.conversationTitles"), textReady && t("settings.modelAssignments.learningAi"),
     visionReady && t("settings.modelAssignments.visionQuestions"),
   ].filter(Boolean).join(", ");
   const inheritTargets = (targets: TranslationTargetSettings[]) => targets.map((target) => ({ ...target, use_default_model: true }));
   const followDefaults = () => update((current) => ({
     ...current,
-    translation: translationReady ? { ...current.translation, model_selection: { ...DEFAULT_MODEL_SELECTION },
+    translation: translationDefaultReady ? { ...current.translation, model_selection: { ...DEFAULT_MODEL_SELECTION },
       speaker_targets: inheritTargets(current.translation.speaker_targets),
       microphone_targets: inheritTargets(current.translation.microphone_targets) } : current.translation,
-    ocr: translationReady ? { ...current.ocr, model_selection: { ...DEFAULT_MODEL_SELECTION }, targets: inheritTargets(current.ocr.targets) } : current.ocr,
+    ocr: translationDefaultReady ? { ...current.ocr, model_selection: { ...DEFAULT_MODEL_SELECTION }, targets: inheritTargets(current.ocr.targets) } : current.ocr,
     conversation_titles: textReady ? { ...current.conversation_titles, use_default_model: true } : current.conversation_titles,
     vision: visionReady ? { ...current.vision, use_default_model: true } : current.vision,
     learning_ai: textReady ? { ...(current.learning_ai ?? DEFAULT_LEARNING_AI), use_default_model: true } : current.learning_ai,

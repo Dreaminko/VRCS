@@ -8,6 +8,7 @@ import {
   createChatboxDraft,
   normalizeChatboxPreferences,
   previewChatboxLocally,
+  updateChatboxTranslation,
 } from "../src/chatbox/chatbox.ts";
 import { LatestWriteQueue } from "../src/shared/lib/latest-write-queue.ts";
 
@@ -37,7 +38,38 @@ test("sent drafts keep language and format preferences", () => {
     ...draft,
     original: "",
     translation: null,
+    translation_origin: null,
   });
+});
+
+test("PLaMo translations carry one attribution inside the public preview budget", () => {
+  const draft = {
+    ...createChatboxDraft("ja"),
+    original: "hello",
+    translation: "こんにちは [PLaMo]",
+    translation_origin: {
+      provider: "plamo_local",
+      model: "plamo-3-translate-0.8b-q4_k_m",
+    },
+    send_mode: "bilingual" as const,
+  };
+  const preview = previewChatboxLocally(draft);
+  assert.equal(preview.text, "hello\nこんにちは [PLaMo]");
+  assert.equal(preview.char_count, [...preview.text].length);
+});
+
+test("editing a translation clears its model origin", () => {
+  const draft = {
+    ...createChatboxDraft("ja"),
+    translation: "こんにちは",
+    translation_origin: {
+      provider: "plamo_local",
+      model: "plamo-3-translate-0.8b-q4_k_m",
+    },
+  };
+  const edited = updateChatboxTranslation(draft, "こんにちは!");
+  assert.equal(edited.translation, "こんにちは!");
+  assert.equal(edited.translation_origin, null);
 });
 
 test("new Chatbox drafts translate and send bilingually by default", () => {

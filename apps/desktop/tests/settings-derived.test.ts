@@ -11,10 +11,15 @@ import { DEFAULT_OCR_SETTINGS, DEFAULT_VR_OVERLAY_SETTINGS } from "../src/settin
 import type { ApiProfileView, ProviderDefinition } from "../src/providers/types.ts";
 import type { AnkiStatus } from "../src/anki/types.ts";
 import { DEFAULT_VISION_SETTINGS } from "../src/settings/vision-settings.ts";
+import {
+  applyModelDefaults,
+  translationPromptBackend,
+  translationSelectionReady,
+} from "../src/settings/model-selection.ts";
 import type { Settings } from "../src/settings/types.ts";
 
 const settings: Settings = {
-  schema_version: 38,
+  schema_version: 39,
   model_defaults: { text: { profile_id: null, model: "" }, vision: { profile_id: null, model: "" } },
   learning_ai: { profile_id: null, model: "", use_default_model: true, thinking_enabled: false },
   vrchat_chatbox: { enabled: false },
@@ -35,6 +40,7 @@ const settings: Settings = {
   vad: { endpointing: "silence", silence_seconds: 0.4, max_speech_seconds: 6 },
   asr: { backend: "qwen_local_managed", language: "auto", managed_qwen: { package_id: "qwen3-asr-0.6b-q8_0", device: "auto" }, active_profile_id: null, service_settings: {} },
   translation: { mode: "disabled", speaker_targets: [{ target_language: "zh-Hans", profile_id: null, model: "gpt-5-mini", thinking_enabled: false }], microphone_targets: [{ target_language: "en", profile_id: null, model: "gpt-5-mini", thinking_enabled: false }], prompt: { system_prompt: "", context_enabled: false, include_speaker: true, include_microphone: true, include_chatbox: true, max_messages: 5, max_chars: 4000 } },
+  local_translation: { device: "cpu" },
   language_presets: [],
   glossary: { llm_enabled: true, asr_enabled: true, sources: [] },
   osc: { enabled: false, port: 9000, mute_sync_enabled: true, preserve_original_text: true, translation_strategy: "preferred_only" },
@@ -132,6 +138,69 @@ test("recognition source selects a profile and service atomically", () => {
   assert.equal(local.backend, "qwen_local_managed");
   assert.equal(local.active_profile_id, null);
   assert.equal(recognitionSourceValue(local), "managed_qwen");
+});
+
+test("translation readiness accepts local PLaMo with an API-capable fallback", () => {
+  assert.equal(translationSelectionReady({
+    backend: "plamo_local",
+    profile_id: null,
+    model: "plamo-3-translate-0.8b-q4_k_m",
+  }, profiles), true);
+  assert.equal(translationSelectionReady({
+    backend: "plamo_local",
+    profile_id: null,
+    model: "another-model",
+  }, profiles), false);
+  assert.equal(translationSelectionReady({
+    backend: "api",
+    profile_id: "translation-profile",
+    model: "api-model",
+  }, profiles), true);
+});
+
+test("local translation defaults replace unsupported inherited target languages", () => {
+  const local = applyModelDefaults({
+    ...settings,
+    translation: {
+      ...settings.translation,
+      model_selection: {
+        backend: "plamo_local",
+        profile_id: null,
+        model: "plamo-3-translate-0.8b-q4_k_m",
+        use_default_model: false,
+      },
+      speaker_targets: [{
+        target_language: "pt-BR",
+        profile_id: null,
+        model: "",
+        thinking_enabled: false,
+        use_default_model: true,
+      }],
+    },
+  });
+
+  assert.equal(local.translation.speaker_targets[0].backend, "plamo_local");
+  assert.equal(local.translation.speaker_targets[0].target_language, "ja");
+});
+
+test("API-only task bindings do not send a translation backend field", () => {
+  const resolved = applyModelDefaults(settings);
+
+  assert.equal("backend" in resolved.conversation_titles, false);
+  assert.equal("backend" in resolved.vision, false);
+  assert.equal("backend" in resolved.learning_ai, false);
+  assert.equal(resolved.translation.model_selection?.backend, "api");
+});
+
+test("mixed translation routes keep the shared API prompt editor visible", () => {
+  assert.equal(translationPromptBackend([
+    { backend: "plamo_local" },
+    { backend: "api" },
+  ]), "api");
+  assert.equal(translationPromptBackend([
+    { backend: "plamo_local" },
+    { backend: "plamo_local" },
+  ]), "plamo_local");
 });
 
 
