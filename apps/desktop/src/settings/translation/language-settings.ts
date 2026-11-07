@@ -9,10 +9,10 @@ import type { Settings, TranslationTargetSettings } from "../types";
 export function targetLanguageCodes(target: TranslationTargetSettings, usedLanguages: string[], profiles: ApiProfileView[], liveService?: string): string[] {
   const native = liveTranslationServiceName(liveService);
   const profile = profiles.find((item) => item.id === target.profile_id);
-  const codes = target.backend === "plamo_local"
-    ? [...PLAMO_TRANSLATION_LANGUAGE_CODES]
-    : native
-      ? TRANSLATION_LANGUAGE_CODES.filter((code) => liveService !== "gemini_live_translate" || !["yue-Hant", "nl"].includes(code))
+  const codes = native
+    ? TRANSLATION_LANGUAGE_CODES.filter((code) => liveService !== "gemini_live_translate" || !["yue-Hant", "nl"].includes(code))
+    : target.backend === "plamo_local"
+      ? [...PLAMO_TRANSLATION_LANGUAGE_CODES]
       : profile?.capabilities.supported_languages ?? TRANSLATION_LANGUAGE_CODES;
   return codes.filter((code) => code === target.target_language || !usedLanguages.includes(code));
 }

@@ -72,7 +72,6 @@ pub(super) async fn prompt_preview(
             target,
             &context,
             &prompt.glossary,
-            prompt.context_enabled,
         )
         .map_err(translation_error)?;
         return Ok(Json(json!({

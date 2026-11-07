@@ -2192,7 +2192,7 @@ mod tests {
             ..TranslationConfig::default()
         };
 
-        assert!(automatic_translation_targets(&config, "speaker", Some("zh")).is_none());
+        assert!(automatic_translation_targets(&config, "speaker", Some("zh-Hans")).is_none());
         assert!(automatic_translation_targets(&config, "microphone", Some("ja")).is_none());
         assert!(automatic_translation_targets(&config, "speaker", Some("ja")).is_some());
         assert!(automatic_translation_targets(&config, "speaker", None).is_some());

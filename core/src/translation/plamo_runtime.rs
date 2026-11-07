@@ -825,7 +825,7 @@ mod tests {
                         target,
                         context: &[],
                         glossary: &[],
-                        context_enabled: true,
+                        max_chars: 4_000,
                     },
                     None,
                 )
@@ -846,7 +846,7 @@ mod tests {
                     target: "ja",
                     context: &[],
                     glossary: &[],
-                    context_enabled: true,
+                    max_chars: 4_000,
                 },
                 None,
             )
@@ -873,7 +873,7 @@ mod tests {
                     target: "ja",
                     context: &context,
                     glossary: &glossary,
-                    context_enabled: true,
+                    max_chars: 4_000,
                 },
                 None,
             )
@@ -893,7 +893,7 @@ mod tests {
                             target: "ja",
                             context: &[],
                             glossary: &[],
-                            context_enabled: false,
+                            max_chars: 4_000,
                         },
                         None,
                     )

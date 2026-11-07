@@ -202,9 +202,7 @@ export function TranslationEnhancementSettings({
         </span>
       </div>
       <div className="translation-enhancement-fields">
-        {local ? <p className="settings-field-note">
-          {t("settings.translation.localPromptNotice")}
-        </p> : <label className="field translation-prompt-field">
+        {!local && <label className="field translation-prompt-field">
           <span>{t("settings.translation.systemPrompt")}</span>
           <textarea
             maxLength={8000}
@@ -335,12 +333,12 @@ export function TranslationEnhancementSettings({
                 </div>
               </div>
 
-              <div className="translation-privacy-notice">
+              {(local || !localContextOnly) && <div className="translation-privacy-notice">
                 <ShieldCheck size={16} />
-                <span>{t(localContextOnly
-                  ? "settings.translation.contextPrivacyLocal"
+                <span>{t(local
+                  ? "settings.translation.localPromptNotice"
                   : "settings.translation.contextPrivacyCloud")}</span>
-              </div>
+              </div>}
             </div>
           )}
         </div>

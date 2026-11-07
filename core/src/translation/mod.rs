@@ -326,7 +326,7 @@ impl TranslationService {
                     target: &target_config.target_language,
                     context,
                     glossary: &glossary,
-                    context_enabled: prompt.context_enabled,
+                    max_chars: prompt.max_chars as usize,
                 },
                 on_progress,
             )
@@ -449,18 +449,20 @@ pub(crate) fn capture_requires_local_runtime(config: &AppConfig) -> bool {
     if config.translation.mode != "automatic" {
         return false;
     }
-    let uses_local = |targets: &[TranslationTargetConfig]| {
+    let native_live_translation = providers::is_live_translation(&config.asr.backend);
+    let uses_local = |targets: &[TranslationTargetConfig], skip_live_target: bool| {
         targets
             .iter()
+            .skip(usize::from(native_live_translation && skip_live_target))
             .any(|target| target.backend == TranslationBackend::PlamoLocal)
     };
     let speaker_active = config.audio.output.mode != "disabled"
         && (config.audio.output.mode != "vrchat_players"
             || config.audio.output.player_audio.enabled);
-    (speaker_active && uses_local(&config.translation.speaker_targets))
+    (speaker_active && uses_local(&config.translation.speaker_targets, true))
         || (config.audio.microphone.mode != "disabled"
-            && uses_local(&config.translation.microphone_targets))
-        || (config.vrchat_chatbox.enabled && uses_local(&config.translation.speaker_targets))
+            && uses_local(&config.translation.microphone_targets, true))
+        || (config.vrchat_chatbox.enabled && uses_local(&config.translation.speaker_targets, false))
 }
 
 fn translation_output_token_limit(text: &str, provider: &str, thinking_enabled: bool) -> u32 {
@@ -504,7 +506,7 @@ pub fn same_translation_language(source: &str, target: &str) -> bool {
 fn canonical_translation_language(language: &str) -> String {
     let language = language.replace('_', "-").to_ascii_lowercase();
     match language.as_str() {
-        "zh" | "zh-cn" | "zh-sg" | "zh-hans" => "zh-hans".into(),
+        "zh-cn" | "zh-sg" | "zh-hans" => "zh-hans".into(),
         "zh-tw" | "zh-hk" | "zh-mo" | "zh-hant" => "zh-hant".into(),
         _ => language,
     }
@@ -601,6 +603,22 @@ mod tests {
     }
 
     #[test]
+    fn native_live_translation_skips_its_first_local_target() {
+        let mut config = AppConfig::default();
+        config.translation.mode = "automatic".into();
+        config.asr.backend = providers::SERVICE_OPENAI_REALTIME_TRANSLATE.into();
+        config.audio.output.mode = "system".into();
+        config.audio.microphone.mode = "disabled".into();
+        config.vrchat_chatbox.enabled = false;
+        config.translation.speaker_targets = vec![local_target()];
+
+        assert!(!capture_requires_local_runtime(&config));
+
+        config.translation.speaker_targets.push(local_target());
+        assert!(capture_requires_local_runtime(&config));
+    }
+
+    #[test]
     fn manual_or_api_translation_does_not_preload_local_runtime() {
         let mut config = AppConfig::default();
         config.translation.mode = "manual".into();
@@ -625,7 +643,8 @@ mod tests {
 
     #[test]
     fn compares_language_codes_by_script_and_base_language() {
-        assert!(same_translation_language("zh", "zh-Hans"));
+        assert!(same_translation_language("zh", "zh"));
+        assert!(!same_translation_language("zh", "zh-Hans"));
         assert!(same_translation_language("zh_SG", "zh-Hans"));
         assert!(!same_translation_language("zh", "zh-Hant"));
         assert!(same_translation_language("zh-CN", "zh-Hans"));
@@ -645,7 +664,7 @@ mod tests {
                 &TranslationPromptConfig::default(),
                 &[],
                 "你好",
-                Some("zh"),
+                Some("zh-CN"),
                 &[],
             )
             .await
@@ -653,6 +672,24 @@ mod tests {
 
         assert_eq!(result.text, "你好");
         assert_eq!(result.provider, "local");
+    }
+
+    #[tokio::test]
+    async fn ambiguous_chinese_source_does_not_skip_an_explicit_script_target() {
+        let error = TranslationService::new()
+            .unwrap()
+            .translate(
+                &TranslationTargetConfig::new("zh-Hans"),
+                &TranslationPromptConfig::default(),
+                &[],
+                "漢字",
+                Some("zh"),
+                &[],
+            )
+            .await
+            .unwrap_err();
+
+        assert_eq!(error.code, "translation.not_configured");
     }
 
     #[test]
