@@ -784,13 +784,10 @@ fn reduce_tick(state: &mut OscWorkerState, now: Instant) -> Vec<OscEffect> {
     };
     let translation =
         selected_translation_text(&message, &state.config.config.translation_strategy);
-    let translation_origin =
-        selected_translation_origin(&message, &state.config.config.translation_strategy);
     let rendered_text = message.rendered_text.clone().unwrap_or_else(|| {
         format_chatbox(
             selected_original(&message, &state.config.config.translation_strategy),
             translation.as_deref(),
-            translation_origin,
             state.config.config.preserve_original_text,
         )
     });
@@ -1176,27 +1173,33 @@ fn selected_original<'a>(message: &'a PendingMessage, strategy: &str) -> &'a str
 }
 
 fn selected_translation(message: &PendingMessage) -> Option<&String> {
+    selected_translation_target(message).and_then(|target| message.translations.get(target))
+}
+
+fn selected_translation_target(message: &PendingMessage) -> Option<&str> {
     message
         .desired_target
-        .as_ref()
-        .and_then(|target| message.translations.get(target))
+        .as_deref()
+        .filter(|target| message.translations.contains_key(*target))
         .or_else(|| {
             message
                 .preferred_target
-                .as_ref()
-                .and_then(|target| message.translations.get(target))
+                .as_deref()
+                .filter(|target| message.translations.contains_key(*target))
         })
         .or_else(|| {
             message
                 .completed_targets
                 .iter()
-                .find_map(|target| message.translations.get(target))
+                .map(String::as_str)
+                .find(|target| message.translations.contains_key(*target))
         })
 }
 
 fn selected_translation_text(message: &PendingMessage, strategy: &str) -> Option<String> {
     if strategy != "all_languages" {
-        return selected_translation(message).cloned();
+        let target = selected_translation_target(message)?;
+        return message.translations.get(target).cloned();
     }
     let original = crate::chatbox::compact_text(&message.original);
     let mut translations = Vec::new();
@@ -1211,37 +1214,6 @@ fn selected_translation_text(message: &PendingMessage, strategy: &str) -> Option
         translations.push(value);
     }
     (!translations.is_empty()).then(|| translations.join(" / "))
-}
-
-fn selected_translation_origin<'a>(
-    message: &'a PendingMessage,
-    strategy: &str,
-) -> Option<&'a ChatboxTranslationOrigin> {
-    if strategy == "all_languages" {
-        return message
-            .expected_targets
-            .iter()
-            .filter_map(|target| message.translation_origins.get(target))
-            .find(|origin| origin.uses_plamo());
-    }
-    message
-        .desired_target
-        .as_ref()
-        .filter(|target| message.translations.contains_key(*target))
-        .or_else(|| {
-            message
-                .preferred_target
-                .as_ref()
-                .filter(|target| message.translations.contains_key(*target))
-        })
-        .or_else(|| {
-            message
-                .completed_targets
-                .iter()
-                .find(|target| message.translations.contains_key(*target))
-        })
-        .and_then(|target| message.translation_origins.get(target))
-        .filter(|origin| origin.uses_plamo())
 }
 
 fn selected_target_language(message: &PendingMessage, strategy: &str) -> Option<String> {
@@ -2068,7 +2040,7 @@ mod tests {
 
     #[test]
     fn formats_bilingual_messages_within_vrchat_limit() {
-        let formatted = format_chatbox(&"原".repeat(100), Some(&"訳".repeat(100)), None, true);
+        let formatted = format_chatbox(&"原".repeat(100), Some(&"訳".repeat(100)), true);
         let mut lines = formatted.lines();
         assert_eq!(lines.next().unwrap().chars().count(), 71);
         assert_eq!(lines.next().unwrap().chars().count(), 72);
@@ -2078,53 +2050,44 @@ mod tests {
     #[test]
     fn removes_control_characters_and_avoids_duplicate_translation() {
         assert_eq!(
-            format_chatbox(" hello\0\nworld ", Some("hello world"), None, true),
+            format_chatbox(" hello\0\nworld ", Some("hello world"), true),
             "hello world"
         );
     }
 
     #[test]
     fn omits_original_text_when_disabled_and_translation_is_available() {
-        assert_eq!(
-            format_chatbox("こんにちは", Some("你好"), None, false),
-            "你好"
+        assert_eq!(format_chatbox("こんにちは", Some("你好"), false), "你好");
+        assert_eq!(format_chatbox("こんにちは", None, false), "こんにちは");
+    }
+
+    #[test]
+    fn all_languages_includes_plamo_translations_without_a_marker() {
+        let mut message = pending_message(&["en", "zh-Hans"]);
+        message.translations.insert("en".into(), "Hello".into());
+        message.translations.insert("zh-Hans".into(), "你好".into());
+        message.translation_origins.insert(
+            "en".into(),
+            ChatboxTranslationOrigin {
+                provider: "plamo_local".into(),
+                model: Some("plamo-3-translate-0.8b-q4_k_m".into()),
+            },
+        );
+        message.translation_origins.insert(
+            "zh-Hans".into(),
+            ChatboxTranslationOrigin {
+                provider: "openai".into(),
+                model: Some("gpt-5-mini".into()),
+            },
         );
         assert_eq!(
-            format_chatbox("こんにちは", None, None, false),
-            "こんにちは"
+            selected_translation_text(&message, "all_languages").as_deref(),
+            Some("Hello / 你好")
         );
     }
 
     #[test]
-    fn automatic_output_attributes_plamo_translations_once() {
-        let origin = ChatboxTranslationOrigin {
-            provider: "plamo_local".into(),
-            model: Some("plamo-3-translate-0.8b-q4_k_m".into()),
-        };
-        assert_eq!(
-            format_chatbox("こんにちは", Some("Hello [PLaMo]"), Some(&origin), false,),
-            "Hello [PLaMo]"
-        );
-        assert_eq!(
-            format_chatbox("こんにちは", Some("Hello"), Some(&origin), true),
-            "こんにちは\nHello [PLaMo]"
-        );
-    }
-
-    #[test]
-    fn automatic_output_leaves_api_translations_unattributed() {
-        let origin = ChatboxTranslationOrigin {
-            provider: "openai".into(),
-            model: Some("gpt-5-mini".into()),
-        };
-        assert_eq!(
-            format_chatbox("こんにちは", Some("Hello"), Some(&origin), true),
-            "こんにちは\nHello"
-        );
-    }
-
-    #[test]
-    fn translation_completion_carries_the_plamo_origin_into_automatic_output() {
+    fn plamo_translation_completion_does_not_add_a_source_marker() {
         let now = Instant::now();
         let mut state = OscWorkerState::new(config_state());
         receive_subtitle(&mut state, 1, "こんにちは", &["en"], now);
@@ -2134,7 +2097,7 @@ mod tests {
 
         reduce_translation_completed(&mut state, 1, translated, true, now);
 
-        assert_eq!(send_next(&mut state, now), "こんにちは\nHello [PLaMo]");
+        assert_eq!(send_next(&mut state, now), "こんにちは\nHello");
     }
 
     #[tokio::test]

@@ -162,16 +162,16 @@ flowchart LR
 
 现有 `/api/translations/prompt-preview` 增加可选 `backend`，缺省 `api`；本地预览使用同一 PFML3 构造函数。必要的文案同步英语、简体中文、繁体中文和日语。
 
-### 7.3 许可证与输出标识
+### 7.3 许可证与输出约定
 
 权重使用 **PLaMo Community License**，不能按 VRCS 的 AGPL-3.0 或 Apache/MIT 权重处理。依据[固定版本许可证](https://huggingface.co/pfnet/plamo-3-translate-0.8b-GGUF/blob/dbeb0856cb0b004b484f190bb71dd65876297013/LICENSE/en)：商业使用涉及预先登记和年收入门槛；再分发需要附带协议及 `Built with PLaMo` 标识；公开输出还涉及模型来源标注。商业使用条件应以维护者实际用途核对。
 
 对应交付要求：
 
 - 模型按需单独下载，不混入源码许可证；保留官方协议副本，在模型详情展示 `Built with PLaMo` 和许可链接，并更新 `THIRD_PARTY_NOTICES.md`。下载前提供一次协议接受入口，记录所接受的模型 revision。
-- 公共输出不能仅依赖设置页署名。PLaMo 生成的 OSC／Chatbox 发送文本和纯文本导出保留 ` [PLaMo]` 来源标记；标记参与现有长度预算，截断不得移除标记。界面内历史使用已有 provider／model 元数据标识来源。
-- Chatbox 的 `ChatboxComposeInput` 增加可选 `translation_origin: { provider: string, model: string }`，预览和发送均消费同一来源。它来自生成结果，不能根据发送时的全局设置猜测；手写内容不自动冒充模型输出。本地预览仍需用户执行发送操作。发送后的现有 `rendered_text` 保留标记，重新发送不能丢失或重复附加标记；不为此增加数据库列。
-- 发布负责人在分发前核对商业登记、输出标识与现有 OSC 模板的处理是否满足协议；不通过这一门槛就不发布 PLaMo 模型功能。
+- OSC 与 Chatbox 发送的 PLaMo 译文不附加来源标记，仍按现有长度预算发送。界面内历史使用已有 provider／model 元数据标识来源。
+- Chatbox 的 `ChatboxComposeInput` 保持可选 `translation_origin: { provider: string, model: string }`，用于生成结果和历史元数据。它不能根据发送时的全局设置猜测；手写内容不自动冒充模型输出。本地预览仍需用户执行发送操作，不为此增加数据库列。
+- 发布负责人在分发前核对商业登记、再分发条件与现有 OSC 模板的处理是否满足协议；不通过这一门槛就不发布 PLaMo 模型功能。
 
 ## 8. 工作包、交付顺序与投入
 
@@ -200,7 +200,7 @@ CPU 完整版本合计约 **7–10 个工作日**，前提是固定运行时直�
 - 集成：无 Profile 的本地 OCR 不被过滤；同一内容切换本地模型 revision 不命中旧缓存；三个目标在两个推理槽下均能完成；取消、超时、队列满及进程退出有明确结果。
 - 共享存储：旧 OCR 目录可迁移到全局根目录；切换全局目录后 ASR、OCR 和翻译引用同步更新且子目录保持隔离；迁移失败时保留原文件。
 - 生命周期：多个首次请求只启动一个进程；PLaMo 随转写开始预加载并在停止时释放；切换配置、目录迁移和应用退出不会回写旧译文，也不会停止 ASR 进程。
-- 来源：本地结果贯穿预览、历史、OSC 和导出；输出长度预算包含来源标记；API 和手写输出不被误标。
+- 来源：本地结果贯穿预览、历史、OSC 和导出；输出不附加来源标记，长度预算按实际发送文本计算。
 
 实施完成后的基线命令：
 

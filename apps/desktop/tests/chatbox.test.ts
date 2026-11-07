@@ -42,11 +42,11 @@ test("sent drafts keep language and format preferences", () => {
   });
 });
 
-test("PLaMo translations carry one attribution inside the public preview budget", () => {
+test("PLaMo translations do not add a source marker", () => {
   const draft = {
     ...createChatboxDraft("ja"),
     original: "hello",
-    translation: "こんにちは [PLaMo]",
+    translation: "こんにちは",
     translation_origin: {
       provider: "plamo_local",
       model: "plamo-3-translate-0.8b-q4_k_m",
@@ -54,7 +54,7 @@ test("PLaMo translations carry one attribution inside the public preview budget"
     send_mode: "bilingual" as const,
   };
   const preview = previewChatboxLocally(draft);
-  assert.equal(preview.text, "hello\nこんにちは [PLaMo]");
+  assert.equal(preview.text, "hello\nこんにちは");
   assert.equal(preview.char_count, [...preview.text].length);
 });
 

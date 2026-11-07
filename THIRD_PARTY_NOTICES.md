@@ -34,9 +34,7 @@ is downloaded on demand through recognition settings. It includes its MIT
 license and the LLVM OpenMP license.
 The PLaMo 3 Translate model is downloaded on demand through translation
 settings and remains subject to the upstream PLaMo Community License. Its
-official license copy is retained with the model package. Model outputs that
-are published through VRChat Chatbox include the `[PLaMo]` attribution required
-for public output.
+official license copy is retained with the model package.
 The bundled Vulkan loader includes the VulkanRT license notices.
 The Smart Turn model is downloaded only when semantic endpointing is enabled
 and remains subject to the upstream BSD-2-Clause license.
