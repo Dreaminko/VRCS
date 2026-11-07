@@ -34,6 +34,7 @@ pub(crate) struct ConfigRuntime {
 
 pub(crate) struct ConfigRuntimeInput {
     pub(crate) config_path: PathBuf,
+    pub(crate) model_directory: PathBuf,
     pub(crate) asr_model_dir_override: Option<PathBuf>,
     pub(crate) config: AppConfig,
 }
@@ -43,11 +44,7 @@ impl ConfigRuntime {
         let download_sources = Arc::new(crate::downloads::DownloadSources::new(
             input.config.storage.model_download_source,
         ));
-        let ocr_directory = input
-            .config_path
-            .parent()
-            .unwrap_or_else(|| std::path::Path::new("."))
-            .join("models/ocr/ppocrv6-small");
+        let ocr_directory = crate::ocr::model_directory(&input.model_directory);
         Self {
             features_tx: watch::channel(input.config.features.clone()).0,
             vision_config_tx: watch::channel(

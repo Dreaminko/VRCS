@@ -16,6 +16,7 @@ import { useDictionaryActions } from "./hooks/useDictionaryActions";
 import { useSettingsDraft } from "./hooks/useSettingsDraft";
 import { createDebugRows } from "./settings-derived";
 import { ApiSettingsSection } from "./sections/ApiSettingsSection";
+import type { ApiSettingsTab } from "./sections/ApiSettingsSection";
 import { CaptureSettingsSection } from "./sections/CaptureSettingsSection";
 import { GlossarySettingsSection } from "./sections/GlossarySettingsSection";
 import { LearningSettingsSection } from "./sections/LearningSettingsSection";
@@ -85,6 +86,7 @@ export function SettingsPanel({
   const { t, i18n } = useTranslation();
   const locale = i18n.resolvedLanguage ?? "en-US";
   const [requestedCategory, setActiveCategory] = useState<SettingsCategory>(initialCategory);
+  const [apiTab, setApiTab] = useState<ApiSettingsTab>("models");
   const activeCategory = resolveSettingsCategory(requestedCategory, settings.features);
   useEffect(() => {
     if (activeCategory !== requestedCategory) setActiveCategory(activeCategory);
@@ -93,13 +95,41 @@ export function SettingsPanel({
   const draftController = useSettingsDraft(settings, onSave);
   const desktop = useDesktopPreferences();
   const asr = useAsrModels({
-    active: activeCategory === "recognition",
+    active: activeCategory === "recognition" || activeCategory === "api",
     settings,
     onModelsChanged,
     draftController,
     apiProfiles: apiProfileCatalog.profiles,
     providerDefinitions: apiProfileCatalog.providerDefinitions,
   });
+  const recognitionModels = {
+    directoryText: asr.modelDirectoryText,
+    qwen: asr.qwenModels,
+    qwenReady: asr.qwenModelsReady,
+    qwenRuntime: asr.qwenRuntime,
+    qwenMessage: asr.qwenMessage,
+  };
+  const recognitionActions = {
+    updateAsr: asr.updateAsr,
+    updateRecognitionSource: asr.updateRecognitionSource,
+    updateRecognitionService: asr.updateRecognitionService,
+    updateManagedQwen: asr.updateManagedQwen,
+    updateVad: asr.updateVad,
+    setModelDirectoryText: asr.setModelDirectoryText,
+    updateModelDirectory: asr.updateModelDirectory,
+    chooseModelDirectory: asr.chooseModelDirectory,
+    loadQwenModels: asr.loadQwenModels,
+    downloadQwenModel: asr.downloadQwenModel,
+    downloadQwenRuntime: asr.downloadQwenRuntime,
+    cancelQwenRuntimeDownload: asr.cancelQwenRuntimeDownload,
+    cancelQwenDownload: asr.cancelQwenDownload,
+    verifyQwenModel: asr.verifyQwenModel,
+    removeQwenModel: asr.removeQwenModel,
+  };
+  const openLocalModels = () => {
+    setApiTab("local");
+    setActiveCategory("api");
+  };
   const anki = useAnkiSettings({
     active: activeCategory === "connections" && settings.features.anki,
     settings,
@@ -164,36 +194,13 @@ export function SettingsPanel({
 
       {activeCategory === "recognition" && (
         <RecognitionSettingsSection
-          locale={locale}
           draft={draft}
           apiProfiles={apiProfileCatalog.profiles}
           providerDefinitions={apiProfileCatalog.providerDefinitions}
           modelStatus={modelStatus}
-          models={{
-            directoryText: asr.modelDirectoryText,
-            qwen: asr.qwenModels,
-            qwenReady: asr.qwenModelsReady,
-            qwenRuntime: asr.qwenRuntime,
-            qwenMessage: asr.qwenMessage,
-          }}
-          saveState={saveState}
-          actions={{
-            updateAsr: asr.updateAsr,
-            updateRecognitionSource: asr.updateRecognitionSource,
-            updateRecognitionService: asr.updateRecognitionService,
-            updateManagedQwen: asr.updateManagedQwen,
-            updateVad: asr.updateVad,
-            setModelDirectoryText: asr.setModelDirectoryText,
-            updateModelDirectory: asr.updateModelDirectory,
-            chooseModelDirectory: asr.chooseModelDirectory,
-            loadQwenModels: asr.loadQwenModels,
-            downloadQwenModel: asr.downloadQwenModel,
-            downloadQwenRuntime: asr.downloadQwenRuntime,
-            cancelQwenRuntimeDownload: asr.cancelQwenRuntimeDownload,
-            cancelQwenDownload: asr.cancelQwenDownload,
-            verifyQwenModel: asr.verifyQwenModel,
-            removeQwenModel: asr.removeQwenModel,
-          }}
+          models={recognitionModels}
+          actions={recognitionActions}
+          onManageLocalModels={openLocalModels}
         />
       )}
 
@@ -228,6 +235,7 @@ export function SettingsPanel({
           draft={draft}
           apiProfiles={apiProfileCatalog.profiles}
           applySettings={applySettings}
+          onManageLocalModels={openLocalModels}
         />
       )}
 
@@ -244,6 +252,12 @@ export function SettingsPanel({
           profiles={apiProfileCatalog.profiles}
           applySettings={applySettings}
           onRefreshSettings={onRefreshSettings}
+          activeTab={apiTab}
+          onTabChange={setApiTab}
+          asrModels={recognitionModels}
+          asrActions={recognitionActions}
+          saveState={saveState}
+          disabled={disabled}
         />
       )}
 
@@ -296,8 +310,9 @@ export function SettingsPanel({
       )}
 
       {activeCategory === "vision" && (
-        <OcrSettingsSection vrAvailable={settings.features.vr_overlay} draft={draft} profiles={apiProfileCatalog.profiles}
-          applySettings={applySettings} />
+        <OcrSettingsSection vrAvailable={settings.features.vr_overlay} draft={draft}
+          profiles={apiProfileCatalog.profiles} applySettings={applySettings}
+          onManageLocalModels={openLocalModels} />
       )}
 
       {activeCategory === "about" && <AboutSettingsSection version={updater.buildInfo?.version} />}

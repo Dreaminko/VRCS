@@ -1,4 +1,4 @@
-import { Languages, Workflow } from "lucide-react";
+import { HardDrive, Languages, Workflow } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { liveTranslationServiceName } from "../../providers/recognition-services";
@@ -11,17 +11,16 @@ import type {
 import type { ApplySettings } from "../settings-types";
 import { LanguagePresetSettings } from "../translation/LanguagePresetSettings";
 import { TranslationEnhancementSettings } from "../translation/TranslationEnhancementSettings";
-import { LocalTranslationPanel } from "../translation/LocalTranslationPanel";
 import { TranslationRouteList } from "../translation/TranslationRouteList";
 import { translationModelSelection, translationPromptBackend } from "../model-selection";
 
-export function TranslationSettingsSection({ draft, apiProfiles, applySettings }: {
+export function TranslationSettingsSection({ draft, apiProfiles, applySettings, onManageLocalModels }: {
   draft: Settings;
   apiProfiles: ApiProfileView[];
   applySettings: ApplySettings;
+  onManageLocalModels?: () => void;
 }) {
-  const { t, i18n } = useTranslation();
-  const locale = i18n.resolvedLanguage ?? "en-US";
+  const { t } = useTranslation();
   const liveService = liveTranslationServiceName(draft.asr.backend);
   const liveTranslate = Boolean(liveService);
   const translationProfiles = apiProfiles.filter(supportsTranslation);
@@ -52,6 +51,9 @@ export function TranslationSettingsSection({ draft, apiProfiles, applySettings }
           <Languages size={18} />
           <h2>{t("settings.translation.title")}</h2>
         </div>
+        {onManageLocalModels && <button className="secondary-button" type="button" onClick={onManageLocalModels}>
+          <HardDrive size={15} />{t("settings.modelAssignments.manageLocalModels")}
+        </button>}
       </div>
 
       <div className="translation-config">
@@ -138,10 +140,6 @@ export function TranslationSettingsSection({ draft, apiProfiles, applySettings }
             })}
           />
         )}
-        <LocalTranslationPanel
-          locale={locale}
-          disabled={false}
-        />
       </div>
     </div>
   );

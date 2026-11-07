@@ -1,25 +1,32 @@
-import { Download, FolderOpen, HardDrive, RefreshCw, Trash2 } from "lucide-react";
+import { Download, HardDrive, RefreshCw, Trash2 } from "lucide-react";
 import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
-import { NATIVE_APP } from "../../app/app-environment";
 import { ConfirmDialog } from "../../app/components/ConfirmDialog";
-import type { QwenModelRecord } from "../../providers/types";
+import type { QwenModelRecord, QwenRuntimeStatus } from "../../providers/types";
 import { formatBytes } from "../settings-derived";
 import type { SaveState } from "../settings-types";
+import { QwenRuntimePanel } from "./ManagedQwenSettings";
+import { ModelDirectorySetting } from "./ModelDirectorySetting";
 
 export function ModelManagerPanel({
   locale,
   disabled,
   qwen,
+  title,
   directoryText,
   saveState,
   onSetDirectoryText,
   onUpdateDirectory,
   onChooseDirectory,
+  runtime,
+  onDownloadRuntime,
+  onCancelRuntimeDownload,
+  showDirectory = true,
 }: {
   locale: string;
   disabled: boolean;
+  title?: string;
   qwen: {
     models: QwenModelRecord[];
     ready: boolean;
@@ -35,6 +42,10 @@ export function ModelManagerPanel({
   onSetDirectoryText: (value: string) => void;
   onUpdateDirectory: (value: string) => void;
   onChooseDirectory: () => Promise<void>;
+  runtime?: QwenRuntimeStatus | null;
+  onDownloadRuntime?: () => Promise<void>;
+  onCancelRuntimeDownload?: () => Promise<void>;
+  showDirectory?: boolean;
 }) {
   const { t } = useTranslation();
   const [pendingRemoval, setPendingRemoval] = useState<{
@@ -67,7 +78,7 @@ export function ModelManagerPanel({
       <div className="section-heading">
         <div>
           <HardDrive size={18} />
-          <h3 id="local-models-heading">{t("settings.recognition.localModels")}</h3>
+          <h3 id="local-models-heading">{title ?? t("settings.recognition.localModels")}</h3>
           <span>
             {downloadingCount
               ? t("settings.recognition.downloadingCount", { count: downloadingCount })
@@ -79,38 +90,17 @@ export function ModelManagerPanel({
         <button className="secondary-button" type="button" disabled={!qwen.ready} onClick={() => void qwen.onLoad()}><RefreshCw size={15} />{t("common.refresh")}</button>
       </div>
 
-      <div className="model-directory-setting">
-        <label htmlFor="model-directory">
-          <span>{t("settings.recognition.modelDirectory")}</span>
-        </label>
-        <div>
-          <input
-            id="model-directory"
-            type="text"
-            value={directoryText}
-            disabled={disabled || downloadingCount > 0 || saveState === "saving"}
-            spellCheck={false}
-            onChange={(event) => onSetDirectoryText(event.target.value)}
-            onBlur={() => onUpdateDirectory(directoryText)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") {
-                event.preventDefault();
-                event.currentTarget.blur();
-              }
-            }}
-          />
-          <button
-            className="secondary-button"
-            type="button"
-            disabled={!NATIVE_APP || disabled || downloadingCount > 0 || saveState === "saving"}
-            data-tooltip={NATIVE_APP ? t("settings.recognition.chooseFolder") : t("settings.recognition.browserPathHint")}
-            onClick={() => void onChooseDirectory()}
-          >
-            <FolderOpen size={16} />
-            {t("settings.recognition.chooseFolder")}
-          </button>
-        </div>
-      </div>
+      {showDirectory && <ModelDirectorySetting
+        directoryText={directoryText}
+        saveState={saveState}
+        disabled={disabled}
+        busy={downloadingCount > 0}
+        title={t("settings.recognition.modelDirectory")}
+        description={t("settings.recognition.modelDirectoryDescription")}
+        onSetDirectoryText={onSetDirectoryText}
+        onUpdateDirectory={onUpdateDirectory}
+        onChooseDirectory={onChooseDirectory}
+      />}
 
       {!ready && qwen.models.length === 0 ? (
         <div className="model-list-pending" role="status">
@@ -119,6 +109,12 @@ export function ModelManagerPanel({
         </div>
       ) : (
         <div className="model-list">
+          {runtime !== undefined && onDownloadRuntime && onCancelRuntimeDownload && <QwenRuntimePanel
+            runtime={runtime}
+            disabled={disabled}
+            onDownload={onDownloadRuntime}
+            onCancelDownload={onCancelRuntimeDownload}
+          />}
           {qwen.models.map((model) => {
             const busy = model.status === "downloading" || model.status === "verifying";
             const selectedModel = model.id === qwen.selectedId;

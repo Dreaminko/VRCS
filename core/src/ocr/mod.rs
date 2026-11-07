@@ -19,8 +19,20 @@ pub use tasks::{
 };
 
 use serde::Serialize;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
+
+pub(crate) fn model_directory(root: &Path) -> PathBuf {
+    root.join("ocr").join("ppocrv6-small")
+}
+
+pub(crate) fn migrate_legacy_model_directory(
+    source: &Path,
+    destination: &Path,
+) -> Result<(), String> {
+    assets::migrate_managed_directory(source, destination)
+}
 
 #[derive(Debug, Clone, Serialize)]
 pub struct BlockTranslation {

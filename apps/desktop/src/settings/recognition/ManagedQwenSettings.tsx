@@ -8,6 +8,65 @@ import { Select } from "../SettingsControls";
 import { formatBytes } from "../settings-derived";
 import { RecognitionLanguageSelect } from "./RecognitionLanguageSelect";
 
+export function QwenRuntimePanel({
+  runtime,
+  disabled,
+  onDownload,
+  onCancelDownload,
+}: {
+  runtime?: QwenRuntimeStatus | null;
+  disabled: boolean;
+  onDownload: () => Promise<void>;
+  onCancelDownload: () => Promise<void>;
+}) {
+  const { t, i18n } = useTranslation();
+  const [busy, setBusy] = useState(false);
+  const installation = runtime?.installation;
+  const installing = installation?.status === "downloading" || installation?.status === "verifying";
+  if (!runtime || runtime.available || !installation) return null;
+  const run = async (action: () => Promise<void>) => {
+    setBusy(true);
+    try {
+      await action();
+    } finally {
+      setBusy(false);
+    }
+  };
+  return <article className={`model-row model-status-${installation.status}`}>
+    <div className="model-row-body">
+      <div className="model-row-title">
+        <strong>{t("settings.recognition.qwenRuntimeComponents")}</strong>
+        <span className="model-size">
+          {formatBytes(installation.total_bytes, i18n.resolvedLanguage ?? i18n.language)}
+        </span>
+      </div>
+      <p role="status">{installing
+        ? t(`settings.recognition.qwenStatus.${installation.status}`)
+        : t("settings.recognition.qwenRuntimeMissing")}</p>
+      {installing && <div className="model-progress-wrap">
+        <div className="model-progress-track" role="progressbar"
+          aria-label={t("settings.recognition.downloadProgress", {
+            name: t("settings.recognition.qwenRuntimeComponents"),
+          })}
+          aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(installation.progress * 100)}>
+          <span style={{ transform: `scaleX(${Math.max(0.02, installation.progress)})` }} />
+        </div>
+        <span>{Math.round(installation.progress * 100)}%</span>
+      </div>}
+      {installation.error && <p className="model-error" role="alert">{installation.error}</p>}
+    </div>
+    <div className="model-row-action">
+      {installing
+        ? <button className="secondary-button" type="button" disabled={disabled || busy}
+          onClick={() => void run(onCancelDownload)}>{t("common.cancel")}</button>
+        : <button className="model-download-button" type="button" disabled={disabled || busy}
+          onClick={() => void run(onDownload)}>
+          <Download size={16} />{t(installation.status === "error" ? "common.retry" : "common.download")}
+        </button>}
+    </div>
+  </article>;
+}
+
 export function ManagedQwenSettings({
   draft,
   models,
@@ -26,45 +85,27 @@ export function ManagedQwenSettings({
   disabled: boolean;
   onUpdateAsr: <K extends keyof Settings["asr"]>(key: K, value: Settings["asr"][K]) => void;
   onUpdateQwen: <K extends keyof Settings["asr"]["managed_qwen"]>(key: K, value: Settings["asr"]["managed_qwen"][K]) => void;
-  onDownloadRuntime: () => Promise<void>;
-  onCancelRuntimeDownload: () => Promise<void>;
+  onDownloadRuntime?: () => Promise<void>;
+  onCancelRuntimeDownload?: () => Promise<void>;
 }) {
   const { t, i18n } = useTranslation();
-  const [runtimeActionBusy, setRuntimeActionBusy] = useState(false);
   const installation = runtime?.installation;
   const installing = installation?.status === "downloading" || installation?.status === "verifying";
-  const runRuntimeAction = async (action: () => Promise<void>) => {
-    setRuntimeActionBusy(true);
-    try {
-      await action();
-    } finally {
-      setRuntimeActionBusy(false);
-    }
-  };
   return <>
-    {runtime && !runtime.available && installation && <article className={`model-row model-status-${installation.status}`}>
-      <div className="model-row-body">
-        <div className="model-row-title">
-          <strong>{t("settings.recognition.qwenRuntimeComponents")}</strong>
-          <span className="model-size">{formatBytes(installation.total_bytes, i18n.resolvedLanguage ?? i18n.language)}</span>
-        </div>
-        <p role="status">{installing
-          ? t(`settings.recognition.qwenStatus.${installation.status}`)
-          : t("settings.recognition.qwenRuntimeMissing")}</p>
-        {installing && <div className="model-progress-wrap">
-          <div className="model-progress-track" role="progressbar" aria-label={t("settings.recognition.downloadProgress", { name: t("settings.recognition.qwenRuntimeComponents") })} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(installation.progress * 100)}>
-            <span style={{ transform: `scaleX(${Math.max(0.02, installation.progress)})` }} />
-          </div>
-          <span>{Math.round(installation.progress * 100)}%</span>
-        </div>}
-        {installation.error && <p className="model-error" role="alert">{installation.error}</p>}
-      </div>
-      <div className="model-row-action">
-        {installing
-          ? <button className="secondary-button" type="button" disabled={disabled || runtimeActionBusy} onClick={() => void runRuntimeAction(onCancelRuntimeDownload)}>{t("common.cancel")}</button>
-          : <button className="model-download-button" type="button" disabled={disabled || runtimeActionBusy} onClick={() => void runRuntimeAction(onDownloadRuntime)}><Download size={16} />{t(installation.status === "error" ? "common.retry" : "common.download")}</button>}
-      </div>
-    </article>}
+    {runtime && !runtime.available && installation && (
+      onDownloadRuntime && onCancelRuntimeDownload
+        ? <QwenRuntimePanel
+          runtime={runtime}
+          disabled={disabled}
+          onDownload={onDownloadRuntime}
+          onCancelDownload={onCancelRuntimeDownload}
+        />
+        : <p className="settings-field-note local-model-runtime-note" role="status">
+          {installing
+            ? t(`settings.recognition.qwenStatus.${installation.status}`)
+            : t("settings.recognition.qwenRuntimeMissing")}
+        </p>
+    )}
     <div className="recognition-config-row">
       <div className="recognition-config-title">
         <HardDrive size={17} />

@@ -93,7 +93,7 @@ flowchart LR
 | `use_default_model` | 任务独立选择时为 `false`；目标语言跟随任务时为 `true` |
 | `thinking_enabled`／`reasoning_control` | 本地有效绑定强制关闭／清空 |
 
-新增应用级 `local_translation.device`，首版缺省 `cpu`。模型目录沿用 `storage.model_directory`，模型存放在其 `translation/plamo-3-translate-0.8b-q4_k_m/` 子目录；不新增路径、端口、URL、线程数或环境变量设置。
+新增应用级 `local_translation.device`，首版缺省 `cpu`。模型目录沿用 `storage.model_directory` 作为全局根目录，ASR、OCR 和翻译分别使用 `qwen-asr/`、`ocr/ppocrv6-small/` 和 `translation/plamo-3-translate-0.8b-q4_k_m/` 子目录；不新增路径、端口、URL、线程数或环境变量设置。
 
 配置规则：
 
@@ -152,11 +152,11 @@ flowchart LR
 | `POST /api/local-translation/unload` | 停止运行时并释放翻译模型资源 |
 | `DELETE /api/local-translation/models/{id}` | 等待进行中的本地翻译结束，停止运行时后显式删除模型 |
 
-模型目录迁移纳入现有设置变更流程：先停止翻译进程及相关下载，再迁移；成功后更新目录，失败时恢复旧目录引用。卸载模型不删除翻译历史、不改 API Profile，也不自动选择其他服务。
+模型目录迁移纳入现有设置变更流程：先停止翻译进程及相关下载，再同步迁移 ASR、翻译和 OCR 子目录；成功后更新三者的目录引用，任一步骤失败时按相反顺序恢复。应用启动时把旧版 `<config-dir>/models/ocr/ppocrv6-small` 迁移到共享根目录。卸载模型不删除翻译历史、不改 API Profile，也不自动选择其他服务。
 
 ### 7.2 用户界面
 
-在“模型分配”的翻译及 OCR 任务／目标语言选择器中加入“本地 PLaMo”，并在翻译设置加入 `LocalTranslationPanel.tsx`，提供下载、取消、校验、卸载、运行状态和释放资源操作。未安装时仍能保存选择，但必须显示安装入口；首版默认不下载、不启用本地翻译。
+在“模型分配”的翻译及 OCR 任务／目标语言选择器中加入“本地 PLaMo”。在“API 与模型 → 本地模型”统一展示全局模型目录、Qwen ASR、PLaMo 翻译和 PP-OCRv6，并由 `LocalTranslationPanel.tsx` 提供下载、取消、校验、卸载、运行状态和释放资源操作。识别、翻译和视觉设置页只提供“管理本地模型”入口，避免重复维护路径。未安装时仍能保存选择，但必须显示安装入口；首版默认不下载、不启用本地翻译。
 
 界面显示约 573 MB 的模型下载量、运行时是否已具备、实际生效后端、语言限制及提示词能力差异。历史中的本地结果保留 `provider=plamo_local` 和固定模型标识，不套用云模型价格或查询云端模型能力。OCR 缓存身份包含后端、模型 revision、提示格式版本、上下文与术语表，避免模型包更新后复用旧结果。
 
@@ -182,7 +182,7 @@ flowchart LR
 | A. 固定资源与运行接入 | 新增翻译模型 manifest、`PlamoRuntime`；接入 `startup/assembly.rs`、`server/runtime.rs`；复用 b11501 资源 | 真实 GGUF 在 CPU 上加载，完成中英日短句及停止标记检查；失败则不启用本地入口 | 已完成 | 1–2 天 |
 | B. 配置和继承 | `config/model_assignment.rs`、`translation.rs`、`schema.rs`、`migration.rs`、`validation.rs`；前端 `settings/types.ts`、`model-selection.ts` | API 配置迁移不变，本地任务／路由／预设继承正确，非翻译任务拒绝本地绑定 | 已完成 | 1–1.5 天 |
 | C. 适配与所有入口 | 新增 `translation/plamo.rs`；修改 `translation/mod.rs`、`ocr/tasks.rs`、预览接口及输出来源传递 | 自动／手动字幕、OCR、Chatbox 和历史重译均能无 API Profile 调用本地模型 | 已完成 | 1.5–2 天 |
-| D. 下载与设置 | 新增本地翻译 API、`LocalTranslationPanel.tsx`；扩展 `ModelSelectionField.tsx`、`ModelAssignmentsSection.tsx`、前端绑定校验和四种语言文案 | 应用内完成安装、选择、状态查看及释放资源；迁移和取消可恢复 | 已完成 | 1.5–2 天 |
+| D. 下载与设置 | 新增本地翻译 API、`LocalTranslationPanel.tsx`；扩展 `ModelSelectionField.tsx`、`ModelAssignmentsSection.tsx`、统一本地模型页、前端绑定校验和四种语言文案 | 应用内完成安装、选择、状态查看及释放资源；ASR、OCR、翻译共享目录，迁移和取消可恢复 | 已完成 | 1.5–2 天 |
 | E. 打包与验收 | 共享运行时资源、第三方声明、针对性测试和实机记录 | CPU 安装包离线翻译、双路 ASR 并行、错误恢复和输出署名通过 | 部分完成；安装包与双路并行待验收 | 1.5–2.5 天 |
 
 CPU 完整版本合计约 **7–10 个工作日**，前提是固定运行时直接兼容模型，不含许可证外部沟通等待。若需要修复推理引擎兼容问题，重新评估范围，不把它隐藏在上述估算中。
@@ -198,6 +198,7 @@ CPU 完整版本合计约 **7–10 个工作日**，前提是固定运行时直�
 - 配置：旧版迁移、序列化往返、缺省 API、混合路由、预设继承、后端切换清除 reasoning、删除 Profile 不误伤本地绑定。
 - 协议：中文语言代码、未知源语言、上下文／术语顺序、特殊字符、保留控制标记、BOS 不重复、停止标记、SSE 分块、空输出与生成截断。
 - 集成：无 Profile 的本地 OCR 不被过滤；同一内容切换本地模型 revision 不命中旧缓存；三个目标在两个推理槽下均能完成；取消、超时、队列满及进程退出有明确结果。
+- 共享存储：旧 OCR 目录可迁移到全局根目录；切换全局目录后 ASR、OCR 和翻译引用同步更新且子目录保持隔离；迁移失败时保留原文件。
 - 生命周期：多个首次请求只启动一个进程；切换配置、目录迁移和应用退出不会回写旧译文，也不会停止 ASR 进程。
 - 来源：本地结果贯穿预览、历史、OSC 和导出；输出长度预算包含来源标记；API 和手写输出不被误标。
 
@@ -211,7 +212,7 @@ npm run check:i18n
 npm --workspace apps/desktop run build
 ```
 
-2026-11-07 的执行结果：Rust 全量测试 `1023 passed, 35 ignored`，真实 PLaMo CPU 冒烟 `1 passed`，桌面端 `449 passed`，四语言 i18n 校验通过，Vite 生产构建通过。发布前仍需按现有 `npm run build` 流程生成并验收 Windows 安装包；命令通过不能替代真实模型和安装包验证。
+2026-11-07 的执行结果：Rust 全量测试 `1025 passed, 35 ignored`，真实 PLaMo CPU 冒烟 `1 passed`，桌面端 `449 passed`，四语言 i18n 校验通过，Vite 生产构建通过。发布前仍需按现有 `npm run build` 流程生成并验收 Windows 安装包；命令通过不能替代真实模型和安装包验证。
 
 ### 9.2 实机与质量验收
 

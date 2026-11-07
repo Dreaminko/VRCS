@@ -9,6 +9,7 @@ pub(super) struct ModelDirectoryChange {
     pub(super) changed: bool,
     pub(super) candidate_path: PathBuf,
     previous_path: PathBuf,
+    previous_ocr_path: PathBuf,
     applied: bool,
 }
 
@@ -33,6 +34,7 @@ impl ModelDirectoryChange {
             changed,
             candidate_path,
             previous_path: state.capture.model_manager.model_dir(),
+            previous_ocr_path: state.config.local_ocr.model_dir(),
             applied: false,
         }
     }
@@ -54,6 +56,18 @@ impl ModelDirectoryChange {
                 let _ = move_model_directory(state, self.previous_path.clone()).await;
                 return Err(error);
             }
+            if let Err(error) =
+                move_ocr_directory(state, crate::ocr::model_directory(&self.candidate_path)).await
+            {
+                let lifecycle = state
+                    .content
+                    .local_translation_models
+                    .lock_exclusive()
+                    .await;
+                let _ = move_translation_models(state, self.previous_path.clone(), lifecycle).await;
+                let _ = move_model_directory(state, self.previous_path.clone()).await;
+                return Err(error);
+            }
             self.applied = true;
         }
         Ok(())
@@ -68,8 +82,21 @@ impl ModelDirectoryChange {
                 .await;
             state.capture.qwen_runtime.stop().await?;
             state.content.plamo_runtime.stop().await?;
-            move_model_directory(state, self.previous_path.clone()).await?;
-            move_translation_models(state, self.previous_path.clone(), lifecycle).await?;
+            let mut errors = Vec::new();
+            if let Err(error) = move_ocr_directory(state, self.previous_ocr_path.clone()).await {
+                errors.push(error);
+            }
+            if let Err(error) =
+                move_translation_models(state, self.previous_path.clone(), lifecycle).await
+            {
+                errors.push(error);
+            }
+            if let Err(error) = move_model_directory(state, self.previous_path.clone()).await {
+                errors.push(error);
+            }
+            if !errors.is_empty() {
+                return Err(errors.join("; "));
+            }
             self.applied = false;
         }
         Ok(())
@@ -92,4 +119,8 @@ async fn move_translation_models(
     tokio::task::spawn_blocking(move || models.move_root_locked(path, &lifecycle))
         .await
         .map_err(|error| format!("Translation model directory migration task failed: {error}"))?
+}
+
+async fn move_ocr_directory(state: &SettingsContext, path: PathBuf) -> Result<(), String> {
+    state.config.local_ocr.move_model_dir(path).await
 }

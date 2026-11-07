@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Gamepad2, ScanEye } from "lucide-react";
+import { Gamepad2, HardDrive, ScanEye } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { VrOcrStatus } from "../../integrations/types";
 import type { ApiProfileView } from "../../providers/types";
@@ -14,8 +14,12 @@ import { VisionSettingsCard } from "./VisionSettingsCard";
 import { patchVision } from "../vision-settings";
 import { PreferenceToggle } from "../SettingsControls";
 
-export function OcrSettingsSection({ vrAvailable, draft, profiles, applySettings }: {
-  vrAvailable: boolean; draft: Settings; profiles: ApiProfileView[]; applySettings: ApplySettings;
+export function OcrSettingsSection({ vrAvailable, draft, profiles, applySettings, onManageLocalModels }: {
+  vrAvailable: boolean;
+  draft: Settings;
+  profiles: ApiProfileView[];
+  applySettings: ApplySettings;
+  onManageLocalModels?: () => void;
 }) {
   const { t } = useTranslation();
   const [runtime, setRuntime] = useState<VrOcrStatus>();
@@ -51,7 +55,12 @@ export function OcrSettingsSection({ vrAvailable, draft, profiles, applySettings
   }, [vrAvailable, draft.features.ocr]);
   return <div className="settings-section settings-section-active vr-overlay-section ocr-settings-section"
     id="settings-panel-vision" role="tabpanel" aria-labelledby="settings-tab-vision">
-    <div className="section-heading"><div><ScanEye size={18} /><h2>{t("settings.categories.vision")}</h2></div></div>
+    <div className="section-heading">
+      <div><ScanEye size={18} /><h2>{t("settings.categories.vision")}</h2></div>
+      {onManageLocalModels && <button className="secondary-button" type="button" onClick={onManageLocalModels}>
+        <HardDrive size={15} />{t("settings.modelAssignments.manageLocalModels")}
+      </button>}
+    </div>
     {vrAvailable && <section className="vr-overlay-card" aria-label={t("settings.vrOcr.gesture")}>
       <PreferenceToggle title={t("settings.vrOcr.gesture")} checked={draft.ocr.hand_gesture_enabled}
         description={t("settings.vrOcr.gestureDescription")}

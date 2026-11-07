@@ -1,19 +1,19 @@
-import { useEffect, useRef, useState } from "react";
-import { ScanText, Trash2, Download, RefreshCw, Monitor, Glasses, RectangleGoggles } from "lucide-react";
+import { useEffect, useState } from "react";
+import { ScanText, Monitor, Glasses, RectangleGoggles } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { request } from "../../core-client/transport";
 import type { ApiProfileView } from "../../providers/types";
-import type { OcrExecutionStatus, VrOcrModelStatus, VrOcrSettings, VrOcrStatus, VrOcrWristSettings } from "../../integrations/types";
+import type { OcrExecutionStatus, VrOcrSettings, VrOcrStatus, VrOcrWristSettings } from "../../integrations/types";
 import { PreferenceToggle, RangeField, Select } from "../SettingsControls";
 import { formatBytes } from "../settings-derived";
 import { DEFAULT_OCR_WRIST_SETTINGS, isOcrReady, VR_OVERLAY_POSITION_RANGES } from "../vr-overlay-settings";
 import { TranslationRouteList } from "../translation/TranslationRouteList";
 import type { DesktopOcrStatus } from "../../ocr/status";
-import { ConfirmDialog } from "../../app/components/ConfirmDialog";
 import { ShortcutField } from "../../shared/ui/ShortcutField";
 import { SettingsDisclosure } from "../components/SettingsDisclosure";
 import { DEFAULT_MODEL_SELECTION, EMPTY_MODEL_BINDING, resolveModelSelection } from "../model-selection";
 import type { ModelBinding } from "../types";
+import { useOcrModels } from "../ocr/useOcrModels";
 
 export function OcrSettingsCard({ vrAvailable, config, profiles, defaultModel = EMPTY_MODEL_BINDING, disabled: saving, runtime, desktopStatus, onChange }: {
   vrAvailable: boolean;
@@ -27,35 +27,9 @@ export function OcrSettingsCard({ vrAvailable, config, profiles, defaultModel = 
 }) {
   const { t, i18n } = useTranslation();
   const disabled = saving || !config.master_enabled;
-  const [models, setModels] = useState<VrOcrModelStatus | null>(null);
+  const { models, error: modelError } = useOcrModels();
   const [execution, setExecution] = useState<OcrExecutionStatus | null>(null);
-  const [modelBusy, setModelBusy] = useState(false);
-  const [modelError, setModelError] = useState("");
-  const [confirmDelete, setConfirmDelete] = useState(false);
-  const [modelRemoving, setModelRemoving] = useState(false);
-  const deleteButtonRef = useRef<HTMLButtonElement>(null);
   const locale = i18n.resolvedLanguage ?? "en-US";
-  useEffect(() => {
-    let disposed = false;
-    let timer: ReturnType<typeof setTimeout>;
-    const controller = new AbortController();
-    const load = async () => {
-      try {
-        const next = await request<VrOcrModelStatus>("/api/ocr/models", { signal: controller.signal });
-        if (disposed) return;
-        setModels(next);
-        setModelError("");
-        if (next.state === "downloading") timer = setTimeout(() => void load(), 1000);
-      } catch {
-        if (!disposed) {
-          setModelError(t("settings.vrOcr.modelFailed"));
-          timer = setTimeout(() => void load(), 3000);
-        }
-      }
-    };
-    void load();
-    return () => { disposed = true; clearTimeout(timer); controller.abort(); };
-  }, [models?.state, t]);
 
   useEffect(() => {
     let disposed = false;
@@ -74,32 +48,6 @@ export function OcrSettingsCard({ vrAvailable, config, profiles, defaultModel = 
     void load();
     return () => { disposed = true; clearTimeout(timer); controller.abort(); };
   }, [vrAvailable, config.device, config.master_enabled, config.enabled, config.desktop_enabled]);
-
-  const prepareModels = async () => {
-    setModelBusy(true);
-    setModelError("");
-    try {
-      setModels(await request<VrOcrModelStatus>("/api/ocr/models/download", { method: "POST" }));
-    } catch {
-      setModelError(t("settings.vrOcr.modelFailed"));
-    } finally {
-      setModelBusy(false);
-    }
-  };
-
-  const deleteModels = async () => {
-    if (modelRemoving) return;
-    setModelRemoving(true);
-    setModelError("");
-    try {
-      setModels(await request<VrOcrModelStatus>("/api/ocr/models", { method: "DELETE" }));
-    } catch {
-      setModelError(t("settings.vrOcr.modelDeleteFailed"));
-    } finally {
-      setModelRemoving(false);
-      setConfirmDelete(false);
-    }
-  };
 
   const wrist = config.wrist ?? DEFAULT_OCR_WRIST_SETTINGS;
   const updateWrist = (patch: Partial<VrOcrWristSettings>) => onChange({ wrist: { ...wrist, ...patch } });
@@ -132,37 +80,22 @@ export function OcrSettingsCard({ vrAvailable, config, profiles, defaultModel = 
           {execution?.fallback_reason && <p className="vr-overlay-native-error" role="status" data-tooltip={execution.fallback_reason}>
             {t("settings.vrOcr.cpuFallback")}
           </p>}
-          <div className="model-list">
-            <div className="model-row">
-              <div className="model-row-body">
-                <div className="model-row-title">
-                  <strong>PP-OCRv6 small</strong>
-                  {models && <span className="model-size">{formatBytes(models.downloaded_bytes, locale)} / {formatBytes(models.total_bytes, locale)}</span>}
-                </div>
-                <p role="status">
-                  {models ? t(`settings.vrOcr.modelStates.${models.state}`) : t("common.loading")}
-                </p>
-                {models?.state === "downloading" && <div className="model-progress-wrap">
-                  <div className="model-progress-track" role="progressbar" aria-label={t("settings.recognition.downloadProgress", { name: "PP-OCRv6" })}
-                    aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(modelProgress * 100)}>
-                    <span style={{ transform: `scaleX(${modelProgress})` }} />
-                  </div>
-                  <span>{Math.round(modelProgress * 100)}%</span>
-                </div>}
-                {(modelError || models?.error) && <p className="vr-overlay-native-error" role="alert">{modelError || models?.error}</p>}
-              </div>
-              <div className="model-row-action">
-                {models?.state === "ready" ? <button className="model-delete-button" type="button" ref={deleteButtonRef}
-                  disabled={disabled || modelRemoving} aria-label={t("settings.recognition.deleteModel", { name: "PP-OCRv6 small" })}
-                  onClick={() => setConfirmDelete(true)}><Trash2 size={16} />{t("common.delete")}</button>
-                  : modelBusy || models?.state === "downloading" ? <span className="model-download-state"><RefreshCw size={15} />{t("common.downloading")}</span>
-                    : <button className="model-download-button" type="button" disabled={disabled}
-                      onClick={() => void prepareModels()}>
-                      <Download size={15} />
-                      {t(modelError || models?.state === "error" ? "common.retry" : "common.download")}
-                    </button>}
-              </div>
+          <div className="local-model-config-note" role="status">
+            <div>
+              <strong>PP-OCRv6 small</strong>
+              <span>{models
+                ? `${t(`settings.vrOcr.modelStates.${models.state}`)} · ${formatBytes(models.downloaded_bytes, locale)} / ${formatBytes(models.total_bytes, locale)}`
+                : t("common.loading")}</span>
             </div>
+            {models?.state === "downloading" && <div className="model-progress-wrap">
+              <div className="model-progress-track" role="progressbar"
+                aria-label={t("settings.recognition.downloadProgress", { name: "PP-OCRv6" })}
+                aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(modelProgress * 100)}>
+                <span style={{ transform: `scaleX(${Math.max(0.02, modelProgress)})` }} />
+              </div>
+              <span>{Math.round(modelProgress * 100)}%</span>
+            </div>}
+            {(modelError || models?.error) && <p className="vr-overlay-native-error" role="alert">{modelError || models?.error}</p>}
           </div>
           <TranslationRouteList title={t("settings.vrOcr.translation")} targets={config.targets}
             modelSelection={resolveModelSelection(config.model_selection ?? DEFAULT_MODEL_SELECTION, defaultModel)}
@@ -256,15 +189,6 @@ export function OcrSettingsCard({ vrAvailable, config, profiles, defaultModel = 
             </section>}
           </SettingsDisclosure>
         </section>}
-        {confirmDelete && <ConfirmDialog
-          title={t("common.delete")}
-          message={t("settings.recognition.confirmDelete", { name: "PP-OCRv6 small" })}
-          confirmLabel={t("common.delete")}
-          busy={modelRemoving}
-          icon={<Trash2 size={16} />}
-          returnFocusRef={deleteButtonRef}
-          onClose={() => setConfirmDelete(false)}
-          onConfirm={deleteModels} />}
       </SettingsDisclosure>
     </section>
   );

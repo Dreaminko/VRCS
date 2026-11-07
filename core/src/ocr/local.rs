@@ -56,6 +56,10 @@ impl LocalOcrRuntime {
         self.assets.status().await
     }
 
+    pub(crate) fn model_dir(&self) -> PathBuf {
+        self.assets.directory()
+    }
+
     pub fn download_models(&self) -> Result<ModelStatus, String> {
         self.assets.start_download()
     }
@@ -83,6 +87,28 @@ impl LocalOcrRuntime {
         })
         .await
         .map_err(|_| "OCR model deletion worker failed")?
+    }
+
+    pub(crate) async fn move_model_dir(&self, directory: PathBuf) -> Result<(), String> {
+        self.cancel_download().await;
+        let permit = self
+            .inference_gate
+            .clone()
+            .try_acquire_owned()
+            .map_err(|_| "Local OCR is recognizing; try changing the model directory later")?;
+        let engine = self.engine.clone();
+        let assets = self.assets.clone();
+        let execution = self.execution.clone();
+        tokio::task::spawn_blocking(move || {
+            let _permit = permit;
+            let mut engine = engine.lock().map_err(|_| "Local OCR engine lock failed")?;
+            *engine = None;
+            *execution.write().unwrap_or_else(|error| error.into_inner()) =
+                OcrExecutionStatus::default();
+            assets.move_directory(directory)
+        })
+        .await
+        .map_err(|_| "OCR model directory migration worker failed")?
     }
 
     pub async fn recognize<const N: usize>(
@@ -161,7 +187,7 @@ impl LocalOcrRuntime {
                         requested_device: device,
                         ..Default::default()
                     };
-                *engine = Some(Engine::load(&assets.directory, device)?);
+                *engine = Some(Engine::load(&assets.directory(), device)?);
                 let status = engine.as_ref().unwrap().execution.clone();
                 if let Some(reason) = &status.fallback_reason {
                     tracing::warn!(reason, "OCR DirectML loading failed; using CPU");
@@ -186,7 +212,7 @@ impl LocalOcrRuntime {
                             reason = error,
                             "OCR DirectML inference failed; retrying on CPU"
                         );
-                        *engine = Engine::load(&assets.directory, OcrDevice::Cpu).map_err(
+                        *engine = Engine::load(&assets.directory(), OcrDevice::Cpu).map_err(
                             |cpu_error| {
                                 format!("DirectML failed: {error}; CPU loading failed: {cpu_error}")
                             },

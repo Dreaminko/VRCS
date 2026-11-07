@@ -1244,6 +1244,7 @@
         "localPromptNotice": "PLaMo は固定の PFML3 翻訳形式を使用します。API のシステムプロンプトは送信されませんが、コンテキストと用語集は有効です。",
         "checkingLocalModel": "ローカルモデルを確認しています…",
         "localDownloadProgress": "PLaMo モデルのダウンロード進捗",
+        "localRuntimeTitle": "PLaMo ランタイムコンポーネント",
         "localRuntimeMissing": "共有の llama.cpp ランタイムがインストールされていません。ローカル翻訳を使用する前にダウンロードしてください。",
         "localDownloadRuntime": "ランタイムをダウンロード",
         "localLicenseConsent": "この固定リビジョンのモデルライセンスに同意します。",
@@ -1956,6 +1957,9 @@
       "modelAssignments": {
         "title": "API とモデル",
         "models": "モデルの割り当て",
+        "manageLocalModels": "ローカルモデルを管理",
+        "globalModelDirectory": "共通モデルフォルダー",
+        "globalModelDirectoryDescription": "ASR、OCR、ローカル翻訳モデルは、このフォルダー内の個別のサブフォルダーに保存されます。",
         "profiles": "API プロファイル",
         "textDefault": "既定のテキストモデル",
         "visionDefault": "既定の画像モデル",

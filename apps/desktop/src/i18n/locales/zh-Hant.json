@@ -1244,6 +1244,7 @@
         "localPromptNotice": "PLaMo 使用固定的 PFML3 翻譯格式，不會傳送 API 系統提示詞；上下文與術語表設定仍會生效。",
         "checkingLocalModel": "正在檢查本機模型…",
         "localDownloadProgress": "PLaMo 模型下載進度",
+        "localRuntimeTitle": "PLaMo 執行階段元件",
         "localRuntimeMissing": "共用 llama.cpp 執行階段尚未安裝，使用本機翻譯前請先下載。",
         "localDownloadRuntime": "下載執行階段",
         "localLicenseConsent": "我接受此固定版本對應的模型授權條款。",
@@ -1956,6 +1957,9 @@
       "modelAssignments": {
         "title": "API 與模型",
         "models": "模型分配",
+        "manageLocalModels": "管理本機模型",
+        "globalModelDirectory": "全域模型目錄",
+        "globalModelDirectoryDescription": "ASR、OCR 和本機翻譯模型分別存放在此目錄下的獨立子目錄中。",
         "profiles": "API 設定檔",
         "textDefault": "預設文字模型",
         "visionDefault": "預設視覺模型",

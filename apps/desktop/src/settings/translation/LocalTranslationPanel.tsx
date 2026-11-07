@@ -66,80 +66,110 @@ export function LocalTranslationPanel({
   };
 
   const model = status?.model;
+  const runtime = status?.runtime;
+  const license = status?.license;
   const downloading = model?.status === "downloading" || model?.status === "verifying";
+  const needsRuntime = Boolean(runtime && (!runtime.runtime_available || runtime.error));
   return <section className="model-section local-translation-model" aria-labelledby="local-translation-heading">
     <div className="section-heading">
       <div>
         <HardDrive size={18} />
         <h3 id="local-translation-heading">{t("settings.translation.localTranslation")}</h3>
-        <span>{status
-          ? t(`settings.translation.localStatus.${status.runtime.status}`)
+        <span>{model
+          ? t(`settings.translation.localStatus.${model.status}`)
           : t("common.loading")}</span>
       </div>
-      <button className="secondary-button" type="button" disabled={busy} onClick={() => void load()}>
+      <button className="secondary-button" type="button" disabled={disabled || busy}
+        onClick={() => void load()}>
         <RefreshCw size={15} />{t("common.refresh")}
       </button>
     </div>
 
-    {!status ? <p className="model-list-pending" role="status">{t("settings.translation.checkingLocalModel")}</p>
-      : <>
-        <article className={`model-row model-status-${model!.status}`}>
+    {!model || !runtime || !license ? <div className="model-list-pending" role="status">
+      <RefreshCw size={17} /><span>{t("settings.translation.checkingLocalModel")}</span>
+    </div>
+      : <div className="model-list">
+        {needsRuntime && <article className={`model-row model-status-${runtime.status}`}>
+          <div className="model-row-body">
+            <div className="model-row-title">
+              <strong>{t("settings.translation.localRuntimeTitle")}</strong>
+              <span className="model-size">{runtime.device.toUpperCase()}</span>
+            </div>
+            <p role="status">{runtime.runtime_available
+              ? t(`settings.translation.localStatus.${runtime.status}`)
+              : t("settings.translation.localRuntimeMissing")}</p>
+            {runtime.error && <p className="model-error" role="alert">{localizedError({
+              code: "translation.local_runtime_unavailable",
+              detail: runtime.error,
+            }, t, "errors.apiStatus.translation.failed")}</p>}
+          </div>
+          <div className="model-row-action">
+            {runtime.runtime_available
+              ? <button className="secondary-button" type="button" disabled={disabled || busy}
+                onClick={() => void run(localTranslationApi.unload)}>
+                {t("settings.translation.unload")}
+              </button>
+              : <button className="model-download-button" type="button" disabled={disabled || busy}
+                onClick={() => void run(providersApi.downloadQwenRuntime)}>
+                <Download size={16} />{t("settings.translation.localDownloadRuntime")}
+              </button>}
+          </div>
+        </article>}
+        <article className={`model-row model-status-${model.status}`}>
           <div className="model-row-body">
             <div className="model-row-title">
               <strong>PLaMo 3 Translate 0.8B Q4_K_M</strong>
+              {runtime.status === "ready" && <span className="model-active-chip">
+                {t("settings.recognition.inUse")}
+              </span>}
               <span className="model-size">{formatBytes(model!.total_bytes, locale)}</span>
             </div>
-            <p>{t(`settings.translation.localStatus.${model!.status}`)}</p>
-            <code>{model!.sha256}</code>
+            {model.status !== "installed" && <p>{t(`settings.translation.localStatus.${model.status}`)}</p>}
+            <code>{model.id}@{model.revision}</code>
             {downloading && <div className="model-progress-wrap">
               <div className="model-progress-track" role="progressbar"
                 aria-label={t("settings.translation.localDownloadProgress")}
-                aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(model!.progress * 100)}>
-                <span style={{ transform: `scaleX(${Math.max(0.02, model!.progress)})` }} />
+                aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(model.progress * 100)}>
+                <span style={{ transform: `scaleX(${Math.max(0.02, model.progress)})` }} />
               </div>
-              <span>{Math.round(model!.progress * 100)}%</span>
+              <span>{Math.round(model.progress * 100)}%</span>
             </div>}
-            {model!.error && <p className="model-error" role="alert">{localizedError({
+            {model.error && <p className="model-error" role="alert">{localizedError({
               code: "translation.local_download_failed",
-              detail: model!.error,
-            }, t, "errors.apiStatus.translation.failed")}</p>}
-            {!status.runtime.runtime_available && <div className="model-error" role="alert">
-              <span>{t("settings.translation.localRuntimeMissing")}</span>
-              <button className="secondary-button" type="button" disabled={busy || disabled}
-                onClick={() => void run(providersApi.downloadQwenRuntime)}>
-                <Download size={14} />{t("settings.translation.localDownloadRuntime")}
-              </button>
-            </div>}
-            {status.runtime.error && <p className="model-error" role="alert">{localizedError({
-              code: "translation.local_runtime_unavailable",
-              detail: status.runtime.error,
+              detail: model.error,
             }, t, "errors.apiStatus.translation.failed")}</p>}
           </div>
           <div className="model-row-action">
             {downloading
-              ? <button className="secondary-button" type="button" disabled={busy}
-                onClick={() => void run(localTranslationApi.cancel)}><Square size={14} />{t("common.cancel")}</button>
-              : model!.status === "installed" ? <>
-                <button className="secondary-button" type="button" disabled={busy}
+              ? <button className="secondary-button" type="button" disabled={disabled || busy}
+                onClick={() => void run(localTranslationApi.cancel)}>
+                <Square size={14} />{t("common.cancel")}
+              </button>
+              : model.status === "installed" ? <>
+                <button className="secondary-button" type="button" disabled={disabled || busy}
                   onClick={() => void run(localTranslationApi.verify)}>{t("settings.translation.verify")}</button>
-                <button className="secondary-button" type="button" disabled={busy || status.runtime.status === "not_loaded"}
+                <button className="secondary-button" type="button" disabled={disabled || busy || runtime.status === "not_loaded"}
                   onClick={() => void run(localTranslationApi.unload)}>{t("settings.translation.unload")}</button>
-                <button ref={deleteButton} className="model-delete-button" type="button" disabled={busy}
-                  onClick={() => setConfirmDelete(true)}><Trash2 size={16} />{t("common.delete")}</button>
-              </> : <button className="model-download-button" type="button" disabled={busy || !accepted}
-                onClick={() => void run(() => localTranslationApi.download(model!.id, model!.revision))}>
-                <Download size={16} />{t(model!.status === "error" ? "common.retry" : "common.download")}
+                <button ref={deleteButton} className="model-delete-button" type="button" disabled={disabled || busy}
+                  aria-label={t("settings.translation.deleteLocalModel")} onClick={() => setConfirmDelete(true)}>
+                  <Trash2 size={16} />{t("common.delete")}
+                </button>
+              </> : <button className="model-download-button" type="button" disabled={disabled || busy || !accepted}
+                onClick={() => void run(() => localTranslationApi.download(model.id, model.revision))}>
+                <Download size={16} />{t(model.status === "error" ? "common.retry" : "common.download")}
               </button>}
           </div>
         </article>
-        <label className="settings-checkbox-row local-license-consent">
-          <input type="checkbox" checked={accepted} disabled={downloading}
+        {model.status !== "installed" && <label className="local-license-consent">
+          <input type="checkbox" checked={accepted} disabled={disabled || downloading}
             onChange={(event) => setAccepted(event.target.checked)} />
           <span>{t("settings.translation.localLicenseConsent")} </span>
-          <a href={status.license.url} target="_blank" rel="noreferrer">{status.license.name}</a>
-        </label>
-        <p className="settings-field-note">{status.license.attribution} · {t("settings.translation.localLicenseNotice")}</p>
-      </>}
+          <a href={license.url} target="_blank" rel="noreferrer">{license.name}</a>
+        </label>}
+      </div>}
+    {license && <p className="local-model-license-note">
+      {license.attribution} · {t("settings.translation.localLicenseNotice")}
+    </p>}
     {(statusError || actionMessage) && <p className="model-manager-feedback" role="alert">
       {statusError || actionMessage}
     </p>}
@@ -148,7 +178,7 @@ export function LocalTranslationPanel({
       busy={busy} returnFocusRef={deleteButton} onClose={() => setConfirmDelete(false)}
       onConfirm={() => {
         setConfirmDelete(false);
-        void run(() => localTranslationApi.delete(status!.model.id));
+        if (model) void run(() => localTranslationApi.delete(model.id));
       }} />}
   </section>;
 }

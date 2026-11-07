@@ -1535,8 +1535,20 @@ async fn settings_update_switches_the_live_model_directory() {
     .await
     .unwrap();
     let token = handle.session_token().to_owned();
-    let old_model_path = handle.model_manager.model_dir().join("ggml-old.bin");
+    let old_root = handle.model_manager.model_dir();
+    assert_eq!(
+        handle.state.content.local_translation_models.root(),
+        old_root
+    );
+    assert_eq!(
+        handle.state.config.local_ocr.model_dir(),
+        crate::ocr::model_directory(&old_root)
+    );
+    let old_model_path = old_root.join("ggml-old.bin");
     std::fs::write(&old_model_path, b"legacy").unwrap();
+    let old_ocr_model_path = handle.state.config.local_ocr.model_dir().join("det.onnx");
+    std::fs::create_dir_all(old_ocr_model_path.parent().unwrap()).unwrap();
+    std::fs::write(&old_ocr_model_path, b"ocr").unwrap();
     let client = reqwest::Client::new();
     let settings_url = format!("http://{}/api/settings", handle.address());
     let mut settings: serde_json::Value = client
@@ -1558,12 +1570,66 @@ async fn settings_update_switches_the_live_model_directory() {
         .await
         .unwrap();
     assert_eq!(response.status(), reqwest::StatusCode::OK);
+    let new_root = directory.path().join("custom").join("models");
+    assert_eq!(handle.model_manager.model_dir(), new_root);
     assert_eq!(
-        handle.model_manager.model_dir(),
-        directory.path().join("custom").join("models")
+        handle.state.content.local_translation_models.root(),
+        new_root
     );
-    assert!(handle.model_manager.model_dir().is_dir());
+    assert_eq!(
+        handle.state.config.local_ocr.model_dir(),
+        crate::ocr::model_directory(&new_root)
+    );
+    assert!(new_root.is_dir());
     assert_eq!(std::fs::read(&old_model_path).unwrap(), b"legacy");
+    assert_eq!(
+        std::fs::read(crate::ocr::model_directory(&new_root).join("det.onnx")).unwrap(),
+        b"ocr"
+    );
+    assert!(!old_ocr_model_path.exists());
+    handle.shutdown().await.unwrap();
+}
+
+#[tokio::test]
+async fn startup_moves_legacy_ocr_models_into_shared_storage() {
+    let directory = tempfile::tempdir().unwrap();
+    let legacy_directory = directory
+        .path()
+        .join("models")
+        .join("ocr")
+        .join("ppocrv6-small");
+    std::fs::create_dir_all(&legacy_directory).unwrap();
+    let legacy_model = legacy_directory.join("det.onnx");
+    std::fs::write(&legacy_model, b"legacy-ocr").unwrap();
+    let port = std::net::TcpListener::bind(("127.0.0.1", 0))
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .port();
+
+    let handle = start(CoreOptions {
+        config_path: directory.path().join("config.json"),
+        host: Some("127.0.0.1".into()),
+        port: Some(port),
+        session_token: None,
+        vad_model_path: Some(directory.path().join("missing-silero.onnx")),
+        asr_model_dir: None,
+    })
+    .await
+    .unwrap();
+
+    assert_eq!(
+        handle.state.config.local_ocr.model_dir(),
+        crate::ocr::model_directory(&handle.model_manager.model_dir())
+    );
+    assert_eq!(
+        std::fs::read(
+            crate::ocr::model_directory(&handle.model_manager.model_dir()).join("det.onnx")
+        )
+        .unwrap(),
+        b"legacy-ocr"
+    );
+    assert!(!legacy_model.exists());
     handle.shutdown().await.unwrap();
 }
 

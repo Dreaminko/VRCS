@@ -1244,6 +1244,7 @@
         "localPromptNotice": "PLaMo uses its fixed PFML3 translation format. The API system prompt is not sent; context and glossary settings still apply.",
         "checkingLocalModel": "Checking the local model…",
         "localDownloadProgress": "PLaMo model download progress",
+        "localRuntimeTitle": "PLaMo runtime components",
         "localRuntimeMissing": "The shared llama.cpp runtime is not installed. Download it before using local translation.",
         "localDownloadRuntime": "Download runtime",
         "localLicenseConsent": "I accept the model license for this pinned revision.",
@@ -1956,6 +1957,9 @@
       "modelAssignments": {
         "title": "API and models",
         "models": "Model assignments",
+        "manageLocalModels": "Manage local models",
+        "globalModelDirectory": "Global model directory",
+        "globalModelDirectoryDescription": "ASR, OCR, and local translation models are stored in separate folders under this directory.",
         "profiles": "API profiles",
         "textDefault": "Default text model",
         "visionDefault": "Default vision model",

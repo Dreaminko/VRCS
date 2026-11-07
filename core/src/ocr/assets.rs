@@ -53,7 +53,7 @@ pub struct ModelStatus {
 
 #[derive(Clone)]
 pub(super) struct ModelAssets {
-    pub directory: PathBuf,
+    directory: Arc<RwLock<PathBuf>>,
     status: Arc<RwLock<ModelStatus>>,
     prepare_lock: Arc<tokio::sync::Mutex<()>>,
     download_task: Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>,
@@ -63,7 +63,7 @@ pub(super) struct ModelAssets {
 impl ModelAssets {
     pub fn new(directory: PathBuf) -> Self {
         Self {
-            directory,
+            directory: Arc::new(RwLock::new(directory)),
             status: Arc::new(RwLock::new(ModelStatus {
                 state: ModelState::Missing,
                 downloaded_bytes: 0,
@@ -89,6 +89,41 @@ impl ModelAssets {
             .read()
             .unwrap_or_else(|error| error.into_inner())
             .clone()
+    }
+
+    pub(super) fn directory(&self) -> PathBuf {
+        self.directory
+            .read()
+            .unwrap_or_else(|error| error.into_inner())
+            .clone()
+    }
+
+    pub(super) fn move_directory(&self, directory: PathBuf) -> Result<(), String> {
+        let _guard = self
+            .prepare_lock
+            .try_lock()
+            .map_err(|_| "OCR models are being downloaded or verified")?;
+        let current = self.directory();
+        if current != directory {
+            migrate_managed_directory(&current, &directory)?;
+            *self
+                .directory
+                .write()
+                .unwrap_or_else(|error| error.into_inner()) = directory;
+        }
+        let bytes = self.verified_bytes()?;
+        let mut status = self
+            .status
+            .write()
+            .unwrap_or_else(|error| error.into_inner());
+        status.downloaded_bytes = bytes;
+        status.state = if bytes == status.total_bytes {
+            ModelState::Ready
+        } else {
+            ModelState::Missing
+        };
+        status.error = None;
+        Ok(())
     }
 
     pub async fn status(&self) -> Result<ModelStatus, String> {
@@ -176,8 +211,9 @@ impl ModelAssets {
             status.downloaded_bytes = 0;
             status.error = None;
         }
+        let directory = self.directory();
         for asset in &ASSETS {
-            let path = self.directory.join(asset.name);
+            let path = directory.join(asset.name);
             for file in [&path, &path.with_extension("download.tmp")] {
                 match std::fs::remove_file(file) {
                     Ok(()) => {}
@@ -191,8 +227,9 @@ impl ModelAssets {
 
     fn verified_bytes(&self) -> Result<u64, String> {
         let mut bytes = 0;
+        let directory = self.directory();
         for asset in &ASSETS {
-            if verify_file(&self.directory.join(asset.name), asset)? {
+            if verify_file(&directory.join(asset.name), asset)? {
                 bytes += asset.bytes;
             }
         }
@@ -209,14 +246,15 @@ impl ModelAssets {
     }
 
     async fn download(&self) -> Result<(), String> {
-        tokio::fs::create_dir_all(&self.directory)
+        let directory = self.directory();
+        tokio::fs::create_dir_all(&directory)
             .await
             .map_err(|_| "Could not create the OCR model directory")?;
         let client = crate::downloads::client_builder()
             .build()
             .map_err(|_| "Could not create the OCR model download client")?;
         for asset in &ASSETS {
-            let path = self.directory.join(asset.name);
+            let path = directory.join(asset.name);
             let check_path = path.clone();
             if tokio::task::spawn_blocking(move || verify_file(&check_path, asset))
                 .await
@@ -326,6 +364,122 @@ impl ModelAssets {
     }
 }
 
+pub(super) fn migrate_managed_directory(source: &Path, destination: &Path) -> Result<(), String> {
+    if source == destination || !source.exists() {
+        return Ok(());
+    }
+    let source_metadata = std::fs::symlink_metadata(source).map_err(|error| error.to_string())?;
+    if !source_metadata.is_dir() || source_metadata.file_type().is_symlink() {
+        return Err("Legacy OCR model path is not a managed directory".into());
+    }
+    if destination.exists() {
+        let metadata = std::fs::symlink_metadata(destination).map_err(|error| error.to_string())?;
+        if !metadata.is_dir() || metadata.file_type().is_symlink() {
+            return Err("OCR model destination is not a managed directory".into());
+        }
+        let destination_complete = ASSETS
+            .iter()
+            .map(|asset| verify_file(&destination.join(asset.name), asset))
+            .collect::<Result<Vec<_>, _>>()?
+            .into_iter()
+            .all(|verified| verified);
+        if destination_complete {
+            for asset in &ASSETS {
+                let path = source.join(asset.name);
+                for file in [&path, &path.with_extension("download.tmp")] {
+                    match std::fs::remove_file(file) {
+                        Ok(()) => {}
+                        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                        Err(error) => return Err(error.to_string()),
+                    }
+                }
+            }
+            remove_empty_directory(source);
+            return Ok(());
+        }
+        if std::fs::read_dir(destination)
+            .map_err(|error| error.to_string())?
+            .any(|entry| {
+                entry.is_ok_and(|entry| {
+                    let name = entry.file_name();
+                    let name = name.to_string_lossy();
+                    ASSETS
+                        .iter()
+                        .any(|asset| name == asset.name || name.ends_with("download.tmp"))
+                })
+            })
+        {
+            return Err("OCR model destination contains incomplete files".into());
+        }
+    }
+
+    std::fs::create_dir_all(destination).map_err(|error| error.to_string())?;
+    let mut moved: Vec<(PathBuf, PathBuf)> = Vec::new();
+    for asset in &ASSETS {
+        for source_file in [
+            source.join(asset.name),
+            source.join(asset.name).with_extension("download.tmp"),
+        ] {
+            if !source_file.exists() {
+                continue;
+            }
+            let destination_file = destination.join(
+                source_file
+                    .file_name()
+                    .ok_or("OCR model file has no filename")?,
+            );
+            if let Err(error) = move_managed_file(&source_file, &destination_file) {
+                for (from, to) in moved.into_iter().rev() {
+                    let _ = move_managed_file(&from, &to);
+                }
+                return Err(error);
+            }
+            moved.push((destination_file, source_file));
+        }
+    }
+    remove_empty_directory(source);
+    Ok(())
+}
+
+fn move_managed_file(source: &Path, destination: &Path) -> Result<(), String> {
+    match std::fs::rename(source, destination) {
+        Ok(()) => Ok(()),
+        Err(error)
+            if matches!(
+                error.kind(),
+                std::io::ErrorKind::CrossesDevices | std::io::ErrorKind::PermissionDenied
+            ) =>
+        {
+            std::fs::copy(source, destination).map_err(|error| {
+                format!(
+                    "Could not copy OCR model from {} to {}: {error}",
+                    source.display(),
+                    destination.display()
+                )
+            })?;
+            if let Err(error) = std::fs::remove_file(source) {
+                let _ = std::fs::remove_file(destination);
+                return Err(format!(
+                    "Could not remove migrated OCR model {}: {error}",
+                    source.display()
+                ));
+            }
+            Ok(())
+        }
+        Err(error) => Err(format!(
+            "Could not move OCR model from {} to {}: {error}",
+            source.display(),
+            destination.display()
+        )),
+    }
+}
+
+fn remove_empty_directory(path: &Path) {
+    if std::fs::read_dir(path).is_ok_and(|mut entries| entries.next().is_none()) {
+        let _ = std::fs::remove_dir(path);
+    }
+}
+
 fn verify_file(path: &Path, asset: &Asset) -> Result<bool, String> {
     let metadata = match path.metadata() {
         Ok(metadata) => metadata,
@@ -404,6 +558,39 @@ mod tests {
         assert_eq!(std::fs::read(unrelated).unwrap(), b"keep");
         assert_eq!(assets.status().await.unwrap().state, ModelState::Missing);
         assert!(assets.delete().is_ok());
+    }
+
+    #[test]
+    fn ocr_model_directory_migration_moves_managed_files() {
+        let root = tempfile::tempdir().unwrap();
+        let source = root.path().join("legacy");
+        let destination = root.path().join("shared").join("ppocrv6-small");
+        std::fs::create_dir_all(&source).unwrap();
+        let model = source.join(ASSETS[0].name);
+        let partial = model.with_extension("download.tmp");
+        let unrelated = source.join("keep.txt");
+        std::fs::write(&model, b"model").unwrap();
+        std::fs::write(&partial, b"partial").unwrap();
+        std::fs::write(&unrelated, b"keep").unwrap();
+
+        migrate_managed_directory(&source, &destination).unwrap();
+
+        assert_eq!(
+            std::fs::read(destination.join(ASSETS[0].name)).unwrap(),
+            b"model"
+        );
+        assert_eq!(
+            std::fs::read(
+                destination
+                    .join(ASSETS[0].name)
+                    .with_extension("download.tmp")
+            )
+            .unwrap(),
+            b"partial"
+        );
+        assert!(!model.exists());
+        assert!(!partial.exists());
+        assert_eq!(std::fs::read(unrelated).unwrap(), b"keep");
     }
 
     #[test]

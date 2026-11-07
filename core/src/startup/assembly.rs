@@ -44,8 +44,25 @@ impl RuntimeAssembly {
             .map_err(|error| format!("Failed to apply subtitle history storage quota: {error}"))?;
 
         let (vad_runtime, vad_prepare_task) = prepare_vad(&plan, preparation).await;
+        let shared_ocr_directory = crate::ocr::model_directory(&plan.asr_model_dir);
+        let legacy_ocr_directory = plan
+            .config_path
+            .parent()
+            .unwrap_or_else(|| std::path::Path::new("."))
+            .join("models/ocr/ppocrv6-small");
+        if let Err(error) =
+            crate::ocr::migrate_legacy_model_directory(&legacy_ocr_directory, &shared_ocr_directory)
+        {
+            tracing::warn!(
+                %error,
+                source = %legacy_ocr_directory.display(),
+                destination = %shared_ocr_directory.display(),
+                "Legacy OCR model directory could not be moved into shared model storage"
+            );
+        }
         let config_runtime = ConfigRuntime::new(ConfigRuntimeInput {
             config_path: plan.config_path.clone(),
+            model_directory: plan.asr_model_dir.clone(),
             asr_model_dir_override: plan.asr_model_dir_override.clone(),
             config: plan.config.clone(),
         });

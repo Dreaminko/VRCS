@@ -87,7 +87,14 @@
   transition: transform 300ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 .model-row-body > .model-error { margin-top: 3px; color: var(--error); }
-.model-row-action { display: flex; min-width: 0; justify-content: flex-end; }
+.model-row-action {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
 .model-download-button,
 .model-delete-button {
   min-width: 78px;
