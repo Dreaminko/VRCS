@@ -24,12 +24,14 @@ pub use crate::credentials::{
     credential_status, delete_credential, read_credential, write_credential,
 };
 pub use manager::ModelManager;
+pub(crate) use migration::paths_equivalent;
 pub(crate) use question::{
     recognize_live_question, validate_backend as validate_question_backend, QuestionDraft,
 };
 pub(crate) use qwen_models::is_supported as is_supported_qwen_package;
 pub(crate) use qwen_models::{
     download_file as download_model_file, verify_file as verify_model_file,
+    verify_file_forced as verify_model_file_forced,
     verify_file_readonly as verify_model_file_readonly, AssetSpec as ModelAssetSpec,
 };
 pub(crate) use qwen_runtime::QwenRuntime;

@@ -5,7 +5,8 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::{watch, OwnedRwLockReadGuard, OwnedRwLockWriteGuard, RwLock};
 
 use crate::asr::{
-    download_model_file, verify_model_file, verify_model_file_readonly, ModelAssetSpec,
+    download_model_file, paths_equivalent, verify_model_file, verify_model_file_forced,
+    verify_model_file_readonly, ModelAssetSpec,
 };
 
 use super::plamo::{
@@ -187,7 +188,7 @@ impl LocalTranslationModels {
                 job.error = result.err();
             }
             // Store a permit if cancellation begins after the worker finishes.
-            let _ = done.send(true);
+            complete_download(&done);
         });
         Ok(())
     }
@@ -209,7 +210,7 @@ impl LocalTranslationModels {
         &self,
         _lifecycle: &OwnedRwLockReadGuard<()>,
     ) -> Result<LocalTranslationModelStatus, String> {
-        if !verify_package(&self.root())? {
+        if !verify_assets_forced(&package_dir(&self.root()), &[MODEL, LICENSE])? {
             return Err("The local PLaMo model is missing or failed verification".into());
         }
         Ok(self.status())
@@ -237,7 +238,7 @@ impl LocalTranslationModels {
         _lifecycle: &OwnedRwLockWriteGuard<()>,
     ) -> Result<(), String> {
         let previous = self.root();
-        if previous == root {
+        if paths_equivalent(&previous, &root) {
             return Ok(());
         }
         if self
@@ -314,6 +315,10 @@ impl LocalTranslationModels {
         )
         .await
     }
+}
+
+fn complete_download(done: &watch::Sender<bool>) {
+    done.send_replace(true);
 }
 
 async fn cancel_job(job: DownloadJob) {
@@ -454,6 +459,18 @@ fn verify_assets(directory: &Path, assets: &[ModelAssetSpec]) -> Result<bool, St
 
 fn verify_assets_readonly(directory: &Path, assets: &[ModelAssetSpec]) -> Result<bool, String> {
     verify_assets_with_cache(directory, assets, false)
+}
+
+fn verify_assets_forced(directory: &Path, assets: &[ModelAssetSpec]) -> Result<bool, String> {
+    if !assets_have_expected_size(directory, assets) {
+        return Ok(false);
+    }
+    for asset in assets {
+        if !verify_model_file_forced(&directory.join(asset.name), *asset)? {
+            return Ok(false);
+        }
+    }
+    Ok(true)
 }
 
 fn verify_assets_with_cache(
@@ -693,6 +710,34 @@ mod tests {
     }
 
     #[test]
+    fn explicit_verification_rehashes_cached_assets() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join(FIXTURE.name);
+        std::fs::write(&path, b"abd").unwrap();
+        let modified_nanos = path
+            .metadata()
+            .unwrap()
+            .modified()
+            .unwrap()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos() as u64;
+        let verification = path.with_file_name(format!("{}.vrcs-verified.json", FIXTURE.name));
+        std::fs::write(
+            verification,
+            serde_json::to_vec(&serde_json::json!({
+                "bytes": FIXTURE.bytes,
+                "modified_nanos": modified_nanos,
+                "sha256": FIXTURE.sha256,
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        assert!(!verify_assets_forced(directory.path(), &[FIXTURE]).unwrap());
+    }
+
+    #[test]
     fn copied_packages_are_verified_in_their_temporary_directory() {
         let directory = tempfile::Builder::new()
             .prefix("vrcs-plamo-copy-")
@@ -759,6 +804,24 @@ mod tests {
         })
         .await
         .unwrap();
+    }
+
+    #[tokio::test]
+    async fn completion_without_a_subscriber_releases_a_later_cancel_waiter() {
+        let (cancel, _) = watch::channel(false);
+        let (done, _) = watch::channel(false);
+        complete_download(&done);
+        let job = DownloadJob {
+            status: "downloading",
+            downloaded_bytes: 0,
+            error: None,
+            cancel,
+            done,
+        };
+
+        tokio::time::timeout(Duration::from_secs(1), cancel_job(job))
+            .await
+            .unwrap();
     }
 
     #[tokio::test]

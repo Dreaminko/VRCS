@@ -12,10 +12,7 @@ pub(super) fn move_model_dir_with_specs(
     specs: &[PackageSpec],
 ) -> Result<(), String> {
     std::fs::create_dir_all(&destination).map_err(|error| error.to_string())?;
-    if source == destination
-        || matches!((std::fs::canonicalize(&source), std::fs::canonicalize(&destination)),
-            (Ok(source), Ok(destination)) if source == destination)
-    {
+    if paths_equivalent(&source, &destination) {
         return Ok(());
     }
     let migration = prepare_migration(&source, &destination, specs)?;
@@ -25,4 +22,31 @@ pub(super) fn move_model_dir_with_specs(
         tracing::warn!(%error, "Qwen ASR package moved, but old copy could not be removed");
     }
     Ok(())
+}
+
+pub(crate) fn paths_equivalent(left: &std::path::Path, right: &std::path::Path) -> bool {
+    let equivalent = |left: &std::path::Path, right: &std::path::Path| {
+        #[cfg(windows)]
+        {
+            let normalize = |path: &std::path::Path| {
+                path.to_string_lossy()
+                    .replace('/', "\\")
+                    .trim_end_matches('\\')
+                    .to_lowercase()
+            };
+            return normalize(left) == normalize(right);
+        }
+        #[cfg(not(windows))]
+        {
+            left == right
+        }
+    };
+    equivalent(left, right)
+        || matches!(
+            (
+                std::fs::canonicalize(left),
+                std::fs::canonicalize(right)
+            ),
+            (Ok(left), Ok(right)) if equivalent(&left, &right)
+        )
 }

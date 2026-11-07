@@ -50,25 +50,10 @@ impl ModelDirectoryChange {
             state.capture.qwen_runtime.stop().await?;
             state.content.plamo_runtime.stop().await?;
             move_model_directory(state, self.candidate_path.clone()).await?;
-            if let Err(error) =
-                move_translation_models(state, self.candidate_path.clone(), lifecycle).await
-            {
-                let _ = move_model_directory(state, self.previous_path.clone()).await;
-                return Err(error);
-            }
-            if let Err(error) =
-                move_ocr_directory(state, crate::ocr::model_directory(&self.candidate_path)).await
-            {
-                let lifecycle = state
-                    .content
-                    .local_translation_models
-                    .lock_exclusive()
-                    .await;
-                let _ = move_translation_models(state, self.previous_path.clone(), lifecycle).await;
-                let _ = move_model_directory(state, self.previous_path.clone()).await;
-                return Err(error);
-            }
+            // The shared settings rollback now owns recovery for every later failure.
             self.applied = true;
+            move_translation_models(state, self.candidate_path.clone(), lifecycle).await?;
+            move_ocr_directory(state, crate::ocr::model_directory(&self.candidate_path)).await?;
         }
         Ok(())
     }

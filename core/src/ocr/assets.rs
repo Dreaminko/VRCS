@@ -6,6 +6,8 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, RwLock};
 use tokio::io::AsyncWriteExt;
 
+use crate::asr::paths_equivalent;
+
 struct Asset {
     name: &'static str,
     url: &'static str,
@@ -372,6 +374,18 @@ pub(super) fn migrate_managed_directory(source: &Path, destination: &Path) -> Re
     if !source_metadata.is_dir() || source_metadata.file_type().is_symlink() {
         return Err("Legacy OCR model path is not a managed directory".into());
     }
+    if destination.exists()
+        && (paths_equivalent(source, destination)
+            || matches!(
+                (
+                    std::fs::canonicalize(source),
+                    std::fs::canonicalize(destination)
+                ),
+                (Ok(source), Ok(destination)) if paths_equivalent(&source, &destination)
+            ))
+    {
+        return Ok(());
+    }
     if destination.exists() {
         let metadata = std::fs::symlink_metadata(destination).map_err(|error| error.to_string())?;
         if !metadata.is_dir() || metadata.file_type().is_symlink() {
@@ -591,6 +605,21 @@ mod tests {
         assert!(!model.exists());
         assert!(!partial.exists());
         assert_eq!(std::fs::read(unrelated).unwrap(), b"keep");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn ocr_model_directory_migration_accepts_case_variants() {
+        let root = tempfile::tempdir().unwrap();
+        let source = root.path().join("models");
+        let destination = PathBuf::from(source.to_string_lossy().to_ascii_uppercase());
+        std::fs::create_dir_all(&source).unwrap();
+        let model = source.join(ASSETS[0].name);
+        std::fs::write(&model, b"model").unwrap();
+
+        migrate_managed_directory(&source, &destination).unwrap();
+
+        assert_eq!(std::fs::read(model).unwrap(), b"model");
     }
 
     #[test]
