@@ -308,6 +308,11 @@ fn profile_usages(config: &crate::config::AppConfig, profile_id: &str) -> Vec<Va
             "model_default_vision",
             CAPABILITY_IMAGE_UNDERSTANDING,
         ),
+        (
+            &config.model_defaults.translation,
+            "model_default_translation",
+            CAPABILITY_TEXT_TRANSLATION,
+        ),
     ] {
         if binding.profile_id.as_deref() == Some(profile_id) {
             usages.push(json!({ "kind": kind, "capability": capability }));
@@ -444,6 +449,18 @@ fn connection_origin_changed(previous: &ApiProfile, updated: &ApiProfile) -> boo
             .map(|url| url.origin())
     };
     origin(previous) != origin(updated)
+}
+
+fn credential_reconfirmation_required(
+    previous: &ApiProfile,
+    updated: &ApiProfile,
+    api_key_supplied: bool,
+    credential_configured: bool,
+) -> bool {
+    updated.requires_api_key()
+        && !api_key_supplied
+        && credential_configured
+        && (connection_origin_changed(previous, updated) || !previous.requires_api_key())
 }
 
 pub(super) async fn profile_list(State(state): State<SettingsContext>) -> ApiResult<Json<Value>> {
@@ -587,17 +604,18 @@ pub(super) async fn profile_update(
         .iter()
         .find(|profile| profile.id == profile_id)
         .expect("profile exists");
-    if updated.requires_api_key()
-        && connection_origin_changed(previous, &updated)
-        && api_key.is_none()
-        && asr::credential_status(&profile_id, &updated.provider)
+    if credential_reconfirmation_required(
+        previous,
+        &updated,
+        api_key.is_some(),
+        asr::credential_status(&profile_id, &updated.provider)
             .map_err(credential_error)?
-            .configured
-    {
+            .configured,
+    ) {
         return Err(api_error(
             StatusCode::CONFLICT,
             "profile.credential_reconfirm_required",
-            "Enter an API key again before changing the connection origin",
+            "Enter an API key again before changing this authenticated connection",
         ));
     }
     if let Some(api_key) = api_key {
@@ -1218,6 +1236,7 @@ fn apply_profile_compatibility_fallbacks(
 fn clear_model_bindings(config: &mut crate::config::AppConfig, profile_id: &str) {
     for binding in [
         &mut config.model_defaults.text,
+        &mut config.model_defaults.translation,
         &mut config.model_defaults.vision,
     ] {
         if binding.profile_id.as_deref() == Some(profile_id) {
@@ -1367,6 +1386,11 @@ mod tests {
             profile_id: Some("shared".into()),
             model: "text-model".into(),
         };
+        config.model_defaults.translation = crate::config::ModelBinding {
+            backend: crate::config::TranslationBackend::Api,
+            profile_id: Some("shared".into()),
+            model: "translation-model".into(),
+        };
         config.model_defaults.vision = crate::config::ModelBinding {
             backend: crate::config::TranslationBackend::Api,
             profile_id: Some("shared".into()),
@@ -1417,10 +1441,8 @@ mod tests {
         config.resolve_model_assignments();
         assert!(profile_usages(&config, "shared").is_empty());
         assert!(config.learning_ai.use_default_model && config.learning_ai.profile_id.is_none());
-        assert_eq!(
-            config.translation.microphone_targets[0],
-            current.translation.microphone_targets[0]
-        );
+        assert_eq!(config.translation.microphone_targets[0].profile_id, None);
+        assert!(config.translation.microphone_targets[0].use_default_model);
         config.validate_settings().unwrap();
     }
 
@@ -1564,6 +1586,37 @@ mod tests {
             profile.base_url = Some(url.into());
             assert!(connection_origin_changed(&original, &profile));
         }
+    }
+
+    #[test]
+    fn credential_reconfirmation_survives_a_no_auth_origin_change() {
+        let requiring_auth = ApiProfile {
+            base_url: Some("https://first.example/v1".into()),
+            auth_mode: ApiAuthMode::Bearer,
+            ..Default::default()
+        };
+        let no_auth = ApiProfile {
+            base_url: Some("https://second.example/v1".into()),
+            auth_mode: ApiAuthMode::None,
+            ..requiring_auth.clone()
+        };
+        let restored_auth = ApiProfile {
+            auth_mode: ApiAuthMode::Bearer,
+            ..no_auth.clone()
+        };
+
+        assert!(credential_reconfirmation_required(
+            &no_auth,
+            &restored_auth,
+            false,
+            true
+        ));
+        assert!(!credential_reconfirmation_required(
+            &no_auth,
+            &restored_auth,
+            true,
+            true
+        ));
     }
 
     #[test]
