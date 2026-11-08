@@ -71,14 +71,6 @@ export function PlayerHistoryControls({ subtitles, status, enabled, selectedUser
     playerDistances,
   ), [subtitles, status?.players, enabled, selectedUserIds, selectedUserNames, playerDistances]);
   const languages = preferences.hiddenSourceLanguages ?? [];
-  const phase = status?.phase ?? "stopped";
-  const proximityWait = enabled && phase === "streaming" && proximity?.enabled
-    ? status?.proximity?.local_position !== true
-      ? t("live.players.proximityWaitingLocal")
-      : (status.proximity.tracked_players ?? 0) === 0
-        ? t("live.players.proximityWaitingPlayers")
-        : null
-    : null;
   const languageCodes = playerLanguageOptions(subtitles, defaultLanguages, preferences.hiddenSourceLanguages).filter(language => !languages.includes(language));
   const languageName = (language: string) => localizedLanguageName(language, i18n.resolvedLanguage ?? "en-US");
   const display = (action: PlayerVisibilityAction) => onPreferences(value => applyPlayerVisibilityAction(value, action, defaultLanguages));
@@ -130,14 +122,9 @@ export function PlayerHistoryControls({ subtitles, status, enabled, selectedUser
           disabled={!enabled || !onProximityChange}
           onChange={(enabled) => void onProximityChange?.({ ...proximity, enabled })} />
         <RangeField label={t("live.players.proximityRadius")} value={proximity.radius_m}
-          min={1} max={100} step={1} disabled={!enabled || !proximity.enabled || !onProximityChange}
-          formatValue={(radius) => `${radius} m`}
+          min={1} max={10} step={0.1} disabled={!enabled || !proximity.enabled || !onProximityChange}
+          formatValue={(radius) => `${radius.toFixed(1)} m`}
           onCommit={(radius_m) => void onProximityChange?.({ ...proximity, radius_m })} />
-        {enabled && proximity.enabled && <small role="status">{proximityWait ?? t("live.players.proximityStatus", {
-          tracked: status?.proximity?.tracked_players ?? 0,
-          excluded: status?.proximity?.excluded_packets ?? 0,
-          unknown: status?.proximity?.unknown_packets ?? 0,
-        })}</small>}
       </div>}
       <fieldset className="player-history-languages">
         <legend>{t("live.players.languages")}</legend>

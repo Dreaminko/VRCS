@@ -162,20 +162,16 @@ impl<'a> Reader<'a> {
             }
             8 | 27 | 28 => Value::Other,
             29..=34 => Value::Int(0),
-            19 | 128..=255 => {
+            19 | 67 | 128..=255 => {
                 if kind == 19 {
                     self.byte()?;
                 }
                 let length = self.length()?;
                 Value::Bytes(self.take(length)?)
             }
-            66 | 67 => {
+            66 => {
                 let length = self.length()?;
-                self.take(if kind == 66 {
-                    length.checked_add(7)? / 8
-                } else {
-                    length
-                })?;
+                self.take(length.checked_add(7)? / 8)?;
                 Value::Other
             }
             23 | 68..=71 | 73 | 74 | 85 => {
@@ -198,14 +194,12 @@ pub(super) fn event_parameters(message: &[u8], event_code: u8) -> Option<Vec<(u8
     if message.len() > 1024 * 1024 {
         return None;
     }
-    let at = message
+    let (at, header) = message
         .windows(2)
         .take(9)
-        .position(|bytes| bytes == [0xf3, 4])?;
+        .enumerate()
+        .find_map(|(at, bytes)| matches!(bytes, [0xf3, 2] | [0xf3, 4]).then_some((at, bytes[1])))?;
     let event = &message[at..];
-    if *event.get(2)? != event_code {
-        return None;
-    }
     let mut reader = Reader {
         bytes: event,
         offset: 3,
@@ -215,6 +209,21 @@ pub(super) fn event_parameters(message: &[u8], event_code: u8) -> Option<Vec<(u8
     let mut parameters = Vec::new();
     for _ in 0..count {
         parameters.push((reader.byte()?, reader.dynamic(0)?));
+    }
+    let actual_event = if header == 4 {
+        *event.get(2)?
+    } else if header == 2 && *event.get(2)? == 0xfd {
+        parameters
+            .iter()
+            .find(|(code, _)| *code == 244)
+            .and_then(|(_, value)| value.actor())?
+            .try_into()
+            .ok()?
+    } else {
+        return None;
+    };
+    if actual_event != event_code {
+        return None;
     }
     reader.finished().then_some(parameters)
 }

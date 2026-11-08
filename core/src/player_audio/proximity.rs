@@ -318,6 +318,18 @@ mod tests {
             })
         );
 
+        let local = decode_message(&event_12_outbound([0.0, 0.0, 0.0])).expect("outbound event 12");
+        assert_eq!(local.actor, None);
+        assert_eq!(
+            local.position,
+            PositionDecode::Sample(Position {
+                tick: 0,
+                x: 0.0,
+                y: 0.0,
+                z: 0.0,
+            })
+        );
+
         let empty = decode_message(&event_12(17, Some([0x02, 0]), None)).expect("event 12");
         assert_eq!(empty.position, PositionDecode::NoPosition);
 
@@ -335,9 +347,22 @@ mod tests {
             payload.extend_from_slice(&y.to_le_bytes());
             payload.extend_from_slice(&z.to_le_bytes());
         }
-        let mut message = vec![0xf3, 4, 12, 2, 245, 19, 0, payload.len() as u8];
+        let mut message = vec![0xf3, 4, 12, 2, 245, 0x43];
+        message.push(payload.len() as u8);
         message.extend(payload);
         message.extend([254, 11, actor]);
+        message
+    }
+
+    fn event_12_outbound([x, y, z]: [f32; 3]) -> Vec<u8> {
+        let mut payload = vec![0; 4];
+        payload.extend([0x47, 0x33]);
+        payload.extend_from_slice(&x.to_le_bytes());
+        payload.extend_from_slice(&y.to_le_bytes());
+        payload.extend_from_slice(&z.to_le_bytes());
+        let mut message = vec![0xf3, 2, 0xfd, 2, 244, 11, 12, 245, 0x43];
+        message.push(payload.len() as u8);
+        message.extend(payload);
         message
     }
 }

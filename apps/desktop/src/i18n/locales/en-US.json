@@ -374,9 +374,6 @@
         "noneSelected": "No current players selected; other-party audio is not being processed.",
         "proximityEnable": "Process only players within range",
         "proximityRadius": "Range",
-        "proximityStatus": "Positions received for {{tracked}} players · {{excluded}} packets outside range · {{unknown}} waits for position",
-        "proximityWaitingLocal": "Waiting for the local player's position",
-        "proximityWaitingPlayers": "Waiting for player position data",
         "distance": "{{distance}} m",
         "distanceUnknown": "Distance unavailable",
         "languages": "Hidden original languages",
@@ -1942,7 +1939,6 @@
           "title": "Chatbox capture",
           "enable": "Receive and translate VRChat Chatbox",
           "translationUnavailable": "Automatic translation is off or no usable text translation profile is configured for Other players. Original text is still saved; manual translation remains available.",
-          "counts": "Received {{received}} · Accepted {{accepted}} · Duplicates {{duplicates}} · Dropped {{dropped}}",
           "phase": {
             "waiting_game": "Waiting for VRChat to start",
             "waiting_world": "Waiting for the VRChat world to finish loading",

@@ -922,9 +922,17 @@ pub fn config_from_value(raw: &serde_json::Value) -> Result<AppConfig, String> {
             .or_insert(settings);
     }
     normalize_token_plan_recognition(&mut config);
+    normalize_proximity_radius(&mut config);
     config.resolve_model_assignments();
     config.validate_settings()?;
     Ok(config)
+}
+
+fn normalize_proximity_radius(config: &mut AppConfig) {
+    let radius = &mut config.audio.output.player_audio.proximity.radius_m;
+    if radius.is_finite() && *radius > 10.0 {
+        *radius = 10.0;
+    }
 }
 
 fn normalize_token_plan_recognition(config: &mut AppConfig) {

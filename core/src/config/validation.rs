@@ -378,9 +378,9 @@ fn validate_audio(audio: &AudioConfig, vad: &VadConfig) -> Result<(), String> {
         return Err("Player audio max_players must be 0 (unlimited) or between 1 and 8".into());
     }
     if !players.proximity.radius_m.is_finite()
-        || !(1.0..=100.0).contains(&players.proximity.radius_m)
+        || !(1.0..=10.0).contains(&players.proximity.radius_m)
     {
-        return Err("Player audio proximity.radius_m must be between 1 and 100".into());
+        return Err("Player audio proximity.radius_m must be between 1 and 10".into());
     }
     if let Some(ids) = &players.selected_tracks {
         let mut seen = HashSet::new();

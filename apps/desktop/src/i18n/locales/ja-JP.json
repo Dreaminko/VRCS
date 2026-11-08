@@ -374,9 +374,6 @@
         "noneSelected": "現在のプレイヤーが未選択のため、相手の音声を処理しません。",
         "proximityEnable": "設定した距離内のプレイヤーだけを処理",
         "proximityRadius": "距離範囲",
-        "proximityStatus": "{{tracked}} 人の位置を取得済み · 範囲外の音声パケット {{excluded}} 件 · 位置待ち {{unknown}} 件",
-        "proximityWaitingLocal": "ローカルプレイヤーの位置を待機中",
-        "proximityWaitingPlayers": "プレイヤーの位置データを待機中",
         "distance": "{{distance}} m",
         "distanceUnknown": "距離不明",
         "languages": "非表示にする原文の言語",
@@ -1942,7 +1939,6 @@
           "title": "Chatbox キャプチャ",
           "enable": "VRChat Chatbox を受信して翻訳",
           "translationUnavailable": "自動翻訳が無効か、「他のプレイヤー」に利用可能なテキスト翻訳サービスが設定されていません。原文は保存され、手動で翻訳できます。",
-          "counts": "受信 {{received}} · 受付 {{accepted}} · 重複 {{duplicates}} · 破棄 {{dropped}}",
           "phase": {
             "waiting_game": "VRChat の起動を待機中",
             "waiting_world": "VRChat のワールド読み込み完了を待機中",

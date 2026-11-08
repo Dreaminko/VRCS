@@ -1493,7 +1493,11 @@ mod tests {
         payload.extend_from_slice(&x.to_le_bytes());
         payload.extend_from_slice(&y.to_le_bytes());
         payload.extend_from_slice(&z.to_le_bytes());
-        let mut message = vec![0xf3, 4, 12, if actor.is_some() { 2 } else { 1 }, 245, 19, 0];
+        let mut message = if actor.is_some() {
+            vec![0xf3, 4, 12, 2, 245, 0x43]
+        } else {
+            vec![0xf3, 2, 0xfd, 2, 244, 11, 12, 245, 0x43]
+        };
         message.push(payload.len() as u8);
         message.extend(payload);
         if let Some(actor) = actor {

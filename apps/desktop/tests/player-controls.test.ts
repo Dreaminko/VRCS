@@ -20,8 +20,8 @@ test("current selection merges accounts and preserves offline names and unrelate
 });
 
 test("distance settings preserve the existing player audio configuration", () => {
-  const next = applyPlayerProximity(settings(), { enabled: true, radius_m: 20 });
-  assert.deepEqual(next.audio.output.player_audio?.proximity, { enabled: true, radius_m: 20 });
+  const next = applyPlayerProximity(settings(), { enabled: true, radius_m: 10 });
+  assert.deepEqual(next.audio.output.player_audio?.proximity, { enabled: true, radius_m: 10 });
   assert.equal(next.audio.output.player_audio?.max_players, 3);
   assert.deepEqual(next.audio.output.player_audio?.selected_tracks, [bob.user_id]);
 });

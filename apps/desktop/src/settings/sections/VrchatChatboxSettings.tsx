@@ -23,7 +23,7 @@ export function VrchatChatboxSettings({ draft, translation, profiles, status, su
   const networkEnabled = draft.audio.output.player_audio?.enabled === true;
   const phase = status?.phase ?? "stopped";
   const showTranslationHint = !chatboxTranslationReady(translation, profiles);
-  const showStatus = supported === false || phase !== "stopped";
+  const showIssue = supported === false || phase === "failed";
   const saveError = saveState === "error" ? saveMessage : undefined;
   return <section className="capture-chatbox-settings" aria-labelledby="vrchat-chatbox-title">
     <div className="device-group-heading">
@@ -39,14 +39,13 @@ export function VrchatChatboxSettings({ draft, translation, profiles, status, su
         disabled={supported === false || !networkEnabled}
         onChange={(enabled) => applySettings((current) => ({ ...current, vrchat_chatbox: { enabled } }))} />
     </div>
-    {(showTranslationHint || showStatus || saveError) && <div className="device-group-content">
+    {(showTranslationHint || showIssue || saveError) && <div className="device-group-content">
       {showTranslationHint && <div className="capture-chatbox-translation">
         <p className="settings-field-note">{t("settings.capture.chatbox.translationUnavailable")}</p>
         <button type="button" className="secondary-button" onClick={onOpenTranslation}>{t("settings.capture.openTranslation")}</button>
       </div>}
-      {showStatus && <div className="settings-field-note" role="status" aria-live="polite">
-        <span>{supported === false ? t("settings.capture.unsupported") : t(`settings.capture.chatbox.phase.${phase}`)}</span>
-        {supported !== false && status && <p>{t("settings.capture.chatbox.counts", { ...status })}</p>}
+      {showIssue && <div className="settings-field-note" role="status" aria-live="polite">
+        <span>{supported === false ? t("settings.capture.unsupported") : t("settings.capture.chatbox.phase.failed")}</span>
         {status?.detail && <p className="settings-validation-error">{status.detail}</p>}
       </div>}
       {saveError && <p className="settings-validation-error" role="alert">{saveError}</p>}

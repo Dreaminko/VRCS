@@ -374,9 +374,6 @@
         "noneSelected": "未选中当前玩家，暂不处理对方音频。",
         "proximityEnable": "只处理设定距离内的玩家",
         "proximityRadius": "距离范围",
-        "proximityStatus": "已获取 {{tracked}} 位玩家的位置 · 距离外排除 {{excluded}} 个语音包 · 等待位置 {{unknown}} 次",
-        "proximityWaitingLocal": "正在等待本机位置",
-        "proximityWaitingPlayers": "正在等待玩家位置数据",
         "distance": "{{distance}} 米",
         "distanceUnknown": "距离未知",
         "languages": "隐藏的原文语言",
@@ -1942,7 +1939,6 @@
           "title": "Chatbox 采集",
           "enable": "接收并翻译 VRChat Chatbox",
           "translationUnavailable": "尚未启用自动翻译，或「其他玩家」未配置可用的文字翻译服务。原文仍会保存，可手动翻译。",
-          "counts": "收到 {{received}} · 接受 {{accepted}} · 重复 {{duplicates}} · 丢弃 {{dropped}}",
           "phase": {
             "waiting_game": "等待 VRChat 启动",
             "waiting_world": "等待 VRChat 世界加载完成",

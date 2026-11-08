@@ -59,6 +59,16 @@ fn player_user_selection_and_labels_survive_config_save_and_reload() {
 }
 
 #[test]
+fn legacy_proximity_radius_is_clamped_to_ten_meters() {
+    let mut raw = serde_json::to_value(AppConfig::default()).unwrap();
+    raw["audio"]["output"]["player_audio"]["proximity"]["radius_m"] = serde_json::json!(100.0);
+
+    let config = super::migration::config_from_value(&raw).unwrap();
+
+    assert_eq!(config.audio.output.player_audio.proximity.radius_m, 10.0);
+}
+
+#[test]
 fn legacy_ocr_backend_is_removed_on_load_without_losing_preferences() {
     for backend in ["cloud", "local"] {
         let dir = tempfile::tempdir().unwrap();
