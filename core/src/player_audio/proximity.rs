@@ -119,12 +119,8 @@ impl Registry {
     }
 
     pub(super) fn distance(&self, id: &str, now: Instant) -> Option<f64> {
-        let Some(local) = self.local.as_ref().filter(|value| fresh(value, now)) else {
-            return None;
-        };
-        let Some(player) = self.players.get(id).filter(|value| fresh(value, now)) else {
-            return None;
-        };
+        let local = self.local.as_ref().filter(|value| fresh(value, now))?;
+        let player = self.players.get(id).filter(|value| fresh(value, now))?;
         if local.scope != player.scope {
             return None;
         }
