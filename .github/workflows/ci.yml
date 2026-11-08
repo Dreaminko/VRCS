@@ -32,8 +32,8 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: "24"
-      - name: Test changed-area detection
-        run: node --test scripts/test-ci-changes.mjs
+      - name: Test CI scripts
+        run: node --test scripts/test-ci-changes.mjs scripts/test-release-ci.mjs
       - name: Detect changed areas
         id: filter
         env:
@@ -52,12 +52,12 @@ jobs:
             changed_files="$(git diff --name-only "$base"...HEAD)"
             while IFS= read -r file; do
               case "$file" in
-                core/*|crates/*|apps/desktop/src-tauri/*|rust-toolchain.toml|scripts/check-rust.ps1|scripts/test-check-rust.ps1|scripts/test-ci-changes.mjs|scripts/test-release-metadata.ps1|scripts/write-release-metadata.ps1|scripts/prepare-vulkan-runtime.ps1|.github/workflows/ci.yml)
+                core/*|crates/*|apps/desktop/src-tauri/*|rust-toolchain.toml|scripts/check-rust.ps1|scripts/test-check-rust.ps1|scripts/test-ci-changes.mjs|scripts/find-release-ci.mjs|scripts/test-release-ci.mjs|scripts/test-release-metadata.ps1|scripts/write-release-metadata.ps1|scripts/prepare-vulkan-runtime.ps1|.github/workflows/ci.yml)
                   rust=true
                   ;;
               esac
               case "$file" in
-                apps/desktop/*|package.json|package-lock.json|scripts/check-i18n.mjs|scripts/test-ci-changes.mjs|.github/workflows/ci.yml)
+                apps/desktop/*|package.json|package-lock.json|scripts/check-i18n.mjs|scripts/test-ci-changes.mjs|scripts/find-release-ci.mjs|scripts/test-release-ci.mjs|.github/workflows/ci.yml)
                   frontend=true
                   ;;
               esac

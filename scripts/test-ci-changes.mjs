@@ -53,6 +53,8 @@ for (const [file, rust, frontend] of [
   ["apps/desktop/src-tauri/src/lib.rs", true, true],
   [".github/workflows/ci.yml", true, true],
   ["scripts/test-ci-changes.mjs", true, true],
+  ["scripts/find-release-ci.mjs", true, true],
+  ["scripts/test-release-ci.mjs", true, true],
 ]) {
   test(`selects checks for ${file}`, () => {
     const result = detect({ file });

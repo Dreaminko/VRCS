@@ -1,0 +1,79 @@
+name: Preview
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: preview-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  windows-x64:
+    runs-on: windows-latest
+    env:
+      CARGO_TARGET_DIR: ${{ github.workspace }}/.build
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+
+      - name: Install pinned Rust toolchain
+        shell: pwsh
+        run: rustup show
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ci-windows-x64-vulkan
+          save-if: false
+          workspaces: |
+            core -> ../.build
+            apps/desktop/src-tauri -> ../../../.build
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Build unsigned debug preview
+        run: npm --workspace apps/desktop run tauri -- build --debug --features vulkan --no-sign --no-bundle -- --locked
+
+      - name: Collect and test preview package
+        shell: pwsh
+        run: |
+          $artifactRoot = Join-Path $env:GITHUB_WORKSPACE "preview-artifacts"
+          $debugRoot = Join-Path $env:CARGO_TARGET_DIR "debug"
+          New-Item -ItemType Directory -Path $artifactRoot -Force | Out-Null
+          Copy-Item -LiteralPath "$debugRoot/vrcs-desktop.exe" -Destination "$artifactRoot/VRCS-preview.exe"
+          foreach ($name in @("DirectML.dll", "vulkan-1.dll")) {
+            if (-not (Test-Path -LiteralPath "$debugRoot/$name" -PathType Leaf)) {
+              throw "Preview runtime is missing $name"
+            }
+          }
+          Copy-Item "$debugRoot/*.dll" -Destination $artifactRoot
+          Copy-Item -LiteralPath "LICENSE", "THIRD_PARTY_NOTICES.md", "apps/desktop/src-tauri/resources/vulkan-runtime/VulkanRT-License.txt" -Destination $artifactRoot
+          $version = (Get-Content -LiteralPath "apps/desktop/src-tauri/tauri.conf.json" -Raw | ConvertFrom-Json).version
+          @"
+          VRCS Preview $version
+          Commit: $env:GITHUB_SHA
+          Build: $env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID
+
+          Extract the entire folder and run VRCS-preview.exe. Keep the DLLs beside it.
+          Requires Windows 10/11 x64, WebView2 Runtime, and Microsoft Visual C++ x64 Runtime.
+          This unsigned debug build has no automatic updates and uses the existing VRCS data directory.
+          Close VRCS before starting the preview.
+          "@ | Set-Content -LiteralPath "$artifactRoot/README.txt" -Encoding utf8
+          $process = Start-Process -FilePath "$artifactRoot/VRCS-preview.exe" -ArgumentList "--release-self-test" -WorkingDirectory $artifactRoot -Wait -PassThru -WindowStyle Hidden
+          if ($process.ExitCode -ne 0) {
+            throw "Preview self-test failed with exit code $($process.ExitCode)"
+          }
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: VRCS-preview-windows-x64-${{ github.sha }}
+          path: preview-artifacts/*
+          if-no-files-found: error
+          retention-days: 7

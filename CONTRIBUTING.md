@@ -55,14 +55,31 @@ builds.
 
 Use `-Check format`, `-Check clippy`, or `-Check test` to run one Rust check
 stage. Formatting does not prepare runtime files.
-Release tags run the full CI workflow and build the standard installer in
-parallel. Release assets are uploaded only after both jobs pass. Relevant
-pushes to `main` warm the release dependency cache when no exact cache exists;
+Release tags reuse the latest `main` push CI run for the same commit only when
+it completed successfully and every required job passed. Partial, failed, cancelled,
+or unavailable CI records trigger full validation. Installer builds run in
+parallel with this validation. Release assets are uploaded only after packaging
+and validation succeed. Relevant pushes to `main` warm the release dependency
+cache when no exact cache exists;
 these builds do not sign installers or create releases. CPU and Vulkan CI
 caches are separate, and only pushes to `main` save Rust caches.
 CI validates locale resources, then runs the frontend tests and build.
 
 Please keep commits focused and do not include generated build output.
+
+## Preview builds
+
+Run the **Preview** workflow from GitHub Actions and select the branch to test.
+Download its `VRCS-preview-windows-x64-<commit>` artifact, extract the complete
+folder, and run `VRCS-preview.exe`. The artifact includes runtime DLLs, license
+notices, and the source commit. It expires after seven days.
+
+Preview uses a debug build with CPU and Vulkan support. It does not use signing
+keys, generate an installer, publish a release, or enable automatic updates.
+It requires Windows 10/11 x64, WebView2 Runtime, and Microsoft Visual C++ x64
+Runtime. Close VRCS before starting it: the preview uses the existing VRCS data
+directory. Each preview passes the startup self-test from its artifact folder
+before upload; the full CI suite runs separately.
 
 ## Player audio development
 
