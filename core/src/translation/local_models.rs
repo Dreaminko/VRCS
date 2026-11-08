@@ -602,7 +602,7 @@ mod tests {
     fn test_directory() -> tempfile::TempDir {
         tempfile::Builder::new()
             .prefix("vrcs-plamo-models-")
-            .tempdir_in(Path::new(env!("CARGO_MANIFEST_DIR")).join("target"))
+            .tempdir()
             .unwrap()
     }
 
@@ -741,7 +741,7 @@ mod tests {
     fn copied_packages_are_verified_in_their_temporary_directory() {
         let directory = tempfile::Builder::new()
             .prefix("vrcs-plamo-copy-")
-            .tempdir_in(Path::new(env!("CARGO_MANIFEST_DIR")).join("target"))
+            .tempdir()
             .unwrap();
         let source = directory.path().join("source");
         let destination = directory.path().join(MODEL_REVISION);
