@@ -2,20 +2,37 @@ name: Release
 
 on:
   push:
+    branches:
+      - main
     tags:
       - "[0-9]*.[0-9]*.[0-9]*"
+    paths:
+      - .github/workflows/release.yml
+      - .cargo/**
+      - core/**
+      - crates/**
+      - apps/desktop/**
+      - package.json
+      - package-lock.json
+      - rust-toolchain.toml
+      - scripts/build-release.ps1
+      - scripts/run-tauri.ps1
+      - scripts/prepare-vulkan-runtime.ps1
+      - scripts/write-release-metadata.ps1
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref == 'refs/heads/main' }}
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   validate:
+    if: startsWith(github.ref, 'refs/tags/')
     uses: ./.github/workflows/ci.yml
-    permissions:
-      contents: read
 
   windows-x64:
-    needs: validate
     runs-on: windows-2022
     env:
       CMAKE_GENERATOR: Visual Studio 17 2022
@@ -23,33 +40,44 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v6
-        with:
-          node-version: "24"
-          cache: npm
+      - name: Verify release version
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        run: |
+          $version = (Get-Content -LiteralPath "apps/desktop/src-tauri/tauri.conf.json" -Raw | ConvertFrom-Json).version
+          if ($version -ne $env:GITHUB_REF_NAME) {
+            throw "Tag $env:GITHUB_REF_NAME does not match application version $version"
+          }
 
       - name: Install pinned Rust toolchain
         shell: pwsh
         run: rustup show
 
       - uses: Swatinem/rust-cache@v2
+        id: cache
         with:
+          shared-key: release-windows-x64-vulkan
+          save-if: ${{ github.ref == 'refs/heads/main' }}
           workspaces: |
             core -> ../.build
             apps/desktop/src-tauri -> ../../../.build
 
-      - name: Verify release version
-        shell: pwsh
-        run: |
-          $version = (Get-Content -LiteralPath "apps/desktop/src-tauri/tauri.conf.json" -Raw | ConvertFrom-Json).version
-          if ($version -ne "${{ github.ref_name }}") {
-            throw "Tag ${{ github.ref_name }} does not match application version $version"
-          }
+      - uses: actions/setup-node@v6
+        if: startsWith(github.ref, 'refs/tags/') || steps.cache.outputs.cache-hit != 'true'
+        with:
+          node-version: "24"
+          cache: npm
 
       - name: Install frontend dependencies
+        if: startsWith(github.ref, 'refs/tags/') || steps.cache.outputs.cache-hit != 'true'
         run: npm ci
 
+      - name: Warm release dependency cache
+        if: github.ref == 'refs/heads/main' && steps.cache.outputs.cache-hit != 'true'
+        run: npm --workspace apps/desktop run tauri -- build --features vulkan --config src-tauri/tauri.release.conf.json --no-sign --no-bundle -- --locked
+
       - name: Build standard release package
+        if: startsWith(github.ref, 'refs/tags/')
         shell: pwsh
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -59,12 +87,34 @@ jobs:
           $version = (Get-Content -LiteralPath "apps/desktop/src-tauri/tauri.conf.json" -Raw | ConvertFrom-Json).version
           .\scripts\build-release.ps1 -Version $version -SkipInstall -SkipTests
 
+      - uses: actions/upload-artifact@v7
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          name: windows-x64-${{ github.sha }}
+          path: release-artifacts/*
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
+
+  publish:
+    needs: [validate, windows-x64]
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: windows-x64-${{ github.sha }}
+          path: release-artifacts
+
       - name: Ensure GitHub release exists
         shell: pwsh
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          $tag = "${{ github.ref_name }}"
+          $tag = $env:GITHUB_REF_NAME
           $version = $tag
           $notes = @'
           Windows 10/11 x64 release for VRCS.
@@ -94,17 +144,15 @@ jobs:
 
       - name: Upload release packages, updater signatures, and checksums
         shell: pwsh
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          $version = "${{ github.ref_name }}"
+          $version = $env:GITHUB_REF_NAME
           $assets = @(
             "release-artifacts/VRCS-$version-windows-x64.exe",
             "release-artifacts/VRCS-$version-windows-x64.exe.sig",
             "release-artifacts/VRCS-$version-windows-x64.exe.sha256",
             "release-artifacts/latest.json"
           )
-          gh release upload "${{ github.ref_name }}" @assets --clobber
+          gh release upload $version @assets --clobber
           if ($LASTEXITCODE -ne 0) {
             throw "Failed to upload release assets"
           }

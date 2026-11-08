@@ -14,7 +14,7 @@ on:
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref || github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
 
 permissions:
   contents: read
@@ -133,6 +133,8 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
         with:
+          shared-key: ci-windows-x64-${{ matrix.backend }}
+          save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
           workspaces: |
             core -> ../.build
             apps/desktop/src-tauri -> ../../../.build

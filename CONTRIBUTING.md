@@ -55,7 +55,11 @@ builds.
 
 Use `-Check format`, `-Check clippy`, or `-Check test` to run one Rust check
 stage. Formatting does not prepare runtime files.
-Release tags run the full CI workflow before packaging the standard installer.
+Release tags run the full CI workflow and build the standard installer in
+parallel. Release assets are uploaded only after both jobs pass. Relevant
+pushes to `main` warm the release dependency cache when no exact cache exists;
+these builds do not sign installers or create releases. CPU and Vulkan CI
+caches are separate, and only pushes to `main` save Rust caches.
 CI validates locale resources, then runs the frontend tests and build.
 
 Please keep commits focused and do not include generated build output.
