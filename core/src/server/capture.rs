@@ -38,6 +38,8 @@ impl CaptureReloadPlan {
         candidate_output.player_audio.selected_tracks = None;
         current_output.player_audio.selected_user_names.clear();
         candidate_output.player_audio.selected_user_names.clear();
+        current_output.player_audio.proximity = Default::default();
+        candidate_output.player_audio.proximity = Default::default();
         let network_restart = current_output.player_audio.pagefile_drive
             != candidate_output.player_audio.pagefile_drive;
         current_output.player_audio.pagefile_drive.clear();
@@ -1041,6 +1043,8 @@ mod tests {
         let user = "usr_00000000-0000-4000-8000-000000000007";
         next.audio.output.player_audio.max_visible_players = 8;
         next.audio.output.player_audio.selected_tracks = Some(vec![user.into()]);
+        next.audio.output.player_audio.proximity.enabled = true;
+        next.audio.output.player_audio.proximity.radius_m = 20.0;
         next.audio
             .output
             .player_audio

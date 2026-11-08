@@ -831,7 +831,7 @@ async fn run(
     let mut state = PipelineState::new(sample_rate);
     let (smart_turn_tx, mut smart_turn_rx) = mpsc::unbounded_channel();
     let mut result = loop {
-        if *shutdown.borrow() || *stop.borrow() {
+        if *shutdown.borrow() || *stop.borrow() || discard_on_stop.load(Ordering::SeqCst) {
             break Ok(());
         }
         let input = tokio::select! {
@@ -863,6 +863,9 @@ async fn run(
                 None => continue,
             },
         };
+        if discard_on_stop.load(Ordering::SeqCst) {
+            break Ok(());
+        }
         let event = match input {
             PipelineInput::Cloud(event) => PipelineEvent::Cloud {
                 event,

@@ -59,6 +59,8 @@
 .player-history-processing .field { gap: 6px; }
 .player-history-processing .theme-toggle-group { justify-self: stretch; }
 .player-history-processing .theme-toggle-group button { flex-basis: 0; }
+.player-history-proximity { display: grid; gap: 9px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; }
+.player-history-proximity .settings-toggle-row { min-height: 0; padding: 0; border: 0; }
 .player-history-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .player-history-body .secondary-button { display: inline-flex; align-items: center; gap: 5px; min-height: 30px; padding: 5px 9px; font-size: 11px; }
 .player-history-languages { min-width: 0; margin: 0; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; }
@@ -76,6 +78,7 @@
 .player-history-row:last-child { border-bottom: 0; }
 .player-history-name { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .player-history-name small { display: block; margin-top: 3px; }
+.player-history-distance { color: var(--primary-ink); font-variant-numeric: tabular-nums; }
 .player-history-row.is-hidden .player-history-name { color: var(--text-quiet); }
 .player-history-visibility { flex-shrink: 0; }
 .player-history-empty { margin: 5px 0; color: var(--text-quiet); }

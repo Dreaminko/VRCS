@@ -1,11 +1,12 @@
 import { useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Eye, EyeOff, UsersRound, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import type { PlayerProximitySettings } from "../../capture/types";
 import type { PlayerAudioStatus } from "../../core-client/types";
 import type { SpeakerIdentity, Subtitle } from "../types";
 import { useSpeakerIdentity } from "../speaker-state";
 import { isAudioTrack, type PlayerHistoryPreferences } from "../player-history";
-import { collectPlayerSpeakers, playerLanguageOptions, applyPlayerVisibilityAction, type PlayerSelectionAction, type PlayerVisibilityAction } from "../player-controls";
+import { collectPlayerSpeakers, playerLanguageOptions, applyPlayerVisibilityAction, sortPlayerSpeakersByDistance, type PlayerSelectionAction, type PlayerVisibilityAction } from "../player-controls";
 import { playerUserId } from "../../capture/player-selection";
 import { localizedLanguageName } from "../../translation/translation-languages";
 import { LanguagePicker } from "../../shared/ui/LanguagePicker";
@@ -13,18 +14,21 @@ import { useDismissibleLayer } from "../../shared/hooks/use-dismissible-layer";
 import { useDropdownMenuMotion } from "../../shared/hooks/use-dropdown-menu-motion";
 import { MicrophoneSpeakerControls } from "../../capture/MicrophoneSpeakerControls";
 import type { MicrophoneSpeakerControl } from "../../capture/useMicrophoneSpeakers";
+import { PreferenceToggle, RangeField } from "../../settings/SettingsControls";
 
-export function PlayerHistoryControls({ subtitles, status, enabled, selectedUserIds, selectedUserNames = {}, defaultLanguages, preferences, onPreferences, onSelection, microphone }: {
+export function PlayerHistoryControls({ subtitles, status, enabled, selectedUserIds, selectedUserNames = {}, proximity, defaultLanguages, preferences, onPreferences, onSelection, onProximityChange, microphone }: {
   microphone?: MicrophoneSpeakerControl;
   subtitles: Subtitle[];
   status?: PlayerAudioStatus | null;
   enabled: boolean;
   selectedUserIds: string[] | null;
   selectedUserNames?: Record<string, string>;
+  proximity?: PlayerProximitySettings;
   defaultLanguages: string[];
   preferences: PlayerHistoryPreferences;
   onPreferences: (apply: (value: PlayerHistoryPreferences) => PlayerHistoryPreferences) => void;
   onSelection: (action: PlayerSelectionAction, speakers: readonly SpeakerIdentity[], current: readonly SpeakerIdentity[]) => Promise<unknown>;
+  onProximityChange?: (proximity: PlayerProximitySettings) => Promise<unknown> | void;
 }) {
   const { t, i18n } = useTranslation();
   const [open, setOpen] = useState(false);
@@ -61,9 +65,20 @@ export function PlayerHistoryControls({ subtitles, status, enabled, selectedUser
   const current = enabled ? status?.players ?? [] : [];
   const currentIds = current.map((player) => player.speaker.id);
   const currentUsers = [...new Set(current.map((player) => playerUserId(player.speaker)).filter((id): id is string => id !== null))];
-  const speakers = useMemo(() => collectPlayerSpeakers(subtitles, enabled ? (status?.players ?? []).map(p => p.speaker) : [], selectedUserIds, selectedUserNames),
-    [subtitles, status?.players, enabled, selectedUserIds, selectedUserNames]);
+  const playerDistances = useMemo(() => new Map(current.map(player => [player.speaker.id, player.distance_m])), [current]);
+  const speakers = useMemo(() => sortPlayerSpeakersByDistance(
+    collectPlayerSpeakers(subtitles, enabled ? (status?.players ?? []).map(p => p.speaker) : [], selectedUserIds, selectedUserNames),
+    playerDistances,
+  ), [subtitles, status?.players, enabled, selectedUserIds, selectedUserNames, playerDistances]);
   const languages = preferences.hiddenSourceLanguages ?? [];
+  const phase = status?.phase ?? "stopped";
+  const proximityWait = enabled && phase === "streaming" && proximity?.enabled
+    ? status?.proximity?.local_position !== true
+      ? t("live.players.proximityWaitingLocal")
+      : (status.proximity.tracked_players ?? 0) === 0
+        ? t("live.players.proximityWaitingPlayers")
+        : null
+    : null;
   const languageCodes = playerLanguageOptions(subtitles, defaultLanguages, preferences.hiddenSourceLanguages).filter(language => !languages.includes(language));
   const languageName = (language: string) => localizedLanguageName(language, i18n.resolvedLanguage ?? "en-US");
   const display = (action: PlayerVisibilityAction) => onPreferences(value => applyPlayerVisibilityAction(value, action, defaultLanguages));
@@ -110,6 +125,20 @@ export function PlayerHistoryControls({ subtitles, status, enabled, selectedUser
           {!currentUsers.some((id) => selectedUserIds.includes(id)) && <small role="status">{t("live.players.noneSelected")}</small>}
         </div>}
       </div>}
+      {proximity && <div className="player-history-proximity" role="group" aria-label={t("live.players.proximityEnable")}>
+        <PreferenceToggle title={t("live.players.proximityEnable")} checked={proximity.enabled}
+          disabled={!enabled || !onProximityChange}
+          onChange={(enabled) => void onProximityChange?.({ ...proximity, enabled })} />
+        <RangeField label={t("live.players.proximityRadius")} value={proximity.radius_m}
+          min={1} max={100} step={1} disabled={!enabled || !proximity.enabled || !onProximityChange}
+          formatValue={(radius) => `${radius} m`}
+          onCommit={(radius_m) => void onProximityChange?.({ ...proximity, radius_m })} />
+        {enabled && proximity.enabled && <small role="status">{proximityWait ?? t("live.players.proximityStatus", {
+          tracked: status?.proximity?.tracked_players ?? 0,
+          excluded: status?.proximity?.excluded_packets ?? 0,
+          unknown: status?.proximity?.unknown_packets ?? 0,
+        })}</small>}
+      </div>}
       <fieldset className="player-history-languages">
         <legend>{t("live.players.languages")}</legend>
         <div className="player-history-language-list">{languages.map((language) => <button type="button" className="language-chip player-history-language" key={language} value={language}
@@ -127,6 +156,7 @@ export function PlayerHistoryControls({ subtitles, status, enabled, selectedUser
       </div>
       <div className="player-history-list">{speakers.map((speaker) => <PlayerRow key={speaker.id} speaker={speaker} query={query}
         current={currentIds.includes(speaker.id)} selectionEnabled={enabled && selectedUserIds !== null}
+        distance={playerDistances.get(speaker.id)}
         selectedUserIds={selectedUserIds} busy={busy}
         hidden={preferences.hiddenTracks.includes(speaker.id)}
         onSelected={(selected, speaker) => {
@@ -142,8 +172,8 @@ export function PlayerHistoryControls({ subtitles, status, enabled, selectedUser
   </div>;
 }
 
-function PlayerRow({ speaker: identity, query, current, selectionEnabled, selectedUserIds, busy, hidden, onSelected, onHidden }: {
-  speaker: SpeakerIdentity; query: string; current: boolean; selectionEnabled: boolean; selectedUserIds: string[] | null; busy: boolean; hidden: boolean;
+function PlayerRow({ speaker: identity, query, current, distance, selectionEnabled, selectedUserIds, busy, hidden, onSelected, onHidden }: {
+  speaker: SpeakerIdentity; query: string; current: boolean; distance?: number; selectionEnabled: boolean; selectedUserIds: string[] | null; busy: boolean; hidden: boolean;
   onSelected: (selected: boolean, speaker: SpeakerIdentity) => void; onHidden: (hidden: boolean) => void;
 }) {
   const { t } = useTranslation();
@@ -155,7 +185,11 @@ function PlayerRow({ speaker: identity, query, current, selectionEnabled, select
     || userId || t(isAudioTrack(speaker) || current ? "live.trackNumber" : "live.speakerNumber", { number:speaker.index + 1 });
   if (query && !label.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase())) return null;
   return <div className={`player-history-row ${hidden ? "is-hidden" : ""}`}>
-    <span className="player-history-name">{label}<small>{current ? t("live.players.current") : t(saved ? "live.players.savedSelection" : "live.players.history")}</small>
+    <span className="player-history-name">{label}<small>{current ? <>
+      {t("live.players.current")} · <span className="player-history-distance">{distance === undefined
+        ? t("live.players.distanceUnknown")
+        : t("live.players.distance", { distance: distance.toFixed(1) })}</span>
+    </> : t(saved ? "live.players.savedSelection" : "live.players.history")}</small>
       {selectionEnabled && current && !userId && <small>{t("live.players.userIdPending")}</small>}</span>
     {selectionEnabled && (current || userId) && <label className="player-history-check"><input type="checkbox" checked={selected} disabled={busy || !userId}
       aria-label={t("live.players.translatePerson", { name:label })} onChange={(event) => { if (userId) onSelected(event.target.checked, speaker); }} />{t("live.players.translate")}</label>}

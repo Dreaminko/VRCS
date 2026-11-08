@@ -19,6 +19,8 @@ mod ntfs;
 mod opus;
 #[cfg(any(windows, test))]
 mod protocol;
+#[cfg(any(windows, test))]
+mod proximity;
 #[cfg(test)]
 mod replay_tests;
 pub(crate) mod session;
@@ -30,6 +32,7 @@ mod worker;
 mod world;
 
 use serde::Serialize;
+use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 
 #[derive(Clone, Debug, Serialize)]
@@ -44,6 +47,18 @@ pub(crate) struct Status {
     pub key_scan: Option<KeyScanProgress>,
     pub detail: Option<String>,
     pub players: Vec<PlayerInfo>,
+    pub proximity: ProximityStatus,
+}
+
+#[derive(Clone, Debug, Default, Serialize)]
+pub(crate) struct ProximityStatus {
+    pub enabled: bool,
+    pub local_position: bool,
+    pub tracked_players: usize,
+    pub excluded_packets: u64,
+    pub unknown_packets: u64,
+    #[serde(skip)]
+    pub blocked_players: HashSet<String>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -51,6 +66,8 @@ pub(crate) struct PlayerInfo {
     pub speaker: crate::models::SpeakerIdentity,
     pub selected: bool,
     pub active: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub distance_m: Option<f64>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -77,6 +94,7 @@ impl Default for Status {
             key_scan: None,
             detail: None,
             players: Vec::new(),
+            proximity: ProximityStatus::default(),
         }
     }
 }
@@ -90,6 +108,10 @@ pub(crate) enum AudioEvent {
         position: u64,
     },
     Closed(String),
+    /// The player left the configured proximity window during recognition.
+    Excluded(String),
+    /// A prior exclusion barrier has drained; new voice frames may start a fresh batch.
+    Admitted(String),
     /// Decoder retired after silence; the player/identity is still in the room.
     Idle(String),
 }

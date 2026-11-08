@@ -39,7 +39,7 @@ export interface ChatboxStatus {
 }
 
 export interface PlayerAudioStatus {
-  players?: { speaker: import("../subtitles/types").SpeakerIdentity; selected: boolean; active: boolean }[];
+  players?: { speaker: import("../subtitles/types").SpeakerIdentity; selected: boolean; active: boolean; distance_m?: number }[];
   phase: "waiting_game" | "waiting_world" | "waiting_traffic" | "waiting_key" | "acquiring_key" | "retrying_key" | "streaming" | "failed" | "stopped";
   captured_packets: number;
   decrypted_packets: number;
@@ -47,6 +47,13 @@ export interface PlayerAudioStatus {
   active_players: number;
   dropped_frames: number;
   decode_errors: number;
+  proximity?: {
+    enabled: boolean;
+    local_position: boolean;
+    tracked_players: number;
+    excluded_packets: number;
+    unknown_packets: number;
+  };
   key_scan?: {
     stage: "paging" | "scanning" | "verified" | "cached";
     scanned_bytes: number;

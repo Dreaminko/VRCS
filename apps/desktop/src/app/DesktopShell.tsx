@@ -20,7 +20,7 @@ import { SelectionToolOverlays } from "./SelectionToolOverlays";
 import type { AppWorkspace } from "./useAppWorkspace";
 import { openDesktopVision } from "../vision/api";
 import { PlayerHistoryControls } from "../subtitles/components/PlayerHistoryControls";
-import { applyPlayerSelectionAction } from "../subtitles/player-controls";
+import { applyPlayerProximity, applyPlayerSelectionAction } from "../subtitles/player-controls";
 
 let learningWorkspaceModule: Promise<typeof import("../learning/components/LearningWorkspace")> | undefined;
 let settingsPanelModule: Promise<typeof import("../settings/SettingsPanel")> | undefined;
@@ -220,10 +220,12 @@ export function DesktopShell({
                   enabled={settings.value?.audio.output.mode === "vrchat_players"}
                   selectedUserIds={settings.value?.audio.output.player_audio?.selected_tracks ?? null}
                   selectedUserNames={settings.value?.audio.output.player_audio?.selected_user_names}
+                  proximity={settings.value?.audio.output.player_audio?.proximity}
                   defaultLanguages={playerDisplay.defaultLanguages}
                   preferences={playerDisplay.preferences}
                   onPreferences={playerDisplay.update}
                   onSelection={(action, speakers, observed) => settings.update(current => applyPlayerSelectionAction(current, action, speakers, observed))}
+                  onProximityChange={(proximity) => settings.update(current => applyPlayerProximity(current, proximity))}
                 />}
             />
           }

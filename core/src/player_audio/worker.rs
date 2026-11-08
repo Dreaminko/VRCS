@@ -11,7 +11,7 @@ use super::protocol::{self, Parser, VoicePacket};
 use super::session::SharedOutputs;
 use super::windows::{self, Connection, Network};
 use super::{AudioEvent, Capture, SharedStatus};
-use crate::config::PlayerAudioConfig;
+use crate::config::{PlayerAudioConfig, PlayerProximityConfig};
 use crate::models::SpeakerIdentity;
 
 pub(super) fn start(
@@ -237,16 +237,16 @@ fn run(
             engine.reconcile_voice(&opus_path);
             engine.reconcile_text();
             if selection_poll.elapsed() >= Duration::from_millis(50) {
-                engine.set_selection(
-                    settings
-                        .read()
-                        .expect("config lock")
-                        .audio
-                        .output
-                        .player_audio
-                        .selected_tracks
-                        .clone(),
-                );
+                let (selection, proximity) = {
+                    let config = settings.read().expect("config lock");
+                    let player_audio = &config.audio.output.player_audio;
+                    (
+                        player_audio.selected_tracks.clone(),
+                        player_audio.proximity.clone(),
+                    )
+                };
+                engine.set_selection(selection);
+                engine.set_proximity(proximity);
                 selection_poll = Instant::now();
             }
             if refresh.elapsed()
@@ -267,8 +267,9 @@ fn run(
                 let was_ready = world_ready;
                 world_ready = world.poll();
                 if was_ready && !world_ready {
-                    engine.close_tracks();
+                    engine.close_tracks_excluded();
                     engine.clear_text();
+                    engine.clear_proximity();
                 }
                 world_poll = Instant::now();
                 if key.is_some() && !room_restored {
@@ -490,7 +491,7 @@ fn run(
     }
     engine.close_tracks();
     engine.clear_text();
-    engine.publish_roster();
+    engine.publish_roster(Instant::now());
     if result.is_ok() && key.is_some() && stop.load(Ordering::Relaxed) {
         if let Some(token) = world.room_token() {
             *cache.room.lock().expect("room identity cache") =
@@ -562,6 +563,11 @@ struct Engine {
     active_world: Option<String>,
     tx: EventSender,
     status: SharedStatus,
+    proximity: super::proximity::Registry,
+    proximity_config: PlayerProximityConfig,
+    admitted_proximity: HashSet<String>,
+    admission_pending: HashSet<String>,
+    proximity_status_at: Instant,
 }
 
 impl Engine {
@@ -651,6 +657,7 @@ impl Engine {
     }
 
     fn take_metadata(&mut self, owner: cache::ProcessIdentity, token: u64) -> RoomMetadata {
+        self.clear_proximity();
         let mut flows = std::mem::take(&mut self.flows);
         for flow in flows.values_mut() {
             flow.inbound = Parser::default();
@@ -708,6 +715,11 @@ impl Engine {
             active_world: None,
             tx: tx.into(),
             status,
+            proximity: super::proximity::Registry::default(),
+            proximity_config: PlayerProximityConfig::default(),
+            admitted_proximity: HashSet::new(),
+            admission_pending: HashSet::new(),
+            proximity_status_at: Instant::now() - Duration::from_secs(1),
         }
     }
     fn selected(&self, id: &str) -> bool {
@@ -734,6 +746,36 @@ impl Engine {
             self.close(&id);
         }
         self.roster_dirty = true;
+    }
+    fn set_proximity(&mut self, config: PlayerProximityConfig) {
+        if self.proximity_config == config {
+            return;
+        }
+        let enabling = config.enabled && !self.proximity_config.enabled;
+        let disabling = !config.enabled && self.proximity_config.enabled;
+        self.proximity_config = config;
+        self.status.lock().expect("player status").proximity.enabled =
+            self.proximity_config.enabled;
+        if enabling {
+            for id in self.identities.keys().cloned().collect::<Vec<_>>() {
+                self.close_excluded(&id);
+            }
+        }
+        if disabling {
+            let blocked = self
+                .status
+                .lock()
+                .expect("player status")
+                .proximity
+                .blocked_players
+                .iter()
+                .cloned()
+                .collect::<Vec<_>>();
+            for id in blocked {
+                self.notify_admitted(&id);
+            }
+        }
+        self.refresh_proximity(Instant::now());
     }
     fn remember(
         &mut self,
@@ -841,9 +883,14 @@ impl Engine {
         let mut texts = Vec::new();
         let mut updates = Vec::new();
         let mut departures = Vec::new();
+        let mut local_position = None;
+        let mut player_positions = Vec::new();
         let mut changed = false;
         let mut joined_room = None;
         for message in messages {
+            let position = allow_voice
+                .then(|| super::proximity::decode_message(&message))
+                .flatten();
             if !incoming {
                 if let Some(world) = protocol::joined_world(&message) {
                     joined_room = Some(world.clone());
@@ -855,7 +902,23 @@ impl Engine {
                         changed = true;
                     }
                 }
+                if let Some(super::proximity::DecodedMessage {
+                    position: super::proximity::PositionDecode::Sample(position),
+                    ..
+                }) = position
+                {
+                    local_position = Some(position);
+                }
             } else {
+                if let Some(super::proximity::DecodedMessage {
+                    actor: Some(actor),
+                    position: super::proximity::PositionDecode::Sample(position),
+                }) = position
+                {
+                    if let Some(participant) = flow.participant(actor) {
+                        player_positions.push((actor, participant.generation, position));
+                    }
+                }
                 for update in super::names::updates(&message) {
                     match update {
                         super::names::Update::Name {
@@ -916,8 +979,9 @@ impl Engine {
         let epoch = flow.epoch;
         if let Some(world) = joined_room {
             if self.active_world.as_ref() != Some(&world) {
-                self.close_tracks();
+                self.close_tracks_excluded();
                 self.clear_text();
+                self.clear_proximity();
                 self.identities.clear();
                 self.flows.retain(|_, flow| flow.number == flow_number);
                 self.active_world = Some(world);
@@ -926,6 +990,7 @@ impl Engine {
         }
         if changed {
             self.clear_text();
+            self.clear_proximity();
             let prefix = format!("{}:{flow_number}:", self.session);
             let ids: Vec<_> = self
                 .tracks
@@ -934,11 +999,21 @@ impl Engine {
                 .cloned()
                 .collect();
             for id in ids {
-                self.close(&id);
+                self.close_excluded(&id);
             }
             self.identities.retain(|id, _| !id.starts_with(&prefix));
             self.roster_dirty = true;
         }
+        if let Some(position) = local_position {
+            self.proximity
+                .observe_local(flow_number, epoch, position, now);
+        }
+        for (actor, generation, position) in player_positions {
+            let id = self.speaker_id(flow_number, epoch, actor, generation);
+            self.proximity
+                .observe_player(&id, flow_number, epoch, position, now);
+        }
+        self.update_proximity_status(now);
         for (voice, participant) in voices {
             self.voice(flow_number, epoch, voice, participant, now);
         }
@@ -961,6 +1036,15 @@ impl Engine {
             let id = self.speaker_id(flow_number, epoch, actor, generation);
             self.close(&id);
             self.recent_text.remove(&id);
+            self.proximity.remove(&id);
+            self.admitted_proximity.remove(&id);
+            self.admission_pending.remove(&id);
+            self.status
+                .lock()
+                .expect("player status")
+                .proximity
+                .blocked_players
+                .remove(&id);
             self.tx
                 .0
                 .lock()
@@ -989,6 +1073,39 @@ impl Engine {
         // before allocating an Opus decoder, PCM, VAD or recognition connection.
         if !self.selected(&id) {
             return;
+        }
+        match self.proximity.admission(
+            &id,
+            self.proximity_config.enabled,
+            self.proximity_config.radius_m,
+            now,
+        ) {
+            super::proximity::Admission::Disabled => {
+                self.admitted_proximity.remove(&id);
+                self.notify_admitted(&id);
+            }
+            super::proximity::Admission::InRange => {
+                self.admitted_proximity.insert(id.clone());
+                self.notify_admitted(&id);
+            }
+            super::proximity::Admission::OutOfRange => {
+                self.status
+                    .lock()
+                    .expect("player status")
+                    .proximity
+                    .excluded_packets += 1;
+                self.close_excluded(&id);
+                return;
+            }
+            super::proximity::Admission::Unknown => {
+                self.status
+                    .lock()
+                    .expect("player status")
+                    .proximity
+                    .unknown_packets += 1;
+                self.close_excluded(&id);
+                return;
+            }
         }
         if !self.tracks.contains_key(&id) {
             if self.maximum > 0 && self.tracks.len() >= self.maximum {
@@ -1038,6 +1155,10 @@ impl Engine {
 
     fn tick(&mut self, now: Instant) {
         self.tx.0.lock().expect("network outputs").flush_speakers();
+        if now.saturating_duration_since(self.proximity_status_at) >= Duration::from_millis(250) {
+            self.refresh_proximity(now);
+            self.proximity_status_at = now;
+        }
         let expired: Vec<_> = self
             .tracks
             .iter()
@@ -1098,9 +1219,9 @@ impl Engine {
             }
         }
         self.status.lock().expect("player status").active_players = self.tracks.len();
-        self.publish_roster();
+        self.publish_roster(now);
     }
-    fn publish_roster(&mut self) {
+    fn publish_roster(&mut self, now: Instant) {
         if !std::mem::take(&mut self.roster_dirty) {
             return;
         }
@@ -1111,19 +1232,127 @@ impl Engine {
                 speaker: speaker.clone(),
                 selected: self.selected(&speaker.id),
                 active: self.tracks.contains_key(&speaker.id),
+                distance_m: self.proximity.distance(&speaker.id, now),
             })
             .collect();
         players.sort_by_key(|player| player.speaker.index);
         self.status.lock().expect("player status").players = players;
     }
+    fn update_proximity_status(&mut self, now: Instant) {
+        let mut status = self.status.lock().expect("player status");
+        status.proximity.enabled = self.proximity_config.enabled;
+        status.proximity.local_position = self.proximity.local_fresh(now);
+        status.proximity.tracked_players = self.proximity.fresh_players(now);
+    }
+    fn refresh_proximity(&mut self, now: Instant) {
+        let mut ids = self.admitted_proximity.clone();
+        ids.extend(self.proximity.player_ids().map(str::to_owned));
+        let mut blocked = self
+            .status
+            .lock()
+            .expect("player status")
+            .proximity
+            .blocked_players
+            .clone();
+        if self.proximity_config.enabled {
+            for id in ids {
+                let admission =
+                    self.proximity
+                        .admission(&id, true, self.proximity_config.radius_m, now);
+                if matches!(
+                    admission,
+                    super::proximity::Admission::OutOfRange | super::proximity::Admission::Unknown
+                ) {
+                    blocked.insert(id.clone());
+                    if self.admitted_proximity.remove(&id) {
+                        let mut status = self.status.lock().expect("player status");
+                        if admission == super::proximity::Admission::Unknown {
+                            status.proximity.unknown_packets += 1;
+                        } else {
+                            status.proximity.excluded_packets += 1;
+                        }
+                        drop(status);
+                        self.close_excluded(&id);
+                    }
+                }
+            }
+        } else {
+            self.admitted_proximity.clear();
+        }
+        {
+            let mut status = self.status.lock().expect("player status");
+            status.proximity.enabled = self.proximity_config.enabled;
+            status.proximity.local_position = self.proximity.local_fresh(now);
+            status.proximity.tracked_players = self.proximity.fresh_players(now);
+            status.proximity.blocked_players = blocked;
+        }
+        self.refresh_player_distances(now);
+    }
+    fn refresh_player_distances(&mut self, now: Instant) {
+        let mut status = self.status.lock().expect("player status");
+        for player in &mut status.players {
+            player.distance_m = self.proximity.distance(&player.speaker.id, now);
+        }
+    }
+    fn notify_admitted(&mut self, id: &str) {
+        let blocked = self
+            .status
+            .lock()
+            .expect("player status")
+            .proximity
+            .blocked_players
+            .contains(id);
+        if !blocked {
+            self.admission_pending.remove(id);
+            return;
+        }
+        if self.admission_pending.insert(id.into())
+            && self.tx.try_send(AudioEvent::Admitted(id.into())).is_err()
+        {
+            self.admission_pending.remove(id);
+        }
+    }
+    fn clear_proximity(&mut self) {
+        self.proximity.clear();
+        self.admitted_proximity.clear();
+        self.admission_pending.clear();
+        let mut status = self.status.lock().expect("player status");
+        status.proximity.local_position = false;
+        status.proximity.tracked_players = 0;
+        for player in &mut status.players {
+            player.distance_m = None;
+        }
+    }
     fn close(&mut self, id: &str) {
+        self.admitted_proximity.remove(id);
         self.tracks.remove(id);
         self.roster_dirty = true;
         let _ = self.tx.try_send(AudioEvent::Closed(id.into()));
     }
+    fn close_excluded(&mut self, id: &str) {
+        self.admitted_proximity.remove(id);
+        let had_pending_admission = self.admission_pending.remove(id);
+        let mut status = self.status.lock().expect("player status");
+        if status.proximity.blocked_players.len() >= 2048
+            && !status.proximity.blocked_players.contains(id)
+        {
+            status.proximity.blocked_players.clear();
+        }
+        let newly_blocked = status.proximity.blocked_players.insert(id.into());
+        drop(status);
+        if newly_blocked || had_pending_admission {
+            self.retire_excluded(id);
+        }
+    }
+    fn retire_excluded(&mut self, id: &str) {
+        self.tracks.remove(id);
+        self.roster_dirty = true;
+        let _ = self.tx.try_send(AudioEvent::Excluded(id.into()));
+    }
     fn clear(&mut self) {
-        self.close_tracks();
+        self.close_tracks_excluded();
         self.clear_text();
+        self.clear_proximity();
         self.flows.clear();
         self.identities.clear();
         self.active_world = None;
@@ -1137,11 +1366,141 @@ impl Engine {
             self.close(&id);
         }
     }
+    fn close_tracks_excluded(&mut self) {
+        let ids: Vec<_> = self.identities.keys().cloned().collect();
+        for id in ids {
+            self.close_excluded(&id);
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn proximity_filter_rejects_unknown_and_out_of_range_voice_before_decode() {
+        let (voice_tx, mut voice_rx) = tokio::sync::mpsc::channel(8);
+        let outputs = Arc::new(std::sync::Mutex::new(
+            super::super::session::Outputs::with_voice(voice_tx),
+        ));
+        let status = Arc::default();
+        let mut engine = Engine::new(
+            None,
+            0,
+            EventSender(Arc::clone(&outputs)),
+            Arc::clone(&status),
+        );
+        engine.set_proximity(crate::config::PlayerProximityConfig {
+            enabled: true,
+            radius_m: 10.0,
+        });
+        let connection = Connection {
+            local: "127.0.0.1:42000".parse().unwrap(),
+            remote: "127.0.0.2:27002".parse().unwrap(),
+            challenge: [1; 4],
+        };
+        let now = Instant::now();
+        let mut nonce = 0;
+        let mut receive = |engine: &mut Engine, message: Vec<u8>, incoming: bool| {
+            nonce += 1;
+            let mut bytes = vec![1, 0, 0, 0, 0, 7, 0, 0, 0];
+            bytes.extend((message.len() as u32 + 12).to_be_bytes());
+            bytes.extend([0; 4]);
+            bytes.extend(message);
+            let packet = super::super::crypto::seal(&[3; 32], nonce, &bytes);
+            engine.receive_packet(
+                connection.clone(),
+                incoming,
+                &packet,
+                &bytes,
+                now,
+                true,
+                false,
+            );
+        };
+
+        receive(&mut engine, event_12(Some(7), [20.0, 0.0, 0.0]), true);
+        engine.voice(
+            1,
+            0,
+            VoicePacket {
+                actor: 7,
+                sequence: 1,
+                opus: vec![255; 1275],
+            },
+            Participant {
+                generation: 1,
+                display_name: None,
+                user_id: None,
+            },
+            now,
+        );
+        receive(&mut engine, event_12(None, [0.0, 0.0, 0.0]), false);
+        engine.voice(
+            1,
+            0,
+            VoicePacket {
+                actor: 7,
+                sequence: 2,
+                opus: vec![255; 1275],
+            },
+            Participant {
+                generation: 1,
+                display_name: None,
+                user_id: None,
+            },
+            now,
+        );
+        receive(&mut engine, event_12_at(Some(7), 1, [5.0, 0.0, 0.0]), true);
+        for sequence in [3, 4] {
+            engine.voice(
+                1,
+                0,
+                VoicePacket {
+                    actor: 7,
+                    sequence,
+                    opus: vec![255; 1275],
+                },
+                Participant {
+                    generation: 1,
+                    display_name: None,
+                    user_id: None,
+                },
+                now,
+            );
+        }
+
+        assert!(engine.tracks.is_empty());
+        let status = status.lock().unwrap();
+        assert!(status.proximity.local_position);
+        assert_eq!(status.proximity.blocked_players.len(), 1);
+        assert_eq!(status.proximity.unknown_packets, 1);
+        assert_eq!(status.proximity.excluded_packets, 1);
+        assert!(matches!(voice_rx.try_recv(), Ok(AudioEvent::Speaker(_))));
+        assert!(matches!(voice_rx.try_recv(), Ok(AudioEvent::Excluded(_))));
+        assert!(matches!(voice_rx.try_recv(), Ok(AudioEvent::Admitted(_))));
+        assert!(voice_rx.try_recv().is_err());
+    }
+
+    fn event_12(actor: Option<u8>, [x, y, z]: [f32; 3]) -> Vec<u8> {
+        event_12_at(actor, 0, [x, y, z])
+    }
+
+    fn event_12_at(actor: Option<u8>, tick: u32, [x, y, z]: [f32; 3]) -> Vec<u8> {
+        let mut payload = tick.to_le_bytes().to_vec();
+        payload.extend([0x47, 0x33]);
+        payload.extend_from_slice(&x.to_le_bytes());
+        payload.extend_from_slice(&y.to_le_bytes());
+        payload.extend_from_slice(&z.to_le_bytes());
+        let mut message = vec![0xf3, 4, 12, if actor.is_some() { 2 } else { 1 }, 245, 19, 0];
+        message.push(payload.len() as u8);
+        message.extend(payload);
+        if let Some(actor) = actor {
+            message.extend([254, 11, actor]);
+        }
+        message
+    }
 
     #[test]
     fn chatbox_without_audio_preserves_identity_suppresses_refreshes_and_invalidates_departures() {

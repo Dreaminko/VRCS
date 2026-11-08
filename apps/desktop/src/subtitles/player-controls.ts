@@ -1,5 +1,6 @@
 import type { Settings } from "../settings/types";
 import type { SpeakerIdentity, Subtitle } from "./types";
+import type { PlayerAudioSettings, PlayerProximitySettings } from "../capture/types";
 import { playerUserId } from "../capture/player-selection.ts";
 import { historySpeakers, isOtherPlayerSource, sourceLanguageKey, subtitleSourceLanguage, type PlayerHistoryPreferences } from "./player-history.ts";
 import { TRANSLATION_LANGUAGE_CODES } from "../translation/translation-languages.ts";
@@ -32,6 +33,16 @@ export function collectPlayerSpeakers(subtitles: readonly Subtitle[], current: r
   return [...known.values()];
 }
 
+export function sortPlayerSpeakersByDistance(speakers: readonly SpeakerIdentity[], distances: ReadonlyMap<string, number | undefined>): SpeakerIdentity[] {
+  return [...speakers].sort((left, right) => {
+    const leftDistance = distances.get(left.id);
+    const rightDistance = distances.get(right.id);
+    if (leftDistance === undefined || !Number.isFinite(leftDistance)) return rightDistance === undefined || !Number.isFinite(rightDistance) ? 0 : 1;
+    if (rightDistance === undefined || !Number.isFinite(rightDistance)) return -1;
+    return leftDistance - rightDistance;
+  });
+}
+
 export function playerLanguageOptions(subtitles: readonly Subtitle[], defaults: readonly string[], hidden: readonly string[] | null): string[] {
   return [...new Set([...defaults, ...(hidden ?? []),
     ...subtitles.filter(s => isOtherPlayerSource(s.source)).map(subtitleSourceLanguage),
@@ -42,9 +53,18 @@ function setMembership(values: readonly string[], key: string, included: boolean
   return included ? [...new Set([...values, key])] : values.filter(value => value !== key);
 }
 
+function playerAudioOptions(options: PlayerAudioSettings | undefined): PlayerAudioSettings {
+  return options ?? {
+    pagefile_drive: "C:",
+    opus_library_path: "",
+    max_players: 0,
+    max_visible_players: 4,
+  };
+}
+
 export function applyPlayerSelectionAction(settings: Settings, action: PlayerSelectionAction, speakers: readonly SpeakerIdentity[], current: readonly SpeakerIdentity[]): Settings {
   if (settings.audio.output.mode !== "vrchat_players") throw new Error("Player processing is unavailable");
-  const options = settings.audio.output.player_audio ?? { pagefile_drive: "C:", opus_library_path: "", max_players: 0, max_visible_players: 4 };
+  const options = playerAudioOptions(settings.audio.output.player_audio);
   let selected = options.selected_tracks ?? null;
   if ("set_processing_mode" in action) {
     if (action.set_processing_mode === "all") selected = null;
@@ -73,6 +93,13 @@ export function applyPlayerSelectionAction(settings: Settings, action: PlayerSel
   const selected_user_names = Object.fromEntries((selected ?? []).flatMap(id => names.has(id) ? [[id, names.get(id)!]] : []));
   return { ...settings, audio: { ...settings.audio, output: { ...settings.audio.output,
     player_audio: { ...options, selected_tracks: selected, selected_user_names },
+  } } };
+}
+
+export function applyPlayerProximity(settings: Settings, proximity: PlayerProximitySettings): Settings {
+  const options = playerAudioOptions(settings.audio.output.player_audio);
+  return { ...settings, audio: { ...settings.audio, output: { ...settings.audio.output,
+    player_audio: { ...options, proximity },
   } } };
 }
 

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { collectPlayerSpeakers, applyPlayerSelectionAction, applyPlayerVisibilityAction } from "../src/subtitles/player-controls.ts";
+import { collectPlayerSpeakers, applyPlayerProximity, applyPlayerSelectionAction, applyPlayerVisibilityAction, sortPlayerSpeakersByDistance } from "../src/subtitles/player-controls.ts";
 import type { Settings } from "../src/settings/types.ts";
 import type { Subtitle } from "../src/subtitles/types.ts";
 
@@ -17,6 +17,21 @@ test("current selection merges accounts and preserves offline names and unrelate
   assert.equal(next.audio.output.player_audio?.max_players, 3);
   assert.deepEqual(applyPlayerSelectionAction(next, { set_processing_mode: "selected" }, [], []).audio.output.player_audio?.selected_tracks, []);
   assert.equal(applyPlayerSelectionAction(next, { set_processing_mode: "all" }, [], []).audio.output.player_audio?.selected_tracks, null);
+});
+
+test("distance settings preserve the existing player audio configuration", () => {
+  const next = applyPlayerProximity(settings(), { enabled: true, radius_m: 20 });
+  assert.deepEqual(next.audio.output.player_audio?.proximity, { enabled: true, radius_m: 20 });
+  assert.equal(next.audio.output.player_audio?.max_players, 3);
+  assert.deepEqual(next.audio.output.player_audio?.selected_tracks, [bob.user_id]);
+});
+
+test("players are ordered from nearest to farthest with unknown distances last", () => {
+  const near = { ...alice, id: "near", index: 2 };
+  const far = { ...bob, id: "far", index: 0 };
+  const unknown = { ...alice, id: "unknown", index: 1 };
+  const sorted = sortPlayerSpeakersByDistance([unknown, far, near], new Map([["near", 2.5], ["far", 18]]));
+  assert.deepEqual(sorted.map(player => player.id), ["near", "far", "unknown"]);
 });
 
 test("unknown identities and stale actions cannot enter the processing whitelist", () => {

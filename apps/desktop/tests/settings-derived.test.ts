@@ -20,7 +20,7 @@ import { targetLanguageCodes } from "../src/settings/translation/language-settin
 import type { Settings } from "../src/settings/types.ts";
 
 const settings: Settings = {
-  schema_version: 40,
+  schema_version: 41,
   model_defaults: {
     text: { profile_id: null, model: "" },
     translation: { profile_id: null, model: "" },

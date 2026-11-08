@@ -28,6 +28,24 @@ pub struct PlayerAudioConfig {
     pub selected_tracks: Option<Vec<String>>,
     /// Last known labels for the saved user-ID selection, for offline display only.
     pub selected_user_names: std::collections::BTreeMap<String, String>,
+    #[serde(default)]
+    pub proximity: PlayerProximityConfig,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct PlayerProximityConfig {
+    pub enabled: bool,
+    pub radius_m: f32,
+}
+
+impl Default for PlayerProximityConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            radius_m: 10.0,
+        }
+    }
 }
 
 impl Default for PlayerAudioConfig {
@@ -40,6 +58,7 @@ impl Default for PlayerAudioConfig {
             max_visible_players: 4,
             selected_tracks: None,
             selected_user_names: Default::default(),
+            proximity: PlayerProximityConfig::default(),
         }
     }
 }
@@ -158,6 +177,10 @@ mod tests {
     fn network_capture_master_defaults_off_and_accepts_legacy_parameters() {
         let defaults = serde_json::to_value(PlayerAudioConfig::default()).unwrap();
         assert_eq!(defaults["enabled"], false);
+        assert_eq!(
+            defaults["proximity"],
+            serde_json::json!({"enabled": false, "radius_m": 10.0})
+        );
 
         let legacy = serde_json::json!({
             "pagefile_drive": "D:",
@@ -172,6 +195,10 @@ mod tests {
         assert_eq!(
             saved.as_object_mut().unwrap().remove("enabled"),
             Some(false.into())
+        );
+        assert_eq!(
+            saved.as_object_mut().unwrap().remove("proximity"),
+            Some(serde_json::json!({"enabled": false, "radius_m": 10.0}))
         );
         assert_eq!(saved, legacy);
     }

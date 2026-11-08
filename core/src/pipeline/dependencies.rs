@@ -12,6 +12,7 @@ use crate::models::{
 };
 use crate::subtitle_output::{SubtitleLifecyclePublisher, TranslationFailure};
 use crate::translation::{same_translation_language, TranslationDispatcher};
+use crate::vrchat_chatbox::TaskValidity;
 
 #[derive(Clone)]
 struct PendingNative {
@@ -42,6 +43,7 @@ pub(crate) struct PipelineDependencies {
     pending_native: Arc<Mutex<HashMap<String, PendingNative>>>,
     managed_qwen: Option<(Arc<QwenRuntime>, Arc<ModelManager>)>,
     player: Option<(PlayerIdentity, String)>,
+    player_validity: Option<TaskValidity>,
     player_identities: PlayerIdentities,
     player_previews: Arc<Mutex<HashSet<String>>>,
 }
@@ -60,8 +62,12 @@ impl PipelineDependencies {
     }
 
     pub(super) fn current_player_selected(&self) -> bool {
-        self.player_identity()
-            .is_none_or(|player| self.player_selected(&player))
+        self.player_validity
+            .as_ref()
+            .is_none_or(TaskValidity::is_current)
+            && self
+                .player_identity()
+                .is_none_or(|player| self.player_selected(&player))
     }
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
@@ -84,6 +90,7 @@ impl PipelineDependencies {
             pending_native: Arc::default(),
             managed_qwen: None,
             player: None,
+            player_validity: None,
             player_identities: Arc::default(),
             player_previews: Arc::default(),
         }
@@ -128,9 +135,20 @@ impl PipelineDependencies {
             shared
         };
         self.player = Some((shared, format!("player-{}", uuid::Uuid::new_v4())));
+        self.player_validity = Some(TaskValidity::new());
         self.pending_native = Arc::default();
         self.player_previews = Arc::default();
         self
+    }
+
+    pub(super) fn player_validity(&self) -> Option<TaskValidity> {
+        self.player_validity.clone()
+    }
+
+    pub(super) fn invalidate_player(&self) {
+        if let Some(validity) = &self.player_validity {
+            validity.invalidate();
+        }
     }
 
     fn player_identity(&self) -> Option<crate::models::SpeakerIdentity> {
@@ -544,21 +562,28 @@ impl PipelineDependencies {
             let catalog = self.catalog.clone();
             let filter = self.output.microphone_speakers().clone();
             let message_id = message_id.clone();
+            let task_validity = self.player_validity();
             match tokio::task::spawn_blocking(move || {
-                filter
-                    .with_allowed(source, &message_id, || {
-                        let database = database
-                            .lock()
-                            .map_err(|_| "Database lock is unavailable".to_string())?;
-                        let changed = database
-                            .save_translation(item.subtitle_id, &record)
-                            .map_err(|error| error.to_string())?;
-                        if changed {
-                            catalog.request();
-                        }
-                        Ok::<_, String>(())
-                    })
-                    .unwrap_or(Ok(()))
+                let save = || {
+                    filter
+                        .with_allowed(source, &message_id, || {
+                            let database = database
+                                .lock()
+                                .map_err(|_| "Database lock is unavailable".to_string())?;
+                            let changed = database
+                                .save_translation(item.subtitle_id, &record)
+                                .map_err(|error| error.to_string())?;
+                            if changed {
+                                catalog.request();
+                            }
+                            Ok::<_, String>(())
+                        })
+                        .unwrap_or(Ok(()))
+                };
+                match task_validity.as_ref() {
+                    Some(validity) => validity.with_current(save).unwrap_or(Ok(())),
+                    None => save(),
+                }
             })
             .await
             {
@@ -567,6 +592,9 @@ impl PipelineDependencies {
                 Err(error) => Some(error.to_string()),
             }
         };
+        if !self.current_player_selected() {
+            return Ok(());
+        }
         if translation.text.is_empty() || storage_error.is_some() {
             self.pending_native
                 .lock()
@@ -691,15 +719,28 @@ impl PipelineDependencies {
                     .zip(&items)
                     .zip(subtitles)
                 {
-                    if let Err(detail) = self.translation.enqueue(
-                        subtitle,
-                        vec![target.clone()],
-                        prompt.clone(),
-                        profiles.clone(),
-                        message_id.clone(),
-                        include_vrcx_context,
-                        true,
-                    ) {
+                    let enqueue = match self.player_validity() {
+                        Some(validity) => self.translation.enqueue_guarded(
+                            subtitle,
+                            vec![target.clone()],
+                            prompt.clone(),
+                            profiles.clone(),
+                            message_id.clone(),
+                            include_vrcx_context,
+                            true,
+                            validity,
+                        ),
+                        None => self.translation.enqueue(
+                            subtitle,
+                            vec![target.clone()],
+                            prompt.clone(),
+                            profiles.clone(),
+                            message_id.clone(),
+                            include_vrcx_context,
+                            true,
+                        ),
+                    };
+                    if let Err(detail) = enqueue {
                         self.output
                             .translation_failed_with_message(TranslationFailure {
                                 subtitle_id: item.subtitle_id,
@@ -735,17 +776,24 @@ impl PipelineDependencies {
             let database = Arc::clone(&self.database);
             let record = translation.clone();
             let catalog = self.catalog.clone();
+            let task_validity = self.player_validity();
             match tokio::task::spawn_blocking(move || {
-                let database = database
-                    .lock()
-                    .map_err(|_| "Database lock is unavailable".to_string())?;
-                let changed = database
-                    .save_translation_group(&subtitle_ids, &record)
-                    .map_err(|error| error.to_string())?;
-                if changed {
-                    catalog.request();
+                let save = || {
+                    let database = database
+                        .lock()
+                        .map_err(|_| "Database lock is unavailable".to_string())?;
+                    let changed = database
+                        .save_translation_group(&subtitle_ids, &record)
+                        .map_err(|error| error.to_string())?;
+                    if changed {
+                        catalog.request();
+                    }
+                    Ok::<_, String>(())
+                };
+                match task_validity.as_ref() {
+                    Some(validity) => validity.with_current(save).unwrap_or(Ok(())),
+                    None => save(),
                 }
-                Ok::<_, String>(())
             })
             .await
             {
@@ -754,6 +802,9 @@ impl PipelineDependencies {
                 Err(error) => Some(error.to_string()),
             }
         };
+        if !self.current_player_selected() {
+            return Ok(());
+        }
         self.pending_native
             .lock()
             .expect("native translation lock")
@@ -833,33 +884,42 @@ impl PipelineDependencies {
             .filter(|translation| !translation.text.is_empty());
         let filter = self.output.microphone_speakers().clone();
         let storage_id = message_id.clone();
+        let task_validity = self.player_validity();
         let (saved, native_error) = match tokio::task::spawn_blocking(move || {
-            filter
-                .with_allowed(source, &storage_id, || {
-                    let database = database
-                        .lock()
-                        .map_err(|_| "Database lock is unavailable".to_string())?;
-                    // Read under the database lock so a late metadata update cannot
-                    // backfill history and then be overwritten by an older ASR snapshot.
-                    if let Some(player) = player {
-                        subtitle.speaker = Some(player.read().expect("player identity").clone());
-                    }
-                    let mut saved = database
-                        .add_subtitle(&subtitle)
-                        .map_err(|error| error.to_string())?;
-                    let mut native_error = None;
-                    if let Some(translation) = native_record {
-                        match database
-                            .save_translation(saved.id.expect("saved subtitle id"), &translation)
-                        {
-                            Ok(_) => saved.translations.push(translation),
-                            Err(error) => native_error = Some(error.to_string()),
+            let save = || {
+                filter
+                    .with_allowed(source, &storage_id, || {
+                        let database = database
+                            .lock()
+                            .map_err(|_| "Database lock is unavailable".to_string())?;
+                        // Read under the database lock so a late metadata update cannot
+                        // backfill history and then be overwritten by an older ASR snapshot.
+                        if let Some(player) = player {
+                            subtitle.speaker =
+                                Some(player.read().expect("player identity").clone());
                         }
-                    }
-                    catalog.request();
-                    Ok::<_, String>((saved, native_error))
-                })
-                .transpose()
+                        let mut saved = database
+                            .add_subtitle(&subtitle)
+                            .map_err(|error| error.to_string())?;
+                        let mut native_error = None;
+                        if let Some(translation) = native_record {
+                            match database.save_translation(
+                                saved.id.expect("saved subtitle id"),
+                                &translation,
+                            ) {
+                                Ok(_) => saved.translations.push(translation),
+                                Err(error) => native_error = Some(error.to_string()),
+                            }
+                        }
+                        catalog.request();
+                        Ok::<_, String>((saved, native_error))
+                    })
+                    .transpose()
+            };
+            match task_validity.as_ref() {
+                Some(validity) => validity.with_current(save).unwrap_or(Ok(None)),
+                None => save(),
+            }
         })
         .await
         {
@@ -877,6 +937,9 @@ impl PipelineDependencies {
                 return Err(detail);
             }
         };
+        if !self.current_player_selected() {
+            return Ok(());
+        }
         if !self.output.allows(source, &message_id) {
             return Ok(());
         }
@@ -987,15 +1050,28 @@ impl PipelineDependencies {
                 return Ok(());
             }
             let failed_targets = targets.clone();
-            if let Err(detail) = self.translation.enqueue(
-                saved.clone(),
-                targets,
-                translation_prompt,
-                api_profiles,
-                message_id.clone(),
-                include_vrcx_context,
-                native.is_none(),
-            ) {
+            let enqueue = match self.player_validity() {
+                Some(validity) => self.translation.enqueue_guarded(
+                    saved.clone(),
+                    targets,
+                    translation_prompt,
+                    api_profiles,
+                    message_id.clone(),
+                    include_vrcx_context,
+                    native.is_none(),
+                    validity,
+                ),
+                None => self.translation.enqueue(
+                    saved.clone(),
+                    targets,
+                    translation_prompt,
+                    api_profiles,
+                    message_id.clone(),
+                    include_vrcx_context,
+                    native.is_none(),
+                ),
+            };
+            if let Err(detail) = enqueue {
                 if let Some(subtitle_id) = saved.id {
                     for (index, target) in failed_targets.iter().enumerate() {
                         self.output
@@ -1123,6 +1199,25 @@ mod tests {
             .selected_tracks = None;
         second
             .publish_text("enabled again".into(), None, "speaker", "new-b".into())
+            .await
+            .unwrap();
+        assert_eq!(
+            base.database
+                .lock()
+                .unwrap()
+                .subtitle_history(20)
+                .unwrap()
+                .len(),
+            2
+        );
+        second.invalidate_player();
+        second
+            .publish_text(
+                "must not save after exclusion".into(),
+                None,
+                "speaker",
+                "late-b-again".into(),
+            )
             .await
             .unwrap();
         assert_eq!(

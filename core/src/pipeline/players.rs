@@ -132,11 +132,21 @@ async fn run_players(
             _ = input.stop.changed() => break,
             _ = sweep.tick() => {
                 retry_after.retain(|_, until| *until > Instant::now());
-                let expired: Vec<_> = tasks.iter().filter(|(_, t)| !t.dependencies.current_player_selected() || t.last_frame.elapsed() > if keep_warm { WARM_PLAYER_SESSION } else { Duration::from_secs(16) })
+                let blocked = input
+                    .status
+                    .lock()
+                    .expect("player status")
+                    .proximity
+                    .blocked_players
+                    .clone();
+                let expired: Vec<_> = tasks.iter().filter(|(id, t)| !t.dependencies.current_player_selected() || blocked.contains(*id) || t.last_frame.elapsed() > if keep_warm { WARM_PLAYER_SESSION } else { Duration::from_secs(16) })
                     .map(|(id, _)| id.clone()).collect();
                 for id in expired {
                     let task = tasks.remove(&id).unwrap();
-                    if !task.dependencies.current_player_selected() { task.discard.store(true, Ordering::SeqCst); }
+                    if !task.dependencies.current_player_selected() || blocked.contains(&id) {
+                        task.dependencies.invalidate_player();
+                        task.discard.store(true, Ordering::SeqCst);
+                    }
                     retire_player(id, task, &mut retired, &mut retiring);
                 }
                 continue;
@@ -162,8 +172,31 @@ async fn run_players(
             AudioEvent::Closed(id) => {
                 if let Some(task) = tasks.remove(&id) {
                     if !task.dependencies.current_player_selected() {
+                        task.dependencies.invalidate_player();
                         task.discard.store(true, Ordering::SeqCst);
                     }
+                    retire_player(id, task, &mut retired, &mut retiring);
+                }
+            }
+            AudioEvent::Excluded(id) => {
+                if let Some(task) = tasks.remove(&id) {
+                    task.dependencies.invalidate_player();
+                    task.discard.store(true, Ordering::SeqCst);
+                    retire_player(id, task, &mut retired, &mut retiring);
+                }
+            }
+            AudioEvent::Admitted(id) => {
+                let task = tasks.remove(&id);
+                input
+                    .status
+                    .lock()
+                    .expect("player status")
+                    .proximity
+                    .blocked_players
+                    .remove(&id);
+                if let Some(task) = task {
+                    task.dependencies.invalidate_player();
+                    task.discard.store(true, Ordering::SeqCst);
                     retire_player(id, task, &mut retired, &mut retiring);
                 }
             }
@@ -187,6 +220,21 @@ async fn run_players(
             } => {
                 let id = speaker.id.clone();
                 // Discard frames already queued when the selection changed too.
+                let proximity_blocked = input
+                    .status
+                    .lock()
+                    .expect("player status")
+                    .proximity
+                    .blocked_players
+                    .contains(&id);
+                if proximity_blocked {
+                    if let Some(task) = tasks.remove(&id) {
+                        task.dependencies.invalidate_player();
+                        task.discard.store(true, Ordering::SeqCst);
+                        retire_player(id, task, &mut retired, &mut retiring);
+                    }
+                    continue;
+                }
                 if !input.dependencies.player_selected(&speaker) {
                     continue;
                 }
@@ -312,6 +360,7 @@ async fn run_players(
     }
     for (id, task) in tasks {
         if input.discard.load(Ordering::SeqCst) {
+            task.dependencies.invalidate_player();
             task.discard.store(true, Ordering::SeqCst);
         }
         retire_player(id, task, &mut retired, &mut retiring);

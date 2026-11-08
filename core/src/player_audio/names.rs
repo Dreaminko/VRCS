@@ -13,6 +13,7 @@ pub(super) enum Update {
 pub(super) enum Value<'a> {
     Int(i64),
     Text(&'a str),
+    Bytes(&'a [u8]),
     Map(Vec<(Value<'a>, Value<'a>)>),
     Other,
 }
@@ -166,8 +167,7 @@ impl<'a> Reader<'a> {
                     self.byte()?;
                 }
                 let length = self.length()?;
-                self.take(length)?;
-                Value::Other
+                Value::Bytes(self.take(length)?)
             }
             66 | 67 => {
                 let length = self.length()?;
@@ -192,6 +192,31 @@ impl<'a> Reader<'a> {
             _ => return None,
         })
     }
+}
+
+pub(super) fn event_parameters(message: &[u8], event_code: u8) -> Option<Vec<(u8, Value<'_>)>> {
+    if message.len() > 1024 * 1024 {
+        return None;
+    }
+    let at = message
+        .windows(2)
+        .take(9)
+        .position(|bytes| bytes == [0xf3, 4])?;
+    let event = &message[at..];
+    if *event.get(2)? != event_code {
+        return None;
+    }
+    let mut reader = Reader {
+        bytes: event,
+        offset: 3,
+        nodes: 0,
+    };
+    let count = reader.byte()?;
+    let mut parameters = Vec::new();
+    for _ in 0..count {
+        parameters.push((reader.byte()?, reader.dynamic(0)?));
+    }
+    reader.finished().then_some(parameters)
 }
 
 fn name(actor: u16, properties: &Value<'_>) -> Option<Update> {

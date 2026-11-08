@@ -2,6 +2,18 @@ use super::validation::validate_glossary;
 use super::*;
 
 #[test]
+fn player_proximity_radius_is_validated_even_when_disabled() {
+    let mut config = AppConfig::default();
+    config.audio.output.player_audio.proximity.radius_m = f32::NAN;
+    assert!(config
+        .validate_settings()
+        .unwrap_err()
+        .contains("proximity.radius_m"));
+    config.audio.output.player_audio.proximity.radius_m = 1.0;
+    assert!(config.validate_settings().is_ok());
+}
+
+#[test]
 fn mimo_recognition_only_accepts_documented_languages_when_selected() {
     let mut config = AppConfig::default();
     config.asr.backend = crate::providers::SERVICE_MIMO_TRANSCRIPTION.into();

@@ -44,9 +44,15 @@ export interface PlayerAudioSettings {
   opus_library_path: string;
   max_players: number;
   max_visible_players?: number;
+  proximity?: PlayerProximitySettings;
   /** Persisted VRChat user IDs; null accepts everyone, [] accepts no one. */
   selected_tracks?: string[] | null;
   selected_user_names?: Record<string, string>;
+}
+
+export interface PlayerProximitySettings {
+  enabled: boolean;
+  radius_m: number;
 }
 
 export interface MicrophoneSettings {
