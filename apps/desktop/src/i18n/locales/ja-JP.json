@@ -379,7 +379,6 @@
         "languages": "非表示にする原文の言語",
         "addHiddenLanguage": "非表示にする言語を追加",
         "removeHiddenLanguage": "非表示の言語を削除：{{language}}",
-        "hiddenLanguageHint": "相手が話した言語に基づき、発言全体とその翻訳を非表示にします。",
         "noHiddenLanguages": "非表示にする言語なし",
         "search": "プレイヤーを検索",
         "showAll": "すべての記録を表示",

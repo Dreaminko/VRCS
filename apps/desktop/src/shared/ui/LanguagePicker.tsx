@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
 import {
@@ -20,6 +21,8 @@ export function LanguagePicker({
   disabled = false,
   compact = false,
   floating = false,
+  icon,
+  iconOnly = false,
   onChange,
 }: {
   label: string;
@@ -31,6 +34,8 @@ export function LanguagePicker({
   disabled?: boolean;
   compact?: boolean;
   floating?: boolean;
+  icon?: ReactNode;
+  iconOnly?: boolean;
   onChange: (value: string) => void;
 }) {
   const { t, i18n } = useTranslation();
@@ -50,6 +55,8 @@ export function LanguagePicker({
       compact={compact}
       floating={floating}
       floatingWidth={compact ? 300 : undefined}
+      icon={icon}
+      iconOnly={iconOnly}
       searchable
       searchPlaceholder={t("translation.languagePicker.search")}
       emptyLabel={t("translation.languagePicker.empty")}

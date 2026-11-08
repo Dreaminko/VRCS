@@ -379,7 +379,6 @@
         "languages": "Hidden original languages",
         "addHiddenLanguage": "Add a language to hide",
         "removeHiddenLanguage": "Remove hidden language: {{language}}",
-        "hiddenLanguageHint": "Hide each message and its translations based on the language spoken by the other person.",
         "noHiddenLanguages": "No languages hidden",
         "search": "Search players",
         "showAll": "Show all records",

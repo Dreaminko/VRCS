@@ -1,5 +1,5 @@
 import { useId, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Eye, EyeOff, UsersRound, X } from "lucide-react";
+import { Eye, EyeOff, Plus, UsersRound, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { PlayerProximitySettings } from "../../capture/types";
 import type { PlayerAudioStatus } from "../../core-client/types";
@@ -131,10 +131,13 @@ export function PlayerHistoryControls({ subtitles, status, enabled, selectedUser
         <div className="player-history-language-list">{languages.map((language) => <button type="button" className="language-chip player-history-language" key={language} value={language}
           aria-label={t("live.players.removeHiddenLanguage", { language: languageName(language) })} onClick={() => setLanguageHidden(language, false)}>
           {languageName(language)}<X size={13} aria-hidden="true" />
-        </button>)}{!languages.length && <small>{t("live.players.noHiddenLanguages")}</small>}</div>
-        <LanguagePicker label={t("live.players.addHiddenLanguage")} placeholder={t("live.players.addHiddenLanguage")} value="" languageCodes={languageCodes}
-          compact floating disabled={!open || !languageCodes.length} onChange={(language) => setLanguageHidden(language, true)} />
-        <small>{t("live.players.hiddenLanguageHint")}</small>
+        </button>)}{!languages.length && <small>{t("live.players.noHiddenLanguages")}</small>}
+          <span className="player-history-language-add">
+            <LanguagePicker label={t("live.players.addHiddenLanguage")} value="" languageCodes={languageCodes}
+              icon={<Plus size={14} aria-hidden="true" />} iconOnly compact floating disabled={!open || !languageCodes.length}
+              onChange={(language) => setLanguageHidden(language, true)} />
+          </span>
+        </div>
       </fieldset>
       <div className="player-history-actions">
         <input className="player-history-search" type="search" value={query} placeholder={t("live.players.search")} aria-label={t("live.players.search")} onChange={(event) => setQuery(event.target.value)} />

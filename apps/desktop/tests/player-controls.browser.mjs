@@ -220,7 +220,8 @@ for (const [width,reduced] of [[1100,false],[860,false],[380,false],[1100,true]]
           changeHeight(620);await settled();
           check(document.querySelector('.player-history-panel').getBoundingClientRect().bottom<=document.querySelector('.app-shell').getBoundingClientRect().bottom,'the panel fits the minimum supported window height');
           check(!document.querySelector('.player-history-languages > label input'),'hidden languages have no follow-default option');
-          check(document.querySelector('.player-history-languages .dropdown-trigger'),'hidden languages use the shared searchable picker');
+          const languageAddTrigger=document.querySelector('.player-history-language-add .dropdown-trigger');
+          check(languageAddTrigger&&!languageAddTrigger.textContent.trim()&&languageAddTrigger.getAttribute('aria-label')==='添加隐藏语言','hidden languages use an icon-only add button');
           changeHeight(500);await settled();
           const panel=document.querySelector('.player-history-body');
           check(panel.scrollHeight>panel.clientHeight&&region.clientHeight>=100,'short windows scroll the expanded panel internally and retain a chat viewport');
@@ -267,6 +268,10 @@ for (const [width,reduced] of [[1100,false],[860,false],[380,false],[1100,true]]
           changeRows(rows);
           await wait(()=>state.subtitles.length===3&&!row(12));
           check(document.querySelector('legend').textContent==='隐藏的原文语言','control describes original-language hiding');
+          const languageTags=[...document.querySelectorAll('.player-history-language-list .player-history-language')];
+          const languageAdd=document.querySelector('.player-history-language-add').getBoundingClientRect();
+          const lastLanguageTag=languageTags.at(-1)?.getBoundingClientRect();
+          check(languageAdd.left>=lastLanguageTag.right&&Math.abs(languageAdd.top+languageAdd.height/2-(lastLanguageTag.top+lastLanguageTag.height/2))<1,'the add button sits to the right of the existing language tags');
           changeLanguages(['ja']);
           await wait(()=>!row(1)&&row(2));
           check(row(2).textContent.includes('译文-ja')&&row(3).textContent.includes('译文-en'),'selected languages hide entire matching originals, not matching translation targets');

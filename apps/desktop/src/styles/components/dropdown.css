@@ -312,6 +312,7 @@
 .dropdown-option-copy small { color: var(--text-quiet); font-size: var(--settings-text-micro); font-weight: 400; }
 .dropdown-empty { margin: 0; padding: 12px 10px; color: var(--text-quiet); font-size: var(--settings-text-body); text-align: center; }
 .dropdown-field-compact { min-width: 118px; }
+.dropdown-field-icon-only { min-width: 0; }
 .dropdown-field-compact .dropdown-trigger {
   height: var(--settings-control-compact-height);
   gap: 5px;

@@ -14,7 +14,7 @@ export interface DropdownOption {
   group?: string;
 }
 
-export function DropdownField({ label, value, options, disabled = false, compact = false, floating = false, floatingLayer = "page", floatingWidth, searchable = false, searchPlaceholder, emptyLabel, createOption, icon, placeholder, onChange }: {
+export function DropdownField({ label, value, options, disabled = false, compact = false, floating = false, floatingLayer = "page", floatingWidth, searchable = false, searchPlaceholder, emptyLabel, createOption, icon, iconOnly = false, placeholder, onChange }: {
   label: string;
   value: string;
   options: DropdownOption[];
@@ -28,6 +28,7 @@ export function DropdownField({ label, value, options, disabled = false, compact
   emptyLabel?: string;
   createOption?: (query: string) => DropdownOption | null;
   icon?: ReactNode;
+  iconOnly?: boolean;
   placeholder?: string;
   onChange: (value: string) => void;
 }) {
@@ -197,7 +198,7 @@ export function DropdownField({ label, value, options, disabled = false, compact
 
   return (
     <div
-      className={`dropdown-field ${compact ? "dropdown-field-compact" : ""} ${open ? "open" : ""} ${menuMounted ? "menu-visible" : ""}`}
+      className={`dropdown-field ${compact ? "dropdown-field-compact" : ""} ${iconOnly ? "dropdown-field-icon-only" : ""} ${open ? "open" : ""} ${menuMounted ? "menu-visible" : ""}`}
       ref={rootRef}
       onBlurCapture={(event) => {
         const next = event.relatedTarget as Node | null;
@@ -234,9 +235,11 @@ export function DropdownField({ label, value, options, disabled = false, compact
           }
         }}
       >
-        {icon && <span className="dropdown-icon">{icon}</span>}
-        <span className="dropdown-value">{selected?.label ?? placeholder ?? value}</span>
-        <ChevronDown className="dropdown-chevron" size={16} />
+        {iconOnly ? (icon && <span className="dropdown-icon">{icon}</span>) : <>
+          {icon && <span className="dropdown-icon">{icon}</span>}
+          <span className="dropdown-value">{selected?.label ?? placeholder ?? value}</span>
+          <ChevronDown className="dropdown-chevron" size={16} />
+        </>}
       </button>
       {menuMounted && (!floating || floatingPosition) && (
         floating ? createPortal(menu, document.body) : menu

@@ -379,7 +379,6 @@
         "languages": "隱藏的原文語言",
         "addHiddenLanguage": "新增隱藏語言",
         "removeHiddenLanguage": "移除隱藏語言：{{language}}",
-        "hiddenLanguageHint": "依對方說話的語言隱藏整則發言及其譯文。",
         "noHiddenLanguages": "不隱藏任何語言",
         "search": "搜尋玩家",
         "showAll": "顯示所有記錄",
