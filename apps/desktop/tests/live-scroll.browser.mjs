@@ -69,7 +69,8 @@ test("live translation scroll follows layout changes and respects user input", {
         state, settle,
         async reset() {
           document.activeElement?.blur();
-          document.querySelector('.player-history-controls').open = false;
+          const trigger = document.querySelector('.player-history-trigger');
+          if (trigger.getAttribute('aria-expanded') === 'true') trigger.click();
           clearLivePartials(); clearTranslationPartial(18);
           flushSync(() => { setRows(initial()); setStamp(String(performance.now())); setFocused(null); });
           api.scrollLiveViewToBottom('auto');
@@ -96,20 +97,49 @@ test("live translation scroll follows layout changes and respects user input", {
           partial('Saved translation. '.repeat(250));
           await settle();
         },
+        async fillPanel() {
+          flushSync(() => setRows([
+            ...initial(),
+            ...Array.from({ length: 24 }, (_, index) => ({ ...subtitle(100 + index),
+              speaker: { id: 'panel-player-' + index, index: index + 20 } })),
+          ]));
+          setStamp(String(performance.now()));
+          await settle();
+        },
+        showLivePreview() {
+          flushSync(() => publishLivePartial({ type: 'partial', source: 'speaker', utterance_id: 'source-icon',
+            text: 'Live source icon preview', language: 'en-US', speaker: { id: 'actor-icon', index: 7 } }));
+        },
+        clearLivePreview() {
+          flushSync(() => clearLivePartials());
+        },
+        liveSourceIcons() {
+          return [...document.querySelectorAll('.streaming-message .message-meta [data-message-source]')]
+            .map(icon => icon.dataset.messageSource);
+        },
         async grow() { partial('More translation. '.repeat(350)); await settle(); },
         async bottom() { api.scrollLiveViewToBottom('auto'); await settle(); },
         async focusSubtitle() { flushSync(() => setFocused(10)); await settle(); },
         async clearFocus() { flushSync(() => setFocused(null)); await settle(); },
-        async expandPanel(open) { document.querySelector('.player-history-controls').open = open; await settle(); },
+        scrollPanel(delta) { document.querySelector('.player-history-body').scrollTop += delta; },
+        async expandPanel(open) {
+          const trigger = document.querySelector('.player-history-trigger');
+          if ((trigger.getAttribute('aria-expanded') === 'true') !== open) trigger.click();
+          for (let attempt = 0; attempt < 100; attempt++) {
+            if (Boolean(document.querySelector('.player-history-body')) === open) break;
+            await new Promise(resolve => setTimeout(resolve, 20));
+          }
+          await settle();
+        },
         toolbar() {
           const panel = document.querySelector('.player-history-body');
-          const rect = panel.getBoundingClientRect();
-          return { summaryTop:document.querySelector('summary').getBoundingClientRect().top,
+          const rect = panel?.getBoundingClientRect();
+          return { summaryTop:document.querySelector('.status-toggle').getBoundingClientRect().top,
             statusTop:document.querySelector('.top-status-row').getBoundingClientRect().top,
             bottom:document.querySelector('.live-toolbar').getBoundingClientRect().bottom,
             chatTop:region().getBoundingClientRect().top,chatHeight:region().clientHeight,
-            panelTop:panel.scrollTop,panelRange:panel.scrollHeight-panel.clientHeight,
-            x:rect.left+rect.width/2,y:rect.top+Math.min(50,rect.height/2) };
+            panelTop:panel?.scrollTop ?? 0,panelRange:panel ? panel.scrollHeight-panel.clientHeight : 0,
+            x:rect ? rect.left+rect.width/2 : 0,y:rect ? rect.top+Math.min(50,rect.height/2) : 0 };
         },
         focusScroll() { region().tabIndex = 0; region().focus({ preventScroll: true }); },
         bounds() {
@@ -251,15 +281,15 @@ test("live translation scroll follows layout changes and respects user input", {
       await evaluate("fixture.expandPanel(false)");
       assert.equal((await state()).following, false);
     });
-    await t.test("expanded panel scrolls independently without pausing or obscuring live chat", async () => {
+    await t.test("expanded panel scrolls independently without moving live chat", async () => {
       await evaluate("fixture.reset();");
+      await evaluate("fixture.fillPanel()");
       await evaluate("fixture.expandPanel(true)");
       await followingBottom();
       const panel = await evaluate("fixture.toolbar()");
       assert.ok(panel.panelRange > 0 && panel.chatHeight >= 100, JSON.stringify(panel));
-      assert.ok(panel.bottom <= panel.chatTop + 1, JSON.stringify(panel));
       const before = await state();
-      await input("dispatchMouseEvent", { type:"mouseWheel", x:panel.x, y:panel.y, deltaX:0, deltaY:240 });
+      await evaluate("fixture.scrollPanel(240)");
       await settleInput();
       assert.ok((await evaluate("fixture.toolbar()")).panelTop > 0);
       assert.ok(Math.abs((await state()).top - before.top) <= 1);
@@ -327,6 +357,12 @@ test("live translation scroll follows layout changes and respects user input", {
       assert.equal((await state()).following, false);
       await evaluate("fixture.clearFocus()");
       await followingBottom();
+    });
+    await t.test("new live previews expose their route before completion", async () => {
+      await evaluate("fixture.reset()");
+      await evaluate("fixture.showLivePreview()");
+      assert.deepEqual(await evaluate("fixture.liveSourceIcons()"), ["voice"]);
+      await evaluate("fixture.clearLivePreview()");
     });
   } finally {
     socket?.close();

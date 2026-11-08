@@ -1,5 +1,5 @@
 import { memo, useEffect, useRef, useState } from "react";
-import { Check, LoaderCircle, MessageSquare, Mic, Sparkles, Volume2 } from "lucide-react";
+import { Check, LoaderCircle, Sparkles } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { timestamp } from "../../app/app-utils";
@@ -21,6 +21,7 @@ import { useSpeakerIdentity } from "../speaker-state";
 import { isAudioTrack, isOtherPlayerSource } from "../player-history";
 import { SubtitleAnalysisPopover } from "./SubtitleAnalysisPopover";
 import { SubtitleContextMenu } from "./SubtitleContextMenu";
+import { MessageSourceIcon } from "./MessageSourceIcon";
 
 type SubtitleSource = NonNullable<Subtitle["source"]>;
 
@@ -198,13 +199,13 @@ export const SubtitleBubble = memo(function SubtitleBubble({
       }}
     >
       <div className="message-meta">
-        {!mine && (source === "vrchat_chatbox" ? <MessageSquare className="message-source-icon" aria-label={t("chatbox.title")} /> : <Volume2 className="message-source-icon" />)}
+        {!mine && <MessageSourceIcon source={source} className="message-source-icon" chatboxLabel={t("chatbox.title")} />}
         {mine && <time>{timestamp(subtitle.created_at, locale)}</time>}
         <span className="speaker-name">{source === "vrchat_chatbox" ? speaker?.display_name || t("live.speakerNumber", { number: (speaker?.index ?? 0) + 1 }) : source === "chatbox" ? t("chatbox.title") : mine ? speaker ? t("live.speakerNumber", { number: speaker.index + 1 }) : t("live.microphoneMe") : speaker?.display_name || t("live.speakerOther")}</span>
         {source === "speaker" && speaker && !speaker.display_name && <span>{t(isAudioTrack(speaker) ? "live.trackNumber" : "live.speakerNumber", { number: speaker.index + 1 })}</span>}
         {!mine && <time>{timestamp(subtitle.created_at, locale)}</time>}
-        {source === "microphone" && <Mic className="message-source-icon" />}
-        {source === "chatbox" && <MessageSquare className="message-source-icon" />}
+        {source === "microphone" && <MessageSourceIcon source={source} className="message-source-icon" chatboxLabel={t("chatbox.title")} />}
+        {source === "chatbox" && <MessageSourceIcon source={source} className="message-source-icon" chatboxLabel={t("chatbox.title")} />}
       </div>
       <div ref={bubbleRef} className="bubble">
         <p

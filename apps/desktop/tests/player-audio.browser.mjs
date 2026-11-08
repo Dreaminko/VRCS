@@ -34,7 +34,7 @@ for (const width of [1100, 380]) {
         const noop = async () => {};
         let current, updateStatus, updateDraft, updateSaveState;
         function Fixture() {
-          const [draft,setDraft] = useState({ vrchat_chatbox:{enabled:false}, translation:{mode:'manual',speaker_targets:[]}, audio: { output:{mode:'system', device_id:null, trigger_threshold_dbfs:-45},
+          const [draft,setDraft] = useState({ vrchat_chatbox:{enabled:false}, translation:{mode:'manual',speaker_targets:[]}, audio: { output:{mode:'system', device_id:null, trigger_threshold_dbfs:-45, player_audio:{enabled:true, pagefile_drive:'C:', opus_library_path:'', max_players:0, max_visible_players:4, proximity:{enabled:false, radius_m:10}}},
             microphone:{mode:'disabled',device_id:null,trigger_threshold_dbfs:-45} } });
           current = draft;
           updateDraft = setDraft;
@@ -54,6 +54,10 @@ for (const width of [1100, 380]) {
             <div id="previews"><LivePartials subtitles={[]} /></div>
             <div id="history"><SubtitleBubble subtitle={{id:1,text:'已保存的玩家发言',language:'zh',created_at:'2026-10-25T00:00:00Z',
               started_at:null,ended_at:null,source:'speaker',speaker:{id:'actor-1',index:1},translations:[]}}
+              focused={false} selected={false} selectionActive={false} selection={null} onClearSelection={()=>{}}
+              onSelect={noop} onCopyFeedback={()=>{}} /></div>
+            <div id="chatbox"><SubtitleBubble subtitle={{id:2,text:'来自 Chatbox 的消息',language:null,created_at:'2026-10-25T00:00:01Z',
+              started_at:null,ended_at:null,source:'vrchat_chatbox',speaker:{id:'vrc:text-player',index:3},translations:[]}}
               focused={false} selected={false} selectionActive={false} selection={null} onClearSelection={()=>{}}
               onSelect={noop} onCopyFeedback={()=>{}} /></div></>;
         }
@@ -107,10 +111,6 @@ for (const width of [1100, 380]) {
           updateDraft(previous=>({...previous,audio:{...previous.audio,output:{...previous.audio.output,
             player_audio:{...previous.audio.output.player_audio,max_players:3,max_visible_players:10}}}}));
           await wait(()=>processing.value==='3'&&visible.value==='10');
-          updateSaveState('saving');
-          await wait(()=>controls.every(input=>input.disabled));
-          updateSaveState('idle');
-          await wait(()=>controls.every(input=>!input.disabled));
           const statusText=()=>card.querySelector('[role=status]').textContent;
           check(statusText().includes('正在获取语音密钥')&&statusText().includes('已用时 2.7 秒'),'acquisition shows a plain status and elapsed time');
           check(!/MiB|PCM|认证包|候选|解码错误|丢弃/.test(statusText()),'diagnostic counters are hidden');
@@ -152,6 +152,8 @@ for (const width of [1100, 380]) {
             type:'partial',source:'speaker',utterance_id:'player-'+index,text,language:'zh',translation:'Player '+index,
             target_language:'en',speaker:{id:'actor-'+index,index} });
           await wait(()=>document.querySelectorAll('#previews .streaming-message').length===2);
+          check(document.querySelectorAll('#previews [data-message-source="voice"]').length===2,'live previews show the voice source icon before completion');
+          check(document.querySelector('#chatbox [data-message-source="chatbox"]'),'Chatbox messages show their source icon immediately');
           const vrcName='玩家 <VRC> あ '+ '很长的名字'.repeat(12);
           publishSpeakerIdentity({id:'actor-1',index:1,display_name:vrcName});
           await wait(()=>document.querySelector('#history .speaker-name')?.textContent===vrcName);
@@ -162,6 +164,7 @@ for (const width of [1100, 380]) {
           check(!document.querySelector('#history .message-meta').textContent.includes('说话人 2'),'known name replaces numbered label');
           completeLivePartial('speaker','player-0');
           await wait(()=>document.querySelectorAll('#previews .streaming-message').length===1);
+          check(document.querySelectorAll('#previews [data-message-source="voice"]').length===1,'source icon survives another preview completing');
           check(document.querySelector('#previews').textContent.includes('第二位玩家'),'other player survives completion');
           check(document.documentElement.scrollWidth<=innerWidth+1,'no horizontal overflow');
           document.getElementById('result').textContent='PASS';

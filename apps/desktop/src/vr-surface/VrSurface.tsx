@@ -1,5 +1,5 @@
 import { memo, useCallback, useLayoutEffect, useMemo, useRef, type CSSProperties, type ReactNode } from "react";
-import { Captions, ChevronLeft, ChevronRight, Crop, Eye, GripHorizontal, Hand, Languages, MessageSquare, Mic, Pin, PinOff, Radio, ScanEye, Square, UsersRound, Volume2, X } from "lucide-react";
+import { Captions, ChevronLeft, ChevronRight, Crop, Eye, GripHorizontal, Hand, Languages, MessageSquare, Mic, Pin, PinOff, Radio, ScanEye, Square, UsersRound, X } from "lucide-react";
 import type { WristMenuCommand } from "../vr-controls/player-display-protocol";
 import type { ControlAction } from "../vr-controls/protocol";
 import { VisionAnswerMarkdown } from "../vision/VisionAnswerMarkdown";
@@ -10,6 +10,7 @@ import { OcrResultSurface, OcrSelectionSurface } from "./OcrSurfaces";
 import { PlayerAudioPrompt } from "./PlayerAudioPrompt";
 import { DEFAULT_WRIST_MENU_UI, PlayerDisplayMenu } from "./PlayerDisplayMenu";
 import { menuStatus, pageGeometry, SURFACE_SIZE, type SurfaceLayout, type SurfaceState, type SurfaceView } from "./protocol";
+import { MessageSourceIcon } from "../subtitles/components/MessageSourceIcon";
 
 import "./surface.css";
 
@@ -99,9 +100,7 @@ function Dialogue({ state, view }: { state: SurfaceState; view: Extract<SurfaceV
       }}>
         <div className="vr-dialogue-messages">{messages.length ? messages.map((message, index) => <div className={`vr-dialogue-bubble ${message.side}`} key={index}>
           <div className="vr-caption-speaker">
-            {message.original?.source === "vrchat_chatbox" || message.original?.source === "chatbox" ? <MessageSquare size="1em" aria-label="Chatbox" />
-              : message.original?.source === "microphone" ? <Mic size="1em" aria-label="Microphone" />
-                : <Volume2 size="1em" aria-label="Voice" />}
+            <MessageSourceIcon source={message.original?.source} size="1em" microphoneLabel="Microphone" voiceLabel="Voice" />
             <span title={message.speaker || undefined}>{message.speaker || (message.side === "right" ? view.labels?.me ?? "Me" : view.labels?.other ?? "Others")}</span>
           </div>
           {message.text}

@@ -181,6 +181,8 @@ html[data-vr-surface], html[data-vr-surface] body, html[data-vr-surface] #root {
 /* Player captions keep stable, independent cards instead of replacing one slot. */
 .vr-caption-grid { display: grid; width: 100%; min-width: 0; gap: 12px; }
 .vr-caption-card { min-width: 0; padding: 4px 8px; overflow: hidden; }
-.vr-caption-speaker { color: var(--primary-ink); font-weight: 650; line-height: 1.1; margin-bottom: 6px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.vr-caption-speaker { display: flex; align-items: center; gap: 0.35em; min-width: 0; color: var(--primary-ink); font-weight: 650; line-height: 1.1; margin-bottom: 6px; }
+.vr-caption-speaker > svg { flex: none; width: 1em; height: 1em; }
+.vr-caption-speaker > span { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .vr-caption-card .vr-headset-language + .vr-headset-language { margin-top: var(--vr-caption-language-gap); color: var(--text-secondary); }
 .vr-caption-notice { flex: none; margin: 0 0 16px; color: var(--text-secondary); font-size: 26px; line-height: 1.35; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 120px; overflow: hidden; }

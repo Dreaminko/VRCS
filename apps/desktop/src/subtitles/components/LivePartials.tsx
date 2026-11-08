@@ -6,11 +6,17 @@ import { livePartialHasSubtitle, useLivePartials } from "../../core-client/realt
 import type { SpeakerIdentity, Subtitle } from "../types";
 import { useSpeakerIdentity } from "../speaker-state";
 import { isAudioTrack, livePartialVisible } from "../player-history";
+import { MessageSourceIcon } from "./MessageSourceIcon";
 
-function SpeakerLabel({ identity }: { identity: SpeakerIdentity }) {
+function PartialMeta({ identity, source }: { identity?: SpeakerIdentity | null; source: Subtitle["source"] }) {
   const { t } = useTranslation();
-  const speaker = useSpeakerIdentity(identity)!;
-  return <div className="message-meta"><span className="speaker-name">{speaker.display_name || t(isAudioTrack(speaker) ? "live.trackNumber" : "live.speakerNumber", { number: speaker.index + 1 })}</span></div>;
+  const speaker = useSpeakerIdentity(identity);
+  const mine = source === "microphone" || source === "chatbox";
+  return <div className="message-meta">
+    {!mine && <MessageSourceIcon source={source} className="message-source-icon" chatboxLabel={t("chatbox.title")} />}
+    {speaker && <span className="speaker-name">{speaker.display_name || t(isAudioTrack(speaker) ? "live.trackNumber" : "live.speakerNumber", { number: speaker.index + 1 })}</span>}
+    {mine && <MessageSourceIcon source={source} className="message-source-icon" chatboxLabel={t("chatbox.title")} />}
+  </div>;
 }
 
 export function LivePartials({ subtitles, hiddenTracks = [], hiddenSourceLanguages }: { subtitles: Subtitle[]; hiddenTracks?: readonly string[]; hiddenSourceLanguages?: readonly string[] }) {
@@ -33,7 +39,7 @@ export function LivePartials({ subtitles, hiddenTracks = [], hiddenSourceLanguag
     if (!preview.text && !translation) return null;
     return (
       <div className={`message-group source-${partial.source} streaming-message`} key={`${partial.source}-${partial.utterance_id}`}>
-        {partial.speaker && <SpeakerLabel identity={partial.speaker} />}
+        <PartialMeta identity={partial.speaker} source={partial.source} />
         <div className="bubble">
           {preview.text && <p className="bubble-original" lang={contentLanguageTag(partial.language)}>{preview.text}<span className="streaming-ellipsis" aria-hidden="true">…</span></p>}
           {preview.text && translation && <div className="bubble-translation-divider" aria-hidden="true" />}

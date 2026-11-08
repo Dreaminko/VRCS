@@ -9,6 +9,7 @@ import type { SpeakerIdentity, Subtitle } from "../subtitles/types";
 import { contentLanguageTag } from "../app/ui-language";
 import { useSpeakerIdentity } from "../subtitles/speaker-state";
 import { livePartialVisible, subtitleVisible } from "../subtitles/player-history";
+import { MessageSourceIcon } from "../subtitles/components/MessageSourceIcon";
 import { selectPlayerHistory, selectPlayerPreviews } from "./player-previews";
 import { compactLivePreview } from "./compact-mode";
 import { useBatchedPreview } from "../shared/hooks/streaming-preview";
@@ -229,8 +230,9 @@ function CompactFontMenu({ value, onChange }: { value: CompactFontSize; onChange
 function CompactSpeaker({ speaker: identity, source }: { speaker?: SpeakerIdentity | null; source?: string }) {
   const { t } = useTranslation();
   const speaker = useSpeakerIdentity(identity);
-  return <div className="compact-speaker">{source === "vrchat_chatbox" && <MessageSquare size={12} aria-label={t("chatbox.title")} />} {source === "vrchat_chatbox" ? speaker?.display_name || t("live.speakerNumber", { number: (speaker?.index ?? 0) + 1 }) : source === "chatbox" ? t("chatbox.title") : speaker?.display_name || (source === "microphone" ? t("live.microphoneMe")
-    : speaker ? t("live.trackNumber", { number: speaker.index + 1 }) : t("live.speakerOther"))}</div>;
+  const label = source === "vrchat_chatbox" ? speaker?.display_name || t("live.speakerNumber", { number: (speaker?.index ?? 0) + 1 }) : source === "chatbox" ? t("chatbox.title") : speaker?.display_name || (source === "microphone" ? t("live.microphoneMe")
+    : speaker ? t("live.trackNumber", { number: speaker.index + 1 }) : t("live.speakerOther"));
+  return <div className="compact-speaker">{source && <MessageSourceIcon source={source} size={12} chatboxLabel={t("chatbox.title")} className="compact-source-icon" />}{label}</div>;
 }
 
 function CompactSubtitleRow({ group, current, budget, frozen, onSelect }: {

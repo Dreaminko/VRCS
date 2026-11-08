@@ -1,8 +1,9 @@
 import { useLayoutEffect, useRef, useState, type CSSProperties } from "react";
-import { AudioLines, Camera, Check, Gamepad2, KeyRound, Languages, MessageSquare, Minus, Monitor, ScanText, Shield, X } from "lucide-react";
+import { AudioLines, Camera, Check, Gamepad2, KeyRound, Languages, Minus, Monitor, ScanText, Shield, X } from "lucide-react";
 import type { CaptionMessage, CaptionLabels, SurfaceView } from "./protocol";
 import { visibleTail } from "./headset-layout";
 import { visibleCaptionMessages } from "./caption-visibility";
+import { MessageSourceIcon } from "../subtitles/components/MessageSourceIcon";
 
 const CAPTION_LINE_HEIGHT = 1.3;
 
@@ -63,8 +64,8 @@ function HeadsetCaptions({ messages, labels, lines, fontSize, height }: {
     "--vr-caption-language-gap": `${8 * scale}px` } as CSSProperties}>
     {messages.map((message, index) => <article key={index} className={`vr-caption-card ${message.side}`} style={{ padding: `${4 * scale}px 8px` }}>
       <div className="vr-caption-speaker" style={{ fontSize: size * 0.75, marginBottom: 6 * scale }} title={message.speaker || undefined}>
-        {message.original?.source === "vrchat_chatbox" && <MessageSquare size="1em" aria-label="Chatbox" />}
-        {message.speaker || (message.side === "right" ? labels?.me ?? "Me" : labels?.other ?? "Others")}
+        <MessageSourceIcon source={message.original?.source} size="1em" chatboxLabel="Chatbox" microphoneLabel="Microphone" voiceLabel="Voice" />
+        <span>{message.speaker || (message.side === "right" ? labels?.me ?? "Me" : labels?.other ?? "Others")}</span>
       </div>
       {message.text.split("\n", 4).map((text, language) => <Caption key={language} text={text} lines={lines} fontSize={size} />)}
     </article>)}

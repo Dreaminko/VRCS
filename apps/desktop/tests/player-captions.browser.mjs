@@ -101,6 +101,7 @@ for (const mode of ["compact", "compact-qwen", "compact-filter", "headset", "wri
           check(cards().every(card=>card.querySelector('.compact-speaker').getBoundingClientRect().height>=14),'Speaker names must not shrink or clip');
           check(cards().every((card,index)=>index===0||card.getBoundingClientRect().top>=cards()[index-1].getBoundingClientRect().bottom),'Desktop lanes are stacked vertically');
           check(cards().every(card=>card.querySelector('.compact-original').clientHeight>0&&card.querySelector('.compact-translation').clientHeight>0),'Every player retains both languages');
+          check(cards().every(card=>card.querySelector('.compact-speaker [data-message-source="voice"]')),'Compact live captions show the voice source icon immediately');
           publishLivePartial(preview(1,'Updated Bob only'));
           await wait(()=>cards()[1].textContent.includes('Updated Bob only'));
           check(cards()[0].textContent.includes('Hello from Alice'),'Another player retains their text');
@@ -196,6 +197,7 @@ for (const mode of ["compact", "compact-qwen", "compact-filter", "headset", "wri
           surface(filtered,null,false,selection);
           const names=()=>[...document.querySelectorAll('.vr-caption-speaker')].map(node=>node.textContent).join(',');
           check(names()==='English player,French player,Me','VR filters the same original/track policy before limiting and retains self');
+          if(mode==='wrist'||mode==='headset')check([...document.querySelectorAll('.vr-caption-speaker [data-message-source]')].map(icon=>icon.dataset.messageSource).join(',')==='voice,voice,microphone','VR captions map each source to the right icon');
           const finalMessages=filtered.map(message=>({...message,original:{...message.original,live:false}}));
           surface(finalMessages,'等待 VRChat 启动',false,selection);
           check(names()==='English player,French player,Me','VR final captions use the same filtering as live previews');
