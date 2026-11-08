@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, RwLock};
 
-use tokio::sync::{watch, Notify};
+use tokio::sync::watch;
 
 #[derive(Debug, Clone)]
 pub(super) struct DownloadJob {
@@ -11,12 +11,21 @@ pub(super) struct DownloadJob {
     pub(super) total_bytes: u64,
     pub(super) error: Option<String>,
     pub(super) cancel: watch::Sender<bool>,
-    pub(super) done: Arc<Notify>,
+    pub(super) done: watch::Receiver<bool>,
 }
 
 impl DownloadJob {
     pub(super) fn is_active(&self) -> bool {
         matches!(self.status, "downloading" | "verifying")
+    }
+
+    pub(super) async fn wait_done(&self) {
+        let mut done = self.done.clone();
+        while !*done.borrow() {
+            if done.changed().await.is_err() {
+                break;
+            }
+        }
     }
 }
 
@@ -90,7 +99,7 @@ impl ModelManager {
             let _ = job.cancel.send(true);
         }
         for job in jobs {
-            job.done.notified().await;
+            job.wait_done().await;
         }
     }
 }

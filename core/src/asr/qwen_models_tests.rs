@@ -76,6 +76,7 @@ fn qwen_download_respects_an_existing_model_download() {
     let root = tempfile::tempdir().unwrap();
     let manager = Arc::new(super::ModelManager::new(root.path().to_path_buf()).unwrap());
     let (cancel, _) = tokio::sync::watch::channel(false);
+    let (_done, done) = tokio::sync::watch::channel(false);
     manager.jobs.lock().unwrap().insert(
         "existing-package".into(),
         super::DownloadJob {
@@ -84,7 +85,7 @@ fn qwen_download_respects_an_existing_model_download() {
             total_bytes: 100,
             error: None,
             cancel,
-            done: Arc::new(tokio::sync::Notify::new()),
+            done,
         },
     );
     assert!(manager.start_qwen_download("qwen3-asr-0.6b-q8_0").is_err());

@@ -30,6 +30,8 @@ export function useChatboxWorkspace(settings: Settings | null) {
   availableRef.current = available;
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState<ChatboxComposeInput>(() => createChatboxDraft());
+  const draftRef = useRef(draft);
+  draftRef.current = draft;
   const [translationBasis, setTranslationBasis] = useState<{
     original: string;
     targetLanguage: string | null;
@@ -71,20 +73,22 @@ export function useChatboxWorkspace(settings: Settings | null) {
   }, [available, open, draft, translationFresh]);
 
   const changeDraft = useCallback((next: ChatboxComposeInput) => {
-    if (next.translation !== draft.translation) {
+    const current = draftRef.current;
+    if (next.translation !== current.translation) {
       setTranslationBasis(next.translation?.trim()
         ? { original: next.original, targetLanguage: next.target_language }
         : null);
     }
-    const currentPreferences = chatboxPreferencesFromDraft(draft);
+    const currentPreferences = chatboxPreferencesFromDraft(current);
     const nextPreferences = chatboxPreferencesFromDraft(next);
     if (JSON.stringify(currentPreferences) !== JSON.stringify(nextPreferences)) {
       preferencesChanged.current = true;
       void saveChatboxPreferences(nextPreferences);
     }
+    draftRef.current = next;
     setDraft(next);
     setFeedback(null);
-  }, [draft.translation]);
+  }, []);
 
   const show = useCallback(() => {
     if (!availableRef.current) return;
@@ -121,7 +125,18 @@ export function useChatboxWorkspace(settings: Settings | null) {
 
   const rememberTranslation = useCallback((input: ChatboxComposeInput) => {
     if (!availableRef.current) return;
-    setDraft(input);
+    const current = draftRef.current;
+    if (current.original !== input.original || current.target_language !== input.target_language) {
+      return;
+    }
+    const next = {
+      ...current,
+      translation: input.translation,
+      translation_origin: input.translation_origin,
+      source_language: input.source_language,
+    };
+    draftRef.current = next;
+    setDraft(next);
     setTranslationBasis({
       original: input.original,
       targetLanguage: input.target_language,

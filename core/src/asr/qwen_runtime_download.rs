@@ -2,7 +2,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use serde::Serialize;
-use tokio::sync::{watch, Notify};
+use tokio::sync::watch;
 
 use super::manager::{DownloadJob, ModelManager};
 use super::qwen_models::{download_file, AssetSpec};
@@ -79,7 +79,7 @@ impl ModelManager {
             return Err("Managed Qwen runtime download supports Windows x64 only".into());
         }
         let (cancel, receiver) = watch::channel(false);
-        let done = Arc::new(Notify::new());
+        let (done_tx, done_rx) = watch::channel(false);
         {
             let mut jobs = self.jobs.lock().expect("model jobs lock");
             if installed(&runtime.directory) || jobs.get(JOB_ID).is_some_and(DownloadJob::is_active)
@@ -97,7 +97,7 @@ impl ModelManager {
                     total_bytes: ARCHIVE.bytes,
                     error: None,
                     cancel,
-                    done: Arc::clone(&done),
+                    done: done_rx,
                 },
             );
         }
@@ -113,7 +113,7 @@ impl ModelManager {
                 job.status = "error";
                 job.error = result.err();
             }
-            done.notify_one();
+            let _ = done_tx.send(true);
         });
         Ok(())
     }
@@ -128,7 +128,7 @@ impl ModelManager {
             .cloned();
         if let Some(job) = job {
             let _ = job.cancel.send(true);
-            job.done.notified().await;
+            job.wait_done().await;
         }
     }
 

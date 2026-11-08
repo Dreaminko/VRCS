@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use serde::Serialize;
-use tokio::sync::{watch, Notify};
+use tokio::sync::watch;
 
 use super::download::download_into_staging;
 use super::manifest::{package_spec, PACKAGES};
@@ -67,7 +67,7 @@ impl ModelManager {
     pub fn start_qwen_download(self: &Arc<Self>, id: &str) -> Result<(), String> {
         let spec = package_spec(id)?;
         let (cancel_tx, cancel_rx) = watch::channel(false);
-        let done = Arc::new(Notify::new());
+        let (done_tx, done_rx) = watch::channel(false);
         let root = {
             let mut jobs = self.jobs.lock().expect("model jobs lock");
             let root = self.model_dir();
@@ -93,7 +93,7 @@ impl ModelManager {
                     total_bytes: spec.files.iter().map(|file| file.bytes).sum(),
                     error: None,
                     cancel: cancel_tx,
-                    done: Arc::clone(&done),
+                    done: done_rx,
                 },
             );
             root
@@ -136,7 +136,7 @@ impl ModelManager {
                 job.status = "error";
                 job.error = result.err();
             }
-            done.notify_one();
+            let _ = done_tx.send(true);
         });
         Ok(())
     }
@@ -152,7 +152,7 @@ impl ModelManager {
             .cloned();
         if let Some(job) = job {
             let _ = job.cancel.send(true);
-            job.done.notified().await;
+            job.wait_done().await;
         }
         Ok(())
     }

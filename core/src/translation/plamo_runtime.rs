@@ -330,6 +330,20 @@ impl PlamoRuntime {
                         false,
                     ));
                 }
+                if state.child.is_none() {
+                    let error = with_diagnostics(
+                        state
+                            .error
+                            .clone()
+                            .unwrap_or_else(|| "Local PLaMo runtime exited during startup".into()),
+                        &diagnostics,
+                    );
+                    return Err(local_error(
+                        "translation.local_runtime_unavailable",
+                        error,
+                        true,
+                    ));
+                }
             }
             match probe_ready(&self.http, &origin, &token).await {
                 Ok(true) => {

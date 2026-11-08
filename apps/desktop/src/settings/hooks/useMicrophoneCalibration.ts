@@ -77,16 +77,16 @@ export function useMicrophoneCalibration({
       if (run !== runRef.current) return null;
       collectionPhaseRef.current = "quiet";
       await wait(QUIET_SAMPLE_MS);
-      collectionPhaseRef.current = null;
       if (run !== runRef.current) return null;
+      collectionPhaseRef.current = null;
 
       setPhase("speech");
       await wait(SPEECH_PROMPT_LEAD_MS);
       if (run !== runRef.current) return null;
       collectionPhaseRef.current = "speech";
       await wait(SPEECH_SAMPLE_MS);
-      collectionPhaseRef.current = null;
       if (run !== runRef.current) return null;
+      collectionPhaseRef.current = null;
 
       const suggestion = suggestMicrophoneThreshold(
         quietSamplesRef.current,
