@@ -215,9 +215,11 @@ impl AudioCapture {
         let thread_stop = Arc::clone(&stop);
         let output_rate = self.output_rate;
         let microphone_tap = self.microphone_tap.clone();
+        let span = tracing::Span::current();
         let join = std::thread::Builder::new()
             .name("vrcs-audio-capture".into())
             .spawn(move || {
+                let _entered = span.enter();
                 platform::capture_main(
                     target,
                     output_rate,
@@ -315,31 +317,38 @@ fn start_with_retry<T>(
     source: CaptureSource,
     mut operation: impl FnMut() -> Result<T, AudioError>,
 ) -> Result<T, AudioError> {
-    let mut max_attempts = START_ATTEMPTS;
+    let started = std::time::Instant::now();
+    let mut retry_delays = &START_RETRY_DELAYS[..];
     for attempt in 1..=RESOURCE_EXHAUSTED_START_ATTEMPTS {
+        let span = tracing::info_span!("audio_capture_start", ?source, attempt);
+        let _entered = span.enter();
         match operation() {
-            Ok(value) => return Ok(value),
-            Err(error) => {
-                let resource_exhausted = error.code() == "audio.resource_exhausted";
-                if resource_exhausted {
-                    max_attempts = RESOURCE_EXHAUSTED_START_ATTEMPTS;
+            Ok(value) => {
+                if attempt > 1 {
+                    tracing::info!(
+                        elapsed_ms = started.elapsed().as_millis() as u64,
+                        "audio capture recovered after retry"
+                    );
                 }
-                let retrying = error.is_retryable() && attempt < max_attempts;
+                return Ok(value);
+            }
+            Err(error) => {
+                if error.code() == "audio.resource_exhausted" {
+                    retry_delays = &RESOURCE_EXHAUSTED_RETRY_DELAYS;
+                }
+                let delay = retry_delays
+                    .get(attempt - 1)
+                    .filter(|_| error.is_retryable());
                 tracing::warn!(
-                    ?source,
-                    attempt,
                     code = error.code(),
                     detail = %error,
-                    retrying,
+                    retrying = delay.is_some(),
+                    retry_delay_ms = delay.map(|delay| delay.as_millis() as u64),
                     "failed to start audio capture"
                 );
-                if !retrying {
-                    return Err(error);
-                }
-                if resource_exhausted {
-                    std::thread::sleep(RESOURCE_EXHAUSTED_RETRY_DELAYS[attempt - 1]);
-                } else {
-                    std::thread::sleep(START_RETRY_DELAYS[attempt - 1]);
+                match delay {
+                    Some(delay) => std::thread::sleep(*delay),
+                    None => return Err(error),
                 }
             }
         }
@@ -438,6 +447,28 @@ mod tests {
 
         assert!(result.is_ok());
         assert_eq!(attempts, START_ATTEMPTS);
+    }
+
+    #[test]
+    fn resource_exhaustion_recovery_handles_changing_transient_errors() {
+        let mut attempts = 0;
+        let result = start_with_retry(CaptureSource::Microphone, || {
+            attempts += 1;
+            match attempts {
+                1 => Err(AudioError::retryable_with_code(
+                    "audio.resource_exhausted",
+                    "audio engine is out of resources",
+                )),
+                2 | 3 => Err(AudioError::retryable_with_code(
+                    "audio.device_unavailable",
+                    "device is switching",
+                )),
+                _ => Ok(()),
+            }
+        });
+
+        assert!(result.is_ok());
+        assert_eq!(attempts, 4);
     }
 
     #[cfg(windows)]

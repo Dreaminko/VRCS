@@ -5,7 +5,9 @@ use crate::models::AudioDevice;
 use super::super::{AudioError, CaptureSource};
 
 pub(super) fn err(error: ::wasapi::WasapiError) -> AudioError {
-    use windows::Win32::Foundation::{ERROR_ACCESS_DENIED, ERROR_FILE_NOT_FOUND};
+    use windows::Win32::Foundation::{
+        ERROR_ACCESS_DENIED, ERROR_FILE_NOT_FOUND, ERROR_OUTOFMEMORY,
+    };
     use windows::Win32::Media::Audio::{
         AUDCLNT_E_DEVICE_INVALIDATED, AUDCLNT_E_DEVICE_IN_USE, AUDCLNT_E_ENDPOINT_CREATE_FAILED,
         AUDCLNT_E_RESOURCES_INVALIDATED, AUDCLNT_E_SERVICE_NOT_RUNNING,
@@ -23,7 +25,9 @@ pub(super) fn err(error: ::wasapi::WasapiError) -> AudioError {
         }
         ::wasapi::WasapiError::Windows(error) => {
             let code = error.code();
-            if code == windows::core::HRESULT::from_win32(ERROR_ACCESS_DENIED.0) {
+            if code == windows::core::HRESULT::from_win32(ERROR_OUTOFMEMORY.0) {
+                AudioError::retryable_with_code("audio.resource_exhausted", detail)
+            } else if code == windows::core::HRESULT::from_win32(ERROR_ACCESS_DENIED.0) {
                 AudioError::with_code("audio.permission_denied", detail)
             } else if code == windows::core::HRESULT::from_win32(ERROR_FILE_NOT_FOUND.0)
                 || matches!(
@@ -336,7 +340,9 @@ mod tests {
     use crate::audio::AudioError;
     use crate::models::AudioDevice;
     use ::wasapi::Direction;
-    use windows::Win32::Foundation::{ERROR_ACCESS_DENIED, ERROR_FILE_NOT_FOUND};
+    use windows::Win32::Foundation::{
+        ERROR_ACCESS_DENIED, ERROR_FILE_NOT_FOUND, ERROR_OUTOFMEMORY,
+    };
     use windows::Win32::Media::Audio::{
         AUDCLNT_E_DEVICE_INVALIDATED, AUDCLNT_E_DEVICE_IN_USE, AUDCLNT_E_RESOURCES_INVALIDATED,
         AUDCLNT_E_SERVICE_NOT_RUNNING, AUDCLNT_E_UNSUPPORTED_FORMAT,
@@ -376,6 +382,11 @@ mod tests {
     #[test]
     fn classifies_common_windows_audio_failures() {
         for (hresult, expected_code, retryable) in [
+            (
+                windows::core::HRESULT::from_win32(ERROR_OUTOFMEMORY.0),
+                "audio.resource_exhausted",
+                true,
+            ),
             (
                 windows::core::HRESULT::from_win32(ERROR_ACCESS_DENIED.0),
                 "audio.permission_denied",
