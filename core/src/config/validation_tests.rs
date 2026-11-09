@@ -9,7 +9,7 @@ fn player_proximity_radius_is_validated_even_when_disabled() {
         .validate_settings()
         .unwrap_err()
         .contains("proximity.radius_m"));
-    config.audio.output.player_audio.proximity.radius_m = 1.0;
+    config.audio.output.player_audio.proximity.radius_m = 0.0;
     assert!(config.validate_settings().is_ok());
     config.audio.output.player_audio.proximity.radius_m = 10.0;
     assert!(config.validate_settings().is_ok());
@@ -17,7 +17,7 @@ fn player_proximity_radius_is_validated_even_when_disabled() {
     assert!(config
         .validate_settings()
         .unwrap_err()
-        .contains("between 1 and 10"));
+        .contains("between 0 and 10"));
 }
 
 #[test]
