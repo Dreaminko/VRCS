@@ -56,13 +56,22 @@
 }
 .player-history-body small { color: var(--text-quiet); font-size: 11px; line-height: 1.5; }
 .player-history-processing { display: grid; gap: 7px; }
-.player-history-processing .field { gap: 6px; }
-.player-history-processing .theme-toggle-group { justify-self: stretch; }
-.player-history-processing .theme-toggle-group button { flex-basis: 0; }
+.player-history-processing .field { display: flex; min-height: 30px; align-items: center; justify-content: space-between; gap: 10px; }
+.player-history-processing .theme-toggle-group { flex: 0 0 auto; justify-self: auto; }
+.player-history-processing .theme-toggle-group button { min-height: 28px; flex: 0 0 auto; padding: 0 10px; font-size: 11px; }
 .player-history-proximity { display: grid; gap: 9px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; }
 .player-history-proximity .settings-toggle-row { min-height: 0; padding: 0; border: 0; }
 .player-history-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.player-history-groups { display: inline-flex; gap: 2px; margin-left: auto; padding: 3px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-subtle); }
+.player-history-groups button { display: inline-flex; min-height: 30px; align-items: center; gap: 6px; padding: 0 11px; border: 0; border-radius: 8px; color: var(--text-secondary); background: transparent; font-size: 11px; cursor: pointer; transition: color 120ms ease-out, background-color 120ms ease-out, transform 120ms ease-out; }
+.player-history-groups button:hover { color: var(--text); }
+.player-history-groups button:active { transform: scale(0.97); }
+.player-history-groups button.is-active { color: var(--primary-ink); background: var(--surface-selected); box-shadow: var(--control-shadow); font-weight: 650; }
+.player-history-groups button small { min-width: 17px; padding: 0 4px; border-radius: 999px; color: var(--text-quiet); background: var(--surface); font-size: 10px; font-variant-numeric: tabular-nums; text-align: center; }
+.player-history-groups button.is-active small { color: var(--primary-ink); background: var(--primary-soft); }
 .player-history-body .secondary-button { display: inline-flex; align-items: center; gap: 5px; min-height: 30px; padding: 5px 9px; font-size: 11px; }
+.player-history-list-toolbar > .secondary-button { flex: 0 0 auto; }
+.player-history-body .player-history-show-all { width: 30px; height: 30px; flex: 0 0 30px; justify-content: center; padding: 0; border-radius: 50%; }
 .player-history-languages { min-width: 0; margin: 0; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; }
 .player-history-languages legend { padding: 0 4px; font-weight: 600; }
 .player-history-check { display: flex; align-items: center; gap: 7px; min-height: 30px; cursor: pointer; }
@@ -91,7 +100,7 @@
   background: var(--primary-soft);
 }
 .player-history-language-add .dropdown-trigger:disabled { color: var(--text-quiet); background: transparent; cursor: not-allowed; }
-.player-history-search { flex: 1; min-width: 120px; max-width: 100%; height: 34px; padding: 7px 10px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface); color: var(--text); font-size: 12px; }
+.player-history-search { flex: 1 1 80px; min-width: 80px; max-width: 180px; height: 34px; padding: 7px 10px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface); color: var(--text); font-size: 12px; }
 .player-history-list { display: grid; }
 .player-history-row { display: flex; align-items: center; gap: 12px; min-width: 0; padding: 9px 0; border-bottom: 1px solid var(--border); }
 .player-history-row:last-child { border-bottom: 0; }
@@ -103,3 +112,4 @@
 .player-history-empty { margin: 5px 0; color: var(--text-quiet); }
 .player-history-controls :focus-visible { outline: 2px solid var(--primary-ink); outline-offset: 2px; }
 @media (max-width: 480px) { .player-history-row { gap: 7px; } .player-history-visibility span { display: none; } }
+@media (max-width: 450px) { .player-history-list-toolbar > .secondary-button { order: 3; margin-left: auto; } .player-history-groups { order: 2; margin-left: 0; } }

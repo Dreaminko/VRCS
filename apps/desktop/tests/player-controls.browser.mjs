@@ -90,6 +90,7 @@ for (const [width,reduced] of [[1100,false],[860,false],[380,false],[1100,true]]
           check(document.querySelector('.player-history-trigger').getAttribute('aria-expanded')==='true','interacting with floating language options keeps the settings panel open');
         };
         const row=id=>document.querySelector('[data-subtitle-id="'+id+'"]');
+        const groupButton=name=>document.querySelector('[data-player-group="'+name+'"]');
         try{
           check(matchMedia('(prefers-reduced-motion: reduce)').matches===${reduced},'the system motion preference is applied');
           await wait(()=>document.querySelector('.player-history-trigger'));
@@ -188,6 +189,20 @@ for (const [width,reduced] of [[1100,false],[860,false],[380,false],[1100,true]]
           check(region.getBoundingClientRect().top===initialRegionTop,'the floating panel does not move the conversation');
           const expanded=document.querySelector('.player-history-panel').getBoundingClientRect();
           check(expanded.left>=0&&expanded.right<=innerWidth+1&&expanded.top>triggerRect.bottom,'settings open below the toolbar within the viewport');
+          check(groupButton('current').getAttribute('aria-pressed')==='true'&&groupButton('history').getAttribute('aria-pressed')==='false','the player list defaults to the current world');
+          check(document.querySelectorAll('.player-history-list .player-history-row').length===2,'only current-world players are listed initially');
+          const groupSelector=document.querySelector('.player-history-groups').getBoundingClientRect();
+          const listActions=document.querySelector('.player-history-actions').getBoundingClientRect();
+          check(Math.abs(groupSelector.right-listActions.right)<1,'the current world and history selector is right aligned');
+          const searchBox=document.querySelector('.player-history-search').getBoundingClientRect();
+          check(Math.abs(searchBox.top+searchBox.height/2-(groupSelector.top+groupSelector.height/2))<1&&searchBox.right<groupSelector.left,'the narrow search box shares a row with the current world selector');
+          check(searchBox.width<=180,'the player search stays compact instead of filling the row');
+          const showAll=document.querySelector('.player-history-show-all');
+          check(showAll&&!showAll.textContent.trim()&&showAll.getAttribute('aria-label')==='显示所有记录','show all records is an icon-only clear button');
+          const processingTitle=document.querySelector('.player-history-processing .field > span').getBoundingClientRect();
+          const processingToggle=document.querySelector('.player-history-processing .theme-toggle-group').getBoundingClientRect();
+          check(processingToggle.left>processingTitle.right&&Math.abs(processingToggle.top+processingToggle.height/2-(processingTitle.top+processingTitle.height/2))<1,'the processing selector sits beside its title instead of on its own row');
+          check(processingToggle.width<document.querySelector('.player-history-processing').getBoundingClientRect().width*0.75,'the processing selector uses a compact width');
           const closeButton=document.querySelector('.player-history-close');
           check(document.elementFromPoint(expanded.right-25,expanded.top+25)?.closest('.player-history-close')===closeButton,'the expanded panel is not clipped by the toolbar');
           closeButton.focus();
@@ -222,6 +237,8 @@ for (const [width,reduced] of [[1100,false],[860,false],[380,false],[1100,true]]
           check(!document.querySelector('.player-history-languages > label input'),'hidden languages have no follow-default option');
           const languageAddTrigger=document.querySelector('.player-history-language-add .dropdown-trigger');
           check(languageAddTrigger&&!languageAddTrigger.textContent.trim()&&languageAddTrigger.getAttribute('aria-label')==='添加隐藏语言','hidden languages use an icon-only add button');
+          const manyPlayers=Array.from({length:24},(_,index)=>({...bob,id:'vrc:extra-'+index,user_id:'usr_00000000-0000-4000-8000-'+String(index+10).padStart(12,'0'),display_name:'Player '+index,index}));
+          changePlayers(manyPlayers);await wait(()=>document.querySelectorAll('.player-history-row').length===24);
           changeHeight(500);await settled();
           const panel=document.querySelector('.player-history-body');
           check(panel.scrollHeight>panel.clientHeight&&region.clientHeight>=100,'short windows scroll the expanded panel internally and retain a chat viewport');
@@ -233,11 +250,10 @@ for (const [width,reduced] of [[1100,false],[860,false],[380,false],[1100,true]]
             const rect=button.getBoundingClientRect();
             return document.elementFromPoint(rect.left+rect.width/2,rect.top+rect.height/2)?.closest('button')===button;
           };
-          check(lastPlayerIsReachable(),'the last player remains visible and clickable after expanding original languages and scrolling to the bottom');
-          const manyPlayers=Array.from({length:24},(_,index)=>({...bob,id:'vrc:extra-'+index,user_id:'usr_00000000-0000-4000-8000-'+String(index+10).padStart(12,'0'),display_name:'Player '+index,index}));
-          changePlayers(manyPlayers);await wait(()=>document.querySelectorAll('.player-history-row').length===26);
-          panel.scrollTop=panel.scrollHeight;await settled();
           check(lastPlayerIsReachable(),'scrolling the menu body reaches the last player in a long list without a separate player scrollbar');
+          click(groupButton('history'));await settled();
+          check(document.querySelectorAll('.player-history-row').length===2,'the secondary entry lists history and saved identities without current players');
+          click(groupButton('current'));await settled();
           changePlayers([alice,bob]);await wait(()=>document.querySelectorAll('.player-history-row').length===2);
           check(Math.abs(region.scrollTop-chatTop)<1&&!scrollApi.followingLiveSubtitles,'scrolling the personnel panel does not scroll the chat or change following');
           check(toolbar.getBoundingClientRect().top===region.getBoundingClientRect().top&&toolbar.getBoundingClientRect().bottom>region.getBoundingClientRect().top,'the toolbar stays above the conversation in short windows');
@@ -362,8 +378,10 @@ for (const [width,reduced] of [[1100,false],[860,false],[380,false],[1100,true]]
           changeRows(rows);
           await wait(()=>row(1));
           changeRows([]);changePlayers([]);
+          click(groupButton('history'));await settled();
           await wait(()=>document.querySelector('.player-history-row small')?.textContent==='已保存的选择');
           check(document.querySelector('[aria-label="翻译 Alice 玩家"]').checked,'offline account selection retains its saved name');
+          click(groupButton('current'));await settled();
           const rejoined={...alice,id:'vrc:new-session:new-actor',index:42,display_name:'Alice 新名字'};
           const unknown={id:'vrc:unknown',index:43,display_name:'等待确认的人'};
           changePlayers([rejoined,bob,unknown]);
@@ -377,6 +395,7 @@ for (const [width,reduced] of [[1100,false],[860,false],[380,false],[1100,true]]
           document.querySelector('[aria-label="翻译 身份已确认"]').click();
           await wait(()=>state.selected.includes(confirmed.user_id));
           check(state.selectedNames[confirmed.user_id]===confirmed.display_name,'late identity metadata is saved immediately on selection');
+          click(groupButton('history'));await settled();
           changePlayers([bob]);
           await wait(()=>document.querySelector('[aria-label="翻译 Alice 新名字"]'));
           [...document.querySelectorAll('.player-history-actions button')].find(button=>button.textContent.includes('选中当前所有人')).click();
@@ -385,6 +404,7 @@ for (const [width,reduced] of [[1100,false],[860,false],[380,false],[1100,true]]
           document.querySelector('[aria-label="翻译 身份已确认"]').click();
           await wait(()=>!state.selected.includes(confirmed.user_id));
           check(!state.selectedNames[confirmed.user_id]&&!document.querySelector('[aria-label="翻译 身份已确认"]'),'offline selections can be removed together with their cached name');
+          click(groupButton('current'));await settled();
           changeRows([rows[0]]);await wait(()=>row(1));
           document.querySelector('[aria-label="翻译 Bob 玩家"]').click();
           await wait(()=>!state.selected.includes(bob.user_id));

@@ -62,6 +62,7 @@ export function PlayerHistoryControls({ subtitles, status, enabled, selectedUser
   const [busy, setBusy] = useState(false);
   const processingMode = selectedUserIds === null ? "all" : "selected";
   const [query, setQuery] = useState("");
+  const [group, setGroup] = useState<"current" | "history">("current");
   const current = enabled ? status?.players ?? [] : [];
   const currentIds = current.map((player) => player.speaker.id);
   const currentUsers = [...new Set(current.map((player) => playerUserId(player.speaker)).filter((id): id is string => id !== null))];
@@ -70,6 +71,10 @@ export function PlayerHistoryControls({ subtitles, status, enabled, selectedUser
     collectPlayerSpeakers(subtitles, enabled ? (status?.players ?? []).map(p => p.speaker) : [], selectedUserIds, selectedUserNames),
     playerDistances,
   ), [subtitles, status?.players, enabled, selectedUserIds, selectedUserNames, playerDistances]);
+  const currentSpeakerIds = new Set(currentIds);
+  const currentSpeakers = speakers.filter((speaker) => currentSpeakerIds.has(speaker.id));
+  const historySpeakers = speakers.filter((speaker) => !currentSpeakerIds.has(speaker.id));
+  const visibleSpeakers = group === "current" ? currentSpeakers : historySpeakers;
   const languages = preferences.hiddenSourceLanguages ?? [];
   const languageCodes = playerLanguageOptions(subtitles, defaultLanguages, preferences.hiddenSourceLanguages).filter(language => !languages.includes(language));
   const languageName = (language: string) => localizedLanguageName(language, i18n.resolvedLanguage ?? "en-US");
@@ -88,7 +93,10 @@ export function PlayerHistoryControls({ subtitles, status, enabled, selectedUser
   }}>
     <button type="button" className="player-history-trigger" ref={triggerRef}
       data-tooltip={t("live.players.title")} aria-label={t("live.players.title")}
-      aria-expanded={open} aria-controls={panelId} onClick={() => setOpen(!open)}>
+      aria-expanded={open} aria-controls={panelId} onClick={() => {
+        if (!open) setGroup("current");
+        setOpen(!open);
+      }}>
       <UsersRound size={18} aria-hidden="true" />
     </button>
     {panelMounted && <section className="player-history-panel" ref={menuRef} id={panelId}
@@ -122,7 +130,7 @@ export function PlayerHistoryControls({ subtitles, status, enabled, selectedUser
           disabled={!enabled || !onProximityChange}
           onChange={(enabled) => void onProximityChange?.({ ...proximity, enabled })} />
         <RangeField label={t("live.players.proximityRadius")} value={proximity.radius_m}
-          min={1} max={10} step={0.1} disabled={!enabled || !proximity.enabled || !onProximityChange}
+          min={0} max={10} step={0.1} disabled={!enabled || !proximity.enabled || !onProximityChange}
           formatValue={(radius) => `${radius.toFixed(1)} m`}
           onCommit={(radius_m) => void onProximityChange?.({ ...proximity, radius_m })} />
       </div>}
@@ -139,12 +147,20 @@ export function PlayerHistoryControls({ subtitles, status, enabled, selectedUser
           </span>
         </div>
       </fieldset>
-      <div className="player-history-actions">
+      <div className="player-history-actions player-history-list-toolbar">
         <input className="player-history-search" type="search" value={query} placeholder={t("live.players.search")} aria-label={t("live.players.search")} onChange={(event) => setQuery(event.target.value)} />
-        <button type="button" className="secondary-button" disabled={!preferences.hiddenTracks.length}
-          onClick={() => display({ show_all_tracks: null })}>{t("live.players.showAll")}</button>
+        <button type="button" className="secondary-button player-history-show-all" disabled={!preferences.hiddenTracks.length}
+          data-tooltip={t("live.players.showAll")} aria-label={t("live.players.showAll")}
+          onClick={() => display({ show_all_tracks: null })}><X size={15} aria-hidden="true" /></button>
+        <div className="player-history-groups" role="group" aria-label={t("live.players.groups")}>
+          {(["current", "history"] as const).map((kind) => <button key={kind} type="button" data-player-group={kind}
+            className={group === kind ? "is-active" : ""} aria-pressed={group === kind} onClick={() => setGroup(kind)}>
+            {t(kind === "current" ? "live.players.current" : "live.players.historySaved")}
+            <small aria-hidden="true">{kind === "current" ? currentSpeakers.length : historySpeakers.length}</small>
+          </button>)}
+        </div>
       </div>
-      <div className="player-history-list">{speakers.map((speaker) => <PlayerRow key={speaker.id} speaker={speaker} query={query}
+      <div className="player-history-list">{visibleSpeakers.map((speaker) => <PlayerRow key={speaker.id} speaker={speaker} query={query}
         current={currentIds.includes(speaker.id)} selectionEnabled={enabled && selectedUserIds !== null}
         distance={playerDistances.get(speaker.id)}
         selectedUserIds={selectedUserIds} busy={busy}
@@ -154,9 +170,9 @@ export function PlayerHistoryControls({ subtitles, status, enabled, selectedUser
           void select({ set_user_selected: { user_id: userId, selected } }, speaker);
         }}
         onHidden={(hidden) => display({ set_track_hidden: { track_id: speaker.id, hidden } })} />)}
-        {!speakers.length && <p className="player-history-empty">{t("live.players.empty")}</p>}
+        {!visibleSpeakers.length && <p className="player-history-empty">{t(group === "current" ? "live.players.currentEmpty" : "live.players.historyEmpty")}</p>}
       </div>
-      {current.some((player) => !player.speaker.display_name) && <small role="status">{t("live.players.namePending")}</small>}
+      {group === "current" && current.some((player) => !player.speaker.display_name) && <small role="status">{t("live.players.namePending")}</small>}
     </div>
     </section>}
   </div>;

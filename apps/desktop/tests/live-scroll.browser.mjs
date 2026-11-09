@@ -106,6 +106,10 @@ test("live translation scroll follows layout changes and respects user input", {
           setStamp(String(performance.now()));
           await settle();
         },
+        async showHistory() {
+          flushSync(() => document.querySelector('[data-player-group="history"]').click());
+          await settle();
+        },
         showLivePreview() {
           flushSync(() => publishLivePartial({ type: 'partial', source: 'speaker', utterance_id: 'source-icon',
             text: 'Live source icon preview', language: 'en-US', speaker: { id: 'actor-icon', index: 7 } }));
@@ -285,6 +289,7 @@ test("live translation scroll follows layout changes and respects user input", {
       await evaluate("fixture.reset();");
       await evaluate("fixture.fillPanel()");
       await evaluate("fixture.expandPanel(true)");
+      await evaluate("fixture.showHistory()");
       await followingBottom();
       const panel = await evaluate("fixture.toolbar()");
       assert.ok(panel.panelRange > 0 && panel.chatHeight >= 100, JSON.stringify(panel));
