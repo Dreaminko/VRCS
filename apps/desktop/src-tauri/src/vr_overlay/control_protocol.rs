@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 
 pub const REQUEST_EVENT: &str = "vr-overlay-control-request";
@@ -29,7 +31,7 @@ impl ControlAction {
 
     pub fn region_id(self) -> u8 {
         match self {
-            // Keep regions 4..=29 for personnel navigation and pages.
+            // Keep personnel navigation and pages at 4 and above; reserve 30 for this gesture.
             Self::SetOcrGestureEnabled(_) => 30,
             _ => self.index() as u8,
         }
@@ -97,7 +99,7 @@ pub struct ControlHub {
     player_display: super::player_display::View,
     player_display_revision: u32,
     player_display_sequence: u32,
-    player_display_pending: Option<super::player_display::Request>,
+    player_display_pending: BTreeMap<u32, super::player_display::Request>,
     player_display_failure: Option<String>,
 }
 
@@ -122,7 +124,7 @@ impl ControlHub {
         {
             return false;
         }
-        view.busy |= self.player_display_pending.is_some();
+        view.busy = !self.player_display_pending.is_empty();
         if view.error.is_none() {
             view.error = self.player_display_failure.clone();
         }
@@ -140,8 +142,6 @@ impl ControlHub {
         if !self.active
             || expected != (self.snapshot.owner_epoch, self.player_display_revision)
             || !self.player_display.available
-            || self.player_display.busy
-            || self.player_display_pending.is_some()
             || !action.allowed(&self.player_display)
         {
             return None;
@@ -157,7 +157,8 @@ impl ControlHub {
         self.player_display.busy = true;
         self.player_display.error = None;
         self.player_display_failure = None;
-        self.player_display_pending = Some(request.clone());
+        self.player_display_pending
+            .insert(request.request_id, request.clone());
         Some(request)
     }
 
@@ -166,11 +167,11 @@ impl ControlHub {
         request: &super::player_display::Request,
         error: Option<String>,
     ) -> bool {
-        if !self.active || self.player_display_pending.as_ref() != Some(request) {
+        if !self.active || self.player_display_pending.get(&request.request_id) != Some(request) {
             return false;
         }
-        self.player_display_pending = None;
-        self.player_display.busy = false;
+        self.player_display_pending.remove(&request.request_id);
+        self.player_display.busy = !self.player_display_pending.is_empty();
         self.player_display_failure = error.clone();
         self.player_display.error = error;
         true
@@ -180,7 +181,7 @@ impl ControlHub {
         self.player_display = Default::default();
         self.player_display_revision = 0;
         self.player_display_sequence = 0;
-        self.player_display_pending = None;
+        self.player_display_pending.clear();
         self.player_display_failure = None;
     }
 
@@ -380,7 +381,7 @@ mod tests {
             "The action observed at {observed:?} must not receive the newer revision"
         );
         assert_eq!(hub.player_display(), &updated);
-        assert!(hub.player_display_pending.is_none());
+        assert!(hub.player_display_pending.is_empty());
         let request = hub
             .begin_player_display(ControlSource::WristMenu, (epoch, 2), action)
             .unwrap();
@@ -411,7 +412,7 @@ mod tests {
             "The action observed at {observed:?} must not receive the new owner's epoch"
         );
         assert_eq!(hub.player_display(), &view);
-        assert!(hub.player_display_pending.is_none());
+        assert!(hub.player_display_pending.is_empty());
         let request = hub
             .begin_player_display(ControlSource::DevPreview, (epoch, 1), action)
             .unwrap();
@@ -436,22 +437,24 @@ mod tests {
             )
             .unwrap();
         assert!(hub.player_display().busy);
-        assert!(hub
+        let next = hub
             .begin_player_display(
                 ControlSource::WristMenu,
                 (original.owner_epoch, 1),
-                Action::ShowAllTracks(())
+                Action::ShowAllTracks(()),
             )
-            .is_none());
+            .unwrap();
         assert_eq!(hub.snapshot().revision, original.revision);
         assert!(hub
             .begin(ControlSource::WristMenu, ControlAction::SetOscEnabled(true))
             .is_some());
         assert!(!hub.update_player_display(original.owner_epoch, 1, view.clone()));
         assert!(hub.finish_player_display(&request, Some("Save failed".into())));
-        assert!(!hub.player_display().busy);
+        assert!(hub.player_display().busy);
         assert_eq!(hub.player_display().error.as_deref(), Some("Save failed"));
         assert!(!hub.finish_player_display(&request, None));
+        assert!(hub.finish_player_display(&next, None));
+        assert!(!hub.player_display().busy);
         hub.revoke();
         assert!(!hub.player_display().available);
         hub.register(ControlSnapshot::default()).unwrap();

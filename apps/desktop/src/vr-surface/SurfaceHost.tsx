@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { connectSurfaceBridge, type SurfaceBridge } from "./bridge";
 import { VrSurface } from "./VrSurface";
-import { markerBits, newerKey, sameKey, type Surface, type SurfaceActivity, type SurfaceKey, type SurfaceLayout, type SurfaceScrollState, type SurfaceState } from "./protocol";
+import { markerBits, newerKey, sameKey, type Surface, type SurfaceActivity, type SurfaceKey, type SurfaceLayout, type SurfacePointerState, type SurfaceScrollState, type SurfaceState } from "./protocol";
 
 export function SurfaceHost({ surface, connect = connectSurfaceBridge }: { surface: Surface; connect?: (surface: Surface, signal: AbortSignal) => Promise<SurfaceBridge> }) {
   const connection = useRef<SurfaceBridge | null>(null);
@@ -20,6 +20,7 @@ export function SurfaceHost({ surface, connect = connectSurfaceBridge }: { surfa
   const paintFrame = useRef<number | null>(null);
   const pendingState = useRef<SurfaceState | null>(null);
   const restored = useRef<SurfaceKey | null>(null);
+  const pointerPoint = useRef<[number, number] | null>(null);
   const cancelScroll = useCallback(() => {
     pendingScroll.current = null;
   }, []);
@@ -77,6 +78,18 @@ export function SurfaceHost({ surface, connect = connectSurfaceBridge }: { surfa
     markPaint();
   }, [markPaint]);
 
+  const receivePointer = useCallback((payload: SurfacePointerState) => {
+    if (!activity.current.active || !sameKey(current.current, payload.key)) return;
+    const point = payload.point?.every(value => Number.isFinite(value) && value >= 0 && value <= 1)
+      ? payload.point : null;
+    const previous = pointerPoint.current;
+    if (previous === point || (previous && point && previous[0] === point[0] && previous[1] === point[1])) return;
+    pointerPoint.current = point;
+    setState(currentState => currentState && sameKey(currentState.key, payload.key)
+      ? { ...currentState, pointer: point } : currentState);
+    markPaint();
+  }, [markPaint]);
+
   useEffect(() => {
     let disposed = false;
     const abort = new AbortController();
@@ -102,6 +115,7 @@ export function SurfaceHost({ surface, connect = connectSurfaceBridge }: { surfa
         const nextScrollKey = next.scroll_key ?? next.key;
         if (!sameKey(scrollKey.current, nextScrollKey)) cancelScroll();
         scrollKey.current = nextScrollKey;
+        pointerPoint.current = next.pointer ?? null;
         current.current = next.key;
         pendingState.current = next;
         markPaint();
@@ -113,6 +127,7 @@ export function SurfaceHost({ surface, connect = connectSurfaceBridge }: { surfa
       connection.current = bridge;
       bridge.on("view", receive);
       bridge.on("activity", receiveActivity);
+      bridge.on("pointer", receivePointer);
       bridge.on("repaint", () => {
         if (!disposed) markPaint();
       });
@@ -125,7 +140,7 @@ export function SurfaceHost({ surface, connect = connectSurfaceBridge }: { surfa
       paintFrame.current = null; pendingState.current = null;
       abort.abort(); connection.current = null;
     };
-  }, [surface, connect, markPaint, cancelScroll, receiveScroll]);
+  }, [surface, connect, markPaint, cancelScroll, receiveScroll, receivePointer]);
 
   const onLayout = useCallback((layout: SurfaceLayout) => {
     if (!activity.current.active) return;

@@ -606,7 +606,9 @@ impl Preview {
                             .layout
                             .as_ref()
                             .filter(|layout| layout.key == self.surface_key())
-                            .and_then(|layout| layout.menu_command(event.hit.region));
+                            .and_then(|layout| {
+                                layout.menu_action(event.hit.region, event.hit.point)
+                            });
                         match command {
                             Some(wrist_menu::Command::Control(action)) => {
                                 effects.push(Effect::Control(action))
@@ -1356,6 +1358,10 @@ fn sample_player_display(scene: Scene) -> player_display::View {
         selection_mode: "selected".into(),
         selected_count: usize::from(!players.is_empty()),
         players,
+        proximity: Some(player_display::Proximity {
+            enabled: false,
+            radius_m: 10.0,
+        }),
         microphone: None,
         languages: [
             ("en", "English"),
@@ -1397,10 +1403,8 @@ fn sample_player_display(scene: Scene) -> player_display::View {
                 "Open the main VRCS window to use these settings.",
             ),
             ("process", "Players to process"),
-            ("all", "Translate everyone"),
-            ("selected", "Translate selected people only"),
-            ("selectCurrent", "Select everyone here"),
-            ("selectNone", "Deselect all"),
+            ("all", "Everyone"),
+            ("selected", "Whitelist"),
             (
                 "noneSelected",
                 "No players selected; other-party audio is not being processed.",
@@ -1409,6 +1413,9 @@ fn sample_player_display(scene: Scene) -> player_display::View {
             ("followDefault", "Follow default"),
             ("noHiddenLanguages", "No languages hidden"),
             ("showAll", "Restore people display"),
+            ("proximityEnable", "Process only players within range"),
+            ("proximityRadius", "Range"),
+            ("proximityTab", "Distance filter"),
             ("empty", "Waiting for tracks or loading history."),
             ("translate", "Translate"),
             ("show", "Show"),
@@ -1509,6 +1516,16 @@ fn apply_player_display(view: &mut player_display::View, action: player_display:
             view.follow_default = false;
             for language in &mut view.languages {
                 language.hidden = false;
+            }
+        }
+        Action::SetProximityEnabled(enabled) => {
+            if let Some(proximity) = &mut view.proximity {
+                proximity.enabled = enabled;
+            }
+        }
+        Action::SetProximityRadius(radius_m) => {
+            if let Some(proximity) = &mut view.proximity {
+                proximity.radius_m = radius_m;
             }
         }
     }

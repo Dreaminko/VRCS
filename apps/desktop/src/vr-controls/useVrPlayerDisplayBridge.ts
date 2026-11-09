@@ -10,18 +10,22 @@ import { useSpeakerIdentities } from "../subtitles/speaker-state";
 import { localizedLanguageName } from "../translation/translation-languages";
 import { createPlayerDisplayExecutor, createPlayerDisplayPublisher, createPlayerDisplayReceiver, type PlayerDisplayRequest, type PlayerDisplayView } from "./player-display-protocol";
 
-function playerDisplayState(workspace: AppWorkspace) {
-  const settings = workspace.settings.getCurrent();
+function playerDisplayState(workspace: AppWorkspace, optimistic = false) {
+  const confirmed = workspace.settings.getCurrent();
+  const settings = optimistic
+    ? workspace.settings.getOptimistic() ?? workspace.settings.value ?? confirmed
+    : confirmed;
   const playerMode = settings?.audio.output.mode === "vrchat_players";
   const selected = settings?.audio.output.player_audio?.selected_tracks ?? null;
   const names = settings?.audio.output.player_audio?.selected_user_names ?? {};
+  const proximity = settings?.audio.output.player_audio?.proximity;
   const current = playerMode ? (workspace.runtime.health?.player_audio?.players ?? []).map(player => player.speaker) : [];
   const preferences = workspace.playerDisplay.getCurrent();
   const defaultLanguages = defaultHiddenSourceLanguages(settings?.translation, workspace.runtime.health?.language_session);
   const available = workspace.onboarding.status === "complete";
   return {
     available, processingAvailable: available && workspace.runtime.ready && playerMode,
-    playerMode, selected, names, current, preferences, defaultLanguages,
+    playerMode, selected, names, proximity, current, preferences, defaultLanguages,
     speakers: collectPlayerSpeakers(workspace.subtitles.items, current, selected, names),
     languages: playerLanguageOptions(workspace.subtitles.items, defaultLanguages, preferences.hiddenSourceLanguages),
   };
@@ -37,9 +41,9 @@ export function useVrPlayerDisplayBridge(epoch: number, workspace: AppWorkspace)
   const order = useRef(new Map<string, number>());
   const nextOrder = useRef(0);
 
-  const readState = () => {
+  const readState = (optimistic = false) => {
     const latest = current.current;
-    const state = playerDisplayState(latest.workspace);
+    const state = playerDisplayState(latest.workspace, optimistic);
     const resolved = new Map(latest.identities.map(identity => [identity.id, identity]));
     const speakers = state.speakers.map(speaker => {
       if (speaker.id.startsWith("saved-user:")) return speaker;
@@ -51,7 +55,7 @@ export function useVrPlayerDisplayBridge(epoch: number, workspace: AppWorkspace)
   };
 
   const buildView = (): PlayerDisplayView => {
-    const state = readState();
+    const state = readState(true);
     const { t: translate, locale } = current.current;
     const currentIds = new Set(state.current.map(speaker => speaker.id));
     const known = new Set(state.speakers.map(speaker => speaker.id));
@@ -66,12 +70,14 @@ export function useVrPlayerDisplayBridge(epoch: number, workspace: AppWorkspace)
     const hiddenLanguages = state.preferences.hiddenSourceLanguages ?? [];
     const languageName = (language: string) => localizedLanguageName(language, locale);
     const micControl = current.current.workspace.microphoneSpeakers;
-    const mic = micControl.connected && current.current.workspace.settings.getCurrent()?.features.microphone_speaker_filter
+    const mic = micControl.connected
+      && current.current.workspace.settings.getOptimistic()?.features.microphone_speaker_filter
       ? micControl.getCurrent() : null;
     return {
       available: state.available,
       processing_available: state.processingAvailable,
       player_mode: state.playerMode,
+      ...(state.proximity ? { proximity: { enabled: state.proximity.enabled, radius_m: state.proximity.radius_m } } : {}),
       ...(mic ? { microphone: {
         enabled: mic.enabled, supported: mic.supported, running: mic.running,
         generation: mic.generation, revision: mic.revision,
@@ -130,7 +136,7 @@ export function useVrPlayerDisplayBridge(epoch: number, workspace: AppWorkspace)
       updateMicrophone: action => current.current.workspace.microphoneSpeakers.execute(action),
     });
     const receive = createPlayerDisplayReceiver({
-      epoch, revision: statePublisher.revision, active: () => !disposed,
+      epoch, active: () => !disposed,
       execute, publish,
       finish: (request, error) => invoke("vr_overlay_player_display_result", { request, error }),
     });

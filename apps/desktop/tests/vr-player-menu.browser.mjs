@@ -38,10 +38,12 @@ async function setup() {
         const controls = { owner_epoch: 1, revision: 1, dark: !!options.dark, labels: {},
           items: ['Wrist', 'Headset', 'OSC', 'Capture', 'Frame gesture'].map((label, i) => ({ label, requested: i !== 3, effective: i !== 3, available: true, busy: false, reason: null,
             ...(i === 4 ? options.gesture : {}) })) };
-        window.menuState = { key: { generation: 1, revision: ++revision }, hovered: options.hovered ?? null, pressed: options.pressed ?? null, pointer: null,
+        window.menuState = { key: { generation: 1, revision: ++revision }, hovered: options.hovered ?? null, pressed: options.pressed ?? null,
+          pointer: options.pointer ?? null,
           view: { kind: 'menu', controls, hold_progress: options.hold_progress ?? null,
             ui: { page: options.page ?? 'players', group: options.group ?? 'current', player_page: options.player_page ?? 0, language_page: options.language_page ?? 0 },
             players: { available: true, processing_available: true, player_mode: true, selection_mode: 'selected', selected_count: 2,
+              proximity: { enabled: false, radius_m: 10 },
               players, languages: languages.map((label, i) => ({ code: 'lang-' + i, label, hidden: i === 1 })),
               follow_default: false, default_languages: ['lang-1'], labels: locales[options.locale ?? 'en-US'], busy: false, error: null,
               ...options.players } } };
@@ -128,11 +130,105 @@ test("the wrist photo gesture control exposes saved state and gates unavailable 
   } finally { await browser.close(); }
 });
 
+test("the proximity filter lives on the People page with an inline draggable slider", { timeout: 60000 }, async () => {
+  const { browser, page } = await setup();
+  try {
+    await render(page, { page: "players" });
+    assert.equal(await commandButton(page, { page: "proximity" }).count(), 0, "Distance filtering must not open a separate page");
+    assert.equal(await page.locator(".vr-menu-distance").count(), 0);
+    assert.equal(await page.locator(".vr-menu-proximity").count(), 1, "Distance filtering belongs on the People page");
+
+    const enable = commandButton(page, { display: { set_proximity_enabled: true } });
+    assert.equal(await enable.count(), 1);
+    assert.equal(await enable.getAttribute("aria-pressed"), "false");
+    assert.equal(await enable.isDisabled(), false);
+    const slider = page.locator(".vr-menu-proximity-track");
+    assert.equal(await slider.count(), 1);
+    assert.equal(await slider.getAttribute("role"), "slider");
+    assert.equal(await slider.getAttribute("aria-valuemin"), "0");
+    assert.equal(await slider.getAttribute("aria-valuemax"), "10");
+    assert.equal(await slider.isDisabled(), true, "The radius is fixed while filtering is off");
+    assert.deepEqual(JSON.parse(await slider.getAttribute("data-vr-menu")),
+      { slider: { action: "proximity_radius", min: 0, max: 10, step: 0.1 } });
+    assert.deepEqual(await page.evaluate(() => window.menuLayout.regions.find(region => region.id === 32)?.menu),
+      { slider: { action: "proximity_radius", min: 0, max: 10, step: 0.1 } });
+
+    const row = await page.locator(".vr-menu-proximity").boundingBox();
+    const toggle = await enable.boundingBox();
+    const track = await slider.boundingBox();
+    assert.ok(row && toggle && track);
+    assert.ok(row.height >= 72 && toggle.height >= 72 && track.height >= 72, "The inline slider keeps a VR-sized hit target");
+    assert.ok(track.x > toggle.x + toggle.width, "The slider sits to the right of the filter toggle");
+    assert.ok(Math.abs(toggle.y + toggle.height / 2 - (track.y + track.height / 2)) < 2, "The toggle and slider share one row");
+
+    await render(page, { page: "players", players: { proximity: { enabled: true, radius_m: 5 } } });
+    assert.equal(await commandButton(page, { display: { set_proximity_enabled: false } }).getAttribute("aria-pressed"), "true");
+    assert.equal(await slider.isDisabled(), false);
+    assert.equal(await slider.getAttribute("aria-valuenow"), "5");
+    assert.equal(await slider.getAttribute("aria-valuetext"), "5.0 m");
+    assert.equal(await page.locator(".vr-menu-proximity-value").innerText(), "5.0 m");
+
+    for (const radius of [0, 10]) {
+      await render(page, { page: "players", players: { proximity: { enabled: true, radius_m: radius } } });
+      assert.equal(await slider.getAttribute("aria-valuenow"), String(radius));
+      assert.equal(await slider.getAttribute("aria-valuetext"), `${radius.toFixed(1)} m`);
+    }
+
+    await render(page, { page: "players", players: { proximity: { enabled: true, radius_m: 5 } } });
+    const surface = await page.locator(".vr-surface").boundingBox();
+    const dragTrack = await slider.boundingBox();
+    assert.ok(surface && dragTrack);
+    const dragPointer = [
+      (dragTrack.x + dragTrack.width * 0.7 - surface.x) / surface.width,
+      (dragTrack.y + dragTrack.height / 2 - surface.y) / surface.height,
+    ];
+    await render(page, { page: "players", pressed: 32, pointer: dragPointer, players: { proximity: { enabled: true, radius_m: 5 } } });
+    assert.equal(await slider.getAttribute("aria-valuenow"), "7");
+    assert.equal(await slider.getAttribute("aria-valuetext"), "7.0 m");
+    assert.equal(await page.locator(".vr-menu-proximity-value").innerText(), "7.0 m");
+    await render(page, { page: "players", players: { proximity: { enabled: true, radius_m: 5 } } });
+    assert.equal(await page.locator(".vr-menu-proximity-value").innerText(), "7.0 m", "Release keeps the dragged value until it is confirmed");
+    await render(page, { page: "players", players: { proximity: { enabled: true, radius_m: 7 } } });
+    assert.equal(await page.locator(".vr-menu-proximity-value").innerText(), "7.0 m");
+
+    const failed = "Distance filter was not applied";
+    await render(page, { page: "players", players: { proximity: { enabled: true, radius_m: 5 }, error: failed } });
+    await render(page, { page: "players", pressed: 32, pointer: dragPointer, players: { proximity: { enabled: true, radius_m: 5 }, error: failed } });
+    await render(page, { page: "players", players: { proximity: { enabled: true, radius_m: 5 }, error: null } });
+    await render(page, { page: "players", players: { proximity: { enabled: true, radius_m: 5 }, error: failed } });
+    assert.equal(await page.locator(".vr-menu-proximity-value").innerText(), "5.0 m", "A repeated failure restores the confirmed value");
+
+    await render(page, { page: "players", players: { player_mode: false } });
+    assert.equal(await commandButton(page, { display: { set_proximity_enabled: true } }).isDisabled(), true);
+    assert.equal(await slider.isDisabled(), true);
+
+    await render(page, { page: "players", players: { proximity: undefined } });
+    assert.equal(await commandButton(page, { page: "proximity" }).count(), 0);
+    assert.equal(await page.locator(".vr-menu-proximity").count(), 0);
+    assert.equal(await slider.count(), 0);
+  } finally { await browser.close(); }
+});
+
 test("player and language pages paginate identities, gate writes, and fit all supported locales", { timeout: 60000 }, async () => {
   const { browser, page, locales } = await setup();
   try {
     assert.equal(await page.locator(".vr-menu-player-row").count(), 5);
     assert.equal(await commandButton(page, { display: { set_processing_mode: "selected" } }).isDisabled(), true, "Re-selecting the active mode must not clear the saved selection");
+    const processingTitle = await page.locator(".vr-menu-processing-title").boundingBox();
+    const processingOptions = await page.locator(".vr-menu-processing-options").boundingBox();
+    const processingRow = await page.locator(".vr-menu-processing-inline").boundingBox();
+    assert.ok(processingTitle.x + processingTitle.width <= processingOptions.x, "Processing options sit to the right of their title");
+    assert.ok(Math.abs((processingTitle.y + processingTitle.height / 2) - (processingOptions.y + processingOptions.height / 2)) < 2, "Processing title and options share a row");
+    assert.ok(processingOptions.width < processingRow.width * 0.65, "Processing options stay compact");
+    const processingButtons = page.locator(".vr-menu-processing-options > .vr-menu-button");
+    for (const button of await processingButtons.all()) {
+      const bounds = await button.boundingBox();
+      assert.ok(bounds && bounds.height <= 72.5, "Processing options stay within the fixed row height");
+      assert.ok(await button.evaluate(element => element.scrollHeight <= element.clientHeight + 1), "Processing labels do not overflow vertically");
+    }
+    const groupRow = await page.locator(".vr-menu-player-groups").boundingBox();
+    const historyGroup = await commandButton(page, { group: "history" }).boundingBox();
+    assert.ok(Math.abs(historyGroup.x + historyGroup.width - (groupRow.x + groupRow.width)) < 1, "The group selector is right aligned");
     assert.equal(await commandButton(page, { display: { set_user_selected: { user_id: "usr_0", selected: false } } }).count(), 1);
     assert.equal(await commandButton(page, { display: { set_user_selected: { user_id: "usr_1", selected: true } } }).count(), 1, "Same display names retain distinct user IDs");
     assert.equal(await commandButton(page, { display: { set_track_hidden: { track_id: "track-1", hidden: false } } }).count(), 1);
@@ -146,8 +242,13 @@ test("player and language pages paginate identities, gate writes, and fit all su
     assert.equal(await commandButton(page, { display: { set_user_selected: { user_id: "usr_12", selected: false } } }).isDisabled(), false);
     assert.equal(await page.locator('.vr-menu-player-row [data-vr-menu]').last().isDisabled(), true, "Saved selection without a track cannot hide records");
 
+    await render(page, { players: { busy: true } });
+    assert.equal(await page.locator('.vr-player-display-panel').getAttribute('aria-busy'), null);
+    assert.equal(await page.locator('.vr-menu-status').count(), 0);
+    assert.equal(await commandButton(page, { display: { set_user_selected: { user_id: "usr_0", selected: false } } }).isDisabled(), false);
     await render(page, { players: { busy: true, error: "The setting could not be saved. Try again." } });
-    assert.ok((await page.locator('[data-vr-menu]').evaluateAll(nodes => nodes.filter(node => JSON.parse(node.dataset.vrMenu).display).every(node => node.disabled))));
+    assert.equal(await page.locator('.vr-player-display-panel').getAttribute('aria-busy'), null);
+    assert.equal(await commandButton(page, { display: { set_user_selected: { user_id: "usr_0", selected: false } } }).isDisabled(), false);
     assert.equal(await commandButton(page, { page: "languages" }).isDisabled(), false);
     assert.equal(await page.locator('.vr-menu-capsule [data-vr-region="3"]').isDisabled(), false);
     assert.match(await page.locator('[role="alert"]').innerText(), /could not be saved/);
@@ -164,8 +265,10 @@ test("player and language pages paginate identities, gate writes, and fit all su
     assert.equal(await commandButton(page, { display: { set_user_selected: { user_id: "usr_0", selected: false } } }).isDisabled(), true);
     await render(page, { players: { players: [] } });
     assert.equal(await page.locator(".vr-menu-player-row").count(), 0);
-    assert.equal(await commandButton(page, { display: { select_current: null } }).isDisabled(), true);
-    assert.equal(await commandButton(page, { display: { show_all_tracks: null } }).isDisabled(), false, "Show all also clears hidden tracks absent from the current snapshot");
+    assert.equal(await commandButton(page, { display: { select_current: null } }).count(), 0, "VR does not expose select-all");
+    assert.equal(await commandButton(page, { display: { clear_selection: null } }).count(), 0, "VR does not expose deselect-all");
+    assert.equal(await page.locator(".vr-menu-player-actions").count(), 0);
+    assert.equal(await commandButton(page, { display: { show_all_tracks: null } }).count(), 0, "VR does not expose show-all");
 
     await render(page, { page: "languages" });
     assert.equal(await page.locator(".vr-menu-language-option").count(), 12);

@@ -84,6 +84,7 @@ export function createSettingsAutosave<T>({
   };
 
   return Object.assign((value: T) => enqueue(value), {
+    getDesired: (): T | null => desired ?? getCurrent?.() ?? null,
     update: (update: (current: T) => T): Promise<T> => {
       try {
         const current = saving ? desired : getCurrent?.();

@@ -2,7 +2,7 @@ import type { Settings } from "../settings/types";
 import type { SpeakerIdentity } from "../subtitles/types";
 import { playerUserId } from "../capture/player-selection.ts";
 import { sourceLanguageKey, type PlayerHistoryPreferences } from "../subtitles/player-history.ts";
-import { applyPlayerSelectionAction, applyPlayerVisibilityAction, isPlayerSelectionAction, type PlayerDisplayAction } from "../subtitles/player-controls.ts";
+import { applyPlayerProximity, applyPlayerSelectionAction, applyPlayerVisibilityAction, isPlayerProximityAction, isPlayerSelectionAction, type PlayerDisplayAction } from "../subtitles/player-controls.ts";
 import type { ControlAction, ControlSource } from "./protocol";
 import type { MicrophoneSpeakerAction, MicrophoneSpeakerSnapshot } from "../capture/microphone-speakers";
 
@@ -25,6 +25,10 @@ export interface PlayerDisplayView {
   selection_mode: "all" | "selected";
   selected_count: number;
   players: PlayerDisplayRow[];
+  proximity?: {
+    enabled: boolean;
+    radius_m: number;
+  };
   microphone?: Omit<MicrophoneSpeakerSnapshot, "snapshot_sequence" | "speakers"> & {
     speakers: Array<{ id: string; index: number; decision: "allow" | "block"; name: string; last_active: string }>;
   };
@@ -44,6 +48,13 @@ export interface WristMenuUi {
   microphone_page?: number;
 }
 
+export interface SliderCommand {
+  action: "proximity_radius";
+  min: number;
+  max: number;
+  step: number;
+}
+
 export type WristMenuCommand =
   | { control: ControlAction }
   | { page: WristMenuUi["page"] }
@@ -51,6 +62,7 @@ export type WristMenuCommand =
   | { player_page: number }
   | { language_page: number }
   | { microphone_page: number }
+  | { slider: SliderCommand }
   | { display: PlayerDisplayAction };
 
 export interface PlayerDisplayRequest {
@@ -86,7 +98,6 @@ export function createPlayerDisplayPublisher(options: {
 
 export function createPlayerDisplayReceiver(options: {
   epoch: number;
-  revision: () => number;
   active: () => boolean;
   execute: (action: PlayerDisplayAction) => Promise<void>;
   publish: () => Promise<void>;
@@ -99,7 +110,6 @@ export function createPlayerDisplayReceiver(options: {
     seen.set(request.source, request.request_id);
     let error: string | null = null;
     try {
-      if (request.base_revision !== options.revision()) throw new Error("State changed; try again");
       await options.execute(request.action);
     } catch (reason) {
       error = reason instanceof Error ? reason.message : String(reason);
@@ -139,6 +149,27 @@ export function createPlayerDisplayExecutor(options: {
     if ("set_microphone_filter" in action || "set_microphone_speaker" in action) {
       if (!options.updateMicrophone) throw new Error("Microphone speaker controls are unavailable");
       await options.updateMicrophone(action);
+      return;
+    }
+    if (isPlayerProximityAction(action)) {
+      const saved = await options.updateSettings(settings => {
+        if (settings.audio.output.mode !== "vrchat_players") throw new Error("Player processing is unavailable");
+        const proximity = settings.audio.output.player_audio?.proximity;
+        if (!proximity) throw new Error("Distance filtering is unavailable");
+        if ("set_proximity_enabled" in action) {
+          return proximity.enabled === action.set_proximity_enabled ? settings
+            : applyPlayerProximity(settings, { ...proximity, enabled: action.set_proximity_enabled });
+        }
+        if (!Number.isFinite(action.set_proximity_radius)) throw new Error("Distance limit is invalid");
+        const radius_m = Math.round(action.set_proximity_radius * 10) / 10;
+        if (radius_m < 0 || radius_m > 10) throw new Error("Distance limit is invalid");
+        return proximity.radius_m === radius_m ? settings : applyPlayerProximity(settings, { ...proximity, radius_m });
+      });
+      const proximity = saved.audio.output.player_audio?.proximity;
+      const applied = "set_proximity_enabled" in action
+        ? proximity?.enabled === action.set_proximity_enabled
+        : proximity !== undefined && Math.abs(proximity.radius_m - Math.round(action.set_proximity_radius * 10) / 10) < 0.001;
+      if (!proximity || !applied) throw new Error("Distance filter was not applied");
       return;
     }
     if (isPlayerSelectionAction(action)) {

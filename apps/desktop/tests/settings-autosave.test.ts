@@ -24,6 +24,7 @@ test("updates immediately and keeps only the latest queued change", async () => 
   const third = save(3);
 
   assert.deepEqual(events, ["optimistic:1", "persist:1", "optimistic:2", "optimistic:3"]);
+  assert.equal(save.getDesired(), 3);
 
   releaseFirst?.();
   assert.deepEqual(await Promise.all([first, second, third]), [1, 3, 3]);

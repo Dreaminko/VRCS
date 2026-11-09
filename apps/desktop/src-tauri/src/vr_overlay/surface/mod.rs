@@ -434,6 +434,7 @@ impl SurfaceLayout {
                 use super::wrist_menu::Command;
                 let valid = match command {
                     Command::Control(action) => region.id == action.region_id(),
+                    Command::Slider(slider) => slider.valid() && region.id >= 4,
                     _ => region.id >= 4,
                 };
                 if !valid {
@@ -498,6 +499,21 @@ impl SurfaceLayout {
             .find(|region| region.id == id)?
             .menu
             .clone()
+    }
+
+    pub fn menu_action(&self, id: u8, point: [f32; 2]) -> Option<super::wrist_menu::Command> {
+        let region = self.regions.iter().find(|region| region.id == id)?;
+        match region.menu.as_ref()? {
+            super::wrist_menu::Command::Slider(slider) => {
+                let [left, _, right, _] = region.bounds;
+                let width = right - left;
+                if width <= 0.0 {
+                    return None;
+                }
+                slider.command((point[0] - left) / width)
+            }
+            command => Some(command.clone()),
+        }
     }
 
     pub fn reader_buttons(&self) -> Vec<Button> {
@@ -2846,6 +2862,43 @@ mod tests {
         );
         layout.regions[0].menu = Some(gesture);
         assert!(layout.validate(SurfaceId::Menu).is_err());
+    }
+
+    #[test]
+    fn slider_regions_resolve_release_positions_to_quantized_values() {
+        use super::super::{
+            player_display::Action,
+            wrist_menu::{Command, Slider, SliderAction},
+        };
+        let mut layout = layout(SurfaceKey {
+            generation: 1,
+            revision: 1,
+        });
+        layout.regions[0] = Region {
+            id: 32,
+            bounds: [0.1, 0.4, 0.9, 0.5],
+            circle: false,
+            dashboard: None,
+            menu: Some(Command::Slider(Slider {
+                action: SliderAction::ProximityRadius,
+                min: 0.0,
+                max: 10.0,
+                step: 0.1,
+            })),
+        };
+        assert!(layout.validate(SurfaceId::Menu).is_ok());
+        assert_eq!(
+            layout.menu_action(32, [0.1, 0.45]),
+            Some(Command::Display(Action::SetProximityRadius(0.0)))
+        );
+        assert_eq!(
+            layout.menu_action(32, [0.5, 0.45]),
+            Some(Command::Display(Action::SetProximityRadius(5.0)))
+        );
+        assert_eq!(
+            layout.menu_action(32, [0.9, 0.45]),
+            Some(Command::Display(Action::SetProximityRadius(10.0)))
+        );
     }
 
     #[test]

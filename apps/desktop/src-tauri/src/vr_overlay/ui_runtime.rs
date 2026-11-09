@@ -361,6 +361,29 @@ impl UiRuntime {
                 self.cursor_error = Some(error);
             }
         }
+        let slider_point = if self.menu_visible {
+            self.pressed.and_then(|region| {
+                let surfaces = app.state::<SurfaceHub>();
+                let layout = surfaces.pointer_layout(SurfaceId::Menu)?;
+                if !matches!(
+                    layout.menu_command(region),
+                    Some(wrist_menu::Command::Slider(_))
+                ) {
+                    return None;
+                }
+                self.pointer
+                    .filter(|pointer| pointer.key.surface == Surface::Menu)
+                    .map(|pointer| pointer.point)
+            })
+        } else {
+            None
+        };
+        if let Err(error) = app
+            .state::<SurfaceHub>()
+            .point(app, SurfaceId::Menu, slider_point)
+        {
+            tracing::debug!(%error, "VR menu pointer unavailable");
+        }
     }
 
     pub fn tick_with_cadence(
@@ -679,9 +702,9 @@ impl UiRuntime {
                     }
                     Kind::Up => {
                         self.pressed = None;
-                        action = menu_layout
-                            .as_ref()
-                            .and_then(|layout| layout.menu_command(event.hit.region));
+                        action = menu_layout.as_ref().and_then(|layout| {
+                            layout.menu_action(event.hit.region, event.hit.point)
+                        });
                     }
                     _ => self.pressed = None,
                 },

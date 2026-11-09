@@ -26,7 +26,47 @@ pub enum Group {
     History,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SliderAction {
+    ProximityRadius,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct Slider {
+    pub action: SliderAction,
+    pub min: f64,
+    pub max: f64,
+    pub step: f64,
+}
+
+impl Slider {
+    pub fn valid(&self) -> bool {
+        self.min.is_finite()
+            && self.max.is_finite()
+            && self.step.is_finite()
+            && self.min < self.max
+            && self.step > 0.0
+    }
+
+    pub fn command(&self, fraction: f32) -> Option<Command> {
+        if !self.valid() || !fraction.is_finite() {
+            return None;
+        }
+        let raw = self.min + f64::from(fraction.clamp(0.0, 1.0)) * (self.max - self.min);
+        let value = (self.min + ((raw - self.min) / self.step).round() * self.step)
+            .clamp(self.min, self.max);
+        let value = (value * 10.0).round() / 10.0;
+        Some(match self.action {
+            SliderAction::ProximityRadius => {
+                Command::Display(Action::SetProximityRadius(value as f32))
+            }
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Command {
     Control(ControlAction),
@@ -36,6 +76,7 @@ pub enum Command {
     LanguagePage(usize),
     MicrophonePage(usize),
     Display(Action),
+    Slider(Slider),
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -72,7 +113,7 @@ impl Ui {
             Command::PlayerPage(page) => self.player_page = *page,
             Command::LanguagePage(page) => self.language_page = *page,
             Command::MicrophonePage(page) => self.microphone_page = *page,
-            Command::Control(_) | Command::Display(_) => return false,
+            Command::Control(_) | Command::Display(_) | Command::Slider(_) => return false,
         }
         self.clamp(view);
         *self != previous
@@ -228,6 +269,40 @@ mod tests {
             ))
             .unwrap(),
             serde_json::json!({"control": {"set_osc_enabled": true}})
+        );
+    }
+
+    #[test]
+    fn slider_commands_resolve_to_quantized_proximity_radius() {
+        let slider = Slider {
+            action: SliderAction::ProximityRadius,
+            min: 0.0,
+            max: 10.0,
+            step: 0.1,
+        };
+        assert_eq!(
+            slider.command(0.0),
+            Some(Command::Display(Action::SetProximityRadius(0.0)))
+        );
+        assert_eq!(
+            slider.command(0.55),
+            Some(Command::Display(Action::SetProximityRadius(5.5)))
+        );
+        assert_eq!(
+            slider.command(1.0),
+            Some(Command::Display(Action::SetProximityRadius(10.0)))
+        );
+        assert_eq!(slider.command(f32::NAN), None);
+        assert_eq!(
+            serde_json::to_value(Command::Slider(slider)).unwrap(),
+            serde_json::json!({
+                "slider": {
+                    "action": "proximity_radius",
+                    "min": 0.0,
+                    "max": 10.0,
+                    "step": 0.1
+                }
+            })
         );
     }
 

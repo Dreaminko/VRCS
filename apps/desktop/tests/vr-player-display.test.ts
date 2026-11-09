@@ -5,10 +5,10 @@ import { createSettingsAutosave } from "../src/settings/settings-autosave.ts";
 import type { Settings } from "../src/settings/types.ts";
 import type { PlayerHistoryPreferences } from "../src/subtitles/player-history.ts";
 
-test("personnel requests reject stale owners/revisions and execute each request once", async () => {
+test("personnel requests reject stale owners, accept queued revisions, and execute each request once", async () => {
   let calls = 0;
   const results: Array<string | null> = [];
-  const receive = createPlayerDisplayReceiver({ epoch: 3, revision: () => 5,
+  const receive = createPlayerDisplayReceiver({ epoch: 3,
     execute: async () => { calls++; }, publish: async () => {},
     finish: async (_request, error) => { results.push(error); }, active: () => true });
   const request = { owner_epoch: 3, request_id: 1, base_revision: 5, source: "wrist_menu" as const, action: { show_all_tracks: null } };
@@ -19,15 +19,14 @@ test("personnel requests reject stale owners/revisions and execute each request 
   assert.equal(calls, 1);
   await receive({ ...request, request_id: 2, base_revision: 4 });
   await receive({ ...request, request_id: 3, base_revision: 6 });
-  assert.equal(calls, 1);
-  assert.match(results[1]!, /changed/);
-  assert.match(results[2]!, /changed/);
+  assert.equal(calls, 3);
+  assert.deepEqual(results, [null, null, null]);
 });
 
 test("failed saves publish the confirmed view before clearing pending and a released owner sends no result", async () => {
   const order: string[] = [];
   let active = true;
-  const receive = createPlayerDisplayReceiver({ epoch: 1, revision: () => 1,
+  const receive = createPlayerDisplayReceiver({ epoch: 1,
     execute: async () => { throw new Error("Save failed"); },
     publish: async () => { order.push("publish"); },
     finish: async (_request, error) => { order.push(error!); }, active: () => active });
@@ -41,7 +40,7 @@ test("failed saves publish the confirmed view before clearing pending and a rele
 
 test("a publication failure still clears pending with an error", async () => {
   const errors: Array<string | null> = [];
-  const receive = createPlayerDisplayReceiver({ epoch: 1, revision: () => 1, active: () => true,
+  const receive = createPlayerDisplayReceiver({ epoch: 1, active: () => true,
     execute: async () => {}, publish: async () => { throw new Error("Snapshot unavailable"); },
     finish: async (_request, error) => { errors.push(error); } });
   await receive({ owner_epoch: 1, request_id: 1, base_revision: 1, source: "wrist_menu", action: { show_all_tracks: null } });
@@ -51,7 +50,7 @@ test("a publication failure still clears pending with an error", async () => {
 test("releasing the owner during a save suppresses its old publication and result", async () => {
   let active = true;
   const order: string[] = [];
-  const receive = createPlayerDisplayReceiver({ epoch: 1, revision: () => 1, active: () => active,
+  const receive = createPlayerDisplayReceiver({ epoch: 1, active: () => active,
     execute: async () => { active = false; }, publish: async () => { order.push("publish"); },
     finish: async () => { order.push("finish"); } });
   await receive({ owner_epoch: 1, request_id: 1, base_revision: 1, source: "wrist_menu", action: { show_all_tracks: null } });
@@ -75,6 +74,38 @@ test("microphone controls keep their capture generation and do not alter player 
   const selection = { set_microphone_speaker: { generation: "mic-session", revision: 4, id: "speaker-2", decision: "block" as const } };
   await execute(selection);
   assert.deepEqual(actions, [{ set_microphone_filter: true }, selection]);
+});
+
+test("proximity controls update the shared player audio settings and reject invalid ranges", async () => {
+  let settings = initialSettings();
+  const execute = createPlayerDisplayExecutor({
+    getState: () => ({ available: true, processingAvailable: true, speakers: [], current: [], defaultLanguages: [], languages: [] }),
+    updateSettings: async apply => (settings = apply(settings)),
+    updatePreferences: () => { throw new Error("Unexpected visibility change"); },
+  });
+  await execute({ set_proximity_enabled: true });
+  assert.deepEqual(settings.audio.output.player_audio?.proximity, { enabled: true, radius_m: 10 });
+  await execute({ set_proximity_radius: 0 });
+  assert.deepEqual(settings.audio.output.player_audio?.proximity, { enabled: true, radius_m: 0 });
+  await execute({ set_proximity_radius: 4.46 });
+  assert.deepEqual(settings.audio.output.player_audio?.proximity, { enabled: true, radius_m: 4.5 });
+  await assert.rejects(execute({ set_proximity_radius: -0.1 }), /invalid/i);
+  await assert.rejects(execute({ set_proximity_radius: 10.1 }), /invalid/i);
+  await assert.rejects(execute({ set_proximity_radius: Number.NaN }), /invalid/i);
+  settings = { ...settings, audio: { ...settings.audio, output: { ...settings.audio.output, mode: "system" } } } as Settings;
+  await assert.rejects(execute({ set_proximity_enabled: false }), /unavailable/i);
+});
+
+test("proximity controls are unavailable when the saved settings have no proximity block", async () => {
+  const initial = initialSettings();
+  const settings = { ...initial, audio: { ...initial.audio, output: { ...initial.audio.output,
+    player_audio: { ...initial.audio.output.player_audio!, proximity: undefined } } } } as Settings;
+  const execute = createPlayerDisplayExecutor({
+    getState: () => ({ available: true, processingAvailable: true, speakers: [], current: [], defaultLanguages: [], languages: [] }),
+    updateSettings: async apply => apply(settings),
+    updatePreferences: () => {},
+  });
+  await assert.rejects(execute({ set_proximity_enabled: true }), /unavailable/i);
 });
 
 test("snapshot deduplication waits for its in-flight update and does not lose a reverted state", async () => {
@@ -107,7 +138,7 @@ test("snapshot deduplication waits for its in-flight update and does not lose a 
 const alice = { id: "vrc:a", index: 0, user_id: "usr_00000000-0000-4000-8000-000000000001", display_name: "Alice" };
 const bob = { id: "vrc:b", index: 1, user_id: "usr_00000000-0000-4000-8000-000000000002", display_name: "Bob" };
 const initialSettings = () => ({ audio: { output: { mode: "vrchat_players", player_audio: {
-  selected_tracks: [], selected_user_names: {}, max_players: 3,
+  selected_tracks: [], selected_user_names: {}, max_players: 3, proximity: { enabled: false, radius_m: 10 },
 } } }, osc: { enabled: false } }) as unknown as Settings;
 
 test("display actions validate live identities, actual tracks, language candidates and modes", async () => {

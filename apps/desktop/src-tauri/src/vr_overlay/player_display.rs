@@ -6,7 +6,7 @@ use super::control_protocol::ControlSource;
 
 pub const REQUEST_EVENT: &str = "vr-overlay-player-display-request";
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Action {
     SetProcessingMode(String),
@@ -27,6 +27,8 @@ pub enum Action {
         hidden: bool,
     },
     ClearHiddenLanguages(()),
+    SetProximityEnabled(bool),
+    SetProximityRadius(f32),
     SetMicrophoneFilter(bool),
     SetMicrophoneSpeaker {
         generation: String,
@@ -86,11 +88,21 @@ impl Action {
             Self::ShowAllTracks(())
             | Self::SetFollowDefault(_)
             | Self::ClearHiddenLanguages(()) => true,
+            Self::SetProximityEnabled(_) => {
+                view.available && view.player_mode && view.proximity.is_some()
+            }
+            Self::SetProximityRadius(radius_m) => {
+                view.available
+                    && view.player_mode
+                    && view.proximity.is_some()
+                    && radius_m.is_finite()
+                    && (0.0..=10.0).contains(radius_m)
+            }
         }
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Request {
     pub owner_epoch: u32,
     pub request_id: u32,
@@ -136,7 +148,13 @@ pub struct Microphone {
     pub speakers: Vec<MicrophoneSpeaker>,
 }
 
-#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Proximity {
+    pub enabled: bool,
+    pub radius_m: f32,
+}
+
+#[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
 pub struct View {
     pub available: bool,
     pub processing_available: bool,
@@ -144,6 +162,8 @@ pub struct View {
     pub selection_mode: String,
     pub selected_count: usize,
     pub players: Vec<Player>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub proximity: Option<Proximity>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub microphone: Option<Microphone>,
     pub languages: Vec<Language>,
@@ -174,6 +194,31 @@ mod tests {
         }
         .allowed(&view));
         assert!(!Action::SetMicrophoneFilter(true).allowed(&View::default()));
+    }
+
+    #[test]
+    fn proximity_actions_require_player_mode_published_controls_and_a_bounded_radius() {
+        let mut view = View {
+            available: true,
+            player_mode: true,
+            proximity: Some(Proximity {
+                enabled: false,
+                radius_m: 10.0,
+            }),
+            ..Default::default()
+        };
+        assert!(Action::SetProximityEnabled(true).allowed(&view));
+        assert!(Action::SetProximityRadius(0.0).allowed(&view));
+        assert!(Action::SetProximityRadius(0.9).allowed(&view));
+        assert!(Action::SetProximityRadius(5.5).allowed(&view));
+        assert!(!Action::SetProximityRadius(-0.1).allowed(&view));
+        assert!(!Action::SetProximityRadius(10.1).allowed(&view));
+        assert!(!Action::SetProximityRadius(f32::NAN).allowed(&view));
+        view.player_mode = false;
+        assert!(!Action::SetProximityEnabled(true).allowed(&view));
+        view.player_mode = true;
+        view.proximity = None;
+        assert!(!Action::SetProximityRadius(5.0).allowed(&view));
     }
 
     #[test]
@@ -236,6 +281,14 @@ mod tests {
             (
                 Action::ClearHiddenLanguages(()),
                 serde_json::json!({"clear_hidden_languages": null}),
+            ),
+            (
+                Action::SetProximityEnabled(true),
+                serde_json::json!({"set_proximity_enabled": true}),
+            ),
+            (
+                Action::SetProximityRadius(5.5),
+                serde_json::json!({"set_proximity_radius": 5.5}),
             ),
         ];
         for (action, wire) in cases {

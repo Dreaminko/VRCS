@@ -17,10 +17,17 @@ export type PlayerVisibilityAction =
   | { set_follow_default: boolean }
   | { set_source_language_hidden: { language: string; hidden: boolean } }
   | { clear_hidden_languages: null };
-export type PlayerDisplayAction = PlayerSelectionAction | PlayerVisibilityAction | MicrophoneSpeakerAction;
+export type PlayerProximityAction =
+  | { set_proximity_enabled: boolean }
+  | { set_proximity_radius: number };
+export type PlayerDisplayAction = PlayerSelectionAction | PlayerVisibilityAction | PlayerProximityAction | MicrophoneSpeakerAction;
 
 export function isPlayerSelectionAction(action: PlayerDisplayAction): action is PlayerSelectionAction {
   return "set_processing_mode" in action || "set_user_selected" in action || "select_current" in action || "clear_selection" in action;
+}
+
+export function isPlayerProximityAction(action: PlayerDisplayAction): action is PlayerProximityAction {
+  return "set_proximity_enabled" in action || "set_proximity_radius" in action;
 }
 
 export function collectPlayerSpeakers(subtitles: readonly Subtitle[], current: readonly SpeakerIdentity[], selected: readonly string[] | null, names: Record<string, string>): SpeakerIdentity[] {

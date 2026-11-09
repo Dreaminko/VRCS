@@ -199,6 +199,7 @@ export function useSettingsRuntime({
   return {
     value: settings,
     getCurrent: () => persistedSettingsRef.current,
+    getOptimistic: () => settingsAutosaveRef.current?.getDesired() ?? persistedSettingsRef.current ?? null,
     devices: { items: devices, ready: devicesReady, refresh: loadDevices },
     asr: { refresh: refreshModels },
     refresh: loadSettings,
