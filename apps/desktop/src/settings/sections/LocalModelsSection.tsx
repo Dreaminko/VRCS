@@ -10,6 +10,7 @@ import { OcrModelManagerPanel } from "../ocr/OcrModelManagerPanel";
 import { ModelDirectorySetting } from "../recognition/ModelDirectorySetting";
 import { ModelManagerPanel } from "../recognition/ModelManagerPanel";
 import { LocalTranslationPanel } from "../translation/LocalTranslationPanel";
+import { CapabilitySection, usePlatformCapabilities } from "../../core-client/capabilities";
 
 export function LocalModelsSection({
   settings,
@@ -27,6 +28,7 @@ export function LocalModelsSection({
   actions: RecognitionActions;
 }) {
   const { t } = useTranslation();
+  const { core } = usePlatformCapabilities();
   const qwenDownloading = models.qwen.some((model) =>
     model.status === "downloading" || model.status === "verifying");
   const runtimeInstalling = models.qwenRuntime?.installation
@@ -46,6 +48,7 @@ export function LocalModelsSection({
       />
     </div>
     <div className="local-model-category">
+      <CapabilitySection capability={core?.inference.qwen_cpu}>
       <ModelManagerPanel
         qwen={{
           models: models.qwen,
@@ -71,9 +74,12 @@ export function LocalModelsSection({
         onChooseDirectory={actions.chooseModelDirectory}
         showDirectory={false}
       />
+      </CapabilitySection>
     </div>
     <div className="local-model-category">
+      <CapabilitySection capability={core?.inference.local_translation}>
       <LocalTranslationPanel locale={locale} disabled={disabled} />
+      </CapabilitySection>
     </div>
     <div className="local-model-category">
       <OcrModelManagerPanel locale={locale} disabled={disabled} />

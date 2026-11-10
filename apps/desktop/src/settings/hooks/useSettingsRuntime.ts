@@ -16,6 +16,7 @@ import { clearLegacyLearningBinding, learningPreferencesSnapshot, legacyLearning
 export function useSettingsRuntime({
   active,
   coreConfigured,
+  audioSupported,
   health,
   stopMicrophoneTest,
   setCaptureRunning,
@@ -28,6 +29,7 @@ export function useSettingsRuntime({
   health: CoreHealthController;
   stopMicrophoneTest: () => Promise<void>;
   setCaptureRunning: (running: boolean) => Promise<boolean>;
+  audioSupported: boolean | undefined;
   playerAudioStart: PlayerAudioStart;
   clearErrorFrom: (source: string) => void;
   reportError: ReportRuntimeError;
@@ -48,6 +50,13 @@ export function useSettingsRuntime({
 
   const loadDevices = useCallback(async () => {
     if (!coreConfigured) return;
+    if (audioSupported === undefined) return;
+    if (!audioSupported) {
+      setDevices([]);
+      setDevicesReady(true);
+      clearErrorFrom("devices");
+      return;
+    }
     try {
       setDevices(await captureApi.devices());
       setDevicesReady(true);
@@ -56,7 +65,7 @@ export function useSettingsRuntime({
       setDevicesReady(false);
       reportError(reason, "errors.audio.devices", "devices");
     }
-  }, [clearErrorFrom, coreConfigured, reportError]);
+  }, [audioSupported, clearErrorFrom, coreConfigured, reportError]);
 
   const refreshModels = loadSettings;
 
@@ -106,6 +115,7 @@ export function useSettingsRuntime({
     const microphoneRouteChanged = previous !== null && (
       previous.audio.microphone.mode !== next.audio.microphone.mode
       || previous.audio.microphone.device_id !== next.audio.microphone.device_id
+      || previous.audio.microphone.device_key !== next.audio.microphone.device_key
     );
     if (health.getCurrent()?.microphone_test_running && microphoneRouteChanged) {
       await stopMicrophoneTest();

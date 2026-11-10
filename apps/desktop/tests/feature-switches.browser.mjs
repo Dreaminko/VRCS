@@ -22,6 +22,7 @@ test("feature switches commit menu visibility and restore the switch on save fai
         import { FeatureSettingsCard } from './src/settings/system/FeatureSettingsCard';
         import { SettingsTabBar } from './src/settings/components/SettingsTabBar';
         import { DEFAULT_FEATURE_SETTINGS, visibleSettingsCategories } from './src/settings/feature-availability';
+        import { WindowsCapabilities } from './tests/fixtures/platform-capabilities';
         await i18next.use(initReactI18next).init({ lng: 'en-US', resources: { 'en-US': { translation: en.translation } } });
         let persisted = { features: { ...DEFAULT_FEATURE_SETTINGS }, audio: { output: { mode: 'disabled' }, microphone: { mode: 'disabled', device_id: null } } };
         window.savedFeatures = () => persisted.features;
@@ -47,10 +48,10 @@ test("feature switches commit menu visibility and restore the switch on save fai
           </div>;
         }
         function Harness() {
-          const runtime = useSettingsRuntime({ active: false, coreConfigured: true, health, stopMicrophoneTest: async () => {}, clearErrorFrom: noop, reportError: noop });
+          const runtime = useSettingsRuntime({ active: false, coreConfigured: true, audioSupported: true, health, stopMicrophoneTest: async () => {}, clearErrorFrom: noop, reportError: noop });
           return runtime.value ? <Features settings={runtime.value} save={runtime.save} /> : null;
         }
-        createRoot(document.getElementById('root')).render(<Harness />);
+        createRoot(document.getElementById('root')).render(<WindowsCapabilities><Harness /></WindowsCapabilities>);
       `,
     },
     bundle: true, write: false, format: "esm", platform: "browser", jsx: "automatic",

@@ -14,6 +14,7 @@ import { recognitionSourceValue } from "../settings-derived";
 import { MANAGED_QWEN_RECOGNITION_SOURCE } from "../../providers/recognition-services";
 import type { RecognitionActions, RecognitionModels } from "../settings-types";
 import { Select } from "../SettingsControls";
+import { CapabilityNotice, usePlatformCapabilities } from "../../core-client/capabilities";
 
 export function RecognitionSettingsSection({
   draft,
@@ -33,10 +34,12 @@ export function RecognitionSettingsSection({
   onManageLocalModels?: () => void;
 }) {
   const { t } = useTranslation();
+  const { core } = usePlatformCapabilities();
   const usesManagedQwen = draft.asr.backend === "qwen_local_managed";
   const recognitionSource = recognitionSourceValue(draft.asr);
   const sourceOptions = [
-    { value: MANAGED_QWEN_RECOGNITION_SOURCE, label: t("settings.recognition.managedQwenSource") },
+    { value: MANAGED_QWEN_RECOGNITION_SOURCE, label: t("settings.recognition.managedQwenSource"),
+      disabled: !core?.inference.qwen_cpu.supported, description: !core?.inference.qwen_cpu.supported ? t("platform.qwen_unavailable") : undefined },
     ...recognitionProfiles(apiProfiles)
       .map((profile) => {
         const providerLabel = profile.provider_display_name;
@@ -88,12 +91,13 @@ export function RecognitionSettingsSection({
             onSelectService={actions.updateRecognitionService}
           />
         )}
+        {usesManagedQwen && <CapabilityNotice capability={core?.inference.qwen_cpu} />}
         {usesManagedQwen && <ManagedQwenSettings
           draft={draft}
           models={models.qwen}
           ready={models.qwenReady}
           runtime={models.qwenRuntime}
-          disabled={false}
+          disabled={!core?.inference.qwen_cpu.supported}
           onUpdateAsr={actions.updateAsr}
           onUpdateQwen={actions.updateManagedQwen}
         />}

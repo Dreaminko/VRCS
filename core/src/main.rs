@@ -10,6 +10,9 @@ async fn main() {
     let log_dir = std::env::var("VRCS_LOG_DIR")
         .map(std::path::PathBuf::from)
         .unwrap_or_else(|_| {
+            #[cfg(target_os = "linux")]
+            return vrcs_core::linux_log_directory();
+            #[cfg(not(target_os = "linux"))]
             options
                 .config_path
                 .parent()

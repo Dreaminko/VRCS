@@ -65,7 +65,7 @@ function profile(
     provider_display_name: "Provider",
     active: false,
     translation_active: false,
-    credential: { configured: false, stored_configured: false, environment_override: false, source: null },
+    credential: { configured: false, stored_configured: false, environment_override: false, storage_available: true, reason_code: null, source: null },
     capabilities: definition("provider", "cloud_provider", supportedCapabilities).capabilities,
     support_levels: { asr: null, translation: null },
   };

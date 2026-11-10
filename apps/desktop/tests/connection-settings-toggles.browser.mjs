@@ -27,9 +27,10 @@ test(`connection heading switches hide dependent controls and retain configurati
         import './src/styles.css';
         import en from './src/i18n/locales/en-US.json';
         import { ConnectionSettingsSection } from './src/settings/sections/ConnectionSettingsSection';
+        import { WindowsCapabilities } from './tests/fixtures/platform-capabilities';
         await i18next.use(initReactI18next).init({ lng: 'en-US', resources: { 'en-US': { translation: en.translation } } });
         window.fetch = async () => new Response(JSON.stringify({
-          configured: true, stored_configured: true, environment_override: false, state: 'disabled',
+          configured: true, stored_configured: true, environment_override: false, storage_available: true, reason_code: null, source: 'credential_manager', state: 'disabled',
         }), { status: 200 });
         const initial = {
           osc: { enabled: false, port: 9001, translation_strategy: 'round_robin',
@@ -43,14 +44,14 @@ test(`connection heading switches hide dependent controls and retain configurati
         function Harness() {
           const [draft, setDraft] = useState(initial);
           settings = draft;
-          return <ConnectionSettingsSection draft={draft}
+          return <WindowsCapabilities><ConnectionSettingsSection draft={draft}
             features={{ microphone_speaker_filter: false, anki: true, vrcx: true, external_api: true }}
             health={null} saveState="saved" applySettings={setDraft} onTest={async () => {}}
             anki={{ status: null, busy: false, message: '', portText: '8766', portError: '',
               deckNames: [], modelOptions: [], frontFieldOptions: [], backFieldOptions: [],
               onLoadStatus: async () => {}, onSetPortText: noop, onCommitPort: noop,
               onUpdate: (key, value) => setDraft(current => ({ ...current, anki: { ...current.anki, [key]: value } })),
-            }} />;
+            }} /></WindowsCapabilities>;
         }
         const root = createRoot(document.getElementById('root'));
         root.render(<Harness />);

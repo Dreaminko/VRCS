@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 
 import { PreferenceToggle } from "../SettingsControls";
 import type { FeatureKey, FeatureSettings } from "../types";
+import { usePlatformCapabilities } from "../../core-client/capabilities";
 
 const featureKeys: FeatureKey[] = ["glossary", "learning", "anki", "microphone_speaker_filter", "ocr", "visual_question_answering", "vr_overlay", "external_api", "vrcx"];
 
@@ -12,6 +13,7 @@ export function FeatureSettingsCard({ features, disabled, onChange }: {
   onChange: (key: FeatureKey, enabled: boolean) => void;
 }) {
   const { t } = useTranslation();
+  const { desktop } = usePlatformCapabilities();
   return (
     <section className="system-settings-group system-features-group" aria-labelledby="system-features-title">
       <div className="section-heading">
@@ -20,7 +22,10 @@ export function FeatureSettingsCard({ features, disabled, onChange }: {
       <div className="settings-toggle-list">
         {featureKeys.map((key) => (
           <PreferenceToggle key={key} title={t(`settings.features.${key}`)}
-            checked={features[key]} disabled={disabled} onChange={(enabled) => onChange(key, enabled)} />
+            checked={features[key]} disabled={disabled || (key === "vr_overlay" && !desktop?.vr.subtitles.supported)}
+            description={key === "vr_overlay" && desktop?.vr.subtitles.reason_code
+              ? t(`platform.${desktop.vr.subtitles.reason_code.replace(/^platform\./, "")}`) : undefined}
+            onChange={(enabled) => onChange(key, enabled)} />
         ))}
       </div>
     </section>

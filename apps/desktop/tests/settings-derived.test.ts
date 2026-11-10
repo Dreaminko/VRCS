@@ -20,7 +20,7 @@ import { targetLanguageCodes } from "../src/settings/translation/language-settin
 import type { Settings } from "../src/settings/types.ts";
 
 const settings: Settings = {
-  schema_version: 41,
+  schema_version: 42,
   model_defaults: {
     text: { profile_id: null, model: "" },
     translation: { profile_id: null, model: "" },
@@ -88,7 +88,7 @@ function profile(id: string, provider: string, enabled: ApiProfileView["enabled_
     provider_display_name: provider,
     active: false,
     translation_active: false,
-    credential: { configured: true, stored_configured: true, environment_override: false, source: "credential_manager" },
+    credential: { configured: true, stored_configured: true, environment_override: false, storage_available: true, reason_code: null, source: "credential_manager" },
     capabilities: {
       supports_streaming: false,
       supports_model_listing: false,

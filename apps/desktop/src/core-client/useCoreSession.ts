@@ -26,6 +26,9 @@ export function useCoreSession(resourcesActive: boolean) {
   const settings = useSettingsRuntime({
     active: resourcesActive,
     coreConfigured: runtime.coreConfigured,
+    audioSupported: runtime.capabilities.core
+      ? runtime.capabilities.core.audio.microphone.supported || runtime.capabilities.core.audio.system_output.supported
+      : undefined,
     health: runtime.health,
     stopMicrophoneTest: capture.stopMicrophoneTest,
     setCaptureRunning: capture.setRunning,
@@ -46,6 +49,7 @@ export function useCoreSession(resourcesActive: boolean) {
       ready: runtime.ready,
       startupFailed: runtime.startupFailed,
       health: runtime.health.value,
+      capabilities: runtime.capabilities,
       vrchatMuteStatus: subtitles.vrchatMuteStatus
         ?? runtime.health.value?.vrchat_mute_sync
         ?? null,

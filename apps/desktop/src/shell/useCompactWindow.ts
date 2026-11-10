@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 
 import { NATIVE_APP } from "../app/app-environment";
+import { runtimeApi } from "../core-client/runtime-api";
 import type { CompactFontSize } from "./compact-layout";
 import {
   clampCompactWindowHeight,
@@ -189,10 +190,12 @@ export function useCompactWindow({
         await appWindow.setSize(new LogicalSize(compactSize.width, compactSize.height));
         nativeHeightRef.current = compactSize.height;
         await appWindow.setResizable(true);
-        await invoke("set_compact_window_topmost", { enabled: true });
+        const capabilities = await runtimeApi.platformCapabilities();
+        if (capabilities?.always_on_top.available) await invoke("set_compact_window_topmost", { enabled: true });
         setHeight(compactSize.height);
       } else {
-        await invoke("set_compact_window_topmost", { enabled: false });
+        const capabilities = await runtimeApi.platformCapabilities();
+        if (capabilities?.always_on_top.available) await invoke("set_compact_window_topmost", { enabled: false });
         await appWindow.setResizable(true);
         await appWindow.setSizeConstraints({ minWidth: 860, minHeight: 620 });
         await appWindow.setSize(new LogicalSize(1180, 760));

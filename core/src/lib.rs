@@ -22,6 +22,7 @@ mod models;
 pub mod ocr;
 mod osc;
 mod pipeline;
+pub mod platform_capabilities;
 mod player_audio;
 mod providers;
 mod server;
@@ -239,12 +240,27 @@ pub struct LoggingGuard {
     _guard: Option<tracing_appender::non_blocking::WorkerGuard>,
 }
 
+#[cfg(target_os = "linux")]
+pub fn linux_log_directory() -> PathBuf {
+    let state = std::env::var_os("XDG_STATE_HOME").map(PathBuf::from).filter(|path| path.is_absolute())
+        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".local/state")))
+        .expect("Linux requires HOME or an absolute XDG_STATE_HOME for persistent logs");
+    state.join("vrcs/logs")
+}
+
 pub fn init_tracing(log_dir: Option<&Path>) -> Result<LoggingGuard, String> {
     use tracing_subscriber::fmt::writer::MakeWriterExt;
 
     let filter = tracing_subscriber::EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| "vrcs_core=info,vrcs_desktop_lib=info,tower_http=info".into());
     if let Some(log_dir) = log_dir {
+        #[cfg(target_os = "linux")]
+        {
+            use std::os::unix::fs::DirBuilderExt;
+            std::fs::DirBuilder::new().recursive(true).mode(0o700).create(log_dir)
+                .map_err(|error| format!("Failed to create private log directory: {error}"))?;
+        }
+        #[cfg(not(target_os = "linux"))]
         std::fs::create_dir_all(log_dir).map_err(|error| {
             format!(
                 "Failed to create log directory {}: {error}",

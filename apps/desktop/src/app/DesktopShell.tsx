@@ -217,7 +217,7 @@ export function DesktopShell({
                   microphone={features?.microphone_speaker_filter ? workspace.microphoneSpeakers : undefined}
                   subtitles={conversations.selectedSubtitles}
                   status={runtime.health?.player_audio}
-                  enabled={settings.value?.audio.output.mode === "vrchat_players"}
+                  enabled={settings.value?.audio.output.mode === "vrchat_players" && runtime.capabilities.core?.audio.player_audio.available === true}
                   selectedUserIds={settings.value?.audio.output.player_audio?.selected_tracks ?? null}
                   selectedUserNames={settings.value?.audio.output.player_audio?.selected_user_names}
                   proximity={settings.value?.audio.output.player_audio?.proximity}
@@ -375,10 +375,11 @@ export function DesktopShell({
         learningAvailable={features?.learning ?? false}
         chatboxAvailable={settings.value !== null}
         onVision={features?.visual_question_answering && settings.value?.vision.enabled && settings.value.vision.desktop_enabled ? openVision : undefined}
-        visionDisabled={!runtime.ready}
+        visionDisabled={!runtime.ready || !runtime.capabilities.desktop?.screenshot.available}
         page={page}
         running={runtime.health?.capture_requested ?? false}
-        captureDisabled={!runtime.ready || capture.pending}
+        captureDisabled={!runtime.ready || capture.pending || (!runtime.health?.capture_requested && !capture.available)}
+        captureReason={capture.unavailableReason}
         chatboxOpen={page === "live" && chatbox.open}
         chatboxDisabled={!runtime.ready || settings.value === null}
         chatboxButtonRef={chatboxButtonRef}

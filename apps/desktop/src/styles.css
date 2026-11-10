@@ -11,3 +11,6 @@
 @import "./styles/compact.css";
 @import "./styles/motion.css";
 @import "./styles/responsive.css";
+
+.platform-capability-section { border: 0; padding: 0; margin: 0; min-width: 0; }
+.platform-capability-section:disabled { opacity: 0.65; }

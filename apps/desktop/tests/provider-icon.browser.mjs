@@ -37,7 +37,7 @@ test("api management rows render lobe brand marks for light and dark themes", {
         const profile = (id, name, provider, providerName) => ({
           id, name, provider, provider_display_name: providerName,
           enabled_capabilities: ['text_generation'], active: false, translation_active: false,
-          credential: { configured: false, stored_configured: false, environment_override: false, source: null },
+          credential: { configured: false, stored_configured: false, environment_override: false, storage_available: true, reason_code: null, source: null },
           capabilities, support_levels: { asr: null, translation: null },
         });
         const definition = (id, displayName) => ({

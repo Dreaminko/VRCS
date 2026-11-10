@@ -2,6 +2,7 @@
 //! 数据面、音频识别管线与管理端点。
 
 mod anki;
+pub(crate) mod capabilities;
 pub(crate) mod capture;
 mod chatbox;
 mod cloud;
@@ -180,6 +181,7 @@ pub fn router(state: Arc<AppState>) -> Router {
 
     Router::new()
         .route("/health", get(health))
+        .route("/api/capabilities", get(capabilities::get))
         .route("/api/audio/devices", get(capture::audio_devices))
         .route("/api/capture/start", post(capture::capture_start))
         .route("/api/capture/stop", post(capture::capture_stop))

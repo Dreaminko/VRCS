@@ -4,12 +4,13 @@ import { Eye, GraduationCap, MessageSquare, MessageSquarePlus, Mic, Shrink, Slid
 
 import type { Page } from "../app/app-types";
 
-export function BottomDock({ learningAvailable, chatboxAvailable, page, running, chatboxOpen, captureDisabled, chatboxDisabled, chatboxButtonRef, onPageChange, onPageIntent, onCompact, onChatbox, onCapture, onVision, visionDisabled }: {
+export function BottomDock({ learningAvailable, chatboxAvailable, page, running, chatboxOpen, captureDisabled, captureReason, chatboxDisabled, chatboxButtonRef, onPageChange, onPageIntent, onCompact, onChatbox, onCapture, onVision, visionDisabled }: {
   learningAvailable: boolean;
   chatboxAvailable: boolean;
   page: Page;
   running: boolean;
   captureDisabled: boolean;
+  captureReason?: string | null;
   chatboxOpen: boolean;
   chatboxDisabled: boolean;
   chatboxButtonRef: Ref<HTMLButtonElement>;
@@ -38,13 +39,14 @@ export function BottomDock({ learningAvailable, chatboxAvailable, page, running,
         onClick={onChatbox}
       ><MessageSquarePlus /></DockButton>}
       {onVision && <DockButton label={t("visionWindow.title")} disabled={visionDisabled} onClick={onVision}><Eye /></DockButton>}
-      <DockButton label={t(running ? "capture.stop" : "capture.start")} primary disabled={captureDisabled} onClick={onCapture}>{running ? <Square /> : <Mic />}</DockButton>
+      <DockButton label={t(running ? "capture.stop" : "capture.start")} tooltip={!running && captureReason ? t(captureReason) : undefined} primary disabled={captureDisabled} onClick={onCapture}>{running ? <Square /> : <Mic />}</DockButton>
     </nav>
   );
 }
 
-function DockButton({ label, active = false, tonal = false, primary = false, disabled = false, expanded, buttonRef, onIntent, onClick, children }: {
+function DockButton({ label, tooltip, active = false, tonal = false, primary = false, disabled = false, expanded, buttonRef, onIntent, onClick, children }: {
   label: string;
+  tooltip?: string;
   active?: boolean;
   tonal?: boolean;
   primary?: boolean;
@@ -63,7 +65,7 @@ function DockButton({ label, active = false, tonal = false, primary = false, dis
       aria-label={label}
       aria-current={active && expanded === undefined ? "page" : undefined}
       aria-expanded={expanded}
-      data-tooltip={label}
+      data-tooltip={tooltip ?? label}
       disabled={disabled}
       onFocus={onIntent}
       onPointerDown={onIntent}

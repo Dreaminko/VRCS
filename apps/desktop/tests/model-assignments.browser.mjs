@@ -25,6 +25,7 @@ for (const width of [1100, 380]) {
         import { ApiSettingsSection } from './src/settings/sections/ApiSettingsSection';
         import { applyModelDefaults } from './src/settings/model-selection';
         import { ControlTooltip } from './src/shared/ui/ControlTooltip';
+        import { WindowsCapabilities } from './tests/fixtures/platform-capabilities';
         import './src/styles.css';
         document.documentElement.dataset.reducedMotion = 'true';
         await i18next.use(initReactI18next).init({ lng: 'en-US', resources: { 'en-US': en } });
@@ -84,7 +85,7 @@ for (const width of [1100, 380]) {
             })} /><ControlTooltip /></>;
         }
         const root = createRoot(document.getElementById('root'));
-        root.render(<Harness />);
+        root.render(<WindowsCapabilities><Harness /></WindowsCapabilities>);
         const check = (condition, message) => { if (!condition) throw new Error(message); };
         const settle = () => new Promise(resolve => setTimeout(resolve, 30));
         const wait = async predicate => { for (let i = 0; i < 100; i++) { if (predicate()) return; await settle(); } throw new Error('Timed out: ' + predicate); };

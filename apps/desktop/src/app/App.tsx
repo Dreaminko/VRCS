@@ -13,6 +13,7 @@ import { useVrControlBridge } from "../vr-controls/useVrControlBridge";
 import { useVrPlayerDisplayBridge } from "../vr-controls/useVrPlayerDisplayBridge";
 import { PlayerAudioStartDialog } from "../capture/PlayerAudioStartDialog";
 import { MemoryCompressionDialog } from "../capture/MemoryCompressionControls";
+import { PlatformCapabilitiesContext } from "../core-client/capabilities";
 
 function App() {
   const [page, setPage] = useState<Page>("live");
@@ -23,7 +24,8 @@ function App() {
     settings: workspace.settings.value,
     getSettings: workspace.settings.getCurrent,
     update: workspace.settings.update,
-    available: workspace.runtime.ready && workspace.onboarding.status === "complete",
+    available: workspace.runtime.ready && workspace.onboarding.status === "complete"
+      && workspace.runtime.capabilities.desktop?.vr.controller_input.supported === true,
     requested: workspace.runtime.health?.capture_requested,
     getRequested: workspace.capture.getRunning,
     running: workspace.runtime.health?.capture_running ?? false,
@@ -37,7 +39,8 @@ function App() {
   useVrDashboardBridge(workspace.settings.value, workspace.settings.update, workspace.providers.catalog.profiles, {
     playerAudio: workspace.runtime.health?.player_audio,
     running: workspace.runtime.health?.capture_requested ?? false,
-    available: workspace.runtime.ready && !workspace.capture.pending && workspace.onboarding.status === "complete",
+    available: workspace.runtime.ready && !workspace.capture.pending && workspace.onboarding.status === "complete"
+      && workspace.runtime.capabilities.desktop?.vr.controller_input.supported === true,
     toggle: workspace.capture.toggleCapture,
   }, workspace.playerDisplay);
 
@@ -84,7 +87,7 @@ function App() {
   }
 
   return (
-    <>
+    <PlatformCapabilitiesContext.Provider value={workspace.runtime.capabilities}>
       {view}
       {workspace.capture.playerAudioStart.notice && <PlayerAudioStartDialog
         openedAt={workspace.capture.playerAudioStart.notice.openedAt} onDecision={workspace.capture.playerAudioStart.decide} />}
@@ -93,7 +96,7 @@ function App() {
         vrchatWarningOpen={workspace.capture.vrchatWarningOpen}
         onCloseVrchatWarning={workspace.capture.closeVrchatWarning}
       />
-    </>
+    </PlatformCapabilitiesContext.Provider>
   );
 }
 

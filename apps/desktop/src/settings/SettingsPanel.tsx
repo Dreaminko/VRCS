@@ -32,6 +32,7 @@ import type { PlayerAudioStart } from "../capture/usePlayerAudioStart";
 import { applyModelDefaults } from "./model-selection";
 import type { ApplySettings } from "./settings-types";
 import { useApiProfileCatalog } from "../providers/useApiProfileCatalog";
+import { CapabilitySection, usePlatformCapabilities } from "../core-client/capabilities";
 
 export function SettingsPanel({
   initialCategory = "system",
@@ -84,6 +85,7 @@ export function SettingsPanel({
   updater: AppUpdaterState;
 }) {
   const { t, i18n } = useTranslation();
+  const capabilities = usePlatformCapabilities();
   const locale = i18n.resolvedLanguage ?? "en-US";
   const [requestedCategory, setActiveCategory] = useState<SettingsCategory>(initialCategory);
   const [apiTab, setApiTab] = useState<ApiSettingsTab>("models");
@@ -308,19 +310,23 @@ export function SettingsPanel({
       )}
 
       {activeCategory === "vision" && (
+        <CapabilitySection capability={capabilities.desktop?.screenshot}>
         <OcrSettingsSection vrAvailable={settings.features.vr_overlay} draft={draft}
           profiles={apiProfileCatalog.profiles} applySettings={applySettings}
           onManageLocalModels={openLocalModels} />
+        </CapabilitySection>
       )}
 
       {activeCategory === "about" && <AboutSettingsSection version={updater.buildInfo?.version} />}
 
       {activeCategory === "vr_overlay" && (
+        <CapabilitySection capability={capabilities.desktop?.vr.subtitles}>
         <VrOverlaySettingsSection
           draft={draft}
           saveState={saveState}
           applySettings={applySettings}
         />
+        </CapabilitySection>
       )}
     </section>
   );

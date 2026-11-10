@@ -45,6 +45,8 @@ function profile(provider: string, supportsModelListing = true): ApiProfileView 
       configured: true,
       stored_configured: true,
       environment_override: false,
+      storage_available: true,
+      reason_code: null,
       source: "credential_manager",
     },
     capabilities: {

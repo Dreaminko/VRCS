@@ -581,7 +581,11 @@ async fn local_recognition_sources_can_be_saved_without_an_api_profile() {
             .await
             .unwrap()
             .status(),
-        reqwest::StatusCode::CONFLICT
+        if cfg!(windows) {
+            reqwest::StatusCode::CONFLICT
+        } else {
+            reqwest::StatusCode::SERVICE_UNAVAILABLE
+        }
     );
     let health: serde_json::Value = client
         .get(format!("{base}/health"))
@@ -641,8 +645,16 @@ async fn audio_settings_can_repair_stale_routes_one_at_a_time() {
         for output in [output_first, !output_first] {
             if output {
                 settings["audio"]["output"]["device_id"] = serde_json::Value::Null;
+                if !cfg!(any(windows, target_os = "linux")) {
+                    settings["audio"]["output"]["mode"] = serde_json::json!("disabled");
+                }
             } else {
-                settings["audio"]["microphone"]["mode"] = serde_json::json!("default");
+                settings["audio"]["microphone"]["mode"] =
+                    serde_json::json!(if cfg!(any(windows, target_os = "linux")) {
+                        "default"
+                    } else {
+                        "disabled"
+                    });
                 settings["audio"]["microphone"]["device_id"] = serde_json::Value::Null;
             }
             let response = client
@@ -1439,9 +1451,23 @@ async fn microphone_test_requires_a_selected_input_and_stop_is_idempotent() {
         .send()
         .await
         .unwrap();
-    assert_eq!(rejected.status(), reqwest::StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(
+        rejected.status(),
+        if cfg!(any(windows, target_os = "linux")) {
+            reqwest::StatusCode::UNPROCESSABLE_ENTITY
+        } else {
+            reqwest::StatusCode::SERVICE_UNAVAILABLE
+        }
+    );
     let body: serde_json::Value = rejected.json().await.unwrap();
-    assert_eq!(body["code"], "audio.microphone_test_disabled");
+    assert_eq!(
+        body["code"],
+        if cfg!(any(windows, target_os = "linux")) {
+            "audio.microphone_test_disabled"
+        } else {
+            "platform.audio_unavailable"
+        }
+    );
 
     let stopped = client
         .post(format!("{base_url}/api/audio/microphone-test/stop"))

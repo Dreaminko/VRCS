@@ -23,6 +23,7 @@ import { useInterfaceScale } from "./useInterfaceScale";
 import { usePlayerHistoryPreferences } from "../subtitles/usePlayerHistoryPreferences";
 import { useMicrophoneSpeakers } from "../capture/useMicrophoneSpeakers";
 import { usesVrchatNetwork } from "../capture/vrchat-network";
+import { captureUnavailableReason } from "../settings/feature-availability";
 
 export function useAppWorkspace({
   page,
@@ -74,8 +75,10 @@ export function useAppWorkspace({
     reportError: runtime.reportError,
     clearErrorFrom: runtime.clearErrorFrom,
   });
+  const captureReason = captureUnavailableReason(settings.value, runtime.capabilities.core);
   const captureControl = useCaptureControl({
     coreReady: runtime.ready,
+    unavailableReason: captureReason,
     getRunning: captureRuntime.getRunning,
     outputMode: settings.value?.audio.output.mode,
     networkCaptureEnabled: usesVrchatNetwork(settings.value),
@@ -146,6 +149,8 @@ export function useAppWorkspace({
     capture: {
       ...captureRuntime,
       ...captureControl,
+      available: captureReason === null,
+      unavailableReason: captureReason,
     },
     compact: {
       ...compactWindow,

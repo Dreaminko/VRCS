@@ -14,6 +14,7 @@ type ReportError = (
 
 export function useCaptureControl({
   coreReady,
+  unavailableReason,
   getRunning,
   outputMode,
   networkCaptureEnabled = outputMode === "vrchat_players",
@@ -25,6 +26,7 @@ export function useCaptureControl({
   reportError,
 }: {
   coreReady: boolean;
+  unavailableReason?: string | null;
   getRunning: () => boolean;
   outputMode: string | undefined;
   networkCaptureEnabled?: boolean;
@@ -56,6 +58,7 @@ export function useCaptureControl({
 
   const setCaptureRunning = useCallback(async (target: boolean): Promise<boolean> => {
     try {
+      if (target && unavailableReason) throw { code: unavailableReason };
       return await controller.current!.setRunning(target);
     } catch (reason) {
       if (shouldShowVrchatNotRunningWarning(reason, outputMode === "vrchat")) {
@@ -71,6 +74,7 @@ export function useCaptureControl({
     clearErrorFrom,
     clearLookup,
     outputMode,
+    unavailableReason,
     reportError,
   ]);
   const toggleCapture = useCallback(() => setCaptureRunning(!current.current.getRunning()), [setCaptureRunning]);

@@ -8,6 +8,7 @@ import {
   retryCore as retryCoreStartup,
 } from "./startup-api";
 import type { Health } from "./types";
+import type { PlatformState } from "./capabilities";
 import type { ReportRuntimeError } from "./useRuntimeErrors";
 
 export interface CoreHealthController {
@@ -36,6 +37,7 @@ export function useCoreRuntime({
   const [startupState, setStartupState] = useState<"starting" | "ready" | "failed">("starting");
   const [startupAttempt, setStartupAttempt] = useState(0);
   const [health, setHealth] = useState<Health | null>(null);
+  const [capabilities, setCapabilities] = useState<PlatformState>({ core: null, desktop: null });
   const healthRef = useRef<Health | null>(null);
   healthRef.current = health;
 
@@ -102,10 +104,13 @@ export function useCoreRuntime({
     const poll = async () => {
       let interval = 2500;
       try {
-        const next = await runtimeApi.health();
+        const [next, core, desktop] = await Promise.all([
+          runtimeApi.health(), runtimeApi.capabilities(), runtimeApi.platformCapabilities(),
+        ]);
         if (cancelled) return;
         if (next.capture_requested && ["waiting_key", "acquiring_key", "retrying_key"].includes(next.player_audio?.phase ?? "")) interval = 250;
         setHealth(next);
+        setCapabilities({ core, desktop });
         clearErrorFrom("core");
       } catch (reason) {
         if (cancelled) return;
@@ -126,6 +131,7 @@ export function useCoreRuntime({
     setCoreConfigured(false);
     setStartupState("starting");
     setHealth(null);
+    setCapabilities({ core: null, desktop: null });
     try {
       await retryCoreStartup();
       setStartupAttempt((attempt) => attempt + 1);
@@ -149,5 +155,6 @@ export function useCoreRuntime({
     startupFailed: startupState === "failed",
     retry,
     health: healthController,
+    capabilities,
   };
 }

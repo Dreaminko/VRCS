@@ -20,7 +20,7 @@ import { CompactBackgroundControls, CompactWindowIcon } from "./CompactBackgroun
 const EMPTY_PREVIEWS: LiveTranscription[] = [];
 const EMPTY_FILTER: readonly string[] = [];
 
-export function CompactView({ transparentBackground, onToggleBackground, backgroundOpacity, onBackgroundOpacityChange, fontSize, onFontSizeChange, subtitles, subtitleHistory, selectionTarget, playerLimit, hiddenTracks = EMPTY_FILTER, hiddenSourceLanguages = EMPTY_FILTER, onCaptionHeight, running, vrchatMuted, captureDisabled, chatboxOpen, chatboxDisabled, chatboxButtonRef, onChatbox, onSelect, onCapture, onRestore, onClose, onResize }: {
+export function CompactView({ transparentBackground, onToggleBackground, backgroundOpacity, onBackgroundOpacityChange, fontSize, onFontSizeChange, subtitles, subtitleHistory, selectionTarget, playerLimit, hiddenTracks = EMPTY_FILTER, hiddenSourceLanguages = EMPTY_FILTER, onCaptionHeight, running, vrchatMuted, captureDisabled, captureReason, chatboxOpen, chatboxDisabled, chatboxButtonRef, onChatbox, onSelect, onCapture, onRestore, onClose, onResize }: {
   transparentBackground: boolean;
   onToggleBackground: () => void;
   backgroundOpacity: number;
@@ -37,6 +37,7 @@ export function CompactView({ transparentBackground, onToggleBackground, backgro
   running: boolean;
   vrchatMuted: boolean;
   captureDisabled: boolean;
+  captureReason?: string | null;
   chatboxOpen?: boolean;
   chatboxDisabled?: boolean;
   chatboxButtonRef?: Ref<HTMLButtonElement>;
@@ -136,7 +137,7 @@ export function CompactView({ transparentBackground, onToggleBackground, backgro
           </div>
         </div>
         <div className="compact-actions">
-          <button className="compact-capture-button" type="button" aria-label={captureLabel} aria-pressed={running} data-tooltip={captureLabel} disabled={captureDisabled} onClick={onCapture}>
+          <button className="compact-capture-button" type="button" aria-label={captureLabel} aria-pressed={running} data-tooltip={!running && captureReason ? t(captureReason) : captureLabel} disabled={captureDisabled} onClick={onCapture}>
             {running ? <Square size={15} /> : <Mic size={16} />}
           </button>
         </div>
