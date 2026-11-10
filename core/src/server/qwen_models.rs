@@ -25,6 +25,16 @@ fn ensure_package(id: &str) -> ApiResult<()> {
     }
 }
 
+fn require_managed_inference() -> ApiResult<()> {
+    if crate::platform_capabilities::managed_inference_supported() {
+        Ok(())
+    } else {
+        Err(super::capture::platform_error(
+            crate::platform_capabilities::QWEN_UNAVAILABLE,
+        ))
+    }
+}
+
 pub(super) async fn runtime_status(State(state): State<ModelContext>) -> Json<Value> {
     let available = state
         .capture
@@ -47,6 +57,7 @@ pub(super) async fn runtime_status(State(state): State<ModelContext>) -> Json<Va
 pub(super) async fn download_runtime(
     State(state): State<ModelContext>,
 ) -> ApiResult<(StatusCode, Json<Value>)> {
+    require_managed_inference()?;
     state
         .capture
         .model_manager
@@ -97,6 +108,7 @@ pub(super) async fn download(
     State(state): State<ModelContext>,
     Path(package): Path<String>,
 ) -> ApiResult<(StatusCode, Json<Value>)> {
+    require_managed_inference()?;
     ensure_package(&package)?;
     let manager = Arc::clone(&state.capture.model_manager);
     let requested = package.clone();

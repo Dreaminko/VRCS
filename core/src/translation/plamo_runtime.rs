@@ -205,9 +205,9 @@ impl PlamoRuntime {
 
     pub(crate) async fn snapshot(&self) -> PlamoRuntimeStatus {
         let mut state = self.state.lock().await;
-        if !cfg!(all(windows, target_arch = "x86_64")) {
+        if !crate::platform_capabilities::local_translation_supported() {
             state.status = "error";
-            state.error = Some("Local PLaMo translation supports Windows x64 only".to_owned());
+            state.error = Some("Local PLaMo CPU translation requires Windows x64 or Linux GNU x86_64; ARM64 is not yet verified".to_owned());
         }
         if let Err(error) = check_child(&mut state) {
             state.status = "error";
@@ -217,7 +217,7 @@ impl PlamoRuntime {
             status: state.status,
             device: "cpu",
             model: MODEL_ID,
-            runtime_available: cfg!(all(windows, target_arch = "x86_64"))
+            runtime_available: crate::platform_capabilities::local_translation_supported()
                 && crate::asr::llama_server_executable_path(&self.runtime_directory)
                     .is_ok_and(|path| path.is_file()),
             error: state.error.clone(),
@@ -408,12 +408,12 @@ fn local_error(code: &'static str, detail: impl Into<String>, retryable: bool) -
 }
 
 fn ensure_supported_platform() -> Result<(), TranslationError> {
-    if cfg!(all(windows, target_arch = "x86_64")) {
+    if crate::platform_capabilities::local_translation_supported() {
         Ok(())
     } else {
         Err(local_error(
-            "translation.local_runtime_unavailable",
-            "Local PLaMo translation supports Windows x64 only",
+            crate::platform_capabilities::LOCAL_TRANSLATION_UNAVAILABLE,
+            "Local PLaMo CPU translation is unavailable on this platform; ARM64 inference is not yet verified",
             false,
         ))
     }
@@ -477,6 +477,8 @@ fn runtime_command(executable: &Path) -> Command {
     if let Some(parent) = executable.parent() {
         command.current_dir(parent);
     }
+    #[cfg(target_os = "linux")]
+    command.env_remove("LD_LIBRARY_PATH").env_remove("LD_PRELOAD");
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
@@ -631,7 +633,7 @@ mod tests {
         assert!(!arguments.iter().any(|argument| argument.contains("mmproj")));
     }
 
-    #[cfg(all(windows, target_arch = "x86_64"))]
+    #[cfg(all(target_arch = "x86_64", any(windows, all(target_os = "linux", target_env = "gnu"))))]
     #[tokio::test]
     async fn an_unchanged_ready_runtime_is_not_restarted() {
         let model = std::fs::canonicalize(Path::new(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml"))

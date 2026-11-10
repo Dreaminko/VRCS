@@ -19,7 +19,6 @@ mod qwen_models_tests;
 #[cfg(test)]
 mod qwen_runtime_download_tests;
 
-pub(crate) use crate::credentials::read_stored_credential;
 pub use crate::credentials::{
     credential_status, delete_credential, read_credential, write_credential,
 };
@@ -40,6 +39,7 @@ pub use session::{
     spawn_cloud_recognition_session, test_cloud_service, validate_cloud_connection,
     CloudRecognitionSession,
 };
+#[cfg(windows)]
 pub(crate) use streaming::connection_rate_controlled;
 pub use streaming::{
     streaming_test_backend, test_streaming_connection, CloudEvent, LiveTranslationResult,

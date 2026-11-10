@@ -35,7 +35,7 @@ struct Selection {
 pub(crate) struct RuntimeSnapshot {
     pub(crate) status: &'static str,
     pub(crate) error: Option<String>,
-    device: Option<&'static str>,
+    pub(crate) device: Option<&'static str>,
     fallback: Option<String>,
 }
 
@@ -76,7 +76,7 @@ pub(crate) struct QwenRuntime {
 impl QwenRuntime {
     pub(crate) fn new(directory: PathBuf) -> Self {
         Self {
-            directory: directory.join(super::qwen_runtime_download::VERSION),
+            directory: super::qwen_runtime_download::runtime_directory(&directory),
             state: Mutex::new(RuntimeState::default()),
             startup: Mutex::new(()),
             devices: OnceCell::new(),
@@ -90,7 +90,7 @@ impl QwenRuntime {
     }
 
     pub(crate) async fn devices(&self) -> Vec<String> {
-        if !cfg!(feature = "vulkan") {
+        if !crate::platform_capabilities::qwen_vulkan_supported() {
             return Vec::new();
         }
         // A missing runtime must not cache an empty result before its download.
@@ -117,10 +117,11 @@ impl QwenRuntime {
     }
 
     pub(crate) fn executable_path(&self) -> Result<PathBuf, String> {
+        let asset = super::qwen_runtime_download::assets::current()?;
         if std::env::var_os("VRCS_LLAMA_SERVER").is_none()
             && super::qwen_runtime_download::installed(&self.directory)
         {
-            return Ok(self.directory.join("llama-server.exe"));
+            return Ok(self.directory.join(asset.executable));
         }
         executable_path()
     }
@@ -203,7 +204,7 @@ impl QwenRuntime {
         session: u64,
         timeout: Duration,
     ) -> Result<QwenConnection, String> {
-        let gpu_available = !self.devices().await.is_empty();
+        let gpu_available = selection.device != "cpu" && !self.devices().await.is_empty();
         let device = if selection.device == "cpu" || (selection.device == "auto" && !gpu_available)
         {
             "cpu"
@@ -402,6 +403,7 @@ impl QwenRuntime {
 }
 
 pub(crate) fn executable_path() -> Result<PathBuf, String> {
+    super::qwen_runtime_download::assets::current()?;
     if let Some(path) = std::env::var_os("VRCS_LLAMA_SERVER") {
         return Ok(PathBuf::from(path));
     }
@@ -439,6 +441,10 @@ pub(super) fn runtime_command(executable: &Path) -> Command {
     if let Some(parent) = executable.parent() {
         command.current_dir(parent);
     }
+    // The fixed Linux ELF closure carries $ORIGIN RUNPATH. Do not inherit a
+    // user's shell library overrides into a managed inference subprocess.
+    #[cfg(target_os = "linux")]
+    command.env_remove("LD_LIBRARY_PATH").env_remove("LD_PRELOAD");
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;

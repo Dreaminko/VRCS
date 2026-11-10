@@ -351,6 +351,13 @@ impl TranslationService {
         ),
         TranslationError,
     > {
+        crate::platform_capabilities::require_local_translation().map_err(|code| {
+            error(
+                code,
+                "Local PLaMo translation is not implemented for this platform",
+                false,
+            )
+        })?;
         let local = self.local.as_ref().cloned().ok_or_else(|| {
             error(
                 "translation.local_runtime_unavailable",

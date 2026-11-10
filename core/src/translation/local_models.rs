@@ -148,9 +148,8 @@ impl LocalTranslationModels {
         accepted_revision: &str,
         lifecycle: OwnedRwLockWriteGuard<()>,
     ) -> Result<(), String> {
-        if !cfg!(all(windows, target_arch = "x86_64")) {
-            return Err("Local PLaMo translation supports Windows x64 only".into());
-        }
+        crate::platform_capabilities::require_local_translation()
+            .map_err(|code| format!("{code}: Local PLaMo CPU translation is unavailable on this platform"))?;
         if accepted_revision != MODEL_REVISION {
             return Err(
                 "The PLaMo Community License must be accepted for this model revision".into(),
@@ -629,6 +628,7 @@ mod tests {
         assert_eq!(status.revision, MODEL_REVISION);
     }
 
+    #[cfg(all(target_arch = "x86_64", any(windows, all(target_os = "linux", target_env = "gnu"))))]
     #[tokio::test]
     async fn license_acceptance_is_bound_to_the_installed_revision() {
         let directory = tempfile::tempdir().unwrap();
