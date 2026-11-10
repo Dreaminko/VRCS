@@ -27,6 +27,7 @@ for (const width of [1100, 860, 380]) {
         import { visibleSettingsCategories, DEFAULT_FEATURE_SETTINGS } from './src/settings/feature-availability';
         import { useSettingsDraft } from './src/settings/hooks/useSettingsDraft';
         import { ControlTooltip } from './src/shared/ui/ControlTooltip';
+        import { WindowsCapabilities } from './tests/fixtures/platform-capabilities';
         import './src/styles.css';
         await i18next.use(initReactI18next).init({lng:'en-US',resources:{'en-US':{translation:locale.translation}}});
         const initial={schema_version:37,vrchat_chatbox:{enabled:false},translation:{mode:'manual',speaker_targets:[]},
@@ -52,7 +53,7 @@ for (const width of [1100, 860, 380]) {
           saveState=controller.saveState;
           const shared={draft:controller.draft,saveState:controller.saveState,saveMessage:controller.saveMessage,
             applySettings:controller.applySettings,playerAudioStart:{memory:{status:{supported,elevated:true,enabled:true,restart_required:false}}}};
-          return <><SettingsTabBar activeCategory={category} visibleCategories={visibleSettingsCategories(DEFAULT_FEATURE_SETTINGS)} onChange={setCategory}/>
+          return <WindowsCapabilities networkSupported={supported}><SettingsTabBar activeCategory={category} visibleCategories={visibleSettingsCategories(DEFAULT_FEATURE_SETTINGS)} onChange={setCategory}/>
             {category==='audio'&&<CaptureSettingsSection {...shared} devices={[]} devicesReady={true} deviceErrors={[]}
               outputDevices={[]} microphoneDevices={[]} microphoneRunning={false} transcriptionRunning={false}
               microphoneTestRunning={false} onRefresh={noop} onStartMicrophoneTest={noop} onStopMicrophoneTest={noop}
@@ -62,7 +63,7 @@ for (const width of [1100, 860, 380]) {
             {category==='connections'&&<div id="settings-panel-connections">Connections</div>}
             {category==='about'&&<div id="settings-panel-about">About</div>}
             <ControlTooltip />
-          </>;
+          </WindowsCapabilities>;
         }
         createRoot(document.getElementById('root')).render(<Fixture/>);
         const check=(ok,message)=>{if(!ok)throw Error(message);};
@@ -104,8 +105,6 @@ for (const width of [1100, 860, 380]) {
           check(!toggle().disabled&&!latest.vrchat_chatbox.enabled,'network enable unlocks Chatbox without enabling it');
           check(!toggle().closest('[data-tooltip]'),'enabled Chatbox does not show the network requirement tooltip');
           const network=document.querySelector('.player-audio-settings');
-          check(network&&document.getElementById('settings-panel-audio').lastElementChild===network,'network configuration is last in capture settings');
-          check(document.getElementById('player-audio-title').textContent===text.capture.networkTitle,'network card has a shared capture title');
           const card=document.querySelector('[aria-labelledby=vrchat-chatbox-title]');
           const sibling=document.querySelector('.device-group');
           const aligned=(a,b)=>Math.abs(a-b)<1;

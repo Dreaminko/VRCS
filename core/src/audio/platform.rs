@@ -4,7 +4,7 @@ use super::{AudioDevice, AudioError};
 pub(crate) enum CaptureTarget {
     Process(u32),
     Device {
-        wasapi_id: Option<String>,
+        backend_id: Option<String>,
         direction: DeviceDirection,
     },
 }
@@ -17,8 +17,8 @@ pub(crate) enum DeviceDirection {
 
 pub(crate) fn list_devices() -> Result<Vec<AudioDevice>, AudioError> {
     Err(AudioError::with_code(
-        "audio.unsupported_platform",
-        "Audio capture is supported only on Windows",
+        crate::platform_capabilities::AUDIO_UNAVAILABLE,
+        "No audio capture backend is implemented for this platform",
     ))
 }
 
@@ -27,15 +27,15 @@ pub(crate) fn resolve_device_id(
     _source: super::CaptureSource,
 ) -> Result<String, AudioError> {
     Err(AudioError::with_code(
-        "audio.unsupported_platform",
-        "Audio capture is supported only on Windows",
+        crate::platform_capabilities::AUDIO_UNAVAILABLE,
+        "No audio capture backend is implemented for this platform",
     ))
 }
 
 pub(crate) fn find_process_id(_name: &str) -> Result<Option<u32>, AudioError> {
     Err(AudioError::with_code(
-        "audio.unsupported_platform",
-        "Audio capture is supported only on Windows",
+        crate::platform_capabilities::AUDIO_UNAVAILABLE,
+        "No audio capture backend is implemented for this platform",
     ))
 }
 
@@ -48,7 +48,7 @@ pub(crate) fn capture_main(
     _microphone_tap: Option<crate::vision::MicrophoneTap>,
 ) {
     let _ = ready.send(Err(AudioError::with_code(
-        "audio.unsupported_platform",
-        "Audio capture is supported only on Windows",
+        crate::platform_capabilities::AUDIO_UNAVAILABLE,
+        "No audio capture backend is implemented for this platform",
     )));
 }

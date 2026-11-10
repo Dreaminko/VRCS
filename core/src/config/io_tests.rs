@@ -3,6 +3,51 @@ use std::fs;
 use super::{load_config, AppConfig};
 
 #[test]
+fn v41_audio_device_keys_upgrade_preserves_settings_and_backup() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("config.json");
+    let mut expected = AppConfig::default();
+    expected.audio.output.device_id = Some(10);
+    expected.audio.microphone.mode = "device".into();
+    expected.audio.microphone.device_id = Some(20);
+    expected.asr.managed_qwen.device = "cpu".into();
+    expected.vrchat_chatbox.enabled = true;
+    expected.audio.output.player_audio.enabled = true;
+    expected.audio.output.player_audio.max_visible_players = 8;
+    let user = "usr_00000000-0000-4000-8000-000000000007";
+    expected.audio.output.player_audio.selected_tracks = Some(vec![user.into()]);
+    expected
+        .audio
+        .output
+        .player_audio
+        .selected_user_names
+        .insert(user.into(), "Saved player".into());
+    let mut raw = serde_json::to_value(&expected).unwrap();
+    raw["schema_version"] = 41.into();
+    let original = serde_json::to_vec(&raw).unwrap();
+    fs::write(&path, &original).unwrap();
+
+    let mut migrated = load_config(&path).unwrap();
+
+    assert_eq!(migrated, expected);
+    assert_eq!(
+        fs::read(path.with_extension("v41.backup.json")).unwrap(),
+        original
+    );
+    let saved: serde_json::Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+    assert_eq!(saved["schema_version"], 42);
+    assert_eq!(saved["audio"]["output"]["device_id"], 10);
+    assert_eq!(saved["audio"]["microphone"]["device_id"], 20);
+    assert!(saved["audio"]["output"].get("device_key").is_none());
+    assert!(saved["audio"]["microphone"].get("device_key").is_none());
+
+    migrated.audio.output.device_key = Some("pipewire:output:saved-device".into());
+    migrated.audio.microphone.device_key = Some("pipewire:input:saved-device".into());
+    super::save_config(&path, &migrated).unwrap();
+    assert_eq!(load_config(&path).unwrap(), migrated);
+}
+
+#[test]
 fn vrchat_chatbox_upgrade_defaults_off_and_preserves_enabled_on_save() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("config.json");

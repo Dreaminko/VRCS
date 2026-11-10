@@ -137,6 +137,7 @@ impl VisionService {
         runtime: &tokio::runtime::Handle,
         start_capture: impl FnOnce(
             Option<i64>,
+            Option<String>,
             u32,
             &tokio::runtime::Handle,
             Arc<capture::QuestionMicrophoneGuard>,
@@ -163,6 +164,7 @@ impl VisionService {
         )?;
         let audio = start_capture(
             capture::device_id(&snapshot),
+            snapshot.audio.microphone.device_key.clone(),
             snapshot.vision.max_capture_seconds,
             runtime,
             microphone,
@@ -590,7 +592,7 @@ mod tests {
         tap: &MicrophoneTap,
         runtime: &tokio::runtime::Handle,
     ) -> Result<VisionSession, String> {
-        service.begin_with_capture(VisionMode::Vr, runtime, |device, seconds, _, microphone| {
+        service.begin_with_capture(VisionMode::Vr, runtime, |device, _, seconds, _, microphone| {
             assert_eq!(device, None);
             let window = tap.begin_capture(seconds)?;
             tap.started();
@@ -794,7 +796,7 @@ mod tests {
         let startup_failure = service.begin_with_capture(
             VisionMode::Vr,
             &tokio::runtime::Handle::current(),
-            |_, _, _, _| Err("test startup failure".into()),
+            |_, _, _, _, _| Err("test startup failure".into()),
         );
         assert_eq!(startup_failure.err().unwrap(), "test startup failure");
         assert!(!handle
@@ -827,7 +829,7 @@ mod tests {
             .begin_with_capture(
                 VisionMode::Desktop,
                 &tokio::runtime::Handle::current(),
-                |_, seconds, _, microphone| {
+                |_, _, seconds, _, microphone| {
                     let window = tap.begin_capture(seconds)?;
                     tap.started();
                     Ok(capture::QuestionCapture::from_window(window).with_microphone(microphone))

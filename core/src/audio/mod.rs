@@ -9,12 +9,16 @@ use tokio::sync::mpsc;
 
 use crate::models::AudioDevice;
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "linux")))]
 mod platform;
 #[cfg(windows)]
 mod wasapi;
 #[cfg(windows)]
 use wasapi as platform;
+#[cfg(target_os = "linux")]
+mod pipewire;
+#[cfg(target_os = "linux")]
+use pipewire as platform;
 
 pub const CHUNK_FRAMES: usize = 512;
 const CHANNEL_CAPACITY: usize = 128;
@@ -54,6 +58,7 @@ impl AudioError {
         }
     }
 
+    #[cfg(any(windows, test))]
     pub(crate) fn retryable_with_code(code: &'static str, message: impl Into<String>) -> Self {
         Self {
             code,
@@ -66,6 +71,7 @@ impl AudioError {
         self.code
     }
 
+    #[cfg(any(windows, test))]
     pub(crate) fn with_default_code(mut self, code: &'static str) -> Self {
         if self.code == "audio.unavailable" {
             self.code = code;
@@ -101,6 +107,7 @@ struct CaptureSession {
     stop: Arc<AtomicBool>,
     join: Option<JoinHandle<()>>,
     rx: mpsc::Receiver<Vec<f32>>,
+    status: Option<std::sync::mpsc::Receiver<Result<AudioDevice, AudioError>>>,
     priming: std::collections::VecDeque<Vec<f32>>,
 }
 
@@ -113,6 +120,7 @@ pub struct AudioCapture {
 }
 
 impl AudioCapture {
+    #[cfg(any(windows, test))]
     pub(crate) fn from_stream(
         rx: mpsc::Receiver<Vec<f32>>,
         priming: std::collections::VecDeque<Vec<f32>>,
@@ -125,6 +133,7 @@ impl AudioCapture {
                 join: None,
                 rx,
                 priming,
+                status: None,
             }),
             device: None,
             microphone_tap: None,
@@ -155,6 +164,7 @@ impl AudioCapture {
     pub fn start(
         &mut self,
         device_id: Option<i64>,
+        device_key: Option<&str>,
         process_name: Option<&str>,
     ) -> Result<AudioDevice, AudioError> {
         if self.session.is_some() {
@@ -178,16 +188,14 @@ impl AudioCapture {
             CaptureSource::Speaker => platform::DeviceDirection::Render,
             CaptureSource::Microphone => platform::DeviceDirection::Capture,
         };
-        let target = match device_id {
-            Some(id) => platform::CaptureTarget::Device {
-                wasapi_id: Some(platform::resolve_device_id(id, self.source)?),
-                direction,
-            },
-            None => platform::CaptureTarget::Device {
-                wasapi_id: None,
-                direction,
-            },
+        let backend_id = match device_key {
+            Some(key) => {
+                validate_device_key(Some(key), self.source)?;
+                Some(key.to_owned())
+            }
+            None => device_id.map(|id| platform::resolve_device_id(id, self.source)).transpose()?,
         };
+        let target = platform::CaptureTarget::Device { backend_id, direction };
         self.start_session(target)
     }
 
@@ -256,6 +264,7 @@ impl AudioCapture {
             stop,
             join: Some(join),
             rx,
+            status: Some(ready_rx),
             priming: Default::default(),
         });
         self.device = Some(device.clone());
@@ -270,11 +279,12 @@ impl AudioCapture {
         if let Some(frame) = session.priming.pop_front() {
             return Ok(frame);
         }
-        session
-            .rx
-            .recv()
-            .await
-            .ok_or_else(|| AudioError::new("Audio capture has stopped"))
+        match session.rx.recv().await {
+            Some(frame) => Ok(frame),
+            None => Err(session.status.as_ref()
+                .and_then(|status| status.try_iter().find_map(Result::err))
+                .unwrap_or_else(|| AudioError::new("Audio capture has stopped"))),
+        }
     }
 
     #[allow(dead_code)]
@@ -360,10 +370,38 @@ pub fn list_devices() -> Result<Vec<AudioDevice>, AudioError> {
     platform::list_devices()
 }
 
+/// Explicit device identities must resolve within the selected backend and direction.
+pub(crate) fn validate_device_key(key: Option<&str>, source: CaptureSource) -> Result<(), AudioError> {
+    #[cfg(target_os = "linux")]
+    if let Some(key) = key {
+        let loopback = source == CaptureSource::Speaker;
+        return list_devices()?.into_iter()
+            .find(|device| device.is_loopback == loopback && device.device_key.as_deref() == Some(key))
+            .map(|_| ())
+            .ok_or_else(|| AudioError::with_code("audio.device_unavailable", "The selected PipeWire device is no longer available"));
+    }
+    let _ = source;
+    if key.is_some() {
+        Err(AudioError::with_code(
+            crate::platform_capabilities::DEVICE_KEY_UNSUPPORTED,
+            "Reselect an audio device on this platform before starting capture",
+        ))
+    } else {
+        Ok(())
+    }
+}
+
 pub fn validate_device_id(
     device_id: i64,
     source: CaptureSource,
 ) -> Result<AudioDevice, AudioError> {
+    #[cfg(target_os = "linux")]
+    {
+        let _ = (device_id, source);
+        Err(AudioError::with_code(crate::platform_capabilities::DEVICE_KEY_UNSUPPORTED, "Linux audio devices require a PipeWire device key; select the device again"))
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
     let expected_loopback = source == CaptureSource::Speaker;
     platform::list_devices()?
         .into_iter()
@@ -379,6 +417,7 @@ pub fn validate_device_id(
                 format!("The selected {label} device is no longer available"),
             )
         })
+    }
 }
 
 #[cfg(test)]
@@ -488,7 +527,7 @@ mod tests {
     #[ignore]
     async fn captures_default_loopback_chunks() {
         let mut capture = AudioCapture::new(16_000, CaptureSource::Speaker);
-        let device = capture.start(None, None).unwrap();
+        let device = capture.start(None, None, None).unwrap();
         assert!(device.is_loopback);
         for _ in 0..3 {
             let chunk = capture.read().await.unwrap();
@@ -496,6 +535,62 @@ mod tests {
         }
         capture.stop();
         assert!(capture.device().is_none());
+    }
+
+    #[cfg(target_os = "linux")]
+    #[tokio::test]
+    #[ignore = "requires tests/pipewire-smoke.conf in a disposable runtime with WirePlumber; never the user's audio session"]
+    async fn isolated_pipewire_captures_both_sources_and_stops_without_audio() {
+        assert_eq!(std::env::var("PIPEWIRE_REMOTE").as_deref(), Ok("vrcs-test-pipewire"));
+        let source = "pipewire:Audio/Source:vrcs-test-source";
+        let sink = "pipewire:Audio/Sink:vrcs-test-sink";
+        for graph_rate in [48_000, 44_100] {
+            let status = std::process::Command::new("pw-metadata")
+                .args(["-n", "settings", "0", "clock.force-rate", &graph_rate.to_string()]).status().unwrap();
+            assert!(status.success());
+            let mut microphone = AudioCapture::new(16_000, CaptureSource::Microphone);
+            let mut output = AudioCapture::new(16_000, CaptureSource::Speaker);
+            microphone.start(None, Some(source), None).unwrap();
+            output.start(None, Some(sink), None).unwrap();
+            let started = std::time::Instant::now();
+            let mut microphone_energy = 0.0f64;
+            let mut output_energy = 0.0f64;
+            for _ in 0..24 {
+                let (microphone, output) = tokio::join!(
+                    tokio::time::timeout(std::time::Duration::from_secs(3), microphone.read()),
+                    tokio::time::timeout(std::time::Duration::from_secs(3), output.read()),
+                );
+                let microphone = microphone.expect("microphone PCM deadline");
+                let output = output.expect("sink monitor PCM deadline");
+                let microphone = microphone.unwrap();
+                let output = output.unwrap();
+                assert_eq!((microphone.len(), output.len()), (CHUNK_FRAMES, CHUNK_FRAMES));
+                assert!(microphone.iter().chain(&output).all(|sample| sample.is_finite()));
+                microphone_energy += microphone.iter().map(|&sample| f64::from(sample).powi(2)).sum::<f64>();
+                output_energy += output.iter().map(|&sample| f64::from(sample).powi(2)).sum::<f64>();
+            }
+            assert!(microphone_energy > 1.0 && output_energy > 1.0, "virtual source/monitor tone missing");
+            let stop = std::time::Instant::now();
+            microphone.shutdown().await;
+            output.shutdown().await;
+            assert!(stop.elapsed() < std::time::Duration::from_secs(1));
+            eprintln!("PipeWire graph={graph_rate} mono16k samples={} capture_ms={} stop_ms={}", 24 * CHUNK_FRAMES, started.elapsed().as_millis(), stop.elapsed().as_millis());
+        }
+        let mut missing = AudioCapture::new(16_000, CaptureSource::Microphone);
+        assert_eq!(missing.start(None, Some("pipewire:Audio/Source:missing-source"), None).unwrap_err().code(), "audio.device_unavailable");
+        assert_eq!(missing.start(Some(1), None, None).unwrap_err().code(), "audio.device_reselection_required");
+        let mut disconnected = AudioCapture::new(16_000, CaptureSource::Microphone);
+        disconnected.start(None, Some(source), None).unwrap();
+        let dump = std::process::Command::new("pw-dump").output().unwrap();
+        assert!(dump.status.success());
+        let graph: serde_json::Value = serde_json::from_slice(&dump.stdout).unwrap();
+        let id = graph.as_array().unwrap().iter().find(|node| node["info"]["props"]["node.name"] == "vrcs-test-source").unwrap()["id"].as_u64().unwrap();
+        assert!(std::process::Command::new("pw-cli").args(["destroy", &id.to_string()]).status().unwrap().success());
+        let failure = tokio::time::timeout(std::time::Duration::from_secs(3), async {
+            loop { if let Err(error) = disconnected.read().await { break error; } }
+        }).await.unwrap();
+        assert_eq!(failure.code(), "audio.device_unavailable");
+        disconnected.shutdown().await;
     }
 
     #[tokio::test]

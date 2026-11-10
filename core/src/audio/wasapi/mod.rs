@@ -9,7 +9,7 @@ pub(crate) use devices::{find_process_id, list_devices, resolve_device_id};
 pub(crate) enum CaptureTarget {
     Process(u32),
     Device {
-        wasapi_id: Option<String>,
+        backend_id: Option<String>,
         direction: DeviceDirection,
     },
 }

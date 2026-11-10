@@ -36,6 +36,7 @@ impl MicrophoneMonitor {
         &mut self,
         sample_rate: u32,
         device_id: Option<i64>,
+        device_key: Option<&str>,
         live_tx: broadcast::Sender<LiveTranscription>,
     ) -> Result<AudioDevice, AudioError> {
         if self.running() {
@@ -46,8 +47,12 @@ impl MicrophoneMonitor {
         }
         self.stop().await;
 
-        let mut capture = AudioCapture::new(sample_rate, CaptureSource::Microphone);
-        let device = capture.start(device_id, None)?;
+        let device_key = device_key.map(str::to_owned);
+        let (mut capture, device) = tokio::task::spawn_blocking(move || {
+            let mut capture = AudioCapture::new(sample_rate, CaptureSource::Microphone);
+            let device = capture.start(device_id, device_key.as_deref(), None)?;
+            Ok::<_, AudioError>((capture, device))
+        }).await.map_err(|error| AudioError::with_code("audio.start_task_failed", error.to_string()))??;
         let (stop_tx, mut stop_rx) = watch::channel(false);
         self.device = Some(device.clone());
         self.stop = Some(stop_tx);

@@ -337,7 +337,7 @@ export function DeckTreeSelect({ label, helper, value, decks, disabled, onChange
   );
 }
 
-export function DeviceGroup({ icon, title, note, beforeList, devices, devicesReady, selectedDeviceId, specialRows, disabled, onSelectDevice }: {
+export function DeviceGroup({ icon, title, note, beforeList, devices, devicesReady, selectedDeviceId, selectedDeviceKey, specialRows, disabled, onSelectDevice }: {
   icon: ReactNode;
   title: string;
   note?: string;
@@ -345,29 +345,34 @@ export function DeviceGroup({ icon, title, note, beforeList, devices, devicesRea
   devices: AudioDevice[];
   devicesReady: boolean;
   selectedDeviceId: number | null;
+  selectedDeviceKey?: string | null;
   specialRows: Array<{
     key: string;
     name: string;
     description?: string;
     chosen: boolean;
+    disabled?: boolean;
     onSelect: () => void;
   }>;
   disabled: boolean;
-  onSelectDevice: (id: number) => void;
+  onSelectDevice: (device: AudioDevice) => void;
 }) {
   const { t, i18n } = useTranslation();
   const locale = i18n.resolvedLanguage ?? "en-US";
-  const selectedValue = selectedDeviceId !== null
-    ? `device:${selectedDeviceId}`
-    : `source:${specialRows.find((row) => row.chosen)?.key ?? ""}`;
+  const selectedValue = selectedDeviceKey
+    ? `device-key:${selectedDeviceKey}`
+    : selectedDeviceId !== null
+      ? `device-id:${selectedDeviceId}`
+      : `source:${specialRows.find((row) => row.chosen)?.key ?? ""}`;
   const options = [
     ...specialRows.map((row) => ({
       value: `source:${row.key}`,
       label: row.name,
       description: row.description,
+      disabled: row.disabled,
     })),
     ...devices.map((device) => ({
-      value: `device:${device.id}`,
+      value: device.device_key ? `device-key:${device.device_key}` : `device-id:${device.id}`,
       label: device.name,
       description: t("settings.audio.deviceDescription", {
         sampleRate: new Intl.NumberFormat(locale).format(device.sample_rate),
@@ -390,7 +395,7 @@ export function DeviceGroup({ icon, title, note, beforeList, devices, devicesRea
             options={options}
             disabled={disabled}
             floating
-            placeholder={devicesReady ? t("common.unavailable") : t("settings.audio.scanning")}
+            placeholder={devicesReady ? t(selectedDeviceKey || selectedDeviceId !== null ? "settings.audio.reselectionRequired" : "common.unavailable") : t("settings.audio.scanning")}
             onChange={(value) => {
               if (value === selectedValue) return;
               const specialRow = specialRows.find((row) => value === `source:${row.key}`);
@@ -398,8 +403,8 @@ export function DeviceGroup({ icon, title, note, beforeList, devices, devicesRea
                 specialRow.onSelect();
                 return;
               }
-              const device = devices.find((item) => value === `device:${item.id}`);
-              if (device) onSelectDevice(device.id);
+              const device = devices.find((item) => value === (item.device_key ? `device-key:${item.device_key}` : `device-id:${item.id}`));
+              if (device) onSelectDevice(device);
             }}
           />
         </div>

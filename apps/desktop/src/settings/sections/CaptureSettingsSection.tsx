@@ -17,6 +17,7 @@ import type { ChatboxStatus, PlayerAudioStatus } from "../../core-client/types";
 import type { ApiProfileView } from "../../providers/types";
 import type { PlayerAudioStart } from "../../capture/usePlayerAudioStart";
 import { ConfirmDialog } from "../../app/components/ConfirmDialog";
+import { CapabilityNotice, usePlatformCapabilities } from "../../core-client/capabilities";
 
 export function CaptureSettingsSection({
   draft,
@@ -64,12 +65,13 @@ export function CaptureSettingsSection({
   onStopMicrophoneTest: () => Promise<void>;
 }) {
   const { t } = useTranslation();
+  const { core } = usePlatformCapabilities();
   const microphoneLevel = useAudioLevel("microphone");
   const speakerLevel = useAudioLevel("speaker");
   const [microphoneTestBusy, setMicrophoneTestBusy] = useState(false);
   const [networkRequiredOpen, setNetworkRequiredOpen] = useState(false);
   const networkEnabled = draft.audio.output.player_audio?.enabled === true;
-  const networkSupported = playerAudioStart?.memory.status?.supported !== false;
+  const networkSupported = core?.chatbox.network_receive.supported === true;
   const calibration = useMicrophoneCalibration({
     level: microphoneLevel,
     testing: microphoneTestRunning,
@@ -82,7 +84,7 @@ export function CaptureSettingsSection({
   }, [onStopMicrophoneTest]);
 
   const toggleMicrophoneTest = async () => {
-    if (microphoneOperationBusy) return;
+    if (microphoneOperationBusy || (!microphoneTestRunning && !core?.audio.microphone.available)) return;
     calibration.reset();
     setMicrophoneTestBusy(true);
     try {
@@ -96,7 +98,7 @@ export function CaptureSettingsSection({
   };
 
   const startCalibration = async () => {
-    if (microphoneOperationBusy) return;
+    if (microphoneOperationBusy || !core?.audio.microphone.available) return;
     try {
       await calibration.start();
     } catch {
@@ -127,6 +129,7 @@ export function CaptureSettingsSection({
   }));
 
   const calibrationDisabled = (
+    !core?.audio.microphone.available ||
     draft.audio.microphone.mode === "disabled"
     || transcriptionRunning
     || saveState === "saving"
@@ -134,7 +137,7 @@ export function CaptureSettingsSection({
   return (
         <div className="settings-section settings-section-active audio-section" id="settings-panel-audio" role="tabpanel" aria-labelledby="settings-tab-audio">
           <div className="section-heading">
-            <div><Volume2 size={18} /><h2>{t("settings.audio.title")}</h2><span>{devices.length ? t("settings.audio.devicesFound", { count: devices.length }) : t("settings.audio.waitingScan")}</span></div>
+            <div><Volume2 size={18} /><h2>{t("settings.audio.title")}</h2><span>{core && !core.audio.system_output.supported ? t("common.unavailable") : devices.length ? t("settings.audio.devicesFound", { count: devices.length }) : t("settings.audio.waitingScan")}</span></div>
             <button className="secondary-button" type="button" onClick={() => void onRefresh()}><RefreshCw size={15} />{t("settings.audio.rescan")}</button>
           </div>
 
@@ -143,6 +146,7 @@ export function CaptureSettingsSection({
               <TriangleAlert size={15} />{message}
             </p>
           ))}
+          <CapabilityNotice capability={core?.audio.system_output} />
           <DeviceGroup
             icon={<Volume2 size={18} />}
             title={t("settings.audio.otherVoice")}
@@ -158,30 +162,35 @@ export function CaptureSettingsSection({
             )}
             devices={outputDevices}
             devicesReady={devicesReady}
-            selectedDeviceId={draft.audio.output.mode === "system" ? draft.audio.output.device_id : null}
+            selectedDeviceId={!draft.audio.output.device_key && draft.audio.output.mode === "system" ? draft.audio.output.device_id : null}
+            selectedDeviceKey={draft.audio.output.mode === "system" ? draft.audio.output.device_key : null}
             specialRows={[
               {
                 key: "system",
                 name: t("settings.audio.systemOutput"),
-                chosen: draft.audio.output.mode === "system" && draft.audio.output.device_id === null,
+                disabled: !core?.audio.system_output.supported,
+                chosen: draft.audio.output.mode === "system" && draft.audio.output.device_id === null && !draft.audio.output.device_key,
                 onSelect: () => applySettings((current) => ({
                   ...current,
-                  audio: { ...current.audio, output: { ...current.audio.output, mode: "system", device_id: null } },
+                  audio: { ...current.audio, output: { ...current.audio.output, mode: "system", device_id: null, device_key: null } },
                 })),
               },
               {
                 key: "vrchat",
                 name: "VRChat",
+                disabled: !core?.audio.application_output.supported,
+                description: !core?.audio.application_output.supported ? t("platform.application_audio_unavailable") : undefined,
                 chosen: draft.audio.output.mode === "vrchat",
                 onSelect: () => applySettings((current) => ({
                   ...current,
-                  audio: { ...current.audio, output: { ...current.audio.output, mode: "vrchat", device_id: null } },
+                  audio: { ...current.audio, output: { ...current.audio.output, mode: "vrchat", device_id: null, device_key: null } },
                 })),
               },
               {
                 key: "vrchat_players",
                 name: t("settings.audio.players.title"),
                 description: t("settings.audio.players.nameHint"),
+                disabled: !core?.audio.player_audio.supported,
                 chosen: draft.audio.output.mode === "vrchat_players",
                 onSelect: () => {
                   if (!networkEnabled || !networkSupported) {
@@ -190,7 +199,7 @@ export function CaptureSettingsSection({
                   }
                   applySettings((current) => ({
                     ...current,
-                    audio: { ...current.audio, output: { ...current.audio.output, mode: "vrchat_players", device_id: null } },
+                    audio: { ...current.audio, output: { ...current.audio.output, mode: "vrchat_players", device_id: null, device_key: null } },
                   }));
                 },
               },
@@ -200,16 +209,17 @@ export function CaptureSettingsSection({
                 chosen: draft.audio.output.mode === "disabled",
                 onSelect: () => applySettings((current) => ({
                   ...current,
-                  audio: { ...current.audio, output: { ...current.audio.output, mode: "disabled", device_id: null } },
+                  audio: { ...current.audio, output: { ...current.audio.output, mode: "disabled", device_id: null, device_key: null } },
                 })),
               },
             ]}
             disabled={false}
-            onSelectDevice={(id) => applySettings((current) => ({
+            onSelectDevice={(device) => applySettings((current) => ({
               ...current,
-              audio: { ...current.audio, output: { ...current.audio.output, mode: "system", device_id: id } },
+              audio: { ...current.audio, output: { ...current.audio.output, mode: "system", device_id: device.device_key ? null : device.id, device_key: device.device_key ?? null } },
             }))}
           />
+          {(core?.audio.microphone.reason_code !== core?.audio.system_output.reason_code || core?.audio.system_output.available) && <CapabilityNotice capability={core?.audio.microphone} />}
           <DeviceGroup
             icon={<Mic size={18} />}
             title={t("settings.audio.ownVoice")}
@@ -223,8 +233,8 @@ export function CaptureSettingsSection({
                   testing={microphoneTestRunning}
                   busy={microphoneOperationBusy}
                   threshold={draft.audio.microphone.trigger_threshold_dbfs}
-                  disabled={false}
-                  testDisabled={saveState === "saving"}
+                  disabled={!core?.audio.microphone.available}
+                  testDisabled={saveState === "saving" || !core?.audio.microphone.available}
                   onToggleTest={() => void toggleMicrophoneTest()}
                   onCommit={(threshold) => {
                     calibration.reset();
@@ -288,19 +298,21 @@ export function CaptureSettingsSection({
             )}
             devices={microphoneDevices}
             devicesReady={devicesReady}
-            selectedDeviceId={draft.audio.microphone.mode === "device" ? draft.audio.microphone.device_id : null}
+            selectedDeviceId={!draft.audio.microphone.device_key && draft.audio.microphone.mode !== "disabled" ? draft.audio.microphone.device_id : null}
+            selectedDeviceKey={draft.audio.microphone.mode !== "disabled" ? draft.audio.microphone.device_key : null}
             specialRows={[
               {
                 key: "default",
                 name: t("settings.audio.defaultMicrophone"),
-                chosen: draft.audio.microphone.mode === "default",
+                disabled: !core?.audio.microphone.supported,
+                chosen: draft.audio.microphone.mode === "default" && draft.audio.microphone.device_id === null && !draft.audio.microphone.device_key,
                 onSelect: () => {
                   calibration.reset();
                   applySettings((current) => ({
                     ...current,
                     audio: {
                       ...current.audio,
-                      microphone: { ...current.audio.microphone, mode: "default", device_id: null },
+                      microphone: { ...current.audio.microphone, mode: "default", device_id: null, device_key: null },
                     },
                   }));
                 },
@@ -315,36 +327,38 @@ export function CaptureSettingsSection({
                     ...current,
                     audio: {
                       ...current.audio,
-                      microphone: { ...current.audio.microphone, mode: "disabled", device_id: null },
+                      microphone: { ...current.audio.microphone, mode: "disabled", device_id: null, device_key: null },
                     },
                   }));
                 },
               },
             ]}
             disabled={microphoneOperationBusy}
-            onSelectDevice={(id) => {
+            onSelectDevice={(device) => {
               calibration.reset();
               applySettings((current) => ({
                 ...current,
                 audio: {
                   ...current.audio,
-                  microphone: { ...current.audio.microphone, mode: "device", device_id: id },
+                  microphone: { ...current.audio.microphone, mode: "device", device_id: device.device_key ? null : device.id, device_key: device.device_key ?? null },
                 },
               }));
             }}
           />
+          <fieldset disabled={!networkSupported} className="platform-capability-section">
           <VrchatChatboxSettings draft={draft} translation={translation} profiles={profiles} status={chatboxStatus}
-            supported={playerAudioStart?.memory.status?.supported} saveState={saveState} saveMessage={saveMessage}
+            supported={networkSupported} saveState={saveState} saveMessage={saveMessage}
             applySettings={applySettings} onOpenTranslation={onOpenTranslation} />
           <PlayerAudioSettings value={draft.audio.output.player_audio} status={playerAudioStatus}
             memory={playerAudioStart?.memory}
-            disabled={playerAudioStart?.memory.status?.supported === false}
+            disabled={!networkSupported}
             onChange={(patch) => applySettings((current) => ({
               ...current,
               audio: { ...current.audio, output: { ...current.audio.output,
                 player_audio: { ...(current.audio.output.player_audio ?? DEFAULT_PLAYER_AUDIO), ...patch },
               } },
             }))} />
+          </fieldset>
           {networkRequiredOpen && <ConfirmDialog
             title={t("settings.capture.networkTitle")}
             message={t(networkSupported ? "settings.capture.networkRequired" : "settings.capture.unsupported")}

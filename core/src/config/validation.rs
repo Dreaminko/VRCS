@@ -358,7 +358,9 @@ fn validate_audio(audio: &AudioConfig, vad: &VadConfig) -> Result<(), String> {
     }
     match audio.output.mode.as_str() {
         "system" => {}
-        "vrchat" | "vrchat_players" | "disabled" if audio.output.device_id.is_some() => {
+        "vrchat" | "vrchat_players" | "disabled"
+            if audio.output.device_id.is_some() || audio.output.device_key.is_some() =>
+        {
             return Err(
                 "VRChat or disabled output mode cannot specify a system output device".into(),
             );
@@ -415,11 +417,15 @@ fn validate_audio(audio: &AudioConfig, vad: &VadConfig) -> Result<(), String> {
         return Err("Output trigger_threshold_dbfs must be between -80 and -10".into());
     }
     match audio.microphone.mode.as_str() {
-        "device" if audio.microphone.device_id.is_none() => {
+        "device"
+            if audio.microphone.device_id.is_none() && audio.microphone.device_key.is_none() =>
+        {
             return Err("A device must be selected in microphone device mode".into());
         }
         "device" => {}
-        "default" | "disabled" if audio.microphone.device_id.is_some() => {
+        "default" | "disabled"
+            if audio.microphone.device_id.is_some() || audio.microphone.device_key.is_some() =>
+        {
             return Err("Default or disabled microphone mode cannot specify a device".into());
         }
         "default" | "disabled" => {}

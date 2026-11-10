@@ -442,7 +442,7 @@ mod tests {
         assert_eq!(super::super::load_config(&path).unwrap(), config);
         config.validate_settings().unwrap();
         let raw = serde_json::to_value(config).unwrap();
-        assert_eq!(raw["schema_version"], 41);
+        assert_eq!(raw["schema_version"], super::super::SCHEMA_VERSION);
         assert_eq!(
             raw["learning_ai"]["reasoning_control"],
             serde_json::Value::Null

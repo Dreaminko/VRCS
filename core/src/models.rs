@@ -58,6 +58,8 @@ fn default_source() -> String {
 #[derive(Debug, Clone, Serialize)]
 pub struct AudioDevice {
     pub id: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub device_key: Option<String>,
     pub name: String,
     pub is_default: bool,
     pub is_loopback: bool,

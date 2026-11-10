@@ -273,6 +273,20 @@ fn disabled_output_mode_cannot_select_a_device() {
 }
 
 #[test]
+fn string_device_keys_are_explicit_device_selections() {
+    let mut config = AppConfig::default();
+    config.audio.microphone.mode = "device".into();
+    config.audio.microphone.device_key = Some("pipewire:source:saved".into());
+    config.audio.output.device_key = Some("pipewire:sink:saved".into());
+    assert!(config.validate_settings().is_ok());
+    config.audio.microphone.mode = "default".into();
+    assert!(config.validate_settings().is_err());
+    config.audio.microphone.mode = "device".into();
+    config.audio.output.mode = "disabled".into();
+    assert!(config.validate_settings().is_err());
+}
+
+#[test]
 fn output_trigger_threshold_is_bounded() {
     let mut config = AppConfig::default();
     config.audio.output.trigger_threshold_dbfs = -80.0;

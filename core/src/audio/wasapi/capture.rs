@@ -269,6 +269,7 @@ fn open_stream(
             )?;
             let device = AudioDevice {
                 id: -1,
+                device_key: None,
                 name: "VRChat（仅应用音频）".into(),
                 is_default: false,
                 is_loopback: true,
@@ -297,19 +298,19 @@ fn open_stream(
             (client, device, native, timing, "process", endpoint_id, None)
         }
         CaptureTarget::Device {
-            wasapi_id,
+            backend_id,
             direction,
         } => {
             let wasapi_direction = match direction {
                 DeviceDirection::Render => Direction::Render,
                 DeviceDirection::Capture => Direction::Capture,
             };
-            let follows_default = wasapi_id.is_none();
-            let device = resolve_device(com, wasapi_id.as_deref(), &wasapi_direction)?;
+            let follows_default = backend_id.is_none();
+            let device = resolve_device(com, backend_id.as_deref(), &wasapi_direction)?;
             let endpoint_id = device.get_id().map_err(err)?;
             let info = endpoint_info(
                 &device,
-                wasapi_id.is_none(),
+                backend_id.is_none(),
                 *direction == DeviceDirection::Render,
             )?;
             let selection = match (follows_default, direction) {
@@ -552,7 +553,7 @@ pub(crate) fn capture_main(
     let follows_default = matches!(
         &target,
         CaptureTarget::Device {
-            wasapi_id: None,
+            backend_id: None,
             ..
         }
     );

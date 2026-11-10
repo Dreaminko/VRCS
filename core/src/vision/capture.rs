@@ -42,6 +42,7 @@ pub(super) struct QuestionCapture {
 impl QuestionCapture {
     pub(super) fn begin(
         device_id: Option<i64>,
+        device_key: Option<String>,
         max_seconds: u32,
         runtime: &tokio::runtime::Handle,
         microphone: Arc<QuestionMicrophoneGuard>,
@@ -57,7 +58,7 @@ impl QuestionCapture {
         runtime.spawn_blocking(move || {
             // Keep exclusion until the physical device has stopped, even on cancellation.
             let _microphone = worker_microphone;
-            let result = run_capture(device_id, &tap, status, &stop);
+            let result = run_capture(device_id, device_key.as_deref(), &tap, status, &stop);
             if let Err(detail) = result {
                 tracing::warn!(%detail, "visual question microphone capture failed");
                 tap.failed(&detail);
@@ -111,6 +112,7 @@ impl Drop for QuestionCapture {
 
 fn run_capture(
     device_id: Option<i64>,
+    device_key: Option<&str>,
     tap: &MicrophoneTap,
     status: AudioReader,
     cancelled: &AtomicBool,
@@ -121,7 +123,7 @@ fn run_capture(
     let mut capture =
         AudioCapture::new(16_000, CaptureSource::Microphone).with_microphone_tap(tap.clone());
     let device = capture
-        .start(device_id, None)
+        .start(device_id, device_key, None)
         .map_err(|error| format!("Visual question microphone: {}: {error}", error.code()))?;
     tracing::info!(device_name = %device.name, "visual question microphone capture started");
     let result = loop {

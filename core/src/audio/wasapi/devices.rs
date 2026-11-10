@@ -90,6 +90,7 @@ pub(super) fn endpoint_info(
     let format = device.get_device_format().map_err(err)?;
     Ok(AudioDevice {
         id: device_key(&wasapi_id),
+        device_key: None,
         name: device.get_friendlyname().map_err(err)?,
         is_default,
         is_loopback,
@@ -443,6 +444,7 @@ mod tests {
     fn one_bad_endpoint_does_not_discard_healthy_devices() {
         let healthy = AudioDevice {
             id: 7,
+            device_key: None,
             name: "healthy".into(),
             is_default: false,
             is_loopback: false,
