@@ -135,6 +135,7 @@ impl SubtitleLifecyclePublisher {
         self.subtitles.subscribe()
     }
 
+    #[cfg(any(windows, test))]
     pub(crate) fn speaker_updated(&self, speaker: &crate::models::SpeakerIdentity) {
         self.events.speaker_updated(speaker);
         let _ = self.presentation.send(PresentationEvent::SpeakerUpdated {
@@ -188,6 +189,7 @@ impl SubtitleLifecyclePublisher {
         self.publish_subtitle(subtitle, None);
     }
 
+    #[cfg(any(windows, test))]
     pub(crate) fn remote_subtitle_recorded(&self, subtitle: Subtitle, message_id: &str) {
         debug_assert_eq!(subtitle.source, "vrchat_chatbox");
         self.publish_subtitle(subtitle, Some(message_id));

@@ -38,7 +38,7 @@ for(const width of [1100,380]) test(`${width===1100?'player audio consent, UAC c
       const [players,setPlayers]=useState([]);
       changePlayers=setPlayers;
       gate=usePlayerAudioStart();
-      settings=useSettingsRuntime({active:false,coreConfigured:true,health:{...health,value:{player_audio:{players}}},stopMicrophoneTest:async()=>{},setCaptureRunning:setRunning,
+      settings=useSettingsRuntime({active:false,coreConfigured:true,audioSupported:true,health:{...health,value:{player_audio:{players}}},stopMicrophoneTest:async()=>{},setCaptureRunning:setRunning,
         playerAudioStart:gate,clearErrorFrom:noop,reportError:error=>testing.errors.push(String(error))});
       return <><button id="start" onClick={()=>void control.setRunning(true).catch(error=>testing.errors.push(String(error)))}>开始采集</button>
         {gate.notice&&<PlayerAudioStartDialog openedAt={gate.notice.openedAt} onDecision={gate.decide}/>}</>;

@@ -1,19 +1,24 @@
 //! User-confirmed UAC relaunch of this exact executable. No arbitrary commands,
 //! credentials, audio or keys are passed through the handoff.
+#[cfg(windows)]
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
-use tauri::{Manager, State};
+#[cfg(windows)]
+use tauri::Manager;
+use tauri::State;
 
 pub(crate) struct ElevationState {
     pending: Mutex<Option<Action>>,
+    #[cfg(windows)]
     launching: AtomicBool,
 }
 impl ElevationState {
     pub(crate) fn new(pending: Option<Action>) -> Self {
         Self {
             pending: Mutex::new(pending),
+            #[cfg(windows)]
             launching: AtomicBool::new(false),
         }
     }
@@ -22,8 +27,11 @@ impl ElevationState {
 #[derive(Clone, Copy, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum Outcome {
+    #[cfg(windows)]
     Ready,
+    #[cfg(windows)]
     Relaunching,
+    #[cfg(windows)]
     Cancelled,
 }
 
@@ -58,6 +66,7 @@ impl Action {
         .find(|action| action.argument() == value)
     }
 
+    #[cfg(any(windows, test))]
     fn pending_action(self) -> Option<Self> {
         match self {
             Self::LaunchApp => None,
@@ -102,7 +111,7 @@ pub(crate) async fn player_audio_ensure_privileges(
     #[cfg(not(windows))]
     {
         let _ = (app, action);
-        Err("Player audio requires Windows".into())
+        Err("platform.network_capture_unsupported".into())
     }
     #[cfg(windows)]
     {

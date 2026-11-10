@@ -1,4 +1,5 @@
-//! Experimental local-player network audio, independent of WASAPI and routing.
+//! Experimental Windows network audio, independent of device capture and routing.
+//! Portable parsers and session algorithms remain available to cross-platform tests.
 #[cfg(any(windows, test))]
 mod buffer;
 #[cfg(any(windows, test))]
@@ -32,6 +33,7 @@ mod worker;
 mod world;
 
 use serde::Serialize;
+#[cfg(windows)]
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 
@@ -57,6 +59,7 @@ pub(crate) struct ProximityStatus {
     pub tracked_players: usize,
     pub excluded_packets: u64,
     pub unknown_packets: u64,
+    #[cfg(windows)]
     #[serde(skip)]
     pub blocked_players: HashSet<String>,
 }
@@ -101,17 +104,23 @@ impl Default for Status {
 pub(crate) type SharedStatus = Arc<Mutex<Status>>;
 
 pub(crate) enum AudioEvent {
+    #[cfg(any(windows, test))]
     Speaker(crate::models::SpeakerIdentity),
+    #[cfg(windows)]
     Frame {
         speaker: crate::models::SpeakerIdentity,
         samples: Vec<f32>,
         position: u64,
     },
+    #[cfg(windows)]
     Closed(String),
+    #[cfg(windows)]
     /// The player left the configured proximity window during recognition.
     Excluded(String),
+    #[cfg(windows)]
     /// A prior exclusion barrier has drained; new voice frames may start a fresh batch.
     Admitted(String),
+    #[cfg(windows)]
     /// Decoder retired after silence; the player/identity is still in the room.
     Idle(String),
 }

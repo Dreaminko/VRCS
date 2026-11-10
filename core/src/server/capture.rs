@@ -215,6 +215,7 @@ pub(super) async fn audio_devices() -> ApiResult<Json<Value>> {
 pub(super) async fn microphone_test_start(
     State(state): State<CaptureContext>,
 ) -> ApiResult<Json<Value>> {
+    crate::platform_capabilities::require_audio().map_err(platform_error)?;
     let _control = state.capture.capture_control.lock().await;
     if state.capture.capture_requested.load(Ordering::SeqCst)
         || state.capture.speaker_pipeline.lock().await.running()
@@ -246,6 +247,7 @@ pub(super) async fn microphone_test_start(
         .start(
             config.audio.sample_rate,
             device_id,
+            config.audio.microphone.device_key.as_deref(),
             state.capture.live_tx.clone(),
         )
         .await
@@ -269,6 +271,7 @@ pub(crate) async fn validate_capture_config(
     state: &CaptureContext,
     config: &AppConfig,
 ) -> ApiResult<()> {
+    validate_platform_capture(config)?;
     if !validate_capture_sources(config)? {
         return Ok(());
     }
@@ -338,6 +341,27 @@ pub(crate) async fn validate_capture_config(
     } else {
         crate::asr::validate_cloud_connection(&config.asr)
             .map_err(|error| api_error(StatusCode::CONFLICT, "asr.cloud_profile_invalid", error))?;
+    }
+    Ok(())
+}
+
+pub(crate) fn platform_error(code: &'static str) -> (StatusCode, Json<Value>) {
+    api_error(
+        StatusCode::SERVICE_UNAVAILABLE,
+        code,
+        "The requested backend is not implemented for this platform",
+    )
+}
+
+pub(crate) fn validate_platform_capture(config: &AppConfig) -> ApiResult<()> {
+    if config.audio.output.mode == "vrchat_players" || config.vrchat_chatbox.enabled {
+        crate::platform_capabilities::require_network_capture().map_err(platform_error)?;
+    }
+    if config.audio.output.mode == "vrchat" && !cfg!(windows) {
+        return Err(platform_error("platform.application_audio_unavailable"));
+    }
+    if has_audio_sources(config) {
+        crate::platform_capabilities::require_audio().map_err(platform_error)?;
     }
     Ok(())
 }
@@ -430,6 +454,13 @@ async fn start_speaker_pipeline(
     let process_name = (output.mode == "vrchat").then_some("VRChat.exe");
     let (asr, echo_guard) = effective_asr_config(state, config, "speaker");
     if output.mode == "vrchat_players" {
+        #[cfg(not(windows))]
+        {
+            let _ = voice;
+            return Err(platform_error(crate::platform_capabilities::NETWORK_CAPTURE_UNSUPPORTED));
+        }
+        #[cfg(windows)]
+        {
         let events = voice.ok_or_else(|| {
             api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
@@ -462,6 +493,7 @@ async fn start_speaker_pipeline(
                     error.to_string(),
                 )
             });
+        }
     }
     state
         .capture
@@ -471,6 +503,7 @@ async fn start_speaker_pipeline(
         .start(
             config.audio.sample_rate,
             device_id,
+            output.device_key.as_deref(),
             process_name,
             Some(output.trigger_threshold_dbfs),
             &config.vad,
@@ -514,6 +547,7 @@ async fn start_microphone_pipeline(
         .start(
             config.audio.sample_rate,
             microphone_id,
+            config.audio.microphone.device_key.as_deref(),
             None,
             Some(config.audio.microphone.trigger_threshold_dbfs),
             &config.vad,
@@ -541,6 +575,7 @@ async fn start_planned_pipelines(
     Option<crate::models::AudioDevice>,
     Option<crate::models::AudioDevice>,
 )> {
+    validate_platform_capture(config)?;
     if let Err(error) = state
         .content
         .translation_service
@@ -671,16 +706,16 @@ pub(crate) async fn reconcile_network(
     state: &CaptureContext,
     config: &AppConfig,
 ) -> ApiResult<Option<mpsc::Receiver<AudioEvent>>> {
+    let consumers = NetworkConsumers::from_config(config);
+    if consumers.voice || consumers.chatbox {
+        crate::platform_capabilities::require_network_capture().map_err(platform_error)?;
+    }
     let subscriptions = state
         .capture
         .network_session
         .lock()
         .await
-        .reconcile(
-            config,
-            NetworkConsumers::from_config(config),
-            Arc::clone(&state.config.config),
-        )
+        .reconcile(config, consumers, Arc::clone(&state.config.config))
         .await
         .map_err(|detail| {
             api_error(
@@ -689,6 +724,8 @@ pub(crate) async fn reconcile_network(
                 detail,
             )
         })?;
+    #[cfg(windows)]
+    // Linux rejects network consumers above; only Windows owns their worker.
     if let Some(receiver) = subscriptions.chatbox {
         if let Some(task) = state.capture.chatbox_task.lock().await.take() {
             task.abort();
@@ -784,6 +821,15 @@ pub(super) async fn capture_start(
         )
     })?;
     let config = session.apply_to(&global);
+    validate_platform_capture(&global)?;
+    if has_audio_sources(&config) && config.asr.backend != QWEN_MANAGED_BACKEND {
+        if let Some(profile) = active_asr_profile(&config.asr).cloned() {
+            tokio::task::spawn_blocking(move || crate::credentials::read_credential_for_use(&profile.id, &profile.provider))
+                .await.map_err(|error| api_error(StatusCode::INTERNAL_SERVER_ERROR, "credentials.read_failed", error.to_string()))?
+                .map_err(|error| api_error(StatusCode::SERVICE_UNAVAILABLE,
+                    crate::credentials::error_reason_code(&error).unwrap_or("credentials.read_failed"), error))?;
+        }
+    }
     validate_capture_config(&state, &config).await?;
     if state.capture.capture_requested.load(Ordering::SeqCst)
         || state.capture.speaker_pipeline.lock().await.running()
@@ -890,6 +936,7 @@ pub(crate) async fn resume_microphone(state: &CaptureContext) -> Result<(), Stri
     if config.audio.microphone.mode == "disabled" {
         return Ok(());
     }
+    validate_platform_capture(&config).map_err(|error| error.1["detail"].to_string())?;
     let microphone_id = (config.audio.microphone.mode == "device")
         .then_some(config.audio.microphone.device_id)
         .flatten();
@@ -903,6 +950,7 @@ pub(crate) async fn resume_microphone(state: &CaptureContext) -> Result<(), Stri
         .start(
             config.audio.sample_rate,
             microphone_id,
+            config.audio.microphone.device_key.as_deref(),
             None,
             Some(config.audio.microphone.trigger_threshold_dbfs),
             &config.vad,

@@ -90,6 +90,7 @@ impl DomainEventHub {
         ));
     }
 
+    #[cfg(any(windows, test))]
     pub fn speaker_updated(&self, speaker: &crate::models::SpeakerIdentity) {
         self.publish(DomainEvent::new(
             "asr.speaker_updated",

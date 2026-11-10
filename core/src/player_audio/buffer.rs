@@ -38,6 +38,7 @@ impl JitterBuffer {
         self.next = self.next.wrapping_add(1);
         packet
     }
+    #[cfg(windows)]
     pub(super) fn resume_after_idle(&mut self, sequence: u16) {
         if self.packets.is_empty() && sequence.wrapping_sub(self.next) as i16 >= 0 {
             self.next = sequence;

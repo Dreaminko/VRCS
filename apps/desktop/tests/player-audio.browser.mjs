@@ -27,6 +27,7 @@ for (const width of [1100, 380]) {
         import { SubtitleBubble } from './src/subtitles/components/SubtitleBubble';
         import { publishSpeakerIdentity } from './src/subtitles/speaker-state';
         import { publishLivePartial, completeLivePartial } from './src/core-client/realtime-state';
+        import { WindowsCapabilities } from './tests/fixtures/platform-capabilities';
         import './src/styles.css';
         await i18next.use(initReactI18next).init({ lng:'zh-CN', resources:{'zh-CN':{translation:locale.translation}} });
         window.requestAnimationFrame = callback => setTimeout(() => callback(performance.now()), 16);
@@ -61,7 +62,7 @@ for (const width of [1100, 380]) {
               focused={false} selected={false} selectionActive={false} selection={null} onClearSelection={()=>{}}
               onSelect={noop} onCopyFeedback={()=>{}} /></div></>;
         }
-        createRoot(document.getElementById('root')).render(<Fixture />);
+        createRoot(document.getElementById('root')).render(<WindowsCapabilities><Fixture /></WindowsCapabilities>);
         const wait = async predicate => {
           for (let i=0;i<150;i++) { if(predicate())return; await new Promise(r=>setTimeout(r,20)); }
           throw Error('Timed out: '+predicate);

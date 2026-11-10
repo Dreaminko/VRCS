@@ -14,7 +14,7 @@ pub(super) struct Opus {
 }
 
 impl Opus {
-    #[cfg(test)]
+    #[cfg(all(windows, test))]
     pub(super) fn test_tone(&self, frequency: f32, frames: usize) -> Vec<Vec<u8>> {
         type EncoderCreate = unsafe extern "C" fn(c_int, c_int, c_int, *mut c_int) -> *mut c_void;
         type Encode = unsafe extern "C" fn(*mut c_void, *const f32, c_int, *mut u8, c_int) -> c_int;

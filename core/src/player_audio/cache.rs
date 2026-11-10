@@ -76,6 +76,7 @@ impl SessionCache {
     pub(super) fn store(&self, owner: ProcessIdentity, key: Zeroizing<[u8; 32]>) {
         *self.key.lock().expect("session key cache") = Some(Entry { owner, key });
     }
+    #[cfg(windows)]
     pub(super) fn invalidate(&self) {
         *self.key.lock().expect("session key cache") = None;
         self.clear_room();
@@ -107,7 +108,10 @@ mod tests {
         ];
         cache.store(owner, Zeroizing::new(first));
         for _ in 0..3 {
-            assert!(matches!(cache.lookup(owner, &packets), Lookup::Verified(_)));
+            let Lookup::Verified(key) = cache.lookup(owner, &packets) else {
+                panic!("cached session key was not verified");
+            };
+            assert_eq!(*key, first);
         }
         assert!(matches!(
             cache.lookup(owner, &[packets[0].clone(), packets[0].clone()]),

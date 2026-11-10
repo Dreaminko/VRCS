@@ -77,32 +77,37 @@ pub(super) struct Outputs {
 pub(super) type SharedOutputs = Arc<Mutex<Outputs>>;
 
 impl Outputs {
-    #[cfg(test)]
+    #[cfg(all(windows, test))]
     pub(super) fn with_voice(sender: mpsc::Sender<AudioEvent>) -> Self {
         Self {
             voice: Some(sender),
             ..Self::default()
         }
     }
+    #[cfg(windows)]
     pub(super) fn voice_enabled(&self) -> bool {
         self.voice.is_some()
     }
 
+    #[cfg(windows)]
     pub(super) fn chatbox_enabled(&self) -> bool {
         self.chatbox.is_some()
     }
 
+    #[cfg(windows)]
     pub(super) fn voice_failed(&mut self, error: String) {
         self.voice_error = Some(error);
         self.voice.take();
     }
 
+    #[cfg(any(windows, test))]
     pub(super) fn audio(&self, event: AudioEvent) -> bool {
         self.voice
             .as_ref()
             .is_some_and(|tx| tx.try_send(event).is_ok())
     }
 
+    #[cfg(any(windows, test))]
     pub(super) fn speaker(&mut self, speaker: SpeakerIdentity) {
         self.audio(AudioEvent::Speaker(speaker.clone()));
         if let Some(tx) = &self.chatbox {
@@ -115,12 +120,14 @@ impl Outputs {
         }
     }
 
+    #[cfg(any(windows, test))]
     pub(super) fn flush_speakers(&mut self) {
         let Some(tx) = &self.chatbox else { return };
         self.pending_speakers
             .retain(|_, speaker| tx.try_send(ChatboxEvent::Speaker(speaker.clone())).is_err());
     }
 
+    #[cfg(any(windows, test))]
     pub(super) fn invalidate_scope(&mut self, id: &str) {
         if let Some((validity, _)) = self.scopes.remove(id) {
             validity.invalidate();
@@ -135,6 +142,7 @@ impl Outputs {
         self.pending_speakers.clear();
     }
 
+    #[cfg(any(windows, test))]
     pub(super) fn validity(&mut self, id: &str, now: Instant) -> TaskValidity {
         if self.scopes.len() >= 512 && !self.scopes.contains_key(id) {
             if let Some(oldest) = self
@@ -172,6 +180,7 @@ impl VrchatNetworkSession {
             .is_some_and(|capture| !capture.finished())
     }
 
+    #[cfg(windows)]
     pub(crate) fn shared_status(&self) -> SharedStatus {
         Arc::clone(&self.status)
     }
@@ -499,7 +508,9 @@ mod tests {
     #[test]
     fn name_updates_retry_after_text_backpressure() {
         let (tx, mut rx) = mpsc::channel(1);
+        let (voice_tx, mut voice_rx) = mpsc::channel(2);
         let mut outputs = Outputs {
+            voice: Some(voice_tx),
             chatbox: Some(tx),
             ..Outputs::default()
         };
@@ -513,9 +524,21 @@ mod tests {
         outputs.speaker(speaker("After"));
         assert!(rx.try_recv().is_ok());
         outputs.flush_speakers();
-        let ChatboxEvent::Speaker(speaker) = rx.try_recv().unwrap() else {
+        let event = rx.try_recv().unwrap();
+        #[cfg(windows)]
+        let ChatboxEvent::Speaker(speaker) = event else {
             panic!("metadata")
         };
+        #[cfg(not(windows))]
+        let ChatboxEvent::Speaker(speaker) = event;
         assert_eq!(speaker.display_name.as_deref(), Some("After"));
+        let event = voice_rx.try_recv().unwrap();
+        #[cfg(windows)]
+        let AudioEvent::Speaker(first) = event else {
+            panic!("voice metadata")
+        };
+        #[cfg(not(windows))]
+        let AudioEvent::Speaker(first) = event;
+        assert_eq!(first.display_name.as_deref(), Some("Before"));
     }
 }

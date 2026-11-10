@@ -41,10 +41,17 @@ pub(super) async fn validate_candidate(
         && candidate.external_api.enabled
         && candidate.external_api.require_token
     {
-        let token = credentials::read_external_api_token().map_err(|error| {
+        let token = if candidate.external_api != current.external_api
+            || candidate.features.external_api != current.features.external_api
+        {
+            credentials::read_external_api_token_for_use()
+        } else {
+            credentials::read_external_api_token()
+        }
+        .map_err(|error| {
             api_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
-                "external_api.token_status_failed",
+                credentials::error_reason_code(&error).unwrap_or("external_api.token_status_failed"),
                 error,
             )
         })?;
@@ -56,6 +63,10 @@ pub(super) async fn validate_candidate(
             ));
         }
     }
+    if candidate.vrchat_chatbox.enabled && candidate.vrchat_chatbox != current.vrchat_chatbox {
+        crate::platform_capabilities::require_network_capture()
+            .map_err(super::super::super::capture::platform_error)?;
+    }
     if candidate.audio != current.audio {
         validate_audio_devices(current.audio.clone(), candidate.audio.clone()).await?;
     }
@@ -66,14 +77,35 @@ async fn validate_audio_devices(
     current: crate::config::AudioConfig,
     config: crate::config::AudioConfig,
 ) -> ApiResult<()> {
+    if config.output.mode == "vrchat_players" && config.output.mode != current.output.mode {
+        crate::platform_capabilities::require_network_capture()
+            .map_err(super::super::super::capture::platform_error)?;
+    }
+    if config.output.player_audio != current.output.player_audio {
+        crate::platform_capabilities::require_network_capture()
+            .map_err(super::super::super::capture::platform_error)?;
+    }
+    if config.output.mode == "vrchat" && config.output.mode != current.output.mode && !cfg!(windows) {
+        return Err(super::super::super::capture::platform_error("platform.application_audio_unavailable"));
+    }
     // WASAPI enumeration can block, so it must not occupy a Tokio worker.
     tokio::task::spawn_blocking(move || {
+        for (changed, enabled, key, source) in [
+            (config.output.mode != current.output.mode || config.output.device_id != current.output.device_id || config.output.device_key != current.output.device_key,
+             config.output.mode != "disabled", config.output.device_key.as_deref(), audio::CaptureSource::Speaker),
+            (config.microphone.mode != current.microphone.mode || config.microphone.device_id != current.microphone.device_id || config.microphone.device_key != current.microphone.device_key,
+             config.microphone.mode != "disabled", config.microphone.device_key.as_deref(), audio::CaptureSource::Microphone),
+        ] {
+            if changed && enabled {
+                audio::validate_device_key(key, source)?;
+            }
+        }
         // A disconnected, unchanged route must not block repairing the other route.
         if config.output.mode == "system"
             && (config.output.mode != current.output.mode
                 || config.output.device_id != current.output.device_id)
         {
-            if let Some(device_id) = config.output.device_id {
+            if let Some(device_id) = config.output.device_id.filter(|_| config.output.device_key.is_none()) {
                 audio::validate_device_id(device_id, audio::CaptureSource::Speaker)?;
             }
         }
@@ -81,7 +113,7 @@ async fn validate_audio_devices(
             && (config.microphone.mode != current.microphone.mode
                 || config.microphone.device_id != current.microphone.device_id)
         {
-            if let Some(device_id) = config.microphone.device_id {
+            if let Some(device_id) = config.microphone.device_id.filter(|_| config.microphone.device_key.is_none()) {
                 audio::validate_device_id(device_id, audio::CaptureSource::Microphone)?;
             }
         }
@@ -142,11 +174,25 @@ mod tests {
             let (status, axum::Json(error)) = validate_audio_devices(current, candidate)
                 .await
                 .unwrap_err();
-            assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
-            assert!(
-                error["code"].as_str().unwrap().starts_with("audio."),
-                "{error}"
-            );
+            if cfg!(windows) {
+                assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+                assert!(
+                    error["code"].as_str().unwrap().starts_with("audio."),
+                    "{error}"
+                );
+            } else if cfg!(target_os = "linux") {
+                assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+                assert_eq!(
+                    error["code"],
+                    crate::platform_capabilities::DEVICE_KEY_UNSUPPORTED
+                );
+            } else {
+                assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+                assert_eq!(
+                    error["code"],
+                    crate::platform_capabilities::AUDIO_UNAVAILABLE
+                );
+            }
             assert!(!error["detail"].as_str().unwrap().is_empty());
         }
     }

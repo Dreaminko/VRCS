@@ -1,13 +1,26 @@
-use std::sync::{Arc, Mutex, RwLock};
+#[cfg(any(windows, test))]
+use std::sync::Mutex;
+use std::sync::{Arc, RwLock};
 
-use tokio::sync::{broadcast, mpsc, watch};
+#[cfg(any(windows, test))]
+use tokio::sync::broadcast;
+#[cfg(windows)]
+use tokio::sync::mpsc;
+use tokio::sync::watch;
 
+#[cfg(any(windows, test))]
 use crate::config::AppConfig;
+#[cfg(any(windows, test))]
 use crate::db::conversations::{CatalogRefresh, ConversationCatalog};
+#[cfg(any(windows, test))]
 use crate::db::Database;
+#[cfg(any(windows, test))]
 use crate::language_session::ActiveLanguageSession;
+#[cfg(any(windows, test))]
 use crate::models::{SpeakerIdentity, Subtitle};
+#[cfg(any(windows, test))]
 use crate::subtitle_output::{SubtitleLifecyclePublisher, TranslationFailure};
+#[cfg(any(windows, test))]
 use crate::translation::TranslationDispatcher;
 
 #[derive(Debug, Clone)]
@@ -54,6 +67,7 @@ impl TaskValidity {
     }
 }
 
+#[cfg(any(windows, test))]
 pub(crate) struct ChatboxMessage {
     pub text: String,
     pub speaker: SpeakerIdentity,
@@ -62,10 +76,13 @@ pub(crate) struct ChatboxMessage {
 }
 
 pub(crate) enum ChatboxEvent {
+    #[cfg(windows)]
     Message(ChatboxMessage),
+    #[cfg(any(windows, test))]
     Speaker(SpeakerIdentity),
 }
 
+#[cfg(any(windows, test))]
 pub(crate) struct ChatboxConsumer {
     database: Arc<Mutex<Database>>,
     catalog: CatalogRefresh,
@@ -75,6 +92,7 @@ pub(crate) struct ChatboxConsumer {
     language_session: Arc<RwLock<ActiveLanguageSession>>,
 }
 
+#[cfg(any(windows, test))]
 impl ChatboxConsumer {
     pub(crate) fn new(
         database: Arc<Mutex<Database>>,
@@ -94,6 +112,7 @@ impl ChatboxConsumer {
         }
     }
 
+    #[cfg(windows)]
     pub(crate) async fn run(self, mut receiver: mpsc::Receiver<ChatboxEvent>) {
         while let Some(event) = receiver.recv().await {
             let result = match event {

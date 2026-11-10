@@ -20,6 +20,7 @@ use crate::smart_turn::{SmartTurnRuntime, COMPLETION_THRESHOLD};
 use crate::vad::{SpeechSegmenter, VadRuntimeState, VoiceDetector};
 
 mod dependencies;
+#[cfg(windows)]
 mod players;
 mod recognition_lifecycle;
 
@@ -133,6 +134,7 @@ impl TranscriptionPipeline {
         &mut self,
         sample_rate: u32,
         device_id: Option<i64>,
+        device_key: Option<&str>,
         process_name: Option<&str>,
         trigger_threshold_dbfs: Option<f32>,
         vad_config: &VadConfig,
@@ -169,9 +171,10 @@ impl TranscriptionPipeline {
         let startup_started = Instant::now();
         let source_kind = self.source;
         let process_name = process_name.map(str::to_owned);
+        let device_key = device_key.map(str::to_owned);
         let (mut capture, device) = tokio::task::spawn_blocking(move || {
             let mut capture = AudioCapture::new(sample_rate, source_kind);
-            let device = capture.start(device_id, process_name.as_deref())?;
+            let device = capture.start(device_id, device_key.as_deref(), process_name.as_deref())?;
             Ok::<_, AudioError>((capture, device))
         })
         .await
