@@ -3,6 +3,11 @@
 const COMMANDS: &[&str] = &[
     "core_connection",
     "core_startup",
+    "platform_capabilities",
+    "desktop_capture_frame",
+    "desktop_capture_select",
+    "desktop_capture_cancel",
+    "desktop_capture_register_shortcuts",
     "retry_core",
     "player_audio_pending_action",
     "player_audio_consume_action",
@@ -57,6 +62,7 @@ const COMMANDS: &[&str] = &[
 
 fn main() {
     println!("cargo:rerun-if-env-changed=TAURI_UPDATER_PUBLIC_KEY");
+    println!("cargo:rerun-if-env-changed=VRCS_PACKAGE_CHANNEL");
     tauri_build::try_build(
         tauri_build::Attributes::new()
             .app_manifest(tauri_build::AppManifest::new().commands(COMMANDS)),

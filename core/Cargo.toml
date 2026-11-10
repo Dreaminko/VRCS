@@ -40,6 +40,12 @@ uuid = { version = "1", features = ["v4"] }
 thiserror = "2"
 rosc = "0.11"
 mdns-sd = "=0.20.3"
+flate2 = "=1.1.9"
+tar = { version = "=0.4.46", default-features = false }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+pipewire = { version = "=0.10.1", features = ["v0_3_65"] }
+secret-service = { version = "=5.2.0", default-features = false, features = ["rt-async-io-crypto-rust"] }
 
 [target.'cfg(windows)'.dependencies]
 ort = { version = "=2.0.0-rc.12", features = ["directml"] }

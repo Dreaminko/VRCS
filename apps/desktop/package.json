@@ -11,7 +11,7 @@
     "build": "tsc && vite build",
     "typecheck:tests": "tsc -p tsconfig.tests.json",
     "test": "npm run typecheck:tests && node --test tests/*.test.ts",
-    "tauri": "powershell -NoProfile -ExecutionPolicy Bypass -File ../../scripts/run-tauri.ps1"
+    "tauri": "node ../../scripts/run-tauri.mjs"
   },
   "dependencies": {
     "@lobehub/icons": "^5.23.1",
