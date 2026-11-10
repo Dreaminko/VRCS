@@ -6,7 +6,8 @@ use super::{activate, Action, Prompt};
 use crate::vr_overlay::backend::{OpenVrBackend, OverlayKind};
 use crate::vr_overlay::control_protocol::ControlHub;
 use crate::vr_overlay::interaction::{Hit, Key, Kind, Router, Sample, Surface};
-use crate::vr_overlay::surface::{SurfaceHub, SurfaceId, SurfaceRenderer, SurfaceView};
+use crate::vr_overlay::surface::{SurfaceHub, SurfaceRenderer};
+use crate::vr_overlay::surface_protocol::{SurfaceId, SurfaceView};
 
 pub struct Runtime {
     renderer: SurfaceRenderer,

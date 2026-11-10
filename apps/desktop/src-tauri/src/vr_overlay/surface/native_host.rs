@@ -36,10 +36,11 @@ use windows::{
     UI::Composition::{Compositor, ContainerVisual},
 };
 
-use super::bridge::{
+use crate::vr_overlay::surface_protocol::{
     DocumentSession, HostId, Operation, PageRequest, ResourcePolicy, ResourceRoute, SurfaceEvent,
 };
-use super::{SurfaceActivity, SurfaceHub};
+use super::SurfaceHub;
+use crate::vr_overlay::surface_protocol::SurfaceActivity;
 
 const WAKE: u32 = WM_APP + 41;
 const BROWSER_ARGS: &str = "--disable-features=CalculateNativeWinOcclusion --disable-backgrounding-occluded-windows --disable-renderer-backgrounding";
@@ -1149,7 +1150,7 @@ impl NativeHost {
                 let source = read_string(|out| args.Source(out))?;
                 if source != expected { return Ok(()); }
                 let message = read_string(|out| args.WebMessageAsJson(out))?;
-                let Ok(request) = super::bridge::decode_request(&message) else { return Ok(()); };
+                let Ok(request) = crate::vr_overlay::surface_protocol::decode_request(&message) else { return Ok(()); };
                 if matches!(request, PageRequest::Connect) {
                     connecting.set(true);
                     if let Some(document) = session.borrow().as_ref() { post(&sender, serde_json::json!({ "version": 1, "op": "welcome", "host": document.host, "nonce": document.nonce }))?; }
@@ -1160,7 +1161,7 @@ impl NativeHost {
                 let PageRequest::Call { request_id, ref operation, .. } = request else { return Ok(()); };
                 let sleeping = if let Operation::Snapshot { activity_request, .. } = operation { Some(*activity_request) } else { None };
                 let result = app.state::<SurfaceHub>().handle_page_request(&document, request);
-                if matches!(&result, Ok(super::bridge::PageReply::Accepted(true))) {
+                if matches!(&result, Ok(crate::vr_overlay::surface_protocol::PageReply::Accepted(true))) {
                     if let Some(request) = sleeping { snapshot.set(Some(request)); shared.wake(); }
                 }
                 let reply = match result {
@@ -1322,7 +1323,7 @@ impl ControlMailbox {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::vr_overlay::surface::{SurfaceId, SurfaceKey, SurfacePointer, SurfaceScroll};
+    use crate::vr_overlay::surface_protocol::{SurfaceId, SurfaceKey, SurfacePointer, SurfaceScroll};
 
     fn session(surface: SurfaceId) -> DocumentSession {
         DocumentSession {

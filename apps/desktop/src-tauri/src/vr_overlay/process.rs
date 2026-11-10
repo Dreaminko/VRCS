@@ -1,3 +1,4 @@
+#[cfg(windows)]
 const STEAMVR_SERVER_PROCESS: &str = "vrserver.exe";
 
 #[derive(Default)]

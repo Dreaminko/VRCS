@@ -9,7 +9,7 @@ use super::ocr_plane::{OcrScene, OcrSceneBlock};
 use super::ocr_wrist::{self, Action, LaserEvent, View, ViewMode};
 use super::placement::{Mode, Placement, Pose, Request};
 use super::presentation::{MessageSide, WristMessage};
-use super::surface::{
+use super::surface_protocol::{
     reader_action, SurfaceId, SurfaceKey, SurfaceLayout, SurfaceState, SurfaceView,
 };
 use super::{dialogue, player_display, transform, wrist_menu};
@@ -1131,7 +1131,7 @@ impl Preview {
             hovered: self.hover,
             pressed: self.pressed,
             pointer: self.cursor,
-            activity: super::surface::SurfaceActivity {
+            activity: super::surface_protocol::SurfaceActivity {
                 active: true,
                 request: 0,
             },
@@ -2135,7 +2135,7 @@ mod tests {
         measure(p);
     }
     fn measure(p: &mut Preview) {
-        use super::super::surface::Region;
+        use super::super::surface_protocol::Region;
         let regions = match p.panel {
             0 => vec![Region {
                 id: 0,
@@ -2193,22 +2193,22 @@ mod tests {
                     .then_some([16., 1032., 1264., 1272.].map(|value| value / 1280.)),
                 panels: match p.panel {
                     0 if p.menu_ui.page != wrist_menu::Page::Home => {
-                        vec![super::super::surface::Panel {
+                        vec![super::super::surface_protocol::Panel {
                             bounds: [16., 16., 1264., 1016.].map(|value| value / 1280.),
                             radius: [0.025, 0.025],
                         }]
                     }
                     2 => vec![
-                        super::super::surface::Panel {
+                        super::super::surface_protocol::Panel {
                             bounds: [0.01, 0.01, 0.99, 0.125],
                             radius: [0.0575, 0.0575],
                         },
-                        super::super::surface::Panel {
+                        super::super::surface_protocol::Panel {
                             bounds: [0.02, 0.145, 0.98, 0.98],
                             radius: [0.04, 0.04],
                         },
                     ],
-                    4 | 5 | 9 => vec![super::super::surface::Panel {
+                    4 | 5 | 9 => vec![super::super::surface_protocol::Panel {
                         bounds: [0.0234375, 0.0234375, 0.9765625, 0.984375],
                         radius: [0.03125, 0.03125],
                     }],

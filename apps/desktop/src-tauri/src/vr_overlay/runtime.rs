@@ -6,19 +6,25 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use super::ocr_status::OcrStatus;
 use serde::Serialize;
+#[cfg(windows)]
 use tauri::Manager as _;
 use tauri::{AppHandle, Emitter};
 use tokio::sync::{broadcast, watch};
 use vrcs_core::{PresentationEvent, VrOcrConfig, VrOverlayConfig};
 
 use super::backend::{OpenVrBackend, OverlayKind};
-use super::control_protocol::{ControlAction, ControlHub, ControlSource};
-use super::dashboard::{DashboardPointerEvent, DashboardState, DashboardViewModel};
+use super::control_protocol::ControlHub;
+#[cfg(windows)]
+use super::control_protocol::{ControlAction, ControlSource};
+use super::dashboard::{DashboardState, DashboardViewModel};
+#[cfg(windows)]
+use super::dashboard::DashboardPointerEvent;
 use super::placement::{Mode, Placement};
 use super::presentation::{
-    HeadsetPresentation, MessageSide, PresentationContent, PresentationFrame, WristMessage,
-    WristPresentation,
+    HeadsetPresentation, PresentationContent, PresentationFrame, WristPresentation,
 };
+#[cfg(windows)]
+use super::presentation::{MessageSide, WristMessage};
 use super::process::{steamvr_pid, SteamVrSession};
 
 pub const STATUS_EVENT: &str = "vr-overlay-status-changed";
@@ -40,6 +46,7 @@ impl BusinessClock {
     }
 }
 
+#[cfg(windows)]
 pub(super) fn dispatch_control(
     app: &AppHandle,
     controls: &Mutex<ControlHub>,
@@ -59,6 +66,7 @@ pub(super) fn dispatch_control(
     }
 }
 
+#[cfg(windows)]
 pub(super) fn dispatch_player_display(
     app: &AppHandle,
     controls: &Mutex<ControlHub>,
@@ -454,7 +462,7 @@ struct WorkerState {
     #[cfg(windows)]
     dashboard_surface: super::surface::SurfaceRenderer,
     #[cfg(windows)]
-    dashboard_pressed_key: Option<super::surface::SurfaceKey>,
+    dashboard_pressed_key: Option<super::surface_protocol::SurfaceKey>,
     dashboard_retry_at: Option<Instant>,
     next_reconnect: Instant,
     next_probe: Instant,
@@ -502,6 +510,8 @@ fn worker_loop(
     ocr_service: Option<vrcs_core::ocr::VrOcrService>,
     vision_service: vrcs_core::vision::VisionService,
 ) {
+    #[cfg(not(windows))]
+    let _ = (placement, ocr_service, vision_service);
     #[cfg(windows)]
     let ocr_directory = app
         .path()
@@ -533,14 +543,14 @@ fn worker_loop(
         headset_sample: false,
         wrist_sample: false,
         #[cfg(windows)]
-        headset_surface: super::surface::SurfaceRenderer::new(super::surface::SurfaceId::Headset),
+        headset_surface: super::surface::SurfaceRenderer::new(super::surface_protocol::SurfaceId::Headset),
         backend: None,
         session: SteamVrSession::default(),
         dashboard_view: None,
         dashboard: DashboardState::default(),
         #[cfg(windows)]
         dashboard_surface: super::surface::SurfaceRenderer::new(
-            super::surface::SurfaceId::Dashboard,
+            super::surface_protocol::SurfaceId::Dashboard,
         ),
         #[cfg(windows)]
         dashboard_pressed_key: None,
@@ -582,6 +592,9 @@ fn worker_loop(
         }
 
         if started < next_tick {
+            #[cfg(not(windows))]
+            let wake = next_tick;
+            #[cfg(windows)]
             let mut wake = next_tick;
             #[cfg(windows)]
             if state.ui.fast_tick()
@@ -609,6 +622,7 @@ fn worker_loop(
         let business = business_clock.due(started);
         #[cfg(windows)]
         let mut open_ocr_bindings = false;
+        #[cfg(windows)]
         let mut placement_mode = None;
         if business {
             if let Ok(mut pending) = latest_config.lock() {
@@ -668,9 +682,9 @@ fn worker_loop(
             }
             if let Ok(mut pending) = pending_control.lock() {
                 let control = std::mem::take(&mut *pending);
-                placement_mode = control.placement_mode;
                 #[cfg(windows)]
                 {
+                    placement_mode = control.placement_mode;
                     open_ocr_bindings = control.ocr_bindings;
                 }
                 if control.retry {
@@ -818,7 +832,7 @@ fn recover_from_panic(state: &mut WorkerState, status: &mut VrOverlayStatus) {
         state.ocr.clear();
         state.reset_ui();
     }
-    drop(state.backend.take());
+    state.backend = None;
     state.reset_headset();
     state.reset_dashboard();
     state.next_reconnect = Instant::now() + RECONNECT_INTERVAL;
@@ -841,7 +855,7 @@ fn tick(
     {
         tracing::info!("SteamVR requested quit; detaching OpenVR and keeping VRCS running");
         state.session.quit();
-        drop(state.backend.take());
+        state.backend = None;
         #[cfg(windows)]
         {
             state.ocr.unavailable(state.ocr_config.enabled);
@@ -1102,8 +1116,8 @@ fn tick(
         let hub = app.state::<super::surface::SurfaceHub>();
         // Wrist captions render through Dialogue; the wrist menu is a separate surface.
         (
-            headset_failed && !hub.recovery_failed(super::surface::SurfaceId::Headset),
-            wrist_failed && !hub.recovery_failed(super::surface::SurfaceId::Dialogue),
+            headset_failed && !hub.recovery_failed(super::surface_protocol::SurfaceId::Headset),
+            wrist_failed && !hub.recovery_failed(super::surface_protocol::SurfaceId::Dialogue),
         )
     };
     // A terminal Surface failure stays in Entry until business hide or explicit retry.
@@ -1141,7 +1155,8 @@ fn update_dashboard(
     business: bool,
 ) {
     use super::dashboard::{DASHBOARD_HEIGHT, DASHBOARD_WIDTH};
-    use super::surface::{SurfaceHub, SurfaceId, SurfaceView};
+    use super::surface::SurfaceHub;
+    use super::surface_protocol::{SurfaceId, SurfaceView};
     let Some(view) = state.dashboard_view.as_mut() else {
         status.dashboard.state = ResourceState::Disabled;
         status.dashboard.visible = false;
@@ -1384,6 +1399,8 @@ fn update_headset(
     status: &mut VrOverlayStatus,
     backend: &mut OpenVrBackend,
 ) {
+    #[cfg(not(windows))]
+    let _ = app;
     #[cfg(windows)]
     let question_draft = state.ocr.vision.draft();
     #[cfg(not(windows))]
@@ -1440,7 +1457,7 @@ fn update_headset(
 
     #[cfg(windows)]
     let presented = (|| {
-        use super::surface::SurfaceView;
+        use super::surface_protocol::SurfaceView;
         let PresentationContent::Headset(messages) = frame.content else {
             return Err("Invalid headset content".into());
         };
@@ -1555,7 +1572,7 @@ fn render_wrist(
     backend: &mut OpenVrBackend,
     business: bool,
 ) {
-    use super::surface::SurfaceView;
+    use super::surface_protocol::SurfaceView;
     let now = Instant::now();
     if !state.config.enabled || !state.config.wrist.enabled {
         backend.reset(OverlayKind::Wrist);
@@ -1801,6 +1818,7 @@ fn resource_error(
     *global_detail = Some(detail);
 }
 
+#[cfg(windows)]
 fn wrist_error(status: &mut VrOverlayStatus, code: &str, detail: String) {
     status.wrist.state = ResourceState::Error;
     status.wrist.last_error_code = Some(code.into());

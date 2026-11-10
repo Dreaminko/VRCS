@@ -1,4 +1,6 @@
-use vrcs_core::{VrOverlayHeadsetConfig, VrOverlayWristConfig};
+use vrcs_core::VrOverlayHeadsetConfig;
+#[cfg(windows)]
+use vrcs_core::VrOverlayWristConfig;
 
 pub fn headset(config: &VrOverlayHeadsetConfig) -> [[f32; 4]; 3] {
     matrix(
@@ -9,6 +11,7 @@ pub fn headset(config: &VrOverlayHeadsetConfig) -> [[f32; 4]; 3] {
     )
 }
 
+#[cfg(windows)]
 pub fn wrist(config: &VrOverlayWristConfig) -> [[f32; 4]; 3] {
     matrix(
         config.pitch_deg,

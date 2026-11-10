@@ -17,7 +17,7 @@ mod platform {
     };
     use crate::vr_overlay::renderer::{dashboard_placeholder, Texture};
     use crate::vr_overlay::surface::windows_wgc::Capture;
-    use crate::vr_overlay::surface::SurfaceId;
+    use crate::vr_overlay::surface_protocol::SurfaceId;
     use crate::vr_overlay::transform;
     use std::{cell::RefCell, rc::Rc};
 
@@ -2014,7 +2014,7 @@ mod platform {
 
         #[test]
         fn wrist_ray_matches_texture_aspect_and_visible_menu() {
-            use crate::vr_overlay::surface::{SurfaceId, SurfaceLayout};
+            use crate::vr_overlay::surface_protocol::{SurfaceId, SurfaceLayout};
             use std::cell::Cell;
             thread_local! {
                 static PANEL: Cell<[[f32; 4]; 3]> = const { Cell::new([[0.; 4]; 3]) };
@@ -2259,23 +2259,19 @@ mod platform {
 
 #[cfg(not(windows))]
 mod platform {
-    use vrcs_core::{VrOverlayHeadsetConfig, VrOverlayWristConfig};
+    use vrcs_core::VrOverlayHeadsetConfig;
 
-    use super::{ControllerBinding, OverlayKind};
+    use super::OverlayKind;
 
     pub struct OpenVrBackend;
 
     impl OpenVrBackend {
-        pub fn quit_requested(&self) -> bool {
+        pub fn quit_requested(&mut self) -> bool {
             false
         }
 
         pub fn runtime_installed() -> bool {
             false
-        }
-        #[allow(dead_code)]
-        pub fn ensure_ocr_progress(&mut self) -> Result<(), String> {
-            Err("VR Overlay is only supported on Windows".into())
         }
         pub fn hmd_present() -> bool {
             false
@@ -2286,32 +2282,9 @@ mod platform {
         pub fn ensure_headset(&mut self, _: &VrOverlayHeadsetConfig) -> Result<(), String> {
             Err("VR Overlay is only supported on Windows".into())
         }
-        pub fn ensure_wrist(
-            &mut self,
-            _: &VrOverlayWristConfig,
-        ) -> Result<ControllerBinding, String> {
-            Err("VR Overlay is only supported on Windows".into())
-        }
-        pub fn set_opacity(&mut self, _: OverlayKind, _: f32) -> Result<(), String> {
-            Err("VR Overlay is only supported on Windows".into())
-        }
-        pub fn show(&mut self, _: OverlayKind) -> Result<(), String> {
-            Err("VR Overlay is only supported on Windows".into())
-        }
         pub fn hide(&mut self, _: OverlayKind) {}
         pub fn hide_all(&mut self) {}
         pub fn reset(&mut self, _: OverlayKind) {}
-        pub fn ensure_dashboard(&mut self) -> Result<(), String> {
-            Err("VR Overlay is only supported on Windows".into())
-        }
-        pub fn dashboard_visible(&self) -> bool {
-            false
-        }
-        pub fn poll_dashboard_events(
-            &self,
-        ) -> Result<Vec<crate::vr_overlay::dashboard::DashboardPointerEvent>, String> {
-            Ok(Vec::new())
-        }
     }
 }
 
@@ -2350,17 +2323,26 @@ fn expanded_menu_keeps_quick_buttons_at_the_original_wrist_anchor() {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OverlayKind {
+    #[cfg(windows)]
     PlayerAudio,
     Headset,
+    #[cfg(windows)]
     Wrist,
+    #[cfg(windows)]
     WristMenu,
+    #[cfg(windows)]
     OcrWrist,
+    #[cfg(windows)]
     OcrProgress,
+    #[cfg(windows)]
     OcrFrame,
+    #[cfg(windows)]
     OcrResult,
+    #[cfg(windows)]
     Dashboard,
 }
 
+#[cfg(windows)]
 #[derive(Debug, Clone)]
 pub struct ControllerBinding {
     pub role: Option<String>,

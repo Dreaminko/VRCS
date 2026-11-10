@@ -1,5 +1,6 @@
 //! Captures an undecorated WebView host directly into SteamVR-compatible textures.
 
+use crate::vr_overlay::frame_receipt::{decode_marker, FrameReceipt};
 use std::{
     marker::PhantomData,
     rc::Rc,
@@ -93,11 +94,8 @@ impl From<CaptureError> for String {
 #[derive(Clone, Copy, Debug)]
 pub struct Captured {
     pub shared_handle: usize,
-    pub generation: u32,
-    pub revision: u32,
-    pub paint_serial: u32,
-    pub requested_serial: u32,
-    pub bounds: [u32; 4],
+    pub receipt: FrameReceipt,
+
 }
 
 /// Construct, poll, and drop on the same VR worker thread.
@@ -464,11 +462,13 @@ impl Capture {
         };
         Ok(Some(Captured {
             shared_handle: self.slots[pending.slot].as_ref().unwrap().handle,
-            generation,
-            revision,
-            paint_serial,
-            requested_serial: pending.requested_serial,
-            bounds: pending.bounds,
+            receipt: FrameReceipt {
+                generation,
+                revision,
+                paint_serial,
+                requested_serial: pending.requested_serial,
+                bounds: pending.bounds,
+            },
         }))
     }
 
@@ -496,7 +496,7 @@ impl Capture {
             .flatten()
             .find(|slot| slot.handle == frame.shared_handle)
             .ok_or("Unknown capture texture")?;
-        let [l, t, r, b] = frame.bounds;
+        let [l, t, r, b] = frame.receipt.bounds;
         let (width, height) = (r - l, b - t);
         let mut desc = texture_desc(width, height);
         desc.Usage = D3D11_USAGE_STAGING;
@@ -737,20 +737,6 @@ fn check_size(size: SizeInt32, width: u32, height: u32) -> Result<(), CaptureErr
     Ok(())
 }
 
-fn decode_marker(rows: &[u8], row_pitch: usize) -> Option<(u32, u32, u32)> {
-    let mut values = [0u32; 4];
-    for bit in 0..128 {
-        let offset = (bit / 64) * row_pitch + ((bit % 64) * 4 + 2) * 4;
-        let pixel = rows.get(offset..offset + 4)?;
-        let one = pixel[..3].iter().all(|&channel| channel >= 224);
-        if pixel[3] < 224 || (!one && !pixel[..3].iter().all(|&channel| channel <= 31)) {
-            return None;
-        }
-        values[bit / 32] = (values[bit / 32] << 1) | u32::from(one);
-    }
-    (values[0] != 0 && values[1] != 0 && values[2] != 0 && values[3] == !values[2])
-        .then_some((values[0], values[1], values[2]))
-}
 
 fn failure(operation: &str, error: windows::core::Error) -> CaptureError {
     let kind = match error.code().0 as u32 {

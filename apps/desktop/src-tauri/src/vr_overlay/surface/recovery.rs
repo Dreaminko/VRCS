@@ -23,7 +23,9 @@ pub(super) enum Fault {
     SourceClosed,
     Session,
     DeviceLost,
+    #[cfg(windows)]
     InvalidFrame,
+    #[cfg(windows)]
     Submission,
 }
 
@@ -116,6 +118,7 @@ impl Recovery {
             self.since = Some(now);
         }
     }
+    #[cfg(windows)]
     pub fn awaiting_frame(&mut self, now: Instant) {
         if !matches!(self.phase, Phase::Failed | Phase::Closing) {
             self.phase = Phase::AwaitingFrame;
@@ -176,7 +179,10 @@ impl Recovery {
         self.stable_since = None;
         self.fault_since.get_or_insert(now);
         self.fault = Some(fault);
-        if matches!(fault, Fault::Unsupported | Fault::Submission) {
+        let terminal = fault == Fault::Unsupported;
+        #[cfg(windows)]
+        let terminal = terminal || fault == Fault::Submission;
+        if terminal {
             self.phase = Phase::Failed;
             return Action::Fail;
         }
@@ -206,15 +212,19 @@ impl Recovery {
         action
     }
     pub fn retains_frame(&self, same_identity: bool, allowed_surface: bool, now: Instant) -> bool {
+        let retained_fault = self.fault == Some(Fault::Session);
+        #[cfg(windows)]
+        let retained_fault = retained_fault || self.fault == Some(Fault::InvalidFrame);
         same_identity
             && allowed_surface
             && self.phase == Phase::RecoveringCapture
-            && matches!(self.fault, Some(Fault::Session | Fault::InvalidFrame))
+            && retained_fault
             && self.fault_since.is_some_and(|since| {
                 now.saturating_duration_since(since) < Duration::from_millis(500)
             })
     }
 
+    #[cfg(windows)]
     pub fn input_allowed(&self) -> bool {
         self.phase == Phase::Live && self.fault.is_none()
     }
@@ -235,11 +245,12 @@ impl PendingPaints {
     }
     pub fn committed(&mut self, serial: u32) {
         self.0
-            .retain(|(pending, _)| !super::serial_at_least(serial, *pending));
+            .retain(|(pending, _)| !super::frame_receipt::serial_at_least(serial, *pending));
     }
     pub fn oldest(&self) -> Option<Instant> {
         self.0.front().map(|(_, at)| *at)
     }
+    #[cfg(windows)]
     pub fn first_serial(&self) -> Option<u32> {
         self.0.front().map(|(serial, _)| *serial)
     }

@@ -26,8 +26,17 @@ export interface SurfaceBridge {
 
 let nextRequestId = 1;
 
-export function connectSurfaceBridge(surface: Surface, signal: AbortSignal): Promise<SurfaceBridge> {
-  const port = (window as Window & { chrome?: { webview?: WebviewMessagePort } }).chrome?.webview;
+// The native host installs this port before page scripts. It carries only the
+// surface protocol, never Tauri/main-window commands or DOM message events.
+function platformPort(): WebviewMessagePort | undefined {
+  const host = window as Window & {
+    __vrcsSurfacePort?: WebviewMessagePort;
+    chrome?: { webview?: WebviewMessagePort };
+  };
+  return host.__vrcsSurfacePort ?? host.chrome?.webview;
+}
+
+export function connectSurfaceBridge(surface: Surface, signal: AbortSignal, port = platformPort()): Promise<SurfaceBridge> {
   if (!port) return Promise.reject(new Error("Native surface bridge is unavailable"));
   return new Promise((resolve, reject) => {
     let nonce: string | null = null;

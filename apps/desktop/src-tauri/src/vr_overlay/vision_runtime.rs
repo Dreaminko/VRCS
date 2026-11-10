@@ -4,7 +4,8 @@ use super::{
     ocr_selection::Selection,
     ocr_wrist::Button,
     ocr_wrist::{Action, LaserEvent, Pointer, View, ViewMode},
-    surface::{SurfaceHub, SurfaceId, SurfaceRenderer, SurfaceView},
+    surface::{SurfaceHub, SurfaceRenderer},
+    surface_protocol::{SurfaceId, SurfaceView},
 };
 use crate::vision_image::prepare_image;
 #[cfg(test)]
@@ -417,7 +418,7 @@ impl VisionRuntime {
             return Ok(false);
         }
         backend.set_opacity(OverlayKind::OcrWrist, wrist.opacity)?;
-        let hovered = super::surface::reader_hover(view.hovered);
+        let hovered = super::surface_protocol::reader_hover(view.hovered);
         if !business {
             let visible = surface.refresh(
                 app,

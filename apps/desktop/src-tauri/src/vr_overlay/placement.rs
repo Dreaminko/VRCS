@@ -1,6 +1,8 @@
+#[cfg(any(windows, test))]
 use super::transform::{compose, inverse};
 use serde::{Deserialize, Serialize};
 
+#[cfg(any(windows, test))]
 pub type Pose = [[f32; 4]; 3];
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -11,6 +13,7 @@ pub enum Mode {
     World,
 }
 
+#[cfg(windows)]
 impl Mode {
     pub fn from_config(value: &str) -> Self {
         if value == "world" {
@@ -28,6 +31,7 @@ pub struct Request {
     pub follow_view: bool,
 }
 
+#[cfg(any(windows, test))]
 struct Drag {
     device: u32,
     relative: Pose,
@@ -35,19 +39,28 @@ struct Drag {
 }
 struct Pending {
     request: Request,
+    #[cfg(any(windows, test))]
     pose: Option<Pose>,
+    #[cfg(any(windows, test))]
     relative: Option<Pose>,
 }
 
 #[derive(Default)]
 pub struct Placement {
+    #[cfg(any(windows, test))]
     mode: Mode,
+    #[cfg(any(windows, test))]
     follow_view: bool,
+    #[cfg(any(windows, test))]
     head: Option<Pose>,
+    #[cfg(any(windows, test))]
     world: Option<Pose>,
+    #[cfg(any(windows, test))]
     relative: Option<Pose>,
+    #[cfg(any(windows, test))]
     drag: Option<Drag>,
     pending: Option<Pending>,
+    #[cfg(any(windows, test))]
     sequence: u64,
     pub revision: u64,
     pub error: Option<String>,
@@ -58,6 +71,7 @@ impl Placement {
     pub fn mode(&self) -> Mode {
         self.mode
     }
+    #[cfg(any(windows, test))]
     pub fn display_mode(&self) -> Mode {
         if self.drag.is_some() {
             Mode::World
@@ -68,15 +82,18 @@ impl Placement {
                 .unwrap_or(self.mode)
         }
     }
+    #[cfg(any(windows, test))]
     pub fn busy(&self) -> bool {
         self.pending.is_some()
     }
+    #[cfg(any(windows, test))]
     pub fn follow_view(&self) -> bool {
         self.pending
             .as_ref()
             .map(|p| p.request.follow_view)
             .unwrap_or(self.follow_view)
     }
+    #[cfg(any(windows, test))]
     pub fn head_relative_pose(&self) -> Option<Pose> {
         if self.drag.is_some() {
             return None;
@@ -90,6 +107,7 @@ impl Placement {
             .then_some(self.relative)
             .flatten()
     }
+    #[cfg(any(windows, test))]
     pub fn update_head(&mut self, head: Pose) {
         if !valid(head) {
             return;
@@ -111,9 +129,11 @@ impl Placement {
             }
         }
     }
+    #[cfg(any(windows, test))]
     pub fn dragging(&self) -> Option<u32> {
         self.drag.as_ref().map(|d| d.device)
     }
+    #[cfg(any(windows, test))]
     pub fn absolute_pose(&self) -> Option<Pose> {
         if let Some(drag) = &self.drag {
             return Some(drag.pose);
@@ -123,6 +143,7 @@ impl Placement {
         }
         (self.mode == Mode::World).then_some(self.world).flatten()
     }
+    #[cfg(any(windows, test))]
     pub fn sync_mode(&mut self, mode: Mode) {
         if self
             .pending
@@ -139,6 +160,7 @@ impl Placement {
             self.revision += 1;
         }
     }
+    #[cfg(any(windows, test))]
     pub fn sync_follow_view(&mut self, enabled: bool) {
         if self
             .pending
@@ -154,12 +176,14 @@ impl Placement {
             self.revision += 1;
         }
     }
+    #[cfg(any(windows, test))]
     pub fn initialize_world(&mut self, pose: Pose) {
         if self.mode == Mode::World && self.world.is_none() && valid(pose) {
             self.world = Some(pose);
             self.relative = self.capture_relative(self.world, self.follow_view);
         }
     }
+    #[cfg(any(windows, test))]
     fn capture_relative(&self, pose: Option<Pose>, follow_view: bool) -> Option<Pose> {
         if follow_view {
             Some(compose(inverse(self.head?), pose?))
@@ -167,6 +191,7 @@ impl Placement {
             None
         }
     }
+    #[cfg(any(windows, test))]
     pub fn grab(&mut self, device: u32, controller: Pose, panel: Pose) -> bool {
         if self.busy() || self.drag.is_some() || !valid(controller) || !valid(panel) {
             return false;
@@ -179,6 +204,7 @@ impl Placement {
         self.error = None;
         true
     }
+    #[cfg(any(windows, test))]
     pub fn drag(&mut self, device: u32, controller: Pose) -> Option<Pose> {
         let drag = self
             .drag
@@ -187,6 +213,7 @@ impl Placement {
         drag.pose = compose(controller, drag.relative);
         Some(drag.pose)
     }
+    #[cfg(any(windows, test))]
     pub fn release(&mut self, device: u32) -> Option<Request> {
         if self.dragging() != Some(device) {
             return None;
@@ -194,9 +221,11 @@ impl Placement {
         let pose = self.drag.take()?.pose;
         self.set_mode(Mode::World, Some(pose))
     }
+    #[cfg(any(windows, test))]
     pub fn set_mode(&mut self, mode: Mode, pose: Option<Pose>) -> Option<Request> {
         self.set_target(mode, self.follow_view, pose)
     }
+    #[cfg(any(windows, test))]
     pub fn set_follow_view(&mut self, enabled: bool) -> Option<Request> {
         if self.display_mode() != Mode::World
             || self.drag.is_some()
@@ -207,6 +236,7 @@ impl Placement {
         }
         self.set_target(Mode::World, enabled, self.absolute_pose())
     }
+    #[cfg(any(windows, test))]
     fn set_target(&mut self, mode: Mode, follow_view: bool, pose: Option<Pose>) -> Option<Request> {
         if self.busy() || (mode == Mode::World && !pose.is_some_and(valid)) {
             return None;
@@ -240,28 +270,37 @@ impl Placement {
             return false;
         }
         let pending = self.pending.take().expect("matching placement request");
+        #[cfg(any(windows, test))]
         if success {
             self.mode = pending.request.mode;
             self.follow_view = pending.request.follow_view;
             self.world = pending.pose;
             self.relative = pending.relative;
         }
+        #[cfg(not(any(windows, test)))]
+        let _ = (pending, success);
         self.error = error;
         self.revision += 1;
         true
     }
     pub fn cancel(&mut self) {
-        if self.drag.take().is_some() || self.pending.take().is_some() {
+        #[cfg(any(windows, test))]
+        let dragging = self.drag.take().is_some();
+        #[cfg(not(any(windows, test)))]
+        let dragging = false;
+        if dragging || self.pending.take().is_some() {
             self.revision += 1;
         }
-        // Evaluate both removals even when a drag was active.
+        // Always revoke the pending request, including after an active drag.
         self.pending = None;
     }
+    #[cfg(windows)]
     pub fn cancel_drag(&mut self) {
         if self.drag.take().is_some() {
             self.revision += 1;
         }
     }
+    #[cfg(any(windows, test))]
     pub fn reset_tracking(&mut self) {
         self.cancel();
         self.world = None;
@@ -271,6 +310,7 @@ impl Placement {
     }
 }
 
+#[cfg(any(windows, test))]
 fn valid(pose: Pose) -> bool {
     pose.iter().flatten().all(|v| v.is_finite())
 }

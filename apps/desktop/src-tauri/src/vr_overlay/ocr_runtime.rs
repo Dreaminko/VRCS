@@ -8,7 +8,8 @@ use super::{
     ocr_status::{failure_code, OcrState, OcrStatus, OcrWristState},
     ocr_wrist::Button,
     ocr_wrist::{Action, LaserEvent, Pointer, Reader, View},
-    surface::{SurfaceHub, SurfaceId, SurfaceKey, SurfaceLayout, SurfaceRenderer, SurfaceView},
+    surface::{SurfaceHub, SurfaceRenderer},
+    surface_protocol::{SurfaceId, SurfaceKey, SurfaceLayout, SurfaceView},
 };
 use std::{
     path::PathBuf,
@@ -437,7 +438,7 @@ impl OcrRuntime {
                         app,
                         backend,
                         OverlayKind::OcrWrist,
-                        Some((super::surface::reader_hover(self.wrist_hovered), None, None)),
+                        Some((super::surface_protocol::reader_hover(self.wrist_hovered), None, None)),
                     )
                     .and_then(|visible| {
                         self.status.wrist_state = if visible {
@@ -955,7 +956,7 @@ impl OcrRuntime {
         }
         view.hovered = self.wrist_hovered;
         let has_blocks = view.block_count > 0;
-        let hovered = super::surface::reader_hover(view.hovered);
+        let hovered = super::surface_protocol::reader_hover(view.hovered);
         let mut reader = view.clone();
         reader.hovered = None;
         let dark = app

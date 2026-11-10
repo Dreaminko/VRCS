@@ -8,7 +8,8 @@ use super::control_protocol::{ControlHub, ControlSource};
 use super::interaction::{Hit, Key, Kind, Router, Sample, Surface};
 use super::ocr_wrist::LaserEvent;
 use super::placement::{Mode, Placement, Request};
-use super::surface::{SurfaceHub, SurfaceId, SurfaceLayout, SurfaceRenderer, SurfaceView};
+use super::surface::{SurfaceHub, SurfaceRenderer};
+use super::surface_protocol::{SurfaceId, SurfaceLayout, SurfaceView};
 use super::visibility::Fade;
 use super::{dialogue, wrist_menu};
 
@@ -843,7 +844,7 @@ impl UiRuntime {
 
 #[cfg(test)]
 mod tests {
-    use super::super::surface;
+    use super::super::surface_protocol;
     use super::*;
 
     #[test]
@@ -876,11 +877,11 @@ mod tests {
             revision: 2,
         };
         let mut layout = SurfaceLayout {
-            key: surface::SurfaceKey {
+            key: surface_protocol::SurfaceKey {
                 generation: 1,
                 revision: 7,
             },
-            regions: vec![surface::Region {
+            regions: vec![surface_protocol::Region {
                 id: 0,
                 bounds: [0.4375, 0.8375, 0.5625, 0.9625],
                 circle: true,

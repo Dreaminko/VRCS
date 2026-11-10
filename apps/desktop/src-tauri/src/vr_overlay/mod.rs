@@ -6,7 +6,9 @@ mod cursor;
 #[cfg(windows)]
 mod d3d11_texture;
 mod dashboard;
+#[cfg(windows)]
 mod dialogue;
+#[cfg(any(windows, test))]
 mod interaction;
 #[cfg(windows)]
 pub(crate) mod ocr_capture;
@@ -35,19 +37,31 @@ mod player_display;
 pub(crate) mod preview;
 #[cfg(windows)]
 pub(crate) mod surface;
+// Production surface submission is Windows-only; keep its pure protocols covered everywhere.
+#[cfg(any(windows, test))]
+pub(crate) mod surface_protocol;
+#[cfg(any(windows, test))]
+pub(crate) mod frame_receipt;
+#[cfg(any(windows, test))]
+#[path = "surface/recovery.rs"]
+pub(crate) mod surface_recovery;
 #[cfg(windows)]
 mod ui_runtime;
+#[cfg(any(windows, test))]
 mod visibility;
 #[cfg(windows)]
 mod vision_runtime;
+#[cfg(any(windows, test))]
 mod wrist_menu;
 // Keep the image verifier covered without enabling scan cancellation.
 #[cfg(all(windows, test))]
 mod ocr_tracking;
 mod presentation;
 mod process;
+#[cfg(windows)]
 pub(crate) mod renderer;
 mod runtime;
+#[cfg(any(windows, test))]
 mod transform;
 mod wrist_labels;
 

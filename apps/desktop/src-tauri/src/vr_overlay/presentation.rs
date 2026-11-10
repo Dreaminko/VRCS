@@ -16,6 +16,7 @@ pub struct PresentationFrame {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum PresentationContent {
     Headset(Vec<WristMessage>),
+    #[cfg(any(windows, test))]
     Wrist(Vec<WristMessage>),
 }
 
@@ -60,6 +61,7 @@ impl PresentationFrame {
         }
     }
 
+    #[cfg(any(windows, test))]
     pub fn wrist(messages: Vec<WristMessage>) -> Self {
         Self {
             content: PresentationContent::Wrist(messages),
@@ -433,6 +435,7 @@ pub struct WristPresentation {
     partials: VecDeque<PresentationItem>,
     player_limit: Option<usize>,
     terminated: TerminatedUtterances,
+    #[cfg(any(windows, test))]
     last_activity: Option<Instant>,
     retention_revision: u64,
 }
@@ -445,14 +448,17 @@ impl WristPresentation {
         self.player_limit = limit;
     }
 
+    #[cfg(any(windows, test))]
     pub fn retention_revision(&self) -> u64 {
         self.retention_revision
     }
 
+    #[cfg(windows)]
     pub fn has_candidates(&self) -> bool {
         !self.entries.is_empty() || !self.partials.is_empty()
     }
 
+    #[cfg(any(windows, test))]
     pub fn idle_expired(&self, now: Instant, config: &VrOverlayWristConfig) -> bool {
         config.idle_hide_seconds > 0
             && self.last_activity.is_some_and(|last| {
@@ -505,6 +511,7 @@ impl WristPresentation {
                 if !has_content && replaced {
                     self.retention_revision += 1;
                 }
+                #[cfg(any(windows, test))]
                 if has_content {
                     self.last_activity = Some(now);
                 }
@@ -523,7 +530,10 @@ impl WristPresentation {
                 let mut item = item_from_partial(utterance_id, source, text, language, now);
                 item.speaker = speaker;
                 upsert_partial(&mut self.partials, item);
-                self.last_activity = Some(now);
+                #[cfg(any(windows, test))]
+                {
+                    self.last_activity = Some(now);
+                }
             }
             PresentationEvent::RecognitionCancelled {
                 utterance_id,
@@ -563,6 +573,7 @@ impl WristPresentation {
                 }
                 if source_enabled(&subtitle.source, config) {
                     let item = item_from_subtitle(subtitle, utterance_id, now);
+                    #[cfg(any(windows, test))]
                     let has_content = !wrist_message(
                         &item,
                         selected_caption_mode(
@@ -576,6 +587,7 @@ impl WristPresentation {
                     .is_empty();
                     self.entries.push_back(item);
                     self.trim(config.max_entries);
+                    #[cfg(any(windows, test))]
                     if has_content {
                         self.last_activity = Some(now);
                     }
@@ -592,11 +604,14 @@ impl WristPresentation {
                     .iter_mut()
                     .find(|item| item.subtitle_id == Some(subtitle_id))
                 {
+                    #[cfg(any(windows, test))]
                     if update_translation(item, target_language, text, preferred)
                         && source_enabled(&item.source, config)
                     {
                         self.last_activity = Some(now);
                     }
+                    #[cfg(not(any(windows, test)))]
+                    update_translation(item, target_language, text, preferred);
                 }
             }
             PresentationEvent::TranslationCompleted {
@@ -621,6 +636,7 @@ impl WristPresentation {
                         .map(|translation| translation.target_language.as_str())
                         .collect::<Vec<_>>()
                         .join(",");
+                    #[cfg(any(windows, test))]
                     if accepted && source_enabled(&item.source, config) {
                         self.last_activity = Some(now);
                     }
@@ -655,6 +671,7 @@ impl WristPresentation {
         self.frame_with_translation_display(now, config, "all_languages")
     }
 
+    #[cfg(any(windows, test))]
     pub fn frame_with_translation_display(
         &self,
         now: Instant,
@@ -936,6 +953,7 @@ fn update_translation(
     true
 }
 
+#[cfg(any(windows, test))]
 fn wrist_message(item: &PresentationItem, mode: &str, translation_display: &str) -> WristMessage {
     WristMessage {
         original: Some(caption_original(item, false, None)),
